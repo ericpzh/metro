@@ -441,7 +441,7 @@ export type Module =
   | (ModuleBase & { type: 'tree'; cfg: Record<string, never> })
     | (ModuleBase & { type: 'hanger'; w: 4 | 6 | 8; cfg: { mount: 'roof' | 'post' } })
   | (ModuleBase & { type: 'pillar'; cfg: { size: 'slim' | 'thick'; height: number; finish?: FinishId; bridgeId?: string } })
-  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss'; finish?: FinishId; plateSnap?: 'lower' | 'upper' } })
+  | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss' | 'canopy'; finish?: FinishId; plateSnap?: 'lower' | 'upper' } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
@@ -594,10 +594,10 @@ export type Module =
    * camera dropped at a corridor mouth can be turned to watch it.
    *
    * `cfg.variant` selects 枪机 (bullet, also the legacy default), 球机 (ptz) or
-   * 半球机 (dome). Ceiling-mounted (`ceilingMountMissing`) and cosmetic: a camera is a prop, not
+   * 半球机 (dome), or a ground-standing 4 m pole PTZ (post). Other variants are ceiling-mounted (`ceilingMountMissing`) and cosmetic: a camera is a prop, not
    * a line of sight, so it never changes what an agent sees or where one walks.
    */
-  | (ModuleBase & { type: 'cctv'; cfg: { variant?: 'bullet' | 'ptz' | 'dome' } })
+  | (ModuleBase & { type: 'cctv'; cfg: { variant?: 'bullet' | 'ptz' | 'dome' | 'post' } })
   /**
    * Wall-mounted decoration (装饰): a lightbox advertisement (广告牌). It is fixed
    * to the wall block behind it — the placement rotation names which face — so it

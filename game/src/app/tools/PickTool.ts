@@ -65,7 +65,7 @@ export function paletteIdForModule(mod: Module): string | null {
       id = `pillar-${mod.cfg.size}`
       break
     case 'roof':
-      id = mod.cfg.variant === 'tapered-truss'
+      id = mod.cfg.variant === 'canopy' ? 'roof-canopy' : mod.cfg.variant === 'tapered-truss'
         ? 'roof-tapered'
         : mod.cfg.variant === 'shell'
           ? 'roof-shell'
@@ -132,7 +132,7 @@ export function paletteIdForModule(mod: Module): string | null {
       break
     }
     case 'cctv':
-      id = mod.cfg.variant === 'ptz' ? 'cctv-ptz' : mod.cfg.variant === 'dome' ? 'cctv-dome' : 'cctv'
+      id = mod.cfg.variant === 'post' ? 'cctv-post' : mod.cfg.variant === 'ptz' ? 'cctv-ptz' : mod.cfg.variant === 'dome' ? 'cctv-dome' : 'cctv'
       break
     case 'fence':
       id = mod.cfg.variant === 'sound-barrier' ? 'noise-barrier' : mod.cfg.variant === 'sound-barrier-half' ? 'noise-barrier-half' : mod.cfg.variant === 'bridge-railing' ? 'noise-barrier-railing' : mod.cfg.variant === 'gate' ? 'fence-gate' : mod.cfg.variant === 'iron' ? 'fence-iron' : 'fence'

@@ -58,7 +58,7 @@ resource creation and cache reuse; local HTTP startup is not a WAN measurement.
 
 ### Per-model geometry detail inventory
 
-Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 117 shipped palette options.
+Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 119 shipped palette options.
 
 Regenerate all three tables in this section with `node tools/model-triangle-inventory.mjs`;
 it writes ignored `.preview/perf/model-triangles.{json,md}`, `train-triangles.{json,md}`
@@ -89,7 +89,7 @@ per thin panel/middle rail. Top beams retain thickness with hidden end caps omit
 the shared bridge builders also prepare these Low variants.
 
 | Equipment / decor model name | Low triangles | High triangles |
-|---|---:|---:|
+|---||---:|---:|
 | tree | 396 | 18432 |
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
@@ -100,6 +100,7 @@ the shared bridge builders also prepare these Low variants.
 | cubicle | 84 | 5688 |
 | cctv-dome | 360 | 5208 |
 | walkway | 496 | 5162 |
+| cctv-post | 376 | 5096 |
 | sink | 224 | 4972 |
 | cctv-ptz | 332 | 4924 |
 | shelf-white-short | 192 | 4420 |
@@ -121,6 +122,7 @@ the shared bridge builders also prepare these Low variants.
 | exit-covered-1 | 346 | 902 |
 | exit | 346 | 902 |
 | exit-covered-3 | 346 | 902 |
+| roof-canopy | 328 | 840 |
 | tactile-warning | 12 | 812 |
 | fence-iron | 256 | 768 |
 | checkout | 104 | 750 |

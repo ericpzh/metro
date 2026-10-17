@@ -244,7 +244,7 @@ test('a truss drag ignores the lateral extent and runs backwards too', () => {
 
 test('roof previews and click placements centre on the pointer at every width and rotation', () => {
   const material = new THREE.MeshStandardMaterial()
-  for (const type of ['roof', 'roof-truss', 'roof-tapered']) {
+  for (const type of ['roof', 'roof-truss', 'roof-tapered', 'roof-canopy']) {
     for (const width of type === 'roof' ? [1] : [4, 8, 12]) {
       for (let rot = 0; rot < 4; rot++) {
         const h = harness([], type)
@@ -285,7 +285,7 @@ test('roof-height picking keeps the cursor on the roof in perspective and orthog
 })
 
 test('Tab width setting cycles the truss tiles through 窄, 中 and 宽 in the hover', () => {
-  assert.deepEqual(MODULE_OPTIONS.filter((m) => m.type === 'roof').map((m) => m.id), ['roof', 'roof-shell', 'roof-truss', 'roof-tapered'])
+  assert.deepEqual(MODULE_OPTIONS.filter((m) => m.type === 'roof').map((m) => m.id), ['roof', 'roof-shell', 'roof-truss', 'roof-tapered', 'roof-canopy'])
   const h = harness([], 'roof-tapered')
   h.tool.onMove(h.event(0, 0))
   assert.equal(h.ghost()[0].d, 4)
@@ -354,4 +354,30 @@ test('outdoor finishes follow the picked supporting floor above the active work 
   assert.equal(h.ghost()[0].z, 4)
   h.tool.onUp(event)
   assert.equal(useStore.getState().station.modules[0].z, 4)
+})
+
+
+test('ground canopy drag keeps the two-column bay style through preview, release, undo and picked deletion', () => {
+  const h = harness([], 'roof-canopy')
+  useStore.setState({ roofWidth: 8 })
+  h.tool.onDown(h.event(0, 0))
+  h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+  h.tool.onMove(h.event(8, 3))
+  const preview = h.ghost()
+  assert.equal(preview.length, 3, 'sideways pointer motion never adds extra roof rows')
+  assert.ok(preview.every(m => m.cfg.variant === 'canopy' && m.d === 8 && m.z === 0))
+  h.tool.onUp(h.event(8, 3))
+  assert.deepEqual(useStore.getState().station.modules.map(m => [m.x, m.y, m.z, m.d, m.cfg.variant]), preview.map(m => [m.x, m.y, m.z, m.d, m.cfg.variant]))
+  assert.equal(useStore.getState().past.length, 1)
+  useStore.getState().undo()
+  assert.equal(useStore.getState().station.modules.length, 0)
+  useStore.getState().redo()
+  const placed = useStore.getState().station.modules[0]
+  h.pick(placed.id)
+  h.tool.onDown(h.event(placed.x, placed.y, 2))
+  assert.equal(h.drag.current.tileType, 'roof-canopy', 'right-click preserves the picked canopy identity')
+  h.tool.onUp(h.event(placed.x, placed.y, 2))
+  assert.equal(useStore.getState().station.modules.length, 2)
+  const viewport = fs.readFileSync(new URL('../src/app/Viewport.tsx', import.meta.url), 'utf8')
+  assert.match(viewport, /st\.moduleType === 'roof-canopy' \? 0 : trussRoofTop/, 'canopy pointer aims at the ground rather than the elevated roof plane')
 })

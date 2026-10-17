@@ -262,16 +262,16 @@ function build(mod) {
 }
 
 test('camera variants keep their shape through save, ghost refresh and same-variant sweep', () => {
-  const pieces = ['cctv', 'cctv-ptz', 'cctv-dome'].map((id) => createModule(id, 2, 2, 0, id, 3))
+  const pieces = ['cctv', 'cctv-ptz', 'cctv-dome', 'cctv-post'].map((id) => createModule(id, 2, 2, 0, id, 3))
   const legacy = cctv(2, 2, 0, 'legacy', 3)
   const state = { ...flatStation(), modules: [...pieces, legacy] }
   assert.deepEqual(parse(serialize(state)).state.modules, state.modules)
   assert.equal(moduleGhostKey(legacy), moduleGhostKey(pieces[0]), 'legacy saves render as 枪机')
-  assert.equal(new Set(pieces.map(moduleGhostKey)).size, 3, 'a palette change refreshes the ghost in place')
+  assert.equal(new Set(pieces.map(moduleGhostKey)).size, 4, 'a palette change refreshes the ghost in place')
   assert.equal(sameSweepFamily(legacy, pieces[0]), true)
   for (const a of pieces) for (const b of pieces) assert.equal(sameSweepFamily(a, b), a === b, 'a sweep keeps other camera shapes')
   for (const mod of pieces) {
-    assert.equal(ceilingMountMissing(flatStation().cells, mod), true)
+    assert.equal(ceilingMountMissing(flatStation().cells, mod), mod.cfg.variant !== 'post')
     assert.equal(ceilingMountMissing(flatStation([ceilingAt(2, 2)]).cells, mod), false)
   }
 })
@@ -1012,4 +1012,21 @@ test('the hover ghost’s 时钟 reads the sim clock too, and gives its hands ba
   // scene has dropped.
   clocks.updateClocks(1000)
   assert.equal(clocks.previewRigs.length, 0, 'and nothing comes back to be turned')
+})
+
+
+test('pole PTZ stands on outdoor floor without a ceiling and keeps its 4 m pillar in every rotation', () => {
+  for (const rot of [0, 1, 2, 3]) {
+    const mod = createModule('cctv-post', 2, 2, 0, 'post', rot)
+    assert.equal(ceilingMountMissing([], mod), false)
+    assert.equal(equipmentReason(flatStation().cells, [], mod), '')
+    assert.equal(equipmentReason([], [], { ...mod, z: 4 }), 'floor')
+    assert.equal(equipmentReason([], [], { ...mod, z: -4 }), 'outdoor-below-ground')
+    assert.equal(moduleEnvelope(mod).z1 - moduleEnvelope(mod).z0, 4)
+    const { box } = build({ ...mod, x: 0, y: 0 })
+    assert.ok(Math.abs(box.min.z) < 1e-6)
+    assert.ok(Math.abs(box.max.z - 4) < 1e-6)
+    assert.ok(box.min.x >= -.5 && box.max.x <= .5)
+    assert.ok(box.min.y >= -.5 && box.max.y <= .5)
+  }
 })

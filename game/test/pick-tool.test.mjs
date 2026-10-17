@@ -373,7 +373,7 @@ test('a legacy piece with no variant reads as the palette default it is drawn as
 })
 
 test('picking any roof restores its truss style and width', () => {
-  for (const [id, width] of [['roof', 4], ['roof-truss', 4], ['roof-truss', 8], ['roof-truss', 12], ['roof-tapered', 4], ['roof-tapered', 8], ['roof-tapered', 12]]) {
+  for (const [id, width] of [['roof-canopy', 4], ['roof-canopy', 8], ['roof-canopy', 12], ['roof', 4], ['roof-truss', 4], ['roof-truss', 8], ['roof-truss', 12], ['roof-tapered', 4], ['roof-tapered', 8], ['roof-tapered', 12]]) {
     const roof = createModule(id, 0, 0, 0, 'picked', 1, width)
     useStore.setState({ station: { ...st().station, modules: [roof] }, tool: 'pick', roofWidth: 4 })
     ctxFor('picked').onDown(press([0, 0, 0]))

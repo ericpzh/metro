@@ -32,7 +32,7 @@ import { isPsdCornerPair, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd } f
 import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
-import { pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
+import { canopyBodyBoxes, canopyPostCells, CANOPY_ROOF_DROP, pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
 import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth, isExitHeadHouse } from './exits.ts'
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
@@ -374,6 +374,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'bin':
     case 'clock':
     case 'cctv':
+      return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + (m.type === 'cctv' && m.cfg.variant === 'post' ? 4 : FLAT_HEIGHT[m.type]) }
     case 'tv':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'extinguisher':
@@ -535,6 +536,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
         const centre = m.z + (m.cfg.plateSnap === 'lower' ? 0.125 : 0.875)
         return cellsAabb(trackCells(m), centre - ROOF_THICKNESS / 2, centre + ROOF_THICKNESS / 2)
       }
+      if (m.cfg.variant === 'canopy') return cellsAabb(trackCells(m), z0, z0 + trussRoofTop(m.d) - CANOPY_ROOF_DROP)
       return cellsAabb(trackCells(m), z0 + TRUSS_ROOF_BASE, z0 + (m.cfg.variant ? trussRoofTop(m.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS))
     case 'exit': {
       if (m.cfg.style === 'virtual') {
@@ -895,6 +897,7 @@ export function wallMountCourses(m: Module): number[] {
  * board itself — answers no.
  */
 export function isCeilingHung(m: { type: string; cfg?: object }): boolean {
+  if (m.type === 'cctv-post' || (m.type === 'cctv' && (m.cfg as { variant?: string } | undefined)?.variant === 'post')) return false
   if (m.type === 'monitor-ceiling' || m.type === 'monitor') return (m.cfg as { mount?: string } | undefined)?.mount !== 'wall'
   if (m.type === 'hanger-roof' || m.type.startsWith('hanger-roof-')) return true
   if (m.type === 'hanger') return (m.cfg as { mount?: string } | undefined)?.mount === 'roof'
@@ -1444,8 +1447,8 @@ export function moduleBlockedCells(modules: readonly Module[], z: number): Set<s
   const out = new Set<string>()
   for (const m of modules) {
     if (RUN_OR_RAIL.has(m.type) && !(m.type === 'stair' && m.cfg.block)) continue
-    if (m.type === 'hanger') {
-      for (const box of hangerBoxes(m)) {
+    if (m.type === 'hanger' || (m.type === 'roof' && m.cfg.variant === 'canopy')) {
+      for (const box of m.type === 'hanger' ? hangerBoxes(m) : canopyBodyBoxes(m)) {
         if (box.z1 <= z || box.z0 >= z + 1) continue
         for (let x = Math.floor(box.x0); x < Math.ceil(box.x1); x++) {
           for (let y = Math.floor(box.y0); y < Math.ceil(box.y1); y++) out.add(`${x},${y},${z}`)
@@ -1544,8 +1547,8 @@ export function equipmentBlockingCell(modules: readonly Module[], x: number, y: 
   // The 1 m box of the block the cell would hold, in world space.
   const box: ModuleBox = { x0: x, y0: y, z0: z, x1: x + 1, y1: y + 1, z1: z + 1 }
   for (const m of modules) {
-    if (m.type === 'hanger') {
-      if (hangerBoxes(m).some((b) => boxesOverlap(b, box))) out.push(m)
+    if (m.type === 'hanger' || (m.type === 'roof' && m.cfg.variant === 'canopy')) {
+      if ((m.type === 'hanger' ? hangerBoxes(m) : canopyBodyBoxes(m)).some((b) => boxesOverlap(b, box))) out.push(m)
       continue
     }
     // The piece's own space, **not** its anchor's z: a 闸机 dropped on the floor at
@@ -1775,6 +1778,7 @@ function isHangingShare(a: Module, b: Module): boolean {
  * space.
  */
 function collisionBoxes(m: Module, envelope: ModuleBox): ModuleBox[] {
+  if (m.type === 'roof' && m.cfg.variant === 'canopy') return canopyBodyBoxes(m)
   if (m.type === 'hanger') {
     const boxes = hangerBoxes(m)
     const lift = envelope.z0 - Math.min(...boxes.map(b => b.z0))
@@ -2097,7 +2101,7 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
   // A staircase is founded at its foot. Its upper landing and intermediate
   // turn platform are part of the stair it places, so requiring pre-existing
   // floor at those cells incorrectly rejects turns whose foot is supported.
-  const footprint = candidate.type === 'hanger'
+  const footprint = candidate.type === 'roof' && candidate.cfg.variant === 'canopy' ? canopyPostCells(candidate) : candidate.type === 'hanger'
     ? hangerPostCells(candidate)
     : candidate.type === 'stair' && !candidate.cfg.block
       ? [[candidate.x, candidate.y] as [number, number]]
@@ -2195,16 +2199,18 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     const box = moduleEnvelope(candidate, modules)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
-  if ((candidate.type === 'traffic-light' || candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
+  if (((candidate.type === 'cctv' && candidate.cfg.variant === 'post') || candidate.type === 'traffic-light' || candidate.type === 'guidepost' || candidate.type === 'busstop') && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'exit' && (candidate.cfg as { style?: string }).style === 'virtual' && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
   if ((candidate.type === 'pillar' || (candidate.type === 'roof' && candidate.cfg.variant)) && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
+    if (candidate.cfg.variant === 'canopy' && !moduleFloorOk(cells, modules, candidate)) return 'floor'
     if (placementColliders(modules, candidate).length > 0) return 'occupied'
     const box = moduleEnvelope(candidate, modules)!
+    const boxes = collisionBoxes(candidate, box)
     for (const c of cells) {
-      if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
+      if (c.fill === 'solid' && boxes.some(b => boxesOverlap(b, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
     }
     return ''
   }
@@ -2314,6 +2320,7 @@ export function moduleTypeLabel(m: Module): string {
   }
   if (m.type === 'booth' && (m.cfg as { kind?: string } | undefined)?.kind === 'info') return msg('information_desk')
   if (m.type === 'cctv') {
+    if (m.cfg.variant === 'post') return msg('post_camera')
     const variant = (m.cfg as { variant?: string } | undefined)?.variant
     if (variant === 'ball') return msg('ptz_camera')
     if (variant === 'dome') return msg('dome_camera')

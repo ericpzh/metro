@@ -1,7 +1,7 @@
 import { msg } from './i18n.ts'
 // Steel hanging supports, GAME-SPEC §5.7–5.8. Shared placement/model dimensions.
 import { rotateLocal, trackCells } from './track.ts'
-import { TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from './structures.ts'
+import { CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from './structures.ts'
 import { signBoardsOf, signBoardsPanel } from './sign.ts'
 import type { Cell, Module } from './types.ts'
 
@@ -55,7 +55,7 @@ export function hangerRoofZ(cells: readonly Cell[], modules: readonly Module[], 
     const [, localY] = rotateLocal(-(roof.rot ?? 0), x - roof.x, y - roof.y)
     const ridge = trussRoofRidge(roof.d)
     const height = ridge - (ridge - TRUSS_ROOF_EAVE) * Math.abs(localY - (roof.d - 1) / 2) / (roof.d / 2)
-    return roof.z + 1 + height
+    return roof.z + 1 + height - (roof.cfg.variant === 'canopy' ? CANOPY_ROOF_DROP : 0)
   }
   return undefined
 }
@@ -74,6 +74,7 @@ export function hangerSupports(hanger: Module, item: Module): boolean {
   // A sign/TV uses two suspension rods across its face; keep both on the bar.
   if (item.type !== 'clock' && ((item.rot ?? 0) - (hanger.rot ?? 0)) % 2 !== 0) return false
   const [along] = rotateLocal(-(hanger.rot ?? 0), item.x - hanger.x, item.y - hanger.y)
+  if (item.type === 'cctv' && item.cfg.variant === 'post') return false
   const rodHalf = item.type === 'sign' ? Math.max(0.22, signBoardsPanel(signBoardsOf(item.cfg)).w / 2 - 0.35) + 0.08 : item.type === 'tv' ? 0.5 : item.type === 'cctv' ? 0.18 : 0.075
   return along + 0.5 - rodHalf >= 0 && along + 0.5 + rodHalf <= hanger.w
 }

@@ -40,7 +40,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
   ]),
-  outside: new Set(['sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
+  outside: new Set(['cctv-post', 'sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
 }
 
 export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
@@ -80,6 +80,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'roof-shell', label: msg('no_truss'), type: 'roof', w: 4, h: 4 },
   { id: 'roof-truss', label: msg('truss'), type: 'roof', w: 4, h: 4 },
   { id: 'roof-tapered', label: msg('tapered_truss'), type: 'roof', w: 4, h: 4 },
+  { id: 'roof-canopy', label: msg('column_canopy'), type: 'roof', w: 4, h: 4 },
   { id: 'bridge', label: msg('railway_bridge'), type: 'track', w: 12, h: 3 },
   { id: 'gate', label: msg('old'), type: 'gate', w: 1, h: 1 },
   { id: 'gate-new', label: msg('new'), type: 'gate', w: 1, h: 1 },
@@ -112,6 +113,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'clock', label: msg('clock'), type: 'clock', w: 1, h: 1 },
   { id: 'cctv', label: msg('bullet_camera'), type: 'cctv', w: 1, h: 1 },
   { id: 'cctv-ptz', label: msg('ptz_camera'), type: 'cctv', w: 1, h: 1 },
+  { id: 'cctv-post', label: msg('post_camera'), type: 'cctv', w: 1, h: 1 },
   { id: 'cctv-dome', label: msg('dome_camera'), type: 'cctv', w: 1, h: 1 },
   { id: 'billboard-wide', label: msg('landscape_16_9'), type: 'billboard', w: 1, h: 1 },
   { id: 'billboard-standard', label: msg('standard_2_25_1'), type: 'billboard', w: 2, h: 1 },
@@ -451,7 +453,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'cctv', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
   { key: 'floor-mark', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
-  { key: 'roof', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'roof', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' || id === 'roof-canopy' },
   { key: 'pillar', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', owns: isStairType },
   { key: 'exit', owns: isExitType },
@@ -480,7 +482,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'cctv', label: msg('cctv'), folder: 'decor', owns: (id) => id === 'cctv' || id.startsWith('cctv-') },
   { key: 'tactile', label: msg('tactile_paving'), folder: 'decor', owns: (id) => id === 'tactile' || id.startsWith('tactile-') },
   { key: 'floor-mark', label: msg('floor_markings'), folder: 'decor', owns: (id) => id === 'floor-mark' || id.startsWith('floor-mark-') },
-  { key: 'roof', label: msg('roof'), folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' },
+  { key: 'roof', label: msg('roof'), folder: 'rail', owns: (id) => id === 'roof' || id === 'roof-shell' || id === 'roof-truss' || id === 'roof-tapered' || id === 'roof-canopy' },
   { key: 'pillar', label: msg('pillar'), folder: 'rail', owns: (id) => id === 'pillar' || id.startsWith('pillar-') },
   { key: 'stair', label: msg('stairs'), folder: 'equipment', owns: isStairType },
   { key: 'exit', label: msg('entrances'), folder: 'equipment', owns: isExitType },

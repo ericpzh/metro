@@ -19,7 +19,7 @@ import type { AdArt } from '../../adArt.ts'
 import type { LineMapArt } from '../../lineMapArt.ts'
 import type { ModelMaterials } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop } from '../../../sim/structures.ts'
+import { ROOF_THICKNESS, CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, trussRoofTop } from '../../../sim/structures.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
 import { DEFAULT_SECTION_AZIMUTH } from '../../section.ts'
@@ -296,10 +296,10 @@ export function moduleLevels(mod: Module, base = 0): number[] {
     case 'roof': {
       const lowZ = !mod.cfg.variant && mod.cfg.plateSnap
         ? mod.z + (mod.cfg.plateSnap === 'lower' ? 0 : 0.75)
-        : mod.z + TRUSS_ROOF_BASE
+        : mod.z + (mod.cfg.variant === 'canopy' ? 0 : TRUSS_ROOF_BASE)
       const highZ = !mod.cfg.variant && mod.cfg.plateSnap
         ? mod.z + (mod.cfg.plateSnap === 'lower' ? 0.25 : 1)
-        : mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) : TRUSS_ROOF_BASE + ROOF_THICKNESS)
+        : mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) - (mod.cfg.variant === 'canopy' ? CANOPY_ROOF_DROP : 0) : TRUSS_ROOF_BASE + ROOF_THICKNESS)
       const lower = storeyBand(lowZ, base)
       const upper = storeyBand(highZ - 1e-4, base)
       return lower === upper ? [lower] : [lower, upper]

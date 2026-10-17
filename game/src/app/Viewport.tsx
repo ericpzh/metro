@@ -759,7 +759,7 @@ export function Viewport(): React.ReactElement {
       }
     }
     if (!st.moveDraft && st.tool === 'module' && st.moduleType.startsWith('roof') && st.moduleType !== 'roof' && button !== 2 && dragRef.current?.mode !== 'remove') {
-      const hit = scene.pickHorizontalPlane(clientX, clientY, st.activeZ + 1 + trussRoofTop(st.roofWidth), st.activeZ)
+      const hit = scene.pickHorizontalPlane(clientX, clientY, st.activeZ + 1 + (st.moduleType === 'roof-canopy' ? 0 : trussRoofTop(st.roofWidth)), st.activeZ)
       if (hit) hit.cell = [Math.round(hit.point[0]), Math.round(hit.point[1]), st.activeZ]
       return hit
     }

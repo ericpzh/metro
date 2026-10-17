@@ -216,6 +216,7 @@ function viewDir(id: string): THREE.Vector3 {
   // below the piece. A 监控 reads from the front and slightly below, where its lens
   // and hood are.
   if (id === 'clock') return CLOCK
+  if (id === 'cctv-post') return ISO
   if (id === 'cctv' || id.startsWith('cctv-')) return CCTV
   if (id === 'vent' || id.startsWith('light-')) return CEILING
   // A backed seat reads best from the front (its cushions and arms), but the
@@ -280,6 +281,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 1, d: 1, cfg: {} }
     case 'roof-shell':
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'shell' } }
+    case 'roof-canopy':
+      return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'canopy' } }
     case 'roof-truss':
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 4, d: 4, cfg: { variant: 'truss' } }
     case 'roof-tapered':
@@ -350,7 +353,8 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'cctv':
     case 'cctv-ptz':
     case 'cctv-dome':
-      return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'cctv-ptz' ? 'ptz' : id === 'cctv-dome' ? 'dome' : 'bullet' } }
+    case 'cctv-post':
+      return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'cctv-post' ? 'post' : id === 'cctv-ptz' ? 'ptz' : id === 'cctv-dome' ? 'dome' : 'bullet' } }
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':

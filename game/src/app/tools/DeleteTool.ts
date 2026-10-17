@@ -72,7 +72,8 @@ export class DeleteTool extends ToolController {
         const stairBlock = picked.type === 'stair'
         const tileType = stairBlock
           ? 'stair-block'
-          : picked.cfg.variant === 'shell' ? 'roof-shell'
+          : picked.cfg.variant === 'canopy' ? 'roof-canopy'
+        : picked.cfg.variant === 'shell' ? 'roof-shell'
             : picked.cfg.variant === 'truss' ? 'roof-truss'
             : picked.cfg.variant === 'tapered-truss' ? 'roof-tapered' : 'roof'
         const width = picked.type === 'roof' ? picked.d : 1

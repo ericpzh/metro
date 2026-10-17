@@ -48,8 +48,8 @@ function fixture(id, run, configure) {
 
 const budgets = [
   ...['dark-tall', 'white-tall', 'white-short', 'wire', 'cooler', 'cooler-dark'].map(v => [`shelf-${v}`, .1]),
-  ['cubicle', .05], ['sink', .1], ['cctv', .1], ['cctv-ptz', .1], ['cctv-dome', .1],
-  ['clock', .12],
+  ['cubicle', .05], ['sink', .1], ['cctv', .1], ['cctv-post', .1], ['cctv-ptz', .1], ['cctv-dome', .1],
+  ['roof-canopy', .5], ['clock', .12],
   ['extinguisher', .35], ['extinguisher-compact', .35], ['extinguisher-glass', .15],
   ['checkout', .15], ['vending', .3], ['desk', .35], ['gate', .25], ['gate-new', .2],
   ['fence', .2], ['fence-gate', .25], ['fence-iron', .35],

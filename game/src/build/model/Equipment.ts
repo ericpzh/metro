@@ -132,6 +132,8 @@ export function createModule(
       return { id, type: 'roof', x, y, z, rot, w: 1, d: 1, cfg: {} };
     case 'roof-shell':
       return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'shell' } };
+    case 'roof-canopy':
+      return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'canopy' } };
     case 'roof-truss':
       return { id, type: 'roof', x, y, z, rot, w: TRUSS_ROOF_BAY, d: supportedRoofWidth(width), cfg: { variant: 'truss' } };
     case 'roof-tapered':
@@ -231,7 +233,8 @@ export function createModule(
     case 'cctv':
     case 'cctv-ptz':
     case 'cctv-dome':
-      return { id, type: 'cctv', x, y, z, rot, cfg: { variant: type === 'cctv-ptz' ? 'ptz' : type === 'cctv-dome' ? 'dome' : 'bullet' } };
+    case 'cctv-post':
+      return { id, type: 'cctv', x, y, z, rot, cfg: { variant: type === 'cctv-post' ? 'post' : type === 'cctv-ptz' ? 'ptz' : type === 'cctv-dome' ? 'dome' : 'bullet' } };
     case 'billboard':
     case 'billboard-wide':
     case 'billboard-standard':

@@ -1373,10 +1373,10 @@ modest real wheel input.
 
 ### Per-model geometry detail inventory
 
-Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 117 shipped palette options.
+Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 119 shipped palette options.
 
 | Equipment / decor model name | Low triangles | High triangles |
-|---|---:|---:|
+|---||---:|---:|
 | tree | 396 | 18432 |
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
@@ -1387,6 +1387,7 @@ Triangle counts below are for one model built from each palette option's default
 | cubicle | 84 | 5688 |
 | cctv-dome | 360 | 5208 |
 | walkway | 496 | 5162 |
+| cctv-post | 376 | 5096 |
 | sink | 224 | 4972 |
 | cctv-ptz | 332 | 4924 |
 | shelf-white-short | 192 | 4420 |
@@ -1408,6 +1409,7 @@ Triangle counts below are for one model built from each palette option's default
 | exit-covered-1 | 346 | 902 |
 | exit | 346 | 902 |
 | exit-covered-3 | 346 | 902 |
+| roof-canopy | 328 | 840 |
 | tactile-warning | 12 | 812 |
 | fence-iron | 256 | 768 |
 | checkout | 104 | 750 |
@@ -1845,3 +1847,5 @@ and a trace stream. `tools/check-game-passenger-library.mjs` fails before any re
 the plain game path starts empty now and that older tool never loads a demo — which is
 pre-existing and unrelated. Raw logs and captures: `.preview/perf/lod-*`,
 `.preview/perf/crowd-lod*/` and `.preview/perf/crowd-level*/`.
+
+有柱雨棚 (`roof-canopy`) uses 840 High / 328 Low triangles in its default 4 m bay. Production browser verification of the 4/8/12 m lineup retained both column rows, reduced drawn geometry, and restored the exact High triangle total; raw report and images: `.preview/perf/canopy/`.

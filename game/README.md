@@ -3950,3 +3950,7 @@ buffers, near/far geometry reuse and exact disposal, distant tile/canopy bounds,
 and paused framebuffer invalidation for camera, projection, edits and animation.
 The production `tools/check-static-rendering.mjs` check covers actual idle draws,
 camera/preview/view/edit wakeups, retained chunk allocations and both demo fixtures.
+
+`ceiling-decor` also pins the ground-mounted pole PTZ: outdoor floor support, no ceiling requirement, 4 m height and rotated footprint; `model-detail` pins its authored Low budget and restoration.
+
+`canopy.test.mjs` pins 有柱雨棚 in the roof family: a 4 m ridge / 3 m eaves, exactly two symmetric round-column rows at 4/8/12 m widths, open ground collision and walking, roof-hanger backing, paint/save, every rotation, and exact Low picks/restoration. `roof-tool`, `pick-tool` and `model-detail` cover centred ground previews, straight drags, undo/deletion, variant/width identity and reduced geometry budgets.

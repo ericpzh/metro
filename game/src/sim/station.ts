@@ -1,3 +1,4 @@
+import { canopyPostCells } from './structures.ts'
 import { msg } from './i18n.ts'
 // The station graph — GAME-SPEC.md §7.2.
 //
@@ -245,6 +246,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     if (m.type === 'pillar') {
       for (let z = m.z; z < m.z + m.cfg.height; z++) fenceCells.add(cellKey(m.x, m.y, z))
     }
+    if (m.type === 'roof' && m.cfg.variant === 'canopy') for (const [x, y] of canopyPostCells(m)) fenceCells.add(cellKey(x, y, m.z))
     if (m.type === 'hanger') for (const [x, y] of hangerPostCells(m)) fenceCells.add(cellKey(x, y, m.z))
     // A solid stair block fills the anchor's headroom; its flight connects the
     // neighbouring lower and upper floors instead of walking through its body.

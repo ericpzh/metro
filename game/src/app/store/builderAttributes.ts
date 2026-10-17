@@ -90,7 +90,7 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     if (isStraightStairType(type)) attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
   }
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))
-  if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
+  if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })
   if (type === 'lift') attrs.push(variant('style', msg(s.liftStyle), s.cycleLiftStyle))
   if (type === 'psd-end') attrs.push(variant('height', msg(s.psdEndHeight === 'half' ? 'half_height' : 'full_height'), s.cyclePsdEndHeight))

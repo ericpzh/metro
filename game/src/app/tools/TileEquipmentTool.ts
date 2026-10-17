@@ -41,7 +41,7 @@ function bayStep(type: string, rot: number, width: number): [number, number] {
 
 /** True for the two truss bays, which run lines rather than filling rectangles. */
 function isTrussRun(type: string): boolean {
-  return type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered'
+  return type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy'
 }
 
 /** Roof models keep their corner anchor in saves; the pointer carries their centre (§9.5). */
@@ -92,6 +92,7 @@ export class TileEquipmentTool extends ToolController {
           : [hit.cell[0], hit.cell[1], st.activeZ]
     const tileType = info.button === 2
       ? pickedStair ? 'stair-block'
+        : pickedRoof?.cfg.variant === 'canopy' ? 'roof-canopy'
         : pickedRoof?.cfg.variant === 'shell' ? 'roof-shell'
           : pickedRoof?.cfg.variant === 'truss' ? 'roof-truss'
             : pickedRoof?.cfg.variant === 'tapered-truss' ? 'roof-tapered' : st.moduleType

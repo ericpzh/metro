@@ -1,7 +1,9 @@
 import * as THREE from 'three'
 import { PieceBuilder, finishSlab } from '../PieceBuilder.ts'
-import { DEFAULT_ROOF_FINISH, ROOF_THICKNESS, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, TRUSS_ROOF_SKIN, TRUSS_ROOF_CHORD, trussRoofRidge } from '../../../sim/structures.ts'
+import { DEFAULT_ROOF_FINISH, ROOF_THICKNESS, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, TRUSS_ROOF_SKIN, TRUSS_ROOF_CHORD, trussRoofRidge, CANOPY_ROOF_DROP, CANOPY_POST_RADIUS, canopyPosts } from '../../../sim/structures.ts'
 import type { Module } from '../../../sim/types.ts'
+
+import { setModelDetail } from '../../modelDetail.ts'
 
 type Point = [number, number, number]
 
@@ -36,9 +38,11 @@ export class RoofModel extends PieceBuilder {
     const centreX = (length - 1) / 2
     const crestY = (width - 1) / 2
     const eaveY = width - 0.5
-    const ridgeZ = trussRoofRidge(width)
+    const canopy = mod.cfg.variant === 'canopy'
+    const drop = canopy ? CANOPY_ROOF_DROP : 0
+    const ridgeZ = trussRoofRidge(width) - drop
     const roofThickness = TRUSS_ROOF_SKIN
-    const upper = (y: number): number => ridgeZ - (ridgeZ - TRUSS_ROOF_EAVE) * Math.abs(y - crestY) / (width / 2)
+    const upper = (y: number): number => ridgeZ - (ridgeZ - (TRUSS_ROOF_EAVE - drop)) * Math.abs(y - crestY) / (width / 2)
     const lowerZ = TRUSS_ROOF_BASE + TRUSS_ROOF_CHORD / 2
     // Full-length chords meet the next dragged bay at the shared block edge (§4.1).
     const longitudinal = (y: number, z: number, thickness: number, name: string): void => {
@@ -63,10 +67,25 @@ export class RoofModel extends PieceBuilder {
     // purlins, chords, webs or other support members.
     if (mod.cfg.variant === 'shell') return this.placeLocal(group, mod)
 
-    // All purlins and trusses run parallel to the central crest. None sits on
-    // the supporting floor; the structure is wholly above the four-metre posts.
+    // Purlins follow the central crest immediately below the shared roof skin.
     for (let y = 0; y < width; y += 1) {
       longitudinal(y, upper(y) - 0.1, 0.11, 'roof-purlin')
+    }
+
+    if (canopy) {
+      // Two symmetric rows at every width; the open ground has no chords or diagonal webs.
+      for (const { x, y, height } of canopyPosts(mod)) {
+        const geometry = new THREE.CylinderGeometry(CANOPY_POST_RADIUS, CANOPY_POST_RADIUS, height, 24)
+        geometry.rotateX(Math.PI / 2)
+        const post = new THREE.Mesh(geometry, metal)
+        post.name = 'canopy-post'
+        post.position.set(x, y, height / 2)
+        const low = new THREE.CylinderGeometry(CANOPY_POST_RADIUS, CANOPY_POST_RADIUS, height, 8)
+        low.rotateX(Math.PI / 2)
+        setModelDetail(post, low)
+        group.add(post)
+      }
+      return this.placeLocal(group, mod)
     }
 
     if (mod.cfg.variant === 'tapered-truss') {

@@ -872,6 +872,10 @@ export const messages = {
     "zh": "桁架",
     "en": "Truss"
   },
+  "column_canopy": {
+    "zh": "有柱雨棚",
+    "en": "Column canopy"
+  },
   "tapered_truss": {
     "zh": "收束桁架",
     "en": "Tapered truss"
@@ -963,6 +967,10 @@ export const messages = {
   "bullet_camera": {
     "zh": "枪机",
     "en": "Bullet camera"
+  },
+  "post_camera": {
+    "zh": "立柱球机",
+    "en": "Pole-mounted PTZ"
   },
   "ptz_camera": {
     "zh": "球机",

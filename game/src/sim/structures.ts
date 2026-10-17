@@ -2,7 +2,7 @@ import { msg } from './i18n.ts'
 import { DEFAULT_MATERIAL } from './finishes.ts'
 // Above-ground equipment; dimensions shared by placement and the models (§4.1, §5).
 import { inCellOffset } from './inCellPositions.ts'
-import { trackCellAt } from './track.ts'
+import { rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { BridgeRailing, Module } from './types.ts'
 export const PILLAR_STEP = 4
 export const PILLAR_SHORT_STEP = 2
@@ -27,6 +27,41 @@ export const TRUSS_ROOF_SKIN = 0.12
 export const TRUSS_ROOF_CHORD = 0.4
 export function trussRoofRidge(_width: number): number { return TRUSS_ROOF_BASE + TRUSS_ROOF_HEIGHT - TRUSS_ROOF_SKIN }
 export function trussRoofTop(width: number): number { return trussRoofRidge(width) + TRUSS_ROOF_SKIN }
+/** Canopy shares the truss shell, lowered one storey onto its own round posts (§4.1). */
+export const CANOPY_ROOF_DROP = 4
+export const CANOPY_POST_RADIUS = 0.09
+export function canopyPostRows(width: number): readonly [number, number] {
+  const inset = width / 4 - 1
+  return [inset, width - 1 - inset]
+}
+export function canopyPosts(m: Extract<Module, { type: 'roof' }>): Array<{ x: number; y: number; height: number }> {
+  const posts: Array<{ x: number; y: number; height: number }> = []
+  const ridge = trussRoofRidge(m.d)
+  for (const y of canopyPostRows(m.d)) for (let x = 0; x < m.w; x++) {
+    const height = ridge - (ridge - TRUSS_ROOF_EAVE) * Math.abs(y - (m.d - 1) / 2) / (m.d / 2) - CANOPY_ROOF_DROP - 0.1
+    posts.push({ x, y, height })
+  }
+  return posts
+}
+/** World-space collision boxes keep the sheltered ground free (§4.1 / §7.2). */
+export function canopyBodyBoxes(m: Extract<Module, { type: 'roof' }>): Array<{ x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }> {
+  const posts = canopyPosts(m).map(({ x, y, height }) => {
+    const [rx, ry] = rotateLocal(m.rot ?? 0, x, y)
+    return { x0: m.x + .5 + rx - CANOPY_POST_RADIUS, x1: m.x + .5 + rx + CANOPY_POST_RADIUS,
+      y0: m.y + .5 + ry - CANOPY_POST_RADIUS, y1: m.y + .5 + ry + CANOPY_POST_RADIUS, z0: m.z + 1, z1: m.z + 1 + height }
+  })
+  const footprint = trackCells(m)
+  posts.push({ x0: Math.min(...footprint.map(c => c[0])), x1: Math.max(...footprint.map(c => c[0])) + 1,
+    y0: Math.min(...footprint.map(c => c[1])), y1: Math.max(...footprint.map(c => c[1])) + 1,
+    z0: m.z + 1 + TRUSS_ROOF_EAVE - CANOPY_ROOF_DROP - .2, z1: m.z + 1 + trussRoofTop(m.d) - CANOPY_ROOF_DROP })
+  return posts
+}
+export function canopyPostCells(m: Extract<Module, { type: 'roof' }>): Array<[number, number]> {
+  return canopyPosts(m).map(({ x, y }) => {
+    const [rx, ry] = rotateLocal(m.rot ?? 0, x, y)
+    return [m.x + rx, m.y + ry]
+  })
+}
 export const DEFAULT_ROOF_FINISH = DEFAULT_MATERIAL
 export type PillarModule = Extract<Module, { type: 'pillar' }>
 export function pillarWidth(m: PillarModule): number { return m.cfg.size === 'thick' ? 1 : 0.3 }

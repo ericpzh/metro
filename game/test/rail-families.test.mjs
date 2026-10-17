@@ -227,7 +227,7 @@ test('the four top-level decor sections keep their contents and requested order'
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
     familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ])
-  assert.deepEqual(anchors('outside'), ['sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'guidepost', familyAnchor('busstop'), 'ac-unit'])
+  assert.deepEqual(anchors('outside'), [familyAnchor('cctv'), 'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'guidepost', familyAnchor('busstop'), 'ac-unit'])
   assert.ok(anchors('floor').includes('tvm') && anchors('floor').includes('vending'), 'ticket and vending machines are decor')
 })
 
