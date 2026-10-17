@@ -10,7 +10,7 @@ Two things on one pipeline:
 * `art/*.svg` — the generated concept sheets. The source of truth, **never
   hand-edited**.
 * `web/` — the React + Vite gallery that shows them, deployed as Worker `metro`
-  at `ericpzh.rest/metro/`.
+  at `https://stationdesigner.com/` (English `/en/`).
 
 `web/` is its own app (its own `package.json`) and imports nothing from `game/`.
 The only coupling is a URL. The game's own skill is `metro-game`.
@@ -40,7 +40,7 @@ instead of hand-formatting translated templates; use `sheetText` from
 English-copy change must preserve the Chinese catalogue and default captures.
 
 * `web/src/App.jsx` + `web/src/components/` — `Nav`, `Hero`, `Sheet`, `Rail`,
-  `Section`, `Footer`, `GamePage`. One component per region; the gallery is
+  `Section`, `Footer`. One component per region; the gallery is
   data-driven. The left-side `Rail` tracks the current sheet and links to four
   reading sections. Sheets render at full width with their short introduction
   above the image; the gallery does not open a lightbox.
@@ -49,17 +49,18 @@ English-copy change must preserve the Chinese catalogue and default captures.
   (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
   passenger flow and interface (06, 07). Section notes introduce each group.
 * `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
-  `BASE_URL`-aware), `gamePath`, and `gameUrl` = `VITE_GAME_URL`, else the dev
-  server `http://localhost:5174/`, else `/metro-game/`. The **游戏 tab**
-  (`components/GamePage.jsx`) is a full-viewport iframe at `<site>/game/` around
-  the game's own Worker, with a way back and an "open in a new tab" link.
+  `BASE_URL`-aware), and the game URL: `gameRoot` = `VITE_GAME_URL`, else the
+  dev server `http://localhost:5174/`, else `/game/`, with `gameHref(lang)`
+  appending `en/` for English. The game is its own Worker at
+  `stationdesigner.com/game/` (`/game/en/` for English), so the site's 游戏 and
+  Play links point straight at it — there is no iframe tab.
 * `web/public/art/` is **generated** at build time by `web/scripts/sync-art.mjs`,
   which copies every `art/*.svg` except `_*` drafts and `*-zoom.svg`. Never edit
   files there, and never add a sheet to the site by hand.
-* `web/vite.config.js` — `base: './'` so the build is portable under the path
-  prefix, `assetsInlineLimit: 0`.
-* The Worker is a prefix rewrite, not a server: root `wrangler.jsonc`
-  (`ASSET_PREFIX=/metro`, assets from `web/dist`) plus `worker/index.js`. Route
+* `web/vite.config.js` — `base: './'` so the build is portable, `assetsInlineLimit: 0`.
+* The site Worker is not a server: root `wrangler.jsonc` (route
+  `stationdesigner.com/*`, assets from `web/dist`) plus `worker/index.js`, which
+  only pins `/en` → `/en/` and serves the document for the language route. Route
   gotchas and the two-Worker table are in `metro-repo` and the root `README.md`.
 
 ## The sheets (`art/`, and the `tools/` that draw them)

@@ -14,8 +14,8 @@ either copes or it does not.
 | [`tools/`](tools/) | The generators for both: `node tools/gen-art.mjs` redraws `art/`. |
 | [`web/`](web/) | The concept-art website — React + Vite. |
 | [`model/`](model/) | Character model library — three.js + Vite, male/female previews and GLB downloads. |
-| [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site. |
-| [`worker/`](worker/) | Optional entry point, only needed for path-prefix routing. |
+| [`wrangler.jsonc`](wrangler.jsonc) | Cloudflare Workers deploy config for the site — route `stationdesigner.com/*`. |
+| [`worker/`](worker/) | The site's Worker: pins `/en` to `/en/` and serves the English document. |
 
 ## The game
 
@@ -23,38 +23,37 @@ The game is a separate application from the art site: its own `package.json`,
 Vite config, tests and Cloudflare Worker (`metro-game`). It reads nothing from
 `web/`.
 
-It is reachable two ways, and both are the same build:
+It is served from **https://stationdesigner.com/game/** — English at
+**https://stationdesigner.com/game/en/** — by its own Worker, on the routes
+declared in `game/wrangler.jsonc`. The art site owns the rest of the domain, and
+its 游戏 link and 开始游戏 button point at those two URLs. That URL is the only
+coupling between the two apps: it is built in [`web/src/site.js`](web/src/site.js)
+(`gameHref`) and can be overridden with `VITE_GAME_URL`. The Worker's own
+`workers.dev` root keeps serving the same build.
 
-* **The game's English URL** — `https://ericpzh.rest/metro/game/en/` loads the
-  game directly in English; `/metro/game/` loads it in Chinese.
-* **The site's 游戏 tab** — `https://ericpzh.rest/metro/en/game/` renders the
-  site document as a full-viewport iframe around the game's Worker.
-* **The game's legacy URL** — `https://ericpzh.rest/metro-game/` remains available,
-  as does the Worker's `workers.dev` root.
-
-The tab points at the game Worker rather than bundling it, so the two apps still
-build and deploy independently. The only coupling is a URL: `gameUrl` in
-[`web/src/site.js`](web/src/site.js), overridable with `VITE_GAME_URL`.
-
-`game/wrangler.jsonc` declares both pairs of game routes, so
-`npm run deploy:game` creates them along with the Worker — there is no dashboard
-step and nothing to keep in sync by hand.
+`game/wrangler.jsonc` declares the game's route pair, so `npm run deploy:game`
+creates them along with the Worker — there is no dashboard step and nothing to
+keep in sync by hand.
 
 ```bash
 npm start             # web 5173 + game 5174 + model 5175
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
-npm run deploy:game   # build, deploy metro-game, and attach its two routes
+npm run deploy:game   # build, deploy metro-game, and attach its route pair
 ```
 
-To see the tab locally, run the site and the game side by side:
+To follow a game link locally, run the site and the game side by side:
 
 ```bash
 npm run dev           # site dev server at http://localhost:5173
-npm run dev:game      # game at http://localhost:5174, embedded by http://localhost:5173/game/
+npm run dev:game      # game at http://localhost:5174, linked from http://localhost:5173
 npm run dev:model     # model library at http://127.0.0.1:5175/
 ```
+
+In development the site links straight at the game's own Vite server — `/` for
+Chinese, `/en/` for English — because `/game/` is a deployed-Worker route, not a
+dev-server path.
 
 `game/README.md` covers the milestones, the simulation's time base, and the
 places where the vertical slice deliberately diverges from the spec.
@@ -179,8 +178,8 @@ way, and needs the same login.
 
 When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
 it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
-the site at `/`, and the game at `/game/`, `/metro/game/` and `/metro-game/`. It is plain Node with no children, so
-it starts anywhere:
+the site at `/`, the game at `/game/`, each with its `/en/` pin. It is plain Node with no children,
+so it starts anywhere:
 
 ```bash
 npm run build && npm run build:game    # it only reads build output
@@ -189,82 +188,64 @@ npm run preview:local                  # http://127.0.0.1:4173/
 
 ### Routing
 
-The site is served from a path prefix — **`https://ericpzh.rest/metro/`** — rather than a domain
-root. `ASSET_PREFIX` in `wrangler.jsonc` is `/metro`, and [`worker/index.js`](worker/index.js)
-rewrites prefixed requests down to the asset root.
+Both apps live on one hostname, **`https://stationdesigner.com`**, as two Workers in one zone:
 
-The site and the game are **two Workers in the same zone**. The site has two routes; the game has two route pairs:
+| URL | Worker | Route pattern | Declared by |
+|---|---|---|---|
+| `/`, `/en/` | `metro` (the site) | `stationdesigner.com/*` | [`wrangler.jsonc`](wrangler.jsonc) — `npm run deploy` |
+| `/game/`, `/game/en/` | `metro-game` | `stationdesigner.com/game`, `stationdesigner.com/game/*` | [`game/wrangler.jsonc`](game/wrangler.jsonc) — `npm run deploy:game` |
 
-| Route pattern | Worker | Attached by |
-|---|---|---|
-| `ericpzh.rest/metro` | `metro` | hand, once |
-| `ericpzh.rest/metro/*` | `metro` | hand, once |
-| `ericpzh.rest/metro/game` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
-| `ericpzh.rest/metro/game/*` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
-| `ericpzh.rest/metro-game` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
-| `ericpzh.rest/metro-game/*` | `metro-game` | `game/wrangler.jsonc` — `npm run deploy:game` |
+Route patterns are ranked by specificity, so the game's pair wins over the site's broader `/*` and a
+request for `/gameplay` still reaches the site. The bare `/game` needs its own pattern because
+`/game/*` does not match it; never collapse the pair into `/game*` — `*` matches across `/`, so it
+would also swallow `/gameplay` and hand it to the game's Worker.
 
-The zone serves other things too (`api/*`, `livery*`, `editor*`, `ac27approach*`); those routes are
-left alone. The site's two are added once: Workers & Pages → `metro` → **Settings** → **Domains &
-Routes** → **Add** → **Route**. The game's are not added by hand — they are declared under `routes`
-in [`game/wrangler.jsonc`](game/wrangler.jsonc), so deploying the game creates them.
+Both Workers are attached with **routes**, not as a Custom Domain: a Custom Domain claims the whole
+hostname for one Worker and would hide the other. The zone must hold `stationdesigner.com`, and its
+DNS records must be **proxied** (orange cloud) for routes to apply. `npm run deploy` attaches the
+site's route from `wrangler.jsonc` and `npm run deploy:game` attaches the game's — no dashboard step
+for either.
 
-Each prefix needs a bare route and a `/*` route because `/metro/*` does *not* match the bare `/metro` — the literal
-`/` after the prefix is required. Never collapse a pair into `/metro*` or `/metro-game*`: `*` matches
-across `/`, so `/metro*` would also swallow `/metro-game…` and hand it to the site's Worker, which
-can only 404 it.
+#### What the Workers rewrite
 
-There is **no `ericpzh.rest/*` route**: the apex is a Pages project bound as a Custom Domain, so any
-path matching no Worker route falls through to it. That is what `/metro-game/` did before the game's
-routes existed — the 游戏 tab rendered, and its iframe showed the Pages site instead of the game.
-Route patterns are ranked by specificity, so the game's `/metro/game/*` wins over the site's
-broader `/metro/*` route; both also win over the apex.
+Assets sit at the root of each Worker, so a request that matches no file falls through to its
+Worker. Neither language pin is a second document; both are redirects and a strip:
 
-> **`*.ericpzh.rest/metro/*` will not work for this.** A leading wildcard matches subdomains only and
-> never the apex, so `ericpzh.rest/metro/` would never reach the Worker. Add
-> `www.ericpzh.rest/metro` and `www.ericpzh.rest/metro/*` as well if the site should also answer on
-> `www`.
+* The site's [`worker/index.js`](worker/index.js) answers `/en` and `/en/index.html` with a `308` to
+  `/en/`, strips the `/en` segment, and re-fetches from `env.ASSETS`. It is the same document — the
+  client reads the segment (`web/src/i18n.js`).
+* The game's [`game/worker/index.js`](game/worker/index.js) strips the `/game` prefix first, then
+  applies the same `/en/` pin, so `/game/en/assets/*.js` finds the game's own bundle.
 
-Routes require the hostname to be **proxied** in DNS (orange cloud). A Custom Domain is not the right
-tool for either Worker: it would claim the whole of `ericpzh.rest`, which serves other things.
+The pins exist because both documents spell their assets relatively (`./assets/...`): without them
+`/en/` would load and then fetch its CSS one directory too high.
 
-Assets live at the root of the Worker, so a request for `/metro/` matches no file and falls through to
-[`worker/index.js`](worker/index.js), which strips the prefix and re-fetches from `env.ASSETS`. It also
-308-redirects the bare `/metro` and `/metro/index.html` to `/metro/`, so relative asset URLs keep
-resolving — without that the page would load and then fetch its CSS one directory too high.
-
-This combination is tested with `wrangler dev`:
+The behaviour below is pinned by `game/test/site-worker.test.mjs` and `game/test/i18n.test.mjs`, and
+reproducible locally with `npm run preview:local`:
 
 | Request | Result |
 |---|---|
-| `/metro` | `308` → `/metro/` |
-| `/metro/` | `200` `index.html` |
-| `/metro/index.html` | `308` → `/metro/` |
-| `/metro/art/01-isometric-cutaway.svg` | `200` `image/svg+xml` |
-| `/metro/assets/*.css` | `200` `text/css` |
-| `/metro/game` | `308` → `/metro/game/` |
-| `/metro/game/` | `200` game `index.html` |
-| `/metro/game/en/` | `200` game `index.html`, English route |
-| `/metro/game/en/assets/*.js` | `200` — game assets, aliased back to the root |
-| `/metro/game/lab` | `200` game `index.html` — the SPA fallback |
-| `/` | `200` — served straight from assets, the Worker is not invoked |
-| `/metropolis`, `/nope` | `404` |
-
-`/metro/game/` is the game's document served one level down, so its relative `./assets/...` resolve
-under `/metro/game/`; the game Worker strips that prefix before the asset layer reads the files.
-`/metro-game/` remains an equivalent address.
+| `/` | `200` site `index.html` — served straight from assets, the Worker is not invoked |
+| `/en` | `308` → `/en/` |
+| `/en/index.html` | `308` → `/en/` |
+| `/en/` | `200` site `index.html`, English |
+| `/en/art/01-isometric-cutaway.svg` | `200` `image/svg+xml` |
+| `/en/assets/*.css` | `200` `text/css` |
+| `/game` | `308` → `/game/` |
+| `/game/` | `200` game `index.html` |
+| `/game/en` | `308` → `/game/en/` |
+| `/game/en/` | `200` game `index.html`, English |
+| `/game/en/assets/*.js` | `200` — game assets, aliased back to the Worker root |
+| `/game/lab` | `200` game `index.html` — the SPA fallback |
+| `/gameplay`, `/nope` | `404` |
 
 When the game deploys, `wrangler` warns that the routes "will attempt to serve Assets on a configured
-path" — it goes looking for `game/dist/metro-game/*`, because the routes are declared next to
-`assets`. Nothing lives there, so those requests fall through to the Worker, which strips the prefix
-and reads from the asset root. The table above is the behaviour you actually get; the warning is
-cosmetic.
+path" — it goes looking for `game/dist/game/*`, because the routes are declared next to `assets`.
+Nothing lives there, so those requests fall through to the Worker, which strips the prefix and reads
+from the asset root. The table above is the behaviour you actually get; the warning is cosmetic.
 
-The `workers.dev` URL keeps working at the same time: `/` is served directly from assets, so one build
-serves both the domain root and the prefix.
-
-To move the site to a different path later, change `ASSET_PREFIX` and the routes together — nothing
-else depends on `/metro`.
+Each Worker's `workers.dev` URL keeps working at the same time: `/` is served directly from assets,
+so one build serves both the domain and the workers.dev root.
 
 **Other routing you may want**, all in **Settings**:
 

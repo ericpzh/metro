@@ -212,7 +212,8 @@ React views subscribe with `app/i18n.ts`'s `useLanguage()` so open panels and
 errors change immediately. Keep locale out of station saves and worker state;
 switching it must preserve edits, undo history, drafts and the simulation.
 
-`/en` and `/en/`, including `/metro-game/en/`, open the English game. The
+`https://stationdesigner.com/game/en/` (including the bare `/game/en`) opens the
+English game; `/game/` is Chinese. The
 `IoLanguageSharp` button beside restart switches either route; each route keeps
 its preference in local storage. Worker, Vite preview and `tools/preview.mjs`
 must resolve the English document's relative assets. Locale changes refresh

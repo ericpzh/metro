@@ -3,7 +3,6 @@ import { gallery } from './artworks.js'
 import {
   canonicalPath,
   detectLang,
-  isGamePath,
   isLangHash,
   ui,
 } from './i18n.js'
@@ -33,10 +32,9 @@ export default function App() {
     setMeta('description', t.doc.desc)
 
     const url = new URL(window.location.href)
-    const game = isGamePath(url.pathname)
     if (isLangHash(url.hash)) url.hash = ''
     if (url.searchParams.get('lang') != null) url.searchParams.delete('lang')
-    url.pathname = canonicalPath(lang, game)
+    url.pathname = canonicalPath(lang)
     const next = url.toString()
     if (next !== window.location.href) window.history.replaceState(null, '', next)
   }, [lang, t])

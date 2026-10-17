@@ -1,12 +1,18 @@
 {
-  // Station Designer — deployed to Cloudflare Workers as static assets.
+  // Station Designer — the concept-art site, deployed to Cloudflare Workers as
+  // static assets at https://stationdesigner.com/.
   // The site is built into web/dist by `npm run build`; nothing runs on a server.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "metro",
   "compatibility_date": "2026-09-28",
 
-  // The site is served from a path prefix — https://ericpzh.rest/metro/ — not a
-  // domain root, so the prefix Worker is enabled. See worker/index.js.
+  // The site answers on the whole hostname. The game is its own Worker on the
+  // more specific stationdesigner.com/game routes, so Cloudflare hands those to
+  // it and everything else to this one. Both Workers live in the same zone.
+  "routes": [{ "pattern": "stationdesigner.com/*", "zone_name": "stationdesigner.com" }],
+
+  // Assets sit at the domain root, so this entry point only answers the client
+  // routes that have no file behind them — the /en language pin. See worker/index.js.
   "main": "./worker/index.js",
 
   "assets": {
@@ -14,9 +20,5 @@
     // Required because there is a `main`: it is how the Worker reads assets.
     "binding": "ASSETS",
     "not_found_handling": "none"
-  },
-
-  // The bare prefix, no trailing slash. Must match the routes attached to the
-  // Worker in the Cloudflare dashboard.
-  "vars": { "ASSET_PREFIX": "/metro" }
+  }
 }

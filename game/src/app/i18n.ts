@@ -7,7 +7,7 @@ export function useLanguage() {
   return useSyncExternalStore(subscribeLanguage, getLanguage, getLanguage)
 }
 /** The URL sets the initial language; a deliberate toggle is remembered on reload.
- * Each route has its own preference, so a first visit to /en always opens English.
+ * Each route has its own preference, so a first visit to /game/en/ always opens English.
  */
 export function initLanguage(): void {
   const routeLanguage = languageForPath(location.pathname)

@@ -3,19 +3,16 @@
 //   node tools/preview.mjs [port]        (default 4173)
 //
 // This is the stand-in for `npm run preview` when wrangler is not available — it
-// is the same shape of thing (static files, an SPA fallback, path prefixes),
+// is the same shape of thing (static files, an SPA fallback, the language pins),
 // minus Cloudflare. It reads only build output:
 //
-//   /                  web/dist    — the art site
-//   /game/             game/dist   — the game
-//   /metro-game/       game/dist   — the same build, at the path the deployed
-//                                    site points its 游戏 tab at
+//   /                  web/dist    — the art site          (English: /en/)
+//   /game/             game/dist   — the game              (English: /game/en/)
 //
-// Two builds spell their assets relatively, and one of them sits a level down, so
-// each prefixed request is tried against the game root, then the site root, then
-// the game root with the prefix stripped — see the candidates in the handler.
-//
-// Nothing is rebuilt here: run `npm run build` and `npm run build:game` first.
+// Both builds spell their assets relatively, and the game sits a level down, so
+// each request has its language segment — and, for the game, its prefix —
+// stripped before the file is looked up. Nothing is rebuilt here: run
+// `npm run build` and `npm run build:game` first.
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname, extname, join, normalize, resolve } from 'node:path'
@@ -26,8 +23,8 @@ const SITE = join(repo, 'web', 'dist')
 const GAME = join(repo, 'game', 'dist')
 const port = Number(process.argv[2] || 4173)
 
-/** The game Worker addresses, plus the local site's /game/ shortcut. */
-const GAME_PREFIXES = ['/metro/game', '/game', '/metro-game']
+/** The path the game's Worker is attached to. */
+const GAME_PREFIX = '/game'
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -50,13 +47,14 @@ const MIME = {
  *
  * A path with a file extension is an **asset**, and a missing one is a real 404
  * — answering it with the app shell is how a dropped sheet or a stale asset hash
- * looks like a successful load. Everything else is an app route and gets the
- * shell, which is what the SPA fallback is for.
+ * looks like a successful load. The game's client routes (`/game/lab`) get the
+ * shell; the site has none, so its misses are 404s too.
  */
-async function pick(root, rel) {
+async function pick(root, rel, shell) {
   const clean = normalize(rel).replace(/^([/\\])+/, '')
+  if (!clean) return join(root, 'index.html')
   const direct = join(root, clean)
-  if (direct.startsWith(root) && clean) {
+  if (direct.startsWith(root)) {
     try {
       const s = await stat(direct)
       if (s.isFile()) return direct
@@ -68,44 +66,31 @@ async function pick(root, rel) {
       /* not a file: an asset 404s, a route gets the shell */
     }
   }
-  if (extname(clean)) return null
+  if (!shell || extname(clean)) return null
   return join(root, 'index.html')
 }
 
 const server = createServer((req, res) => {
   void (async () => {
     const url = decodeURIComponent((req.url || '/').split('?')[0])
-    // Language pin: /en/... is the English site (same document — the client
-    // reads the segment). Strip it for file resolution, mirroring worker/.
-    const path = url === '/en' || url.startsWith('/en/') ? url.slice(3) || '/' : url
-    // A game prefix owns the request; everything else is the site.
-    const prefix = GAME_PREFIXES.find((p) => path === p || path.startsWith(p + '/'))
-    const gameRest = prefix ? path.slice(prefix.length) || '/' : path
-    const rest = gameRest === '/en' || gameRest.startsWith('/en/')
-      ? gameRest.slice(3) || '/' : gameRest
 
-    // Both builds spell their assets relatively, so a prefixed request can mean
-    // either of two files:
-    //
-    //   /game/assets/…        the game, whose own index.html asks for its bundle
-    //   /metro-game/assets/…  the same game build, at the deployed prefix
-    //
-    // The game root is tried first, then the site root (so a prefixed path can
-    // still reach the site's own files), then the game root with the prefix
-    // stripped — which is where the game's bundle lives. First hit wins.
-    const candidates = prefix
-      ? [
-          { root: GAME, rest },
-          { root: SITE, rest },
-          { root: GAME, rest: rest.replace(/^\/assets\//, '/') },
-        ]
-      : [{ root: SITE, rest }]
-    let file = null
-    for (const c of candidates) {
-      file = await pick(c.root, c.rest)
-      if (file) break
+    // The Workers 308 the bare directory forms so the document's relative
+    // `./assets/...` resolve one level down instead of at the root.
+    if (url === '/en' || url === GAME_PREFIX || url === GAME_PREFIX + '/en') {
+      res.writeHead(308, { location: url + '/' })
+      res.end()
+      return
     }
 
+    // The game owns /game and everything under it; the site owns the rest.
+    const game = url === GAME_PREFIX || url.startsWith(GAME_PREFIX + '/')
+    const under = game ? url.slice(GAME_PREFIX.length) || '/' : url
+    // Language pin: /en/… is the English side of that app (same document — the
+    // client reads the segment). Strip it for file resolution, mirroring the
+    // Workers.
+    const rest = under === '/en' || under.startsWith('/en/') ? under.slice(3) || '/' : under
+
+    const file = await pick(game ? GAME : SITE, rest, game)
     if (!file) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
       res.end(`not found: ${url}`)
@@ -127,6 +112,6 @@ const server = createServer((req, res) => {
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`preview:  http://127.0.0.1:${port}/`)
-  console.log(`  site  <- ${SITE}`)
-  console.log(`  game  <- ${GAME}   (/metro/game/, /game/ and /metro-game/)`)
+  console.log(`  site  <- ${SITE}   (/ and /en/)`)
+  console.log(`  game  <- ${GAME}   (/game/ and /game/en/)`)
 })

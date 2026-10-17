@@ -1,80 +1,35 @@
 /**
- * Optional Worker entry point — only needed when the site is served from a path
- * prefix (for example example.com/your-route/metro/) rather than a domain root.
+ * The site's Worker entry point.
  *
- * Enable it by uncommenting `main` in wrangler.jsonc, uncommenting
- * `assets.binding`, and setting `vars.ASSET_PREFIX` to the same prefix you
- * attach the route to.
+ * Assets sit at the root of the Worker — https://stationdesigner.com/ — so a
+ * request that matches a file never reaches this handler. Only the English route
+ * needs it:
  *
- * How it works: with `assets` configured and no `run_worker_first`, this fetch
- * handler only runs when no static asset matches the request. Prefixed paths
- * never match, because the assets sit at the root of the Worker — so every
- * prefixed request lands here and gets rewritten before being served.
+ *   /en          → 308 /en/   so the document's relative `./assets/...` resolve
+ *   /en/…        → the site document, aliased back to the asset root
  *
- * `/<prefix>/game/` is the website's game tab: the same document as the site
- * root, rendered as a full-viewport iframe around the game's own Worker. It is
- * aliased back to the root so the document's relative `./assets/...` resolve
- * under `/game/` without a second HTML entry.
+ * The English site is the same document everywhere; the client reads the `/en`
+ * segment and renders the English copy (`web/src/i18n.js`), which is why the
+ * segment is stripped before the asset layer sees it. Nothing else is rewritten:
+ * a path with no file behind it is a real 404, not the site shell.
  *
- * `/<prefix>/en/` (and `/<prefix>/en/game/`) pins the English translation of
- * the site. It is the same document — the client reads the `/en` segment and
- * renders English copy — and the segment is stripped here for asset resolution
- * for the same relative-path reason as `/game/`.
+ * `/game` never arrives here: the game's own Worker owns
+ * stationdesigner.com/game and /game/* by a more specific route.
  */
 export default {
   async fetch(request, env) {
-    const prefix = env.ASSET_PREFIX ?? ''
-
-    // Domain-root hosting: nothing to rewrite.
-    if (!prefix) return env.ASSETS.fetch(request)
-
     const url = new URL(request.url)
-    const mine = url.pathname === prefix || url.pathname.startsWith(prefix + '/')
-    if (!mine) return env.ASSETS.fetch(request)
 
-    let rest = url.pathname.slice(prefix.length)
-
-    // Language pin: /en/... is the English site. A bare /en or /en/index.html
-    // snaps to /en/ so relative asset paths resolve one level down.
-    if (rest === '/en' || rest === '/en/index.html') {
-      url.pathname = prefix + '/en/'
+    // Language pin: a bare /en or /en/index.html snaps to /en/ so relative asset
+    // paths resolve one level down.
+    if (url.pathname === '/en' || url.pathname === '/en/index.html') {
+      url.pathname = '/en/'
       return Response.redirect(url.toString(), 308)
     }
-    let lang = null
-    if (rest.startsWith('/en/')) {
-      lang = 'en'
-      rest = rest.slice(3) || '/'
-    }
 
-    // Where the bare/`index.html` redirects should land — the game tab stays
-    // under /game/ rather than snapping back to the art page.
-    const game = rest === '/game' || rest.startsWith('/game/')
-    const home = game ? prefix + (lang ? '/en/game/' : '/game/') : prefix + (lang ? '/en/' : '/')
+    if (!url.pathname.startsWith('/en/')) return env.ASSETS.fetch(request)
 
-    if (rest === '' || rest === '/index.html') {
-      url.pathname = home
-      return Response.redirect(url.toString(), 308)
-    }
-    if (game) {
-      const sub = rest.slice('/game'.length)
-      if (sub === '' || sub === '/index.html') {
-        url.pathname = home
-        return Response.redirect(url.toString(), 308)
-      }
-      rest = sub
-    }
-
-    url.pathname = rest
-    const res = await env.ASSETS.fetch(new Request(url, request))
-
-    // The tab is a client route with no file behind it: serve the document so
-    // the app can render it. Anything with an extension is a real 404. Fetch
-    // the directory root, not /index.html — asking for /index.html explicitly
-    // is itself a redirect.
-    if (res.status === 404 && !/\.[a-z0-9]+$/i.test(rest)) {
-      url.pathname = '/'
-      return env.ASSETS.fetch(new Request(url, request))
-    }
-    return res
+    url.pathname = url.pathname.slice(3) || '/'
+    return env.ASSETS.fetch(new Request(url, request))
   },
 }

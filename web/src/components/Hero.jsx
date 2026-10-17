@@ -1,5 +1,4 @@
-import { sheet } from '../site.js'
-import { gameHref } from '../i18n.js'
+import { gameHref, sheet } from '../site.js'
 
 export default function Hero({ t, copy, lang }) {
   const first = copy.artworks[0]

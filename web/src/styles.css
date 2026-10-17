@@ -222,7 +222,7 @@ code {
   outline-offset: 2px;
 }
 
-/* --------------------------------------------------- tabs / game page ---- */
+/* ------------------------------------------------------------- tabs ---- */
 
 .tabs {
   display: flex;
@@ -262,72 +262,6 @@ code {
 
 .tabs--nav {
   margin-left: 22px;
-}
-
-.gamepage {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg);
-}
-
-.gameframe {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  background: #0b0f16;
-}
-
-.gameframe iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: #0b0f16;
-}
-
-.gameframe__load {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  text-align: center;
-  color: var(--muted);
-  pointer-events: none;
-}
-
-.gameframe__load p {
-  margin: 0;
-  color: var(--ink-2);
-}
-
-.gameframe__load small {
-  max-width: 34ch;
-  line-height: 1.7;
-}
-
-.gameframe__load a {
-  pointer-events: auto;
-  color: var(--amber);
-}
-
-.spinner {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  border: 3px solid var(--line-2);
-  border-top-color: var(--amber);
-  animation: spin 0.9s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 @media (max-width: 760px) {

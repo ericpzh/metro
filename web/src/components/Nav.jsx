@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { repoUrl } from '../site.js'
-import { gameHref } from '../i18n.js'
+import { gameHref, repoUrl } from '../site.js'
 import BrandMark from './BrandMark.jsx'
 
 export default function Nav({ lang, onLang, t }) {
@@ -33,7 +32,7 @@ export default function Nav({ lang, onLang, t }) {
           </span>
         </a>
         <nav className="tabs tabs--nav" aria-label={t.nav.siteLabel}>
-          <a className="tab tab--on" href={gameHref(lang)} aria-current="page">
+          <a className="tab tab--on" href={gameHref(lang)}>
             {t.nav.game}
           </a>
         </nav>

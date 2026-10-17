@@ -1,11 +1,12 @@
 // Site chrome strings (everything outside the sheet data in artworks.js)
-// plus language detection and the canonical /en/ route helpers.
+// plus language detection and the canonical /en/ route helper.
 //
-// The English version is pinned to the `/en/` path (and `/en/game/` for the
-// game tab), so it is shareable. `?lang=en` and `#en` are accepted as aliases
-// on arrival and normalised to the path form. The URL is the only signal:
-// `/metro/` always stays Chinese unless the URL asks for English — no
-// browser-language or stored-preference redirect.
+// The English version is pinned to the `/en/` path, so it is shareable.
+// `?lang=en` and `#en` are accepted as aliases on arrival and normalised to the
+// path form. The URL is the only signal: `/` always stays Chinese unless the URL
+// asks for English — no browser-language or stored-preference redirect.
+// The game is a different app on this domain (/game/, /game/en/); its URLs are
+// built in site.js.
 export const LANGS = ['zh', 'en']
 
 const zh = {
@@ -53,12 +54,6 @@ const zh = {
     repoSub: '项目源码',
     name: '车站设计师',
     line: '搭一座车站，看人群来来去去。',
-  },
-  game: {
-    title: '车站设计师 — 游戏',
-    frameTitle: '车站设计师 — 游戏',
-    loading: '正在载入游戏…',
-    loadingHint: '如果一直没反应，可能是游戏服务没连上。',
   },
   lightbox: {
     fit: '适应屏幕',
@@ -115,12 +110,6 @@ const en = {
     name: 'Station Designer',
     line: 'Build a station, watch the crowds come and go.',
   },
-  game: {
-    title: 'Station Designer — Game',
-    frameTitle: 'Station Designer — Game',
-    loading: 'Loading the game…',
-    loadingHint: 'If nothing happens, the game service may be unreachable.',
-  },
   lightbox: {
     fit: 'Fit screen',
     full: 'Full size',
@@ -164,37 +153,7 @@ export function detectLang(href = window.location.href) {
   return langFromPath(url.pathname) || langFromQuery(url.search) || langFromHash(url.hash) || 'zh'
 }
 
-/** The game tab is the same document served from `<site>/game/` (or `<site>/en/game/`). */
-export function isGamePath(pathname = window.location.pathname) {
-  return /\/game\/?$/.test(pathname)
-}
-
-function splitPath(pathname) {
-  return pathname.split('/').filter(Boolean)
-}
-
-/**
- * Absolute site-root path, derived from the live URL rather than Vite's base
- * (which is relative: './'). The root is whatever is left after peeling the
- * game tab and the language pin — the deploy prefix (/metro/) or / — so the
- * canonical URL below never drops the prefix. Assigning a relative path to
- * `url.pathname` normalises away the prefix (./game/ -> /game/), which is how
- * the tab once escaped to the domain root.
- */
-export function siteRoot(pathname = window.location.pathname) {
-  const segs = splitPath(pathname)
-  if (segs[segs.length - 1] === 'game') segs.pop()
-  if (segs[segs.length - 1] === 'en') segs.pop()
-  return segs.length ? `/${segs.join('/')}/` : '/'
-}
-
-/** Canonical shareable path for a language: `/`, `/en/`, `/game/`, `/en/game/` (under the site root). */
-export function canonicalPath(lang, game, pathname = window.location.pathname) {
-  const root = siteRoot(pathname)
-  return `${root}${lang === 'en' ? 'en/' : ''}${game ? 'game/' : ''}`
-}
-
-/**Href of the game tab in a given language. */
-export function gameHref(lang, pathname) {
-  return canonicalPath(lang, true, pathname)
+/** Canonical shareable path for the site in a language: `/` or `/en/`. */
+export function canonicalPath(lang) {
+  return lang === 'en' ? '/en/' : '/'
 }

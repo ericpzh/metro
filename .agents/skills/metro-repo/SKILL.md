@@ -51,17 +51,17 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`). Bilingual: Chinese by default, English at `/en/`; the top-right gear menu contains the quality controls and the opposite-language action. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`), served at `stationdesigner.com/game/`. Bilingual: Chinese by default, English at `/game/en/`; the top-right gear menu contains the quality controls and the opposite-language action. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
 | `model/` | Reviewed character viewer and GLB library at 5175; `metro-model` owns builders, cleanup, walking clips, exports and game atlas regeneration. |
 | `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
-| `web/` | The concept-art site (React + Vite), deployed as Worker `metro`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
+| `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
 | `tools/` | Root-level Node/Python scripts: the art generator and viewer, the headless-Chrome passes that photograph the game, the demo-save bake, the pictogram asset prep. See the index below. |
-| `worker/index.js` | The site's path-prefix rewrite entry (root Worker): strips the `/metro` prefix, the `/game` tab alias, and the `/en` language pin for asset resolution. `game/worker/index.js` is the game's. |
-| `wrangler.jsonc` | Root site Worker config, prefix `/metro`. `game/wrangler.jsonc` is the game's, prefix `/metro-game`. |
+| `worker/index.js` | The site's Worker entry (root Worker): pins `/en` to `/en/` and serves the site document for that language route. `game/worker/index.js` is the game's, which strips `/game`. |
+| `wrangler.jsonc` | Root site Worker config, route `stationdesigner.com/*`. `game/wrangler.jsonc` is the game's, routes `stationdesigner.com/game` and `/game/*`. |
 
 The concept gallery in `web/` groups its eleven sheets into four player-facing
 paths: the station (01, 02, 13), trains and boarding (11, 05, 12), building
@@ -79,7 +79,7 @@ coordinates, and repeated specifications unless a player needs them to understan
 a gameplay choice. When trimming copy, preserve useful outcomes and interactions.
 
 The site and the game are **two apps and two Workers** in one repo. They build
-and deploy independently; the only coupling is a URL (`gameUrl` in
+and deploy independently; the only coupling is a URL (`gameHref` in
 `web/src/site.js`, overridable with `VITE_GAME_URL`).
 
 ### Shared game and website branding
@@ -338,7 +338,7 @@ commands.
 | `sheet-i18n.mjs` | The English copy table for the sheets: every Chinese `<text>` string (plus sheet 06's slider `aria-label`s and live-readout script literals) mapped to terse English; `{ t, size }` pulls a long label's font-size down. Embedded game captures stay Chinese. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
-| `preview.mjs` | `npm run preview:local`: serves the built site at `/`, the built game at `/game/`, `/metro/game/` and `/metro-game/`, over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Worker does. |
+| `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`), over one origin. Stands in for `wrangler dev`. Strips the `/en` language pin like the Workers do. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
@@ -385,22 +385,23 @@ inspect per-module coverage in both test output and keep the coverage map in syn
 
 ## Deploy (Cloudflare Workers)
 
-Everything is static assets; the only server runtime is the path-prefix
+Everything is static assets; the only server runtime is the language-pin
 rewriter. Two Workers, two Workers Builds projects on the same repo, so a push
 to `main` ships both:
 
 * `metro` — the site, root `wrangler.jsonc`, assets from `web/dist`, served at
-  `ericpzh.rest/metro/` with `ASSET_PREFIX=/metro`.
+  `stationdesigner.com/` (English `/en/`) on the route
+  `stationdesigner.com/*`.
 * `metro-game` — the game, `game/wrangler.jsonc`, assets from `game/dist`, served
-  at `ericpzh.rest/metro/game/` (canonical; `/metro/game/en/` for English) plus
-  the legacy `ericpzh.rest/metro-game/` pair, with `ASSET_PREFIX=/metro-game` and
-  its routes declared in its own config (so `wrangler deploy` creates them; no dashboard
-  step). `game/worker/index.js` longest-prefix matches `ASSET_PREFIX` and
-  `/metro/game` so both prefixes resolve assets at the Worker root.
+  at `stationdesigner.com/game/` (English `/game/en/`) on the routes
+  `stationdesigner.com/game` and `/game/*`, with `ASSET_PREFIX=/game` and its
+  routes declared in its own config (so `wrangler deploy` creates them; no
+  dashboard step). `game/worker/index.js` strips `ASSET_PREFIX` before reading
+  an asset.
 
-Route gotchas: each Worker needs **two** routes (bare + `/*`) because `/metro/*`
-does not match `/metro`; the game owns two pairs (canonical `/metro/game` +
-legacy `/metro-game`). Never collapse them to `/metro-game*` — `*` spans `/`
-and would swallow paths belonging to the other Worker. `/metro/game/*` beats
-site `/metro/*` on specificity. Routes need the hostname
-proxied in DNS. The root `README.md` holds the full routing table.
+Route gotchas: the game needs **two** routes (bare + `/*`) because `/game/*`
+does not match `/game`. Never collapse them to `/game*` — `*` spans `/` and
+would swallow paths belonging to the site. `/game/*` beats site `/*` on
+specificity. Both Workers must be attached with routes rather than a Custom
+Domain, which would claim the whole hostname for one of them; routes need the
+hostname proxied in DNS. The root `README.md` holds the full routing table.

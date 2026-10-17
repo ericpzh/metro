@@ -3605,17 +3605,20 @@ npx wrangler deploy -c wrangler.jsonc
 
 From the repository root, `npm run deploy:game` does both steps and also attaches the routes.
 
-`wrangler.jsonc` serves the game from the path prefix `https://ericpzh.rest/metro-game/` via
-[`worker/index.js`](worker/index.js), so the website's 游戏 tab can embed it same-origin. The two
-routes `ericpzh.rest/metro-game` and `ericpzh.rest/metro-game/*` are declared under `routes` in the
-same file, so `wrangler deploy` creates them — there is no dashboard step. Two routes, not one: the
-bare path needs its own. The Worker's own `workers.dev` root keeps working at the same time.
+`wrangler.jsonc` serves the game from `https://stationdesigner.com/game/` (English:
+`https://stationdesigner.com/game/en/`) via [`worker/index.js`](worker/index.js). The two routes
+`stationdesigner.com/game` and `stationdesigner.com/game/*` are declared under `routes` in the same
+file, so `wrangler deploy` creates them — there is no dashboard step. Two routes, not one: the bare
+path needs its own, and they are never collapsed into `/game*` because `*` spans `/` and would also
+swallow `/gameplay`. The art site's Worker answers the rest of the hostname on the broader
+`stationdesigner.com/*` route, so this pair wins by specificity. The Worker's own `workers.dev` root
+keeps working at the same time.
 
 Two notes:
 
 * `wrangler` warns that the routes "will attempt to serve Assets on a configured path" (it looks for
-  `dist/metro-game/*`). Nothing lives there, so those requests fall through to the Worker, which
-  strips the prefix and reads from the asset root. The warning is cosmetic.
+  `dist/game/*`). Nothing lives there, so those requests fall through to the Worker, which strips the
+  prefix and reads from the asset root. The warning is cosmetic.
 * This Worker has its **own** Workers Builds project (`metro-game`), connected to `ericpzh/metro`.
   A push to `main` runs `npm run build:game` and then `npx wrangler deploy -c game/wrangler.jsonc`,
   so the game ships on every push the same way the site does. You can still deploy it by hand with
@@ -3625,8 +3628,9 @@ To host it at the `workers.dev` root only, delete `main`, the `assets.binding`, 
 `ASSET_PREFIX` var, and set `assets.not_found_handling` back to `"single-page-application"`. The
 build needs no change either way.
 
-If the site's tab should point somewhere else — a preview URL, a different domain — set
-`VITE_GAME_URL` when building `web/`.
+The site's links to the game come from `gameHref` in [`../web/src/site.js`](../web/src/site.js). If
+the game should live elsewhere — a preview URL, a different domain — set `VITE_GAME_URL` when
+building `web/`.
 
 
 Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and two raised truss styles in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Thin roof tiles place by click or rectangular drag, truss bays by click or a straight-line drag along their own crest axis, and both are painted through 材质.
@@ -3695,13 +3699,13 @@ and only uploads a texture when its printed information changes.
 
 ### Game language
 
-The game supports 简体中文 and English. `/en/` (including `/metro-game/en/`) opens the English game; the language button beside restart switches either route without replacing the station or restarting the simulation. Each route remembers its selected language locally. Authored station names, line names, termini, sign documents and supplied poster/map artwork remain station content.
+The game supports 简体中文 and English: `https://stationdesigner.com/game/en/` (or a bare `/game/en`) opens the English game, `/game/` the Chinese one; the language button beside restart switches either route without replacing the station or restarting the simulation. Each route remembers its selected language locally. Authored station names, line names, termini, sign documents and supplied poster/map artwork remain station content.
 
 All built-in copy lives in `src/sim/i18n/messages.ts`. Fixed English glosses on bilingual model decals use the `printed_*` keys, keeping their existing captions in Chinese mode. `tForLanguage(locale, key, ...args)` formats capture/tool copy without changing the active locale. Use `t(key, ...args)` in subscribed React views and renderers, `msg(key, ...args)` for canonical data and stored errors, and `translate(value)` where those values reach the UI. `useLanguage()` refreshes mounted views; the locale stays out of saves and worker messages.
 
 In English mode, station fields are labelled Primary name / Secondary name and sign fields Primary text / Secondary text. Their authored contents and order stay intact. Clock rows and longer labels wrap within their panels, and the demand chart reserves a gutter for translated units and counts.
 
-`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, explicit-language formatting without locale mutation, and root/prefixed English-route asset resolution. Run `npm run audit:i18n` from the repo root to check runtime JSX, accessible labels, and canvas/model decal calls for inline copy. The site uses `web/src/i18n.js` and `web/src/artworks.js`; generated art uses `tools/sheet-i18n.mjs`, including labels measured before drawing.
+`i18n.test.mjs` pins both catalogues, interpolation, existing-notice language switching, canonical simulation labels, explicit-language formatting without locale mutation, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root. `site-worker.test.mjs` pins the site's own `/en` pin and asset rewrite. Run `npm run audit:i18n` from the repo root to check runtime JSX, accessible labels, and canvas/model decal calls for inline copy. The site uses `web/src/i18n.js` and `web/src/artworks.js`; generated art uses `tools/sheet-i18n.mjs`, including labels measured before drawing.
 
 `passenger-view.test.mjs` pins the approved faceless silhouettes, shallow head/body proportions, opaque unlit ink, flat skin/hair/clothing boundaries and grounded walking poses, stable outfit/build/height/tone variation through buffer reordering, grounded animated arm/leg poses, travel-driven gait, idle/riding transitions, mid-stride pause/resume through duplicate and reordered snapshots, selection at the displayed head/legs, phase identity through crowd compaction, interpolated eye position, departure handling, click-held first-person mouse look after the initial heading, and restoration of the camera and display settings.
 

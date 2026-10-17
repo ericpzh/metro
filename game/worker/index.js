@@ -1,9 +1,9 @@
 /**
  * The game's Worker entry point.
  *
- * The game is served at /metro/game/ and /metro-game/. Assets sit at the root
- * of the Worker, so either prefix has to be stripped before the asset layer
- * sees it.
+ * The game is served at https://stationdesigner.com/game/ (English:
+ * /game/en/). Assets sit at the root of the Worker, so the `/game` prefix has to
+ * be stripped before the asset layer sees it.
  *
  * With `assets` configured and no `run_worker_first`, this handler only runs
  * when no static asset matches. Prefixed paths never match (the assets are at
@@ -15,10 +15,9 @@
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
-    const prefixes = [env.ASSET_PREFIX ?? '', '/metro/game'].filter(Boolean).sort((a, b) => b.length - a.length)
-    const prefix = prefixes.find((candidate) => url.pathname === candidate || url.pathname.startsWith(candidate + '/')) ?? ''
+    const prefix = env.ASSET_PREFIX ?? ''
+    const mine = prefix !== '' && (url.pathname === prefix || url.pathname.startsWith(prefix + '/'))
 
-    const mine = prefix !== ''
     let rest = mine ? url.pathname.slice(prefix.length) : url.pathname
     const base = mine ? prefix : ''
     if (rest === '/en' || rest === '/en/index.html') {

@@ -57,26 +57,31 @@ test('switching translates existing errors and catalogues while canonical data s
   } finally { unsubscribe(); setLanguage(initial) }
 })
 
-test('English routes work at the root and under game hosting prefixes', async () => {
-  for (const path of ['/', '/metro-game/', '/metro/game/', '/game/']) assert.equal(languageForPath(path), 'zh-CN')
-  for (const path of ['/en', '/en/', '/metro-game/en/', '/metro/game/en/', '/game/en/']) assert.equal(languageForPath(path), 'en')
+test('English routes work under /game and at the workers.dev root', async () => {
+  for (const path of ['/', '/game/', '/game/lab', '/gameplay/']) assert.equal(languageForPath(path), 'zh-CN')
+  for (const path of ['/en', '/en/', '/game/en', '/game/en/', '/game/en/lab']) assert.equal(languageForPath(path), 'en')
   assert.equal(languageForPath('/engineering'), 'zh-CN')
-  for (const prefix of ['', '/metro-game', '/metro/game']) {
+  // The deployed host claims /game; the Worker's own workers.dev root has none.
+  for (const { host, prefix } of [
+    { host: 'stationdesigner.com', prefix: '/game' },
+    { host: 'metro-game.example.workers.dev', prefix: '' },
+  ]) {
     const fetched = []
     const env = { ASSET_PREFIX: prefix, ASSETS: { fetch: async (request) => {
       const path = new URL(request.url).pathname
       fetched.push(path)
       return new Response(path, { status: path === '/' || path === '/assets/game.js' ? 200 : 404 })
     } } }
-    const response = await worker.fetch(new Request(`https://game.test${prefix}/en`), env)
+    const base = `https://${host}${prefix}`
+    const response = await worker.fetch(new Request(`${base}/en`), env)
     assert.equal(response.status, 308)
-    assert.equal(response.headers.get('location'), `https://game.test${prefix}/en/`)
-    assert.equal((await worker.fetch(new Request(`https://game.test${prefix}/en/`), env)).status, 200)
+    assert.equal(response.headers.get('location'), `${base}/en/`)
+    assert.equal((await worker.fetch(new Request(`${base}/en/`), env)).status, 200)
     assert.equal(fetched.at(-1), '/')
-    assert.equal((await worker.fetch(new Request(`https://game.test${prefix}/en/assets/game.js`), env)).status, 200)
+    assert.equal((await worker.fetch(new Request(`${base}/en/assets/game.js`), env)).status, 200)
     assert.equal(fetched.at(-1), '/assets/game.js', 'relative English-route bundles reach real assets')
-    assert.equal((await worker.fetch(new Request(`https://game.test${prefix}/en/assets/missing.js`), env)).status, 404)
-    assert.equal((await worker.fetch(new Request(`https://game.test${prefix}/en/lab`), env)).status, 200)
+    assert.equal((await worker.fetch(new Request(`${base}/en/assets/missing.js`), env)).status, 404)
+    assert.equal((await worker.fetch(new Request(`${base}/en/lab`), env)).status, 200)
     assert.equal(fetched.at(-1), '/')
   }
 })

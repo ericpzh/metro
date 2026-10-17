@@ -18,8 +18,9 @@ export default defineConfig({
       })
     },
   }],
-  // The art site owns 5173; the game sits beside it so the site's 游戏 tab can
-  // iframe the dev server without a port clash.
+  // The art site owns 5173; the game sits beside it. In development the site
+  // links straight at this server (http://localhost:5174/ and /en/) instead of
+  // going through the deployed /game prefix.
   server: { port: 5174, strictPort: false },
   preview: { port: 4174 },
   build: {
