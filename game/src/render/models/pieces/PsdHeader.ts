@@ -52,7 +52,9 @@ export function drawPsdHeader(g: CanvasRenderingContext2D, kind: 'route' | 'stat
       g.fillStyle = '#f4f6f8'; g.fill(); g.stroke()
     }
   }
-  if (kind === 'station' || !info.terminal) {
+  // A terminal's destination is the station itself, so its plaque carries no
+  // direction arrow — only the name, over the schematic/终点站 strip.
+  if (!info.terminal) {
     const sign = info.arrow
     const x = kind === 'station' ? (sign < 0 ? 215 : 809) : (sign < 0 ? 410 : 614)
     const y = kind === 'station' ? 112 : 186

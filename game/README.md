@@ -27,6 +27,8 @@ faces for both barrier heights, both power types and all rotations.
 
 `psd-header.test.mjs` covers directional terminal signage, schematic line strips,
 bilingual station plaques, travel-side destination arrows and the lower line-colour band.
+A terminal's destination is the station itself, so its plaque prints only the name —
+the direction arrow (and its duplicate name) is dropped there.
 Full-height screens have a 0.53 m header above 2.25 m glazing, with an oval amber
 indicator below each station name; the overall screen height stays 2.95 m.
 `module-build` checks that plaques and lamps stay aligned to the openings on each

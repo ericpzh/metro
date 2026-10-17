@@ -1834,7 +1834,9 @@ panels and the direction-aware destination. A station name matches the 上行
 terminus only on an 上行 platform, and 下行 only on a 下行 platform; do not infer
 terminal status from the opposite direction or an empty name. A middle station
 gets a schematic route with no invented stops. Keep the next-destination arrow
-on the travel side, independent of which bank faces the platform. The station
+on the travel side, independent of which bank faces the platform — but drop it at
+a terminal, where the destination is the station's own name and the arrow would
+only repeat it. The station
 plaque and its yellow oval lamp stay centred over each train-aligned doorway;
 the bound line supplies the lower fascia colour.
 

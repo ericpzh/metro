@@ -52,6 +52,10 @@ test('physical panels keep bilingual station/terminal ink and destination on the
       const terminal = printed('route', { ...info, terminal: true })
       assert.deepEqual(terminal.words.map(w => w.text), ['终点站', 'Terminal'])
       assert.equal(terminal.lines.length, 0, 'terminal replaces the route drawing')
+      const terminalStation = printed('station', { ...info, terminal: true, destination: '动物园' })
+      assert.deepEqual(terminalStation.words.map(w => w.text), ['动物园', 'Zoo'],
+        'a terminal plaque keeps its own name but drops the direction arrow')
+      assert.equal(terminalStation.lines.length, 0, 'no direction arrow is printed at a terminal')
     }
   }
   setLanguage('zh-CN')
