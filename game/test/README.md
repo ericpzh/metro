@@ -662,7 +662,7 @@ intersection ink clipping, save/load, vehicle geometry and a single undoable
 placement gesture. Road traffic is ambient: directed lane connectors join crossings and T junctions,
 vehicles queue at signals, and their movement follows the simulation clock. It does
 not carry passengers; derived zebra markings remain visual. Seeded spawns use half the original density with 10% buses,
-60% scooters and 30% cars.
+60% scooters and 30% cars. Multi-lane seeded and boundary spawns are staggered across lanes.
 
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the

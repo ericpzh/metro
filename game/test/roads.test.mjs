@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { roadFromDrag, roadLayout, roadInkIntervals, roadContainsPoint, roadMoveClear } from '../src/sim/roads.ts'
 import {getRoadNetwork,roadLaneSign,roadEdgePoint} from '../src/sim/roadNetwork.ts'
 import {RoadTraffic} from '../src/sim/roadTraffic.ts'
-import { PASSENGER_OPACITY } from '../src/sim/constants.ts'
+import { PASSENGER_OPACITY, ROAD_TRAFFIC_SPACING } from '../src/sim/constants.ts'
 import { equipmentReason, moduleFootprint } from '../src/sim/placement.ts'
 import { groundWindow } from '../src/sim/ground.ts'
 import { addEquipment, toState } from '../src/build/model.ts'
@@ -151,6 +151,30 @@ test('R and Tab immediately refresh the held road preview and release matches it
   const expected={...preview[0]};tool.onUp(event(5,19))
   assert.deepEqual({...useStore.getState().station.modules[0],id:expected.id},expected)
   useStore.setState({tool:'block'});preview=null;tool.refreshHover();assert.equal(preview,null)
+})
+test('multi-lane road traffic is staggered across lanes', () => {
+  const a = road(12, 120), n = getRoadNetwork([a])
+  const traffic = new RoadTraffic(n, 42)
+  traffic.advance(0)
+  const byLane = new Map()
+  for (const c of traffic.cars) {
+    const e = n.edges[c.edge]
+    if (!byLane.has(e.lane)) byLane.set(e.lane, [])
+    byLane.get(e.lane).push(c.distance)
+  }
+  const lanes = [...byLane.keys()].filter((l) => byLane.get(l).length > 0)
+  assert.ok(lanes.length >= 2, 'a multi-lane road carries traffic on several lanes')
+  const phases = lanes.map((l) => [...new Set(byLane.get(l).map((d) => Math.round((d % ROAD_TRAFFIC_SPACING) * 10)))].sort().join(','))
+  assert.ok(phases.some((p, i) => i > 0 && p !== phases[0]), 'seeded cars are not aligned across lanes')
+  // Boundary spawns are also staggered over ticks rather than all at once.
+  const before = traffic.cars.length
+  const seen = new Set()
+  for (let tick = 1; tick <= 200; tick++) {
+    traffic.advance(tick / 10)
+    const spawned = traffic.cars.filter((c) => c.distance === 5)
+    if (spawned.length) seen.add(spawned.map((c) => n.edges[c.edge].lane).sort().join(','))
+  }
+  assert.ok(seen.size > 1, 'boundary spawns do not all land on the same tick')
 })
 test('every vehicle material is grayscale with the same opacity as passengers', () => {
   for(const kind of ['car','bus','bike','scooter']) for(const {geometry,material} of roadVehicleParts(kind)) {

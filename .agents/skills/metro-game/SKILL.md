@@ -1938,7 +1938,9 @@ and directional/terminal decision.
 
 Road network additions: `sim/roadNetwork.ts` caches directed lanes, coalesces same-width
 collinear strokes and builds crossing/T connectors. `sim/roadTraffic.ts` owns bounded
-fixed-step ambient queues and exclusive junction reservations. Road-derived zebra
+fixed-step ambient queues and exclusive junction reservations. Seeded and boundary
+spawns are staggered across the lanes of a multi-lane road, so cars do not appear
+in lockstep on every lane. Road-derived zebra
 markings are visual; pedestrian roads remain blocked. `RoadModel` builds automatic
 signals/crosswalks, while `RoadTrafficSystem` animates their lamps and instanced cars.
 A junction crosses **every street it meets, one-way or two-way**: `roadJunctionSides`

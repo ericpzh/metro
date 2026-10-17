@@ -26,7 +26,10 @@ export class RoadTraffic {
     for(let i=0;i<this.network.edges.length && this.cars.length<ROAD_TRAFFIC_CAPACITY;i++) {
       const e=this.network.edges[i]
       if(e.junction>=0) continue
-      for(let d=ROAD_TRAFFIC_SPACING/2;d<e.length-5 && this.cars.length<ROAD_TRAFFIC_CAPACITY;d+=ROAD_TRAFFIC_SPACING) {
+      // Stagger cars across the lanes of one road so multi-lane traffic does not
+      // line up in lockstep on every lane.
+      const laneOffset=e.lane*2
+      for(let d=ROAD_TRAFFIC_SPACING/2+laneOffset;d<e.length-5 && this.cars.length<ROAD_TRAFFIC_CAPACITY;d+=ROAD_TRAFFIC_SPACING) {
         const c=this.car(i,d)
         if(roadHash(`${this.seed}:spawn:${c.id}`)%100<ROAD_TRAFFIC_DENSITY*100) this.cars.push(c)
       }
@@ -91,7 +94,14 @@ export class RoadTraffic {
     }
     this.cars=this.cars.filter(c=>!dead.has(c))
     // Spawns occur at network boundaries only; interior road seams never emit cars.
-    if(this.tick%Math.round(ROAD_TRAFFIC_SPACING/(ROAD_TRAFFIC_SPEED*ROAD_STEP)/ROAD_TRAFFIC_DENSITY)===0) for(const entry of this.network.entries) {
+    const period=Math.round(ROAD_TRAFFIC_SPACING/(ROAD_TRAFFIC_SPEED*ROAD_STEP)/ROAD_TRAFFIC_DENSITY)
+    const entryCount=Math.max(1,this.network.entries.length)
+    const stagger=Math.max(1,Math.floor(period/entryCount))
+    for(let ei=0;ei<this.network.entries.length;ei++) {
+      const entry=this.network.entries[ei]
+      // Each boundary lane gets its own phase so cars on a multi-lane road do
+      // not all appear on the same tick.
+      if(this.tick%period!==(ei*stagger)%period) continue
       if(this.cars.length>=ROAD_TRAFFIC_CAPACITY) break
       const e=edges[entry],c=this.car(entry,5)
       if(e.length<c.size || this.cars.some(a=>a.edge===entry && a.distance<(a.size+c.size)/2+ROAD_FOLLOW_GAP+5)) continue

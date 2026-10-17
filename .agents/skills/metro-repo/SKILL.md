@@ -125,7 +125,7 @@ own directed connectors, network topology and traffic. Rendering and generated
 intersection markings/lights belong to `render/models/pieces/RoadModel.ts` and
 `render/scene/systems/RoadTrafficSystem.ts`; the 交通灯 decor keeps its own model
 and palette placement. Seeded ambient traffic uses cars, buses and scooters at
-50% of the original slot density; vehicle opacity matches the passenger crowd.
+50% of the original slot density; multi-lane spawns are staggered across lanes, and vehicle opacity matches the passenger crowd.
 Route implementation to `metro-game`; pin graph/gesture behavior in
 `metro-game-test`'s `road-document` and network/traffic rules in `road-network`.
 `npm run check:roads` exercises production input in both locales.
