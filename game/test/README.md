@@ -153,7 +153,9 @@ closure rays, extended cab-side paint, and exact carriage/cab paint-edge joins,
 enclosed gangway side/roof ray hits, a shared cab/car crown,
 dedicated car shells, mixed seating, door counts and independent plug-door
 banks. `stock` pins the D dimensions, eight-car capacities and mirrored 3/4-door
-layout; `trains` checks L and D screen alignment in both directions at all rotations.
+layout; `trains` checks L and D screen alignment in both directions at all rotations,
+and that a consist runs its whole connected rail, in from beyond the entrance tunnel
+and out through the far end.
 
 Run `npm run test:perf` from the repository root for renderer, stair/roof input,
 equipment picking, passenger binary/pose and placement/worker/crowd/frame/sign
@@ -242,7 +244,10 @@ also close without a clearance slit; rays through exposed PSD ends must not
 hit duplicate faces, and moving leaf fittings retain their full geometry.
 
 `trains` checks stopped train centres and every screen-door opening in all four
-track rotations and both directions, using the four-car, 68 m Line 6 layout.
+track rotations and both directions, using the four-car, 68 m Line 6 layout. It
+also grows a tunnel off each end of a platform rail and pins the run: the consist
+is drawn in from beyond the entrance tunnel's outer end and out until its tail
+clears the far (exit) tunnel end, and only ever runs forward.
 
 `render-performance` checks static module batching preserves transformed bounds,
 triangle counts, ray picking and buffer disposal, keeps animated/shared/transparent

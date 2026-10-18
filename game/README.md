@@ -219,6 +219,10 @@ ceiling block; placement reserves the same height the model draws.
 `test/trains.test.mjs` checks stopped train and screen-door alignment in all four
 track rotations, including Tanwei's four-car Line 6 berth. Train anchors rotate
 about the first track cell's centre so turned tracks keep the same door alignment.
+It also pins the run: a consist is drawn in from beyond the entrance end of its
+**connected rail** — its platform track plus any collinear, bed-sharing 隧道 /
+轨道桥 grown off it — and leaves only once its tail clears the far end, so it
+runs right through a built tunnel or bridge instead of vanishing beside the platform.
 
 Stairs and escalators carry passengers single-file on narrow runs and in two
 spaced columns on wide runs. Wide escalators serve twice the narrow rate.
@@ -2565,7 +2569,8 @@ approximated); neither needs WebGL.
   rebuild it thinks is unchanged).
 * `trains.test.mjs` — a dispatched train gets a pose on the track beside its platform edge,
   a stop is a fixed berth/open/dwell/close/hold/depart sequence, the pose is deterministic,
-  the door-side mask follows the berth's screen doors (the platform side only, both banks on an
+  a consist runs its whole connected rail (in from beyond the entrance tunnel, out through
+  the far end), the door-side mask follows the berth's screen doors (the platform side only, both banks on an
   island, neither on a rail with no platform beside it), and every screen door stands on a car door
   with no car door left without one (the rolling-stock render path).
 * `stock.test.mjs` — the rolling-stock classes (§6.1): every classified car has a table row,

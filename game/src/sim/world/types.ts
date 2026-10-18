@@ -111,6 +111,16 @@ export interface LineAnchor {
    * the train never opens onto the tunnel wall. Zero means no doors at all.
    */
   doorSides: number
+  /**
+   * How far the berth is from each end of the **connected rail** — the
+   * collinear, touching runs of this line (its platform track plus any
+   * 隧道 / 轨道桥 grown off it), metres along the run axis. The consist runs in
+   * from beyond `approachRun` and runs out through `departRun`, so a connected
+   * tunnel or bridge is traversed end to end instead of the train vanishing a
+   * fixed 25 m past the platform. Both are at least the berth's own half-run.
+   */
+  approachRun: number
+  departRun: number
 }
 
 export interface DynamicSnapshot {

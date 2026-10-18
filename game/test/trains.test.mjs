@@ -4,8 +4,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
-import { defaultLine, placeRail, placeTrack } from '../src/build/rail.ts'
-import { doorCentres, doorRunOffsets } from '../src/sim/stock.ts'
+import { defaultLine, placeRail, placeTrack, placeTunnel } from '../src/build/rail.ts'
+import { STOCK, doorCentres, doorRunOffsets } from '../src/sim/stock.ts'
 import { rotateLocal, trackCentre } from '../src/sim/track.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { TRAIN_DOOR_TRAVEL, TRAIN_DWELL } from '../src/sim/constants.ts'
@@ -194,4 +194,57 @@ test('the rolling-stock pose is deterministic', () => {
     b.tickOnce()
   }
   assert.deepEqual([...a.trainRenderState()], [...b.trainRenderState()])
+})
+
+test('a consist runs the whole connected rail — in from beyond the entrance tunnel, out through the far end', () => {
+  // A platform rail with a tunnel grown off each end. The old choreography ran a
+  // fixed `consist/2 + 25 m`, so a consist vanished beside the platform however
+  // long the connected tunnel was. Now the run is measured from the berth to the
+  // far end of the collinear, bed-sharing chain (§6), so the consist has to draw
+  // right through the built tunnel before it leaves the world.
+  const cars = 4
+  const line = { ...defaultLine('1', 'up', 'third-rail'), cars }
+  const w = 40
+  const len = 30
+  const cells = []
+  for (let x = -len; x < w + len; x++) for (let y = 0; y < 2; y++) cells.push({ x, y, z: 0, fill: 'solid', finish: { top: 'floor.granite' } })
+  const s0 = { ...station(cells), lines: [line] }
+  const withPlatform = placeTrack(s0, { lineId: '1', dir: 'up', power: 'third-rail', rot: 0, x: 0, y: 0, z: 0, w, d: 1 })
+  const platform = withPlatform.modules.find((m) => m.type === 'track')
+  let s = placeTunnel(withPlatform, platform.id, len, [-1, 0, 0])
+  s = placeTunnel(s, platform.id, len, [w, 0, 0])
+  const tunnels = s.modules.filter((m) => m.type === 'track' && m.cfg.tunnel)
+  assert.equal(tunnels.length, 2, 'a tunnel run grown off each end of the platform rail')
+  // rot 0, so the near (entrance) end is the smaller x and the far (exit) end the larger.
+  const entranceEnd = Math.min(...tunnels.map((m) => m.x))
+  const exitEnd = Math.max(...tunnels.map((m) => m.x + m.w))
+  const half = (STOCK.B.length * cars) / 2
+
+  const w1 = new World(s, 99)
+  const samples = []
+  for (let i = 0; i < 80; i++) {
+    w1.tickOnce()
+    const train = w1.trains[0]
+    const pose = w1.trainRenderState()
+    if (train && pose.length) samples.push({ state: train.state, t: train.t, x: pose[0], dir: pose[7] })
+  }
+  const firstApproach = samples.find((p) => p.state === 'approach')
+  const lastDepart = [...samples].reverse().find((p) => p.state === 'depart')
+  assert.equal(firstApproach?.dir, 1)
+  assert.equal(lastDepart?.dir, 1)
+  // The first drawn frame of the approach puts the consist's nose on the far
+  // (outer) end of the entrance tunnel — it is already emerging from the bore.
+  assert.ok(Math.abs(firstApproach.x + half - entranceEnd) < 0.6,
+    `approach nose ${(firstApproach.x + half).toFixed(1)} must start at the entrance tunnel end ${entranceEnd}`)
+  // The last drawn frame of the departure puts the consist's tail on the outer
+  // end of the exit tunnel — the whole consist has run the connected rail.
+  assert.ok(Math.abs(lastDepart.x - half - exitEnd) < 0.6,
+    `depart tail ${(lastDepart.x - half).toFixed(1)} must clear through the exit tunnel end ${exitEnd}`)
+  // And the departure only ever runs forward, off the berth and out.
+  const depart = samples.filter((p) => p.state === 'depart')
+  const berth = trackCentre(platform)[0]
+  assert.ok(Math.abs(depart[0].x - berth) < 0.6, 'the departure starts on the berth')
+  for (let i = 1; i < depart.length; i++) {
+    assert.ok(depart[i].x - depart[i - 1].x > 0.5, 'the departure only runs forward')
+  }
 })

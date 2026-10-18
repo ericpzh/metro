@@ -66,7 +66,7 @@ import { liftDoorDir, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { History } from '../history.ts'
-import { rotateLocal, trackFacing, trackTrainCentreV, type TrackModule } from '../track.ts'
+import { normRot, rotateLocal, trackFacing, trackSide, trackTrainCentreV, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
 
@@ -82,6 +82,19 @@ const STATE_LEAVING = 8
 
 const ARRIVE = 0.35
 const SIM_DT = SIM_SECONDS_PER_TICK
+/**
+ * How much further than an end of the rail a consist must be *aimed* so that the
+ * frame the player sees lands there. The choreography advances on the tick it
+ * reaches a phase's length, so a stop's approach and departure are drawn at
+ * `1/S … (S−1)/S` of the phase — the `p = 0` (approach) and `p = 1` (depart)
+ * frames never render, and the extreme drawn frame is only `((S−1)/S)²` of the
+ * aimed distance. Dividing by that reciprocal keeps the drawn run on the
+ * connected rail instead of a frame the sim never draws.
+ */
+function drawnRunScale(phaseSeconds: number): number {
+  const s = phaseSeconds / SIM_DT
+  return s > 1 ? (s / (s - 1)) ** 2 : 1
+}
 /**
  * How many previewed route-leg tails are memoised before the whole memo is
  * dropped (see `World.routeTails`). A trip has a handful of legs and only one
@@ -1169,9 +1182,61 @@ export class World {
           else if (!m.cfg.from && m.cfg.dir === trackDir) dirSides |= bit
         }
         if (doorSides === 0) doorSides = dirSides
-        this.lineAnchors.set(trainKey(line.id, track.id), { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides })
+        // The consist runs the whole connected rail: it comes in from beyond the
+        // entrance end and leaves through the far one, so a built tunnel / bridge
+        // is traversed end to end.
+        const run = this.connectedRun(track)
+        const approachRun = dirSign >= 0 ? run.back : run.fwd
+        const departRun = dirSign >= 0 ? run.fwd : run.back
+        this.lineAnchors.set(trainKey(line.id, track.id), { x, y, z, fx, fy, yaw: Math.atan2(fy, fx), dirSign, cars: line.cars, stock: line.stock, colour, doorSides, approachRun, departRun })
       }
     }
+  }
+
+  /**
+   * How far the berth sits from each end of the rail the consist can actually
+   * run on: the collinear, bed-sharing runs of the same line — the platform
+   * track and every 隧道 / 轨道桥 grown off it — merged into one chain. The old
+   * choreography ran only `consist + 25 m`, so a consist vanished beside the
+   * platform however long the connected tunnel or bridge was; these ends let
+   * `trainAt` run it in from beyond the entrance portal and out through the
+   * far one.
+   *
+   * `back`/`fwd` are metres along the track's local +x, both measured from the
+   * berth (the bed centre, which sits half a cell in from the origin corner).
+   */
+  private connectedRun(track: TrackModule): { back: number; fwd: number } {
+    const rot = normRot(track.rot)
+    const [fx, fy] = trackFacing(rot)
+    const [sx, sy] = trackSide(rot)
+    const d0 = track.d ?? 1
+    const centre = track.w / 2
+    // The run-axis spans (cell units from this track's origin) of every rail that
+    // shares the bed: same line, storey and axis, with an across-span that
+    // overlaps this one's. Its own span is the seed of the chain.
+    const spans: Array<[number, number]> = []
+    for (const m of this.data.modules) {
+      if (m.type !== 'track' || m.cfg.line !== track.cfg.line || m.z !== track.z) continue
+      if (normRot(m.rot) !== rot) continue
+      const dx = m.x - track.x
+      const dy = m.y - track.y
+      const across = dx * sx + dy * sy
+      if (across >= d0 || across + (m.d ?? 1) <= 0) continue
+      const u = dx * fx + dy * fy
+      spans.push([u, u + m.w])
+    }
+    spans.sort((a, b) => a[0] - b[0])
+    // Grow the chain over every span that touches it; sorted by start, a run that
+    // only meets the far end after the chain grew is reached on its own turn. A
+    // gap (a separate track with no rail between) is left out.
+    let lo = 0
+    let hi = track.w
+    for (const [u0, u1] of spans) {
+      if (u0 > hi || u1 < lo) continue
+      lo = Math.min(lo, u0)
+      hi = Math.max(hi, u1)
+    }
+    return { back: centre - lo, fwd: hi - centre }
   }
 
   /**
@@ -1196,16 +1261,20 @@ export class World {
   private trainAt(train: Train, out: TrainAt): TrainAt | null {
     const a = this.trainAnchor(train)
     if (!a) return null
-    const reach = (STOCK[a.stock].length * a.cars) / 2 + 25
+    const half = (STOCK[a.stock].length * a.cars) / 2
     let offset = 0
     if (train.state === 'approach') {
-      // Ease out: fast down the tunnel, slowing to a stop at the mark.
+      // Ease out: fast down the tunnel, slowing to a stop at the mark. The
+      // consist starts beyond the entrance end of its connected rail, so it
+      // emerges from the tunnel / off the bridge rather than popping into being
+      // over the platform.
       const p = Math.min(1, train.t / TRAIN_APPROACH_S)
-      offset = -(1 - p) * (1 - p) * reach * a.dirSign
+      offset = -(1 - p) * (1 - p) * (half + a.approachRun) * drawnRunScale(TRAIN_APPROACH_S) * a.dirSign
     } else if (train.state === 'depart') {
-      // Ease in: pull away gently, then run up to speed.
+      // Ease in: pull away gently, then run up to speed, only leaving the world
+      // once the tail is out through the far end of the connected rail.
       const p = Math.min(1, train.t / TRAIN_DEPART_S)
-      offset = p * p * reach * a.dirSign
+      offset = p * p * (half + a.departRun) * drawnRunScale(TRAIN_DEPART_S) * a.dirSign
     }
     out.x = a.x + offset * a.fx
     out.y = a.y + offset * a.fy
