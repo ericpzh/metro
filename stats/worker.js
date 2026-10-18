@@ -17,6 +17,10 @@
  *
  * Requires a D1 binding named STATS_DB. Without it every endpoint returns 503.
  *
+ * Only `/v1/submit` is gated: it accepts a POST from our own origin (or a
+ * same-origin fetch that omits `Origin`), and refuses everything else with 403.
+ * The page and the reads stay public. See `submitAllowed` below.
+ *
  * Collected totals:
  *   - stations            distinct (client_id, station_name)
  *   - passengers_boarded  已上车
@@ -50,6 +54,24 @@ function corsHeaders(request) {
   }
   if (allowed) headers['Access-Control-Allow-Origin'] = origin
   return headers
+}
+
+/**
+ * The write gate for `/v1/submit`: only our own pages may POST a delta.
+ *
+ * Browsers set `Origin` on a POST and a page cannot forge it, so a foreign site
+ * and a bare script (which sends no `Origin` and no fetch metadata) are both
+ * refused. When a browser omits `Origin` on a same-origin POST,
+ * `Sec-Fetch-Site: same-origin` is the accepted fallback.
+ *
+ * This is defence in depth, not identity: a non-browser client can send either
+ * header by hand. It blocks the casual caller; the authoritative block is a
+ * Cloudflare Access policy on the write path. The page and the reads stay public.
+ */
+function submitAllowed(request) {
+  const origin = request.headers.get('Origin')
+  if (origin) return ALLOWED_ORIGINS.has(origin) || LOCAL_ORIGIN.test(origin)
+  return request.headers.get('Sec-Fetch-Site') === 'same-origin'
 }
 
 function json(data, init = {}) {
@@ -230,6 +252,9 @@ export default {
       if (route === '/v1/submit') {
         if (request.method !== 'POST') {
           return json({ ok: false, error: 'method not allowed' }, { status: 405, headers: { Allow: 'POST', ...cors } })
+        }
+        if (!submitAllowed(request)) {
+          return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
         }
 
         const text = await request.text()

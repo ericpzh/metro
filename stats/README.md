@@ -198,6 +198,21 @@ shape as the totals endpoint. `station.name` is the station's identity together
 with `clientId`; when it is empty, a station `hash` is used, then `"unnamed"`.
 No layout is stored.
 
+The write endpoint is **origin-gated**: only `https://stationdesigner.com` (and
+`localhost` / `127.0.0.1` for the dev flow) may POST. Any other `Origin`, and any
+request that carries neither `Origin` nor `Sec-Fetch-Site: same-origin` — a bare
+script or `curl` — is refused with `403 { "ok": false, "error": "forbidden" }`
+before it touches the database. The page and the `GET` endpoints stay public, so
+the totals page and the game keep working unchanged.
+
+This is defence in depth, not identity: `Origin` and `Sec-Fetch-Site` are
+browser-set headers that any non-browser client can forge, so the gate stops the
+casual caller rather than a determined one. The authoritative block is a
+Cloudflare Access policy scoped to `/stats/api/v1/submit` (a policy on all of
+`/stats/api/*` would also gate the totals the public page fetches). Once that
+policy exists, the Worker gate is the layer that keeps working for callers
+reaching the `workers.dev` host directly, which Access does not cover.
+
 ### `GET /stats/api/v1/health`
 
 ```json

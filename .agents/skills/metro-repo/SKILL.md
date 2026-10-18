@@ -461,6 +461,10 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   `wrangler dev --env dev`; `npm run deploy:stats` applies `stats/schema.sql` to
   the remote database, deploys the top level and verifies the live health/totals
   endpoints. The page and API are the same Worker; there is no stats build.
+  Only `/stats/api/v1/submit` is origin-gated — the game's own origin (and
+  localhost for the dev flow), or a same-origin fetch with no `Origin`; every
+  other caller gets 403 before the database is touched. The page and the `GET`
+  reads stay public, so the totals page and the game keep working unchanged.
   Workers Builds must use `npm run deploy:stats:ci` (the auto build token has no
   D1 permission) and `npm run version:stats`; `npm run dev:stats` is a
   long-running server, never a version/preview command.

@@ -296,6 +296,85 @@ test('OPTIONS preflight is answered before any database work', async () => {
   assert.equal(response.headers.get('access-control-allow-origin'), ORIGIN)
 })
 
+test('submit refuses a foreign origin and a bare non-browser POST', async () => {
+  const payload = {
+    clientId: CLIENT,
+    submitId: SUBMIT,
+    station: { name: 'Test Junction' },
+    delta: { boarded: 1 },
+  }
+
+  const foreignDb = fakeDb()
+  const foreign = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: 'https://example.com' },
+    body: JSON.stringify(payload),
+  }), { STATS_DB: foreignDb })
+  assert.equal(foreign.status, 403)
+  assert.equal((await foreign.json()).error, 'forbidden')
+  assert.equal(foreignDb.statements.length, 0, 'a refused submit never reaches the database')
+
+  // A script sends no Origin and no fetch metadata: the same refusal.
+  const scriptDb = fakeDb()
+  const script = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  }), { STATS_DB: scriptDb })
+  assert.equal(script.status, 403)
+  assert.equal(scriptDb.statements.length, 0)
+})
+
+test('submit accepts our own origin and the dev localhost origin', async () => {
+  const payload = {
+    clientId: CLIENT,
+    submitId: SUBMIT,
+    station: { name: 'Test Junction' },
+    delta: { boarded: 1 },
+  }
+
+  const own = await worker.fetch(jsonPost('/stats/api/v1/submit', payload), { STATS_DB: fakeDb() })
+  assert.equal(own.status, 200)
+
+  const local = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: 'http://localhost:5174' },
+    body: JSON.stringify(payload),
+  }), { STATS_DB: fakeDb() })
+  assert.equal(local.status, 200)
+})
+
+test('submit accepts a same-origin POST that omits Origin', async () => {
+  const response = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'Sec-Fetch-Site': 'same-origin' },
+    body: JSON.stringify({
+      clientId: CLIENT,
+      submitId: SUBMIT,
+      station: { name: 'Test Junction' },
+      delta: { boarded: 1 },
+    }),
+  }), { STATS_DB: fakeDb() })
+  assert.equal(response.status, 200)
+})
+
+test('the page and the read endpoints are not gated', async () => {
+  const env = { STATS_DB: fakeDb() }
+  const foreign = { headers: { Origin: 'https://example.com' } }
+
+  const page = await worker.fetch(request('/stats/', foreign), env)
+  assert.equal(page.status, 200)
+
+  const english = await worker.fetch(request('/stats/en/', foreign), env)
+  assert.equal(english.status, 200)
+
+  const totals = await worker.fetch(request('/stats/api/v1/global', foreign), env)
+  assert.equal(totals.status, 200)
+
+  const health = await worker.fetch(request('/stats/api/v1/health', foreign), env)
+  assert.equal(health.status, 200)
+})
+
 test('wrong methods and unknown paths are 4xx, not 500s', async () => {
   const env = { STATS_DB: fakeDb() }
   const wrongMethod = await worker.fetch(request('/stats/api/v1/global', { method: 'POST' }), env)

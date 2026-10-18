@@ -9,7 +9,8 @@
 //   3. `wrangler deploy` the base (production) environment, which attaches the
 //      `stationdesigner.com/stats` and `/stats/*` routes.
 //   4. Poll the live `/stats/api/v1/health` endpoint until the new version is
-//      serving, then check the page and the totals endpoint.
+//      serving, then check the page, the totals endpoint and the write gate
+//      (a foreign origin and a bare script must both get 403).
 //
 // The local preview (`npm run dev:stats`) uses the `dev` environment and a
 // local D1 database; it never touches this deployment.
@@ -125,9 +126,33 @@ try {
     throw new Error(`/stats/api/v1/global check failed: HTTP ${totals.status} ${JSON.stringify(body)}`)
   }
 
+  // The write gate: a foreign origin and a bare script must both be refused
+  // before the handler ever reads a body.
+  const writeBody = JSON.stringify({
+    clientId: '00000000-0000-4000-8000-000000000000',
+    submitId: '00000000-0000-4000-8000-000000000001',
+  })
+  const foreignWrite = await get('/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: 'https://example.com' },
+    body: writeBody,
+  })
+  if (foreignWrite.status !== 403) {
+    throw new Error(`foreign-origin /api/v1/submit should 403, got ${foreignWrite.status}`)
+  }
+  const scriptWrite = await get('/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: writeBody,
+  })
+  if (scriptWrite.status !== 403) {
+    throw new Error(`origin-less /api/v1/submit should 403, got ${scriptWrite.status}`)
+  }
+
   console.log('\n[stats] deployed and verified')
   console.log(`  page   ${base}/`)
   console.log(`  api    ${base}/api/v1/global`)
+  console.log(`  gate   ${base}/api/v1/submit → 403 for foreign origins and scripts`)
   console.log(`  totals ${body.stations} stations · ${body.passengersBoarded} boarded · ${body.trainArrivals} train arrivals`)
 } catch (error) {
   console.error(`\n[stats] deployment verification failed: ${error.message}`)
