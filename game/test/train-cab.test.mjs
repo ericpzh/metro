@@ -133,7 +133,7 @@ test('cab headlights keep smooth circular lenses in High and Low',()=>withKit(ma
 test('A/B/C/L passenger sides, lower skirts and roofs meet both cab cuts with the same cross-section in High and Low',()=>withKit(mats=>{
  for(const stock of ['A','B','C','L']){
   const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:2,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
-  const skins=root.children.filter(p=>['cab-shell','cab-face-paint','cab-trim-paint','car-roof','car-side-skin'].includes(p.name))
+  const skins=root.children.filter(p=>['cab-shell','cab-face-paint','cab-livery-paint','car-roof','car-side-skin'].includes(p.name))
   const original=new Map(skins.map(p=>[p,p.geometry]))
   try{
    for(const low of [false,true]){
@@ -154,6 +154,19 @@ test('A/B/C/L passenger sides, lower skirts and roofs meet both cab cuts with th
     assert.ok(box.max.z<new THREE.Box3().setFromObject(door).min.z,'lights clear the evacuation door')
    }
   }finally{for(const [part,geometry]of original)part.geometry=geometry;disposeObject(root)}
+ }
+}))
+
+test('A/B/C/L front lower paint uses the consist line colour at both cab ends',()=>withKit(mats=>{
+ for(const stock of ['A','B','C','L']){
+  const colour='#287db2'
+  const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:2,doorsOpen:false,colour,dirSign:1,yaw:0})
+  try{
+   const expected=new THREE.Color(colour)
+   const bands=root.children.filter(p=>p.name==='cab-livery-paint')
+   assert.equal(bands.length,2,`${stock} has a line-coloured band on each cab`)
+   for(const band of bands)assert.ok(band.material.color.equals(expected),`${stock} front strip matches ${colour}`)
+  }finally{disposeObject(root)}
  }
 }))
 

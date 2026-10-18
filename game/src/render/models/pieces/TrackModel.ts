@@ -85,7 +85,8 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // rails, or an overhead wire hung over them. Both are drawn for every piece
   // bound to the line, platform and tunnel alike, so a power switch re-cuts all
   // of them when the module meshes are rebuilt. The conductor rail sits on the
-  // travel left, or off the platform side at a station (see `thirdRailSide`).
+  // travel right in tunnels/bridges, or off the platform side at a station
+  // (see `thirdRailSide`).
   if (mod.cfg.power === 'catenary') buildTrackCatenary(g, mats, mod)
   else buildThirdRail(g, mats, mod.w, cx, cy, thirdRail)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.

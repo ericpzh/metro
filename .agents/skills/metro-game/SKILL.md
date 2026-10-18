@@ -764,11 +764,12 @@ the four rules most changes trip over.
   (`TRACK_RUN_LENGTHS` 4/16/32/64/128, `track-run-length.test.mjs`). The placement ghost draws the run's 上行/下行
   direction as arrows (`buildTrack`; Tab toggles it in platform mode), a tunnel inherits
   its source's direction, and `computeLineAnchors` reads the train's travel sign from
-  `cfg.dir`. A 第三轨 conductor rail sits on the travel left in the local frame —
-  local +y for 上行, local −y for 下行, whatever the quarter-turn — except a platform
-  rail with screens on exactly one side, which takes the side with no 屏蔽门 so the
-  live rail stays off the platform (tunnel/bridge always keep the travel left, even
-  past a platform; both sides or neither side fall back to it). `thirdRailSide`
+  `cfg.dir`. A 第三轨 conductor rail sits on the travel right in tunnels and bridges —
+  local −y for 上行, local +y for 下行, whatever the quarter-turn. A platform rail
+  with screens on exactly one side takes the side with no 屏蔽门 so the live rail
+  stays off the platform; both sides or neither side fall back to the travel left
+  (local +y for 上行, local −y for 下行). Tunnel/bridge placement ignores adjacent
+  screens. `thirdRailSide`
   (`sim/track.ts`) is the one side source the `TrackModel` draws from, counting only
   the rail's own edges (`cfg.from`, plus legacy direction-matched edges); keep it and
   `game/test/track-third-rail.test.mjs` aligned when changing 供电 models, edge
@@ -851,7 +852,8 @@ the four rules most changes trip over.
 * **Both ends of a train are cabs, and the doors follow the screens.** A/B/C/L `buildTrain`
   (`render/models/`) re-skins the last 2 m of each end car through `buildCab` — the dark face
   mask, centre windscreen and crew-door windows, the 广州地铁 mark (`drawMetroMark`, shared with
-  the exit banner), twin round lamp clusters and corner marker bars, the cream bumper band, the
+  the exit banner), twin round lamp clusters and corner marker bars, the line-coloured front
+  lower band, the
   number plates and the coupler — so the body stays exactly `cars × carLength` long, the cab
   stops short of the car's first passenger door, and only the coupler hangs past the nose. D
   uses `DTrainShell.ts` and `StreamlinedCab.ts`: its rounded shared car/head cross-section, swept

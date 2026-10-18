@@ -1,4 +1,4 @@
-// 第三轨 side: travel left, off the platform side at a station (§5.4).
+// 第三轨 side: travel right in tunnels/bridges, off the platform side at a station (§5.4).
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -27,12 +27,12 @@ const { buildModule, createModelMaterials } = await import('../src/render/models
 const track = (cfg, rot = 0) => ({ id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot, cfg: { line: '5', power: 'third-rail', dir: 'up', ...cfg } })
 const edge = (side, from = 'track-1', dir = 'up') => ({ id: `edge-${side}-${from}`, type: 'platform-edge', x: 4, y: 4, z: 0, w: 8, rot: 0, cfg: { name: '站台门', line: '5', dir, side, psd: 'full', from } })
 
-test('tunnel and bridge keep the travel left whatever screens exist', () => {
+test('tunnel and bridge keep the travel right whatever screens exist', () => {
   const both = [edge('left'), edge('right')]
-  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'up' }), both), 1, 'tunnel up is local +y (facing +x, left is +y)')
-  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'down' }), both), -1, 'tunnel down is local −y (facing −x, left is −y)')
-  assert.equal(thirdRailSide(track({ bridge: true, dir: 'up' }), both), 1, 'bridge up is local +y')
-  assert.equal(thirdRailSide(track({ bridge: true, dir: 'down' }), both), -1, 'bridge down is local −y')
+  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'up' }), both), -1, 'tunnel up is local −y (facing +x, right is −y)')
+  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'down' }), both), 1, 'tunnel down is local +y (facing −x, right is +y)')
+  assert.equal(thirdRailSide(track({ bridge: true, dir: 'up' }), both), -1, 'bridge up is local −y')
+  assert.equal(thirdRailSide(track({ bridge: true, dir: 'down' }), both), 1, 'bridge down is local +y')
 })
 
 test('platform rail without screens falls back to the travel left', () => {
@@ -66,8 +66,8 @@ test('only the rail’s own screens count, including legacy direction-matched ed
 
 test('the side is local, so rotation never moves it, and an unset dir falls back to the line', () => {
   for (const rot of [0, 1, 2, 3]) {
-    assert.equal(thirdRailSide(track({ dir: 'up', tunnel: true }, rot), []), 1, `tunnel up stays local +y at rot ${rot}`)
-    assert.equal(thirdRailSide(track({ dir: 'down', tunnel: true }, rot), []), -1, `tunnel down stays local −y at rot ${rot}`)
+    assert.equal(thirdRailSide(track({ dir: 'up', tunnel: true }, rot), []), -1, `tunnel up stays local −y at rot ${rot}`)
+    assert.equal(thirdRailSide(track({ dir: 'down', tunnel: true }, rot), []), 1, `tunnel down stays local +y at rot ${rot}`)
     assert.equal(thirdRailSide(track({ dir: 'up' }, rot), [edge('left')]), -1, `platform up with a +y platform stays −y at rot ${rot}`)
   }
   const noDir = { id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '5', power: 'third-rail' } }
@@ -75,9 +75,9 @@ test('the side is local, so rotation never moves it, and an unset dir falls back
   assert.equal(thirdRailSide(noDir, []), 1, 'with no line direction either, up is the default')
 })
 
-test('a tunnel ignores even a single-sided screen', () => {
-  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'up' }), [edge('left')]), 1, 'tunnel up keeps +y past a +y platform')
-  assert.equal(thirdRailSide(track({ bridge: true, dir: 'down' }), [edge('right')]), -1, 'bridge down keeps −y past a −y platform')
+test('a tunnel and bridge ignore even a single-sided screen', () => {
+  assert.equal(thirdRailSide(track({ tunnel: true, dir: 'up' }), [edge('left')]), -1, 'tunnel up keeps right on −y past a +y platform')
+  assert.equal(thirdRailSide(track({ bridge: true, dir: 'down' }), [edge('right')]), 1, 'bridge down keeps right on +y past a −y platform')
 })
 
 const LINE = { id: '5', name: '5号线', colour: '#c8102e', stock: 'B', cars: 6, power: 'third-rail', psd: 'full', headwayProfile: { peak: 150, offpeak: 240, late: 480 }, alightPerTrain: 420, terminus: 'through', direction: 'up', upTerminus: '', downTerminus: '', travelSign: 1, stations: [] }
@@ -104,11 +104,11 @@ function thirdRailMeanY(mod, modules) {
 test('the drawn conductor rail follows the same side', () => {
   const up = track({ dir: 'up' })
   let r = thirdRailMeanY(up, [up])
-  assert.ok(r.mean > r.cy, 'up with no screens draws on local +y')
+  assert.ok(r.mean > r.cy, 'platform up with no screens keeps the travel-left fallback on local +y')
 
   const down = track({ dir: 'down' })
   r = thirdRailMeanY(down, [down])
-  assert.ok(r.mean < r.cy, 'down with no screens draws on local −y')
+  assert.ok(r.mean < r.cy, 'platform down with no screens keeps the travel-left fallback on local −y')
 
   const upLeft = track({ dir: 'up' })
   r = thirdRailMeanY(upLeft, [upLeft, edge('left')])
@@ -116,11 +116,11 @@ test('the drawn conductor rail follows the same side', () => {
 
   const tunnelUp = track({ dir: 'up', tunnel: true })
   r = thirdRailMeanY(tunnelUp, [tunnelUp, edge('left')])
-  assert.ok(r.mean > r.cy, 'a tunnel keeps the travel left even past a platform')
+  assert.ok(r.mean < r.cy, 'a tunnel keeps the travel right even past a platform')
 
   const bridgeDown = track({ dir: 'down', bridge: true })
   r = thirdRailMeanY(bridgeDown, [bridgeDown, edge('right')])
-  assert.ok(r.mean < r.cy, 'a bridge keeps the travel left even past a platform')
+  assert.ok(r.mean > r.cy, 'a bridge keeps the travel right even past a platform')
 
   const islandUp = track({ dir: 'up' })
   r = thirdRailMeanY(islandUp, [islandUp, edge('left'), edge('right')])

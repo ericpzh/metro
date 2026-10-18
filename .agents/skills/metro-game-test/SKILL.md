@@ -291,15 +291,19 @@ move/rebuild, the preview/ghost keys, and the shared flat model's span — with
 `pick-tool` for the length/width/direction a pick arms).
 
 For the 第三轨, keep the side rule in the pure sim helper and pin each half where
-it lives: `thirdRailSide` (`sim/track.ts`) owns the verdict — travel left in the
-local frame (上行 +y, 下行 −y, at every `rot`), a tunnel/bridge always that left
-even past a platform, a platform rail on the side with no 屏蔽门 with both/neither
-sides falling back to the travel left, only the rail's own edges counting
+it lives: `thirdRailSide` (`sim/track.ts`) owns the verdict — travel right in a
+tunnel/bridge (local 上行 −y, 下行 +y, at every `rot`), regardless of nearby
+screens; a platform rail sits on the side with no 屏蔽门, with both/neither sides
+falling back to travel left (上行 +y, 下行 −y), only the rail's own edges counting
 (`cfg.from`, plus legacy direction-matched edges) and an unset `cfg.dir` falling
 back to the line direction — and `track-third-rail` pins the helper (tunnel/bridge
 both directions, no/one/both screens, other-rail and legacy edges, rotation and
 the line fallback) plus the drawn model through the real dispatcher (platform
 up/down, off-platform, tunnel/bridge past a platform, island fallback).
+
+For the A/B/C/L front livery, `train-cab` pins both `cab-livery-paint` sections
+to the consist colour at both ends; retain that material assignment while keeping
+the shared shell surface partition and High/Low geometry checks.
 
 For a wall mount, keep the aiming rules in the pure placement module
 (`wallMountStandCell` + `autofaceWallMount`) and pin each half where it lives:

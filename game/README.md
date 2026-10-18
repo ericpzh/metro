@@ -2842,7 +2842,7 @@ approximated); neither needs WebGL.
   station builds its bed from the same dig and its hand-authored edge
   matches what the derive would place.
 * `track-third-rail.test.mjs` — the 第三轨 side (§5.4): a tunnel or 轨道桥 keeps the travel
-  left (local +y for 上行, local −y for 下行); a platform rail takes the side with no
+  right (local −y for 上行, local +y for 下行); a platform rail takes the side with no
   屏蔽门 and only falls back to the travel left when both sides (or neither side) carry
   screens; only the rail's own edges count, including legacy direction-matched ones; the
   drawn conductor rail follows the same side.

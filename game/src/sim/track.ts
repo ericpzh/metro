@@ -166,12 +166,11 @@ export function edgeCells(m: PlatformEdgeModule): Array<[number, number, number]
  * Which side of the bed a track's 第三轨 sits on, as a local +y sign: +1 the
  * local +y edge, −1 the local −y edge (GAME-SPEC §5.4 track kit).
  *
- * A conductor rail runs on the left of the travel direction — the outer wall in
- * a bore — and jumps across before a station so it stays off the platform side.
- * `up` travels local +x, so its left is local +y; `down` travels local −x, so
- * its left is local −y. A tunnel or 轨道桥 keeps that left whatever the station
- * holds; a platform rail takes the side with no 屏蔽门, and only falls back to
- * the travel left when both sides (or neither side) carry screens.
+ * A conductor rail runs on the right of the travel direction in tunnels and
+ * on 轨道桥. `up` travels local +x, so its right is local −y; `down` travels
+ * local −x, so its right is local +y. A platform rail takes the side with no
+ * 屏蔽门, and only falls back to the travel left when both sides (or neither
+ * side) carry screens.
  */
 export function thirdRailSide(
   track: Pick<TrackModule, 'cfg'>,
@@ -180,7 +179,8 @@ export function thirdRailSide(
 ): 1 | -1 {
   const dir = track.cfg.dir ?? lineDir ?? 'up'
   const left: 1 | -1 = dir === 'down' ? -1 : 1
-  if (track.cfg.tunnel || track.cfg.bridge) return left
+  const right: 1 | -1 = dir === 'down' ? 1 : -1
+  if (track.cfg.tunnel || track.cfg.bridge) return right
   const trackId = (track as { id?: string }).id
   const line = track.cfg.line
   const relevant = edges.filter((e) => {

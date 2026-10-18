@@ -15,8 +15,8 @@ import { rakeCabFittings } from './CabRake.ts'
  * One cab end (车头), the assembly the reference photographs show: the silver
  * shell carried on to the nose, the dark face mask with the tall centre
  * windscreen and the two crew-door windows, the red 广州 mark, the twin lamp
- * clusters low at the corners, the marker bars high at the corners, the cream
- * bumper band and cheek swoosh, the number plates and the coupler hanging under
+ * clusters low at the corners, the marker bars high at the corners, the
+ * line-coloured bumper band, the number plates and the coupler hanging under
  * the nose.
  *
  * `nose` is the consist-local x of the end face and `outward` the sign that end
@@ -24,7 +24,7 @@ import { rakeCabFittings } from './CabRake.ts'
  * lamps: white head lamps on the end that leads, red tail lamps on the end that
  * trails. Both ends wear the same body.
  */
-export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: number, outward: number, head: boolean): void {
+export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: number, outward: number, head: boolean, livery: THREE.Material = mats.trainTrim): void {
   const firstPart = g.children.length
   const d = outward
   const lamp = head ? mats.headlight : mats.taillight
@@ -47,8 +47,8 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
 
   // Shell, roof cap and underframe continue the car's silhouette to the nose.
   const skins = cabSkinGeometry(s.width), lowSkins = cabSkinGeometry(s.width, 1)
-  const skinMaterials = [mats.trainBody, mats.trainDark, mats.trainTrim]
-  const names = ['cab-shell', 'cab-face-paint', 'cab-trim-paint']
+  const skinMaterials = [mats.trainBody, mats.trainDark, livery]
+  const names = ['cab-shell', 'cab-face-paint', 'cab-livery-paint']
   for (let i = 0; i < skins.length; i++) {
     const mesh = new THREE.Mesh(skins[i], skinMaterials[i])
     mesh.name = names[i]; mesh.rotation.z = d > 0 ? 0 : Math.PI

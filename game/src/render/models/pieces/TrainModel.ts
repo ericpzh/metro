@@ -315,8 +315,8 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     buildStreamlinedCab(g, mats, s, lead, leadOut, true, blue)
     buildStreamlinedCab(g, mats, s, -lead, -leadOut, false, blue)
   } else {
-    buildCab(g, mats, s, lead, leadOut, true)
-    buildCab(g, mats, s, -lead, -leadOut, false)
+    buildCab(g, mats, s, lead, leadOut, true, blue)
+    buildCab(g, mats, s, -lead, -leadOut, false, blue)
   }
   // The train keeps its own pose; the caller moves the group.
   g.position.set(pose.x, pose.y, pose.z)
