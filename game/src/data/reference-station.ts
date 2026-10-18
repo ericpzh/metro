@@ -3,7 +3,7 @@ import { msg } from '../sim/i18n.ts'
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
 // 2026-10-16 06:16Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
-// already the document the game builds when a player opens the file: 11,871
+// already the document the game builds when a player opens the file: 11,913
 // cells and 4,062 modules. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
 // two-level platform (up track at z = -16, down at z = -12) served by two lifts,
@@ -25,7 +25,7 @@ import { msg } from '../sim/i18n.ts'
 // 坦尾 (Tanwei) ships beside it as the second example, baked the same way from the
 // author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-10-16 06:06Z):
 // an elevated 5号线 / 6号线 interchange opening at street level (`levelBase` 1)
-// with 14,554 cells and 9,572 modules — eighty-one 楼梯, eight 扶梯, two lifts and
+// with 14,717 cells and 9,572 modules — eighty-one 楼梯, eight 扶梯, two lifts and
 // seven exits, over the author's own street pass of 6,252 人行道, 686 草坪, 68 树木,
 // seven 道路 and a 公交站. `demo.test.mjs` pins its authored counts and that opening
 // it repairs nothing.
