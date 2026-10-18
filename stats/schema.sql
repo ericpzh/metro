@@ -43,6 +43,34 @@ CREATE TABLE IF NOT EXISTS passenger_deltas (
   FOREIGN KEY (client_id) REFERENCES clients(client_id)
 );
 
+-- Abuse-only: one row per accepted submit, holding a **keyed hash** of the
+-- connection address (`HMAC-SHA256(ip, IP_HASH_SECRET)`), never the raw IP.
+-- This exists so a bad submission can be traced and cleaned up, and a repeat
+-- offender blocked. It is deliberately not part of the public totals and is not
+-- exposed by any read endpoint.
+--
+-- It is its own table, not a column on `passenger_deltas`, because this file is
+-- re-applied by every deploy and preview: D1 has no `ADD COLUMN IF NOT EXISTS`,
+-- so an added column would break the second run. `ip_hash` is nullable: a NULL
+-- row means the deploy had no `IP_HASH_SECRET` and hashing was skipped.
+CREATE TABLE IF NOT EXISTS submit_ips (
+  client_id  TEXT NOT NULL,
+  submit_id  TEXT NOT NULL,
+  ip_hash    TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (client_id, submit_id),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id)
+);
+
+-- The ban list. `expires_at` is optional: NULL is a permanent block. Populate by
+-- hand from a `submit_ips` lookup (see stats/README.md), never from the client.
+CREATE TABLE IF NOT EXISTS blocked_ips (
+  ip_hash    TEXT PRIMARY KEY,
+  reason     TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS global_counters (
   key   TEXT PRIMARY KEY,
   value REAL NOT NULL DEFAULT 0
@@ -79,3 +107,5 @@ END;
 CREATE INDEX IF NOT EXISTS idx_stations_client ON stations (client_id);
 CREATE INDEX IF NOT EXISTS idx_deltas_client ON passenger_deltas (client_id);
 CREATE INDEX IF NOT EXISTS idx_deltas_created ON passenger_deltas (created_at);
+CREATE INDEX IF NOT EXISTS idx_submit_ips_hash ON submit_ips (ip_hash);
+CREATE INDEX IF NOT EXISTS idx_submit_ips_client ON submit_ips (client_id);

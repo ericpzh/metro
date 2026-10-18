@@ -3,6 +3,12 @@
 Anonymous, aggregate-only totals from Station Designer: how many stations have
 been built and how many passengers have been served worldwide.
 
+The public numbers stay anonymous. The only thing retained about a submitter is a
+**keyed, irreversible hash of the connection address** (`HMAC-SHA256(ip,
+IP_HASH_SECRET)`) — never the raw IP — and it exists solely so a bad submission
+can be traced and cleaned up, or a repeat offender blocked. It is not exposed by
+any read endpoint. See [Abuse handling](#abuse-handling).
+
 The whole service is one Cloudflare Worker plus one D1 database. The Worker
 serves the totals page **and** the JSON API; D1 is the only persistence.
 
@@ -94,6 +100,11 @@ npm run deploy:stats
 3. deploys the top-level environment, attaching both routes;
 4. polls the live `/stats/api/v1/health`, then checks the page redirect, the
    page and `/stats/api/v1/global`.
+
+`IP_HASH_SECRET` is not applied by the script — set it once with
+`npx wrangler secret put IP_HASH_SECRET --config stats/wrangler.jsonc --env=`
+(see [Abuse handling](#abuse-handling)). The deploy prints the health
+`ipHash` state so an unset secret is visible rather than silent.
 
 The deployed database id is `045c02d3-c8cf-4ed5-87d1-16d749eb1734` in
 [`wrangler.jsonc`](wrangler.jsonc). If the database is ever recreated, replace
@@ -198,6 +209,11 @@ shape as the totals endpoint. `station.name` is the station's identity together
 with `clientId`; when it is empty, a station `hash` is used, then `"unnamed"`.
 No layout is stored.
 
+Each accepted submit also records `HMAC-SHA256(CF-Connecting-IP, IP_HASH_SECRET)`
+in `submit_ips` for abuse handling. The address itself is never stored, the client
+never sends it, and the hash is not reversible without the secret. With no secret
+configured the column is `NULL` and no ban can match.
+
 The write endpoint is **origin-gated**: only `https://stationdesigner.com` (and
 `localhost` / `127.0.0.1` for the dev flow) may POST. Any other `Origin`, and any
 request that carries neither `Origin` nor `Sec-Fetch-Site: same-origin` — a bare
@@ -216,22 +232,31 @@ reaching the `workers.dev` host directly, which Access does not cover.
 ### `GET /stats/api/v1/health`
 
 ```json
-{ "ok": true, "environment": "production", "database": "bound", "schema": "ready", "now": "..." }
+{ "ok": true, "environment": "production", "database": "bound", "schema": "ready", "ipHash": "enabled", "now": "..." }
 ```
+
+`ipHash` is `"unconfigured"` when `IP_HASH_SECRET` is unset: submits still work,
+but no address hash is stored and no ban can be enforced.
 
 Returns `503` with `schema: "missing"` until `schema.sql` has been applied, and
 `503` with `stats storage not configured` if the `STATS_DB` binding is absent.
 
 ## Storage
 
-[`schema.sql`](schema.sql) creates four tables:
+[`schema.sql`](schema.sql) creates six tables:
 
 | Table | Holds |
 |---|---|
 | `clients` | anonymous client id, first/last seen |
 | `stations` | one row per `(client_id, station_name)` with the latest counts and submission count |
 | `passenger_deltas` | one row per accepted `submit_id` |
+| `submit_ips` | keyed address hash per accepted `submit_id`, for abuse handling only |
+| `blocked_ips` | the ban list, keyed by address hash |
 | `global_counters` | running totals maintained by triggers |
+
+`submit_ips` is its own table rather than a column on `passenger_deltas` because
+this file is re-applied by every deploy and preview, and D1 has no
+`ADD COLUMN IF NOT EXISTS`; a new table keeps the file idempotent.
 
 Idempotency is enforced in two places:
 
@@ -243,8 +268,56 @@ Idempotency is enforced in two places:
   counts and `submissions`.
 
 The submit is one D1 batch (transaction): client upsert, station upsert,
-passenger-delta insert. Triggers keep `global_counters` consistent under
-concurrent writers.
+passenger-delta insert, `submit_ips` insert. Triggers keep `global_counters`
+consistent under concurrent writers.
+
+## Abuse handling
+
+The secret is a Worker **secret**, not a var:
+
+```powershell
+npx wrangler secret put IP_HASH_SECRET --config stats/wrangler.jsonc --env=
+```
+
+Rotating it re-keys every future hash, so existing `submit_ips` and `blocked_ips`
+rows stop matching new submissions — rotate only alongside a re-seed of the ban
+list. The `dev` environment carries its own committed throwaway value in
+`wrangler.jsonc` so local hashes are stable across restarts.
+
+**Trace a bad submitter** (find every client behind one address; note that
+addresses rotate, so `client_id` is usually the better key):
+
+```powershell
+npx wrangler d1 execute STATS_DB --remote --config stats/wrangler.jsonc --yes \
+  --command "SELECT client_id, COUNT(*) n, MIN(created_at), MAX(created_at) FROM submit_ips WHERE ip_hash = '<hash>' GROUP BY client_id"
+```
+
+**Clean up** the rows a client left behind — the counters are trigger-maintained,
+so delete the rows and then re-derive `global_counters`, or fix the values in
+place:
+
+```powershell
+npx wrangler d1 execute STATS_DB --remote --config stats/wrangler.jsonc --yes \
+  --command "DELETE FROM passenger_deltas WHERE client_id = '<client_id>'"
+```
+
+**Ban** an address (permanent; add `expires_at` for a timed block):
+
+```powershell
+npx wrangler d1 execute STATS_DB --remote --config stats/wrangler.jsonc --yes \
+  --command "INSERT OR REPLACE INTO blocked_ips (ip_hash, reason, created_at) VALUES ('<hash>', 'spam', datetime('now'))"
+```
+
+A banned hash is refused with `403 { "ok": false, "error": "forbidden" }` before
+any row is written. The ban check **fails open**: if `blocked_ips` is missing the
+submit is allowed (and the error is logged), so a database whose schema predates
+the table cannot 500 every writer.
+
+This is the same layer as the origin gate: it stops the casual caller. The
+stronger block is a Cloudflare WAF rule on `ip.src`, which acts before the Worker
+runs and stores nothing — worth pairing, because an `ip_hash` ban is only as good
+as the header it hashes. A shared NAT or CGNAT address will collide, so prefer
+`client_id` scoping when you can.
 
 ## Tests
 
@@ -255,7 +328,8 @@ npm run test:stats
 The suite drives the real Worker entry with a fake D1 binding. It covers the
 `/stats` → `/stats/` redirect, the page's development badge, health and schema
 failure, missing-binding `503`s, totals mapping, the batched submit SQL,
-idempotent submission, validation limits, CORS and 4xx routing.
+idempotent submission, the address-hash derivation and its null/unconfigured
+path, the ban list, validation limits, CORS and 4xx routing.
 
 Development sample data is not a test fixture: it is only applied by
 `npm run dev:stats -- --seed`, never by the deploy script or the default preview.

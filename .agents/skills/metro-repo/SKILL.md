@@ -468,6 +468,33 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   Workers Builds must use `npm run deploy:stats:ci` (the auto build token has no
   D1 permission) and `npm run version:stats`; `npm run dev:stats` is a
   long-running server, never a version/preview command.
+  Abuse handling: each submit also stores
+  `HMAC-SHA256(CF-Connecting-IP, IP_HASH_SECRET)` in `submit_ips` — never the raw
+  IP — and a matching `blocked_ips` row refuses it with 403 before any write
+  (the check fails open if the table is absent). `IP_HASH_SECRET` is a Worker
+  secret, never committed: the production value lives in the gitignored
+  `stats/.secrets.json` and is pushed with
+  `npx wrangler secret bulk stats/.secrets.json --config stats/wrangler.jsonc --env=""`;
+  the `dev` environment commits its own throwaway value, so dev and production
+  hashes are not comparable. The hash is its own table, not a column, because
+  `schema.sql` is re-applied on every deploy and D1 has no
+  `ADD COLUMN IF NOT EXISTS`. To trace, clean up or ban, every command is
+  `npx wrangler d1 execute STATS_DB --remote --config stats/wrangler.jsonc --env="" --yes --command "<sql>"`:
+
+  - **hash a known address** (e.g. one seen in the logs) — only HMAC gives the
+    key, there is no reverse lookup:
+    `node -e "console.log(require('crypto').createHmac('sha256', require('./stats/.secrets.json').IP_HASH_SECRET).update('<ip>').digest('hex'))"`
+  - **trace**: `SELECT client_id, COUNT(*) FROM submit_ips WHERE ip_hash = '<hash>' GROUP BY client_id`
+  - **delete a bad submitter**: `DELETE FROM passenger_deltas WHERE client_id = '<id>'`
+    (also `stations` / `submit_ips`); the counters are trigger-maintained, so
+    re-derive or fix `global_counters` after a delete
+  - **ban**: `INSERT OR REPLACE INTO blocked_ips (ip_hash, reason, created_at) VALUES ('<hash>', 'spam', datetime('now'))`
+    (add `expires_at` for a timed block)
+
+  Prefer `client_id` over `ip_hash` when you can — addresses rotate, and a shared
+  NAT/CGNAT address collapses to one hash. A Cloudflare WAF rule on `ip.src` is
+  the stronger, storage-free block. Full runbook: `stats/README.md` → Abuse
+  handling.
 
 The game is the stats writer. `sim/globalStats.ts` owns the pure counts/deltas
 (solid cells, modules, lines, track/platform tracks; cumulative passenger

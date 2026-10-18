@@ -27,6 +27,12 @@
 
   "vars": { "ENVIRONMENT": "production" },
 
+  // IP_HASH_SECRET is a **production secret**, not a var:
+  //   npx wrangler secret put IP_HASH_SECRET --config stats/wrangler.jsonc --env=
+  // With it unset, submissions still work but store no address hash and no ban
+  // can be enforced; /stats/api/v1/health reports `ipHash: "unconfigured"`.
+  // The dev environment below carries its own throwaway value.
+
   "d1_databases": [
     {
       "binding": "STATS_DB",
@@ -39,7 +45,13 @@
     "dev": {
       "name": "metro-stats-dev",
       "routes": [],
-      "vars": { "ENVIRONMENT": "development" },
+      "vars": {
+        "ENVIRONMENT": "development",
+        // Local-only, committed on purpose: it protects nothing, and it keeps
+        // the dev preview's hashes stable so `blocked_ips` rows survive a
+        // restart. Production reads its own secret from `wrangler secret put`.
+        "IP_HASH_SECRET": "metro-stats-dev-ip-hash-secret"
+      },
       "d1_databases": [
         {
           "binding": "STATS_DB",

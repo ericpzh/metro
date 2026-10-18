@@ -21,6 +21,12 @@
  * same-origin fetch that omits `Origin`), and refuses everything else with 403.
  * The page and the reads stay public. See `submitAllowed` below.
  *
+ * Abuse handling: on submit the Worker stores `HMAC-SHA256(CF-Connecting-IP,
+ * IP_HASH_SECRET)` in `submit_ips` so bad rows can be traced and a repeat
+ * offender blocked via `blocked_ips`. The raw address is never stored, and the
+ * hash is not reversible without the secret. With no secret configured the hash
+ * is NULL and no ban can be enforced (health reports this).
+ *
  * Collected totals:
  *   - stations            distinct (client_id, station_name)
  *   - passengers_boarded  已上车
@@ -36,11 +42,59 @@ const MAX_BODY = 8 * 1024
 const STATS_PREFIX = '/stats'
 const ALLOWED_ORIGINS = new Set(['https://stationdesigner.com'])
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/
+// Cloudflare sets this on every request that reaches the Worker; it is the real
+// client address, unlike `X-Forwarded-For`, which a caller can pad or forge.
+const IP_HEADER = 'CF-Connecting-IP'
 
 function environmentOf(env) {
   return typeof env?.ENVIRONMENT === 'string' && env.ENVIRONMENT
     ? env.ENVIRONMENT
     : 'production'
+}
+
+function ipHashSecret(env) {
+  return typeof env?.IP_HASH_SECRET === 'string' ? env.IP_HASH_SECRET : ''
+}
+
+const textEncoder = new TextEncoder()
+
+/**
+ * Pseudonymous abuse key: HMAC-SHA256 of the connection address under a Worker
+ * secret, hex-encoded. A plain hash would be pointless — the IPv4 space is small
+ * enough to enumerate — so the secret is what makes the column non-reversible.
+ * Returns null when the secret is unset or the header is absent, in which case
+ * no hash is recorded and no ban can match.
+ */
+async function clientIpHash(request, env) {
+  const secret = ipHashSecret(env)
+  const ip = (request.headers.get(IP_HEADER) || '').trim()
+  if (!secret || !ip) return null
+  const key = await crypto.subtle.importKey(
+    'raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  )
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, textEncoder.encode(ip)))
+  let hex = ''
+  for (const byte of mac) hex += byte.toString(16).padStart(2, '0')
+  return hex
+}
+
+/**
+ * True when `ip_hash` is on the ban list (and not expired). Fails **open**: if the
+ * lookup itself errors — a database whose schema predates `blocked_ips` — the
+ * submit is allowed rather than 500-ing every writer. The failure is logged.
+ */
+async function isBlocked(db, ipHash) {
+  if (!ipHash) return false
+  try {
+    const row = await db.prepare(
+      `SELECT 1 AS blocked FROM blocked_ips
+        WHERE ip_hash = ? AND (expires_at IS NULL OR expires_at > ?)`
+    ).bind(ipHash, now()).first()
+    return Boolean(row)
+  } catch (error) {
+    console.error('stats ban check skipped', error)
+    return false
+  }
 }
 
 function corsHeaders(request) {
@@ -238,7 +292,16 @@ export default {
             { status: 503, headers: cors }
           )
         }
-        return json({ ok: true, environment, database: 'bound', schema: 'ready', now: now() }, { headers: cors })
+        return json({
+          ok: true,
+          environment,
+          database: 'bound',
+          schema: 'ready',
+          // `unconfigured` means `IP_HASH_SECRET` is unset: submissions still
+          // work, but no address hash is stored and no ban can be enforced.
+          ipHash: ipHashSecret(env) ? 'enabled' : 'unconfigured',
+          now: now(),
+        }, { headers: cors })
       }
 
       if (route === '/v1/global') {
@@ -301,10 +364,18 @@ export default {
         const t = now()
         const sid = isUuid(sessionId) ? sessionId : crypto.randomUUID()
 
+        // The abuse key is derived here, never sent by the client, and checked
+        // against the ban list before any row is written.
+        const ipHash = await clientIpHash(request, env)
+        if (await isBlocked(db, ipHash)) {
+          return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
+        }
+
         // One batched transaction. The station upsert only fires the insert
         // trigger the first time a (client, station) pair is seen, and the
         // delta insert is idempotent on (client_id, submit_id), so a retry
-        // cannot double-count either a station or its passengers.
+        // cannot double-count either a station or its passengers. The
+        // submit_ips row is idempotent on the same key.
         await db.batch([
           db.prepare(
             `INSERT INTO clients (client_id, first_seen, last_seen)
@@ -330,6 +401,10 @@ export default {
                 left_behind, sim_seconds, train_arrivals, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).bind(clientId, sid, submitId, name, boarded, alighted, exited, leftBehind, simSeconds, trainArrivals, t),
+          db.prepare(
+            `INSERT OR IGNORE INTO submit_ips (client_id, submit_id, ip_hash, created_at)
+             VALUES (?, ?, ?, ?)`
+          ).bind(clientId, submitId, ipHash, t),
         ])
 
         const global = await readGlobal(db)

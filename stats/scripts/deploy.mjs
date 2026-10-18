@@ -77,7 +77,10 @@ async function waitForHealth() {
       const response = await get('/api/v1/health')
       const body = await response.json().catch(() => null)
       if (response.ok && body?.ok === true && body?.schema === 'ready') {
-        console.log(`[stats] health: ${body.environment} · ${body.schema}`)
+        console.log(`[stats] health: ${body.environment} · ${body.schema} · ipHash ${body.ipHash ?? 'unknown'}`)
+        if (body.ipHash === 'unconfigured') {
+          console.warn('[stats] warning: IP_HASH_SECRET is unset — submissions store no address hash and cannot be banned')
+        }
         return
       }
       last = `HTTP ${response.status} ${JSON.stringify(body)}`

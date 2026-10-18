@@ -1,5 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHmac } from 'node:crypto'
 import worker from '../worker.js'
 import { FAVICON } from '../favicon.js'
 import { BRAND_MARK } from '../brand-mark.js'
@@ -7,16 +8,23 @@ import { BRAND_MARK } from '../brand-mark.js'
 const ORIGIN = 'https://stationdesigner.com'
 const CLIENT = '11111111-1111-4111-8111-111111111111'
 const SUBMIT = '22222222-2222-4222-8222-222222222222'
+const SECRET = 'test-secret'
+
+function ipHash(ip, secret = SECRET) {
+  return createHmac('sha256', secret).update(ip).digest('hex')
+}
 
 /**
  * A D1 stand-in: enough of `prepare().bind().all()/first()` and `batch()` to
  * exercise routing, validation, the SQL shape and the totals projection without
  * a database. It records every statement so a test can assert what was sent.
+ * `blocked` lists the `ip_hash` values the fake ban list contains.
  */
-function fakeDb({ counters = {}, stationCount = 0, latest = null, schema = true } = {}) {
+function fakeDb({ counters = {}, stationCount = 0, latest = null, schema = true, blocked = [] } = {}) {
   const statements = []
-  return {
+  const db = {
     statements,
+    batches: 0,
     prepare(sql) {
       const entry = { sql, args: [] }
       statements.push(entry)
@@ -35,15 +43,18 @@ function fakeDb({ counters = {}, stationCount = 0, latest = null, schema = true 
           if (/sqlite_master/.test(sql)) return schema ? { name: 'stations' } : null
           if (/COUNT\(\*\) AS n FROM stations/.test(sql)) return { n: stationCount }
           if (/MAX\(t\) AS t/.test(sql)) return { t: latest }
+          if (/FROM blocked_ips/.test(sql)) return blocked.includes(entry.args[0]) ? { blocked: 1 } : null
           throw new Error(`unexpected first(): ${sql}`)
         },
       }
       return statement
     },
     async batch(batch) {
+      db.batches += 1
       return batch.map(() => ({ success: true }))
     },
   }
+  return db
 }
 
 function request(path, init) {
@@ -232,7 +243,9 @@ test('a valid submit batches clients, the station upsert and one idempotent delt
   assert.match(sql, /ON CONFLICT\(client_id, station_name\) DO UPDATE/)
   assert.match(sql, /submissions = submissions \+ 1/)
   assert.match(sql, /INSERT OR IGNORE INTO passenger_deltas/)
+  assert.match(sql, /INSERT OR IGNORE INTO submit_ips/)
   assert.equal(db.statements.filter(statement => statement.sql.includes('passenger_deltas')).length, 2)
+  assert.equal(db.batches, 1, 'the whole submit is one transaction')
 })
 
 test('a retried submit keeps the same submission idempotency key', async () => {
@@ -248,6 +261,116 @@ test('a retried submit keeps the same submission idempotency key', async () => {
   assert.ok(delta)
   assert.equal(delta.args[2], SUBMIT)
   assert.match(delta.sql, /UNIQUE|IGNORE/)
+})
+
+test('submit stores a keyed hash of the connection address, never the raw IP', async () => {
+  const db = fakeDb()
+  const response = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.7' },
+    body: JSON.stringify({ clientId: CLIENT, submitId: SUBMIT, station: { name: 'X' }, delta: { boarded: 1 } }),
+  }), { STATS_DB: db, IP_HASH_SECRET: SECRET })
+
+  assert.equal(response.status, 200)
+  const row = db.statements.find(statement => statement.sql.includes('INSERT OR IGNORE INTO submit_ips'))
+  assert.ok(row, 'the submit records the abuse key')
+  assert.equal(row.args[0], CLIENT)
+  assert.equal(row.args[1], SUBMIT)
+  assert.equal(row.args[2], ipHash('203.0.113.7'), 'HMAC-SHA256 under the Worker secret')
+  assert.match(row.args[2], /^[0-9a-f]{64}$/)
+  assert.ok(!row.args[2].includes('203.0.113.7'), 'the address itself is never stored')
+})
+
+test('the same address hashes the same and a different one does not', async () => {
+  async function hashOf(ip) {
+    const db = fakeDb()
+    await worker.fetch(request('/stats/api/v1/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': ip },
+      body: JSON.stringify({ clientId: CLIENT, submitId: SUBMIT, station: { name: 'X' }, delta: { boarded: 1 } }),
+    }), { STATS_DB: db, IP_HASH_SECRET: SECRET })
+    return db.statements.find(statement => statement.sql.includes('INSERT OR IGNORE INTO submit_ips')).args[2]
+  }
+  assert.equal(await hashOf('198.51.100.4'), await hashOf('198.51.100.4'))
+  assert.notEqual(await hashOf('198.51.100.4'), await hashOf('198.51.100.5'))
+})
+
+test('with no IP_HASH_SECRET the submit still succeeds and stores a null hash', async () => {
+  const db = fakeDb()
+  const response = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.7' },
+    body: JSON.stringify({ clientId: CLIENT, submitId: SUBMIT, station: { name: 'X' }, delta: { boarded: 1 } }),
+  }), { STATS_DB: db })
+
+  assert.equal(response.status, 200)
+  const row = db.statements.find(statement => statement.sql.includes('INSERT OR IGNORE INTO submit_ips'))
+  assert.equal(row.args[2], null)
+})
+
+test('a banned address is refused before any row is written', async () => {
+  const ip = '198.51.100.9'
+  const db = fakeDb({ blocked: [ipHash(ip)] })
+  const response = await worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': ip },
+    body: JSON.stringify({ clientId: CLIENT, submitId: SUBMIT, station: { name: 'X' }, delta: { boarded: 1 } }),
+  }), { STATS_DB: db, IP_HASH_SECRET: SECRET })
+
+  assert.equal(response.status, 403)
+  assert.equal((await response.json()).error, 'forbidden')
+  assert.equal(db.batches, 0, 'a banned submit never reaches the batch')
+  assert.ok(db.statements.every(statement => statement.sql.includes('blocked_ips')))
+})
+
+test('an unlisted address is not blocked, and a lookup failure fails open', async () => {
+  const payload = { clientId: CLIENT, submitId: SUBMIT, station: { name: 'X' }, delta: { boarded: 1 } }
+  const post = env => worker.fetch(request('/stats/api/v1/submit', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.7' },
+    body: JSON.stringify(payload),
+  }), env)
+
+  const listed = await post({ STATS_DB: fakeDb({ blocked: [ipHash('198.51.100.9')] }), IP_HASH_SECRET: SECRET })
+  assert.equal(listed.status, 200)
+
+  // A database whose schema predates `blocked_ips` must not 500 every writer.
+  const oldSchema = fakeDb()
+  const basePrepare = oldSchema.prepare.bind(oldSchema)
+  oldSchema.prepare = sql => {
+    if (/blocked_ips/.test(sql)) {
+      const statement = {
+        bind() { return statement },
+        async first() { throw new Error('no such table: blocked_ips') },
+      }
+      return statement
+    }
+    return basePrepare(sql)
+  }
+  const failOpen = await withSilencedErrors(() => post({ STATS_DB: oldSchema, IP_HASH_SECRET: SECRET }))
+  assert.equal(failOpen.status, 200)
+})
+
+/** Run `fn` with `console.error` muted: the fail-open path logs by design. */
+async function withSilencedErrors(fn) {
+  const original = console.error
+  console.error = () => {}
+  try {
+    return await fn()
+  } finally {
+    console.error = original
+  }
+}
+
+test('health reports whether IP hashing is configured', async () => {
+  const configured = await worker.fetch(request('/stats/api/v1/health'), {
+    STATS_DB: fakeDb(),
+    IP_HASH_SECRET: SECRET,
+  })
+  assert.equal((await configured.json()).ipHash, 'enabled')
+
+  const unconfigured = await worker.fetch(request('/stats/api/v1/health'), { STATS_DB: fakeDb() })
+  assert.equal((await unconfigured.json()).ipHash, 'unconfigured')
 })
 
 test('submit rejects bad ids, bad counts, bad JSON and oversized bodies', async () => {
@@ -393,3 +516,4 @@ test('wrong methods and unknown paths are 4xx, not 500s', async () => {
   const otherPath = await worker.fetch(request('/elsewhere'), env)
   assert.equal(otherPath.status, 404)
 })
+

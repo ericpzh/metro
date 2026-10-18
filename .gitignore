@@ -16,6 +16,11 @@ model/public/models/
 
 # Wrangler
 .wrangler/
+.dev.vars
+.dev.vars.*
+# Production Worker secrets kept locally (pushed with `wrangler secret bulk`)
+.secrets.json
+.secrets/
 worker-configuration.d.ts
 
 # Local tooling

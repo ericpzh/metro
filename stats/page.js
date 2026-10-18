@@ -41,7 +41,7 @@ const PAGE_COPY = {
     statsTitle: '全球统计数字',
     loadingGrid: '正在读取全球统计…',
     aboutTitle: '关于这些数字',
-    aboutBody: '数据匿名汇总，只统计车站数量与客流，不保存车站布局或个人身份。',
+    aboutBody: '数据匿名汇总，只统计车站数量与客流，不保存车站布局或个人身份。为防滥用，提交时会对连接地址做带密钥的不可逆散列并保存该散列值，不保存原始 IP 地址。',
     aboutNote: '页面加载时读取一次，不会自动刷新；需要更新时刷新页面即可。',
     docsTitle: '文档',
     docs: [
@@ -88,7 +88,7 @@ const PAGE_COPY = {
     statsTitle: 'Global stats figures',
     loadingGrid: 'Loading global stats…',
     aboutTitle: 'About these numbers',
-    aboutBody: 'Anonymous aggregate totals only. We count stations and passenger flow, never layouts or personal identity.',
+    aboutBody: 'Anonymous aggregate totals only. We count stations and passenger flow, never layouts or personal identity. To prevent abuse we keep a keyed, irreversible hash of the connection address — never the raw IP.',
     aboutNote: 'Read once when the page loads. It does not auto-refresh; refresh the page to update it.',
     docsTitle: 'Docs',
     docs: [

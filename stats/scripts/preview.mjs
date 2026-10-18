@@ -98,6 +98,7 @@ console.log(`  page  http://localhost:${port}/`)
 console.log(`  api   http://localhost:${port}/stats/api/v1/global`)
 console.log(`  game  http://localhost:5174/  (npm run dev:game)`)
 console.log(`  db    local D1 (${state})${seed ? ' + sample data' : ' · game submissions only'}`)
+console.log('  note  every local submit shares the 127.0.0.1 hash (dev IP_HASH_SECRET)')
 console.log('  prod is never used by this preview; Ctrl+C stops it.\n')
 
 const child = spawn(process.execPath, [
