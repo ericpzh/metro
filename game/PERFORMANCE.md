@@ -1874,20 +1874,45 @@ with `node tools/model-triangle-inventory.mjs`; raw counts are in ignored
 Each seeded road-traffic appearance now has authored High and Low geometry. The Low
 setting keeps the vehicle outline, glass and required lights while reducing wheel and
 repeated-fitting detail. Submitted counts below include both the visible colour geometry
-and the shared depth-only pass, which preserves the 70% material opacity without showing
+and the shared depth-only pass, which preserves the material opacity without showing
 far-side wheels through the body. Counts are per vehicle; the instance count depends on
 the road network and seed.
 
 | Vehicle | Low submitted triangles | High submitted triangles |
 |---|---:|---:|
-| Guangzhou bus, pale/orange | 5,080 | 11,224 |
-| Guangzhou bus, red mosaic | 5,298 | 11,506 |
-| SUV | 2,544 | 5,136 |
-| Sedan | 2,456 | 4,984 |
-| Moped with rider | 2,832 | 7,120 |
-| Step-through bicycle with rider | 3,744 | 8,160 |
+| Guangzhou bus, pale/orange | 2,504 | 11,224 |
+| Guangzhou bus, red mosaic | 2,666 | 11,506 |
+| SUV | 1,232 | 5,136 |
+| Sedan | 1,160 | 4,984 |
+| Moped with rider | 1,120 | 7,120 |
+| Step-through bicycle with rider | 1,960 | 8,160 |
 
 `node tools/check-road-vehicles.mjs` captures the production instanced geometry from
 both ends and regenerates the counts in ignored `.preview/road-vehicles/report.json`.
 Low and High keep separate prepared buffers, and switching graphics quality only
 re-packs the active buffer. No frame-time comparison was made.
+
+2026-10-17 follow-up: all six Low models now stay within a 25% High triangle
+budget (15.7–24.0% retained). High geometry is unchanged. Low uses fewer body-ring
+corners, flat hexagonal wheel hubs and bus arch strips, coarse rounded fittings,
+flat LED segments, fewer spokes and no car handles/chrome strips. Low road vehicles
+and Low passenger bodies use 45% opacity; High keeps 70%. Passenger topology stays
+at its existing 2,825 Low / 9,370 High triangles. Production captures and counts are
+in `.preview/road-vehicles/`, with the baseline/final reports and validation logs
+archived under ignored `.preview/perf/ambient-lod-25/`.
+
+Production quality-hook check: seed 42, one 24×1,000 m two-way road, three fixed
+passengers, paused, headless Chrome/SwiftShader at 1,400×900. Road submissions were
+1,387,280 High / 299,560 Low (21.6%), with exact restoration on both repeated
+High/Low switches and all geometry UUIDs retained. The first Low switch plus
+fixture repack took 1.7 ms CPU (repeat 0.9 ms); the first Low render submission
+took 4.7 ms (repeat 1.2 ms). These are local diagnostic CPU times, not GPU or FPS
+measurements. Both body draws had the expected 70%/45% opacity, no document version
+changed, and GL error was zero. `quality-switch.json` records all five samples.
+
+Validation: production build and front/rear captures pass; `test:perf` passes
+265 tests. Targeted coverage is 100% lines/branches/functions for `VehicleKit`,
+`RoadCar`, `RoadBus` and `RoadCycle`; the wider performance suite covers
+`passengerModel` at 100% lines / 93.33% branches / 100% functions. The full game
+suite passes 1,835/1,836 tests; the unrelated existing Tanwei fixture assertion
+still expects 14,554 cells but loads 14,717. Logs are in the same ignored folder.

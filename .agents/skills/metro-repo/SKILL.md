@@ -32,7 +32,8 @@ their fixture explicitly. Autosave ownership and replacement rules live in
 
 Ambient road traffic has six seeded vehicle appearances: pale/orange and red-mosaic
 buses, SUV, sedan, moped and step-through bicycle. Low graphics quality uses authored
-reduced geometry; High uses full detail. Per-instance triangle counts, including the
+reduced geometry capped at 25% of High; High uses full detail. Low vehicles and Low
+passenger bodies use 45% opacity (High: 70%). Per-instance triangle counts, including the
 shared depth pass, are in [`references/performance.md`](references/performance.md#ambient-road-vehicles).
 
 Type A train cars have five doors alternating with four smaller, inset windows on

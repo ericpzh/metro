@@ -12,7 +12,7 @@ export function buildRoadBus(k: VehicleKit, mosaic: boolean): void {
       skirt.lineTo(y + .52, .37); skirt.absarc(y, .46, .52, -.17, Math.PI + .17, false)
     }
     skirt.lineTo(-4.95, .37); skirt.closePath()
-    const geo = new THREE.ExtrudeGeometry(skirt, { depth: .07, bevelEnabled: false, curveSegments: k.low ? 6 : 12 })
+    const geo = new THREE.ExtrudeGeometry(skirt, { depth: .07, bevelEnabled: false, curveSegments: k.low ? 3 : 12 })
     geo.applyMatrix4(new THREE.Matrix4().set(0,0,1,s > 0 ? 1.1 : -1.17, 1,0,0,0, 0,1,0,0, 0,0,0,1))
     k.add(accent, geo)
     k.box(INK.glass, [s * 1.176, -.05, 2.04], [.025, 8.98, 1.28])
@@ -29,10 +29,17 @@ export function buildRoadBus(k: VehicleKit, mosaic: boolean): void {
     }
     for (const y of [-3.1, 3.04]) {
       k.wheel(s * 1.08, y, .46, .25)
-      const archSegments = k.low ? 6 : 10
+      const archSegments = k.low ? 4 : 10
       for (let i = 0; i < archSegments; i++) {
         const a = i * Math.PI / archSegments, b = (i + 1) * Math.PI / archSegments
-        k.rod(paint, [s * 1.2, y + Math.cos(a) * .51, .46 + Math.sin(a) * .51], [s * 1.2, y + Math.cos(b) * .51, .46 + Math.sin(b) * .51], .055)
+        if (k.low) {
+          const x = s * 1.2
+          const points: [number, number, number][] = [[x, y + Math.cos(a) * .565, .46 + Math.sin(a) * .565],
+            [x, y + Math.cos(a) * .455, .46 + Math.sin(a) * .455],
+            [x, y + Math.cos(b) * .455, .46 + Math.sin(b) * .455],
+            [x, y + Math.cos(b) * .565, .46 + Math.sin(b) * .565]]
+          k.panel(paint, s === 1 ? points.reverse() : points)
+        } else k.rod(paint, [s * 1.2, y + Math.cos(a) * .51, .46 + Math.sin(a) * .51], [s * 1.2, y + Math.cos(b) * .51, .46 + Math.sin(b) * .51], .055)
       }
     }
     for (const [y, l] of [[-4.3, 1.3], [0, 4.95], [4.3, 1.2]]) {
@@ -47,7 +54,7 @@ export function buildRoadBus(k: VehicleKit, mosaic: boolean): void {
       k.panel(INK.glass, s === 1 ? points.reverse() : points)
       k.box(INK.paint, [s * 1.205, -4.32, 1.08], [.02, .55, .62])
     }
-    for (let z = .85; z < 1.43; z += .085) k.box(INK.glass, [s * 1.21, -4.25, z], [.025, .6, .025])
+    for (let z = .85; z < 1.43; z += k.low ? .25 : .085) k.box(INK.glass, [s * 1.21, -4.25, z], [.025, .6, .025])
     k.rod(INK.rubber, [s * 1.05, 4.62, 2.65], [s * 1.39, 4.65, 2.65], .035)
     k.box(INK.rubber, [s * 1.37, 4.62, 2.33], [.16, .16, .5])
   }
@@ -64,7 +71,9 @@ export function buildRoadBus(k: VehicleKit, mosaic: boolean): void {
   ]
   const digits = mosaic ? [[0,2,3,5,6], [0,1,2,3,4,5,6], [1,2]] : [[0,1,3,4,6], [1,2], [0,2,3,5,6]]
   digits.forEach((lit, i) => { for (const index of lit) {
-    const [x,z,w,h] = segments[index]; k.box(INK.lamp, [(i-1)*.18+x, 5.038, 2.54+z], [w,.012,h])
+    const [x,z,w,h] = segments[index], cx = (i-1)*.18+x, cz = 2.54+z
+    if (k.low) k.panel(INK.lamp, [[cx-w/2,5.044,cz-h/2],[cx-w/2,5.044,cz+h/2],[cx+w/2,5.044,cz+h/2],[cx+w/2,5.044,cz-h/2]])
+    else k.box(INK.lamp, [cx, 5.038, cz], [w,.012,h])
   } })
   k.box(accent, [0, 5.014, .99], [1.95, .025, .5])
   if (mosaic) {

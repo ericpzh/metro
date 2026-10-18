@@ -118,7 +118,7 @@ D plug doors), the `TRAIN_DETAIL_MAX_RADIUS` guard that keeps a consist-wide mer
 mesh out of the relative-error simplifier, and batching carrying both variants.
 `passenger-lod` pins the baked Low topology (every variant, padded the same way), the
 coarser body's unchanged shader contract and silhouette, one shared pose atlas with a
-separate index table, the per-storey split (the edited storey full, a ghosted storey
+separate index table and 70% High / 45% Low opacity, the per-storey split (the edited storey full, a ghosted storey
 reduced, one draw when the crowd shares the edited storey), 低画质/隐藏UI, the recorded
 `passengerLevel` attribute, pause and clipping of both draws, and single shared-atlas
 disposal.
@@ -431,7 +431,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Area | Files |
 |---|---|
 | Authored road nodes | `road-document.test.mjs` — segment splits, shared-node lifetime, legacy migration, duplicate/elevation rules, width merges, snapped starts keeping the selected width/direction, save/undo, node input, hidden/refused pieces and node-buffer ownership. |
-| Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, triangle reductions, exposed fittings, grayscale/opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
+| Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, Low at most 25% of High, fixed High counts, outward fittings at both details, grayscale, 70% High / 45% Low opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
 | Elevator doors | `lift-doors.test.mjs` — per-storey front/back/both/none choices, landing geometry, graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-floor undo. |
 | Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
@@ -682,7 +682,7 @@ not carry passengers; derived zebra markings remain visual. Seeded spawns use ha
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
-grayscale and share the passenger material's 70% opacity, with a depth prepass for self-occlusion.
+grayscale and share the passenger material's 70% High / 45% Low opacity, with a depth prepass for self-occlusion.
 `road-vehicles.test.mjs` covers all six procedural variants: grounded finite geometry,
 bounded material/triangle counts, visible car hubs and windscreens, distinct rooflines,
 curb-side bus doors and exposed route/lamp surfaces, open bicycle spokes/basket,

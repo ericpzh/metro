@@ -20,7 +20,7 @@ try {
     console.log(result.models)
   }
   const counts = Object.fromEntries(reports.map(m => [`${m.variant}:${m.detail}`, m.colorTriangles]))
-  for (const variant of ['suv','sedan','bus-orange','bus-mosaic','moped','bicycle']) assert.ok(counts[`${variant}:low`] < counts[`${variant}:high`], `${variant} has an authored Low reduction (${counts[`${variant}:low`]} vs ${counts[`${variant}:high`]})`)
+  for (const variant of ['suv','sedan','bus-orange','bus-mosaic','moped','bicycle']) assert.ok(counts[`${variant}:low`] <= counts[`${variant}:high`] * .25, `${variant} stays within 25% of High (${counts[`${variant}:low`]} vs ${counts[`${variant}:high`]})`)
   writeFileSync(resolve(output, 'report.json'), JSON.stringify(reports, null, 2))
   assert.deepEqual(await page.evaluate('__vehicleErrors'), [])
 } finally { await page?.close(); server.close() }

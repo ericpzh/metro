@@ -30,12 +30,12 @@ export function roadVehicleParts(kind: RoadVehicleKind | RoadVehicleVariant, det
 }
 
 /** One depth-only instance draw per variant prevents rear fittings ghosting through
- * the 70% colour surfaces. All depth draws precede colour, independent of bin sorting. */
+ * the translucent colour surfaces. All depth draws precede colour, independent of bin sorting. */
 export function roadVehicleDrawParts(variant: RoadVehicleVariant, detail: RoadVehicleDetail = 'high'): ReturnType<typeof roadVehicleParts> {
   const parts = roadVehicleParts(variant, detail)
   const geometry = mergeGeometries(parts.map(p => p.geometry))!
   // Transparent queue puts this after the opaque street, preserving its colour
-  // beneath the 70% surfaces; renderOrder puts it before all vehicle colour bins.
+  // beneath the translucent surfaces; renderOrder puts it before all vehicle colour bins.
   const material = new THREE.MeshStandardMaterial({ transparent: true, colorWrite: false, depthWrite: true })
   return [{ geometry, material }, ...parts]
 }

@@ -3807,7 +3807,7 @@ on moving legs. Game-only exterior trimming removes hidden thighs, inner walls
 and caps so they cannot show through the 70% material. The closed GLBs retain
 those supports. Exact garment greys remain flat palette stops. Lossless frame
 deltas keep the expanded atlas at 40.4 MB; absolute legacy atlases still decode. The same one
-instanced crowd draw renders every entry at 70% opacity. `npm run art:models`
+instanced crowd draw renders every entry at 70% opacity in High and 45% in Low. `npm run art:models`
 captures the complete expanded adult/child pools and refreshes the five bilingual
 sheets; its playback check requires the new clothes to appear on both ages.
 
@@ -3825,7 +3825,7 @@ captures a lineup of eight adults and two children in `.preview/passenger-size/`
 After a game build, `node tools/check-game-passenger-library.mjs` checks all
 catalogue poses and live crowd scales/model restrictions on the actual GPU path.
 
-All game passenger variants render at 70% opacity through their shared material.
+All game passenger variants render at 70% opacity in High and 45% in Low.
 `passenger-view` pins alpha blending and depth-write settings; the production GPU
 check verifies the live material and the slimmer 80–90% child width/depth ranges.
 
@@ -3849,7 +3849,7 @@ passengers. Automatic zebra markings are visual; roads still cut pedestrian rout
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
-grayscale and share the passenger material's 70% opacity, with a depth prepass for
+grayscale and share the passenger material's 70% High / 45% Low opacity, with a depth prepass for
 self-occlusion. Six reference-inspired models
 appear in stable seeded pairs: pale/orange and mosaic city buses, SUV and fastback sedan,
 and seated moped and step-through bicycle riders. Cars have shaped hoods, glazing,
@@ -3859,6 +3859,7 @@ draws include a shared depth pass so far-side wheels do not show through the nea
 `road-vehicles.test.mjs` pins these silhouettes, visible fittings, seeded instance packing,
 pause and resource disposal. `node tools/check-road-vehicles.mjs` photographs all six
 production instanced models from front and rear into `.preview/road-vehicles/`.
+Each Low vehicle submits at most 25% of High's triangles, including its depth pass.
 `npm run check:roads` drives the real
 production viewport in Chinese and English: centerline node drags, R flow reversal,
 Tab width / Shift+Tab direction refresh, endpoint extension, mid-road branches,

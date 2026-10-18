@@ -129,6 +129,8 @@ export const PASSENGER_SIZE_VARIATION = { height: [0.80, 1.20], depth: [0.90, 1.
 export const PASSENGER_CHILD_SIZE_VARIATION = { depth: [0.80, 0.90], width: [0.80, 0.90] } as const
 /** Crowd silhouettes reveal the station behind them. */
 export const PASSENGER_OPACITY = 0.70
+/** Reduced-detail people and ambient traffic reveal more of the station. */
+export const PASSENGER_LOW_OPACITY = 0.45
 /** §7.1 free-flow variation: longer steps, with the same relaxed cycle cadence.
  * Body proportions scale both physical stride and speed, including children. */
 export const WALK_PROFILES = [
@@ -531,6 +533,7 @@ export const EQUIPMENT_DETAIL_MIN_TRIANGLES = 64
 
 // Ambient street traffic and automatically derived road lanes (§4.1).
 export const ROAD_VEHICLE_OPACITY = PASSENGER_OPACITY
+export const ROAD_VEHICLE_LOW_OPACITY = PASSENGER_LOW_OPACITY
 export const ROAD_LANE_WIDTH = 3
 export const ROAD_TRAFFIC_SPACING = 20
 export const ROAD_TRAFFIC_DENSITY = 0.5

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
-import { PASSENGER_OPACITY } from '../sim/constants.ts'
+import { PASSENGER_OPACITY, PASSENGER_LOW_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
 import { decodePassengerBytes, restorePassengerFrames } from './passengerAtlas.ts'
 
@@ -166,7 +166,8 @@ function indexTable(detail: PassengerDetail): { texture: THREE.DataTexture; rows
 
 export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshBasicMaterial {
   // Illustration colours stay flat under the station's lights and exposure.
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true, opacity: PASSENGER_OPACITY, depthWrite: false })
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true,
+    opacity: detail === 'low' ? PASSENGER_LOW_OPACITY : PASSENGER_OPACITY, depthWrite: false })
   const corners = detail === 'low' ? LOW_CORNERS : human.corners
   const indices = indexTable(detail)
   const atlases = passengerAtlases()

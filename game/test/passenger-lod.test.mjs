@@ -84,7 +84,7 @@ test('the Low body is a coarser mesh over the same atlas, not a second pose set'
   } finally { full.dispose(); low.dispose() }
 })
 
-test('full and Low draws share one pose atlas and differ only in their index table', () => {
+test('full and Low draws share one pose atlas with separate topology and opacity', () => {
   const full = passengerMesh(16), low = passengerMesh(16, 'low')
   try {
     const compile = (mesh) => {
@@ -100,7 +100,8 @@ test('full and Low draws share one pose atlas and differ only in their index tab
     assert.equal(lowShader.uniforms.passengerIndices.value.image.height, Math.ceil(human.library.length * human.lowCorners / 1024))
     assert.equal(fullShader.uniforms.passengerIndices.value.image.height, Math.ceil(human.library.length * human.corners / 1024))
     assert.notEqual(full.material.customProgramCacheKey(), low.material.customProgramCacheKey(), 'the two strides compile separate programs')
-    assert.equal(full.material.opacity, low.material.opacity, 'the crowd keeps its 70% opacity')
+    assert.equal(full.material.opacity, .7, 'High bodies keep 70% opacity')
+    assert.equal(low.material.opacity, .45, 'Low bodies reveal more of the station at 45% opacity')
     assert.equal(full.material.transparent, true)
     assert.equal(low.material.depthWrite, false)
     assert.equal(full.geometry.getAttribute('passengerPose').count, low.geometry.getAttribute('passengerPose').count, 'instance contract is shared')
@@ -150,6 +151,7 @@ test('低画质 draws the whole crowd reduced; Hide UI and a disabled detail set
   try {
     assert.equal(low.crowd.agents.count, 0)
     assert.equal(low.crowd.agentsLow.count, 3, 'every drawn passenger, on every storey, is reduced')
+    assert.equal(low.crowd.agentsLow.material.opacity, .45)
     assert.deepEqual(levels(low.crowd.agentsLow), [0, 0, -4])
     const outfit = low.crowd.agentsLow.geometry.getAttribute('passengerOutfit')
     assert.equal(outfit.getX(2), passengerAppearance(11)[0], 'identity is repacked into the reduced draw')
@@ -158,6 +160,7 @@ test('低画质 draws the whole crowd reduced; Hide UI and a disabled detail set
   try {
     assert.equal(hidden.crowd.agents.count, 3, 'Hide UI is the presentation mode: full bodies on every storey')
     assert.equal(hidden.crowd.agentsLow.count, 0)
+    assert.equal(hidden.crowd.agents.material.opacity, .7, 'presentation mode restores High opacity too')
   } finally { cleanup(hidden) }
   const disabled = crowdFixture('high', { ghost: true })
   try {

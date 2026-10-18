@@ -33,7 +33,7 @@ explicit adult/child eligibility; random appearance, the viewer and art captures
 use the same pools. Stable identity gives a 20% child / 80% adult distribution,
 independent of outfit, size and gait. Height varies from 80–120%; depth/width
 vary independently from 90–110% for adults and 80–90% for children. Children
-first use a 65% height / 70% depth/width base. All game variants use 70% opacity.
+first use a 65% height / 70% depth/width base. Game variants use 70% High / 45% Low opacity.
 Appearance does not consume the simulation RNG.
 
 Regenerate at the root with Node 24+ and installed model/game dependencies:
@@ -55,7 +55,7 @@ If exports change, rebuild with `npm run bake:passengers`; changing only stored
 hashes would bypass the guarantee that the game uses the reviewed geometry.
 
 21 flat grey palette stops retain material boundaries and outward winding.
-The shared game material blends at 70% opacity without writing to the depth buffer.
+The game materials blend at 70% High / 45% Low opacity without writing to the depth buffer.
 The atlas has standing plus 24 frames each for slow/medium/fast walks. Speeds
 0.9/1.15/1.4 m/s share 1.12 s cycles and strides 1.008/1.288/1.568 m. Fore/aft depth
 scales both sim speed and stride; side-to-side width varies separately.

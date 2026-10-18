@@ -60,9 +60,13 @@ resource creation and cache reuse; local HTTP startup is not a WAN measurement.
 
 Triangle counts below are for one model built from each palette option's default configuration. High is the full model geometry; Low uses the renderer's reduced geometry wherever that model part has a supported approximation, and keeps unsupported parts at full detail. These are model triangles, not totals across all placed copies. Width, length, style and material controls can create additional variants; the table lists the 119 shipped palette options.
 
+#### Ambient road vehicles
+
 Ambient road vehicles are seeded into the six models listed below. The counts are per
 vehicle instance and include the colour geometry plus its matching depth-only prepass;
-the prepass suppresses far-side fittings while keeping the 70% grey paint. Low is an
+the prepass suppresses far-side fittings. High uses 70% opacity; Low vehicles and
+Low passenger bodies use 45%. Low road vehicles stay at or below 25% of High's
+submitted triangles (including the depth pass). Low is an
 authored geometry variant selected by the game's Low graphics setting, not a runtime
 simplification. Regenerate the production counts and front/rear captures with
 `node tools/check-road-vehicles.mjs`; the ignored report and images are in
@@ -71,15 +75,17 @@ traffic into its matching instance buffers.
 
 | Ambient road vehicle | Low triangles | High triangles |
 |---|---:|---:|
-| Guangzhou bus, pale/orange | 5,080 | 11,224 |
-| Guangzhou bus, red mosaic | 5,298 | 11,506 |
-| SUV | 2,544 | 5,136 |
-| Sedan | 2,456 | 4,984 |
-| Moped with rider | 2,832 | 7,120 |
-| Step-through bicycle with rider | 3,744 | 8,160 |
+| Guangzhou bus, pale/orange | 2,504 | 11,224 |
+| Guangzhou bus, red mosaic | 2,666 | 11,506 |
+| SUV | 1,232 | 5,136 |
+| Sedan | 1,160 | 4,984 |
+| Moped with rider | 1,120 | 7,120 |
+| Step-through bicycle with rider | 1,960 | 8,160 |
 
 Each Low model preserves the full variant's body outline, windows and required fittings
 while reducing wheels, repeated rods, spokes, fender tessellation and bus-window mullions.
+Low uses flat hexagonal hubs, four-corner body sections, coarse rounded fittings,
+flat bus arch strips and LED segments; cars omit door handles and chrome belt strips.
 `road-vehicles.test.mjs` pins the reduction, instance switch, pause behaviour and exact
 resource release. This is a geometry update, with no timing claim.
 
@@ -308,7 +314,8 @@ storey asks for: 高画质 draws the edited storey full and a ghosted storey red
 the edited storey is one draw; a ghosted storey's crowd adds a second. Counts are each
 variant's own topology, recorded in the atlas `library` as `triangles` and
 `lowTriangles`; the shared padded stride the crowd actually submits is 9,370 full and
-2,825 Low.
+2,825 Low. High bodies use 70% opacity; Low bodies use 45%, including Low bodies
+on ghosted storeys in High quality. Hide UI restores full bodies and 70% opacity.
 
 | Passenger model | Low triangles | High triangles |
 |---||---:|---:|

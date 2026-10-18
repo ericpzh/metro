@@ -1183,7 +1183,9 @@ Ambient road vehicles are procedural models in `render/models/pieces/vehicles/`:
 `RoadCar`, `RoadBus`, `RoadCycle` share the grey `VehicleKit`; `RoadVehicleModel`
 dispatches six variants and assigns them from seed/id without changing simulation
 vehicle kinds, spacing or RNG. `RoadTrafficSystem` packs instances by variant.
-Keep 70% colour opacity with a shared depth pass for self-occlusion. `road-vehicles` pins visible
+Keep High at 70% colour opacity and Low at 45%, with a shared depth pass for
+self-occlusion. Low vehicle triangles must stay at or below 25% of High, counting
+both colour and depth. `road-vehicles` pins visible
 geometry, variant packing, pause and teardown; `tools/check-road-vehicles.mjs`
 captures the production front/rear views through `?capture-road-vehicles`.
 The app prepares authored High and Low geometry per variant, uses the existing
@@ -1870,7 +1872,7 @@ including the depth prepass, for all six appearances.
   20% children / 80% adults; size, ink tone and gait use separate identity hashes.
   Height varies 80–120%; width/depth vary 90–110% for adults and 80–90% for children.
   Child bases are 65% height and 70% width/depth; fore/aft depth scales speed and
-  stride together. The shared material uses 70% opacity with alpha blending and
+  stride together. The High material uses 70% opacity and Low uses 45%, with alpha blending and
   no depth writes. Keep physique/speed in `sim/walking.ts` and model selection in
   `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
   pins catalogue, equal age-pool selection, every walk on every variant, bag visibility,
