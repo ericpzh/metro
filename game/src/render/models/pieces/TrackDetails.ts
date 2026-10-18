@@ -1,11 +1,12 @@
 import * as THREE from 'three'
-import { RAIL_HEAD_Z, RAIL_CENTRE_OFFSET } from '../../../sim/constants.ts'
+import { RAIL_HEAD_Z, RAIL_CENTRE_OFFSET, TRACK_BED_DROP } from '../../../sim/constants.ts'
 import { slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { omitModelDetail } from '../../modelDetail.ts'
 
 /** Slab-track hardware (§5.4), batched so a long platform costs the same draw calls. */
 export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete: THREE.Material, railWeb: THREE.Material, w: number, d: number): void {
+  const firstPart = g.children.length
   const cx = (w - 1) / 2
   const cy = (d - 1) / 2
   const gauge = RAIL_CENTRE_OFFSET // 1.435 m between the inside faces of the 70 mm heads.
@@ -19,8 +20,8 @@ export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete
     shape.lineTo(0.029, 0.628)
     shape.lineTo(0.035, 0.635)
     shape.lineTo(0.035, 0.645)
-    shape.lineTo(0.027, RAIL_HEAD_Z)
-    shape.lineTo(-0.027, RAIL_HEAD_Z)
+    shape.lineTo(0.027, RAIL_HEAD_Z + TRACK_BED_DROP)
+    shape.lineTo(-0.027, RAIL_HEAD_Z + TRACK_BED_DROP)
     shape.lineTo(-0.035, 0.645)
     shape.lineTo(-0.035, 0.635)
     shape.closePath()
@@ -71,4 +72,6 @@ export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete
       for (const side of [-1, 1]) finishSlab(g, concrete, cx, y + side * 0.095, 0.48, w, 0.025, 0.035)
     }
   }
+  for (const part of g.children.slice(firstPart)) part.position.z -= TRACK_BED_DROP
+
 }

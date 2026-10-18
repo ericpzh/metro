@@ -14,6 +14,7 @@
 // Coordinate convention: cell (x, y, z) occupies [x, x+1] x [y, y+1] x [z, z+1],
 // +z up.
 
+import type { BlockInset } from './platformBlockInsets.ts'
 import { HALF_WALL_T } from '../sim/constants.ts'
 import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH } from '../sim/finishes.ts'
 import type { SlopeCut } from '../sim/openings.ts'
@@ -243,10 +244,10 @@ export interface Profile {
  * corner of a cube should be; the rounding §4.2 also asked for stays dropped with it, since
  * a 12.5 cm corner radius cannot coexist with a square rim either.
  */
-function buildProfile(look: Look): Profile {
+function buildProfile(look: Look, inset?: BlockInset): Profile {
   // Corner i is the start of side i: NW, SW, SE, NE.
-  const corner = (i: number): Pt => ({ x: i === 2 || i === 3 ? 1 : 0, y: i === 0 || i === 3 ? 1 : 0 })
-  const open = [look.w, look.s, look.e, look.n]
+  const corner = (i: number): Pt => ({ x: i === 2 || i === 3 ? inset?.x1 ?? 1 : inset?.x0 ?? 0, y: i === 0 || i === 3 ? inset?.y1 ?? 1 : inset?.y0 ?? 0 })
+  const open = [look.w || (inset?.x0 ?? 0) > 0, look.s || (inset?.y0 ?? 0) > 0, look.e || (inset?.x1 ?? 1) < 1, look.n || (inset?.y1 ?? 1) < 1]
   const edges: ProfileEdge[] = []
   for (let i = 0; i < 4; i++) {
     const from = corner(i)
@@ -619,6 +620,7 @@ export function meshChunk(
   slope?: ReadonlyMap<number, SlopeCut>,
   fill?: ReadonlySet<number>,
   cover?: ReadonlySet<number>,
+  insets?: ReadonlyMap<number, BlockInset>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   // What a cell *voted* for its neighbours' exposure, and what it *draws*, are not the same
@@ -655,7 +657,15 @@ export function meshChunk(
    * this a full block beside a wedge culls the very face the wedge leaves
    * exposed, which is the black hole in the report.
    */
-  const coversSide = (nx: number, ny: number, nz: number, facing: 'e' | 'w' | 'n' | 's'): boolean => {
+  const coversSide = (nx: number, ny: number, nz: number, facing: 'e' | 'w' | 'n' | 's', current?: BlockInset): boolean => {
+    const neighbor = insets?.get(key(nx, ny, nz))
+    if (neighbor) {
+      if ((facing === 'e' && neighbor.x1 < 1) || (facing === 'w' && neighbor.x0 > 0) ||
+          (facing === 'n' && neighbor.y1 < 1) || (facing === 's' && neighbor.y0 > 0)) return false
+      if (facing === 'e' || facing === 'w') {
+        if (neighbor.y0 > (current?.y0 ?? 0) || neighbor.y1 < (current?.y1 ?? 1)) return false
+      } else if (neighbor.x0 > (current?.x0 ?? 0) || neighbor.x1 < (current?.x1 ?? 1)) return false
+    }
     const shape = thin?.get(key(nx, ny, nz))
     if (shape === undefined) return true
     if (shape.kind === 'half') return true
@@ -663,7 +673,7 @@ export function meshChunk(
   }
   /** A side is drawn unless a covering block stands against it. */
   const sideOpen = (_x: number, _y: number, _z: number, nx: number, ny: number, facing: 'e' | 'w' | 'n' | 's'): boolean =>
-    !isSolid(nx, ny, _z) || !coversSide(nx, ny, _z, facing)
+    !isSolid(nx, ny, _z) || !coversSide(nx, ny, _z, facing, insets?.get(key(_x, _y, _z)))
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
   // parts (one per material) instead of one part repainted per face. A dense
@@ -800,7 +810,7 @@ export function meshChunk(
     } else if (isHalfWallShape(thinShape)) {
       built = buildThinProfile(thinShape.side, E, W, N, S)
     } else {
-      built = buildProfile({ e: E, w: W, n: N, s: S })
+      built = buildProfile({ e: E, w: W, n: N, s: S }, insets?.get(k))
     }
     const edges = built.edges
     const shape = profileOutline(built)

@@ -64,7 +64,7 @@ import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
-import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
+import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, TRAIN_ORIGIN_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { History } from '../history.ts'
 import { normRot, rotateLocal, trackFacing, trackSide, trackTrainCentreV, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
@@ -933,7 +933,7 @@ export class World {
       return [
         g.nodeX[s.node] + file * 0.3,
         g.nodeY[s.node] + (row % 2 === 0 ? -0.15 : 0.15),
-        g.nodeZ[s.node] + (CABIN_FLOOR_Z - 0.5),
+        g.nodeZ[s.node],
       ]
     }
     // The doorway's own place in the consist's frame: the screen door stands on
@@ -1179,7 +1179,7 @@ export class World {
         const y = track.y + 0.5 + oy
         // A train rides the rail surface: the recessed bed slab sits half a metre
         // below the platform, so the consist drops with it.
-        const z = track.z + 0.5
+        const z = track.z + TRAIN_ORIGIN_Z
         // The track's own 上行/下行 picks which way along the run the train moves;
         // an unset track falls back to the line's travel sign. This is what the
         // placement preview's direction arrows show.

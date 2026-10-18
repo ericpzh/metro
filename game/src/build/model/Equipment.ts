@@ -728,6 +728,16 @@ function cellsInUse(modules: readonly Module[]): Set<string> {
  */
 export function removeModule(state: StationState, id: string): StationState {
   const gone = state.modules.find((m) => m.id === id);
+  // §5.9: remove the screen, retaining the platform's boarding edge and safety ink.
+  if (gone?.type === 'platform-edge') {
+    if (gone.cfg.psd === 'none') return state;
+    return { ...state, modules: state.modules.map((m): Module => {
+      if (m.id === gone.id && m.type === 'platform-edge') return { ...m, cfg: { ...m.cfg, psd: 'none' } };
+      if (m.id === gone.cfg.from && m.type === 'track') return { ...m, cfg: { ...m.cfg,
+        removedPsdSides: [...new Set([...(m.cfg.removedPsdSides ?? []), gone.cfg.side])] } };
+      return m;
+    }) };
+  }
   const modules = state.modules.filter((m) => m.id !== id && !(m.type === 'pillar' && m.cfg.bridgeId === id)).map((m): Module => {
     if (gone?.type !== 'pillar' || gone.cfg.bridgeId !== m.id || m.type !== 'track') return m;
     // Deleting a generated pier is a persistent choice, carried by its bridge.

@@ -1,10 +1,11 @@
 // Train consist (车辆) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { trainDoorMotion } from '../../trainDoorMotion.ts'
 import { PieceBuilder, slab, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
-import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
+import { STOCK, CABIN_CEILING_Z, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
 import { buildStreamlinedCab } from './StreamlinedCab.ts'
@@ -17,6 +18,8 @@ import { buildLWindowBay } from './LTrainWindows.ts'
 import { buildCWindowBay } from './CTrainWindows.ts'
 import { addCarSideSkin, curveCarDoor, carRoofSection, smoothCarRoof, carShellProfile, CAR_ROUND_SILL, CAR_ROUND_WAIST } from './CarShellProfile.ts'
 import { buildTrainBogie, carBogieCentres } from './TrainBogie.ts'
+import { buildTrainUnderframe } from './TrainUnderframe.ts'
+import { buildTrainRoofAc } from './TrainRoofAc.ts'
 import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
 
 /* ------------------------------------------------------------------ trains */
@@ -134,7 +137,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const skinY = s.width / 2 - 0.03
     const doorH = DOOR_HEAD_Z - DOOR_SILL_Z
     const doorZMid = (DOOR_SILL_Z + DOOR_HEAD_Z) / 2
-    slab(g, mats.trainInterior, shellCentre, 0, DOOR_HEAD_Z + 0.05, shellLen, coreW + 0.24, 0.1).name = 'cabin-ceiling'
+    slab(g, mats.trainInterior, shellCentre, 0, CABIN_CEILING_Z, shellLen, coreW + 0.24, 0.1).name = 'cabin-ceiling'
     if (pose.stock === 'D') {
       buildDCarShell(g, mats, shellStart, shellEnd, sideRuns(shellStart, shellEnd, 0), blue, pantographX)
     } else {
@@ -234,7 +237,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // shadow behind the doorway — so a closed consist photographed as a row of black
     // rectangles with no door in them, which is what the elevations on sheets 05 and 11
     // showed. A leaf is now the body's own material with a **window** in its upper half,
-    // a kick plate at its foot, and a rubber seal standing at each jamb of the doorway it
+    // a thin rubber perimeter around each leaf and seals at each jamb of the doorway it
     // closes: the leaf is the door, the window is what the cabin is still watched through,
     // and the two closed leaves stay two leaves.
     for (const dx of inCar) {
@@ -256,11 +259,11 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         // Low drops the 3 cm rubber strip: the leaf still sits in its painted
         // aperture, which is what the doorway reads as from the platform.
         for (const jamb of [-1, 1]) {
-          const seal=slab(g,mats.rubber,dx+(jamb*s.doorWidth)/2,face+side*.015,doorZMid,.06,.03,doorH)
+          const seal=slab(g,mats.rubber,dx+(jamb*s.doorWidth)/2,face-side*.016,doorZMid,.06,.03,doorH)
           omitModelDetail(seal);curveCarDoor(seal,s.width,side)
         }
         for (const leaf of [-1, 1]) {
-          const lw = s.doorWidth / 2 - 0.03
+          const lw = s.doorWidth / 2
           // The leaf wears the **body's own paint** (`mats.trainBody`): a door is part of
           // the car's skin, and the two have to read as one colour. It was `mats.steel`
           // first, which is `metalness: 0.72` — with no environment map a metal has no
@@ -287,20 +290,35 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           geometry.rotateX(Math.PI / 2)
           geometry.translate(0, 0.025, 0)
           const m = new THREE.Mesh(geometry, mats.trainBody)
-          m.position.set(dx + (leaf * s.doorWidth) / 4, face + side * 0.012, doorZMid)
+          m.position.set(dx + (leaf * s.doorWidth) / 4, face - side * 0.025, doorZMid)
           g.add(m)
           // Inset 5 mm from the aperture edges; the pane has no opaque backing.
           const pane = slab(m, mats.glass, 0, 0, 0.28, lw - 0.19, 0.02, 0.85)
           pane.name = 'train-door-window'
-          // The kick plate, so the leaf has a foot and the sill has a line.
-          omitModelDetail(slab(m, mats.rubber, 0, side * 0.029, -doorH / 2 + 0.14, lw, 0.008, 0.28))
           m.name = 'passenger-curved-door'
+          const sealShape = new THREE.Shape()
+          sealShape.moveTo(-lw/2,-doorH/2); sealShape.lineTo(lw/2,-doorH/2)
+          sealShape.lineTo(lw/2,doorH/2); sealShape.lineTo(-lw/2,doorH/2); sealShape.closePath()
+          const sealHole = new THREE.Path()
+          sealHole.moveTo(-lw/2+.025,-doorH/2+.025); sealHole.lineTo(-lw/2+.025,doorH/2-.025)
+          sealHole.lineTo(lw/2-.025,doorH/2-.025); sealHole.lineTo(lw/2-.025,-doorH/2+.025); sealHole.closePath()
+          sealShape.holes.push(sealHole)
+          const sealGeometry = new THREE.ExtrudeGeometry(sealShape,{depth:.008,bevelEnabled:false})
+          sealGeometry.rotateX(Math.PI/2)
+          const leafSeal = new THREE.Mesh(sealGeometry,mats.rubber)
+          leafSeal.position.y = side * .031 + .004
+          leafSeal.name = 'train-door-perimeter-seal'
+          m.add(leafSeal)
           curveCarDoor(m,s.width,side)
           registerDoorLeaf(m, leaf, s.doorWidth / 2, doors, side)
+          m.userData.closedY = m.position.y
+          m.userData.plugTravel = 0.06
         }
       }
     }
     for (const centre of bogieCentres) buildTrainBogie(g, mats, centre, axleHalfSpan)
+    buildTrainUnderframe(g, mats, bogieCentres, s.width)
+    buildTrainRoofAc(g, mats, shellStart, shellEnd, pose.stock === 'D' ? 3.25 : 3.15, pantographX)
   }
 
   // The black bellows in every gap between two cars, one mesh for the whole consist.
@@ -332,14 +350,19 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
  */
 export function setDoorsSides(root: THREE.Object3D, plus: number, minus: number): void {
   const doors = (root.userData.doors as THREE.Mesh[] | undefined) ?? []
+  const plusMotion = trainDoorMotion(plus)
+  const minusMotion = minus === plus ? plusMotion : trainDoorMotion(minus)
   for (const d of doors) {
     const side = (d.userData.side as number | undefined) ?? 1
     const t = side >= 0 ? plus : minus
     const closed = (d.userData.closedX as number) ?? d.position.x
     const sign = (d.userData.openSign as number) ?? 1
     const travel = (d.userData.travel as number) ?? 0.32
-    d.position.x = closed + sign * travel * t
-    if (d.userData.plugTravel) d.position.y = d.userData.closedY + side * d.userData.plugTravel * Math.min(1, t * 8)
+    if (d.userData.plugTravel) {
+      const pose = side >= 0 ? plusMotion : minusMotion
+      d.position.x = closed + sign * travel * pose.slide
+      d.position.y = d.userData.closedY + side * d.userData.plugTravel * pose.plug
+    } else d.position.x = closed + sign * travel * t
   }
   syncTrainDoorBatches(root)
 }

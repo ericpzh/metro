@@ -16,7 +16,7 @@ import { batchTrainDoors, batchTrainTransparent } from '../src/render/trainBatch
 import { gangwayGeometry } from '../src/render/models/pieces/TrainGangway.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
-import { STOCK, STOCK_CLASSES } from '../src/sim/stock.ts'
+import { STOCK, STOCK_CLASSES, TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
 import { TRAIN_DETAIL_MAX_RADIUS } from '../src/sim/constants.ts'
 import { trainDrawnTriangles } from '../src/render/trainDetail.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
@@ -57,16 +57,16 @@ function trainSystem(mats, stock, cars, doorSides = 3) {
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
 const consists = [
-  ['D', 8, 1252192, .10],
-  ['D', 6, 969980, .11],
-  ['A', 8, 629056, .28],
-  ['A', 6, 498152, .27],
-  ['B', 6, 450156, .27],
-  ['C', 6, 471156, .27],
-  ['L', 6, 411548, .25],
-  ['B', 4, 335748, .26],
-  ['C', 4, 353164, .26],
-  ['L', 4, 309140, .24],
+  ['D', 8, 1303040, .10],
+  ['D', 6, 1007764, .11],
+  ['A', 8, 730144, .28],
+  ['A', 6, 573968, .27],
+  ['B', 6, 513612, .27],
+  ['C', 6, 534612, .27],
+  ['L', 6, 464300, .25],
+  ['B', 4, 378052, .26],
+  ['C', 4, 395468, .26],
+  ['L', 4, 344308, .24],
 ]
 
 test('every consist draws its published full count and a Low within budget', () => withDocument((mats) => {
@@ -217,4 +217,16 @@ test('batching carries both variants of the body and of the door banks', () => w
     }
     assert.ok(doors.size > 0)
   } finally { disposeObject(group) }
+}))
+
+
+test('platform-aligned train origins keep their track storey when other levels are hidden',()=>withDocument(mats=>{
+ const ctx=new SceneContextData(new THREE.Scene(),{},mats,{})
+ const trains=new TrainSystem(ctx);trains.level={applyGroupLevel(){}}
+ try{for(const z of [-16,0,8]){
+  trains.setTrains(new Float32Array([0,0,z+TRAIN_ORIGIN_Z,1,1,1,0x336699,1,0,0]))
+  const slot=[...trains.trainSlots.values()].find(e=>e.active)
+  assert.deepEqual(slot.group.userData.levelZs,[z],'train belongs to the platform storey')
+  trains.setTrains(new Float32Array())
+ }}finally{trains.dispose()}
 }))

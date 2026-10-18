@@ -567,6 +567,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'booth':
       return { x0: m.x, y0: m.y, z0, x1: m.x + m.w, y1: m.y + m.h, z1: z0 + FLAT_HEIGHT[m.type] }
     case 'platform-edge': {
+      if (m.cfg.psd === 'none') return null
       // The screen sits on the track-facing strip of its single-cell-deep run.
       // A half-height (半高) screen reserves only its actual height, so something
       // may stand in the headroom the full screen would have filled.
@@ -580,7 +581,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // A dug track bed: the module owns the whole trench volume (bed slab +
       // rails) from the block top to the platform surface, so no equipment can
       // be dropped into it.
-      return cellsAabb(trackCells(m), m.z - (m.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), m.z + (m.cfg.bridge ? bridgeBarrierTop(m.cfg.bridgeRailing) : 1))
+      return cellsAabb(trackCells(m), m.z - (m.cfg.bridge ? BRIDGE_DECK_DEPTH : 1), m.z + (m.cfg.bridge ? bridgeBarrierTop(m.cfg.bridgeRailing) : 1))
     default:
       return null
   }

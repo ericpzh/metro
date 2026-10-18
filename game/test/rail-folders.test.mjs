@@ -160,9 +160,9 @@ test('剖切’s folded-out row is at the foot of the row 剖切 sits in', () =>
   assert.ok(/RotateTile label=\{t\('rotate_value', next\)\}/.test(src), 'the cut row lost its 旋转 tile')
 })
 
-test('half-height catenary platforms expose a canopy/gantry tile beside rotation', () => {
+test('half-height and no-screen catenary platforms expose a canopy/gantry tile beside rotation', () => {
   const src = read('../src/app/rail/folders/RailFolder.tsx')
-  assert.match(src, /railLine\?\.power === 'catenary' && railLine\.psd === 'half'/, 'the alternate wire tile is limited to catenary lines with half-height doors')
+  assert.match(src, /railLine\?\.power === 'catenary' && \(railLine\.psd === 'half' \|\| railLine\.psd === 'none'\)/, 'the alternate wire tile is limited to catenary lines with half-height or absent doors')
   assert.match(src, /<RotateTile[\s\S]*?<Block[\s\S]*catenary_style_value/, 'the wire-style tile shares the rotation row')
   assert.match(src, /updateRail\(track\.id, \{ catenaryStyle: next \}\)/, 'a selected track gets a document edit')
   assert.match(src, /setRailCatenaryStyle\(next\)/, 'the tile changes the placement default when no track is selected')

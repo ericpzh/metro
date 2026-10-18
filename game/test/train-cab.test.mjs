@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
+import * as D_PROFILE from '../src/render/models/pieces/DTrainShell.ts'
 import { carShellAt } from '../src/render/models/pieces/CarShellProfile.ts'
 import { cabSkinGeometry } from '../src/render/models/pieces/CabSkin.ts'
 import { cabShellGeometry } from '../src/render/models/pieces/TrainShell.ts'
@@ -171,7 +172,7 @@ test('A/B/C/L front lower paint uses the consist line colour at both cab ends',(
 }))
 
 
-test('A/B/C/L moving door leaves and black lower panels follow the body skirt in both banks, rotations and LODs',()=>withKit(mats=>{
+test('A/B/C/L moving door leaves and thin perimeter seals follow the body skirt in both banks, rotations and LODs',()=>withKit(mats=>{
  for(const stock of ['A','B','C','L']){
   const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
   const leaves=root.children.filter(p=>p.name==='passenger-curved-door')
@@ -190,16 +191,17 @@ test('A/B/C/L moving door leaves and black lower panels follow the body skirt in
        const hit=new THREE.Raycaster(origin,direction).intersectObject(leaf,false)[0]
        assert.ok(hit,'curved leaf stays closed across its lower panel')
        const point=root.worldToLocal(hit.point)
-       assert.ok(Math.abs(Math.abs(point.y)-carShellAt(STOCK[stock].width,z,low).y-.037)<1e-4,'door follows the exact body curve with a consistent seal offset')
+       assert.ok(Math.abs(Math.abs(point.y)-carShellAt(STOCK[stock].width,z,low).y-open*.06)<1e-4,'door is flush with the skin when closed and clears it after plugging out')
       }
-      const kick=leaf.children.find(p=>p.material===mats.rubber)
+      const kick=leaf.children.find(p=>p.name==='train-door-perimeter-seal')
+      assert.deepEqual(leaf.children.filter(p=>p.material===mats.rubber),[kick],'only the thin perimeter remains; no broad black kick panel')
       if(!low){
        const p=kick.geometry.attributes.position;let lower=Infinity,upper=0
        for(let i=0;i<p.count;i++){
         const z=p.getZ(i)+kick.position.z+leaf.position.z,y=Math.abs(p.getY(i)+kick.position.y+leaf.position.y)
         if(z<.61)lower=Math.min(lower,y);if(z>.83)upper=Math.max(upper,y)
        }
-       assert.ok(lower<upper-.12,'black lower panel curves inward with the leaf')
+       assert.ok(lower<upper-.12,'rubber perimeter curves inward with the leaf')
       }
      }
     }
@@ -240,6 +242,57 @@ test('compact forward A/B/L crew doors clear the entire nearest passenger leaf o
      const gap=end>0?a.min.x-b.max.x:b.min.x-a.max.x
      assert.ok(gap>.10,`${stock} crew door clears fully opening leaf by at least 10 cm (${gap})`)
     }
+   }
+  }finally{disposeObject(root)}
+ }
+}))
+
+
+test('all passenger doors slide shut before seating flush, with sealed centre joins',()=>withKit(mats=>{
+ for(const stock of STOCK_CLASSES) {
+  const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
+  try {
+   const leaves=root.userData.doors
+   assert.ok(leaves.length>0)
+   const widths=leaves.map(p=>{p.geometry.computeBoundingBox();return p.geometry.boundingBox.clone()})
+   setDoorsSides(root,0,0)
+   for(let i=0;i+1<leaves.length;i+=2) {
+    const a=leaves[i],b=leaves[i+1]
+    if(a.name==='d-passenger-single-door'||b.name==='d-passenger-single-door')continue
+    if(a.userData.side!==b.userData.side)continue
+    assert.ok(Math.abs(a.position.x+widths[i].max.x-b.position.x-widths[i+1].min.x)<1e-6,'closed leaves meet with no air gap')
+   }
+   // Closing from fully open: lateral travel finishes first, then the plug seats.
+   for(const t of [1,.6,.18,.09,0]) {
+    setDoorsSides(root,t,0)
+    for(const leaf of leaves) {
+     if(leaf.userData.side<0){assert.equal(leaf.position.x,leaf.userData.closedX);assert.equal(leaf.position.y,leaf.userData.closedY);continue}
+     if(t<=.18)assert.equal(leaf.position.x,leaf.userData.closedX,'leaves stay together throughout inward seating')
+     if(t>=.18)assert.ok(Math.abs(leaf.position.y-leaf.userData.closedY-leaf.userData.plugTravel)<1e-8,'longitudinal slide happens outside the skin')
+     if(t===0)assert.equal(leaf.position.y,leaf.userData.closedY)
+    }
+   }
+   // A/B/C/L paint lies exactly on the curved shell; D uses its own curved profile.
+   if(stock==='D') {
+    const {dHalfWidth}=D_PROFILE
+    for(const leaf of leaves){const p=leaf.geometry.attributes.position;for(let i=0;i<p.count;i++)assert.ok(Math.abs(Math.abs(p.getY(i))-dHalfWidth(p.getZ(i)))<1e-6,'D painted door closes flush with its curved outer skin')}
+   }
+  } finally {disposeObject(root)}
+ }
+}))
+
+
+test('every passenger leaf has its own continuous rubber perimeter that follows both motion phases',()=>withKit(mats=>{
+ for(const stock of STOCK_CLASSES){
+  const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
+  try{
+   for(const leaf of root.userData.doors){
+    const seal=leaf.children.find(p=>p.name==='train-door-perimeter-seal'||p.userData.doorPerimeter)
+    assert.ok(seal,`${stock}: each leaf has a perimeter`);assert.equal(seal.material,mats.rubber)
+    seal.geometry.computeBoundingBox();leaf.geometry.computeBoundingBox()
+    const a=seal.geometry.boundingBox,b=leaf.geometry.boundingBox
+    assert.ok(a.min.x<=b.min.x+.001&&a.max.x>=b.max.x-.001&&a.min.z<=b.min.z+.001&&a.max.z>=b.max.z-.001,'rubber reaches all four leaf edges')
+    for(const t of [0,.09,.5,1]){setDoorsSides(root,t,t);assert.equal(seal.parent,leaf)}
    }
   }finally{disposeObject(root)}
  }

@@ -1768,16 +1768,16 @@ spans a whole consist, and 2 % of 150 m is metres.
 
 | Consist | Full triangles | Low triangles | Low share |
 |---|---:|---:|---:|
-| D-8 | 1,252,192 | 119,920 | 9.6 % |
-| D-6 | 969,980 | 97,396 | 10.0 % |
-| A-8 | 629,056 | 126,712 | 20.1 % |
-| A-6 | 498,152 | 96,128 | 19.3 % |
-| C-6 | 471,156 | 87,736 | 18.6 % |
-| B-6 | 450,156 | 84,404 | 18.7 % |
-| L-6 | 411,548 | 76,044 | 18.5 % |
-| C-4 | 353,164 | 59,992 | 17.0 % |
-| B-4 | 335,748 | 57,684 | 17.2 % |
-| L-4 | 309,140 | 51,876 | 16.8 % |
+| D-8 | 1,303,040 | 129,856 | 10.0 % |
+| D-6 | 1,007,764 | 104,804 | 10.4 % |
+| A-8 | 730,144 | 166,648 | 22.8 % |
+| A-6 | 573,968 | 126,080 | 22.0 % |
+| C-6 | 534,612 | 112,648 | 21.1 % |
+| B-6 | 513,612 | 109,316 | 21.3 % |
+| L-6 | 464,300 | 96,060 | 20.7 % |
+| C-4 | 395,468 | 76,600 | 19.4 % |
+| B-4 | 378,052 | 74,292 | 19.7 % |
+| L-4 | 344,308 | 65,220 | 18.9 % |
 
 The inventory includes the continuous A/B/C/L shell and curved passenger doors,
 flush face/band paint, upright narrow crew doors with over 10 cm full-opening
@@ -1802,7 +1802,7 @@ re-inventoried on 2026-10-17. Rounded window apertures retain authored Low
 geometry; raw counts are in `.preview/perf/train-triangles.json`.
 
 D is the extreme: its streamline cab and plug doors are lofted surfaces, and their
-Low sampling takes the consist from 1,061,168 to 89,784. Preparing both variants
+Low sampling takes the consist from 1,303,040 to 129,856. Preparing both variants
 costs more on a consist's first build (medians of three builds on the same host:
 D-8 552→606 ms, A-8 80→110 ms, B-6 51→70 ms, L-6 48→55 ms), paid once per cached
 configuration (eight are kept).
@@ -1930,3 +1930,65 @@ Validation: production build and front/rear captures pass; `test:perf` passes
 `passengerModel` at 100% lines / 93.33% branches / 100% functions. The full game
 suite passes 1,835/1,836 tests; the unrelated existing Tanwei fixture assertion
 still expects 14,554 cells but loads 14,717. Logs are in the same ignored folder.
+
+## Paired demo benchmark — 2026-10-18
+
+Re-ran both shipped examples with the current tree. Windows 11, Intel i7-14700KF,
+NVIDIA RTX 4080 SUPER through ANGLE/D3D11, driver 617.42, Headless Chrome 155.0.8059.41,
+1384x805 content viewport, DPR 1, native multi-draw. `bench:sim` used 600 ticks and
+12 helper samples per demo; `bench:browser` used six-second phases and eight edits per
+demo, both run sequentially with no build or profiler competing for the host (the
+browser command builds first). Seed 7654321. Zoo opened at z = -16 (11,913 cells /
+4,062 modules / 15,127 nodes); Tanwei at z = -7 (14,717 cells / 9,572 modules /
+37,274 nodes).
+
+Simulation timings (ms, mean / p95):
+
+| Metric | Zoo | Tanwei |
+|---|---:|---:|
+| Opening tick | 7.24 / 12.20 | 38.12 / 105.54 |
+| Settled tick | 7.30 / 13.06 | 45.68 / 113.33 |
+| Morning-peak tick | 7.86 / 14.08 | 60.83 / 130.95 |
+| Live graph rebuild | 185.72 / 295.42 | 1,330.01 / 2,431.78 |
+| 32x32 placement preview, warm index | 0.39 / 0.61 | 0.53 / 0.93 |
+| 32x32 placement preview, cold index | 4.57 / 6.27 | 7.75 / 10.36 |
+| 32 stair-block candidates on release | 7.37 / 11.28 | 14.07 / 15.86 |
+| 8x8 / 32x32 auto-wall floor release | 36.54 / 38.55 | 48.36 / 46.10 |
+| 1,024 wall faces painted | 1.55 / 2.01 | 1.72 / 2.03 |
+| Cold World build | 204.21 | 1,993.69 |
+
+Browser phases (forced continuous frames unless paused-idle):
+
+| Phase | Zoo | Tanwei |
+|---|---:|---:|
+| Paused FPS | 31.8 | 16.4 |
+| Paused draws / triangles | 2,282 / 721,905 | 4,061 / 1,485,015 |
+| Paused-idle frames drawn in 6 s | 10 | 11 |
+| Running 16x FPS / population | 26.1 / 592 | 13.0 / 1,065 |
+| Running draws / triangles | 2,329 / 2,923,043 | 4,090 / 4,784,297 |
+| Paint edit -> two frames (mean / p95) | 612.58 / 758.40 | 1,180.04 / 1,511.80 |
+| Block edit -> two frames (mean / p95) | 648.32 / 672.40 | 1,504.94 / 1,600.40 |
+| Move pickup / cancel -> two frames | 81.53 / 71.88 | 147.57 / 135.94 |
+| First train arrival (ms) | 1,520 | 1,601 |
+| Cold app / fixture ready (s) | 3.65 / 9.02 | 3.61 / 11.69 |
+
+No console/shader/runtime errors. Raw reports: .preview/perf/sim-zoo.json,
+.preview/perf/sim-tanwei.json, .preview/perf/browser-zoo.json,
+.preview/perf/browser-tanwei.json. GPU timers were disabled; CPU render.submit.ms
+was 30.16 / 58.71 ms (Zoo / Tanwei, paused). These are local diagnostic
+measurements, not portable FPS guarantees.
+
+### Code-analysis follow-up
+
+Regenerated the three model inventories with `node tools/model-triangle-inventory.mjs`
+and the road-vehicle counts with `node tools/check-road-vehicles.mjs` against the
+current production build. All three tables in the repo's performance reference match
+the freshly generated inventories byte-for-byte (119 palette options, 10 consists,
+232 passenger variants). The only numbers that lagged the inventory were the D-8 /
+D-6 consist totals in the written narrative: updated from the pre-bogie figures
+(1,112,720 -> 91,240 and 865,148 / 75,836) to the current inventory
+(1,252,192 -> 119,920, 9.6 % retained; 969,980 / 97,396, 10.0 % retained) in both
+this file and .agents/skills/metro-repo/references/performance.md. Road-vehicle,
+equipment and passenger tables were already current.
+
+Underfloor equipment refresh: cabinets, vented access panels, air reservoirs, suspension mounting brackets and cable conduits now fill the space between bogies. Deep upper bogie cheek frames, bolsters and broad air cushions close the former empty suspension gap; roof HVAC units retain a thin housing at Low. The train geometry inventory was regenerated with `node tools/model-triangle-inventory.mjs`; raw counts are in `.preview/perf/train-triangles.json`. The original roof height and platform floor are retained; original-size passenger doors occupy about half the wheel-to-roof height through a deeper rail bed and taller underfloor structure.

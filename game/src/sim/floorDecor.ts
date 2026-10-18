@@ -113,7 +113,7 @@ export function snapBoardingMark(m: Extract<Module, { type: 'floor-mark' }>, mod
       const doorWidth = doorWidthAt({ stock, cars }, at - width / 2) * ((edge.cfg.psd ?? line?.psd) === 'half' ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
       const dx = at - i0 - 0.5
       if (dx - doorWidth / 2 <= -0.4 || dx + doorWidth / 2 >= edge.w - 0.6) continue
-      const [ox, oy] = rotateLocal(edge.rot, dx, toward * 0.09)
+      const [ox, oy] = rotateLocal(edge.rot, dx, toward * -0.02)
       const x = edge.x + 0.5 + ox
       const y = edge.y + 0.5 + oy
       const d = Math.hypot(x - (m.x + 0.5), y - (m.y + 0.5))

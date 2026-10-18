@@ -54,13 +54,13 @@ for (const cfg of [{}, { tunnel: true }, { catenaryStyle: 'gantry' }, { bridge: 
   }))
 }
 
-test('open catenary has sagging messenger spans, droppers, insulated registration arms and lattice portals', () => withKit(mats => {
+test('open catenary has sagging messenger spans, droppers, insulated registration arms and single-sided cantilevers', () => withKit(mats => {
   const root = new THREE.Group()
   buildTrackCatenary(root, mats, track(24, 3, { bridge: true }))
   try {
     assert.ok(named(root, 'catenary-messenger-wire').length >= 3)
     assert.ok(named(root, 'catenary-dropper').length >= 8)
-    for (const name of ['catenary-return-wire', 'catenary-ribbed-insulator', 'catenary-registration-arm', 'catenary-support-brace', 'catenary-truss-chord', 'catenary-truss-web']) assert.ok(named(root, name).length, name)
+    for (const name of ['catenary-return-wire', 'catenary-ribbed-insulator', 'catenary-registration-arm', 'catenary-support-brace', 'catenary-cantilever-arm', 'catenary-cantilever-brace']) assert.ok(named(root, name).length, name)
     for (const part of named(root, 'catenary-messenger-wire')) {
       const positions = part.geometry.getAttribute('position')
       const zs = Array.from({ length: positions.count }, (_, i) => positions.getZ(i))
@@ -120,9 +120,17 @@ for (const bridge of [false, true]) test(`gantry joints seat every arm and cross
         }), 'mounting cleat physically overlaps the post in all three axes')
         assert.ok(arms.some(arm => endpoints(arm).some(point => mount.containsPoint(point))), 'an arm endpoint is seated inside each cleat')
       }
-      for (const chord of named(root, 'catenary-truss-chord')) {
-        for (const endpoint of endpoints(chord)) assert.ok(posts.some(post => post.containsPoint(endpoint)), 'both crossbeam ends are seated inside posts, including the upper chords')
+      const armsAtTop=named(root,'catenary-cantilever-arm')
+      const braces=named(root,'catenary-cantilever-brace')
+      assert.equal(posts.length,armsAtTop.length,'exactly one mast supports each arm')
+      for(const arm of armsAtTop)assert.ok(posts.some(post=>post.containsPoint(endpoints(arm)[0])),'cantilever starts inside its mast')
+      for(const brace of braces) {
+        const [atMast,atArm]=endpoints(brace)
+        assert.ok(posts.some(post=>post.containsPoint(atMast)),'diagonal starts inside the mast')
+        assert.ok(armsAtTop.some(arm=>bounds(arm).containsPoint(atArm)),'diagonal reaches the top arm')
       }
+      assert.equal(named(root,'catenary-truss-chord').length,0)
+      assert.equal(named(root,'catenary-truss-web').length,0)
       // Cleats remain solid at Low; changing wire detail cannot reopen joints.
       for (const mount of named(root, 'catenary-arm-mount')) assert.ok(!mount.userData.lowDetailGeometry || triangles(mount.userData.lowDetailGeometry) > 0)
     } finally { disposeObject(root) }

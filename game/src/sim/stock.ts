@@ -184,13 +184,15 @@ export function doorRunOffsets(line: { stock: StockClass; cars: number }, railW:
  * contract `doorCentres` holds between a car door and the screen door that
  * exists to meet it (§1.13).
  *
- * The consist origin rides the track bed, half a metre under the platform, so a
- * floor at `CABIN_FLOOR_Z` lands a hand's width over the platform surface — the
- * step up a real car has.
+ * The consist origin is derived from the cabin floor so riders, doorway and
+ * platform share the same height.
  */
 export const DOOR_SILL_Z = 0.57
 export const DOOR_HEAD_Z = 2.63
 export const CABIN_FLOOR_Z = 0.62
+export const CABIN_CEILING_Z = 2.68
+/** Train origin above the track module, with the cabin floor flush at platform +1 m. */
+export const TRAIN_ORIGIN_Z = 1 - CABIN_FLOOR_Z
 /** Clear half-width inside the car's skins, and the first row's standoff from it. */
 export const CABIN_HALF_W = 1.15
 export const CABIN_DOOR_INSET = 0.25

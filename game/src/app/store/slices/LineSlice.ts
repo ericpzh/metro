@@ -86,7 +86,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     // re-derive every rail on the line to move its screens with the line.
     if (patch.psd !== undefined) {
       const ids = station.modules.filter((m) => m.type === 'track' && m.cfg.line === lineId).map((m) => m.id)
-      for (const id of ids) station = regenerateRailEdges(station, id)
+      for (const id of ids) station = regenerateRailEdges(station, id, true)
     }
     // A platform rail is sized from its line's consist, so a stock/cars edit
     // re-cuts it to the new run length. Every track type shares the consist's

@@ -72,3 +72,37 @@ test('other-floor train geometry reduces without changing doors, and Hide UI/ful
     trains.dispose();assert.equal(disposed,swapped.length,'every prepared approximation is released exactly once')
   } finally {trains?.dispose();if(mats)disposeModelMaterials(mats);globalThis.document=previous}
 })
+
+
+test('PSD base wins the platform block volume; no-screen restores it and invalidates chunk reuse', async () => {
+ const { emptyStation }=await import('../src/data/reference-station.ts')
+ const { rotateLocal }=await import('../src/sim/track.ts')
+ for(const side of ['left','right'])for(const rot of [0,1,2,3]) {
+  const material=new THREE.MeshStandardMaterial()
+  const ctx=new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{})
+  const chunks=new ChunkSystem(ctx)
+  const edge={id:'edge',type:'platform-edge',x:15,y:15,z:4,w:2,rot,cfg:{line:'1',side,psd:'half'}}
+  const [runX,runY]=rotateLocal(rot,1,0)
+  const cells=[0,1].map(i=>({x:edge.x+i*runX,y:edge.y+i*runY,z:4,fill:'solid'}))
+  const data={...emptyStation(),cells,modules:[edge]}
+  const toward=side==='right'?1:-1
+  const hit=(i,across)=> {
+   const [dx,dy]=rotateLocal(rot,i,toward*across)
+   for(const mesh of chunks.chunkMeshes)mesh.updateMatrixWorld(true)
+   return new THREE.Raycaster(new THREE.Vector3(edge.x+.5+dx,edge.y+.5+dy,8),new THREE.Vector3(0,0,-1)).intersectObjects(chunks.chunkMeshes)
+  }
+  try {
+   chunks.prepareStation(data,cells);chunks.meshStation()
+   const geometries=chunks.chunkMeshes.map(m=>m.geometry)
+   for(const i of [0,1]) {
+    assert.equal(hit(i,.34).length,0,'the complete block column under the frame is cut out')
+    assert.ok(hit(i,.18).some(h=>Math.abs(h.point.z-5)<1e-6),'yellow line keeps its platform foundation')
+   }
+   chunks.prepareStation({...data,modules:[{...edge,cfg:{...edge.cfg,psd:'full'}}]},cells);chunks.meshStation()
+   assert.deepEqual(chunks.chunkMeshes.map(m=>m.geometry),geometries,'same base footprint retains identical chunks')
+   chunks.prepareStation({...data,modules:[{...edge,cfg:{...edge.cfg,psd:'none'}}]},cells);chunks.meshStation()
+   for(const i of [0,1])assert.ok(hit(i,.34).some(h=>Math.abs(h.point.z-5)<1e-6),'no PSD restores the full platform block')
+   assert.ok(chunks.chunkMeshes.every(m=>!geometries.includes(m.geometry)),'removing a PSD cannot reuse a carved chunk')
+  } finally {chunks.disposeChunks();material.dispose()}
+ }
+})

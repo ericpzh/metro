@@ -2,9 +2,9 @@ import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, canvasTexture, slab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
+import { PieceBuilder, canvasTexture, slab, finishSlab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET } from '../../../sim/constants.ts'
+import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET, PSD_BASE_DEPTH, TRACK_BED_DROP } from '../../../sim/constants.ts'
 import { drawPsdBand, drawPsdDoorBand, drawPsdWarning, drawPsdArrow } from './PsdDecals.ts'
 import { doorWidthAt, doorRunOffsets } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
@@ -40,14 +40,24 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // 屏蔽门 全高 / 半高. The half-height screen (半高) stands 1.5 m and carries
   // the line header as stickers on its glass instead of a printed top band; the
   // full-height screen keeps the storey-tall glass and the header band above it.
+  // §5.9: the safety line belongs to the platform even when its screen is absent.
+  if (!fixedSpan) {
+    const yellow = ownedMaterial(ctx, new THREE.MeshStandardMaterial({ color: 0xffc52e, roughness: 0.85 }));
+    slab(g, yellow, cx, yWall - toward * 0.16, z0 + 0.003, len, 0.10, 0.006).name = 'platform-yellow-line'
+  }
+  if ((mod.cfg.psd ?? line?.psd) === 'none') {
+    g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
+    g.rotation.z = (mod.rot ?? 0) * Math.PI / 2
+    return g
+  }
   const half = (mod.cfg.psd ?? line?.psd) === 'half'
   // Widen the screen opening without moving its train-aligned centre (§1.13).
-  // The half-height cap is part of the total height, above the white rail.
+  // The half-height cap is part of the total height, above the black rail.
   const halfRailTop = PSD_HALF_HEIGHT - 0.05
-  const doorH = half ? halfRailTop - 0.24 : PSD_FULL_HEIGHT - 0.12 - 0.05 - PSD_HEADER_HEIGHT
+  const doorH = half ? halfRailTop - 0.12 : PSD_FULL_HEIGHT - 0.05 - PSD_HEADER_HEIGHT
   const glassH = doorH
-  const glassMid = z0 + 0.12 + glassH / 2
-  const leafMid = z0 + 0.12 + doorH / 2
+  const glassMid = z0 + glassH / 2
+  const leafMid = z0 + doorH / 2
   // Single glass surfaces avoid competing front/back faces at grazing angles.
   const fixedGlass = housingOnly ? mats.glass : ownedMaterial(ctx, mats.glass.clone())
   const movingGlass = housingOnly ? mats.tintedGlass : ownedMaterial(ctx, mats.tintedGlass.clone())
@@ -85,10 +95,19 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     .sort((a, b) => a - b)
 
   // Sill and head run the full length; the glass itself is broken at the doors.
-  slab(g, mats.white, cx, yWall, z0 + 0.06, len, 0.18, 0.12)
+  // Keep the platform-side edge fixed, and extend the flush sill beneath the
+  // full slide lane so neither bank exposes the trench under its moving doors.
+  const fixedFrameDepth = half ? 0.10 : 0.14
+  const slideOffset = fixedFrameDepth / 2
+  const sillTrackReach = slideOffset + (half ? 0.10 : 0.12) + 0.01
+  const sillDepth = PSD_BASE_DEPTH / 2 + sillTrackReach
+  const sillY = yWall + toward * (sillTrackReach - PSD_BASE_DEPTH / 2) / 2
+  slab(g, mats.black, cx, sillY, z0 - 0.01, len, sillDepth, 0.02).name = 'psd-threshold'
+  const foundationBottom = .45 - TRACK_BED_DROP, foundationTop = z0 - .02
+  finishSlab(g, ctx.finish('floor.concrete'), cx, sillY, (foundationTop + foundationBottom) / 2, len, sillDepth, foundationTop - foundationBottom).name = 'psd-concrete-foundation'
   if (!half) {
     // A deeper equipment/signage fascia, fitted to the existing full-height envelope.
-    const headerBottom = 0.12 + doorH
+    const headerBottom = doorH
     const headerH = PSD_FULL_HEIGHT - headerBottom - 0.05
     const headerZ = z0 + headerBottom + headerH / 2
     slab(g, mats.white, cx, yWall, headerZ, len, 0.24, headerH)
@@ -123,7 +142,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   }
   // The red "mind the gap" threshold, just under the doors so it never crosses
   // an opening.
-  slab(g, mats.gateRed, cx, yWall, z0 + 0.14, len, 0.03, 0.07)
+  slab(g, mats.gateRed, cx, yWall, z0 + 0.003, len, 0.03, 0.006)
 
   // Fixed glass infill: everything except the door openings, so an open door
   // actually shows the track instead of a wall of glass. A half screen prints
@@ -156,19 +175,20 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     if (w <= 0.05) return
     if (!housingOnly) plate(g, fixedGlass, w, glassH, a + w / 2, yWall, glassMid, 0).name = 'psd-fixed-glass'
     if (half) {
-      slab(g, mats.white, a + w / 2, yWall, z0 + halfRailTop - 0.06, w, 0.08, 0.12).name = 'psd-fixed-rail'
-      slab(g, mats.darkSteel, a + w / 2, yWall, z0 + PSD_HALF_HEIGHT - 0.025, w, 0.1, 0.05).name = 'psd-fixed-cap'
+      slab(g, mats.black, a + w / 2, yWall, z0 + halfRailTop - 0.06, w, 0.08, 0.12).name = 'psd-fixed-rail'
+      slab(g, mats.black, a + w / 2, yWall, z0 + PSD_HALF_HEIGHT - 0.025, w, 0.1, 0.05).name = 'psd-fixed-cap'
     }
     band(a, b, yWall - toward * 0.075)
     if (!half) {
-      slab(g, mats.black, a + w / 2, yWall, z0 + 0.15, w, 0.12, 0.06)
-      slab(g, mats.black, a + w / 2, yWall, z0 + 0.12 + glassH - 0.03, w, 0.12, 0.06)
+      slab(g, mats.black, a + w / 2, yWall, z0 + 0.03, w, 0.12, 0.06)
+      slab(g, mats.black, a + w / 2, yWall, z0 + glassH - 0.03, w, 0.12, 0.06)
     }
     if (!stickerMat) return
     // The paired header keeps its aspect, inset from the panel's mullions.
     const sw = Math.min(w - 0.24, 2.8)
     if (sw < 0.7) return
-    const sticker = plate(g, stickerMat, sw, sw * (PSD_HEADER_PIXELS / 2048), a + w / 2, yWall - toward * 0.05, glassMid, platYaw)
+    const sticker = plate(g, stickerMat, sw, sw * (PSD_HEADER_PIXELS / 2048), a + w / 2, yWall - toward * (fixedFrameDepth / 2 + 0.002), glassMid, platYaw)
+    sticker.name = 'psd-fixed-sticker'
     sticker.renderOrder = 1
   }
   let cursor = x0
@@ -182,7 +202,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // Mullions: a jamb at each side of every doorway, plus infill posts across the
   // wider fixed panels — never a bar across an opening.
   const postAt = (px: number): void => {
-    slab(g, half ? mats.white : mats.black, px, yWall, glassMid, 0.08, half ? 0.06 : 0.14, glassH).name = 'psd-fixed-post'
+    slab(g, mats.black, px, yWall, glassMid, 0.08, fixedFrameDepth, glassH).name = 'psd-fixed-post'
   }
   if (!half) { postAt(x0 + 0.04); postAt(x0 + len - 0.04) }
   for (const dx of openings) {
@@ -190,59 +210,64 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     postAt(dx - doorW / 2)
     postAt(dx + doorW / 2)
   }
-  for (let px = x0 + 2.4; px < x0 + len; px += 2.4) {
-    if (openings.some((dx) => Math.abs(px - dx) < widthAt(dx) / 2 + 0.1)) continue
-    postAt(px)
+  // One structural pillar separates each glass + doorway section. Its position
+  // follows the door cadence rather than an unrelated fixed metre grid (§5.9).
+  const pillars = [x0 + 0.08, ...openings.slice(1).map((dx, i) => (openings[i] + dx) / 2), x0 + len - 0.08]
+  for (const px of pillars) {
+    slab(g, mats.black, px, yWall, glassMid, 0.16, fixedFrameDepth, glassH).name = 'psd-section-pillar'
   }
 
   // Door leaves at the timetable's door centres. Each leaf is the tinted glass
   // panel plus its outer frame; both slide clear of the opening (doorW/2) as the
-  // train berths, the tinted panel parking over the fixed glass beside it. They
-  // Slim half-height fittings keep the slide lane close, with 1 cm cap clearance.
-  const leafY = yWall - toward * (half ? 0.11 : 0.15)
+  // train berths, the tinted panel parking behind the fixed glass beside it.
+  // The sliding lane is behind the fixed screen, towards the track.
+  // The glass meets the track-side face of the fixed pillars exactly.
+  const leafY = yWall + toward * slideOffset
   const leaves: THREE.Mesh[] = []
   g.userData.line = mod.cfg.line
   for (const dx of openings) {
     const doorW = widthAt(dx)
     for (const s of [-1, 1]) {
-      const leafX = dx + (s * doorW) / 4
-      const leafW = doorW / 2
+      const overlap = 0.20
+      const leafW = doorW / 2 + overlap
+      const leafX = dx + s * leafW / 2
       // Exact half-opening widths meet at the centre; the inner seals cover the seam.
-      const glass = plate(g, movingGlass, half ? leafW - 0.02 : leafW, doorH, leafX, leafY, leafMid, 0)
+      const glass = plate(g, movingGlass, leafW, doorH, leafX, leafY, leafMid, 0)
       glass.name = 'psd-door-glass'
-      const frameMat = half ? mats.white : mats.black
-      const frame = slab(g, frameMat, dx + s * (doorW / 2 - (half ? 0 : 0.03)), leafY, leafMid, 0.06, half ? 0.06 : 0.12, doorH)
+      const frameMat = mats.black
+      const frame = slab(g, frameMat, dx + s * (doorW / 2 + overlap - 0.03), leafY, leafMid, 0.06, half ? 0.06 : 0.12, doorH)
       registerDoorLeaf(glass, s, doorW / 2, leaves)
       registerDoorLeaf(frame, s, doorW / 2, leaves)
+      const meetingFrame = slab(g, mats.black, dx + s * 0.015, leafY, leafMid, 0.03, half ? 0.06 : 0.12, doorH)
+      meetingFrame.name = 'psd-door-meeting-frame'
+      registerDoorLeaf(meetingFrame, s, doorW / 2, leaves)
       if (half) {
-        const rail = slab(g, mats.white, leafX, leafY, z0 + halfRailTop - 0.06, leafW, 0.08, 0.12)
+        const rail = slab(g, mats.black, leafX, leafY, z0 + halfRailTop - 0.06, leafW, 0.08, 0.12)
         rail.name = 'half-door-rail'
-        registerDoorLeaf(rail, s, leafW, leaves)
-        const cap = slab(g, mats.darkSteel, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.025, leafW, 0.1, 0.05)
+        registerDoorLeaf(rail, s, doorW / 2, leaves)
+        const cap = slab(g, mats.black, leafX, leafY, z0 + PSD_HALF_HEIGHT - 0.025, leafW, 0.1, 0.05)
         cap.name = 'half-door-cap'
-        registerDoorLeaf(cap, s, leafW, leaves)
+        registerDoorLeaf(cap, s, doorW / 2, leaves)
       }
       if (!half) {
-        const seal = slab(g, mats.rubber, dx + s * 0.012, leafY, leafMid, 0.024, 0.12, doorH)
-        registerDoorLeaf(seal, s, leafW, leaves)
-        for (const z of [z0 + 0.15, z0 + 0.12 + doorH - 0.03]) {
-          registerDoorLeaf(slab(g, frameMat, leafX, leafY, z, leafW, 0.12, 0.06), s, leafW, leaves)
+        for (const z of [z0 + 0.03, z0 + doorH - 0.03]) {
+          registerDoorLeaf(slab(g, frameMat, leafX, leafY, z, leafW, 0.12, 0.06), s, doorW / 2, leaves)
         }
-        const stripe = band(leafX - leafW / 2, leafX + leafW / 2, leafY - toward * 0.075, true)
-        if (stripe) registerDoorLeaf(stripe, s, leafW, leaves)
+        const stripe = band(leafX - leafW / 2, leafX + leafW / 2, leafY - toward * 0.001, true)
+        if (stripe) registerDoorLeaf(stripe, s, doorW / 2, leaves)
         if (warningMat) {
-          const warning = plate(g, warningMat, Math.min(0.52, leafW - 0.1), 0.39, leafX, leafY - toward * 0.076, z0 + 1.88, platYaw)
+          const warning = plate(g, warningMat, Math.min(0.52, leafW - 0.1), 0.39, leafX, leafY - toward * 0.002, z0 + 1.88, platYaw)
           warning.renderOrder = 3
-          registerDoorLeaf(warning, s, leafW, leaves)
+          registerDoorLeaf(warning, s, doorW / 2, leaves)
         }
-        const arrow = plate(g, arrowMats[s < 0 ? 0 : 1], 0.24, 0.24, leafX, leafY - toward * 0.076, z0 + 1.48, platYaw)
+        const arrow = plate(g, arrowMats[s < 0 ? 0 : 1], 0.24, 0.24, leafX, leafY - toward * 0.002, z0 + 1.48, platYaw)
         arrow.renderOrder = 3
-        registerDoorLeaf(arrow, s, leafW, leaves)
+        registerDoorLeaf(arrow, s, doorW / 2, leaves)
       }
     }
     // A raised oval amber lens in a small metal bezel, below the bilingual name.
     if (!half) {
-      const lampZ = z0 + 0.12 + doorH + 0.085
+      const lampZ = z0 + doorH + 0.085
       const oval = (material: THREE.Material, width: number, depth: number, height: number, face: number, z: number) => {
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), material)
         mesh.scale.set(width / 2, depth / 2, height / 2)
@@ -254,6 +279,11 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       oval(fullHeightIndicator, 0.15, 0.05, 0.064, 0.155, lampZ).name = 'psd-station-light'
     }
   }
+  // All moving opaque fittings sit track-side of their glass plane. The fixed
+  // pillar meets that plane exactly, sealing the side without blocking the slide.
+  for (const leaf of leaves) if (leaf.geometry instanceof THREE.BoxGeometry) {
+    leaf.position.y += toward * leaf.geometry.parameters.height / 2
+  }
   g.userData.doors = leaves
   // Sliding leaves retain independent faces so they still seal as they move.
   if (!fixedSpan) finishPsdHousing(g)
@@ -261,7 +291,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
   // 隐藏墙壁 fades the whole screen along with the block walls.
   g.traverse((o) => {
-    if ((o as THREE.Mesh).isMesh) o.userData.wall = true
+    if ((o as THREE.Mesh).isMesh && o.name !== 'platform-yellow-line' && o.name !== 'psd-concrete-foundation') o.userData.wall = true
   })
   return g
 }

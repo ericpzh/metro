@@ -374,6 +374,7 @@ export const DOOR_RATE = 1.2
 export const PSD_FULL_HEIGHT = 2.95
 /** Screen/barrier centre line within a platform tile, toward the track (§5.4). */
 export const PSD_WALL_OFFSET = 0.34
+export const PSD_BASE_DEPTH = 0.18
 export const PSD_HALF_HEIGHT = 1.45
 /** Full-height screen openings are wider than the car doors they align with (§5.9). */
 export const PSD_FULL_DOOR_WIDTH_SCALE = 1.5
@@ -402,9 +403,12 @@ export const TRAIN_DWELL = 30
 export const TRAIN_DEPART_HOLD = 5
 export const TRAIN_DEPART_S = 6
 /** Running-rail crown and centreline offsets in the track model (metres). */
-export const RAIL_HEAD_Z = 0.65
+// The deeper trench adds the missing underfloor height, preserving the roof and platform datums.
+export const TRACK_UNDERFLOOR_DROP = 0.49
+export const TRACK_BED_DROP = 0.45 + TRACK_UNDERFLOOR_DROP
+export const RAIL_HEAD_Z = 0.65 - TRACK_BED_DROP
 export const RAIL_CENTRE_OFFSET = 0.7525
-/** Track-local conductor height; train origins ride 0.5 m above the track origin. */
+/** Track-local conductor height; train origins follow TRAIN_ORIGIN_Z. */
 export const CATENARY_HEIGHT_INCREASE = 0.99
 export const CONTACT_WIRE_Z = 3.78 + CATENARY_HEIGHT_INCREASE
 export const CONTACT_STRIP_Z = CONTACT_WIRE_Z - 0.012

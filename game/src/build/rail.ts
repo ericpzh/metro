@@ -212,7 +212,7 @@ export function derivePlatformEdges(state: StationState, track: Module): Platfor
     }
     for (const [i0, i1] of runsOf(xs)) {
       const [ox, oy] = rotateLocal(rot, i0, j)
-      out.push(makeEdge(track, track.x + ox, track.y + oy, i1 - i0 + 1, side, dir, psd))
+      out.push(makeEdge(track, track.x + ox, track.y + oy, i1 - i0 + 1, side, dir, track.cfg.removedPsdSides?.includes(side) ? 'none' : psd))
     }
   }
   return out
@@ -225,9 +225,17 @@ export function dropDerivedEdges(state: StationState, trackId: string): StationS
 }
 
 /** Re-derive a rail's screen doors after the platform floor has changed. */
-export function regenerateRailEdges(state: StationState, trackId: string): StationState {
-  const track = state.modules.find((m) => m.id === trackId)
+export function regenerateRailEdges(state: StationState, trackId: string, resetScreens = false): StationState {
+  let track = state.modules.find((m) => m.id === trackId)
   if (!track || track.type !== 'track') return state
+  // An explicit line choice restores individually deleted screens. Ordinary
+  // floor edits and stock resizing retain the track-owned deletion choice.
+  if (resetScreens && track.cfg.removedPsdSides) {
+    const { removedPsdSides: _removed, ...cfg } = track.cfg
+    track = { ...track, cfg }
+    const updated = track
+    state = { ...state, modules: state.modules.map((m) => m.id === trackId ? updated : m) }
+  }
   const cleaned = dropDerivedEdges(state, trackId)
   return { ...cleaned, modules: [...cleaned.modules, ...derivePlatformEdges(cleaned, track)] }
 }
@@ -301,7 +309,7 @@ function trackSpace(track: TrackModule): ModuleBox {
     x1 = Math.max(x1, x + 1)
     y1 = Math.max(y1, y + 1)
   }
-  return { x0, y0, z0: track.z - (track.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), x1, y1, z1: track.z + trackHeadroom(track) + 1 }
+  return { x0, y0, z0: track.z - (track.cfg.bridge ? BRIDGE_DECK_DEPTH : 1), x1, y1, z1: track.z + trackHeadroom(track) + 1 }
 }
 
 /**
@@ -393,7 +401,7 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
  */
 function commitTrackRaw(state: StationState, track: TrackModule): StationState {
   if (trackOverlaps(state, track)) return state
-  const dug = new Set(trackCells(track).map(([x, y, z]) => cellKey(x, y, z)))
+  const dug = new Set(trackCells(track).flatMap(([x, y, z]) => [cellKey(x, y, z), cellKey(x, y, z - 1)]))
   const cells = state.cells.filter((c) => !dug.has(cellKey(c.x, c.y, c.z)))
   const modules = state.modules.filter((m) => !dug.has(cellKey(m.x, m.y, m.z)))
   let next: StationState = { ...state, cells, modules: [...modules, track] }
@@ -403,8 +411,8 @@ function commitTrackRaw(state: StationState, track: TrackModule): StationState {
 
 /**
  * Dig a track's bed cells and append it, then derive its screen doors. The bed
- * cells are removed (one course), so the mesher exposes the platform edge as a
- * half-metre drop and the module supplies the recessed slab and rails. Anything
+ * cells are removed through two courses, so the model can recess the bed
+ * beneath the platform floor and the module supplies the recessed slab and rails. Anything
  * that would share the track's space, a platform with a wall in its headroom, or
  * a platform not resting on solid floor refuses and returns the same state
  * object, so callers can tell "no change".

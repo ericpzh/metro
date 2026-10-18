@@ -72,9 +72,9 @@ test('model reuses screen fixed glass, matches its cap height, and has no slidin
       const glass = g.children.filter((c) => c.name === 'psd-fixed-glass')
       assert.equal(glass.length, 1)
       assert.equal(glass[0].geometry.parameters.width, 1)
-      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.16 : 2.25)) < 1e-9)
+      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.28 : 2.37)) < 1e-9)
       assert.deepEqual(g.userData.doors, [])
-      assert.ok(g.children.every((c) => c.userData.wall))
+      assert.ok(g.children.filter(c=>c.name!=='psd-concrete-foundation').every((c) => c.userData.wall))
       const reference = buildModule({ ...screen(0, 'left', psd), w: 1 }, ctx)
       assert.ok(Math.abs(new THREE.Box3().setFromObject(g).max.z - new THREE.Box3().setFromObject(reference).max.z) < 1e-6)
     }
@@ -158,7 +158,7 @@ test('trimmed extension fittings have no competing coplanar faces', () => {
           const span = psdEndSpan(p)
           for (const [height, material, depth] of psd === 'full'
             ? [[3.8, mats.white, 0.12], [3.925, mats.black, 0.14]]
-            : [[1.06, mats.white, 0.09], [2.425, mats.darkSteel, 0.05]]) {
+            : [[0.99, mats.black, 0.09], [2.425, mats.black, 0.05]]) {
             const fitting = g.children.find((c) => {
               if (c.material !== material || !(c.geometry instanceof THREE.BoxGeometry)) return false
               c.updateMatrix()
@@ -174,9 +174,9 @@ test('trimmed extension fittings have no competing coplanar faces', () => {
         }
         for (const fitting of g.children.filter((c) => c.geometry instanceof THREE.BoxGeometry)) {
           const bounds = new THREE.Box3().setFromObject(fitting)
-          for (const housing of screenGroup.children.filter((c) => c.geometry instanceof THREE.BoxGeometry)) {
+          for (const housing of screenGroup.children.filter((c) => c.geometry instanceof THREE.BoxGeometry && c.name !== 'platform-yellow-line')) {
             const other = new THREE.Box3().setFromObject(housing)
-            assert.ok(!['x', 'y', 'z'].every((key) => Math.min(bounds.max[key], other.max[key]) - Math.max(bounds.min[key], other.min[key]) > 1e-6), `extension fittings clear the ${psd} screen housing at rotation ${rot}, ${side} side, turn ${turn}`)
+            assert.ok(!['x', 'y', 'z'].every((key) => Math.min(bounds.max[key], other.max[key]) - Math.max(bounds.min[key], other.min[key]) > 1e-6), `extension fittings clear the ${psd} screen housing at rotation ${rot}, ${side} side, turn ${turn}: ${fitting.name} vs ${housing.name}`)
           }
         }
         const boxes = g.children.filter((c) => c.geometry instanceof THREE.BoxGeometry).map((mesh) => {

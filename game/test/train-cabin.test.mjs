@@ -85,6 +85,7 @@ test('the wave spawns after stopping and before the doors open', () => {
   const pose = w.trainRenderState()
   for (const a of aboard(w)) {
     assert.equal(a.state, 7, 'a rider of the wave is alighting, not walking the floor')
+    assert.ok(Math.abs(pose[2] + CABIN_FLOOR_Z - 1) < 1e-6, 'train floor is flush with the platform')
     assert.ok(Math.abs(a.z - (pose[2] + CABIN_FLOOR_Z)) < 1e-6, `rider z ${a.z} is not on the cabin floor`)
   }
   // Seated by doorway, in rows: one pair to a row at the front of each queue.

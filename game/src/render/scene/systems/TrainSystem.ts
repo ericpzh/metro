@@ -11,7 +11,7 @@ import { batchStaticParts } from '../../batchStaticModule.ts'
 import { batchTrainDoors, batchTrainTransparent } from '../../trainBatches.ts'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { STOCK, STOCK_CLASSES } from '../../../sim/stock.ts'
+import { STOCK, STOCK_CLASSES, TRAIN_ORIGIN_Z } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -142,12 +142,6 @@ export class TrainSystem extends SceneSystem {
         batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
         if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
         this.details.set(group, trainDetails(group))
-        // The storey the consist stands in: its track surface is half a metre
-        // below the platform, so the walk-surface convention (`cell z + 1`)
-        // rounds back to the floor block the train rides over. Without the
-        // rounding a consist berthed at -16 banded to -16.5 — below the storey
-        // it is standing on — and vanished with 显示其他层 off.
-        group.userData.levelZs = [storeyBand(Math.round(z - 1), this.ctx.levelBase)]
         group.userData.doorT = [0, 0]
         this.trainGroup.add(group)
         entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true, missed: 0 }
@@ -166,6 +160,8 @@ export class TrainSystem extends SceneSystem {
       // `visible` here is the sim's own state — a consist between services is
       // parked — and `parked` carries it across an `applyLevel`, which owns the
       // flag otherwise (the level slicing and the sim both write it).
+      // Recover the track anchor from the platform-aligned cabin origin, including cached poses.
+      entry.group.userData.levelZs = [storeyBand(Math.round(z - TRAIN_ORIGIN_Z), this.ctx.levelBase)]
       entry.group.userData.parked = false
       // Doors ease open and shut per bank in `updateTrains`, never snapping.
       entry.group.userData.doorOpen = doorsOpen ? 1 : 0

@@ -1,3 +1,4 @@
+import { RAIL_HEAD_Z } from '../sim/constants.ts'
 import { msg } from '../sim/i18n.ts'
 // A rendering pass for concept sheet 11, on demand from a page.
 //
@@ -30,6 +31,7 @@ import { addStationLights, applyStationRenderer } from '../render/scene/lightRig
 import { RAIL_BED_DEPTH, makeTrack } from '../build/rail.ts'
 import {
   CABIN_FLOOR_Z,
+  TRAIN_ORIGIN_Z,
   CABIN_HALF_W,
   CABIN_MAX_ROWS,
   CABIN_ROW_PITCH,
@@ -100,7 +102,7 @@ const PLAN_ON = new THREE.Vector3(0, 0, 1)
  * A fitted box per class would draw them all the same size and the sheet would be
  * telling a lie with its layout.
  */
-const ELEV_Z: [number, number] = [-0.35, 4.05]
+const ELEV_Z: [number, number] = [RAIL_HEAD_Z - TRAIN_ORIGIN_Z - .1, 4.55]
 const ELEV_HALF_Y = 1.7
 /** Half a 22 m car: the longest body, so the longest one exactly fills its frame. */
 const ELEV_HALF_X = 11
@@ -668,7 +670,7 @@ export async function captureTrains(
       let box =
         elevationBox(show.scene) ??
         new THREE.Box3(
-          new THREE.Vector3(x0, -s.width / 2 - 0.2, -0.2),
+          new THREE.Vector3(x0, -s.width / 2 - 0.2, RAIL_HEAD_Z - TRAIN_ORIGIN_Z - .1),
           new THREE.Vector3(x1, s.width / 2 + 0.2, s.height + 0.6),
         )
       /**

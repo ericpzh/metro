@@ -1,3 +1,4 @@
+import { TRACK_UNDERFLOOR_DROP } from '../src/sim/constants.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -421,7 +422,7 @@ test('material brush paints the bridge deck while retaining rail, sleeper and ba
   const model = new TrackModel({ ...ctx, mats, finish: (id) => id === painted.cfg.bridgeFinish ? deckMat : trackConcrete }).build(painted)
   const coated = model.children.filter((child) => child.material === deckMat)
   assert.ok(coated.length >= 3 && coated.every(child => child.name === 'bridge-deck' || child.name === 'bridge-edge-concrete'), 'only the concrete deck and its raised shoulders take the paint')
-  assert.equal(sizeOf(model.getObjectByName('bridge-deck')).z, 1)
+  assert.ok(Math.abs(sizeOf(model.getObjectByName('bridge-deck')).z - (1 - TRACK_UNDERFLOOR_DROP)) < 1e-6)
   const shoulders = model.children.filter(child => child.name === 'bridge-edge-concrete')
   assert.ok(shoulders.length >= 2 && shoulders.every(child => child.material === deckMat), 'both raised bridge shoulders share the painted deck finish')
   assert.equal(model.getObjectByName('concrete sleepers').material, trackConcrete, 'sleepers retain concrete when the bridge deck is painted')
@@ -472,18 +473,19 @@ test('the new equipment survives a save/load round trip', () => {
   assert.ok(Math.abs(size.z - 2) < 1e-6, 'pier head terminates at the underside of the one-metre bridge deck')
  })
 
-test('bridge underside is one solid metre with no coplanar edge girders, in every rotation', () => {
+test('recessed bridge trough keeps its underside and pier seating, in every rotation', () => {
   const mats = { white: mat, black: mat, steel: mat, darkSteel: mat, glass: mat, psu: mat }
   for (let rot = 0; rot < 4; rot++) {
     const src = makeTrack({ id: 'src', lineId: '1', dir: 'up', power: 'third-rail', x: 0, y: 0, z: 8, w: 8, d: 3, rot })
     for (const railing of ['railing', 'sound-barrier-half', 'sound-barrier']) {
       const bridge = makeBridge(src, 1, 12, 'bridge', railing)
       const model = new TrackModel({ ...ctx, mats }).build(bridge)
-      const underside = model.children.filter((child) => child.position.z < 0)
+      model.updateMatrixWorld(true)
+      const underside = model.children.filter((child) => new THREE.Box3().setFromObject(child).min.z < bridge.z - TRACK_UNDERFLOOR_DROP - 1e-6)
       assert.equal(underside.length, 1, 'only the solid deck draws below the bed; no overlapping edge faces')
-      assert.equal(sizeOf(underside[0]).z, 1, 'the concrete deck is a full block deep')
+      assert.ok(Math.abs(sizeOf(underside[0]).z - (1 - TRACK_UNDERFLOOR_DROP)) < 1e-6, 'the recessed trough clears the running rails above the existing bridge underside')
       const bounds = new THREE.Box3().setFromObject(model)
-      assert.equal(bounds.min.z, 7, 'the deck underside is one metre below the track anchor')
+      assert.ok(Math.abs(bounds.min.z - 7) < 1e-6, 'the deck underside is one metre below the track anchor')
       if (railing !== 'railing') {
         const top = railing === 'sound-barrier-half' ? 10 : 11.5
         assert.ok(Math.abs(bounds.max.z - top) < 1e-6, 'barriers rise 1.5 / 3 metres above the bed')

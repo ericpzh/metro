@@ -758,3 +758,19 @@ door banks in six/eight-car consists travelling in both directions.
 
 `draw-batching` checks C cab glazing contacts its backing in profile and the
 smaller emblem clears both panes and the front door at both ends.
+
+`module-build` pins track-side PSD slides, gapless closed leaves, cadence pillars and persistent yellow lines in all rotations. `rail` pins no-screen/deleted-screen boarding, arrow snapping, save round-trip and regeneration.
+
+`train-bogie` pins the lowered rail crown and wheel contact; `train-cabin` pins the train floor flush with platform height. `module-build` covers flush PSD thresholds, pocket overlaps and black half-height meeting stiles; `floor-decor` snaps boarding and waiting ink in all three PSD modes.
+
+`floor-geometry` pins full-volume platform cuts under PSD bases in every rotation/bank, intact yellow-line support, and chunk-cache invalidation/restoration when screens are removed.
+
+`train-cab` pins gapless passenger-door centre joins for every stock, flush curved outer skins, separate outward/sideways plug phases and the reverse closing order, with the opposite bank held closed.
+
+`catenary-model` pins single-mast cantilevers and braced joints; `module-build` pins gantry/third-rail agreement for full, half and absent PSD banks, both directions and every rotation, including bridge barrier and shoulder cutouts only on the mast side. `track-third-rail` pins travel-right fallback with both or neither PSD bank.
+
+The underfloor equipment regression in `train-bogie` pins cabinet/tank/conduit coverage, bogie clearance, rail and floor bounds, reduced detail and the unchanged roof height. Passenger doors stay about half the wheel-to-roof height across all five stocks, with the original doorway and roof retained above the deeper wheelsets. `rail` pins two-course excavation without cutting platform support.
+
+`train-cab` checks each leaf owns a thin rubber perimeter through both motion phases, without a broad black kick panel. `train-pantograph` pins thin rooftop AC housings, fan grilles, cab bounds and collector-well clearance for all five stocks and both power modes. `train-bogie` retains deep upper cheek frames, body load pads and secondary air cushions above the full-size wheelsets.
+
+`module-build` also pins stock-aware mast/railing clearance on legacy narrow D beds and concrete foundation contact beneath the full PSD sill, down to the recessed bed, for both heights, banks and every rotation.

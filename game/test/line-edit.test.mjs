@@ -257,7 +257,7 @@ test('a 供电 switch reaches every track bound to the line and no other line', 
   assert.equal(edgesOf('1').length, 1, 'the screen doors stay bound to the line')
 })
 
-test('a 屏蔽门 全高 / 半高 switch re-derives every screen door on the line', () => {
+test('a 屏蔽门 全高 / 半高 / 无 switch re-derives every screen door on the line', () => {
   load(twoLines())
   const before = edgesOf('1')
   assert.equal(before.length, 1, 'the platform rail derived one screen run')
@@ -268,6 +268,16 @@ test('a 屏蔽门 全高 / 半高 switch re-derives every screen door on the lin
   assert.deepEqual(edgesOf('1').map((e) => e.id), before.map((e) => e.id), 'the same doors, re-derived — not a second set')
   assert.ok(edgesOf('1').every((e) => e.cfg.psd === 'half'), 'each screen reads 全高 / 半高 off its line')
   assert.ok(edgesOf('2').every((e) => e.cfg.psd === 'full'), 'line 2 keeps the height its screens were cut with')
+
+  st().updateLine('1', { psd: 'none' })
+  assert.equal(line('1').psd, 'none')
+  assert.ok(edgesOf('1').every((e) => e.cfg.psd === 'none'))
+  assert.ok(edgesOf('2').every((e) => e.cfg.psd === 'full'))
+  st().undo()
+  assert.equal(line('1').psd, 'half')
+  assert.ok(edgesOf('1').every((e) => e.cfg.psd === 'half'))
+  st().redo()
+  assert.ok(edgesOf('1').every((e) => e.cfg.psd === 'none'))
 
   // The re-derivation hangs off `patch.psd`, so a 名字 edit must not touch the doors.
   const edge = edgesOf('1')[0]

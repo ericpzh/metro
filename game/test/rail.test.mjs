@@ -1,3 +1,4 @@
+import { TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
 // Rail placement and auto-derived platform screen doors (GAME-SPEC §5.4, §5.9).
 // Placing a rail digs its bed (the cells become void, so the mesher exposes the
 // platform edge as a half-metre drop) and generates one platform-edge per
@@ -7,7 +8,7 @@ import assert from 'node:assert/strict'
 import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, makeBridge, placeRail, placeTrack, placeTunnel, railModuleAt, railModuleAtPlatform, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
 import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
-import { toState, toData } from '../src/build/model.ts'
+import { removeModule, toState, toData } from '../src/build/model.ts'
 import { World } from '../src/sim/world.ts'
 
 function station(cells) {
@@ -88,7 +89,7 @@ test('the dug bed blocks equipment and reads as track by either rule', () => {
   assert.ok(trackBedKeys(s1.cells, s1.modules).has('3,1,0'), 'the bed is a track key')
 
   const env = moduleEnvelope(track)
-  assert.equal(env.z0, 0)
+  assert.equal(env.z0, -1)
   assert.equal(env.z1, 1, 'the trench fills the block, so equipment cannot sit in it')
   assert.equal(placementOnTrack(s1.cells, { id: 'g', type: 'gate', x: 2, y: 1, z: 0, cfg: { dir: 'both' } }, s1.modules), true, 'equipment is refused in the bed')
 
@@ -116,7 +117,7 @@ test('a rail with no platform still gets a running train', () => {
   const pose = w.trainRenderState()
   assert.equal(pose.length, 10, 'one train, one pose')
   assert.equal(pose[3], 6, 'six cars')
-  assert.equal(pose[2], 0.5, 'rides the recessed slab')
+  assert.ok(Math.abs(pose[2] - TRAIN_ORIGIN_Z) < 1e-6, 'rides the recessed slab')
   assert.equal(pose[8], 0, 'an east–west track has no yaw')
   assert.equal(pose[9], 0, 'no screen doors, so neither bank may open')
 })
@@ -518,4 +519,43 @@ test('power switches and loading legacy catenary tunnels raise their generated c
     assert.ok(lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
     assert.ok(!lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
   }
+})
+
+
+test('no PSD and deleted screens retain boarding, snapping and save identity', async () => {
+  const { snapBoardingMark } = await import('../src/sim/floorDecor.ts')
+  const { buildGraph } = await import('../src/sim/station.ts')
+  const { serialize, parse } = await import('../src/persistence/save.ts')
+  const { doorRunOffsets } = await import('../src/sim/stock.ts')
+  const s = placeRail(station([...floorRow(0, 140, -1), ...floorRow(0, 140, 0)]), { x0: 0, y0: 0, x1: 140, y1: 0, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })
+  const edge = s.modules.find(m => m.type === 'platform-edge')
+  const rail = s.modules.find(m => m.type === 'track')
+  const at = doorRunOffsets(s.lines[0], rail.w)[0]
+  const mark = { id: 'ink', type: 'floor-mark', x: Math.round(at - 0.5), y: -1, z: 0, rot: 0, cfg: { variant: 'boarding' } }
+  const before = snapBoardingMark(mark, s.modules, s.lines)
+  assert.equal(before.cfg.edgeId, edge.id)
+  const deleted = removeModule(s, edge.id)
+  assert.equal(deleted.modules.find(m => m.id === edge.id).cfg.psd, 'none')
+  assert.equal(moduleEnvelope(deleted.modules.find(m => m.id === edge.id)), null)
+  assert.deepEqual(snapBoardingMark(mark, deleted.modules, deleted.lines), before)
+  assert.deepEqual(buildGraph(toData(deleted)).platforms, buildGraph(toData(s)).platforms)
+  assert.equal(regenerateRailEdges(deleted, rail.id).modules.find(m => m.id === edge.id).cfg.psd, 'none')
+  const resized = resizeTrack(deleted, deleted.modules.find(m => m.id === rail.id), 135)
+  assert.ok(resized.modules.filter(m => m.type === 'platform-edge').every(m => m.cfg.psd === 'none'))
+  assert.equal(parse(serialize(deleted)).state.modules.find(m => m.id === edge.id).cfg.psd, 'none')
+  const none = regenerateRailEdges({ ...s, lines: s.lines.map(l => ({ ...l, psd: 'none' })) }, rail.id, true)
+  assert.ok(none.modules.filter(m => m.type === 'platform-edge').every(m => m.cfg.psd === 'none'))
+  assert.deepEqual(snapBoardingMark(mark, none.modules, none.lines), before)
+  assert.equal(regenerateRailEdges(deleted, rail.id, true).modules.find(m => m.id === edge.id).cfg.psd, 'full')
+})
+
+
+test('a deep rail bed excavates both courses while retaining the platform supports',()=>{
+ const cells=[];for(let x=0;x<6;x++)for(let y=0;y<4;y++)for(let z=-1;z<=0;z++)cells.push({x,y,z,fill:'solid'})
+ const next=placeRail(station(cells),{x0:0,y0:1,x1:5,y1:1,z:0},{lineId:'1',dir:'up',power:'third-rail'})
+ assert.ok(next.modules.some(m=>m.type==='track'))
+ for(let x=0;x<6;x++){
+  assert.equal(next.cells.some(c=>c.x===x&&c.y===1),false,'both bed courses are excavated')
+  assert.equal(next.cells.filter(c=>c.x===x&&c.y===0).length,2,'platform support remains intact')
+ }
 })

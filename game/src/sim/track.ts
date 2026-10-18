@@ -81,8 +81,8 @@ export function trackDepth(m: Pick<TrackModule, 'd'>): number {
 }
 
 /** Across-bed offset of the screen-door line on either adjacent platform tile. */
-export function trackSideFixtureOffset(depth: number): number {
-  return depth / 2 + 0.5 - PSD_WALL_OFFSET
+export function trackSideFixtureOffset(depth: number, vehicleWidth = 0): number {
+  return Math.max(depth / 2 + 0.5 - PSD_WALL_OFFSET, vehicleWidth / 2 + .25)
 }
 
 /** The vehicle centre across its bed, measured from the bed's local −y edge. */
@@ -169,7 +169,7 @@ export function edgeCells(m: PlatformEdgeModule): Array<[number, number, number]
  * A conductor rail runs on the right of the travel direction in tunnels and
  * on 轨道桥. `up` travels local +x, so its right is local −y; `down` travels
  * local −x, so its right is local +y. A platform rail takes the side with no
- * 屏蔽门, and only falls back to the travel left when both sides (or neither
+ * 屏蔽门, and only falls back to the travel right when both sides (or neither
  * side) carry screens.
  */
 export function thirdRailSide(
@@ -178,12 +178,12 @@ export function thirdRailSide(
   lineDir?: LineDirection,
 ): 1 | -1 {
   const dir = track.cfg.dir ?? lineDir ?? 'up'
-  const left: 1 | -1 = dir === 'down' ? -1 : 1
   const right: 1 | -1 = dir === 'down' ? 1 : -1
   if (track.cfg.tunnel || track.cfg.bridge) return right
   const trackId = (track as { id?: string }).id
   const line = track.cfg.line
   const relevant = edges.filter((e) => {
+    if (e.cfg.psd === 'none') return false
     if (trackId !== undefined && e.cfg.from === trackId) return true
     // Edges that predate `cfg.from` match by line and direction instead.
     return e.cfg.from === undefined && e.cfg.line === line && e.cfg.dir === dir
@@ -192,5 +192,5 @@ export function thirdRailSide(
   const hasRight = relevant.some((e) => e.cfg.side === 'right')
   if (hasLeft && !hasRight) return -1
   if (hasRight && !hasLeft) return 1
-  return left
+  return right
 }

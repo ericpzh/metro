@@ -540,6 +540,7 @@ export const messages = {
     "zh": "旋转 {0}°",
     "en": "Rotate {0}°"
   },
+  "screen_doors_none": { "zh": "无", "en": "None" },
   "half_height": {
     "zh": "半高",
     "en": "Half height"

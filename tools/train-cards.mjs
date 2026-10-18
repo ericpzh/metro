@@ -10,6 +10,7 @@
 // Sheets 02, 05, 11 and 12 all do that, so the two functions live here rather than in
 // four copies that could drift apart.
 
+import { TRAIN_ORIGIN_Z } from '../game/src/sim/stock.ts'
 import { RAIL_HEAD_Z } from '../game/src/sim/constants.ts'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -25,8 +26,8 @@ export const TRAIN_CARDS = resolve(repo, process.env.TRAIN_CARDS_DIR ?? join('.p
  * Read once per process: a sheet asks for a handful of the same sixteen pictures and
  * base64-ing a 40 KB PNG sixteen times is noticeable.
  */
-/** Rail crown in train-local coordinates: the train origin is bed +0.5 m. */
-export const TRAIN_RAIL_DATUM_Z = RAIL_HEAD_Z - 0.5
+/** Rail crown in train-local coordinates: the cabin floor is flush with the platform. */
+export const TRAIN_RAIL_DATUM_Z = RAIL_HEAD_Z - TRAIN_ORIGIN_Z
 
 let cached = null
 export function loadTrainCards() {

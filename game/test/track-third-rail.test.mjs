@@ -35,9 +35,9 @@ test('tunnel and bridge keep the travel right whatever screens exist', () => {
   assert.equal(thirdRailSide(track({ bridge: true, dir: 'down' }), both), 1, 'bridge down is local +y')
 })
 
-test('platform rail without screens falls back to the travel left', () => {
-  assert.equal(thirdRailSide(track({ dir: 'up' }), []), 1, 'up with no screens is +y')
-  assert.equal(thirdRailSide(track({ dir: 'down' }), []), -1, 'down with no screens is −y')
+test('platform rail without screens falls back to the travel right', () => {
+  assert.equal(thirdRailSide(track({ dir: 'up' }), []), -1, 'up with no screens is right on −y')
+  assert.equal(thirdRailSide(track({ dir: 'down' }), []), 1, 'down with no screens is right on +y')
 })
 
 test('platform rail with one screen takes the side with no 屏蔽门', () => {
@@ -49,19 +49,19 @@ test('platform rail with one screen takes the side with no 屏蔽门', () => {
   assert.equal(thirdRailSide(track({ dir: 'down' }), [edge('right')]), 1, 'down, platform on −y → rail on +y')
 })
 
-test('platform rail with screens on both sides uses the travel left', () => {
+test('platform rail with screens on both sides uses the travel right', () => {
   const both = [edge('left'), edge('right')]
-  assert.equal(thirdRailSide(track({ dir: 'up' }), both), 1, 'both sides → up keeps +y')
-  assert.equal(thirdRailSide(track({ dir: 'down' }), both), -1, 'both sides → down keeps −y')
+  assert.equal(thirdRailSide(track({ dir: 'up' }), both), -1, 'both sides → up keeps right on −y')
+  assert.equal(thirdRailSide(track({ dir: 'down' }), both), 1, 'both sides → down keeps right on +y')
 })
 
 test('only the rail’s own screens count, including legacy direction-matched edges', () => {
   const other = edge('left', 'track-9')
-  assert.equal(thirdRailSide(track({ dir: 'up' }), [other]), 1, 'another rail’s screens do not move this rail')
+  assert.equal(thirdRailSide(track({ dir: 'up' }), [other]), -1, 'another rail’s screens do not move this rail')
   const legacy = { id: 'edge-legacy', type: 'platform-edge', x: 4, y: 4, z: 0, w: 8, rot: 0, cfg: { name: '站台门', line: '5', dir: 'up', side: 'left', psd: 'full' } }
   assert.equal(thirdRailSide(track({ dir: 'up' }), [legacy]), -1, 'a legacy edge without from still names the platform side')
   const legacyOtherDir = { ...legacy, id: 'edge-legacy-2', cfg: { ...legacy.cfg, dir: 'down' } }
-  assert.equal(thirdRailSide(track({ dir: 'up' }), [legacyOtherDir]), 1, 'a legacy edge for the other direction is ignored')
+  assert.equal(thirdRailSide(track({ dir: 'up' }), [legacyOtherDir]), -1, 'a legacy edge for the other direction is ignored')
 })
 
 test('the side is local, so rotation never moves it, and an unset dir falls back to the line', () => {
@@ -71,8 +71,8 @@ test('the side is local, so rotation never moves it, and an unset dir falls back
     assert.equal(thirdRailSide(track({ dir: 'up' }, rot), [edge('left')]), -1, `platform up with a +y platform stays −y at rot ${rot}`)
   }
   const noDir = { id: 'track-1', type: 'track', x: 4, y: 4, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '5', power: 'third-rail' } }
-  assert.equal(thirdRailSide(noDir, [], 'down'), -1, 'an unset cfg.dir falls back to the line direction')
-  assert.equal(thirdRailSide(noDir, []), 1, 'with no line direction either, up is the default')
+  assert.equal(thirdRailSide(noDir, [], 'down'), 1, 'an unset cfg.dir falls back to the line direction')
+  assert.equal(thirdRailSide(noDir, []), -1, 'with no line direction either, up is the default')
 })
 
 test('a tunnel and bridge ignore even a single-sided screen', () => {
@@ -104,11 +104,11 @@ function thirdRailMeanY(mod, modules) {
 test('the drawn conductor rail follows the same side', () => {
   const up = track({ dir: 'up' })
   let r = thirdRailMeanY(up, [up])
-  assert.ok(r.mean > r.cy, 'platform up with no screens keeps the travel-left fallback on local +y')
+  assert.ok(r.mean < r.cy, 'platform up with no screens uses travel right on local −y')
 
   const down = track({ dir: 'down' })
   r = thirdRailMeanY(down, [down])
-  assert.ok(r.mean < r.cy, 'platform down with no screens keeps the travel-left fallback on local −y')
+  assert.ok(r.mean > r.cy, 'platform down with no screens uses travel right on local +y')
 
   const upLeft = track({ dir: 'up' })
   r = thirdRailMeanY(upLeft, [upLeft, edge('left')])
@@ -124,5 +124,5 @@ test('the drawn conductor rail follows the same side', () => {
 
   const islandUp = track({ dir: 'up' })
   r = thirdRailMeanY(islandUp, [islandUp, edge('left'), edge('right')])
-  assert.ok(r.mean > r.cy, 'an island platform falls back to the travel left')
+  assert.ok(r.mean < r.cy, 'an island platform falls back to the travel right')
 })

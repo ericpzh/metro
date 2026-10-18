@@ -1,17 +1,20 @@
 import * as THREE from 'three'
+import { TRAIN_ORIGIN_Z } from '../../../sim/stock.ts'
 import { RAIL_HEAD_Z, RAIL_CENTRE_OFFSET } from '../../../sim/constants.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { slab } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { buildTrainSuspension } from './TrainSuspension.ts'
 
-/** Train origins are 0.5 m above the bed; the rail crown is at bed +0.65 m. */
-export const BOGIE_RAIL_Z = RAIL_HEAD_Z - 0.5
+/** Wheel contact derives from the lowered track and platform-aligned cabin. */
+export const BOGIE_RAIL_Z = RAIL_HEAD_Z - TRAIN_ORIGIN_Z
+const AUTHORED_RAIL_Z = 0.15
 export const BOGIE_WHEEL_RADIUS = 0.40
 export const BOGIE_FLANGE_RADIUS = .178 * (BOGIE_WHEEL_RADIUS / .165)
 export const BOGIE_AXLE_Z = BOGIE_RAIL_Z + BOGIE_WHEEL_RADIUS
 export const BOGIE_WHEEL_Y = RAIL_CENTRE_OFFSET
 export const BOGIE_AXLE_HALF_SPAN = 0.72
-const BASE_AXLE_Z = BOGIE_RAIL_Z + .165
+const BASE_AXLE_Z = AUTHORED_RAIL_Z + .165
 
 /** Bogies sit in the first and last inter-door window bays of each car. */
 export function carBogieCentres(doors: readonly number[]): number[] {
@@ -146,7 +149,7 @@ export function buildTrainBogie(parent: THREE.Group, mats: ModelMaterials, centr
         point.fromBufferAttribute(p,i).applyMatrix4(part.matrix)
         const x = point.x-centre
         point.x = centre+pivotX+(x-pivotX)*xScale
-        point.z = central.has(name) ? point.z+.10 : name==='axle' ? point.z+(BOGIE_AXLE_Z-BASE_AXLE_Z) : BOGIE_RAIL_Z+(point.z-BOGIE_RAIL_Z)*scale
+        point.z = central.has(name) ? point.z+.10 : name==='axle' ? point.z+(AUTHORED_RAIL_Z + BOGIE_WHEEL_RADIUS-BASE_AXLE_Z) : AUTHORED_RAIL_Z+(point.z-AUTHORED_RAIL_Z)*scale
         point.applyMatrix4(inverse);p.setXYZ(i,point.x,point.y,point.z)
         if(n){normal.fromBufferAttribute(n,i).transformDirection(part.matrix);normal.x/=xScale;normal.z/=zScale;normal.transformDirection(inverse);n.setXYZ(i,normal.x,normal.y,normal.z)}
       }
@@ -155,7 +158,7 @@ export function buildTrainBogie(parent: THREE.Group, mats: ModelMaterials, centr
     }
     // Retain useful axle/world centres for animation, picking and inspection.
     if(name==='axle'||name==='wheel-tyre'||name==='wheel-web') {
-      const dz=BOGIE_AXLE_Z-part.position.z
+      const dz=AUTHORED_RAIL_Z + BOGIE_WHEEL_RADIUS-part.position.z
       part.position.z+=dz
       const localShift = new THREE.Vector3(0,0,-dz).applyQuaternion(part.quaternion.clone().invert())
       for(const geometry of [part.geometry,part.userData.lowDetailGeometry as THREE.BufferGeometry|undefined])geometry?.translate(localShift.x,localShift.y,localShift.z)
@@ -187,5 +190,9 @@ export function buildTrainBogie(parent: THREE.Group, mats: ModelMaterials, centr
   }
 
   for(const side of [-1,1])rod('bolster-outrigger',new THREE.Vector3(0,side*.45,.52),new THREE.Vector3(0,side*.98,.74),.045,mats.darkSteel)
+
+  for (const part of parent.children.slice(firstPart)) part.position.z += BOGIE_RAIL_Z - AUTHORED_RAIL_Z
+
+  buildTrainSuspension(parent, mats, centre, BOGIE_AXLE_Z, axleHalfSpan)
 
 }

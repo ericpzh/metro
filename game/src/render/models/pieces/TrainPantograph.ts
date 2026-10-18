@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { TRAIN_ORIGIN_Z } from '../../../sim/stock.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { slab } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
@@ -17,7 +18,7 @@ export function buildTrainPantograph(parent: THREE.Group, mats: ModelMaterials, 
   g.position.x = x
   g.rotation.z = inward < 0 ? Math.PI : 0
   parent.add(g)
-  const contact = CONTACT_STRIP_Z - 0.5
+  const contact = CONTACT_STRIP_Z - TRAIN_ORIGIN_Z
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, name: string) => {
     const part = new THREE.Mesh(geometry, material)
     part.name = name

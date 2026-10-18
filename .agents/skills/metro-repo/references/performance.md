@@ -122,7 +122,7 @@ the shared bridge builders also prepare these Low variants.
 | tree | 396 | 18432 |
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
-| bridge | 732 | 9588 |
+| bridge | 720 | 9576 |
 | shelf-white-tall | 240 | 7556 |
 | shelf-dark-tall | 240 | 7244 |
 | shelf-wire | 412 | 6524 |
@@ -200,7 +200,7 @@ the shared bridge builders also prepare these Low variants.
 | glass-2x2 | 60 | 60 |
 | glass-3x2 | 60 | 60 |
 | exit-virtual | 46 | 60 |
-| psd-end | 58 | 58 |
+| psd-end | 114 | 114 |
 | road | 50 | 50 |
 | stair-block | 34 | 48 |
 | billboard-wide | 40 | 40 |
@@ -252,16 +252,16 @@ static batching, door banks and sorted glass batches — not a sum of unmerged p
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 119920 | 1252192 |
-| D-6 | 97396 | 969980 |
-| A-8 | 126712 | 629056 |
-| A-6 | 96128 | 498152 |
-| C-6 | 87736 | 471156 |
-| B-6 | 84404 | 450156 |
-| L-6 | 76044 | 411548 |
-| C-4 | 59992 | 353164 |
-| B-4 | 57684 | 335748 |
-| L-4 | 51876 | 309140 |
+| D-8 | 129856 | 1303040 |
+| D-6 | 104804 | 1007764 |
+| A-8 | 166648 | 730144 |
+| A-6 | 126080 | 573968 |
+| C-6 | 112648 | 534612 |
+| B-6 | 109316 | 513612 |
+| L-6 | 96060 | 464300 |
+| C-4 | 76600 | 395468 |
+| B-4 | 74292 | 378052 |
+| L-4 | 65220 | 344308 |
 
 The shared `TrainBogie.ts` wheelsets, sculpted frames, suspension and brakes are included in these regenerated counts; Low keeps profiled eight-sided wheels and omits coils, bolts, pipes and dampers.
 
@@ -290,8 +290,8 @@ a twelve-sided torus, benches and seat-end guards a single envelope. D is the
 Guangzhou 18/22 reference and the outlier: its streamlined cab and plug doors are
 lofted surfaces, and their Low sampling — four door panels from 12×64 to 3×8, the cab
 shell from 64×128 to 16×32, the bellows from 32×128 to 8×16 — is what takes D-8 from
-1,112,720 to 91,240 triangles (8.2 % retained). D-6 draws 865,148 High / 75,836 Low
-(8.8 % retained). The shipped 动物园 Line 5 runs **L-6**.
+1,303,040 to 129,856 triangles (10.0 % retained). D-6 draws 1,007,764 High / 104,804 Low
+(10.4 % retained). The shipped 动物园 Line 5 runs **L-6**.
 
 Train parts are authored in their builders (`render/modelDetail.ts`); `batchStaticParts`
 merges both variants so a batch carries its own Low geometry, and the door banks and
@@ -583,3 +583,5 @@ stalls, unchanged throughput and unrelated validation failures. Keep raw JSON,
 screenshots, CPU profiles and traces under ignored `.preview/perf/`. Never weaken
 an asset-integrity assertion or change generated provenance merely to make a
 performance change's test run green.
+
+Underfloor equipment refresh: cabinets, vented access panels, air reservoirs, suspension mounting brackets and cable conduits now fill the space between bogies. Deep upper bogie cheek frames, bolsters and broad air cushions close the former empty suspension gap; roof HVAC units retain a thin housing at Low. The train geometry inventory was regenerated with `node tools/model-triangle-inventory.mjs`; raw counts are in `.preview/perf/train-triangles.json`. The original roof height and platform floor are retained; original-size passenger doors occupy about half the wheel-to-roof height through a deeper rail bed and taller underfloor structure.

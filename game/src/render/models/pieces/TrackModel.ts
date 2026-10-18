@@ -1,6 +1,8 @@
 // Track bed builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { TRACK_BED_DROP } from '../../../sim/constants.ts'
+import { STOCK } from '../../../sim/stock.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { BRIDGE_DECK_DEPTH, bridgeBarrierTop } from '../../../sim/structures.ts'
@@ -43,7 +45,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1, neighborPosts: readonly { x: number; y: number }[] = []): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1, neighborPosts: readonly { x: number; y: number }[] = [], vehicleWidth = 0): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -52,34 +54,38 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   const cx = (mod.w - 1) / 2
   const cy = (d - 1) / 2
   // Continue the screen-door centre line across the platform/bridge join.
-  const bridgeSupportOffset = trackSideFixtureOffset(d)
+  const bridgeSupportOffset = trackSideFixtureOffset(d, vehicleWidth)
   const bridgeSpan = Math.max(d, bridgeSupportOffset * 2 + 0.12)
+  const bedTop = 0.45 - TRACK_BED_DROP
   // The bed is a trench: placing the rail dug the cell, so the platform top
-  // drops half a metre to this slab. The exposed block sides form the trench
+  // drops below the running gear to this recessed slab. The exposed block sides form the trench
   // walls; the module only supplies the bed and the power supply on top.
-  finishSlab(g, concrete, cx, cy, 0.225, mod.w, d, 0.45)
+  if (!mod.cfg.bridge) finishSlab(g, concrete, cx, cy, 0.225 - TRACK_BED_DROP, mod.w, d, 0.45).name = 'track-bed'
   // Raised centre slab leaves the drainage troughs below the sleeper bearing surface.
-  finishSlab(g, concrete, cx, cy, 0.47, mod.w, Math.max(0.8, d - 0.52), 0.04)
+  finishSlab(g, concrete, cx, cy, 0.47 - TRACK_BED_DROP, mod.w, Math.max(0.8, d - 0.52), 0.04)
   if (mod.cfg.bridge) {
-    // One solid concrete deck (§5.4). Edge girders previously shared its outer
+    // A recessed concrete trough above the unchanged pier seats (§5.4). Edge girders previously shared its outer
     // face, making the underside flicker as the camera moved.
-    finishSlab(g, deckMat, cx, cy, -BRIDGE_DECK_DEPTH / 2, mod.w, bridgeSpan, BRIDGE_DECK_DEPTH).name = 'bridge-deck'
+    finishSlab(g, deckMat, cx, cy, (bedTop - BRIDGE_DECK_DEPTH) / 2, mod.w, bridgeSpan, BRIDGE_DECK_DEPTH + bedTop).name = 'bridge-deck'
+    const gantry = trackGantryLayout(mod, thirdRail, vehicleWidth)
     for (const y of [cy - bridgeSupportOffset, cy + bridgeSupportOffset]) {
+      const ownPostXs = gantry?.ys.some(postY => Math.abs(postY - y) < 0.12) ? gantry.xs : []
       const soundBarrier = mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half'
       const shoulderDepth = (bridgeSpan - d) / 2
       const shoulderY = cy + Math.sign(y - cy) * (d / 2 + shoulderDepth / 2)
       const postXs = [
-        ...(trackGantryLayout(mod)?.xs ?? []),
+        ...ownPostXs,
         ...neighborPosts.filter(post => Math.abs(post.y - y) < 0.12 - 1e-6).map(post => post.x),
       ]
-      buildBridgeEdgeConcrete(g, deckMat, mod.w, shoulderY, shoulderDepth, soundBarrier ? 0.5 : 0.55, postXs)
+      buildBridgeEdgeConcrete(g, deckMat, mod.w, shoulderY, shoulderDepth, soundBarrier ? 0.5 : 0.55, postXs, bedTop)
       if (mod.cfg.bridgeRailing === 'sound-barrier' || mod.cfg.bridgeRailing === 'sound-barrier-half') {
-        buildBridgeNoiseBarrier(g, mats, mod.w, y, bridgeBarrierTop(mod.cfg.bridgeRailing), mod.cfg.power === 'catenary', neighborPosts)
+        buildBridgeNoiseBarrier(g, mats, mod.w, y, bridgeBarrierTop(mod.cfg.bridgeRailing), ownPostXs.length > 0, neighborPosts)
       } else {
-        buildBridgeRailing(g, mats, mod.w, y, mod.cfg.power === 'catenary')
+        buildBridgeRailing(g, mats, mod.w, y, ownPostXs.length > 0)
       }
     }
   }
+  if (!mod.cfg.bridge) for (const side of [-1, 1]) finishSlab(g, concrete, cx, cy + side * (d / 2 - .025), bedTop / 2, mod.w, .05, -bedTop).name = 'track-trench-wall'
   buildTrackDetails(g, mats, concrete, railWeb, mod.w, d)
   // The line's 供电 decides the model: a conductor rail beside the running
   // rails, or an overhead wire hung over them. Both are drawn for every piece
@@ -87,7 +93,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // of them when the module meshes are rebuilt. The conductor rail sits on the
   // travel right in tunnels/bridges, or off the platform side at a station
   // (see `thirdRailSide`).
-  if (mod.cfg.power === 'catenary') buildTrackCatenary(g, mats, mod)
+  if (mod.cfg.power === 'catenary') buildTrackCatenary(g, mats, mod, thirdRail, vehicleWidth)
   else buildThirdRail(g, mats, mod.w, cx, cy, thirdRail)
   // The ghost carries the travel direction (上行/下行) as arrows along the run.
   if (preview) {
@@ -105,11 +111,12 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
 
 /**
  * 第三轨: a guarded conductor rail on one long edge of the bed. The side is the
- * travel left — local +y for 上行, local −y for 下行 — except a platform rail
+ * travel right — local −y for 上行, local +y for 下行 — except a platform rail
  * with screens on exactly one side, which takes the side with no 屏蔽门 so the
  * live rail stays off the platform (the transition happens before the station).
  */
 function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: number, cy: number, side: 1 | -1 = -1): void {
+  const firstPart = g.children.length
   const ty = cy + side * 1.05
   // The live rail, sitting on ceramic insulators above the sleepers.
   slab(g, mats.darkSteel, cx, ty, 0.62, w, 0.09, 0.09)
@@ -125,6 +132,8 @@ function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: num
     slab(g, mats.white, x, ty, 0.54, 0.13, 0.13, 0.08)
     slab(g, mats.darkSteel, x, ty, 0.59, 0.2, 0.17, 0.025)
   }
+  for (const part of g.children.slice(firstPart)) part.position.z -= TRACK_BED_DROP
+
 }
 
 export class TrackModel extends PieceBuilder {
@@ -140,8 +149,8 @@ export class TrackModel extends PieceBuilder {
       if (m.type !== 'track') return []
       return [m]
     }) : []
-    const neighborPosts = neighboringGantryPosts(mod, tracks)
-    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side, neighborPosts)
+    const neighborPosts = neighboringGantryPosts(mod, tracks, edges, data?.lines)
+    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side, neighborPosts, line ? STOCK[line.stock].width : 0)
   }
 }
 

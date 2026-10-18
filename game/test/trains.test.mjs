@@ -1,3 +1,4 @@
+import { TRAIN_ORIGIN_Z, CABIN_FLOOR_Z } from '../src/sim/stock.ts'
 // Rolling stock reaches the renderer (PLAN §6, "rolling stock in 3D"). The
 // pose the worker sends is a pure function of train state, so it must be
 // deterministic and must line up with the platform edge the line serves.
@@ -69,10 +70,11 @@ test('a dispatched train gets a pose on the track beside its platform edge', () 
   assert.equal(pose.length, STRIDE, 'one train, one pose')
   const [x, , z, cars, stock, doors, colour, dir, , doorSides] = pose
   // Line 2 runs B stock, six cars, on the platform edge at y = -6, z = -8. The
-  // rail digs its bed, so the consist rides half a metre below the platform.
+  // rail digs its bed, so the consist origin follows its platform-aligned cabin floor.
   assert.equal(cars, 6)
   assert.equal(stock, 1)
-  assert.equal(z, -7.5, 'the train rides the recessed track slab')
+  assert.ok(Math.abs(z - (-8 + TRAIN_ORIGIN_Z)) < 1e-6, 'the train rides the recessed track slab')
+  assert.ok(Math.abs(z + CABIN_FLOOR_Z - (-7)) < 1e-6, 'cabin and platform floors align')
   assert.equal(dir, 1)
   assert.equal(colour, parseInt('00679e', 16))
   assert.ok(Number.isFinite(x) && x < 0, `trains approach from off the platform, got x=${x}`)

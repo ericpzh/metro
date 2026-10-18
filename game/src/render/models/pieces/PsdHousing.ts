@@ -13,6 +13,7 @@ export function finishPsdHousing(group: THREE.Group): void {
   const epsilon = 1e-6
   for (let i = 0; i < boxes.length; i++) {
     const { mesh, box } = boxes[i]
+    const metreFinish = mesh.geometry.hasAttribute('color')
     const positions: number[] = [], normals: number[] = [], uvs: number[] = []
     const inverse = mesh.matrix.clone().invert()
     for (const axis of axes) for (const sign of [-1, 1]) {
@@ -53,7 +54,8 @@ export function finishPsdHousing(group: THREE.Group): void {
         for (const vertex of forward ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2]) {
           positions.push(...corners[vertex].toArray())
           normals.push(...normal.toArray())
-          uvs.push(vertex === 1 || vertex === 2 ? 1 : 0, vertex >= 2 ? 1 : 0)
+          if (metreFinish) uvs.push(corners[vertex][u], corners[vertex][v])
+          else uvs.push(vertex === 1 || vertex === 2 ? 1 : 0, vertex >= 2 ? 1 : 0)
         }
       }
     }
@@ -62,6 +64,7 @@ export function finishPsdHousing(group: THREE.Group): void {
     mesh.geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
     mesh.geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3))
     mesh.geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    if (metreFinish) mesh.geometry.setAttribute('color', new THREE.Float32BufferAttribute(new Array(positions.length).fill(1), 3))
     mesh.geometry.computeBoundingBox()
     mesh.geometry.computeBoundingSphere()
     if (!positions.length) { group.remove(mesh); mesh.geometry.dispose() }

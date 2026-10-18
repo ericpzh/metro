@@ -8,6 +8,7 @@
 // byte-identically, so its GPU meshes are reused instead of re-uploaded.
 
 import * as THREE from 'three'
+import { platformBlockInsets, type BlockInset } from '../../platformBlockInsets.ts'
 import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
@@ -44,6 +45,7 @@ function shapeKey(shape: CellShape): number {
 type ChunkPass = 's' | 'f' | 'g'
 
 export class ChunkSystem extends SceneSystem {
+  private platformInsets = new Map<number, BlockInset>()
   private readonly details = new Map<THREE.Mesh, { near: THREE.BufferGeometry; raycast: THREE.Mesh['raycast'] }>()
 
   /** Shared chunk/outline geometry remains owned by the full mesh cache. */
@@ -138,6 +140,7 @@ export class ChunkSystem extends SceneSystem {
    * materialisation per commit. Omitted callers (tests, `/lab`) build it here.
    */
   prepareStation(data: StationData, effective?: Cell[]): void {
+    this.platformInsets = platformBlockInsets(data.modules)
     // The street is stored inverted (holes, not blocks), so the mesher works
     // from the **effective** cells: the document's own plus the window's
     // generated ground. The two consumers that walk every cell — this and the
@@ -345,6 +348,8 @@ export class ChunkSystem extends SceneSystem {
         // Which shape the cell draws, and which way round: a 半墙 the player re-tags
         // (or a wall that becomes one), or a 三角 turned to another corner, meshes
         // differently at the same coordinates.
+        const inset = this.platformInsets.get(k)
+        if (inset) for (const value of Object.values(inset)) h = Math.imul(h ^ Math.round(value * 1024), 16777619)
         const shape = this.ctx.thinSides.get(k)
         if (shape !== undefined) h = Math.imul(h ^ shapeKey(shape), 16777619)
         // Where a run cuts the cell's top: placing or deleting a 楼梯 / 扶梯 changes
@@ -421,6 +426,8 @@ export class ChunkSystem extends SceneSystem {
           } else {
             h = Math.imul(h ^ (emit.has(hk) ? 14 : 7), 16777619)
           }
+          const inset = this.platformInsets.get(hk)
+          if (inset) for (const value of Object.values(inset)) h = Math.imul(h ^ Math.round(value * 1024), 16777619)
           const haloShape = this.ctx.thinSides.get(hk)
           if (haloShape !== undefined) h = Math.imul(h ^ shapeKey(haloShape), 16777619)
         }
@@ -518,7 +525,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover)
+        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []

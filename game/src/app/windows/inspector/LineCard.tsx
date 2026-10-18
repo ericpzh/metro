@@ -196,13 +196,13 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       </div>
       <div className="row">
         <span className="muted small">{t('screen_doors')}</span>
-        {(['full', 'half'] as const).map((p) => (
+        {(['full', 'half', 'none'] as const).map((p) => (
           <button
             key={p}
             className={(line.psd ?? 'full') === p ? 'chip on' : 'chip'}
             onClick={() => updateLine(line.id, { psd: p })}
           >
-            {translate(p === 'full' ? msg('full_height') : msg('half_height'))}
+            {translate(p === 'full' ? msg('full_height') : p === 'half' ? msg('half_height') : msg('screen_doors_none'))}
           </button>
         ))}
       </div>

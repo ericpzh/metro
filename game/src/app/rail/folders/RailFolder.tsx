@@ -43,7 +43,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const railLineNow = track ? track.cfg.line : railLineId || stationLines[0]?.id || ''
   const railLine = stationLines.find((l) => l.id === railLineNow)
   const catenaryStyle = track?.cfg.catenaryStyle ?? railCatenaryDefault
-  const showCatenaryStyle = railLine?.power === 'catenary' && railLine.psd === 'half'
+  const showCatenaryStyle = railLine?.power === 'catenary' && (railLine.psd === 'half' || railLine.psd === 'none')
   const trackSummary = track ? railSummary(track, stationLines.find((l) => l.id === track.cfg.line)) : null
   // The platform-only controls (方向 / 线路) make no sense for a
   // tunnel, so they are shown only while placing or editing a platform run.

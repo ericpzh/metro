@@ -763,7 +763,7 @@ export type Module =
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
       /** A pure tunnel run: an extension of a line's track, never platform doors. */
-        cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; catenaryStyle?: 'canopy' | 'gantry'; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[] }
+        cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; catenaryStyle?: 'canopy' | 'gantry'; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[]; removedPsdSides?: Array<'left' | 'right'> }
     })
 
 export type ModuleType = Module['type']
@@ -779,9 +779,10 @@ export type LineDirection = 'up' | 'down'
  * Platform screen door (屏蔽门) height, a per-line option. `full` is the
  * full-height screen that fills the storey with a printed header band on top;
  * `half` is the 1.5 m half-height screen (半高), whose line header moves onto
- * the glass as stickers. Absent means `full`, so old saves keep their screens.
+ * the glass as stickers. `none` retains boarding and safety ink without a screen.
+ * Absent means `full`, so old saves keep their screens.
  */
-export type PsdHeight = 'full' | 'half'
+export type PsdHeight = 'full' | 'half' | 'none'
 
 export interface LineDef {
   id: string

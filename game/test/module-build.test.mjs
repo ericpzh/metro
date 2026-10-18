@@ -1,3 +1,5 @@
+import { trackTrainCentreV } from '../src/sim/track.ts'
+import { TRACK_UNDERFLOOR_DROP } from '../src/sim/constants.ts'
 // Every piece the station can draw, and the handles the scene animates it by.
 //
 // The module builders are the largest part of the renderer with no test of their
@@ -351,7 +353,7 @@ test('PSD station plaques and yellow lights stay centred over door openings on e
       assert.equal(round(lights[i].scale.x * 2), 0.15, 'lens is 15 cm wide')
       assert.equal(round(lights[i].scale.z * 2), 0.064, 'lens is 6.4 cm tall')
       assert.equal(round(plaques[i].geometry.parameters.height), 0.53, 'header is 53 cm tall')
-      assert.equal(round(leaves[0].geometry.parameters.height), 2.25, 'door glass gives 25 cm to the header')
+      assert.equal(round(leaves[0].geometry.parameters.height), 2.37, 'door glass gives 25 cm to the header')
       assert.equal(plaques[i].material.side, THREE.FrontSide)
     }
   }
@@ -368,7 +370,7 @@ test('D platform openings match the narrow end doors and wider paired passenger 
       const centre=(leaves[i*2].position.x+leaves[i*2+1].position.x)/2+0.5-mod.w/2
       assert.ok(Math.abs(centre-centres[i])<1e-6,'screen opening keeps the train door centre')
       const scale=psd==='half'?1:PSD_FULL_DOOR_WIDTH_SCALE
-      const expected=doorWidthAt(line,centres[i])*scale/2-(psd==='half'?0.02:0)
+      const expected=doorWidthAt(line,centres[i])*scale/2 + 0.20
       assert.ok(Math.abs(leaves[i*2].geometry.parameters.width-expected)<1e-6,'each screen opening uses its matching train doorway width')
     }
     disposeObject(group)
@@ -546,7 +548,7 @@ test('bridge barrier clears a neighbouring platform gantry at either end in ever
       const barrier = [], posts = []
       bridgeGroup.traverse(o => { if (o.isMesh && (o.name.startsWith('bridge-barrier-') || o.name === 'bridge-edge-concrete')) barrier.push(o) })
       platformGroup.traverse(o => { if (o.isMesh && o.name === 'station-gantry-post') posts.push(o) })
-      assert.equal(posts.length, 4, 'the platform still draws both complete portals')
+      assert.equal(posts.length, 2, 'the platform draws one mast at each support position')
       for (const panel of barrier) for (const post of posts) {
         const a = new THREE.Box3().setFromObject(panel)
         const b = new THREE.Box3().setFromObject(post)
@@ -653,7 +655,7 @@ test('raised concrete bridge shoulders meet every sound barrier and railing foot
       const top = bridgeRailing === 'railing' ? 0.55 : 0.5
       assert.ok(shoulders.length >= 2, 'both bridge edges have raised concrete')
       for (const curb of shoulders) {
-        assert.ok(Math.abs(curb.min.z) < 1e-6 && Math.abs(curb.max.z - top) < 1e-6, 'concrete rises continuously from the deck to the barrier footing')
+        assert.ok(Math.abs(curb.min.z + TRACK_UNDERFLOOR_DROP) < 1e-6 && Math.abs(curb.max.z - top) < 1e-6, 'concrete rises continuously from the deck to the barrier footing')
         assert.ok(curb.max.y <= -0.5 + 1e-6 || curb.min.y >= (mod.d - 0.5) - 1e-6, 'raised concrete stays outside the rail bed and its drainage channels')
       }
       for (const foot of feet) {
@@ -663,7 +665,7 @@ test('raised concrete bridge shoulders meet every sound barrier and railing foot
         `${bridgeRailing}, rotation ${rot}, ${power}: every panel and post stands on concrete without a gap`)
       }
       const deck = bounds(group.getObjectByName('bridge-deck'))
-      assert.ok(Math.abs(deck.min.z + 1) < 1e-6 && Math.abs(deck.max.z) < 1e-6, 'the original deck underside and pier seating stay at their authored heights')
+      assert.ok(Math.abs(deck.min.z + 1) < 1e-6 && Math.abs(deck.max.z + TRACK_UNDERFLOOR_DROP) < 1e-6, 'the original deck underside and pier seating stay at their authored heights')
       disposeObject(group)
     }
   }
@@ -1130,20 +1132,20 @@ test('train motion interpolates every frame and resumes from the drawn pose', ()
   system.dispose()
 })
 
-test('half-height caps sit above white rails and keep a compact slide lane', () => {
+test('half-height caps sit above black rails and keep a compact slide lane', () => {
   const { group } = build(edge('half'))
   const rails = group.children.filter((o) => o.name === 'psd-fixed-rail' || o.name === 'half-door-rail')
   const caps = group.children.filter((o) => o.name === 'psd-fixed-cap' || o.name === 'half-door-cap')
   for (const cap of caps) {
     const bounds = box(cap)
-    assert.ok(Math.abs(bounds.min.z - (1 + PSD_HALF_HEIGHT - 0.05)) < 1e-6, 'the cap starts at the white rail top instead of intersecting it')
+    assert.ok(Math.abs(bounds.min.z - (1 + PSD_HALF_HEIGHT - 0.05)) < 1e-6, 'the cap starts at the black rail top instead of intersecting it')
     assert.ok(Math.abs(bounds.max.z - (1 + PSD_HALF_HEIGHT)) < 1e-6, 'the cap stays inside the reserved height')
     assert.ok(bounds.getSize(new THREE.Vector3()).y < 0.101, 'the black cap is only 10 cm deep')
   }
   for (const rail of rails) assert.ok(Math.abs(box(rail).max.z - (1 + PSD_HALF_HEIGHT - 0.05)) < 1e-6)
   const pane = group.getObjectByName('psd-fixed-glass')
   const moving = group.getObjectByName('psd-door-glass')
-  assert.ok(Math.abs(Math.abs(pane.position.y - moving.position.y) - 0.11) < 1e-6, 'the sliding pane sits 11 cm from the fixed pane')
+  assert.ok(Math.abs(Math.abs(pane.position.y - moving.position.y) - 0.05) < 1e-6, 'the moving glass is flush with the fixed cap and pillar back faces')
   for (const glass of [pane, moving]) {
     assert.equal(glass.material.depthWrite, false, 'transparent glass cannot occlude another pane at grazing angles')
     assert.equal(glass.material.polygonOffset, true, 'PSD glass stays ahead of a flush platform wall in the depth buffer')
@@ -1184,7 +1186,7 @@ test('screen-door slide lanes clear fixed glass, posts and caps in every pose', 
       mod.cfg.side = side
       const { group } = build(mod)
       const fixed = []
-      group.traverse((o) => { if (o.name.startsWith('psd-fixed-')) fixed.push(o) })
+      group.traverse((o) => { if (o.name.startsWith('psd-fixed-') || o.name === 'psd-section-pillar' || o.name === 'psd-jamb-return') fixed.push(o) })
       for (const t of [0, 0.25, 0.5, 1]) {
         setDoors(group, t)
         group.updateMatrixWorld(true)
@@ -1192,8 +1194,10 @@ test('screen-door slide lanes clear fixed glass, posts and caps in every pose', 
           const movingBox = box(leaf)
           for (const panel of fixed) {
             const fixedBox = box(panel)
-            const gap = side === 'left' ? movingBox.min.y - fixedBox.max.y : fixedBox.min.y - movingBox.max.y
-            assert.ok(gap >= 0.0099, `${height}/${side}/${t}: moving fittings must clear the fixed screen by at least 1 cm, got ${gap}`)
+            const gap = side === 'left' ? fixedBox.min.y - movingBox.max.y : movingBox.min.y - fixedBox.max.y
+            if (leaf.geometry.type === 'PlaneGeometry' && leaf.name !== 'psd-door-glass') continue
+            const intersectsXZ = ['x', 'z'].every(axis => Math.min(movingBox.max[axis], fixedBox.max[axis]) - Math.max(movingBox.min[axis], fixedBox.min[axis]) > 1e-6)
+            if (intersectsXZ) assert.ok(gap >= -1e-6, `${height}/${side}/${t}: moving fittings must clear the fixed screen without interpenetration, got ${gap}`)
           }
         }
       }
@@ -1207,8 +1211,8 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
 
   // A screen door is drawn to the height the graph reserves for it, so the glass the
   // player sees is the barrier the crowd queues behind.
-  const full = box(build(edge('full')).group).getSize(new THREE.Vector3()).z
-  const half = box(build(edge('half')).group).getSize(new THREE.Vector3()).z
+  const full = box(build(edge('full')).group).max.z - 1
+  const half = box(build(edge('half')).group).max.z - 1
   assert.ok(Math.abs(full - PSD_FULL_HEIGHT) < 0.1, `全高 is drawn to PSD_FULL_HEIGHT (${round(full)} vs ${PSD_FULL_HEIGHT})`)
   assert.ok(Math.abs(half - PSD_HALF_HEIGHT) < 0.1, `半高 is drawn to PSD_HALF_HEIGHT (${round(half)} vs ${PSD_HALF_HEIGHT})`)
 
@@ -1296,11 +1300,11 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     const size = bounds.getSize(new THREE.Vector3())
     const centre = bounds.getCenter(new THREE.Vector3())
     if (o.material === mats.steel && Math.abs(size.z - 3) < 1e-6) barrierPostXs.push(centre.x)
-    if (o.material === mats.darkSteel && Math.abs(size.z - 5.59) < 1e-6) bridgeGantryPosts++
+    if (o.material === mats.darkSteel && Math.abs(size.z - (5.59 + TRACK_UNDERFLOOR_DROP)) < 1e-6) bridgeGantryPosts++
   })
-  assert.equal(bridgeGantryPosts, 2, 'bridge catenary gantry supplies one upright on each barrier edge')
-  assert.equal(barrierPostXs.length, 6, 'noise-barrier posts are omitted at the shared gantry position, leaving three per edge')
-  assert.ok(!barrierPostXs.some((x) => Math.abs(x - (track({}).x + 0.5)) < 1e-6), 'the barrier does not duplicate the gantry at the bridge start')
+  assert.equal(bridgeGantryPosts, 1, 'bridge catenary uses one mast on the travel-right edge')
+  assert.equal(barrierPostXs.length, 7, 'only the mast side omits its ordinary barrier post')
+  assert.equal(barrierPostXs.filter((x) => Math.abs(x - (track({}).x + 0.5)) < 1e-6).length, 1, 'the opposite bank retains its ordinary start post')
   const thirdRailBarrier = build(track({ bridge: true, power: 'third-rail', bridgeRailing: 'sound-barrier' })).group
   thirdRailBarrier.updateMatrixWorld(true)
   let thirdRailBarrierPosts = 0
@@ -1652,9 +1656,9 @@ test('full-height platform doors seal the opening and carry their decals while s
       const leftW = left.geometry.parameters.width, rightW = right.geometry.parameters.width
       const seam = left.position.x + leftW / 2
       assert.ok(Math.abs(seam - (right.position.x - rightW / 2)) < 1e-6, 'closed leaves meet without a centre opening')
-      assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - STOCK[stock].doorWidth * 1.5) < 1e-6, 'screen glazing spans 150% of the car door width')
+      assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - (STOCK[stock].doorWidth * 1.5 + 0.4)) < 1e-6, 'screen glazing overlaps both fixed pockets by 20 cm')
       const bottom = left.position.z - left.geometry.parameters.height / 2
-      assert.ok(Math.abs(bottom - 1.12) < 1e-6, 'glazing meets the sill')
+      assert.ok(Math.abs(bottom - 1) < 1e-6, 'glazing meets the sill')
       assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.37) < 1e-6, 'glazing meets the taller header')
     }
     const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry' && o.name !== 'psd-door-glass')
@@ -1775,4 +1779,120 @@ test('raised concrete exits meet connected runs without covering escalator termi
     assert.equal(raised.children[0].position.z, plain.children[0].position.z, 'lower stair landing stays on its floor')
     disposeObject(plain); disposeObject(raised)
   }
+})
+
+
+test('PSD sections keep track-side leaves, cadence pillars and gapless closed glazing', () => {
+  for (const height of ['full', 'half']) for (const side of ['left', 'right']) for (const rot of [0, 1, 2, 3]) {
+    const { group } = build({ ...edge(height, side), w: 30, rot })
+    const toward = side === 'right' ? 1 : -1
+    const fixed = group.getObjectByName('psd-fixed-glass')
+    const panes = group.userData.doors.filter(o => o.name === 'psd-door-glass')
+    const pillars = group.children.filter(o => o.name === 'psd-section-pillar')
+    assert.equal(pillars.length, panes.length / 2 + 1)
+    for (let i = 0; i < panes.length; i += 2) {
+      const a = panes[i], b = panes[i + 1]
+      assert.ok((a.position.y - fixed.position.y) * toward > 0)
+      assert.ok(Math.abs(a.position.x + a.geometry.parameters.width / 2 - b.position.x + b.geometry.parameters.width / 2) < 1e-6)
+      if (i > 0) assert.ok(Math.abs(pillars[i / 2].position.x - (panes[i - 2].position.x + panes[i - 1].position.x + a.position.x + b.position.x) / 4) < 1e-6)
+    }
+    const yellow = group.getObjectByName('platform-yellow-line')
+    assert.ok((fixed.position.y - yellow.position.y) * toward > 0)
+    assert.equal(yellow.userData.wall, undefined)
+    disposeObject(group)
+  }
+  for (const rot of [0, 1, 2, 3]) {
+    const { group } = build({ ...edge('none'), rot })
+    assert.equal(group.children.length, 1)
+    assert.equal(group.children[0].name, 'platform-yellow-line')
+    assert.equal(group.userData.doors, undefined)
+    disposeObject(group)
+  }
+})
+
+
+test('PSD thresholds are flush, meeting stiles are black and fixed pillars meet the sliding glass without side gaps', () => {
+ for (const height of ['half','full']) for (const side of ['left','right']) for (const rot of [0,1,2,3]) {
+  const {group}=build({...edge(height,side),rot})
+  assert.ok(Math.abs(box(group.getObjectByName('psd-threshold')).max.z-1)<1e-6)
+  const threshold=group.getObjectByName('psd-threshold')
+  const thresholdBox=box(threshold)
+  const foundation=group.getObjectByName('psd-concrete-foundation'), foundationBox=box(foundation)
+  assert.equal(foundation.geometry.attributes.color.count,foundation.geometry.attributes.position.count,'trimmed concrete keeps a complete vertex colour attribute')
+  const uv=foundation.geometry.attributes.uv.array
+  assert.ok(Math.max(...uv)-Math.min(...uv)>edge(height,side).w-1,'concrete texture retains metre-scaled UVs along the platform')
+  assert.ok(Math.abs(foundationBox.max.z-thresholdBox.min.z)<1e-6,'concrete touches the sill underside')
+  assert.ok(Math.abs(foundationBox.min.z+TRACK_UNDERFLOOR_DROP)<1e-6,'concrete reaches the recessed track bed')
+  for(const axis of ['x','y'])assert.ok(Math.abs(foundationBox.min[axis]-thresholdBox.min[axis])<1e-6&&Math.abs(foundationBox.max[axis]-thresholdBox.max[axis])<1e-6,'foundation supports the complete sill footprint')
+  for(const t of [0,.5,1]) {
+   setDoors(group,t)
+   for(const leaf of group.userData.doors) {
+    const bounds=box(leaf)
+    const axis=rot%2===0?'y':'x'
+    assert.ok(bounds.min[axis] >= thresholdBox.min[axis]-1e-6 && bounds.max[axis] <= thresholdBox.max[axis]+1e-6,'sill reaches under the full depth of the sliding doors')
+   }
+  }
+  setDoors(group,0)
+  const panes=group.userData.doors.filter(p=>p.name==='psd-door-glass')
+  const stiles=group.userData.doors.filter(p=>p.name==='psd-door-meeting-frame')
+  assert.equal(stiles.length,panes.length)
+  for(const stile of stiles)assert.equal(stile.material,mats.black)
+  const toward=side==='right'?1:-1
+  for(const jamb of group.children.filter(p=>p.name==='psd-fixed-post' || p.name==='psd-section-pillar')) {
+   const end=jamb.position.y+toward*jamb.geometry.parameters.height/2
+   assert.ok(Math.abs(end-panes[0].position.y)<1e-8,'fixed pillar back face meets the moving glass plane with zero side gap')
+  }
+  const stileOffsets=stiles.map((stile,i)=>stile.position.x-panes[i].position.x)
+  for(const t of [0,.5,1]) {
+   setDoors(group,t)
+   stiles.forEach((stile,i)=>assert.ok(Math.abs(stile.position.x-panes[i].position.x-stileOffsets[i])<1e-8,'meeting frames remain attached to their glass through the slide'))
+  }
+  if(height==='half')for(const sticker of group.children.filter(p=>p.name==='psd-fixed-sticker'))assert.ok((panes[0].position.y-sticker.position.y)*toward>0.10,'stickers stay outside the pillar face without coplanar flicker')
+  if(height==='half')for(const part of group.children.filter(p=>['psd-fixed-rail','psd-fixed-cap','half-door-rail','half-door-cap','psd-fixed-post','psd-section-pillar'].includes(p.name)))assert.equal(part.material,mats.black)
+  disposeObject(group)
+ }
+ for(const rot of [0,1,2,3]) {
+  const {group}=build({...track({}),rot})
+  assert.ok(Math.abs(box(group.getObjectByName('track-bed')).max.z + TRACK_UNDERFLOOR_DROP)<1e-6,'bed is recessed beneath the platform to accommodate the full underfloor height')
+  disposeObject(group)
+ }
+})
+
+
+test('single cantilever masts share third-rail side selection across PSD banks, directions and rotations',()=>{
+ for(const dir of ['up','down'])for(const rot of [0,1,2,3])for(const d of [3,4])for(const bridge of [false,true]) {
+  for(const banks of [[],['left'],['right'],['left','right'],['none-left','right']]) {
+   const rail={...track({power:'catenary',catenaryStyle:'gantry',dir,bridge}),rot,d,w:17}
+   const edges=banks.map((bank,i)=>({id:`screen-${i}`,type:'platform-edge',x:4,y:4,z:0,w:17,rot,cfg:{line:'5',from:rail.id,dir,side:bank==='none-left'?'left':bank,psd:bank==='none-left'?'none':'half'}}))
+   const present=banks.filter(b=>b!=='none-left')
+   const expected=bridge||present.length!==1?(dir==='up'?-1:1):(present[0]==='left'?-1:1)
+   const group=buildModule(rail,{...ctx,data:{...data,modules:[rail,...edges]}})
+   group.updateMatrixWorld(true)
+   const posts=group.children.filter(o=>o.name===(bridge?'bridge-gantry-post':'station-gantry-post'))
+   assert.equal(posts.length,3,'one mast per eight-metre support interval')
+   for(const post of posts){const world=post.getWorldPosition(new THREE.Vector3());const local=group.worldToLocal(world);assert.ok(Math.abs(local.y-(d-1)/2-expected*(d/2+.16))<1e-6,'mast follows the actual PSD-free side or travel right fallback')}
+   assert.equal(group.children.filter(o=>o.name==='catenary-cantilever-arm').length,posts.length)
+   disposeObject(group)
+  }
+ }
+})
+
+
+test('wide D stock clears bridge railings and platform cantilever masts even on legacy narrow beds',()=>{
+ for(const d of [3,4])for(const bridge of [false,true])for(let rot=0;rot<4;rot++){
+  const mod=track({bridge,power:'catenary',catenaryStyle:'gantry',bridgeRailing:'railing'});mod.d=d;mod.rot=rot
+  const edge={id:'wide-platform',type:'platform-edge',x:0,y:d,z:mod.z,w:mod.w,rot,cfg:{from:mod.id,line:LINE.id,side:'left',psd:'half',dir:'up'}}
+  const modules=bridge?[mod]:[mod,edge]
+  const group=buildModule(mod,{...ctx,data:{...data,lines:[{...LINE,stock:'D'}],modules}})
+  try{
+   group.rotation.z=0;group.position.set(0,0,0);group.updateMatrixWorld(true)
+   const centre=trackTrainCentreV(mod,STOCK.D.width,bridge?[]:[edge])-.5
+   const fixtures=[];group.traverse(p=>{if(['bridge-railing-post','bridge-railing-top','bridge-gantry-post','station-gantry-post'].includes(p.name))fixtures.push(p)})
+   assert.ok(fixtures.length)
+   for(const part of fixtures){
+    const box=new THREE.Box3().setFromObject(part)
+    assert.ok(box.max.y<centre-STOCK.D.width/2-.02||box.min.y>centre+STOCK.D.width/2+.02,`${part.name} remains outside the wide car body`)
+   }
+  }finally{disposeObject(group)}
+ }
 })

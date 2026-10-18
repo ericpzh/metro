@@ -96,8 +96,8 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
     const inset = radius - Math.sqrt(Math.max(0, radius * radius - depth * depth))
     const z = low + v * height
     const edge = w / 2 - inset
-    const x = half < 0 ? THREE.MathUtils.lerp(-edge, -0.008, u)
-      : half > 0 ? THREE.MathUtils.lerp(0.008, edge, u) : (u - 0.5) * edge * 2
+    const x = half < 0 ? THREE.MathUtils.lerp(-edge, 0, u)
+      : half > 0 ? THREE.MathUtils.lerp(0, edge, u) : (u - 0.5) * edge * 2
     return new THREE.Vector3(x, side * (dHalfWidth(z) + lift), z)
   }, rows, columns, side < 0)
   // Stationary corner infills close the rectangular opening around the
@@ -119,20 +119,26 @@ export function buildDDoor(g: THREE.Group, mats: ModelMaterials, x: number, side
   }
   for (const half of single ? [0] : [-1, 1]) {
     const centre = half * width / 4
-    const leaf = new THREE.Mesh(rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0.035, half), mats.trainBody)
+    const leaf = new THREE.Mesh(rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0, half), mats.trainBody)
     leaf.name = single ? 'd-passenger-single-door' : 'd-passenger-double-door'
     leaf.position.x = x
-    setModelDetail(leaf, rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0.035, half, 3, 8))
-    const seal = new THREE.Mesh(rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, 0.023, half), mats.rubber)
-    seal.name = 'd-passenger-door-seal'; leaf.add(seal)
-    setModelDetail(seal, rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, 0.023, half, 3, 8))
-    const paneSeal = new THREE.Mesh(rounded(0.29, 1.23, 1.23, 0.14, 0.048), mats.rubber)
+    setModelDetail(leaf, rounded(width - 0.04, DOOR_SILL_Z + 0.015, DOOR_HEAD_Z - DOOR_SILL_Z - 0.03, 0.13, 0, half, 3, 8))
+    const seal = new THREE.Mesh(rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, -0.012, half), mats.rubber)
+    seal.name = 'd-passenger-door-seal'; seal.userData.doorPerimeter = true; leaf.add(seal)
+    setModelDetail(seal, rounded(width, DOOR_SILL_Z, DOOR_HEAD_Z - DOOR_SILL_Z, 0.14, -0.012, half, 3, 8))
+    if (half) {
+      const meeting = new THREE.Mesh(dSideGeometry(half < 0 ? -.018 : 0, half > 0 ? .018 : 0, DOOR_SILL_Z, DOOR_HEAD_Z, side, .005), mats.rubber)
+      meeting.name = 'train-door-meeting-seal'
+      setModelDetail(meeting,dSideGeometry(half < 0 ? -.018 : 0, half > 0 ? .018 : 0, DOOR_SILL_Z, DOOR_HEAD_Z, side, .005, 6))
+      leaf.add(meeting)
+    }
+    const paneSeal = new THREE.Mesh(rounded(0.29, 1.23, 1.23, 0.14, 0.013), mats.rubber)
     paneSeal.position.x = centre; leaf.add(paneSeal)
-    setModelDetail(paneSeal, rounded(0.29, 1.23, 1.23, 0.14, 0.048, 0, 3, 6))
-    const pane = new THREE.Mesh(rounded(0.25, 1.25, 1.19, 0.124, 0.058), mats.trainGlass)
+    setModelDetail(paneSeal, rounded(0.29, 1.23, 1.23, 0.14, 0.013, 0, 3, 6))
+    const pane = new THREE.Mesh(rounded(0.25, 1.25, 1.19, 0.124, 0.023), mats.trainGlass)
     pane.position.x = centre; pane.name = 'train-door-window'; leaf.add(pane)
-    setModelDetail(pane, rounded(0.25, 1.25, 1.19, 0.124, 0.058, 0, 3, 6))
-    if (single) slab(leaf, mats.darkSteel, -width * 0.32, side * (dHalfWidth(1.2) + 0.070), 1.2, 0.025, 0.025, 0.34).name = 'd-passenger-door-handle'
+    setModelDetail(pane, rounded(0.25, 1.25, 1.19, 0.124, 0.023, 0, 3, 6))
+    if (single) slab(leaf, mats.darkSteel, -width * 0.32, side * (dHalfWidth(1.2) + 0.035), 1.2, 0.025, 0.025, 0.34).name = 'd-passenger-door-handle'
     registerDoorLeaf(leaf, half || 1, single ? width + 0.03 : width / 2 + 0.02, doors, side)
     leaf.userData.closedY = 0
     leaf.userData.plugTravel = 0.09

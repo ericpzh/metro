@@ -1,3 +1,4 @@
+import { TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -42,7 +43,7 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         assert.equal(strips.length, 2)
         for (const strip of strips) {
           const bounds = new THREE.Box3().setFromObject(strip)
-          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - 0.5)) < 1e-6, 'contact reaches the real wire underside in world space')
+          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - TRAIN_ORIGIN_Z)) < 1e-6, 'contact reaches the real wire underside in world space')
         }
         assert.ok(pan.getObjectByName('pantograph-lower-arm'))
         assert.ok(pan.getObjectByName('pantograph-upper-arm'))
@@ -55,7 +56,7 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         for (const pan of pans) {
           const strip = pan.getObjectByName('pantograph-contact-strip')
           const bounds = new THREE.Box3().setFromObject(strip)
-          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - 0.5)) < 1e-6)
+          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - TRAIN_ORIGIN_Z)) < 1e-6)
           const well = new THREE.Raycaster(new THREE.Vector3(pan.position.x, 0, 4), new THREE.Vector3(0, 0, -1))
           root.rotation.z = 0
           root.position.set(0, 0, 0)
@@ -142,7 +143,7 @@ test('collector has a wide downturned bow, solid articulated arms and ribbed ele
     const horns = named('pantograph-horn')
     const headBounds = horns.reduce((box, part) => box.union(bounds(part)), new THREE.Box3())
     assert.ok(headBounds.getSize(new THREE.Vector3()).y > 2.2, 'bow spans most of the roof width')
-    const stripZ = CONTACT_STRIP_Z - .5
+    const stripZ = CONTACT_STRIP_Z - TRAIN_ORIGIN_Z
     assert.ok(headBounds.min.z < stripZ - .2, 'horns turn down visibly')
     assert.ok(headBounds.max.z < stripZ, 'metal bow stays below carbon contact')
     assert.ok(new THREE.Box3().setFromObject(pan).max.z <= stripZ + 1e-6, 'no hardware penetrates the contact wire')
@@ -156,4 +157,27 @@ test('collector has a wide downturned bow, solid articulated arms and ribbed ele
     assert.ok(low < high * .25, `Low retains the silhouette with ${low}/${high} triangles`)
     for (const spring of named('pantograph-tension-spring')) assert.equal(spring.userData.lowDetailGeometry.getAttribute('position').count, 0)
   } finally { disposeObject(root) }
+}))
+
+
+test('thin roof AC units stay inside each car and clear the collector wells for every stock',()=>withMaterials(mats=>{
+ for(const stock of STOCK_CLASSES)for(const power of ['third-rail','catenary']){
+  const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,power,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
+  try{
+   root.updateMatrixWorld(true)
+   const units=root.children.filter(p=>p.name==='train-roof-ac-housing')
+   assert.equal(units.length,2,`${stock}: two shallow packaged units`)
+   const roof=stock==='D'?3.25:3.15
+   for(const unit of units){
+    const box=new THREE.Box3().setFromObject(unit)
+    assert.ok(box.max.z<=roof+.16&&box.min.z>=roof-.03,'housing is less than 20 cm high')
+    assert.ok(box.min.x>-STOCK[stock].length/2&&box.max.x<STOCK[stock].length/2,'unit stays on its car')
+    assert.ok(box.min.y>-STOCK[stock].width/2&&box.max.y<STOCK[stock].width/2,'unit clears rolled roof shoulders')
+    if(power==='catenary')assert.ok(box.max.x < -1.12 || box.min.x > 1.12,'AC does not cover the central collector recess')
+    assert.ok(unit.userData.lowDetailGeometry,'Low retains the housing silhouette')
+   }
+   assert.equal(root.children.filter(p=>p.name==='train-roof-ac-fan-grille').length,4)
+   assert.ok(root.children.some(p=>p.name==='train-roof-ac-side-vent'))
+  }finally{disposeObject(root)}
+ }
 }))

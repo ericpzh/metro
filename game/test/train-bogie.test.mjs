@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { buildTrainBogie, BOGIE_AXLE_Z, BOGIE_AXLE_HALF_SPAN, BOGIE_WHEEL_Y, carBogieCentres, BOGIE_WHEEL_RADIUS } from '../src/render/models/pieces/TrainBogie.ts'
+import { buildTrainBogie, BOGIE_AXLE_Z, BOGIE_AXLE_HALF_SPAN, BOGIE_WHEEL_Y, carBogieCentres, BOGIE_WHEEL_RADIUS, BOGIE_RAIL_Z } from '../src/render/models/pieces/TrainBogie.ts'
 import { buildTrackDetails } from '../src/render/models/pieces/TrackDetails.ts'
 import { createModelMaterials, disposeModelMaterials, disposeObject, buildTrain } from '../src/render/models.ts'
-import { STOCK, STOCK_CLASSES, CABIN_FLOOR_Z, doorCentres } from '../src/sim/stock.ts'
+import { STOCK, STOCK_CLASSES, CABIN_FLOOR_Z, TRAIN_ORIGIN_Z, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres } from '../src/sim/stock.ts'
 import { RAIL_HEAD_Z } from '../src/sim/constants.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 const named = (root, name) => root.children.filter(p => p.name === `bogie-${name}`)
@@ -26,7 +26,7 @@ test('shared bogie has full-size wheelsets, connected suspension and under-seat/
   assert.equal(named(root,'side-frame').length,2)
   assert.equal(named(root,'primary-coil-spring').length,4)
   assert.equal(named(root,'air-spring').length,2)
-  for(const name of ['bolster','motor-coupling','gear-case','traction-motor','axle-box','trailing-arm','bearing-cap','brake-disc','brake-caliper','damper-rod','damper-body'])assert.ok(named(root,name).length,name)
+  for(const name of ['upper-cheek-frame','secondary-air-cushion','body-load-pad','upper-bolster','bolster','motor-coupling','gear-case','traction-motor','axle-box','trailing-arm','bearing-cap','brake-disc','brake-caliper','damper-rod','damper-body'])assert.ok(named(root,name).length,name)
   assert.ok(bounds(root).max.z<1.0,'enlarged wheel-side hardware clears the under-seat housings')
   assert.equal(BOGIE_WHEEL_RADIUS,.4)
   for(const part of root.children.filter(p=>['bogie-axle','bogie-bolster','bogie-frame-crossmember','bogie-traction-motor'].includes(p.name)))assert.ok(bounds(part).max.z<.60,'central hardware clears the unchanged-height aisle')
@@ -49,7 +49,7 @@ test('shared bogie has full-size wheelsets, connected suspension and under-seat/
 }))
 
 test('both wheel treads contact the actual rail crowns in High and Low, with flange clearance inside the gauge',()=>withKit(mats=>{
- const bogie=new THREE.Group();buildTrainBogie(bogie,mats,0);bogie.position.z=.5
+ const bogie=new THREE.Group();buildTrainBogie(bogie,mats,0);bogie.position.z=TRAIN_ORIGIN_Z
  const rails=new THREE.Group();buildTrackDetails(rails,mats,mats.white,mats.darkSteel,4,3);rails.position.set(-1.5,-1,0)
  try {
   bogie.updateMatrixWorld(true);rails.updateMatrixWorld(true)
@@ -61,7 +61,7 @@ test('both wheel treads contact the actual rail crowns in High and Low, with fla
    const high=tyre.geometry
    for(const geometry of [high,tyre.userData.lowDetailGeometry]) {
     tyre.geometry=geometry
-    const up=new THREE.Raycaster(new THREE.Vector3(x,y,0),new THREE.Vector3(0,0,1))
+    const up=new THREE.Raycaster(new THREE.Vector3(x,y,RAIL_HEAD_Z-.2),new THREE.Vector3(0,0,1))
     const tread=up.intersectObject(tyre)[0]
     assert.ok(tread&&Math.abs(tread.point.z-rail.point.z)<1e-6,'round wheel meets the crown without sinking or hovering')
    }
@@ -108,4 +108,36 @@ test('bogie source and authored Low geometries release exactly once',()=>withKit
  }
  disposeObject(root)
  for(const n of releases.values())assert.equal(n,1)
+}))
+
+
+test('underfloor equipment fills the inter-bogie bay without moving the floor or roof',()=>withKit(mats=>{
+ for(const stock of STOCK_CLASSES) {
+  const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
+  try {
+   const equipment=root.children.filter(p=>p.name.startsWith('underframe-'))
+   for(const name of ['inverter','battery-cabinet','air-reservoir','vent','mounting-bracket','cable-conduit'])assert.ok(equipment.some(p=>p.name===`underframe-${name}`),`${stock}: ${name}`)
+   const bogies=carBogieCentres(doorCentres({stock,cars:1}).sort((a,b)=>a-b))
+   let high=0,low=0
+   for(const part of equipment) {
+    const box=bounds(part)
+    assert.ok(box.min.x>=bogies[0]+1.64&&box.max.x<=bogies[1]-1.64,'clear of moving wheelsets')
+    assert.ok(box.max.z<CABIN_FLOOR_Z&&box.min.z>BOGIE_RAIL_Z+.15,'below floor and above the rail hardware')
+    assert.ok(box.min.y>-STOCK[stock].width/2&&box.max.y<STOCK[stock].width/2,'inside car width')
+    high+=triangles(part.geometry);low+=triangles(part.userData.lowDetailGeometry??part.geometry)
+   }
+   assert.ok(low<high*.4,'Low retains equipment silhouettes and omits the vents, latches and straps')
+   const roofs=root.children.filter(p=>p.name===(stock==='D'?'d-car-roof':'car-roof'))
+   const roof=Math.max(...roofs.map(p=>bounds(p).max.z))
+   assert.ok(Math.abs(roof-(stock==='D'?3.25:3.15))<1e-5,'original roof height is retained')
+   const ratio=(DOOR_HEAD_Z-DOOR_SILL_Z)/(roof-BOGIE_RAIL_Z)
+   assert.ok(ratio>.52&&ratio<.55,`${stock}: doors are ${(ratio*100).toFixed(1)}% of wheel-to-roof height`)
+   for(const leaf of root.userData.doors) {
+    const box=bounds(leaf)
+    assert.ok(box.max.z<=DOOR_HEAD_Z+1e-5,'glazing and trim stay inside the shorter aperture')
+    assert.ok(box.min.z>=DOOR_SILL_Z-1e-5)
+   }
+   assert.equal(TRAIN_ORIGIN_Z+CABIN_FLOOR_Z,1,'boarding floor stays flush with the platform')
+  }finally{disposeObject(root)}
+ }
 }))

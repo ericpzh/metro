@@ -163,10 +163,10 @@ test('warning tiles connect perpendicular ribs, T joins and crosses without corn
 
 test('boarding strip snaps to the real train-aligned opening in every rotation and side', () => {
   const line = { id: '5', name: '5号线', colour: '#c8102e', stock: 'B', cars: 1 }
-  for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
-    const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side } }
+  for (const psd of ['full', 'half', 'none']) for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
+    const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side, psd } }
     const opening = doorRunOffsets(line, 20)[1] - 0.5
-    const [dx, dy] = rotateLocal(rot, opening, side === 'right' ? 0.09 : -0.09)
+    const [dx, dy] = rotateLocal(rot, opening, side === 'right' ? -0.02 : 0.02)
     const pointer = createModule('floor-mark-boarding', Math.floor(0.5 + dx), Math.floor(0.5 + dy), 0, 'mark')
     const snapped = snapBoardingMark(pointer, [edge], [line])
     assert.equal(snapped.cfg.edgeId, 'edge')
@@ -210,9 +210,9 @@ test('waiting lines prefer boarding ink and align behind it without overlapping 
 
 test('waiting lines fall back to the screen door opening without boarding ink', () => {
   const line = { id: '5', stock: 'B', cars: 1 }
-  for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
-    const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side } }
-    const [dx, dy] = rotateLocal(rot, doorRunOffsets(line, 20)[1] - 0.5, side === 'right' ? 0.09 : -0.09)
+  for (const psd of ['full', 'half', 'none']) for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
+    const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side, psd } }
+    const [dx, dy] = rotateLocal(rot, doorRunOffsets(line, 20)[1] - 0.5, side === 'right' ? -0.02 : 0.02)
     const waiting = createModule('floor-mark-waiting', Math.floor(dx + 0.5), Math.floor(dy + 0.5), 0, 'waiting')
     const snapped = snapBoardingMark(waiting, [edge], [line])
     assert.equal(snapped.cfg.edgeId, edge.id)

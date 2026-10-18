@@ -1,3 +1,4 @@
+import { trainDoorMotion } from '../src/render/trainDoorMotion.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -618,7 +619,7 @@ test('real train batches preserve both door banks, moving glass, and train-local
         glass.mesh.getMatrixAt(i, matrix)
         matrixClose(matrix, inverse.clone().multiply(glass.sources[i].matrixWorld))
       }
-      for (const leaf of leaves) assert.equal(leaf.position.x, leaf.userData.closedX + leaf.userData.openSign * leaf.userData.travel * (leaf.userData.side >= 0 ? plus : minus))
+      for (const leaf of leaves) assert.equal(leaf.position.x, leaf.userData.closedX + leaf.userData.openSign * leaf.userData.travel * trainDoorMotion(leaf.userData.side >= 0 ? plus : minus).slide)
     }
     let released = 0
     for (const mesh of surfaces(root)) if (mesh.isBatchedMesh || mesh.isInstancedMesh) mesh.addEventListener('dispose', () => released++)
