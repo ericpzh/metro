@@ -1,3 +1,5 @@
+import { boreTunnel, stripTunnelShell } from './model/TunnelShell.ts'
+export { stripTunnelShell, TUNNEL_SHELL } from './model/TunnelShell.ts'
 import { msg } from '../sim/i18n.ts'
 // Rail placement and the platform edges it derives (GAME-SPEC §5.4 track kit,
 // §5.9 platforms). A rail is a `track` module: placing one digs the bed cells
@@ -11,31 +13,16 @@ import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/st
 import { GROUND_Z, virtualSolidAt } from '../sim/ground.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
-import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, reservedOpening, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { STOCK, doorCentres, trainLength } from '../sim/stock.ts'
-import { rotateLocal, trackCellAt, trackCells, type TrackModule } from '../sim/track.ts'
+import { rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
 import { lineColourFor } from '../data/line-colours.ts'
 import { cellKey, nextModuleId, removeModule, type StationState } from './model.ts'
 
 /** Default bed depth in cells: a 2.8 m Type-B car sits inside with clearance. */
 export const RAIL_BED_DEPTH = 3
-
-/**
- * Clear headroom a track bore keeps above its bed, in blocks: three open
- * courses, so the ceiling lands one storey (4 m) above the rails — a train's
- * 3.8 m body clears it.
- */
-export const TUNNEL_HEADROOM = 3
-
-/**
- * Tag on a block a tunnel raised around itself, suffixed with the owning track's
- * id (`tunnel-shell:<id>`), so removing that track can take its shell with it.
- * Never `AUTO_WALL`, so `syncAutoWalls` leaves it alone.
- */
-export const TUNNEL_SHELL = 'tunnel-shell'
-
 
 export type PlatformEdgeModule = Extract<Module, { type: 'platform-edge' }>
 
@@ -90,7 +77,11 @@ export function setLinePower(state: StationState, lineId: string, power: 'third-
   const modules = state.modules.map((m) =>
     m.type === 'track' && m.cfg.line === lineId ? { ...m, cfg: { ...m.cfg, power } } : m,
   )
-  return { ...state, lines, modules }
+  let next = { ...state, lines, modules }
+  for (const m of modules) {
+    if (m.type === 'track' && m.cfg.line === lineId && m.cfg.tunnel) next = boreTunnel(stripTunnelShell(next, m.id), m)
+  }
+  return next
 }
 
 /**
@@ -286,14 +277,14 @@ function solidKeys(state: StationState): Set<string> {
 /**
  * True when a platform run would have a wall crossing its headroom. A platform
  * is open air, so it refuses to be laid through an obstruction (a tunnel bores
- * through instead). Checks the three clear courses above the bed.
+ * through instead). Checks the clear courses required by its power supply.
  */
 export function trackClearanceBlocked(state: StationState, track: TrackModule): boolean {
   if (track.cfg.tunnel) return false
   const solid = solidKeys(state)
   for (const [x, y, z] of trackCells(track)) {
     if (track.cfg.bridge && solid.has(cellKey(x, y, z - BRIDGE_DECK_DEPTH))) return true
-    for (let dz = 1; dz <= TUNNEL_HEADROOM; dz++) if (solid.has(cellKey(x, y, z + dz))) return true
+    for (let dz = 1; dz <= trackHeadroom(track); dz++) if (solid.has(cellKey(x, y, z + dz))) return true
   }
   return false
 }
@@ -310,7 +301,7 @@ function trackSpace(track: TrackModule): ModuleBox {
     x1 = Math.max(x1, x + 1)
     y1 = Math.max(y1, y + 1)
   }
-  return { x0, y0, z0: track.z - (track.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), x1, y1, z1: track.z + TUNNEL_HEADROOM + 1 }
+  return { x0, y0, z0: track.z - (track.cfg.bridge ? BRIDGE_DECK_DEPTH : 0), x1, y1, z1: track.z + trackHeadroom(track) + 1 }
 }
 
 /**
@@ -395,54 +386,6 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
 }
 
 /**
- * Bore a tunnel: clear any wall (or ground) poking into its headroom, then raise
- * a solid side wall either side and a ceiling one storey up wherever those do
- * not already exist. Shell blocks carry the owning track's tag so removing the
- * tunnel takes its shell too, and a reserved opening (a ramp corridor, an exit
- * floor) is never sealed.
- */
-function boreTunnel(state: StationState, track: TrackModule): StationState {
-  const d = track.d ?? 1
-  const rot = track.rot ?? 0
-  const solid = solidKeys(state)
-  const kill = new Set<string>()
-  // Clear the bore: only cells inside the run's own footprint are removed.
-  for (const [x, y, z] of trackCells(track)) {
-    for (let dz = 1; dz <= TUNNEL_HEADROOM; dz++) {
-      const k = cellKey(x, y, z + dz)
-      if (!solid.has(k)) continue
-      solid.delete(k)
-      kill.add(k)
-    }
-  }
-  const tag = `${TUNNEL_SHELL}:${track.id}`
-  const add: Cell[] = []
-  const want = (x: number, y: number, z: number): void => {
-    const k = cellKey(x, y, z)
-    if (solid.has(k) || reservedOpening(state.modules, x, y, z)) return
-    solid.add(k)
-    add.push({ x, y, z, fill: 'solid', tags: [tag] })
-  }
-  for (let i = 0; i < track.w; i++) {
-    // Extend the side walls down to the dug bed so their bottoms meet the
-    // recessed track slab instead of leaving a one-course gap above it.
-    for (const j of [-1, d]) {
-      const [dx, dy] = rotateLocal(rot, i, j)
-      for (let dz = 0; dz <= TUNNEL_HEADROOM + 1; dz++) want(track.x + dx, track.y + dy, track.z + dz)
-    }
-    // Ceiling across the bore.
-    for (let j = 0; j < d; j++) {
-      const [dx, dy] = rotateLocal(rot, i, j)
-      want(track.x + dx, track.y + dy, track.z + TUNNEL_HEADROOM + 1)
-    }
-  }
-  if (kill.size === 0 && add.length === 0) return state
-  const cells = state.cells.filter((c) => !kill.has(cellKey(c.x, c.y, c.z)))
-  cells.push(...add)
-  return { ...state, cells }
-}
-
-/**
  * The low-level commit: refuse an overlapping rail, dig the bed, append the
  * track, bore it if it is a tunnel, and derive its screen doors. No platform
  * clearance check — `commitTrack` adds that, and `resizeTrack` deliberately
@@ -469,13 +412,6 @@ function commitTrackRaw(state: StationState, track: TrackModule): StationState {
 export function commitTrack(state: StationState, track: TrackModule): StationState {
   if (trackBlockReason(state, track) !== null) return state
   return commitTrackRaw(state, track)
-}
-
-/** Remove the shell blocks a tunnel raised (tagged with the track's id). */
-export function stripTunnelShell(state: StationState, trackId: string): StationState {
-  const tag = `${TUNNEL_SHELL}:${trackId}`
-  const cells = state.cells.filter((c) => !c.tags?.includes(tag))
-  return cells.length === state.cells.length ? state : { ...state, cells }
 }
 
 export interface PlaceTrackOptions {

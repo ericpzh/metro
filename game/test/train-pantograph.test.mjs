@@ -5,6 +5,7 @@ import { buildTrain, createModelMaterials, disposeModelMaterials, disposeObject 
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
 import { STOCK, STOCK_CLASSES } from '../src/sim/stock.ts'
 import { CONTACT_STRIP_Z } from '../src/sim/constants.ts'
+import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z } from '../src/render/models/pieces/TrainPantograph.ts'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
@@ -15,6 +16,10 @@ function withMaterials(run) {
   const mats = createModelMaterials()
   try { run(mats) } finally { disposeModelMaterials(mats); globalThis.document = previous }
 }
+test('raised contact sits 0.99 m above the previous wire underside', () => {
+  assert.ok(Math.abs(CONTACT_STRIP_Z - 4.758) < 1e-9)
+})
+
 const collectors = root => root.children.filter(child => child.name === 'train-pantograph')
 
 test('all stock classes have two mirrored inboard cab-car collectors only for overhead power', () => withMaterials(mats => {
@@ -41,6 +46,7 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         }
         assert.ok(pan.getObjectByName('pantograph-lower-arm'))
         assert.ok(pan.getObjectByName('pantograph-upper-arm'))
+        assert.ok(new THREE.Box3().setFromObject(pan.getObjectByName('pantograph-upper-arm')).max.z > pose.z + 4.0, 'the upper arm projects visibly above the car roof')
         assert.equal(pan.getObjectByName('pantograph-tie-rod').userData.lowDetailGeometry.getAttribute('position').count, 0)
       }
       for (const rotation of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
@@ -108,4 +114,46 @@ test('live power changes select a distinct cached roof without opening the wire 
     assert.equal(bare.visible, true)
     assert.equal(trains.trainGroup.children.length, 3, 'returning power mode reuses its existing consist')
   } finally { trains.dispose() }
+}))
+
+
+test('collector has a wide downturned bow, solid articulated arms and ribbed electrical mounts', () => withMaterials(mats => {
+  const root = new THREE.Group()
+  buildTrainPantograph(root, mats, 0, 1, PANTOGRAPH_MOUNT_Z)
+  try {
+    const pan = collectors(root)[0]
+    root.updateMatrixWorld(true)
+    const named = name => pan.children.filter(p => p.name === name)
+    const bounds = p => new THREE.Box3().setFromObject(p)
+    assert.equal(named('pantograph-ribbed-insulator').length, 4)
+    for (const insulator of named('pantograph-ribbed-insulator')) {
+      assert.equal(insulator.geometry.type, 'LatheGeometry')
+      const points = insulator.geometry.parameters.points
+      assert.equal(points.filter(p => p.x === .14).length, 5, 'five flared ceramic sheds')
+      assert.ok(bounds(insulator).min.z >= PANTOGRAPH_MOUNT_Z)
+      assert.ok(bounds(insulator).max.z < bounds(named('pantograph-base')[0]).min.z)
+    }
+    assert.equal(named('pantograph-lower-arm').length, 1, 'one substantial lower spine')
+    const lower = named('pantograph-lower-arm')[0]
+    assert.ok(lower.geometry.parameters.radiusBottom > lower.geometry.parameters.radiusTop)
+    assert.ok(lower.geometry.parameters.radiusBottom >= .1, 'arm has a solid cross-section')
+    assert.equal(named('pantograph-upper-arm').length, 2, 'upper fork carries both head sides')
+    for (const name of ['pantograph-base-axle','pantograph-elbow-pivot','pantograph-head-pivot','pantograph-tension-spring','pantograph-spring-clevis','pantograph-bonding-lead','pantograph-power-bushing','pantograph-power-lead']) assert.ok(named(name).length, name)
+    const horns = named('pantograph-horn')
+    const headBounds = horns.reduce((box, part) => box.union(bounds(part)), new THREE.Box3())
+    assert.ok(headBounds.getSize(new THREE.Vector3()).y > 2.2, 'bow spans most of the roof width')
+    const stripZ = CONTACT_STRIP_Z - .5
+    assert.ok(headBounds.min.z < stripZ - .2, 'horns turn down visibly')
+    assert.ok(headBounds.max.z < stripZ, 'metal bow stays below carbon contact')
+    assert.ok(new THREE.Box3().setFromObject(pan).max.z <= stripZ + 1e-6, 'no hardware penetrates the contact wire')
+    let high = 0, low = 0
+    pan.traverse(part => {
+      if (!part.isMesh) return
+      const triangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
+      high += triangles(part.geometry)
+      low += triangles(part.userData.lowDetailGeometry ?? part.geometry)
+    })
+    assert.ok(low < high * .25, `Low retains the silhouette with ${low}/${high} triangles`)
+    for (const spring of named('pantograph-tension-spring')) assert.equal(spring.userData.lowDetailGeometry.getAttribute('position').count, 0)
+  } finally { disposeObject(root) }
 }))

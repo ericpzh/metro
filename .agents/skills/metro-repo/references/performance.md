@@ -252,16 +252,18 @@ static batching, door banks and sorted glass batches — not a sum of unmerged p
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 91240 | 1112720 |
-| D-6 | 75836 | 865148 |
-| A-8 | 66624 | 257184 |
-| A-6 | 50464 | 200096 |
-| C-6 | 45056 | 190144 |
-| B-6 | 42352 | 166640 |
-| L-6 | 37760 | 156496 |
-| C-4 | 30560 | 138688 |
-| B-4 | 28880 | 118768 |
-| L-4 | 25664 | 113344 |
+| D-8 | 119920 | 1252192 |
+| D-6 | 97396 | 969980 |
+| A-8 | 126712 | 629056 |
+| A-6 | 96128 | 498152 |
+| C-6 | 87736 | 471156 |
+| B-6 | 84404 | 450156 |
+| L-6 | 76044 | 411548 |
+| C-4 | 59992 | 353164 |
+| B-4 | 57684 | 335748 |
+| L-4 | 51876 | 309140 |
+
+The shared `TrainBogie.ts` wheelsets, sculpted frames, suspension and brakes are included in these regenerated counts; Low keeps profiled eight-sided wheels and omits coils, bolts, pipes and dampers.
 
 D's layout and counts were verified on 2026-10-17: each side has four doorways
 and three bays of two small windows, with painted end bays. Middle cars have four

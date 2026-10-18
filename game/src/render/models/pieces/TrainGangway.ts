@@ -21,11 +21,11 @@ import { setModelDetail } from '../../modelDetail.ts'
  * shoulder** curves in to the roof's flat crown. The gangway is derived from these
  * numbers, so it cannot drift from the shell it joins.
  */
-export const CAR_SILL_Z = 0.45
-export const CAR_WAIST_Z = 2.75
+export const CAR_SILL_Z = 0.49
+export const CAR_WAIST_Z = 2.73
 export const CAR_CROWN_Z = 3.15
 /** The shoulder's plan run — and its rise, the curve being a quarter-turn. */
-export const CAR_SHOULDER = 0.4
+export const CAR_SHOULDER = 0.42
 
 /**
  * How much smaller the gangway's section is than the car's, about the body's mid height.
@@ -106,19 +106,20 @@ export function sectionOutline(
   const { halfWidth: hw, sill, waist, crown, shoulder } = section
   const out: THREE.Vector2[] = []
   const at = (y: number, z: number) => out.push(new THREE.Vector2(y, z))
-  const curve = (fromY: number, fromZ: number, ctrlY: number, ctrlZ: number, toY: number, toZ: number) => {
+  const arc = (cy: number, cz: number, start: number, end: number) => {
     for (let i = 1; i <= shoulderSteps; i++) {
-      const t = i / shoulderSteps, k = 1 - t
-      at(k * k * fromY + 2 * k * t * ctrlY + t * t * toY, k * k * fromZ + 2 * k * t * ctrlZ + t * t * toZ)
+      const angle = THREE.MathUtils.lerp(start,end,i/shoulderSteps)
+      at(cy+shoulder*Math.cos(angle),cz+shoulder*Math.sin(angle))
     }
   }
-  for (let i = 0; i <= flankSteps; i++) at(hw, THREE.MathUtils.lerp(sill, waist, i / flankSteps))
-  curve(hw, waist, hw, crown, hw - shoulder, crown)
-  for (let i = 1; i <= crownSteps; i++) at(THREE.MathUtils.lerp(hw - shoulder, -hw + shoulder, i / crownSteps), crown)
-  curve(-hw + shoulder, crown, -hw, crown, -hw, waist)
-  for (let i = 1; i <= flankSteps; i++) at(-hw, THREE.MathUtils.lerp(waist, sill, i / flankSteps))
-  // The underfloor closes the loop; its last step is the first point again.
-  for (let i = 1; i < floorSteps; i++) at(THREE.MathUtils.lerp(-hw, hw, i / floorSteps), sill)
+  for (let i=0;i<=flankSteps;i++)at(hw,THREE.MathUtils.lerp(sill+shoulder,waist,i/flankSteps))
+  arc(hw-shoulder,waist,0,Math.PI/2)
+  for(let i=1;i<=crownSteps;i++)at(THREE.MathUtils.lerp(hw-shoulder,-hw+shoulder,i/crownSteps),crown)
+  arc(-hw+shoulder,waist,Math.PI/2,Math.PI)
+  for(let i=1;i<=flankSteps;i++)at(-hw,THREE.MathUtils.lerp(waist,sill+shoulder,i/flankSteps))
+  arc(-hw+shoulder,sill+shoulder,Math.PI,Math.PI*1.5)
+  for(let i=1;i<=floorSteps;i++)at(THREE.MathUtils.lerp(-hw+shoulder,hw-shoulder,i/floorSteps),sill)
+  arc(hw-shoulder,sill+shoulder,-Math.PI/2,0)
   return out
 }
 

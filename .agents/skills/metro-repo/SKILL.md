@@ -62,10 +62,22 @@ opposite ends. Route geometry to `metro-game` (`DTrainShell.ts`); keep the share
 pin the layout; the [train LOD table](references/performance.md#train-models-车辆)
 records D-8 and legacy D-6 counts through the production batching/detail path.
 
+Every stock shares `TrainBogie.ts` underframes: two two-axle assemblies per car
+whose tread rests on `RAIL_HEAD_Z`, with the body kept below the cabin-floor
+underside; `train-bogie` pins its contact, clearance and disposal for each class.
+Cabs are cut with a ten-degree front rake that fades at the rear seam
+(`CabRake.ts`, `CabSkin.ts`, `CarShellProfile.ts`); A/B/L carry glazed crew doors
+and every class wears surface-fitted wipers, pinned by `train-cab`.
+
 All A/B/C/D/L trains have an overhead-wire roof variant, selected by the line's
 `power`, with mirrored pantographs at the inward ends of the two cab cars.
-`metro-game` owns `TrainPantograph.ts`, the recessed roof mounts and the worker's
-door/power flags; `train-pantograph` pins their placement and conductor contact.
+Catenary contact sits 4.77 m above the bed (a 0.99 m raise): tunnels run compact
+flanged rigid rail under a 5 m ceiling, and open platforms and bridges carry
+lattice gantries with sagging messenger spans (`CatenaryModel.ts`,
+`catenary-model`); `build/model/TunnelShell.ts` upgrades existing generated shells
+on load and rebuilds them when a line's power changes. `metro-game` owns
+`TrainPantograph.ts`, the recessed roof mounts and the worker's door/power flags;
+`train-pantograph` pins their placement and conductor contact.
 L keeps its three-door shell with paired wide inter-door windows and small end
 panes in `LTrainWindows.ts`. For any train-model refresh, use `metro-web`'s
 “Refreshing train artwork” workflow: recapture static and animated poses before

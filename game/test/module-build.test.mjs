@@ -1281,9 +1281,10 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     group.updateMatrixWorld(true)
     const box = new THREE.Box3()
     group.traverse((o) => { if (o.isMesh && o.material === mats.wood) box.expandByObject(o) })
-    return box.getCenter(new THREE.Vector3()).z
+    return box.min.z
   }
-  const contactHeights = [contactStripZ({}), contactStripZ({ tunnel: true }), contactStripZ({ bridge: true })]
+  const contactHeights = [contactStripZ({}), contactStripZ({ catenaryStyle: 'gantry' }), contactStripZ({ tunnel: true }), contactStripZ({ bridge: true })]
+  assert.ok(contactHeights.every(z => Math.abs(z - (track({}).z + 4.758)) < 1e-6), 'all conductor strips rise exactly 0.99 m')
   assert.ok(contactHeights.every((z) => Math.abs(z - contactHeights[0]) < 1e-6), 'station, tunnel and bridge contact strips share one rail-relative height')
   const bridgeBarrier = build(track({ bridge: true, power: 'catenary', bridgeRailing: 'sound-barrier' })).group
   bridgeBarrier.updateMatrixWorld(true)
@@ -1295,7 +1296,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     const size = bounds.getSize(new THREE.Vector3())
     const centre = bounds.getCenter(new THREE.Vector3())
     if (o.material === mats.steel && Math.abs(size.z - 3) < 1e-6) barrierPostXs.push(centre.x)
-    if (o.material === mats.darkSteel && Math.abs(size.z - 4.6) < 1e-6) bridgeGantryPosts++
+    if (o.material === mats.darkSteel && Math.abs(size.z - 5.59) < 1e-6) bridgeGantryPosts++
   })
   assert.equal(bridgeGantryPosts, 2, 'bridge catenary gantry supplies one upright on each barrier edge')
   assert.equal(barrierPostXs.length, 6, 'noise-barrier posts are omitted at the shared gantry position, leaving three per edge')
@@ -1317,7 +1318,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     if (size.z > 3) hasPortalUpright = true
   })
   assert.ok(hasPortalUpright, 'the alternate station style adds tall portal supports around the same wire')
-  assert.ok(box(gantry).max.z < 4, 'the station portal stays below the next storey floor')
+  assert.ok(Math.abs(box(gantry).max.z - (track({}).z + 5.59)) < 1e-6, 'the station posts seat the upper lattice chords and clear the messenger')
   const wideTrack = { ...track({ power: 'catenary', catenaryStyle: 'gantry' }), d: 4 }
   const wideEdge = { id: 'edge-wide', type: 'platform-edge', x: wideTrack.x, y: wideTrack.y, z: wideTrack.z, w: wideTrack.w, cfg: { line: '5', dir: 'up', side: 'left', psd: 'half', from: wideTrack.id } }
   const wideData = { ...data, lines: [{ ...LINE, stock: 'D', power: 'catenary', psd: 'half' }], modules: [wideTrack, wideEdge] }

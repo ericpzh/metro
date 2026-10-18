@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { STOCK_CLASSES, trainLength, trainRatedCapacity } from '../src/sim/stock.ts'
+import { carImage, TRAIN_RAIL_DATUM_Z } from '../../tools/train-cards.mjs'
+import { RAIL_HEAD_Z } from '../src/sim/constants.ts'
 import { trainPieces } from '../src/app/captureTrains.ts'
 
 test('catalogue captures include overhead collectors for A/D and third-rail roofs for B/C/L', () => {
@@ -34,3 +36,16 @@ for (const language of ['zh','en']) for (const name of ['05-trains-and-track','1
     }
   })
 }
+
+
+test('train elevation images anchor the new wheel tread to the rail while plans retain their centreline', () => {
+  assert.equal(TRAIN_RAIL_DATUM_Z, RAIL_HEAD_Z - .5)
+  for (const kind of ['front','side','plan']) {
+    const piece = {kind,metres:10,verticalMetres:4.4,box:{z:[-.2,4.2],y:[-2.2,2.2]},href:'test'}
+    const image = carImage(piece,500,1000,20)
+    const datum = kind === 'plan' ? 0 : TRAIN_RAIL_DATUM_Z
+    const axis = piece.box[kind === 'plan' ? 'y':'z']
+    const datumY = image.y + (axis[1]-datum)/(axis[1]-axis[0])*image.h
+    assert.ok(Math.abs(datumY-1000)<1e-9)
+  }
+})

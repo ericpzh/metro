@@ -57,16 +57,16 @@ function trainSystem(mats, stock, cars, doorSides = 3) {
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
 const consists = [
-  ['D', 8, 1112720, .10],
-  ['D', 6, 865148, .11],
-  ['A', 8, 257184, .28],
-  ['A', 6, 200096, .27],
-  ['B', 6, 166640, .27],
-  ['C', 6, 190144, .27],
-  ['L', 6, 156496, .25],
-  ['B', 4, 118768, .26],
-  ['C', 4, 138688, .26],
-  ['L', 4, 113344, .24],
+  ['D', 8, 1252192, .10],
+  ['D', 6, 969980, .11],
+  ['A', 8, 629056, .28],
+  ['A', 6, 498152, .27],
+  ['B', 6, 450156, .27],
+  ['C', 6, 471156, .27],
+  ['L', 6, 411548, .25],
+  ['B', 4, 335748, .26],
+  ['C', 4, 353164, .26],
+  ['L', 4, 309140, .24],
 ]
 
 test('every consist draws its published full count and a Low within budget', () => withDocument((mats) => {

@@ -13,7 +13,7 @@ import {
   rng, amT, mover, group, bboxOf, fitToRect,
 } from './iso.mjs';
 import { isoTrack, catenary } from './train-iso.mjs';
-import { trainCard } from './train-cards.mjs';
+import { trainCard, TRAIN_RAIL_DATUM_Z } from './train-cards.mjs';
 import { loadStationPieces, stationPieceImage } from './station-piece-images.mjs';
 import { FINISH_LIST } from '../game/src/sim/finishes.ts';
 
@@ -191,7 +191,7 @@ export function artTwoLine() {
   /* ============================================================ 12. the consist up there
    * The game's own A-type consist — the stock this line runs — photographed on this drawing's
    * axes. It is anchored by the point its **origin** landed on, which the capture reports: the
-   * model is built centred on its origin and standing on it (`box.z[0]` is 0), so putting that
+   * model is centred on its origin, with the wheel tread at the shared rail datum, so putting that
    * point on the rail top stands the whole train on the track rather than near it.
    *
    * The picture is **mirrored**, because the render is taken on the far side of the kit's
@@ -201,7 +201,7 @@ export function artTwoLine() {
   const trainImage = (card, x, y, z, anim) => {
     const w = card.metres * TW * Math.SQRT2;
     const h = card.verticalMetres * TW * Math.SQRT2;
-    const [ox, oy] = P(x, y, z);
+    const [ox, oy] = P(x, y, z - TRAIN_RAIL_DATUM_Z);
     const fx = 1 - card.origin[0];
     const left = ox - fx * w;
     const top = oy - card.origin[1] * h;

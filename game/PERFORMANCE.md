@@ -1758,7 +1758,7 @@ Trains: every part whose builder can describe a faithful reduction attaches one
 through `render/modelDetail.ts` — cabin straps, handrails and centre poles as
 four-sided tubes on a six-segment path, ring lights as a twelve-sided torus, benches
 and seat-end guards as one envelope, the car roof at four curve segments, eight-sided
-wheels without hubs, the bellows at 8×16, and the D car's plug doors, cab shell and
+profiled wheel tyres/webs with simplified bogie frames and omitted small hardware, the bellows at 8×16, and the D car's plug doors, cab shell and
 paint faces at 3×8 / 16×32 / 12×32. `batchStaticParts` merges both variants so a
 batch carries its own Low geometry; `batchTrainDoors` and `batchTrainTransparent`
 reserve a Low leaf and Low panes; `render/trainDetail.ts` applies the swaps, keeps
@@ -1768,16 +1768,30 @@ spans a whole consist, and 2 % of 150 m is metres.
 
 | Consist | Full triangles | Low triangles | Low share |
 |---|---:|---:|---:|
-| D-8 | 1,112,720 | 91,240 | 8.2 % |
-| D-6 | 865,148 | 75,836 | 8.8 % |
-| A-8 | 257,184 | 66,624 | 25.9 % |
-| A-6 | 200,096 | 50,464 | 25.2 % |
-| C-6 | 190,144 | 45,056 | 23.7 % |
-| B-6 | 166,640 | 42,352 | 25.4 % |
-| L-6 | 156,496 | 37,760 | 24.1 % |
-| C-4 | 138,688 | 30,560 | 22.0 % |
-| B-4 | 118,768 | 28,880 | 24.3 % |
-| L-4 | 113,344 | 25,664 | 22.6 % |
+| D-8 | 1,252,192 | 119,920 | 9.6 % |
+| D-6 | 969,980 | 97,396 | 10.0 % |
+| A-8 | 629,056 | 126,712 | 20.1 % |
+| A-6 | 498,152 | 96,128 | 19.3 % |
+| C-6 | 471,156 | 87,736 | 18.6 % |
+| B-6 | 450,156 | 84,404 | 18.7 % |
+| L-6 | 411,548 | 76,044 | 18.5 % |
+| C-4 | 353,164 | 59,992 | 17.0 % |
+| B-4 | 335,748 | 57,684 | 17.2 % |
+| L-4 | 309,140 | 51,876 | 16.8 % |
+
+The inventory includes the continuous A/B/C/L shell and curved passenger doors,
+flush face/band paint, upright narrow crew doors with over 10 cm full-opening
+clearance, C lamps on the coloured band and 0.8 m wheels beneath window bays.
+The production browser drew all five stocks with 1,749,276 High triangles,
+490,696 Low triangles and an exact 1,749,276 restoration, retaining all source
+geometry identities with no WebGL errors. Evidence is in
+`.preview/complete-production.log` and `.preview/bogie-production-report.json`.
+The current full suite passes 1,863/1,863 tests. Focused cab/bogie coverage passes
+12/12 tests: `CabSkin.ts`, `CarShellProfile.ts`, `TrainBogie.ts` and `TrainInterior.ts`
+have 100% line/function coverage; branch coverage is 100%, 98.68%, 98.59% and
+96.88% respectively. See `.preview/complete-model-coverage.log`.
+
+The current inventory includes shared detailed bogies on every A/B/C/D/L car: profiled wheels/flanges and machined hubs, sculpted frames, primary/air suspension and brake hardware. Low keeps the wheel profiles and structural parts, omitting small hardware. Counts were regenerated with `tools/model-triangle-inventory.mjs`; raw reports remain in `.preview/perf/`.
 
 The D inventory includes four doorways on every car, with the cab-adjacent
 doorway single-leaf, and exactly two small windows in each inter-door bay.

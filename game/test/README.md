@@ -1,3 +1,15 @@
+`train-cab` additionally pins upright compact A/B/L crew doors and at least 10 cm clearance across full passenger-door opening travel at both ends and sides. `train-cab` checks curved moving passenger doors, black lower panels against the shared body profile, at both sides and every rotation, open/closed and High/Low.
+
+`train-cab` also checks exact High/Low roof/skirt joins, C lamps inside the colour band and removal of floating skirt blocks. `train-bogie` also checks 0.8 m wheels beneath window bays, clear doorways, open under-seat housings and the uninterrupted platform-height aisle. `train-cab` also checks High/Low paint sections conserve the original shell surface without overlaps or protrusion, fully below-glass wiper pivots and smooth circular lenses. `train-cab` pins the mirrored A/B/C/L rake with unchanged rear seams, glazed A/B/L crew doors, small centred emblems, C evacuation-door clearance, windshield-fitted wipers on all five classes and High/Low geometry ownership.
+
+`train-bogie` pins complete bogies on every A/B/C/D/L car, actual rail-crown contact in High/Low, inboard flanges, fixed cabin-floor clearance, suspension/brake details, authored Low budgets and geometry disposal. It runs in `test:perf`; `train-lod` pins the regenerated per-consist inventory.
+
+`catenary-model` covers flexible messenger sag, level contact at every seam/rotation/width, droppers, return wire, insulated registration arms, lattice portals, seated post/cleat/arm and upper-chord joints in every rotation, rigid tunnel/canopy fittings, crown clearance, authored Low contact/budgets and exactly-once disposal. It runs in `test:perf`.
+
+`train-pantograph` also checks the broad downturned bow, tapered lower spine, upper fork, five-shed insulators, pivot/spring/bonding hardware, wire clearance and authored Low triangle budget.
+
+`train-pantograph` and `module-build` pin the 0.99 m catenary increase, visible raised arms, and common station/canopy/tunnel/bridge contact. `rail` pins the extra clear course, taller bores, resizing, power changes and idempotent legacy-shell upgrades.
+
 # `game/test` — how the game is tested
 
 `stock` pins D's four doorways per car and mirrored cab-end single-door widths.
@@ -276,8 +288,9 @@ risers and covered step return are checked too;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
 `module-build` also checks floor/apron clearance and the body's inset, buried joins.
 It pins train roof/body paint and non-overlapping cab seams, plus half-height screen-door caps
-that slide clear with their leaves. `train-cabin` pins spawning at the stopped berth before opening,
-and clearing riders after closing while the train is still stationary. `train-gangway` pins the
+that slide clear with their leaves. `train-cabin` pins spawning at the stopped berth
+before opening, and clearing riders after the doors have closed on the closing phase
+while the train is still stationary. `train-gangway` pins the
 black bellows an A/B/C/L consist wears in every gap between two cars: the car's own section
 scaled by one factor (same shape, lightly smaller), strictly inside the car's skin, one mesh for
 the whole consist, corrugated, and D keeping its own curved gangway.

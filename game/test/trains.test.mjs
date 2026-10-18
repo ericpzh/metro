@@ -174,14 +174,16 @@ test('a stop is a fixed berth / open / dwell / close / hold / depart sequence', 
   // Phase order, with consecutive repeats collapsed.
   const order = seen.filter((s, i) => s !== seen[i - 1])
   assert.deepEqual(order, ['approach', 'berth', 'opening', 'dwell', 'closing', 'hold', 'depart'])
-  // Doors are commanded open for exactly the opening, dwell and closing phases.
+  // Doors are commanded open for exactly the opening and dwell phases; the
+  // closing phase shuts them, so the leaf travel the renderer eases ends as the
+  // closing phase does — the riders cleared at the hold leave a sealed car.
   assert.equal(
     doorsOpenIn.length,
-    TRAIN_DOOR_TRAVEL + TRAIN_DWELL + TRAIN_DOOR_TRAVEL,
+    TRAIN_DOOR_TRAVEL + TRAIN_DWELL,
     `doors open for ${doorsOpenIn.length} ticks`,
   )
   assert.ok(
-    doorsOpenIn.every((s) => s === 'opening' || s === 'dwell' || s === 'closing'),
+    doorsOpenIn.every((s) => s === 'opening' || s === 'dwell'),
     'doors open only while the train is berthed with doors cycling',
   )
 })

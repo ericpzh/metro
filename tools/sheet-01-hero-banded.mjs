@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { C, PCOL, TW, TH, ZU, P, n, Scene, boxSvg, quadSvg, faceSvg,
   title, sheet, T, rng, bboxOf, fitToRect, callout, amT, group, mover } from './iso.mjs';
-import { trainCard } from './train-cards.mjs';
+import { trainCard, TRAIN_RAIL_DATUM_Z } from './train-cards.mjs';
 import { isoTrack } from './train-iso.mjs';
 import { FINISH_LIST } from '../game/src/sim/finishes.ts';
 
@@ -77,7 +77,7 @@ export function artHeroBanded() {
   const car = trainCard('iso-B1');
   const cw = car.metres * TW * Math.SQRT2, ch = car.verticalMetres * TW * Math.SQRT2;
   const train = (layer, y, direction, delay) => {
-    const cp = P(PLAN.trainX, y, PLAN.rail);
+    const cp = P(PLAN.trainX, y, PLAN.rail - TRAIN_RAIL_DATUM_Z);
     const cx = cp[0] - (1 - car.origin[0]) * cw, cy = cp[1] - car.origin[1] * ch;
     const dx = n(TW * .8 * direction), dy = n(TH * .8 * direction);
     put(layer, PLAN.trainX, y, PLAN.rail,

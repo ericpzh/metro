@@ -202,7 +202,7 @@ test('C keeps two front panes, an evacuation door and small-door-big-door-big-do
         }
         for (const outward of [-1, 1]) for (const side of [-1, 1]) {
           const nose = outward * cars * STOCK.C.length / 2
-          const ray = new THREE.Raycaster(new THREE.Vector3(nose + outward * 3, side * STOCK.C.width * .31 + .14, 1.38), new THREE.Vector3(-outward, 0, 0))
+          const ray = new THREE.Raycaster(new THREE.Vector3(nose + outward * 3, side * STOCK.C.width * .31 + .14, .99), new THREE.Vector3(-outward, 0, 0))
           const material = ray.intersectObjects(parts, false)[0]?.object.material
           assert.equal(material, outward === dirSign ? mats.headlight : mats.taillight, 'the evacuation door leaves both lamp clusters visible')
         }

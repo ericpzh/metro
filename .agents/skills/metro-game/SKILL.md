@@ -5,6 +5,8 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+Every stock uses 0.8 m wheels, with bogies beneath inter-door window bays and sealed under-seat housings around the unchanged-height aisle. A/B/C/L passenger roofs and lower skirts derive from the cab rear cut in High and Low; C lamps sit in its coloured band and the floating white skirt blocks are removed. A/B/C/L cab face and lower colour are disjoint paint sections of the same shell, with flush fitted glazing, smooth circular headlights and wiper pivots fully below the glass. Passenger overhead fittings stop at the cab seam. A/B/C/L cabs have a ten-degree front rake that fades to zero at the rear body seam. A/B/L carry glazed crew doors on both sides; all five classes have surface-fitted windshield wipers. A/B/L use the same small centred emblem as C, whose narrower evacuation door clears it. The cabin ceiling stops at the cab seam; the aisle floor and passenger door centres keep their platform alignment. The A/B/C/L passenger leaves, seals and black lower panels follow the common skirt curve through opening travel. A/B/L crew doors stay upright and narrow, moved forward to clear fully opening passenger leaves by over 10 cm.
+
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
 It covers cold interactions, work-count regressions, comparable measurements and GPU validation.
 
@@ -820,14 +822,28 @@ the four rules most changes trip over.
   panes; driving-end small panes sit on the cab. Preserve the shared shell,
   `stock.ts` door centres, authored Low apertures and independent door banks.
   `draw-batching` pins four/six-car consists in both directions.
+* **Shared bogies for every stock class.** `TrainBogie.ts` builds two two-axle assemblies per car, with machined tyre/flange and dished web profiles, side frames, axle boxes, coil/air suspension, dampers, brakes and a motor/gear case. Meshes remain car siblings for whole-consist batching. The tread contacts `RAIL_HEAD_Z` with the train origin 0.5 m above the track; flange orientation and `RAIL_CENTRE_OFFSET` must match the running rails. Keep the complete assembly below the unchanged 0.50 m cabin-floor underside. `train-bogie` pins every stock, High/Low contact, clearance and disposal; regenerate `train-lod` and both inventory tables after geometry changes.
 * **Overhead-wire variants exist for every stock class.** `TrainPose.power` selects
   the catenary roof; absent power keeps legacy callers' third-rail geometry.
-  `TrainPantograph.ts` builds mirrored single-arm collectors at the inward end
+  `TrainPantograph.ts` builds a tapered single lower arm, forked upper tubes,
+  a twin carbon bow with downturned horns, articulated pivots, tension springs,
+  bonding/power leads and four five-shed ceramic insulators. Tiny hardware is
+  omitted at Low while the arms, bow and mounts retain authored geometry.
+  Keep all hardware below the shared contact plane. It places mirrored collectors at the inward end
   of each cab car (one central collector on a one-car formation). Recessed mounts
   in `TrainModel.ts`/`DTrainShell.ts` keep the raised linkage above the cabin and
   its contact bars at `CONTACT_STRIP_Z`, accounting for the train origin's 0.5 m
   elevation over the track origin. Keep the conductor constants shared with
-  `TrackModel.ts`; do not raise the wire through the storey above. The tenth
+  `TrackModel.ts`. Catenary contact is 4.77 m above the bed (raised 0.99 m);
+  reserve four clear courses and a 5 m tunnel ceiling for compact rigid rail;
+  open platform/bridge gantries reserve five courses for the overhead suspension. Station canopies follow the wire; open platform/bridge portals carry
+  lattice crossbeams above sagging messenger spans and droppers.
+  `CatenaryModel.ts` owns round contact/return conductors, insulated registration
+  arms, and compact flanged rigid rail with crown/wall brackets under slabs.
+  Keep contact at `CONTACT_STRIP_Z` in High and Low; `catenary-model` pins
+  sag, seams, bore clearance and prepared Low/disposal. Third-rail clearance stays unchanged.
+  `build/model/TunnelShell.ts` upgrades old generated shells on load and rebuilds
+  them on line-power changes. The tenth
   worker-pose value packs door banks into bits 0–1 and catenary into bit 2;
   `TrainSystem` masks the door bits and includes power in its cache signature.
   `train-pantograph` covers all classes, inward placement, rotations, contact,
@@ -925,9 +941,11 @@ the four rules most changes trip over.
 * **A consist is a cabin the crowd rides in** (`sim/stock.ts`, `sim/agents.ts`,
   `sim/world/World.ts`, `render/models/pieces/TrainModel.ts`,
   `game/test/train-cabin.test.mjs`). The alighting wave is not dumped onto the platform at
-  door-open: the whole cohort is **seated in the doorway queues it will leave by at
-  dispatch** (`World.loadAlighting` / `seatAlighter`), so the car draws full as the train
-  runs in. `stock.ts` owns the cabin box both sides are cut from (`cabinSlot`,
+  door-open: the whole cohort is **seated in the doorway queues it will leave by once the
+  consist has stopped, before its doors open** (`World.loadAlighting` / `seatAlighter`,
+  during the doors-shut berth), and the drawn run-in lands its **last** frame on the mark
+  (`World.approachProgress`), so the car is already at rest when the wave appears rather
+  than still gliding in behind it. `stock.ts` owns the cabin box both sides are cut from (`cabinSlot`,
   `CABIN_FLOOR_Z`, `CABIN_HALF_W`, `CABIN_ROW_PITCH`, `CABIN_MAX_ROWS`,
   `CABIN_ALIGHT_PAIR_S`, `CABIN_ALIGHT_MAX_S`) and `World.cabinWorldPos` uses the
   doorway's own node in the consist's frame, so the sim's slots and the car model cannot

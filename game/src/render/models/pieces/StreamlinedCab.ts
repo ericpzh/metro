@@ -1,3 +1,4 @@
+import { buildTrainWiper } from './TrainWiper.ts'
 import * as THREE from 'three'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Stock } from '../../../sim/stock.ts'
@@ -185,6 +186,8 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   }
   shield('d-windscreen-seal', mats.rubber, 0.025, 0.012)
   shield('d-cab-windscreen', glass, 0, 0.014)
+  buildTrainWiper(cab, mats, (y, z, lift) => frontPoint(y, z, length, 0.035 + lift).point,
+    -0.12, 1.96, -0.20, 2.36, -0.26, 2.70)
   // One pair of rails runs from the badge to the upper windshield corner.
   // A/window, B/light and C/accent are only intervals cut from that same strip.
   const innerEdge = (t: number) => new THREE.Vector2(0.10 + 0.68 * Math.sin(t * Math.PI / 2),1.96 + 0.94 * (1 - Math.cos(t * Math.PI / 2)))

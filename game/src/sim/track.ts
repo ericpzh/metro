@@ -16,6 +16,12 @@ import { PSD_WALL_OFFSET } from './constants.ts'
 
 import type { LineDirection, Module } from './types.ts'
 
+/** Clear courses above the bed, including the overhead support assembly. */
+export function trackHeadroom(track: TrackModule): number {
+  if (track.cfg.power !== 'catenary') return 3
+  return !track.cfg.tunnel && (track.cfg.bridge || track.cfg.catenaryStyle === 'gantry') ? 5 : 4
+}
+
 /** Length presets shared by the tunnel and elevated track tools. */
 export const TRACK_RUN_LENGTHS = [4, 16, 32, 64, 128] as const
 const TRACK_RUN_LABELS = [msg('extra_short'), msg('short'), msg('medium'), msg('long'), msg('extra_long')] as const

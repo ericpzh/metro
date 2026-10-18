@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { RAIL_HEAD_Z, RAIL_CENTRE_OFFSET } from '../../../sim/constants.ts'
 import { slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { omitModelDetail } from '../../modelDetail.ts'
@@ -7,7 +8,7 @@ import { omitModelDetail } from '../../modelDetail.ts'
 export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete: THREE.Material, railWeb: THREE.Material, w: number, d: number): void {
   const cx = (w - 1) / 2
   const cy = (d - 1) / 2
-  const gauge = 0.7525 // 1.435 m between the inside faces of the 70 mm heads.
+  const gauge = RAIL_CENTRE_OFFSET // 1.435 m between the inside faces of the 70 mm heads.
   for (const sign of [-1, 1]) {
     const y = cy + sign * gauge
     slab(g, railWeb, cx, y, 0.579, w, 0.15, 0.018)
@@ -18,8 +19,8 @@ export function buildTrackDetails(g: THREE.Group, mats: ModelMaterials, concrete
     shape.lineTo(0.029, 0.628)
     shape.lineTo(0.035, 0.635)
     shape.lineTo(0.035, 0.645)
-    shape.lineTo(0.027, 0.65)
-    shape.lineTo(-0.027, 0.65)
+    shape.lineTo(0.027, RAIL_HEAD_Z)
+    shape.lineTo(-0.027, RAIL_HEAD_Z)
     shape.lineTo(-0.035, 0.645)
     shape.lineTo(-0.035, 0.635)
     shape.closePath()

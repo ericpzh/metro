@@ -5,11 +5,12 @@
 // `verticalMetres` up, the world `box` it was framed in, and which way the camera was
 // pointing (`kind`). That is what lets a sheet place the game's own car into its own
 // drawing at its own scale, and stand it on the right line: a front or a side stands on
-// the rail (`z = 0`), a plan straddles the track centreline (`y = 0`).
+// the shared wheel-tread datum, a plan straddles the track centreline (`y = 0`).
 //
 // Sheets 02, 05, 11 and 12 all do that, so the two functions live here rather than in
 // four copies that could drift apart.
 
+import { RAIL_HEAD_Z } from '../game/src/sim/constants.ts'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -24,6 +25,9 @@ export const TRAIN_CARDS = resolve(repo, process.env.TRAIN_CARDS_DIR ?? join('.p
  * Read once per process: a sheet asks for a handful of the same sixteen pictures and
  * base64-ing a 40 KB PNG sixteen times is noticeable.
  */
+/** Rail crown in train-local coordinates: the train origin is bed +0.5 m. */
+export const TRAIN_RAIL_DATUM_Z = RAIL_HEAD_Z - 0.5
+
 let cached = null
 export function loadTrainCards() {
   if (cached) return cached
@@ -61,7 +65,8 @@ export function carImage(piece, centreX, datumY, pxPerM) {
   const axis = piece.kind === 'plan' ? piece.box.y : piece.box.z
   const w = piece.metres * pxPerM
   const h = piece.verticalMetres * pxPerM
-  const top = datumY - ((axis[1] - 0) / (axis[1] - axis[0])) * h
+  const datum = piece.kind === 'plan' ? 0 : TRAIN_RAIL_DATUM_Z
+  const top = datumY - ((axis[1] - datum) / (axis[1] - axis[0])) * h
   const x = centreX - w / 2
   const at = (v) => (Math.round(v * 10) / 10).toString()
   return {

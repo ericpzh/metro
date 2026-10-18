@@ -11,9 +11,9 @@ import {
   T, MUL, tag, legend, title, sheet, callout, leader, rng, shade, n,
   amT, sway, breathe, spin, dashFlow, mover, group,
 } from './iso.mjs';
-import { carImage, trainCard } from './train-cards.mjs';
+import { carImage, trainCard, TRAIN_RAIL_DATUM_Z } from './train-cards.mjs';
 import { FINISH_LIST } from '../game/src/sim/finishes.ts';
-import { PSD_FULL_HEIGHT } from '../game/src/sim/constants.ts';
+import { PSD_FULL_HEIGHT, CONTACT_STRIP_Z } from '../game/src/sim/constants.ts';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,8 +77,8 @@ function passenger(x, floor, color, phase = 0, bag = false) {
   return mover(`M ${x} ${floor} L ${x + direction * 18} ${floor}`, color, `${-phase}s`,
     { sprite: 'person', walkView: 'elevation', walkScale: S, identity, dur: '3s', win: [.2, .8] });
 }
-/** The game's datum — `sim/stock.ts`: the consist origin rides half a metre under the platform. */
-const ORIGIN_BELOW_PLATFORM = 0.5;
+/** Platform surface stands 0.35 m above the running-rail crown. */
+const RAIL_BELOW_PLATFORM = 0.35;
 
 /** A person that walks a path given in scene-local coordinates. */
 const walkLocal = (S, path, col, begin, o = {}) =>
@@ -119,11 +119,10 @@ export function artSection() {
   // The car sits on the deck: `z = 0` is its rail line, and an elevated line carries its
   // rail on the deck's own top face.
   g.push(trainRun(carImage(trainCard('side-A'), 580, deckY, S).svg, 24, '14s'));
-  // The catenary is the **line's**, not the car's — the game hangs its wire from the
-  // track model — so it is still drawn, minus the pantograph a hand-drawn car used to
-  // carry: `buildTrain` has no current collector to show.
-  g.push(`<path d="M150,${deckY - 130} L1010,${deckY - 130}" stroke="#f0c000" stroke-width="3.5"/>`);
-  for (let x = 200; x <= 960; x += 152) g.push(`<path d="M${x},${deckY - 130} L${x},${deckY - 116}" stroke="#f0c000" stroke-width="2"/>`);
+  // Use the same contact plane as the raised pantograph, relative to its tread.
+  const contactY = deckY - (CONTACT_STRIP_Z - 0.5 - TRAIN_RAIL_DATUM_Z) * S;
+  g.push(`<path d="M150,${contactY} L1010,${contactY}" stroke="#f0c000" stroke-width="3.5"/>`);
+  for (let x = 200; x <= 960; x += 152) g.push(`<path d="M${x},${contactY} L${x},${contactY + 14}" stroke="#f0c000" stroke-width="2"/>`);
   g.push(`<rect x="174" y="${deckY + 40}" width="356" height="42" rx="7" fill="#0b1119" opacity=".82"/>`);
   g.push(T(180, deckY + 56, '1 号线 · 高架站台', { size: 13, fill: L1, weight: 700 }));
   g.push(T(180, deckY + 76, '从高架到地下，用换层设施连接。', { size: 12, fill: '#8fa0b3' }));
@@ -261,7 +260,7 @@ export function artSection() {
     // A B-type car on the platform, on the game's own datum: its origin rides half a
     // metre under the platform surface, which is what puts the door sill a hand's width
     // over the edge rather than at it.
-    const car = carImage(trainCard(`side-${line === '2' ? 'B' : 'L'}`), 790, platformY + ORIGIN_BELOW_PLATFORM * S, S);
+    const car = carImage(trainCard(`side-${line === '2' ? 'B' : 'L'}`), 790, platformY + RAIL_BELOW_PLATFORM * S, S);
     g.push(trainRun(car.svg, 26, '14s'));
     if (psdRun) g.push(`<g data-layer="b2-screen-doors">${psdRun.svg}</g>`);
     g.push(`<rect x="${n(car.x - 34)}" y="${platformY}" width="${n(car.w + 68)}" height="7" fill="${C.yellow}"/>`);
@@ -283,7 +282,7 @@ export function artSection() {
     const wallL = cx - 132, wallR = cx + 132;
     const boxTop = B2f;
     const platTop = fy - 18;                       // continuous with the surrounding B3 platform
-    const railY = platTop + ORIGIN_BELOW_PLATFORM * S;
+    const railY = platTop + RAIL_BELOW_PLATFORM * S;
     const floorTop = railY + 19;                   // recessed track bed under the platform
 
     g.push(`<rect x="${wallL}" y="${boxTop}" width="${wallR - wallL}" height="${floorTop - boxTop}" fill="#0d1219" stroke="#39465a" stroke-width="2"/>`);

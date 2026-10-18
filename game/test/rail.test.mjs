@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { defaultLine, derivePlatformEdges, dropDerivedEdges, isPlatformCell, makeBridge, placeRail, placeTrack, placeTunnel, railModuleAt, railModuleAtPlatform, regenerateRailEdges, removeLineAndTracks, resizeTrack, setLinePower, stripTunnelShell, TUNNEL_SHELL, trackBlockReason, trackClearanceBlocked, trackFloorMissing, trackPieceForLine } from '../src/build/rail.ts'
 import { trackCellAt, trackCells, trackOriginForCentre } from '../src/sim/track.ts'
 import { moduleEnvelope, placementOnTrack, trackBedKeys, trackAt } from '../src/sim/placement.ts'
+import { toState, toData } from '../src/build/model.ts'
 import { World } from '../src/sim/world.ts'
 
 function station(cells) {
@@ -474,4 +475,47 @@ test('the reference station ships a dug bed with an auto-consistent edge', async
   const derived = derivePlatformEdges(s, track).find((e) => e.x === edge.x && e.y === edge.y)
   assert.ok(derived, 'the demo edge is the one the derive would place')
   assert.equal(edge.cfg.side, derived.cfg.side, 'the demo edge keeps the derived side')
+})
+
+
+test('catenary reserves an extra clear course and bores a taller shell in every rotation', () => {
+  for (const rot of [0, 1, 2, 3]) {
+    const source = { id: 'source', type: 'track', x: 10, y: 10, z: -8, w: 4, d: 3, rot, cfg: { line: '1', power: 'catenary', dir: 'up' } }
+    const cells = trackCells(source).map(([x, y, z]) => ({ x, y, z: z + 4, fill: 'solid' }))
+    const state = { ...station(cells), modules: [source] }
+    assert.equal(trackClearanceBlocked(state, source), true)
+    assert.equal(trackClearanceBlocked(state, { ...source, cfg: { ...source.cfg, power: 'third-rail' } }), false)
+    const above = { id: 'above', type: 'bench', x: 10, y: 10, z: -5, w: 1, cfg: {} }
+    assert.equal(trackBlockReason({ ...station([]), modules: [above] }, source), 'interference')
+    const next = placeTunnel(state, source.id, 4)
+    const tunnel = next.modules.find(m => m.type === 'track' && m.cfg.tunnel)
+    assert.ok(tunnel)
+    for (const [x, y, z] of trackCells(tunnel)) {
+      assert.ok(next.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
+      assert.ok(!next.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
+    }
+    const resized = resizeTrack(next, tunnel, 6, 4)
+    for (const [x, y, z] of trackCells({ ...tunnel, w: 6, d: 4 })) {
+      assert.ok(resized.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
+    }
+  }
+})
+
+test('power switches and loading legacy catenary tunnels raise their generated ceilings', () => {
+  const source = { id: 'source', type: 'track', x: 0, y: 0, z: 0, w: 4, d: 3, cfg: { line: '1', power: 'third-rail', dir: 'up' } }
+  const old = placeTunnel({ ...station([]), modules: [source] }, source.id, 4)
+  const tunnel = old.modules.find(m => m.type === 'track' && m.cfg.tunnel)
+  const raised = setLinePower(old, '1', 'catenary')
+  const legacy = { ...old, modules: old.modules.map(m => m.type === 'track' ? { ...m, cfg: { ...m.cfg, power: 'catenary' } } : m) }
+  const loaded = toState(toData(legacy))
+  for (const state of [raised, loaded]) for (const [x, y, z] of trackCells(tunnel)) {
+    assert.ok(state.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
+    assert.ok(!state.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
+  }
+  assert.deepEqual(toData(toState(toData(loaded))), toData(loaded), 'loading the upgraded shell is idempotent')
+  const lowered = setLinePower(raised, '1', 'third-rail')
+  for (const [x, y, z] of trackCells(tunnel)) {
+    assert.ok(lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
+    assert.ok(!lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
+  }
 })

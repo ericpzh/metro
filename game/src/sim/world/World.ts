@@ -85,15 +85,32 @@ const SIM_DT = SIM_SECONDS_PER_TICK
 /**
  * How much further than an end of the rail a consist must be *aimed* so that the
  * frame the player sees lands there. The choreography advances on the tick it
- * reaches a phase's length, so a stop's approach and departure are drawn at
- * `1/S … (S−1)/S` of the phase — the `p = 0` (approach) and `p = 1` (depart)
- * frames never render, and the extreme drawn frame is only `((S−1)/S)²` of the
- * aimed distance. Dividing by that reciprocal keeps the drawn run on the
- * connected rail instead of a frame the sim never draws.
+ * reaches a phase's length, so a departure is drawn at `1/S … (S−1)/S` of the
+ * phase — the `p = 1` frame never renders, and the extreme drawn frame is only
+ * `((S−1)/S)²` of the aimed distance. Dividing by that reciprocal keeps the drawn
+ * run-out on the connected rail instead of a frame the sim never draws. (The
+ * run-in no longer needs it: `approachProgress` lands its last drawn frame on the
+ * berth itself.)
  */
 function drawnRunScale(phaseSeconds: number): number {
   const s = phaseSeconds / SIM_DT
   return s > 1 ? (s / (s - 1)) ** 2 : 1
+}
+
+/**
+ * Ease-out progress for the drawn run-in, reaching 1 on the phase's **last drawn
+ * frame** so the consist is at rest on the mark the tick the berth begins. The
+ * alighting wave is seated at that berth, and a newly spawned passenger is drawn
+ * at its own position the moment it exists — so if the last drawn frame still
+ * stood a few metres short, the crowd would pop in ahead of a train that had not
+ * finished stopping. `drawnRunScale` pins the *first* drawn frame onto the
+ * entrance rail end; this pins the last onto the mark.
+ */
+function approachProgress(t: number): number {
+  const s = TRAIN_APPROACH_S / SIM_DT
+  if (s <= 2) return clamp(t / TRAIN_APPROACH_S, 0, 1)
+  const p = Math.min(1, t / TRAIN_APPROACH_S)
+  return clamp((p * s - 1) / (s - 2), 0, 1)
 }
 /**
  * How many previewed route-leg tails are memoised before the whole memo is
@@ -1267,9 +1284,10 @@ export class World {
       // Ease out: fast down the tunnel, slowing to a stop at the mark. The
       // consist starts beyond the entrance end of its connected rail, so it
       // emerges from the tunnel / off the bridge rather than popping into being
-      // over the platform.
-      const p = Math.min(1, train.t / TRAIN_APPROACH_S)
-      offset = -(1 - p) * (1 - p) * (half + a.approachRun) * drawnRunScale(TRAIN_APPROACH_S) * a.dirSign
+      // over the platform — and its last drawn frame lands on the mark, so it is
+      // standing still by the tick the berth (and its seating wave) begins.
+      const q = approachProgress(train.t)
+      offset = -(1 - q) * (1 - q) * (half + a.approachRun) * a.dirSign
     } else if (train.state === 'depart') {
       // Ease in: pull away gently, then run up to speed, only leaving the world
       // once the tail is out through the far end of the connected rail.
@@ -1290,6 +1308,12 @@ export class World {
    * train state, so it adds no randomness and cannot disturb §7.6 determinism.
    * Bits 0–1 are `LineAnchor.doorSides`; bit 2 selects catenary pickup. The
    * renderer slides only leaves whose screen doors exist (§1.13).
+   *
+   * `doors-open` is the leaves' commanded position: open over the opening and
+   * dwell phases, shut over the closing phase — the phase the sim itself shuts
+   * them in. The renderer's leaf travel then finishes exactly as the closing
+   * phase ends, so the riders cleared at the hold leave a sealed car rather than
+   * one whose doors are still wide.
    */
   trainRenderState(): Float32Array {
     const STRIDE = 10
@@ -1305,7 +1329,7 @@ export class World {
       out[k++] = at.z
       out[k++] = a.cars
       out[k++] = STOCK_CLASSES.indexOf(a.stock)
-      out[k++] = train.state === 'opening' || train.state === 'dwell' || train.state === 'closing' ? 1 : 0
+      out[k++] = train.state === 'opening' || train.state === 'dwell' ? 1 : 0
       out[k++] = a.colour
       out[k++] = a.dirSign
       out[k++] = a.yaw

@@ -1,5 +1,7 @@
 # Station Designer — the game
 
+Every stock uses 0.8 m wheels, with bogies beneath inter-door window bays and sealed under-seat housings around the unchanged-height aisle. A/B/C/L passenger roofs and lower skirts derive from the cab rear cut in High and Low; C lamps sit in its coloured band and the floating white skirt blocks are removed. A/B/C/L cab face and lower colour are disjoint paint sections of the same shell, with flush fitted glazing, smooth circular headlights and wiper pivots fully below the glass. Passenger overhead fittings stop at the cab seam. A/B/C/L cabs have a ten-degree front rake that fades to zero at the rear body seam. A/B/L carry glazed crew doors on both sides; all five classes have surface-fitted windshield wipers. A/B/L use the same small centred emblem as C, whose narrower evacuation door clears it. The cabin ceiling stops at the cab seam; the aisle floor and passenger door centres keep their platform alignment. The A/B/C/L passenger leaves, seals and black lower panels follow the common skirt curve through opening travel. A/B/L crew doors stay upright and narrow, moved forward to clear fully opening passenger leaves by over 10 cm.
+
 Type D has four doorways and six small windows on each car side, with two windows
 between adjacent doorways. Middle cars use four double doors; cab cars use three
 double doors and a single door nearest the cab. `stock` pins the shared platform
@@ -412,6 +414,8 @@ cab — the dark face with its windscreen, crew-door windows, 广州地铁 mark,
 bars, cream bumper band and coupler — and differ only in their lamps: white on the end that leads,
 red on the end that trails. Each pose also carries a **door-side mask**, so the leaves slide only on
 a side that really has screen doors to meet: a train never opens onto the tunnel wall (§1.13).
+Every A/B/C/D/L car shares two detailed two-axle bogies from `TrainBogie.ts`: dished wheel webs, polished treads with inboard flanges, shaped side frames, axle boxes, primary coil/secondary air suspension, dampers, brakes and a motor/gear case. The wheel treads meet the actual rail crowns with 0.8 m wheels beneath window bays, sealed under-seat housings and central hardware below the unchanged-height aisle. Low keeps the wheel and structural profiles and omits small fittings; meshes remain car siblings so the consist batches them together.
+
 The door cadence is `doorCentres` in `sim/stock.ts`: one uniform pitch per car, held
 `DOOR_END_INSET` (2.8 m) off both car ends for the cab or the gangway, so a three-door L car spreads
 its outer doors out to the ends instead of bunching them in the middle. `doorRunOffsets` projects
@@ -1333,7 +1337,7 @@ the rail's rotation. Every derived edge records which side the track lies on (`c
 screen's own frame), and the renderer, the auto-derive and `World.computeLineAnchors` share that one
 meaning, so the printed header always faces the platform, never the rail. The same `cfg.side` decides
 which of the consist's two door banks may open at that berth: a side with no screen run has none, so
-its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts platform rails to the new run length and widens every bound tunnel or bridge bed to the consist's required car width; tunnels rebuild their tagged shell and bridges recenter their generated supports while keeping their authored run lengths. A platform at z = 0 may stand on the intact virtual street plane, while saved digs and derived ramp/exit openings still refuse it. A placed surface track derives an opening under its bed, so the rendered plane does not cover the rail and removing the track restores implicit ground without leaving a saved hole. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails — on the travel left in a tunnel or on a bridge, and off the platform side at a station (`thirdRailSide` in `sim/track.ts`), jumping across before the station — 接触网 keeps one contact height and follows the consist centre across stations, tunnels and bridges. Platforms default to a low canopy; half-height-PSD catenary platforms can switch to a vehicle-width gantry, with uprights outside the car envelope and below the 4 m storey floor. Tunnel wires hang from the bore; bridge portals and decks size their clear span from the bound stock. Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
+its doors stay shut — the train opens onto the platform, never onto the tunnel wall (§1.13). Editing a line's 车型/编组 re-cuts platform rails to the new run length and widens every bound tunnel or bridge bed to the consist's required car width; tunnels rebuild their tagged shell and bridges recenter their generated supports while keeping their authored run lengths. A platform at z = 0 may stand on the intact virtual street plane, while saved digs and derived ramp/exit openings still refuse it. A placed surface track derives an opening under its bed, so the rendered plane does not cover the rail and removing the track restores implicit ground without leaving a saved hole. Each track carries its line's 供电 in `cfg.power`: 第三轨 draws a guarded conductor rail beside the running rails — on the travel left in a tunnel or on a bridge, and off the platform side at a station (`thirdRailSide` in `sim/track.ts`), jumping across before the station — 接触网 keeps one contact height and follows the consist centre across stations, tunnels and bridges. Catenary wires sit 4.77 m above the track origin, 0.99 m higher than before, so the pantographs extend visibly above their roof wells. Their single tapered lower arm, forked upper linkage and sprung carbon bow retain a solid silhouette; downturned horns, pivot hubs, tension springs, ribbed ceramic mounts and a cable bushing supply the close-view detail. Low detail keeps the structural silhouette and omits small hardware. Platforms default to a canopy; half-height-PSD catenary platforms can switch to a vehicle-width gantry, with uprights outside the car envelope. Open station and bridge portals use lattice crossbeams, insulated cantilevers, sagging messenger spans, droppers and a separate return wire. The round contact conductor stays level at the shared pantograph height. Covered platforms and tunnels use a narrow flanged rigid rail, ribbed insulators and compact ceiling/wall brackets; the tunnel fittings remain below the 5 m crown. Compact catenary tracks reserve four clear block courses and tunnels put their ceiling at 5 m; open platform/bridge gantries reserve five clear courses for their crossbeams and suspension; third-rail tracks keep three courses and a 4 m ceiling. Old generated catenary shells upgrade on load, and power switches rebuild the shell. Tunnel wires hang from the bore; bridge portals and decks size their clear span from the bound stock. Switching a line's 供电 (`setLinePower`) carries the new mode to every track bound to that line — platform and tunnel runs alike — and rebuilding the module meshes re-cuts them all together. The 轨道 folder has
 two tools, both gated by one eligibility check (`trackBlockReason`): anything already sharing the run's
 space — equipment, a room, a screen door, a ramp, another rail/tunnel — blocks placement rather than
 being demolished, and the preview flags it red. **站台** is the fixed consist-length piece above; it must
@@ -1341,7 +1345,7 @@ rest on solid floor under its whole bed (three cells wide by default, `trackFloo
 headroom (`trackClearanceBlocked`) — a platform is open air. **隧道** is a pure tunnel run: hover an
 existing rail and it extends off the free end nearest the pointer (a slider sets the length), keeping
 the source's axis, rotation and bed depth, flagged `cfg.tunnel` so it never spawns platform doors. A
-tunnel may hang over void, and it bores: it deletes any wall (or ground) poking into its three clear
+tunnel may hang over void, and it bores: it deletes any wall (or ground) poking into its power-dependent clear
 courses, then raises a solid side wall either side and a ceiling one storey up wherever they are missing
 (`boreTunnel`, shell blocks tagged `tunnel-shell:<id>` so removing the tunnel takes them too). Both
 refuse to overlap another track (`commitTrack` / `placeTunnel` return the same state when they would).
@@ -1374,7 +1378,9 @@ sim's slots and the car model are both cut from (`cabinSlot`, `CABIN_FLOOR_Z`, `
 `CABIN_ROW_PITCH`), so a rider is drawn standing on the floor the model draws and leaves through the
 doorway it was walked to — the same contract `doorCentres` holds between a car door and the screen
 that meets it. `World.stepTrainRider` pins a rider to its consist's own pose (`trainAt`, shared with
-`trainRenderState`, so the two cannot drift), and a rider is out of the crowd's way while it is
+`trainRenderState`, so the two cannot drift), and the run-in lands its last drawn frame on the mark
+(`approachProgress`), so the wave is seated on a consist that has already stopped rather than one
+still gliding in behind it. A rider is out of the crowd's way while it is
 aboard: not in the collision pass, not in the density derate, not priced onto the platform's nodes
 and not counted in the LOS — a full train is not a crush on the floor nobody has stepped onto yet.
 Doors first serve the wave: `World.openDoors` holds each doorway shut to boarders and
@@ -1382,8 +1388,10 @@ Doors first serve the wave: `World.openDoors` holds each doorway shut to boarder
 `CABIN_ALIGHT_PAIR_S` (§5.9: alighting is the doorway's own business). Its turn is bounded by
 `CABIN_ALIGHT_MAX_S`, because a dwell has to be shared — past it the rest of the wave rides on and is
 counted among the stop's left-behind arrivals rather than a platform that silently never boards.
-Boarders take the cabin behind that queue (`boardRider`). Cabin riders leave the world once the
-doors close, during the stationary hold before departure. The car itself is hollow — floor, ceiling, lining to the waist rail, a glazed
+Boarders take the cabin behind that queue (`boardRider`). The doors are commanded open only over the
+opening and dwell phases, so the renderer's leaf travel shuts them over the closing phase itself;
+cabin riders leave the world as the closing phase ends, in a sealed car, during the stationary hold
+before departure. The car itself is hollow — floor, ceiling, lining to the waist rail, a glazed
 window band, longitudinal seating in the bays between the doors and grab poles at each doorway
 (`render/models/pieces/TrainModel.ts`) — which is what lets the player watch the queue inside and
 step out of the doorway rather than appear beside the train. `test/train-cabin.test.mjs` pins it:

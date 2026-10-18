@@ -233,7 +233,7 @@ export function artPlatformFlow() {
   const railY = 792;
   const sideB = car('side-B');
   const sideImg = carImage(sideB, cx, railY, sB);
-  const platformY = railY - .5 * sB;
+  const platformY = railY - .35 * sB;
   g.push(rect(BX + 22, BY + 76, BW - 44, 132, CONCRETE));
   g.push(rect(BX + 22, BY + 76, BW - 44, 132, 'url(#platform-concrete-grain)'));
   // The foreground platform hides the undercarriage below the door-sill datum.

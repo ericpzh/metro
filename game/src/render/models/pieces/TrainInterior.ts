@@ -1,3 +1,4 @@
+import { carShellAt } from './CarShellProfile.ts'
 import { dHalfWidth } from './DTrainShell.ts'
 import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
@@ -18,7 +19,7 @@ function tubeDetail(mesh: THREE.Mesh): void {
 }
 
 /** Benches, seat-end guards, handrails and lighting from the metro cabin references (§1.13). */
-export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false): void {
+export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false, overheadSpan: [number, number] = [start, end], shellWidth?: number, wheelBays: readonly number[] = [], wheelBayHalfLength = 1.2): void {
   const tube = (points: THREE.Vector3[], radius: number, mat: THREE.Material, name: string, closed = false): void => {
     const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal')
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, radius, 6, closed), mat)
@@ -28,7 +29,34 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
   }
   const mid = (start + end) / 2
   const halfWidth = express ? dHalfWidth(CABIN_FLOOR_Z - 0.12) - 0.04 : CABIN_HALF_W
-  slab(g, floor, mid, 0, CABIN_FLOOR_Z - 0.06, end - start, halfWidth * 2, 0.12).name = 'cabin-floor'
+  const floorShape = new THREE.Shape()
+  const left = start-mid, right = end-mid, clear = .475
+  const wheelCuts = wheelBays.map(x=>[x-mid-wheelBayHalfLength,x-mid+wheelBayHalfLength]).sort((a,b)=>a[0]-b[0])
+  floorShape.moveTo(left,-halfWidth)
+  for(const [a,b] of wheelCuts){floorShape.lineTo(a,-halfWidth);floorShape.lineTo(a,-clear);floorShape.lineTo(b,-clear);floorShape.lineTo(b,-halfWidth)}
+  floorShape.lineTo(right,-halfWidth);floorShape.lineTo(right,halfWidth)
+  for(const [a,b] of [...wheelCuts].reverse()){floorShape.lineTo(b,halfWidth);floorShape.lineTo(b,clear);floorShape.lineTo(a,clear);floorShape.lineTo(a,halfWidth)}
+  floorShape.lineTo(left,halfWidth);floorShape.closePath()
+  const floorGeometry = new THREE.ExtrudeGeometry(floorShape,{depth:.02,bevelEnabled:false})
+  floorGeometry.translate(0,0,.04)
+  const floorMesh = new THREE.Mesh(floorGeometry,floor)
+  floorMesh.position.set(mid,0,CABIN_FLOOR_Z-.06);floorMesh.name='cabin-floor';g.add(floorMesh)
+  if(!express&&shellWidth!==undefined){
+    const p=floorGeometry.attributes.position
+    for(let i=0;i<p.count;i++){
+      const limit=carShellAt(shellWidth,p.getZ(i)+floorMesh.position.z).y-.005
+      p.setY(i,Math.sign(p.getY(i))*Math.min(Math.abs(p.getY(i)),limit))
+    }
+    floorGeometry.computeVertexNormals()
+  }
+  // Sealed wheel housings replace the side floor only beneath window benches.
+  // The 0.95 m aisle and every passenger threshold retain their original height.
+  for(const centre of wheelBays)for(const side of [-1,1]){
+    const outer=halfWidth-.01, y=side*(clear+outer)/2, depth=outer-clear
+    slab(g,mats.trainInterior,centre,y,1.01,wheelBayHalfLength*2,depth,.02).name='cabin-wheel-housing-top'
+    slab(g,mats.trainInterior,centre,side*clear,.81,wheelBayHalfLength*2,.025,.4).name='cabin-wheel-housing-wall'
+    for(const end of [-1,1])slab(g,mats.trainInterior,centre+end*wheelBayHalfLength,y,.81,.025,depth,.4).name='cabin-wheel-housing-end'
+  }
   for (const side of [-1, 1]) {
     const y = side * (halfWidth - 0.25)
     for (const [bay, [a, b]] of bays.entries()) {
@@ -94,9 +122,9 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
         ], 0.025, mats.gateRed, 'seat-end-handrail')
       }
     }
-    slab(g, mats.glow, mid, side * 0.76, DOOR_HEAD_Z - 0.015, end - start - 0.3, 0.09, 0.025).name = 'cabin-light-strip'
-    tube([new THREE.Vector3(start + 0.15, side * 0.62, 2.36), new THREE.Vector3(end - 0.15, side * 0.62, 2.36)], 0.025, mats.steel, 'overhead-handrail')
-    for (let x = start + 0.7; x < end - 0.3; x += 1.15) {
+    slab(g, mats.glow, (overheadSpan[0] + overheadSpan[1]) / 2, side * 0.76, DOOR_HEAD_Z - 0.015, overheadSpan[1] - overheadSpan[0] - 0.3, 0.09, 0.025).name = 'cabin-light-strip'
+    tube([new THREE.Vector3(overheadSpan[0] + 0.15, side * 0.62, 2.36), new THREE.Vector3(overheadSpan[1] - 0.15, side * 0.62, 2.36)], 0.025, mats.steel, 'overhead-handrail')
+    for (let x = overheadSpan[0] + 0.7; x < overheadSpan[1] - 0.3; x += 1.15) {
       // The strap's rubber hanger is the one fitting a passenger never reads at
       // Low quality; the loop below it is what the eye follows down the car.
       omitModelDetail(slab(g, mats.rubber, x, side * 0.62, 2.24, 0.035, 0.035, 0.2))

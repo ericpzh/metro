@@ -11,6 +11,7 @@ import { cloneCell } from './Cells.ts';
 import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
 import { ensureRoomFurniture } from './Facilities.ts';
 import { repairGrid } from './Grid.ts';
+import { upgradeCatenaryTunnels } from './TunnelShell.ts';
 import { syncBridgePillars } from './BridgePillars.ts';
 
 export interface StationState {
@@ -85,7 +86,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
   };
   // Rooms drawn before furniture became modules carry no shelf/desk pieces
   // yet — materialise them here so every load path (open, demo, new) agrees.
-  return syncBridgePillars(ensureRoomFurniture(state));
+  return syncBridgePillars(ensureRoomFurniture(upgradeCatenaryTunnels(state)));
 }
 
 export function toData(s: StationState): StationData {

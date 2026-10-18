@@ -401,8 +401,12 @@ export const TRAIN_DOOR_TRAVEL = 2
 export const TRAIN_DWELL = 30
 export const TRAIN_DEPART_HOLD = 5
 export const TRAIN_DEPART_S = 6
+/** Running-rail crown and centreline offsets in the track model (metres). */
+export const RAIL_HEAD_Z = 0.65
+export const RAIL_CENTRE_OFFSET = 0.7525
 /** Track-local conductor height; train origins ride 0.5 m above the track origin. */
-export const CONTACT_WIRE_Z = 3.78
+export const CATENARY_HEIGHT_INCREASE = 0.99
+export const CONTACT_WIRE_Z = 3.78 + CATENARY_HEIGHT_INCREASE
 export const CONTACT_STRIP_Z = CONTACT_WIRE_Z - 0.012
 /** Agent patience before re-route, seconds. */
 export const PATIENCE_MIN = 60
