@@ -3,8 +3,7 @@
 import * as THREE from 'three'
 import { PieceBuilder, drawFence } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { fenceArms, railLandingAt } from '../../../sim/fences.ts'
-import { gateSolidFaces } from '../../../sim/gates.ts'
+import { fenceArms, fenceConnectionIndex } from '../../../sim/fences.ts'
 import type { Module } from '../../../sim/types.ts'
 import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
 import { NoiseBarrierModel } from './NoiseBarrierModel.ts'
@@ -34,13 +33,8 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
   // run may butt into: a fence on the lane side ends at the doorway with its own
   // end post, so the opening is left open (`gateSolidFaces`). A **doorless** gate
   // is solid all round, its own half of the block being fence.
-  const joined = (x: number, y: number): boolean =>
-    ctx.data.modules.some((m) => {
-      if (m.z !== mod.z) return false
-      if (m.type === 'fence') return m.x === x && m.y === y
-      // `gateSolidFaces` reads the offset from the gate back to this fence cell.
-      return m.type === 'gate' && m.x === x && m.y === y && gateSolidFaces(m, mod.x - x, mod.y - y)
-    }) || railLandingAt(ctx.data.modules, x, y, mod.z)
+  const connections = ctx.fenceConnections ?? fenceConnectionIndex(ctx.data.modules)
+  const joined = (x: number, y: number): boolean => connections.connects(x, y, mod.z, mod.x - x, mod.y - y)
   const e = joined(mod.x + 1, mod.y)
   const w = joined(mod.x - 1, mod.y)
   const n = joined(mod.x, mod.y + 1)

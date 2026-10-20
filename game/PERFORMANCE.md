@@ -268,6 +268,93 @@ of glass, a 0.6 m information plate and a 0.05 m cap.
 
 ## Current browser measurements
 
+### Fence drag preview (2026-10-19)
+
+`node tools/bench-fence-drag.mjs` drives production hover, press, a 220 ms long
+press, three drag movements, Escape/cancel and a repeated drag followed by release.
+The deterministic fixture has 256 glass fences (128 on each of z=0 and z=-5),
+128 floor cells, seed 12345, no crowd or lines, paused, High graphics, ground
+storey active and Show other levels off. Chrome 155 on Windows, 28 logical CPUs,
+RTX 4080 SUPER through ANGLE/D3D11; viewport 1424 × 905, top orthographic view.
+Both runs use the same fixture and event sequence, with builds and tests idle.
+
+| Phase | Preview CPU before → after | Event through two RAFs before → after |
+|---|---:|---:|
+| First press | 56.0 → 1.1 ms | 328.7 → 84.2 ms |
+| First drag movement | 103.6 → 1.4 ms | 305.0 → 38.9 ms |
+| Continued movement (two samples) | 70.0–74.5 → 0.9–1.6 ms | 277.8–294.6 → 47.6–50.2 ms |
+| Cancel | 13.8 → 0.3 ms | 84.1 → 32.0 ms |
+| Repeated press | 56.4 → 0.5 ms | 250.1 → 34.4 ms |
+| Release/commit | 14.0 → 0.5 ms | 203.2 → 51.3 ms |
+
+The one-panel preview built 257 groups before and two after (candidate plus its
+one adjacent joint). A four-panel run builds five instead of 260. Pointer press,
+movement and cancel now perform zero equipment batch synchronizations; previously
+each movement performed two. The immutable fence/gate/landing index is prepared
+while building the station, and candidate connections overlay that index without
+copying or scanning the station document. Only neighbouring bucket draws are
+masked; original GPU allocations and all remote geometry remain in place.
+
+The baseline also exposed all 128 hidden lower-storey source roots after cancel.
+The final run kept all 128 hidden throughout, with zero shader/runtime errors;
+cancel committed nothing and release added exactly four panels in one commit.
+Release still performs the normal functional station/routing edit. These are
+single cold/warm local samples, not FPS claims or GPU-fence measurements.
+
+Reports and screenshot: `.preview/perf/fence-baseline.json`,
+`.preview/perf/fence-final-all-equipment.json`, `.preview/perf/fence-close-visual.png`;
+the earlier fence-only optimization is recorded separately in `fence-final.json`.
+Build and test logs use the `fence-` and `equipment-` prefixes in
+the same ignored directory. Run with `METRO_BROWSER_GPU=hardware`, choose distinct
+`BENCH_OUTPUT` paths, and set `BENCH_EXPECT_LOCAL=1` to check the local-work and
+visibility contracts. `BENCH_STATION` accepts a user save with a ground fence and
+five free cells to its east; `BENCH_PROFILE=1` writes a separate CPU profile.
+
+`fence-preview.test.mjs` guards 1,024 unrelated fences without document scans,
+remote preview rebuilds, equipment rebatching or buffer disposal, including exact
+neighbour geometry, gate/ramp index equivalence, immutable invalidation, current
+storey restoration, ghost/clipping changes and exactly-once preview teardown.
+
+### Other equipment placement and shared hover indexes (2026-10-19)
+
+The audit found a second station-wide invalidation: functional equipment additions,
+deletions and moves (benches, TVMs, vending machines, gates, cabinets, pillars and
+post hangers) rebuilt every module model. Common hover previews also copied the
+entire module array at each cell, invalidating immutable support indexes; edge-backed
+equipment searched every module again for a curtain.
+
+`moduleDependencies` now retains unchanged models according to their actual inputs,
+including local fence/gate/tactile connections, paired TVs, shared cubicle partitions,
+curtain corners/doors, supported fittings and raised paving. Complex structural edits
+invalidate dependent model families; unknown types and station metadata fail closed.
+Equipment edits inside the existing street window skip chunk remeshing independently
+of the worker's routing decision. Common hover previews use the prepared station;
+move pickup caches its one removal, and coupled previews keep their candidate list.
+Curtain lookup uses the immutable glass index rather than scanning unrelated modules.
+
+Production measurements use `tools/bench-tree-placement.mjs` with
+`BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (then `PIECE=tvm`).
+The same Chrome/GPU/viewport above, seed 12345, 128 pre-existing ground fences,
+no stored floor cells, no crowd/lines, paused, one real hover/press/release per piece.
+The target lies inside the existing street window. Each report is a separate fresh
+browser run with no competing build/test/profile; times below are first invocations.
+
+| Placement | Models replaced before → after | Module build CPU before → after | setStation CPU before → after | Through two RAFs before → after |
+|---|---:|---:|---:|---:|
+| Bench | 128 → 0 | 94.8 → 2.2 ms | 161.5 → 8.9 ms | 273.3 → 126.8 ms |
+| Ticket machine | 128 → 0 | 102.7 → 2.8 ms | 151.9 → 11.7 ms | 291.9 → 159.8 ms |
+
+Both final runs retained all 128 old groups, added exactly one model and made one
+commit. The previous single chunk remesh became zero. Worker metrics arrived after
+both functional edits; shader/runtime errors were zero. Remaining latency includes
+the worker's required topology update and presentation; no routing work is skipped.
+Raw reports: `.preview/perf/equipment-{bench,tvm}-{baseline,final}.json`.
+
+`equipment-retention.test.mjs` guards 1,024 unrelated models, functional routing,
+chunk classification, structural/coupled invalidation, geometry matching a fresh
+build, live materials, cached move removal and ordinary hovers without document
+scans. Both equipment suites are part of `test:perf`.
+
 ### Production batching
 
 Chrome, software GPU, native multi-draw, 1400×900 browser window. The checker

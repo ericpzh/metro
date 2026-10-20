@@ -43,6 +43,29 @@ Test both a miss and a hit near the end of a realistically large module list.
   geometry. Hidden drawing must not change simulation ticks, RNG, train dispatch,
   routes or passenger identity.
 
+### Fence drags and equipment placement
+
+Two production pointer benchmarks cover the station-wide invalidation paths:
+
+- `node tools/bench-fence-drag.mjs` drives hover, press, a long press, three drag
+  movements, Escape/cancel and a repeated drag/release over 256 fences. It records
+  preview CPU, event-through-two-RAF latency, group counts, `syncBatches` calls and
+  hidden-source leaks per phase. Build `game/dist` first; set
+  `METRO_BROWSER_GPU=hardware` for hardware timing and give each run a distinct
+  `BENCH_OUTPUT` path. `BENCH_CLOSE=1` captures the close view.
+- `node tools/bench-tree-placement.mjs` with
+  `BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (or `PIECE=tvm`)
+  measures the first hover/press/release of one functional piece against 128
+  untouched fences. It separates retained/replaced/added models, chunk remesh,
+  `setStation` CPU and worker acknowledgement from end-to-end frame latency.
+
+Keep preview work local: prepare the fence/gate/landing index with the document,
+overlay the drag's candidate joints, and mask only the affected equipment buckets.
+Do not copy the station document for an ordinary hover, and do not remesh or rebuild
+unrelated models for a functional equipment edit. `fence-preview` and
+`equipment-retention` pin the deterministic work counts; record measured
+before/after numbers and fixture controls in `game/PERFORMANCE.md`.
+
 ## Collect comparable evidence
 
 Run benchmarks sequentially, without builds, tests or other profilers competing

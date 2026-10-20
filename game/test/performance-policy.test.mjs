@@ -160,7 +160,7 @@ test('module dependencies invalidate affected walls, ramps and overhead supports
   assert.equal(retainedModuleIds(before, add({ x: 10, y: 0, z: 12 })).has('sign'), false, 'a farther slab can change suspension height')
   assert.equal(retainedModuleIds(before, add({ x: 22, y: 1, z: 2 })).has('stair'), false, 'a neighbouring course can change a balustrade/join')
   assert.equal(retainedModuleIds(before, add({ x: 100, y: 0, z: 0 })).size, modules.length)
-  assert.equal(retainedModuleIds(before, { ...before, modules: modules.slice(1) }).size, 0, 'module and neighbour changes fail closed')
+  assert.deepEqual([...retainedModuleIds(before, { ...before, modules: modules.slice(1) })], modules.slice(1).map(m => m.id), 'removing a bench retains unrelated model geometry')
   const stairBlock = createModule('stair-block', 40, 0, 0, 'block')
   assert.ok(stairBlock?.type === 'stair' && stairBlock.cfg.block)
   assert.deepEqual(
@@ -168,8 +168,8 @@ test('module dependencies invalidate affected walls, ramps and overhead supports
     modules.map((mod) => mod.id),
     'adding only stair blocks keeps existing module models; the new tile builds on its own',
   )
-  assert.equal(retainedModuleIds(before, { ...before, modules: [...modules, createModule('bench', 40, 0, 0, 'new-bench')] }).size, 0,
-    'other module additions still invalidate conservatively')
+  assert.equal(retainedModuleIds(before, { ...before, modules: [...modules, createModule('bench', 40, 0, 0, 'new-bench')] }).size, modules.length,
+    'a functional bench changes routing while retaining unrelated equipment models')
 })
 
 test('covered wire mounting rebuilds only for ceiling cells inside its own track', () => {
@@ -475,7 +475,7 @@ test('inert decor additions retain existing groups and rebuild tactile/hanger ne
   assert.deepEqual([...retainedModuleIds(before, { ...before, modules: [a, b, board] })].sort(), ['board'], 'the neighbouring sticker rebuilds its arms while the wall panel stays')
   assert.deepEqual([...retainedModuleIds({ ...before, modules: [a, b, board] }, before)].sort(), ['board'], 'lifting the tile rebuilds the neighbour it leaves behind')
   const bench = createModule('bench', 20, 0, -4, 'bench')
-  assert.equal(retainedModuleIds(before, { ...before, modules: [...before.modules, bench] }).size, 0, 'a functional addition still invalidates conservatively')
+  assert.equal(retainedModuleIds(before, { ...before, modules: [...before.modules, bench] }).size, before.modules.length, 'a functional addition retains unrelated models without bypassing worker routing')
 })
 
 test('adding a curtain rebuilds the edge decor leaning on it', () => {

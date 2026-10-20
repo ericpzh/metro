@@ -197,6 +197,7 @@ export class SceneRenderer {
     this.modules.ghost = this.ghostSys
     this.ghostSys.plates = this.plates
     this.ghostSys.modules = this.modules
+    this.ghostSys.level = this.level
     this.ghostSys.clocks = this.clocks
     // The slice walks the chunk meshes (`outlineSet`, `levelGroups`) as well as
     // the fixtures and the trains, so all three have to be wired before the
@@ -273,13 +274,11 @@ export class SceneRenderer {
     // rebuilt, and the chunk remesh plus the station-wide plate repaints are
     // skipped. A delete lands here too — it only takes marks off one board —
     // which is what keeps dragging a tile to the bin from freezing the modal.
-    // A sim-inert decor placement (floor stickers, wall panels, hanging
-    // fittings that `buildGraph` never reads) takes the same bargain with its
-    // own keep-set: the mesher never reads these pieces either, so only the
-    // new/changed groups plus tactile/hanger neighbours rebuild.
+    // Ordinary equipment has no chunk geometry. Functional machines/barriers
+    // still update worker routing, while only changed or dependent models rebuild.
     // Anything else takes the full path below.
     const signOnly = this.modules.signBoardsOnlyChanged(data)
-    const decorOnly = signOnly === null && this.modules.inertDecorOnlyChanged(data)
+    const equipmentOnly = signOnly === null && this.modules.equipmentOnlyChanged(data)
     this.chunks.prepareStation(data, effective)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
@@ -291,11 +290,11 @@ export class SceneRenderer {
     // already hanging before the rebuild replaces them — and the two 装饰 pieces that
     // carry the station's own words, a 站名's name and a 线网图's network, are
     // reprinted for the same reason: a rename or a recoloured line reaches the wall.
-    if (signOnly === null && !decorOnly && !retainedModules && !this.modules.hasSameMetadata(data)) {
+    if (signOnly === null && !equipmentOnly && !retainedModules && !this.modules.hasSameMetadata(data)) {
       this.plates.redrawSignPlates()
       this.plates.redrawDecorPlates()
     }
-    if (signOnly === null && !decorOnly) {
+    if (signOnly === null && !equipmentOnly) {
       this.chunks.meshStation()
     }
     if (!retainedModules) {
@@ -311,7 +310,7 @@ export class SceneRenderer {
     // the trailing `applyLevel` early-outs and neither new-group storey visibility
     // nor the cross-module batches (`syncBatches`) catch the added/removed groups.
     // A deleted shelf kept drawing its batched body until a reload for exactly this.
-    if ((signOnly !== null || decorOnly) && !retainedModules) this.ctx.levelKey = ''
+    if ((signOnly !== null || equipmentOnly) && !retainedModules) this.ctx.levelKey = ''
     if (signOnly !== null) this.repaintSignPreview(data, signOnly)
     this.grid.buildGrid()
     this.cameraSys.setPickables([...this.chunks.chunkMeshes, ...this.chunks.wallPick.children, ...this.lifts.liftPickMeshes])

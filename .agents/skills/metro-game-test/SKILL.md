@@ -90,8 +90,9 @@ and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
 ### Performance regression coverage
 
 `test:perf` also includes `train-pantograph`, `storey-height`,
-`covered-clearance` and `lift-interval`: collector geometry, scale/rail alignment,
-ceiling gestures and mixed lift stops must stay in the performance gate.
+`covered-clearance`, `lift-interval`, `equipment-retention` and `fence-preview`:
+collector geometry, scale/rail alignment, ceiling gestures, mixed lift stops,
+equipment model retention and local fence previews must stay in the performance gate.
 
 Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
 `performance-policy`, `worker-preview`, `render-performance`, `scene-wiring`,
@@ -147,14 +148,22 @@ per-platform letter, if §9.3's 高峰预警 needs one, must be derived from
 - `performance-policy`: indexed/unindexed placement equivalence, fresh array
   invalidation, ground/holes/exits, bulk-paint deduplication/no-op/immutability,
   fail-closed cosmetic and dependency policies, local/owned/sign-board retention,
-  stair-block-only module additions retaining existing groups while other module
-  additions remain conservative, sim-inert decor classification/retention (tactile/
-  hanger neighbours rebuild, functional pieces fail closed, deletes remove their
-  group while retaining neighbours),
-  RAF release/cancel behavior, paused camera repacking and stable crowd poses/IDs.
+  stair-block-only module additions retaining existing groups, equipment retention
+  for additions/deletions/moves (fence/gate/tactile, glass/door, cubicle, TV,
+  hanger and structural families; unknown types fail closed), render-only chunk
+  classification, RAF release/cancel behavior, paused camera repacking and stable
+  crowd poses/IDs.
   `batching-lifecycle` also pins move lift/cancel retaining GPU allocations and
   respecting a storey change during the lift. Passenger asset/library checks cover
   binary delivery, native/fallback decoding and signed integer pose reconstruction.
+- `equipment-retention`: 1,024 unrelated models surviving equipment edits, functional
+  routing versus render-only chunk skipping, coupled dependency directions, structural
+  family invalidation, combined module/cell edits, unknown types, local-vs-fresh geometry,
+  real ModuleSystem allocation ownership, cached move removal and ordinary hover documents.
+- `fence-preview`: prepared fence index equivalence, 1,024 remote fences with no
+  document scans or preview rebuilds, hover candidate joints, local equipment-bucket
+  masking/restoration, adjacent-joint geometry matching a fresh build, storey/view/
+  ghost/clipping transitions and exact preview teardown.
 - `worker-preview`: actual worker edit acknowledgement with no cosmetic routing
   rebuild and no paused tick; speed/topology edits must still rebuild; inert-decor
   builds skip routing while bench stops still rebuild.
@@ -166,7 +175,7 @@ per-platform letter, if §9.3's 高峰预警 needs one, must be derived from
   moving an index) or replacing the lot on a reset, and the chart axes — the round-number
   ceiling and the upside-down A–F class axis. The record rides the `state` message, so a
   change to that payload touches this suite.
-- `scene-wiring`: source contracts for sign-only and inert-decor chunk skipping
+- `scene-wiring`: source contracts for sign-only and equipment chunk skipping
   (both fast paths clear the slice key so batch resync still runs), pointer
   touch/delete preservation, release-before-commit, unmount cancellation, and the
   camera-aim notification (`SceneRenderer.onCameraAim` firing once per real aim

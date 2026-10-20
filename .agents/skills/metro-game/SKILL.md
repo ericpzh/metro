@@ -1527,9 +1527,12 @@ including the depth prepass, for all six appearances.
   **R** turns (`rotateWallSnap`).
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel per cell with
   the panels following the drag direction (R turns a single); a right-drag lifts the run.
-  `app/Viewport.tsx` drives a live fence preview that rebuilds the existing runs with the
-  dragged line merged in, so an end you drag up to loses its cap as you move
-  (`SceneRenderer.setFencePreview`).
+  `app/Viewport.tsx` drives a live fence preview that rebuilds only orthogonally
+  adjacent fence joints, so an end you drag up to loses its cap as you move
+  (`SceneRenderer.setFencePreview`). Keep the immutable connection index prepared
+  during the document build, mask only affected equipment buckets without rebuilding
+  them, and restore each source's current storey visibility on cancel. `fence-preview`
+  pins bounded work, joint geometry, clipping, allocations and cleanup.
 * The **电梯** (设备) draws a full-height shaft in world space (`buildLift`): corner posts and
   back/side walls, a threshold sill and green call panel at each **level** (a story's base), and a pair of
   sliding landing doors at every level (the shaft is exactly its stories, closed by a plate at
@@ -1547,13 +1550,13 @@ including the depth prepass, for all six appearances.
   the nodes. `SceneRenderer.setLifts` pairs each 6-float car pose with its shaft and glides the
   cabin / eases the doors between snapshots; the hover finds a shaft via `moduleAt` and
   previews the extension, its upper/lower half choosing up/down.
-  `test/module-build.test.mjs` pins served-floor doors, independent car doors, and the aligned
-  landing animation in both styles and all four rotations.
-* **An exit is named and selected in both views.** The RHS 出入口 folder lists one card per
   删除 (B) trims only a clicked top/bottom extension; the original base or an interior
   interval still removes the whole shaft. Resolve the actual module-surface hit point once
   per event, keep the red preview aligned with the interval being removed, and pin both
   endpoint trims plus whole-shaft base/interior deletion in `test/delete-tool.test.mjs`.
+  `test/module-build.test.mjs` pins served-floor doors, independent car doors, and the aligned
+  landing animation in both styles and all four rotations.
+* **An exit is named and selected in both views.** The RHS 出入口 folder lists one card per
   exit (`app/windows/inspector/ExitCard.tsx`): name (Enter/blur commits, and the model's street
   header reprints it), demand and open toggle. Clicking or focusing a control selects the exit,
   and clicking the exit in 3D selects it, so `SceneRenderer.setSelection` draws a box around
@@ -1875,14 +1878,20 @@ including the depth prepass, for all six appearances.
   a delete that touches one sign's `front`/`back` — cells, lines, station fields, other
   modules and the mount all identical) skips the chunk remesh entirely and rebuilds just
   that sign through `signBoardsOnlyChange`'s keep-set, repainting only its same-size
-  plates in place; a panel resize mints fresh plates. A **sim-inert decor edit**
-  (`sim/decorInert.ts`: floor stickers, wall panels, hanging fittings and wayfinding
-  furniture that `buildGraph` never reads; machines, cabinet bodies, posts, pillars,
-  screen ends and unknown future types stay functional and fail closed, as does anything
-  that moves a cell, touches lines/station fields or widens the street window) takes the
-  same bargain with its own keep-set: untouched groups survive, only tactile neighbours
-  (`tactileArms`) and hanger-hung fittings (`hangerSupports`) rebuild beside the changed
-  tiles. Both fast paths skip the remesh that clears the slice key, so they clear
+  plates in place; a panel resize mints fresh plates. An **equipment edit** separates
+  model retention from simulation routing: `retainedModuleIds` keeps every unchanged
+  model whose declared inputs survive and rebuilds only the changed pieces plus their
+  readers — fence/gate/tactile joints, paired TVs, shared cubicles, curtain corners and
+  doors, hanger-supported fittings, platform edges/PSD ends, tracks and pillars,
+  ramps/exits and guideposts. Functional machines and barriers still reach the worker;
+  `isEquipmentModelEdit` is the narrower render-only chunk verdict (sim-inert decor or
+  equipment types, with identical cells/station fields and street window). Unknown
+  module types, changed cells/fields and widened ground windows fail closed. The fence
+  connection index is prepared during the document build (`sim/fences.ts`), and a
+  fence drag replaces only adjacent joints, masking their local equipment buckets;
+  `render/modulePreviewDocument.ts` reuses the prepared station for ordinary hover
+  pieces and caches a move's one source removal. Both fast paths skip the remesh that
+  clears the slice key, so they clear
   `ctx.levelKey` themselves; otherwise the trailing `applyLevel` early-outs, batch
   resync never runs, and a deleted piece keeps drawing its batched body until a reload.
   Module/neighbour metadata, language

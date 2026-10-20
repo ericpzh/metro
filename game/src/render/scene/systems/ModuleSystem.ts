@@ -17,8 +17,7 @@ import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
 import { detailHeight } from '../../detailPolicy.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
-import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange } from '../../moduleDependencies.ts'
-import { isSimInertDecorEdit } from '../../../sim/decorInert.ts'
+import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentModelEdit } from '../../moduleDependencies.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
 import {
   buildModule,
@@ -38,6 +37,7 @@ import type { PlateSystem } from './PlateSystem.ts'
 import type { ClockSystem } from './ClockSystem.ts'
 import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
+import { fenceConnectionIndex } from '../../../sim/fences.ts'
 
 export class ModuleSystem extends SceneSystem {
   private builtData: StationData | null = null
@@ -65,15 +65,12 @@ export class ModuleSystem extends SceneSystem {
   }
 
   /**
-   * A sim-inert decor placement since the last build (floor stickers, wall
-   * panels, hanging fittings): cells, lines and station fields identical, every
-   * added/removed/changed module inert, street window unmoved. The chunks the
-   * mesher draws never read these pieces, so the scene can keep its meshes and
-   * plates and build only the new groups.
+   * An equipment edit changes module models without changing chunk geometry.
+   * Functional pieces still rebuild worker routing; this only retains drawing.
    */
-  inertDecorOnlyChanged(data: StationData): boolean {
+  equipmentOnlyChanged(data: StationData): boolean {
     if (!this.builtData || this.builtLanguage !== getLanguage()) return false
-    return isSimInertDecorEdit(this.builtData, data)
+    return isEquipmentModelEdit(this.builtData, data)
   }
   moduleMeshes: THREE.Group = new THREE.Group()
   readonly batches = new EquipmentBatches()
@@ -81,11 +78,22 @@ export class ModuleSystem extends SceneSystem {
   private movingModuleId: string | null = null
   private movingRoot: THREE.Object3D | null = null
   private movingVisible = false
+  private previewRoots: readonly THREE.Object3D[] = []
+  private previewVisibility = new Map<THREE.Object3D, boolean>()
 
   restoreMovingModule(): void {
     if (this.movingRoot) this.movingRoot.visible = this.movingVisible
     this.movingRoot = null
+    for (const [root, visible] of this.previewVisibility) root.visible = visible
+    this.previewVisibility.clear()
     this.batches.setHiddenModule(null)
+  }
+
+  /** Replace only neighbouring fence models during a drag, without rebatching. */
+  setPreviewModules(roots: readonly THREE.Object3D[]): void {
+    this.restoreMovingModule()
+    this.previewRoots = roots
+    this.applyMovingModule()
   }
 
   setMovingModule(id: string | null): void {
@@ -96,13 +104,19 @@ export class ModuleSystem extends SceneSystem {
   }
 
   private applyMovingModule(): void {
-    const root = this.moduleMeshes.children.find(child => child.userData.moduleId === this.movingModuleId)
+    const root = this.movingModuleId === null ? undefined
+      : this.moduleMeshes.children.find(child => child.userData.moduleId === this.movingModuleId)
     if (root) {
       this.movingRoot = root
       this.movingVisible = root.visible
       root.visible = false
-      this.batches.setHiddenModule(root)
     }
+    for (const preview of this.previewRoots) {
+      if (preview === root) continue // The moving piece already owns its saved visibility.
+      this.previewVisibility.set(preview, preview.visible)
+      preview.visible = false
+    }
+    this.batches.setHiddenModules(root ? [root, ...this.previewRoots] : this.previewRoots)
     if (this.selectionHelper) this.selectionHelper.visible = this.selectedModuleId !== this.movingModuleId
   }
 
@@ -128,6 +142,7 @@ export class ModuleSystem extends SceneSystem {
       this.sourceDetail.apply(root, reduced)
     }
     this.applyMovingModule()
+    this.ghost?.refreshFencePreviewLevels?.()
   }
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
@@ -138,8 +153,9 @@ export class ModuleSystem extends SceneSystem {
   /** Ids of placed modules a blocked preview collides with, boxed in red. */
   private colliderIds: string[] = []
   private colliderHelpers: THREE.Box3Helper[] = []
-  /** Committed fence groups, hidden while the live fence drag previews them. */
+  /** Committed fence groups; only adjacent joints are masked during a drag. */
   fenceGroups: THREE.Object3D[] = []
+  readonly fenceGroupsById = new Map<string, THREE.Object3D>()
   /** Sibling systems a build hands rigs to; wired by the orchestrator. */
   trains!: TrainSystem
   lifts!: LiftSystem
@@ -174,6 +190,9 @@ export class ModuleSystem extends SceneSystem {
    * to rebuild one board's model while retaining everything else.
    */
   buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    // Prepare once while opening/editing the immutable document, never on the
+    // first pointer-down of a fence drag (§9.5).
+    fenceConnectionIndex(data.modules)
     this.batches.invalidateViews()
     const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
       ? retainedModuleIds(this.builtData, data) : new Set<string>())
@@ -219,7 +238,10 @@ export class ModuleSystem extends SceneSystem {
       const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)
-      if (mod.type === 'fence') this.fenceGroups.push(group)
+      if (mod.type === 'fence') {
+        this.fenceGroups.push(group)
+        this.fenceGroupsById.set(mod.id, group)
+      }
       if (mod.type === 'escalator' || mod.type === 'walkway') {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.lifts.escalatorRolls.push(roll)
@@ -357,6 +379,7 @@ export class ModuleSystem extends SceneSystem {
       this.moduleMeshes.remove(child)
     }
     this.fenceGroups = []
+    this.fenceGroupsById.clear()
     this.lifts.escalatorRolls.length = 0
     this.lifts.liftRigs.length = 0
     this.lifts.liftPickMeshes.length = 0

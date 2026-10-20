@@ -285,7 +285,7 @@ export function edgeDecorCurtainShare(a: Module, b: Module): boolean {
  */
 export function edgeDecorCurtainOffset(modules: readonly Module[], decor: Module): [number, number] {
   if (!isEdgeDecor(decor)) return [0, 0]
-  for (const m of modules) {
+  for (const m of outdoorSurfaceIndex(modules).glass) {
     if (m.id === decor.id || m.type !== 'glass') continue
     if (edgeDecorCurtainShare(m, decor)) {
       const [sx, sy] = wallSide(decor.rot)

@@ -103,13 +103,13 @@ test('a boards-only sign preview rebuilds one sign and skips the chunk remesh', 
   const renderer = fs.readFileSync(new URL(ORCHESTRATOR, SRC), 'utf8')
   const body = renderer.slice(renderer.indexOf('setStation(data: StationData'), renderer.indexOf('defaultSection('))
   assert.ok(body.includes('signBoardsOnlyChanged'), 'a preview is checked for the one sign it belongs to')
-  assert.ok(body.includes('inertDecorOnlyChanged'), 'and a placement is checked for inert decor')
-  assert.ok(body.includes('signOnly === null && !decorOnly'), 'only a fuller change remeshes the chunks')
-  assert.ok(body.includes('signOnly === null && !decorOnly && !retainedModules'), 'station-wide plate repaints stay on the full path')
+  assert.ok(body.includes('equipmentOnlyChanged'), 'and equipment edits are classified independently of simulation routing')
+  assert.ok(body.includes('signOnly === null && !equipmentOnly'), 'only a fuller change remeshes the chunks')
+  assert.ok(body.includes('signOnly === null && !equipmentOnly && !retainedModules'), 'station-wide plate repaints stay on the full path')
   assert.ok(body.includes('id !== signOnly'), 'the module rebuild retains everything but that sign')
   assert.ok(/if \(signOnly !== null\) this\.repaintSignPreview\(data, signOnly\)/.test(body), 'and its plates are repainted in place')
   assert.ok(
-    body.includes('(signOnly !== null || decorOnly) && !retainedModules) this.ctx.levelKey = '),
+    body.includes('(signOnly !== null || equipmentOnly) && !retainedModules) this.ctx.levelKey = '),
     'both fast paths skip the remesh that clears the slice key, so they clear it '
     + 'themselves — otherwise the trailing applyLevel early-outs, batch resync never '
     + 'runs, and a deleted shelf keeps drawing its batched body until a reload',

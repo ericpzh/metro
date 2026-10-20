@@ -17,7 +17,12 @@ try {
   await waitFor(page.evaluate,'!!window.__scene && !!window.__metro?.getState().metrics',{what:'game'})
   await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
   if(process.env.BENCH_STATION) await page.evaluate(`window.__metro.getState().loadFromText(${JSON.stringify(readFileSync(process.env.BENCH_STATION,'utf8'))})`)
-  else await loadExampleStation(page)
+  else if(process.env.BENCH_EQUIPMENT_FIXTURE==='1') {
+    await page.evaluate(`(()=>{const s=__metro.getState();s.commit({...s.station,name:'Equipment retention 128',seed:12345,
+      cells:[],lines:[],modules:Array.from({length:128},(_,i)=>({id:'fixture-fence-'+i,type:'fence',
+      x:6*(i%16),y:6*Math.floor(i/16),z:0,rot:0,cfg:{variant:'glass'}}))})})()`)
+    await page.evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
+  } else await loadExampleStation(page)
   const fixture=await page.evaluate(`(async()=>{
     const store=window.__metro,s=store.getState(),scene=window.__scene
     s.setActiveZ(0);store.setState({tool:'module',moduleType:${JSON.stringify(piece)},moduleRot:0,playing:false})
@@ -28,7 +33,7 @@ try {
     // pre-laid tiles, so a row that steps outward widens the drawn plane itself:
     // the one case where an inert prop still needs the ground and its graph.
     const skipLawn=${process.env.SKIP_LAWN === '1'}
-    window.__tbRows={bare:line([maxX+4,0],skipLawn?[2,0]:[0,2],${count})}
+    window.__tbRows={bare:line(${process.env.BENCH_EQUIPMENT_FIXTURE==='1'?'[2,0]':'[maxX+4,0]'},skipLawn?[2,0]:[0,2],${count})}
     // a second row: tiles the player laid first, then planted on
     if(!skipLawn){
       const tiles=line([maxX+4,30],[0,2],${count})
@@ -48,7 +53,10 @@ try {
     scene.setModulePreview=function(mods,...rest){const list=mods?(Array.isArray(mods)?mods:[mods]):[];__tb.previews.push({phase:__tb.phase,mods:list.length,types:list.map(m=>m.type).join(','),blocked:Boolean(rest[0])});return preview.call(this,mods,...rest)}
     for(const [object,key] of [[scene,'pickModule'],[scene,'setStation'],[scene.chunks,'meshStation'],[scene.modules,'buildModules']]){
       const original=object[key]
-      object[key]=function(...args){const t=performance.now();try{return original.apply(this,args)}finally{const stat=__tb.sceneCalls[key]??={calls:0,ms:0};stat.calls++;stat.ms+=performance.now()-t}}
+      object[key]=function(...args){const t=performance.now(),before=key==='buildModules'?new Map(scene.modules.moduleMeshes.children.filter(g=>g.userData.moduleId).map(g=>[g.userData.moduleId,g])):null
+        try{return original.apply(this,args)}finally{const stat=__tb.sceneCalls[key]??={calls:0,ms:0};stat.calls++;stat.ms+=performance.now()-t
+          if(before){stat.retained=0;stat.replaced=0;stat.added=0;for(const g of scene.modules.moduleMeshes.children){const id=g.userData.moduleId;if(!id)continue;if(!before.has(id))stat.added++;else if(before.get(id)===g)stat.retained++;else stat.replaced++}}
+        }}
     }
     const Vector=scene.cameraSys.activeCamera().position.constructor
     // Aim *and* pick-verify one row against the camera as it is right now: the

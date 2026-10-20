@@ -191,7 +191,7 @@ rays in `batching-lifecycle` cover source IDs, restored layers and wall occlusio
 
 `performance-policy` covers cached placement equivalence and invalidation, cosmetic
 worker edits, per-model cell dependencies, stair-block-only addition retention and
-owned-material retention/disposal,
+equipment model retention for functional edits and owned-material retention/disposal,
 pointer frame coalescing with release/cancel, paused/hidden crowd upload ranges,
 storey/frustum packing and eye following, and train shell bounds/triangles/door rigs.
 It also pins the boards-only sign preview: the one-sign verdict, the keep-set module
@@ -430,6 +430,26 @@ and synchronized opening only at the aligned landing in both styles and all rota
 raised gate clearance, eight iron uprights, ground decals in either placement order, and deletion
 that leaves the ground decal intact.
 
+`fence-preview` covers 1,024 unrelated fences with no remote preview rebuilds,
+document scans or equipment-batch allocations; only orthogonal same-height joints
+change. It compares local replacement geometry against a complete build, pins
+gate/ramp connection-index equivalence and immutable invalidation, and checks a
+hover's own candidate joint without copying the document. It also pins local bucket
+masking: the replaced joint's bucket is hidden while an unreplaced member of that
+bucket keeps drawing from its source, and cancel restores every source's batch layer.
+Cancel, view changes, hidden storeys, ghost materials, clipping and exact disposal
+are covered too. `tools/bench-fence-drag.mjs` measures the real production pointer
+sequence, including the first press, first/continued movement, cancellation and release.
+
+`equipment-retention` covers additions/deletions/moves with 1,024 unrelated models,
+functional routing versus render-only chunk skipping, coupled glass/door/cubicle/TV/
+fence/gate/hanger dependencies, structural family invalidation, combined module/cell
+edits and unknown types.
+It compares locally rebuilt geometry against a fresh build, checks real ModuleSystem
+allocation ownership, and pins cached move removal and ordinary hover indexes.
+Both suites run in `test:perf`. Production first-placement measurements use
+`tools/bench-tree-placement.mjs` with `BENCH_EQUIPMENT_FIXTURE=1` and distinct outputs.
+
 `booth-model` checks the information counter's accessible notch, the ticket kiosk's
 transfer openings, open overhead frames without built-in banners, editable sign placement in
 both booth types, footprint bounds and translation, plus the desktop facing each of four fronts.
@@ -462,7 +482,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
 | Elevator doors | `lift-doors.test.mjs` — per-level front/back/both/none choices, landing geometry, two-track telescoping cabin/landing panels and bounded opening travel (`module-build`), graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-level undo. |
 | Elevator floor intervals | `lift-interval.test.mjs` — the 超短 3 m / 短 4 m / 中 5 m / 长 6 m / 超长 7 m 层高 tile, a 5 m default, one-story fresh pieces, uneven stacking on both sides, exact mixed-shaft levels, the graph's one-car edges, ghost/preview keys, save round trip, and a drawn shaft exactly the stacked stories (a 5 m piece is 5 m) closed by a cap at each end, with landing portals at every level and glazing on the door side. |
-| Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
+| Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/equipment fast paths: one-sign verdict, chunk-only equipment classification independent of worker routing, chunk remesh skipped, station-wide plate repaints kept on the full path |
 | Numbers | `rng`, `clock`, `demand`, `headway`, `history` |
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
 | The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones` (room-purpose overlay regions preserve fare-zone values; synthetic track floors follow rotated `trackCells` footprints, not unrotated bounds), `lift`, `lift-interval`, `placement` (stair shapes require only foot-level ground; escalator collision clearance follows its sloped body), `openings`, `stairs`, `escalators`, `escalator-length` (the one-floor and 双层 run families on the 扶梯 and every staircase: spans, strict 30° five-metre runs, carve, landing nodes, ride time, exit snap, save round-trip, both drawn models, the catalogue's fallbacks and the one armed length a bank is built at), `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `train-interior` (raised route boards, continuous ceiling and aisle sightlines in High/Low), `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
@@ -472,7 +492,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; shared contact-wire height across station/tunnel/bridge models, stock-aware portal clearance, bridge barrier posts omitted at catenary gantry uprights, enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join` (the shared seam at every run length, and never between two differing lengths), `tv-screen`, `tv-pair` |
 | Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` covers the street mesh, placed outdoor tiles/roads/traffic lights and ambient cars under 隐藏地面; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
-| Performance policy | `static-rendering` (outdoor chunk instances, transparent ordering, LOD retention/disposal and framebuffer wakeups), `outdoor-surfaces` (bulk edits, indexed support, refusals and shared geometry), `performance-policy`, `worker-preview` — placement index equivalence/cache invalidation, cosmetic/inert-decor edits and graph rebuilds, model dependencies including stair-block-only and inert-decor-only additions (tactile/hanger neighbours plus edge decor leaning on a curtain), material disposal, pointer coalescing, crowd upload ranges/culling, retained rigs and train shell batching |
+| Performance policy | `static-rendering` (outdoor chunk instances, transparent ordering, LOD retention/disposal and framebuffer wakeups), `outdoor-surfaces` (bulk edits, indexed support, refusals and shared geometry), `equipment-retention`, `fence-preview`, `performance-policy`, `worker-preview` — placement index equivalence/cache invalidation, cosmetic edits and graph rebuilds, equipment model dependencies (fence/gate/tactile, glass/door, cubicle, TV, hanger, track/pillar, ramp/exit and PSD families), render-only chunk classification, prepared hover documents, local fence previews and bucket masking, material disposal, pointer coalescing, crowd upload ranges/culling, retained rigs and train shell batching |
 | The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content, primary-only labels at twice the size and centred on both axes in a square tile, the divider line and the blank divider), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | Concept art | `passenger-art-pipeline` — growing catalogues, bounded browser batches, complete standing/stride coverage, stale build rejection and duplicate capture files; `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root; `site-worker` — the site's `/en` → `/en/` pin, English asset paths and untouched non-`/en` requests; `demo-route` — the demo URLs (`/game/zoo`, `/game/en/tanwei`), their trailing-slash redirect, the boot that opens the named station over the autosave, and the one-shot URL rewrite; `site-demo-links` — the concept site's picker wiring, its two triggers and its copied game previews |
@@ -580,6 +600,11 @@ The snapshot before this pass was 1367 at 93.95 / 88.44 / 89.16, and before that
 94.94 / 88.47 / 88.23; regenerate the figures above whenever the suite grows. The point of the table is
 the column that shows what an untested file was hiding.
 
+Rows marked `(focused)` come from the focused coverage command over
+`equipment-retention`, `fence-preview`, `performance-policy`, `batching-lifecycle`,
+`scene-wiring`, `static-rendering` and `level-view-cache`; they are not whole-suite
+percentages.
+
 | File | Before | Now | The test that closed it |
 |---|---|---|---|
 | `sim/globalStats.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — station counts (solid cells, tracks/platform tracks), cumulative deltas, run resets, station-switch baselines, empty-station skipping and the submit body. Reproduce the four rows with `npm --prefix game run coverage:global-stats`. |
@@ -618,7 +643,10 @@ the column that shows what an untested file was hiding.
 | `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
 | `render/modelDetail.ts` | — (new) | 100 % lines / 92.86 % branches / 100 % functions (`test:perf`) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
 | `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
-| `render/moduleDependencies.ts` | — (new) | 99.0 % lines / 89.5 % branches | `performance-policy` (per-model dependencies, stair-block-only and inert-decor-only additions, tactile/hanger neighbours and the boards-only sign verdict) |
+| `render/moduleDependencies.ts` | — (new) | 99.6 % lines / 93.6 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` and `performance-policy` (per-model inputs, functional versus render-only and combined cell/module edits, fence/gate/tactile, glass/door, cubicle, TV, hanger, track/pillar, ramp/exit and PSD dependencies, structural invalidation, unknown types and the boards-only sign verdict) |
+| `render/modulePreviewDocument.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` (prepared-station hover reuse, cached move removal and coupled candidate merging) |
+| `render/equipmentBatches.ts` | — (changed) | 100 % lines / 92.9 % branches / 97.2 % functions (focused) | `fence-preview`, `batching-lifecycle` (local bucket masking, unreplaced source drawing and layer restoration) |
+| `sim/fences.ts` | — (changed) | 97.8 % lines / 96.3 % branches / 100 % functions (focused) | `fence-preview`, `equipment-retention` (prepared fence/gate/landing lookups, candidate overlay and immutable invalidation) |
 | `sim/lights.ts` / `sim/vents.ts` / `sim/inCellPositions.ts` | — (new) | 100 % lines | `lights`, `vent` |
 | `render/models/pieces/LightModel.ts` / `VentModel.ts` / `StreetDecorModel.ts` | — (new) | 100 % lines | `lights`, `vent`, `street-decor`, `module-build` |
 | `render/models/pieces/RampJoinModel.ts` | — (new) | 98.7 % lines | `ramp-join`, `module-build` |

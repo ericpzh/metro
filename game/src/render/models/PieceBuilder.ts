@@ -9,7 +9,7 @@ import { getLanguage, t } from '../../sim/i18n.ts'
 import * as THREE from 'three'
 import { omitModelDetail, panelModelDetail, setModelDetail } from '../modelDetail.ts'
 import { drawDesktopScreen } from './desktopScreen.ts'
-import type { FenceArms } from '../../sim/fences.ts'
+import type { FenceArms, FenceConnectionIndex } from '../../sim/fences.ts'
 import { edgeDecorCurtainOffset } from '../../sim/placement.ts'
 import { PANEL_SIZE, makeSignBoards, signPlate } from '../../sim/sign.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../sim/sign.ts'
@@ -993,6 +993,8 @@ export interface PrintedFace {
 }
 
 export interface ModuleContext {
+  /** A fence preview overlays candidate connections without copying the document. */
+  fenceConnections?: FenceConnectionIndex
   mats: ModelMaterials
   /**
    * The station's ad artwork. A 装饰 screen prints its frozen `cfg.poster`

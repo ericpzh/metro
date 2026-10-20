@@ -147,13 +147,15 @@ for production GLSL/WebGL checks, and `npm run check:perf-tools` for CPU/trace e
 cosmetic worker edit classification, model dependencies and disposal, frame-coalesced
 pointer release, crowd uploads/culling/following and train shell bounds/door motion.
 A stair-block-only module addition builds the new stepped tile while retaining existing
-equipment groups; ordinary module edits still take the conservative dependency path.
-A sim-inert decor placement (floor stickers, wall panels, hanging fittings that
-`buildGraph` never reads) retains untouched groups, rebuilds only tactile/hanger
-neighbours — plus the edge decor leaning on a changed curtain — resyncs batches
-through the cleared slice key, and skips routing,
-chunk remeshes and station-wide repaints; machines,
-cabinet bodies, posts and other functional pieces still rebuild.
+equipment groups. Ordinary equipment adds, deletes and moves retain every unchanged model
+whose declared inputs survive and rebuild only the changed pieces plus the neighbours that
+read them: fence/gate/tactile joints, paired TVs, shared cubicles, curtain corners and
+doors, hanger-supported fittings, platform edges/PSD ends, tracks and pillars, ramps/exits
+and guideposts. Simulation routing stays independent — functional machines and barriers
+still rebuild the worker graph — while a render-only equipment edit skips the chunk remesh
+and station-wide plate repaints. Unknown module types, changed cells and changed station
+fields fail closed. Sim-inert decor also keeps skipping routing. Ordinary hover previews
+reuse the prepared station document; only coupled previews merge their candidates.
 A boards-only sign change rebuilds one sign's model and repaints its plates in place,
 skipping the chunk remesh and the station-wide repaints. See `PERFORMANCE.md` for
 benchmarks, CPU profiles, Chrome traces and GPU diagnostics.
@@ -2896,6 +2898,14 @@ approximated); neither needs WebGL.
   ground: the ring wraps a dug rail bed instead of walling the platform edge, the drag never pours
   a block into the trench, and no auto wall rises through a platform screen door a full track
   sliced through the patch.
+* `equipment-retention.test.mjs` — equipment additions, deletion and movement retain 1,024
+  unrelated models; functional routing remains active while chunk remeshing is skipped where
+  safe. Coupled glass, gates, cubicles, TVs, hangers and structural dependencies invalidate
+  their own models; ordinary hover/move previews retain immutable support indexes.
+* `fence-preview.test.mjs` — local fence-joint previews with 1,024 unrelated fences: no remote
+  models, document scans or batch rebuilds, exact joints, current storey visibility on cancel,
+  ghost/clipping changes during a drag and resource disposal. Production pointer measurements
+  are in `PERFORMANCE.md`; reproduce with `tools/bench-fence-drag.mjs` from the repo root.
 * `fence.test.mjs` — 玻璃围栏 / 门 / 铁围栏 (§5.2): variant save/preview/pick identity, drag placement,
   raised gate geometry and decals underneath in either placement order, iron bars, deletion preserving
   ground decals; a 1 m high thin panel through the block middle (R turns a

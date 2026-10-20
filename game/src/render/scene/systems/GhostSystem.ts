@@ -8,8 +8,8 @@
 // GAME-SPEC §9.5 (drag previews): a remove drag flags blocks with boxes, an
 // add drag shows the final meshed shape, and a paint drag shows one quad per
 // face — all before the release, so the release is never a surprise. The fence
-// preview additionally rebuilds the committed fences with the dragged line
-// merged in, so joints update as you drag.
+// preview rebuilds only immediately adjacent committed fences, so joints update
+// as you drag while the rest of the station keeps its geometry and visibility.
 
 import * as THREE from 'three'
 import { CHUNK, meshChunk, wedgeSlope } from '../../chunkMesher.ts'
@@ -22,11 +22,15 @@ import { tvPairSlot } from '../../../sim/tvs.ts'
 import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
 import type { CellShape, Face, Module } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
-import { moduleLevels, SceneSystem } from './SceneSystem.ts'
+import { ModulePreviewDocument } from '../../modulePreviewDocument.ts'
+import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { PlateSystem } from './PlateSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
 import type { ClockSystem } from './ClockSystem.ts'
+import type { LevelSystem } from './LevelSystem.ts'
+import { fenceConnectionIndex } from '../../../sim/fences.ts'
+import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
 
 /**
  * Starting pool size for the instanced ghost meshes. The box pool grows when a
@@ -86,6 +90,7 @@ export class GhostSystem extends SceneSystem {
   /** Hover preview: a translucent copy of the module a click would place. */
   previewGroup: THREE.Group = new THREE.Group()
   private previewKey = ''
+  private previewDocument = new ModulePreviewDocument()
   /** Materials/geometries owned by the current preview, disposed on replacement. */
   private previewMats: THREE.Material[] = []
   private previewBases: THREE.Material[] = []
@@ -96,8 +101,7 @@ export class GhostSystem extends SceneSystem {
    */
   private previewOwnedMats: THREE.Material[] = []
   /**
-   * Live fence-drag preview: the existing fences rebuilt with the dragged line
-   * merged in (so a joint updates as you drag) plus the new translucent panels.
+   * Live fence-drag preview: adjacent joints plus the new translucent panels.
    */
   fencePreviewGroup: THREE.Group = new THREE.Group()
   private fencePreviewKey = ''
@@ -117,6 +121,7 @@ export class GhostSystem extends SceneSystem {
   /** Sibling systems; wired by the orchestrator. */
   plates!: PlateSystem
   modules!: ModuleSystem
+  level!: LevelSystem
   /** The clock system turns the hands of a 时钟 ghost, as it does a placed one's. */
   clocks!: ClockSystem
 
@@ -489,10 +494,10 @@ export class GhostSystem extends SceneSystem {
     this.clearModulePreview()
     this.previewKey = key
     if (mods.length === 0 || !this.ctx.stationData) return
-    // The ghost is built against the station *plus* its own pieces, so a
-    // multi-piece hover sees itself: the lanes of a wide stair join their steps
-    // and drop the rail between them exactly as they will once placed.
-    const data = { ...this.ctx.stationData, modules: [...this.ctx.stationData.modules.filter(piece => piece.id !== this.movingModuleId), ...mods] }
+    // Coupled previews see their own candidates: wide stair lanes join their
+    // steps exactly as they will once placed. Ordinary props reuse the station
+    // document so support indexes survive movement to the next pointer cell.
+    const data = this.previewDocument.resolve(this.ctx.stationData, mods, this.movingModuleId)
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
       ads: this.ctx.ads,
@@ -508,6 +513,10 @@ export class GhostSystem extends SceneSystem {
       owned: this.previewOwnedMats,
     }
     const tint = blocked ? MODULE_GHOST_BAD : tintOverride === undefined ? MODULE_GHOST_TINT : new THREE.Color(tintOverride)
+    if (mods.some(m => m.type === 'fence')) {
+      const placed = fenceConnectionIndex(data.modules), added = fenceConnectionIndex(mods)
+      ctx.fenceConnections = { fencesAt: placed.fencesAt, connects: (...args) => placed.connects(...args) || added.connects(...args) }
+    }
     for (const piece of mods) {
       const group = buildModule(piece, ctx)
       if (!group) continue
@@ -633,10 +642,9 @@ export class GhostSystem extends SceneSystem {
 
   /**
    * Live preview for the 围栏 drag. Unlike a single-module hover, a fence's shape
-   * depends on its neighbours, so the existing fences are rebuilt here with the
-   * dragged line merged into their module list — dragging up to an existing end
-   * updates that end's block (its cap and end post go) as you drag — and the new
-   * panels are drawn translucent. Committed fences are hidden while this is up.
+   * depends on its neighbours, so only adjacent existing fences are rebuilt.
+   * Dragging up to an existing end removes its cap and end post live, while new
+   * panels draw translucent. Only the replaced committed panels are masked.
    * Passing `null` (or an empty list) clears it.
    */
   setFencePreview(mods: Module[] | null, blocked = false): void {
@@ -646,33 +654,39 @@ export class GhostSystem extends SceneSystem {
     this.clearFencePreview()
     this.fencePreviewKey = key
     if (list.length === 0 || !this.ctx.stationData) return
-    // Hide the committed fences; the preview rebuilds every fence, so there is
-    // no z-fighting and every joint reflects the in-progress line.
-    for (const f of this.modules.fenceGroups) f.visible = false
-    this.modules.syncBatches()
-    const merged = { ...this.ctx.stationData, modules: [...this.ctx.stationData.modules, ...list] }
+    const placed = fenceConnectionIndex(this.ctx.stationData.modules)
+    const added = fenceConnectionIndex(list)
+    const neighbours = new Set<Extract<Module, { type: 'fence' }>>()
+    for (const mod of list) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const neighbour of placed.fencesAt(mod.x + dx, mod.y + dy, mod.z)) {
+        // Ground noise barriers draw independently; ordinary fences still join
+        // them exactly as they do in the committed model.
+        if (!noiseBarrierVariant(neighbour)) neighbours.add(neighbour)
+      }
+    }
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
       ads: this.ctx.ads,
-      data: merged,
+      data: this.ctx.stationData,
+      fenceConnections: {
+        fencesAt: placed.fencesAt,
+        connects: (...args) => placed.connects(...args) || added.connects(...args),
+      },
       trackCells: this.ctx.trackCellSet,
       finish: (id) => this.ctx.mats.finish(id),
       tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
-      tvPairSlot: (id) => tvPairSlot(id, merged.modules),
+      tvPairSlot: (id) => tvPairSlot(id, this.ctx.stationData!.modules),
       signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
     }
-    const shown = (m: Module): boolean => {
-      const zs = moduleLevels(m)
-      const lowest = zs.length > 0 ? Math.min(...zs) : undefined
-      const ground = this.ctx.groundOf.get(`${m.x},${m.y}`)
-      return lowest === undefined || lowest <= this.ctx.activeZ || (ground !== undefined && ground > this.ctx.activeZ)
-    }
-    for (const m of this.ctx.stationData.modules) {
-      if (m.type !== 'fence') continue
+    const hidden: THREE.Object3D[] = []
+    for (const m of neighbours) {
+      const original = this.modules.fenceGroupsById.get(m.id)
+      if (!original) continue
       const group = buildModule(m, ctx)
       if (!group) continue
-      group.visible = shown(m)
+      group.userData = { ...original.userData }
       this.fencePreviewGroup.add(group)
+      hidden.push(original)
     }
     // The dragged panels, tinted like the module hover ghost.
     const previewCtx: ModuleContext = { ...ctx, preview: true }
@@ -683,11 +697,20 @@ export class GhostSystem extends SceneSystem {
       this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, (mat) => this.sceneOwns(mat))
       this.fencePreviewGroup.add(group)
     }
+    this.refreshFencePreviewLevels()
+    this.modules.setPreviewModules(hidden)
+  }
+
+  /** Reuse normal storey/ghost/clipping rules for local replacement models. */
+  refreshFencePreviewLevels(): void {
+    for (const group of this.fencePreviewGroup.children) {
+      if (group.userData.moduleId !== undefined) this.level.applyGroupLevel(group, 'module')
+    }
   }
 
   /** Drop the fence-drag preview and bring the committed fences back. */
   clearFencePreview(): void {
-    const hadPreview = this.fencePreviewKey !== ''
+    if (this.fencePreviewKey !== '') this.modules.setPreviewModules([])
     for (const child of [...this.fencePreviewGroup.children]) {
       disposeObject(child)
       this.fencePreviewGroup.remove(child)
@@ -697,8 +720,6 @@ export class GhostSystem extends SceneSystem {
     this.fencePreviewMats.length = 0
     this.fencePreviewBases.length = 0
     this.fencePreviewKey = ''
-    for (const f of this.modules.fenceGroups) f.visible = true
-    if (hadPreview) this.modules.syncBatches()
   }
 
   override dispose(): void {

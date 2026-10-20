@@ -17,7 +17,7 @@ const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 
   'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass', 'sidewalk', 'lawn', 'tree'])
-interface Source { mesh: THREE.Mesh; matrix: THREE.Matrix4; region: AtlasRegion | null; levels?: number[] }
+interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh> }
 
@@ -36,6 +36,7 @@ export class EquipmentBatches {
   private sources = new Set<THREE.Mesh>()
   private revision: string | undefined
   private masked = new Set<Entry>()
+  private entriesByRoot = new Map<THREE.Object3D, Set<Entry>>()
   private views = new Map<string, View>()
   private generation: string | undefined
   private owned = new Set<Entry>()
@@ -54,7 +55,12 @@ export class EquipmentBatches {
   /** Recent slices include the active one. Edits invalidate dormant GPU data. */
   private publish(revision: string | undefined, generation: string | undefined): void {
     this.root.clear()
+    this.entriesByRoot.clear()
     for (const entry of this.entries.values()) this.root.add(entry.mesh)
+    for (const entry of this.entries.values()) for (const source of entry.sources) {
+      const entries = this.entriesByRoot.get(source.root) ?? new Set<Entry>()
+      entries.add(entry); this.entriesByRoot.set(source.root, entries)
+    }
     if (generation !== undefined && revision !== undefined) {
       this.views.delete(revision)
       this.views.set(revision, { entries: this.entries, sources: this.sources })
@@ -68,22 +74,25 @@ export class EquipmentBatches {
   }
 
   setHiddenModule(root: THREE.Object3D | null): void {
+    this.setHiddenModules(root ? [root] : [])
+  }
+
+  /** Mask only the local buckets containing replaced preview pieces. Keep every
+   * GPU allocation; other members of a masked bucket draw from retained sources. */
+  setHiddenModules(roots: readonly THREE.Object3D[]): void {
+    const next = new Set<Entry>()
+    for (const root of roots) for (const entry of this.entriesByRoot.get(root) ?? []) next.add(entry)
     for (const entry of this.masked) {
+      if (next.has(entry)) continue
       entry.mesh.visible = true
       for (const source of entry.sources) source.mesh.layers.set(BATCH_SOURCE_LAYER)
     }
-    this.masked.clear()
-    if (!root) return
-    for (const entry of this.entries.values()) {
-      const contains = entry.sources.some(source => {
-        for (let node: THREE.Object3D | null = source.mesh; node; node = node.parent) if (node === root) return true
-        return false
-      })
-      if (!contains) continue
+    for (const entry of next) {
+      if (this.masked.has(entry)) continue
       entry.mesh.visible = false
       for (const source of entry.sources) source.mesh.layers.set(0)
-      this.masked.add(entry)
     }
+    this.masked = next
   }
 
   sync(modules: THREE.Group, revision?: string, generation?: string): void {
@@ -138,7 +147,7 @@ export class EquipmentBatches {
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
         const key = `${Math.floor(p.x / 16)},${Math.floor(p.y / 16)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}`
         const bucket = buckets.get(key) ?? { material, sources: [] as Source[] }
-        bucket.sources.push({ mesh: o, matrix: o.matrixWorld.clone(), region, levels: root.userData.levelZs }); buckets.set(key, bucket)
+        bucket.sources.push({ mesh: o, root, matrix: o.matrixWorld.clone(), region, levels: root.userData.levelZs }); buckets.set(key, bucket)
       })
     }
     const alive = new Set<string>()
@@ -264,6 +273,7 @@ export class EquipmentBatches {
     for (const entry of this.owned) this.drop(entry)
     this.owned.clear()
     this.entries.clear()
+    this.entriesByRoot.clear()
     this.views.clear()
     this.generation = undefined
     this.atlas.dispose()

@@ -428,6 +428,8 @@ commands.
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
 | `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on both shipped examples, Zoo and Tanwei, sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
 | `bench-level-switch.mjs` | Real paused Q/E input on both demos: first/repeated latency, slice/batch/model/save work, exact cached GPU allocation reuse and initial prewarming cost. `--uncached` compares the same code without retained level views; `--no-multi-draw` checks fallback rendering. |
+| `bench-fence-drag.mjs` | Production fence hover/press/move/cancel/release preview timings, event-through-frame latency, group counts, equipment rebatch calls and hidden-source leaks. `BENCH_CLOSE=1` captures the close view. |
+| `bench-tree-placement.mjs` | Production first hover/press/release of a placed model or equipment piece. `BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (or `PIECE=tvm`) measures retention against 128 untouched fences; other pieces use the demo station. |
 | `check-geometry-detail.mjs` | Both demos: real first/repeated zoom, retained GPU batches, full geometry restoration, settings/language controls and Hide UI. `--no-multi-draw` covers fallback. `bench-browser --compare-detail --lod-only --gpu-timer` pairs full/high detail twice and low quality in one scene. |
 | `profile-sim.mjs`, `check-perf-tools.mjs` | Readable simulation V8 profiles and an actual Chrome CPU/trace-stream smoke check. Sampling and tracing run separately; requests/timeouts and cleanup are bounded. |
 | `check-render-batching.mjs` | Real production GLSL/WebGL check: enabled/disabled station draws, open/closed train GPU triangle preservation, and no shader/runtime errors. Supports `--software-gpu` and `--no-multi-draw` (extension disabled before renderer construction); no FPS gate. |
@@ -441,9 +443,10 @@ timers are asynchronous and separate from CPU render submission; buffer counters
 exclude textures/uniforms. Profile exports and screenshots are ignored artifacts
 under `.preview/perf/`, not timing assertions in the deterministic suite.
 For renderer/geometry-detail regressions, `npm --prefix game run test:perf` adds the
-floor policy, geometry lifecycle, graphics preference, retained-view and static-render
-cases to focused coverage. Then run `npm --prefix game test` for the full suite;
-inspect per-module coverage in both test output and keep the coverage map in sync.
+floor policy, geometry lifecycle, graphics preference, retained-view, static-render,
+equipment-retention and fence-preview cases to focused coverage. Then run
+`npm --prefix game test` for the full suite; inspect per-module coverage in both test
+output and keep the coverage map in sync.
 | `browser-harness.mjs` | The shared headless-Chrome + static-server driver the `render-*` passes sit on. |
 | `check-demos.mjs` | `npm run check:demos`: builds both apps, serves them through `preview.mjs` and drives Chrome — the nav and hero buttons open the one station picker, every card links its demo route, a demo outranks the autosave while the plain path restores it, `/game/zoo/` redirects, and the nav fits 390 px. Screenshots in ignored `.preview/demos/`. |
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |

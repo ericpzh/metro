@@ -1,10 +1,51 @@
 import { roadsOnlyChange } from '../sim/roads.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
-import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface } from '../sim/placement.ts'
+import { isEdgeDecor, edgeDecorCurtainShare, curtainCornerJoin, curtainDoorShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface, isCeilingHung } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
 import { isSimInertDecorModule } from '../sim/decorInert.ts'
 import { stairFlights } from '../sim/stairs.ts'
 import { trackCellAt, trackHeadroom } from '../sim/track.ts'
+import { groundWindow } from '../sim/ground.ts'
+import { fenceConnectionIndex } from '../sim/fences.ts'
+
+// These pieces change equipment geometry and possibly pedestrian routing, but
+// never carve floors or derive chunk walls. Keep this separate from sim-inert.
+const EQUIPMENT_ONLY = new Set<Module['type']>([
+  'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth',
+])
+const STANDALONE = new Set<Module['type']>([
+  'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink',
+  'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'door', 'calligraphy', 'linemap',
+  'billboard', 'busstop', 'floor-mark', 'traffic-light', 'rail-signal', 'shop', 'tree',
+])
+const RAMPS = new Set<Module['type']>(['stair', 'escalator', 'walkway'])
+const OPENINGS = new Set<Module['type']>(['stair', 'escalator', 'walkway', 'exit', 'track'])
+
+function equal(a: unknown, b: unknown): boolean { return a === b || JSON.stringify(a) === JSON.stringify(b) }
+function sameStationFields(before: StationData, after: StationData): boolean {
+  const { cells: _bc, modules: _bm, ...a } = before
+  const { cells: _ac, modules: _am, ...b } = after
+  return equal(a, b)
+}
+function changedModules(before: StationData, after: StationData): Module[] {
+  const previous = new Map(before.modules.map(m => [m.id, m]))
+  const changed: Module[] = []
+  for (const mod of after.modules) {
+    const old = previous.get(mod.id)
+    if (!equal(old, mod)) { if (old) changed.push(old); changed.push(mod) }
+    previous.delete(mod.id)
+  }
+  changed.push(...previous.values())
+  return changed
+}
+
+/** Chunk-only classification. Functional equipment must still reach the worker. */
+export function isEquipmentModelEdit(before: StationData, after: StationData): boolean {
+  if (!sameStationFields(before, after) || !equal(before.cells, after.cells)) return false
+  const changed = changedModules(before, after)
+  if (!changed.length || changed.some(m => !isSimInertDecorModule(m) && !EQUIPMENT_ONLY.has(m.type))) return false
+  return equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
+}
 
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
@@ -41,8 +82,8 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
 }
 
 /** §4.3/§5: retain only models whose inputs did not change. Artwork/language
- * invalidation is handled by the caller; module/neighbour edits take a full build
- * except for the road-only, stair-block-only and inert-decor-only edits below. */
+ * invalidation is handled by the caller. Module edits keep every unchanged model
+ * whose declared cell and neighbour inputs remain intact. */
 export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
   if (!sameModuleMetadata(before, after)) {
@@ -57,11 +98,7 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
     } else if (onlyAddedStairBlocks(before, after)) {
       for (const mod of before.modules) retained.add(mod.id)
     } else {
-      // Sim-inert decor (tactile stickers, wall panels, hanging fittings) draws
-      // without walking: keep every untouched model and rebuild only the
-      // changed tiles plus the neighbours that read them (tactile arms, hanger
-      // suspensions). Functional pieces still fail closed above.
-      for (const id of inertDecorRetainedIds(before, after)) retained.add(id)
+      for (const id of equipmentRetainedIds(before, after)) retained.add(id)
     }
     return retained
   }
@@ -97,87 +134,63 @@ function onlyAddedStairBlocks(before: StationData, after: StationData): boolean 
 }
 
 /**
- * Retained models for a sim-inert decor-only module edit: every untouched
- * module except the neighbours that read the changed tiles. A tactile tile
- * extends arms into its four neighbours (`tactileArms`), and a roof hanger
- * lifts the fittings hung from its bar (`hangerSupports`); anything else draws
- * alone. Cells, lines and station fields must be identical — this answers only
- * the module diff, so the chunk skip is decided beside it. Empty when the edit
- * touches anything functional or moves a cell.
+ * Rendering dependencies are independent of simulation routing. A machine can
+ * change the walk graph while only its own model changes. Coupled models declare
+ * their neighbours below; unknown builders and changed station fields fail closed.
  */
-function inertDecorRetainedIds(before: StationData, after: StationData): Set<string> {
+function equipmentRetainedIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
-  if (before.cells.length !== after.cells.length) return retained
-  for (let i = 0; i < before.cells.length; i++) {
-    const old = before.cells[i], next = after.cells[i]
-    if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) return new Set<string>()
-  }
-  const { cells: _bc, modules: _bm, ...beforeMeta } = before
-  const { cells: _ac, modules: _am, ...afterMeta } = after
-  if (JSON.stringify(beforeMeta) !== JSON.stringify(afterMeta)) return new Set<string>()
+  if (!sameStationFields(before, after)) return retained
   const afterById = new Map(after.modules.map((mod) => [mod.id, mod]))
   const beforeById = new Map(before.modules.map((mod) => [mod.id, mod]))
-  const changedIds = new Set<string>()
-  const tactileCells = new Set<string>()
-  const curtainNeighbours: Module[] = []
-  const hangers: Module[] = []
-  let changed = false
-  for (const old of before.modules) {
-    const next = afterById.get(old.id)
-    if (!next) {
-      if (!isSimInertDecorModule(old)) return new Set<string>()
-      changed = true
-      if (old.type === 'tactile') tactileCells.add(`${old.x},${old.y},${old.z}`)
-      if (old.type === 'hanger') hangers.push(old)
-      if (old.type === 'glass') curtainNeighbours.push(old)
-      continue
+  const changes = changedModules(before, after)
+  const types = new Set(changes.map(m => m.type))
+  // A future module may introduce another dependency: declare it before reuse.
+  const known = (m: Module): boolean => CELL_INDEPENDENT.has(m.type) || STANDALONE.has(m.type)
+    || ['track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'clock', 'cctv', 'monitor', 'sign', 'tv'].includes(m.type)
+  if (changes.some(m => !known(m))) return retained
+  const cellChanges: Cell[] = []
+  if (before.cells !== after.cells) {
+    const cells = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
+    for (const cell of after.cells) {
+      const key = `${cell.x},${cell.y},${cell.z}`
+      if (!equal(cells.get(key), cell)) cellChanges.push(cell)
+      cells.delete(key)
     }
-    if (old === next || JSON.stringify(old) === JSON.stringify(next)) continue
-    if (!isSimInertDecorModule(old) || !isSimInertDecorModule(next)) return new Set<string>()
-    changed = true
-    changedIds.add(old.id)
-    if (old.type === 'tactile' || next.type === 'tactile') {
-      tactileCells.add(`${old.x},${old.y},${old.z}`)
-      tactileCells.add(`${next.x},${next.y},${next.z}`)
-    }
-    if (old.type === 'hanger' || next.type === 'hanger') hangers.push(old, next)
-    if (old.type === 'glass' || next.type === 'glass') curtainNeighbours.push(old, next)
+    cellChanges.push(...cells.values())
   }
-  for (const added of afterById.values()) {
-    if (beforeById.has(added.id)) continue
-    if (!isSimInertDecorModule(added)) return new Set<string>()
-    changed = true
-    if (added.type === 'tactile') tactileCells.add(`${added.x},${added.y},${added.z}`)
-    if (added.type === 'hanger') hangers.push(added)
-    if (added.type === 'glass') curtainNeighbours.push(added)
-  }
-  if (!changed) return retained
-  const rebuild = new Set<string>(changedIds)
-  const tactileKeys = [...tactileCells].map((key) => key.split(',').map(Number) as [number, number, number])
+  const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
+  const openingChanged = [...types].some(t => OPENINGS.has(t))
+  const rampChanged = [...types].some(t => RAMPS.has(t))
+  const fenceBefore = rampChanged ? fenceConnectionIndex(before.modules) : null
+  const fenceAfter = rampChanged ? fenceConnectionIndex(after.modules) : null
   for (const mod of after.modules) {
-    if (changedIds.has(mod.id)) continue
-    if (outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) {
-      rebuild.add(mod.id)
-      continue
-    }
-    if (mod.type === 'tactile' && tactileKeys.some(([x, y, z]) => z === mod.z && Math.abs(x - mod.x) + Math.abs(y - mod.y) <= 1)) {
-      rebuild.add(mod.id)
-      continue
-    }
+    if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
+    if (!known(mod) || cellChanges.some(cell => dependsOnCell(mod, cell))) continue
+    if (outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) continue
     // An edge-decor piece backed against a curtain draws shifted towards its tile
     // centre, so adding/lifting a curtain rebuilds the furniture leaning on it.
-    if (isEdgeDecor(mod) && curtainNeighbours.some((c) => edgeDecorCurtainShare(c, mod))) {
-      rebuild.add(mod.id)
-      continue
-    }
-    if ((mod.type === 'tv' || mod.type === 'clock' || mod.type === 'cctv' || mod.type === 'sign')
-      && hangers.some((h) => h.type === 'hanger' && h.z === mod.z && hangerSupports(h, mod))) {
-      rebuild.add(mod.id)
-    }
-  }
-  for (const mod of after.modules) {
-    if (rebuild.has(mod.id)) continue
-    if (!beforeById.has(mod.id)) continue
+    if (isEdgeDecor(mod) && changes.some(c => c.type === 'glass' && edgeDecorCurtainShare(c, mod))) continue
+    if (changes.some(h => h.type === 'hanger' && hangerSupports(h, mod))) continue
+    if (isCeilingHung(mod) && openingChanged) continue // Decks and street holes supply ceilings.
+    if (STANDALONE.has(mod.type)) { retained.add(mod.id); continue }
+    if (mod.type === 'tactile' && changes.some(m => m.type === 'tactile' && adjacent(m, mod))) continue
+    if ((mod.type === 'fence' || mod.type === 'gate') && changes.some(m => (m.type === 'fence' || m.type === 'gate') && adjacent(m, mod))) continue
+    if (mod.type === 'fence' && fenceBefore && fenceAfter && [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) =>
+      fenceBefore.connects(mod.x + dx, mod.y + dy, mod.z, -dx, -dy) !== fenceAfter.connects(mod.x + dx, mod.y + dy, mod.z, -dx, -dy))) continue
+    if (mod.type === 'cubicle' && changes.some(m => m.type === 'cubicle' && adjacent(m, mod))) continue
+    if (mod.type === 'tv' && changes.some(m => m.type === 'tv' && m.x === mod.x && m.y === mod.y && m.z === mod.z)) continue
+    if (mod.type === 'glass' && changes.some(m => (m.type === 'glass' && curtainCornerJoin(mod, m).length > 0)
+      || (m.type === 'door' && curtainDoorShare(mod, m)))) continue
+    if (mod.type === 'road' && types.has('road')) continue
+    if (mod.type === 'track' && (types.has('track') || types.has('platform-edge'))) continue
+    if (mod.type === 'platform-edge' && changes.some(m => m.id === mod.cfg.from)) continue
+    if (mod.type === 'psd-end' && (types.has('platform-edge') || types.has('track'))) continue
+    if (mod.type === 'pillar' && types.has('track')) continue
+    if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof')) continue
+    if ((RAMPS.has(mod.type) || mod.type === 'lift' || isOutdoorSurface(mod)) && openingChanged) continue
+    if (mod.type === 'exit' && [...types].some(t => RAMPS.has(t))) continue
+    if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
     retained.add(mod.id)
   }
   return retained

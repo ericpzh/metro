@@ -13,7 +13,50 @@
 import { stairFlights } from './stairs.ts'
 import { escalatorLandings } from './escalators.ts'
 import { walkwayLandings } from './walkways.ts'
+import { gateSolidFaces } from './gates.ts'
 import type { Module } from './types.ts'
+
+type Fence = Extract<Module, { type: 'fence' }>
+export interface FenceConnectionIndex {
+  fencesAt(x: number, y: number, z: number): readonly Fence[]
+  /** Direction from the neighbouring cell back to the fence being drawn. */
+  connects(x: number, y: number, z: number, dx: number, dy: number): boolean
+}
+const connectionIndexes = new WeakMap<readonly Module[], FenceConnectionIndex>()
+
+/** Immutable document index: four cell lookups per fence, including ramp landings.
+ * The preview layers its small candidate index over this prepared station index. */
+export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectionIndex {
+  const cached = connectionIndexes.get(modules)
+  if (cached) return cached
+  const fences = new Map<string, Fence[]>()
+  const gates = new Map<string, Extract<Module, { type: 'gate' }>[]>()
+  const landings = new Set<string>()
+  const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
+  for (const mod of modules) {
+    const k = key(mod.x, mod.y, mod.z)
+    if (mod.type === 'fence') {
+      const at = fences.get(k) ?? []
+      at.push(mod); fences.set(k, at)
+    } else if (mod.type === 'gate') {
+      const at = gates.get(k) ?? []
+      at.push(mod); gates.set(k, at)
+    } else if (mod.type === 'stair' && !mod.cfg.block) {
+      for (const f of stairFlights(mod)) for (const p of [f.from, f.to]) landings.add(key(p.x, p.y, p.z))
+    } else if (mod.type === 'escalator' || mod.type === 'walkway') {
+      for (const p of mod.type === 'escalator' ? escalatorLandings(mod) : walkwayLandings(mod)) landings.add(key(p.x, p.y, p.z))
+    }
+  }
+  const index: FenceConnectionIndex = {
+    fencesAt: (x, y, z) => fences.get(key(x, y, z)) ?? [],
+    connects: (x, y, z, dx, dy) => {
+      const k = key(x, y, z)
+      return fences.has(k) || landings.has(k) || (gates.get(k)?.some(m => gateSolidFaces(m, dx, dy)) ?? false)
+    },
+  }
+  connectionIndexes.set(modules, index)
+  return index
+}
 
 /**
  * True when a stair, escalator or 自动步道 has a landing on `(x, y, z)`. A fence
