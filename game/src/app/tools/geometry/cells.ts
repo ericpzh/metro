@@ -51,6 +51,26 @@ export function rectCells(a: [number, number, number], b: [number, number, numbe
 }
 
 /**
+ * How many cells a 方块 drag covers before any cap is considered: the rectangle
+ * (or the Shift line's run) the two pressed cells describe. Counted without
+ * allocating, so the pointer loop can raise the refusal before the debounced
+ * preview builds the cells.
+ */
+export function dragCellCount(a: [number, number, number], b: [number, number, number], line: boolean): number {
+  const width = Math.abs(b[0] - a[0]) + 1
+  const height = Math.abs(b[1] - a[1]) + 1
+  return line ? Math.max(width, height) : width * height
+}
+
+/**
+ * How many cells a ridge-locked 三角 line covers, counted along its own ridge
+ * axis (`triangleRidgeAxis`) without building the run.
+ */
+export function cutLineCellCount(a: [number, number, number], b: [number, number, number], side: string): number {
+  return triangleRidgeAxis(side) === 'x' ? Math.abs(b[0] - a[0]) + 1 : Math.abs(b[1] - a[1]) + 1
+}
+
+/**
  * The 墙 tool's run: a straight axis-aligned line, never a diagonal. The drag
  * snaps to the dominant axis (ties go east–west), so a wall always slides
  * through a single 90° row or column.

@@ -74,7 +74,6 @@ export function Viewport(): React.ReactElement {
   const language = useLanguage()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pointerFrame = useRef(new FrameTask())
-  useEffect(() => () => pointerFrame.current.cancel(), [])
   const sceneRef = useRef<SceneRenderer | null>(null)
   const overlayRef = useRef(false)
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
@@ -206,6 +205,10 @@ export function Viewport(): React.ReactElement {
     }
     return { select, pick, block, wall, delete: del, equipment, paint, zone, platform, tunnel, move, byTool }
   }, [ctx])
+  useEffect(() => () => {
+    pointerFrame.current.cancel()
+    tools.block.cancelPreview()
+  }, [tools])
 
   const version = useStore((s) => s.version)
   const station = useStore((s) => s.station)
@@ -394,6 +397,7 @@ export function Viewport(): React.ReactElement {
    */
   const cancelActiveDrag = (): boolean => {
     pointerFrame.current.cancel()
+    tools.block.cancelPreview()
     const anyActive =
       dragRef.current?.active === true ||
       paintRef.current?.active === true ||
@@ -471,6 +475,7 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     hoverRef.current = null
     pointerFrame.current.cancel()
+    tools.block.cancelPreview()
     dragRef.current = null
     paintRef.current = null
     zoneDragRef.current = null

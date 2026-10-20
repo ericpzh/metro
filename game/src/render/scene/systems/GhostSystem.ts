@@ -28,7 +28,11 @@ import type { PlateSystem } from './PlateSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
 import type { ClockSystem } from './ClockSystem.ts'
 
-/** Most cells one drag preview can highlight at once (the ghost instance pool). */
+/**
+ * Starting pool size for the instanced ghost meshes. The box pool grows when a
+ * preview needs more boxes — a 10,000-cell drag can refuse every one of its
+ * cells — while the paint ghost keeps this fixed size.
+ */
 const GHOST_MAX = 4096
 
 /** Hue the module hover ghost fades toward, matching the placement cursor. */
@@ -102,6 +106,8 @@ export class GhostSystem extends SceneSystem {
   private fencePreviewBases: THREE.Material[] = []
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
   private ghostMesh: THREE.InstancedMesh | null = null
+  /** Instances the box pool currently holds; grows with a large refused preview. */
+  private ghostBoxCapacity = GHOST_MAX
   /** Add-drag preview: the pending cells meshed into their final shape. */
   private ghostGroup: THREE.Group = new THREE.Group()
   private ghostKey = ''
@@ -163,29 +169,46 @@ export class GhostSystem extends SceneSystem {
       if (this.ghostMesh) this.ghostMesh.visible = false
       return
     }
-    if (!this.ghostMesh) {
-      const geo = new THREE.BoxGeometry(1, 1, 1)
-      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
-      this.ghostMesh = new THREE.InstancedMesh(geo, mat, GHOST_MAX)
-      this.ghostMesh.frustumCulled = false
-      this.ghostMesh.renderOrder = 3
-      this.ctx.scene.add(this.ghostMesh)
-    }
+    const mesh = this.ensureGhostBoxes(cells.length)
     const m = new THREE.Matrix4()
     const col = new THREE.Color(colour)
-    // Clamp to the pool capacity, not the previous frame's count — a drag that
-    // grows bigger than the last preview must still draw every pending block.
-    const n = Math.min(cells.length, GHOST_MAX)
-    this.ghostMesh.count = n
+    const n = cells.length
+    mesh.count = n
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
       m.makeTranslation(x + 0.5, y + 0.5, z + 0.5)
-      this.ghostMesh.setMatrixAt(i, m)
-      this.ghostMesh.setColorAt(i, col)
+      mesh.setMatrixAt(i, m)
+      mesh.setColorAt(i, col)
     }
-    this.ghostMesh.visible = true
-    this.ghostMesh.instanceMatrix.needsUpdate = true
-    if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
+    mesh.visible = true
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  }
+
+  /**
+   * The red-box pool, grown to hold every cell of the current preview. One
+   * refused over-limit drag draws its whole footprint, which can be larger than
+   * the starting pool; the old buffer is released as the larger one replaces it.
+   */
+  private ensureGhostBoxes(count: number): THREE.InstancedMesh {
+    if (this.ghostMesh && this.ghostBoxCapacity >= count) return this.ghostMesh
+    let capacity = this.ghostBoxCapacity
+    while (capacity < count) capacity *= 2
+    if (this.ghostMesh) {
+      this.ctx.scene.remove(this.ghostMesh)
+      this.ghostMesh.geometry.dispose()
+      ;(this.ghostMesh.material as THREE.Material).dispose()
+      this.ghostMesh.dispose()
+    }
+    const geometry = new THREE.BoxGeometry(1, 1, 1)
+    const material = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
+    const mesh = new THREE.InstancedMesh(geometry, material, capacity)
+    mesh.frustumCulled = false
+    mesh.renderOrder = 3
+    this.ghostMesh = mesh
+    this.ghostBoxCapacity = capacity
+    this.ctx.scene.add(mesh)
+    return mesh
   }
 
   /**
@@ -194,32 +217,24 @@ export class GhostSystem extends SceneSystem {
    * have left the mesh hidden; an empty list clears it.
    */
   private setRefusedBoxes(refused: ReadonlyArray<[number, number, number]>, colour: number): void {
-    if (!this.ghostMesh) {
-      if (refused.length === 0) return
-      const geo = new THREE.BoxGeometry(1, 1, 1)
-      const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false })
-      this.ghostMesh = new THREE.InstancedMesh(geo, mat, GHOST_MAX)
-      this.ghostMesh.frustumCulled = false
-      this.ghostMesh.renderOrder = 3
-      this.ctx.scene.add(this.ghostMesh)
-    }
     if (refused.length === 0) {
-      this.ghostMesh.visible = false
+      if (this.ghostMesh) this.ghostMesh.visible = false
       return
     }
+    const mesh = this.ensureGhostBoxes(refused.length)
     const m = new THREE.Matrix4()
     const col = new THREE.Color(colour)
-    const n = Math.min(refused.length, GHOST_MAX)
-    this.ghostMesh.count = n
+    const n = refused.length
+    mesh.count = n
     for (let i = 0; i < n; i++) {
       const [x, y, z] = refused[i]
       m.makeTranslation(x + 0.5, y + 0.5, z + 0.5)
-      this.ghostMesh.setMatrixAt(i, m)
-      this.ghostMesh.setColorAt(i, col)
+      mesh.setMatrixAt(i, m)
+      mesh.setColorAt(i, col)
     }
-    this.ghostMesh.visible = true
-    this.ghostMesh.instanceMatrix.needsUpdate = true
-    if (this.ghostMesh.instanceColor) this.ghostMesh.instanceColor.needsUpdate = true
+    mesh.visible = true
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
   }
 
   /** A cheap order-stable fingerprint of the refused cells, for the ghost key. */
@@ -695,7 +710,7 @@ export class GhostSystem extends SceneSystem {
     this.clearFencePreview()
     this.ghostMaterial?.dispose()
     // The remove-drag pool is scene-lifetime, not per-drag: without this a
-    // disposed scene keeps its 4096-instance buffers and the scene reference.
+    // disposed scene keeps its instanced buffers and the scene reference.
     if (this.ghostMesh) {
       this.ctx.scene.remove(this.ghostMesh)
       this.ghostMesh.geometry.dispose()
@@ -703,6 +718,7 @@ export class GhostSystem extends SceneSystem {
       this.ghostMesh.dispose()
       this.ghostMesh = null
     }
+    this.ghostBoxCapacity = GHOST_MAX
     if (this.faceGhost) {
       this.ctx.scene.remove(this.faceGhost)
       this.faceGhost.geometry.dispose()

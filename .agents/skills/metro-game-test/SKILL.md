@@ -101,6 +101,14 @@ the npm test glob does not collect coverage. Read per-file line/function/branch
 results; imported dependencies inflate the overall denominator. Do not claim
 100% GPU coverage from Node percentages.
 
+For the 方块 drag budget, `blocktool` pins the 10,000-cell boundary, exact-cap
+placement, over-cap all-red preview with no commit, auto-wall inclusion and the
+Shift/三角 counts; `refused-ghost` pins the red-box pool growing past its 4,096
+starting capacity. `StablePreviewDelay`'s same-cell replacement/refusal timing is
+a deterministic scheduler test there, not a sleep. Measure the real 99×99 pointer
+sequence with `npm run bench:block-drag`; report timings in `game/PERFORMANCE.md`
+as evidence, not thresholds.
+
 Crowd distribution regressions belong in the focused deterministic suites:
 `crowd-routing.test.mjs` pins live detours around congestion, itinerary/cached-path
 ownership and a bounded repeatable search wave; `walking-space.test.mjs` pins stable

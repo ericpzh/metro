@@ -3343,7 +3343,9 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   ghost previewed (the defect this file exists for was the ghost drawing a panel while the release laid
   an untagged full block), the floor it stands on is left byte-identical, R walks the side and the
   label with it, and a 半墙 aimed at a cell the auto-wall ring already fills is a no-op rather than a
-  course that replaces the ring's block.
+  course that replaces the ring's block. It also pins the 10,000-cell drag budget and the 100 ms stable
+  preview: exact-cap placement, an over-cap all-red preview that commits nothing, auto-wall inclusion,
+  and the Shift/三角 counts.
 * `level-slicing.test.mjs` — the level slice as a pure rule (`render/levelSlicing.ts`): which
   side of the edited storey a piece sits on (a lift spanning into the storey counts as active),
   显示其他层 off drawing the edited storey alone at every camera angle, ghost mode keeping the

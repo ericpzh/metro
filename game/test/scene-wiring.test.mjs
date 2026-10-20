@@ -28,7 +28,7 @@ test('pointer preview coalescing preserves touch/delete paths, flushes release a
   assert.match(moves, /pointerFrame\.current\.flush\(\)\s*handlePointerMove\(e\)/, 'preserved paths drain an older queued sample before delivering the new one')
   assert.match(moves, /else pointerFrame\.current\.schedule\(\(\) => handlePointerMove\(e\)\)/)
   assert.match(viewport, /const onPointerUp = [^{]+\{\s*pointerFrame\.current\.flush\(\)/, 'release processes the latest drag position before committing')
-  assert.match(viewport, /useEffect\(\(\) => \(\) => pointerFrame\.current\.cancel\(\), \[\]\)/, 'an unmounted viewport cannot deliver a stale preview')
+  assert.match(viewport, /useEffect\(\(\) => \(\) => \{\s*pointerFrame\.current\.cancel\(\)\s*tools\.block\.cancelPreview\(\)\s*\}, \[tools\]\)/, 'an unmounted viewport cannot deliver a stale preview')
 })
 
 /** Which system owns which field name, so a claimed name maps to `this.<owner>.<name>`. */

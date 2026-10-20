@@ -42,6 +42,13 @@ export const DEFAULT_SIM_TIME = 6.5 * 3600
 /** A simulated day, in simulated seconds. */
 export const SIM_DAY = 24 * 3600
 
+/**
+ * Maximum footprint one 方块 drag may preview or commit at once, generated
+ * auto-wall courses included. A drag that would need more is refused whole —
+ * every cell drawn red, the release lays nothing — rather than silently clipped.
+ */
+export const MAX_BLOCK_DRAG_CELLS = 10000
+
 /** The only supported station storey grid, in metres. */
 export const STOREY_HEIGHT = 5
 export const LEVEL_STEPS: number[] = Array.from({length:15},(_,i)=>(i-8)*STOREY_HEIGHT)

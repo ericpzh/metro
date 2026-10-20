@@ -23,17 +23,26 @@ import { checkBlockCells, newPreview, previewNotice } from '../../build/validati
 import type { PlacementPreview } from '../../build/validation.ts'
 import type { Cell, CellShape } from '../../sim/types.ts'
 import { triangleOf } from '../../sim/types.ts'
+import { MAX_BLOCK_DRAG_CELLS } from '../../sim/constants.ts'
 import { useStore } from '../store.ts'
-import { pendingCells, rectCells, straightLineCells, triangleLineCells } from './geometry/cells.ts'
+import { cutLineCellCount, dragCellCount, pendingCells, rectCells, straightLineCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { cutShapeFor, shapeWallSide, thinGhost } from './geometry/walls.ts'
+import { StablePreviewDelay } from './geometry/stablePreviewDelay.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
 export class BlockTool extends ToolController {
   readonly tool = 'block' as const
+  private readonly previewDelay = new StablePreviewDelay()
+
+  /** Invalidate any replaceable, in-progress drag preview. */
+  cancelPreview(): void {
+    this.previewDelay.clear()
+  }
 
   onDown(info: PointerInfo): void {
+    this.cancelPreview()
     const scene = this.ctx.scene()
     const hit = info.hit
     if (!scene || !hit) return
@@ -118,7 +127,10 @@ export class BlockTool extends ToolController {
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene || !hit) {
+      this.cancelPreview()
+      return
+    }
     const st = useStore.getState()
     // The tile under the pointer, so Tab (半墙) and R (its side) rebuild the
     // ghost in place instead of waiting for the next move.
@@ -129,6 +141,7 @@ export class BlockTool extends ToolController {
     // tool's own right-drag does. A 三角 column drags a ridge-locked line, so the
     // run it lifts is the run its slopes join.
     if (d?.active && d.wall === true && d.mode === 'remove') {
+      this.cancelPreview()
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const rawLine = dragging ? straightLineCells(d.anchor, hit.cell, d.z) : [d.anchor]
       const line = dragging ? this.wallRemoveLine(st.station.cells, d.anchor, hit.cell, d.z, rawLine) : rawLine
@@ -144,6 +157,7 @@ export class BlockTool extends ToolController {
     // through, and the shape it resolves to is written back to the drag so the
     // release and the ghost never part company.
     if ((st.halfWall || st.triangles) && d?.mode !== 'remove') {
+      this.cancelPreview()
       const held = d?.active === true && d.wall === true
       const base: [number, number, number] = held ? d.anchor : hit.solid ? hit.place : hit.cell
       const open = d?.wallDirs ?? wallSnap(st.station.cells, base, [hit.point[0], hit.point[1]], 0).dirs
@@ -157,11 +171,25 @@ export class BlockTool extends ToolController {
         dragging && shape?.kind === 'triangle'
           ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
           : [base]
-      const check = this.drawCutGhost(line, shape)
-      // The pointer's own ring is the verdict too: a cell that refuses the piece
-      // shows the ring red, not a hopeful cyan over a red box.
+      // A run over the drag budget is refused whole: every wedge is drawn red
+      // and the release lays none of them, rather than the ghost promising a
+      // shorter run than the pointer drew.
+      const tooLarge = dragging && shape?.kind === 'triangle'
+        && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > MAX_BLOCK_DRAG_CELLS
+      let blocked = false
+      if (tooLarge) {
+        this.setDragLimitNotice(true)
+        scene.setGhost([], 'add', undefined, undefined, line)
+        scene.setCollisionHighlight(null)
+        blocked = true
+      } else {
+        this.setDragLimitNotice(false)
+        // The pointer's own ring is the verdict too: a cell that refuses the piece
+        // shows the ring red, not a hopeful cyan over a red box.
+        blocked = this.drawCutGhost(line, shape).blockedCells.length > 0
+      }
       const cursor = dragging && line.length > 0 ? line[line.length - 1] : base
-      scene.setCursor(cursor, check.blockedCells.length === 0)
+      scene.setCursor(cursor, !blocked)
       this.ctx.clearMeasure()
       return
     }
@@ -171,8 +199,24 @@ export class BlockTool extends ToolController {
       // Only a deliberate press becomes a rectangle; a quick press stays one
       // block even if the pointer jitters.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
+      if (dragging && d.mode === 'add') {
+        // Snap the ring immediately, but wait until the snapped cell is stable
+        // for 100 ms before constructing and drawing its complete preview.
+        const addTarget = hit.solid ? hit.place : hit.cell
+        const tooLarge = dragCellCount(d.anchor, addTarget, info.shiftKey) > MAX_BLOCK_DRAG_CELLS
+        scene.setCursor(addTarget, !tooLarge)
+        this.setDragLimitNotice(tooLarge)
+        this.ctx.showMeasure(info.clientX, info.clientY, msg(
+          'length_value_m_width_value_m',
+          Math.abs(addTarget[0] - d.anchor[0]) + 1,
+          Math.abs(addTarget[1] - d.anchor[1]) + 1,
+        ))
+        this.scheduleAddDragPreview(d.anchor, addTarget, d.z, info.shiftKey, info.clientX, info.clientY)
+        return
+      }
+      this.cancelPreview()
       const preview = dragging ? rectCells(d.anchor, target, d.z, info.shiftKey) : [d.anchor]
-      let valid = d.mode === 'add'
+      let valid = true
       if (d.mode === 'remove') {
         scene.setGhost(pendingCells(preview, 'remove', this.ctx.solids()), 'remove')
         scene.setCollisionHighlight(null)
@@ -185,8 +229,9 @@ export class BlockTool extends ToolController {
         const cells = [...preview]
         if (dragging && st.autoWalls) cells.push(...plannedAutoWalls(this.ctx.solids(), preview, st.station.modules, st.station.storeyHeight))
         valid = this.showAddGhost(cells).blockedCells.length === 0
+        scene.setCursor(dragging ? target : d.anchor, valid)
       }
-      scene.setCursor(dragging ? target : d.anchor, valid)
+      if (d.mode === 'remove') scene.setCursor(dragging ? target : d.anchor, valid)
       // The patch's own footprint, in metres (1 cell = 1 m), pinned to the
       // pointer so the player can size a foundation before releasing.
       const dx = dragging ? Math.abs(target[0] - d.anchor[0]) + 1 : 1
@@ -194,6 +239,7 @@ export class BlockTool extends ToolController {
       this.ctx.showMeasure(info.clientX, info.clientY, msg('length_value_m_width_value_m', dx, dy))
       return
     }
+    this.cancelPreview()
     const c = hit.solid ? hit.place : hit.cell
     const check = this.showAddGhost([c])
     scene.setCursor(c, check.blockedCells.length === 0)
@@ -223,7 +269,93 @@ export class BlockTool extends ToolController {
     return check
   }
 
+  private scheduleAddDragPreview(
+    anchor: [number, number, number],
+    target: [number, number, number],
+    z: number,
+    shift: boolean,
+    clientX: number,
+    clientY: number,
+  ): void {
+    const initial = useStore.getState()
+    const key = [
+      ...anchor, ...target, z, Number(shift), Number(initial.autoWalls),
+      Number(initial.suspendedCeiling), initial.stationEpoch,
+    ].join(':')
+    const changed = this.previewDelay.scheduleLatest(key, () => {
+      const st = useStore.getState()
+      if (st.tool !== 'block' || st.station !== initial.station ||
+          st.autoWalls !== initial.autoWalls || st.suspendedCeiling !== initial.suspendedCeiling) return
+      const scene = this.ctx.scene()
+      if (!scene) return
+      const footprint = this.addDragFootprint(anchor, target, z, shift, st)
+      this.ctx.showMeasure(clientX, clientY, msg(
+        'length_value_m_width_value_m',
+        Math.abs(target[0] - anchor[0]) + 1,
+        Math.abs(target[1] - anchor[1]) + 1,
+      ))
+      if (footprint.overLimit) {
+        this.setDragLimitNotice(true)
+        // The whole footprint is refused, so every cell it covers is a red box:
+        // the player sees the drag is too large before releasing, not a smaller
+        // patch that silently replaced the rectangle they drew.
+        scene.setGhost([], 'add', undefined, undefined, [...footprint.cells, ...footprint.autoWalls])
+        scene.setCollisionHighlight(null)
+        scene.setCursor(target, false)
+        return
+      }
+      this.setDragLimitNotice(false)
+      const cells = [...footprint.cells, ...footprint.autoWalls]
+      const station = st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station
+      const check = checkBlockCells(station, cells)
+      scene.setGhost(check.acceptedCells, 'add', undefined, undefined, check.blockedCells)
+      scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
+      scene.setCursor(target, check.blockedCells.length === 0)
+    })
+    if (changed) {
+      const scene = this.ctx.scene()
+      scene?.setGhost([], 'add')
+      scene?.setCollisionHighlight(null)
+    }
+  }
+
+  /**
+   * The floor cells a 方块 drag would lay, plus its generated auto-wall courses.
+   * A footprint over `MAX_BLOCK_DRAG_CELLS` — walls included — is not clipped:
+   * `overLimit` refuses it whole, and the caller draws every cell red.
+   */
+  private addDragFootprint(
+    anchor: [number, number, number],
+    target: [number, number, number],
+    z: number,
+    line: boolean,
+    st: ReturnType<typeof useStore.getState>,
+  ): {
+    cells: Array<[number, number, number]>
+    autoWalls: Array<[number, number, number]>
+    overLimit: boolean
+  } {
+    const cells = rectCells(anchor, target, z, line)
+    if (cells.length > MAX_BLOCK_DRAG_CELLS) return { cells, autoWalls: [], overLimit: true }
+    if (!st.autoWalls || st.suspendedCeiling) return { cells, autoWalls: [], overLimit: false }
+    const autoWalls = plannedAutoWalls(this.ctx.solids(), cells, st.station.modules, st.station.storeyHeight)
+    return { cells, autoWalls, overLimit: cells.length + autoWalls.length > MAX_BLOCK_DRAG_CELLS }
+  }
+
+  /**
+   * Show the area-too-large error while dragging over budget, and clear it when
+   * the drag shrinks back inside the budget — without stealing an unrelated
+   * notice that happens to be on screen.
+   */
+  private setDragLimitNotice(over: boolean): void {
+    const st = useStore.getState()
+    const message = msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS)
+    if (over) st.setNotice(message)
+    else if (st.notice === message) st.setNotice(null)
+  }
+
   onUp(info: PointerInfo): void {
+    this.cancelPreview()
     // The viewport routes only plain and single-cut drags here; any
     // `wall` run release belongs to the wall tool. The cells tail below is the
     // same code for both — a quick press is one block, a deliberate drag a
@@ -241,12 +373,7 @@ export class BlockTool extends ToolController {
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
-    const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
     if (d.mode === 'add') {
-      // The preview the release must agree with: `pendingCells` has already dropped
-      // the cells that are not candidates (solid ground, a rail bed), and
-      // `checkBlockCells` names the refused ones so the notice can say why.
-      const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
       // A cut-mode click (半墙 / 三角) is tagged courses, not plain blocks: it goes
       // through `addWalls` with the height of one and the shape the press resolved,
       // which is what writes the `half-wall:<side>` / `tri-upper:<side>` tag the
@@ -257,6 +384,11 @@ export class BlockTool extends ToolController {
       if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
         const shape = d.shape ?? null
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
+        if (rect && triangle && cutLineCellCount(d.anchor, [target[0], target[1], d.z], triangle.side) > MAX_BLOCK_DRAG_CELLS) {
+          this.setDragLimitNotice(true)
+          return
+        }
+        this.setDragLimitNotice(false)
         const line =
           rect && triangle ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, triangle.side) : [d.anchor]
         const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle)
@@ -268,34 +400,50 @@ export class BlockTool extends ToolController {
         // instead of dropping the press in silence.
         if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, line)))
         else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', triangle ? msg('wedge') : msg('half_wall')))
-      } else if (st.suspendedCeiling) {
-        const result = addSuspendedCeiling(st.station, cells)
-        if (result.changed > 0) st.commit(result.state)
-        if (result.blocked > 0) st.setNotice(previewNotice(st.station, check))
-      } else if (rect && st.autoWalls) {
-        // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
-        // union it with earlier patches and rebuild the auto wall ring around
-        // the new edge. With the toggle off it takes the plain-block path below
-        // even for a drag — no tags, no walls.
-        //
-        // The release lays the cells the ghost drew — `check.acceptedCells`, not the
-        // raw rectangle — which is what `addFloor`'s own contract asks for ("the patch
-        // lays exactly the accepted cells"). The two differ on the implicit street at
-        // z = 0 (`sim/ground.ts`): `checkBlockCells` holds the plane to be floor
-        // already and leaves it out of both lists, so a drag on virgin ground previews
-        // nothing and must lay nothing. Handing `addFloor` the raw rectangle instead
-        // poured 25 explicit blocks and a 4 m wall ring onto ground the file never
-        // stores, for a ghost that had shown the player none of it.
-        const next = addFloor(st.station, check.acceptedCells)
-        if (next !== st.station) st.commit(next)
-        // The notice names the conflict — the 闸机, the ramp corridor, the rail
-        // bed — from the same preview the ghost drew, so the two cannot disagree.
-        if (check.blockedCells.length > 0) st.setNotice(previewNotice(st.station, check))
       } else {
-        const { cells: next, changed, blocked } = addCells(st.station.cells, cells, st.station.modules)
-        if (changed > 0) st.commit({ ...st.station, cells: next })
-        if (blocked > 0) st.setNotice(previewNotice(st.station, check))
-        else if (changed === 0) st.setNotice(msg('cannot_place_a_block_here_a_block_already_exists'))
+        // The patch a release lays, with its generated wall courses counted
+        // against the same budget. Over the budget it is refused whole, so a
+        // rectangle the ghost drew red never turns into a smaller patch.
+        const footprint = rect ? this.addDragFootprint(d.anchor, target, d.z, d.shift, st) : null
+        if (footprint?.overLimit) {
+          this.setDragLimitNotice(true)
+          return
+        }
+        this.setDragLimitNotice(false)
+        const cells = footprint?.cells ?? [d.anchor]
+        // The preview the release must agree with: `pendingCells` has already dropped
+        // the cells that are not candidates (solid ground, a rail bed), and
+        // `checkBlockCells` names the refused ones so the notice can say why.
+        const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
+        if (st.suspendedCeiling) {
+          const result = addSuspendedCeiling(st.station, cells)
+          if (result.changed > 0) st.commit(result.state)
+          if (result.blocked > 0) st.setNotice(previewNotice(st.station, check))
+        } else if (rect && st.autoWalls) {
+          // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
+          // union it with earlier patches and rebuild the auto wall ring around
+          // the new edge. With the toggle off it takes the plain-block path below
+          // even for a drag — no tags, no walls.
+          //
+          // The release lays the cells the ghost drew — `check.acceptedCells`, not the
+          // raw rectangle — which is what `addFloor`'s own contract asks for ("the patch
+          // lays exactly the accepted cells"). The two differ on the implicit street at
+          // z = 0 (`sim/ground.ts`): `checkBlockCells` holds the plane to be floor
+          // already and leaves it out of both lists, so a drag on virgin ground previews
+          // nothing and must lay nothing. Handing `addFloor` the raw rectangle instead
+          // poured 25 explicit blocks and a 4 m wall ring onto ground the file never
+          // stores, for a ghost that had shown the player none of it.
+          const next = addFloor(st.station, check.acceptedCells)
+          if (next !== st.station) st.commit(next)
+          // The notice names the conflict — the 闸机, the ramp corridor, the rail
+          // bed — from the same preview the ghost drew, so the two cannot disagree.
+          if (check.blockedCells.length > 0) st.setNotice(previewNotice(st.station, check))
+        } else {
+          const { cells: next, changed, blocked } = addCells(st.station.cells, cells, st.station.modules)
+          if (changed > 0) st.commit({ ...st.station, cells: next })
+          if (blocked > 0) st.setNotice(previewNotice(st.station, check))
+          else if (changed === 0) st.setNotice(msg('cannot_place_a_block_here_a_block_already_exists'))
+        }
       }
     } else {
       // Only the document's **own** blocks count against the seed's integrity
@@ -306,6 +454,7 @@ export class BlockTool extends ToolController {
       // guard's business at all, which is what keeps a brand-new station (no cells
       // of its own) diggable. A rectangle drawn across void counts for nothing, as
       // before.
+      const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
       const remove = pendingCells(cells, 'remove', this.ctx.solids())
       const authored = remove.filter(([x, y, z]) =>
         st.station.cells.some((c) => c.x === x && c.y === y && c.z === z),

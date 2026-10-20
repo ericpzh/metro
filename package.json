@@ -43,6 +43,7 @@
     "bench:browser": "npm --prefix game run build && node tools/bench-demos.mjs browser",
     "bench:road": "npm --prefix game run build && node tools/bench-road-drag.mjs",
     "bench:stair": "npm --prefix game run build && node tools/bench-stair-drag.mjs",
+    "bench:block-drag": "npm --prefix game run build && node tools/bench-block-drag.mjs",
     "bench:levels": "npm --prefix game run build && node tools/bench-level-switch.mjs",
     "check:geometry-detail": "npm --prefix game run build && node tools/check-geometry-detail.mjs",
     "audit:i18n": "node tools/audit-i18n.mjs",

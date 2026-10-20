@@ -30,6 +30,11 @@ Test both a miss and a hit near the end of a realistically large module list.
 - Coalesce replaceable pointer previews per frame; flush before release and
   cancel stale callbacks on cancellation, tool changes or unmount. Preserve all
   samples for deletion sweeps and touch gestures that depend on the path.
+- Count a drag's footprint arithmetically before allocating it, and debounce the
+  complete preview until the snapped cell is stable. An over-budget footprint is
+  refused whole — draw every cell as a refusal and commit nothing — rather than
+  clipping it to a smaller patch. The 方块 cap is 10,000 cells including generated
+  auto walls; `npm run bench:block-drag` measures the real pointer sequence.
 - Retain unaffected geometry and GPU allocations. Move pickup/cancel masks the
   lifted piece and restores neighbours without rebuilding the station.
 - Key prepared data by immutable document inputs and test invalidation. Bound

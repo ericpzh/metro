@@ -9,13 +9,48 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
-import { HALF_WALL_T } from '../src/sim/constants.ts'
+import { HALF_WALL_T, MAX_BLOCK_DRAG_CELLS } from '../src/sim/constants.ts'
 import { rampThinCells, thinWallCells } from '../src/sim/openings.ts'
 import { halfWallInnerFace, halfWallSide, halfWallTag, packKey } from '../src/sim/types.ts'
 import { addEquipment, addWalls, AUTO_FLOOR, createModule, syncAutoWalls, toState } from '../src/build/model.ts'
 import { withGround } from '../src/sim/ground.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
 import { BlockTool } from '../src/app/tools/BlockTool.ts'
+import { cutLineCellCount, dragCellCount } from '../src/app/tools/geometry/cells.ts'
+import { StablePreviewDelay } from '../src/app/tools/geometry/stablePreviewDelay.ts'
+import { msg } from '../src/sim/i18n.ts'
+
+test('block drag preview waits for a stable snapped cell and only runs the latest target', () => {
+  const callbacks = new Map()
+  let nextId = 0
+  const delay = new StablePreviewDelay(
+    100,
+    callback => { const id = ++nextId; callbacks.set(id, callback); return id },
+    id => callbacks.delete(id),
+  )
+  const draws = []
+  assert.equal(delay.scheduleLatest('cell:1,1,0', () => draws.push('first')), true)
+  assert.equal(delay.scheduleLatest('cell:1,1,0', () => draws.push('same-cell-latest')), false)
+  for (const callback of callbacks.values()) callback()
+  assert.deepEqual(draws, ['same-cell-latest'], 'same-cell events keep the timer and update its pointer data')
+  callbacks.clear()
+  assert.equal(delay.scheduleLatest('cell:2,1,0', () => draws.push('newest-cell')), true)
+  assert.equal(delay.scheduleLatest('cell:3,1,0', () => draws.push('newest-cell-again')), true)
+  assert.equal(callbacks.size, 1, 'changing snapped cells replaces the pending timer')
+  for (const callback of callbacks.values()) callback()
+  assert.deepEqual(draws, ['same-cell-latest', 'newest-cell-again'])
+})
+
+test('the 10,000-cell drag budget counts the rectangle, a Shift line and a 三角 line', () => {
+  assert.equal(MAX_BLOCK_DRAG_CELLS, 10000)
+  assert.equal(dragCellCount([0, 0, 2], [99, 99, 2], false), MAX_BLOCK_DRAG_CELLS)
+  assert.equal(dragCellCount([0, 0, 2], [100, 100, 2], false), MAX_BLOCK_DRAG_CELLS + 201)
+  assert.equal(dragCellCount([0, 0, 2], [0, 9999, 2], true), MAX_BLOCK_DRAG_CELLS)
+  assert.equal(dragCellCount([0, 0, 2], [0, 10000, 2], true), MAX_BLOCK_DRAG_CELLS + 1)
+  // A 三角 line only counts along its own ridge axis, like the run it lays.
+  assert.equal(cutLineCellCount([0, 0, 2], [9999, 0, 2], 'n'), MAX_BLOCK_DRAG_CELLS)
+  assert.equal(cutLineCellCount([0, 0, 2], [0, 10000, 2], 'e'), MAX_BLOCK_DRAG_CELLS + 1)
+})
 
 /**
  * A ToolContext with the scene stubbed out to a recorder. The controllers read
@@ -24,15 +59,17 @@ import { BlockTool } from '../src/app/tools/BlockTool.ts'
 function ctxFor({ street = false } = {}) {
   const ghosts = []
   const scene = {
-    setGhost: (cells, mode, module, thin) => ghosts.push({ cells, mode, thin }),
+    setGhost: (cells, mode, module, thin, refused = []) => ghosts.push({ cells, mode, thin, refused }),
     setCursor: () => {},
     setModulePreview: () => {},
     setFencePreview: () => {},
     setCollisionHighlight: () => {},
   }
   const ref = (v = null) => ({ current: v })
+  const drag = ref()
   return {
     ghosts,
+    drag,
     tool: new BlockTool({
       scene: () => scene,
       pick: () => null,
@@ -48,7 +85,7 @@ function ctxFor({ street = false } = {}) {
       },
       thins: () => new Map(),
       hover: ref(),
-      drag: ref(),
+      drag,
       paint: ref(),
       zoneDrag: ref(),
       facilityDrag: ref(),
@@ -85,6 +122,71 @@ function station() {
     station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }),
   })
 }
+
+/** An empty block-tool document at the height drags are tested. */
+function emptyStation(extra = {}) {
+  useStore.setState({
+    tool: 'block', halfWall: false, triangles: false, autoWalls: false,
+    notice: null, past: [], future: [],
+    station: toState({ name: 't', seed: 1, cells: [], modules: [], lines: [] }),
+    ...extra,
+  })
+}
+
+test('auto-wall block drags count generated wall courses in the same placement cap', () => {
+  emptyStation({ autoWalls: true })
+  const { tool, drag } = ctxFor()
+  drag.current = {
+    active: true, button: 0, mode: 'add', anchor: [0, 0, 1], z: 1,
+    shift: false, sx: 0, sy: 0, downTime: 0,
+  }
+  const move = { ...press([9, 9, 1], false), clientX: 100, clientY: 100 }
+  tool.onUp(move)
+  const cells = useStore.getState().station.cells
+  assert.ok(cells.length > 100, 'the committed patch keeps its generated wall ring')
+  assert.ok(cells.length < MAX_BLOCK_DRAG_CELLS, 'the floor and wall ring together stay inside the cap')
+})
+
+test('a drag over the 10,000-cell cap previews every cell red and places nothing', async () => {
+  emptyStation()
+  const { tool, drag, ghosts } = ctxFor()
+  drag.current = {
+    active: true, button: 0, mode: 'add', anchor: [0, 0, 1], z: 1,
+    shift: false, sx: 0, sy: 0, downTime: 0,
+  }
+  const move = { ...press([100, 100, 1], false), clientX: 100, clientY: 100 }
+  tool.onMove(move)
+  assert.equal(
+    useStore.getState().notice,
+    msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS),
+    'the error appears while the pointer is still down',
+  )
+
+  // The preview waits for a stable snapped cell, then draws the whole refused
+  // footprint red instead of a clipped cyan patch.
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  const preview = ghosts.at(-1)
+  assert.equal(preview.cells.length, 0, 'no cell is accepted')
+  assert.equal(preview.refused.length, 101 * 101, 'every cell of the rectangle is a red box')
+  assert.deepEqual(preview.refused[0], [0, 0, 1])
+  assert.deepEqual(preview.refused.at(-1), [100, 100, 1])
+
+  tool.onUp(move)
+  assert.equal(useStore.getState().station.cells.length, 0, 'the refused release lays nothing')
+  assert.equal(useStore.getState().notice, msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS))
+})
+
+test('a drag of exactly 10,000 cells is still placed', () => {
+  emptyStation()
+  const { tool, drag } = ctxFor()
+  drag.current = {
+    active: true, button: 0, mode: 'add', anchor: [0, 0, 1], z: 1,
+    shift: false, sx: 0, sy: 0, downTime: 0,
+  }
+  const move = { ...press([99, 99, 1], false), clientX: 100, clientY: 100 }
+  tool.onUp(move)
+  assert.equal(useStore.getState().station.cells.length, MAX_BLOCK_DRAG_CELLS)
+})
 
 /**
  * The extent of one lone cell **through** a side: 1 m for a full block, the

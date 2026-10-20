@@ -43,6 +43,19 @@ test('refused candidates are drawn as red boxes beside the accepted shape', () =
   assert.equal(mesh.visible, false, 'an empty refused list clears the boxes')
 })
 
+test('the refused box pool grows to draw a whole over-cap drag', () => {
+  const sys = ghostSystem()
+  const refused = Array.from({ length: 5000 }, (_, i) => [i % 100, Math.floor(i / 100), 1])
+  sys.setGhost([], 'add', 0xff5d5d, undefined, refused)
+  const mesh = sys.ghostMesh
+  assert.equal(mesh.count, refused.length, 'every refused cell gets a box')
+  assert.ok(mesh.instanceMatrix.count >= refused.length, 'the instance pool grew past its 4,096 start')
+  const m = new THREE.Matrix4()
+  mesh.getMatrixAt(refused.length - 1, m)
+  const p = new THREE.Vector3().setFromMatrixPosition(m)
+  assert.deepEqual([p.x, p.y, p.z], [99.5, 49.5, 1.5], 'the last cell is written, not dropped at the old cap')
+})
+
 test('a changed refused set rebuilds the boxes instead of keeping the old ones', () => {
   const sys = ghostSystem()
   sys.setGhost([], 'add', 0xff5d5d, undefined, [[1, 2, 0]])
@@ -74,8 +87,8 @@ test('the wall pieces sit their own way: no contact blob under them', () => {
 
 test('disposing the scene releases the remove-drag pool mesh', () => {
   // The instanced pool is scene-lifetime, not per-drag: a disposed scene that
-  // keeps its 4096-instance buffers keeps the scene. `disposeObject` spares
-  // shared materials, so the pool's own geometry and material go explicitly.
+  // keeps its instanced buffers keeps the scene. `disposeObject` spares shared
+  // materials, so the pool's own geometry and material go explicitly.
   const scene = new THREE.Scene()
   const ctx = new SceneContextData(scene, null, null, null)
   const sys = new GhostSystem(ctx)

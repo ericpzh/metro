@@ -1413,6 +1413,10 @@ export const messages = {
     "zh": "长 {0} m × 宽 {1} m",
     "en": "Length {0} m × width {1} m"
   },
+  "block_drag_area_too_large": {
+    "zh": "面积过大：单次方块拖动最多 {0} 格",
+    "en": "The area is too large: a block drag covers at most {0} cells"
+  },
   "cannot_place_value_here_a_block_already_exists": {
     "zh": "此处无法放置{0}：已有方块",
     "en": "Cannot place {0} here: a block already exists"

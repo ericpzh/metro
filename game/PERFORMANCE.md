@@ -5,6 +5,35 @@ storey profile and trains use uniform 0.98 scale. Measurements below describe
 the current geometry and the latest completed validation. Raw reports belong
 in ignored `.preview/perf/`.
 
+## Block drag footprint
+
+One 方块 drag is capped at 10,000 preview/placement cells, counting generated
+auto-wall courses too. A drag over that budget is refused whole: while the
+pointer is still down every cell in the requested footprint is drawn as a red
+box and the bottom notice says the area is too large; the release then commits
+nothing. The footprint is never clipped, so the red preview and the empty
+release tell the same story. Shift lines and 三角 ridge runs count against the
+same budget, and a release of exactly 10,000 cells still places.
+
+The preview still waits 100 ms for the snapped block to remain the same, then
+builds, validates and draws the complete latest footprint once; the pointer
+cursor updates immediately. Production-browser measurement on an empty station,
+active level 1, 99×99 real pointer drag (9,801 cells) with auto-walls off,
+1424×905 viewport, Headless Chrome 155 / SwiftShader: the settled ghost draw
+submitted 9,801 cells in 59.8 ms cold / 49.5 ms warm. Move event-to-two-frame
+readings were 209.0 ms cold / 194.9 ms warm. The warm release handler took
+436.6 ms and the release event-to-two-frame 484.8 ms — the accepted 9,801-cell
+commit and its chunk rebuild are synchronous, and SwiftShader timings are
+diagnostic rather than a GPU performance claim. Raw report:
+`.preview/perf/block-drag-10000.json`. Reproduce with `npm run bench:block-drag`.
+
+The deterministic `blocktool` regressions pin the 10,000-cell boundary, the
+whole-footprint refusal (all cells red, no commit, notice raised during the
+drag), auto-wall inclusion, and the Shift/三角 line counts. A deterministic
+scheduler regression confirms that a changing snapped cell replaces the pending
+draw, while repeated events over the same cell keep the timer and use the latest
+event data.
+
 ## Train LOD inventory
 
 **All ten third-rail rows match a freshly regenerated inventory.** Counts are
