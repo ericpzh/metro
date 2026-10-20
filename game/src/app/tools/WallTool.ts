@@ -8,7 +8,7 @@ import { addWalls, removeCells } from '../../build/model.ts'
 import { checkBlockCells, previewNotice } from '../../build/validation.ts'
 import { triangleOf } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { straightLineCells, triangleLineCells } from './geometry/cells.ts'
+import { dragCellCount, straightLineCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { halfWallSideFor, wallSnapAt } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
@@ -96,8 +96,47 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       // placed as. The anchor was already snapped at the press, so a drag
       // extends that line instead of re-snapping every cell it crosses.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
+      const cursor = dragging ? target : d.anchor
+      const columns = dragging ? dragCellCount(d.anchor, target, true) : 1
+      if (d.mode === 'add') {
+        // A wall run is columns × courses, not one cell per pointer step: count
+        // the blocks the release would actually lay, so it shares the same
+        // budget as a 方块 patch with generated walls.
+        const courses = Math.max(1, Math.round(st.station.storeyHeight))
+        const over = this.multiPlace.check(columns * courses)
+        scene.setCursor(cursor, !over)
+        if (over) {
+          // Build the red footprint only after the snapped cell settles; the
+          // notice and pointer verdict are already live.
+          const initial = st
+          const key = [...d.anchor, ...target, d.z, courses, initial.stationEpoch].join(':')
+          this.multiPlace.deferPreview(scene, key, () => {
+            const latest = useStore.getState()
+            if (latest.station !== initial.station || latest.tool !== 'wall') return
+            const sceneNow = this.ctx.scene()
+            if (!sceneNow) return
+            const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+            this.multiPlace.refuse(sceneNow, wallRun(line, latest.station.storeyHeight), cursor)
+          })
+          return
+        }
+        this.multiPlace.setNotice(false)
+      }
+      if (d.mode === 'add' && columns > 1) {
+        const key = [...d.anchor, ...target, d.z, st.station.storeyHeight, st.stationEpoch].join(':')
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current !== d) return
+          const line = straightLineCells(d.anchor, target, d.z)
+          const sceneNow = this.ctx.scene()
+          if (!sceneNow) return
+          this.showWallGhost(wallRun(line, useStore.getState().station.storeyHeight))
+          sceneNow.setCursor(line[line.length - 1], true)
+        })
+        return
+      }
+      if (d.mode === 'add') this.cancelPreview()
       const line = dragging ? (d.mode === 'remove' ? this.removeLine(d.anchor, target, d.z) : straightLineCells(d.anchor, target, d.z)) : [d.anchor]
-      if (d.mode === 'add') this.showWallGhost(wallRun(line, useStore.getState().station.storeyHeight))
+      if (d.mode === 'add') this.showWallGhost(wallRun(line, st.station.storeyHeight))
       else scene.setGhost(storeyColumnsAt(st.station, line), 'remove')
       scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
       return
@@ -108,6 +147,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
   }
 
   onUp(info: PointerInfo): void {
+    this.cancelPreview()
     const d = this.ctx.drag.current
     this.ctx.drag.current = null
     const scene = this.ctx.scene()
@@ -120,6 +160,16 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
+    // Refuse the whole run before allocating it. A wall column is as many cells
+    // as the storey is high, so the same 10,000-cell budget that covers a 方块
+    // patch with generated walls covers this one too.
+    const courses = d.single === true ? 1 : Math.max(1, Math.round(st.station.storeyHeight))
+    const columns = d.single === true || !rect ? 1 : dragCellCount(d.anchor, target, true)
+    if (d.mode === 'add' && columns * courses > this.multiPlace.limit) {
+      this.multiPlace.setNotice(true)
+      return
+    }
+    if (d.mode === 'add') this.multiPlace.setNotice(false)
     // A 墙 drag lays a straight axis-aligned run of full-height columns; a
     // quick press is one. The right drag lifts all blocks in each column's
     // storey. A **半墙** (`d.single`, the 方块 tool's mode) is always

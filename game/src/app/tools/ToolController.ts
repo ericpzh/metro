@@ -11,12 +11,22 @@ import { railModuleAt } from '../../build/rail.ts'
 import { moduleAt } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { moduleLabel, useStore, type Tool } from '../store.ts'
+import { MultiPlaceDrag, multiPlaceFor } from './geometry/multiPlaceDrag.ts'
 import type { PointerInfo, ToolContext } from './ToolContext.ts'
 
 export abstract class ToolController {
   protected ctx: ToolContext
+  /** Shared by every controller on this context; see `multiPlaceDrag.ts`. */
+  protected readonly multiPlace: MultiPlaceDrag
+
   constructor(ctx: ToolContext) {
     this.ctx = ctx
+    this.multiPlace = multiPlaceFor(ctx)
+  }
+
+  /** Cancel a pending stable preview or refusal when this drag loses the pointer. */
+  cancelPreview(): void {
+    this.multiPlace.cancelPreview()
   }
 
   abstract readonly tool: Tool | 'move'

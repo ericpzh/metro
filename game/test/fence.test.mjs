@@ -93,6 +93,7 @@ test('fence drag previews and places the selected variant, and deletion leaves d
       tool.onDown(event(0))
       drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
       tool.onMove(event(2))
+      tool.multiPlace.flushPreview()
       assert.equal(ghost.length, 3)
       assert.ok(ghost.every((m) => m.cfg.variant === createModule(type, 0, 0, 0, 'expected').cfg.variant))
       tool.onUp(event(2))
@@ -124,6 +125,7 @@ test('sound-barrier line drags retain the R-selected side in their preview and c
           hit: { cell: axis === 0 ? [n, 0, 0] : [0, n, 0], place: [0, 0, 1], solid: true }, preventDefault() {} })
         tool.onDown(event(0)); drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
         tool.onMove(event(2))
+        tool.multiPlace.flushPreview()
         assert.equal(preview.length, 3)
         assert.ok(preview.every(mod => mod.rot === axis + side), 'the preview stays on the chosen tile edge')
         tool.onUp(event(2))

@@ -1,38 +1,71 @@
 # Current performance state
 
-Verified 2026-10-19. One editable block is 1 m; stations use a single 5 m
+Verified 2026-10-20. One editable block is 1 m; stations use a single 5 m
 storey profile and trains use uniform 0.98 scale. Measurements below describe
 the current geometry and the latest completed validation. Raw reports belong
 in ignored `.preview/perf/`.
 
 ## Block drag footprint
 
-One 方块 drag is capped at 10,000 preview/placement cells, counting generated
-auto-wall courses too. A drag over that budget is refused whole: while the
-pointer is still down every cell in the requested footprint is drawn as a red
-box and the bottom notice says the area is too large; the release then commits
-nothing. The footprint is never clipped, so the red preview and the empty
-release tell the same story. Shift lines and 三角 ridge runs count against the
-same budget, and a release of exactly 10,000 cells still places.
+### Roof drag correction (2026-10-20)
 
-The preview still waits 100 ms for the snapped block to remain the same, then
-builds, validates and draws the complete latest footprint once; the pointer
-cursor updates immediately. Production-browser measurement on an empty station,
-active level 1, 99×99 real pointer drag (9,801 cells) with auto-walls off,
-1424×905 viewport, Headless Chrome 155 / SwiftShader: the settled ghost draw
-submitted 9,801 cells in 59.8 ms cold / 49.5 ms warm. Move event-to-two-frame
-readings were 209.0 ms cold / 194.9 ms warm. The warm release handler took
-436.6 ms and the release event-to-two-frame 484.8 ms — the accepted 9,801-cell
-commit and its chunk rebuild are synchronous, and SwiftShader timings are
-diagnostic rather than a GPU performance claim. Raw report:
-`.preview/perf/block-drag-10000.json`. Reproduce with `npm run bench:block-drag`.
+Roof timing must be measured separately from blocks. The previous shared timer
+deferred synchronous roof work: a 900-tile patch still built 900 model groups,
+and release rebuilt collision caches on each growing module array. Roof previews
+now build one exact model per homogeneous run and instance its geometry; all
+variants retain their full shape and rotation. Placement checks use one immutable
+document, skip existing tiles through a cached footprint index, and append the
+accepted disjoint roofs in one edit. The 10,000 cap and 100 ms settle remain.
 
-The deterministic `blocktool` regressions pin the 10,000-cell boundary, the
-whole-footprint refusal (all cells red, no commit, notice raised during the
-drag), auto-wall inclusion, and the Shift/三角 line counts. A deterministic
-scheduler regression confirms that a changing snapped cell replaces the pending
-draw, while repeated events over the same cell keep the timer and use the latest
-event data.
+Production pointer comparison, 900 thin roofs, empty station, 1424×905, Chrome
+155 / SwiftShader, same camera and gesture: preview submission was 16.5/17.0 ms
+cold/warm before and 0.8/0.7 ms after. Movement through two animation frames,
+including the settle delay, was 267.5/314.3 ms before and 163.3/150.6 ms after.
+The release handler fell from 313.0 to 73.5 ms (two frames: 436.9 to 117.0 ms).
+Reports: `.preview/perf/roof-drag-baseline.json` and `roof-drag-final.json`.
+
+The larger 9,801-roof run retains every tile in one preview mesh: cold/warm
+preview submission 7.5/5.4 ms, movement handlers 0.1/0.0 ms. Preview totals were
+11 scene draw calls (10 without the preview). Release still takes 394.3 ms
+(456.6 ms through two frames) to commit and build the placed models; the preview
+optimization does not make that large document edit asynchronous. Raw report:
+`.preview/perf/roof-drag-final-100.json`. Run `node tools/bench-roof-drag.mjs`
+after building; `BENCH_SIDE=100` exercises the larger run. Browser timing is
+evidence, not a deterministic test threshold.
+
+`roof-preview` pins the exact model matrices for every roof variant and rotation,
+10,000 retained instances in one thin-roof draw, and instance buffer disposal.
+`roof-tool` pins one collision preparation and one undoable bulk placement.
+
+Every drag that places multiple equipment or decor cells shares a 10,000-cell
+budget in `app/tools/geometry/multiPlaceDrag.ts`. Block patches include generated
+auto-wall courses; full-height wall columns count each course; fence and tactile
+lines count panels; roof, stair-block and outdoor drags count generated tiles;
+roads count their rectangular cell footprint. The count is checked before the
+large preview allocation. Over-budget drags are refused whole, show a red
+footprint after the pointer target settles, and commit nothing. A 10,000-cell
+release remains accepted.
+
+Each tool updates the cursor and limit notice on the pointer event, then waits
+100 ms on a replaceable timer before building the latest heavy preview. Changing
+the snapped target restarts the timer; release, cancellation and tool changes
+clear pending work. Single-cell hover previews remain immediate. The stable
+timer is deterministic and uses no wall-clock threshold in tests.
+
+Production-browser measurement on an empty station, active level 1, 99×99 real
+pointer drag (9,801 cells) with auto-walls off, 1424×905 viewport, Headless Chrome
+155 / SwiftShader: cold/warm first-move handlers were 0.1/0.0 ms and the settled
+ghost submissions took 39.5/31.1 ms. Move event-to-two-frame readings were
+200.3/180.6 ms including the 100 ms stable-preview delay. The warm release
+handler took 256.4 ms and release event-to-two-frame 281.0 ms; the accepted
+9,801-cell commit and its chunk rebuild remain synchronous. SwiftShader timings
+are diagnostic rather than a GPU performance claim. Raw report:
+`.preview/perf/block-drag.json`. Reproduce with `npm run bench:block-drag`.
+
+`multi-place-drag` pins shared ownership, the exact cap, timer replacement and
+cancellation. `blocktool` pins whole-footprint refusal (all cells red, no commit,
+notice raised during the drag), auto-wall inclusion and Shift/三角 counts;
+equipment suites pin their placement/release contracts.
 
 ## Train LOD inventory
 

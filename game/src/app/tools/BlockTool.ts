@@ -23,23 +23,15 @@ import { checkBlockCells, newPreview, previewNotice } from '../../build/validati
 import type { PlacementPreview } from '../../build/validation.ts'
 import type { Cell, CellShape } from '../../sim/types.ts'
 import { triangleOf } from '../../sim/types.ts'
-import { MAX_BLOCK_DRAG_CELLS } from '../../sim/constants.ts'
 import { useStore } from '../store.ts'
 import { cutLineCellCount, dragCellCount, pendingCells, rectCells, straightLineCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { cutShapeFor, shapeWallSide, thinGhost } from './geometry/walls.ts'
-import { StablePreviewDelay } from './geometry/stablePreviewDelay.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
 export class BlockTool extends ToolController {
   readonly tool = 'block' as const
-  private readonly previewDelay = new StablePreviewDelay()
-
-  /** Invalidate any replaceable, in-progress drag preview. */
-  cancelPreview(): void {
-    this.previewDelay.clear()
-  }
 
   onDown(info: PointerInfo): void {
     this.cancelPreview()
@@ -167,29 +159,40 @@ export class BlockTool extends ToolController {
       // moves; a tap stays one wedge, and a 半墙 stays one panel either way.
       const target: [number, number, number] = hit.solid ? hit.place : hit.cell
       const dragging = held && performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const line =
-        dragging && shape?.kind === 'triangle'
-          ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
-          : [base]
+      const triangleDrag = dragging && shape?.kind === 'triangle'
       // A run over the drag budget is refused whole: every wedge is drawn red
       // and the release lays none of them, rather than the ghost promising a
       // shorter run than the pointer drew.
-      const tooLarge = dragging && shape?.kind === 'triangle'
-        && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > MAX_BLOCK_DRAG_CELLS
-      let blocked = false
+      const tooLarge = triangleDrag
+        && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > this.multiPlace.limit
+      const cursor: [number, number, number] = triangleDrag ? [target[0], target[1], d.z] : base
       if (tooLarge) {
-        this.setDragLimitNotice(true)
-        scene.setGhost([], 'add', undefined, undefined, line)
-        scene.setCollisionHighlight(null)
-        blocked = true
-      } else {
-        this.setDragLimitNotice(false)
-        // The pointer's own ring is the verdict too: a cell that refuses the piece
-        // shows the ring red, not a hopeful cyan over a red box.
-        blocked = this.drawCutGhost(line, shape).blockedCells.length > 0
+        this.multiPlace.setNotice(true)
+        const key = [...d.anchor, ...target, d.z, shape.side, st.stationEpoch].join(':')
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current !== d) return
+          const line = triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
+          this.multiPlace.refuse(this.ctx.scene(), line, cursor)
+        })
+        scene.setCursor(cursor, false)
+        this.ctx.clearMeasure()
+        return
       }
-      const cursor = dragging && line.length > 0 ? line[line.length - 1] : base
-      scene.setCursor(cursor, !blocked)
+      this.multiPlace.setNotice(false)
+      const draw = () => {
+        const line = triangleDrag
+          ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape!.side)
+          : [base]
+        const blocked = this.drawCutGhost(line, shape).blockedCells.length > 0
+        scene.setCursor(cursor, !blocked)
+      }
+      if (triangleDrag) {
+        const key = [...d.anchor, ...target, d.z, shape!.side, st.stationEpoch].join(':')
+        this.multiPlace.deferPreview(scene, key, () => { if (this.ctx.drag.current === d) draw() })
+      } else {
+        this.cancelPreview()
+        draw()
+      }
       this.ctx.clearMeasure()
       return
     }
@@ -203,9 +206,8 @@ export class BlockTool extends ToolController {
         // Snap the ring immediately, but wait until the snapped cell is stable
         // for 100 ms before constructing and drawing its complete preview.
         const addTarget = hit.solid ? hit.place : hit.cell
-        const tooLarge = dragCellCount(d.anchor, addTarget, info.shiftKey) > MAX_BLOCK_DRAG_CELLS
+        const tooLarge = this.multiPlace.check(dragCellCount(d.anchor, addTarget, info.shiftKey))
         scene.setCursor(addTarget, !tooLarge)
-        this.setDragLimitNotice(tooLarge)
         this.ctx.showMeasure(info.clientX, info.clientY, msg(
           'length_value_m_width_value_m',
           Math.abs(addTarget[0] - d.anchor[0]) + 1,
@@ -282,7 +284,7 @@ export class BlockTool extends ToolController {
       ...anchor, ...target, z, Number(shift), Number(initial.autoWalls),
       Number(initial.suspendedCeiling), initial.stationEpoch,
     ].join(':')
-    const changed = this.previewDelay.scheduleLatest(key, () => {
+    const changed = this.multiPlace.schedule(key, () => {
       const st = useStore.getState()
       if (st.tool !== 'block' || st.station !== initial.station ||
           st.autoWalls !== initial.autoWalls || st.suspendedCeiling !== initial.suspendedCeiling) return
@@ -295,16 +297,13 @@ export class BlockTool extends ToolController {
         Math.abs(target[1] - anchor[1]) + 1,
       ))
       if (footprint.overLimit) {
-        this.setDragLimitNotice(true)
         // The whole footprint is refused, so every cell it covers is a red box:
         // the player sees the drag is too large before releasing, not a smaller
         // patch that silently replaced the rectangle they drew.
-        scene.setGhost([], 'add', undefined, undefined, [...footprint.cells, ...footprint.autoWalls])
-        scene.setCollisionHighlight(null)
-        scene.setCursor(target, false)
+        this.multiPlace.refuse(scene, [...footprint.cells, ...footprint.autoWalls], target)
         return
       }
-      this.setDragLimitNotice(false)
+      this.multiPlace.setNotice(false)
       const cells = [...footprint.cells, ...footprint.autoWalls]
       const station = st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station
       const check = checkBlockCells(station, cells)
@@ -321,7 +320,7 @@ export class BlockTool extends ToolController {
 
   /**
    * The floor cells a 方块 drag would lay, plus its generated auto-wall courses.
-   * A footprint over `MAX_BLOCK_DRAG_CELLS` — walls included — is not clipped:
+   * A footprint over the shared drag budget — walls included — is not clipped:
    * `overLimit` refuses it whole, and the caller draws every cell red.
    */
   private addDragFootprint(
@@ -335,23 +334,14 @@ export class BlockTool extends ToolController {
     autoWalls: Array<[number, number, number]>
     overLimit: boolean
   } {
+    const count = dragCellCount(anchor, target, line)
+    if (count > this.multiPlace.limit) {
+      return { cells: rectCells(anchor, target, z, line), autoWalls: [], overLimit: true }
+    }
     const cells = rectCells(anchor, target, z, line)
-    if (cells.length > MAX_BLOCK_DRAG_CELLS) return { cells, autoWalls: [], overLimit: true }
     if (!st.autoWalls || st.suspendedCeiling) return { cells, autoWalls: [], overLimit: false }
     const autoWalls = plannedAutoWalls(this.ctx.solids(), cells, st.station.modules, st.station.storeyHeight)
-    return { cells, autoWalls, overLimit: cells.length + autoWalls.length > MAX_BLOCK_DRAG_CELLS }
-  }
-
-  /**
-   * Show the area-too-large error while dragging over budget, and clear it when
-   * the drag shrinks back inside the budget — without stealing an unrelated
-   * notice that happens to be on screen.
-   */
-  private setDragLimitNotice(over: boolean): void {
-    const st = useStore.getState()
-    const message = msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS)
-    if (over) st.setNotice(message)
-    else if (st.notice === message) st.setNotice(null)
+    return { cells, autoWalls, overLimit: cells.length + autoWalls.length > this.multiPlace.limit }
   }
 
   onUp(info: PointerInfo): void {
@@ -384,11 +374,11 @@ export class BlockTool extends ToolController {
       if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
         const shape = d.shape ?? null
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
-        if (rect && triangle && cutLineCellCount(d.anchor, [target[0], target[1], d.z], triangle.side) > MAX_BLOCK_DRAG_CELLS) {
-          this.setDragLimitNotice(true)
+        if (rect && triangle && cutLineCellCount(d.anchor, [target[0], target[1], d.z], triangle.side) > this.multiPlace.limit) {
+          this.multiPlace.setNotice(true)
           return
         }
-        this.setDragLimitNotice(false)
+        this.multiPlace.setNotice(false)
         const line =
           rect && triangle ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, triangle.side) : [d.anchor]
         const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle)
@@ -406,10 +396,10 @@ export class BlockTool extends ToolController {
         // rectangle the ghost drew red never turns into a smaller patch.
         const footprint = rect ? this.addDragFootprint(d.anchor, target, d.z, d.shift, st) : null
         if (footprint?.overLimit) {
-          this.setDragLimitNotice(true)
+          this.multiPlace.setNotice(true)
           return
         }
-        this.setDragLimitNotice(false)
+        this.multiPlace.setNotice(false)
         const cells = footprint?.cells ?? [d.anchor]
         // The preview the release must agree with: `pendingCells` has already dropped
         // the cells that are not candidates (solid ground, a rail bed), and

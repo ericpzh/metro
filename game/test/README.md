@@ -113,8 +113,14 @@ contribute to the Node suite's V8 coverage figures.
 
 `roof-tool` pins stair-block previews without placement validation or document edits;
 release validates the run and commits only accepted tiles once.
+`roof-preview` pins exact instanced roof geometry/rotation for all roof variants,
+all 10,000 tiles in one thin-roof draw, and instance-buffer disposal. `roof-tool`
+also guards bulk roof release against per-tile collision-cache preparation.
 It also checks a 1,334-module station produces one mouse-down raycast for both
 an empty hit and a hit on the final module, preserving the chosen anchor.
+`multi-place-drag` covers the shared equipment/decor limit, context-scoped
+ownership, 100 ms latest-target preview scheduling and cancellation, plus whole
+refusal for fence, tactile, wall, outdoor-tile and road drags over 10,000 cells.
 `equipment-placement-input` guards one scene pick per event for tactile placement,
 floor-mark deletion and exit snapping with large-document misses and late hits.
 It also pins bridge snapping across visible track/screen surfaces above lower floors,
@@ -913,3 +919,5 @@ in `.preview/perf/train-raised-ceiling/`.
 Continuous-ceiling final validation: full suite 1,925 passing, zero failures/skips;
 production build, interior close-up and open/closed batching checks pass.
 Full log: `.preview/perf/train-raised-ceiling/full-tests-final.txt`.
+
+`builder-attributes` also pins abstract size-mark selections and the shared stacked-plane single/double-storey artwork binding; platform and module direction tiles share `DirectionArt`, and every rotation tile shares `RotationArt`.

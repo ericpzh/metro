@@ -31,6 +31,7 @@ import type { ClockSystem } from './ClockSystem.ts'
 import type { LevelSystem } from './LevelSystem.ts'
 import { fenceConnectionIndex } from '../../../sim/fences.ts'
 import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
+import { instanceRoofPreview } from '../../roofPreview.ts'
 
 /**
  * Starting pool size for the instanced ghost meshes. The box pool grows when a
@@ -513,6 +514,18 @@ export class GhostSystem extends SceneSystem {
       owned: this.previewOwnedMats,
     }
     const tint = blocked ? MODULE_GHOST_BAD : tintOverride === undefined ? MODULE_GHOST_TINT : new THREE.Color(tintOverride)
+    const first = mods[0]
+    if (mods.length > 1 && first.type === 'roof' && mods.every(piece => piece.type === 'roof'
+      && piece.w === first.w && piece.d === first.d && piece.rot === first.rot
+      && JSON.stringify(piece.cfg) === JSON.stringify(first.cfg))) {
+      const source = buildModule(first, ctx)
+      if (source) {
+        this.tintModuleGhost(source, first, tint, 0.72, this.previewMats, this.previewBases, m => this.sceneOwns(m))
+        this.previewGroup.add(instanceRoofPreview(source, mods))
+      }
+      this.previewGroup.visible = true
+      return
+    }
     if (mods.some(m => m.type === 'fence')) {
       const placed = fenceConnectionIndex(data.modules), added = fenceConnectionIndex(mods)
       ctx.fenceConnections = { fencesAt: placed.fencesAt, connects: (...args) => placed.connects(...args) || added.connects(...args) }

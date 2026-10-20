@@ -20,9 +20,29 @@ function harness(cells = [], moduleType = 'roof') {
   const scene = { setModulePreview: (mods, refused) => { ghost = mods ?? []; blocked = refused }, setGhost() {}, setCollisionHighlight(ids) { colliders = ids }, setCursor() {} }
   const ctx = { scene: () => scene, pickModule: () => { picks++; return pickedId }, drag, hover: { current: null }, showMeasure() {}, clearMeasure() {} }
   const tool = new RoofTool(ctx)
+  const move = tool.onMove.bind(tool)
+  tool.onMove = info => { move(info); tool.multiPlace.flushPreview() }
   const event = (x, y, button = 0) => ({ clientX: x * 20, clientY: y * 20, button, buttons: button === 2 ? 2 : 1, shiftKey: false, hit: { cell: [x, y, 0], place: [x, y, 1], solid: true }, preventDefault() {} })
   return { tool, event, drag, state, ghost: () => ghost, blocked: () => blocked, colliders: () => colliders, picks: () => picks, pick: id => { pickedId = id } }
 }
+
+test('bulk roof release prepares existing collision geometry once and appends the full run in one edit', () => {
+  const h = harness()
+  let widthReads = 0
+  const old = createModule('roof', 1_000, 1_000, 0, 'existing-roof')
+  const width = old.w
+  Object.defineProperty(old, 'w', { enumerable: true, get() { widthReads++; return width } })
+  useStore.setState({ station: { ...h.state, modules: [old] } })
+  h.tool.onDown(h.event(0, 0))
+  h.tool.onUp(h.event(29, 29))
+  const state = useStore.getState()
+  assert.equal(state.station.modules.length, 901)
+  assert.equal(new Set(state.station.modules.map(module => module.id)).size, 901)
+  assert.equal(state.past.length, 1)
+  assert.ok(widthReads < 20, `existing roof bounds must be prepared once, got ${widthReads} width reads`)
+  state.undo()
+  assert.equal(useStore.getState().station.modules.length, 1)
+})
 
 test('stair-block mouse-down raycasts once with many modules, including misses and late hits', () => {
   const modules = Array.from({ length: 1333 }, (_, index) => createModule('bench', index, 0, 0, `bench-${index}`))

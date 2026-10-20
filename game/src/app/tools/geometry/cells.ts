@@ -126,6 +126,24 @@ export function triangleLineCells(
   return out
 }
 
+/** How many cells a run covers along one fixed world axis, without allocating it. */
+export function axisLineCellCount(
+  a: [number, number, number],
+  b: [number, number, number],
+  axis: 'x' | 'y',
+): number {
+  return Math.abs(b[axis === 'x' ? 0 : 1] - a[axis === 'x' ? 0 : 1]) + 1
+}
+
+/** How many blocks a 楼梯块 drag covers along its rotated width axis. */
+export function stairBlockLineCellCount(
+  a: [number, number, number],
+  b: [number, number, number],
+  rot: number,
+): number {
+  return axisLineCellCount(a, b, Math.abs(rot) % 2 !== 0 ? 'x' : 'y')
+}
+
 /**
  * A 楼梯块 drag follows its side-to-side width axis, fixed by the tile's
  * rotation. Sideways pointer travel is ignored so a row of adjacent stair

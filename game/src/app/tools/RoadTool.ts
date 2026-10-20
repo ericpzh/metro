@@ -2,7 +2,8 @@ import { msg } from '../../sim/i18n.ts'
 import { roadLayout, type Road } from '../../sim/roads.ts'
 import { getRoadDocument, roadBetween, roadSnap, roadSegmentAt, type RoadPosition, type RoadSegment } from '../../sim/roadDocument.ts'
 import { equipmentReason, equipmentRefusalNotice } from '../../sim/placement.ts'
-import { ROAD_NODE_SNAP_RADIUS } from '../../sim/constants.ts'
+import { MAX_DRAG_CELLS, ROAD_NODE_SNAP_RADIUS } from '../../sim/constants.ts'
+import { rectCells } from './geometry/cells.ts'
 import { addRoadSegment, nextModuleId } from '../../build/model.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
@@ -42,7 +43,24 @@ export class RoadTool extends ToolController {
     this.ctx.hover.current={cell:info.hit.cell,place:info.hit.place,solid:info.hit.solid,point:[info.hit.point?.[0]??info.hit.cell[0],info.hit.point?.[1]??info.hit.cell[1]]}
     const d=this.ctx.drag.current
     if(d?.road){d.lx=info.clientX;d.ly=info.clientY}
-    this.draw()
+    if(d?.road&&d.mode==='add'){
+      const s=useStore.getState(),raw=this.ctx.hover.current.point??[this.ctx.hover.current.cell[0],this.ctx.hover.current.cell[1]]
+      const road=this.candidate('road-preview'),count=road?roadLayout(road).width*roadLayout(road).length:1
+      const over=this.multiPlace.check(count),scene=this.ctx.scene()
+      if(!scene)return
+      const key=[...d.roadStart!,Math.round(raw[0]),Math.round(raw[1]),d.z,s.roadWidth,s.roadDirection,s.moduleRot,s.stationEpoch].join(':')
+      if(over){
+        this.multiPlace.deferPreview(scene,key,()=>{
+          if(this.ctx.drag.current!==d)return
+          const cells=road?rectCells([road.x,road.y,road.z],[road.x+road.w-1,road.y+road.d-1,road.z],road.z,false):[]
+          this.multiPlace.refuse(this.ctx.scene(),cells,road?.cfg.to?[road.cfg.to[0],road.cfg.to[1],road.z]:d.anchor)
+        })
+      }else{
+        scene.setCursor(road?.cfg.to?[road.cfg.to[0],road.cfg.to[1],road.z]:d.anchor,true)
+        if(road&&roadLayout(road).length<=1){this.cancelPreview();this.draw()}
+        else this.multiPlace.deferPreview(scene,key,()=>{if(this.ctx.drag.current===d)this.draw()})
+      }
+    }else this.draw()
     if(!d)this.ctx.showMeasure(info.clientX,info.clientY,msg('road_node_hint'))
   }
   override refreshHover():void {
@@ -73,6 +91,7 @@ export class RoadTool extends ToolController {
   }
   onUp(info:PointerInfo):void {
     const d=this.ctx.drag.current;if(!d?.road)return
+    this.cancelPreview()
     if(info.hit)this.ctx.hover.current={cell:info.hit.cell,place:info.hit.place,solid:info.hit.solid,point:[info.hit.point?.[0]??info.hit.cell[0],info.hit.point?.[1]??info.hit.cell[1]]}
     const s=useStore.getState(),r=this.candidate(nextModuleId(s.station.modules,'road'))
     this.ctx.drag.current=null;this.ctx.clearMeasure();this.ctx.scene()?.setModulePreview(null)
@@ -83,6 +102,9 @@ export class RoadTool extends ToolController {
       return
     }
     if(!r||!r.cfg.from||!r.cfg.to||Math.hypot(r.cfg.to[0]-r.cfg.from[0],r.cfg.to[1]-r.cfg.from[1])<1){s.setNotice(msg('road_nodes_distinct'));return}
+    const layout=roadLayout(r),count=layout.width*layout.length
+    if(count>MAX_DRAG_CELLS){this.multiPlace.setNotice(true);return}
+    this.multiPlace.setNotice(false)
     const why=equipmentReason(s.station.cells,s.station.modules,r)
     if(why)s.setNotice(equipmentRefusalNotice(why))
     else s.commit(addRoadSegment(s.station,r))

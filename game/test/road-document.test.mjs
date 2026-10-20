@@ -98,7 +98,7 @@ test('a snapped start keeps the selected width and direction, previews without e
   const scene={setGhost(){},setCursor(){},setModulePreview(m){preview=m},setRoadNodePreview(n){nodes=n}}
   useStore.setState({station:initial,past:[],future:[],tool:'module',moduleType:'road',roadWidth:18,roadDirection:'one-way',moduleRot:0})
   const tool=new RoadTool({scene:()=>scene,pickModule:()=>{picks++;return 'a'},drag,hover,clearMeasure(){},showMeasure(){}})
-  tool.onDown(event(0,15));tool.onMove(event(20,15))
+  tool.onDown(event(0,15));tool.onMove(event(20,15));tool.multiPlace.flushPreview()
   assert.equal(picks,1);assert.equal(useStore.getState().roadWidth,18);assert.equal(useStore.getState().roadDirection,'one-way')
   assert.deepEqual(preview[0].cfg.from,[0,15]);assert.deepEqual(preview[0].cfg.to,[20,15]);assert.equal(nodes.length,2)
   assert.equal(roadLayout(preview[0]).width,18,'starting on a road body keeps the selected width')
@@ -119,7 +119,7 @@ test('starting on a node keeps the selected width and direction rather than the 
   useStore.setState({station:initial,past:[],future:[],tool:'module',moduleType:'road',roadWidth:18,roadDirection:'one-way',moduleRot:0})
   const tool=new RoadTool({scene:()=>scene,pickModule:()=>null,drag,hover,clearMeasure(){},showMeasure(){}})
   tool.onDown(event(0,30));assert.deepEqual(drag.current.roadStart,[0,30],'the endpoint node inside the snap radius is reused')
-  tool.onMove(event(20,30))
+  tool.onMove(event(20,30));tool.multiPlace.flushPreview()
   assert.equal(useStore.getState().roadWidth,18);assert.equal(useStore.getState().roadDirection,'one-way')
   assert.equal(roadLayout(preview[0]).width,18);assert.equal(preview[0].cfg.direction,'one-way')
   tool.onUp(event(20,30))
@@ -174,6 +174,6 @@ test('hidden road nodes cannot snap or delete, and a refused segment makes no ed
   tool.onUp(event(1,31));assert.equal(useStore.getState().past.length,0)
   const hole=state([]);hole.cells=[{x:0,y:10,z:0,fill:'void'}]
   useStore.setState({station:hole,past:[],future:[]})
-  tool.onDown(event(0,0));tool.onMove(event(0,20));assert.ok(preview)
+  tool.onDown(event(0,0));tool.onMove(event(0,20));tool.multiPlace.flushPreview();assert.ok(preview)
   tool.onUp(event(0,20));assert.equal(useStore.getState().past.length,0);assert.ok(useStore.getState().notice)
 })

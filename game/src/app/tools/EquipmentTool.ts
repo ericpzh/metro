@@ -49,7 +49,7 @@ import {
 import { checkModulePlacements } from '../../build/validation.ts'
 import type { Module } from '../../sim/types.ts'
 import { isDecorType, isFenceType, isStairType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
-import { straightLineCells } from './geometry/cells.ts'
+import { dragCellCount, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
@@ -281,17 +281,51 @@ export class EquipmentTool extends ToolController {
       const target: [number, number, number] = [hit.cell[0], hit.cell[1], d.z]
       // Only a deliberate press becomes a run; a quick press stays one panel.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+      const cursor = dragging ? target : d.anchor
       if (d.mode === 'add') {
+        const count = dragging ? dragCellCount(d.anchor, target, true) : 1
+        const over = this.multiPlace.check(count)
+        scene.setCursor(cursor, !over)
+        const lineKey = [...d.anchor, ...target, d.z, st.moduleType, st.moduleRot, st.stationEpoch].join(':')
+        if (over) {
+          // Count first, then build the red run only once the snapped end has
+          // settled. The accepted fence preview is cleared immediately so the
+          // player never reads a shorter run as the one about to be laid.
+          this.multiPlace.deferPreview(scene, lineKey, () => {
+            if (this.ctx.drag.current !== d) return
+            const sceneNow = this.ctx.scene()
+            if (!sceneNow) return
+            const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
+            this.multiPlace.refuse(sceneNow, line, cursor)
+          })
+          return
+        }
+        this.multiPlace.setNotice(false)
+        if (count > 1) {
+          this.multiPlace.deferPreview(scene, lineKey, () => {
+            if (this.ctx.drag.current !== d) return
+            const line = straightLineCells(d.anchor, target, d.z)
+            const rot = this.fenceRunRotation(line)
+            const { mods, blocked, colliderIds } = this.fenceRunPreview(line, rot)
+            const sceneNow = this.ctx.scene()
+            sceneNow?.setFencePreview(mods, blocked)
+            sceneNow?.setCollisionHighlight(blocked ? colliderIds : null)
+            sceneNow?.setCursor(line[line.length - 1] ?? cursor, !blocked)
+          })
+          return
+        }
+        this.cancelPreview()
+        const line = [d.anchor]
         const rot = this.fenceRunRotation(line)
         const { mods, blocked, colliderIds } = this.fenceRunPreview(line, rot)
         scene.setGhost([], 'add')
         scene.setModulePreview(null)
         scene.setFencePreview(mods, blocked)
         scene.setCollisionHighlight(blocked ? colliderIds : null)
-        scene.setCursor(dragging ? line[line.length - 1] : d.anchor, !blocked)
+        scene.setCursor(d.anchor, !blocked)
       } else {
         // Preview exactly the fence panels the release would lift.
+        const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
         const seen = new Set<string>()
         const cells: Array<[number, number, number]> = []
         for (const [x, y, z] of line) {
@@ -323,6 +357,7 @@ export class EquipmentTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    this.cancelPreview()
     if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
@@ -343,6 +378,14 @@ export class EquipmentTool extends ToolController {
     // a quick press is one panel with the R rotation. The run's panels follow
     // the drag direction, and the right drag lifts the same run back out.
     const lineTarget: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], d.z] : d.anchor
+    // Count the run before allocating its cells. An over-budget fence is
+    // refused whole: no panel on the line is laid and nothing is clipped.
+    const panels = rect ? dragCellCount(d.anchor, lineTarget, true) : 1
+    if (d.mode === 'add' && panels > this.multiPlace.limit) {
+      this.multiPlace.setNotice(true)
+      return
+    }
+    if (d.mode === 'add') this.multiPlace.setNotice(false)
     const line = rect ? straightLineCells(d.anchor, lineTarget, d.z) : [d.anchor]
     if (d.mode === 'add') {
       // The panel follows the run's own span. Using the run cells (not the

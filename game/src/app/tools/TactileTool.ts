@@ -5,7 +5,7 @@ import { tactileAt } from '../../sim/floorDecor.ts'
 import { equipmentReason, equipmentRefusalNotice, placementColliders } from '../../sim/placement.ts'
 import type { Module } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { straightLineCells } from './geometry/cells.ts'
+import { dragCellCount, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -41,8 +41,31 @@ export class TactileTool extends ToolController {
 
   onMove(info: PointerInfo): void {
     if (!info.hit) return
-    if (this.ctx.drag.current?.tactile) this.draw(this.cells(info))
-    else {
+    const drag = this.ctx.drag.current
+    if (drag?.tactile) {
+      const dragging = (drag.mode === 'remove' || performance.now() - drag.downTime >= LONG_PRESS_MS) && isMoved(drag, info)
+      const target: [number, number, number] = [info.hit.cell[0], info.hit.cell[1], drag.z]
+      const count = dragging ? dragCellCount(drag.anchor, target, true) : 1
+      const over = drag.mode === 'add' && this.multiPlace.check(count)
+      const scene = this.ctx.scene()
+      if (!scene) return
+      scene?.setCursor(dragging ? target : drag.anchor, !over)
+      const key = [...drag.anchor, ...target, drag.z, drag.tileType, drag.mode, useStore.getState().stationEpoch].join(':')
+      if (over) {
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current !== drag) return
+          this.multiPlace.refuse(this.ctx.scene(), this.cells(info), dragging ? target : drag.anchor)
+        })
+      } else if (count > 1) {
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current === drag) this.draw(this.cells(info))
+        })
+      } else {
+        this.cancelPreview()
+        this.draw([drag.anchor])
+      }
+    } else {
+      this.cancelPreview()
       this.ctx.hover.current = { cell: info.hit.cell, place: info.hit.place, solid: info.hit.solid }
       this.draw([info.hit.cell])
     }
@@ -93,6 +116,17 @@ export class TactileTool extends ToolController {
   onUp(info: PointerInfo): void {
     const d = this.ctx.drag.current
     if (!d?.tactile) return
+    this.cancelPreview()
+    const target = info.hit?.cell ?? d.anchor
+    const dragging = (d.mode === 'remove' || performance.now() - d.downTime >= LONG_PRESS_MS) && isMoved(d, info)
+    const count = dragging ? dragCellCount(d.anchor, [target[0], target[1], d.z], true) : 1
+    if (d.mode === 'add' && this.multiPlace.check(count)) {
+      const refused = this.cells(info)
+      this.ctx.drag.current = null
+      this.multiPlace.refuse(this.ctx.scene(), refused, dragging ? [target[0], target[1], d.z] : d.anchor)
+      return
+    }
+    this.multiPlace.setNotice(false)
     const mods = this.candidates(this.cells(info))
     this.ctx.drag.current = null
     const scene = this.ctx.scene()

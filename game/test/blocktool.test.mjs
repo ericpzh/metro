@@ -158,7 +158,7 @@ test('a drag over the 10,000-cell cap previews every cell red and places nothing
   tool.onMove(move)
   assert.equal(
     useStore.getState().notice,
-    msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS),
+    msg('drag_area_too_large', MAX_BLOCK_DRAG_CELLS),
     'the error appears while the pointer is still down',
   )
 
@@ -173,7 +173,7 @@ test('a drag over the 10,000-cell cap previews every cell red and places nothing
 
   tool.onUp(move)
   assert.equal(useStore.getState().station.cells.length, 0, 'the refused release lays nothing')
-  assert.equal(useStore.getState().notice, msg('block_drag_area_too_large', MAX_BLOCK_DRAG_CELLS))
+  assert.equal(useStore.getState().notice, msg('drag_area_too_large', MAX_BLOCK_DRAG_CELLS))
 })
 
 test('a drag of exactly 10,000 cells is still placed', () => {

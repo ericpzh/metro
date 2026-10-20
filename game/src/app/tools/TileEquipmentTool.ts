@@ -17,20 +17,36 @@ import { rotateLocal, trackCells, trackFacing } from '../../sim/track.ts'
 import { TRUSS_ROOF_BAY } from '../../sim/structures.ts'
 import type { Module } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { rectCells, stairBlockLineCells } from './geometry/cells.ts'
+import { rectCells, stairBlockLineCellCount, stairBlockLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
+
+const tileIndexes = new WeakMap<readonly Module[], Map<string, Module>>()
+function tileIndex(modules: readonly Module[]): Map<string, Module> {
+  let index = tileIndexes.get(modules)
+  if (!index) {
+    index = new Map()
+    for (const module of modules) {
+      if (module.type !== 'roof' && !(module.type === 'stair' && module.cfg.block)) continue
+      const family = module.type === 'roof' ? 'roof' : 'stair'
+      const cells = module.type === 'roof' ? trackCells(module) : [[module.x, module.y]]
+      for (const [x, y] of cells) {
+        const key = `${family}:${x},${y},${module.z}`
+        if (!index.has(key)) index.set(key, module)
+      }
+    }
+    tileIndexes.set(modules, index)
+  }
+  return index
+}
 
 function pieceAt(modules: readonly Module[], x: number, y: number, z: number, type: string): Module | undefined {
   if (type === 'sidewalk' || type === 'lawn') {
     const held = outdoorSurfaceIndex(modules).tiles.get(surfaceKey(x, y, z))
     return held?.type === type ? held : undefined
   }
-  const stair = type === 'stair-block'
-  return modules.find((m) => m.z === z && (stair
-    ? m.type === 'stair' && m.cfg.block && m.x === x && m.y === y
-    : m.type === 'roof' && trackCells(m).some(([cx, cy]) => cx === x && cy === y)))
+  return tileIndex(modules).get(`${type === 'stair-block' ? 'stair' : 'roof'}:${x},${y},${z}`)
 }
 
 function bayStep(type: string, rot: number, width: number): [number, number] {
@@ -115,17 +131,45 @@ export class TileEquipmentTool extends ToolController {
     if (!hit) return
     const drag = this.ctx.drag.current
     if (drag?.roof) {
-      const cells = this.cells(info)
-      this.draw(cells)
       const st = useStore.getState()
+      const scene = this.ctx.scene()
+      if (!scene) return
+      const type = drag.tileType ?? st.moduleType
+      const target = hit && type === 'roof'
+        ? [hit.roofSnap ? hit.cell[0] : hit.place[0], hit.roofSnap ? hit.cell[1] : hit.place[1], drag.z] as [number, number, number]
+        : hit.cell
+      const count = this.cellCount(info)
+      const over = drag.mode === 'add' && this.multiPlace.check(count)
+      const key = [...drag.anchor, ...target, drag.z, type, drag.tileRot ?? st.moduleRot,
+        drag.tileWidth ?? st.roofWidth, drag.tileSnap ?? st.roofPlateSnap, drag.mode, st.stationEpoch].join(':')
+      const dragging = count > 1
+      if (over) {
+        scene.setCursor(target, false)
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current !== drag) return
+          this.multiPlace.refuse(this.ctx.scene(), this.cells(info), target)
+        })
+      } else if (dragging) {
+        this.multiPlace.setNotice(false)
+        scene.setCursor(target, true)
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.drag.current !== drag) return
+          const cells = this.cells(info)
+          this.draw(cells)
+        })
+      } else {
+        this.multiPlace.setNotice(false)
+        this.cancelPreview()
+        this.draw(this.cells(info))
+      }
       if (isTrussRun(st.moduleType)) {
-        this.ctx.showMeasure(info.clientX, info.clientY, `${cells.length * TRUSS_ROOF_BAY} m`)
+        this.ctx.showMeasure(info.clientX, info.clientY, `${count * TRUSS_ROOF_BAY} m`)
         return
       }
-      const xs = cells.map(([x]) => x)
-      const ys = cells.map(([, y]) => y)
       const [stepX, stepY] = bayStep(st.moduleType, st.moduleRot, st.roofWidth)
-      this.ctx.showMeasure(info.clientX, info.clientY, `${Math.max(...xs) - Math.min(...xs) + stepX} × ${Math.max(...ys) - Math.min(...ys) + stepY} m`)
+      const spanX = Math.floor(Math.abs(target[0] - drag.anchor[0]) / stepX) + 1
+      const spanY = Math.floor(Math.abs(target[1] - drag.anchor[1]) / stepY) + 1
+      this.ctx.showMeasure(info.clientX, info.clientY, `${spanX * stepX} × ${spanY * stepY} m`)
       return
     }
     const st = useStore.getState()
@@ -164,6 +208,29 @@ export class TileEquipmentTool extends ToolController {
     return all.filter(([x, y]) => Math.abs(x - drag.anchor[0]) % stepX === 0 && Math.abs(y - drag.anchor[1]) % stepY === 0)
   }
 
+  /** Count the generated tile anchors arithmetically before a drag allocates them. */
+  private cellCount(info: PointerInfo): number {
+    const drag = this.ctx.drag.current!
+    const st = useStore.getState()
+    const type = drag.tileType ?? st.moduleType
+    const rect = isMoved(drag, info) && (type === 'roof' || type === 'sidewalk' || type === 'lawn' || performance.now() - drag.downTime >= LONG_PRESS_MS)
+    if (!rect) return 1
+    const rot = drag.tileRot ?? st.moduleRot
+    const hit = info.hit
+    const target = hit && type === 'roof'
+      ? [hit.roofSnap ? hit.cell[0] : hit.place[0], hit.roofSnap ? hit.cell[1] : hit.place[1], drag.z] as [number, number, number]
+      : hit?.cell ?? drag.anchor
+    if (isTrussRun(type)) {
+      const [fx] = trackFacing(rot)
+      const delta = fx !== 0 ? target[0] - drag.anchor[0] : target[1] - drag.anchor[1]
+      return Math.floor(Math.abs(delta) / TRUSS_ROOF_BAY) + 1
+    }
+    if (type === 'stair-block') return stairBlockLineCellCount(drag.anchor, target, rot)
+    const [stepX, stepY] = bayStep(type, rot, drag.tileWidth ?? st.roofWidth)
+    return (Math.floor(Math.abs(target[0] - drag.anchor[0]) / stepX) + 1)
+      * (Math.floor(Math.abs(target[1] - drag.anchor[1]) / stepY) + 1)
+  }
+
   private draw(cells: Array<[number, number, number]>): void {
     if (this.ctx.drag.current?.roof) this.ctx.drag.current.tileCells = cells
     const scene = this.ctx.scene()
@@ -200,6 +267,15 @@ export class TileEquipmentTool extends ToolController {
   onUp(info: PointerInfo): void {
     const drag = this.ctx.drag.current
     if (!drag?.roof) return
+    this.cancelPreview()
+    const count = this.cellCount(info)
+    if (drag.mode === 'add' && this.multiPlace.check(count)) {
+      const target = info.hit?.cell ?? drag.anchor
+      this.multiPlace.refuse(this.ctx.scene(), this.cells(info), [target[0], target[1], drag.z])
+      this.ctx.drag.current = null
+      return
+    }
+    this.multiPlace.setNotice(false)
     const cells = this.cells(info)
     this.ctx.drag.current = null
     this.ctx.clearMeasure()
@@ -221,6 +297,30 @@ export class TileEquipmentTool extends ToolController {
       const reason = result.check.refused.values().next().value
       if (reason) st.setNotice(equipmentRefusalNotice(reason as Parameters<typeof equipmentRefusalNotice>[0], st.station.modules.filter(m => result.check.colliderIds.includes(m.id))))
       else if (result.state === st.station) st.setNotice(msg(drag.mode === 'remove' ? 'no_outdoor_surface_here' : 'outdoor_surface_already_here'))
+      return
+    }
+    // Roof tiles/bays in this gesture occupy disjoint footprints. Validate them
+    // against the same immutable document as the preview, then append once:
+    // rebuilding collision caches and copying all prior roofs per tile is quadratic.
+    if (drag.mode === 'add' && type.startsWith('roof')) {
+      const candidates: Module[] = []
+      const taken = new Set(st.station.modules.map(module => module.id))
+      let suffix = st.station.modules.length + 1
+      for (const [x, y, z] of cells) {
+        while (taken.has(`roof-${suffix}`)) suffix++
+        const made = centredModule(type, x, y, z, `roof-${suffix++}`, rot, width)
+        if (made?.type !== 'roof') continue
+        const module = !made.cfg.variant && type === 'roof' ? { ...made, cfg: { ...made.cfg, plateSnap: snap } } : made
+        const old = pieceAt(st.station.modules, module.x, module.y, z, type)
+        if (old?.x === module.x && old.y === module.y) continue
+        candidates.push(module)
+      }
+      const check = checkModulePlacements(st.station, candidates.map(module => ({ id: module.id, module, layer: true })))
+      const accepted = candidates.filter(module => !check.refused.has(module.id))
+      if (accepted.length) st.commit({ ...st.station, modules: [...st.station.modules, ...accepted] })
+      const reason = check.refused.values().next().value
+      if (reason) st.setNotice(equipmentRefusalNotice(reason as Parameters<typeof equipmentRefusalNotice>[0], st.station.modules.filter(module => check.colliderIds.includes(module.id))))
+      else if (!accepted.length) st.setNotice(msg('cannot_place_a_roof_here_choose_another_location'))
       return
     }
     for (const [x, y, z] of cells) {

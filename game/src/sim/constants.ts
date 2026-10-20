@@ -43,11 +43,17 @@ export const DEFAULT_SIM_TIME = 6.5 * 3600
 export const SIM_DAY = 24 * 3600
 
 /**
- * Maximum footprint one 方块 drag may preview or commit at once, generated
- * auto-wall courses included. A drag that would need more is refused whole —
- * every cell drawn red, the release lays nothing — rather than silently clipped.
+ * Maximum footprint one multi-cell placement drag may preview or commit at
+ * once. The budget is shared by every drag that places several cells or
+ * modules: 方块 patches (generated auto-wall courses included), 墙 runs, 围栏 and
+ * 盲道 lines, roof/outdoor/stair tiles and road segments. A drag that would need
+ * more is refused whole — every cell drawn red, the release lays nothing —
+ * rather than silently clipped.
  */
-export const MAX_BLOCK_DRAG_CELLS = 10000
+export const MAX_DRAG_CELLS = 10000
+
+/** The original name for the 方块-specific end of the shared drag budget. */
+export const MAX_BLOCK_DRAG_CELLS = MAX_DRAG_CELLS
 
 /** The only supported station storey grid, in metres. */
 export const STOREY_HEIGHT = 5

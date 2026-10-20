@@ -89,6 +89,7 @@ test('tactile placement and right deletion drag straight runs in one undo step, 
   h.tool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.tool.onMove(h.event(1, 4))
+  h.tool.multiPlace.flushPreview()
   assert.equal(h.ghost().length, 5)
   assert.ok(h.ghost().every((m) => m.rot === 1 && m.x === 0))
   h.tool.onUp(h.event(1, 4))
@@ -97,6 +98,7 @@ test('tactile placement and right deletion drag straight runs in one undo step, 
   h.tool.onDown(h.event(0, 0, 2))
   // Erasure is draggable immediately, without the placement long-press delay.
   h.tool.onMove(h.event(0, 4, 2))
+  h.tool.multiPlace.flushPreview()
   assert.equal(h.ghost().length, 5)
   h.tool.onUp(h.event(0, 4, 2))
   assert.equal(useStore.getState().station.modules.length, 0)
@@ -116,6 +118,7 @@ test('delete tool drags only the pressed tactile variant and leaves the other ti
   h.deleteTool.onDown(h.event(0, 0))
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
   h.deleteTool.onMove(h.event(2, 0))
+  h.deleteTool.multiPlace.flushPreview()
   assert.equal(h.ghost().length, 2)
   h.deleteTool.onUp(h.event(2, 0))
   assert.deepEqual(useStore.getState().station.modules, [guide])

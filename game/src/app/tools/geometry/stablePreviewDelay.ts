@@ -22,7 +22,7 @@ export class StablePreviewDelay {
   }
 
   scheduleLatest(key: string, run: () => void): boolean {
-    if (key === this.key) {
+    if (key === this.key && this.timer !== null) {
       this.run = run
       return false
     }
@@ -31,7 +31,10 @@ export class StablePreviewDelay {
     this.run = run
     this.timer = this.schedule(() => {
       this.timer = null
-      this.run?.()
+      const latest = this.run
+      this.key = null
+      this.run = null
+      latest?.()
     }, this.delayMs)
     return true
   }
@@ -41,5 +44,16 @@ export class StablePreviewDelay {
     this.timer = null
     this.key = null
     this.run = null
+  }
+
+  /** Run the pending callback now; useful when the owner must flush before a release. */
+  flush(): void {
+    if (this.timer === null) return
+    this.cancel(this.timer)
+    const latest = this.run
+    this.timer = null
+    this.key = null
+    this.run = null
+    latest?.()
   }
 }
