@@ -32,13 +32,12 @@ import {
   useStore,
   type ModuleFamilyKey,
 } from '../../store.ts'
-import { AiOutlineColumnHeight } from 'react-icons/ai'
-import { RiExpandWidthFill } from 'react-icons/ri'
 import { LuArrowUpToLine } from 'react-icons/lu'
 import { LuArrowDownToLine } from 'react-icons/lu'
-import { TbBuildingStore } from 'react-icons/tb'
 import { armedCut } from '../helpers.ts'
 import type { BuilderAttribute } from '../../store/builderAttributes.ts'
+import { DimensionArt, DirectionArt, StoreyArt } from '../shared/AttributeArt.tsx'
+import { dimensionSelection } from '../shared/dimensionSelection.ts'
 import { Block } from '../shared/Block.tsx'
 import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
@@ -98,7 +97,7 @@ function ActionTiles(): React.ReactElement {
   return (
     <>
       {cut !== null ? (
-        <RotateTile label={t('rotate')} onClick={() => st().rotateWallSnap()} />
+        <RotateTile rotation={state.wallSnapCycle} label={t('rotate')} onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null ? moduleBuilderAttributes(piece, state).map((attribute, index) => <BuilderAttributeTile key={`${attribute.kind}-${index}`} attribute={attribute} moduleType={piece} state={state} />) : null}
       {piece === 'floor-mark-direction' ? (
@@ -127,15 +126,15 @@ function ActionTiles(): React.ReactElement {
 }
 
 function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: BuilderAttribute; moduleType: string; state: AppState }): React.ReactElement {
-  if (attribute.kind === 'rotation') return <RotateTile label={translate(attribute.label)} onClick={attribute.activate} />
+  if (attribute.kind === 'rotation') return <RotateTile rotation={state.moduleRot} label={translate(attribute.label)} onClick={attribute.activate} />
   if (attribute.visual === 'grid-position') {
     const position = moduleType.startsWith('pillar-slim') ? state.moduleRot : state.lightPosition
     return <PositionTile position={position} shortcut={attribute.shortcut} onClick={attribute.activate} />
   }
-  const art = attribute.kind === 'width' ? <RiExpandWidthFill />
-    : attribute.kind === 'length' || attribute.kind === 'height' ? <AiOutlineColumnHeight />
-    : attribute.kind === 'span' ? <TbBuildingStore />
-    : attribute.kind === 'direction' ? (state.escalatorDir === 'up' ? <LuArrowUpToLine /> : <LuArrowDownToLine />)
+  const dimension = dimensionSelection(attribute.kind, moduleType, state)
+  const art = attribute.kind === 'span' ? <StoreyArt double={state.escalatorSpan === 'double'} />
+    : dimension ? <DimensionArt vertical={attribute.kind === 'height' || (attribute.kind === 'length' && (moduleType.startsWith('pillar') || moduleType === 'lift'))} {...dimension} />
+    : attribute.kind === 'direction' ? <DirectionArt direction={moduleType === 'road' ? state.roadDirection : state.escalatorDir} />
     : attribute.visual === 'roof-snap' ? (state.roofPlateSnap === 'lower' ? <LuArrowDownToLine /> : <LuArrowUpToLine />)
     : undefined
   const icon = attribute.kind === 'style' ? (moduleType === 'gate' || moduleType === 'gate-new' ? 'turnstile' : 'block') : undefined

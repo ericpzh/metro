@@ -124,7 +124,20 @@ test('Tab, Shift+Tab and R dispatch through the module capability list', () => {
 test('all width action tiles use the shared width glyph and the shell delegates module keys', () => {
   const actions = fs.readFileSync(new URL('../src/app/rail/actions/ActionRow.tsx', import.meta.url), 'utf8')
   const shell = fs.readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
-  assert.match(actions, /attribute\.kind === 'width' \? <RiExpandWidthFill \/>/)
+  assert.match(actions, /<DimensionArt vertical=/)
+  assert.match(actions, /<StoreyArt double=\{state\.escalatorSpan === 'double'\}/)
   assert.match(shell, /activateModuleBuilderShortcut\(st\.moduleType, st, 'R'\)/)
   assert.match(shell, /activateModuleBuilderShortcut\(st\.moduleType, st, e\.shiftKey \? 'Shift\+Tab' : 'Tab'\)/)
 })
+
+ test('dimension marks track every size as its builder action cycles', async () => {
+  const { dimensionSelection } = await import('../src/app/rail/shared/dimensionSelection.ts')
+  for (const [type, kind, key, values] of [
+    ['road', 'width', 'roadWidth', [6,12,18,24]],
+    ['curtain-wall', 'height', 'curtainHeight', [2,3,4]],
+    ['pillar', 'length', 'pillarLength', [2,5]],
+    ['walkway', 'length', 'walkwayLength', ['short','medium','long']],
+    ['psd-end', 'height', 'psdEndHeight', ['half','full']],
+  ]) values.forEach((value, selected) => assert.deepEqual(dimensionSelection(kind, type, stateWith({ [key]: value })), { selected, count: values.length }))
+  assert.equal(dimensionSelection('direction', 'road', stateWith()), undefined)
+ })

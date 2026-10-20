@@ -157,7 +157,7 @@ test('剖切’s folded-out row is at the foot of the row 剖切 sits in', () =>
   // The row itself is the cut's own two controls, 旋转 wearing the angle it turns to.
   const src = read('../src/app/rail/folders/ViewFolder.tsx')
   assert.ok(src.includes("label={t('hide_section_plane')}"), '隐藏剖切面 left the cut row')
-  assert.ok(/RotateTile label=\{t\('rotate_value', next\)\}/.test(src), 'the cut row lost its 旋转 tile')
+  assert.ok(/RotateTile[^>]*label=\{t\('rotate_value', next\)\}/.test(src), 'the cut row lost its 旋转 tile')
 })
 
 test('half-height and no-screen catenary platforms expose a canopy/gantry tile beside rotation', () => {

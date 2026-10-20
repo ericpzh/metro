@@ -10,6 +10,7 @@ import { RotateTile } from '../shared/RotateTile.tsx'
 
 export function RoomFolder(): React.ReactElement {
   useLanguage()
+  const facilityRot = useStore((s) => s.facilityRot)
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const zoneBrush = useStore((s) => s.zoneBrush)
@@ -30,7 +31,7 @@ export function RoomFolder(): React.ReactElement {
         />
       ))}
       {tool === 'zone' && (zoneBrush === 'ticket' || zoneBrush === 'info') ? (
-        <RotateTile label={msg('rotate')} onClick={() => st().rotateFacility()} />
+        <RotateTile rotation={facilityRot} label={msg('rotate')} onClick={() => st().rotateFacility()} />
       ) : null}
     </div>
   )

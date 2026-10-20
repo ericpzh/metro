@@ -51,5 +51,5 @@ test('facility R cycles the service front and the room rail exposes its rotation
   const shell = fs.readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
   const folder = fs.readFileSync(new URL('../src/app/rail/folders/RoomFolder.tsx', import.meta.url), 'utf8')
   assert.match(shell, /st\.tool === 'zone' && \(st\.zoneBrush === 'ticket' \|\| st\.zoneBrush === 'info'\)\) st\.rotateFacility\(\)/)
-  assert.match(folder, /<RotateTile label=\{msg\('rotate'\)\} onClick=\{\(\) => st\(\)\.rotateFacility\(\)\} \/>/)
+  assert.match(folder, /<RotateTile[^>]*label=\{msg\('rotate'\)\} onClick=\{\(\) => st\(\)\.rotateFacility\(\)\} \/>/)
 })

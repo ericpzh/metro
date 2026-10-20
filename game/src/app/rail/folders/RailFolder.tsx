@@ -6,11 +6,12 @@ import { useLanguage } from '../../i18n.ts'
 import { StructurePanel } from '../menus/StructurePanel.tsx'
 import { CUT_MODES, cutAnchor, useStore } from '../../store.ts'
 import { railSummary } from '../../../build/rail.ts'
-import { trackRunLengthLabel } from '../../../sim/track.ts'
+import { TRACK_RUN_LENGTHS, trackRunLengthLabel } from '../../../sim/track.ts'
 import { armedActionsAnchor, armedCut, findSelectedTrack, PLATFORM_TILE, TUNNEL_TILE } from '../helpers.ts'
 import type { SubMenuKey } from '../helpers.ts'
 import { ActionRow } from '../actions/ActionRow.tsx'
 import { Block } from '../shared/Block.tsx'
+import { DimensionArt, DirectionArt } from '../shared/AttributeArt.tsx'
 import { RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand, InlinePanel, interleaveRows } from '../shared/InlinePanel.tsx'
 import { TileGrid } from '../shared/TileGrid.tsx'
@@ -114,8 +115,9 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                   {(tool !== 'tunnel' || !editingTunnel) && (
                     <div className="blockGrid">
                       {tool !== 'tunnel' && (
-                        <RotateTile label={t('rotate_value', ((4 - railRot) % 4) * 90)} onClick={() => st().rotateRail()} />
+                        <RotateTile rotation={railRot} label={t('rotate_value', ((4 - railRot) % 4) * 90)} onClick={() => st().rotateRail()} />
                       )}
+                      {!editingTunnel && <Block label={t(railDirNow)} art={<DirectionArt direction={railDirNow} />} shortcut="Tab" onClick={() => setRailDirNow(railDirNow === 'up' ? 'down' : 'up')} />}
                       {showCatenaryStyle && (
                         <Block
                           label={t('catenary_style_value', t(catenaryStyle === 'gantry' ? 'catenary_gantry' : 'catenary_canopy'))}
@@ -128,13 +130,6 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                   )}
                   {!editingTunnel && (
                     <>
-                      <div className="bpSub">
-                        <div className="bpSubTitle">{t('direction')}</div>
-                        <div className="blockGrid two">
-                          <Block label={t('up')} icon="up" shortcut="Tab" active={railDirNow === 'up'} onClick={() => setRailDirNow('up')} />
-                          <Block label={t('down')} icon="down" shortcut="Tab" active={railDirNow === 'down'} onClick={() => setRailDirNow('down')} />
-                        </div>
-                      </div>
                       <div className="bpSub">
                         <div className="bpSubTitle">{t('line')}</div>
                         <div className="blockGrid">
@@ -163,7 +158,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
           { anchor: 'bridge', node: <Block key="bridge" label={t('railway_bridge')} icon="bridge" tile="bridge" active={bridgeOpen} submenu={bridgeOpen} onClick={() => { setModuleType('bridge'); setTool('module') }} /> },
         ], (anchor) => anchor === '__tunnel' ? [
           <InlinePanel key="tunnel-derived" open={tunnelOpen}>
-            <div className="blockGrid"><Block label={translate(trackRunLengthLabel(tunnelLength))} icon="ortho" shortcut="Tab" onClick={() => st().cycleTunnelLength()} /></div>
+            <div className="blockGrid"><Block label={translate(trackRunLengthLabel(tunnelLength))} art={<DimensionArt selected={TRACK_RUN_LENGTHS.indexOf(tunnelLength as typeof TRACK_RUN_LENGTHS[number])} count={TRACK_RUN_LENGTHS.length} />} shortcut="Tab" onClick={() => st().cycleTunnelLength()} /></div>
           </InlinePanel>,
         ] : [<StructurePanel key="bridge-derived" anchor="bridge" />])}
       </div>

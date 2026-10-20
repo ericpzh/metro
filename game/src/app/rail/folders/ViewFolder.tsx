@@ -108,7 +108,7 @@ function CutControls({ open }: { open: boolean }): React.ReactElement {
   const next = nextAzimuth(azimuth)
   return (
     <InlineExpand open={open}>
-      <RotateTile label={t('rotate_value', next)} onClick={rotateSection} />
+      <RotateTile rotation={azimuth / 90} label={t('rotate_value', next)} onClick={rotateSection} />
       <Block
         label={t('hide_section_plane')}
         icon="cutSurface"

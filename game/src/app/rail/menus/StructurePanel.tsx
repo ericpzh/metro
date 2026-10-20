@@ -1,7 +1,8 @@
 import { translate } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
-import { trackRunLengthLabel } from '../../../sim/track.ts'
+import { TRACK_RUN_LENGTHS, trackRunLengthLabel } from '../../../sim/track.ts'
+import { DimensionArt } from '../shared/AttributeArt.tsx'
 import { Block } from '../shared/Block.tsx'
 import { InlinePanel } from '../shared/InlinePanel.tsx'
 import { findSelectedTrack } from '../helpers.ts'
@@ -28,7 +29,7 @@ export function StructurePanel({ anchor }: { anchor: string }): React.ReactEleme
   }
   return <InlinePanel open={placing || bridge !== undefined}>
     <div className="blockGrid">
-      {placing && <Block label={translate(trackRunLengthLabel(bridgeLength))} icon="ortho" shortcut="Tab" onClick={cycleBridgeLength} />}
+      {placing && <Block label={translate(trackRunLengthLabel(bridgeLength))} art={<DimensionArt selected={TRACK_RUN_LENGTHS.indexOf(bridgeLength as typeof TRACK_RUN_LENGTHS[number])} count={TRACK_RUN_LENGTHS.length} />} shortcut="Tab" onClick={cycleBridgeLength} />}
       <Block label={translate(bridgeRailingLabel(railing))} icon={railing === 'railing' ? 'fence' : 'glass'} onClick={cycleRailing} />
     </div>
   </InlinePanel>
