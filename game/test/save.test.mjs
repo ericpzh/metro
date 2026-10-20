@@ -3,12 +3,28 @@
 // returns a named reason and no state, so the open station is never touched.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { parse, serialize, SAVE_VERSION, SAVE_FORMAT } from '../src/persistence/save.ts'
 import { addCells, paintFace, paintZoneCells, removeCells, toState } from '../src/build/model.ts'
 import { DEFAULT_PEAKS, DEFAULT_SERVICE } from '../src/sim/constants.ts'
 import { DEFAULT_DEMAND, DEFAULT_OFFDAY } from '../src/sim/demand.ts'
 import { DEFAULT_CALENDAR, SERVICE_MIN_SPAN } from '../src/sim/clock.ts'
 import { scenarioStation } from './support/scenario-station.ts'
+import { useStore } from '../src/app/store.ts'
+
+test('saving normalizes stale train scales without mutating the open document', () => {
+  for (const scale of [undefined, 1, 0.85, 0.98]) {
+    const state = toState(scenarioStation())
+    state.lines = state.lines.map(line => ({ ...line, modelScale: scale }))
+    const doc = JSON.parse(serialize(state))
+    assert.ok(doc.static.lines.length > 0)
+    assert.ok(doc.static.lines.every(line => line.modelScale === 0.98))
+    assert.ok(state.lines.every(line => line.modelScale === scale), 'saving preserves the source document')
+    const loaded = parse(JSON.stringify(doc))
+    assert.equal(loaded.ok, true)
+    assert.deepEqual(loaded.state.lines, doc.static.lines, 'serialized and worker-facing lines share one profile')
+  }
+})
 
 test('serialise -> parse is identity for the static station', () => {
   const state = toState(scenarioStation())
@@ -264,4 +280,46 @@ test('English station names survive saving, cloning and old save files', async (
     assert.equal(old.ok, true)
     assert.equal(old.state.nameEn, '')
   }
+})
+
+test('loadFromText opens on the basis floor, not the 0 m ground plane', () => {
+  const state = toState({
+    name: 'basis',
+    seed: 7,
+    levelBase: 2,
+    storeyHeight: 5,
+    cells: [
+      { x: 0, y: 0, z: 2, fill: 'solid' },
+      { x: 0, y: 0, z: 3, fill: 'solid' },
+      { x: 0, y: 0, z: 7, fill: 'solid' },
+    ],
+    modules: [],
+    lines: [],
+  })
+  const before = globalThis.Worker
+  globalThis.Worker = class {
+    constructor() {
+      this.onmessage = null
+    }
+    postMessage() {}
+  }
+  try {
+    useStore.getState().loadFromText(serialize(state))
+  } finally {
+    globalThis.Worker = before
+  }
+  assert.equal(useStore.getState().activeZ, 2, 'the view opens on the basis floor')
+  assert.ok(
+    !useStore.getState().station.cells.some((c) => c.z < 2),
+    'nothing below the basis floor drags the view down further',
+  )
+})
+
+test('the worker ready message does not reset the active storey to the 0 m ground plane', () => {
+  // The worker's level list always contains 0 m (the infinite ground plane), so a
+  // ready handler that picks `levelsZ[0]` would drag every below-grade-free save back
+  // to grade after the load path chose its basis floor.
+  const src = (p) => readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  const simSlice = src('app/store/slices/SimSlice.ts')
+  assert.doesNotMatch(simSlice, /type === 'ready'[\s\S]*?setActiveZ\(msg\.levelsZ\[0\]\)/, 'the ready handler keeps the load path’s active storey')
 })

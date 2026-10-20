@@ -1,6 +1,7 @@
 import { msg } from '../../sim/i18n.ts'
-import { escalatorLength } from '../../sim/escalators.ts'
+import { escalatorLength, escalatorSpanOf } from '../../sim/escalators.ts'
 import { walkwayLengthOf } from '../../sim/walkways.ts'
+import { LIFT_INTERVALS, liftRises } from '../../sim/lifts.ts'
 import { stairLengthOf } from '../../sim/stairs.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
@@ -32,7 +33,7 @@ import { finishLabel } from '../../sim/finishes.ts'
 import { moduleAt } from '../../sim/placement.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
-import { MODULE_OPTIONS, isStraightStairType, moduleLabel, useStore } from '../store.ts'
+import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
 import { dominantFace } from './geometry/faces.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -203,7 +204,7 @@ export class PickTool extends ToolController {
     )
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
-    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2]) : undefined)
+    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2], undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
     if (mod) {
       const label = moduleLabel(mod)
       // A derived screen door has no placement of its own: select it, stay.
@@ -263,14 +264,19 @@ export class PickTool extends ToolController {
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
-      if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 4 })
+      if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 5 })
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
       if (mod.type === 'escalator') {
         st.setEscalatorDir(mod.cfg.dir)
         if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
-        st.setRampLength(escalatorLength(mod))
+        // The span comes with the piece: a picked 双层 run arms the 双层 family at
+        // its own length, so the next click rebuilds the same two-floor run.
+        const span = escalatorSpanOf(mod)
+        st.setEscalatorSpan(span)
+        if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
+        else st.setRampLength(escalatorLength(mod))
       }
       // A 自动步道 is picked at its own level length, and copies the shared 窄/宽
       // width and up/down direction the way the escalator does.
@@ -279,13 +285,20 @@ export class PickTool extends ToolController {
         if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
         st.setWalkwayLength(walkwayLengthOf(mod))
       }
-      // A 单跑楼梯 is picked at its own length too, so the next click rebuilds the run
-      // the player pointed at (a bank of 扶梯 and 楼梯 stays one length, and the seam
-      // between the two stays filled). A turning stair has no length of its own —
-      // `stairLengthOf` reports 中 for it and the setting is left as it stands.
-      if (mod.type === 'stair' && !mod.cfg.block && isStraightStairType(optionId)) st.setRampLength(stairLengthOf(mod))
+      // A 楼梯 is picked at its own length too, so the next click rebuilds the run
+      // the player pointed at. Every shape but the 1 × 1 楼梯块 has one: a straight
+      // run in one flight, a turning stair in two with its platform at half the
+      // rise.
+      if (mod.type === 'stair' && !mod.cfg.block) st.setRampLength(stairLengthOf(mod))
       if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
-      if (mod.type === 'lift') st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
+      if (mod.type === 'lift') {
+        st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
+        // The floor interval comes with the shaft: a picked piece arms the interval
+        // of its lowest segment, which is where a fresh stack starts.
+        const first = liftRises(mod)[0]
+        const interval = LIFT_INTERVALS.find((s) => s.interval === Math.round(first))?.interval
+        if (interval) st.setLiftInterval(interval)
+      }
       if (mod.type === 'gate') st.setGateDoor(mod.cfg.door ?? 'lane')
       st.setTool('module')
       st.select({ kind: 'module', key: mod.id, label })

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { EscalatorModel } from '../src/render/models/pieces/EscalatorModel.ts'
 import { createModule } from '../src/build/model.ts'
-import { stairFacing } from '../src/sim/stairs.ts'
+import { stairFacing, stairFlights } from '../src/sim/stairs.ts'
 import { RAMP_LENGTHS, rampLengthSpec } from '../src/sim/rampLengths.ts'
 
 const mats = new Proxy({}, { get: (o, k) => o[k] ??= new THREE.MeshStandardMaterial() })
@@ -16,8 +16,46 @@ function joins(modules, cells = []) {
     return g.children.filter((o) => o.name === 'ramp-join').map((mesh) => ({ group: g, mesh, bounds: new THREE.Box3().setFromObject(mesh, true), owner: mod.id, domes: g.children.filter((o) => o.name === 'ramp-join-dome' && o.userData.neighbourId === mesh.userData.neighbourId) }))
   })
 }
-const escalator = (x, id, rot = 0, width = 1, dir = 'up', y = 0, z = 0, length = 'medium') => createModule('escalator', x, y, z, id, rot, width, dir, 'lane', [], undefined, { rampLength: length })
-const stair = (x, id, rot = 0, length = 'medium') => createModule('stair-straight', x, 0, 0, id, rot, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
+function assertDomeSeated(dome, mesh, normal) {
+  const p = dome.geometry.getAttribute('position')
+  let min = Infinity
+  const points = []
+  for (let i = 0; i < p.count; i++) {
+    const v = new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(dome.matrixWorld)
+    const projection = v.dot(normal)
+    min = Math.min(min, projection)
+    points.push([v, projection])
+  }
+  const base = points.filter(([, projection]) => projection - min < 1e-5).map(([v]) => v)
+  const max = Math.max(...points.map(([, projection]) => projection))
+  assert.ok(base.length > 0, 'hemisphere has a flat base')
+  const centre = base.reduce((sum, v) => sum.add(v), new THREE.Vector3()).multiplyScalar(1 / base.length)
+  const vertices = mesh.geometry.getAttribute('position')
+  let closest = Infinity
+  const point = new THREE.Vector3()
+  for (let i = 0; i < vertices.count; i += 3) {
+    const a = new THREE.Vector3().fromBufferAttribute(vertices, i).applyMatrix4(mesh.matrixWorld)
+    const b = new THREE.Vector3().fromBufferAttribute(vertices, i + 1).applyMatrix4(mesh.matrixWorld)
+    const c = new THREE.Vector3().fromBufferAttribute(vertices, i + 2).applyMatrix4(mesh.matrixWorld)
+    new THREE.Triangle(a, b, c).closestPointToPoint(centre, point)
+    closest = Math.min(closest, point.distanceTo(centre))
+  }
+  assert.ok(closest < 0.001, `hemisphere base sits on its metal panel (${closest.toFixed(4)} m away)`)
+  return max - min
+}
+const escalator = (x, id, rot = 0, width = 1, dir = 'up', y = 0, z = 0, length = 'long') => createModule('escalator', x, y, z, id, rot, width, dir, 'lane', [], undefined, { rampLength: length })
+const stair = (x, id, rot = 0, length = 'long') => createModule('stair-straight', x, 0, 0, id, rot, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
+function escalatorPairedWithStair(x, id, rot, dir, y, z, length, stairX = x + 1, stairY = y) {
+  const s = createModule('stair-straight', stairX, stairY, z, `${id}-stair`, rot, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
+  const flight = stairFlights(s)[0]
+  const e = escalator(x, id, rot, 1, dir, y, z, length)
+  const low = e.from.z < e.to.z ? e.from : e.to
+  const d = { x: flight.to.x - flight.from.x, y: flight.to.y - flight.from.y, z: flight.to.z - flight.from.z }
+  const high = { x: low.x + d.x, y: low.y + d.y, z: low.z + d.z }
+  e.from = dir === 'up' ? low : high
+  e.to = dir === 'up' ? high : low
+  return [e, s]
+}
 
 test('one metal cap fills every shared escalator seam, in all rotations and travel directions', () => {
   for (let rot = 0; rot < 4; rot++) for (const width of [1, 2]) for (const dir of ['up', 'down']) {
@@ -41,12 +79,14 @@ test('a bank of three escalators has two caps, with none along its outer edges',
 })
 
 test('shared infill seals both rounded ends with closed metal surfaces', () => {
-  for (const other of [escalator(1, 'b', 0, 1, 'down'), createModule('stair-straight', 1, 0, 0, 'stairs')]) {
-    const { mesh, bounds } = joins([escalator(0, 'a'), other])[0]
+  const mixedPair = escalatorPairedWithStair(0, 'a', 0, 'up', 0, 0, 'long')
+  for (const pair of [[escalator(0, 'a'), escalator(1, 'b', 0, 1, 'down')], mixedPair]) {
+    const [own, other] = pair
+    const { mesh, bounds } = joins([own, other])[0]
     assert.ok(bounds.min.z < 1, 'lower end closes below the supporting floor')
     if (other.type === 'escalator') assert.ok(bounds.max.y > 6.5 && bounds.min.y < 0.5, 'matching returns extend past the landing centreline')
     else {
-      assert.ok(bounds.min.y >= 1 - 1e-5 && bounds.max.y < 6.01, 'mixed connector stops at the shorter straight railing')
+      assert.ok(bounds.min.y >= 1 - 1e-5 && bounds.max.y < 9.01, 'mixed connector stays within matching five-metre rails')
       const world = mesh.geometry.getAttribute('position')
       let lowerFace = 0, upperFace = 0
       for (let i = 0; i < world.count; i += 3) {
@@ -77,32 +117,23 @@ test('shared infill seals both rounded ends with closed metal surfaces', () => {
 })
 
 test('centreline bumps are hemispheres seated on the sloping metal panel', () => {
-  const { domes } = joins([escalator(0,'a'),escalator(1,'b')])[0]
+    const { domes, mesh } = joins([escalator(0,'a'),escalator(1,'b')])[0]
   assert.ok(domes.length >= 3, 'a row of bumps follows the incline')
-  const cos = 6 / Math.hypot(6,4)
+  const normal = new THREE.Vector3(0, -5, 9).normalize()
   for (const dome of domes) {
     const bounds = new THREE.Box3().setFromObject(dome)
     assert.ok(Math.abs((bounds.min.x + bounds.max.x) / 2 - 1) < 1e-5, 'bump is centred between the two rails')
-    const positions = dome.geometry.getAttribute('position')
-    let min = Infinity, max = -Infinity
-    for (let i = 0; i < positions.count; i++) {
-      const p = new THREE.Vector3().fromBufferAttribute(positions,i).applyMatrix4(dome.matrixWorld)
-      const height = (p.z - (1 + 1 / cos + (p.y - 0.5) * 4 / 6 - 0.045)) * cos
-      min = Math.min(min,height);max = Math.max(max,height)
-    }
-    assert.ok(Math.abs(min) < 1e-5, 'the flat base sits on the cap')
-    assert.ok(Math.abs(max - 0.065) < 1e-4, 'a 65 mm hemisphere rises above the cap, with no lower sphere poking through')
+    assert.ok(Math.abs(assertDomeSeated(dome, mesh, normal) - 0.065) < 1e-4, 'a 65 mm hemisphere rises above the cap')
   }
 })
 
 test('stair-escalator caps meet the real facing rails on either side', () => {
   for (let rot = 0; rot < 4; rot++) for (const side of [-1, 1]) {
     const [dx, dy] = stairFacing(rot)
-    const e = escalator(0, 'e', rot)
-    const s = createModule('stair-straight', side * dy, -side * dx, 0, 's', rot)
+    const [e, s] = escalatorPairedWithStair(0, 'e', rot, 'up', 0, 0, 'long', side * dy, -side * dx)
     const caps = joins([e, s])
     assert.equal(caps.length, 1)
-    assert.equal(caps[0].mesh.userData.neighbourId, 's')
+    assert.equal(caps[0].mesh.userData.neighbourId, 'e-stair')
     const positions = caps[0].mesh.geometry.getAttribute('position')
     for (let i = 0; i < positions.count; i++) assert.ok(Number.isFinite(positions.getZ(i)), 'mixed slopes form a finite closed cap')
   }
@@ -111,8 +142,7 @@ test('stair-escalator caps meet the real facing rails on either side', () => {
 test('stair connections drop vertically to a shelf instead of slanting across the gap', () => {
   for (let rot = 0; rot < 4; rot++) for (const side of [-1, 1]) for (const dir of ['up', 'down']) {
     const [dx,dy] = stairFacing(rot)
-    const e = escalator(0, 'e', rot, 1, dir)
-    const s = createModule('stair-straight', side * dy, -side * dx, 0, 's', rot)
+    const [e, s] = escalatorPairedWithStair(0, 'e', rot, dir, 0, 0, 'long', side * dy, -side * dx)
     const { mesh, group, domes } = joins([e,s])[0]
     const glass = group.children.filter((o) => o.isMesh && o.material === mats.glass)
     assert.equal(glass.length, 1, 'only the outer escalator panel remains glass')
@@ -123,7 +153,7 @@ test('stair connections drop vertically to a shelf instead of slanting across th
     for (let i = 0; i < positions.count; i++) {
       const p = new THREE.Vector3().fromBufferAttribute(positions,i).applyMatrix4(mesh.matrixWorld)
       const u = p.dot(axis) - origin
-      assert.ok(u >= 0.5 - 1e-5 && u <= 6 - 4 / Math.hypot(6,4) + 1e-5,
+      assert.ok(u >= 0.5 - 1e-5 && u <= 8 - 5 / Math.hypot(8,5) + 1e-5,
         'metal stops at the shorter railing at both ends, in either direction')
     }
     let longFaces = 0
@@ -148,14 +178,7 @@ test('stair connections drop vertically to a shelf instead of slanting across th
     assert.ok(longFaces >= 8, 'both the vertical cheek and shelf follow the incline')
     assert.equal(stairSkinFaces, 2, 'continuous outward-facing metal seals the stair side beneath the shelf')
     for (const dome of domes) {
-      const p = dome.geometry.getAttribute('position')
-      let minimum = Infinity
-      for (let i = 0; i < p.count; i++) {
-        const v = new THREE.Vector3().fromBufferAttribute(p,i).applyMatrix4(dome.matrixWorld)
-        const u = v.dot(axis)
-        minimum = Math.min(minimum, v.z - (1.905 + (u - origin - 0.5) * 0.8))
-      }
-      assert.ok(Math.abs(minimum) < 1e-5, 'hemisphere base rests on the stair-height shelf')
+      assertDomeSeated(dome, mesh, new THREE.Vector3(-axis.x * 5 / 8, -axis.y * 5 / 8, 1).normalize())
     }
   }
 })
@@ -165,7 +188,8 @@ test('a bank fills its seam at every run length, and only between pieces of one 
     // Escalator beside escalator, and a 单跑楼梯 beside an escalator: one cap either way,
     // because a seam is a property of two runs of the same length standing flush.
     assert.equal(joins([escalator(0, 'a', 0, 1, 'up', 0, 0, spec.id), escalator(1, 'b', 0, 1, 'down', 0, 0, spec.id)]).length, 1, `${spec.id} escalator pair`)
-    assert.equal(joins([escalator(0, 'a', 0, 1, 'up', 0, 0, spec.id), stair(1, 's', 0, spec.id)]).length, 1, `${spec.id} stair beside an escalator`)
+    const [paired, pairedStair] = escalatorPairedWithStair(0, 'a', 0, 'up', 0, 0, spec.id, 1)
+    assert.equal(joins([paired, pairedStair]).length, 1, `${spec.id} stair beside an escalator`)
   }
   // Two lengths are two runs: their landings, slopes and rail returns do not meet,
   // so nothing is drawn across the step between them.

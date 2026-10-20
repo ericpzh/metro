@@ -20,14 +20,14 @@ import { scenarioStation } from './support/scenario-station.ts'
 const key = (p) => `${p.x},${p.y},${p.z}`
 
 /** The 扶梯 piece at a column, one storey up from `z`. */
-function esc(id, x, dir = 'up', z = -4, y = 0) {
+function esc(id, x, dir = 'up', z = -5, y = 0) {
   const m = createModule('escalator', x, y, z, id, 0, undefined, dir)
   assert.ok(m && m.type === 'escalator')
   return m
 }
 
 /** The 单跑楼梯 piece at a column, one storey up from `z`. */
-function stair(id, x, width = STAIR_WIDTH_NARROW, z = -4, y = 0) {
+function stair(id, x, width = STAIR_WIDTH_NARROW, z = -5, y = 0) {
   const m = createModule('stair-straight', x, y, z, id, 0, width)
   assert.ok(m && m.type === 'stair')
   return m
@@ -35,8 +35,8 @@ function stair(id, x, width = STAIR_WIDTH_NARROW, z = -4, y = 0) {
 
 test('a narrow stair is exactly the escalator band, and it is the default', () => {
   assert.equal(STAIR_WIDTH_NARROW, ESCALATOR_BAND)
-  assert.equal(createModule('stair', 0, 0, -4, 's')?.cfg.width, ESCALATOR_BAND)
-  assert.equal(createModule('stair-straight', 0, 0, -4, 's')?.cfg.width, ESCALATOR_BAND)
+  assert.equal(createModule('stair', 0, 0, -5, 's')?.cfg.width, ESCALATOR_BAND)
+  assert.equal(createModule('stair-straight', 0, 0, -5, 's')?.cfg.width, ESCALATOR_BAND)
   assert.equal(STAIR_WIDTH_DOUBLE, 2 * ESCALATOR_BAND, 'a wide stair is two lanes')
 })
 
@@ -45,7 +45,7 @@ test('a wide stair is lanes, so every lane merges with what is beside it', () =>
   // (`stairLaneBases`), so a bank of escalator + stair lanes is all ordinary
   // tile-sized runs — no wide piece ever needs a bay of its own.
   const e = esc('e', 0)
-  const lanes = stairLaneBases({ x: 1, y: 0, z: -4 }, 0, 2).map((p, i) => stair(`s${i}`, p.x, STAIR_WIDTH_NARROW, p.z, p.y))
+  const lanes = stairLaneBases({ x: 1, y: 0, z: -5 }, 0, 2).map((p, i) => stair(`s${i}`, p.x, STAIR_WIDTH_NARROW, p.z, p.y))
   assert.equal(lanes.length, 2)
   for (const lane of lanes) {
     assert.equal(rampCorridorHalf(lane), 0.5, 'the stair rails fill their block exactly')
@@ -85,7 +85,7 @@ test('two runs in adjacent cells stand flush, in any pairing', () => {
   assert.equal(placementBlocked([e], esc('u', 1, 'up')), false)
   assert.equal(placementBlocked([e, stair('s', 1)], esc('c', 2, 'down')), false, 'a bank of three')
   // Along the run, offset rows and a storey up: still independent runs.
-  assert.equal(placementBlocked([e], esc('off', 1, 'up', -4, 1)), false)
+  assert.equal(placementBlocked([e], esc('off', 1, 'up', -5, 1)), false)
   assert.equal(placementBlocked([e], esc('above', 1, 'up', 0)), false)
 })
 
@@ -105,21 +105,21 @@ test('what does not fit a tile still collides', () => {
   assert.equal(placementBlocked([e], esc('below', 0, 'down', -8)), false)
   // A turning stair spans its corner, so its envelope covers the neighbouring
   // cell too.
-  const turn = createModule('stair-left90', 1, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
+  const turn = createModule('stair-left90', 1, 0, -5, 't', 0, STAIR_WIDTH_NARROW)
   assert.ok(turn)
   assert.ok(placementBlocked([e], turn))
 })
 
 test('a wall, fence or gate may be built right up against a run', () => {
   const e = esc('e', 0)
-  const fence = createModule('fence', 1, 2, -4, 'f', 0)
-  const gate = createModule('gate', 1, 0, -4, 'g', 0)
+  const fence = createModule('fence', 1, 2, -5, 'f', 0)
+  const gate = createModule('gate', 1, 0, -5, 'g', 0)
   assert.ok(fence && gate)
   assert.equal(placementBlocked([e], fence), false, 'a fence beside the run')
   assert.equal(placementBlocked([e], gate), false, 'a gate beside the run')
   // Inside the run's own tile, though, there is no room.
-  assert.equal(placementBlocked([e], createModule('fence', 0, 2, -4, 'f', 0)), true)
-  assert.equal(placementBlocked([e], createModule('gate', 0, 0, -4, 'g', 0)), true)
+  assert.equal(placementBlocked([e], createModule('fence', 0, 2, -5, 'f', 0)), true)
+  assert.equal(placementBlocked([e], createModule('gate', 0, 0, -5, 'g', 0)), true)
 })
 
 test('the reference station’s mixed entrance is a flush pair, and it is a barrier', () => {
@@ -129,7 +129,7 @@ test('the reference station’s mixed entrance is a flush pair, and it is a barr
   assert.ok(s && s.type === 'stair', 'exit A has no stair')
   assert.ok(e && e.type === 'escalator', 'exit A has no up escalator')
   assert.equal(s.x + 1, e.x, 'the stair stands flush against the escalator')
-  assert.equal(s.y, e.y, 'and on the same bay row')
+  assert.equal(s.to.y, e.to.y, 'both runs reach the same upper bay row despite their different slopes')
   assert.ok(!placementBlocked([e], s), 'the flush pair is a legal placement')
 
   // Both runs join the graph at both landings — and no walk edge crosses the
@@ -189,8 +189,8 @@ function newelReturns(boxes) {
  * on the −4 slab beside the cell of every run row in `rows`: the stairwell wall a
  * stair's handrail is tested against.
  */
-function wallColumn(x, rows = [0, 1, 2, 3, 4, 5]) {
-  return rows.flatMap((y) => wallRun([[x, y, -3]]).map(([wx, wy, wz]) => ({ x: wx, y: wy, z: wz, fill: 'solid', tags: ['wall'] })))
+function wallColumn(x, rows = [0, 1, 2, 3, 4, 5, 6, 7, 8]) {
+  return rows.flatMap((y) => wallRun([[x, y, -4]]).map(([wx, wy, wz]) => ({ x: wx, y: wy, z: wz, fill: 'solid', tags: ['wall'] })))
 }
 
 test('a run draws both of its own balustrades, inside its own cell', () => {
@@ -273,7 +273,9 @@ test('the crowd may cross between the lanes of one wide flight, not between two 
   // wide staircase, so their landings are one floor.
   const walkBetween = (token) => {
     const data = scenarioStation()
-    const west = createModule('stair-straight', -6, 24, -4, 'lane-west', 0, STAIR_WIDTH_NARROW)
+    const east = data.modules.find((m) => m.id === 'stair-gc-exit-a')
+    const escalator = data.modules.find((m) => m.id === 'esc-gc-up-exit-a')
+    const west = createModule('stair-straight', east.x - 1, east.y, east.z, 'lane-west', 0, STAIR_WIDTH_NARROW)
     assert.ok(west && west.type === 'stair')
     if (token) {
       const east = data.modules.find((m) => m.id === 'stair-gc-exit-a')
@@ -285,8 +287,8 @@ test('the crowd may cross between the lanes of one wide flight, not between two 
     const g = buildGraph(data)
     const at = (p) => g.nodeIndex.get(key(p))
     const lower = at(west.from)
-    const stairBase = at({ x: -5, y: 24, z: -4 })
-    const escalatorBase = at({ x: -4, y: 24, z: -4 })
+    const stairBase = at(east.from)
+    const escalatorBase = at(escalator.from)
     assert.notEqual(lower, undefined)
     assert.notEqual(stairBase, undefined)
     assert.notEqual(escalatorBase, undefined)
@@ -332,7 +334,7 @@ test('a newel return is drawn only where a flight meets a floor of its own', () 
   // A straight stair has two handrails at two outer landings; a switchback's
   // half-landing carries the rail round the corner, so only its outer ends get a
   // newel rather than four posts in the middle of the platform.
-  const straight = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  const straight = createModule('stair-straight', 0, 0, -5, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(straight)
   assert.equal(newelReturns(meshBoxes(straight, [straight])).length, 4, 'two handrails at two outer landings')
   // Both hands of the switchback, at every width: the flights are laid flush, so
@@ -340,7 +342,7 @@ test('a newel return is drawn only where a flight meets a floor of its own', () 
   // rail round the corner rather than a post in the middle.
   for (const id of ['stair-right180', 'stair-left180']) {
     for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
-      const turn = createModule(id, 0, 0, -4, 't', 0, width)
+      const turn = createModule(id, 0, 0, -5, 't', 0, width)
       assert.ok(turn, `${id} at ${width} m did not build`)
       const boxes = meshBoxes(turn, [turn])
       assert.ok(boxes.length > 0, `${id} at ${width} m drew nothing`)
@@ -364,7 +366,7 @@ test('a switchback is drawn across exactly the blocks its size claims: 2 / 4 / 6
     [STAIR_WIDTH_TRIPLE, 6],
   ]) {
     for (const id of ['stair-right180', 'stair-left180']) {
-      const m = createModule(id, 0, 0, -4, 't', 0, width)
+      const m = createModule(id, 0, 0, -5, 't', 0, width)
       assert.ok(m, `${id} at ${width} m did not build`)
       const boxes = meshBoxes(m, [m])
       // A hair of float noise off the cell edge is not a block: read the extent with a
@@ -382,9 +384,9 @@ test('a 双跑楼梯 in a stairwell is railed only where it is open', () => {
   // newel return — goes, exactly as on a straight flight. The half-landing's two long
   // sides lean on the same walls, so its railing goes with them; the open end of the
   // stairwell keeps its own.
-  const m = createModule('stair-right180', 0, 0, -4, 't', 0, STAIR_WIDTH_DOUBLE)
+  const m = createModule('stair-right180', 0, 0, -5, 't', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(m && m.type === 'stair')
-  const column = (x) => [0, 1, 2, 3, 4].flatMap((y) => [-4, -3, -2, -1, 0].map((z) => ({ x, y, z, fill: 'solid', tags: ['wall'] })))
+  const column = (x) => [0, 1, 2, 3, 4, 5, 6, 7, 8].flatMap((y) => [-4, -3, -2, -1, 0].map((z) => ({ x, y, z, fill: 'solid', tags: ['wall'] })))
   const open = meshBoxes(m, [m])
   const walled = meshBoxes(m, [m], [...column(-1), ...column(4)])
   // A horizontal rail segment at the landing's own level: the two long sides sit at the
@@ -393,10 +395,10 @@ test('a 双跑楼梯 in a stairwell is railed only where it is open', () => {
     boxes.filter((b) => Math.abs((b.min[axis] + b.max[axis]) / 2 - v) < 0.06 && b.max.z - b.min.z < 0.1 && b.max[axis === 'x' ? 'y' : 'x'] - b.min[axis === 'x' ? 'y' : 'x'] > 0.9)
   assert.equal(levelRail(open, 'x', 0.145).length, 1, 'the landing is not railed on its west side')
   assert.equal(levelRail(open, 'x', 3.855).length, 1, 'the landing is not railed on its east side')
-  assert.equal(levelRail(open, 'y', 3.96).length, 1, 'the landing is not railed at its open end')
+  assert.equal(levelRail(open, 'y', 3.96).length, 2, 'the two flush runs rail the open end of the half-landing')
   assert.equal(levelRail(walled, 'x', 0.145).length, 0, 'a rail was left standing against the west wall')
   assert.equal(levelRail(walled, 'x', 3.855).length, 0, 'a rail was left standing against the east wall')
-  assert.equal(levelRail(walled, 'y', 3.96).length, 1, 'the open end of the landing lost its rail')
+  assert.equal(levelRail(walled, 'y', 3.96).length, 2, 'the two flush runs rail the open end of the half-landing')
   // Four newel returns in the open — both rails of both outer landings — and only the two
   // on the **seam** are left once a wall has replaced the outer two: those two rails face
   // each other across the middle of the pair, with no wall to lean on.
@@ -436,14 +438,15 @@ test('a flight’s beams end at the treads, never inside a landing’s block', (
   // `T·tan θ` past the end of their length — the trim `buildStairFlight` applies, which lands
   // that corner on the treads' edge.
   for (const [id, width] of [['stair-straight', 0.68], ['stair-straight', 1.79], ['stair-right90', 0.79], ['stair-right90', 1.79], ['stair-left180', 2.79]]) {
-    const mod = createModule(id, 0, 0, -4, 'x', 0, width)
+    const mod = createModule(id, 0, 0, -5, 'x', 0, width)
     assert.ok(mod && mod.type === 'stair', `${id} is not a stair`)
     for (const b of meshBoxes(mod, [mod])) {
-      // A **level slab** is the floor's own surface: treads, risers, the half-landing platform
+      // A **level slab** is the floor's own surface: treads, risers, the turn platform
       // (whose top *is* the walking surface, so its body sitting inside the landing's block is
-      // the point of it) and the rail posts' caps. The beams are rotated, so their boxes are
-      // deep in z — and they are what has to stop at the treads.
-      if (b.max.z - b.min.z < 0.35) continue
+      // the point of it — the 0.5 m platform frame included) and the rail posts' caps. The
+      // beams are rotated, so their boxes are deep in z — and they are what has to stop at
+      // the treads.
+      if (b.max.z - b.min.z < 0.45) continue
       for (const l of stairLandings(mod)) {
         for (const [x, y] of [[b.min.x, b.min.y], [b.max.x, b.min.y], [b.min.x, b.max.y], [b.max.x, b.max.y]]) {
           // Strictly inside the landing's own cell in plan — a point on the boundary belongs to

@@ -23,12 +23,18 @@ interaction, bound event work, compare equivalent runs and guard the measured ca
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
 | `model/` characters, bag variants, walking exports and the approved game passenger atlas | `metro-model` |
 
+For the 5 m grid, current 98% train profile, PSD layout and ceiling/save
+rules, follow `metro-game` → [five-metre profile](../metro-game/references/five-metre-profile.md).
+
 The game's first-run tutorial belongs to `metro-game` (`app/windows/tutorial/`).
 Its interactive browser regression is `npm run check:tutorial`; use `metro-game-test`
 for persistence/startup unit tests and the browser coverage split. Normal page loads
 restore the local autosave or start empty; browser tools requiring a demo must load
 their fixture explicitly. Autosave ownership and replacement rules live in
-`metro-game` under “Startup and interactive tutorial”.
+`metro-game` under “Startup and interactive tutorial”. Opening a `*.metro.json`
+save must keep the station's basis floor (`levelBase`) or the lowest level with
+user placement as the edited storey; the infinite 0 m ground plane is not a
+placement and the worker's `ready` message must not reset the view to grade.
 
 Ambient road traffic has six seeded vehicle appearances: pale/orange and red-mosaic
 buses, SUV, sedan, moped and step-through bicycle. Low graphics quality uses authored
@@ -71,11 +77,12 @@ and every class wears surface-fitted wipers, pinned by `train-cab`.
 
 All A/B/C/D/L trains have an overhead-wire roof variant, selected by the line's
 `power`, with mirrored pantographs at the inward ends of the two cab cars.
-Catenary contact sits 4.77 m above the bed (a 0.99 m raise): tunnels run compact
-flanged rigid rail under a 5 m ceiling, and open platforms and bridges carry
+Catenary contact follows the compact collector: the wire centre is 3.903 m above
+the track anchor, with carbon contact at 3.891 m. Covered/tunnel runs leave 3 m
+above the platform floor, with flanged rigid conductor rail below the ceiling, and open platforms and bridges carry
 lattice gantries with sagging messenger spans (`CatenaryModel.ts`,
-`catenary-model`); `build/model/TunnelShell.ts` upgrades existing generated shells
-on load and rebuilds them when a line's power changes. `metro-game` owns
+`catenary-model`); `build/model/TunnelShell.ts` rebuilds generated shells when
+a line's power changes; loading preserves authored cells. `metro-game` owns
 `TrainPantograph.ts`, the recessed roof mounts and the worker's door/power flags;
 `train-pantograph` pins their placement and conductor contact.
 L keeps its three-door shell with paired wide inter-door windows and small end

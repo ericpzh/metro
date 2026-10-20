@@ -46,7 +46,7 @@ function isTrussRun(type: string): boolean {
 
 /** Roof models keep their corner anchor in saves; the pointer carries their centre (§9.5). */
 function centredModule(type: string, x: number, y: number, z: number, id: string, rot: number, width: number): Module | null {
-  const mod = createModule(type, x, y, z, id, rot, width)
+  const mod = createModule(type, x, y, z, id, rot, width, 'up', 'lane', [], undefined, { storeyHeight: useStore.getState().station.storeyHeight })
   if (mod?.type !== 'roof') return mod
   const [dx, dy] = rotateLocal(rot, (mod.w - 1) / 2, (mod.d - 1) / 2)
   return { ...mod, x: Math.floor(x - dx), y: Math.floor(y - dy) }

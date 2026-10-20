@@ -15,9 +15,10 @@
 //      standing at its origin is never read as the obstacle.
 //
 // A **run** — a 楼梯 or a 扶梯 — is the piece whose own cells are the document's: its
-// `from`/`to` (and every flight of a 楼梯's turn) are world coordinates, and a turning
-// stair lays its half-landing floor as a walkable node. So a move of one is a **teardown
-// and a rebuild** (`moveEquipment` → `removeModule` + `addEquipment`), not a translation,
+// `from`/`to` (and every flight of a 楼梯's turn) are world coordinates, and it carves the
+// slab it climbs through (a legacy turning stair may also carry the half-landing block an
+// older build laid). So a move of one is a **teardown and a rebuild** (`moveEquipment` →
+// `removeModule` + `addEquipment`), not a translation,
 // and `movedModule` re-lays its cells. A 电梯, a room, a bridge-owned pier and a 轨道 /
 // 站台门 are still refused by
 // the same rule the delete tool uses to refuse a sweep: each is one piece whose derived
@@ -48,9 +49,9 @@ function station(extra = []) {
 }
 
 /** A floor with a solid slab 4 m up over (3, 3), which is what a 指示牌 hangs from. */
-const ceilingSlab = { x: 3, y: 3, z: 4, fill: 'solid' }
+const ceilingSlab = { x: 3, y: 3, z: 5, fill: 'solid' }
 /** The same, one cell along: enough ceiling for a sign moved from (3,3) to (4,3). */
-const ceilingRun = [ceilingSlab, { x: 4, y: 3, z: 4, fill: 'solid' }]
+const ceilingRun = [ceilingSlab, { x: 4, y: 3, z: 5, fill: 'solid' }]
 const at = (x, y, z = 0) => ({ x, y, z })
 
 /** A piece built by the real factory, so its `cfg` is the one the game makes. */
@@ -111,8 +112,8 @@ test('the flat pieces, an exit and the two runs move; the rest of the structure 
   // The 1 × 1 楼梯块 owns nothing of the document's and carves nothing: it is a plain
   // replacement like any flat piece, so a move of one keeps the module list's order.
   assert.equal(moveRebuilds(piece('stair-block', 1, 1)), false)
-  // A 电梯 shaft grows a storey at a time without ever asking for floor
-  // (`LIFT_EXTEND`), so no single verdict can say where a moved shaft lands.
+  // A 电梯 shaft stacks intervals without ever asking for floor
+  // (`liftExtendedUp`), so no single verdict can say where a moved shaft lands.
   assert.equal(isMovableModule(piece('lift', 1, 1)), false, 'a lift shaft is still refused')
   // The pieces the palette does not build through the factory are still refused.
   assert.equal(isMovableModule({ id: 'shop-1', type: 'shop', x: 1, y: 1, z: 0, w: 4, h: 4, cfg: { kind: 'store' } }), false)
@@ -164,18 +165,18 @@ test('a move never collides with the copy still standing at the origin', () => {
 
 test('a run is re-laid where it is dropped: a 扶梯 keeps its direction', () => {
   const run = piece('escalator', 2, 3)
-  assert.deepEqual([run.from, run.to], [{ x: 2, y: 3, z: 0 }, { x: 2, y: 9, z: 4 }], 'the rig needs a run along +y')
+  assert.deepEqual([run.from, run.to], [{ x: 2, y: 3, z: 0 }, { x: 2, y: 12, z: 5 }], 'the rig needs a run along +y')
   const moved = movedModule(run, at(5, 2, 0), 0)
-  assert.deepEqual([moved.from, moved.to], [{ x: 5, y: 2, z: 0 }, { x: 5, y: 8, z: 4 }], 'the whole run travels with the base')
+  assert.deepEqual([moved.from, moved.to], [{ x: 5, y: 2, z: 0 }, { x: 5, y: 11, z: 5 }], 'the whole run travels with the base')
   // R turns the run about its **base cell**: the upper landing swings with it, and the
   // travel direction (a setting of its own) is untouched.
   const turned = movedModule(run, at(5, 2, 0), 1)
-  assert.deepEqual([turned.from, turned.to], [{ x: 5, y: 2, z: 0 }, { x: 11, y: 2, z: 4 }])
+  assert.deepEqual([turned.from, turned.to], [{ x: 5, y: 2, z: 0 }, { x: 14, y: 2, z: 5 }])
   assert.deepEqual(turned.cfg, run.cfg, 'a turn is not a direction change')
   // A down escalator reads its `from`/`to` the other way round and moves the same way.
   const down = piece('escalator', 2, 3, 0, 0, { dir: 'down' })
   const downMoved = movedModule(down, at(5, 2, 0), 0)
-  assert.deepEqual([downMoved.from, downMoved.to], [{ x: 5, y: 8, z: 4 }, { x: 5, y: 2, z: 0 }])
+  assert.deepEqual([downMoved.from, downMoved.to], [{ x: 5, y: 11, z: 5 }, { x: 5, y: 2, z: 0 }])
 })
 
 test('a moved 楼梯 is exactly the stair the factory would build at its new cell', () => {
@@ -215,12 +216,12 @@ test('a piece that was never on the block grid keeps the run it has', () => {
     z: 0,
     rot: 0,
     from: { x: 0, y: 0, z: 0 },
-    to: { x: 0, y: 0, z: 4 },
-    cfg: { width: 1.6, style: 'straight', flights: [{ from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 } }] },
+    to: { x: 0, y: 0, z: 5 },
+    cfg: { width: 1.6, style: 'straight', flights: [{ from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 5 } }] },
   }
   const moved = movedModule(legacy, at(2, 3, 0), 1)
   assert.equal(moved.cfg.width, 1.6, 'the width it was built with is not rewritten')
-  assert.deepEqual(moved.cfg.flights, [{ from: { x: 2, y: 3, z: 0 }, to: { x: 8, y: 3, z: 4 } }])
+  assert.deepEqual(moved.cfg.flights, [{ from: { x: 2, y: 3, z: 0 }, to: { x: 8, y: 3, z: 5 } }])
 })
 
 test('a run is refused only where its own lower base has no floor', () => {
@@ -301,9 +302,10 @@ test('the 移动 ghost takes the wall the camera is looking at, on the 基准高
   // the two walls beside it backs the panel is the view's answer, not the carried
   // turn's (which named the wall at the cell the piece came from).
   const cells = [
-    { x: 0, y: 0, z: 5, fill: 'solid' },
-    { x: 0, y: 1, z: 6, fill: 'solid' },
-    { x: 1, y: 0, z: 6, fill: 'solid' },
+    { x: 0, y: 0, z: 6, fill: 'solid' },
+    { x: 0, y: 1, z: 7, fill: 'solid' },
+    { x: 0, y: 1, z: 8, fill: 'solid' },
+    { x: 1, y: 0, z: 7, fill: 'solid' },
   ]
   const board = piece('billboard-wide', 0, 0, 5)
   useStore.setState({
@@ -321,31 +323,31 @@ test('the 移动 ghost takes the wall the camera is looking at, on the 基准高
   const tool = new MoveController({
     scene: () => scene,
     facing: () => aim,
-    hover: { current: { cell: [0, 1, 6], place: [0, 0, 6], solid: true, point: [0.5, 1] } },
+    hover: { current: { cell: [0, 1, 8], place: [0, 0, 8], solid: true, point: [0.5, 1] } },
     drag: { current: null },
   })
   st().liftModule(board.id)
   tool.refreshHover()
-  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the ghost stands in front of the face, on the shifted storey floor')
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 6], 'the ghost stands in front of the face, on the shifted storey floor')
   assert.equal(preview.rot, 2, 'and hangs on the wall the camera is looking at')
   // Orbiting around the tile re-aims it: the same hover, the same carried piece.
   aim = [-1, 0] // the eye west of the piece: the view looks east
   tool.refreshHover()
   assert.equal(preview.rot, 1, 'the east wall, which the camera now faces')
-  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 5], 'the stand cell does not move with the view')
+  assert.deepEqual([preview.x, preview.y, preview.z], [0, 0, 6], 'the stand cell does not move with the view')
   // A carried **玻璃板** follows the course it is aimed at, exactly as a fresh placement
   // does (`wallMountFollowsCourse`): pointed at the wall's second course — covered by the
   // one over it — the pane covers that course rather than dropping to the storey floor.
   const panel = piece('glass-1x1', 0, 0, 5)
   useStore.setState({
-    station: toState({ name: '移动测试', seed: 1, levelBase: 1, cells: [...cells, { x: 0, y: 1, z: 7, fill: 'solid' }, { x: 0, y: 1, z: 8, fill: 'solid' }], modules: [panel], lines: [] }),
+    station: toState({ name: '移动测试', seed: 1, levelBase: 1, cells: [...cells, { x: 0, y: 1, z: 7, fill: 'solid' }, { x: 0, y: 1, z: 10, fill: 'solid' }], modules: [panel], lines: [] }),
     moveDraft: null,
     past: [],
     future: [],
     notice: null,
     version: 0,
   })
-  tool.ctx.hover.current = { cell: [0, 1, 7], place: [0, 0, 7], solid: true, point: [0.5, 1] }
+  tool.ctx.hover.current = { cell: [0, 1, 8], place: [0, 0, 8], solid: true, point: [0.5, 1] }
   aim = [0, -1]
   st().liftModule(panel.id)
   tool.refreshHover()
@@ -368,36 +370,42 @@ test('replaceEquipment swaps the piece in place, keeping the list order', () => 
   assert.equal(replaceEquipment(before, { ...b, id: 'gone' }), before)
 })
 
-test('a moved 楼梯 takes its half-landing floor with it and lays the new one', () => {
-  // The landing between a turn's two flights is the **stair's** walkable node: the stair
-  // laid it when it arrived (`addEquipment`) and takes it back out when it leaves
-  // (`removeModule`), so a move has to do both, or every moved stair leaves a stray block
-  // behind and arrives with a hole in its own turn. A 中 turn's landing is the whole
-  // `lanes × lanes` square, so every one of its cells has to travel.
+test('a moved 楼梯 leaves no landing block behind: the turn is the model, and a legacy block travels', () => {
+  // The landing between a turn's two flights is the **stair's** walkable node, drawn by
+  // its own model and handed to the graph as a virtual cell. A placement therefore lays
+  // no block, and a move has no floor to carry; a save made before that rule still
+  // carries the block the old builder laid, and moving its stair takes it away.
   const cells = []
-  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) for (const z of [-4, 0]) cells.push({ x, y, z, fill: 'solid' })
+  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) for (const z of [-5, 0]) cells.push({ x, y, z, fill: 'solid' })
   const base = state(cells, [])
   const has = (s, p) => s.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z)
   for (const [width, lanes] of [[STAIR_WIDTH_NARROW, 1], [STAIR_WIDTH_DOUBLE, 2]]) {
-    const stair = piece('stair-right90', 2, 2, -4, 0, { width })
+    const stair = piece('stair-right90', 2, 2, -5, 0, { width })
     const landing = stairTurnCells(stair)
     assert.equal(landing.length, lanes * lanes, `a ${lanes}-lane 90° turn lands on its ${lanes} × ${lanes} square`)
     const placed = addEquipment(base, stair)
-    for (const p of landing) assert.ok(has(placed, p), `the landing at ${p.x},${p.y},${p.z} was not laid`)
+    for (const p of landing) assert.ok(!has(placed, p), `the landing at ${p.x},${p.y},${p.z} was laid as a block`)
 
-    const moved = moveEquipment(placed, movedModule(stair, at(4, 2, -4), 0))
+    const moved = moveEquipment(placed, movedModule(stair, at(4, 2, -5), 0))
     assert.equal(moved.modules.length, 1, 'the stair is still one piece')
     assert.deepEqual([moved.modules[0].x, moved.modules[0].y], [4, 2])
     for (const p of landing) assert.ok(!has(moved, p), `the old landing ${p.x},${p.y},${p.z} was left behind`)
     const now = stairTurnCells(moved.modules[0])
     assert.equal(now.length, lanes * lanes, 'the new landing is the same square')
-    for (const p of now) assert.ok(has(moved, p), `the new landing ${p.x},${p.y},${p.z} was not laid`)
+    for (const p of now) assert.ok(!has(moved, p), `the new landing ${p.x},${p.y},${p.z} was laid as a block`)
+
+    // A legacy save: the old builder laid the landing as a block. The move takes it out
+    // with the stair, and lays none at the new cell either.
+    const legacy = { ...placed, cells: [...placed.cells, ...landing.map((p) => ({ ...p, fill: 'solid' }))] }
+    const movedLegacy = moveEquipment(legacy, movedModule(stair, at(4, 2, -5), 0))
+    for (const p of landing) assert.ok(!has(movedLegacy, p), `the legacy landing ${p.x},${p.y},${p.z} was left behind`)
+    for (const p of now) assert.ok(!has(movedLegacy, p), `the moved legacy stair laid a landing block at ${p.x},${p.y},${p.z}`)
   }
   // The floor the run climbs through is re-carved at its new cell, and the opening it
   // leaves behind stays open — exactly what 删除 leaves, since a run may be swept in
   // banks already (`sweep.ts`). The 方块 tool may fill it: it is no longer reserved.
-  const narrow = piece('stair-right90', 2, 2, -4)
-  assert.ok(has(moveEquipment(addEquipment(base, narrow), movedModule(narrow, at(4, 2, -4), 0)), { x: 2, y: 2, z: -4 }), 'the floor it stood on is floor, not the stair’s')
+  const narrow = piece('stair-right90', 2, 2, -5)
+  assert.ok(has(moveEquipment(addEquipment(base, narrow), movedModule(narrow, at(4, 2, -5), 0)), { x: 2, y: 2, z: -5 }), 'the floor it stood on is floor, not the stair’s')
 })
 
 test('a moved 扶梯 carves its new opening', () => {
@@ -406,15 +414,15 @@ test('a moved 扶梯 carves its new opening', () => {
   const esc = piece('escalator', 2, 2)
   const placed = addEquipment(state(cells, []), esc)
   const open = (s, x, y, z) => !s.cells.some((c) => c.x === x && c.y === y && c.z === z)
-  assert.ok(open(placed, 2, 6, 4), 'the slab the run climbs through was not carved')
-  assert.ok(!open(placed, 2, 8, 4), 'the upper landing is kept as the run’s node')
+  assert.ok(open(placed, 2, 7, 4), 'the slab the run climbs through was not carved')
+  assert.ok(!open(placed, 2, 11, 4), 'the upper landing is kept as the run’s node')
 
   const moved = moveEquipment(placed, movedModule(esc, at(6, 2, 0), 0))
   assert.equal(moved.modules.length, 1)
-  assert.deepEqual([moved.modules[0].from, moved.modules[0].to], [{ x: 6, y: 2, z: 0 }, { x: 6, y: 8, z: 4 }])
-  assert.ok(open(moved, 6, 6, 4), 'the opening at the new cell was not carved')
-  assert.ok(!open(moved, 6, 8, 4), 'the new upper landing is kept')
-  assert.ok(open(moved, 2, 6, 4), 'the run it came from leaves its opening behind, as a delete does')
+  assert.deepEqual([moved.modules[0].from, moved.modules[0].to], [{ x: 6, y: 2, z: 0 }, { x: 6, y: 11, z: 5 }])
+  assert.ok(open(moved, 6, 7, 4), 'the opening at the new cell was not carved')
+  assert.ok(!open(moved, 6, 11, 4), 'the new upper landing is kept')
+  assert.ok(open(moved, 2, 7, 4), 'the run it came from leaves its opening behind, as a delete does')
 })
 
 /* ---------------------------------------------------------- the store's lift */
@@ -503,21 +511,20 @@ test('confirming drops it where it is aimed, as one undoable commit', () => {
   assert.deepEqual([held('gate-1').x, held('gate-1').y], [2, 2], 'and undo puts it back')
 })
 
-test('a run’s move is one commit, and undo brings its landing floor back', () => {
-  // Two slabs, one storey apart: the stair climbs from the lower one to the upper, and
-  // the half-landing between its two flights is floor the **stair** owns.
+test('a run’s move is one commit, and undo restores its position without landing filler', () => {
+  // Two slabs, one five-metre storey apart. The stair owns its intermediate platform;
+  // no legacy landing voxel is inserted or migrated by move/undo.
   const cells = []
-  for (let x = 0; x < 12; x++) for (let y = 0; y < 12; y++) for (const z of [-4, 0]) cells.push({ x, y, z, fill: 'solid' })
-  const stair = piece('stair-right90', 2, 2, -4)
-  const landing = stairTurnCells(stair)[0]
-  // Placed by the real builder, so the half-landing floor the stair owns is really there.
+  for (let x = 0; x < 12; x++) for (let y = 0; y < 12; y++) for (const z of [-5, 0]) cells.push({ x, y, z, fill: 'solid' })
+  const stair = piece('stair-right90', 2, 2, -5)
   const placed = addEquipment(state(cells, []), stair)
   load(placed.cells, placed.modules)
   const has = (p) => st().station.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z)
-  assert.ok(has(landing), 'the rig needs the stair’s own landing floor')
+  const landing = stairTurnCells(stair)[0]
+  assert.ok(!has(landing), 'the stair turn does not need an extra landing block')
 
   st().liftModule(stair.id)
-  const aim = at(4, 2, -4)
+  const aim = at(4, 2, -5)
   const { module: candidate, reason } = moveCandidate(st().station.cells, st().station.modules, held(stair.id), aim, 0)
   assert.equal(reason, '', 'a stair moves onto floor like any other piece')
   st().aimMove(aim, candidate, reason)
@@ -526,13 +533,13 @@ test('a run’s move is one commit, and undo brings its landing floor back', () 
   assert.deepEqual([held(stair.id).x, held(stair.id).y], [4, 2])
   assert.ok(!has(landing), 'the old half-landing went with it')
   const newLanding = stairTurnCells(held(stair.id))[0]
-  assert.ok(has(newLanding), 'and the new one was laid')
+  assert.ok(!has(newLanding), 'and the stair lays no new landing block')
   assert.equal(st().past.length, 1, 'one commit, so one Ctrl+Z')
 
   st().undo()
   assert.deepEqual([held(stair.id).x, held(stair.id).y], [2, 2], 'and undo puts the run back')
-  assert.ok(has(landing), 'with the landing floor it owned')
-  assert.ok(!has(newLanding), 'and without the one it had laid at its new cell')
+  assert.ok(!has(landing), 'undo restores the stair without adding landing filler')
+  assert.ok(!has(newLanding), 'and without one at its new cell')
 })
 
 test('a 指示牌 keeps its printed boards through a move', () => {

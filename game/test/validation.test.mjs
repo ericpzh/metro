@@ -168,11 +168,11 @@ test('the wall tool refuses a course a piece holds, in the same words as the rel
   )
   assert.deepEqual(
     column.acceptedCells.map((c) => c[2]).sort(),
-    [3, 4],
+    [3, 4, 5],
     'a wall higher than the machine stands on it',
   )
   const full = addWalls(st, [[2, 2, 1]])
-  assert.equal(full.changed, 2, 'the release lays the same two courses the preview accepted')
+  assert.equal(full.changed, 3, 'the release lays the same three courses the preview accepted')
   assert.equal(full.blocked, 2)
 })
 
@@ -185,7 +185,7 @@ test('the equipment verdict is one rule set, with one sentence per rule', () => 
   assert.equal(equipmentRefusalNotice(''), '')
 
   // The same piece one storey up, where there is no street: no ground under it.
-  const offEdge = createModule('tvm', 9, 9, 4, 't2', 0)
+  const offEdge = createModule('tvm', 9, 9, 5, 't2', 0)
   assert.equal(equipmentReason(st.cells, st.modules, offEdge), 'floor')
   assert.match(equipmentRefusalNotice('floor'), /地板/)
 
@@ -200,12 +200,12 @@ test('the equipment verdict is one rule set, with one sentence per rule', () => 
   assert.equal(equipmentReason(st.cells, st.modules, hung), 'ceiling')
   // A hung piece is exempt from the ground: the cell off the slab's edge refuses a
   // 售票机 for its floor and takes the 指示牌 that hangs from the slab over it.
-  const well = flatStation([{ x: 9, y: 9, z: 4, fill: 'solid' }])
+  const well = flatStation([{ x: 9, y: 9, z: 5, fill: 'solid' }])
   const overWell = createModule('sign', 9, 9, 0, 's2', 0)
   assert.equal(equipmentReason(well.cells, well.modules, overWell, true), '', 'a hung piece wants the slab, not the ground')
   // A 出入口 belongs at the street, and only while placing — a 移动 of one already
   // standing on a concourse is not refused for where it is.
-  const exit = { id: 'x1', type: 'exit', x: 2, y: 2, z: -4, rot: 0, cfg: { name: 'A口', inRate: 600, open: true } }
+  const exit = { id: 'x1', type: 'exit', x: 2, y: 2, z: -5, rot: 0, cfg: { name: 'A口', inRate: 600, open: true } }
   assert.equal(equipmentReason(st.cells, st.modules, exit, true), 'exit-on-slab')
   assert.notEqual(equipmentReason(st.cells, st.modules, exit, false), 'exit-on-slab')
 })
@@ -240,7 +240,7 @@ test('a lifted piece is judged by the same rule set as a fresh placement', () =>
 test('a movable piece is refused over void by the same floor rule', () => {
   const st = flatStation()
   // One storey up there is no street, so the same bench really is floorless.
-  const bench = createModule('bench', 9, 9, 4, 'b1', 0)
+  const bench = createModule('bench', 9, 9, 5, 'b1', 0)
   assert.equal(moveDropReason(st.cells, st.modules, bench), equipmentRefusalNotice('floor'))
   // Placing the same piece is refused identically (it is the same rule set).
   assert.equal(equipmentReason(st.cells, st.modules, bench, true), 'floor')
@@ -263,7 +263,7 @@ test('a wall-mounted 广告牌 does not fight the floor, only the wall', () => {
     { x: 2, y: 2, z: 1, fill: 'solid' },
     { x: 3, y: 2, z: 1, fill: 'solid' },
     // …and the slab a hung piece needs, one storey up.
-    { x: 2, y: 3, z: 4, fill: 'solid' },
+    { x: 2, y: 3, z: 5, fill: 'solid' },
   ]
   const st = flatStation(wall)
   // Facing −y (rot 0), so it bolts onto the wall at (2, 2, 1) — the cell in front of
@@ -296,25 +296,25 @@ test('a wall-mounted 广告牌 does not fight the floor, only the wall', () => {
 /* --------------------------------------- runs stand on their ends, not their middles */
 
 test('a 扶梯 stands on its lower base; the upper landing is carved, not required', () => {
-  // The run climbs +y from (0, 0): six cells over, one storey up. Only the lower
+  // The run climbs +y from (0, 0): nine cells over, one storey up. Only the lower
   // base needs solid floor (or an exit's floor): the upper landing and everything
   // between the ends are carved on placement, so a void upper landing is no refusal.
-  const step = flatStation([{ x: 0, y: 6, z: 0, fill: 'solid' }])
+  const step = flatStation([{ x: 0, y: 9, z: 0, fill: 'solid' }])
   const run = createModule('escalator', 0, 0, 0, 'e1', 0, undefined, 'up')
-  assert.deepEqual([run.from, run.to], [{ x: 0, y: 0, z: 0 }, { x: 0, y: 6, z: 4 }], 'the piece climbs six cells to the storey above')
-  assert.deepEqual(moduleFootprint(run), [[0, 0], [0, 6]], 'its footprint is the two landings, not the slope between them')
+  assert.deepEqual([run.from, run.to], [{ x: 0, y: 0, z: 0 }, { x: 0, y: 9, z: 5 }], 'the piece climbs nine cells to the storey above at 30 degrees')
+  assert.deepEqual(moduleFootprint(run), [[0, 0], [0, 9]], 'its footprint is the two landings, not the slope between them')
   assert.equal(equipmentReason(step.cells, step.modules, run), '', 'the upper landing is carved on placement')
   assert.match(equipmentRefusalNotice('escalator-bases'), /底端/, 'in the words the notice bar uses')
   // Dig the lower base out and the same run has nowhere to stand: the generic floor
   // rule answers first, because the base plan cell is in the footprint it checks.
-  const dug = flatStation([{ x: 0, y: 6, z: 0, fill: 'solid' }])
+  const dug = flatStation([{ x: 0, y: 9, z: 0, fill: 'solid' }])
   dug.cells = dug.cells.map((c) => (c.x === 0 && c.y === 0 && c.z === 0 ? { ...c, fill: 'void' } : c))
   assert.equal(equipmentReason(dug.cells, dug.modules, run), 'floor')
   // Everything between the landings is carved on placement, so a void middle is no
   // refusal: give the run its base and the same run stands.
   const landed = flatStation([
-    { x: 0, y: 6, z: 0, fill: 'solid' },
-    { x: 0, y: 6, z: 4, fill: 'solid' },
+    { x: 0, y: 9, z: 0, fill: 'solid' },
+    { x: 0, y: 9, z: 5, fill: 'solid' },
   ])
   assert.equal(equipmentReason(landed.cells, landed.modules, run), '', 'both ends on floor, the middle may be air')
 })
@@ -325,7 +325,7 @@ test('a 电梯 is refused for its bay, in its own words', () => {
   // no lift could ever reach it.
   const st = flatStation()
   // One storey up: nothing stands there, so the lift has no floor for its bay.
-  const bay = createModule('lift', 5, 5, 4, 'l1', 0)
+  const bay = createModule('lift', 5, 5, 5, 'l1', 0)
   assert.deepEqual(moduleFootprint(bay).sort(), [[5, 5], [5, 6], [6, 5], [6, 6]].sort(), 'the footprint is the whole bay')
   assert.equal(equipmentReason(st.cells, st.modules, bay), 'lift-footprint', 'with no floor the lift names its bay, not the generic rule')
   assert.match(equipmentRefusalNotice('lift-footprint'), /2×2/, 'in the words the notice bar uses')

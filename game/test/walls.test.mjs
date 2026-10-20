@@ -1,6 +1,6 @@
 // Build floors and their automatic walls.
 //
-// The 建造 tool's deliberate drag draws a floor patch and raises a 4 m wall ring
+// The 建造 tool's deliberate drag draws a floor patch and raises a 5 m wall ring
 // on its outer edge. A patch is tracked by `AUTO_FLOOR` cells, so overlapping or
 // abutting two patches unions them exactly like a facility room: the shared edge
 // inside the union loses its wall and the new outer edge gains one. Only
@@ -190,12 +190,12 @@ test('the 墙 tool lifts an auto-generated wall column in bulk, too', () => {
   // top course at z=4 belongs to the storey above, so it is left as the roof.
   assert.deepEqual(
     wallColumnAt(st, 1, 1, 3).map((c) => c[2]).sort((a, b) => a - b),
-    [1, 2, 3],
+    [1, 2, 3, 4],
   )
   // The roof course lifts on its own, from its own storey.
   assert.deepEqual(
-    wallColumnAt(st, 1, 1, 4).map((c) => c[2]).sort((a, b) => a - b),
-    [4],
+    wallColumnAt(st, 1, 1, 5).map((c) => c[2]).sort((a, b) => a - b),
+    [5],
   )
   // A right-drag along the edge returns both storey-limited columns,
   // de-duplicated even though (1,1) is touched twice.
@@ -204,7 +204,7 @@ test('the 墙 tool lifts an auto-generated wall column in bulk, too', () => {
     [2, 1, 1],
     [1, 1, 3],
   ]
-  assert.equal(wallColumnsAt(st, run).length, 2 * 3)
+  assert.equal(wallColumnsAt(st, run).length, 2 * 4)
   // The floor block itself is not a wall course.
   assert.deepEqual(wallColumnAt(st, 1, 1, 0), [])
 })
@@ -212,15 +212,15 @@ test('the 墙 tool lifts an auto-generated wall column in bulk, too', () => {
 test('a stacked wall column lifts one storey at a time, never the roof above', () => {
   // Two hand-placed runs stacked into one contiguous column across B1 and G:
   // B1 owns -4..-1, G owns 0..3.
-  let st = addWalls(empty(), [[2, 2, -4]]).state
+  let st = addWalls(empty(), [[2, 2, -5]]).state
   st = addWalls(st, [[2, 2, 0]]).state
   assert.deepEqual(
     wallColumnAt(st, 2, 2, -2).map((c) => c[2]).sort((a, b) => a - b),
-    [-4, -3, -2, -1],
+    [-5, -4, -3, -2, -1],
   )
   assert.deepEqual(
     wallColumnAt(st, 2, 2, 1).map((c) => c[2]).sort((a, b) => a - b),
-    [0, 1, 2, 3],
+    [0, 1, 2, 3, 4],
   )
   // A doorway gap still stops the run: only the contiguous segment in this
   // storey comes back.
@@ -238,7 +238,7 @@ test('the 墙 tool tags its columns so right-click can lift the whole run', () =
   assert.equal(tagged.length, 2 * AUTO_WALL_H)
   assert.ok(tagged.every((c) => !c.tags?.includes(AUTO_WALL)))
   // Whichever course the pointer lands on, the whole column comes back.
-  assert.deepEqual(wallColumnAt(st, 2, 2, 3).map((c) => c[2]).sort(), [0, 1, 2, 3])
+  assert.deepEqual(wallColumnAt(st, 2, 2, 3).map((c) => c[2]).sort(), [0, 1, 2, 3, 4])
   assert.equal(wallColumnAt(st, 2, 2, 1).length, AUTO_WALL_H)
   // A right-drag across both columns returns all eight, de-duplicated.
   assert.equal(wallColumnsAt(st, [[2, 2, 0], [3, 2, 0], [2, 2, 2]]).length, 2 * AUTO_WALL_H)
@@ -396,6 +396,7 @@ test('a 双跑楼梯 pushed flush against a wall ring leaves the ring whole', ()
   )
   const halfPanels = thinWallCells(after.cells, after.modules).filter((t) => t.x === 6)
   assert.deepEqual(halfPanels, [], `the wall beside the run was cut into half panels: ${JSON.stringify(halfPanels)}`)
-  // The stair still laid its own landing row, and the wall is not part of it.
-  assert.ok(has(after.cells, 2, 4, 2) && has(after.cells, 5, 4, 2), 'the turn landing was not laid')
+  // The stair lays no landing block at all — its platform is the model's own 0.5 m slab —
+  // so nothing it does can touch the wall's own cells.
+  assert.ok(!has(after.cells, 2, 4, 2) && !has(after.cells, 5, 4, 2), 'the turning stair laid a landing block')
 })

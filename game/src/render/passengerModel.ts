@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
+import { trainScaleForStorey } from '../sim/stock.ts'
 import { PASSENGER_OPACITY, PASSENGER_LOW_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
 import { decodePassengerBytes, restorePassengerFrames } from './passengerAtlas.ts'
@@ -27,10 +28,12 @@ export type PassengerDetail = 'full' | 'low'
 export function passengerAppearance(id: number, out: PassengerAppearance = [0, 0, 0, 0, 0]): PassengerAppearance {
   // Reuse the caller's scratch tuple: no per-frame crowd allocations.
   passengerProportions(id, out)
+  // Match the train's visual scale at the feet; simulation physique stays unchanged.
+  const scale = trainScaleForStorey()
   out[4] = out[3]
-  out[3] = out[2]
-  out[2] = out[1]
-  out[1] = out[0]
+  out[3] = out[2] * scale
+  out[2] = out[1] * scale
+  out[1] = out[0] * scale
   // A separate identity hash chooses equally within the age-appropriate pool,
   // independently of size and gait, without advancing simulation randomness.
   let hash = Math.imul(id ^ 0x51ed270b, 0x85ebca6b) >>> 0

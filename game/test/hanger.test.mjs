@@ -36,7 +36,7 @@ test('roof hanger needs both end attachments, and accepts each roof model', () =
     const m = createModule('hanger-roof', 0, 0, 0, 'h', rot, 4)
     assert.equal(equipmentReason([], [], m), 'ceiling')
     const run = hangerCells(m)
-    const slabs = [run[0], run.at(-1)].map(([x, y]) => ({ x, y, z: 4, fill: 'solid' }))
+    const slabs = [run[0], run.at(-1)].map(([x, y]) => ({ x, y, z: 5, fill: 'solid' }))
     assert.equal(hangerRoofMissing(slabs, [], m), false)
     assert.equal(hangerRoofMissing(slabs.slice(1), [], m), true)
     for (const id of ['roof', 'roof-shell', 'roof-truss', 'roof-tapered']) {
@@ -59,7 +59,7 @@ test('sign, clock and TV hang from the bar with no ceiling, in either build orde
       assert.equal(equipmentReason([], [h], item), '')
       assert.equal(placementBlocked([item], h), false)
       assert.equal(moduleAt([h, item], x, y, 0)?.id, item.id)
-      assert.equal(ceilingMountMissing([], { ...item, z: 4 }, [h]), true)
+      assert.equal(ceilingMountMissing([], { ...item, z: 5 }, [h]), true)
       if (type !== 'clock') assert.equal(ceilingMountMissing([], { ...item, rot: rot + 1 }, [h]), true)
     }
     const [endX, endY] = hangerCells(h)[0]
@@ -70,8 +70,8 @@ test('sign, clock and TV hang from the bar with no ceiling, in either build orde
 
 test('post needs floor only under its central footing; beam leaves walking and furniture clear', () => {
   for (const rot of [0, 1, 2, 3]) {
-    const h = createModule('hanger-post', 0, 0, 4, 'h', rot, 8)
-    const floor = hangerPostCells(h).map(([x, y]) => ({ x, y, z: 4, fill: 'solid' }))
+    const h = createModule('hanger-post', 0, 0, 5, 'h', rot, 8)
+    const floor = hangerPostCells(h).map(([x, y]) => ({ x, y, z: 5, fill: 'solid' }))
     assert.equal(equipmentReason(floor, [], h), '')
     assert.equal(equipmentReason(floor.slice(1), [], h), 'floor')
     const ground = { ...h, z: 0 }

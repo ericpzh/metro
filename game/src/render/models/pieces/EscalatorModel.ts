@@ -7,7 +7,7 @@ import { exitLandingHeight } from './ExitLanding.ts'
 import { addRampJoins } from './RampJoinModel.ts'
 import { addEscalatorIndicators } from './EscalatorIndicatorModel.ts'
 import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, ESCALATOR_FLAT_LENGTH, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY } from '../../../sim/constants.ts'
-import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorRun, escalatorStepHeight } from '../../../sim/escalators.ts'
+import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorInclineRun, escalatorStepHeight } from '../../../sim/escalators.ts'
 import { RAMP_FOOT } from '../../../sim/openings.ts'
 import type { Module } from '../../../sim/types.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
@@ -184,9 +184,10 @@ export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
  */
 export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' | 'walkway' }>): THREE.Group {
   const mats = ctx.mats
-  const run = escalatorRun(mod)
-  const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(ctx.data.modules, run.from))
-  const b = new THREE.Vector3(run.to.x + 0.5, run.to.y + 0.5, run.to.z + 1 + exitLandingHeight(ctx.data.modules, run.to))
+  const run = escalatorInclineRun(mod, exitLandingHeight(ctx.data.modules, mod.to) - exitLandingHeight(ctx.data.modules, mod.from))
+  const flatLength = ESCALATOR_FLAT_LENGTH + run.inset
+  const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(ctx.data.modules, mod.from))
+  const b = new THREE.Vector3(run.to.x + 0.5, run.to.y + 0.5, run.to.z + 1 + exitLandingHeight(ctx.data.modules, mod.to))
   const len = a.distanceTo(b)
   const t = b.clone().sub(a).normalize()
   const up = new THREE.Vector3(0, 0, 1)
@@ -223,7 +224,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
   g.add(band)
 
   const yaw = Math.atan2(climb.y, climb.x)
-  const flat = ESCALATOR_FLAT_LENGTH / runPerM
+  const flat = flatLength / runPerM
   const chainLen = len + 2 * flat
   const nSteps = Math.max(4, Math.round(chainLen / ESCALATOR_STEP_PITCH))
   const pitch = chainLen / nSteps // same horizontal pitch through incline and flats
@@ -307,19 +308,19 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
   const plateLen = 0.3
   for (const dir of [-1, 1]) {
     const end = dir < 0 ? new THREE.Vector3() : climb.clone().multiplyScalar(len)
-    const out = hdir.clone().multiplyScalar(dir * (ESCALATOR_FLAT_LENGTH - plateLen / 2))
+    const out = hdir.clone().multiplyScalar(dir * (flatLength - plateLen / 2))
     const comb = slab(band, mats.orange, end.x + out.x, end.y + out.y, end.z + 0.045, plateLen, stepW, 0.05)
     comb.rotation.z = yaw
     comb.name = 'comb-plate'
     // Cover the outer half of the landing block cut beneath the flat track.
     const halfW = mod.cfg.width === 2 ? 1 : 0.5
-    const inner = ESCALATOR_FLAT_LENGTH - plateLen
+    const inner = flatLength - plateLen
     // A U-shaped deck leaves the moving flat treads exposed right up to the
     // comb teeth. Its shoulders replace the cut block beside the step band.
     const deckShape = new THREE.Shape()
     deckShape.moveTo(0, -halfW)
-    deckShape.lineTo(ESCALATOR_FLAT_LENGTH, -halfW)
-    deckShape.lineTo(ESCALATOR_FLAT_LENGTH, halfW)
+    deckShape.lineTo(flatLength, -halfW)
+    deckShape.lineTo(flatLength, halfW)
     deckShape.lineTo(0, halfW)
     deckShape.lineTo(0, stepW / 2)
     deckShape.lineTo(inner, stepW / 2)

@@ -331,6 +331,10 @@ export interface ExitCfg {
 }
 
 export interface ModuleBase {
+  /** Station storey spacing, five metres. */
+  storeyHeight?: number
+  /** Hung directly under the block above its anchor cell. */
+  ceilingAnchored?: boolean
   id: string
   x: number
   y: number
@@ -446,7 +450,7 @@ export type Module =
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' | 'bridge-railing' | 'sound-barrier-half' | 'sound-barrier' } })
-  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { dir: 'up' | 'down'; width?: 1 | 2 } })
+  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { incline?: 30 | 35; dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
       /**
        * A 自动步道 (`sim/walkways.ts`): the level member of the ramp family, an
@@ -499,7 +503,7 @@ export type Module =
         finish?: FinishId
       }
     })
-  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel'; doors?: Record<string, LiftDoorSide> } })
+  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel'; doors?: Record<string, LiftDoorSide>; rises?: number[] } })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   /**
    * A drinks vending machine (自动售货机): the same 1 × 1 m equipment footprint
@@ -702,8 +706,9 @@ export type Module =
    * faces (`sim/sign.ts`'s `SignMount`).
    *
    * A **hanging** sign is not wall-mounted — `ceilingMountMissing` (`sim/placement.ts`)
-   * refuses it unless a solid slab sits one storey up (`z + 4`, the fixed `LEVEL_STEPS`
-   * grid), which is the ceiling the rods bolt to. A **wall** sign is the reverse: it
+   * refuses it unless a solid slab sits one storey up (`z + storeyHeight` — the
+   * station's five-metre grid), which is the
+   * ceiling the rods bolt to. A **wall** sign is the reverse: it
    * needs no slab at all and wants solid backing behind it on the courses its panel
    * crosses (`signWallCourses`), and the wall it is bolted to is the local −y face of
    * its `rot`, exactly as a 广告牌's is.
@@ -785,6 +790,7 @@ export type LineDirection = 'up' | 'down'
 export type PsdHeight = 'full' | 'half' | 'none'
 
 export interface LineDef {
+  modelScale?: number
   id: string
   name: string
   colour: string
@@ -812,11 +818,13 @@ export interface LineDef {
 }
 
 export interface StationData {
+  /** The supported station grid is five metres. */
+  storeyHeight?: number
   name: string
   /** English station name printed below the Chinese exit banner name. */
   nameEn?: string
   seed: number
-  /** 0–3 m base of the 4 m editing storey grid. */
+  /** The storey grid's offset within a storey: 0 up to `storeyHeight - 1`. */
   levelBase?: number
   cells: Cell[]
   modules: Module[]

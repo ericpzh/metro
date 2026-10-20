@@ -11,6 +11,7 @@
 // them.
 
 import * as THREE from 'three'
+
 import { batchStaticModule } from '../../batchStaticModule.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
@@ -211,7 +212,10 @@ export class ModuleSystem extends SceneSystem {
       group.userData.moduleId = mod.id
       group.userData.moduleType = mod.type
       group.userData.roof = mod.type === 'roof'
-      group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase)
+      // Ceiling-attached decor is never hidden by 隐藏天花板 (see LevelSystem): only the
+      // ceiling tiles themselves (pass 'c' meshes) are. Keep the field for compatibility.
+      group.userData.suspendedCeiling = false
+      group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase, this.ctx.storeyHeight)
       const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
       this.moduleMeshes.add(group)

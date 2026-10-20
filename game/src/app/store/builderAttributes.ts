@@ -3,6 +3,7 @@
 import { msg } from '../../sim/i18n.ts'
 import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { walkwayLengthLabel } from '../../sim/walkways.ts'
+import { liftIntervalLabel } from '../../sim/lifts.ts'
 import { stairWidthLabel } from '../../sim/stairs.ts'
 import { roofWidthLabel } from '../../sim/structures.ts'
 import { trackRunLengthLabel } from '../../sim/track.ts'
@@ -13,10 +14,9 @@ import {
   isGateType,
   isRotatableType,
   isStairType,
-  isStraightStairType,
 } from './catalog.ts'
 
-export type BuilderAttributeKind = 'rotation' | 'position' | 'width' | 'length' | 'height' | 'direction' | 'style'
+export type BuilderAttributeKind = 'rotation' | 'position' | 'width' | 'length' | 'height' | 'direction' | 'span' | 'style'
 export interface BuilderAttribute {
   kind: BuilderAttributeKind
   label: string
@@ -31,6 +31,7 @@ export interface BuilderAttribute {
 const ATTRIBUTE_PRIORITY: Record<Exclude<BuilderAttributeKind, 'rotation'>, number> = {
   width: 10,
   length: 20,
+  span: 25,
   height: 30,
   direction: 40,
   position: 45,
@@ -64,7 +65,8 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   }
   if (type === 'escalator') {
     attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
-    attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
+    attrs.push(variant('length', rampLengthLabel(s.escalatorSpan === 'double' ? s.doubleRampLength : s.rampLength, s.escalatorSpan), s.cycleRampLength))
+    attrs.push(variant('span', msg(s.escalatorSpan === 'double' ? 'double_storey' : 'single_storey'), s.cycleEscalatorSpan))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
   // The 自动步道 is the escalator's level twin: it shares the 窄/宽 width and the
@@ -84,15 +86,18 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
       type === 'stair-block' ? msg(s.stairBlockHeight === 1 ? 'tall' : 'low') : stairWidthLabel(s.stairWidth),
       type === 'stair-block' ? () => s.setStairBlockHeight(s.stairBlockHeight === 1 ? 0.5 : 1) : s.cycleStairWidth,
     ))
-    // A 单跑楼梯 climbs the same four lengths a 扶梯 does (`sim/rampLengths.ts`), so a
-    // bank of the two stands flush and the seam between them fills. A turning stair
-    // and a 楼梯块 have no run length of their own, so they grow no tile.
-    if (isStraightStairType(type)) attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
+    // Every staircase but the 1 × 1 楼梯块 climbs a chosen run length: a straight
+    // stair in one flight, a turning stair in two with its platform at half the
+    // rise. A 楼梯块 is a single stepped block with no run at all.
+    if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
   }
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))
   if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })
-  if (type === 'lift') attrs.push(variant('style', msg(s.liftStyle), s.cycleLiftStyle))
+  if (type === 'lift') {
+    attrs.push(variant('length', msg('floor_interval_value', liftIntervalLabel(s.liftInterval), s.liftInterval), s.cycleLiftInterval))
+    attrs.push(variant('style', msg(s.liftStyle), s.cycleLiftStyle))
+  }
   if (type === 'psd-end') attrs.push(variant('height', msg(s.psdEndHeight === 'half' ? 'half_height' : 'full_height'), s.cyclePsdEndHeight))
   if (isGateType(type)) attrs.push(variant('style', msg(s.gateDoor === 'lane' ? 'doors' : 'fence'), s.cycleGateDoor))
   if (type === 'bridge') attrs.push(variant('length', trackRunLengthLabel(s.bridgeLength), s.cycleBridgeLength))

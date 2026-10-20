@@ -25,7 +25,7 @@ test('vent is its own decor tile, movable, sweepable, and preserved in saves', (
 })
 
 test('the grille touches the ceiling and matches its collision bounds at every rotation', () => {
-  for (const z of [-4, 0, 4]) for (let rot = 0; rot < 4; rot++) {
+  for (const z of [-5, 0, 5]) for (let rot = 0; rot < 4; rot++) {
     const vent = createModule('vent', 2, 3, z, 'vent', rot)
     const model = new VentModel(ctx).build(vent)
     const bounds = new THREE.Box3().setFromObject(model)
@@ -34,7 +34,7 @@ test('the grille touches the ceiling and matches its collision bounds at every r
       close(bounds.min[axis], envelope[`${axis}0`])
       close(bounds.max[axis], envelope[`${axis}1`])
     }
-    close(bounds.max.z, z + 4)
+    close(bounds.max.z, z + 5)
     const backing = new THREE.Box3().setFromObject(model.children[4])
     for (const blade of model.children.slice(5)) {
       const box = new THREE.Box3().setFromObject(blade)
@@ -44,7 +44,7 @@ test('the grille touches the ceiling and matches its collision bounds at every r
 })
 
 test('a grille hangs from the real slab, and from the top block over its own cell', () => {
-  // The 4 m grid line used to be the grille's ceiling, which floated a 基准高度-1 station's at 8
+  // The fixed 5 m grid once stood in for the grille's ceiling, which floated a 基准高度-1 station's at 8
   // under a slab at 9; it reads the slab over it now — and a grille whose own cell is the free one
   // under a **top block** hangs from that block (`hungCeilingAim`).
   const data = { mats: { steel: mat }, data: { cells: [{ x: 2, y: 3, z: 5, fill: 'solid' }, { x: 2, y: 3, z: 9, fill: 'solid' }], modules: [], lines: [] } }

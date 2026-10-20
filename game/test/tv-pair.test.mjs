@@ -185,7 +185,7 @@ test('a 电视 is created with the hover rotation, and a pair needs no new field
   assert.equal(mod?.type, 'tv')
   assert.equal(mod?.rot, 1)
   assert.equal('cfg' in mod && Object.keys(mod.cfg).length, 0)
-  assert.deepEqual(moduleEnvelope(tv(1, 2, 3, 1)), { x0: 1, y0: 2, z0: 4, x1: 2, y1: 3, z1: 7 })
+  assert.deepEqual(moduleEnvelope(tv(1, 2, 3, 1)), { x0: 1, y0: 2, z0: 4, x1: 2, y1: 3, z1: 8 })
 })
 
 /* ---------------------------------------------------------- the merged draw */

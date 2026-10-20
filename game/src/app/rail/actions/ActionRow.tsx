@@ -36,6 +36,7 @@ import { AiOutlineColumnHeight } from 'react-icons/ai'
 import { RiExpandWidthFill } from 'react-icons/ri'
 import { LuArrowUpToLine } from 'react-icons/lu'
 import { LuArrowDownToLine } from 'react-icons/lu'
+import { TbBuildingStore } from 'react-icons/tb'
 import { armedCut } from '../helpers.ts'
 import type { BuilderAttribute } from '../../store/builderAttributes.ts'
 import { Block } from '../shared/Block.tsx'
@@ -133,6 +134,7 @@ function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: Bui
   }
   const art = attribute.kind === 'width' ? <RiExpandWidthFill />
     : attribute.kind === 'length' || attribute.kind === 'height' ? <AiOutlineColumnHeight />
+    : attribute.kind === 'span' ? <TbBuildingStore />
     : attribute.kind === 'direction' ? (state.escalatorDir === 'up' ? <LuArrowUpToLine /> : <LuArrowDownToLine />)
     : attribute.visual === 'roof-snap' ? (state.roofPlateSnap === 'lower' ? <LuArrowDownToLine /> : <LuArrowUpToLine />)
     : undefined

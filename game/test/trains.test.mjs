@@ -1,4 +1,4 @@
-import { TRAIN_ORIGIN_Z, CABIN_FLOOR_Z } from '../src/sim/stock.ts'
+import { TRAIN_ORIGIN_Z, CABIN_FLOOR_Z, trainOriginForScale } from '../src/sim/stock.ts'
 // Rolling stock reaches the renderer (PLAN §6, "rolling stock in 3D"). The
 // pose the worker sends is a pure function of train state, so it must be
 // deterministic and must line up with the platform edge the line serves.
@@ -69,12 +69,12 @@ test('a dispatched train gets a pose on the track beside its platform edge', () 
   const pose = w.trainRenderState()
   assert.equal(pose.length, STRIDE, 'one train, one pose')
   const [x, , z, cars, stock, doors, colour, dir, , doorSides] = pose
-  // Line 2 runs B stock, six cars, on the platform edge at y = -6, z = -8. The
+  // Line 2 runs B stock, six cars, on the platform edge at y = -6, z = -10. The
   // rail digs its bed, so the consist origin follows its platform-aligned cabin floor.
   assert.equal(cars, 6)
   assert.equal(stock, 1)
-  assert.ok(Math.abs(z - (-8 + TRAIN_ORIGIN_Z)) < 1e-6, 'the train rides the recessed track slab')
-  assert.ok(Math.abs(z + CABIN_FLOOR_Z - (-7)) < 1e-6, 'cabin and platform floors align')
+  assert.ok(Math.abs(z - (-10 + trainOriginForScale(0.98))) < 1e-6, 'the train rides the recessed track slab')
+  assert.ok(Math.abs(z + CABIN_FLOOR_Z * 0.98 - (-9)) < 1e-6, 'scaled cabin and platform floors align')
   assert.equal(dir, 1)
   assert.equal(colour, parseInt('00679e', 16))
   assert.ok(Number.isFinite(x) && x < 0, `trains approach from off the platform, got x=${x}`)
@@ -127,7 +127,7 @@ test('every screen door stands on a car door, and no car door is left without on
   assert.equal(w.trains[0].state, 'dwell', 'the train berthed')
   const at = w.trainRenderState()[0]
   const cars = w.data.lines[0].cars
-  const doors = doorCentres({ stock: w.data.lines[0].stock, cars })
+  const doors = doorCentres({ stock: w.data.lines[0].stock, cars, modelScale: 0.98 })
   const screens = w.graph.servers.filter((s) => s.kind === 'door').map((s) => w.graph.nodeX[s.node] - at)
   assert.equal(screens.length, doors.length, 'one screen door per car door')
   for (const off of doors) {
@@ -222,7 +222,7 @@ test('a consist runs the whole connected rail — in from beyond the entrance tu
   // rot 0, so the near (entrance) end is the smaller x and the far (exit) end the larger.
   const entranceEnd = Math.min(...tunnels.map((m) => m.x))
   const exitEnd = Math.max(...tunnels.map((m) => m.x + m.w))
-  const half = (STOCK.B.length * cars) / 2
+  const half = (STOCK.B.length * cars * 0.98) / 2
 
   const w1 = new World(s, 99)
   const samples = []

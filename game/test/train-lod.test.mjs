@@ -57,17 +57,42 @@ function trainSystem(mats, stock, cars, doorSides = 3) {
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
 const consists = [
-  ['D', 8, 1303040, .10],
-  ['D', 6, 1007764, .11],
-  ['A', 8, 730144, .28],
-  ['A', 6, 573968, .27],
-  ['B', 6, 513612, .27],
-  ['C', 6, 534612, .27],
-  ['L', 6, 464300, .25],
-  ['B', 4, 378052, .26],
-  ['C', 4, 395468, .26],
-  ['L', 4, 344308, .24],
+  ['D', 8, 1303424, .11],
+  ['D', 6, 1008052, .11],
+  ['A', 8, 730512, .28],
+  ['A', 6, 574244, .27],
+  ['B', 6, 513888, .27],
+  ['C', 6, 534888, .27],
+  ['L', 6, 464576, .25],
+  ['B', 4, 378236, .26],
+  ['C', 4, 395652, .26],
+  ['L', 4, 344492, .24],
 ]
+
+test('identical consists on separate five-metre floors retain distinct cached poses', () => withDocument(mats => {
+  const ctx = new SceneContextData(new THREE.Scene(), {}, mats, {})
+  ctx.storeyHeight = 5
+  const trains = new TrainSystem(ctx)
+  trains.level = { applyGroupLevel(group) { group.visible = !group.userData.parked } }
+  const poses = x => new Float32Array([
+    x, 4.5, 3.3924, 1, 0, 0, 0x336699, 1, 0, 4,
+    x, 4.5, 8.3924, 1, 0, 0, 0x336699, 1, 0, 4,
+  ])
+  try {
+    trains.setTrains(poses(10))
+    const initial = [...trains.trainSlots.values()]
+    assert.equal(initial.length, 2, 'one visible model for each identical train')
+    assert.ok(initial.every(entry => entry.active && entry.group.scale.z === .98))
+    assert.deepEqual(initial.map(entry => entry.group.userData.levelZs), [[0], [5]])
+    assert.ok(initial[1].to.z - initial[0].to.z > 4.99)
+    trains.setTrains(poses(12))
+    assert.deepEqual([...trains.trainSlots.values()].map(entry => entry.group), initial.map(entry => entry.group), 'repeated poses reuse both GPU models')
+    assert.ok(initial.every(entry => entry.to.x === 12 && entry.active))
+    trains.setTrains(poses(14).slice(0, 10))
+    assert.equal(initial[0].group.userData.parked, false)
+    assert.equal(initial[1].group.userData.parked, true, 'the absent train parks independently')
+  } finally { trains.dispose() }
+}))
 
 test('every consist draws its published full count and a Low within budget', () => withDocument((mats) => {
   for (const [stock, cars, full, ratio] of consists) {
@@ -223,7 +248,7 @@ test('batching carries both variants of the body and of the door banks', () => w
 test('platform-aligned train origins keep their track storey when other levels are hidden',()=>withDocument(mats=>{
  const ctx=new SceneContextData(new THREE.Scene(),{},mats,{})
  const trains=new TrainSystem(ctx);trains.level={applyGroupLevel(){}}
- try{for(const z of [-16,0,8]){
+ try{for(const z of [-20,0,10]){
   trains.setTrains(new Float32Array([0,0,z+TRAIN_ORIGIN_Z,1,1,1,0x336699,1,0,0]))
   const slot=[...trains.trainSlots.values()].find(e=>e.active)
   assert.deepEqual(slot.group.userData.levelZs,[z],'train belongs to the platform storey')

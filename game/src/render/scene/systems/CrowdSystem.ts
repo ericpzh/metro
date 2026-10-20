@@ -663,7 +663,7 @@ export class CrowdSystem extends SceneSystem {
       this.renderedKey = ''
       return
     }
-    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.agentsShown}|${this.followAgentId}|${this.detailPolicyKey()}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
+    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.ctx.storeyHeight}|${this.agentsShown}|${this.followAgentId}|${this.detailPolicyKey()}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
     if (!force && !this.playing && key === this.renderedKey) return
     this.renderedKey = key
     if (camera) this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
@@ -725,7 +725,7 @@ export class CrowdSystem extends SceneSystem {
       if (drawn) {
         // The storey this instance stands on decides its topology, and the same
         // value is recorded per instance so the split is inspectable.
-        const level = storeyBand(pos.z, this.ctx.levelBase)
+        const level = storeyBand(pos.z, this.ctx.levelBase, this.ctx.storeyHeight)
         const group = this.crowdDetail(level) === 'low' ? low : full
         const slot = group.count++
         if (group.ids[slot] !== id) {
@@ -809,7 +809,7 @@ export class CrowdSystem extends SceneSystem {
    * there, so the people would stand on nothing.
    */
   private agentLevelVisible(z: number): boolean {
-    return crowdVisible(z, this.ctx.activeZ, this.ctx.ghost, this.ctx.hideUI, this.ctx.levelBase)
+    return crowdVisible(z, this.ctx.activeZ, this.ctx.ghost, this.ctx.hideUI, this.ctx.levelBase, this.ctx.storeyHeight)
   }
 
   /**

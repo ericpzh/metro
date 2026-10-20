@@ -5,7 +5,7 @@ import { msg } from '../../../sim/i18n.ts'
 // and the undo stack see the same document.
 
 import type { StateCreator } from 'zustand'
-import { REFERENCE_BOOT, referenceStation } from '../../../data/reference-station.ts'
+import { emptyStation, REFERENCE_BOOT, referenceStation } from '../../../data/reference-station.ts'
 import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
   cloneState,
@@ -26,6 +26,19 @@ import { loadSim, rebuildSim } from './SimSlice.ts'
 /** Most undo frames, and the most document they may hold between them. */
 const UNDO_MAX_FRAMES = 40
 const UNDO_BUDGET = 120_000
+
+/**
+ * The level a document opens on: its basis floor, lowered to the lowest authored
+ * cell or module when the player actually built beneath it. `打开存档` and
+ * `打开示例车站` share this one rule, so a demo station is not a special case with
+ * its own hardcoded altitude.
+ */
+function openingLevel(s: StationState): number {
+  let z = s.levelBase
+  for (const c of s.cells) if (c.z < z) z = c.z
+  for (const m of s.modules) if (m.z < z) z = m.z
+  return z
+}
 
 /**
  * Roughly what one snapshot costs to keep: a cell is a small record, a module is a
@@ -101,7 +114,7 @@ export interface StationSlice {
 }
 
 export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = (set, get) => ({
-  station: toState({ name: msg('unnamed_station'), seed: 7654321, cells: [], modules: [], lines: [] }),
+  station: toState(emptyStation()),
   version: 0,
   stationEpoch: 0,
   notice: null,
@@ -130,7 +143,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       return
     }
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s))
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -192,18 +205,18 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const { past, station, future } = get()
     if (past.length === 0) return
     const prev = past[past.length - 1]
-    set({ station: prev, past: past.slice(0, -1), future: [...future, cloneState(station)], version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase) })
+    set({ station: prev, past: past.slice(0, -1), future: [...future, cloneState(station)], version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
     rebuildSim(toData(prev))
   },
   redo: () => {
     const { future, station, past } = get()
     if (future.length === 0) return
     const next = future[future.length - 1]
-    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase) })
+    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
     rebuildSim(toData(next))
   },
   newStation: () => {
-    const s = toState({ name: msg('unnamed_station'), seed: 7654321, cells: [], modules: [], lines: [] })
+    const s = toState(emptyStation())
     set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
@@ -212,7 +225,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation(id))
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: (id === 'tanwei' ? 0 : -8) + s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: msg('example_station_repair_removed_value_blocks_outside_the_grid', repaired.droppedCells + repaired.droppedModules) })

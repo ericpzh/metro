@@ -202,6 +202,7 @@ Pin the retention policy and real ModuleSystem keep-set in
   bit shifts — the old `(x + 4096) << 20` collided neighbours.
 * **Axes:** `+z` is up; `n` is `+y`, `e` is `+x`, `+z` = top face.
 * **Camera follows the edited storey:** `CameraSystem.frame()` aims at `activeZ + 1 m` and translates the camera with the target, preserving orbit and zoom. Keep this pinned in `game/test/camera-vertical-pan.test.mjs` when changing storey or baseline behavior. The camera is also **read**: `pickFacing()` answers which face a pick means (a back-to-back 电视 pair, the wall a panel hangs on), and `SceneRenderer.onCameraAim` tells `Viewport` when the aim moved, so a ghost that depends on the view (a wall mount) is re-aimed without a pointer event.
+* **Loading a save respects the basis.** `loadFromText` opens on `activeZ = levelBase`, lowered to the lowest cell/module z when the player actually built below it; the infinite ground plane at 0 m is not a placement and never drags the view down to grade. The worker's `ready` message must not reset `activeZ` (`levelsZ[0]` is 0 whenever no level sits below grade). Keep this pinned in `game/test/save.test.mjs` when changing load or storey selection.
 * **The hidden-UI sky follows simulation time** (`render/scene/systems/SkySystem.ts`, wired by `SceneRenderer`): the cloud sky remains visible at every camera and storey height while `hideUI` is on; it does not depend on Q/E elevation or the active storey. `setSimClock` supplies the day time; a fixed 05:00–07:00 dawn and 17:00–19:00 dusk curve sets sky background intensity and matching horizon fog, so a pause holds the light and a clock seek updates it immediately. Keep daily wrapping, gradual transitions, day/night levels, and midnight continuity in `game/test/sky.test.mjs`. The Node suite covers the deterministic cycle; when changing scene integration, check representative camera heights, hidden-UI restoration, fog and rendered output in a browser, because Node does not exercise WebGL.
 * **All tuning numbers live in `sim/constants.ts`** (or `stock.ts`).
 * The decorative 信号机 is one metre tall; its lower post and base use the shared
@@ -487,13 +488,15 @@ the four rules most changes trip over.
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house
-  plinth; the graph stays on the storey). A run comes in **four lengths** (`sim/rampLengths.ts`):
-  超短 2 m over 3 m, 短 3 m over 5 m, 中 4 m over 6 m (one storey, the shipped piece) and 長 8 m
-  over 12 m. Length is read off the endpoints (`escalatorLength` / `stairLengthOf`, no `cfg` flag),
-  so an old 4 m / 8 m save reads back as 中 / 长; the 扶梯 and the 单跑楼梯 are built at the same four
-  from one store setting — a bank fills the seam between its balustrades only when the two pieces are
-  the same length — and the exit-bay snap descends the piece's *own* length (`escalator-length.test.mjs`,
-  `ramp-join.test.mjs`). A fence *on* a landing is read the same way as
+  plinth; the graph stays on the storey). A run comes in **two length families**
+  (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m for the 扶梯 and every
+  staircase, and the escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m.
+  A fresh piece defaults to 长 / 超长 on the five-metre grid (`defaultRampLength`).
+  Length is read off the endpoints (`escalatorLength` / `stairLengthOf`, no `cfg` flag);
+  the one-floor setting is shared with every staircase so a bank is picked once,
+  but the seam cap between two facing handrails forms only where the **endpoints** line up — the
+  five-metre 30° escalator is a cell longer than the stair of the same length — and the exit-bay
+  snap descends the piece's *own* length (`escalator-length.test.mjs`, `ramp-join.test.mjs`). A fence *on* a landing is read the same way as
   one beside it: the fence cell is not a walkable node, so that flight drops out of the
   walk graph and fencing the head of a stair really closes it off.
 * **A 自动步道 (moving walkway, `sim/walkways.ts`, §5.1) is the 扶梯's level twin.** It
@@ -515,13 +518,15 @@ the four rules most changes trip over.
   (`walkways.test.mjs` pins the lengths, the level centring, the ends-only routing, the doubled
   wide rate, the no-carve placement and the shared flat model). There is **no exit-bay snap** and
   no `RampJoinModel` seam (a level bank's glass meets with no infill).
-* **A stair has three sizes** (`sim/stairs.ts`, §5.1) — and a **single-run** stair has four
-  **lengths** as well, the same four a 扶梯 comes in (`sim/rampLengths.ts`): 超短 2 m / 短 3 m /
-  中 4 m / 长 8 m, cycled on the action tile beside the size (**Shift+Tab**) and carried into
-  `stairFlightsFor`'s `straight` flight. The setting is **shared** with the 扶梯 — one armed length
-  for both — because two runs fill the seam between their balustrades only when they are the same
-  length. A turning stair and a 楼梯块 are the fixed footprint they are drawn at and grow no length
-  tile (`isStraightStairType`). Tab cycles 窄 / 中 / 宽
+* **A stair has three sizes** (`sim/stairs.ts`, §5.1) — and every staircase but the 楼梯块 has a
+  **length** as well, the one-floor family a 扶梯 comes in (`sim/rampLengths.ts`): 超短 2 m /
+  短 3 m / 中 4 m / 长 5 m, cycled on the action tile beside the size (**Shift+Tab**) and carried
+  into `stairFlightsFor`. A straight stair climbs it in one flight; a **turning** stair splits it
+  into two flights with its platform at **half the rise** (1 m for 超短, 2.5 m for 长). The setting
+  is **shared** with the 扶梯 — one armed one-floor length for both — so a bank is picked once; the
+  seam between two runs fills only when their endpoints line up (see the escalator note above). Only
+  a 楼梯块 has no run and grows
+  no length tile. Tab cycles 窄 / 中 / 宽
   Straight catalogue pieces retain their stored palette width, but `stairTreadWidth`
   resolves their actual treads to 0.79 / 1.79 / 2.79 m so the two outer rails fill
   exactly 1 / 2 / 3 blocks, including saved stairs. Every **turning** shape stores that
@@ -592,29 +597,42 @@ the four rules most changes trip over.
   risers and half-landing platform are one material, chosen by the floor it climbs from
   unless the player painted the piece (`paintStairSurface`), and that finish reaches the
   ground under the run, since the cut's cap is the piece's own surface. A turning stair's
-  interior landing floor is the **stair's** own cells — one corner cell at 窄, the whole
-  `lanes × lanes` square at 中 / 宽, a row for a 180: `addEquipment` lays them, the mesher skips them
-  (the model draws the platform) and `removeModule` takes them back out with the piece. Those
-  own cells are why a 移动 of a 楼梯 or a 扶梯 is a **tear-down and a rebuild**
-  (`moveRebuilds` → `moveEquipment`) rather than a translation, and why `movedModule`
-  re-lays the run's own `from`/`to` and flights.
+  interior landing is the **stair's** own platform — one corner cell at 窄, the whole
+  `lanes × lanes` square at 中 / 宽, a row for a 180. The model draws it as a 0.5 m slab at half
+  the stair's rise, `buildGraph` walks every landing cell as a **virtual** node, and
+  `addEquipment` lays no cell there; a legacy save's landing block is still cleaned up by
+  `removeModule` with the piece. Those own cells are why a 移动 of a 楼梯 or a 扶梯 is a
+  **tear-down and a rebuild** (`moveRebuilds` → `moveEquipment`) rather than a translation, and
+  why `movedModule` re-lays the run's own `from`/`to` and flights.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a 2 × 2 m
-  assembly with a 1.5 m carriage, dropped on a floor and serving the floor one storey up
-  (`LIFT_RISE`); hovering its upper/lower half grows it a storey up/down
-  (`LIFT_EXTEND`). A fresh piece must stand on all four of its footprint cells, but
+  assembly with a 1.5 m carriage and **one story** — the 层高 tile's 超短 3 m / 短 4 m /
+  中 5 m (default) / 长 6 m / 超长 7 m; hovering its upper/lower half stacks another story
+  at the currently armed size, so one shaft can serve uneven floors. A story serves the
+  **level at its base**: the level's door and the cabin's headroom live in the story above,
+  so the top of the last story is a **cap**, not a landing. A fresh 5 m piece is one level
+  (the floor it was dropped on); stacking a 3 m story adds the level at 5 m and moves the
+  cap to 8 m. `liftLevels` is the stop list and the door chooser's rows (one per story);
+  `liftStops` is the story boundaries used by the model's glass/wall segments.
+  The piece stores each segment rise (`cfg.rises`), because a mixed shaft's levels are not
+  evenly spaced; omitted segment metadata defaults to the fixed five-metre interval. The drawn shaft is
+  **exactly the stacked stories** — a 5 m piece is 5 m from the base floor's surface to the
+  cap — closed by a cap at each end; extending removes the shared middle cap and moves the
+  caps to the total ends (`module-build.test.mjs` pins both). A
+  fresh piece must stand on all four of its footprint cells, but
   extending never checks for floor, so a shaft may run past a floorless level (it simply
   has no landing there). `buildGraph` makes the walkable floor tile in front of the cabin
-  door (`liftLandingCells`, turned by the piece's `rot`) at every storey a *stop* and
+  door (`liftLandingCells`, turned by the piece's `rot`) at every **level** and
   gives the single `lift` server an edge between every ordered pair, so a rider goes
   straight to their floor. The whole 2 × 2 footprint is cabin interior and is never a
   walkable node, so the crowd boards and alights only through the door the model draws.
   The car is a real state machine (`World.stepLift`: park → open → dwell → close → move,
   eased), and riders are `STATE_RIDING` pinned inside the cabin by `stepLiftRide`, so
   they visibly move with it; `World.liftRenderState` sends one car pose per snapshot.
-  The shaft comes in two housings (`cfg.style`, Tab cycles it): glass is the default —
+  The shaft comes in two housings (`cfg.style`, now **Shift+Tab**; Tab is the interval): glass is
+  the default —
   corner posts, panel bays, guide rails and a glazed cabin — and steel keeps the old
   enclosed shaft; both keep the animated-car contract and survive extending and saving
-  (`lift-style.test.mjs`).
+  (`lift-style.test.mjs`, `lift-interval.test.mjs`).
 * **Finishes** (`sim/finishes.ts`): the *family* decides behaviour (floor walk speed,
   track bed not walkable, wall blocks), the finish decides look. The renderer reads the
   same table, so a surface cannot look like one thing and behave like another.
@@ -833,18 +851,18 @@ the four rules most changes trip over.
   Keep all hardware below the shared contact plane. It places mirrored collectors at the inward end
   of each cab car (one central collector on a one-car formation). Recessed mounts
   in `TrainModel.ts`/`DTrainShell.ts` keep the raised linkage above the cabin and
-  its contact bars at `CONTACT_STRIP_Z`, accounting for the train origin's 0.5 m
-  elevation over the track origin. Keep the conductor constants shared with
-  `TrackModel.ts`. Catenary contact is 4.77 m above the bed (raised 0.99 m);
-  reserve four clear courses and a 5 m tunnel ceiling for compact rigid rail;
-  open platform/bridge gantries reserve five courses for the overhead suspension. Station canopies follow the wire; open platform/bridge portals carry
+  its contact bars at `CONTACT_STRIP_Z`, accounting for the scaled train origin's
+  0.3924 m elevation over the track origin. Keep the conductor constants shared with
+  `TrackModel.ts`. Catenary contact is 3.903 m above the track anchor in the fixed five-metre profile;
+  reserve three clear courses and a ceiling underside at track +4 m for compact rigid rail;
+  open platform/bridge gantries reserve four courses for the overhead suspension. Station canopies follow the wire; open platform/bridge portals carry
   lattice crossbeams above sagging messenger spans and droppers.
   `CatenaryModel.ts` owns round contact/return conductors, insulated registration
   arms, and compact flanged rigid rail with crown/wall brackets under slabs.
   Keep contact at `CONTACT_STRIP_Z` in High and Low; `catenary-model` pins
   sag, seams, bore clearance and prepared Low/disposal. Third-rail clearance stays unchanged.
-  `build/model/TunnelShell.ts` upgrades old generated shells on load and rebuilds
-  them on line-power changes. The tenth
+  `build/model/TunnelShell.ts` rebuilds generated shells on line-power changes;
+  loading preserves authored cells. The tenth
   worker-pose value packs door banks into bits 0–1 and catenary into bit 2;
   `TrainSystem` masks the door bits and includes power in its cache signature.
   `train-pantograph` covers all classes, inward placement, rotations, contact,
@@ -999,8 +1017,8 @@ the four rules most changes trip over.
   carries a private id (`MOVE_GHOST_ID`), because a 指示牌's printed plate and a 电视's
   station plate are cached per module id and a preview may only dispose what it minted
   itself. A **run** — a 楼梯 or a 扶梯 — is movable for the same reason 删除 may sweep one: it
-  owns cells of the document's (a turning stair's half-landing floor) and carves the slab it
-  climbs through, so its move is a tear-down and a rebuild (`moveEquipment`:
+  carves the slab it climbs through (and a legacy turning stair may still carry the half-landing
+  block an older build laid), so its move is a tear-down and a rebuild (`moveEquipment`:
   `removeModule` then `addEquipment`, still one commit) and `movedModule` re-lays its
   `from`/`to` — and every flight of a turn, turned about the piece's own anchor in the
   piece's own convention (`stairFacing`'s quarter turn, not `rotateLocal`'s, which is what a
@@ -1009,7 +1027,7 @@ the four rules most changes trip over.
   owns no document cells, carves nothing and derives nothing, so its move is a plain
   translation (`movedModule`'s default branch, `move.test.mjs`). Structural pieces still
   refused: a 电梯
-  shaft (grown a storey at a time without ever asking for floor), rooms, 轨道 / 站台门, and
+  shaft (stacked an interval at a time without ever asking for floor), rooms, 轨道 / 站台门, and
   a bridge-owned pier (`cfg.bridgeId`, spaced by its bridge) — a
   translation would strand the geometry derived from them.
 * **Above ground is pillars, roofs, doorway exits and stair blocks** (`sim/structures.ts`,
@@ -1017,7 +1035,7 @@ the four rules most changes trip over.
   `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
   `structures-gaps.test.mjs` + `pillar-length.test.mjs` + `pick-tool.test.mjs` +
   `pillar-extension.test.mjs` + `move.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
-  in 2 m or 4 m sections (`extendedPillar`, `PILLAR_SHORT_STEP` / `PILLAR_STEP`), chosen
+  in 2 m or 5 m sections (`extendedPillar`, `PILLAR_SHORT_STEP` / `PILLAR_STEP`), chosen
   with Tab and copied when picked; R places a slim pillar at one of nine
   in-cell offsets on the shared centre-then-reading-order cycle (`sim/inCellPositions.ts`,
   which also drives a rectangular 灯具's Tab `position`; a slim pillar's module `rot` is
@@ -1247,11 +1265,11 @@ including the depth prepass, for all six appearances.
   `test/floor-surface.test.mjs` reads the drawn surface's height (flush seam, level floor, rim on
   the cell boundary) **and every drawn normal**, which is the pin on there being no 45° face left
   anywhere on a block.
-  There are no named levels: the street is `z = 0` (`GROUND_Z`), a storey is the 4 m
-  editing grid (`LEVEL_STEPS` / `storeyBand`, now from +24 down to −32) — every solid cell belongs to the grid line
+  There are no named levels: the street is `z = 0` (`GROUND_Z`), a storey is the 5 m
+  editing grid (`LEVEL_STEPS` / `storeyBand`, from +30 down to −40) — every solid cell belongs to the grid line
   at or below it, so a floor and its walls share a storey while a second floor one storey
   down keeps its own even when a wall column connects them — and the depth rail slices
-  those bands. The 高度 rail shifts that whole grid by a 0–3 m `levelBase`
+  those bands. The 高度 rail shifts that whole grid by a 0–4 m `levelBase`
   (`normalizeLevelBase` / `levelSteps(base)` / `storeyBand(z, base)`; old saves default
   to 0, `storey.test.mjs` + `structures-gaps.test.mjs`). The save carries no `levels` field; old saves load with it ignored.
 * **商店 / 厕所 / 办公室 are room-purpose zone paints**, not facility-room brushes. They are
@@ -1512,14 +1530,18 @@ including the depth prepass, for all six appearances.
   dragged line merged in, so an end you drag up to loses its cap as you move
   (`SceneRenderer.setFencePreview`).
 * The **电梯** (设备) draws a full-height shaft in world space (`buildLift`): corner posts and
-  back/side walls, a threshold sill and green call panel at each real landing, and a pair of
-  sliding landing doors at every served floor. The two landing leaves belong to their fixed
+  back/side walls, a threshold sill and green call panel at each **level** (a story's base), and a pair of
+  sliding landing doors at every level (the shaft is exactly its stories, closed by a plate at
+  each end, so the top of the last story is a cap, not a landing; the level's doorway lives in
+  the story above). The glass housing glazes the **door side** from above each doorway to the
+  story's top; steel carries the matching front wall above it. Extending moves the caps to the
+  total shaft's ends — no cap is left at the joint. The two landing leaves belong to their fixed
   `landing-doors` group in `userData.liftLandings`; the cabin remains a separate moving group
   in `userData.liftCabin` with its own pair of leaves in `userData.doors`. Both steel and glass
   styles carry landing doors. `LiftSystem.updateLifts` opens only the landing aligned with the
-  car pose, easing it with the car doors; every other floor stays shut during travel. Do not
+  car pose, easing it with the car doors; every other level stays shut during travel. Do not
   add a door at a floorless level. The base cell
-  stays solid (the shaft stands on it) but every slab at a stop above is hidden
+  stays solid (the shaft stands on it) but every slab at a level above is hidden
   (`SceneRenderer` `hiddenCells`), so the mesher cuts a real opening while the graph still sees
   the nodes. `SceneRenderer.setLifts` pairs each 6-float car pose with its shaft and glides the
   cabin / eases the doors between snapshots; the hover finds a shaft via `moduleAt` and
@@ -1575,7 +1597,9 @@ including the depth prepass, for all six appearances.
   **隐藏天花板** (`autoCeiling`, default on, `H`) is the one exception above the active storey:
   a slab one storey up is that room's ceiling, so with the toggle on a storey above keeps only
   the pieces with nothing under them (the chunk mesher's `float` plate, a fixture whose column's
-  lowest storey is above the active one). It only has an effect while 显示其他层 is on.
+  lowest storey is above the active one). Suspended-ceiling tiles (pass 'c', tagged
+  `suspended-ceiling`) are hidden outright, while ceiling-attached decor that hangs from the
+  current room's ceiling stays on screen. It only has an effect while 显示其他层 is on.
   A storey's caps do not depend on how deep each column goes: the storey pass culls a top
   only against a cover drawn in the same pass (`emit`), and the plate pass culls against the
   whole station (`cover`, hashed into the chunk key), so the two passes agree about every cap
@@ -1899,7 +1923,10 @@ including the depth prepass, for all six appearances.
   bounded topology and atlas disposal. `passenger-lod` pins the Low topology and its
   per-storey split (`passengerLevel` attribution, one draw for a single-storey crowd,
   two when a ghosted storey draws). `passenger-size` pins ranges,
-  child restrictions and independent body/shadow matrices. `passenger-clothing`
+  child restrictions and independent body/shadow matrices. Rendered adults and
+  children multiply all three size axes by `trainScaleForStorey()` (0.98);
+  shadows, picking, stride phase and eye height consume that scaled appearance.
+  Keep this visual scale out of simulation physique/speed and the baked atlas. `passenger-clothing`
   pins all twenty jacket-free presets in both grey arrangements in both age pools,
   exact tones and actual baked skirt morphs against current GLB hashes. Appended
   clothing preserves original catalogue ordering and shares the instanced draw.
@@ -1995,8 +2022,8 @@ only repeat it. The station
 plaque and its yellow oval lamp stay centred over each train-aligned doorway;
 the bound line supplies the lower fascia colour.
 
-The full-height assembly stays 2.95 m overall: its 0.53 m header comes from the
-glazing above the 2.25 m doors. Keep the header dimensions and lamp placement in
+The full-height assembly is 3 m overall: 2.35 m glazing, a top-mounted 0.6 m
+information plate and a 0.05 m cap, with no top padding. Keep the dimensions and lamp placement in
 `module-build` / `psd-end`, and the ink, bilingual physical labels and directional
 terminal rule in `psd-header`. Half-height stickers still share the same artwork
 and directional/terminal decision.
@@ -2047,3 +2074,34 @@ Outdoor finishes must not cap exit-owned floors, ramp openings or dug holes. `ou
 The camera family includes `cctv-post`, a 4 m ground-mounted PTZ also listed in outside decor. Keep its ground placement, palette/picker round-trip and authored Low geometry aligned.
 
 The roof family includes `roof-canopy` / `cfg.variant: canopy` (有柱雨棚). Its truss shell is lowered 4 m onto two symmetric rows of round columns at every width, without lower chords or diagonal webs. Aim placement at the ground; use shared canopy post/body helpers for support, collisions and routing so the sheltered aisle stays open.
+
+
+## Storey spacing and suspended ceilings
+
+Five metres is the only supported station profile (`storeyHeight: 5`).
+Pass this context to build factories, slicing and track headroom. The viewing
+ladder steps by 5 m; exact altitude entry remains integer.
+Read [the five-metre profile](references/five-metre-profile.md) when changing the
+grid, train size, ceiling fittings, PSDs or their load/placement paths. Do not
+maintain a 4 m save/grid profile or move demo-station blocks as part of this work.
+Turning stairs may store half-metre internal landing Z coordinates; editable cells
+and outer endpoints remain integer-grid. Grid repair admits fractional internal
+landings without depending on module tags. The graph synthesizes their nodes.
+The block tool's Tab variant is 吊顶 (ordinary tagged blocks that can be placed
+anywhere like a standard block); Shift+Tab controls wall generation. Placing one
+triggers ceiling snapping for all ceiling decor to its underface, regardless of
+placement height. Ceiling decor uses the normal tools and `ceilingAnchored` below
+these slabs. 隐藏天花板 hides the tagged ceiling tiles; mounted decor remains visible.
+Five-metre trains uniformly scale to 98%; shared stock door offsets, floor origin,
+rail hardware and compressed pantograph contact must agree. Full PSD glazing is
+2.35 m, with a 0.6 m information plate directly below the 0.05 m top cap and no
+padding. Safety vinyl fits the actual pane height. Train model caching must keep
+identical consists on different tracks as distinct poses, while reusing each model.
+
+Train interiors use one continuous ceiling per car: `CABIN_CEILING_Z` is
+2.99 m, with the lining underside 5 cm below it. Do not add local doorway
+ceiling pockets. Boards stay above the door head; lights, poles and ceiling
+fittings follow the raised lining. Keep exterior crown, shoulders and collector
+wells unchanged; `openRoofUnderside` removes only downward closure faces so
+the higher interior remains visible. `train-interior` pins full-length/width
+headroom under collectors and unchanged exterior High/Low ray hits.

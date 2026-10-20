@@ -4,7 +4,7 @@
 
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
-import { levelSteps } from '../../../sim/constants.ts'
+
 import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts'
 import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
@@ -15,7 +15,7 @@ export interface ViewSlice {
   graphicsQuality: GraphicsQuality
   setGraphicsQuality: (quality: GraphicsQuality) => void
   followAgentId: number | null
-  passengerViewBefore: Pick<ViewSlice, 'hideUI' | 'ortho' | 'cutaway' | 'overlayOn' | 'hideSectionSurface'> & { zoneOverlayOn: boolean } | null
+  passengerViewBefore: Pick<ViewSlice, 'hideUI' | 'autoCeiling' | 'ortho' | 'cutaway' | 'overlayOn' | 'hideSectionSurface'> & { zoneOverlayOn: boolean } | null
   followPassenger: (id: number) => void
   endPassengerView: () => void
   activeZ: number
@@ -121,10 +121,10 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
     if (!Number.isFinite(id) || id < 0) return
     const s = get()
     const passengerViewBefore = s.passengerViewBefore ?? {
-      hideUI: s.hideUI, ortho: s.ortho, cutaway: s.cutaway,
+      hideUI: s.hideUI, autoCeiling: s.autoCeiling, ortho: s.ortho, cutaway: s.cutaway,
       overlayOn: s.overlayOn, hideSectionSurface: s.hideSectionSurface, zoneOverlayOn: s.zoneOverlayOn,
     }
-    set({ followAgentId: id, passengerViewBefore, hideUI: true, ortho: false,
+    set({ followAgentId: id, passengerViewBefore, hideUI: true, autoCeiling: false, ortho: false,
       cutaway: false, overlayOn: false, hideSectionSurface: true, zoneOverlayOn: false })
   },
   endPassengerView: () => {
@@ -147,19 +147,29 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   chartsPanel: false,
   section: { anchor: [0, 0, -8], orientation: { azimuth: DEFAULT_SECTION_AZIMUTH }, offset: 0 },
 
-  setActiveZ: (z) => set({ activeZ: nearestLevel(z, get().station.levelBase) }),
+  // The altitude ladder is the new five-metre grid for *viewing* on every
+  // document; the chip and Q/E use the same five-metre step.
+  // `setActiveZ` therefore takes the requested metre verbatim (clamped to a
+  // sane range) instead of snapping to a storey plane — the chip's exact input
+  // and the rail's ticks both rely on that.
+  setActiveZ: (z) => {
+    const v = Number.isFinite(z) ? Math.round(z) : get().activeZ
+    set({ activeZ: Math.max(-100, Math.min(100, v)) })
+  },
   stepLevel: (dir) => {
-    const levels = levelSteps(get().station.levelBase)
-    const cur = nearestLevel(get().activeZ, get().station.levelBase)
+    const base = get().station.levelBase
+    const step = 5
+    const levels = Array.from({ length: 15 }, (_, i) => (i - 8) * step + base)
+    const cur = levels.reduce((a, l) => (Math.abs(l - get().activeZ) < Math.abs(a - get().activeZ) ? l : a), levels[0])
     const idx = levels.indexOf(cur)
     const ni = Math.max(0, Math.min(levels.length - 1, idx + dir))
     set({ activeZ: levels[ni] })
   },
   setLevelBase: (base) => {
     const station = get().station
-    const next = Math.max(0, Math.min(3, Math.round(base)))
+    const next = Math.max(0, Math.min(station.storeyHeight-1, Math.round(base)))
     if (!Number.isFinite(next) || next === station.levelBase) return
-    const activeZ = nearestLevel(get().activeZ - station.levelBase + next, next)
+    const activeZ = nearestLevel(get().activeZ - station.levelBase + next, next, station.storeyHeight)
     get().commit({ ...station, levelBase: next })
     set({ activeZ })
   },
@@ -171,7 +181,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   setHideWalls: (on) => set({ hideWalls: on }),
   setHideGround: (on) => set({ hideGround: on }),
   setHideRoof: (on) => set({ hideRoof: on }),
-  setHideUI: (on) => set({ hideUI: on }),
+  setHideUI: (on) => set(on ? { hideUI: true, autoCeiling: false } : { hideUI: false }),
   setOrtho: (on) => set({ ortho: on }),
   setTimePanel: (open) => set({ timePanel: open }),
   setChartsPanel: (open) => set({ chartsPanel: open }),

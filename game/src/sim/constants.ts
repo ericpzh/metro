@@ -1,4 +1,5 @@
 import { msg } from './i18n.ts'
+import { trainContactWireZ } from './stock.ts'
 // Sim constants — GAME-SPEC.md §10.3. Pure data, no DOM, no three, no worker.
 //
 // Every number the simulation consumes lives here or in stock.ts. The whole
@@ -41,35 +42,21 @@ export const DEFAULT_SIM_TIME = 6.5 * 3600
 /** A simulated day, in simulated seconds. */
 export const SIM_DAY = 24 * 3600
 
-/**
- * The fixed storey grid, in blocks: every 4 m from +24 down to -32. One block is
- * one metre, so a storey's floor sits on one of these and its 4 m wall climbs to
- * the next one. The builder's Q/E stepping and the depth rail list exactly these
- * (`nearestLevel` snaps a raw z to the nearest). The renderer also keys every
- * cell to the storey at or below it, so two floors one storey apart never merge
- * into a single band even when a wall column connects them.
- */
-export const LEVEL_STEPS: number[] = [24, 20, 16, 12, 8, 4, 0, -4, -8, -12, -16, -20, -24, -28, -32].sort((a, b) => a - b)
-
-/** Shift the 4 m editing grid by whole metres, while keeping old saves at zero. */
-export function normalizeLevelBase(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(3, Math.round(value))) : 0
+/** The only supported station storey grid, in metres. */
+export const STOREY_HEIGHT = 5
+export const LEVEL_STEPS: number[] = Array.from({length:15},(_,i)=>(i-8)*STOREY_HEIGHT)
+export function normalizeLevelBase(value: unknown, _height = STOREY_HEIGHT): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0,Math.min(STOREY_HEIGHT-1,Math.round(value))) : 0
 }
-
-export function levelSteps(base = 0): number[] {
-  return LEVEL_STEPS.map((z) => z + normalizeLevelBase(base))
+export function levelSteps(base = 0, _height = STOREY_HEIGHT): number[] {
+  return Array.from({length:15},(_,i)=>(i-8)*STOREY_HEIGHT+normalizeLevelBase(base))
 }
-
-/**
- * The storey a cell at `z` belongs to: the fixed grid line at or below it. A
- * floor on the grid and the 4 m walls it grows share a storey; a floor one
- * storey down keeps its own, so a wall column that reaches the floor above does
- * not merge the two into a single band (the renderer keys every cell this way).
- */
-export function storeyBand(z: number, base = 0): number {
-  const offset = normalizeLevelBase(base)
-  return Math.max(LEVEL_STEPS[0] + offset, Math.min(LEVEL_STEPS[LEVEL_STEPS.length - 1] + offset, Math.floor((z - offset) / 4) * 4 + offset))
+export function storeyBand(z: number, base = 0, _height = STOREY_HEIGHT): number {
+  const offset=normalizeLevelBase(base), levels=levelSteps(base)
+  return Math.max(levels[0],Math.min(levels[levels.length-1],Math.floor((z-offset)/STOREY_HEIGHT)*STOREY_HEIGHT+offset))
 }
+/** Full-height PSD fascia finishes five centimetres below the next slab. */
+export function psdFullHeight(_height = STOREY_HEIGHT): number { return PSD_FULL_HEIGHT }
 
 /**
  * Escalator width, metres (§5.1). `ESCALATOR_BALUSTRADE` is the spacing between
@@ -371,7 +358,7 @@ export const DOOR_RATE = 1.2
  * chest height. Shared by the collision envelope and the procedural model, so
  * the two can never disagree.
  */
-export const PSD_FULL_HEIGHT = 2.95
+export const PSD_FULL_HEIGHT = 3
 /** Screen/barrier centre line within a platform tile, toward the track (§5.4). */
 export const PSD_WALL_OFFSET = 0.34
 export const PSD_BASE_DEPTH = 0.18
@@ -409,8 +396,7 @@ export const TRACK_BED_DROP = 0.45 + TRACK_UNDERFLOOR_DROP
 export const RAIL_HEAD_Z = 0.65 - TRACK_BED_DROP
 export const RAIL_CENTRE_OFFSET = 0.7525
 /** Track-local conductor height; train origins follow TRAIN_ORIGIN_Z. */
-export const CATENARY_HEIGHT_INCREASE = 0.99
-export const CONTACT_WIRE_Z = 3.78 + CATENARY_HEIGHT_INCREASE
+export const CONTACT_WIRE_Z = trainContactWireZ()
 export const CONTACT_STRIP_Z = CONTACT_WIRE_Z - 0.012
 /** Agent patience before re-route, seconds. */
 export const PATIENCE_MIN = 60

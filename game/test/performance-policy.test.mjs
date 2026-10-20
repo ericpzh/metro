@@ -172,6 +172,19 @@ test('module dependencies invalidate affected walls, ramps and overhead supports
     'other module additions still invalidate conservatively')
 })
 
+test('covered wire mounting rebuilds only for ceiling cells inside its own track', () => {
+ for (const rot of [0,1,2,3]) {
+  const track={id:'wire',type:'track',x:0,y:0,z:0,w:8,d:3,rot,storeyHeight:5,cfg:{line:'1',power:'catenary'}}
+  const before={name:'test',seed:1,storeyHeight:5,lines:[],modules:[track],cells:[]}
+  const at=(x,y,z)=>({...before,cells:[{x,y,z,fill:'solid'}]})
+  assert.equal(retainedModuleIds(before,at(0,0,4)).has('wire'),false,'new ceiling invalidates the wire mount')
+  assert.equal(retainedModuleIds(at(0,0,4),before).has('wire'),false,'ceiling removal invalidates the wire mount')
+  for(const cell of [[100,100,4],[0,0,5],[0,0,0]])assert.equal(retainedModuleIds(before,at(...cell)).has('wire'),true,'unrelated floor/ceiling edits retain the model')
+  const thirdRail={...before,modules:[{...track,cfg:{...track.cfg,power:'third-rail'}}]}
+  assert.equal(retainedModuleIds(thirdRail,{...thirdRail,cells:at(0,0,4).cells}).has('wire'),true,'third rail does not read ceiling geometry')
+ }
+})
+
 test('a boards-only sign change names its sign, and anything else fails closed', () => {
   const mark = id => ({ id, kind: 'icon', icon: 'exit', x: 0, y: 0.35, scale: 1, side: 'both' })
   const sign = front => ({ id: 'sign', type: 'sign', x: 10, y: 0, z: 0, w: 1, h: 1, cfg: { mount: 'ceiling', front, back: [] } })

@@ -1,6 +1,6 @@
 import { msg } from '../../sim/i18n.ts'
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
-// patch (with an auto-wall ring when 生成墙壁 is on, which **Tab** and the ring's
+// patch (with an auto-wall ring when 生成墙壁 is on, which **Shift+Tab** and the ring's
 // own tile raise), one **半墙** block at a time or a ridge-locked **三角** line
 // when a cut piece is armed, right-press on a wall for a whole-column lift.
 // right-press on a wall for a whole-column lift. Moved verbatim
@@ -8,6 +8,8 @@ import { msg } from '../../sim/i18n.ts'
 
 import {
   addCells,
+  addSuspendedCeiling,
+  prepareSuspendedCeiling,
   addFloor,
   addWalls,
   plannedAutoWalls,
@@ -45,7 +47,7 @@ export class BlockTool extends ToolController {
     // (`store.ts` keeps the two modes exclusive).
     info.preventDefault()
     const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
-    const anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
+    let anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
     // A right-press on a tagged wall lifts the whole column, exactly as the 墙 tool's
     // own right-drag does — what the mode builds, it takes back in one action rather
     // than a course at a time. Anywhere else the 方块 tool's ordinary dig stands, so
@@ -181,7 +183,7 @@ export class BlockTool extends ToolController {
         // cell the release will refuse is drawn red rather than dropped in silence —
         // `checkBlockCells` is what decides, and `addCells` asks it again on release.
         const cells = [...preview]
-        if (dragging && st.autoWalls) cells.push(...plannedAutoWalls(this.ctx.solids(), preview, st.station.modules))
+        if (dragging && st.autoWalls) cells.push(...plannedAutoWalls(this.ctx.solids(), preview, st.station.modules, st.station.storeyHeight))
         valid = this.showAddGhost(cells).blockedCells.length === 0
       }
       scene.setCursor(dragging ? target : d.anchor, valid)
@@ -215,7 +217,7 @@ export class BlockTool extends ToolController {
     const scene = this.ctx.scene()
     if (!scene) return newPreview()
     const st = useStore.getState()
-    const check = checkBlockCells(st.station, cells)
+    const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
     scene.setGhost(check.acceptedCells, 'add', undefined, undefined, check.blockedCells)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
     return check
@@ -244,7 +246,7 @@ export class BlockTool extends ToolController {
       // The preview the release must agree with: `pendingCells` has already dropped
       // the cells that are not candidates (solid ground, a rail bed), and
       // `checkBlockCells` names the refused ones so the notice can say why.
-      const check = checkBlockCells(st.station, cells)
+      const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
       // A cut-mode click (半墙 / 三角) is tagged courses, not plain blocks: it goes
       // through `addWalls` with the height of one and the shape the press resolved,
       // which is what writes the `half-wall:<side>` / `tri-upper:<side>` tag the
@@ -266,6 +268,10 @@ export class BlockTool extends ToolController {
         // instead of dropping the press in silence.
         if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, line)))
         else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', triangle ? msg('wedge') : msg('half_wall')))
+      } else if (st.suspendedCeiling) {
+        const result = addSuspendedCeiling(st.station, cells)
+        if (result.changed > 0) st.commit(result.state)
+        if (result.blocked > 0) st.setNotice(previewNotice(st.station, check))
       } else if (rect && st.autoWalls) {
         // A deliberate 方块 drag with 生成墙壁 on draws a walled floor patch:
         // union it with earlier patches and rebuild the auto wall ring around

@@ -89,11 +89,11 @@ export const STOCK: Record<StockClass, Stock> = {
   },
 }
 
-export function trainLength(line: { stock: StockClass; cars: number }): number {
-  return STOCK[line.stock].length * line.cars
+export function trainLength(line: { stock: StockClass; cars: number; modelScale?: number }): number {
+  return STOCK[line.stock].length * line.cars * (line.modelScale ?? 1)
 }
 
-export function trainRatedCapacity(line: { stock: StockClass; cars: number }): number {
+export function trainRatedCapacity(line: { stock: StockClass; cars: number; modelScale?: number }): number {
   return Math.round(STOCK[line.stock].ratedPerCar * line.cars)
 }
 
@@ -122,7 +122,7 @@ export function lineCapacityPerHour(line: {
 export const DOOR_END_INSET = 2.8
 
 /** Door centres from the car-door cadence — the authoritative list, §1.13. */
-export function doorCentres(line: { stock: StockClass; cars: number }): number[] {
+export function doorCentres(line: { stock: StockClass; cars: number; modelScale?: number }): number[] {
   const s = STOCK[line.stock]
   const total = s.length * line.cars
   // One pitch per car, held clear of both ends: the doors spread out to the car
@@ -146,19 +146,19 @@ export function doorCentres(line: { stock: StockClass; cars: number }): number[]
   // The epsilon also keeps 20.1 m floating-point sums on the same rounding tie.
   return out.map((v) => {
     const off = v - total / 2
-    return Math.sign(off) * (Math.round(Math.abs(off) * 10 + 1e-9) / 10)
+    return Math.sign(off) * (Math.round(Math.abs(off) * 10 + 1e-9) / 10) * (line.modelScale ?? 1)
   })
 }
 
 /** Only the doorway nearest each D cab uses the narrow single plug leaf. */
-export function doorWidthAt(line: { stock: StockClass; cars: number }, offset: number): number {
+export function doorWidthAt(line: { stock: StockClass; cars: number; modelScale?: number }, offset: number): number {
   const stock = STOCK[line.stock]
   if (stock.singleEndDoorWidth && stock.cabLength) {
     const endInset = stock.cabLength + stock.singleEndDoorWidth / 2 + 0.3
-    const fromEnd = trainLength(line) / 2 - Math.abs(offset)
-    if (Math.abs(fromEnd - endInset) < 0.06) return stock.singleEndDoorWidth
+    const fromEnd = (trainLength(line) / 2 - Math.abs(offset)) / (line.modelScale ?? 1)
+    if (Math.abs(fromEnd - endInset) < 0.06) return stock.singleEndDoorWidth * (line.modelScale ?? 1)
   }
-  return stock.doorWidth
+  return stock.doorWidth * (line.modelScale ?? 1)
 }
 
 /**
@@ -169,7 +169,7 @@ export function doorWidthAt(line: { stock: StockClass; cars: number }, offset: n
  * falls in, so a screen door and the car door it exists to meet are placed from
  * one list and cannot drift (§1.13).
  */
-export function doorRunOffsets(line: { stock: StockClass; cars: number }, railW: number): number[] {
+export function doorRunOffsets(line: { stock: StockClass; cars: number; modelScale?: number }, railW: number): number[] {
   return doorCentres(line).map((off) => railW / 2 + off)
 }
 
@@ -190,9 +190,14 @@ export function doorRunOffsets(line: { stock: StockClass; cars: number }, railW:
 export const DOOR_SILL_Z = 0.57
 export const DOOR_HEAD_Z = 2.63
 export const CABIN_FLOOR_Z = 0.62
-export const CABIN_CEILING_Z = 2.68
+export const CABIN_CEILING_Z = 2.99
 /** Train origin above the track module, with the cabin floor flush at platform +1 m. */
 export const TRAIN_ORIGIN_Z = 1 - CABIN_FLOOR_Z
+/** Passenger roof section in train-local metres, shared by skins and platform screens. */
+export function trainRoofSection(stock: StockClass): { shoulder: number; crown: number } {
+  return stock === 'D' ? { shoulder: 2.63, crown: 3.25 } : { shoulder: 2.73, crown: 3.15 }
+}
+
 /** Clear half-width inside the car's skins, and the first row's standoff from it. */
 export const CABIN_HALF_W = 1.15
 export const CABIN_DOOR_INSET = 0.25
@@ -247,4 +252,15 @@ export function cabinSlot(doorX: number, side: number, file: number, row: number
   const y = side * (outbound ? half - within : -half + within)
   const x = doorX + file * CABIN_PAIR_HALF + Math.min(turn, CABIN_MAX_TURNS) * CABIN_TURN_STEP
   return [x, y]
+}
+
+/** 98% puts the wire at +3.903, leaving 9.7 cm below the +4 ceiling underside. */
+export function trainScaleForStorey(_height?: number): number { return 0.98 }
+export function trainOriginForScale(scale = 1): number { return 1 - CABIN_FLOOR_Z * scale }
+
+/** Compact collector's carbon contact in the authored train frame. */
+export const PANTOGRAPH_CONTACT_Z = 3.57
+/** Keep the conductor's underside on the carbon at either vehicle scale. */
+export function trainContactWireZ(scale = trainScaleForStorey()): number {
+  return trainOriginForScale(scale) + PANTOGRAPH_CONTACT_Z * scale + 0.012
 }

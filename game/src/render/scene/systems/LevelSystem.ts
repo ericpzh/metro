@@ -146,6 +146,10 @@ export class LevelSystem extends SceneSystem {
           mesh.visible = false
           continue
         }
+        if (this.ctx.autoCeiling && mesh.userData.suspendedCeiling === true) {
+          mesh.visible = false
+          continue
+        }
         if (straight) {
           mesh.visible = true
           const base = isOutline ? mesh.userData.baseMaterial ?? mesh.material : this.baseOf(mesh)
@@ -216,6 +220,10 @@ export class LevelSystem extends SceneSystem {
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
     const side = levelSide(zs, this.ctx.activeZ)
     const straight = this.ctx.hideUI || this.ctx.cutaway
+    // Ceiling-attached decor is **not** hidden just because it hangs from a
+    // suspended ceiling: only the ceiling tiles themselves (pass 'c' meshes)
+    // are hidden by 隐藏天花板. A fitting that hangs from the current room's
+    // ceiling stays on screen so the player can still see what was mounted.
     if (straight) {
       // 隐藏UI / 剖切: drawn, and drawn as itself — a 售票机, a 屏蔽门 or a consist
       // does not become a 35% ghost because it stands on another storey.

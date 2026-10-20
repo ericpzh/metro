@@ -283,7 +283,7 @@ test('edge decor backed against a curtain shares its tile, shifted towards the c
   assert.equal(placementBlocked([southCurtain], decor('extinguisher', 2, 2, 0, 'fire-n')), true, 'the far edge still collides')
   assert.equal(placementBlocked([southCurtain], decor('extinguisher', 2, 2, 1, 'fire-e')), true, 'a side edge still collides')
   assert.equal(edgeDecorCurtainShare(southCurtain, decor('extinguisher', 3, 2, 2, 'fire-away')), false, 'another tile is not the same tile')
-  assert.equal(edgeDecorCurtainShare(southCurtain, { ...fireSouth, z: 4 }), false, 'another storey is not the same tile')
+  assert.equal(edgeDecorCurtainShare(southCurtain, { ...fireSouth, z: 5 }), false, 'another storey is not the same tile')
   assert.equal(edgeDecorCurtainShare(wall, fireSouth), false, 'a wall-mounted panel takes no leaning furniture')
   assert.equal(placementBlocked([wall], fireSouth), true, 'against wall glass the cabinet stays refused')
   // The shifted cabinet stays inside its reserved cell, clear of the glazing.
@@ -489,9 +489,10 @@ test('aiming a wall panel at a plain wall mounts it in front of the face, on the
   // stands in front of it at (0, 0), on the storey floor 5 — not at the block's own
   // cell, and not on the unshifted 0 / 4 / 8 line.
   const cells = [
-    { x: 0, y: 0, z: 5, fill: 'solid' },
-    { x: 0, y: 1, z: 6, fill: 'solid' },
-    { x: 1, y: 0, z: 6, fill: 'solid' },
+    { x: 0, y: 0, z: 6, fill: 'solid' },
+    { x: 0, y: 1, z: 7, fill: 'solid' },
+    { x: 0, y: 1, z: 8, fill: 'solid' },
+    { x: 1, y: 0, z: 7, fill: 'solid' },
   ]
   const station = toState({ name: 'shifted', seed: 1, levelBase: 1, cells, modules: [], lines: [] })
   const before = useStore.getState()
@@ -499,16 +500,16 @@ test('aiming a wall panel at a plain wall mounts it in front of the face, on the
     let aim = [0, -1] // the eye south of the piece: the view looks north, at the wall column
     useStore.setState({ station, moduleType: 'glass-1x1', moduleRot: 0 })
     const tool = new EquipmentTool({ facing: () => aim, scene: () => null })
-    const north = tool.wallMountPlacement([0, 1, 6], [0, 0, 6], 'g1', [0.5, 1])
+    const north = tool.wallMountPlacement([0, 1, 8], [0, 0, 8], 'g1', [0.5, 1])
     assert.equal(north.noWall, false)
-    assert.deepEqual([north.mod.x, north.mod.y, north.mod.z], [0, 0, 5], 'in front of the face, on the shifted storey floor')
+    assert.deepEqual([north.mod.x, north.mod.y, north.mod.z], [0, 0, 6], 'in front of the face, on the shifted storey floor')
     assert.equal(north.mod.rot, 2, 'and hanging on the wall the camera is looking at')
     // Orbiting to the other side of the tile takes the other backed wall — the same
     // hover, the same held turn, a different answer.
     aim = [-1, 0] // the eye west of the piece: the view looks east
-    const east = tool.wallMountPlacement([0, 1, 6], [0, 0, 6], 'g2', [0.5, 1])
+    const east = tool.wallMountPlacement([0, 1, 8], [0, 0, 8], 'g2', [0.5, 1])
     assert.equal(east.mod.rot, 1, 'the east wall, which the camera now faces')
-    assert.deepEqual([east.mod.x, east.mod.y, east.mod.z], [0, 0, 5], 'the stand cell does not move with the view')
+    assert.deepEqual([east.mod.x, east.mod.y, east.mod.z], [0, 0, 6], 'the stand cell does not move with the view')
   } finally {
     useStore.setState(before)
   }

@@ -1,5 +1,6 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  suspended_ceiling: { zh: '吊顶', en: 'Suspended ceiling' },
   settings: { zh: '设置', en: 'Settings' },
   graphics_quality: { zh: '画质', en: 'Graphics quality' },
   graphics_low: { zh: '低画质', en: 'Low quality' },
@@ -572,6 +573,22 @@ export const messages = {
   "long": {
     "zh": "长",
     "en": "Long"
+  },
+  "ultra_long": {
+    "zh": "超长",
+    "en": "Extra long"
+  },
+  "single_storey": {
+    "zh": "单层",
+    "en": "Single storey"
+  },
+  "double_storey": {
+    "zh": "双层",
+    "en": "Double storey"
+  },
+  "floor_interval_value": {
+    "zh": "{0} {1} m",
+    "en": "{0} {1} m"
   },
   "extra_narrow": {
     "zh": "超窄",
@@ -1485,12 +1502,12 @@ export const messages = {
     "en": "Cannot extend the lift through this floor: blocked by {0}"
   },
   "lift_extended_up_one_floor": {
-    "zh": "电梯已向上延伸一层",
-    "en": "Lift extended up one floor"
+    "zh": "电梯已向上延伸 {0} m",
+    "en": "Lift extended up {0} m"
   },
   "lift_extended_down_one_floor": {
-    "zh": "电梯已向下延伸一层",
-    "en": "Lift extended down one floor"
+    "zh": "电梯已向下延伸 {0} m",
+    "en": "Lift extended down {0} m"
   },
   "picked_value": {
     "zh": "已吸取{0}",

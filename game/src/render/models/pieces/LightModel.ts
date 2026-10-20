@@ -13,7 +13,7 @@ export class LightModel extends PieceBuilder {
     const offset = lightOffset(mod)
     // The line the housing hangs from: the **top block** over its own cell (`hangCeilingLocal`),
     // else the real slab overhead — and with no slab to read (a ghost in an empty station) the
-    // nominal storey line stands in. The 4 m grid line floated a 基准高度-1 station's lights a
+    // nominal storey line stands in. The 5 m grid line floated a 基准高度-1 station's lights a
     // metre below their ceiling.
     const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules, lightCeilingZ(mod) - mod.z - 1)
     // The diffuser fills the bottom centimetre. A full-depth steel body would

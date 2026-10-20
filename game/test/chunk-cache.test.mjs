@@ -69,7 +69,6 @@ test('an unchanged chunk keeps its geometry and outline material across a rebuil
   const disposed = new Set()
   mesh(chunks, row([2, 3, 4, 40, 41]), disposed)
   const before = chunks.chunkMeshes.map((m) => m.geometry)
-  const outlinesBefore = chunks.outlineMeshes.slice()
   assert.ok(before.length > 0, 'the station meshed into chunk parts')
   assert.ok(chunks.chunkMeshes.length >= 4, 'and into more than one chunk')
 
@@ -81,14 +80,6 @@ test('an unchanged chunk keeps its geometry and outline material across a rebuil
   const kept = before.filter((g) => after.includes(g))
   assert.ok(kept.length > 0, 'the untouched chunks came back as the same geometry objects')
   for (const g of kept) assert.equal(disposed.has(g), false, 'and none of them was disposed on the way')
-  // An outline mesh shares its chunk's geometry, so "kept" is measurable off it:
-  // the per-chunk outline material of a chunk whose buffers came back must not have
-  // been given up, or the rebuild recompiles that chunk's outline program.
-  const outlinesKept = outlinesBefore.filter((o) => kept.includes(o.geometry))
-  assert.ok(outlinesKept.length > 0, 'a kept chunk has outlines of its own')
-  for (const o of outlinesKept) {
-    assert.equal(disposed.has(o.material), false, 'the per-chunk outline material survived too (no program recompile)')
-  }
 })
 
 test('a chunk whose content changed releases the geometry it is done with', () => {

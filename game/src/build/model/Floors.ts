@@ -57,6 +57,7 @@ export function plannedAutoWalls(
   solid: ReadonlySet<string>,
   floorCells: Array<[number, number, number]>,
   modules: readonly Module[] = [],
+  height = AUTO_WALL_H,
 ): Array<[number, number, number]> {
   const patch = new Set(floorCells.map(([x, y, z]) => cellKey(x, y, z)));
   // The platform/tunnel footprint is covered ground even though a rail dug its
@@ -86,7 +87,7 @@ export function plannedAutoWalls(
       }
     }
     if (!edge) continue;
-    for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
+    for (let dz = 1; dz <= height; dz++) {
       const wk = cellKey(x, y, z + dz);
       if (solid.has(wk)) continue;
       // The same rule set as everything else: the ring never boards up a reserved
@@ -194,7 +195,7 @@ export function syncAutoWalls(state: StationState): StationState {
         }
       }
       if (!edge) continue;
-      for (let dz = 1; dz <= AUTO_WALL_H; dz++) {
+      for (let dz = 1; dz <= state.storeyHeight; dz++) {
         // Never board up a reserved opening, and never rise through a piece of
         // equipment: the ghost (`plannedAutoWalls`) leaves the same cells
         // unwalled, and both ask the one rule set.

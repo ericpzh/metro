@@ -5,8 +5,8 @@
 // so the capacity / stair / escalator / opening tests keep their fixed rig.
 //
 //   G   surface plaza      z = 0   walk at z = 1
-//   B1  concourse          z = -4  walk at z = -3   (gate line at y = 12)
-//   B2  platform           z = -8  walk at z = -7   (track at y = -7)
+//   B1  concourse          z = -5  walk at z = -4   (gate line at y = 12)
+//   B2  platform           z = -10 walk at z = -9   (track at y = -7)
 //
 // The AM peak: alighting dumps ~200 people onto the platform every 150 s
 // against ~225/min of escalator capacity, so the platform exit is the binding
@@ -25,8 +25,8 @@ import { carveRampOpenings } from '../../src/sim/openings.ts'
 import { ESCALATOR_RUN, escalatorModule } from '../../src/sim/escalators.ts'
 import { STAIR_RUN, STAIR_WIDTH_NARROW, stairFlightsFor } from '../../src/sim/stairs.ts'
 
-const Z_C = -4 // concourse floor block
-const Z_P = -8 // platform floor block
+const Z_C = -5 // concourse floor block
+const Z_P = -10 // platform floor block
 const Z_G = 0 // surface slab
 
 function rect(x0: number, x1: number, y0: number, y1: number, z: number, cells: Cell[], skip?: (x: number, y: number) => boolean): void {
@@ -360,6 +360,7 @@ export function scenarioStation(variant: StationVariant = {}): StationData {
       name: '2号线',
       colour: '#00679e',
       stock: 'B',
+      modelScale: .98,
       cars: 6,
       power: 'third-rail',
       psd: 'full',
@@ -376,6 +377,7 @@ export function scenarioStation(variant: StationVariant = {}): StationData {
 
   return {
     name: '嘉禾望岗',
+    storeyHeight: 5,
     seed: 1234567,
     cells,
     modules,

@@ -37,7 +37,7 @@ test('thick pillars are finished round shafts, recessed beneath steel collars', 
     ;(part.material === concrete ? shafts : collars).push(part)
   })
   assert.equal(shafts.length, 1)
-  assert.equal(collars.length, 2, 'a four-metre column has collars at both ends')
+  assert.equal(collars.length, 3, 'a five-metre column has collars at both ends and its mid-joint')
   assert.equal(shafts[0].geometry.parameters.radialSegments, 48, 'the thick support is round rather than a square post')
   assert.ok(shafts[0].geometry.attributes.uv.array.some(v => v > 1), 'shaft UVs repeat in real metres around and up the column')
   assert.ok(shafts[0].geometry.parameters.radiusTop < collars[0].geometry.parameters.radiusTop, 'the finished shaft recesses behind each collar')

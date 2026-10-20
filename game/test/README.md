@@ -8,9 +8,16 @@
 
 `train-pantograph` also checks the broad downturned bow, tapered lower spine, upper fork, five-shed insulators, pivot/spring/bonding hardware, wire clearance and authored Low triangle budget.
 
-`train-pantograph` and `module-build` pin the 0.99 m catenary increase, visible raised arms, and common station/canopy/tunnel/bridge contact. `rail` pins the extra clear course, taller bores, resizing, power changes and idempotent legacy-shell upgrades.
+`train-pantograph` and `module-build` pin the compact collector, short insulators, low arm angles, and common station/canopy/tunnel/bridge contact. `rail` pins the extra clear course, taller bores, resizing, power changes and idempotent legacy-shell upgrades.
 
 # `game/test` — how the game is tested
+
+`covered-clearance` checks that full PSD warnings, arrows and safety bands fit
+the compact glass for every stock on both platform sides, with aligned bands
+and clear space between stickers. `storey-height` pins the full-height screen's
+2.35 m glazing, top-mounted 0.6 m information plate and absence of top padding.
+`catenary-model` pins the roughly 10 cm covered/tunnel wire assembly below the
+ceiling; `storey-height` checks 98% trains keep floor, wheels and collectors aligned.
 
 `stock` pins D's four doorways per car and mirrored cab-end single-door widths.
 `draw-batching` checks exactly two small panes in each of its three inter-door
@@ -299,11 +306,12 @@ for both screen heights, both track sides, and closed, partial and fully open po
 It also pins the slim half-height rails, cap/rail vertical separation, single glass surfaces,
 reference cabin fittings, and train interpolation between snapshots including early updates and reappearance.
 It pins the 地面 X向 exit header's full-width red fill and unchanged font sizes as wider bays add spacing between text blocks.
-`escalator-length` checks all four run lengths — 超短 2 m / 短 3 m / 中 4 m / 长 8 m — in both widths,
+`escalator-length` checks the two length families — the one-floor 超短 2 m / 短 3 m / 中 4 m / 长 5 m
+for the 扶梯 and every staircase, and the 双层 超短 6 m … 超长 10 m for the escalator — in both widths,
 rotations and directions, each with its own passage, landing graph nodes, ride time, exit snap (a
-单跑楼梯 as well as a 扶梯), preview refresh, move, save round-trip and drawn model, with old 4 m / 8 m
-saves reading back as 中 / 长;
-`pick-tool` checks copying a run's length and restoring the previous one with Esc,
+stair as well as a 扶梯), preview refresh, move, save round-trip and drawn model, with endpoint-derived sizes
+saves reading back as 单层 中 / 双层 中 and the five-metre grid's strict 30° runs pinned;
+`pick-tool` checks copying a run's length and span and restoring the previous ones with Esc,
 and the same for a **自动步道**'s level length, width and direction.
 `walkways` checks the escalator's flat twin: the three level lengths 短 30 m / 中 60 m /
 长 90 m in every rotation, direction and width; the wide belt's centring being
@@ -335,14 +343,15 @@ detect walls at the outer edges and preserve adjacent blocks without thinning. F
 wide with each band slid across its **own** run, the quarter-landing the `lanes × lanes`
 square the legs meet on with the departing leg on its far edge (so no flight body, tread or
 walk stands over a landing cell), the walk across that square in all four rotations, the
-equipment tool's ghost carrying the same piece the factory builds, the whole square laid and
-bulldozed as the stair's own floor, and a piece saved at an older off-grid width keeping its
-band and its single corner cell.
+equipment tool's ghost carrying the same piece the factory builds, the whole square left out
+of the document and walked as the stair's **virtual** landing, its 0.5 m model slab at half
+the chosen rise, a legacy landing block cleaned up with the stair, and a piece saved at an
+older off-grid width keeping its band and its single corner cell.
 `module-build` checks continuous full-width treads and glass beneath outer stair rails and returns,
 including exact 1/2/3-block outer bounds in every rotation,
 plus medium/wide straight-flight offsets along the block side in all rotations and unchanged legacy
 off-grid centrelines. It also measures a 90° turn's **drawn** platform against the block square
-the builder lays — whole cells along the departing leg, the band's rails `STAIR_RAIL_PROUD`
+the landing covers — whole cells along the departing leg, the band's rails `STAIR_RAIL_PROUD`
 inside on the other axis — in both hands, all three sizes and all four rotations, so the model
 cannot draw a landing the sim does not walk. `move` carries that square with the piece: every
 cell of a 中 turn's 4-cell landing goes with it and comes back laid at the new cell.
@@ -404,7 +413,7 @@ seek, the app appending each posted minute (its buffer growing without moving an
 replacing the lot on a reset, and the chart axes — the round-number ceiling and the
 class axis drawn the way the letter reads, A at the top and F at the bottom.
 
-`module-build` checks lift landing doors at real floors, independent car doors,
+`module-build` checks lift landing doors at each level (a story's base), independent car doors,
 and synchronized opening only at the aligned landing in both styles and all rotations.
 
 `test/support/` holds the shared harnesses — the only files here that are not
@@ -451,12 +460,13 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Authored road nodes | `road-document.test.mjs` — segment splits, shared-node lifetime, legacy migration, duplicate/elevation rules, width merges, snapped starts keeping the selected width/direction, save/undo, node input, hidden/refused pieces and node-buffer ownership. |
 | Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, Low at most 25% of High, fixed High counts, outward fittings at both details, grayscale, 70% High / 45% Low opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
-| Elevator doors | `lift-doors.test.mjs` — per-storey front/back/both/none choices, landing geometry, graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-floor undo. |
+| Elevator doors | `lift-doors.test.mjs` — per-level front/back/both/none choices, landing geometry, two-track telescoping cabin/landing panels and bounded opening travel (`module-build`), graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-level undo. |
+| Elevator floor intervals | `lift-interval.test.mjs` — the 超短 3 m / 短 4 m / 中 5 m / 长 6 m / 超长 7 m 层高 tile, a 5 m default, one-story fresh pieces, uneven stacking on both sides, exact mixed-shaft levels, the graph's one-car edges, ghost/preview keys, save round trip, and a drawn shaft exactly the stacked stories (a 5 m piece is 5 m) closed by a cap at each end, with landing portals at every level and glazing on the door side. |
 | Architecture | `layering`, `scene-wiring` — the sibling-wiring guard, and the `setStation` boards-only/inert-decor fast paths: one-sign verdict, chunk remesh skipped, station-wide plate repaints kept on the full path |
 | Numbers | `rng`, `clock`, `demand`, `headway`, `history` |
 | 屏蔽端门 | `psd-end` — fixed glass stack, matching heights, Tab preview refresh, shortened corner snapping and exact 1 m extensions, tile-contained meshes/reservations and adjacent block/equipment placement, hover/click placement, undo, walk barrier and save/load; curtain-wall widths and picking |
-| The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones` (room-purpose overlay regions preserve fare-zone values; synthetic track floors follow rotated `trackCells` footprints, not unrotated bounds), `lift`, `placement` (stair shapes require only foot-level ground; escalator collision clearance follows its sloped body), `openings`, `stairs`, `escalators`, `escalator-length` (all four run lengths, on the 扶梯 and the 单跑楼梯 alike: spans, carve, landing nodes, ride time, exit snap, save round-trip, both drawn models, the catalogue's fallbacks and the one armed length a bank is built at), `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
-| The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool` (ordinary room-color labels add no walls/modules and preserve fare zones; rotated booth drag preview and release; right-click taps and drags erase labels like 无分区 while preserving floor), `facility` (legacy footprint-module helpers and booth fronts/benches), `fence`, `storey`, `exits`, `bay`, `surfaces`, `rail` (virtual street footing at z = 0, derived bed openings that restore after removal, refusal on dug ground, tunnel / bridge snapping from exposed platform and 屏蔽门 cells with left/right end selection by hovered half, and width updates with stock), `track-third-rail` (the 第三轨 travel-right side in tunnels/bridges, travel-left platform fallback, off-platform screen-door selection and drawn placement), `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–3 m height base and `save` checks its persistence and older-save default; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole, re-adding default ground without a record, and authored paint/zone persistence |
+| The crowd and the graph | `determinism`, `capacity`, `demo`, `gates`, `gate-door`, `zones` (room-purpose overlay regions preserve fare-zone values; synthetic track floors follow rotated `trackCells` footprints, not unrotated bounds), `lift`, `lift-interval`, `placement` (stair shapes require only foot-level ground; escalator collision clearance follows its sloped body), `openings`, `stairs`, `escalators`, `escalator-length` (the one-floor and 双层 run families on the 扶梯 and every staircase: spans, strict 30° five-metre runs, carve, landing nodes, ride time, exit snap, save round-trip, both drawn models, the catalogue's fallbacks and the one armed length a bank is built at), `ramp-passengers` (ramp lane spacing, body clearance, collision recovery, stair-turn access and queue-preserving detours), `slope-cut`, `ramp-fill`, `trains`, `train-cabin`, `train-interior` (raised route boards, continuous ceiling and aisle sightlines in High/Low), `stock`, `load`, `agent-route` (including the 1.5 m figure scale), `worker-preview`, `wayfinding` — `gates`, `zones` and `wayfinding` force `zoneBarriers: true`, because §4.5's fare line is off by default (`ZONE_LINES_BLOCK`) while the demo's zone paint is unfinished; `train-cabin` is the cabin the crowd rides in and `worker-preview` the worker path that must not step the sim to show a route |
+| The document and its edits | `save`, `grid`, `pick-cell`, `ground`, `walls`, `halfwall`, `triangle`, `blocktool`, `zonetool` (ordinary room-color labels add no walls/modules and preserve fare zones; rotated booth drag preview and release; right-click taps and drags erase labels like 无分区 while preserving floor), `facility` (legacy footprint-module helpers and booth fronts/benches), `fence`, `storey`, `storey-height`, `exits`, `bay`, `surfaces`, `rail` (virtual street footing at z = 0, derived bed openings that restore after removal, refusal on dug ground, tunnel / bridge snapping from exposed platform and 屏蔽门 cells with left/right end selection by hovered half, and width updates with stock), `track-third-rail` (the 第三轨 travel-right side in tunnels/bridges, travel-left platform fallback, off-platform screen-door selection and drawn placement), `validation`, `overground`, `roof-tool`, `track-run-length`, `structures-gaps` — `storey` checks the 0–4 m base offset within a 5 m storey and `save` checks its persistence, plus opening a save on the basis floor (or the lowest user placement) without the worker's 0 m ground level resetting it; `storey-height` is the single five-metre profile through level controls, stairs, lifts, escalators, suspended ceilings, hung decor and scaled rolling stock; `overground` + `roof-tool` are the pillars/roofs/doorway-exits/stair-blocks/bridges, `track-run-length` the shared tunnel/bridge lengths, `structures-gaps` the repair-shaped edges; `ground` is the city's own floor: the plane at `z = 0` is stored **inverted** (`sim/ground.ts`), so it owns the window `withGround` materialises, the dig that records a hole, re-adding default ground without a record, and authored paint/zone persistence |
 | The furniture and the decor | `hanger`, `shelf`, `desk`, `checkout` (shop placement, saves, rotated bounds, screen/stock visibility and workstation chair), `restroom`, `bench`, `vending`, `decor`, `ceiling-decor`, `lights`, `vent`, `floor-decor`, `street-decor`, `sign`, `sign-model`, `sign-editor` (including rejection before hover insertion, and a live drag that defers the scene redraw to a scheduled trailing sync the drop flushes once, evaluated once per frame), `billboard` (WebP headers, compact sizes, panel filling, shared per-poster materials and per-size geometry), `glass-panel` (including fitted doors and edge decor backed against a curtain), `door-panel` (both-face handles), `calligraphy`, `line-map`, `booth-model`, `room-model` |
 | Passenger library | `passenger-library` — all 232 approved variants with ten hairstyles per sex, including eighteen small backpacks, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, valid padded topology, single instanced draw and atlas disposal; `passenger-lod` pins the baked Low topology, the second prepared crowd draw, the 低画质/隐藏UI switch, pause and shared-atlas disposal; `passenger-size` pins the 20% child population, small-backpack/crossbody/bagless non-bald child pool, independent 80–120% height, 90–110% adult horizontal variation and 80–90% child horizontal variation, stable identity and body/shadow matrices; `passenger-view` retains identity, ground contact, flat greys, 70% crowd opacity, pause, picking and eye view. |
 | The models | `module-build` (including slab-track sleepers, seats, clips and rail heads; shared contact-wire height across station/tunnel/bridge models, stock-aware portal clearance, bridge barrier posts omitted at catenary gantry uprights, enclosed double bins, hopper face winding, sealed full-height PSDs and moving decals), `restroom-model` (three-sided cubicles, privacy doors, flush joins, shared partitions, rotations, previews and neighbour removal), `lift-style`, `psd-decals`, `ramp-join` (the shared seam at every run length, and never between two differing lengths), `tv-screen`, `tv-pair` |
@@ -468,7 +478,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root; `site-worker` — the site's `/en` → `/en/` pin, English asset paths and untouched non-`/en` requests; `demo-route` — the demo URLs (`/game/zoo`, `/game/en/tanwei`), their trailing-slash redirect, the boot that opens the named station over the autosave, and the one-shot URL rewrite; `site-demo-links` — the concept site's picker wiring, its two triggers and its copied game previews |
 | Startup and tutorial | `tutorial` — empty paused startup at ground level and resilient progress/opt-out storage. `npm run check:tutorial` separately exercises the production UI in both languages, including live input, practice activation, dynamic spotlights, keycaps and reload behavior. |
 | Global stats | `global-stats` — a stable stored client id, default-on opt-out preference, built-station counts (solid cells, modules, lines, tracks, platform tracks), cumulative passenger deltas, sim-reset and station-switch baselines, a persisted retry queue that keeps its `submitId`, pagehide beacons, API host resolution and the gear-menu source contract. |
-| The app | `move` (including no lift when the visible-layer picker has no target), `delete-tool` (block delete rectangles, Shift lines and one-step undo; hidden modules do not start a module delete; 人行道 / 草坪 resolve from the pointed cell and tear down exactly as the armed tile tool's right-click does, tap and run alike), `equipment-deletion` (visible module before underlying grid cell, and a ray that crossed a canopy or a neighbour's raised plate never stealing the pointed cell's piece), `equipment-placement-input` (wall/ceiling support placement from open air, an exit preview and click aligned by picking a stair through tread gaps even with a floor hit, and bridge snap across track, screen-door and outer-platform surfaces in every rotation with preview/click agreement), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool and the room front R tile), `builder-attributes` (shared module capability order, common width icon, R/Tab/Shift+Tab dispatch, the four run lengths and the straight-stair predicate the length tile is gated on), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders` (all ten Shift+number keys, four top-level decor folder titles, diagonal tab positions through the last two rows, and the half-height catenary style tile beside rotation), `rail-families` (per-section decor membership and order, cross-section families with complete variant menus, and the equipment-to-decor TVM move), `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `topbar-report-issue` (the FaBug issue-tracker link beside restart), `topbar-playback` (the paused play button resumes like Space, keeping the speed tiles' own resume), `select-agent` (cell fallback ignores modules hidden by level slicing) — `pick-tool` also pins the hidden-module fallback and the full-palette sweep: every `MODULE_OPTIONS` id round-trips through the picker, including the setting-free 空调风机 and 设备柜 |
+| The app | `move` (including no lift when the visible-layer picker has no target), `delete-tool` (block delete rectangles, Shift lines and one-step undo; hidden modules do not start a module delete; 人行道 / 草坪 resolve from the pointed cell and tear down exactly as the armed tile tool's right-click does, tap and run alike), `equipment-deletion` (visible module before underlying grid cell, and a ray that crossed a canopy or a neighbour's raised plate never stealing the pointed cell's piece), `equipment-placement-input` (wall/ceiling support placement from open air, an exit preview and click aligned by picking a stair through tread gaps even with a floor hit, and bridge snap across track, screen-door and outer-platform surfaces in every rotation with preview/click agreement), `sweep`, `paint-mode`, `tool-shortcuts` (B/P/M toggle back to the previous tool and the room front R tile), `builder-attributes` (shared module capability order, common width icon, R/Tab/Shift+Tab dispatch, the one-floor and 双层 run lengths, the straight-stair predicate the exit-bay snap uses), `tool-hover-preview` (blue previews for move/picker/select, red preview for bulldoze), `rail-folders` (all ten Shift+number keys, four top-level decor folder titles, diagonal tab positions through the last two rows, and the half-height catenary style tile beside rotation), `rail-families` (per-section decor membership and order, cross-section families with complete variant menus, and the equipment-to-decor TVM move), `line-edit`, `new-station-confirmation` (the top-bar button and Ctrl+N require confirmation before replacing the station), `topbar-report-issue` (the FaBug issue-tracker link beside restart), `topbar-playback` (the paused play button resumes like Space, keeping the speed tiles' own resume), `select-agent` (cell fallback ignores modules hidden by level slicing) — `pick-tool` also pins the hidden-module fallback and the full-palette sweep: every `MODULE_OPTIONS` id round-trips through the picker, including the setting-free 空调风机 and 设备柜 |
 
 ## The rules a test here follows
 
@@ -537,6 +547,24 @@ Roof placement coverage in `roof-tool.test.mjs` includes pointer-centred footpri
 
 ## Coverage, and the gaps that were closed
 
+### Five-metre profile coverage (2026-10-19)
+
+The focused profile run passed 29/29 tests in `storey-height`, `covered-clearance`
+and `grid`. Across the five loaded instrumented files it measured 89.30% lines, 73.39%
+branches and 71.79% functions. Per-file coverage:
+
+| File | Lines | Branches | Functions |
+|---|---:|---:|---:|
+| `sim/constants.ts` | 95.42% | 100% | 50% |
+| `sim/stock.ts` | 91.73% | 91.89% | 76.92% |
+| `sim/track.ts` | 82.04% | 75% | 66.67% |
+| `render/models/pieces/PsdModel.ts` | 92.38% | 63.27% | 95.24% |
+| `render/models/pieces/TrackModel.ts` | 67.90% | 71.43% | 54.55% |
+
+`moduleDependencies.ts` was selected but not loaded by these three suites, so it
+has no measurement in this focused report. The earlier 72-failure report is superseded by the audit below. See `PERFORMANCE.md`
+for current validation and inventory evidence.
+
 Measured over the whole suite (`--experimental-test-coverage`, one process): **1392 tests,
 94.02 % lines / 88.74 % branches / 89.39 % functions** across the loaded source files. This
 snapshot includes the four run lengths — 超短 / 短 / 中 / 长 on both the 扶梯 and the 单跑楼梯 —
@@ -558,7 +586,7 @@ the column that shows what an untested file was hiding.
 | `app/globalStats.ts` | — (new) | 100 % lines / 82.7 % branches / 93.9 % functions | `global-stats` — client id and opt-out storage, five-minute/dev-five-second tick, dev initial snapshot, persisted queue retry with one `submitId`, 4xx/429/5xx/network handling, pagehide beacon, host resolution and boot hook |
 | `app/statsSettings.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — default-on preference, valid/invalid client ids, blocked storage and the randomUUID fallback |
 | `app/store/slices/StatsSlice.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — persisted opt-out without dirtying the document |
-| `sim/rampLengths.ts` (the four run lengths) | — (new) | 100 % lines / 100 % branches | `escalator-length` — the catalogue both runs and the rail read: the four spans, the 超短 → 短 → 中 → 长 cycle, the label per size, the length a placed run's endpoints name (an old 4 m / 8 m save is 中 / 长), the 中 fallback for a size another build wrote, and the nearest entry for a span the catalogue never built; `ramp-join` covers the seam at every length |
+| `sim/rampLengths.ts` (the run-length families) | — (new) | 100 % lines / 100 % branches | `escalator-length` — the catalogue both runs and the rail read: the one-floor 超短 / 短 / 中 / 长 and the 双层 超短 … 超长 families, their cycles and labels, the size nearest the document's storey as the default, the length and span a placed run's endpoints name (the five-metre profile defaults to 长 / 超长), the family fallback for a size another build wrote, and the nearest entry for a span the catalogue never built; `ramp-join` covers the seam at every one-floor length |
 | `sim/ground.ts` (the street plane) | — (new) | 100 % lines / 97.6 % branches | `ground` — the window, the three answers at a coordinate, the dig and the fill-back, the brushes that materialise the plane, and the two predicates that read it |
 | `render/models.ts` (the dispatcher) | 100 % | 100 % | `module-build` (now including the 灯具/通风口/导向柱/公交站/地面 rows, which closed the new dispatch arms) |
 | `render/models/pieces/PsdModel.ts` (站台门) | 11.1 % | 100 % | `module-build` |
@@ -567,7 +595,7 @@ the column that shows what an untested file was hiding.
 | `render/models/pieces/TvmModel.ts` | 28.6 % | 100 % | `module-build` |
 | `render/models/pieces/TrainModel.ts` | 99.1 % | 99.2 % | `module-build` |
 | `render/models/pieces/CabModel.ts` | 37.5 % | 97.2 % | `module-build` |
-| `render/models/pieces/LiftModel.ts` | 94.6 % | 91.7 % | `module-build`, `lift-style` (the glass housing added branches faster than pins) |
+| `render/models/pieces/LiftModel.ts` | 94.6 % | 91.7 % | `module-build`, `lift-style`, `lift-interval` (uneven levels, the exact story height, both end caps, the door-side glazing and the landing doors at every level; the glass housing added branches faster than pins) |
 | `render/models/pieces/BenchModel.ts` | 38.5 % | 100 % | `module-build` |
 | `render/models/pieces/ShelfModel.ts` | 42.9 % | 100 % | `module-build` |
 | `render/models/pieces/BillboardModel.ts` | 50.9 % | 100 % | `module-build` |
@@ -594,7 +622,7 @@ the column that shows what an untested file was hiding.
 | `sim/lights.ts` / `sim/vents.ts` / `sim/inCellPositions.ts` | — (new) | 100 % lines | `lights`, `vent` |
 | `render/models/pieces/LightModel.ts` / `VentModel.ts` / `StreetDecorModel.ts` | — (new) | 100 % lines | `lights`, `vent`, `street-decor`, `module-build` |
 | `render/models/pieces/RampJoinModel.ts` | — (new) | 98.7 % lines | `ramp-join`, `module-build` |
-| `render/models/pieces/EscalatorModel.ts` (rebuilt band) | — (rebuilt) | 98.0 % lines | `module-build`, `escalators`, `ramp-fill`, `escalator-length` (the same body at all four run lengths) |
+| `render/models/pieces/EscalatorModel.ts` (rebuilt band) | — (rebuilt) | 98.0 % lines | `module-build`, `escalators`, `ramp-fill`, `escalator-length` (the same body at every one-floor and 双层 length) |
 | `render/models/pieces/DoorwayExitModel.ts` | 31 % | 100 % lines | `module-build` (doorway rows: one row per bay, widths 3/4/5 m) |
 
 `gate-traffic.test.mjs` covers committed approaching passengers, route changes to a spare lane,
@@ -626,13 +654,13 @@ The files still lowest after this pass, and why they are:
 
 
 
-Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 4 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and the truss and shell bays in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
+Above-ground equipment: `overground.test.mjs` pins slim/thick support dimensions and 5 m extensions, slim-pillar R cycling through nine offsets shared by the model and collision envelope, the 1×1 m thin roof and the truss and shell bays in 4/8/12 m widths, full-height collision bounds, and material painting of roof cladding while the supporting truss stays steel in 单块 / 整面 mode, doorway exits aligned to the near block edge in all rotations, in three widths at any supported height ≥ 0 m (with an explicit backing wall, preview/release agreement and a graph node that exists), bridge connections in both directions and all rotations, support attachment, and save/load preservation. Roof and pillar variants sit below the triangular blocks in 工具; doorway exits live under 设备; 轨道桥 lives under 轨道 and extends an existing rail without platform doors or a tunnel shell. Roof bays place by click or rectangular drag and are painted through 材质.
 
 `roof-tool.test.mjs` verifies rectangular thin-roof previews, full truss-bay placement and removal including rotated 8 m bays, collision refusal, right-drag removal, and one undo step per drag. Thin roof Tab/action controls cycle 上 / 下 with the matching arrow-to-line icons; a hovered roof slab overrides block placement height and half, blocks anchor the tile outside their face, and click preview/release agree. Each bay style has one tile, the shell bay carrying no truss; Tab or its action tile cycles 窄 4 m / 中 8 m / 宽 12 m and redraws the hover. `overground.test.mjs` also pins exact lower/upper quarter-metre model and collision bounds at the cell boundaries, plus 4 m of truss assembly height including the skin, contact with support posts, continuous 40 cm bottom chords across bay seams, and half-density internal ribs in 收束 at all widths and rotations.
 
 Small stair blocks: 楼梯块 under 楼梯 has a 1×1 m footprint and no railings. Tab switches 高 (1 m, four treads) / 矮 (0.5 m, two treads), with a live placement preview; the palette preview is turned 90° counter-clockwise. Click places one tile; a drag lays a straight row across the stair's rotated width, ignoring pointer movement along the treads. R rotates the steps, and 材质 paints the whole stepped surface. The high block connects adjacent lower/upper floors without carving blocks; the short building piece does not create a full-metre walking connection on the whole-metre floor grid. `overground.test.mjs` pins dimensions, painting, collisions, floor preservation, save/load and both walking directions; `roof-tool.test.mjs` pins the rotated drag axis, preview/release agreement, undo and removal.
 
-Bridge deck and barriers: `overground.test.mjs` checks the one-metre underside without coplanar edge girders, eight-metre centre-pier spacing in every rotation, zero piers on four-metre bridges and migration of older spacing, reuse and owned teardown, B deletion persisting across edits/load with undo/redo, full-deck ground clearance, pillar contact, collision refusal below the deck, deck-only material painting, half/full sound-barrier height, preview identity and save/load. `structures-gaps.test.mjs` checks the three-name cycle and wraparound. `pick-tool.test.mjs` checks copying the barrier and length and restoring both on Esc.
+Bridge deck and barriers: `overground.test.mjs` checks the one-metre underside without coplanar edge girders, eight-metre centre-pier spacing in every rotation, zero generated piers on short bridges and migration of older spacing, reuse and owned teardown, B deletion persisting across edits/load with undo/redo, full-deck ground clearance, pillar contact, collision refusal below the deck, deck-only material painting, half/full sound-barrier height, preview identity and save/load. `structures-gaps.test.mjs` checks the three-name cycle and wraparound. `pick-tool.test.mjs` checks copying the barrier and length and restoring both on Esc.
 
 Truss roof finishes: the truss bays use neutral white vertex colours and metre-scaled UVs on cladding and beams, so 材质 painting renders the selected finish on the roof sheets instead of black. Beams and braces keep the shared steel material. `overground.test.mjs` checks every mesh across all three widths.
 
@@ -644,7 +672,7 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 
-`wall-ceiling-snap.test.mjs` pins wall and ceiling aiming on a shifted `levelBase` (the wall snap asks the station's 基准高度 for its storey floor, never the fixed 0 / 4 / 8 lines) and accepts an actual overhead slab at a nonstandard height; it also pins that a **side face is a wall whatever the block is tagged**, so a plain 方块 wall mounts a panel in front of the face rather than inside the block, and that a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) — **hangs over the course the pointer is on**, keeping the storey floor for the wall's first course while a piece drawn at its own `panelZ` stays there. `equipment-placement-input.test.mjs` pins the tool's half of that (the 玻璃板 covers the clicked course, the 广告牌 beside it keeps its band) and `move.test.mjs` the carried piece's. The same file pins the **hung** piece's anchor: `hungCeilingAim` takes it to the free cell under the first **underside** above the pointer — `top block - 1` — from the floor, a wall course or a slab's own underside of one column alike (`topBlockZ` skipping a wall's own courses), with the storey floor and the station's `levelBase` standing in when nothing is overhead, `topBlockOver` for a cell with its top block over it, and the verdict passing a piece under that block while refusing one with no ceiling. `lights.test.mjs` and `vent.test.mjs` pin the tool's half and the drawn fixture (the real slab on a shifted base, and the top block when the piece's own cell is the one under it), `module-build.test.mjs` the drawn mount and pinned size of every hung piece, and `ceiling-decor.test.mjs` the 监控 stems against a tall slab. `sign-model.test.mjs` checks that the hanging sign's rods terminate at that slab.
+`wall-ceiling-snap.test.mjs` pins wall and ceiling aiming on a shifted `levelBase` (the wall snap asks the station's 基准高度 for its storey floor, never the fixed 0 / 5 / 10 lines) and accepts an actual overhead slab at a nonstandard height; it also pins that a **side face is a wall whatever the block is tagged**, so a plain 方块 wall mounts a panel in front of the face rather than inside the block, and that a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) — **hangs over the course the pointer is on**, keeping the storey floor for the wall's first course while a piece drawn at its own `panelZ` stays there. `equipment-placement-input.test.mjs` pins the tool's half of that (the 玻璃板 covers the clicked course, the 广告牌 beside it keeps its band) and `move.test.mjs` the carried piece's. The same file pins the **hung** piece's anchor: `hungCeilingAim` takes it to the free cell under the first **underside** above the pointer — `top block - 1` — from the floor, a wall course or a slab's own underside of one column alike (`topBlockZ` skipping a wall's own courses), with the storey floor and the station's `levelBase` standing in when nothing is overhead, `topBlockOver` for a cell with its top block over it, and the verdict passing a piece under that block while refusing one with no ceiling. `lights.test.mjs` and `vent.test.mjs` pin the tool's half and the drawn fixture (the real slab on a shifted base, and the top block when the piece's own cell is the one under it), `module-build.test.mjs` the drawn mount and pinned size of every hung piece, and `ceiling-decor.test.mjs` the 监控 stems against a tall slab. `sign-model.test.mjs` checks that the hanging sign's rods terminate at that slab.
 
 `door-panel` checks all six 单开 / 双开 × 不锈钢 / 木 / 玻璃 variants, palette and width selection, the translucent glass pane in its steel frame, satin stainless and timber finishes, exposed hinges, both-face handle clearance and mirrored double-door pulls, plus placement bounds. It also pins 1 cm of lintel clearance in two-block-high wall openings for every variant, rotation and tested storey, while permitting the overhead block and refusing a block through the leaf. `glass-panel` pins all four 玻璃幕墙 orientations on one tile, rejection of same-facing duplicates, and removal of one intersecting corner post with shortened rails, alongside door snapping to rotated curtain runs, fitted placement, crosswise refusal, and the lower-pane opening while retaining upper and uncovered glazing.
 
@@ -661,7 +689,7 @@ around a clear same-height square, and cannot cut past holes, walls, fare
 barriers or turnstiles. `wayfinding.test.mjs` also checks diagonal ramp-glass
 barriers at the ramp's own storey and clear diagonal movement below it.
 
-`stairs.test.mjs` covers 左/中/右直跑楼梯: two forward flights, block-fitted middle landings, all widths and rotations, and bidirectional passenger routes. It also pins the turning shapes' block grid — a 双跑楼梯's flush pair and a 90° turn's two perpendicular legs each built block-wide, with the turn's quarter-landing the square its legs meet on (as deep as it is wide, its departing leg on the square's far edge), the equipment tool placing that piece and the builder laying and bulldozing its whole square. `module-build.test.mjs` checks visible treads, railing glass and landing geometry for all three styles, sizes and rotations, and measures a 90° turn's drawn platform against the square the sim lays.
+`stairs.test.mjs` covers 左/中/右直跑楼梯: two forward flights, block-fitted middle landings, all widths and rotations, and bidirectional passenger routes. It also pins every staircase's chosen length — a straight flight climbs it in one run, a turning stair splits it into two flights with its platform at half the rise — and the turning shapes' block grid: a 双跑楼梯's flush pair and a 90° turn's two perpendicular legs each built block-wide, with the turn's quarter-landing the square its legs meet on (as deep as it is wide, its departing leg on the square's far edge), the equipment tool placing that piece, the platform drawn as the stair's own 0.5 m slab, and no document block laid (every landing cell still a virtual graph node), with a legacy landing block cleaned up by the bulldozer. `module-build.test.mjs` checks visible treads, railing glass and landing geometry for all three styles, sizes and rotations, and measures a 90° turn's drawn platform against the square the landing covers.
 
 
 Approved library integration: the live crowd uses all 232 reviewed templates from passenger-approved.json. `passenger-library` and `passenger-view` pin selection, flat greys, walks, identity, picking and eye view; `passenger-art-pipeline` and `capture-passengers` pin scalable model captures and stale-build rejection.
@@ -774,3 +802,86 @@ The underfloor equipment regression in `train-bogie` pins cabinet/tank/conduit c
 `train-cab` checks each leaf owns a thin rubber perimeter through both motion phases, without a broad black kick panel. `train-pantograph` pins thin rooftop AC housings, fan grilles, cab bounds and collector-well clearance for all five stocks and both power modes. `train-bogie` retains deep upper cheek frames, body load pads and secondary air cushions above the full-size wheelsets.
 
 `module-build` also pins stock-aware mast/railing clearance on legacy narrow D beds and concrete foundation contact beneath the full PSD sill, down to the recessed bed, for both heights, banks and every rotation.
+
+
+`storey-height.test.mjs` pins the single supported five-metre station profile,
+level controls, stairs/lifts/walls, exact escalator inclines, half-storey stair
+landings (model-only, at 2.5 m for a 长 stair) through save/load and routing, normal
+suspended-ceiling block gestures,
+undo/delete, decor mounting and stacked-floor rehangs, ceiling visibility and mesh
+reuse, full-height PSD glazing and top information plates without padding, the covered/tunnel five-metre bottom-to-ceiling envelope and open gantry allowance,
+and scaled rolling stock floor, wheel
+contact, track slab, door cadence and pantograph contact for every stock and power.
+
+`storey-height` also guards five-metre track construction, the absent canopy plate/fascia, and
+wire mounts touching the upper floor rather than a duplicate rail-owned slab.
+
+`storey-height` also pins the street plane ceiling only the storey whose own top
+it lands on — the top below-grade storey still mounts while a deeper one is
+refused — a hung fitting on a shifted editing base hanging from the block over
+its own cell, a roof hanger finding its slab one storey up with an envelope of
+its own steel rather than a ceiling drop, and an exit-bay snap descending the
+station's own grid with hover and click building the same run.
+
+`covered-clearance.test.mjs` loads the reported two-level save, verifies profile
+loading without changing its 870 blocks, and builds its actual A trains, PSDs and
+covered wires. It pins the 7 m / 12 m slab undersides, wheel/floor and carbon-wire
+contact, no duplicate roof plate, and lower-face mounting below real ceiling blocks.
+
+`covered-clearance` also checks full-depth concrete beneath the reported tracks,
+flush with the bottom and full footprint of the blocks dug by the track tool.
+
+### Train / five-metre audit coverage (2026-10-19)
+
+The nine demo/scenario skips have been removed. `demo` restores the shared
+circulation assertion and its unreachable-door negative control, and checks both
+authored demos load with zero dropped records and unchanged cells/modules. `bay`,
+`facility`, `openings` and `placement` use current landing coordinates; unequal
+8 m stairs / 9 m escalators meet at the upper exit row. `save` additionally pins
+current 0.98 scale in serialized lines for absent/stale/current source metadata,
+source immutability and serialized/loaded agreement.
+
+`test:perf` includes `train-pantograph`, `storey-height`, `covered-clearance` and
+`lift-interval`; Node geometry/work-count coverage remains separate from the
+production WebGL and cold-save browser checks. Raw audit reports live under
+`.preview/perf/train-5m-audit/`.
+
+Audit validation: complete normal suite **1,921 passing, zero failures/skips**.
+Focused save coverage is 100% lines / 88.24% branches / 100% functions.
+The seven-contract coverage pass measures `build/model/Ceilings.ts` at
+87.18 / 91.67 / 77.78%, `sim/stock.ts` at 77.44 / 100 / 36.36%, and
+`sim/track.ts` at 56.80 / 52.94 / 33.33% (lines / branches / functions).
+These focused results leave other functions unexercised; do not read them as
+whole-suite coverage. Full instrumented geometry coverage exceeded 11 minutes
+and was stopped without a completed result. `PERFORMANCE.md` records this
+limitation and the separate production-browser checks.
+
+The expanded same-process performance selection was also attempted without
+instrumentation and stopped after roughly four minutes without completion
+(`.preview/perf/train-5m-audit/perf-tests-uninstrumented.txt`). Its constituent
+tests pass in the complete standard run with process isolation; the expanded
+same-process gate is not certified by this audit.
+
+Passenger visual scale: `passenger-size` pins adults and children to the train's
+0.98 ratio on every rendered axis, preserving tone and grounding; its body/shadow
+matrix regression and `passenger-view` keep picking and eye height aligned.
+`passenger-library` verifies scaled appearance independently of simulation physique.
+
+Passenger-scale validation: full suite 1,922 passing, zero failures/skips; build
+and production High/Low/High adult/child matrix checks pass. Focused rendering
+coverage measures `passengerModel.ts` at 100% lines / 93.33% branches / 100%
+functions. Reports: `.preview/perf/passenger-scale/`.
+
+`train-interior.test.mjs` checks the route boards above every train doorway,
+continuous full-cabin 2.94 m ceiling clearance, curved-roof
+containment and unchanged exterior roof geometry for A/B/C/D/L, both banks, High/Low
+and open/closed doors. `TrainInterior.ts` owns these fittings.
+
+Door-header focused coverage: `TrainInterior.ts` 100% lines / 97.96% branches /
+100% functions; `CarShellProfile.ts` 100% / 98.85% / 100%. Production close-up
+and batching checks pass with zero captured WebGL/runtime errors. Reports are
+in `.preview/perf/train-raised-ceiling/`.
+
+Continuous-ceiling final validation: full suite 1,925 passing, zero failures/skips;
+production build, interior close-up and open/closed batching checks pass.
+Full log: `.preview/perf/train-raised-ceiling/full-tests-final.txt`.

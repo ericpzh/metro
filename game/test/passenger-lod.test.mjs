@@ -115,7 +115,7 @@ test('高画质 draws the edited storey full and a ghosted storey reduced, per i
     assert.equal(crowd.agents.count, 2, 'the storey being edited keeps the full body')
     assert.equal(crowd.agentsLow.count, 1, 'the ghosted storey draws the reduced body')
     assert.deepEqual(levels(crowd.agents), [0, 0], 'each instance records the storey it was classified by')
-    assert.deepEqual(levels(crowd.agentsLow), [-4])
+    assert.deepEqual(levels(crowd.agentsLow), [-5])
     // The ghosted passenger is a person, not just a slot: its outfit and position
     // travelled into the reduced draw.
     const outfit = crowd.agentsLow.geometry.getAttribute('passengerOutfit')
@@ -129,7 +129,7 @@ test('高画质 draws the edited storey full and a ghosted storey reduced, per i
     crowd.cur[2] = 2
     crowd.renderAgents(crowd.ctx.lastStateTime + 900)
     assert.equal(crowd.agentsLow.count, 1, 'the reduced draw keeps its one passenger')
-    assert.deepEqual(levels(crowd.agentsLow), [-4])
+    assert.deepEqual(levels(crowd.agentsLow), [-5])
     assert.deepEqual(crowd.agentsLow.geometry.getAttribute('passengerPose').array.slice(0, 4), ghost)
   } finally { cleanup(fixture) }
 })
@@ -152,7 +152,7 @@ test('低画质 draws the whole crowd reduced; Hide UI and a disabled detail set
     assert.equal(low.crowd.agents.count, 0)
     assert.equal(low.crowd.agentsLow.count, 3, 'every drawn passenger, on every storey, is reduced')
     assert.equal(low.crowd.agentsLow.material.opacity, .45)
-    assert.deepEqual(levels(low.crowd.agentsLow), [0, 0, -4])
+    assert.deepEqual(levels(low.crowd.agentsLow), [0, 0, -5])
     const outfit = low.crowd.agentsLow.geometry.getAttribute('passengerOutfit')
     assert.equal(outfit.getX(2), passengerAppearance(11)[0], 'identity is repacked into the reduced draw')
   } finally { cleanup(low) }

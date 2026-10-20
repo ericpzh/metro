@@ -1,3 +1,4 @@
+import { stairTurnCells } from './stairs.ts'
 import { canopyPostCells } from './structures.ts'
 import { msg } from './i18n.ts'
 // The station graph — GAME-SPEC.md §7.2.
@@ -41,7 +42,7 @@ import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
-import { liftFootprintCells, liftLandingRows, liftStopZs } from './lifts.ts'
+import { liftFootprintCells, liftLandingRows, liftLevels, type LiftDoorConfig } from './lifts.ts'
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
@@ -94,6 +95,8 @@ export interface LiftCar {
   toZ: number
   /** Placement quarter-turn; the cabin doors face local −y turned by it. */
   rot: number
+  /** The piece's per-level door choice, so a `both` level opens both faces. */
+  doors?: LiftDoorConfig['doors']
   /** Stop node ids, bottom → top, and their walk-surface heights. */
   stops: number[]
   stopZ: number[]
@@ -207,7 +210,11 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // The street is stored inverted (holes, not blocks), so the graph walks the
   // effective list: the window's ground rides along as ordinary solids with
   // default finish and zone, and the module openings stay holes.
-  const all = withGround(data.cells, data.modules)
+  // A turning stair's middle platform is the stair's own model: it lays no block
+  // in the document, so its landing cells are handed to the graph as virtual
+  // walkable cells, including the five-metre stair's 2.5 m internal landings.
+  const virtualLandings = data.modules.flatMap(m => (m.type === 'stair' && !m.cfg.block ? stairTurnCells(m) : [])).map(p => ({...p,fill:'solid' as const}))
+  const all: import('./types.ts').Cell[] = [...withGround(data.cells, data.modules), ...virtualLandings]
   const solid = new Set<string>()
   for (const c of all) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
   // Cells that host a gate, and the direction each gate passes. Only a gate
@@ -759,7 +766,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           // `exitNode` is unused — the car delivers each rider to `liftDest`.
           const stops: number[] = []
           const stopZ: number[] = []
-          for (const z of liftStopZs(m.from.z, m.to.z)) {
+          for (const z of liftLevels(m)) {
             for (const row of liftLandingRows(m, z)) {
               let n: number | undefined
               for (const [lx, ly] of row) {
@@ -789,6 +796,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             fromZ: m.from.z,
             toZ: m.to.z,
             rot: m.rot ?? 0,
+            doors: m.cfg?.doors,
             stops,
             stopZ,
             at: 0,

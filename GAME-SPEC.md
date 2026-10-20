@@ -399,11 +399,28 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 | Elevator / lift | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; agents that need it will wait rather than climb |
 | Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
 
-A **run** — an escalator or a single-run staircase (单跑楼梯) — is built at one of **four lengths**,
-chosen on its action tile: **超短** climbs 2 m over a 3 m run, **短** 3 m over 5 m, **中** 4 m over 6 m
-and **长** 8 m over 12 m. The length is the piece's own endpoints, so a run is a fixed piece that a save
-carries with it, and two runs stand flush — filling the seam between their balustrades — exactly when
-they are the same length. A turning staircase turns inside its own footprint and takes no length.
+A **run** — an escalator or any staircase but the 1 × 1 楼梯块 — climbs one of the
+**one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m and
+**长** 5 m (the default). The length is the piece's own endpoints, so a run is a fixed piece
+that a save carries with it. A **单跑楼梯** climbs it in one flight; a **turning staircase**
+splits it into two flights and puts its middle platform at half the rise (1 m for 超短,
+2.5 m for 长). That platform is the stair's **own 0.5 m slab**, not a placed block: the
+piece stands alone like an escalator, the model draws the platform, and the crowd walks it
+as the stair's virtual landing. Turning stairs take the length tile exactly as straight
+ones do; only the 楼梯块, a single stepped building block, has no run.
+
+An **escalator** also comes in two spans, chosen on its own 单层 / 双层 tile. **单层** is the
+one-floor family above. **双层** climbs two floors: **超短** 6 m, **短** 7 m, **中** 8 m,
+**长** 9 m and **超长** 10 m (the default). A five-metre station lays every escalator at a
+strict 30° between level terminal tracks and whole-cell landings on the single
+five-metre station grid.
+
+An **elevator** spans one **floor interval**, chosen on its 层高 tile: **超短** 3 m,
+**短** 4 m, **中** 5 m (the default), **长** 6 m and **超长** 7 m. A fresh shaft is one
+interval; hovering its upper or lower half stacks another interval at the currently armed
+size, so one car can serve uneven floors — a five-metre storey with a three-metre mezzanine
+above it, or a seven-metre-deep platform below — and the piece records each segment rise
+so its stops stay exact.
 
 A **自动步道** (moving walkway) is the escalator's **level** twin. It reuses the escalator's body,
 glass balustrades and one-way ride, laid flat: it rises nothing and travels its whole length
@@ -1418,14 +1435,15 @@ whole structural requirement, since it hangs over the floor cell rather than sta
 the air and
 names the rule, exactly as a fresh placement would. A **staircase** and an **escalator** move too, and a
 move of one is a tear-down and a rebuild rather than a translation (`moveEquipment`): the run's own
-`from`/`to` — and every flight a staircase turns through — are cells of the document's, a turning
-staircase's half-landing floor is floor it laid, and both open the slab they climb through, so the piece
+`from`/`to` — and every flight a staircase turns through — are world cells, a legacy turning
+staircase may still carry the half-landing block an older build laid, and both open the slab they
+climb through, so the piece
 leaves through `removeModule` and returns through `addEquipment` at the cell it is dropped on, still as
 **one** commit. What it carved where it stood stays open, exactly as it does when a run is deleted, and the
 方块 tool may fill it again. Structural
 pieces — 电梯, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
 from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a
-translation would strand — and a 电梯 shaft is grown a storey at a time without ever asking for floor, so no
+translation would strand — and a 电梯 shaft is stacked one interval at a time without ever asking for floor, so no
 single verdict can say where a moved one lands — so it is torn down and built again, and
 the card's button says so rather than
 hiding. Switching tools mid-lift puts the piece back, because a lift is not a mode to be lost in.

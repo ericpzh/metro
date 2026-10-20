@@ -1,4 +1,4 @@
-// Tunnel structure shared by placement, power edits and legacy document loading.
+// Tunnel structure shared by placement and power edits.
 import type { Cell } from '../../sim/types.ts'
 import type { StationState } from './State.ts'
 import { rotateLocal, trackCells, trackHeadroom, type TrackModule } from '../../sim/track.ts'
@@ -58,15 +58,3 @@ export function stripTunnelShell(state: StationState, trackId: string): StationS
   return cells.length === state.cells.length ? state : { ...state, cells }
 }
 
-/** Upgrade only old generated catenary shells; current saves remain unchanged. */
-export function upgradeCatenaryTunnels(state: StationState): StationState {
-  let next = state
-  for (const track of state.modules) {
-    if (track.type !== 'track' || !track.cfg.tunnel || track.cfg.power !== 'catenary') continue
-    const tag = `${TUNNEL_SHELL}:${track.id}`
-    const bed = new Set(trackCells(track).map(([x, y]) => cellKey(x, y, track.z + 4)))
-    if (!next.cells.some(c => c.tags?.includes(tag) && bed.has(cellKey(c.x, c.y, c.z)))) continue
-    next = boreTunnel(stripTunnelShell(next, track.id), track)
-  }
-  return next
-}

@@ -6,7 +6,8 @@ import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
-import { RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength } from '../../../sim/rampLengths.ts'
+import { RAMP_LENGTH_DEFAULT, DOUBLE_RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength, type RampSpan } from '../../../sim/rampLengths.ts'
+import { LIFT_INTERVAL_DEFAULT, nextLiftInterval, type LiftInterval } from '../../../sim/lifts.ts'
 import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '../../../sim/walkways.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
@@ -29,6 +30,8 @@ export interface ToolSlice {
    * (半墙 / 三角) refuses the toggle, tile and key alike: the piece *is* the wall the
    * patch would otherwise grow.
    */
+  suspendedCeiling: boolean
+  setSuspendedCeiling: (on: boolean) => void
   autoWalls: boolean
   moduleType: string
   roadWidth: number
@@ -88,7 +91,7 @@ export interface ToolSlice {
   doorWide: boolean
   stairBlockHeight: 0.5 | 1
   /** New pillar section length, toggled between 2 m and 4 m with Tab. */
-  pillarLength: 2 | 4
+  pillarLength: 2 | 5
   /** Width across a truss roof, cycled 窄 4 m → 中 8 m → 宽 12 m with Tab. */
   roofWidth: number
   /** Thin roof plate position against the hit 1 m cell, cycled lower/upper with Tab. */
@@ -98,18 +101,32 @@ export interface ToolSlice {
   /** Whether a newly placed escalator spans two blocks. */
   escalatorWide: boolean
   /**
-   * The length a newly placed **run** is built at — a 扶梯 or a 单跑楼梯, which come
-   * in the same four sizes (`sim/rampLengths.ts`): 超短 2 m over 3 m, 短 3 m over
-   * 5 m, 中 4 m over 6 m (one storey, the piece the game shipped with) and 长 8 m
-   * over 12 m. One setting for both pieces, because the two stand flush in one bay
-   * and share a filled seam only when they are the same length — a player who
-   * builds a bank picks the length once.
+   * The length a newly placed **run** is built at — every 扶梯 and every 楼梯 come
+   * in the same one-floor sizes (`sim/rampLengths.ts`): 超短 2 m, 短 3 m,
+   * 中 4 m, 长 5 m. One setting for both pieces, because the two stand in one bay
+   * and a player who builds a bank picks the length once. A 双层 扶梯 has its own
+   * family below.
    */
   rampLength: RampLength
+  /** Whether a newly placed 扶梯 is 单层 (one floor) or 双层 (two floors). */
+  escalatorSpan: RampSpan
+  /**
+   * The length a newly placed **双层 扶梯** is built at: 超短 6 m, 短 7 m,
+   * 中 8 m, 长 9 m, 超长 10 m. Its own setting, so switching the span back and
+   * forth does not lose either choice.
+   */
+  doubleRampLength: RampLength
+  /**
+   * The floor interval a newly placed or stacked **电梯** spans: 超短 3 m,
+   * 短 4 m, 中 5 m, 长 6 m, 超长 7 m. A fresh shaft spans one interval; a
+   * hover-extension stacks the currently armed one on top or below, so a shaft
+   * can serve uneven floors.
+   */
+  liftInterval: LiftInterval
   /**
    * The length a newly placed **自动步道** is built at — 短 30 m, 中 60 m, 长 90 m
    * (`sim/walkways.ts`). Its own cycle, because the walkway's three level sizes
-   * are not the escalator's four climb sizes; its width and direction reuse the
+   * are not the escalator's climb sizes; its width and direction reuse the
    * escalator's settings (`escalatorWide` / `escalatorDir`), since the two pieces
    * are the same body.
    */
@@ -204,8 +221,18 @@ export interface ToolSlice {
   cycleEscalatorDir: () => void
   /** Toggle a narrow or two-block-wide escalator from its rail tile. */
   toggleEscalatorWidth: () => void
-  /** Step the run length on to the next size (超短 → 短 → 中 → 长), for 扶梯 and 单跑楼梯 alike. */
+  /** Step the run length on to the next size (超短 → 短 → 中 → 长), for 扶梯 and stairs alike. */
   cycleRampLength: () => void
+  /** Flip a 扶梯 between 单层 (one floor) and 双层 (two floors). */
+  cycleEscalatorSpan: () => void
+  /** Point the 扶梯 span at an absolute value (the 吸取 tool copies a picked run's own). */
+  setEscalatorSpan: (span: RampSpan) => void
+  /** Point the 双层 length family at an absolute size (the 吸取 tool copies a picked run's own). */
+  setDoubleRampLength: (length: RampLength) => void
+  /** Step the 电梯's floor interval on (超短 3 m → … → 超长 7 m). */
+  cycleLiftInterval: () => void
+  /** Point the 电梯 floor interval at an absolute value (the 吸取 tool copies a picked shaft's own). */
+  setLiftInterval: (interval: LiftInterval) => void
   /** Step the 自动步道 length on to the next size (短 → 中 → 长). */
   cycleWalkwayLength: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
@@ -235,6 +262,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   previousTool: 'select',
   // Off when the game opens: a 方块 drag lays bare floor unless the player asks for
   // the ring on its own tile.
+  suspendedCeiling: false,
+  setSuspendedCeiling: (on) => set({ suspendedCeiling: on, halfWall: false, triangles: false, autoWalls: false }),
   autoWalls: false,
   moduleType: 'gate',
   roadWidth: 6,
@@ -254,12 +283,15 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   stairWidth: STAIR_WIDTH_NARROW,
   doorWide: false,
   stairBlockHeight: 1,
-  pillarLength: 4,
+  pillarLength: 5,
   roofWidth: 4,
   roofPlateSnap: 'upper',
   escalatorDir: 'up',
   escalatorWide: false,
   rampLength: RAMP_LENGTH_DEFAULT,
+  escalatorSpan: 'single',
+  doubleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
+  liftInterval: LIFT_INTERVAL_DEFAULT,
   walkwayLength: WALKWAY_LENGTH_DEFAULT,
   bridgeLength: 32,
   bridgeRailing: 'railing',
@@ -290,7 +322,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // The cut modes of the 方块 tool are exclusive with the generated ring: a 半墙 or a
   // 三角 is what the patch grows instead of the ring, so either one refuses the
   // toggle while it owns the tool.
-  setAutoWalls: (on) => set((s) => (s.halfWall || s.triangles ? {} : { autoWalls: on })),
+  setAutoWalls: (on) => set((s) => (s.halfWall || s.triangles || s.suspendedCeiling ? {} : { autoWalls: on })),
   setModuleType: (t) => set({ moduleType: t }),
   // Clockwise on screen: the world turns +x toward −y in the isometric view.
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
@@ -298,14 +330,15 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   rotateModule: () =>
     set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType.startsWith('pillar-slim') ? (s.moduleRot + 1) % 9 : s.moduleType === 'road' ? (s.moduleRot + 2) % 4 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
-  setHalfWall: (on) => set({ halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
+  setHalfWall: (on) => set({ suspendedCeiling: false, halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
-  setTriangles: (on, kind) => set({ triangles: on, halfWall: false, autoWalls: false, wallSnapCycle: 0, ...(kind ? { triKind: kind } : {}) }),
+  setTriangles: (on, kind) => set({ suspendedCeiling: false, triangles: on, halfWall: false, autoWalls: false, wallSnapCycle: 0, ...(kind ? { triKind: kind } : {}) }),
   // One cut piece, one call. `halfWall` / `triangles` stay the fields the click reads
   // (and the ones the older setters above write); this is the rail's own way in, so
   // the 工具 folder's tiles carry no per-piece branching.
   setCutMode: (cut) =>
     set({
+      suspendedCeiling: false,
       halfWall: cut === 'half',
       triangles: cut === 'upper' || cut === 'lower',
       ...(cut === 'upper' || cut === 'lower' ? { triKind: cut } : {}),
@@ -320,7 +353,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   toggleDoorWidth: () => set((s) => ({ doorWide: !s.doorWide })),
   setDoorWidth: (doorWide) => set({ doorWide }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
-  togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 4 ? 2 : 4 })),
+  togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 5 ? 2 : 5 })),
   cycleBenchWidth: () => set((s) => isBenchType(s.moduleType)
     ? { moduleType: s.moduleType === 'bench' ? 'bench-steel-2' : s.moduleType.replace(/-[12]$/, s.moduleType.endsWith('-2') ? '-1' : '-2') }
     : {}),
@@ -329,7 +362,14 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleRoofPlateSnap: () => set((s) => ({ roofPlateSnap: s.roofPlateSnap === 'lower' ? 'upper' : 'lower' })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
-  cycleRampLength: () => set((s) => ({ rampLength: nextRampLength(s.rampLength) })),
+  cycleRampLength: () => set((s) => s.moduleType === 'escalator' && s.escalatorSpan === 'double'
+    ? { doubleRampLength: nextRampLength(s.doubleRampLength, 'double') }
+    : { rampLength: nextRampLength(s.rampLength, 'single') }),
+  cycleEscalatorSpan: () => set((s) => ({ escalatorSpan: s.escalatorSpan === 'single' ? 'double' : 'single' })),
+  setEscalatorSpan: (escalatorSpan) => set({ escalatorSpan }),
+  setDoubleRampLength: (doubleRampLength) => set({ doubleRampLength }),
+  cycleLiftInterval: () => set((s) => ({ liftInterval: nextLiftInterval(s.liftInterval) })),
+  setLiftInterval: (liftInterval) => set({ liftInterval }),
   cycleWalkwayLength: () => set((s) => ({ walkwayLength: nextWalkwayLength(s.walkwayLength) })),
   cycleLiftStyle: () => set((s) => ({ liftStyle: s.liftStyle === 'glass' ? 'steel' : 'glass' })),
   setLiftStyle: (style) => set({ liftStyle: style }),

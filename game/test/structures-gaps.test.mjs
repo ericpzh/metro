@@ -31,7 +31,7 @@ test('normalizeLevelBase repairs rather than refuses', () => {
   assert.equal(normalizeLevelBase(undefined), 0, 'an old save with no base stays at 0 m')
   assert.equal(normalizeLevelBase(Number.NaN), 0, 'NaN is not a grid shift')
   assert.equal(normalizeLevelBase(-2), 0, 'a negative base clamps to the grid')
-  assert.equal(normalizeLevelBase(99), 3, 'a base past the slider clamps to 3 m')
+  assert.equal(normalizeLevelBase(99), 4, 'a base past the slider clamps to 4 m')
   assert.equal(normalizeLevelBase(1.6), 2, 'a fractional base rounds to whole metres')
 })
 
@@ -44,17 +44,17 @@ test('roof width helpers cycle, clamp and label the three bays', () => {
   assert.equal(roofWidthLabel(4), '窄')
   assert.equal(roofWidthLabel(8), '中')
   assert.equal(roofWidthLabel(12), '宽')
-  assert.equal(trussRoofRidge(8), 7.88, 'the ridge leaves room for the skin within the four-metre assembly')
+  assert.equal(trussRoofRidge(8), 9.88, 'the ridge leaves room for the skin within the five-metre assembly')
   assert.equal(trussRoofTop(8), trussRoofRidge(8) + 0.12, 'the cap sits 12 cm above the ridge')
 })
 
 test('a pillar carries a bridge only on its own cell at deck height', () => {
   const pillar = createModule('pillar-slim', 0, 0, 0, 'pillar')
-  const bridge = { ...createModule('bridge', 0, 0, 4, 'bridge'), z: 4 }
+  const bridge = { ...createModule('bridge', 0, 0, 5, 'bridge'), z: 5 }
   assert.equal(pillarSupportsBridge(pillar, bridge), true)
   const plain = { ...bridge, cfg: { ...bridge.cfg, bridge: false } }
   assert.equal(pillarSupportsBridge(pillar, plain), false, 'a tunnel run is not a bridge')
-  assert.equal(pillarSupportsBridge(pillar, { ...bridge, z: 5 }), false, 'a deck one metre up is not carried')
+  assert.equal(pillarSupportsBridge(pillar, { ...bridge, z: 6 }), false, 'a deck one metre up is not carried')
   assert.equal(pillarSupportsBridge(pillar, { ...bridge, x: 9 }), false, 'a deck on another cell is not carried')
 })
 

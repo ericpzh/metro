@@ -91,7 +91,7 @@ export abstract class ToolController {
       this.removePlacedModule(rail)
       return
     }
-    const mod = this.visibleModule(moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing))
+    const mod = this.visibleModule(moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing, st.station.levelBase, st.station.storeyHeight))
     if (mod) this.removePlacedModule(mod)
     else st.setNotice(msg('nothing_to_remove_here'))
   }

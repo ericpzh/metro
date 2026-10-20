@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { t } from '../../../sim/i18n.ts'
 import type { MessageKey } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
-import { liftDoorSide, liftStopZs } from '../../../sim/lifts.ts'
+import { liftDoorSide, liftLevels } from '../../../sim/lifts.ts'
 import type { LiftModule } from '../../../sim/lifts.ts'
 import type { LiftDoorSide } from '../../../sim/types.ts'
 import { useStore } from '../../store.ts'
@@ -30,7 +30,7 @@ const SIDES: ReadonlyArray<{ side: LiftDoorSide; label: MessageKey }> = [
 export function LiftDoorModal({ mod, onClose }: { mod: LiftModule; onClose: () => void }): React.ReactElement {
   useLanguage()
   const panelRef = useRef<HTMLElement>(null)
-  const levels = liftStopZs(mod.from.z, mod.to.z)
+  const levels = liftLevels(mod)
 
   useEffect(() => {
     panelRef.current?.focus()

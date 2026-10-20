@@ -78,10 +78,12 @@ export function isCardCapture(): boolean {
 /**
  * The footprint a card prints: `1 × 7 格`, the **bounding box of the cells the
  * piece covers**, read from its own builder rather than from the palette row. A
- * straight 楼梯 and an 扶梯 are seven cells of run and one wide; an 电梯 is a 2 × 2
- * shaft; a 有盖单向 出入口 lays a 3 × 8 head-house. A palette row's `w`/`h` is a tile's
- * size on the rail — every one of those four reads 1 × 1 there, which is why the
- * cards used to say the same.
+ * straight 楼梯 and an 扶梯 are a whole run's landings and one wide — nine and ten
+ * cells on the five-metre grid (`footprintCellsOf` reads the default);
+ * an 电梯 is a 2 × 2 shaft; a
+ * 有盖单向 出入口 lays a 3 × 8 head-house. A palette row's `w`/`h` is a tile's size on
+ * the rail — every one of those four reads 1 × 1 there, which is why the cards
+ * used to say the same.
  *
  * The box is taken, not the cell list: a run's two landings bound the ground it
  * stands on, and the reader wants the plan it occupies, not the shape of it.

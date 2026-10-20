@@ -23,7 +23,7 @@ test('the luminous face sits below the steel backing without coincident visible 
     model.updateMatrixWorld(true)
     const housing = new THREE.Box3().setFromObject(model.children[0])
     const diffuser = new THREE.Box3().setFromObject(model.children[1])
-    close(housing.max.z, 4)
+    close(housing.max.z, 5)
     close(diffuser.max.z, housing.min.z)
     close(housing.min.z - diffuser.min.z, 0.01)
     assert.ok(diffuser.min.z < housing.min.z - 0.009, 'steel cannot compete with the emitting face in the depth buffer')
@@ -31,7 +31,7 @@ test('the luminous face sits below the steel backing without coincident visible 
 })
 
 test('each light touches its ceiling with no gap, with collision matching the drawn fixture', () => {
-  for (const z of [-4, 0, 4, 1]) for (const variant of ['circular', 'rectangular']) {
+  for (const z of [-5, 0, 5, 1]) for (const variant of ['circular', 'rectangular']) {
     for (let position = 0; position < (variant === 'circular' ? 1 : 9); position++) for (let rot = 0; rot < (variant === 'circular' ? 1 : 2); rot++) {
       const m = createModule(`light-${variant}`, 2, 3, z, 'l', rot)
       m.cfg.position = position
@@ -41,7 +41,7 @@ test('each light touches its ceiling with no gap, with collision matching the dr
         close(bounds.min[axis], envelope[`${axis}0`])
         close(bounds.max[axis], envelope[`${axis}1`])
       }
-      assert.equal(envelope.z1, z < 0 ? 0 : z < 4 ? 4 : 8, 'housing top meets slab underside')
+      assert.equal(envelope.z1, z < 0 ? 0 : z < 5 ? 5 : 10, 'housing top meets slab underside')
     }
   }
 })

@@ -73,6 +73,38 @@ test('picking a run copies its length and Esc restores it, for 扶梯 and 单跑
   }
 })
 
+test('picking a 双层 扶梯 copies its span and two-floor length; picking a lift copies its interval', () => {
+  const before = useStore.getState()
+  try {
+    for (const length of ['ultra-short', 'medium', 'ultra-long']) {
+      const m = escalatorModule({ x: 0, y: 0, z: -8 }, 0, 'up', 'picked-double', 1, length, 4, 'double')
+      useStore.setState({
+        station: { ...toState(emptyStation()), modules: [m] },
+        escalatorSpan: 'single',
+        doubleRampLength: length === 'ultra-long' ? 'medium' : 'ultra-long',
+        rampLength: 'short',
+      })
+      ctxFor(m.id).onDown(press([0, 0, -8]))
+      assert.equal(useStore.getState().escalatorSpan, 'double', 'the span comes with the piece')
+      assert.equal(useStore.getState().doubleRampLength, length)
+      assert.equal(useStore.getState().rampLength, 'short', 'the one-floor length is untouched')
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().escalatorSpan, 'single')
+      assert.equal(useStore.getState().doubleRampLength, length === 'ultra-long' ? 'medium' : 'ultra-long')
+    }
+    for (const interval of [3, 5, 7]) {
+      const m = createModule('lift', 0, 0, 0, 'picked-interval', 0, undefined, 'up', 'lane', [], undefined, { liftInterval: interval })
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, liftInterval: interval === 5 ? 3 : 5 })
+      ctxFor(m.id).onDown(press([0, 0, 0]))
+      assert.equal(useStore.getState().liftInterval, interval, 'the interval comes with the shaft')
+      useStore.getState().cancelPick()
+      assert.equal(useStore.getState().liftInterval, interval === 5 ? 3 : 5)
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('picking a 自动步道 copies its level length, width and direction', () => {
   const before = useStore.getState()
   try {
@@ -96,14 +128,14 @@ test('picking a 自动步道 copies its level length, width and direction', () =
 test('picking a pillar copies its section length and Esc restores the chosen length', () => {
   const before = useStore.getState()
   try {
-    for (const height of [2, 4, 8]) {
+    for (const height of [2, 5, 10]) {
       const m = createModule('pillar-slim', 0, 0, 0, `picked-pillar-${height}`)
       m.cfg.height = height
-      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, pillarLength: height === 2 ? 4 : 2 })
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, pillarLength: height === 2 ? 5 : 2 })
       ctxFor(m.id).onDown(press([0, 0, 0]))
-      assert.equal(useStore.getState().pillarLength, height === 2 ? 2 : 4, `${height} m pillar selects its next section length`)
+      assert.equal(useStore.getState().pillarLength, height === 2 ? 2 : 5, `${height} m pillar selects its next section length`)
       useStore.getState().cancelPick()
-      assert.equal(useStore.getState().pillarLength, height === 2 ? 4 : 2, 'Esc restores the pre-pick choice')
+      assert.equal(useStore.getState().pillarLength, height === 2 ? 5 : 2, 'Esc restores the pre-pick choice')
     }
   } finally {
     useStore.setState(before)

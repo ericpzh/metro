@@ -6,7 +6,7 @@
 // and a hung fitting hovered on the ceiling slab, the floor, or a wall course resolves
 // to the floor it hangs over (`ceilingMountStandCell`) — so the ghost and the committed
 // piece sit on the surface, while the save keeps the floor anchor the envelopes read.
-// Every one of those snaps asks the station's own **基准高度** for the 4 m grid: a
+// Every one of those snaps asks the station's own **基准高度** for the 5 m grid: a
 // station whose grid is shifted by a metre must not anchor its decor to the fixed
 // 0 / 4 / 8 lines.
 import test from 'node:test'
@@ -47,24 +47,24 @@ test('a wall hover on an upper course anchors the panel to the floor below', () 
 test('a wall hover anchors to the storey of the 基准高度 grid, not the fixed 0 / 4 / 8 lines', () => {
   // The same wall one storey up a station whose grid is shifted by a metre (基准高度
   // 1): its floor is 5, its four courses are 6…9, and the next floor is 9.
-  const cells = [floor(0, 0, 5), wall(0, -1, 6), wall(0, -1, 7), wall(0, -1, 8)]
+  const cells = [floor(0, 0, 6), wall(0, -1, 6), wall(0, -1, 7), wall(0, -1, 8)]
   assert.deepEqual(
     wallMountStandCell(cells, [0, -1, 7], [0, 0, 7], false, 1),
-    [0, 0, 5],
+    [0, 0, 6],
     'the panel belongs to the storey floor, and the storey is the shifted one',
   )
   assert.deepEqual(
     wallMountStandCell(cells, [0, -1, 7], [0, 0, 7]),
-    [0, 0, 4],
+    [0, 0, 5],
     'a caller that names no base still reads the unshifted grid',
   )
   // The panel really hangs there: the wall's own two courses back a 2 m panel.
-  const panel = createModule('glass-1x2', 0, 0, 5, 'g', 0)
+  const panel = createModule('glass-1x2', 0, 0, 6, 'g', 0)
   assert.ok(panel)
   assert.equal(wallMountMissing(cells, panel), false)
   // The storey above keeps its own floor, not the one below it.
-  const upper = [...cells, floor(0, 0, 9), wall(0, -1, 9), wall(0, -1, 10)]
-  assert.deepEqual(wallMountStandCell(upper, [0, -1, 10], [0, 0, 10], false, 1), [0, 0, 9])
+  const upper = [...cells, floor(0, 0, 11), wall(0, -1, 11), wall(0, -1, 12)]
+  assert.deepEqual(wallMountStandCell(upper, [0, -1, 12], [0, 0, 12], false, 1), [0, 0, 11])
 })
 
 test('a side face is a wall whatever tags the block carries, so a 方块 wall mounts too', () => {
@@ -104,10 +104,10 @@ test('a 玻璃板 hangs over the course the pointer is on, and a poster keeps it
   assert.equal(equipmentReason(cells, [], pane, true), '', 'and a pane hanging over a course is accepted')
   // A piece drawn at its own `panelZ` keeps the storey floor: that is what puts a
   // poster at eye height wherever on the wall it is aimed.
-  assert.deepEqual(at(8, false), [0, 0, 5], 'a poster aimed at the third course stays at the floor')
+  assert.deepEqual(at(8, false), [0, 0, 6], 'a poster aimed at the third course stays at the floor')
   // A **floor** block (nothing over it) is not a band of wall to cover: the pane still
   // stands on that floor level, so aiming at a slab's edge never sinks it into the slab.
-  assert.deepEqual(wallMountStandCell([floor(0, 0, 5)], [0, 0, 5], [0, -1, 5], false, 1, true), [0, -1, 5], 'a floor edge keeps the storey reading')
+  assert.deepEqual(wallMountStandCell([floor(0, 0, 6)], [0, 0, 6], [0, -1, 6], false, 1, true), [0, -1, 6], 'a floor edge keeps the storey reading')
 })
 
 test('only the wall-mounted 玻璃板 follows the aimed course', () => {
@@ -146,9 +146,9 @@ test('a hung ceiling piece takes the free cell under the top block of its column
   assert.deepEqual(hungCeilingAim([2, 3, 2], [2, 2, 2], 0, cells), [2, 2, 4], 'a wall course: the same cell, in front of the wall')
   assert.deepEqual(hungCeilingAim([2, 3, 5], [2, 3, 4], 0, cells), [2, 3, 4], 'a slab underside: the cell under that slab')
   assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 4], 0, cells), [2, 2, 4], 'and a floor slab’s own underside reads its storey')
-  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 5], 0, cells), [2, 2, 4], 'the work plane reads the same column')
-  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 7], 0, []), [6, 6, 4], 'nothing overhead: the storey floor stands in')
-  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 6], 1, []), [6, 6, 5], 'and it reads the 基准高度 grid')
+  assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 5], 0, cells), [2, 2, 5], 'the work plane reads the same column')
+  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 7], 0, []), [6, 6, 5], 'nothing overhead: the storey floor stands in')
+  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 6], 1, []), [6, 6, 6], 'and it reads the 基准高度 grid')
   // The lookup itself: the first **underside** overhead, a wall's own courses skipped.
   assert.equal(topBlockZ(cells, 2, 2, 1), 5, 'the slab over the floor')
   assert.equal(topBlockZ(cells, 2, 3, 2), 5, 'and the slab over a wall run')
@@ -164,7 +164,7 @@ test('a hung ceiling piece takes the free cell under the top block of its column
   assert.equal(hangCeilingLocal(under, cells), 0, 'and the mount sits at the cell’s own top')
   // The reserved band of a flush fitting is still the storey's nominal line: `moduleEnvelope` reads
   // the module alone, with no cells to ask where the slab actually is.
-  assert.equal(moduleEnvelope(under).z1, 8, 'the fitting reserves its band under the nominal storey line')
+  assert.equal(moduleEnvelope(under).z1, 5, 'the fitting reserves its band under the nominal storey line')
   const floorBound = createModule('light-circular', 2, 2, 0, 'l2')
   assert.ok(floorBound)
   assert.equal(ceilingMountMissing([{ x: 2, y: 2, z: 0, fill: 'solid' }], floorBound), true, 'no ceiling over the floor')
@@ -183,7 +183,7 @@ test('a ceiling hover resolves to the floor below, from any face', () => {
   assert.deepEqual(ceilingMountStandCell([5, 5, 0], [5, 5, 0]), [5, 5, 0])
 })
 
-test('a shifted floor snaps to its actual ceiling instead of a fixed 4 m grid line', () => {
+test('a shifted floor snaps to its actual ceiling instead of a fixed 5 m grid line', () => {
   const cells = [floor(2, 2, 1), floor(2, 2, 5)]
   // The underside of the z=5 slab belongs to the z=1 storey when the level base is 1.
   const at = ceilingMountStandCell([2, 2, 5], [2, 2, 4], 1)

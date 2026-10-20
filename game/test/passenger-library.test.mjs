@@ -66,7 +66,8 @@ test('adult models and eligible child models are selected equally within their a
   assert.equal(passengerAppearance(id, scratch), scratch, 'caller scratch is reused')
   const outfit = scratch[0];counts[outfit]++;profiles[passengerWalkProfile(id)][outfit]++
   ;(passengerIsChild(id) ? kids : adults)[outfit]++
-  assert.deepEqual(scratch.slice(1), passengerProportions(id), 'appearance does not alter sim physique or speed')
+  const proportions = passengerProportions(id)
+  assert.deepEqual(scratch.slice(1), proportions.map((value, axis) => axis < 3 ? value * .98 : value), 'appearance scales the model without altering sim physique or speed')
  }
  const eligible = human.library.flatMap((model,index)=>model.childEligible?[index]:[])
  assert.deepEqual(PASSENGER_CHILD_OUTFITS,eligible)

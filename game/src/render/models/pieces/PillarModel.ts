@@ -54,7 +54,7 @@ export class PillarModel extends PieceBuilder {
       if (mod.cfg.finish) finishSlab(g, mat, offset.x, offset.y, (shaftStart + shaftEnd) / 2, shaftW, shaftW, shaftH)
       else slab(g, mat, offset.x, offset.y, (shaftStart + shaftEnd) / 2, shaftW, shaftW, shaftH)
     }
-    // Steel collars make each four-metre extension legible without enlarging its footprint.
+    // Steel collars make each five-metre extension legible without enlarging its footprint.
     for (let z = 0; z <= h; z += 4) slab(g, this.ctx.mats.steel, offset.x, offset.y, Math.max(0.05, Math.min(h - 0.05, z)), w, w, 0.1)
     if (bridge || h % 4 !== 0) slab(g, this.ctx.mats.steel, offset.x, offset.y, h - 0.05, w, w, 0.1)
     // Slim pillar `rot` selects one of nine in-cell positions; the offset above

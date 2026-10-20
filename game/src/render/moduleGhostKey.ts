@@ -20,6 +20,11 @@ import type { Module } from '../sim/types.ts'
 
 /** The ghost identity of one module, ignoring its id (a ghost is a prototype). */
 export function moduleGhostKey(mod: Module): string {
+  const incline = mod.type === 'escalator' ? mod.cfg.incline ?? '' : ''
+  return `${modelGhostKey(mod)}:storey:${mod.storeyHeight ?? 5}:${incline}:${mod.ceilingAnchored ?? false}`
+}
+
+function modelGhostKey(mod: Module): string {
   if (mod.type === 'road') return `road:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.w}x${mod.d}:${mod.cfg.direction}:${mod.cfg.from?.join(',')??''}:${mod.cfg.to?.join(',')??''}`
   if (mod.type === 'extinguisher') return `extinguisher:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'standard'}`
   if (mod.type === 'fence') return `fence:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'glass'}`
@@ -36,7 +41,7 @@ export function moduleGhostKey(mod: Module): string {
       : mod.type === 'escalator' || mod.type === 'walkway'
         ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}:${mod.cfg.width ?? 1}`
         : mod.type === 'lift'
-          ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}`
+          ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}:${(mod.cfg.rises ?? []).join('.')}`
           : mod.type === 'track'
             ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.bridge ? `b:${mod.cfg.bridgeRailing ?? 'railing'}:${mod.cfg.bridgeFinish ?? ''}` : mod.cfg.tunnel ? 't' : `p:${mod.cfg.catenaryStyle ?? 'canopy'}`}`
             : mod.type === 'billboard'

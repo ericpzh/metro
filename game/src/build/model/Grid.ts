@@ -36,7 +36,12 @@ export function isGridModule(m: Module): boolean {
   const run = m as { from?: { x: number; y: number; z: number }; to?: { x: number; y: number; z: number } };
   if (run.from) points.push(run.from);
   if (run.to) points.push(run.to);
-  if (m.type === 'stair') for (const f of m.cfg.flights ?? []) points.push(f.from, f.to);
+  if (m.type === 'stair') for (const f of m.cfg.flights ?? []) {
+    for (const p of [f.from,f.to]) {
+      if (Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z * 2)) continue;
+      points.push(p);
+    }
+  }
   return points.every(isGridCell);
 }
 

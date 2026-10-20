@@ -16,12 +16,12 @@ import {
 } from '../../sim/calligraphy.ts';
 import { escalatorModule, escalatorLandings, type EscalatorDir } from '../../sim/escalators.ts';
 import { walkwayLandings, walkwayModule, WALKWAY_LENGTH_DEFAULT, type WalkwayLength } from '../../sim/walkways.ts';
-import { RAMP_LENGTH_DEFAULT, type RampLength } from '../../sim/rampLengths.ts';
+import { defaultRampLength, type RampLength, type RampSpan } from '../../sim/rampLengths.ts';
 import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
-import { liftModule, liftFootprintCells } from '../../sim/lifts.ts';
+import { liftModule, liftFootprintCells, liftLevels, defaultLiftInterval, type LiftInterval } from '../../sim/lifts.ts';
 import { carveRampOpenings } from '../../sim/openings.ts'
 import { rotateLocal } from '../../sim/track.ts'
 import {
@@ -32,11 +32,13 @@ import {
   glassCells,
   lineMapCells,
   moduleFootprint,
+  isCeilingHung,
   moveRebuilds,
 } from '../../sim/placement.ts';
 import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
 import { TRUSS_ROOF_BAY, supportedRoofWidth } from '../../sim/structures.ts';
 import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, stairTurnCells } from '../../sim/stairs.ts';
+import { STOREY_HEIGHT } from '../../sim/constants.ts';
 import { makeSignBoards, normalizeSignLayout, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
 import { cellKey, cloneCell } from './Cells.ts';
@@ -44,12 +46,13 @@ import type { StationState } from './State.ts';
 
 /**
  * A placed escalator is a fixed run, the same footprint as a straight stair: it
- * climbs its `length` — 超短 2 m over 3 m through 长 8 m over 12 m
- * (`sim/rampLengths.ts`), 中 by default — along the placement rotation.
- * `dir` chooses whether it carries people up (from the base to the top) or down
- * (from the top to the base) — the run itself always climbs from the cell it is
- * dropped on. The piece itself lives in `sim/escalators.ts`, so the builder and
- * the reference station place the exact same equipment.
+ * climbs its `length` — 超短 2 m … 长 5 m on one floor, or 超短 6 m … 超长 10 m for a
+ * 双层 piece (`sim/rampLengths.ts`), the document's own default when omitted —
+ * along the placement rotation. `dir` chooses whether it carries people up (from
+ * the base to the top) or down (from the top to the base) — the run itself always
+ * climbs from the cell it is dropped on. The piece itself lives in
+ * `sim/escalators.ts`, so the builder and the reference station place the exact
+ * same equipment.
  */
 export { ESCALATOR_RISE, ESCALATOR_RUN, nextEscalatorDir } from '../../sim/escalators.ts';
 
@@ -95,15 +98,54 @@ function stationNameOf(source: SignLineInput): string {
  * an empty back.
  */
 export interface ModuleBuildSettings {
+  storeyHeight?: number
+  /**
+   * The station's editing base (`levelBase`). A hung fitting's nominal ceiling is
+   * a multiple of `levelBase + n × storeyHeight`, which the module cannot see, so
+   * the tool hands it over and `createModule` resolves it into `ceilingAnchored`.
+   */
+  levelBase?: number
   /** 玻璃板 only: the storeys of curtain the board leaves (2 / 3 / 4). */
   curtainHeight?: 2 | 3 | 4
-  /** A straight 扶梯 or 单跑楼梯: which of the four run lengths it is built at. */
+  /**
+   * A run's length: 超短 2 m … 长 5 m for a 扶梯 or any 楼梯, and 超短 6 m …
+   * 超长 10 m when `escalatorSpan` is `double`. Omitted, it is the document's
+   * own default (`defaultRampLength`): 长 on the fixed five-metre grid.
+   */
   rampLength?: RampLength
+  /** A 双层 扶梯: the length family its tile cycles (single floor by default). */
+  escalatorSpan?: RampSpan
+  /** 电梯 only: the rise of the segment being placed or stacked (3–7 m, 5 m default). */
+  liftInterval?: LiftInterval
   /** A 自动步道: which of the three level lengths (30 / 60 / 90 m) it is built at. */
   walkwayLength?: WalkwayLength
 }
 
-export function createModule(
+/**
+ * Build a module and stamp the grid facts its own geometry cannot carry: the
+ * storey height it was built at, and — for a ceiling-hung fitting — that it is
+ * anchored under the block directly over its cell.
+ *
+ * A hung piece (灯 / 风口 / 指示牌 …) is aimed one cell under its top block
+ * (`hungCeilingAim`), so that block *is* its ceiling. The older rule read the
+ * nominal storey line back off the grid (`sim/lights.ts`), which only lands on the
+ * same plane when the piece hangs from a slab at a 4 m storey line on the original
+ * base. The five-metre grid and every shifted editing base move the storey lines
+ * away from that arithmetic, and in both cases the piece still hangs from the
+ * block the aim found — so the flag is stamped whenever the grid is not the
+ * original 4 m base-0 one. `prepareSuspendedCeiling` sets the same flag when a
+ * 吊顶 is later raised over an existing piece.
+ */
+export function createModule(...args: Parameters<typeof createModuleRaw>): Module | null {
+  const mod=createModuleRaw(...args)
+  const height=args[11]?.storeyHeight
+  const base=args[11]?.levelBase
+  if(mod && height!==undefined)mod.storeyHeight=height
+  if(mod && isCeilingHung(mod) && (height===5 || (base??0)!==0))mod.ceilingAnchored=true
+  return mod
+}
+
+function createModuleRaw(
   type: string,
   x: number,
   y: number,
@@ -117,8 +159,10 @@ export function createModule(
   sign?: SignBoardsDraft,
   settings: ModuleBuildSettings = {},
 ): Module | null {
+  const storeyHeight = settings.storeyHeight??5
   const curtainHeight = settings.curtainHeight ?? 4
-  const rampLength = settings.rampLength ?? RAMP_LENGTH_DEFAULT
+  const span = settings.escalatorSpan ?? 'single'
+  const rampLength = settings.rampLength ?? defaultRampLength(storeyHeight, span)
   switch (type) {
     case 'sidewalk':
     case 'lawn':
@@ -127,7 +171,7 @@ export function createModule(
     case 'pillar':
     case 'pillar-slim':
     case 'pillar-thick':
-      return { id, type: 'pillar', x, y, z, rot, cfg: { size: type === 'pillar-thick' ? 'thick' : 'slim', height: 4 } };
+      return { id, type: 'pillar', x, y, z, rot, cfg: { size: type === 'pillar-thick' ? 'thick' : 'slim', height: storeyHeight } };
     case 'roof':
       return { id, type: 'roof', x, y, z, rot, w: 1, d: 1, cfg: {} };
     case 'roof-shell':
@@ -408,18 +452,20 @@ export function createModule(
     case 'escalator':
       // The one shared piece: the run always climbs from the dropped cell;
       // `dir` only orders from/to, which is what the sim reads as the one-way
-      // travel and the label. `rampLength` is the player's length choice.
-      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, rampLength);
+      // travel and the label. `rampLength` is the player's length choice and
+      // `escalatorSpan` the 单层 / 双层 family it belongs to.
+      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, rampLength, storeyHeight, span);
     case 'walkway':
       // The level twin of the escalator (`sim/walkways.ts`): 短 30 m / 中 60 m /
       // 长 90 m of belt along the placement rotation. `dir` orders from/to (the
       // one-way travel) and `width` is 窄 / 宽, exactly as the escalator's are.
       return walkwayModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, settings.walkwayLength ?? WALKWAY_LENGTH_DEFAULT);
     case 'lift':
-      // An elevator: one storey up from the dropped cell. The player grows the
-      // shaft a storey at a time (`extendLift`), so a fresh piece is always two
-      // stops.
-      return liftModule({ x, y, z }, rot, id);
+      // An elevator spans one 层高 interval up from the dropped cell (5 m by
+      // default). The player stacks further intervals on top or below
+      // (`extendLift`), each at the currently armed interval, so a shaft can
+      // serve uneven floors.
+      return liftModule({ x, y, z }, rot, id, settings.liftInterval ?? defaultLiftInterval());
     case 'stair-block': {
       const [dx, dy] = rotateLocal(rot, 1, 0);
       const blockHeight = width === 0.5 ? 0.5 : 1;
@@ -429,7 +475,7 @@ export function createModule(
     }
     case 'stair': {
       const style = 'straight' as StairStyle;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW, rampLength);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW, rampLength, storeyHeight);
       return {
         id,
         type: 'stair',
@@ -457,7 +503,7 @@ export function createModule(
       // `rampLength` is read by the single-run (`straight`) shape alone: a turning stair
       // is the fixed footprint the turn is drawn at and ignores it.
       const size = width ?? STAIR_WIDTH_NARROW;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength, storeyHeight);
       return {
         id,
         type: 'stair',
@@ -477,11 +523,12 @@ export function createModule(
 
 /**
  * The plan a catalogue piece occupies: every floor cell it stands on, at the
- * origin, read from the builders that place it — so a 单跑楼梯 is its seven cells of
- * run and an 电梯 its 2 × 2 shaft, and neither a palette row's `w`/`h` nor a
- * hand-kept table can drift from the geometry. A caller takes the bounding box of
- * these cells when it wants the footprint a card prints; the list is returned
- * rather than the box because a caller may equally want to draw them.
+ * origin, read from the builders that place it — so a 单跑楼梯 is its run of cells, a
+ * storey's climb whatever the grid, and an 电梯 its 2 × 2 shaft, and neither a
+ * palette row's `w`/`h` nor a hand-kept table can drift from the geometry. A caller
+ * takes the bounding box of these cells when it wants the footprint a card prints;
+ * the list is returned rather than the box because a caller may equally want to
+ * draw them.
  *
  * Reading the cells takes more than `moduleFootprint`, which is the **collision**
  * rule and answers with each piece's anchor points: a 双跑楼梯's two landings are two
@@ -494,16 +541,18 @@ export function createModule(
  *
  * `variant` is the piece's size where one exists — a bench's run in metres, a
  * 广告牌's cells, a 扶梯's step band — and is ignored by every fixed piece, exactly
- * as in `createModule`.
+ * as in `createModule`. `storeyHeight` is the grid a run climbs, because a run's
+ * length follows it: a card shows the piece the game places, so the default is the
+ * new-station height.
  */
-export function footprintCellsOf(type: string, variant?: number): Array<[number, number]> {
+export function footprintCellsOf(type: string, variant?: number, storeyHeight = STOREY_HEIGHT): Array<[number, number]> {
   const anchor = { x: 0, y: 0, z: 0 };
   const id = 'footprint';
   const mod =
-    type === 'escalator' ? escalatorModule(anchor, 0, 'up', id)
+    type === 'escalator' ? escalatorModule(anchor, 0, 'up', id, 1, undefined, storeyHeight)
     : type === 'walkway' ? walkwayModule(anchor, 0, 'up', id)
-    : type === 'lift' ? liftModule(anchor, 0, id)
-    : createModule(type, 0, 0, 0, id, 0, variant);
+    : type === 'lift' ? liftModule(anchor, 0, id, defaultLiftInterval())
+    : createModule(type, 0, 0, 0, id, 0, variant, 'up', 'lane', [], undefined, { storeyHeight });
   if (!mod) return [[0, 0]];
   switch (mod.type) {
     case 'road': return moduleFootprint(mod);
@@ -654,13 +703,15 @@ export function ensureSignLayouts(modules: readonly Module[], lines: SignLineSou
 }
 
 /**
- * Append an equipment module. A stair also lays its own half/quarter landings as
- * floor cells, so a turning flight has a walkable node between its two flights
- * (the model draws the platform and the block mesher skips it). A ramp landing
- * on an exit's floor materialises that cell too: the exit covers it even where
- * a carve left a hole, so the graph keeps the ramp's edge nodes. A ramp
- * (escalator, stair, lift) then carves the slab it climbs through; flat
- * equipment is a plain append.
+ * Append an equipment module. A turning stair's middle platform is **the
+ * stair's own model**, not a block: it is a 0.5 m slab at half the stair's rise,
+ * and `buildGraph` walks it as a virtual landing node (`stairTurnCells`), so
+ * placing or deleting the piece never adds or removes a cell of the document.
+ * (A legacy save made before that rule may still carry a landing block; deleting
+ * its stair still cleans it up — `removeModule`.) A ramp landing on an exit's
+ * floor materialises that cell: the exit covers it even where a carve left a
+ * hole, so the graph keeps the ramp's edge nodes. A ramp (escalator, stair, lift)
+ * then carves the slab it climbs through; flat equipment is a plain append.
  *
  * The append is also where a 装饰 screen's poster is rolled (`assignAdPosters`),
  * so one click hangs one campaign for good.
@@ -677,13 +728,16 @@ export function addEquipment(state: StationState, mod: Module): StationState {
     have.add(k);
     cells.push({ x: p.x, y: p.y, z: p.z, fill: 'solid' });
   };
-  if (mod.type === 'stair') {
-    for (const p of stairTurnCells(mod)) lay(p);
-  }
   // Landings on exit floor count even as holes: lay the cell so the graph can
   // stand on it. Laid before the carve, which protects landing cells.
   const landings: Vec3i[] =
-    mod.type === 'stair' ? stairLandings(mod) : mod.type === 'escalator' ? escalatorLandings(mod) : mod.type === 'lift' ? [mod.from, mod.to] : [];
+    mod.type === 'stair'
+      ? stairLandings(mod)
+      : mod.type === 'escalator'
+        ? escalatorLandings(mod)
+        : mod.type === 'lift'
+          ? liftLevels(mod).map((z) => ({ x: mod.x, y: mod.y, z }))
+          : [];
   for (const p of landings) {
     if (!have.has(cellKey(p.x, p.y, p.z)) && exitFloorAt(modules, p.x, p.y, p.z)) lay(p);
   }

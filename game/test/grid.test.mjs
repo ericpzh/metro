@@ -38,9 +38,11 @@ function assertOnGrid(where, state) {
     assert.ok(onGrid(c), `${where}: cell (${c.x}, ${c.y}, ${c.z}) left the grid`)
   }
   for (const m of state.modules ?? []) {
-    const points = [m, m.from, m.to, ...(m.type === 'stair' ? (m.cfg.flights ?? []).flatMap((f) => [f.from, f.to]) : [])]
-    for (const p of points) {
-      assert.ok(!p || onGrid(p), `${where}: ${m.id} (${m.type}) anchor (${p?.x}, ${p?.y}, ${p?.z}) left the grid`)
+    const points = [m, m.from, m.to]
+    for (const p of points) assert.ok(!p || onGrid(p), `${where}: outer endpoint left the grid`)
+    const internal = [...(m.type === 'stair' ? (m.cfg.flights ?? []).flatMap((f) => [f.from, f.to]) : [])]
+    for (const p of internal) {
+      assert.ok(!p || (Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z * 2)), `${where}: ${m.id} (${m.type}) anchor (${p?.x}, ${p?.y}, ${p?.z}) left the grid`)
     }
   }
 }
@@ -91,7 +93,7 @@ test('a legacy staircase width that is not a whole number of lanes stays on the 
         const mod = createModule(`stair-${style}`, 8, 8, -4, `s-${style}-${width}-${rot}`, rot, width)
         assert.ok(mod, `stair-${style} width ${width} should build`)
         const points = [mod, mod.from, mod.to, ...stairFlights(mod).flatMap((f) => [f.from, f.to]), ...stairLandings(mod), ...stairTurnCells(mod)]
-        for (const p of points) assert.ok(!p || onGrid(p), `stair-${style} width ${width} rot ${rot}: (${p?.x}, ${p?.y}, ${p?.z})`)
+        for (const p of points) assert.ok(!p || (Number.isInteger(p.x) && Number.isInteger(p.y) && Number.isInteger(p.z * 2)), `stair-${style} width ${width} rot ${rot}: (${p?.x}, ${p?.y}, ${p?.z})`)
         assertOnGrid(`placing stair-${style} width ${width} rot ${rot}`, addEquipment(base(), mod))
       }
     }

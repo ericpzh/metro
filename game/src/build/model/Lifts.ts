@@ -1,6 +1,6 @@
 // Build model: lifts — the elevator shaft column and its growth (§5).
 
-import { liftExtendedDown, liftExtendedUp } from '../../sim/lifts.ts';
+import { liftExtendedDown, liftExtendedUp, type LiftInterval } from '../../sim/lifts.ts';
 import type { Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
 
@@ -11,13 +11,16 @@ export function liftInColumn(modules: readonly Module[], x: number, y: number): 
 }
 
 /**
- * Grow an existing shaft one storey up or down. The shaft keeps its id and its
- * column; only its reach changes, so a hover-extension reads as the same
- * elevator getting taller rather than a new piece appearing.
+ * Grow an existing shaft one **interval** up or down — the rise the 层高 tile is
+ * currently set to, so a 5 m shaft can take a 3 m storey on top or a 7 m one
+ * below. The shaft keeps its id and its column; only its reach and its stacked
+ * rises change, so a hover-extension reads as the same elevator getting taller
+ * rather than a new piece appearing. An omitted interval keeps the shaft's own
+ * storey default (a legacy caller, the thumbnail pass).
  */
-export function extendLift(state: StationState, id: string, up: boolean): StationState {
+export function extendLift(state: StationState, id: string, up: boolean, interval?: LiftInterval): StationState {
   const mod = state.modules.find((m) => m.id === id);
   if (!mod || mod.type !== 'lift') return state;
-  const grown = up ? liftExtendedUp(mod) : liftExtendedDown(mod);
+  const grown = up ? liftExtendedUp(mod, interval) : liftExtendedDown(mod, interval);
   return { ...state, modules: state.modules.map((m) => (m.id === id ? grown : m)) };
 }

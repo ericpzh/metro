@@ -96,6 +96,8 @@ const STAIR_RISE = 1 / 6
 const STAIR_STRINGER_T = 0.32
 /** Thickness of the soffit under the treads, metres: its underside is the body line. */
 const STAIR_SOFFIT_T = 0.06
+/** A turn landing's own platform depth, metres: a half-block slab, never a placed block. */
+const STAIR_LANDING_T = 0.5
 
 /**
  * The finish a stair wears: the one painted on the piece itself (`cfg.finish`,
@@ -345,10 +347,12 @@ function stairReturnGeo(): THREE.TorusGeometry {
  * A stair's turn landing: a platform spanning the two flight ends — one block deep along
  * the way the agent crosses it for a 180's half-landing, and the `lanes × lanes` square
  * the two legs meet on for a 90° turn — so the perpendicular width never pinches at the
- * corner. Built from the same surface and slab
- * thickness as the treads, over a shallow frame — never a reused 1 m floor block. A
- * balustrade runs the edges a flight does not attach to, wrapping the outside of the turn
- * and carrying the flight handrails around it — **except** a side a wall hugs
+ * corner. It is **the stair's own equipment**, not a floor block: the platform is a
+ * 0.5 m slab (the tread surface over a shallow frame) that hangs at half the stair's
+ * rise, and the graph walks it as the stair's virtual landing. Built from the same
+ * surface as the treads.
+ * A balustrade runs the edges a flight does not attach to, wrapping the outside of the
+ * turn and carrying the flight handrails around it — **except** a side a wall hugs
  * (`stairLandingWalls`): the wall is the barrier there, and a rail against it is
  * the same balustrade drawn twice, poking through the wall.
  */
@@ -362,6 +366,7 @@ function buildStairLanding(
   forward?: { width: number; incoming: StairFlightSlide; outgoing: StairFlightSlide },
 ): THREE.Group {
   const g = new THREE.Group()
+  g.name = 'stair-landing'
   const a = fin.to
   const { x0, y0, x1, y1 } = shape
   const cx = (x0 + x1) / 2
@@ -369,8 +374,12 @@ function buildStairLanding(
   const sx = x1 - x0
   const sy = y1 - y0
   const top = a.z + 1
-  finishSlab(g, surface, cx, cy, top - STAIR_TREAD_T / 2, sx, sy, STAIR_TREAD_T)
-  slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - 0.14, sx - 0.18, sy - 0.18, 0.28)
+  // The platform's own 0.5 m depth: a tread-thick walking surface over a shallow
+  // frame, so the landing is part of the piece rather than a placed block.
+  const surfaceTop = finishSlab(g, surface, cx, cy, top - STAIR_TREAD_T / 2, sx, sy, STAIR_TREAD_T)
+  surfaceTop.name = 'stair-landing-surface'
+  const frame = slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - (STAIR_LANDING_T - STAIR_TREAD_T) / 2, sx - 0.18, sy - 0.18, STAIR_LANDING_T - STAIR_TREAD_T)
+  frame.name = 'stair-landing-frame'
 
   // Which perimeter edges a flight attaches to: the side the flight body sits
   // on, snapped to the dominant axis. The others get a balustrade — unless a wall

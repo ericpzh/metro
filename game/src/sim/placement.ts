@@ -46,7 +46,7 @@ import { escalatorLandings } from './escalators.ts'
 import { walkwayCoveredCells, walkwayLandings } from './walkways.ts'
 import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
-import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, LEVEL_STEPS, storeyBand } from './constants.ts'
+import { PSD_FULL_HEIGHT, psdFullHeight, PSD_HALF_HEIGHT, storeyBand, STOREY_HEIGHT } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
@@ -89,15 +89,15 @@ const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk
   cubicle: 1.8,
   sink: 0.9,
   bin: 0.95,
-  tv: 3.0,
+  tv: 4.0,
   // A ceiling-hung 指示牌 / 电视 / 时钟 / 监控 spans the whole storey, from the floor
   // top to the ceiling one grid step up, so its envelope is the full column (and it
   // is found/blocked like any other equipment). The clock's dial and the camera's
   // head both sit inside that column — the piece is hung, so the air under it is
   // reserved rather than free floor.
-  sign: 3.0,
-  clock: 3.0,
-  cctv: 3.0,
+  sign: 4.0,
+  clock: 4.0,
+  cctv: 4.0,
   retail: 3.6,
   shop: 3.6,
   booth: 2.4,
@@ -335,6 +335,13 @@ function wallPanelBox(m: Module, cells: ReadonlyArray<[number, number, number]>,
  */
 function flatEnvelope(m: Module): ModuleBox | null {
   const z0 = m.z + 1
+  // A ceiling-hung piece that hangs from the plane directly over its cell (a 吊顶,
+  // or any top block the aim found) reserves the room under that plane. A 悬挂架 is
+  // not that shape: it is steel carried by a roof a whole storey up (`hangerRoofZ`),
+  // and its own box is the truth, whether or not it hangs under a 吊顶.
+  if (m.ceilingAnchored && m.type !== 'hanger' && isCeilingHung(m) && m.type !== 'light' && m.type !== 'vent') {
+    return { x0: m.x, y0: m.y, x1: m.x + 1, y1: m.y + 1, z0: z0 - 3, z1: z0 }
+  }
   switch (m.type) {
     case 'sidewalk':
     case 'lawn': return { x0: m.x, x1: m.x + 1, y0: m.y, y1: m.y + 1, z0, z1: z0 + OUTDOOR_SURFACE_HEIGHT }
@@ -493,7 +500,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return wallPanelBox(m, lineMapCells(m), z0 + bottom - LINE_MAP_FRAME_PAD, z0 + bottom + spec.panelH + LINE_MAP_FRAME_PAD)
     }
     case 'psd-end': {
-      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
+      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : psdFullHeight(m.storeyHeight)
       const [ox, oy] = psdEndOffset(m)
       const [a, b] = psdEndSpan(m)
       // The model trims the corner's length and clips its cap to the tile too.
@@ -571,7 +578,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // The screen sits on the track-facing strip of its single-cell-deep run.
       // A half-height (半高) screen reserves only its actual height, so something
       // may stand in the headroom the full screen would have filled.
-      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : PSD_FULL_HEIGHT
+      const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : psdFullHeight(m.storeyHeight)
       const box = cellsAabb(edgeCells(m), z0, z0 + h)
       return box.x1 - box.x0 <= 1.0001
         ? { ...box, x0: box.x0 + 0.16, x1: box.x1 - 0.16 }
@@ -953,6 +960,7 @@ export function wallMountStandCell(
   snapToSolidBlock = false,
   levelBase = 0,
   followCourse = false,
+  storeyHeight = 5,
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   // 地面 exits attach to an ordinary block face too; they do not require the
@@ -965,10 +973,10 @@ export function wallMountStandCell(
     // as uncovered, and only decides between the aimed course and the storey floor.
     const coveredAbove = cells.some((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z === cell[2] + 1)
     if (followCourse && coveredAbove) return [place[0], place[1], cell[2] - 1]
-    return [place[0], place[1], storeyBand(cell[2], levelBase)]
+    return [place[0], place[1], storeyBand(cell[2], levelBase, storeyHeight)]
   }
   if (!onWall) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2], levelBase)]
+  return [place[0], place[1], storeyBand(place[2], levelBase, storeyHeight)]
 }
 
 /**
@@ -1007,7 +1015,8 @@ function stepSide(dx: number, dy: number): WallSide {
  * wall course between them. `place - cell` is the face normal (`pickCells`), so:
  *
  *   * bottom face (`dz === -1`) — the underside of the ceiling slab — anchors one
- *     storey down (`cell.z - 4`), the floor that slab is the ceiling of;
+ *     storey down (the nearest exposed floor in that column, else the storey below
+ *     the hit), the floor that slab is the ceiling of;
  *   * top face (`dz === +1`) — a floor top — anchors the hit cell itself;
  *   * side face — a wall course or a slab edge — anchors the face-adjacent cell,
  *     dropped to its own storey floor (`storeyBand`), the same floor a wall panel
@@ -1023,6 +1032,7 @@ export function ceilingMountStandCell(
   place: readonly [number, number, number],
   levelBase = 0,
   cells?: readonly Cell[],
+  storeyHeight = 5,
 ): [number, number, number] {
   const dz = place[2] - cell[2]
   if (dz === -1) {
@@ -1031,10 +1041,10 @@ export function ceilingMountStandCell(
       .filter((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z < cell[2] && !isWallBlock(c))
       .filter((c) => !floorCells.some((above) => above.fill === 'solid' && above.x === c.x && above.y === c.y && above.z === c.z + 1))
       .sort((a, b) => b.z - a.z)[0]
-    return [cell[0], cell[1], floor?.z ?? storeyBand(cell[2] - 1, levelBase)]
+    return [cell[0], cell[1], floor?.z ?? storeyBand(cell[2] - 1, levelBase, storeyHeight)]
   }
   if (dz === 1) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2], levelBase)]
+  return [place[0], place[1], storeyBand(place[2], levelBase, storeyHeight)]
 }
 
 /**
@@ -1082,6 +1092,7 @@ export function hungCeilingAim(
   levelBase = 0,
   cells: readonly Cell[] = [],
   modules: readonly Module[] = [],
+  storeyHeight = 5,
 ): [number, number, number] {
   const side = place[0] !== cell[0] || place[1] !== cell[1]
   const x = side ? place[0] : cell[0]
@@ -1090,7 +1101,7 @@ export function hungCeilingAim(
   // the block the pointer is on, so a wall's course and a floor slab are never mistaken for one.
   const from = !side && place[2] < cell[2] ? cell[2] : cell[2] + 1
   const top = topBlockZ(cells, cell[0], cell[1], from, modules)
-  if (top === null) return [x, y, storeyBand(cell[2], levelBase)]
+  if (top === null) return [x, y, storeyBand(cell[2], levelBase, storeyHeight)]
   return [x, y, top - 1]
 }
 
@@ -1146,9 +1157,10 @@ export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; 
  * plane — reads the real slab overhead (`ceilingMountHeight`), and `fallback` covers a build with
  * no slab to read at all (a ghost in an empty station).
  */
-export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[] = [], fallback = 3): number {
+export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[] = [], fallback?: number): number {
   if (topBlockOver(cells, m, modules)) return 0
-  return ceilingMountHeight(cells, m, modules) ?? fallback
+  const resolvedFallback = fallback ?? ((m as { storeyHeight?: number }).storeyHeight ?? STOREY_HEIGHT) - 1
+  return ceilingMountHeight(cells, m, modules) ?? resolvedFallback
 }
 
 /**
@@ -1290,7 +1302,7 @@ export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, m
 /**
  * Local height from a module's floor top to the underside of its actual ceiling.
  * Read the nearest common slab over the whole footprint instead of assuming a
- * fixed 4 m room; the model uses this to extend its suspension up to that slab.
+ * fixed five-metre room; the model uses this to extend its suspension up to that slab.
  * A 站台 or 轨道桥 bed counts as a slab: a platform digs its course, so the
  * cells alone show a hole where the deck hangs, and a bridge hangs over void.
  * The deck's underside is the ceiling there — the bed level for a platform, one
@@ -1316,8 +1328,12 @@ export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, mo
     candidates.add(underside)
   }
   // The street plane can ceiling the storey immediately below grade, but it
-  // cannot stand in for a missing concourse slab several storeys underground.
-  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z) && GROUND_Z === candidate.z + 4) candidates.add(GROUND_Z)
+  // cannot stand in for a missing concourse slab several storeys underground: the
+  // plane is that storey's ceiling only when it lands on the storey's own top,
+  // `z + storeyHeight` — the top below-grade storey of a five-metre station is
+  // at -5, not -4.
+  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z)
+    && GROUND_Z === candidate.z + (candidate.storeyHeight ?? STOREY_HEIGHT)) candidates.add(GROUND_Z)
   const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
     footprint.every(([x, y]) =>
       cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
@@ -1849,7 +1865,7 @@ function isTvPair(a: Module, b: Module): boolean {
 /**
  * The module standing on cell `(x, y, z)`, for right-click bulldozing. The test
  * volume is the **air of that cell's own storey** — from the block's top to the next
- * 4 m grid line — so a multi-cell module (an exit, a PSD run, a ramp) is found from
+ * 5 m grid line — so a multi-cell module (an exit, a PSD run, a ramp) is found from
  * any of the cells it covers, and a wall-mounted panel is found from the floor cell
  * it hangs over even when its body is in the upper half of the room (a 广告牌 at
  * 1.4 m, a 站名 横排 at 2.5 m). A room's
@@ -1870,6 +1886,8 @@ export function moduleAt(
   y: number,
   z: number,
   facing?: readonly [number, number],
+  levelBase = 0,
+  storeyHeight = 5,
 ): Module | undefined {
   // The test volume is the **air of the cell's own storey**, not just the first
   // metre above its block: a 广告牌 hangs from 1.36 m up, but a 站名 横排 is written
@@ -1877,7 +1895,7 @@ export function moduleAt(
   // entirely in the upper half of the storey has to be found from the cell it
   // stands on like any other. The band stops at the next storey grid line
   // (`LEVEL_STEPS`), so a piece one floor up is still not this cell's.
-  const ceiling = LEVEL_STEPS.find((v) => v > z) ?? z + 4
+  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
   const hits = (skipRooms: boolean): Module | undefined => {
     for (const m of modules) {
@@ -1920,8 +1938,10 @@ export function pillarAt(
   x: number,
   y: number,
   z: number,
+  levelBase = 0,
+  storeyHeight = 5,
 ): Extract<Module, { type: 'pillar' }> | undefined {
-  const ceiling = LEVEL_STEPS.find((v) => v > z) ?? z + 4
+  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
   return modules.find(
     (m): m is Extract<Module, { type: 'pillar' }> => {
@@ -1951,8 +1971,8 @@ export function pillarAt(
  * The other structural pieces are refused, by the same rule that keeps the delete tool
  * from sweeping one (§9.5): a room owns the walls around it, a 轨道 / 站台门 is sized and
  * derived from its line, a bridge-owned pier (`cfg.bridgeId`) is spaced by its bridge,
- * and a 电梯's landings are grown a storey at a time (`LIFT_EXTEND`
- * never asks for floor), so no single verdict can say where a moved shaft lands. Those
+ * and a 电梯's landings are stacked an interval at a time (`liftExtendedUp`/`Down`
+ * never ask for floor), so no single verdict can say where a moved shaft lands. Those
  * are torn down and built again by hand.
  *
  * A free-standing 支柱 is the exception: it owns no document cells, carves nothing
@@ -2020,15 +2040,16 @@ export function isMovableModule(m: Module): boolean {
  * translation: a 楼梯 (bar the 1 × 1 楼梯块, which owns no cell of the document's and
  * carves nothing), a 扶梯, or a 自动步道.
  *
- * The three are re-laid where they land rather than translated, and for two reasons: a turning
- * stair owns floor the document holds for it — its half-landing, laid by `addEquipment` and
- * taken back out by `removeModule` — and a stair or escalator opens the slab it climbs through,
- * so the piece has to be out of `modules` while it is in the air and in them again before the
- * carve runs at its new cell. (A walkway carves nothing, but its `from`/`to` still have to
- * move with it.) That is exactly the pair a player would drive by hand
- * (`moveEquipment`), and it is one commit: one `Ctrl+Z` puts the run back, landing floor and
- * all. The opening a run **carved** where it stood is left behind, exactly as it is when a run
- * is deleted; a 方块 may be laid in it again (it is no longer a reserved opening).
+ * The three are re-laid where they land rather than translated, because a stair or
+ * escalator opens the slab it climbs through, so the piece has to be out of `modules`
+ * while it is in the air and in them again before the carve runs at its new cell. (A
+ * walkway carves nothing, but its `from`/`to` still have to move with it.) A legacy
+ * save's turning stair may also still own the half-landing block the old builder laid;
+ * `removeModule` takes that back out as the piece leaves. That is exactly the pair a
+ * player would drive by hand (`moveEquipment`), and it is one commit: one `Ctrl+Z` puts
+ * the run back, a legacy landing block and all. The opening a run **carved** where it
+ * stood is left behind, exactly as it is when a run is deleted; a 方块 may be laid in it
+ * again (it is no longer a reserved opening).
  */
 export function moveRebuilds(m: Module): boolean {
   return (m.type === 'stair' && m.cfg.block !== true) || m.type === 'escalator' || m.type === 'walkway'

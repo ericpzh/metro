@@ -54,13 +54,13 @@ const state = (stationCells, modules) => toState({ name: '支柱测试', seed: 1
 
 /**
  * A narrow quarter-turn stair at (7, 7) and a short (2 m) slim pillar under its
- * upper flight at (9, 10): the fresh shaft (z 1–3) clears the flight band above
+ * upper flight at (9, 11): the fresh shaft (z 1–3) clears the flight band above
  * it, the grown one does not.
  */
 function stairAndPillar() {
   const stair = createModule('stair-right90', 7, 7, 0, 'stair-1', 0)
   assert.ok(stair, 'the rig needs its stair')
-  const short = createModule('pillar-slim', 9, 10, 0, 'pillar-9', 0)
+  const short = createModule('pillar-slim', 9, 11, 0, 'pillar-9', 0)
   assert.ok(short, 'the rig needs its pillar')
   const pillar = { ...short, cfg: { ...short.cfg, height: 2 } }
   const placed = addEquipment(state(cells(), []), stair)
@@ -78,11 +78,11 @@ test('pillarAt finds the pillar under the pointer whatever stands around it', ()
   // The turning stair's envelope spans the whole corner it turns through, so a
   // generic lookup at the pillar's own cell answers the stair whenever the
   // stair is earlier in the document — and the extension snap never fires.
-  assert.equal(moduleAt(stairFirst, 9, 10, 0)?.id, 'stair-1', 'the setup really covers the pillar cell')
+  assert.equal(moduleAt(stairFirst, 9, 11, 0)?.id, 'stair-1', 'the setup really covers the pillar cell')
   // The anchor cell is the pillar's own, so it decides before the overlap does.
-  assert.equal(pillarAt(stairFirst, 9, 10, 0)?.id, 'pillar-9', 'stair-first document order')
-  assert.equal(pillarAt([...stairFirst].reverse(), 9, 10, 0)?.id, 'pillar-9', 'pillar-first document order')
-  assert.equal(pillarAt([stairFirst[0]], 9, 10, 0), undefined, 'no pillar on the cell is no extension')
+  assert.equal(pillarAt(stairFirst, 9, 11, 0)?.id, 'pillar-9', 'stair-first document order')
+  assert.equal(pillarAt([...stairFirst].reverse(), 9, 11, 0)?.id, 'pillar-9', 'pillar-first document order')
+  assert.equal(pillarAt([stairFirst[0]], 9, 11, 0), undefined, 'no pillar on the cell is no extension')
 })
 
 test('pillarAt finds a slim shaft at any of its nine offsets', () => {
@@ -99,12 +99,12 @@ test('stacked pillars resolve by storey band, in either document order', () => {
   // Two shafts sharing one anchor cell, the upper standing where the lower
   // ends (touching, never overlapping): the hovered storey decides.
   const lo = createModule('pillar-slim', 3, 3, 0, 'pillar-lo', 0)
-  const hiPlaced = createModule('pillar-slim', 3, 3, 4, 'pillar-hi', 0)
+  const hiPlaced = createModule('pillar-slim', 3, 3, 5, 'pillar-hi', 0)
   assert.ok(lo && hiPlaced, 'the rig needs both shafts')
-  const hi = { ...hiPlaced, x: 3, y: 3, z: 4 }
+  const hi = { ...hiPlaced, x: 3, y: 3, z: 5 }
   for (const modules of [[lo, hi], [hi, lo]]) {
     assert.equal(pillarAt(modules, 3, 3, 0)?.id, 'pillar-lo', 'the lower storey lifts the lower shaft')
-    assert.equal(pillarAt(modules, 3, 3, 4)?.id, 'pillar-hi', 'the upper storey lifts the upper shaft')
+    assert.equal(pillarAt(modules, 3, 3, 5)?.id, 'pillar-hi', 'the upper storey lifts the upper shaft')
   }
   // One tall shaft is the same pillar from any storey it reaches.
   const tall = { ...createModule('pillar-slim', 5, 5, 0, 'pillar-tall', 0), cfg: { size: 'slim', height: 8 } }
@@ -175,8 +175,8 @@ test('a short pillar under the upper flight extends into it, and the refusal nam
   const { cells: stationCells, modules, pillar } = stairAndPillar()
   const others = modules.filter((m) => m.id !== pillar.id)
   assert.equal(equipmentReason(stationCells, others, pillar, true), '', 'the 2 m shaft fits under the flight')
-  const grown = extendedPillar(pillar, 4)
-  assert.equal(grown.cfg.height, 6, 'the rig grows a 2 m section by the 4 m arm')
+  const grown = extendedPillar(pillar, 5)
+  assert.equal(grown.cfg.height, 7, 'the rig grows a 2 m section by the 5 m arm')
   const colliders = placementColliders(others, grown)
   assert.deepEqual(colliders.map((m) => m.id), ['stair-1'], 'the upper flight is the conflict')
   assert.equal(equipmentReason(stationCells, others, grown, true), 'occupied')
@@ -220,7 +220,7 @@ function toolFixture(modules, stationCells) {
   useStore.setState({
     tool: 'module',
     moduleType: 'pillar-slim',
-    pillarLength: 4,
+    pillarLength: 5,
     station: state(stationCells, modules),
     moveDraft: null,
     selected: null,
@@ -244,10 +244,10 @@ test('a blocked extension highlights the stair beside the red ghost', () => {
   try {
     const { cells: stationCells, modules } = stairAndPillar()
     const f = toolFixture(modules, stationCells)
-    new EquipmentTool(f.ctx).onMove(hoverAt(9, 10))
+    new EquipmentTool(f.ctx).onMove(hoverAt(9, 11))
     const [grown, blocked] = f.previews.at(-1)
     assert.equal(grown.id, 'pillar-9', 'the hover grows the pillar under the pointer')
-    assert.equal(grown.cfg.height, 6)
+    assert.equal(grown.cfg.height, 7)
     assert.equal(blocked, true, 'the grown shaft pierces the upper flight')
     assert.deepEqual(f.highlights.at(-1), [['stair-1']], 'the conflicting stair lights up with it')
   } finally {
@@ -274,9 +274,9 @@ test('clicking a blocked extension names the stair and highlights it, committing
     const { cells: stationCells, modules } = stairAndPillar()
     const f = toolFixture(modules, stationCells)
     const tool = new EquipmentTool(f.ctx)
-    tool.onMove(hoverAt(9, 10))
+    tool.onMove(hoverAt(9, 11))
     const count = useStore.getState().station.modules.length
-    tool.onDown(hoverAt(9, 10))
+    tool.onDown(hoverAt(9, 11))
     assert.match(useStore.getState().notice, /楼梯/, 'the release refusal names the stairs')
     assert.deepEqual(f.highlights.at(-1), [['stair-1']], 'and still highlights them on release')
     assert.equal(useStore.getState().station.modules.length, count, 'nothing lands')
@@ -301,8 +301,7 @@ test('clicking a clear extension grows the pillar the ghost grew', () => {
     const f = toolFixture([...modules, pillar], stationCells)
     new EquipmentTool(f.ctx).onDown(hoverAt(2, 2))
     assert.equal(
-      useStore.getState().station.modules.find((m) => m.id === 'pillar-2').cfg.height,
-      6,
+      useStore.getState().station.modules.find((m) => m.id === 'pillar-2') .cfg.height, 7,
       'the release grows what the hover previewed',
     )
   } finally {

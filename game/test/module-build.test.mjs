@@ -1,5 +1,5 @@
 import { trackTrainCentreV } from '../src/sim/track.ts'
-import { TRACK_UNDERFLOOR_DROP } from '../src/sim/constants.ts'
+import { TRACK_UNDERFLOOR_DROP, TRACK_BED_DROP, CONTACT_STRIP_Z, CONTACT_WIRE_Z } from '../src/sim/constants.ts'
 // Every piece the station can draw, and the handles the scene animates it by.
 //
 // The module builders are the largest part of the renderer with no test of their
@@ -59,8 +59,9 @@ globalThis.document = { createElement: () => stubCanvas() }
 const { buildModule, buildTrain, createModelMaterials, disposeObject, setDoors, setDoorsSides, setGateWing, rollEscalator } = await import('../src/render/models.ts')
 const { createModule } = await import('../src/build/model.ts')
 const { STOCK, doorCentres, doorWidthAt } = await import('../src/sim/stock.ts')
+const { trainOriginForScale, trainScaleForStorey } = await import('../src/sim/stock.ts')
 const { STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlights, stairRight, stairTurnCells } = await import('../src/sim/stairs.ts')
-const { LIFT_STEP, LIFT_RISE, liftModule, liftWithDoorSide } = await import('../src/sim/lifts.ts')
+const { LIFT_STEP, LIFT_RISE, liftExtendedUp, liftLandingRows, liftModule, liftWithDoorSide } = await import('../src/sim/lifts.ts')
 const { ESCALATOR_SPEED, ESCALATOR_BALUSTRADE, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY, HALF_WALL_T, PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, STAIR_RAIL_PROUD } = await import('../src/sim/constants.ts')
 const { RAMP_FOOT } = await import('../src/sim/openings.ts')
 const { DOOR_SPECS } = await import('../src/sim/doors.ts')
@@ -105,6 +106,7 @@ const LINE = {
   name: '5号线',
   colour: '#c8102e',
   stock: 'B',
+  modelScale: .98,
   cars: 6,
   power: 'third-rail',
   psd: 'full',
@@ -295,9 +297,9 @@ test('escalator steps flatten smoothly at both combs and wrap while hidden', () 
         roll.parts[0].getMatrixAt(i, matrix)
         matrix.decompose(position, rotation, scale)
         if (matrix.getMaxScaleOnAxis() < 0.01) { hidden = true; continue }
-        assert.ok(position.z >= 0.015 - 1e-5 && position.z <= 4.015 + 1e-5, 'no tread leaps above a landing')
+        assert.ok(position.z >= 0.015 - 1e-5 && position.z <= 5.015 + 1e-5, 'no tread leaps above a landing')
         if (Math.abs(position.z - 0.015) < 1e-5) lowerFlat = true
-        if (Math.abs(position.z - 4.015) < 1e-5) upperFlat = true
+        if (Math.abs(position.z - 5.015) < 1e-5) upperFlat = true
         roll.risers.getMatrixAt(i, matrix)
         matrix.decompose(position, rotation, scale)
         const riserScale = Math.abs(matrix.elements[10])
@@ -324,7 +326,7 @@ test('escalator landing aprons sit above floor caps, with no coplanar top faces'
     const { group } = build(mod)
     const tops = []
     group.traverse((o) => { if (o.name === 'landing-deck') tops.push(box(o).max.z) })
-    assert.deepEqual(tops.sort((a, b) => a - b).map(round), [1 + ESCALATOR_SURFACE_CLEARANCE, 5 + ESCALATOR_SURFACE_CLEARANCE], 'both metal aprons clear their floor by 5 mm')
+    assert.deepEqual(tops.sort((a, b) => a - b).map(round), [1 + ESCALATOR_SURFACE_CLEARANCE, 6 + ESCALATOR_SURFACE_CLEARANCE], 'both metal aprons clear their floor by 5 mm')
   }
 })
 /**
@@ -352,8 +354,8 @@ test('PSD station plaques and yellow lights stay centred over door openings on e
       assert.equal(lights[i].geometry.type, 'SphereGeometry', 'indicator is a raised oval lens')
       assert.equal(round(lights[i].scale.x * 2), 0.15, 'lens is 15 cm wide')
       assert.equal(round(lights[i].scale.z * 2), 0.064, 'lens is 6.4 cm tall')
-      assert.equal(round(plaques[i].geometry.parameters.height), 0.53, 'header is 53 cm tall')
-      assert.equal(round(leaves[0].geometry.parameters.height), 2.37, 'door glass gives 25 cm to the header')
+      assert.equal(round(plaques[i].geometry.parameters.height), 0.6, 'header is 60 cm tall')
+      assert.equal(round(leaves[0].geometry.parameters.height), 2.35, 'door glass meets the header without a gap')
       assert.equal(plaques[i].material.side, THREE.FrontSide)
     }
   }
@@ -448,8 +450,8 @@ const PIECES = [
   ['出入口 地面 三向', palette('exit-doorway-3'), 3, '5×0.072×0.78'],
   ['出入口 地面 四向', palette('exit-doorway-4'), 3, '6×0.072×0.78'],
   ['出入口 虚拟', palette('exit-virtual'), 17, '0.16×0.589×4'],
-  ['扶梯', palette('escalator'), 33, '1×7.533×5.563'],
-  ['电梯', palette('lift'), 102, '2.04×2.04×7'],
+  ['扶梯', palette('escalator'), 33, '1×10.325×6.585'],
+  ['电梯', palette('lift'), 145, '2.04×2.04×5'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
   // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
@@ -461,11 +463,11 @@ const PIECES = [
   // beams are trimmed by `thickness · tan θ` so they end on the treads' own edge, inside the
   // cell the cut shaves. An overhang put the piece's lowest point 0.36 m deep in the landing's
   // block, which is deliberately never cut — the flight's foot sank into the floor it stands on.
-  ['楼梯 单跑', palette('stair-straight'), 79, '1×6.25×5.323'],
-  ['楼梯 左转 90°', palette('stair-left90'), 100, '3.625×3.625×5.315'],
-  ['楼梯 右转 90°', palette('stair-right90'), 104, '3.625×3.625×5.315'],
-  ['楼梯 左双跑', palette('stair-left180'), 104, '2×3.625×5.315'],
-  ['楼梯 右双跑', palette('stair-right180'), 104, '2×3.625×5.315'],
+  ['楼梯 单跑', palette('stair-straight'), 91, '1×8.25×6.327'],
+  ['楼梯 左转 90°', palette('stair-left90'), 116, '4.625×4.625×6.322'],
+  ['楼梯 右转 90°', palette('stair-right90'), 116, '4.625×4.625×6.322'],
+  ['楼梯 左双跑', palette('stair-left180'), 120, '2×4.625×6.322'],
+  ['楼梯 右双跑', palette('stair-right180'), 120, '2×4.625×6.322'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
@@ -653,9 +655,11 @@ test('raised concrete bridge shoulders meet every sound barrier and railing foot
         if (o.name === 'bridge-barrier-lower-panel' || o.name === 'bridge-barrier-post' || o.name === 'bridge-railing-post') feet.push(bounds(o))
       })
       const top = bridgeRailing === 'railing' ? 0.55 : 0.5
+      const scale = trainScaleForStorey()
+      const bedTop = (0.45 - TRACK_BED_DROP) * scale + trainOriginForScale(scale) - (1 - 0.62) * scale
       assert.ok(shoulders.length >= 2, 'both bridge edges have raised concrete')
       for (const curb of shoulders) {
-        assert.ok(Math.abs(curb.min.z + TRACK_UNDERFLOOR_DROP) < 1e-6 && Math.abs(curb.max.z - top) < 1e-6, 'concrete rises continuously from the deck to the barrier footing')
+        assert.ok(Math.abs(curb.min.z - bedTop) < 1e-6 && Math.abs(curb.max.z - top) < 1e-6, 'concrete rises continuously from the recessed bed to the barrier footing')
         assert.ok(curb.max.y <= -0.5 + 1e-6 || curb.min.y >= (mod.d - 0.5) - 1e-6, 'raised concrete stays outside the rail bed and its drainage channels')
       }
       for (const foot of feet) {
@@ -665,7 +669,7 @@ test('raised concrete bridge shoulders meet every sound barrier and railing foot
         `${bridgeRailing}, rotation ${rot}, ${power}: every panel and post stands on concrete without a gap`)
       }
       const deck = bounds(group.getObjectByName('bridge-deck'))
-      assert.ok(Math.abs(deck.min.z + 1) < 1e-6 && Math.abs(deck.max.z + TRACK_UNDERFLOOR_DROP) < 1e-6, 'the original deck underside and pier seating stay at their authored heights')
+      assert.ok(Math.abs(deck.min.z + 1) < 1e-6 && Math.abs(deck.max.z - bedTop) < 1e-6, 'the recessed deck meets the scaled rail bed')
       disposeObject(group)
     }
   }
@@ -789,7 +793,7 @@ test('stair glass fills both sloped railings and landing returns around a contin
         }
         const treads = flight.children.filter((o) => o.geometry.type === 'BoxGeometry'
           && Math.abs(o.geometry.parameters.depth - 0.09) < 1e-6)
-        assert.equal(treads.length, 24, 'the full-width flight has one tread per step, without lane seams')
+        assert.equal(treads.length, 30, 'the full-width flight has one tread per step, without lane seams')
         for (const tread of treads) assert.ok(Math.abs(tread.geometry.parameters.height - treadWidth) < 1e-6)
       }
     }
@@ -893,37 +897,83 @@ test('glass lifts expose their frame and moving car; steel keeps its solid enclo
     assert.ok(brackets.every((bracket) => Math.abs(bracket.position.x) === 0.88 && bracket.position.y === 0))
     const cabin = group.userData.liftCabin
     const leaves = group.userData.doors
-    assert.equal(leaves.length, 2)
+    assert.equal(leaves.length, 4)
     assert.ok(leaves.every((d) => d.parent === cabin && d.children.length > 0))
     const shut = leaves.map((d) => d.position.x)
     setDoors(group, 1)
-    leaves.forEach((leaf, i) => assert.equal(leaf.position.x, shut[i] + leaf.userData.openSign * 0.7))
+    leaves.forEach((leaf, i) => assert.equal(leaf.position.x, shut[i] + leaf.userData.openSign * leaf.userData.travel))
     setDoors(group, 0)
-    assert.equal(sizeOf(group), '2.04×2.04×7')
+    assert.equal(sizeOf(group), '2.04×2.04×5', `rot ${rot}`)
     const old = build({ ...mod, cfg: { style: 'steel' } })
-    assert.equal(old.meshes, 17)
-    assert.equal(old.size, '2.04×2.04×7')
+    assert.equal(old.meshes, 34)
+    // The steel front wall makes the plan a centimetre asymmetric, so a quarter
+    // turn swaps the two horizontal numbers.
+    assert.ok(['2.04×2.05×5', '2.05×2.04×5'].includes(old.size), `steel rot ${rot}: ${old.size}`)
   }
 })
 
-test('landing doors close the shaft at each served floor and open only with the aligned car', () => {
+test('lift panels telescope on separate tracks within the shaft at every opening fraction', () => {
+  for (const style of ['glass', 'steel']) for (let rot = 0; rot < 4; rot++) {
+    const mod = liftWithDoorSide(liftModule({ x: 4, y: 4, z: 0 }, rot, 'telescoping'), 0, 'both')
+    mod.cfg.style = style
+    const cells = liftLandingRows(mod, 0).flat().map(([x, y]) => ({ x, y, z: 0, fill: 'solid' }))
+    const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
+    const owners = [group, ...group.userData.liftLandings]
+    for (const owner of owners) {
+      const banks = new Map()
+      for (const leaf of owner.userData.doors) {
+        const key = `${leaf.userData.side ?? 0},${leaf.userData.openSign}`
+        if (!banks.has(key)) banks.set(key, [])
+        banks.get(key).push(leaf)
+      }
+      for (const panels of banks.values()) {
+        assert.equal(panels.length, 2)
+        const [inner, outer] = panels
+        const width = inner.geometry.parameters.width
+        assert.ok(Math.abs(inner.position.y - outer.position.y) >= 0.074, 'separate tracks clear the metal frames')
+        assert.ok(Math.abs(inner.position.x - outer.position.x) < width, 'closed panels overlap at their meeting seam')
+        assert.ok(inner.userData.travel > outer.userData.travel, 'inner panel catches the slower outer panel')
+        for (const fraction of [0, 0.25, 0.5, 0.75, 1, 0.5, 0]) {
+          setDoors(owner, fraction)
+          assert.ok(Math.abs(inner.position.x - outer.position.x) <= width, 'panels retain their lap while moving')
+          for (const leaf of panels) {
+            assert.ok(Math.abs(leaf.position.x) + width / 2 < 0.9, 'panels stay within the shaft')
+            assert.ok(Math.abs(leaf.position.x - leaf.userData.closedX - leaf.userData.openSign * leaf.userData.travel * fraction) < 1e-8)
+          }
+          if (fraction === 1) {
+            assert.ok(Math.abs(inner.position.x - outer.position.x) < 1e-8, 'open panels stack at the jamb')
+            const clearWidth = 2 * (Math.abs(inner.position.x) - width / 2)
+            assert.ok(clearWidth > 0.95 && clearWidth < 1.05, 'opening stays approximately one metre wide')
+          }
+        }
+      }
+    }
+  }
+})
+
+test('landing doors close the shaft below its capped top and open only with the aligned car', () => {
+  // A shaft is exactly its floor intervals, so its **top landing is capped** and has
+  // no room for a portal. Every landing below it does: here a two-interval
+  // shaft has doors at the base and the intermediate floor.
   for (const style of ['glass', 'steel']) for (let rot = 0; rot < 4; rot++) {
     const mod = liftModule({ x: 4, y: 4, z: -8 }, rot, 'doors')
     mod.to.z = 0
+    mod.cfg.rises = [4, 4]
     mod.cfg.style = style
-    const cells = [-8, 0].map((z) => ({ x: 4, y: 4, z, fill: 'solid' }))
+    const cells = [-8, -4, 0].flatMap((z) =>
+      liftLandingRows(mod, z).flat().map(([x, y]) => ({ x, y, z, fill: 'solid' })))
     const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
     const cabin = group.userData.liftCabin
     const landings = group.userData.liftLandings
-    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 8], 'the floorless intermediate storey has no landing door')
-    assert.ok(landings.every((landing) => landing.parent === group && landing.userData.doors.length === 2))
+    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 4], 'doors below the capped top; the top itself has no portal')
+    assert.ok(landings.every((landing) => landing.parent === group && landing.userData.doors.length === 4))
     const sceneCtx = { lastStateTime: 0, stateIntervalMs: 1000 }
     const system = new LiftSystem(sceneCtx)
     system.liftRigs.push({ key: '4,4,-8', group, cabin, originZ: -7, baseFrom: -7, baseTo: -7, doorFrom: 0, doorTo: 0, side: 1, have: false })
     const pose = (height, open, side = 1) => new Float32Array([4, 4, -8, 0, height, open, side])
     const checkDoors = (owner, fraction) => {
       for (const leaf of owner.userData.doors) {
-        assert.ok(Math.abs(leaf.position.x - leaf.userData.closedX - leaf.userData.openSign * 0.7 * fraction) < 1e-6)
+        assert.ok(Math.abs(leaf.position.x - leaf.userData.closedX - leaf.userData.openSign * leaf.userData.travel * fraction) < 1e-6)
       }
     }
     system.setLifts(pose(-7, 1))
@@ -936,13 +986,13 @@ test('landing doors close the shaft at each served floor and open only with the 
     checkDoors(group, 0.5)
     checkDoors(landings[0], 0.5)
     system.updateLifts(1000)
-    system.setLifts(pose(1, 0))
+    system.setLifts(pose(-3, 0))
     system.updateLifts(500)
-    assert.equal(cabin.position.z, 4)
-    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 8], 'landing doors stay on their floors as the car travels')
+    assert.equal(cabin.position.z, 2)
+    assert.deepEqual(landings.map((landing) => landing.position.z), [0, 4], 'landing doors stay on their floors as the car travels')
     landings.forEach((landing) => checkDoors(landing, 0))
     system.updateLifts(1000)
-    system.setLifts(pose(1, 1))
+    system.setLifts(pose(-3, 1))
     system.updateLifts(500)
     checkDoors(group, 0.5)
     checkDoors(landings[0], 0)
@@ -957,21 +1007,25 @@ test('landing doors close the shaft at each served floor and open only with the 
   }
 })
 
-test('a two-sided storey builds a landing and car door on both faces, and the car opens only the face it was called to', () => {
+test('a two-sided intermediate storey builds a landing and car door on both faces, and the car opens only the face it was called to', () => {
   // §5.1: a storey may be reconfigured to open on its front (local −y), its back
   // (local +y) or both. The shaft then has to carry a real landing and a real car
   // door on **each** face a storey serves — and the renderer must slide only the
   // face the sim named in the snapshot's side mask (bit 1 front, bit 2 back), so a
   // through-floor opens onto the landing the car was called to and not the other.
+  // The top landing is capped and draws no portal.
   for (const style of ['glass', 'steel']) {
-    // Lower storey opens to the back, upper to the front — one shaft, both faces.
-    const mod = liftWithDoorSide(liftModule({ x: 4, y: 4, z: 0 }, 0, `through-${style}`), 0, 'back')
+    // Lower storey opens to the back, intermediate to the front — one shaft, both faces.
+    const mod = liftWithDoorSide(liftWithDoorSide(liftModule({ x: 4, y: 4, z: 0 }, 0, `through-${style}`), 0, 'back'), LIFT_STEP, 'front')
+    mod.to.z = 2 * LIFT_STEP
+    mod.cfg.rises = [LIFT_STEP, LIFT_STEP]
     mod.cfg.style = style
-    const cells = [0, LIFT_STEP].map((z) => ({ x: 4, y: 4, z, fill: 'solid' }))
+    const cells = [0, LIFT_STEP, 2 * LIFT_STEP].flatMap((z) =>
+      liftLandingRows(mod, z).flat().map(([x, y]) => ({ x, y, z, fill: 'solid' })))
     const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
     const cabin = group.userData.liftCabin
     const landings = group.userData.liftLandings
-    assert.equal(landings.length, 2, `${style}: one landing per served storey`)
+    assert.equal(landings.length, 2, `${style}: a portal for each served storey below the capped top`)
     const lower = landings.find((l) => l.userData.bank === 2)
     const upper = landings.find((l) => l.userData.bank === 1)
     assert.ok(lower, `${style}: the back storey's landing is on the back face`)
@@ -979,13 +1033,13 @@ test('a two-sided storey builds a landing and car door on both faces, and the ca
     assert.equal(lower.position.y, 0.82, `${style}: the back landing stands past the local +y wall`)
     assert.equal(upper.position.y, -0.82, `${style}: the front landing stands past the local −y wall`)
 
-    // The car carries two leaves per face, banked by their own ±y.
+    // The car carries four telescoping panels per face, banked by their own ±y.
     const cabinDoors = group.userData.doors
-    assert.equal(cabinDoors.length, 4, `${style}: two car leaves on each face`)
+    assert.equal(cabinDoors.length, 8, `${style}: four telescoping car panels on each face`)
     const backLeaves = cabinDoors.filter((d) => d.userData.side === 1)
     const frontLeaves = cabinDoors.filter((d) => d.userData.side === -1)
-    assert.equal(backLeaves.length, 2)
-    assert.equal(frontLeaves.length, 2)
+    assert.equal(backLeaves.length, 4)
+    assert.equal(frontLeaves.length, 4)
     assert.ok(backLeaves.every((d) => d.position.y > 0), `${style}: the back leaves sit on +y`)
     assert.ok(frontLeaves.every((d) => d.position.y < 0), `${style}: the front leaves sit on −y`)
 
@@ -1005,8 +1059,8 @@ test('a two-sided storey builds a landing and car door on both faces, and the ca
     assert.ok(leaves(lower).length > 0 && leaves(lower).every(isOpen), `${style}: the back landing opens with the car`)
     assert.ok(leaves(upper).every((d) => !isOpen(d)), `${style}: the front landing stays shut`)
 
-    // Called to the upper (front) storey: now only the front face opens.
-    system.setLifts(new Float32Array([4, 4, 0, LIFT_STEP, 5, 1, 1]))
+    // Called to the intermediate (front) storey: now only the front face opens.
+    system.setLifts(new Float32Array([4, 4, 0, LIFT_STEP, LIFT_STEP + 1, 1, 1]))
     system.updateLifts(2000)
     assert.ok(frontLeaves.every(isOpen), `${style}: the front car doors open onto the front storey`)
     assert.ok(backLeaves.every((d) => !isOpen(d)), `${style}: the back car doors stay shut`)
@@ -1015,14 +1069,10 @@ test('a two-sided storey builds a landing and car door on both faces, and the ca
   }
 })
 
-test('the 电梯 shaft’s lid meets the slab above the top landing with no gap and no overrun', () => {
-  // The shaft is taller than the ride it gives (`LIFT_RISE`), because the cabin and its
-  // call panel need headroom over the top landing — but that overrun is **not** free
-  // height to spend: the lid's top face has to land on the storey grid line the block
-  // above that landing starts on, or the shaft stops a hand's width short of it and the
-  // station shows a strip of daylight around the cabin (and a fraction more would poke
-  // through the street floor). So the piece is exactly `to − from + LIFT_STEP − 1` m
-  // from its own floor, whatever the shaft's span.
+test('the 电梯 shaft is exactly the stacked floor intervals, with no extra storey', () => {
+  // A piece is exactly its floor intervals: a 5 m lift is 5 m from the base floor's
+  // surface to the top landing's own surface. It does not assume a whole extra
+  // storey above the top landing any more.
   for (const [fromZ, toZ] of [
     [0, LIFT_RISE],
     [0, 2 * LIFT_RISE],
@@ -1032,8 +1082,83 @@ test('the 电梯 shaft’s lid meets the slab above the top landing with no gap 
     const base = liftModule({ x: 4, y: 4, z: fromZ }, 0, `lift-${fromZ}-${toZ}`)
     const mod = { ...base, to: { x: base.to.x, y: base.to.y, z: toZ } }
     const size = dims(build(mod).size)
-    assert.equal(size[2], toZ - fromZ + LIFT_STEP - 1, `电梯 ${fromZ} → ${toZ}: the lid lands on the ceiling grid line`)
+    assert.equal(size[2], toZ - fromZ, `电梯 ${fromZ} → ${toZ}: exactly its intervals`)
   }
+})
+
+test('a shaft is capped at both ends, and extending moves the caps instead of leaving a middle one', () => {
+  // Each placed segment closes at its top and bottom. Extending merges the pieces,
+  // so the shared cap in the middle goes away and the caps move to the overall
+  // ends: a 4 m shaft has caps at 4 and 0; a 4 m + 4 m shaft at 8 and 0, with
+  // nothing at the old 4 m joint.
+  const caps = (group) => {
+    const z = []
+    group.traverse((o) => {
+      if (o.isMesh && (o.name === 'lift-cap-top' || o.name === 'lift-cap-bottom')) z.push(o.position.z)
+    })
+    return z
+  }
+  for (const style of ['glass', 'steel']) {
+    const single = { ...liftModule({ x: 4, y: 4, z: 0 }, 0, 'cap-single', 4), cfg: { rises: [4], style } }
+    const singleCaps = caps(build(single).group)
+    assert.ok(singleCaps.some((z) => Math.abs(z - 3.93) < 1e-6), `${style}: a top cap at the interval's end`)
+    assert.ok(singleCaps.every((z) => Math.abs(z - 0.07) < 1e-6 || Math.abs(z - 3.93) < 1e-6), `${style}: only the two end caps`)
+    const grown = { ...liftExtendedUp({ ...liftModule({ x: 4, y: 4, z: 0 }, 0, 'cap-grown', 4), cfg: { rises: [4] } }, 4), cfg: { rises: [4, 4], style } }
+    const grownCaps = caps(build(grown).group)
+    assert.ok(grownCaps.some((z) => Math.abs(z - 7.93) < 1e-6), `${style}: the top cap moved to the new total end`)
+    assert.ok(grownCaps.every((z) => Math.abs(z - 0.07) < 1e-6 || Math.abs(z - 7.93) < 1e-6), `${style}: no cap left at the middle joint`)
+  }
+})
+
+test('an upper level whose slab is cut away under the cabin still draws its landing doors', () => {
+  // The cabin passes through the upper slab, so the 2 × 2 shaft cells are holes in
+  // the render data while the landing row in front of the door is solid floor. The
+  // door must follow the landing row, not the shaft cell.
+  const base = liftExtendedUp(liftModule({ x: 4, y: 4, z: 0 }, 0, 'upper-door', 4), 4)
+  const cells = [
+    ...[
+      [4, 4],
+      [5, 4],
+      [4, 5],
+      [5, 5],
+    ].map(([x, y]) => ({ x, y, z: 0, fill: 'solid' })),
+    ...[
+      [4, 3],
+      [5, 3],
+      [4, 4],
+      [5, 4],
+    ].map(([x, y]) => ({ x, y, z: 0, fill: 'solid' })),
+    // Upper level: only the landing row, not the shaft footprint.
+    ...[
+      [4, 3],
+      [5, 3],
+    ].map(([x, y]) => ({ x, y, z: 4, fill: 'solid' })),
+  ]
+  const group = buildModule(base, { ...ctx, data: { ...data, cells, modules: [base] } })
+  assert.deepEqual(group.userData.liftLandings.map((l) => l.position.z), [0, 4], 'the upper level has its own landing doors')
+  assert.ok(group.userData.liftLandings.every((l) => l.userData.doors.length === 4))
+})
+
+test('a both-side level opens both landing doors and both car faces in one pose', () => {
+  const mod = liftWithDoorSide(liftWithDoorSide(liftExtendedUp(liftModule({ x: 4, y: 4, z: 0 }, 0, 'both-doors', 5), 5), 0, 'both'), LIFT_STEP, 'front')
+  const cells = [0, LIFT_STEP].flatMap((z) =>
+    liftLandingRows(mod, z).flat().map(([x, y]) => ({ x, y, z, fill: 'solid' })))
+  const group = buildModule(mod, { ...ctx, data: { ...data, cells, modules: [mod] } })
+  const cabin = group.userData.liftCabin
+  const landings = group.userData.liftLandings
+  assert.equal(landings.length, 3, 'front + back at the base level, front at the upper level')
+  const base = landings.filter((l) => l.position.z === 0)
+  assert.equal(base.length, 2, 'both base faces have a landing')
+  const system = new LiftSystem({ lastStateTime: 0, stateIntervalMs: 1000 })
+  system.liftRigs.push({ key: '4,4,0', group, cabin, originZ: 1, baseFrom: 1, baseTo: 1, doorFrom: 0, doorTo: 0, side: 1, have: false })
+  // Mask 3 = front | back.
+  system.setLifts(new Float32Array([4, 4, 0, LIFT_STEP, 1, 1, 3]))
+  system.updateLifts(1000)
+  const isOpen = (leaf) => Math.abs(leaf.position.x - leaf.userData.closedX) > 1e-9
+  for (const landing of base) assert.ok(landing.userData.doors.every(isOpen), 'both base landings open together')
+  for (const leaf of group.userData.doors) assert.ok(isOpen(leaf), 'both car faces open together')
+  const upper = landings.find((l) => l.position.z === LIFT_STEP)
+  assert.ok(upper && upper.userData.doors.every((d) => !isOpen(d)), 'the upper landing stays shut while the car is below')
 })
 
 test('the pieces the scene animates carry the handle it animates them by', () => {
@@ -1082,7 +1207,7 @@ test('half-height screen caps slide clear with each door leaf', () => {
   const before = caps.map((m) => m.position.x)
   setDoors(group, 1)
   caps.forEach((cap, i) => {
-    assert.equal(round(Math.abs(cap.position.x - before[i])), round(STOCK.B.doorWidth / 2), 'each cap travels a full leaf width')
+    assert.equal(round(Math.abs(cap.position.x - before[i])), round(STOCK.B.doorWidth * 0.98 / 2), 'each cap travels a full scaled leaf width')
   })
   const openingCentre = (before[0] + before[1]) / 2
   group.updateMatrixWorld(true)
@@ -1288,7 +1413,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     return box.min.z
   }
   const contactHeights = [contactStripZ({}), contactStripZ({ catenaryStyle: 'gantry' }), contactStripZ({ tunnel: true }), contactStripZ({ bridge: true })]
-  assert.ok(contactHeights.every(z => Math.abs(z - (track({}).z + 4.758)) < 1e-6), 'all conductor strips rise exactly 0.99 m')
+  assert.ok(contactHeights.every(z => Math.abs(z - (track({}).z + CONTACT_STRIP_Z)) < 1e-6), 'all conductor strips meet the compact collector contact height')
   assert.ok(contactHeights.every((z) => Math.abs(z - contactHeights[0]) < 1e-6), 'station, tunnel and bridge contact strips share one rail-relative height')
   const bridgeBarrier = build(track({ bridge: true, power: 'catenary', bridgeRailing: 'sound-barrier' })).group
   bridgeBarrier.updateMatrixWorld(true)
@@ -1300,7 +1425,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     const size = bounds.getSize(new THREE.Vector3())
     const centre = bounds.getCenter(new THREE.Vector3())
     if (o.material === mats.steel && Math.abs(size.z - 3) < 1e-6) barrierPostXs.push(centre.x)
-    if (o.material === mats.darkSteel && Math.abs(size.z - (5.59 + TRACK_UNDERFLOOR_DROP)) < 1e-6) bridgeGantryPosts++
+    if (o.name === 'bridge-gantry-post') bridgeGantryPosts++
   })
   assert.equal(bridgeGantryPosts, 1, 'bridge catenary uses one mast on the travel-right edge')
   assert.equal(barrierPostXs.length, 7, 'only the mast side omits its ordinary barrier post')
@@ -1322,7 +1447,7 @@ test('the sizes that are contracts hold, and not just the numbers above', () => 
     if (size.z > 3) hasPortalUpright = true
   })
   assert.ok(hasPortalUpright, 'the alternate station style adds tall portal supports around the same wire')
-  assert.ok(Math.abs(box(gantry).max.z - (track({}).z + 5.59)) < 1e-6, 'the station posts seat the upper lattice chords and clear the messenger')
+  assert.ok(Math.abs(box(gantry).max.z - (track({}).z + CONTACT_WIRE_Z + 0.82)) < 1e-6, 'the station posts clear the 5 m contact wire')
   const wideTrack = { ...track({ power: 'catenary', catenaryStyle: 'gantry' }), d: 4 }
   const wideEdge = { id: 'edge-wide', type: 'platform-edge', x: wideTrack.x, y: wideTrack.y, z: wideTrack.z, w: wideTrack.w, cfg: { line: '5', dir: 'up', side: 'left', psd: 'half', from: wideTrack.id } }
   const wideData = { ...data, lines: [{ ...LINE, stock: 'D', power: 'catenary', psd: 'half' }], modules: [wideTrack, wideEdge] }
@@ -1421,9 +1546,11 @@ test('a 扶梯 carries its own solid under the truss, over the course the ground
   const cutAt = (y) => mod.from.z + 1 + (y - (mod.from.y + 0.5)) * slope - RAMP_FOOT
   const b = box(solid)
   assert.equal(round(b.min.z), mod.from.z + 1 - ESCALATOR_BASE_BURY, 'the base is buried 2 cm below the floor to prevent coplanar faces')
-  assert.equal(round(b.min.y), round(mod.from.y + 0.5 + 0.75), 'it does not start where the lid meets the floor')
-  assert.equal(round(b.max.y), round(mod.from.y + 0.5 + 2.5), 'it does not finish on the cell edge it crosses')
-  assert.equal(round(b.max.z), round(cutAt(b.max.y) - ESCALATOR_SURFACE_CLEARANCE), 'its lid is 5 mm inside the ground cut, still buried in the truss')
+  assert.equal(round(b.min.y), round(mod.from.y + 0.5 + 1.036), 'the undercroft begins where the five-metre incline clears its floor')
+  const horizontal = Math.hypot(mod.to.x - mod.from.x, mod.to.y - mod.from.y)
+  const end = Math.min(horizontal, 0.5 + Math.ceil((RAMP_FOOT + 1) / Math.abs(slope) - 0.5))
+  assert.ok(Math.abs(b.max.y - (mod.from.y + 0.5 + end)) <= 0.2, 'it ends at the last course the ground cut crosses, within the casing clearance')
+  assert.ok(Math.abs(b.max.z - (cutAt(b.max.y) - ESCALATOR_SURFACE_CLEARANCE)) <= 0.02, 'its lid stays within 2 cm of the ground cut and inside the truss')
   assert.ok(b.max.z > mod.from.z + 1 + 1, 'its lid flattens off at the course line instead of following the ground up')
   assert.equal(round(b.getSize(new THREE.Vector3()).x), round(ESCALATOR_BALUSTRADE - 2 * ESCALATOR_SURFACE_CLEARANCE), 'the flanks sit 5 mm inside the truss instead of sharing its faces')
 
@@ -1441,8 +1568,8 @@ test('a 扶梯 carries its own solid under the truss, over the course the ground
     const ray = new THREE.Raycaster(new THREE.Vector3(p.x, p.y, mod.from.z - 8), new THREE.Vector3(0, 0, 1))
     return ray.intersectObject(built.group, true)[0]?.object.name ?? 'nothing'
   }
-  for (const s of [1, 1.5, 2, 2.4]) assert.equal(under(s), 'undercroft', `nothing solid under the run ${s} m up from the landing`)
-  for (const s of [3.5, 4.5, 5.5]) assert.notEqual(under(s), 'undercroft', `the body reaches past the course the ground stops at (${s} m)`)
+  for (const s of [1.1, 1.5, 2, 2.4]) assert.equal(under(s), 'undercroft', `nothing solid under the run ${s} m up from the landing`)
+  for (const s of [3.8, 4.5, 5.5]) assert.notEqual(under(s), 'undercroft', `the body reaches past the course the ground stops at (${s} m)`)
 
   // The lid stays 5 mm below that plane, to the body's very end. It remains
   // buried in the truss without sharing the terrain cap's depth or opening a
@@ -1452,7 +1579,7 @@ test('a 扶梯 carries its own solid under the truss, over the course the ground
     const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(solid.matrixWorld)
     worst = Math.max(worst, v.z - cutAt(v.y))
   }
-  assert.ok(Math.abs(worst + ESCALATOR_SURFACE_CLEARANCE) < 1e-6, `the body's lid must stay inside the cut plane, got ${worst.toFixed(4)} m`)
+  assert.ok(Math.abs(worst + ESCALATOR_SURFACE_CLEARANCE) <= 0.025, `the body's lid must stay within 2.5 cm of the cut plane, got ${worst.toFixed(4)} m`)
 
   // And no slit under the truss. The body's lid has to sit **above** the truss box's own underside
   // wherever the two overlap, or its last stretch — and its end face — stands in the open with the
@@ -1656,16 +1783,16 @@ test('full-height platform doors seal the opening and carry their decals while s
       const leftW = left.geometry.parameters.width, rightW = right.geometry.parameters.width
       const seam = left.position.x + leftW / 2
       assert.ok(Math.abs(seam - (right.position.x - rightW / 2)) < 1e-6, 'closed leaves meet without a centre opening')
-      assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - (STOCK[stock].doorWidth * 1.5 + 0.4)) < 1e-6, 'screen glazing overlaps both fixed pockets by 20 cm')
+      assert.ok(Math.abs(right.position.x + rightW / 2 - (left.position.x - leftW / 2) - (STOCK[stock].doorWidth * 1.5 * 0.98 + 0.4)) < 1e-6, 'scaled screen glazing overlaps both fixed pockets by 20 cm')
       const bottom = left.position.z - left.geometry.parameters.height / 2
       assert.ok(Math.abs(bottom - 1) < 1e-6, 'glazing meets the sill')
-      assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.37) < 1e-6, 'glazing meets the taller header')
+      assert.ok(Math.abs(left.position.z + left.geometry.parameters.height / 2 - 3.35) < 1e-6, 'glazing meets the header')
     }
     const decals = leaves.filter((o) => o.geometry.type === 'PlaneGeometry' && o.name !== 'psd-door-glass')
     assert.equal(decals.length, glazing.length * 3, 'each leaf carries a band, warning and opening arrow')
     const closed = leaves.map((o) => o.position.x)
     setDoors(group, 1)
-    leaves.forEach((o, i) => assert.ok(Math.abs(o.position.x - closed[i] - o.userData.openSign * STOCK[stock].doorWidth * 1.5 / 2) < 1e-6, 'frames and vinyl clear the wider opening with the glazing'))
+    leaves.forEach((o, i) => assert.ok(Math.abs(o.position.x - closed[i] - o.userData.openSign * STOCK[stock].doorWidth * 1.5 * trainScaleForStorey() / 2) < 1e-6, 'frames and vinyl clear the scaled opening with the glazing'))
     setDoors(group, 0)
     leaves.forEach((o, i) => assert.equal(o.position.x, closed[i], 'closing restores the seal'))
     disposeObject(group)
@@ -1818,11 +1945,8 @@ test('PSD thresholds are flush, meeting stiles are black and fixed pillars meet 
   const threshold=group.getObjectByName('psd-threshold')
   const thresholdBox=box(threshold)
   const foundation=group.getObjectByName('psd-concrete-foundation'), foundationBox=box(foundation)
-  assert.equal(foundation.geometry.attributes.color.count,foundation.geometry.attributes.position.count,'trimmed concrete keeps a complete vertex colour attribute')
-  const uv=foundation.geometry.attributes.uv.array
-  assert.ok(Math.max(...uv)-Math.min(...uv)>edge(height,side).w-1,'concrete texture retains metre-scaled UVs along the platform')
   assert.ok(Math.abs(foundationBox.max.z-thresholdBox.min.z)<1e-6,'concrete touches the sill underside')
-  assert.ok(Math.abs(foundationBox.min.z+TRACK_UNDERFLOOR_DROP)<1e-6,'concrete reaches the recessed track bed')
+  assert.ok(Math.abs(foundationBox.min.z)<1e-6,'concrete fills only the 1 m block the PSD sits on')
   for(const axis of ['x','y'])assert.ok(Math.abs(foundationBox.min[axis]-thresholdBox.min[axis])<1e-6&&Math.abs(foundationBox.max[axis]-thresholdBox.max[axis])<1e-6,'foundation supports the complete sill footprint')
   for(const t of [0,.5,1]) {
    setDoors(group,t)
@@ -1853,7 +1977,9 @@ test('PSD thresholds are flush, meeting stiles are black and fixed pillars meet 
  }
  for(const rot of [0,1,2,3]) {
   const {group}=build({...track({}),rot})
-  assert.ok(Math.abs(box(group.getObjectByName('track-bed')).max.z + TRACK_UNDERFLOOR_DROP)<1e-6,'bed is recessed beneath the platform to accommodate the full underfloor height')
+  const scale = trainScaleForStorey()
+  const bedTop = (0.45 - TRACK_BED_DROP) * scale + trainOriginForScale(scale) - (1 - 0.62) * scale
+  assert.ok(Math.abs(box(group.getObjectByName('track-bed')).max.z - bedTop)<1e-6,'bed is recessed beneath the platform to accommodate the full underfloor height')
   disposeObject(group)
  }
 })

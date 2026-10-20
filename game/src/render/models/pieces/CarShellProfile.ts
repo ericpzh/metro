@@ -1,9 +1,10 @@
 import * as THREE from 'three'
+import { trainRoofSection } from '../../../sim/stock.ts'
 import { cabShellGeometry } from './TrainShell.ts'
 import { setModelDetail } from '../../modelDetail.ts'
 
 export const CAR_ROUND_SILL = .49
-export const CAR_ROUND_WAIST = 2.73
+export const CAR_ROUND_WAIST = trainRoofSection('B').shoulder
 type Sample = { y: number; z: number; ny: number; nz: number }
 const profiles = new Map<string, Sample[]>()
 
@@ -142,4 +143,16 @@ export function curveCarDoor(root: THREE.Mesh, width: number, side: number): voi
     const low=curvedDoorGeometry(previous??source,width,side,z,true)
     source.dispose();object.geometry=high;setModelDetail(object,low)
   })
+}
+
+/** Keep the exterior roof skin, opening its solid underside to the higher cabin. */
+export function openRoofUnderside(geometry: THREE.BufferGeometry): void {
+  const positions = geometry.getAttribute('position'), normals = geometry.getAttribute('normal')
+  const index = geometry.index, count = index?.count ?? positions.count, kept: number[] = []
+  for (let i = 0; i < count; i += 3) {
+    const corners = [0,1,2].map(j => index ? index.getX(i+j) : i+j)
+    if (corners.every(vertex => normals.getZ(vertex) < -.99)) continue
+    kept.push(...corners)
+  }
+  geometry.setIndex(kept)
 }

@@ -1,6 +1,6 @@
 import type { Module } from './types.ts'
 import { inCellOffset } from './inCellPositions.ts'
-import { LEVEL_STEPS } from './constants.ts'
+import { storeyBand } from './constants.ts'
 
 export type LightModule = Extract<Module, { type: 'light' }>
 export const LIGHT_DEPTH = 0.08
@@ -14,5 +14,6 @@ export function lightOffset(m: LightModule): { x: number; y: number } {
   return m.cfg.variant === 'rectangular' ? inCellOffset(m.cfg.position ?? 0, spec.width, spec.depth) : { x: 0, y: 0 }
 }
 export function lightCeilingZ(m: LightModule): number {
-  return LEVEL_STEPS.find((z) => z > m.z) ?? m.z + 4
+  if (m.ceilingAnchored) return m.z + 1
+  return storeyBand(m.z,0,m.storeyHeight??5)+(m.storeyHeight??5)
 }

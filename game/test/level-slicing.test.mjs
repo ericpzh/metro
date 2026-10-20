@@ -12,19 +12,19 @@ import { storeyBand } from '../src/sim/constants.ts'
 
 test('a piece is on the side of the storey it covers', () => {
   assert.equal(levelSide([0], 0), 'active')
-  assert.equal(levelSide([-16], 0), 'below')
+  assert.equal(levelSide([-20], 0), 'below')
   assert.equal(levelSide([4], 0), 'above')
-  assert.equal(levelSide(undefined, -8), 'active', 'an untagged piece (a decal) belongs to the active storey')
-  assert.equal(levelSide([], -8), 'active')
+  assert.equal(levelSide(undefined, -10), 'active', 'an untagged piece (a decal) belongs to the active storey')
+  assert.equal(levelSide([], -10), 'active')
 })
 
 test('a ramp or shaft that spans the active storey is in it, not beside it', () => {
-  // A lift running -12 to -4 passes through -8: it is the lift in the room the
+  // A lift running -15 to -5 passes through -10: it is the lift in the room the
   // player is standing in, so it draws crisp rather than as a ghost.
-  assert.equal(levelSide([-12, -4], -8), 'active')
-  assert.equal(levelSide([-12, -4], -12), 'active')
-  assert.equal(levelSide([-12, -4], -16), 'above')
-  assert.equal(levelSide([-12, -4], 0), 'below')
+  assert.equal(levelSide([-15, -5], -10), 'active')
+  assert.equal(levelSide([-15, -5], -15), 'active')
+  assert.equal(levelSide([-15, -5], -20), 'above')
+  assert.equal(levelSide([-15, -5], 0), 'below')
 })
 
 test('显示其他层 off draws the active storey and nothing else, on any side', () => {
@@ -56,20 +56,20 @@ test('隐藏天花板 off draws the ceiling of the storey above as well', () => 
 
 test('a fixture above the active storey is unsupported when its column starts there', () => {
   // The column reaches the active storey, so the fixture is that room's ceiling.
-  assert.equal(unsupportedAbove(-4, -4), false)
-  assert.equal(unsupportedAbove(-4, -8), false, 'a column reaching below is grounded under it')
+  assert.equal(unsupportedAbove(-5, -5), false)
+  assert.equal(unsupportedAbove(-5, -10), false, 'a column reaching below is grounded under it')
   // The column starts above the active storey: the fixture stands on a plate
   // hanging in space, so 隐藏天花板 keeps it.
-  assert.equal(unsupportedAbove(-4, 0), true)
-  assert.equal(unsupportedAbove(-4, undefined), false, 'an untagged fixture is never "hanging"')
+  assert.equal(unsupportedAbove(-5, 0), true)
+  assert.equal(unsupportedAbove(-5, undefined), false, 'an untagged fixture is never "hanging"')
 })
 
 test('a consist is drawn in the storey it stands in, never one up', () => {
   // The train rides half a metre under the platform, so its band comes from the
   // floor block it stands on — the bug was `z - 1` un-rounded, which banded a
-  // -16 consist to -16.5 (below the level being edited) and hid it.
-  assert.equal(storeyBand(Math.round(-15.5 - 1)), -16)
-  assert.equal(levelSide([storeyBand(Math.round(-15.5 - 1))], -16), 'active')
+  // -20 consist to -20.5 (below the level being edited) and hid it.
+  assert.equal(storeyBand(Math.round(-15.5 - 1)), -20)
+  assert.equal(levelSide([storeyBand(Math.round(-15.5 - 1))], -20), 'active')
   assert.equal(levelSide([storeyBand(Math.round(-15.5 - 1))], 0), 'below')
 
   assert.equal(trainVisible('active', false, false), true, 'the train at the platform you are editing shows')
@@ -80,13 +80,13 @@ test('a consist is drawn in the storey it stands in, never one up', () => {
 })
 
 test('the crowd follows the same storeys as the floor under it', () => {
-  assert.equal(crowdVisible(-15, -16, false), true, 'the platform crowd is on the storey you are editing')
-  assert.equal(crowdVisible(-15, 0, false), false)
-  assert.equal(crowdVisible(-15, 0, true), true)
-  assert.equal(crowdVisible(1, -16, true), false, 'a storey above never shows its crowd')
-  assert.equal(crowdVisible(-7, -4, false), false, 'the -8 storey is below -4, so it needs the toggle')
-  assert.equal(crowdVisible(-7, -4, true), true)
-  assert.equal(crowdVisible(1, -4, true), false, 'the 0 storey is above -4: never its crowd')
+  assert.equal(crowdVisible(-19, -20, false), true, 'the platform crowd is on the storey you are editing')
+  assert.equal(crowdVisible(-19, 0, false), false)
+  assert.equal(crowdVisible(-19, 0, true), true)
+  assert.equal(crowdVisible(1, -20, true), false, 'a storey above never shows its crowd')
+  assert.equal(crowdVisible(-7, -5, false), false, 'the -10 storey is below -5, so it needs the toggle')
+  assert.equal(crowdVisible(-7, -5, true), true)
+  assert.equal(crowdVisible(1, -5, true), false, 'the 0 storey is above -5: never its crowd')
 })
 
 test('隐藏UI is an asker, not a slice flag', () => {
@@ -104,8 +104,8 @@ test('隐藏UI is an asker, not a slice flag', () => {
   assert.equal(trainVisible('below', false, false), false, 'nor is a consist on a hidden storey drawn by it')
   // The crowd keeps its own flag: the renderer asks `crowdVisible` per agent, so
   // that is where a station drawn whole has to be honoured.
-  assert.equal(crowdVisible(-15, 0, false), false)
-  assert.equal(crowdVisible(-15, 0, false, true), true, 'a mode that draws every storey draws its crowd too')
+  assert.equal(crowdVisible(-19, 0, false), false)
+  assert.equal(crowdVisible(-19, 0, false, true), true, 'a mode that draws every storey draws its crowd too')
 })
 
 test('隐藏UI and 剖切 ask for a slice with every storey drawn, no ceiling lifted', () => {

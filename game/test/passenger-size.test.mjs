@@ -4,6 +4,21 @@ import * as THREE from 'three'
 import { passengerIsChild, passengerProportions } from '../src/sim/walking.ts'
 import { passengerAppearance, PASSENGER_LIBRARY } from '../src/render/passengerModel.ts'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
+import { trainScaleForStorey } from '../src/sim/stock.ts'
+
+test('adult and child models use the same uniform 98% visual scale as trains', () => {
+ const scale = trainScaleForStorey()
+ assert.equal(scale, .98)
+ let adults = 0, children = 0
+ for (let id = 0; id < 1000; id++) {
+  const proportions = passengerProportions(id)
+  const appearance = passengerAppearance(id)
+  assert.deepEqual(appearance.slice(1, 4), proportions.slice(0, 3).map(axis => axis * scale))
+  assert.equal(appearance[4], proportions[3], 'visual resizing preserves ink tone')
+  if (passengerIsChild(id)) children++; else adults++
+ }
+ assert.ok(adults > 0 && children > 0, 'both age pools share the train scale')
+})
 
 test('passengers have independent height/depth/width variation and a 20% child population', () => {
  let children=0

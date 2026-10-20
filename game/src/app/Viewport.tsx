@@ -282,7 +282,7 @@ export function Viewport(): React.ReactElement {
     // stacked into one picture. The labels come off the same floors, and no region
     // spans storeys, so they follow with it.
     const z = useStore.getState().activeZ
-    const floors = zoneMapFloorsAt(station.cells, z, station.modules, station.levelBase)
+    const floors = zoneMapFloorsAt(station.cells, z, station.modules, station.levelBase, station.storeyHeight)
     const quads = new Float32Array(floors.length * 3)
     const zones = new Uint8Array(floors.length)
     // A fingerprint of the picture the quads make, so an edit that touched no

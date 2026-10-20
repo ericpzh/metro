@@ -1,6 +1,7 @@
 import { msg } from './i18n.ts'
 // Steel hanging supports, GAME-SPEC §5.7–5.8. Shared placement/model dimensions.
 import { rotateLocal, trackCells } from './track.ts'
+import { STOREY_HEIGHT } from './constants.ts'
 import { CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from './structures.ts'
 import { signBoardsOf, signBoardsPanel } from './sign.ts'
 import type { Cell, Module } from './types.ts'
@@ -45,9 +46,15 @@ export function hangerBoxes(m: HangerModule) {
   return boxes
 }
 
-/** Height of actual roof backing at a suspension point, including shell roofs. */
+/**
+ * Height of actual roof backing at a suspension point, including shell roofs.
+ *
+ * The slab asked for is the one course that tops this hanger's own storey
+ * on the five-metre grid, not
+ * a fixed four up — a five-metre station's roof sits at `z + 5`.
+ */
 export function hangerRoofZ(cells: readonly Cell[], modules: readonly Module[], m: HangerModule, x: number, y: number): number | undefined {
-  const slab = cells.find((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === m.z + 4)
+  const slab = cells.find((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === m.z + (m.storeyHeight ?? STOREY_HEIGHT))
   if (slab) return slab.z
   for (const roof of modules) {
     if (roof.type !== 'roof' || roof.z !== m.z || !trackCells(roof).some(([rx, ry]) => rx === x && ry === y)) continue

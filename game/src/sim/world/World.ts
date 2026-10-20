@@ -62,9 +62,9 @@ import { GateTraffic } from '../gateTraffic.ts'
 import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
 import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
-import { liftDoorDir, liftLandingSide } from '../lifts.ts'
+import { liftDoorDir, liftDoorSideMask, liftLandingSide } from '../lifts.ts'
 import { crossingDir, isUnpaidZone } from '../zones.ts'
-import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, TRAIN_ORIGIN_Z, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
+import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, trainOriginForScale, trainScaleForStorey, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { History } from '../history.ts'
 import { normRot, rotateLocal, trackFacing, trackSide, trackTrainCentreV, type TrackModule } from '../track.ts'
 import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
@@ -944,8 +944,10 @@ export class World {
     const doorX = dx * at.fx + dy * at.fy
     const across = -dx * at.fy + dy * at.fx
     const side = across >= 0 ? 1 : -1
-    const [lx, ly] = cabinSlot(doorX, side, file, row)
-    return [at.x + lx * at.fx - ly * at.fy, at.y + lx * at.fy + ly * at.fx, at.z + CABIN_FLOOR_Z]
+    const scale = trainScaleForStorey(this.data.storeyHeight)
+    const [sx, sy] = cabinSlot(doorX / scale, side, file, row)
+    const lx = sx * scale, ly = sy * scale
+    return [at.x + lx * at.fx - ly * at.fy, at.y + lx * at.fy + ly * at.fx, at.z + CABIN_FLOOR_Z * trainScaleForStorey(this.data.storeyHeight)]
   }
 
   /**
@@ -1164,7 +1166,7 @@ export class World {
         // away, even before a platform and its screen doors exist.
         const rot = track.rot ?? 0
         const [fx, fy] = trackFacing(rot)
-        const width = STOCK[line.stock].width
+        const width = STOCK[line.stock].width * trainScaleForStorey(this.data.storeyHeight)
         // Work in the track's local frame: u runs along the bed, v across it. The
         // bed spans v ∈ [0, d]; the platform edge (if any) sits at v = −1 or d.
         // `side` names the side the track lies on from the screen's frame, so
@@ -1179,7 +1181,7 @@ export class World {
         const y = track.y + 0.5 + oy
         // A train rides the rail surface: the recessed bed slab sits half a metre
         // below the platform, so the consist drops with it.
-        const z = track.z + TRAIN_ORIGIN_Z
+        const z = track.z + trainOriginForScale(trainScaleForStorey(this.data.storeyHeight))
         // The track's own 上行/下行 picks which way along the run the train moves;
         // an unset track falls back to the line's travel sign. This is what the
         // placement preview's direction arrows show.
@@ -1278,7 +1280,7 @@ export class World {
   private trainAt(train: Train, out: TrainAt): TrainAt | null {
     const a = this.trainAnchor(train)
     if (!a) return null
-    const half = (STOCK[a.stock].length * a.cars) / 2
+    const half = (STOCK[a.stock].length * a.cars * trainScaleForStorey(this.data.storeyHeight)) / 2
     let offset = 0
     if (train.state === 'approach') {
       // Ease out: fast down the tunnel, slowing to a stop at the mark. The
@@ -1353,7 +1355,10 @@ export class World {
       if (s.kind !== 'lift' || !s.lift) continue
       const c = s.lift
       const node = c.stops[c.at] ?? -1
-      const side = node >= 0 ? liftLandingSide(c, this.graph.nodeX[node], this.graph.nodeY[node]) : 1
+      // A `both` level opens front **and** back together; a single-side level
+      // uses the landing it was assigned. The mask, not the stop node's row, is
+      // what the renderer opens.
+      const side = node >= 0 ? liftDoorSideMask({ doors: c.doors }, this.graph.nodeZ[node] - 1) : 1
       out.push(c.x, c.y, c.fromZ, c.toZ, c.z, c.door, side)
     }
     return Float32Array.from(out)
@@ -1922,7 +1927,13 @@ export class World {
 
   /** True when the cell containing a point is walkable floor on its level. */
   private onFloor(x: number, y: number, z: number): boolean {
-    return this.graph.nodeIndex.has(cellKey(Math.floor(x), Math.floor(y), Math.round(z) - 1))
+    const ix = Math.floor(x), iy = Math.floor(y)
+    if (this.graph.nodeIndex.has(cellKey(ix, iy, Math.round(z) - 1))) return true
+    // Turning stairs in a five-metre storey have a walkable half-storey landing
+    // (2.5 m). Its graph node is keyed by the supporting floor at a half-integer
+    // height, so integer-only rounding falsely treated that platform as a void.
+    const halfStoreyFloor = Math.round((z - 1) * 2) / 2
+    return !Number.isInteger(halfStoreyFloor) && this.graph.nodeIndex.has(cellKey(ix, iy, halfStoreyFloor))
   }
 
   /* --------------------------------------------------------------- agents */
@@ -2160,7 +2171,7 @@ export class World {
     const tz = g.nodeZ[target]
     const previous = a.pathIdx > 0 ? a.path[a.pathIdx - 1] : target
     const floorCorridor = !g.serverForNode.has(target) && !g.serverForNode.has(previous) &&
-      g.nodeZone[target] === g.nodeZone[previous] && Math.abs(a.z - tz) < 0.01
+      g.nodeZone[target] === g.nodeZone[previous] && Number.isInteger(tz) && Math.abs(a.z - tz) < 0.01
     // Crowd displacement (or a station edit) can put a rail between a body and
     // its next waypoint. Rejoin the graph on the reachable side (§7.2 / §10.3).
     if ((floorCorridor && !clearWalkSegment(g, a.x, a.y, tx, ty, a.z)) ||

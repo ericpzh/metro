@@ -19,13 +19,29 @@ const named = (root, name) => root.children.filter(p => p.name === name)
 const bounds = part => { part.updateMatrixWorld(true); return new THREE.Box3().setFromObject(part) }
 const triangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
 
+test('five-metre canopy and tunnel wire assemblies fit in a ten-centimetre ceiling recess', () => withKit(mats => {
+  for (const cfg of [{}, { tunnel: true }]) {
+    const root = new THREE.Group()
+    buildTrackCatenary(root, mats, { ...track(16, 4, cfg), storeyHeight: 5 })
+    try {
+      const assembly = bounds(root)
+      assert.ok(assembly.min.z >= 3.89 && assembly.max.z <= 4 + 1e-6, 'all conductor and support parts stay in the shallow ceiling band')
+      const wire = bounds(named(root, 'catenary-contact-wire')[0])
+      assert.ok(Math.abs(wire.min.z - 3.891) < 1e-6, 'raised wire meets the enlarged train collector')
+      for (const hanger of named(root, 'catenary-rigid-hanger')) {
+        assert.ok(bounds(hanger).getSize(new THREE.Vector3()).z < .04, 'no tall vertical hanger consumes car clearance')
+      }
+    } finally { disposeObject(root) }
+  }
+}))
+
 for (const cfg of [{}, { tunnel: true }, { catenaryStyle: 'gantry' }, { bridge: true }]) {
   test(`catenary ${JSON.stringify(cfg)} retains contact, clearance and authored detail on short/long/wide runs`, () => withKit(mats => {
     for (const w of [1, 8, 17, 128]) for (const d of [3, 4]) {
       const root = new THREE.Group()
       buildTrackCatenary(root, mats, track(w, d, cfg))
       try {
-        assert.ok(bounds(root).max.z <= trackHeadroom(track(w, d, cfg)) + 1, 'placement reserves the complete overhead assembly')
+        assert.ok(bounds(root).max.z <= trackHeadroom(track(w, d, cfg)) + 1 + 1e-6, 'placement reserves the complete overhead assembly')
         const wire = named(root, 'catenary-contact-wire')[0]
         assert.ok(wire)
         const contact = bounds(wire)
@@ -91,7 +107,7 @@ test('tunnel assembly fits below the crown and uses rigid flanges with wall cant
 test('open gantries reserve their taller crossbeam while compact rigid rails keep the existing clearance', () => {
   for (const cfg of [{}, {tunnel:true}, {catenaryStyle:'gantry'}, {bridge:true}]) {
     const mod = track(8, 3, cfg)
-    const state = {cells:[{x:0,y:0,z:5,fill:'solid'}],modules:[]}
+    const state = {cells:[{x:0,y:0,z:4,fill:'solid'}],modules:[]}
     assert.equal(trackClearanceBlocked(state, mod), !cfg.tunnel && !!(cfg.bridge || cfg.catenaryStyle === 'gantry'))
   }
 })

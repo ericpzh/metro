@@ -50,7 +50,12 @@ export function renderGame(root: Root): void {
       const storage = window.localStorage
       if (!demo) {
         const restored = readAutosave(storage)
-        if (restored) useStore.setState({ station: restored, activeZ: restored.levelBase })
+        if (restored) {
+          let activeZ = restored.levelBase
+          for (const c of restored.cells) if (c.z < activeZ) activeZ = c.z
+          for (const m of restored.modules) if (m.z < activeZ) activeZ = m.z
+          useStore.setState({ station: restored, activeZ })
+        }
       }
       const autosave = watchAutosave(useStore, storage)
       window.setInterval(autosave.flush, AUTOSAVE_INTERVAL_MS)

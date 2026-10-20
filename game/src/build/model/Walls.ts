@@ -17,7 +17,7 @@ export const AUTO_WALL = 'auto-wall';
  * Height of a wall, in blocks: the player asked for a 4 m wall and one block is
  * one metre, so four courses stand above the floor.
  */
-export const AUTO_WALL_H = 4;
+export const AUTO_WALL_H = 5;
 
 /**
  * Tag on a wall block the 墙 tool laid. The tag is what lets the tool's
@@ -33,9 +33,9 @@ export const WALL = 'wall';
  * `cells` are the base cells the wall rises from (the hovered floor's top), so
  * the four courses are `z..z+3`.
  */
-export function wallRun(cells: Array<[number, number, number]>): Array<[number, number, number]> {
+export function wallRun(cells: Array<[number, number, number]>, height = AUTO_WALL_H): Array<[number, number, number]> {
   const out: Array<[number, number, number]> = [];
-  for (const [x, y, z] of cells) for (let dz = 0; dz < AUTO_WALL_H; dz++) out.push([x, y, z + dz]);
+  for (const [x, y, z] of cells) for (let dz = 0; dz < height; dz++) out.push([x, y, z + dz]);
   return out;
 }
 
@@ -267,7 +267,7 @@ export function addWalls(
   state: StationState,
   baseCells: Array<[number, number, number]>,
   side: WallDir | null = null,
-  height: number = AUTO_WALL_H,
+  height: number = state.storeyHeight,
   triangle: { kind: TriangleKind; side: TriSide } | null = null,
 ): { state: StationState; changed: number; blocked: number } {
   // "Already there" means already **solid**, exactly as `addCells` reads it: a
@@ -416,20 +416,21 @@ export function thinWallSideMap(cells: readonly Cell[], modules: readonly Module
  * storey: the contiguous run of wall cells above and below the hit that share
  * its `storeyBand`, whether the pointer landed on the base, the middle or the
  * top. A stacked column across two storeys therefore lifts one storey at a
- * time (at B1 that is `z..z+3`, e.g. -4..-1), and the top course that belongs
- * to the storey above — an auto-wall ring's `z+4` roof — is left alone. An
+ * time (a hand wall at B1 is `z..z+3`, e.g. -4..-1; an auto-wall ring rises the
+ * station's full storey, five courses on the new grid), and the top course that
+ * belongs to the storey above — the ring's own roof — is left alone. An
  * auto-generated wall answers too, so the tool can open a doorway in an
  * auto-wall ring. Empty when the cell is not a wall of either kind.
  */
 export function wallColumnAt(state: StationState, x: number, y: number, z: number): Array<[number, number, number]> {
-  const band = storeyBand(z, state.levelBase);
+  const band = storeyBand(z, state.levelBase, state.storeyHeight);
   const tagged = new Set<number>();
   for (const c of state.cells) if (c.x === x && c.y === y && isWallCell(c)) tagged.add(c.z);
   if (!tagged.has(z)) return [];
   let a = z;
-  while (tagged.has(a - 1) && storeyBand(a - 1, state.levelBase) === band) a--;
+  while (tagged.has(a - 1) && storeyBand(a - 1, state.levelBase, state.storeyHeight) === band) a--;
   let b = z;
-  while (tagged.has(b + 1) && storeyBand(b + 1, state.levelBase) === band) b++;
+  while (tagged.has(b + 1) && storeyBand(b + 1, state.levelBase, state.storeyHeight) === band) b++;
   const out: Array<[number, number, number]> = [];
   for (let zz = a; zz <= b; zz++) out.push([x, y, zz]);
   return out;

@@ -1205,11 +1205,22 @@ html[lang="en"] .depthTag {
   border-radius: 0;
   background: #0b1f36;
   border: 1px solid rgba(85, 182, 255, 0.5);
-  pointer-events: none;
+  pointer-events: auto;
 }
 .depthChip b {
   color: var(--accent);
   font-size: 11px;
+  cursor: pointer;
+}
+.depthChipInput {
+  width: 46px;
+  background: #061426;
+  color: var(--accent);
+  border: 1px solid rgba(85, 182, 255, 0.8);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 3px;
+  outline: none;
 }
 .depthChip span {
   color: var(--muted);

@@ -5,18 +5,18 @@ import { trainDoorMotion } from '../../trainDoorMotion.ts'
 import { PieceBuilder, slab, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
-import { STOCK, CABIN_CEILING_Z, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
+import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { buildCab } from './CabModel.ts'
 import { buildStreamlinedCab } from './StreamlinedCab.ts'
 import { buildDCarShell, buildDGangway, buildDDoor } from './DTrainShell.ts'
 import { CAR_GAP, buildConsistGangways } from './TrainGangway.ts'
-import { buildTrainInterior } from './TrainInterior.ts'
+import { buildTrainInterior, buildTrainCeiling } from './TrainInterior.ts'
 import { syncTrainDoorBatches } from '../../trainBatches.ts'
 import { buildBWindowBay } from './BTrainWindows.ts'
 import { buildLWindowBay } from './LTrainWindows.ts'
 import { buildCWindowBay } from './CTrainWindows.ts'
-import { addCarSideSkin, curveCarDoor, carRoofSection, smoothCarRoof, carShellProfile, CAR_ROUND_SILL, CAR_ROUND_WAIST } from './CarShellProfile.ts'
+import { addCarSideSkin, curveCarDoor, openRoofUnderside, carRoofSection, smoothCarRoof, carShellProfile, CAR_ROUND_SILL, CAR_ROUND_WAIST } from './CarShellProfile.ts'
 import { buildTrainBogie, carBogieCentres } from './TrainBogie.ts'
 import { buildTrainUnderframe } from './TrainUnderframe.ts'
 import { buildTrainRoofAc } from './TrainRoofAc.ts'
@@ -46,6 +46,7 @@ export interface TrainPose {
   yaw: number
   /** Absent for legacy model callers, which keep the third-rail roof. */
   power?: 'third-rail' | 'catenary'
+  modelScale?: number
 }
 
 /**
@@ -106,8 +107,6 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const cabCut = (s.cabLength ?? 2) - 0.125
     const shellStart = carCentre - halfLen + (c === 0 ? cabCut : 0)
     const shellEnd = carCentre + halfLen - (c === pose.cars - 1 ? cabCut : 0)
-    const shellCentre = (shellStart + shellEnd) / 2
-    const shellLen = shellEnd - shellStart
     // Doors in this car. `doorCentres` offsets are already measured from the
     // consist centre, the same frame the car centres use.
     const inCar = carDoors.filter((off) => off > carCentre - s.length / 2 && off < carCentre + s.length / 2).sort((a, b) => a - b)
@@ -119,7 +118,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       const out: Array<[number, number]> = []
       let cur = minX
       for (const off of inCar) {
-        const width = doorWidthAt(pose, off)
+        const width = doorWidthAt({stock:pose.stock,cars:pose.cars}, off)
         const a = off - width / 2 - pad
         const b = off + width / 2 + pad
         if (b <= minX || a >= maxX) continue
@@ -133,11 +132,10 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // Car shell: a cabin between two end bulkheads, skinned by side panels that
     // stop at each doorway. The panels are cut at `WINDOW_SILL_Z`, so the glass
     // above them is the window the cabin is read through.
-    const coreW = s.width - 0.6
     const skinY = s.width / 2 - 0.03
     const doorH = DOOR_HEAD_Z - DOOR_SILL_Z
     const doorZMid = (DOOR_SILL_Z + DOOR_HEAD_Z) / 2
-    slab(g, mats.trainInterior, shellCentre, 0, CABIN_CEILING_Z, shellLen, coreW + 0.24, 0.1).name = 'cabin-ceiling'
+    buildTrainCeiling(g, mats.trainInterior, shellStart, shellEnd, s.width, pose.stock === 'D')
     if (pose.stock === 'D') {
       buildDCarShell(g, mats, shellStart, shellEnd, sideRuns(shellStart, shellEnd, 0), blue, pantographX)
     } else {
@@ -168,6 +166,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         const roofGeometry = new THREE.ExtrudeGeometry(run.section, { depth: run.end - run.start, bevelEnabled: false, curveSegments: 32 })
         roofGeometry.rotateY(Math.PI / 2)
         roofGeometry.rotateX(Math.PI / 2)
+        openRoofUnderside(roofGeometry)
         smoothCarRoof(roofGeometry,s.width)
         const roof = new THREE.Mesh(roofGeometry, mats.trainBody)
         roof.name = 'car-roof'
@@ -177,6 +176,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         const lowRoof = new THREE.ExtrudeGeometry(run.lowSection, { depth: run.end - run.start, bevelEnabled: false, curveSegments: 4 })
         lowRoof.rotateY(Math.PI / 2)
         lowRoof.rotateX(Math.PI / 2)
+        openRoofUnderside(lowRoof)
         smoothCarRoof(lowRoof,s.width,true)
         setModelDetail(roof, lowRoof)
         g.add(roof)
@@ -244,7 +244,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
       for (const side of [-1, 1]) {
         const face = side * s.width / 2
         if (pose.stock === 'D') {
-          buildDDoor(g, mats, dx, side, doorWidthAt(pose, dx), doors, doorWidthAt(pose, dx) === s.singleEndDoorWidth)
+          buildDDoor(g, mats, dx, side, doorWidthAt({stock:pose.stock,cars:pose.cars}, dx), doors, doorWidthAt({stock:pose.stock,cars:pose.cars}, dx) === s.singleEndDoorWidth)
           continue
         }
         for (const px of [-1, 1]) {
@@ -337,6 +337,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     buildCab(g, mats, s, -lead, -leadOut, false, blue)
   }
   // The train keeps its own pose; the caller moves the group.
+  g.scale.setScalar(pose.modelScale ?? 1)
   g.position.set(pose.x, pose.y, pose.z)
   return g
 }

@@ -267,6 +267,7 @@ export class SceneRenderer {
     this.requestRender()
     this.modules.batches.invalidateViews()
     this.ctx.levelBase = data.levelBase ?? 0
+    this.ctx.storeyHeight = data.storeyHeight ?? 5
     // A sign-board preview changes no cell and no other module, so the chunks
     // this meshes are identical: only that sign's own model and plates are
     // rebuilt, and the chunk remesh plus the station-wide plate repaints are

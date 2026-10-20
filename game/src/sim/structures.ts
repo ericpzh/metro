@@ -4,7 +4,7 @@ import { DEFAULT_MATERIAL } from './finishes.ts'
 import { inCellOffset } from './inCellPositions.ts'
 import { rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { BridgeRailing, Module } from './types.ts'
-export const PILLAR_STEP = 4
+export const PILLAR_STEP = 5
 export const PILLAR_SHORT_STEP = 2
 export const ROOF_THICKNESS = 0.25
 export const TRUSS_ROOF_BAY = 4
@@ -20,15 +20,15 @@ export function supportedRoofWidth(width?: number): number {
   return width === 8 || width === 12 ? width : 4
 }
 /** Heights above the roof's supporting storey, whose slab top is local z=0. */
-export const TRUSS_ROOF_BASE = 4
-export const TRUSS_ROOF_HEIGHT = 4
-export const TRUSS_ROOF_EAVE = 7
+export const TRUSS_ROOF_BASE = 5
+export const TRUSS_ROOF_HEIGHT = 5
+export const TRUSS_ROOF_EAVE = 9
 export const TRUSS_ROOF_SKIN = 0.12
 export const TRUSS_ROOF_CHORD = 0.4
 export function trussRoofRidge(_width: number): number { return TRUSS_ROOF_BASE + TRUSS_ROOF_HEIGHT - TRUSS_ROOF_SKIN }
 export function trussRoofTop(width: number): number { return trussRoofRidge(width) + TRUSS_ROOF_SKIN }
 /** Canopy shares the truss shell, lowered one storey onto its own round posts (§4.1). */
-export const CANOPY_ROOF_DROP = 4
+export const CANOPY_ROOF_DROP = 5
 export const CANOPY_POST_RADIUS = 0.09
 export function canopyPostRows(width: number): readonly [number, number] {
   const inset = width / 4 - 1
@@ -87,6 +87,6 @@ export function pillarSupportsBridge(pillar: Module, track: Module): boolean {
   return pillar.type === 'pillar' && track.type === 'track' && track.cfg.bridge === true
     && pillar.z + pillar.cfg.height === track.z && trackCellAt(track, pillar.x, pillar.y, track.z)
 }
-export function extendedPillar(m: PillarModule, step = PILLAR_STEP): PillarModule {
+export function extendedPillar(m: PillarModule, step = m.storeyHeight ?? PILLAR_STEP): PillarModule {
   return { ...m, cfg: { ...m.cfg, height: m.cfg.height + step } }
 }

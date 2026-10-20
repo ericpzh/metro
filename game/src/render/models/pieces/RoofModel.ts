@@ -58,7 +58,7 @@ export class RoofModel extends PieceBuilder {
       const z0 = upper(y0)
       const z1 = upper(y1)
       const angle = Math.atan2(z1 - z0, y1 - y0)
-      // The tilted skin's highest corner finishes exactly at the four-metre cap.
+      // The tilted skin's highest corner finishes exactly at the five-metre cap.
       const sheet = finishSlab(group, mat, centreX, (y0 + y1) / 2, (z0 + z1) / 2 + roofThickness - roofThickness * Math.cos(angle) / 2, length, Math.hypot(y1 - y0, z1 - z0), roofThickness)
       sheet.rotation.x = angle
     }

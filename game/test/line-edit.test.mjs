@@ -32,7 +32,7 @@ import { toState, toStateRepairing } from '../src/build/model.ts'
 import demoJson from '../src/data/demo-station.json' with { type: 'json' }
 import { REFERENCE_BOOT, referenceStation } from '../src/data/reference-station.ts'
 import { lineColourFor } from '../src/data/line-colours.ts'
-import { SAVE_VERSION } from '../src/persistence/save.ts'
+import { SAVE_VERSION, serialize } from '../src/persistence/save.ts'
 import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
 import { SIM_DAY } from '../src/sim/constants.ts'
 
@@ -291,11 +291,11 @@ test('a 车型 / 编组 edit re-cuts platform lengths and preserves tunnel run l
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4, 'the tunnel run was hand-sized at four metres')
 
   st().updateLine('1', { stock: 'A' })
-  assert.equal(trackPieceForLine(line('1')).w, 132, 'A stock, six 22 m cars')
+  assert.equal(trackPieceForLine(line('1')).w, 130, 'A stock, six 22 m cars at the shared train scale')
   assert.equal(
     tracksOf('1').find((t) => t.id === platformId).w,
-    132,
-    'the platform rail is re-cut to the consist the line now runs',
+    130,
+    'the platform rail is re-cut to the scaled consist the line now runs',
   )
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4, 'a tunnel is hand-sized, so a consist edit leaves it')
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).d, 3, 'the tunnel keeps enough width for the new stock')
@@ -303,11 +303,11 @@ test('a 车型 / 编组 edit re-cuts platform lengths and preserves tunnel run l
   assert.equal(tracksOf('2')[0].w, 6, 'another line keeps its own rails')
 
   st().updateLine('1', { cars: 4 })
-  assert.equal(trackPieceForLine(line('1')).w, 88, 'four 22 m A cars')
-  assert.equal(tracksOf('1').find((t) => t.id === platformId).w, 88, 'a 编组 edit re-cuts the same rail again')
+  assert.equal(trackPieceForLine(line('1')).w, 87, 'four scaled 21.75 m A cars')
+  assert.equal(tracksOf('1').find((t) => t.id === platformId).w, 87, 'a 编组 edit re-cuts the same rail again')
   assert.equal(tracksOf('1').find((t) => t.cfg.tunnel).w, 4)
   st().updateLine('1', {stock:'D', cars:8})
-  assert.deepEqual(trackPieceForLine(line('1')), {w:161, d:4})
+  assert.deepEqual(trackPieceForLine(line('1')), {w:158, d:4})
   assert.ok(tracksOf('1').some(t => t.id === platformId), 'a neighbouring rail refusing the wider bed cannot delete the original')
   st().removeLine('2')
   st().updateLine('1', {stock:'D', cars:8})
@@ -477,6 +477,7 @@ test('newStation opens an empty 未命名车站 and keeps the station that was o
   const before = workerInbox.length
   st().newStation()
   assert.equal(st().station.name, '未命名车站')
+  assert.equal(st().station.storeyHeight, 5, 'a new station opens on the five-metre grid')
   assert.equal(st().station.seed, 7654321, 'the fixed new-station seed')
   // A new station is an empty document: the street is an infinite implicit
   // plane (only holes are stored), so there is no seed of blocks to lay.
@@ -506,7 +507,7 @@ test('loadReference opens the shipped 动物园 demo un-repaired, at its own boo
   assert.deepEqual(st().station.lines.map((l) => [l.id, l.name]), [['5', '5号线']], 'the demo is 广州地铁 5号线')
   assert.equal(st().station.cells.length, expected.state.cells.length, 'it loads cell for cell')
   assert.equal(st().station.modules.length, expected.state.modules.length)
-  assert.equal(st().activeZ, -8, 'it opens on the deepest built level')
+  assert.equal(st().activeZ, -20, 'it opens on the deepest built level, like a regular station')
   assert.equal(st().selected, null)
   assert.equal(st().notice, null, 'nothing was dropped, so there is no 修复 toast')
   assert.equal(st().past.length, 1, 'the station that was open is one Ctrl+Z away')
@@ -515,6 +516,10 @@ test('loadReference opens the shipped 动物园 demo un-repaired, at its own boo
   assert.equal(boot.startSeconds, REFERENCE_BOOT.startSeconds, 'the demo boots at 06:30, the service opening — the same clock a fresh load gets')
   assert.equal(boot.warmup, 0, 'a cold boot: no warmup crowd to walk in with')
   assert.equal(boot.data.lines[0].id, '5')
+  // The demo must land on the same storey when the identical document comes in
+  // through 打开存档; the example path is not allowed its own opening altitude.
+  st().loadFromText(serialize(expected.state))
+  assert.equal(st().activeZ, -20, 'the same document opened as a save lands on the same level')
 })
 
 test('Tanwei loads both authored lines, resets the view, and preserves undo across demo switches', () => {
@@ -527,7 +532,7 @@ test('Tanwei loads both authored lines, resets the view, and preserves undo acro
   assert.deepEqual(st().station.lines.map((l) => l.id), ['5', '6'])
   assert.equal(st().station.cells.length, expected.cells.length)
   assert.equal(st().station.modules.length, expected.modules.length)
-  assert.equal(st().activeZ, st().station.levelBase, 'the elevated station opens at street level')
+  assert.equal(st().activeZ, -7, 'it opens on its deepest built level, like a regular station')
   assert.equal(st().stationEpoch, epoch + 1)
   assert.equal(st().selected, null)
   assert.equal(st().moveDraft, null)

@@ -4,9 +4,9 @@ import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, canvasTexture, slab, finishSlab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
-import { PSD_FULL_HEIGHT, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET, PSD_BASE_DEPTH, TRACK_BED_DROP } from '../../../sim/constants.ts'
+import { psdFullHeight, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET, PSD_BASE_DEPTH } from '../../../sim/constants.ts'
 import { drawPsdBand, drawPsdDoorBand, drawPsdWarning, drawPsdArrow } from './PsdDecals.ts'
-import { doorWidthAt, doorRunOffsets } from '../../../sim/stock.ts'
+import { doorWidthAt, doorRunOffsets, trainScaleForStorey } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
@@ -50,11 +50,16 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     g.rotation.z = (mod.rot ?? 0) * Math.PI / 2
     return g
   }
+  const gridHeight = 5
+  const fullHeight = psdFullHeight(gridHeight)
+  const modelScale = line?.modelScale ?? trainScaleForStorey(gridHeight)
   const half = (mod.cfg.psd ?? line?.psd) === 'half'
   // Widen the screen opening without moving its train-aligned centre (§1.13).
   // The half-height cap is part of the total height, above the black rail.
   const halfRailTop = PSD_HALF_HEIGHT - 0.05
-  const doorH = half ? halfRailTop - 0.12 : PSD_FULL_HEIGHT - 0.05 - PSD_HEADER_HEIGHT
+  const headerH = 0.6
+  // Glazing uses all clearance below the top-mounted information plate.
+  const doorH = half ? halfRailTop - 0.12 : fullHeight - 0.05 - headerH
   const glassH = doorH
   const glassMid = z0 + glassH / 2
   const leafMid = z0 + doorH / 2
@@ -88,8 +93,8 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const bedW = bed?.w ?? len
   // The edge's own first cell, in rail-local metres along the run.
   const i0 = bed ? rotateLocal(-(bed.rot ?? 0), mod.x - bed.x, mod.y - bed.y)[0] : (bedW - len) / 2
-  const widthAt = (dx: number) => doorWidthAt({ stock, cars }, dx + i0 - x0 - bedW / 2) * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
-  const openings = fixedSpan ? [] : doorRunOffsets({ stock, cars }, bedW)
+  const widthAt = (dx: number) => doorWidthAt({ stock, cars, modelScale }, dx + i0 - x0 - bedW / 2) * (half ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
+  const openings = fixedSpan ? [] : doorRunOffsets({ stock, cars, modelScale }, bedW)
     .map((at) => at - i0 + x0)
     .filter((dx) => dx - widthAt(dx) / 2 > x0 + 0.1 && dx + widthAt(dx) / 2 < x0 + len - 0.1)
     .sort((a, b) => a - b)
@@ -103,15 +108,14 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const sillDepth = PSD_BASE_DEPTH / 2 + sillTrackReach
   const sillY = yWall + toward * (sillTrackReach - PSD_BASE_DEPTH / 2) / 2
   slab(g, mats.black, cx, sillY, z0 - 0.01, len, sillDepth, 0.02).name = 'psd-threshold'
-  const foundationBottom = .45 - TRACK_BED_DROP, foundationTop = z0 - .02
+  const foundationBottom = z0 - 1, foundationTop = z0 - .02
   finishSlab(g, ctx.finish('floor.concrete'), cx, sillY, (foundationTop + foundationBottom) / 2, len, sillDepth, foundationTop - foundationBottom).name = 'psd-concrete-foundation'
   if (!half) {
     // A deeper equipment/signage fascia, fitted to the existing full-height envelope.
-    const headerBottom = doorH
-    const headerH = PSD_FULL_HEIGHT - headerBottom - 0.05
+    const headerBottom = glassH
     const headerZ = z0 + headerBottom + headerH / 2
-    slab(g, mats.white, cx, yWall, headerZ, len, 0.24, headerH)
-    slab(g, mats.black, cx, yWall, z0 + PSD_FULL_HEIGHT - 0.025, len, 0.28, 0.05)
+    slab(g, mats.white, cx, yWall, headerZ, len, 0.24, headerH).name = 'psd-info-housing'
+    slab(g, mats.black, cx, yWall, z0 + fullHeight - 0.025, len, 0.28, 0.05)
     // Station panels sit above train-aligned doorways; route panels fill
     // the fixed spans between them. Both face the platform only (§5.9).
     if (!fixedSpan) {
@@ -160,10 +164,13 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const doorBandMat = half || fixedSpan ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(640, 128, drawPsdDoorBand), side: THREE.FrontSide }))
   const warningMat = half || fixedSpan ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(640, 480, drawPsdWarning), transparent: true, depthWrite: false, side: THREE.FrontSide }))
   const arrowMats = half || fixedSpan ? [] : [-1, 1].map((s) => ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 256, (c) => drawPsdArrow(c, toward < 0 ? -s : s)), transparent: true, depthWrite: false, side: THREE.FrontSide })))
+  // Safety vinyl follows the glazed height, including compact train profiles.
+  const decalScale = Math.min(1, glassH / (2.95 - 0.05 - PSD_HEADER_HEIGHT))
   const band = (a: number, b: number, y: number, door = false): THREE.Mesh | undefined => {
     const mat = door ? doorBandMat : bandMat
     if (!mat) return
-    const stripe = plate(g, mat, b - a, 0.15, (a + b) / 2, y, z0 + 1.12, platYaw)
+    const stripe = plate(g, mat, b - a, 0.15 * decalScale, (a + b) / 2, y, z0 + 1.12 * decalScale, platYaw)
+    stripe.name = door ? 'psd-door-band' : 'psd-fixed-band'
     // Metre-scaled print: a long fixed pane must not stretch the lettering.
     const uv = stripe.geometry.getAttribute('uv')
     if (!door) for (let i = 0; i < uv.count; i++) uv.setX(i, uv.getX(i) * (b - a) / 1.2)
@@ -256,11 +263,15 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
         const stripe = band(leafX - leafW / 2, leafX + leafW / 2, leafY - toward * 0.001, true)
         if (stripe) registerDoorLeaf(stripe, s, doorW / 2, leaves)
         if (warningMat) {
-          const warning = plate(g, warningMat, Math.min(0.52, leafW - 0.1), 0.39, leafX, leafY - toward * 0.002, z0 + 1.88, platYaw)
+          const warningW = Math.min(0.52 * decalScale, leafW - 0.1)
+          const warning = plate(g, warningMat, warningW, warningW * 0.75, leafX, leafY - toward * 0.002, z0 + 1.88 * decalScale, platYaw)
+          warning.name = 'psd-door-warning'
           warning.renderOrder = 3
           registerDoorLeaf(warning, s, doorW / 2, leaves)
         }
-        const arrow = plate(g, arrowMats[s < 0 ? 0 : 1], 0.24, 0.24, leafX, leafY - toward * 0.002, z0 + 1.48, platYaw)
+        const arrowSize = Math.min(0.24 * decalScale, leafW - 0.1)
+        const arrow = plate(g, arrowMats[s < 0 ? 0 : 1], arrowSize, arrowSize, leafX, leafY - toward * 0.002, z0 + 1.48 * decalScale, platYaw)
+        arrow.name = 'psd-door-arrow'
         arrow.renderOrder = 3
         registerDoorLeaf(arrow, s, doorW / 2, leaves)
       }

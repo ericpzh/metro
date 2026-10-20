@@ -35,6 +35,22 @@ node --test --test-isolation=none --experimental-test-coverage "test/**/*.test.m
 
 ## What the suite is
 
+The 5 m grid and train profile span several suites: `storey-height` covers
+factories, ordinary 吊顶 gestures, visibility, contextual import validation and
+fractional internal stair landings; `covered-clearance` uses the reported save
+and actual mesh bounds for the 5 m envelope, full concrete blocks, current 98%
+train scale and glass vinyl. `catenary-model` pins the shallow covered/tunnel
+mounting; `psd-end` pins 2.35 m full glazing; `train-lod` checks that identical
+consists keep separate cached poses and reuse their existing models. Preserve
+the single 5 m profile and reject fractional editable cells/outer endpoints.
+Do not skip demo or scenario regressions to make a profile change pass. Update
+fixture coordinates and distinguish shared upper landings from different lower
+rows on 8 m stairs / 9 m escalators; preserve the circulation helper and its
+unreachable-door negative control. Remove tests for 4 m grid compatibility; independently selected equipment sizes
+such as a 4 m ramp or lift interval remain valid dimensions.
+Current dimensions and ownership live in
+[the profile reference](../metro-game/references/five-metre-profile.md).
+
 `autosave.test.mjs` covers committed-change saves, undo/redo, immediate new/import/demo
 replacement, invalid storage, quota failure invalidation and retries. It drives
 the autosave flush directly without waiting for timers. Startup restores a valid
@@ -72,6 +88,10 @@ for simulation tick and build-helper timings. These diagnostics are hardware-dep
 and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
 
 ### Performance regression coverage
+
+`test:perf` also includes `train-pantograph`, `storey-height`,
+`covered-clearance` and `lift-interval`: collector geometry, scale/rail alignment,
+ceiling gestures and mixed lift stops must stay in the performance gate.
 
 Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
 `performance-policy`, `worker-preview`, `render-performance`, `scene-wiring`,
@@ -153,7 +173,9 @@ For the inverted street plane, `ground.test.mjs` pins a z=0 delete/re-add cycle:
 removing a dug hole through `addCells` returns to implicit ground without keeping a
 plain solid record, while `addFloor` keeps its tagged floor record. `save.test.mjs`
 pins that re-added default ground adds nothing to the save and later custom finishes
-or zones still round-trip as authored data.
+or zones still round-trip as authored data, plus that opening a save keeps the basis
+floor (or lowest user placement) as the edited storey without the worker's 0 m
+ground level resetting it.
 
 Run the full `npm --prefix game test` and production build after focused checks.
 Then run root `npm run check:render-batching` for real production GLSL/WebGL and

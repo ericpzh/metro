@@ -28,8 +28,9 @@ export interface SaveFileV1 {
   name: string
   nameEn?: string
   seed: number
-  /** Base of the 4 m editing grid; absent in older saves. */
+  /** Base of the five-metre editing grid. */
   levelBase?: number
+  storeyHeight?: number
   /**
    * The station's authored day (§9.6C 时刻): its operating hours, its two peak windows and
    * the demand curve's knobs, beside the name and the seed because they are station-level
@@ -60,7 +61,8 @@ export function serialize(state: StationState, now: Date = new Date()): string {
   // a failed save. `repairGrid` is the same rule `toState` applies on the way in, so
   // a file this game writes cannot carry one and cannot disagree with the loader
   // about what one is.
-  const repaired = repairGrid(toData(state))
+  const data = toData(state)
+  const repaired = repairGrid(data)
   const doc: SaveFileV1 = {
     format: SAVE_FORMAT,
     formatVersion: SAVE_VERSION,
@@ -70,6 +72,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     nameEn: state.nameEn,
     seed: state.seed,
     levelBase: state.levelBase,
+    storeyHeight: 5,
     service: state.service,
     peaks: state.peaks,
     demand: state.demand,
@@ -77,7 +80,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     static: {
       cells: repaired.cells,
       modules: repaired.modules,
-      lines: state.lines,
+      lines: data.lines,
     },
   }
   return JSON.stringify(doc)
@@ -105,6 +108,7 @@ export function parse(text: string): ParseResult {
     nameEn: typeof d.nameEn === 'string' ? d.nameEn : '',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
     levelBase: d.levelBase,
+    storeyHeight: 5,
     cells: d.static.cells,
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],

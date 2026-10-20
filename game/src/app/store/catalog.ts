@@ -196,10 +196,10 @@ export function isStairType(type: string): boolean {
 
 /**
  * True for the **single-run** staircase — 单跑楼梯, the palette's 直跑楼梯 tile and the
- * bare `stair` the room builder places. It is the one stair shape whose length the
- * player chooses (the same four sizes a 扶梯 comes in, `sim/rampLengths.ts`); a
- * turning stair is the fixed footprint its turn is drawn at, and a 楼梯块 is a
- * half-height building piece with no run at all.
+ * bare `stair` the room builder places. Every staircase but the 1 × 1 楼梯块 climbs a
+ * chosen run length now (`sim/rampLengths.ts`), but only a straight run can end in an
+ * exit bay, so this predicate still gates the bay snap. A turning stair turns inside
+ * its own footprint; a 楼梯块 is a half-height building piece with no run at all.
  */
 export function isStraightStairType(type: string): boolean {
   return type === 'stair' || type === 'stair-straight'
@@ -937,8 +937,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWide' | 'rampLength' | 'escalatorSpan' | 'doubleRampLength' | 'liftInterval' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'suspendedCeiling' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWide}|${s.rampLength}|${s.escalatorSpan}|${s.doubleRampLength}|${s.liftInterval}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.suspendedCeiling}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

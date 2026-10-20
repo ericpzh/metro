@@ -309,15 +309,14 @@ export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[]
  *
  * A storey here is `storeyBand`'s, not the raw z: a cell belongs to the grid line
  * at or below it, which is the rule the level slice keys every mesh by
- * (`render/levelSlicing.ts`). A slab that sits off the 4 m grid — the demo's −6
- * landings — is therefore drawn with its −8 storey *and* tinted with it, instead
- * of being paint no storey would ever show. The labels come off the same floors,
+ * (`render/levelSlicing.ts`). A half-level stair landing is assigned to the
+ * grid line at or below it and tinted with that storey. The labels come off the same floors,
  * and no region ever spanned storeys (`zoneRegionLabels` walks the four in-plane
  * neighbours), so they follow for free.
  */
-export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = [], base = 0): Cell[] {
-  const storey = storeyBand(z, base);
-  return zoneMapFloors(cells, modules).filter((c) => storeyBand(c.z, base) === storey);
+export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = [], base = 0, height = 5): Cell[] {
+  const storey = storeyBand(z, base, height);
+  return zoneMapFloors(cells, modules).filter((c) => storeyBand(c.z, base, height) === storey);
 }
 
 /** A zone-name label for the zone map, in world coordinates. */

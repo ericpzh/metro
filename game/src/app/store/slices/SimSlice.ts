@@ -151,8 +151,9 @@ function ensureClient(): Worker {
     const msg = e.data
     if (msg.type === 'ready') {
       useStore.getState().setGraph(msg)
-      // Open on the deepest built level so the platform crowd is what you see.
-      if (msg.levelsZ.length > 0) useStore.getState().setActiveZ(msg.levelsZ[0])
+      // The active storey is already chosen by the load path (basis floor or the
+      // lowest level with user placement); the worker's level list includes the
+      // infinite ground plane at 0 m, which must not drag the view down to grade.
     } else if (msg.type === 'state') {
       useStore.getState().setMetrics(msg.metrics)
       useStore.getState().setHistory({

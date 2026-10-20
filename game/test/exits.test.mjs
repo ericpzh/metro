@@ -12,8 +12,8 @@ const exit = (rot) => ({ id: 'e', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { na
 const variant = (rot, cfg) => ({ id: 'e', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { name: 'A口', inRate: 900, open: true, ...cfg } })
 
 /** An up run whose upper landing is `(x, 0, 0)`: the base sits one storey down the mouth. */
-const run = (id, x, z = -4) => {
-  const m = createModule('escalator', x, -6, z, id, 0, undefined, 'up')
+const run = (id, x, z = -5) => {
+  const m = createModule('escalator', x, -9, z, id, 0, undefined, 'up')
   if (!m) throw new Error('no escalator')
   return m
 }
@@ -167,7 +167,7 @@ test('a bay cell turns with the exit, so the floor pad finds its run', () => {
 
 test('placing a head-house from a picked straight stair centers a bay on its upper landing', () => {
   for (let rot = 0; rot < 4; rot++) {
-    const stair = createModule('stair-straight', 3, -5, -4, `stair-${rot}`, rot)
+    const stair = createModule('stair-straight', 3, -5, -5, `stair-${rot}`, rot)
     assert.ok(stair)
     const upper = stair.from.z > stair.to.z ? stair.from : stair.to
     const snapped = snapExitToRamp(variant(2, { bays: 2 }), stair)
@@ -180,7 +180,7 @@ test('placing a head-house from a picked straight stair centers a bay on its upp
 
 test('placing a head-house from an escalator follows its uphill end in either travel direction', () => {
   for (let rot = 0; rot < 4; rot++) for (const direction of ['up', 'down']) for (const width of [1, 2]) {
-    const escalator = createModule('escalator', 3, -5, -4, `escalator-${rot}-${direction}-${width}`, rot, width, direction)
+    const escalator = createModule('escalator', 3, -5, -5, `escalator-${rot}-${direction}-${width}`, rot, width, direction)
     assert.ok(escalator)
     const upper = escalator.from.z > escalator.to.z ? escalator.from : escalator.to
     const snapped = snapExitToRamp(variant(0, { bays: 3 }), escalator)
@@ -193,9 +193,9 @@ test('placing a head-house from an escalator follows its uphill end in either tr
 })
 
 test('head-house placement from a ramp rejects virtual exits and turning stairs', () => {
-  const turning = createModule('stair-right90', 0, 0, -4, 'turning', 0)
+  const turning = createModule('stair-right90', 0, 0, -5, 'turning', 0)
   const virtual = createModule('exit-virtual', 0, 0, 0, 'virtual')
-  const straight = createModule('stair-straight', 0, 0, -4, 'straight', 0)
+  const straight = createModule('stair-straight', 0, 0, -5, 'straight', 0)
   assert.ok(turning && virtual && straight)
   assert.equal(snapExitToRamp(variant(0, { bays: 2 }), turning), null)
   assert.equal(snapExitToRamp(virtual, straight), null)
@@ -209,14 +209,14 @@ test('a ramp snapped into an exit lands on the bay and descends to the floor bel
   assert.ok(one)
   assert.equal(one.bay, 1)
   assert.deepEqual(one.top, { x: 1, y: 0, z: 0 })
-  assert.deepEqual(one.base, { x: 1, y: -6, z: -4 })
+  assert.deepEqual(one.base, { x: 1, y: -8, z: -5 })
   assert.equal(one.rot, 0, 'the run climbs base → top toward +y')
   // The first bay, and a pointer west of the group clamping into it: the runs are
   // side by side, so there is no bay on the far side of the house.
   const first = exitRunSnap(mods, 0, 0, 0)
   assert.ok(first)
   assert.equal(first.bay, 0)
-  assert.deepEqual(first.base, { x: 0, y: -6, z: -4 })
+  assert.deepEqual(first.base, { x: 0, y: -8, z: -5 })
   const west = exitRunSnap(mods, -1, 0, 0)
   assert.ok(west)
   assert.equal(west.bay, 0)
@@ -229,7 +229,7 @@ test('the snapped run follows the head-house rotation', () => {
   const snap = exitRunSnap([exit(1)], 0, 1, 0)
   assert.ok(snap)
   assert.deepEqual(snap.top, { x: 0, y: 1, z: 0 })
-  assert.deepEqual(snap.base, { x: 6, y: 1, z: -4 })
+  assert.deepEqual(snap.base, { x: 8, y: 1, z: -5 })
   assert.equal(snap.rot, 3)
 })
 
@@ -238,11 +238,11 @@ test('a three-bay exit snaps into its three side-by-side bays', () => {
   const east = exitRunSnap(mods, 2, 0, 0)
   assert.ok(east)
   assert.equal(east.bay, 2)
-  assert.deepEqual(east.base, { x: 2, y: -6, z: -4 })
+  assert.deepEqual(east.base, { x: 2, y: -8, z: -5 })
   const mid = exitRunSnap(mods, 1, 0, 0)
   assert.ok(mid)
   assert.equal(mid.bay, 1)
-  assert.deepEqual(mid.base, { x: 1, y: -6, z: -4 })
+  assert.deepEqual(mid.base, { x: 1, y: -8, z: -5 })
   // Past the far end of the group the pointer clamps back into it.
   const clamped = exitRunSnap(mods, 3, 0, 0)
   assert.ok(clamped)
@@ -259,7 +259,7 @@ test('a head-house opens a wellway per run, one block wide', () => {
     { column: 0, row: 0, half: 0.5 },
     { column: 1, row: 0, half: 0.5 },
   ])
-  const offsetStair = createModule('stair-straight', 0, -5, -4, 'offset-top', 0)
+  const offsetStair = createModule('stair-straight', 0, -7, -5, 'offset-top', 0)
   assert.ok(offsetStair)
   const offsetOpening = exitRunOpenings([m, offsetStair], m)
   assert.equal(offsetOpening[0]?.row, 1, 'the opening follows the stair upper landing row')
@@ -267,7 +267,7 @@ test('a head-house opens a wellway per run, one block wide', () => {
   assert.equal(exitLandingBack([{ column: 0, row: 0, half: 0.5 }], 2.2), 0.5, 'aligned stairs keep the normal opening edge')
   // A run wider than a block opens wider, so its rails never surface through the
   // floor beside it. A medium straight stair fills two blocks including its rails.
-  const wide = createModule('stair-straight', 0, -6, -4, 'wide', 0, STAIR_WIDTH_DOUBLE)
+  const wide = createModule('stair-straight', 0, -8, -5, 'wide', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(wide)
   assert.equal(exitRunHalf(wide), 1, 'a medium stair opens a two-block wellway')
   assert.equal(exitRunOpenings([m, wide], m)[0].half > 0.5, true)

@@ -21,12 +21,12 @@ import assert from 'node:assert/strict'
 import { LIFT_AVOID_LUGGAGE_S, LIFT_AVOID_S, STAIR_AVOID_S, GATE_LOOKAHEAD, GATE_REPLAN_PER_TICK, REROUTE_REPLAN_PER_TICK, CONGESTION_CAP, CONGESTION_S } from '../src/sim/constants.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
 import { exitWallPlanes } from '../src/sim/exits.ts'
-import { liftModule } from '../src/sim/lifts.ts'
+import { liftExtendedUp, liftModule } from '../src/sim/lifts.ts'
 import { buildGraph, congestionCost, EDGE_KIND, liftPenalty, PathFinder } from '../src/sim/station.ts'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 
-const STOREY = 4
+const STOREY = 5
 const WALKER = { stepFree: false, luggage: false }
 const LUGGAGE = { stepFree: false, luggage: true }
 const STEP_FREE = { stepFree: true, luggage: false }
@@ -68,10 +68,10 @@ test('the crowd charge is capped, so a crush is not a wall', () => {
  */
 function twoStoreyStation() {
   const cells = []
-  plate(cells, 0, 8, 0, 8, 0)
-  plate(cells, 0, 8, 0, 8, STOREY)
+  plate(cells, 0, 8, 0, 12, 0)
+  plate(cells, 0, 8, 0, 12, STOREY)
   const modules = [
-    liftModule({ x: 1, y: 1, z: 0 }, 0, 'lift-1'),
+    liftExtendedUp(liftModule({ x: 1, y: 1, z: 0 }, 0, 'lift-1'), STOREY),
     escalatorModule({ x: 5, y: 1, z: 0 }, 0, 'up', 'esc-1'),
     { id: 'exit-1', type: 'exit', x: 0, y: 0, z: STOREY, cfg: { name: 'A口', inRate: 0, open: true, headHouse: false } },
   ]
@@ -103,7 +103,7 @@ function kindsAlong(g, path) {
 test('a walker takes the ramp where a step-free passenger must take the lift', () => {
   const g = buildGraph(twoStoreyStation())
   const from = g.nodeIndex.get('0,0,0')
-  const to = g.nodeIndex.get('0,0,4')
+  const to = g.nodeIndex.get("0,0,5")
   assert.notEqual(from, undefined, 'the lower plate is walkable')
   assert.notEqual(to, undefined, 'the upper plate is walkable')
 
@@ -129,7 +129,7 @@ test('the lift is still the pressure valve when the ramps are jammed', () => {
   // that far would rather ride: the penalty is a preference, not a ban.
   const g = buildGraph(twoStoreyStation())
   stackEscalatorQueue(g, 400)
-  const walker = new PathFinder(g).search(g.nodeIndex.get('0,0,0'), g.nodeIndex.get('0,0,4'), WALKER)
+  const walker = new PathFinder(g).search(g.nodeIndex.get('0,0,0'), g.nodeIndex.get("0,0,5"), WALKER)
   assert.ok(walker, 'the station is still connected')
   assert.ok(kindsAlong(g, walker).includes(EDGE_KIND.lift), 'a jammed ramp left the walker with no way up')
 })
@@ -213,7 +213,7 @@ function stackedStation({ withExit }) {
   for (const z of [0, -4, -8]) {
     for (let x = 0; x <= 10; x++) for (let y = 0; y <= 12; y++) cells.push({ x, y, z, fill: 'solid', zone: 'paid' })
   }
-  const modules = [escalatorModule({ x: 5, y: 2, z: -4 }, 0, 'down', 'esc-1')]
+  const modules = [escalatorModule({ x: 5, y: 2, z: -5 }, 0, 'down', 'esc-1')]
   if (withExit) modules.push({ id: 'exit-1', type: 'exit', x: 8, y: 4, z: 0, cfg: { name: 'A口', inRate: 0, open: true, bays: 2 } })
   return { name: 't', seed: 1, cells, modules, lines: [] }
 }

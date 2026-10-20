@@ -272,7 +272,7 @@ test('the zone map draws one storey, and the storey is the one being edited', ()
   assert.deepEqual(zoneMapFloorsAt(data.cells, -8), [])
 
   // A storey is `storeyBand`'s, the rule the level slice keys every mesh by, so a
-  // slab off the 4 m grid is drawn with the storey below it — and tinted with it.
+  // slab off the five-metre storey line is drawn with the storey below it — and tinted with it.
   const offGrid = [...data.cells, { x: 9, y: 0, z: -6, fill: 'solid', zone: 'platform' }]
   const banded = zoneMapFloorsAt(offGrid, -8)
   assert.deepEqual(

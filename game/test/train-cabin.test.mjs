@@ -18,7 +18,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { defaultLine, placeTrack } from '../src/build/rail.ts'
-import { CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_HALF_W } from '../src/sim/stock.ts'
+import { CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, CABIN_HALF_W, trainScaleForStorey } from '../src/sim/stock.ts'
 import { TRAIN_DWELL } from '../src/sim/constants.ts'
 
 /** A platform beside a 120 m rail: a B6 consist's own cadence, cut into the edge. */
@@ -85,8 +85,9 @@ test('the wave spawns after stopping and before the doors open', () => {
   const pose = w.trainRenderState()
   for (const a of aboard(w)) {
     assert.equal(a.state, 7, 'a rider of the wave is alighting, not walking the floor')
-    assert.ok(Math.abs(pose[2] + CABIN_FLOOR_Z - 1) < 1e-6, 'train floor is flush with the platform')
-    assert.ok(Math.abs(a.z - (pose[2] + CABIN_FLOOR_Z)) < 1e-6, `rider z ${a.z} is not on the cabin floor`)
+    const floorZ = CABIN_FLOOR_Z * trainScaleForStorey()
+    assert.ok(Math.abs(pose[2] + floorZ - 1) < 1e-6, 'scaled train floor is flush with the platform')
+    assert.ok(Math.abs(a.z - (pose[2] + floorZ)) < 1e-6, `rider z ${a.z} is not on the scaled cabin floor`)
   }
   // Seated by doorway, in rows: one pair to a row at the front of each queue.
   const depth = train.cabins.map((queue) => queue.length)

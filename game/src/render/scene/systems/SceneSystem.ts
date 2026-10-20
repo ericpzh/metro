@@ -140,6 +140,7 @@ export interface SceneContext {
   groundOf: Map<string, number>
   activeZ: number
   levelBase: number
+  storeyHeight: number
   ghost: boolean
   /** 隐藏天花板: drop the ceiling of the storey above the active one. */
   autoCeiling: boolean
@@ -229,6 +230,7 @@ export class SceneContextData implements SceneContext {
   groundOf = new Map<string, number>()
   activeZ = 0
   levelBase = 0
+  storeyHeight = 5
   ghost = true
   autoCeiling = true
   hideWalls = false
@@ -291,7 +293,7 @@ export abstract class SceneSystem {
  * active storey would ever draw it. A run keeps both of its ends, and its landings
  * come out of `stairLevels` already on the grid.
  */
-export function moduleLevels(mod: Module, base = 0): number[] {
+export function moduleLevels(mod: Module, base = 0, height = 5): number[] {
   switch (mod.type) {
     case 'roof': {
       const lowZ = !mod.cfg.variant && mod.cfg.plateSnap
@@ -300,27 +302,27 @@ export function moduleLevels(mod: Module, base = 0): number[] {
       const highZ = !mod.cfg.variant && mod.cfg.plateSnap
         ? mod.z + (mod.cfg.plateSnap === 'lower' ? 0.25 : 1)
         : mod.z + 1 + (mod.cfg.variant ? trussRoofTop(mod.d) - (mod.cfg.variant === 'canopy' ? CANOPY_ROOF_DROP : 0) : TRUSS_ROOF_BASE + ROOF_THICKNESS)
-      const lower = storeyBand(lowZ, base)
-      const upper = storeyBand(highZ - 1e-4, base)
+      const lower = storeyBand(lowZ, base, height)
+      const upper = storeyBand(highZ - 1e-4, base, height)
       return lower === upper ? [lower] : [lower, upper]
     }
     case 'pillar': {
       const levels: number[] = []
-      for (let z = mod.z; z < mod.z + mod.cfg.height; z += 4) levels.push(storeyBand(z, base))
+      for (let z = mod.z; z < mod.z + mod.cfg.height; z += height) levels.push(storeyBand(z, base, height))
       return levels
     }
     case 'escalator':
     case 'walkway':
     case 'lift': {
       // A level 自动步道 sits on one storey: collapse the pair rather than repeat it.
-      const lower = storeyBand(mod.from.z, base)
-      const upper = storeyBand(mod.to.z, base)
+      const lower = storeyBand(mod.from.z, base, height)
+      const upper = storeyBand(mod.to.z, base, height)
       return lower === upper ? [lower] : [lower, upper]
     }
     case 'stair':
-      return stairLevels(mod).map((z) => storeyBand(z, base))
+      return stairLevels(mod).map((z) => storeyBand(z, base, height))
     default:
-      return [storeyBand(mod.z, base)]
+      return [storeyBand(mod.z, base, height)]
   }
 }
 

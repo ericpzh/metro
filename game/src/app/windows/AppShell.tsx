@@ -168,14 +168,8 @@ export function App(): React.ReactElement {
           else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, 'R')
           break
         case 'tab':
-          // In the 方块 tool Tab raises the generated **生成墙壁** ring — the key the
-          // tile wears, so the one thing this tool does that the player did not draw
-          // is a keystroke away. It is **refused while a cut piece owns the tool**,
-          // the same refusal the tile's own absence is: a 半墙 or a 三角 *is* the wall
-          // the patch would grow, so the press does nothing rather than switching a
-          // cut off behind the player's back (`setAutoWalls` holds that guard). The
-          // three cut pieces are picked on their own tiles, one click each, and
-          // **R** turns whichever is armed.
+          // 方块: Tab switches the normal block / suspended ceiling variant;
+          // Shift+Tab toggles generated walls for normal block patches.
           // 材质 uses Tab to cycle 单块 / 整面; elsewhere Tab keeps its own meaning
           // for the piece being placed: rail direction, stair or roof width, escalator
           // direction, the 闸机's lane or fence.
@@ -184,7 +178,8 @@ export function App(): React.ReactElement {
           else if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
           else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, e.shiftKey ? 'Shift+Tab' : 'Tab')
           else if (st.tool === 'block') {
-            st.setAutoWalls(!st.autoWalls)
+            if (e.shiftKey) st.setAutoWalls(!st.autoWalls)
+            else st.setSuspendedCeiling(!st.suspendedCeiling)
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
           break
@@ -213,6 +208,7 @@ export function App(): React.ReactElement {
           st.setCutaway(!st.cutaway)
           break
         case 'h':
+          if (st.hideUI) break
           st.setAutoCeiling(!st.autoCeiling)
           break
         // 隐藏UI: the editing lattice and the storey slice, off the picture

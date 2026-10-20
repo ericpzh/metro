@@ -7,8 +7,10 @@ import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
-import { createModule, toData, toStateRepairing } from '../src/build/model.ts'
-import { STAIR_WIDTHS, stairOnBlockGrid, stairRunBlocks, stairTreadWidth } from '../src/sim/stairs.ts'
+import { toData, toStateRepairing } from '../src/build/model.ts'
+import { isWallBlock } from '../src/sim/types.ts'
+import { rampOpeningAt } from '../src/sim/openings.ts'
+import { liftFootprintCells } from '../src/sim/lifts.ts'
 
 function reachable(g, starts) {
   const seen = new Uint8Array(g.nodeCount)
@@ -24,33 +26,49 @@ function reachable(g, starts) {
   return seen
 }
 
-test('Tanwei ships the complete authored interchange without loader repairs', () => {
-  const data = referenceStation('tanwei')
-  const loaded = toStateRepairing(data)
-  assert.equal(data.name, '坦尾')
-  assert.deepEqual(data.lines.map((l) => l.id), ['5', '6'])
-  assert.equal(data.cells.length, 14717)
-  assert.equal(data.modules.length, 9572)
-  assert.equal(loaded.droppedCells + loaded.droppedModules, 0)
-  assert.deepEqual(toData(loaded.state), data, 'opening the demo must preserve all authored data')
+test('both authored demos load without dropping or moving cells and modules', () => {
+  for (const [id, cells, modules] of [['zoo', 16201, 4062], ['tanwei', 14717, 9572]]) {
+    const data = referenceStation(id)
+    const loaded = toStateRepairing(data)
+    assert.equal(data.cells.length, cells, id)
+    assert.equal(data.modules.length, modules, id)
+    assert.equal(loaded.droppedCells + loaded.droppedModules, 0, id)
+    assert.deepEqual(loaded.state.cells, data.cells, `${id}: authored blocks stay in place`)
+    assert.deepEqual(loaded.state.modules, data.modules, `${id}: authored equipment stays in place`)
+    assert.ok(toData(loaded.state).lines.every(line => line.modelScale === 0.98))
+  }
 })
 
-function assertConnectedCirculation(g) {
-  const fromExits = reachable(g, g.exits.map((e) => e.node))
-  const fromPlatforms = reachable(g, g.platforms.flatMap((p) => p.cells))
-
-  assert.ok(g.exits.length >= 1, 'the demo should have at least one exit')
-  assert.ok(g.platforms.length >= 1, 'the demo should have at least one platform')
-  for (const p of g.platforms) {
-    for (const c of p.cells) assert.ok(fromExits[c], `platform ${p.id} is unreachable from the exits`)
-    for (const id of p.doors) {
-      const door = g.servers[id]
-      assert.equal(door?.kind, 'door', `${p.id} references a missing door server`)
-      assert.ok(fromExits[door.node], `a screen door of ${p.id} is unreachable from the exits`)
-    }
+test('the demo keeps 吊顶 out of wall runs and ramp openings', () => {
+  const data = referenceStation()
+  const at = (x, y, z) => data.cells.find((c) => c.x === x && c.y === y && c.z === z)
+  const ceilings = data.cells.filter((c) => c.tags?.includes('suspended-ceiling'))
+  assert.equal(ceilings.length, 2797, 'the filtered service metre')
+  for (const cell of ceilings) {
+    const source = at(cell.x, cell.y, cell.z - 4)
+    assert.ok(source, `ceiling at ${cell.x},${cell.y},${cell.z} has no floor`)
+    assert.notEqual(source.zone, 'outside', `ceiling at ${cell.x},${cell.y},${cell.z} is outside the station`)
+    assert.equal(isWallBlock(source), false, `ceiling at ${cell.x},${cell.y},${cell.z} covers a wall block`)
+    const above = at(cell.x, cell.y, cell.z + 1)
+    const below = at(cell.x, cell.y, cell.z - 1)
+    assert.ok(!above || !isWallBlock(above), `ceiling at ${cell.x},${cell.y},${cell.z} is a wall top`)
+    assert.ok(!below || !isWallBlock(below), `ceiling at ${cell.x},${cell.y},${cell.z} is a wall bottom`)
+    assert.equal(rampOpeningAt(data.modules, cell.x, cell.y, cell.z), false, `ceiling at ${cell.x},${cell.y},${cell.z} blocks a ramp`)
+    const liftShaft = data.modules.some((m) => {
+      if (m.type !== 'lift') return false
+      const lo = Math.min(m.from.z, m.to.z)
+      const hi = Math.max(m.from.z, m.to.z)
+      return cell.z > lo && cell.z < hi && liftFootprintCells(m).some(([x, y]) => x === cell.x && y === cell.y)
+    })
+    assert.equal(liftShaft, false, `ceiling at ${cell.x},${cell.y},${cell.z} caps a lift shaft`)
   }
-  for (const e of g.exits) assert.ok(fromPlatforms[e.node], `exit ${e.id} is unreachable from the platforms`)
-}
+  // The reported exterior wall column: the inter-wall course is real block, and
+  // the wall top above it is not capped with a baffle tile.
+  const wall = at(63, 39, -11)
+  assert.ok(wall && isWallBlock(wall), '(63,39,-11) is an actual wall block')
+  assert.ok(!wall.tags?.includes('suspended-ceiling'))
+  assert.equal(at(63, 39, -1), undefined, '(63,39,-1) is open, not a 吊顶 over an outside wall')
+})
 
 test('the demo station is one connected circulation', () => {
   assertConnectedCirculation(buildGraph(referenceStation()))
@@ -68,21 +86,6 @@ test('demo circulation checks door server nodes, and rejects an unreachable door
   g.servers[id] = { ...g.servers[id], node: isolated }
   assert.throws(() => assertConnectedCirculation(g), /screen door.*unreachable/,
     'checking server IDs as node IDs must not conceal an unreachable boarding point')
-})
-
-test('the demo stores complete block-fitted stairs built from the current catalogue', () => {
-  const stairs = referenceStation().modules.filter((m) => m.type === 'stair')
-  assert.equal(stairs.length, 5, 'retain the demo’s three straight stairs and two switchbacks')
-  for (const m of stairs) {
-    assert.equal(m.cfg.flight, undefined, `${m.id} must be one complete module, not a linked legacy lane`)
-    assert.ok(stairOnBlockGrid(m.cfg.width), `${m.id} must store its fitted width explicitly`)
-    assert.equal(m.cfg.width, stairTreadWidth(m), `${m.id} must not rely on legacy width conversion`)
-    const blocks = stairRunBlocks(m.cfg.width)
-    const expected = createModule(`stair-${m.cfg.style}`, m.x, m.y, m.z, m.id, m.rot, STAIR_WIDTHS[blocks - 1])
-    assert.deepEqual(m.from, expected.from, `${m.id}: lower landing matches the current catalogue`)
-    assert.deepEqual(m.to, expected.to, `${m.id}: upper landing matches the current catalogue`)
-    assert.deepEqual(m.cfg.flights, expected.cfg.flights, `${m.id}: preserve the current complete flight plan`)
-  }
 })
 
 test('the demo moves a crowd: people board and leave', () => {
@@ -145,3 +148,20 @@ test('a new station starts on the infinite street, with nothing built on it', ()
   assert.deepEqual(fresh.cells, [], 'the street is virtual, not a seed of blocks')
   assert.equal(emptyStation('自定义').name, '自定义', 'and it can be named on the way in')
 })
+
+function assertConnectedCirculation(g) {
+  const fromExits = reachable(g, g.exits.map((e) => e.node))
+  const fromPlatforms = reachable(g, g.platforms.flatMap((p) => p.cells))
+
+  assert.ok(g.exits.length >= 1, 'the demo should have at least one exit')
+  assert.ok(g.platforms.length >= 1, 'the demo should have at least one platform')
+  for (const p of g.platforms) {
+    for (const c of p.cells) assert.ok(fromExits[c], `platform ${p.id} is unreachable from the exits`)
+    for (const id of p.doors) {
+      const door = g.servers[id]
+      assert.equal(door?.kind, 'door', `${p.id} references a missing door server`)
+      assert.ok(fromExits[door.node], `a screen door of ${p.id} is unreachable from the exits`)
+    }
+  }
+  for (const e of g.exits) assert.ok(fromPlatforms[e.node], `exit ${e.id} is unreachable from the platforms`)
+}

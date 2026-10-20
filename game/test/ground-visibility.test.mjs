@@ -123,6 +123,27 @@ test('an empty document is the street alone, and the street is the ground pass',
   assert.deepEqual(drawnBy(chunks, 10, 10, 0), ['g'], 'the street cell is drawn by the ground pass and nothing else')
 })
 
+test('ceiling-attached decor on the active storey stays visible when ceilings are hidden', () => {
+  const { ctx, level } = rig(station([]))
+  const decor = new THREE.Group()
+  // A fitting hanging from the current room's ceiling: active storey, and (in older
+  // builds) flagged as suspendedCeiling because it hangs from a 吊顶 tile.
+  decor.userData = { levelZs: [0], groundBand: 0, suspendedCeiling: true }
+  decor.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
+  level.modules.moduleMeshes.add(decor)
+  level.setLevel(0, true)
+  level.setAutoCeiling(true)
+  assert.equal(decor.visible, true, 'decor hanging from the current level is not hidden by 隐藏天花板')
+  // And a storey above still hides a normal fixture (the ceiling it hangs from is gone).
+  const above = new THREE.Group()
+  above.userData = { levelZs: [4], groundBand: 0 }
+  above.add(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()))
+  level.modules.moduleMeshes.add(above)
+  ctx.levelKey = ''
+  level.applyLevel()
+  assert.equal(above.visible, false, 'a fixture on the storey above still follows ceiling slicing')
+})
+
 test('the street is meshed once, not by every pass that could draw it', () => {
   // Every street cell is a plate with nothing under it, so the unsupported-plate
   // pass claims it too — and the storey pass used to emit it as well. Two of those
@@ -137,10 +158,9 @@ test('the street is meshed once, not by every pass that could draw it', () => {
 
 test('the street wears the plate tags: hidden by 隐藏地面, kept by 隐藏天花板', () => {
   const { chunks } = rig(station([]))
-  for (const mesh of [...streetMeshes(chunks), ...streetOutlines(chunks)]) {
+  for (const mesh of streetMeshes(chunks)) {
     assert.equal(mesh.userData.float, true, 'the street is a plate with nothing under it, so 隐藏天花板 never lifts it')
   }
-  assert.equal(streetOutlines(chunks).length > 0, true, 'the street carries outlines of its own to hide')
 })
 
 /* ---------------------------------------------------------------- the toggle */
@@ -156,7 +176,6 @@ test('隐藏地面 takes the street away, in every mode, and gives it back', () 
 
   level.setHideGround(true)
   assert.deepEqual(new Set(visible(streetMeshes(chunks))), new Set([false]), 'the street is gone')
-  assert.deepEqual(new Set(visible(streetOutlines(chunks))), new Set([false]), 'and so is its outline hull')
   assert.ok(
     ownMeshes(chunks).every((m) => m.visible),
     '隐藏地面 took a block the document owns with it: it is not the street',

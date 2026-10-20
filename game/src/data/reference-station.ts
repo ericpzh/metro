@@ -3,10 +3,10 @@ import { msg } from '../sim/i18n.ts'
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
 // 2026-10-16 06:16Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
-// already the document the game builds when a player opens the file: 11,913
+// already the document the game builds when a player opens the file: 16,201
 // cells and 4,062 modules. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
-// two-level platform (up track at z = -16, down at z = -12) served by two lifts,
+// two-level platform (up track at z = -20, down at z = -15) served by two lifts,
 // five stairs and fourteen escalators, with two ticket booths, a gated
 // fare line, and the author's prop pass over it — twelve 时钟, thirty-five 监控,
 // seventeen 垃圾桶, eighteen 灭火器, two 收银台, six free-standing 门, the advertising, tactile
@@ -17,10 +17,10 @@ import { msg } from '../sim/i18n.ts'
 // The author's street pass covers the surface the exits open onto — 2,414 人行道,
 // 704 草坪, 86 树木 and two 道路 across the plaza — so the demo exercises the
 // 站外 finishes as well as the building.
-// The five stairs were rebuilt from the current catalogue without moving their
-// landings: straight runs store 0.79 m treads (one full block with rails), and
-// the two medium switchbacks store 1.79 m treads per run. `demo.test.mjs` pins
-// these complete pieces and checks boarding reachability through door servers.
+// Saved stairs retain their authored horizontal runs and five-metre rises. The
+// catalogue uses eight-cell straight runs; loading does not reposition authored
+// equipment. demo.test.mjs pins cell/module preservation and checks boarding
+// reachability through door servers.
 //
 // 坦尾 (Tanwei) ships beside it as the second example, baked the same way from the
 // author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-10-16 06:06Z):
@@ -67,6 +67,7 @@ export const REFERENCE_BOOT = { startSeconds: DEFAULT_SIM_TIME, warmup: 0 } as c
 export function emptyStation(name = msg('unnamed_station')): StationData {
   return {
     name,
+    storeyHeight: 5,
     seed: 7654321,
     cells: [],
     modules: [],

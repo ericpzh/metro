@@ -81,7 +81,8 @@ test('road model emits actual asphalt, yellow centre and white ink; saved geomet
   const state = addEquipment(emptyStation(),a)
   const result = parse(serialize(state))
   assert.ok(result.ok)
-  assert.deepEqual(result.state.modules.find(m=>m.id===a.id),a)
+  // A five-metre document stamps its grid on every module on the way in.
+  assert.deepEqual(result.state.modules.find(m=>m.id===a.id),toState(state).modules.find(m=>m.id===a.id))
 })
 test('road gesture previews without commits, uses one press pick, commits once, undoes and erases', () => {
   const state=emptyStation(),drag={current:null},hover={current:null};let picks=0,preview

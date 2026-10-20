@@ -10,7 +10,7 @@ export class VentModel extends PieceBuilder {
     const g = new THREE.Group()
     // The line the grille hangs from: the **top block** over its own cell (`hangCeilingLocal`),
     // else the real slab overhead — and with no slab to read (a ghost in an empty station) the
-    // nominal storey line stands in. The 4 m grid line floated a 基准高度-1 station's vents a
+    // nominal storey line stands in. The 5 m grid line floated a 基准高度-1 station's vents a
     // metre below their ceiling.
     const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules, ventCeilingZ(mod) - mod.z - 1)
     const border = 0.045

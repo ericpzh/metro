@@ -242,7 +242,9 @@ the shared bridge builders also prepare these Low variants.
 ### Train models (车辆)
 
 One row per reviewed consist built by `buildTrain`, including legacy D-6 (the current
-D stock selects eight cars); model triangles for one train, not totals across services. High is the
+D stock selects eight cars). These rows use the third-rail roof and exclude
+pantographs; see `game/PERFORMANCE.md` for the separately measured overhead-wire
+variants. Counts are model triangles for one train, not totals across services. High is the
 complete consist — both cabs, gangways, the rideable cabin interior, bogies and the
 closed door leaves (open/closed poses submit the same triangles). Low is what the same
 consist draws after its prepared swaps: a part with an authored §9.3 approximation
@@ -252,16 +254,16 @@ static batching, door banks and sorted glass batches — not a sum of unmerged p
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 129856 | 1303040 |
-| D-6 | 104804 | 1007764 |
-| A-8 | 166648 | 730144 |
-| A-6 | 126080 | 573968 |
-| C-6 | 112648 | 534612 |
-| B-6 | 109316 | 513612 |
-| L-6 | 96060 | 464300 |
-| C-4 | 76600 | 395468 |
-| B-4 | 74292 | 378052 |
-| L-4 | 65220 | 344308 |
+| D-8 | 129952 | 1303424 |
+| D-6 | 104876 | 1008052 |
+| A-8 | 166728 | 730512 |
+| A-6 | 126140 | 574244 |
+| C-6 | 112708 | 534888 |
+| B-6 | 109376 | 513888 |
+| L-6 | 96120 | 464576 |
+| C-4 | 76640 | 395652 |
+| B-4 | 74332 | 378236 |
+| L-4 | 65260 | 344492 |
 
 The shared `TrainBogie.ts` wheelsets, sculpted frames, suspension and brakes are included in these regenerated counts; Low keeps profiled eight-sided wheels and omits coils, bolts, pipes and dampers.
 
@@ -585,3 +587,15 @@ an asset-integrity assertion or change generated provenance merely to make a
 performance change's test run green.
 
 Underfloor equipment refresh: cabinets, vented access panels, air reservoirs, suspension mounting brackets and cable conduits now fill the space between bogies. Deep upper bogie cheek frames, bolsters and broad air cushions close the former empty suspension gap; roof HVAC units retain a thin housing at Low. The train geometry inventory was regenerated with `node tools/model-triangle-inventory.mjs`; raw counts are in `.preview/perf/train-triangles.json`. The original roof height and platform floor are retained; original-size passenger doors occupy about half the wheel-to-roof height through a deeper rail bed and taller underfloor structure.
+
+### Five-metre audit evidence (2026-10-19)
+
+The current profile uses 0.98 uniform train scale, contact wire centre +3.903 m
+(carbon +3.891 m), and a covered ceiling underside +4 m above the track anchor.
+Loading preserves authored cells/modules. The complete normal suite passes
+1,921 tests with zero skips; do not disable demo/scenario acceptance for a profile
+change. Save scale normalization, nine restored checks, production WebGL work
+counts, current inventory and first/repeated reported-save loading are recorded
+in `game/PERFORMANCE.md`. Raw audit evidence is `.preview/perf/train-5m-audit/`.
+The full instrumented geometry coverage attempt exceeded 11 minutes and was
+stopped; focused percentages and normal-suite results are reported separately.

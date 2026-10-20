@@ -14,12 +14,11 @@ import { PSD_WALL_OFFSET } from './constants.ts'
 // offsets are allowed, because a run centre is a half-cell. Pure data — no
 // three, no DOM.
 
-import type { LineDirection, Module } from './types.ts'
+import type { Cell, LineDirection, Module } from './types.ts'
 
 /** Clear courses above the bed, including the overhead support assembly. */
 export function trackHeadroom(track: TrackModule): number {
-  if (track.cfg.power !== 'catenary') return 3
-  return !track.cfg.tunnel && (track.cfg.bridge || track.cfg.catenaryStyle === 'gantry') ? 5 : 4
+  return track.cfg.power === 'catenary' && !track.cfg.tunnel && (track.cfg.bridge || track.cfg.catenaryStyle === 'gantry') ? 4 : 3
 }
 
 /** Length presets shared by the tunnel and elevated track tools. */
@@ -193,4 +192,15 @@ export function thirdRailSide(
   if (hasLeft && !hasRight) return -1
   if (hasRight && !hasLeft) return 1
   return right
+}
+
+
+/** Underside of an overhead block, never its top face or a slab a storey higher. */
+export function trackCeilingUnderside(track: TrackModule, cells: readonly Cell[] = []): number {
+  let underside = track.z + trackHeadroom(track) + 1
+  for (const cell of cells) {
+    if (cell.fill !== 'solid' || cell.z <= track.z + 1 || cell.z >= underside) continue
+    if (trackCellAt(track, cell.x, cell.y, track.z)) underside = cell.z
+  }
+  return underside
 }

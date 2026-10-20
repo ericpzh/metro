@@ -12,7 +12,8 @@ import { msg } from '../../../sim/i18n.ts'
 
 import type { StateCreator } from 'zustand'
 import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
-import type { RampLength } from '../../../sim/rampLengths.ts'
+import type { RampLength, RampSpan } from '../../../sim/rampLengths.ts'
+import type { LiftInterval } from '../../../sim/lifts.ts'
 import type { WalkwayLength } from '../../../sim/walkways.ts'
 import type { SignBoards } from '../../../sim/sign.ts'
 import type { ZoneBrush } from '../catalog.ts'
@@ -41,7 +42,7 @@ export interface PickDraft {
   railCatenaryStyle: 'canopy' | 'gantry'
   guideExitId: string | null
   lightPosition: number
-  pillarLength: 2 | 4
+  pillarLength: 2 | 5
   roofWidth: number
   roofPlateSnap: 'lower' | 'upper'
   bridgeLength: number
@@ -49,6 +50,9 @@ export interface PickDraft {
   escalatorDir: 'up' | 'down'
   escalatorWide: boolean
   rampLength: RampLength
+  escalatorSpan: RampSpan
+  doubleRampLength: RampLength
+  liftInterval: LiftInterval
   walkwayLength: WalkwayLength
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
@@ -105,6 +109,9 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         escalatorDir: s.escalatorDir,
         escalatorWide: s.escalatorWide,
         rampLength: s.rampLength,
+        escalatorSpan: s.escalatorSpan,
+        doubleRampLength: s.doubleRampLength,
+        liftInterval: s.liftInterval,
         walkwayLength: s.walkwayLength,
         liftStyle: s.liftStyle,
         hangerLength: s.hangerLength,
@@ -140,6 +147,9 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       escalatorDir: d.escalatorDir,
       escalatorWide: d.escalatorWide,
       rampLength: d.rampLength,
+      escalatorSpan: d.escalatorSpan,
+      doubleRampLength: d.doubleRampLength,
+      liftInterval: d.liftInterval,
       walkwayLength: d.walkwayLength,
       liftStyle: d.liftStyle,
       hangerLength: d.hangerLength,

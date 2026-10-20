@@ -115,7 +115,7 @@ test('a 双跑楼梯 pushed against a wall keeps it whole: its runs fill their o
   // the pair — the columns just outside the blocks the sliding runs fill.
   for (const style of ['stair-left180', 'stair-right180']) {
     for (const size of STAIR_WIDTHS) {
-      const stair = createModule(style, 2, 2, -4, 's', 0, size)
+      const stair = createModule(style, 2, 2, -5, 's', 0, size)
       assert.ok(stair)
       const lanes = stairLanes(size)
       const flights = stairFlights(stair)
@@ -128,7 +128,7 @@ test('a 双跑楼梯 pushed against a wall keeps it whole: its runs fill their o
       const wallXs = [lo - 1, hi]
       const cells = []
       for (let x = -4; x <= 12; x++) {
-        for (let y = -4; y <= 10; y++) cells.push({ x, y, z: -4, fill: 'solid', tags: ['auto-floor'] })
+        for (let y = -4; y <= 10; y++) cells.push({ x, y, z: -5, fill: 'solid', tags: ['auto-floor'] })
       }
       for (const wx of wallXs) {
         for (let y = 0; y <= 7; y++) {
@@ -219,19 +219,19 @@ test('a wide stair keeps its side floor cells and marks them as half blocks', ()
   // to the upper along +y and punches through the upper slab near its top.
   const cells = []
   for (let x = -1; x <= 1; x++) {
-    for (let y = 0; y <= 8; y++) {
-      cells.push({ x, y, z: -4, fill: 'solid', tags: ['auto-floor'] })
+  for (let y = 0; y <= 9; y++) {
+      cells.push({ x, y, z: -5, fill: 'solid', tags: ['auto-floor'] })
       cells.push({ x, y, z: 0, fill: 'solid', tags: ['auto-floor'] })
     }
   }
-  const stair = createModule('stair-straight', 0, 0, -4, 's', 0, 1.6)
+  const stair = createModule('stair-straight', 0, 0, -5, 's', 0, 1.6)
   assert.ok(stair)
   carveRampOpenings(cells, [stair])
   const has = (x, y) => cells.some((c) => c.x === x && c.y === y && c.z === 0)
-  assert.ok(!has(0, 4), 'the run cell at the top is carved')
-  assert.ok(has(-1, 4) && has(1, 4), 'the side floor cells survive the carve')
+  assert.ok(!has(0, 7), 'the run cell at the top is carved')
+  assert.ok(has(-1, 7) && has(1, 7), 'the side floor cells survive the carve')
   const thins = rampThinCells(cells, [stair])
-  const side = thins.find((t) => t.x === 1 && t.y === 4)
+  const side = thins.find((t) => t.x === 1 && t.y === 7)
   assert.ok(side, 'the side floor is marked for a half block')
   assert.equal(side.side, 'e')
 })
@@ -241,10 +241,10 @@ test('a run that lands on a floor does not carve the slab above it', () => {
   // punched a hole in a slab the run never meets. A run opens the floor it
   // climbs through, not the storey above the room it lands in.
   const cells = []
-  for (let y = 0; y <= 8; y++) {
+  for (let y = 0; y <= 9; y++) {
     cells.push({ x: 0, y, z: 0, fill: 'solid' }) // lower floor
-    cells.push({ x: 0, y, z: 4, fill: 'solid' }) // the floor the run lands on
-    cells.push({ x: 0, y, z: 8, fill: 'solid' }) // the roof over that floor
+    cells.push({ x: 0, y, z: 5, fill: 'solid' }) // the floor the run lands on
+    cells.push({ x: 0, y, z: 10, fill: 'solid' }) // the roof over that floor
   }
   const run = {
     id: 'e',
@@ -253,15 +253,15 @@ test('a run that lands on a floor does not carve the slab above it', () => {
     y: 0,
     z: 0,
     from: { x: 0, y: 0, z: 0 },
-    to: { x: 0, y: 6, z: 4 },
+    to: { x: 0, y: 9, z: 5 },
     cfg: { dir: 'up' },
   }
   carveRampOpenings(cells, [run])
   const cell = (y, z) => cells.find((c) => c.x === 0 && c.y === y && c.z === z)
-  assert.ok(!cell(3, 4), 'the floor the run climbs through is opened')
-  assert.ok(cell(6, 4), 'the landing is kept')
-  assert.ok(cell(6, 8), 'the roof above the landing must survive the carve')
-  assert.ok(cell(3, 8)?.tags?.includes(OPENING_CEILING), 'the orphan over an opening is tagged as its ceiling')
+  assert.ok(!cell(6, 5), 'the floor the run climbs through is opened')
+  assert.ok(cell(9, 5), 'the landing is kept')
+  assert.ok(cell(9, 10), 'the roof above the landing must survive the carve')
+  assert.ok(cell(6, 10)?.tags?.includes(OPENING_CEILING), 'the orphan over an opening is tagged as its ceiling')
 })
 
 test('the reference station has no holes in its gate floor or concourse roof', () => {
@@ -269,7 +269,7 @@ test('the reference station has no holes in its gate floor or concourse roof', (
   const solid = new Set(d.cells.filter((c) => c.fill === 'solid').map((c) => `${c.x},${c.y},${c.z}`))
   // The gate row is floor, not a gap: the fare line is a zone boundary in the
   // graph, so the gates stay the only legal crossing.
-  for (let x = -7; x <= 7; x++) assert.ok(solid.has(`${x},12,-4`), `gate-row floor missing at ${x}`)
+  for (let x = -7; x <= 7; x++) assert.ok(solid.has(`${x},12,-5`), `gate-row floor missing at ${x}`)
   // The roof over the hall is whole — the old over-carve punched it above the
   // platform escalators, leaving orphaned blocks floating over the concourse.
   for (let x = -8; x <= 8; x++) {
@@ -303,7 +303,7 @@ test('every cell a ramp carve opens is reserved against a hand-built block', () 
     y: 0,
     z: 0,
     from: { x: 0, y: 0, z: 0 },
-    to: { x: 0, y: 6, z: -4 },
+    to: { x: 0, y: 6, z: -5 },
     cfg: { dir: 'down' },
   }
   const before = cells.map((c) => `${c.x},${c.y},${c.z}`)

@@ -3,7 +3,7 @@
 // `render/scene.ts`: `setStation`'s culling/meshing passes, `meshBand`,
 // `outlineMaterial`, `releaseChunks`, `disposeChunks`).
 //
-// GAME-SPEC §2 (blocks, storeys on the 4 m grid) and the chunk-cache design
+// GAME-SPEC §2 (blocks, storeys on the 5 m grid) and the chunk-cache design
 // note in `setStation`: a chunk whose content is unchanged meshes
 // byte-identically, so its GPU meshes are reused instead of re-uploaded.
 
@@ -16,7 +16,7 @@ import { GROUND_Z, withGround } from '../../../sim/ground.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
 import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
-import { liftFootprintCells, liftStopZs } from '../../../sim/lifts.ts'
+import { liftFootprintCells, liftLevels } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
 import { packKey } from '../../../sim/types.ts'
 import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
@@ -42,7 +42,7 @@ function shapeKey(shape: CellShape): number {
  * meshes are tagged with — a plate survives 隐藏天花板, the street is the one plate
  * 隐藏地面 takes away whole (`LevelSystem.applyLevel`).
  */
-type ChunkPass = 's' | 'f' | 'g'
+type ChunkPass = 's' | 'f' | 'g' | 'c'
 
 export class ChunkSystem extends SceneSystem {
   private platformInsets = new Map<number, BlockInset>()
@@ -186,6 +186,7 @@ export class ChunkSystem extends SceneSystem {
     for (const m of data.modules) {
       if (m.type !== 'stair') continue
       for (const p of stairTurnCells(m)) {
+        if (!Number.isInteger(p.z)) continue
         const k = packKey(p.x, p.y, p.z)
         if (solidKeys.has(k)) this.ctx.hiddenCells.add(k)
       }
@@ -217,7 +218,7 @@ export class ChunkSystem extends SceneSystem {
     for (const m of data.modules) {
       if (m.type !== 'lift') continue
       const lo = Math.min(m.from.z, m.to.z)
-      for (const z of liftStopZs(m.from.z, m.to.z)) {
+      for (const z of liftLevels(m)) {
         if (z <= lo) continue
         for (const [fx, fy] of liftFootprintCells(m)) {
           const k = packKey(fx, fy, z)
@@ -248,10 +249,10 @@ export class ChunkSystem extends SceneSystem {
     // slice has to be applied again even if the view state itself did not change.
     this.ctx.levelKey = ''
     this.ctx.lastChunkMs = 0
-    // Group cells into storeys. A storey is a floor on the fixed 4 m editing
+    // Group cells into storeys. A storey is a floor on the fixed 5 m editing
     // grid (`LEVEL_STEPS`) plus the walls it grows up to the next grid line, so
     // a cell belongs to the storey at or below it (`storeyBand`). Keying by the
-    // *grid* rather than by a contiguous run matters: a lower floor's 4 m wall
+    // *grid* rather than by a contiguous run matters: a lower floor's 5 m wall
     // reaches the floor above, and the raw run then reads as one tall storey,
     // merging two floors into a single band. Bands may overlap in z across
     // columns, so each band meshes exactly its own cells (`emit`) instead of a
@@ -264,12 +265,13 @@ export class ChunkSystem extends SceneSystem {
     this.ctx.groundOf.clear()
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      const band = storeyBand(c.z, this.ctx.levelBase)
+      const band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
       bandOfCell.set(packKey(c.x, c.y, c.z), band)
       const col = `${c.x},${c.y}`
       const prev = this.ctx.groundOf.get(col)
       if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
     }
+    const suspended = new Set(this.effectiveCells.filter(c => c.tags?.includes('suspended-ceiling')).map(c => packKey(c.x,c.y,c.z)))
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     // The street's own pass. It is a storey of its own in everything but name: at
     // `GROUND_Z` with the document holding nothing under it, so it is the plate
@@ -311,7 +313,7 @@ export class ChunkSystem extends SceneSystem {
     const floating = new Set<number>()
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      if (c.tags?.includes(OPENING_CEILING)) continue
+      if (c.tags?.includes(OPENING_CEILING) || suspended.has(packKey(c.x,c.y,c.z))) continue
       if (bandOfCell.get(packKey(c.x, c.y, c.z)) === this.ctx.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
     }
     const box = new THREE.Box3()
@@ -457,10 +459,15 @@ export class ChunkSystem extends SceneSystem {
       for (const [levelZ, band] of byBand) {
         const emit = new Set<number>()
         for (const c of band.cells) emit.add(packKey(c.x, c.y, c.z))
-        for (const [k, list] of groupByChunk(band.cells)) {
+        for (const [k, list] of groupByChunk(band.cells.filter(c => !suspended.has(packKey(c.x,c.y,c.z))))) {
           const [cx, cy] = k.split(',').map(Number)
           const key = chunkKey(levelZ, cx, cy, 's', list, emit, this.ctx.solid)
           if (reuse.has(key)) keep.add(key)
+        }
+        for (const [k,list] of groupByChunk(band.cells.filter(c => suspended.has(packKey(c.x,c.y,c.z))))) {
+          const [cx,cy]=k.split(',').map(Number)
+          const key=chunkKey(levelZ,cx,cy,'c',list,emit,this.ctx.solid)
+          if(reuse.has(key))keep.add(key)
         }
         const plates = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
         const floats = plates.concat(
@@ -478,7 +485,7 @@ export class ChunkSystem extends SceneSystem {
       }
       for (const [k, list] of groupByChunk(groundCells)) {
         const [cx, cy] = k.split(',').map(Number)
-        const key = chunkKey(storeyBand(GROUND_Z, this.ctx.levelBase), cx, cy, 'g', list, groundEmit, this.ctx.solid)
+        const key = chunkKey(storeyBand(GROUND_Z, this.ctx.levelBase, this.ctx.storeyHeight), cx, cy, 'g', list, groundEmit, this.ctx.solid)
         if (reuse.has(key)) keep.add(key)
       }
     }
@@ -548,27 +555,14 @@ export class ChunkSystem extends SceneSystem {
           // An unsupported plate — and, on its own pass, the street: a plate is the
           // one thing 隐藏天花板 keeps above the room being edited, and the street is
           // the one plate 隐藏地面 can take away whole.
-          mesh.userData.float = pass !== 's'
+          mesh.userData.suspendedCeiling = pass === 'c'
+          mesh.userData.float = pass === 'f' || pass === 'g'
           mesh.userData.ground = pass === 'g'
           group.add(mesh)
           this.chunkMeshes.push(mesh)
           meshes.push(mesh)
-          // Inverted hull outline: same geometry, back faces, pushed outward.
-          const outlineMat = this.outlineMaterial()
-          const outline = new THREE.Mesh(geo, outlineMat)
-          // The outline owns its material, and `baseMaterial` pins the opaque
-          // original: without it a second `applyLevel` would take the ghost
-          // clone for the base and dim the hull again, and again.
-          outline.userData.baseMaterial = outlineMat
-          outline.userData.levelZ = levelZ
-          outline.userData.float = pass !== 's'
-          outline.userData.ground = pass === 'g'
-          outline.userData.wall = mesh.userData.wall
-          outline.renderOrder = -1
-          group.add(outline)
-          this.outlineMeshes.push(outline)
-          this.outlineSet.add(outline)
-          outlines.push(outline)
+          // Block outlines (inverted hull) removed: they read as a detached face at
+          // glancing angles. No outline mesh is emitted per chunk part.
         }
         if (meshes.length > 0) {
           // Every part's geometry, not just the first: a chunk is one mesh per
@@ -592,7 +586,8 @@ export class ChunkSystem extends SceneSystem {
       // The whole storey, then its unsupported plates on their own, so the two can
       // be shown separately: a storey below the active level draws whole, while a
       // plate hanging above it still stays on screen.
-      meshBand(group, levelZ, band.cells, this.ctx.solid, emit, 's')
+      meshBand(group, levelZ, band.cells.filter(c => !suspended.has(packKey(c.x,c.y,c.z))), this.ctx.solid, emit, 's')
+      meshBand(group, levelZ, band.cells.filter(c => suspended.has(packKey(c.x,c.y,c.z))), this.ctx.solid, emit, 'c')
       const plates = band.cells.filter((c) => floating.has(packKey(c.x, c.y, c.z)))
       if (plates.length > 0) {
         // The ground a plate carries up to a run's truss is meshed with it here too,
@@ -619,7 +614,7 @@ export class ChunkSystem extends SceneSystem {
     // 隐藏地面 (`LevelSystem.applyLevel`) can take the whole plane away by hiding
     // these meshes, with no rebuild and no cell of the document touched.
     if (groundCells.length > 0) {
-      const groundBand = storeyBand(GROUND_Z, this.ctx.levelBase)
+      const groundBand = storeyBand(GROUND_Z, this.ctx.levelBase, this.ctx.storeyHeight)
       let group = this.levelGroups.get(groundBand)
       if (!group) {
         group = new THREE.Group()

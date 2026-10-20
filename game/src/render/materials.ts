@@ -438,7 +438,8 @@ export function createMaterials(): MaterialSet {
     }
     return m
   }
-  // Inverted-hull outline: back faces, pushed along the normal, flat dark.
+  // Block outline (inverted hull) removed from the chunk mesher; material kept for
+  // any remaining callers but no longer used for block rims.
   const outline = new THREE.MeshBasicMaterial({ color: 0x11151c, side: THREE.BackSide })
   const blob = new THREE.MeshBasicMaterial({
     map: contactShadowTexture(),

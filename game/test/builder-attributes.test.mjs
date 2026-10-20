@@ -10,8 +10,8 @@ function stateWith(actions = {}) {
 test('module attributes use the shared priority and first two variant shortcuts', () => {
   const state = stateWith()
   const escalator = moduleBuilderAttributes('escalator', state)
-  assert.deepEqual(escalator.map(({ kind }) => kind), ['rotation', 'width', 'length', 'direction'])
-  assert.deepEqual(escalator.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab', undefined])
+  assert.deepEqual(escalator.map(({ kind }) => kind), ['rotation', 'width', 'length', 'span', 'direction'])
+  assert.deepEqual(escalator.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab', undefined, undefined])
 
   const curtain = moduleBuilderAttributes('curtain-wall', state)
   assert.deepEqual(curtain.map(({ kind }) => kind), ['rotation', 'width', 'height'])
@@ -40,23 +40,33 @@ test('the 自动步道 carries the escalator’s two shared tabs and its own lev
   assert.deepEqual(calls, ['width', 'length', 'rotation'], 'Tab takes the width, Shift+Tab the level length')
 })
 
-test('a 单跑楼梯 carries the same four run lengths a 扶梯 does, and only that shape does', () => {
+test('every staircase but the 楼梯块 carries the run length tile, and so does the 扶梯', () => {
   const state = stateWith()
-  // 单跑楼梯 — 直跑楼梯 tile and the bare `stair` the room builder places — is the one
-  // stair whose length the player chooses, with the escalator's own sizes: 超短 / 短 /
-  // 中 / 长 as the width tile's neighbour (Tab = width, Shift+Tab = length).
-  for (const type of ['stair-straight', 'stair']) {
+  // A straight stair climbs its chosen rise in one flight; a turning stair
+  // splits it into two flights with the platform at half the rise. Both read the
+  // one armed length, so a bank of 扶梯 and 楼梯 is built to one size.
+  for (const type of ['stair-straight', 'stair', 'stair-right180', 'stair-left90', 'stair-centerForward']) {
     const stair = moduleBuilderAttributes(type, state)
     assert.deepEqual(stair.map(({ kind }) => kind), ['rotation', 'width', 'length'], type)
     assert.deepEqual(stair.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab'], type)
-    assert.equal(stair.at(-1).label, '中', 'the run length tile is named 中 at the catalogue default')
+    assert.equal(stair.at(-1).label, '长', 'the run length tile is named 长 at the catalogue default')
   }
-  // A 双跑 / 转角楼梯 is the fixed footprint its turn is drawn at, and a 楼梯块 is a
-  // half-height block with no run at all: neither grows a length tile.
-  for (const type of ['stair-right180', 'stair-left90', 'stair-centerForward']) {
-    assert.deepEqual(moduleBuilderAttributes(type, state).map(({ kind }) => kind), ['rotation', 'width'], type)
-  }
+  // A 楼梯块 is a half-height block with no run at all: it keeps its own height tile.
   assert.deepEqual(moduleBuilderAttributes('stair-block', state).map(({ kind }) => kind), ['rotation', 'height'])
+
+  // A 扶梯 has a second family beside the length: 单层 / 双层.
+  const spanTile = moduleBuilderAttributes('escalator', state).find((a) => a.kind === 'span')
+  assert.equal(spanTile.label, '单层', 'a fresh escalator is single-storey')
+  const double = moduleBuilderAttributes('escalator', stateWith({ escalatorSpan: 'double' }))
+  assert.equal(double.find((a) => a.kind === 'span').label, '双层')
+  assert.equal(double.find((a) => a.kind === 'length').label, '超长', 'the double family defaults to 超长 10 m')
+
+  // 电梯's floor interval is its first tile (Tab), the housing its second.
+  const lift = moduleBuilderAttributes('lift', state)
+  assert.deepEqual(lift.map(({ kind }) => kind), ['rotation', 'length', 'style'])
+  assert.deepEqual(lift.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab'])
+  assert.equal(lift[1].label, '中 5 m')
+  assert.equal(moduleBuilderAttributes('lift', stateWith({ liftInterval: 7 }))[1].label, '超长 7 m')
 })
 
 test('the straight-stair predicate answers for the palette ids the rail arms', () => {
@@ -98,6 +108,17 @@ test('Tab, Shift+Tab and R dispatch through the module capability list', () => {
   const slimPillar = moduleBuilderAttributes('pillar-slim', state)
   assert.equal(slimPillar[0].kind, 'position')
   assert.equal(slimPillar[0].shortcut, 'R', 'R moves the slim pillar across its in-cell positions')
+
+  // 电梯: Tab is the floor interval, Shift+Tab the housing.
+  const liftCalls = []
+  const liftState = stateWith({
+    cycleLiftInterval: () => liftCalls.push('interval'),
+    cycleLiftStyle: () => liftCalls.push('style'),
+    rotateModule: () => liftCalls.push('rotation'),
+  })
+  assert.equal(activateModuleBuilderShortcut('lift', liftState, 'Tab'), true)
+  assert.equal(activateModuleBuilderShortcut('lift', liftState, 'Shift+Tab'), true)
+  assert.deepEqual(liftCalls, ['interval', 'style'])
 })
 
 test('all width action tiles use the shared width glyph and the shell delegates module keys', () => {

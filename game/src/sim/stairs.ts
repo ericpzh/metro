@@ -1,10 +1,13 @@
 import { msg } from './i18n.ts'
 // Staircase geometry — GAME-SPEC.md §5.1.
 //
-// A stair climbs exactly one storey, like an escalator, but it is walkable in
-// both directions and it can turn. The turn is real, not a texture: each flight
-// is a capacity-limited graph edge and each half/quarter landing is a walkable
-// node between them, so the crowd visibly walks the corner.
+// A stair climbs one chosen run — 超短 2 m … 长 5 m (`sim/rampLengths.ts`) — and
+// it is walkable in both directions and it can turn. The turn is real, not a
+// texture: each flight is a capacity-limited graph edge and each half/quarter
+// landing is a walkable node between them, so the crowd visibly walks the corner.
+// A turning stair splits its run into two flights and puts the platform at half
+// the rise; that platform is the piece's **own 0.5 m model**, not a document
+// block (`buildGraph` adds it as a virtual walk node).
 //
 // The module keeps `from`/`to` so every consumer that treats a stair as a plain
 // run still works, and `cfg.flights` as the authoritative list of segments.
@@ -12,7 +15,7 @@ import { msg } from './i18n.ts'
 // implied run. Pure data — no three, no DOM.
 
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from './constants.ts'
-import { RAMP_LENGTH_DEFAULT, rampLengthOf, rampLengthSpec, type RampLength } from './rampLengths.ts'
+import { defaultRampLength, rampLengthOf, rampLengthSpec, type RampLength } from './rampLengths.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
 
 export type { StairFlight, StairStyle } from './types.ts'
@@ -141,17 +144,9 @@ export function stairLanes(width: number): number {
   return Math.max(1, Math.min(STAIR_LANES_MAX, lanes))
 }
 
-/**
- * A placeable straight stair is a fixed piece, exactly the run length it was
- * built at (GAME-SPEC's 3 × 6 m footprint, rounded to the 4-block storey grid):
- * this many cells of horizontal run for this many blocks of climb, 中 being the
- * one-storey piece the game shipped with. The base cell is the lower landing; the
- * run direction follows the placement rotation. The four lengths a 单跑楼梯 comes
- * in are the escalator's own (`sim/rampLengths.ts`), so a bank of the two stands
- * flush and the seam between them fills.
- */
-export const STAIR_RUN = rampLengthSpec(RAMP_LENGTH_DEFAULT).run
-export const STAIR_RISE = rampLengthSpec(RAMP_LENGTH_DEFAULT).rise
+/** The default five-metre staircase spans eight cells along its placement rotation. */
+export const STAIR_RUN = rampLengthSpec('long').run
+export const STAIR_RISE = rampLengthSpec('long').rise
 
 /**
  * How far a flight's treads stop short of each landing **centre**, metres: half a
@@ -262,9 +257,9 @@ export function planStairLanes(
   return { lanes: cells, free: false }
 }
 
-/** Per-flight run and rise: a turn is two half-storey flights at the same slope. */
-export const STAIR_FLIGHT_RUN = 3
-export const STAIR_FLIGHT_RISE = 2
+/** Per-flight run and rise for the default five-metre turning stair. */
+export const STAIR_FLIGHT_RUN = Math.ceil(rampLengthSpec('long').run / 2)
+export const STAIR_FLIGHT_RISE = rampLengthSpec('long').rise / 2
 
 /** A stair lane of the same flight standing right beside this one. */
 export interface StairLaneMate {
@@ -440,7 +435,7 @@ export function stairWallSides(
     // The run cell's own coordinate along the axis the band does *not* span: the cell the
     // probe is read in is (across, along), never (across, across).
     const along = acrossX ? cy : cx
-    const z = Math.min(Math.floor(low.z + 1 + ((i + 0.5) / run) * rise + 1e-9), high.z)
+    const z = Math.floor(Math.min(low.z + 1 + ((i + 0.5) / run) * rise + 1e-9, high.z))
     const centre = acrossX ? cx + 0.5 + sx : cy + 0.5 + sy
     // The whole cells whose centre the treads cover.
     const lo = Math.ceil(centre - half - 0.5)
@@ -484,17 +479,22 @@ export function stairWallSides(
  *
  * `width` is read by a switchback (its two flights are side by side, so the stair's own
  * width is what separates them) and by a 90° turn (its landing is a square one block of
- * side per lane, and that is how far in the second leg starts); `straight` is the fixed
- * run its `length` names.
+ * side per lane, and that is how far in the second leg starts).
  *
- * `length` is a **single-run stair's** own size (`sim/rampLengths.ts`), the same
- * four the 扶梯 comes in: the straight flight climbs its rise over its run, so an
- * escalator and a 单跑楼梯 of one length stand flush and share a filled seam. A
- * turning shape is built from `STAIR_RUN` / `STAIR_RISE` whatever `length` says —
- * its two half-storey flights are the fixed footprint the turn is drawn at, not a
- * length the player chooses.
+ * `length` is the stair's own climb (`sim/rampLengths.ts`): 超短 2 m … 长 5 m.
+ * A **single-run** stair climbs it in one flight. A **turning** stair splits it
+ * into two flights of half the rise with the turn platform between them — the
+ * platform sits at 0.5 × the stair's rise (1 m for 超短, 2.5 m for 长) — and each
+ * flight takes the whole cells half the catalogue run rounds up to, so the
+ * middle landing stays on the block grid and the piece needs no floor of its
+ * own to stand on. An omitted `length` uses the five-metre 长 run.
  */
-export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length: RampLength = RAMP_LENGTH_DEFAULT): StairFlight[] {
+export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = 5): StairFlight[] {
+  const { run, rise } = rampLengthSpec(length ?? defaultRampLength(storeyHeight), 'single')
+  // A turn's two flights are whole cells of run each; the catalogue run is
+  // rounded up to an even split so the half-landing lands on a cell edge.
+  const flightRun = Math.max(1, Math.ceil(run / 2))
+  const flightRise = rise / 2
   const [fx, fy] = stairFacing(rot)
   const [rx, ry] = stairRight(rot)
   const at = (df: number, dr: number, dz: number): Vec3i => ({
@@ -513,53 +513,50 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
   switch (style) {
     case 'right90':
       return [
-        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
-        { from: at(STAIR_FLIGHT_RUN, step, STAIR_FLIGHT_RISE), to: at(STAIR_FLIGHT_RUN, step + STAIR_FLIGHT_RUN, STAIR_RISE) },
+        { from: base, to: at(flightRun, 0, flightRise) },
+        { from: at(flightRun, step, flightRise), to: at(flightRun, step + flightRun, rise) },
       ]
     case 'left90':
       return [
-        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
-        { from: at(STAIR_FLIGHT_RUN, -step, STAIR_FLIGHT_RISE), to: at(STAIR_FLIGHT_RUN, -step - STAIR_FLIGHT_RUN, STAIR_RISE) },
+        { from: base, to: at(flightRun, 0, flightRise) },
+        { from: at(flightRun, -step, flightRise), to: at(flightRun, -step - flightRun, rise) },
       ]
     case 'right180':
       return [
-        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
-        { from: at(STAIR_FLIGHT_RUN, span, STAIR_FLIGHT_RISE), to: at(0, span, STAIR_RISE) },
+        { from: base, to: at(flightRun, 0, flightRise) },
+        { from: at(flightRun, span, flightRise), to: at(0, span, rise) },
       ]
     case 'left180':
       return [
-        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
-        { from: at(STAIR_FLIGHT_RUN, -span, STAIR_FLIGHT_RISE), to: at(0, -span, STAIR_RISE) },
+        { from: base, to: at(flightRun, 0, flightRise) },
+        { from: at(flightRun, -span, flightRise), to: at(0, -span, rise) },
       ]
     case 'leftForward':
     case 'centerForward':
     case 'rightForward': {
       const across = style === 'leftForward' ? -span : style === 'rightForward' ? span : 0
       return [
-        { from: base, to: at(STAIR_FLIGHT_RUN, 0, STAIR_FLIGHT_RISE) },
-        { from: at(STAIR_FLIGHT_RUN, across, STAIR_FLIGHT_RISE), to: at(STAIR_RUN, across, STAIR_RISE) },
+        { from: base, to: at(flightRun, 0, flightRise) },
+        { from: at(flightRun, across, flightRise), to: at(flightRun * 2, across, rise) },
       ]
     }
     case 'straight':
-    default: {
-      const { run, rise } = rampLengthSpec(length)
+    default:
       return [{ from: base, to: at(run, 0, rise) }]
-    }
   }
 }
 
 /**
- * The catalogue length a **placed** 单跑楼梯 was built at, read from its flight's
- * endpoints — the same "endpoints are authoritative" rule the escalator answers to
- * (`rampLengthOf`), so a save from before the family grew still arms the tile that
- * rebuilds it. A turning stair has no length of its own (its two half-storey
- * flights are the fixed footprint the turn is drawn at), so it reports 中.
+ * The catalogue length a **placed** stair was built at, read from its outer
+ * landings — the same "endpoints are authoritative" rule the escalator answers
+ * to (`rampLengthOf`), so a save from before the family grew still arms the tile
+ * that rebuilds it. A turning stair's outer landings span its whole climb, so a
+ * 双跑楼梯 at 中 (4 m) reads 中 whether its two flights climb it in one run or
+ * two. A 楼梯块 has no run of its own.
  */
 export function stairLengthOf(m: StairModule): RampLength {
-  const flights = stairFlights(m)
-  if (flights.length !== 1) return RAMP_LENGTH_DEFAULT
-  const f = flights[0]
-  return rampLengthOf(f.to.z - f.from.z, Math.hypot(f.to.x - f.from.x, f.to.y - f.from.y))
+  if (m.cfg.block) return defaultRampLength(m.storeyHeight)
+  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), 'single')
 }
 
 /**
@@ -804,9 +801,9 @@ export function stairQuarterTurn(m: StairModule): boolean {
  * dimensions are read from the piece: the depth from its flights, the width from the slide
  * that put the band on the block grid — so an older save whose departing leg starts on the
  * corner cell keeps the single corner cell it was placed with, and the palette's own
- * off-grid sample keeps the landing its legs imply. The cells the builder lays as floor are
- * exactly the cells the model draws the platform on, and every edge of the square is a cell
- * edge.
+ * off-grid sample keeps the landing its legs imply. The cells the model draws the platform
+ * over are exactly the virtual landing cells the graph walks, and every edge of the square
+ * is a cell edge.
  */
 function stairQuarterTurnCells(m: StairModule): Vec3i[] {
   const flights = stairFlights(m)
@@ -839,7 +836,7 @@ function stairQuarterTurnCells(m: StairModule): Vec3i[] {
  * balustrades standing on them — the same relationship a 180's half-landing has to its
  * runs' rails, so the drawn platform meets them instead of being drawn through them. The
  * other pair of edges is the square itself, so what the platform covers is block-aligned
- * and the walkable floor under it is the same square.
+ * and the virtual walkable landing under it is the same square.
  */
 function stairQuarterTurnShape(m: StairModule): StairLandingShape {
   const flights = stairFlights(m)
@@ -860,9 +857,11 @@ function stairQuarterTurnShape(m: StairModule): StairLandingShape {
 }
 
 /**
- * Every cell an interior turn landing covers. These are the cells the builder
- * keeps as walkable nodes but the renderer hands to the stair model, so the
- * landing is drawn as a stair platform instead of a reused floor block.
+ * Every cell an interior turn landing covers. These are the cells the stair model
+ * draws its own 0.5 m platform over and `buildGraph` walks as **virtual** landing
+ * nodes; the document holds no block there. A legacy save made before that rule
+ * may still carry the blocks the old builder laid; `removeModule` cleans them up
+ * with the piece.
  *
  * The row runs between the two flight ends, and it is as wide as the **treads**
  * that end there: a switchback's runs are laid on the block grid
@@ -915,11 +914,11 @@ export function stairTurnCells(m: StairModule): Vec3i[] {
  * per extra lane (`stairQuarterTurnOffset`).
  *
  * The block matters: a 双跑楼梯's landing is the row the two runs meet on, and that row is
- * what the builder lays as walkable floor and what the crowd turns on. A platform as deep
+ * the virtual walk node the crowd turns on. A platform as deep
  * as the stair is *wide* — which is what a turn wants in a real stairwell, and what the
  * model drew before — hangs a metre of slab over the rows below and above it, across the
  * last steps of the run climbing into it. One block instead sits exactly on its own row, so
- * the drawn platform and the walkable floor are the same cells and a wall on either side of
+ * the drawn platform and the walkable landing are the same cells and a wall on either side of
  * the row is flush with the edge a railing would stand on. The model draws it
  * (`buildStairLanding`) and the wall test below reads it, so the slab and the edges a wall
  * can hug it by cannot disagree.
@@ -978,7 +977,7 @@ export interface StairLandingWalls {
  */
 export function stairLandingWalls(cells: readonly Cell[], m: StairModule, i: number): StairLandingWalls {
   const shape = stairLandingShape(m, i)
-  const z = shape.z
+  const z = Math.floor(shape.z)
   const solid = (x: number, y: number): boolean =>
     cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z)
   /** The whole cells the platform itself stands in, along one axis. */

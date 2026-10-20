@@ -33,12 +33,17 @@ function edgeKind(g, a, b) {
   return -1
 }
 
-test('a fresh lift is a 2×2 assembly that serves the floor one storey up', () => {
+/** One story above the base: two levels, 0 and LIFT_STEP, with the cap at 2×LIFT_STEP. */
+const twoStorey = (x = 2, y = 2, z = 0, rot = 0) => liftExtendedUp(liftModule({ x, y, z }, rot, 'lift-1'), LIFT_STEP)
+
+test('a fresh lift is one story: a 2×2 assembly whose cap is one interval up', () => {
   for (let rot = 0; rot < 4; rot++) {
-    const m = createModule('lift', 3, 5, -4, 'l', rot)
+    const m = createModule('lift', 3, 5, -5, 'l', rot)
     assert.ok(m && m.type === 'lift')
-    assert.deepEqual(m.from, { x: 3, y: 5, z: -4 })
-    assert.deepEqual(m.to, { x: 3, y: 5, z: -4 + LIFT_RISE })
+    assert.deepEqual(m.from, { x: 3, y: 5, z: -5 })
+    // The top is this story's **cap**; the level it serves is its base, and a
+    // story stacked above supplies that base's door and the cabin headroom.
+    assert.deepEqual(m.to, { x: 3, y: 5, z: -5 + LIFT_RISE })
     assert.equal(m.rot, rot)
     // The assembly stands on a 2 × 2 m footprint, not one cell.
     assert.deepEqual(
@@ -71,28 +76,28 @@ test('extending a lift grows it one storey up or down, same column and id', () =
   assert.equal(liftInColumn(grown.modules, 3, 2), undefined)
 })
 
-test('the graph joins every floor in the shaft with one lift car, both ways', () => {
+test('the graph joins the shaft’s levels with one lift car, both ways', () => {
   const data = {
     name: 't',
     seed: 1,
     cells: floors([0, LIFT_STEP, LIFT_STEP * 2]),
-    modules: [liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')],
+    modules: [twoStorey()],
     lines: [],
   }
   const g = buildGraph(data)
   const liftServers = g.servers.filter((s) => s.kind === 'lift')
   assert.equal(liftServers.length, 1, 'a shaft is one car, not one per direction')
   const s = liftServers[0]
-  assert.equal(s.lift.stops.length, 2, 'the base serves 0 and the floor above (4)')
+  assert.equal(s.lift.stops.length, 2, 'two stories serve 0 and the level above (4)')
   const bottom = g.nodeIndex.get('2,1,0')
-  const top = g.nodeIndex.get('2,1,4')
+  const top = g.nodeIndex.get("2,1,5")
   assert.equal(edgeKind(g, bottom, top), EDGE_KIND.lift)
   assert.equal(edgeKind(g, top, bottom), EDGE_KIND.lift)
 })
 
-test('a multi-storey shaft stops at every floor in its column', () => {
+test('a multi-storey shaft stops at every level in its column', () => {
   const levels = [0, LIFT_STEP, LIFT_STEP * 2, LIFT_STEP * 3]
-  const mod = liftExtendedUp(liftExtendedUp(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')))
+  const mod = liftExtendedUp(liftExtendedUp(liftExtendedUp(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'))))
   const g = buildGraph({ name: 't', seed: 1, cells: floors(levels), modules: [mod], lines: [] })
   const s = g.servers.find((x) => x.kind === 'lift')
   assert.equal(s.lift.stops.length, 4)
@@ -109,7 +114,7 @@ test('only the door landing boards; the whole shaft interior is not walkable', (
     name: 't',
     seed: 1,
     cells: floors([0, LIFT_STEP, LIFT_STEP * 2]),
-    modules: [liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')],
+    modules: [twoStorey()],
     lines: [],
   }
   const g = buildGraph(data)
@@ -126,8 +131,8 @@ test('only the door landing boards; the whole shaft interior is not walkable', (
 
 test('a rotated lift boards only through the door it faces', () => {
   // rot 1 turns the opening to +x, so the landing row is east of the shaft.
-  const m = liftModule({ x: 2, y: 2, z: 0 }, 1, 'lift-1')
-  assert.deepEqual(liftLandingCells(m), [
+  const m = liftExtendedUp(liftModule({ x: 2, y: 2, z: 0 }, 1, 'lift-1'), LIFT_STEP)
+  assert.deepEqual(liftLandingCells(m, 0), [
     [4, 2],
     [4, 3],
   ])
@@ -138,22 +143,23 @@ test('a rotated lift boards only through the door it faces', () => {
   assert.equal(g.nodeIndex.get('2,2,0'), undefined, 'the corner behind the door is not a stop')
 })
 
-test('a shaft may run past a floorless level; only real floors are stops', () => {
-  // A shaft from 0 to 8 with floors at 0 and 8 but none at 4: two stops, not three.
+test('a shaft may run past a floorless level; only real levels are stops', () => {
+  // Three stories (levels 0, 4 and 8) with floors at 0 and 8 but none at 4: two
+  // stops, not three; the top of the last story is its cap.
   const data = {
     name: 't',
     seed: 1,
     cells: floors([0, LIFT_STEP * 2]),
-    modules: [liftExtendedUp(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'))],
+    modules: [liftExtendedUp(liftExtendedUp(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')))],
     lines: [],
   }
   const g = buildGraph(data)
   const s = g.servers.find((x) => x.kind === 'lift')
   assert.equal(s.lift.stops.length, 2, 'the floorless middle level is not a stop')
   const bottom = g.nodeIndex.get('2,1,0')
-  const top = g.nodeIndex.get('2,1,8')
+  const top = g.nodeIndex.get("2,1,10")
   assert.equal(edgeKind(g, bottom, top), EDGE_KIND.lift)
-  assert.equal(g.nodeIndex.get('2,1,4'), undefined)
+  assert.equal(g.nodeIndex.get("2,1,5"), undefined)
 })
 
 test('two lifts may not share space, but a 2 m gap is free', () => {
@@ -181,14 +187,14 @@ test('a passenger rides the car up: walks in, stays in the cabin, steps out abov
     name: 't',
     seed: 1,
     cells: floors([0, LIFT_STEP, LIFT_STEP * 2]),
-    modules: [liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')],
+    modules: [twoStorey()],
     lines: [],
   }
   const w = new World(data, 1)
   const g = w.graph
   const s = g.servers.find((x) => x.kind === 'lift')
   const bottom = g.nodeIndex.get('2,1,0')
-  const top = g.nodeIndex.get('2,1,4')
+  const top = g.nodeIndex.get("2,1,5")
   const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, g.nodeX[bottom], g.nodeY[bottom], g.nodeZ[bottom], 0)
   a.state = 2
   a.server = s.id
@@ -223,13 +229,13 @@ test('the car pose is deterministic and reports a door fraction in 0..1', () => 
       name: 't',
       seed: 1,
       cells: floors([0, LIFT_STEP, LIFT_STEP * 2]),
-      modules: [liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')],
+      modules: [twoStorey()],
       lines: [],
     }
     const w = new World(data, 7)
     const s = w.graph.servers.find((x) => x.kind === 'lift')
     const bottom = w.graph.nodeIndex.get('2,1,0')
-    const top = w.graph.nodeIndex.get('2,1,4')
+    const top = w.graph.nodeIndex.get("2,1,5")
     const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, w.graph.nodeX[bottom], w.graph.nodeY[bottom], w.graph.nodeZ[bottom], 0)
     a.state = 2
     a.server = s.id

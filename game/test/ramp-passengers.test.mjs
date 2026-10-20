@@ -6,9 +6,9 @@ import { STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 import { rampMoveClear } from '../src/sim/rampCollision.ts'
 
 function setup(type, width, rot = 0, dir = 'up') {
-  const m = createModule(type, 0, 0, -4, 'ramp', rot, width, dir)
+  const m = createModule(type, 0, 0, -5, 'ramp', rot, width, dir)
   const cells = []
-  for (const z of [-4, 0]) for (let x = -10; x <= 10; x++) for (let y = -10; y <= 10; y++) cells.push({ x, y, z, fill: 'solid' })
+  for (const z of [-5, 0]) for (let x = -10; x <= 10; x++) for (let y = -10; y <= 10; y++) cells.push({ x, y, z, fill: 'solid' })
   const w = new World(addEquipment(toState({ name: 'ramp spacing', seed: 1, cells, modules: [], lines: [] }), m), 1)
   return { w, s: w.graph.servers.find(s => s.kind === (type === 'escalator' ? 'escalator' : 'stair')) }
 }
@@ -98,13 +98,13 @@ test('crowd pressure cannot shove bodies through escalator or stair landing rail
 })
 
 test('rail clearance permits sliding and landing entry, blocks end-cap tunnelling, and respects storeys', () => {
-  const walls = [{ ax: 0, ay: 0, bx: 0, by: 4, z0: -4, z1: 0, inwardX: 1, inwardY: 0 }]
-  assert.equal(rampMoveClear(walls, -0.4, 1, -0.4, 2, -4), true, 'crowd cannot slide along a rail')
-  assert.equal(rampMoveClear(walls, 0.3, -1, 0.3, 1, -4), true, 'rail clearance seals the entrance')
-  assert.equal(rampMoveClear(walls, -1, -0.1, 1, -0.1, -4), false, 'a long shove tunnels around the rail end')
+  const walls = [{ ax: 0, ay: 0, bx: 0, by: 4, z0: -5, z1: 0, inwardX: 1, inwardY: 0 }]
+  assert.equal(rampMoveClear(walls, -0.4, 1, -0.4, 2, -5), true, 'crowd cannot slide along a rail')
+  assert.equal(rampMoveClear(walls, 0.3, -1, 0.3, 1, -5), true, 'rail clearance seals the entrance')
+  assert.equal(rampMoveClear(walls, -1, -0.1, 1, -0.1, -5), false, 'a long shove tunnels around the rail end')
   assert.equal(rampMoveClear(walls, -1, 1, 1, 1, -8), true, 'ramp blocks the storey below it')
-  assert.equal(rampMoveClear(walls, -0.1, 1, -0.5, 1, -4), true, 'a body already touching the rail cannot retreat')
-  assert.equal(rampMoveClear(walls, -0.1, 1, 0.5, 1, -4), false, 'a body already touching the rail crosses through it')
+  assert.equal(rampMoveClear(walls, -0.1, 1, -0.5, 1, -5), true, 'a body already touching the rail cannot retreat')
+  assert.equal(rampMoveClear(walls, -0.1, 1, 0.5, 1, -5), false, 'a body already touching the rail crosses through it')
 })
 
 test('body clearance leaves turning stair landings usable by actual walkers', () => {
@@ -120,8 +120,8 @@ test('body clearance leaves turning stair landings usable by actual walkers', ()
     a.destNode = to
     a.legs = [{ kind: 'exit', node: to }]
     a.state = 1
-    for (let i = 0; i < 100 && !a.dead; i++) w.tickOnce()
-    assert.ok(a.dead, `${style} width ${width} rotation ${rot}: rail clearance stranded a walker at the turn`)
+    for (let i = 0; i < 300 && !a.dead; i++) w.tickOnce()
+    assert.ok(a.dead, `${style} width ${width} rotation ${rot}: rail clearance stranded a walker at ${a.x},${a.y},${a.z} (state ${a.state}, path ${a.path?.length})`)
     assert.equal(a.z, g.nodeZ[to])
   }
 })

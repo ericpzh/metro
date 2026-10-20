@@ -32,6 +32,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
   const railRot = useStore((s) => s.railRot)
   const tunnelLength = useStore((s) => s.tunnelLength)
   const autoWalls = useStore((s) => s.autoWalls)
+  const suspendedCeiling = useStore((s) => s.suspendedCeiling)
   const cut = useStore(armedCut)
   const pieceAnchor = useStore(armedActionsAnchor)
   const st = useStore.getState
@@ -100,7 +101,8 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
           (anchor) => {
             if (anchor === 'block') return [
               <InlineExpand key="auto-walls" open={tool === 'block' && cut === null}>
-                <Block label={t('generate_walls')} icon="wall" shortcut="Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />
+                <Block label={suspendedCeiling ? t('block') : t('suspended_ceiling')} icon="block" shortcut="Tab" active={suspendedCeiling} onClick={() => st().setSuspendedCeiling(!suspendedCeiling)} />
+                {!suspendedCeiling && <Block label={t('generate_walls')} icon="wall" shortcut="Shift+Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />}
               </InlineExpand>,
             ]
             if (anchor.startsWith('__cut-')) return [

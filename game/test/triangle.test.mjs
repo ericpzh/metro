@@ -86,10 +86,10 @@ test('a 三角 is laid like a 半墙: one tagged course, stacked by hand', () =>
     assert.ok(c.tags.includes(WALL), 'it is still a 墙-tool wall')
     assert.deepEqual(triangleOf(c), { kind: 'upper', side: 'n' })
   }
-  // A full-height 墙-tool run keeps its 4 m: the wedge is a shape, not a height.
+  // A full-height 墙-tool run keeps its five-metre storey: the wedge is a shape, not a height.
   const run = addWalls(empty(), [[3, 3, 0]], null, undefined, { kind: 'lower', side: 'w' }).state
-  assert.equal(run.cells.length, 4, 'the 墙 tool still lays the whole column')
-  assert.equal(run.cells.filter((c) => triangleOf(c) !== null).length, 4, 'every course carries the shape')
+  assert.equal(run.cells.length, 5, 'the 墙 tool still lays the whole column')
+  assert.equal(run.cells.filter((c) => triangleOf(c) !== null).length, 5, 'every course carries the shape')
 })
 
 /* --------------------------------------------------------- how it draws */

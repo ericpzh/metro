@@ -39,7 +39,7 @@ import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { clockHandAngles } from '../src/sim/clock.ts'
 
 /** The drawn height of each piece: the whole storey, floor top to ceiling. */
-const HUNG_H = 3.0
+const HUNG_H = 4.0
 
 const clock = (x, y, z = 0, id = 'clock-1', rot = 0) => ({ id, type: 'clock', x, y, z, rot, cfg: {} })
 const cctv = (x, y, z = 0, id = 'cctv-1', rot = 0) => ({ id, type: 'cctv', x, y, z, rot, cfg: {} })
@@ -53,8 +53,8 @@ function flatStation(extra = []) {
   return { name: 't', seed: 1, cells, modules: [], lines: [] }
 }
 
-/** The slab a ceiling-hung piece bolts its rods to: one storey up (z = 4). */
-const ceilingAt = (x, y) => ({ x, y, z: 4, fill: 'solid' })
+/** The slab a ceiling-hung piece bolts its rods to: one storey up (z = 5). */
+const ceilingAt = (x, y) => ({ x, y, z: 5, fill: 'solid' })
 
 /* ------------------------------------------------------------- the catalogue */
 
@@ -309,7 +309,7 @@ test('球机 hangs below its arm and 半球机 sits flush beneath the ceiling in
     const dome = build(createModule('cctv-dome', 0, 0, 0, 'dome', rot))
     for (const { box, meshes } of [ptz, dome]) {
       assert.ok(box.min.x > -0.5 && box.max.x < 0.5 && box.min.y > -0.5 && box.max.y < 0.5, 'hardware stays inside its tile')
-      assert.ok(Math.abs(box.max.z - 3) < 1e-6, 'mount touches the slab without protruding through it')
+      assert.ok(Math.abs(box.max.z - 4) < 1e-6, 'mount touches the slab without protruding through it')
       const shell = meshes.find((m) => m.geometry.type === 'SphereGeometry' && m.geometry.parameters.thetaStart === Math.PI / 2)
       assert.ok(shell, 'the glass cover is a lower hemisphere')
       const glassBox = new THREE.Box3().setFromObject(shell)
@@ -321,8 +321,8 @@ test('球机 hangs below its arm and 半球机 sits flush beneath the ceiling in
       const axis = new THREE.Vector3(0, -1, 0).transformDirection(lens.matrixWorld)
       assert.ok(axis.z < -0.2, 'the optical face points down into the concourse')
     }
-    assert.ok(ptz.box.min.z < 2.4, '球机 hangs well below its bracket')
-    assert.ok(dome.box.min.z > 2.7, '半球机 stays close to the slab')
+    assert.ok(ptz.box.min.z < 3.4, '球机 hangs well below its bracket')
+    assert.ok(dome.box.min.z > 3.7, '半球机 stays close to the slab')
   }
 })
 

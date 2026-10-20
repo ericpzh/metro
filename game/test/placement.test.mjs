@@ -8,6 +8,7 @@ import { autofaceWallMount, boxesOverlap, equipmentReason, isCeilingHung, isTrac
 import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitLetter, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
 import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
+import { stairTurnCells } from '../src/sim/stairs.ts'
 
 const gate = (x, y, z, id = 'gate') => ({ id, type: 'gate', x, y, z, cfg: { dir: 'both' } })
 const tvm = (x, y, z, id = 'tvm') => ({ id, type: 'tvm', x, y, z, cfg: {} })
@@ -19,7 +20,7 @@ const esc = (id = 'esc') => ({
   y: 0,
   z: 0,
   from: { x: 0, y: 0, z: 0 },
-  to: { x: 0, y: -7, z: -4 },
+  to: { x: 0, y: -7, z: -5 },
   cfg: { dir: 'up' },
 })
 
@@ -335,83 +336,85 @@ test('a stair reserves its treads, so a fence may guard the head of the run', ()
   // foot) of a run, and one beside the run joins its handrail there (`railLandingAt`
   // in the renderer). Under the low treads there is no room; higher up the flight
   // has climbed away and the floor beneath it is free again.
-  const stair = createModule('stair-straight', 0, 0, -4, 's', 0)
+  const stair = createModule('stair-straight', 0, 0, -5, 's', 0)
   assert.ok(stair)
-  assert.equal(placementBlocked([stair], createModule('fence', 0, 6, 0, 'f', 0)), false, 'on the top landing')
-  assert.equal(placementBlocked([stair], createModule('fence', 0, 0, -4, 'f', 0)), false, 'on the lower landing')
-  assert.equal(placementBlocked([stair], createModule('fence', 1, 6, 0, 'f', 0)), false, 'beside the top landing')
-  assert.equal(placementBlocked([stair], createModule('fence', -1, 4, -4, 'f', 0)), false, 'mid-run, beside the body')
-  assert.equal(placementBlocked([stair], createModule('fence', 0, 1, -4, 'f', 0)), true, 'under the first treads')
-  assert.equal(placementBlocked([stair], createModule('fence', 0, 2, -4, 'f', 0)), true, 'under the treads a storey up')
-  assert.equal(placementBlocked([stair], createModule('fence', 0, 5, -4, 'f', 0)), false, 'the floor the flight has climbed away from')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 9, 0, 'f', 0)), false, 'just beyond the top landing')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 0, -5, 'f', 0)), false, 'on the lower landing')
+  assert.equal(placementBlocked([stair], createModule('fence', 1, 9, 0, 'f', 0)), false, 'beside the top landing')
+  assert.equal(placementBlocked([stair], createModule('fence', -1, 4, -5, 'f', 0)), false, 'mid-run, beside the body')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 1, -5, 'f', 0)), true, 'under the first treads')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 2, -5, 'f', 0)), true, 'under the treads a storey up')
+  assert.equal(placementBlocked([stair], createModule('fence', 0, 5, -5, 'f', 0)), false, 'the floor the flight has climbed away from')
   // The rule is symmetric — the same question whichever piece came first — while
   // two runs still meet on the reservation, so a landing is never shared.
-  assert.equal(placementBlocked([createModule('fence', 0, 6, 0, 'f', 0)], stair), false, 'a stair onto a fence already there')
-  assert.equal(placementBlocked([stair], createModule('stair-straight', 0, 0, -4, 's2', 0)), true, 'two runs share no landing')
-  assert.equal(placementBlocked([stair], createModule('stair-straight', 1, 0, -4, 's3', 0)), false, 'a run beside it is flush')
+  assert.equal(placementBlocked([createModule('fence', 0, 9, 0, 'f', 0)], stair), false, 'a stair onto a fence already there')
+  assert.equal(placementBlocked([stair], createModule('stair-straight', 0, 0, -5, 's2', 0)), true, 'two runs share no landing')
+  assert.equal(placementBlocked([stair], createModule('stair-straight', 1, 0, -5, 's3', 0)), false, 'a run beside it is flush')
   // A legacy 1.6 m stair's body is wider than its cell, so where the flight is low
   // it still claims the next one — but its landing tiles stay floor like any
   // other stair's, and higher up the cut body leaves the neighbour alone too.
-  const wide = createModule('stair-straight', 0, 0, -4, 'w', 0, 1.6)
+  const wide = createModule('stair-straight', 0, 0, -5, 'w', 0, 1.6)
   assert.ok(wide)
-  assert.equal(placementBlocked([wide], createModule('fence', 1, 2, -4, 'f', 0)), true, 'a wide body beside the low treads')
-  assert.equal(placementBlocked([wide], createModule('fence', 1, 4, -4, 'f', 0)), false, 'and clear of it once it has climbed')
-  assert.equal(placementBlocked([wide], createModule('fence', 0, 6, 0, 'f', 0)), false, 'the wide stair’s landing')
+  assert.equal(placementBlocked([wide], createModule('fence', 1, 2, -5, 'f', 0)), true, 'a wide body beside the low treads')
+  assert.equal(placementBlocked([wide], createModule('fence', 1, 4, -5, 'f', 0)), false, 'and clear of it once it has climbed')
+  assert.equal(placementBlocked([wide], createModule('fence', 0, 9, 0, 'f', 0)), false, 'the wide stair’s landing')
 })
 
 test('a turning stair frees the corner tiles its flights never cross', () => {
   // The reservation is the AABB of the whole turn, so it covers the inside of the
   // L as well; the body is flight by flight, so only the tiles the treads sweep are
   // closed — the inside of the corner and the half-landing stay floor.
-  const turn = createModule('stair-right90', 0, 0, -4, 't', 0)
+  const turn = createModule('stair-right90', 0, 0, -5, 't', 0)
   assert.ok(turn)
-  assert.equal(placementBlocked([turn], createModule('fence', 0, 1, -4, 'f', 0)), true, 'under the first flight')
-  assert.equal(placementBlocked([turn], createModule('fence', 1, 3, -2, 'f', 0)), true, 'under the second flight')
-  assert.equal(placementBlocked([turn], createModule('fence', 1, 1, -4, 'f', 0)), false, 'the inside of the turn is floor')
-  assert.equal(placementBlocked([turn], createModule('fence', 0, 3, -2, 'f', 0)), false, 'the half-landing takes one')
+  assert.equal(placementBlocked([turn], createModule('fence', 0, 1, -5, 'f', 0)), true, 'under the first flight')
+  assert.equal(placementBlocked([turn], createModule('fence', 1, 4, -2, 'f', 0)), true, 'under the second flight')
+  assert.equal(placementBlocked([turn], createModule('fence', 1, 1, -5, 'f', 0)), false, 'the inside of the turn is floor')
+  const halfLanding = stairTurnCells(turn)[0]
+  assert.equal(placementBlocked([turn], createModule('fence', halfLanding.x, halfLanding.y, halfLanding.z, 'f', 0)), false, 'the half-landing takes one')
   // A switchback's landings are the cell it turns on and the row between its two
   // flights: both are platform, so both take a panel, while each flight's own
   // tiles stay closed. A narrow one climbs (0,0,−4) → (0,3,−2) → (1,3,−2) →
   // (1,0,0) — its runs stand flush, so the landing row is two cells.
-  const back = createModule('stair-right180', 0, 0, -4, 'b', 0)
+  const back = createModule('stair-right180', 0, 0, -5, 'b', 0)
   assert.ok(back)
-  assert.equal(placementBlocked([back], createModule('fence', 0, 1, -4, 'f', 0)), true, 'under the first flight')
+  assert.equal(placementBlocked([back], createModule('fence', 0, 1, -5, 'f', 0)), true, 'under the first flight')
   assert.equal(placementBlocked([back], createModule('fence', 1, 1, -2, 'f', 0)), true, 'under the returning flight')
-  assert.equal(placementBlocked([back], createModule('fence', 1, 3, -2, 'f', 0)), false, 'the cell it turns on')
-  assert.equal(placementBlocked([back], createModule('fence', 0, 3, -2, 'f', 0)), false, 'the half-landing row')
+  const [landingA, landingB] = stairTurnCells(back)
+  assert.equal(placementBlocked([back], createModule('fence', landingB.x, landingB.y, landingB.z, 'f', 0)), false, 'the cell it turns on')
+  assert.equal(placementBlocked([back], createModule('fence', landingA.x, landingA.y, landingA.z, 'f', 0)), false, 'the half-landing row')
   assert.equal(placementBlocked([back], createModule('fence', 2, 1, -2, 'f', 0)), false, 'beside the returning flight')
-  assert.equal(placementBlocked([back], createModule('fence', 2, 3, -2, 'f', 0)), false, 'past the turn landing')
+  assert.equal(placementBlocked([back], createModule('fence', 2, 4, -2.5, 'f', 0)), false, 'past the turn landing')
 })
 
 test('an escalator keeps its landing tiles: the step band runs to the centre', () => {
   // Unlike a stair, an escalator's truss, band and balustrades are built from
   // landing centre to landing centre, so its landing tiles are its own.
-  const esc = createModule('escalator', 0, 0, -4, 'e', 0)
+  const esc = createModule('escalator', 0, 0, -5, 'e', 0)
   assert.ok(esc)
-  assert.equal(placementBlocked([esc], createModule('fence', 0, 0, -4, 'f', 0)), true, 'on the lower landing')
-  assert.equal(placementBlocked([esc], createModule('fence', 0, 6, 0, 'f', 0)), true, 'on the upper landing')
-  assert.equal(placementBlocked([esc], createModule('fence', 1, 6, 0, 'f', 0)), false, 'beside the upper landing')
+  assert.equal(placementBlocked([esc], createModule('fence', 0, 0, -5, 'f', 0)), true, 'on the lower landing')
+  assert.equal(placementBlocked([esc], createModule('fence', 0, 9, 0, 'f', 0)), true, 'on the upper landing')
+  assert.equal(placementBlocked([esc], createModule('fence', 1, 9, 0, 'f', 0)), false, 'beside the upper landing')
 })
 
 test('an escalator collision follows the incline instead of its vertical envelope', () => {
-  const esc = createModule('escalator', 0, 0, -4, 'e', 0)
+  const esc = createModule('escalator', 0, 0, -5, 'e', 0)
   assert.ok(esc)
   // At this lower run tile the escalator is still well below the z = 0 floor.
   // Its old landing-to-landing envelope wrongly reserved that whole vertical box.
   const aboveLowRun = createModule('fence', 0, 1, 0, 'f-high', 0)
   assert.equal(placementBlocked([esc], aboveLowRun), false, 'clear above the low section')
   assert.equal(placementBlocked([aboveLowRun], esc), false, 'the body check is symmetric')
-  assert.equal(placementBlocked([esc], createModule('fence', 0, 1, -4, 'f-low', 0)), true, 'the low treads still collide')
+  assert.equal(placementBlocked([esc], createModule('fence', 0, 1, -5, 'f-low', 0)), true, 'the low treads still collide')
 })
 
-test('the demo station’s platform stairs take a fence over the run and on the −12 landing', () => {
-  // The shipped 动物园 station climbs from the z = −16 track up to z = −12 on two
+test('the demo station’s platform stairs take a fence over the run and on the −15 landing', () => {
+  // The shipped 动物园 station climbs from the z = −20 track up to z = −15 on two
   // straight stairs, each already guarded by a 围栏 run one row in front
   // (`fence-220` in front of `stair-straight-221`, `fence-219` — with `fence-218`
   // beside it — in front of `stair-straight-211`). With the body cut to the slope per tile, three
   // kinds of cell take a panel: the block at the head of a run, the block at its
   // foot, and the slab the flight climbs *underneath* — its lower half passes below
-  // the −12 floor, so that floor keeps its headroom and a 围栏 stands on it. The
+  // the −15 floor, so that floor keeps its headroom and a 围栏 stands on it. The
   // tiles the low treads run just above stay closed, as do the shipped guard run's
   // own cells.
   const st = referenceStation()
@@ -419,13 +422,13 @@ test('the demo station’s platform stairs take a fence over the run and on the 
   const at = (p) => `${p.x},${p.y},${p.z}`
   const panel = (x, y, z) => createModule('fence', x, y, z, 'guard', 0)
   const stairs = st.modules.filter(
-    (m) => m.type === 'stair' && Math.min(m.from.z, m.to.z) === -16 && Math.max(m.from.z, m.to.z) === -12,
+    (m) => m.type === 'stair' && Math.min(m.from.z, m.to.z) === -20 && Math.max(m.from.z, m.to.z) === -15,
   )
-  assert.equal(stairs.length, 2, 'the demo has two stairs up from the platform at z = −16')
+  assert.equal(stairs.length, 2, 'the demo has two stairs up from the platform at z = −20')
   // A slab takes the panel only while *nothing* stands in the cell — the demo's own
   // guard runs (fence-315 over the low treads of stair-straight-221, fence-316 over
   // stair-straight-211) and just as much the props the author hangs from the same
-  // slab (the 监控 at 100,3,−12). Any module owns its cell (§5), so the refusal is
+  // slab (the 监控 at 100,3,−15). Any module owns its cell (§5), so the refusal is
   // "this cell is taken", never "this cell is fenced". The two stairs between them
   // exercise both answers — 211 keeps a free slab over its run, 221 has both of its
   // own taken — so the halves are counted over the pair rather than asked of every
@@ -436,8 +439,8 @@ test('the demo station’s platform stairs take a fence over the run and on the 
   let accepted = 0
   let refused = 0
   for (const s of stairs) {
-    const top = s.to.z === -12 ? s.to : s.from
-    const bottom = s.to.z === -12 ? s.from : s.to
+    const top = s.to.z === -15 ? s.to : s.from
+    const bottom = s.to.z === -15 ? s.from : s.to
     for (const [where, p] of [['top', top], ['bottom', bottom]]) {
       assert.ok(solid.has(at(p)), `${s.id}: the ${where} landing ${at(p)} has no floor`)
       assert.equal(placementBlocked(st.modules, panel(p.x, p.y, p.z)), false, `${s.id}: the ${where} landing ${at(p)} refuses a fence`)
@@ -449,7 +452,7 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     const tiles = []
     for (let i = 1; i <= 5; i++) tiles.push({ x: bottom.x + dx * i, y: bottom.y + dy * i })
     // Under the low treads (the first tile, at the lower storey) there is no room.
-    assert.ok(solid.has(`${tiles[0].x},${tiles[0].y},${bottom.z}`), `${s.id}: the first tile has no floor at z = −16`)
+    assert.ok(solid.has(`${tiles[0].x},${tiles[0].y},${bottom.z}`), `${s.id}: the first tile has no floor at z = −20`)
     assert.equal(placementBlocked(st.modules, panel(tiles[0].x, tiles[0].y, bottom.z)), true, `${s.id}: the treads over ${at({ ...tiles[0], z: bottom.z })}`)
     // The top storey: the well is open where the flight surfaces, and the tiles it
     // merely passes under are floor — a free one takes the panel, a taken one refuses
@@ -457,8 +460,8 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     // from the slab overhead — the 监控 the author hangs over this very run — is up
     // under the ceiling, so the panel stands on the slab beneath it.
     const overRun = tiles.filter(({ x, y }) => solid.has(`${x},${y},${top.z}`))
-    assert.ok(tiles.some(({ x, y }) => !solid.has(`${x},${y},${top.z}`)), `${s.id}: the well is open at z = −12`)
-    assert.ok(overRun.length > 0, `${s.id}: no floor at z = −12 over the run at all`)
+    assert.ok(tiles.some(({ x, y }) => !solid.has(`${x},${y},${top.z}`)), `${s.id}: the well is open at z = −15`)
+    assert.ok(overRun.length > 0, `${s.id}: no floor at z = −15 over the run at all`)
     for (const { x, y } of overRun) {
       const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z && !isCeilingHung(m))
       const blocked = placementBlocked(st.modules, panel(x, y, top.z))
@@ -466,7 +469,7 @@ test('the demo station’s platform stairs take a fence over the run and on the 
       else freeSlabs++
       if (blocked) refused++
       else accepted++
-      assert.equal(blocked, taken, `${s.id}: the −12 slab over the run at ${x},${y},−12`)
+      assert.equal(blocked, taken, `${s.id}: the −15 slab over the run at ${x},${y},−15`)
     }
     // The guard run the demo ships sits one row in front of the stair: that row is
     // where the well's railing is extended, and its own cells are taken already.
@@ -588,7 +591,7 @@ const rampRun = () => ({
   y: 0,
   z: 0,
   from: { x: 0, y: 0, z: 0 },
-  to: { x: 0, y: 6, z: -4 },
+  to: { x: 0, y: 9, z: -5 },
   cfg: { dir: 'down' },
 })
 

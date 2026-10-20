@@ -31,12 +31,12 @@ export function sameCells(a: readonly Cell[], b: readonly Cell[]): boolean {
 /**
  * Snap an arbitrary z to the nearest fixed storey. The storey grid itself lives
  * in `sim/constants.ts` (`LEVEL_STEPS`); Q/E steps through it and the depth rail
- * lists exactly it, so the work plane is always on the 4-unit grid the reference
- * station is built on (G = 0, B1 = -4, B2 = -8) instead of jumping between
+ * lists exactly it, so the work plane follows the five-metre grid and its base
+ * offset instead of jumping between
  * whatever z values happen to have walkable cells.
  */
-export function nearestLevel(z: number, base = 0): number {
-  const levels = levelSteps(base);
+export function nearestLevel(z: number, base = 0, height = 5): number {
+  const levels = levelSteps(base, height);
   let best = levels[0];
   for (const l of levels) if (Math.abs(l - z) < Math.abs(best - z)) best = l;
   return best;
@@ -81,17 +81,17 @@ export function storeyColumnsAt(
   for (const [x, y, z] of columns) {
     const key = `${x},${y}`;
     const selected = bands.get(key) ?? new Set<number>();
-    selected.add(storeyBand(z - 1, state.levelBase));
+    selected.add(storeyBand(z - 1, state.levelBase, state.storeyHeight));
     bands.set(key, selected);
   }
   const out = new Map<string, [number, number, number]>();
   for (const c of state.cells) {
-    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z - 1, state.levelBase))) continue;
+    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z - 1, state.levelBase, state.storeyHeight))) continue;
     out.set(cellKey(c.x, c.y, c.z), [c.x, c.y, c.z]);
   }
   // The street is an implicit block too; deleting it must record its hole (§4.1).
   for (const [x, y] of columns) {
-    if (bands.get(`${x},${y}`)?.has(storeyBand(-1, state.levelBase)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
+    if (bands.get(`${x},${y}`)?.has(storeyBand(-1, state.levelBase, state.storeyHeight)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
       out.set(cellKey(x, y, 0), [x, y, 0]);
     }
   }

@@ -181,17 +181,17 @@ test('生成墙壁 is off when the game opens', () => {
   useStore.setState({ tool: 'select', autoWalls: false, halfWall: false, triangles: false })
 })
 
-test("**Tab** is the 生成墙壁 tile's key, and the cut pieces are click-only", () => {
+test("**Shift+Tab** toggles generated walls, Tab chooses ceilings, and cut pieces remain click-only", () => {
   // The shell owns the keyboard and the folder owns the tile, so the two are pinned
   // together where they meet: one `setAutoWalls` toggle for the 方块 tool, no cut-mode
   // cycle left on the key, and the tile wearing the badge the key answers to.
   const src = (p) => fs.readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
   const shell = src('app/windows/AppShell.tsx')
-  assert.match(shell, /if \(st\.tool === 'block'\) \{\s*st\.setAutoWalls\(!st\.autoWalls\)/, 'Tab toggles the ring')
+  assert.match(shell, /if \(e\.shiftKey\) st\.setAutoWalls\(!st\.autoWalls\)/, 'Shift+Tab toggles the ring')
   assert.doesNotMatch(shell, /cycleCutMode/, 'and no cut-mode cycle is left on a key')
   assert.doesNotMatch(src('app/store/slices/ToolSlice.ts'), /cycleCutMode/, 'the cycle is gone from the store too')
   const tools = src('app/rail/folders/RailFolder.tsx')
-  assert.match(tools, /label=\{t\('generate_walls'\)\}[\s\S]{0,80}shortcut="Tab"/, 'the tile wears the key it answers to')
+  assert.match(tools, /label=\{t\('generate_walls'\)\}[\s\S]{0,80}shortcut="Shift\+Tab"/, 'the tile wears the key it answers to')
   assert.doesNotMatch(tools, /自动生成墙壁/, 'and the old name is gone from the folder')
 })
 

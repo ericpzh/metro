@@ -1,9 +1,10 @@
 import * as THREE from 'three'
+import { trainRoofSection } from '../../../sim/stock.ts'
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 
 /** Rounded nose with a square rear cut, meeting the car roof without overlapping skins. */
 export function cabShellGeometry(width: number, segments = 5): THREE.BufferGeometry {
-  const source = new RoundedBoxGeometry(2.8, width, 2.66, segments, 0.42)
+  const source = new RoundedBoxGeometry(2.8, width, 2 * (trainRoofSection('B').crown - 1.82), segments, 0.42)
   const positions = source.getAttribute('position')
   const normals = source.getAttribute('normal')
   const out: number[] = []

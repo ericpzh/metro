@@ -7,6 +7,8 @@
 // landings while opening the slab the flights pass through.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import * as THREE from 'three'
+import { StairModel } from '../src/render/models/pieces/StairModel.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { buildGraph, EDGE_KIND } from '../src/sim/station.ts'
 import { carveRampOpenings, rampBodyBoxes, rampCorridorHalf, rampEnvelope, thinWallCells } from '../src/sim/openings.ts'
@@ -15,7 +17,7 @@ import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { useStore } from '../src/app/store.ts'
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from '../src/sim/constants.ts'
 import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_LABELS, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairBuildWidth, stairFacing, stairFlightSlides, stairFlights, stairFlightsFor, stairLaneBases, stairLaneMates, stairLandingShape, stairLandingWalls, stairLandings, stairLanes, stairLevels, stairOnBlockGrid, stairQuarterTurnOffset, stairRight, stairRotFor, stairRunBlocks, stairSwitchbackGap, stairSwitchbackOffset, stairSwitchbackRunWidth, stairTurnCells, stairWallSides, stairWidthLabel } from '../src/sim/stairs.ts'
-import { addEquipment, createModule, removeModule, toState, wallRun } from '../src/build/model.ts'
+import { addEquipment, createModule, removeModule, toData, toState, wallRun } from '../src/build/model.ts'
 
 test('saved straight stair sizes reserve their full block band and detect walls at its edges', () => {
   for (let rot = 0; rot < 4; rot++) {
@@ -107,7 +109,7 @@ test('the equipment tool places a turning stair’s block-grid legs and square l
         const type = `stair-${style}`
         const pieces = tool.buildPlacementModules(type, [0, 0, 0], 'turn')
         assert.equal(pieces.length, 1, `${type}/${width}: preview and placement carry one piece`)
-        const fresh = createModule(type, 0, 0, 0, 'turn', 0, width)
+        const fresh = createModule(type, 0, 0, 0, 'turn', 0, width, 'up', 'lane', [], undefined, { storeyHeight: previous.station.storeyHeight })
         assert.deepEqual(pieces[0].cfg.flights, fresh.cfg.flights, `${type}/${width}: the ghost is not the piece the factory builds`)
         assert.equal(pieces[0].cfg.width, fresh.cfg.width, `${type}/${width}: the ghost's run width`)
         if (!style.endsWith('90')) continue
@@ -159,10 +161,10 @@ test('a stair reports the storeys it reaches, and the off-axis answers are degen
   // The distinct storeys a stair touches, for level slicing (`SceneSystem` bands every piece
   // by them): a straight run stands on its base and one storey up; a turn also stands on its
   // half-storey landing, which is the level its square platform is drawn at.
-  const straight = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
-  assert.deepEqual(stairLevels(straight), [-4, 0])
-  const turn = createModule('stair-right90', 0, 0, -4, 't', 0, STAIR_WIDTH_DOUBLE)
-  assert.deepEqual(stairLevels(turn), [-4, -2, 0])
+  const straight = createModule('stair-straight', 0, 0, -5, 's', 0, STAIR_WIDTH_NARROW)
+  assert.deepEqual(stairLevels(straight), [-5, 0])
+  const turn = createModule('stair-right90', 0, 0, -5, 't', 0, STAIR_WIDTH_DOUBLE)
+  assert.deepEqual(stairLevels(turn), [-5, -2.5, 0])
   // A step that is not a cell axis names no placement rotation (the exit-bay snap asks this),
   // and a flight that runs off the grid is no lane at all — degenerate answers, not promises.
   assert.equal(stairRotFor(1, 1), 0)
@@ -171,11 +173,11 @@ test('a stair reports the storeys it reaches, and the off-axis answers are degen
     type: 'stair',
     x: 0,
     y: 0,
-    z: -4,
+    z: -5,
     rot: 0,
-    from: { x: 0, y: 0, z: -4 },
-    to: { x: 3, y: 3, z: 0 },
-    cfg: { width: STAIR_WIDTH_NARROW, style: 'straight', flights: [{ from: { x: 0, y: 0, z: -4 }, to: { x: 3, y: 3, z: 0 } }] },
+    from: { x: 0, y: 0, z: -5 },
+    to: { x: 3, y: 4, z: 0 },
+    cfg: { width: STAIR_WIDTH_NARROW, style: 'straight', flights: [{ from: { x: 0, y: 0, z: -5 }, to: { x: 3, y: 4, z: 0 } }] },
   }
   assert.deepEqual(stairLaneMates([diagonal], diagonal), [])
 })
@@ -208,7 +210,7 @@ test('the demo keeps only the exit-connected straight stair', () => {
   const [only] = stairs
   assert.equal(only.cfg.style, 'straight')
   assert.ok(only.id.startsWith('stair-gc-exit-a'), `${only.id} is not the exit-A stair`)
-  assert.equal(only.from.z - only.to.z, -4, `${only.id} does not climb exactly one storey`)
+  assert.equal(only.from.z - only.to.z, -5, `${only.id} does not climb exactly one storey`)
   for (const f of stairFlights(only)) {
     assert.notEqual(f.from.z, f.to.z, `${only.id} has a flat flight`)
     assert.notEqual(f.from.x + f.from.y, f.to.x + f.to.y, `${only.id} has a zero-length flight`)
@@ -238,21 +240,21 @@ test('a turning stair walks bottom to top across its landing', () => {
   // The old demo switchback geometry, rebuilt on the current demo slabs: the
   // half-landing is a real node, not a jump straight through the turn.
   const data = scenarioStation()
-  const Z_MID = -2
+  const Z_MID = -2.5
   for (const x of [2, 3, 4, 5]) data.cells.push({ x, y: 13, z: Z_MID, fill: 'solid' })
   const mod = {
     id: 'u',
     type: 'stair',
     x: 2,
     y: 16,
-    z: -4,
-    from: { x: 2, y: 16, z: -4 },
+    z: -5,
+    from: { x: 2, y: 16, z: -5 },
     to: { x: 5, y: 16, z: 0 },
     cfg: {
       width: STAIR_WIDTH_NARROW,
       style: 'right180',
       flights: [
-        { from: { x: 2, y: 16, z: -4 }, to: { x: 2, y: 13, z: Z_MID } },
+        { from: { x: 2, y: 16, z: -5 }, to: { x: 2, y: 13, z: Z_MID } },
         { from: { x: 5, y: 13, z: Z_MID }, to: { x: 5, y: 16, z: 0 } },
       ],
     },
@@ -265,7 +267,7 @@ test('a turning stair walks bottom to top across its landing', () => {
   assert.notEqual(top, undefined, 'the switchback top is not walkable')
   assert.ok(reachable(g, bottom, top), 'the switchback does not connect its two landings')
   // The half-landing is a real node, not a jump straight through the turn.
-  const landing = g.nodeIndex.get(key({ x: 2, y: 13, z: -2 }))
+  const landing = g.nodeIndex.get(key({ x: 2, y: 13, z: -2.5 }))
   assert.notEqual(landing, undefined, 'the half-landing is not walkable')
   assert.ok(mod.cfg.flights.length === 2, 'the switchback should be two flights')
 })
@@ -283,7 +285,7 @@ test('the stair reaches the station and is reached from the street', () => {
 })
 
 test('a straight stair is a single implied flight', () => {
-  const m = { id: 's', type: 'stair', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 }, cfg: { width: 2 } }
+  const m = { id: 's', type: 'stair', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 8, z: 5 }, cfg: { width: 2 } }
   assert.deepEqual(stairFlights(m), [{ from: m.from, to: m.to }])
   assert.deepEqual(stairLandings(m), [m.from, m.to])
 })
@@ -348,16 +350,16 @@ test('the lanes of a wide stair lie side by side across its run', () => {
   // the same "right of forward" the switchback's second flight uses.
   assert.deepEqual(stairRight(0), [1, 0])
   assert.deepEqual(stairRight(1), [0, -1])
-  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 0, 3), [
-    { x: 3, y: 5, z: -4 },
-    { x: 4, y: 5, z: -4 },
-    { x: 5, y: 5, z: -4 },
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -5 }, 0, 3), [
+    { x: 3, y: 5, z: -5 },
+    { x: 4, y: 5, z: -5 },
+    { x: 5, y: 5, z: -5 },
   ])
-  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 1, 2), [
-    { x: 3, y: 5, z: -4 },
-    { x: 3, y: 4, z: -4 },
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -5 }, 1, 2), [
+    { x: 3, y: 5, z: -5 },
+    { x: 3, y: 4, z: -5 },
   ])
-  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -4 }, 0, 1), [{ x: 3, y: 5, z: -4 }])
+  assert.deepEqual(stairLaneBases({ x: 3, y: 5, z: -5 }, 0, 1), [{ x: 3, y: 5, z: -5 }])
 })
 
 test('a wide stair snaps beside whatever already stands next to it', () => {  const free = () => true
@@ -388,7 +390,7 @@ test('a wide stair snaps beside whatever already stands next to it', () => {  co
 })
 
 test('lanes side by side are neighbours; only one action makes them one flight', () => {
-  const lane = (id, x, y, rot = 0, width = STAIR_WIDTH_NARROW, z = -4, flight) => {
+  const lane = (id, x, y, rot = 0, width = STAIR_WIDTH_NARROW, z = -5, flight) => {
     const m = createModule('stair-straight', x, y, z, id, rot, width)
     assert.ok(m && m.type === 'stair')
     if (flight) m.cfg.flight = flight
@@ -401,12 +403,12 @@ test('lanes side by side are neighbours; only one action makes them one flight',
   assert.deepEqual(stairLaneMates([a, b], a).map((m) => [m.step, m.side, m.sameFlight]), [[[1, 0], 1, false]])
   assert.deepEqual(stairLaneMates([a, b], b).map((m) => [m.step, m.side, m.sameFlight]), [[[-1, 0], -1, false]])
   // The same two lanes carrying one flight token are one staircase.
-  const fa = lane('a', 0, 0, 0, STAIR_WIDTH_NARROW, -4, 'f1')
-  const fb = lane('b', 1, 0, 0, STAIR_WIDTH_NARROW, -4, 'f1')
+  const fa = lane('a', 0, 0, 0, STAIR_WIDTH_NARROW, -5, 'f1')
+  const fb = lane('b', 1, 0, 0, STAIR_WIDTH_NARROW, -5, 'f1')
   assert.deepEqual(stairLaneMates([fa, fb], fa).map((m) => m.sameFlight), [true])
   assert.deepEqual(stairLaneMates([fa, fb], fb).map((m) => m.sameFlight), [true])
   // Two different flights, or one lane with no token at all, are neighbours only.
-  const fc = lane('c', 1, 0, 0, STAIR_WIDTH_NARROW, -4, 'f2')
+  const fc = lane('c', 1, 0, 0, STAIR_WIDTH_NARROW, -5, 'f2')
   assert.deepEqual(stairLaneMates([fa, fc], fa).map((m) => m.sameFlight), [false])
   assert.deepEqual(stairLaneMates([fa, b], fa).map((m) => m.sameFlight), [false])
   // rot 1 runs +x, so its lanes step in −y and "right" turns with the run.
@@ -419,7 +421,7 @@ test('lanes side by side are neighbours; only one action makes them one flight',
   // on another level, and one that is not a single straight flight at all.
   assert.deepEqual(stairLaneMates([a, lane('back', 1, 6, 2)], a), [])
   assert.deepEqual(stairLaneMates([a, lane('higher', 1, 0, 0, STAIR_WIDTH_NARROW, 0)], a), [])
-  const turn = createModule('stair-left90', 1, 0, -4, 'turn', 0, STAIR_WIDTH_NARROW)
+  const turn = createModule('stair-left90', 1, 0, -5, 'turn', 0, STAIR_WIDTH_NARROW)
   assert.ok(turn)
   assert.deepEqual(stairLaneMates([a, turn], a), [])
   // A saved single-piece wide stair is one flight of its own: it does not merge,
@@ -430,56 +432,56 @@ test('lanes side by side are neighbours; only one action makes them one flight',
 })
 
 test('a wall hugging a flight from bottom to top is the side it stands on', () => {
-  const s = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  const s = createModule('stair-straight', 0, 0, -5, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(s && s.type === 'stair')
   // The run climbs +y from (0,0) to (0,6), one storey: its left is west, its
   // right east (`stairRight(0)`).
-  const east = [0, 1, 2, 3, 4, 5].flatMap((y) => wall(1, y, -3))
-  const west = [0, 1, 2, 3, 4, 5].flatMap((y) => wall(-1, y, -3))
+  const east = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => wall(1, y, -4))
+  const west = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => wall(-1, y, -4))
   assert.deepEqual(stairWallSides([], s.from, s.to, s.cfg.width), { left: false, right: false }, 'open air is not a wall')
   assert.deepEqual(stairWallSides(east, s.from, s.to, s.cfg.width), { left: false, right: true })
   assert.deepEqual(stairWallSides(west, s.from, s.to, s.cfg.width), { left: true, right: false })
   assert.deepEqual(stairWallSides([...east, ...west], s.from, s.to, s.cfg.width), { left: true, right: true })
   // A flight not laid along a cell axis has no cells beside it: both rails stay.
-  assert.deepEqual(stairWallSides(east, { x: 0, y: 0, z: -4 }, { x: 3, y: 3, z: 0 }, s.cfg.width), { left: false, right: false })
+  assert.deepEqual(stairWallSides(east, { x: 0, y: 0, z: -5 }, { x: 3, y: 4, z: 0 }, s.cfg.width), { left: false, right: false })
 })
 
 test('a wall that does not hug the whole flight leaves the handrail on', () => {
-  const s = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  const s = createModule('stair-straight', 0, 0, -5, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(s && s.type === 'stair')
   // A wall along the first three cells only: half the run is open.
-  assert.deepEqual(stairWallSides([0, 1, 2].flatMap((y) => wall(1, y, -3)), s.from, s.to, s.cfg.width), { left: false, right: false })
+  assert.deepEqual(stairWallSides([0, 1, 2, 3].flatMap((y) => wall(1, y, -4)), s.from, s.to, s.cfg.width), { left: false, right: false })
   // A wall only as tall as the bottom steps: two metres up the third cell the
   // flight stands beside nothing.
-  assert.deepEqual(stairWallSides([0, 1, 2, 3, 4, 5].flatMap((y) => wall(1, y, -3).slice(0, 2)), s.from, s.to, s.cfg.width), { left: false, right: false })
+  assert.deepEqual(stairWallSides([0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => wall(1, y, -4).slice(0, 2)), s.from, s.to, s.cfg.width), { left: false, right: false })
   // A doorway punched through one course of an otherwise full-height wall.
-  const holed = [0, 1, 2, 3, 4, 5].flatMap((y) => wall(1, y, -3)).filter((c) => !(c.y === 2 && c.z === -2))
+  const holed = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => wall(1, y, -4)).filter((c) => !(c.y === 2 && c.z === -3))
   assert.deepEqual(stairWallSides(holed, s.from, s.to, s.cfg.width), { left: false, right: false })
   // A wall standing only on the storey above: the flight climbs out from under it.
-  assert.deepEqual(stairWallSides([0, 1, 2, 3, 4, 5].flatMap((y) => wall(1, y, 1)), s.from, s.to, s.cfg.width), { left: false, right: false })
+  assert.deepEqual(stairWallSides([0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => wall(1, y, 1)), s.from, s.to, s.cfg.width), { left: false, right: false })
 })
 
 test('the top course a wall shares with the floor slab above still counts', () => {
   // A stairwell wall reaching the slab the flight lands on leaves that top course
   // as the floor above it (the auto-wall ring will not stack a wall on a slab), so
   // the check reads solids, not wall tags.
-  const s = createModule('stair-straight', 0, 0, -4, 's', 0, STAIR_WIDTH_NARROW)
+  const s = createModule('stair-straight', 0, 0, -5, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(s && s.type === 'stair')
-  const beside = [0, 1, 2, 3, 4, 5].flatMap((y) => [...wall(1, y, -3).slice(0, 3), { x: 1, y, z: 0, fill: 'solid', tags: ['auto-floor'] }])
+  const beside = [0, 1, 2, 3, 4, 5, 6, 7].flatMap((y) => [...wall(1, y, -4).slice(0, 4), { x: 1, y, z: 0, fill: 'solid', tags: ['auto-floor'] }])
   assert.deepEqual(stairWallSides(beside, s.from, s.to, s.cfg.width), { left: false, right: true })
 })
 
 test('a turning stair is judged flight by flight, at each flight’s own heights', () => {
-  const turn = createModule('stair-right90', 0, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
+  const turn = createModule('stair-right90', 0, 0, -5, 't', 0, STAIR_WIDTH_NARROW)
   assert.ok(turn && turn.type === 'stair')
   const [first, second] = stairFlights(turn)
   // A wall along the first flight's east side walls that flight alone.
-  const eastOfFirst = [0, 1, 2].flatMap((y) => wall(1, y, -3))
+  const eastOfFirst = [0, 1, 2, 3].flatMap((y) => wall(1, y, -4))
   assert.deepEqual(stairWallSides(eastOfFirst, first.from, first.to, turn.cfg.width), { left: false, right: true })
   assert.deepEqual(stairWallSides(eastOfFirst, second.from, second.to, turn.cfg.width), { left: false, right: false })
   // The half-landing flight runs +x, so its left is north, and the wall beside it
   // stands on the landing one storey's half up — not on the floor below.
-  const northOfSecond = [0, 1, 2].flatMap((x) => wall(x, 4, -1))
+  const northOfSecond = [0, 1, 2, 3].flatMap((x) => wall(x, 5, -2))
   assert.deepEqual(stairWallSides(northOfSecond, second.from, second.to, turn.cfg.width), { left: true, right: false })
   assert.deepEqual(stairWallSides(northOfSecond, first.from, first.to, turn.cfg.width), { left: false, right: false })
 })
@@ -490,15 +492,15 @@ test('a switchback’s turn cells are the row of landings between its flights', 
     type: 'stair',
     x: 0,
     y: 0,
-    z: -4,
-    from: { x: 0, y: 0, z: -4 },
+    z: -5,
+    from: { x: 0, y: 0, z: -5 },
     to: { x: 2, y: 0, z: 0 },
     cfg: {
       width: 1.6,
       style: 'right180',
       flights: [
-        { from: { x: 0, y: 0, z: -4 }, to: { x: 0, y: 2, z: -2 } },
-        { from: { x: 2, y: 2, z: -2 }, to: { x: 2, y: 0, z: 0 } },
+        { from: { x: 0, y: 0, z: -5 }, to: { x: 0, y: 2, z: -2.5 } },
+        { from: { x: 2, y: 2, z: -2.5 }, to: { x: 2, y: 0, z: 0 } },
       ],
     },
   }
@@ -506,16 +508,16 @@ test('a switchback’s turn cells are the row of landings between its flights', 
   // The row runs between the two flight ends and is as wide as the treads that
   // end on it: this piece is 1.6 m wide, so its bands reach half a metre past the
   // three cells the paths stand in, and the landing holds those cells too.
-  assert.deepEqual(cells, ['-1,2,-2', '0,2,-2', '1,2,-2', '2,2,-2', '3,2,-2'])
+  assert.deepEqual(cells, ['-1,2,-2.5', '0,2,-2.5', '1,2,-2.5', '2,2,-2.5', '3,2,-2.5'])
 })
 
 test('a placeable stair is a fixed one-storey piece run along its rotation', () => {
   for (let rot = 0; rot < 4; rot++) {
-    const m = createModule('stair', 3, 5, -4, 's', rot, STAIR_WIDTH_NARROW)
+    const m = createModule('stair', 3, 5, -5, 's', rot, STAIR_WIDTH_NARROW)
     assert.ok(m && m.type === 'stair')
     const [dx, dy] = stairFacing(rot)
-    assert.deepEqual(m.from, { x: 3, y: 5, z: -4 }, 'the base cell is the bottom landing')
-    assert.deepEqual(m.to, { x: 3 + dx * STAIR_RUN, y: 5 + dy * STAIR_RUN, z: -4 + STAIR_RISE })
+    assert.deepEqual(m.from, { x: 3, y: 5, z: -5 }, 'the base cell is the bottom landing')
+    assert.deepEqual(m.to, { x: 3 + dx * STAIR_RUN, y: 5 + dy * STAIR_RUN, z: -5 + STAIR_RISE })
     assert.equal(m.cfg.width, STAIR_WIDTH_NARROW)
     assert.equal(m.cfg.style, 'straight')
   }
@@ -525,7 +527,7 @@ test('placing a stair carves the slab it climbs through', () => {
   const cells = []
   for (let x = 0; x < 3; x++) for (let y = 0; y < 9; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
-  const mod = createModule('stair', 1, 0, -4, 'stair-1', 0, STAIR_WIDTH_NARROW)
+  const mod = createModule('stair', 1, 0, -5, 'stair-1', 0, STAIR_WIDTH_NARROW)
   assert.ok(mod)
   const next = addEquipment(state, mod)
   assert.equal(next.modules.length, 1)
@@ -545,10 +547,10 @@ test('all eight fixed stair buttons build their one-storey flight plans', () => 
     'stair-rightForward': 2,
   }
   for (const [id, nFlights] of Object.entries(expected)) {
-    const m = createModule(id, 4, 4, -4, 'x', 0, STAIR_WIDTH_NARROW)
+    const m = createModule(id, 4, 4, -5, 'x', 0, STAIR_WIDTH_NARROW)
     assert.ok(m && m.type === 'stair', `${id} did not build a stair`)
     assert.equal(m.cfg.flights.length, nFlights, `${id} has the wrong flight count`)
-    assert.equal(m.from.z, -4, `${id} base is not the floor it was placed on`)
+    assert.equal(m.from.z, -5, `${id} base is not the floor it was placed on`)
     assert.equal(m.to.z, 0, `${id} does not climb exactly one storey`)
     for (const f of m.cfg.flights) assert.notEqual(f.from.z, f.to.z, `${id} has a flat flight`)
   }
@@ -562,7 +564,7 @@ test('all eight fixed stair buttons build their one-storey flight plans', () => 
  */
 function stairwell(mod) {
   const cells = []
-  for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: -4, fill: 'solid' })
+  for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: -5, fill: 'solid' })
   for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   const state = addEquipment(toState({ name: 'well', seed: 1, cells, modules: [], lines: [] }), mod)
   return buildGraph({ name: 'well', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
@@ -600,7 +602,7 @@ test('a switchback’s runs share their balustrades: 2 / 4 / 6 blocks across', (
     [STAIR_WIDTH_TRIPLE, 6],
   ]) {
     for (const style of ['right180', 'left180']) {
-      const m = createModule(`stair-${style}`, 0, 0, -4, 'x', 0, width)
+      const m = createModule(`stair-${style}`, 0, 0, -5, 'x', 0, width)
       assert.ok(m && m.type === 'stair')
       const [first, second] = m.cfg.flights
       const span = stairSwitchbackOffset(width)
@@ -627,7 +629,7 @@ test('a switchback’s runs share their balustrades: 2 / 4 / 6 blocks across', (
       // every column along the flights with a fence at the half height.
       const claimed = []
       for (let x = -6; x <= 8; x++) {
-        if (placementBlocked([m], createModule('fence', x, 1, -2, 'f', 0))) claimed.push(x)
+        if (placementBlocked([m], createModule('fence', x, 3, -3, 'f', 0))) claimed.push(x)
       }
       assert.equal(claimed.length, blocks, `${style} at ${width} m claims ${claimed.length} blocks (${claimed.join(',')}), not ${blocks}`)
       // The first block is the base cell itself: the pair grows along the run's right, so
@@ -663,7 +665,7 @@ test('a 90° turn’s legs are built on the block grid, and its quarter-landing 
       // whole cells across **its own** run, the quarter-landing is the `blocks × blocks`
       // square the two legs meet on, and no flight body stands over any of its cells.
       for (let rot = 0; rot < 4; rot++) {
-        const turned = createModule(`stair-${style}`, 0, 0, -4, 'x', rot, width)
+        const turned = createModule(`stair-${style}`, 0, 0, -5, 'x', rot, width)
         assert.ok(turned && turned.type === 'stair')
         assert.ok(Math.abs(turned.cfg.width - stairSwitchbackRunWidth(width)) < 1e-9, `${style}/${width} is not built block-wide`)
         const legs = stairFlights(turned)
@@ -716,7 +718,7 @@ test('a 90° turn’s legs are built on the block grid, and its quarter-landing 
       // Rot 0 names the sides: the first leg runs +y, so its band spans x; the second runs
       // +x (right) or −x (left), so its band spans y — the axis the *first* leg travels
       // along — and it is laid one block in per extra lane, on the square's far edge.
-      const m = createModule(`stair-${style}`, 0, 0, -4, 'x', 0, width)
+      const m = createModule(`stair-${style}`, 0, 0, -5, 'x', 0, width)
       assert.ok(m && m.type === 'stair')
       const [first, second] = stairFlights(m)
       const slides = stairFlightSlides(m)
@@ -725,12 +727,12 @@ test('a 90° turn’s legs are built on the block grid, and its quarter-landing 
       assert.deepEqual(slides[1], { dx: 0, dy: grid }, `${style}/${width}: the second leg did not move across its own run`)
       const farEdge = hand * (blocks - 1) === 0 ? 0 : hand * (blocks - 1)
       assert.equal(second.from.x, farEdge, `${style}/${width}: the departing leg starts at x=${second.from.x}, not on the landing's edge`)
-      assert.equal(second.from.y, 3, `${style}/${width}: the departing leg left the corner row`)
+      assert.equal(second.from.y, 4, `${style}/${width}: the departing leg left the corner row`)
       const f1 = first.from.x + 0.5 + slides[0].dx
       const f2 = second.from.y + 0.5 + slides[1].dy
       const firstLane = hand > 0 ? 0 : -(blocks - 1)
       assert.equal(f1 - blocks / 2, firstLane === 0 ? 0 : firstLane, `${style}/${width}: the first band starts at ${f1 - blocks / 2}`)
-      assert.equal(f2 - blocks / 2, 3, `${style}/${width}: the second band starts at ${f2 - blocks / 2}, not on the corner row`)
+      assert.equal(f2 - blocks / 2, 4, `${style}/${width}: the second band starts at ${f2 - blocks / 2}, not on the corner row`)
       // The quarter-landing is the square the two legs meet on: the corner cell's own block
       // across the departing leg's run, the lanes of its band across it.
       const cells = stairTurnCells(m)
@@ -739,7 +741,7 @@ test('a 90° turn’s legs are built on the block grid, and its quarter-landing 
       const firstColumn = Math.min(hand * (blocks - 1), 0)
       assert.deepEqual(columns, Array.from({ length: blocks }, (_, i) => firstColumn + i),
         `${style}/${width}: the landing columns are ${columns.join(',')}`)
-      assert.deepEqual(rows, Array.from({ length: blocks }, (_, i) => 3 + i), `${style}/${width}: the landing rows are ${rows.join(',')}`)
+      assert.deepEqual(rows, Array.from({ length: blocks }, (_, i) => 4 + i), `${style}/${width}: the landing rows are ${rows.join(',')}`)
     }
   }
 })
@@ -749,7 +751,7 @@ test('a piece saved at an older, off-grid width keeps its own band', () => {
   // piece) is left exactly where it was: its band centred on its walking line, and the
   // return run slid toward the first until the rails meet. Moving it would also move it
   // off the opening the builder carved for it.
-  const m = createModule('stair-right180', 0, 0, -4, 'x', 0, STAIR_WIDTH_DOUBLE)
+  const m = createModule('stair-right180', 0, 0, -5, 'x', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(m && m.type === 'stair')
   m.cfg.width = STAIR_WIDTH_DOUBLE // as a station saved before the block grid stores it
   const slides = stairFlightSlides(m)
@@ -767,21 +769,21 @@ test('a piece saved at an older, off-grid width keeps its own band', () => {
     type: 'stair',
     x: 0,
     y: 0,
-    z: -4,
+    z: -5,
     rot: 0,
-    from: { x: 0, y: 0, z: -4 },
-    to: { x: 3, y: 3, z: 0 },
+    from: { x: 0, y: 0, z: -5 },
+    to: { x: 3, y: 4, z: 0 },
     cfg: {
       width: STAIR_WIDTH_DOUBLE,
       style: 'right90',
       flights: [
-        { from: { x: 0, y: 0, z: -4 }, to: { x: 0, y: 3, z: -2 } },
-        { from: { x: 0, y: 3, z: -2 }, to: { x: 3, y: 3, z: 0 } },
+        { from: { x: 0, y: 0, z: -5 }, to: { x: 0, y: 4, z: -2.5 } },
+        { from: { x: 0, y: 4, z: -2.5 }, to: { x: 3, y: 4, z: 0 } },
       ],
     },
   }
   assert.deepEqual(stairFlightSlides(turn), [{ dx: 0, dy: 0 }, { dx: 0, dy: 0 }], 'an old 90° turn must not move')
-  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,3,-2'], 'an old 90° turn keeps its one landing cell')
+  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,4,-2.5'], 'an old 90° turn keeps its one landing cell')
 })
 
 test('a switchback in a stairwell leans on the walls, and loses the rails they replace', () => {
@@ -789,10 +791,10 @@ test('a switchback in a stairwell leans on the walls, and loses the rails they r
   // against the outer balustrade of each run — and that balustrade goes, exactly like a
   // straight flight's. The turn landing's two long sides lean on the same walls, and its
   // railing goes with them: a 双跑楼梯 in a stairwell is railed only where it is open.
-  const m = createModule('stair-right180', 0, 0, -4, 'x', 0, STAIR_WIDTH_DOUBLE)
+  const m = createModule('stair-right180', 0, 0, -5, 'x', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(m && m.type === 'stair')
   const slides = stairFlightSlides(m)
-  const column = (x, ys) => ys.flatMap((y) => [-4, -3, -2, -1, 0].map((z) => ({ x, y, z, fill: 'solid', tags: ['wall'] })))
+  const column = (x, ys) => ys.flatMap((y) => [-5, -4, -3, -2, -1, 0].map((z) => ({ x, y, z, fill: 'solid', tags: ['wall'] })))
   const sides = (cells) =>
     stairFlights(m).map((f, i) => {
       const s = stairWallSides(cells, f.from, f.to, m.cfg.width, slides[i])
@@ -810,7 +812,7 @@ test('a switchback in a stairwell leans on the walls, and loses the rails they r
   // open north end of the stairwell does not.
   assert.deepEqual(stairLandingWalls([], m, 0), { w: false, e: false, s: false, n: false })
   assert.deepEqual(stairLandingWalls(both, m, 0), { w: true, e: true, s: false, n: false })
-  assert.deepEqual(stairLandingWalls([0, 1, 2, 3].flatMap((x) => column(x, [4])), m, 0), {
+  assert.deepEqual(stairLandingWalls([0, 1, 2, 3].flatMap((x) => column(x, [5])), m, 0), {
     w: false,
     e: false,
     s: false,
@@ -821,78 +823,82 @@ test('a switchback in a stairwell leans on the walls, and loses the rails they r
   // rows below and above, across the last steps of the run climbing into it.
   const shape = stairLandingShape(m, 0)
   assert.ok(Math.abs(shape.x0 - 0.105) < 1e-9 && Math.abs(shape.x1 - 3.895) < 1e-9, `the landing spans ${shape.x0}..${shape.x1}`)
-  assert.ok(Math.abs(shape.y0 - 3) < 1e-9 && Math.abs(shape.y1 - 4) < 1e-9, `the landing is ${shape.y0}..${shape.y1} deep, not one block`)
-  assert.ok(Math.abs(shape.z - -2) < 1e-9, 'the landing is read at its own storey')
+  assert.ok(Math.abs(shape.y0 - 4) < 1e-9 && Math.abs(shape.y1 - 5) < 1e-9, `the landing is ${shape.y0}..${shape.y1} deep, not one block`)
+  assert.ok(Math.abs(shape.z - -2.5) < 1e-9, 'the landing is read at its own storey')
   // A 90° turn's legs are perpendicular, so what the two share is the corner **square** —
   // and it is square rather than the one-block strip a 180's half-landing is: a landing
   // only one block deep would be narrower than the leg climbing away from it. The
   // departing leg's lower landing sits on the square's far edge, so no tread stands over
   // the landing, and every edge of the platform is a cell edge.
-  const turn = createModule('stair-right90', 0, 0, -4, 't', 0, STAIR_WIDTH_NARROW)
+  const turn = createModule('stair-right90', 0, 0, -5, 't', 0, STAIR_WIDTH_NARROW)
   assert.ok(turn && turn.type === 'stair')
   const [turnFirst, turnSecond] = stairFlights(turn)
   const square = stairLandingShape(turn, 0)
   assert.deepEqual([turnSecond.from.x, turnSecond.from.y], [turnFirst.to.x, turnFirst.to.y], 'a narrow 90° turn still meets on the corner cell')
-  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,3,-2'], 'the narrow quarter-landing is that one cell')
+  assert.deepEqual(stairTurnCells(turn).map((c) => key(c)), ['0,4,-2.5'], 'the narrow quarter-landing is that one cell')
   assert.ok(Math.abs(square.x0 - 0) < 1e-9 && Math.abs(square.x1 - 1) < 1e-9, `the corner platform is ${square.x0}..${square.x1} along the leg`)
-  assert.ok(Math.abs(square.y0 - 3.105) < 1e-9 && Math.abs(square.y1 - 3.895) < 1e-9, `and ${square.y0}..${square.y1} across it`)
-  assert.ok(Math.abs(square.z - -2) < 1e-9, 'the quarter-landing is read at its own storey')
+  assert.ok(Math.abs(square.y0 - 4.105) < 1e-9 && Math.abs(square.y1 - 4.895) < 1e-9, `and ${square.y0}..${square.y1} across it`)
+  assert.ok(Math.abs(square.z - -2.5) < 1e-9, 'the quarter-landing is read at its own storey')
   // A 中 turn lays the 2 × 2 square the two legs meet on: two blocks either way, so the
   // platform is at least square and the leg that climbs away starts on its far edge.
-  const wide = createModule('stair-right90', 0, 0, -4, 'w', 0, STAIR_WIDTH_DOUBLE)
+  const wide = createModule('stair-right90', 0, 0, -5, 'w', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(wide && wide.type === 'stair')
-  assert.deepEqual([wide.cfg.flights[1].from.x, wide.cfg.flights[1].from.y], [1, 3], 'the departing leg starts on the square’s far edge')
-  assert.deepEqual(stairTurnCells(wide).map((c) => key(c)).sort(), ['0,3,-2', '0,4,-2', '1,3,-2', '1,4,-2'])
+  assert.deepEqual([wide.cfg.flights[1].from.x, wide.cfg.flights[1].from.y], [1, 4], 'the departing leg starts on the square’s far edge')
+  assert.deepEqual(stairTurnCells(wide).map((c) => key(c)).sort(), ['0,4,-2.5', '0,5,-2.5', '1,4,-2.5', '1,5,-2.5'])
   const wideShape = stairLandingShape(wide, 0)
   assert.ok(Math.abs(wideShape.x0 - 0) < 1e-9 && Math.abs(wideShape.x1 - 2) < 1e-9, `the 中 platform is ${wideShape.x1 - wideShape.x0} m along the leg`)
-  assert.ok(Math.abs(wideShape.y0 - 3.105) < 1e-9 && Math.abs(wideShape.y1 - 4.895) < 1e-9)
+  assert.ok(Math.abs(wideShape.y0 - 4.105) < 1e-9 && Math.abs(wideShape.y1 - 5.895) < 1e-9)
 })
 
-test('bulldozing a turning stair takes its half-landing block with it', () => {
-  // The landing floor is the *stair's*: the block mesher skips it while the model draws the
-  // platform there, so a stair deleted on its own would leave a stray 1 m block in the middle
-  // of the station — the shape a piece is torn down and rebuilt in. A straight stair lays no
-  // such cell, and a block the player put there by hand is not the stair's to take away.
+test('a turning stair is model-only at its landing, while a legacy landing block is still cleaned up', () => {
+  // The middle platform is the stair's own 0.5 m slab: placing the piece lays no
+  // document cell, and the crowd walks it as a virtual landing. A save made before
+  // that rule still carries the block the old builder laid, so deleting its stair
+  // takes that block away — while a block the player put there by hand is left.
   const cells = []
-  for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) cells.push({ x, y, z: -4, fill: 'solid' })
-  const handLaid = { x: 6, y: 6, z: -3, fill: 'solid' }
+  for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) cells.push({ x, y, z: -5, fill: 'solid' })
+  const handLaid = { x: 6, y: 8, z: -3, fill: 'solid' }
   const base = toState({ name: 'well', seed: 1, cells: [...cells, handLaid], modules: [], lines: [] })
   const holds = (list, p) => list.some((c) => c.x === p.x && c.y === p.y && c.z === p.z)
   for (const id of ['stair-right90', 'stair-left180']) {
-    const mod = createModule(id, 2, 2, -4, 'x', 0, STAIR_WIDTH_NARROW)
+    const mod = createModule(id, 2, 2, -5, 'x', 0, STAIR_WIDTH_NARROW)
     assert.ok(mod)
-    const laid = stairTurnCells(mod)
-    assert.ok(laid.length > 0, `${id} lays no turn landing`)
+    const landing = stairTurnCells(mod)
+    assert.ok(landing.length > 0, `${id} has no turn landing`)
     const placed = addEquipment(base, mod)
-    for (const p of laid) assert.ok(holds(placed.cells, p), `${id}: the landing at ${key(p)} was not laid`)
-    const after = removeModule(placed, mod.id)
+    for (const p of landing) assert.ok(!holds(placed.cells, p), `${id}: the landing at ${key(p)} was laid as a block`)
+    // The same document, with the landing block an older build laid.
+    const legacy = { ...placed, cells: [...placed.cells, ...landing.map((p) => ({ ...p, fill: 'solid' }))] }
+    const after = removeModule(legacy, mod.id)
     assert.equal(after.modules.length, 0, `${id} was not bulldozed`)
-    for (const p of laid) assert.ok(!holds(after.cells, p), `${id}: the landing at ${key(p)} was left behind`)
+    for (const p of landing) assert.ok(!holds(after.cells, p), `${id}: the legacy landing at ${key(p)} was left behind`)
     assert.ok(holds(after.cells, handLaid), `${id}: a hand-laid block went with it`)
   }
-  // A straight stair lays no landing cell at all, so bulldozing it leaves the station exactly
-  // as the ground it stood on.
-  const straight = createModule('stair-straight', 2, 2, -4, 's', 0, STAIR_WIDTH_NARROW)
+  // A straight stair has no turn landing, so placing and bulldozing it changes no cell.
+  const straight = createModule('stair-straight', 2, 2, -5, 's', 0, STAIR_WIDTH_NARROW)
   assert.ok(straight)
   assert.deepEqual(stairTurnCells(straight), [])
   const placed = addEquipment(base, straight)
+  assert.equal(placed.cells.length, base.cells.length, 'a straight stair laid a cell')
   assert.equal(removeModule(placed, straight.id).cells.length, placed.cells.length, 'a straight stair took a cell with it')
 })
 
-test('a landing another piece stands on is kept when the stair goes', () => {
-  // The landing cell is floor like any other, so a piece that **spans** it keeps it: a 2 m
-  // 座椅 laid across the turn landing still stands on both of its cells once the stair is
-  // bulldozed. Protecting only each remaining piece's *anchor* cell left the floor under the
-  // bench's far half to be taken away with the stair, so the bench stood over void.
+test('a legacy landing another piece stands on is kept when the stair goes', () => {
+  // The landing cell is not the piece's when another piece spans it: a 2 m 座椅
+  // laid across an old landing block keeps both of its cells once the stair is
+  // bulldozed. Protecting only each remaining piece's *anchor* cell left the floor
+  // under the bench's far half to be taken away with the stair.
   const cells = []
-  for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) cells.push({ x, y, z: -4, fill: 'solid' })
+  for (let x = 0; x < 8; x++) for (let y = 0; y < 8; y++) cells.push({ x, y, z: -5, fill: 'solid' })
   const base = toState({ name: 'well', seed: 1, cells, modules: [], lines: [] })
   const holds = (list, p) => list.some((c) => c.x === p.x && c.y === p.y && c.z === p.z)
-  const stair = createModule('stair-right180', 2, 2, -4, 'x', 0, STAIR_WIDTH_NARROW)
+  const stair = createModule('stair-right180', 2, 2, -5, 'x', 0, STAIR_WIDTH_NARROW)
   assert.ok(stair)
   const row = stairTurnCells(stair).slice().sort((a, b) => a.x - b.x || a.y - b.y)
   assert.ok(row.length >= 2, 'the rig needs a landing two cells wide to span')
-  const placed = addEquipment(base, stair)
+  // A legacy document: the stair's landing block is in the save.
+  const legacy = { ...base, cells: [...cells, ...stairTurnCells(stair).map((p) => ({ ...p, fill: 'solid' }))] }
+  const placed = addEquipment(legacy, stair)
   // A 2 m 座椅 along the landing row: its own run spans the row's first two cells.
   const bench = createModule('bench-steel-2', row[0].x, row[0].y, row[0].z, 'b1', 0, undefined)
   assert.ok(bench && bench.type === 'bench')
@@ -912,7 +918,7 @@ test('both hands of a switchback climb their flights and are walked across the t
   // landing off, or the bottom and the top of the stair are two dead ends.
   for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
     for (const style of ['right180', 'left180']) {
-      const m = createModule(`stair-${style}`, 0, 0, -4, 'x', 0, width)
+      const m = createModule(`stair-${style}`, 0, 0, -5, 'x', 0, width)
       assert.ok(m && m.type === 'stair')
       const g = stairwell(m)
       const bottom = g.nodeIndex.get(key(m.from))
@@ -935,8 +941,8 @@ test('both hands of a switchback climb their flights and are walked across the t
 })
 
 test('the two switchbacks are mirror images of each other', () => {
-  const right = createModule('stair-right180', 0, 0, -4, 'r', 0, STAIR_WIDTH_DOUBLE)
-  const left = createModule('stair-left180', 0, 0, -4, 'l', 0, STAIR_WIDTH_DOUBLE)
+  const right = createModule('stair-right180', 0, 0, -5, 'r', 0, STAIR_WIDTH_DOUBLE)
+  const left = createModule('stair-left180', 0, 0, -5, 'l', 0, STAIR_WIDTH_DOUBLE)
   assert.ok(right && right.type === 'stair' && left && left.type === 'stair')
   // The first flight is shared; the second is the same run on the other hand of
   // the turn, so the two landings mirror across the first flight's centreline.
@@ -946,56 +952,79 @@ test('the two switchbacks are mirror images of each other', () => {
   // R only ever turns the piece about its base, so the two hands stay distinct
   // at every rotation.
   for (let rot = 0; rot < 4; rot++) {
-    const r = createModule('stair-right180', 0, 0, -4, 'r', rot, STAIR_WIDTH_NARROW)
-    const l = createModule('stair-left180', 0, 0, -4, 'l', rot, STAIR_WIDTH_NARROW)
+    const r = createModule('stair-right180', 0, 0, -5, 'r', rot, STAIR_WIDTH_NARROW)
+    const l = createModule('stair-left180', 0, 0, -5, 'l', rot, STAIR_WIDTH_NARROW)
     assert.notDeepEqual(r.cfg.flights, l.cfg.flights, `rot ${rot} builds the same switchback either way`)
   }
 })
 
-test('placing a turning stair lays its whole landing as walkable cells', () => {
+test('placing a turning stair leaves the document alone while every landing cell stays walkable', () => {
   const cells = []
-  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 4, fill: 'solid' })
+  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 5, fill: 'solid' })
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
   for (const style of ['left90', 'right90']) {
     for (const width of STAIR_WIDTHS) {
       const mod = createModule(`stair-${style}`, 2, 2, 4, 's', 0, width)
       assert.ok(mod)
       const next = addEquipment(state, mod)
-      // The quarter-landing sits one storey's half up, between the two flights, and the
-      // builder lays **the whole square** — every cell the mesher will skip and the model
-      // will draw the platform on.
+      // The quarter-landing sits one storey's half up, between the two flights, and it is
+      // **the stair's own platform**: no document cell is laid, but every cell the model
+      // draws the platform on is a walkable node of the graph.
       const landing = stairTurnCells(mod)
       assert.equal(landing.length, stairLanes(width) ** 2, `${style}/${width}: the landing is not a square`)
-      for (const p of landing) assert.ok(next.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), `${style}/${width}: landing ${key(p)} was not laid`)
+      for (const p of landing) assert.ok(!next.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), `${style}/${width}: landing ${key(p)} was laid as a block`)
+      const graph = buildGraph(toData(next))
+      for (const p of landing) assert.notEqual(graph.nodeIndex.get(key(p)), undefined, `${style}/${width}: landing ${key(p)} is not walkable`)
     }
+  }
+})
+
+test('a turning stair draws its middle platform as the piece’s own 0.5 m slab at half the rise', () => {
+  const mats = new Proxy({}, { get: (o, k) => (o[k] ??= new THREE.MeshStandardMaterial()) })
+  const finish = () => new THREE.MeshStandardMaterial()
+  for (const spec of [['ultra-short', 2], ['medium', 4], ['long', 5]]) {
+    const [length, rise] = spec
+    const stair = createModule('stair-right180', 0, 0, 0, `s-${length}`, 0, 0.68, 'up', 'lane', [], undefined, { rampLength: length })
+    const group = new StairModel({ mats, finish, data: { cells: [], modules: [stair] }, preview: false }).build(stair)
+    group.updateMatrixWorld(true)
+    const landings = group.children.filter((c) => c.name === 'stair-landing')
+    assert.equal(landings.length, 1, `${length}: one drawn platform`)
+    // The platform is the surface + its frame; the railings above it are not the slab.
+    const slabParts = []
+    landings[0].traverse((o) => { if (o.name === 'stair-landing-surface' || o.name === 'stair-landing-frame') slabParts.push(o) })
+    const box = new THREE.Box3()
+    for (const part of slabParts) box.expandByObject(part)
+    assert.ok(Math.abs(box.max.z - box.min.z - 0.5) < 1e-6, `${length}: the platform is a 0.5 m slab`)
+    assert.ok(Math.abs(box.max.z - (stair.cfg.flights[0].to.z + 1)) < 1e-6, `${length}: its walking surface is at half the rise`)
+    assert.ok(Math.abs(stair.cfg.flights[0].to.z - rise / 2) < 1e-6)
   }
 })
 
 test('carving a turning stair keeps its landings and opens the slab it climbs through', () => {
   const cells = []
-  for (let x = -2; x <= 3; x++) for (let y = 0; y <= 3; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  for (let x = -2; x <= 3; x++) for (let y = 0; y <= 4; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   // The half-landing at the turn, between the two flights.
-  for (const x of [0, 1, 2]) cells.push({ x, y: 2, z: -2, fill: 'solid' })
+  for (const x of [0, 1, 2]) cells.push({ x, y: 2, z: -2.5, fill: 'solid' })
   const m = {
     id: 'turn',
     type: 'stair',
     x: 0,
     y: 0,
-    z: -4,
-    from: { x: 0, y: 0, z: -4 },
+    z: -5,
+    from: { x: 0, y: 0, z: -5 },
     to: { x: 2, y: 0, z: 0 },
     cfg: {
       width: 1.6,
       style: 'right180',
       flights: [
-        { from: { x: 0, y: 0, z: -4 }, to: { x: 0, y: 2, z: -2 } },
-        { from: { x: 2, y: 2, z: -2 }, to: { x: 2, y: 0, z: 0 } },
+        { from: { x: 0, y: 0, z: -5 }, to: { x: 0, y: 2, z: -2.5 } },
+        { from: { x: 2, y: 2, z: -2.5 }, to: { x: 2, y: 0, z: 0 } },
       ],
     },
   }
   const removed = carveRampOpenings(cells, [m])
   assert.ok(removed > 0, 'the roof the stair climbs through is carved')
-  assert.ok(cells.some((c) => c.x === 1 && c.y === 2 && c.z === -2), 'the half-landing is kept')
+  assert.ok(cells.some((c) => c.x === 1 && c.y === 2 && c.z === -2.5), 'the half-landing is kept')
   assert.ok(cells.some((c) => c.x === 2 && c.y === 0 && c.z === 0), 'the top landing is kept')
 })
 
@@ -1006,12 +1035,12 @@ test('forward stairs continue after a block-fitted middle landing in every size 
     const [rx, ry] = stairRight(rot)
     const blocks = stairLanes(width)
     for (const [style, hand] of [['leftForward', -1], ['centerForward', 0], ['rightForward', 1]]) {
-      const m = createModule(`stair-${style}`, 0, 0, -4, 'forward', rot, width)
+      const m = createModule(`stair-${style}`, 0, 0, -5, 'forward', rot, width)
       assert.equal(m.cfg.width, stairSwitchbackRunWidth(width))
       const [first, second] = stairFlights(m)
-      assert.deepEqual(first.to, { x: fx * 3, y: fy * 3, z: -2 })
-      assert.deepEqual(second.from, { x: fx * 3 + rx * hand * blocks, y: fy * 3 + ry * hand * blocks, z: -2 })
-      assert.deepEqual(m.to, { x: fx * 6 + rx * hand * blocks, y: fy * 6 + ry * hand * blocks, z: 0 })
+      assert.deepEqual(first.to, { x: fx * 4, y: fy * 4, z: -2.5 })
+      assert.deepEqual(second.from, { x: fx * 4 + rx * hand * blocks, y: fy * 4 + ry * hand * blocks, z: -2.5 })
+      assert.deepEqual(m.to, { x: fx * 8 + rx * hand * blocks, y: fy * 8 + ry * hand * blocks, z: 0 })
       const row = stairTurnCells(m)
       assert.equal(row.length, blocks * (hand === 0 ? 1 : 2), 'middle landing fills only the shared row')
       const shape = stairLandingShape(m, 0)

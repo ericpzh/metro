@@ -35,7 +35,7 @@ const ramp = (id = 'e1') => ({
   y: 0,
   z: 0,
   from: { x: 0, y: 0, z: 0 },
-  to: { x: 0, y: 6, z: -4 },
+  to: { x: 0, y: 6, z: -5 },
   cfg: { dir: 'down' },
 })
 
@@ -103,8 +103,8 @@ test('a recorded block, a recorded hole, and the plane: three answers, one rule'
 
   assert.equal(solidAt([], [], 5, 5, GROUND_Z), true, 'the street is solid')
   assert.equal(solidAt(hole, [], 5, 5, GROUND_Z), false, 'its holes are not')
-  assert.equal(solidAt([{ x: 5, y: 5, z: 4, fill: 'solid' }], [], 5, 5, 4), true, 'an explicit block is solid on any storey')
-  assert.equal(solidAt([], [], 5, 5, 4), false, 'and nothing else is')
+  assert.equal(solidAt([{ x: 5, y: 5, z: 5, fill: 'solid' }], [], 5, 5, 5), true, 'an explicit block is solid on any storey')
+  assert.equal(solidAt([], [], 5, 5, 5), false, 'and nothing else is')
 })
 
 test('an opening the game derived is a hole with no record of its own', () => {
@@ -150,10 +150,10 @@ test('the street enumerates its derived holes by run, not per street cell', () =
   // each run's own bounding box plus each head-house footprint with the same
   // predicates, so pin the two answers together: every derived hole in the
   // window, and nothing else, stays unpaved.
-  const across = { id: 'e2', type: 'escalator', x: 4, y: -2, z: 0, from: { x: 4, y: -2, z: 0 }, to: { x: 10, y: -2, z: -4 }, cfg: { dir: 'down' } }
-  const lift = { id: 'l1', type: 'lift', x: 6, y: 4, z: 0, from: { x: 6, y: 4, z: 0 }, to: { x: 6, y: 4, z: 4 }, cfg: {} }
+  const across = { id: 'e2', type: 'escalator', x: 4, y: -2, z: 0, from: { x: 4, y: -2, z: 0 }, to: { x: 10, y: -2, z: -5 }, cfg: { dir: 'down' } }
+  const lift = { id: 'l1', type: 'lift', x: 6, y: 4, z: 0, from: { x: 6, y: 4, z: 0 }, to: { x: 6, y: 4, z: 5 }, cfg: {} }
   const doorway = { id: 'x2', type: 'exit', x: -4, y: -4, z: 0, cfg: { name: 'B口', inRate: 900, open: true, style: 'doorway' } }
-  const upstairs = { id: 'x3', type: 'exit', x: 8, y: 8, z: -4, cfg: { name: 'C口', inRate: 900, open: true } }
+  const upstairs = { id: 'x3', type: 'exit', x: 8, y: 8, z: -5, cfg: { name: 'C口', inRate: 900, open: true } }
   const pillar = { id: 'v1', type: 'exit', x: 2, y: -4, z: 0, cfg: { name: 'C', inRate: 900, open: true, bays: 1, style: 'virtual' } }
   const modules = [ramp(), across, lift, exit(), doorway, upstairs, pillar]
   const cells = [
@@ -324,14 +324,14 @@ test('a piece stands on the street, and a fitting under it hangs from it', () =>
   const tvm = createModule('tvm', 2, 2, 0, 't1', 0)
   assert.equal(moduleFloorOk([], [], tvm), true, 'the street is not "no floor"')
   assert.equal(equipmentReason([], [], tvm), '', 'so the equipment verdict accepts it')
-  const high = createModule('tvm', 2, 2, 4, 't2', 0)
+  const high = createModule('tvm', 2, 2, 5, 't2', 0)
   assert.equal(moduleFloorOk([], [], high), false, 'and one storey up there is nothing to stand on')
   assert.equal(equipmentReason([], [], high), 'floor')
 
   // `ceilingMountMissing` is the other: the plane is a slab one storey ABOVE a
   // basement, which is the ceiling a hung 时钟 bolts to down there. That branch is
   // the reason the predicate takes the modules at all.
-  const clock = createModule('clock', 3, 3, -4, 'c1', 0)
+  const clock = createModule('clock', 3, 3, -5, 'c1', 0)
   assert.equal(ceilingMountMissing([], clock), false, 'the street slab is the ceiling of the storey below it')
   assert.equal(
     ceilingMountMissing([{ x: 3, y: 3, z: 0, fill: 'void' }], clock),

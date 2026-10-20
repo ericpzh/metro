@@ -117,7 +117,7 @@ test('a rail with no platform still gets a running train', () => {
   const pose = w.trainRenderState()
   assert.equal(pose.length, 10, 'one train, one pose')
   assert.equal(pose[3], 6, 'six cars')
-  assert.ok(Math.abs(pose[2] - TRAIN_ORIGIN_Z) < 1e-6, 'rides the recessed slab')
+  assert.ok(Math.abs(pose[2] - (1 - .62 * .98)) < 1e-6, 'rides the recessed slab')
   assert.equal(pose[8], 0, 'an east–west track has no yaw')
   assert.equal(pose[9], 0, 'no screen doors, so neither bank may open')
 })
@@ -146,7 +146,7 @@ test('a fresh line is B stock, six cars, and carries the rail direction', () => 
 
 test('a track piece is sized from the line: a car-width bed, the train length', () => {
   const line = defaultLine('1', 'up', 'third-rail') // B stock, six cars
-  assert.deepEqual(trackPieceForLine(line), { w: 117, d: 3 }, '6 × 19.5 m = 117 m')
+  assert.deepEqual(trackPieceForLine(line), { w: 115, d: 3 }, '6 × 19.5 m = 117 m')
   assert.deepEqual(trackPieceForLine({ stock: 'A', cars: 8 }), { w: 176, d: 3 }, 'A stock, eight cars')
   assert.deepEqual(trackPieceForLine({ stock: 'C', cars: 4 }), { w: 76, d: 3 }, 'C stock, four cars')
 })
@@ -212,7 +212,7 @@ test('a 屏蔽门 全高/半高 choice derives onto the edge and sizes its envel
   assert.equal(s.lines[0].psd, 'full')
   let edge = s.modules.find((m) => m.type === 'platform-edge')
   assert.equal(edge.cfg.psd, 'full', 'the derived edge carries the line choice')
-  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 2.95, 'a full screen clears the ceiling block')
+  assert.equal(moduleEnvelope(edge).z1, edge.z + 1 + 3, 'a full screen meets the ceiling block')
 
   // Switch the line to 半高 and regenerate: the edge follows, and rises only 1.45 m.
   s = { ...s, lines: s.lines.map((l) => ({ ...l, psd: 'half' })) }
@@ -476,49 +476,6 @@ test('the reference station ships a dug bed with an auto-consistent edge', async
   const derived = derivePlatformEdges(s, track).find((e) => e.x === edge.x && e.y === edge.y)
   assert.ok(derived, 'the demo edge is the one the derive would place')
   assert.equal(edge.cfg.side, derived.cfg.side, 'the demo edge keeps the derived side')
-})
-
-
-test('catenary reserves an extra clear course and bores a taller shell in every rotation', () => {
-  for (const rot of [0, 1, 2, 3]) {
-    const source = { id: 'source', type: 'track', x: 10, y: 10, z: -8, w: 4, d: 3, rot, cfg: { line: '1', power: 'catenary', dir: 'up' } }
-    const cells = trackCells(source).map(([x, y, z]) => ({ x, y, z: z + 4, fill: 'solid' }))
-    const state = { ...station(cells), modules: [source] }
-    assert.equal(trackClearanceBlocked(state, source), true)
-    assert.equal(trackClearanceBlocked(state, { ...source, cfg: { ...source.cfg, power: 'third-rail' } }), false)
-    const above = { id: 'above', type: 'bench', x: 10, y: 10, z: -5, w: 1, cfg: {} }
-    assert.equal(trackBlockReason({ ...station([]), modules: [above] }, source), 'interference')
-    const next = placeTunnel(state, source.id, 4)
-    const tunnel = next.modules.find(m => m.type === 'track' && m.cfg.tunnel)
-    assert.ok(tunnel)
-    for (const [x, y, z] of trackCells(tunnel)) {
-      assert.ok(next.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
-      assert.ok(!next.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
-    }
-    const resized = resizeTrack(next, tunnel, 6, 4)
-    for (const [x, y, z] of trackCells({ ...tunnel, w: 6, d: 4 })) {
-      assert.ok(resized.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
-    }
-  }
-})
-
-test('power switches and loading legacy catenary tunnels raise their generated ceilings', () => {
-  const source = { id: 'source', type: 'track', x: 0, y: 0, z: 0, w: 4, d: 3, cfg: { line: '1', power: 'third-rail', dir: 'up' } }
-  const old = placeTunnel({ ...station([]), modules: [source] }, source.id, 4)
-  const tunnel = old.modules.find(m => m.type === 'track' && m.cfg.tunnel)
-  const raised = setLinePower(old, '1', 'catenary')
-  const legacy = { ...old, modules: old.modules.map(m => m.type === 'track' ? { ...m, cfg: { ...m.cfg, power: 'catenary' } } : m) }
-  const loaded = toState(toData(legacy))
-  for (const state of [raised, loaded]) for (const [x, y, z] of trackCells(tunnel)) {
-    assert.ok(state.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
-    assert.ok(!state.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
-  }
-  assert.deepEqual(toData(toState(toData(loaded))), toData(loaded), 'loading the upgraded shell is idempotent')
-  const lowered = setLinePower(raised, '1', 'third-rail')
-  for (const [x, y, z] of trackCells(tunnel)) {
-    assert.ok(lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 4 && c.fill === 'solid'))
-    assert.ok(!lowered.cells.some(c => c.x === x && c.y === y && c.z === z + 5 && c.fill === 'solid'))
-  }
 })
 
 

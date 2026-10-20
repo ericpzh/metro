@@ -30,11 +30,13 @@ import { loadPictograms } from '../render/pictograms.ts'
 import { DEFAULT_SIGN_MOUNT, makeSignBoards, signMountSpec, signPlate, type SignMount } from '../sim/sign.ts'
 import { DEFAULT_CALLIGRAPHY_AXIS, DEFAULT_CALLIGRAPHY_STYLE, calligraphyGeometry, isCalligraphyAxis, isCalligraphyStyle } from '../sim/calligraphy.ts'
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../sim/glassPanels.ts'
-import { liftExtendedUp } from '../sim/lifts.ts'
+import { liftExtendedUp, liftModule, LIFT_INTERVAL_DEFAULT } from '../sim/lifts.ts'
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../sim/doors.ts'
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../sim/linemaps.ts'
-import { liftModule } from '../sim/lifts.ts'
 import { stairFlightsFor, type StairStyle } from '../sim/stairs.ts'
+import { escalatorLengthSpec } from '../sim/escalators.ts'
+import { RAMP_LENGTH_DEFAULT } from '../sim/rampLengths.ts'
+import { STOREY_HEIGHT } from '../sim/constants.ts'
 import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
 import { shelfVariant } from '../sim/shelves.ts'
 import { benchSpec } from '../sim/benches.ts'
@@ -230,6 +232,11 @@ function viewDir(id: string): THREE.Vector3 {
  * A throwaway station the size of a small hall, so a module that reads its
  * neighbours (a stair's floor finish, a PSD's track side) has something
  * sensible to read. Only the thumbnail builder ever sees it.
+ *
+ * It stands on the **new-station grid** — five-metre storeys — because the tiles
+ * are pictures of what a click places, and a piece that reads the grid (a PSD's
+ * full height, a track's train scale, a hanging fitting's drop) must read the one
+ * the game now builds on.
  */
 function syntheticStation(): StationData {
   const cells: StationData['cells'] = []
@@ -238,14 +245,15 @@ function syntheticStation(): StationData {
       cells.push({ x, y, z: 0, fill: 'solid' })
       // A couple of upper storeys, so a tall piece (a lift) has landings to
       // read; the thumbnail scene draws only the module, never these slabs.
-      cells.push({ x, y, z: 4, fill: 'solid' })
-      cells.push({ x, y, z: 8, fill: 'solid' })
+      cells.push({ x, y, z: STOREY_HEIGHT, fill: 'solid' })
+      cells.push({ x, y, z: 2 * STOREY_HEIGHT, fill: 'solid' })
     }
   }
   // A track bed one cell north, for models that look for one.
   cells.push({ x: 0, y: -1, z: 0, fill: 'solid', finish: { top: 'floor.track' } })
   return {
     name: msg('metro_station'),
+    storeyHeight: STOREY_HEIGHT,
     seed: 1,
     cells,
     modules: [],
@@ -276,7 +284,7 @@ function sampleModule(id: string, station: StationData): Module | null {
   switch (id) {
     case 'pillar-slim':
     case 'pillar-thick':
-      return { id, type: 'pillar', x: 0, y: 0, z: 0, cfg: { size: id === 'pillar-thick' ? 'thick' : 'slim', height: 4 } }
+      return { id, type: 'pillar', x: 0, y: 0, z: 0, cfg: { size: id === 'pillar-thick' ? 'thick' : 'slim', height: STOREY_HEIGHT } }
     case 'roof':
       return { id, type: 'roof', x: 0, y: 0, z: 0, w: 1, d: 1, cfg: {} }
     case 'roof-shell':
@@ -496,14 +504,18 @@ function sampleModule(id: string, station: StationData): Module | null {
         },
       }
     }
-    case 'escalator':
-      return { id, type: 'escalator', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 6, z: 4 }, cfg: { dir: 'up' } }
+    case 'escalator': {
+      // The default run on the palette's own grid: the strict-thirty-degree piece a
+      // click drops on a five-metre station (`escalatorLengthSpec`).
+      const spec = escalatorLengthSpec(RAMP_LENGTH_DEFAULT, STOREY_HEIGHT)
+      return { id, type: 'escalator', x: 0, y: 0, z: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: spec.run, z: spec.rise }, cfg: { dir: 'up', incline: 30 } }
+    }
     case 'walkway':
       // A level belt with the escalator's body: a short, flat run so the icon shows
       // the moving band and its glass, not the 30 m the real piece is built at.
       return { id, type: 'walkway', x: 0, y: 0, z: 0, rot: 0, from: { x: 0, y: 0, z: 0 }, to: { x: 6, y: 0, z: 0 }, cfg: { dir: 'up' } }
     case 'lift':
-      return liftModule({ x: 0, y: 0, z: 0 }, 0, id)
+      return liftModule({ x: 0, y: 0, z: 0 }, 0, id, LIFT_INTERVAL_DEFAULT)
     case 'stair-straight':
       return sampleStair('straight')
     case 'stair-block':
@@ -533,7 +545,7 @@ function sampleStair(style: StairStyle) {
   // switchback's two runs both read in the tile; the flights are built at that
   // same width, so a switchback's return run is laid as far across as the model.
   const width = 1.6
-  const flights = stairFlightsFor(base, 0, style, width)
+  const flights = stairFlightsFor(base, 0, style, width, RAMP_LENGTH_DEFAULT, STOREY_HEIGHT)
   return {
     id: `stair-${style}`,
     type: 'stair' as const,
@@ -615,13 +627,13 @@ export interface PieceElevations {
   /** Supersampling. Fixed rather than read from the device, so the scale is exact. */
   scale?: number
   /**
-   * How many storeys to stack a **电梯** to.
+   * How many intervals to stack a **电梯** to.
    *
-   * A lift is the one piece the game grows rather than places: `liftModule` serves the
-   * floor one storey up, and `liftExtendedUp` moves its `to` up a storey at a time, so a
-   * core serving three floors is one lift stacked three deep. A section's shaft is that
-   * whole stack, which is why this is asked for rather than left at the single rise a
-   * palette icon shows.
+   * A lift is the one piece the game grows rather than places: `liftModule` spans one
+   * floor interval (5 m on the shipped grid), and `liftExtendedUp` moves its `to` up
+   * one interval at a time, so a core serving three floors is one lift stacked three
+   * deep. A section's shaft is that whole stack, which is why this is asked for rather
+   * than left at the single rise a palette icon shows.
    */
   liftStoreys?: number
   /**

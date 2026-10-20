@@ -2,8 +2,9 @@
 // Owns toStateFrom (grid repair entry, poster backfill, termini defaults) plus
 // toStateRepairing, so Grid.ts stays a leaf and no State↔Grid cycle forms (C4).
 
+import { trainScaleForStorey } from '../../sim/stock.ts';
 import type { Cell, Module, StationData } from '../../sim/types.ts';
-import { normalizeLevelBase, type PeakWindows, type TimeSpan } from '../../sim/constants.ts';
+import { normalizeLevelBase, STOREY_HEIGHT, type PeakWindows, type TimeSpan } from '../../sim/constants.ts';
 import { normalizeCalendar, normalizePeaks, normalizeService, type SimCalendar } from '../../sim/clock.ts';
 import { normalizeDayDemand, type DayDemand } from '../../sim/demand.ts';
 import { repairLineRunning } from '../../sim/headway.ts';
@@ -11,7 +12,6 @@ import { cloneCell } from './Cells.ts';
 import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
 import { ensureRoomFurniture } from './Facilities.ts';
 import { repairGrid } from './Grid.ts';
-import { upgradeCatenaryTunnels } from './TunnelShell.ts';
 import { syncBridgePillars } from './BridgePillars.ts';
 
 export interface StationState {
@@ -19,6 +19,7 @@ export interface StationState {
   nameEn?: string;
   seed: number;
   levelBase: number;
+  storeyHeight: number;
   cells: Cell[];
   modules: Module[];
   lines: StationData['lines'];
@@ -55,11 +56,13 @@ export function toState(data: StationData): StationState {
 
 /** The one load path: a document already through `repairGrid` becomes a `StationState`. */
 function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>): StationState {
+  const storeyHeight = STOREY_HEIGHT;
   const state: StationState = {
     name: data.name,
     nameEn: typeof data.nameEn === 'string' ? data.nameEn.trim() : '',
     seed: data.seed,
-    levelBase: normalizeLevelBase(data.levelBase),
+    levelBase: normalizeLevelBase(data.levelBase, storeyHeight),
+    storeyHeight,
     // Off-grid cells are dropped here, where every load path passes: they are
     // unreachable junk no tool can address, so a station that keeps them can never
     // be cleaned from inside the game (`repairGrid`).
@@ -67,12 +70,14 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     // A save written before ad screens carried a poster (or the demo) gets one
     // printed now, so a loaded station shows the same campaign on every frame
     // instead of re-rolling it at draw time.
-    modules: ensureSignLayouts(assignAdPosters(repaired.modules), data).map((m) => ({ ...m })),
+    modules: ensureSignLayouts(assignAdPosters(repaired.modules), data).map((m) =>
+      m.storeyHeight === undefined ? { ...m } : { ...m, storeyHeight: STOREY_HEIGHT },
+    ),
     // Older saves predate the per-line direction termini; default them to ''
     // so the screen header falls back to the direction word instead of undefined.
     // A pre-chip save may also hold any integer consist or an out-of-range
     // headway, so snap both here where every load path passes.
-    lines: data.lines.map((l) => repairLineRunning({ ...l, upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
+    lines: data.lines.map((l) => repairLineRunning({ ...l, modelScale:trainScaleForStorey(), upTerminus: l.upTerminus ?? '', downTerminus: l.downTerminus ?? '' })),
     // Same for the authored day (§9.6C): a file that never carried one opens on the
     // defaults, and one that carries a window the day cannot hold (an inverted pair, a
     // stray second, a knob past its slider) is bent into range here, where every load
@@ -86,7 +91,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
   };
   // Rooms drawn before furniture became modules carry no shelf/desk pieces
   // yet — materialise them here so every load path (open, demo, new) agrees.
-  return syncBridgePillars(ensureRoomFurniture(upgradeCatenaryTunnels(state)));
+  return syncBridgePillars(ensureRoomFurniture(state));
 }
 
 export function toData(s: StationState): StationData {
@@ -95,9 +100,10 @@ export function toData(s: StationState): StationData {
     nameEn: s.nameEn,
     seed: s.seed,
     levelBase: s.levelBase,
+    storeyHeight: STOREY_HEIGHT,
     cells: s.cells,
     modules: s.modules,
-    lines: s.lines,
+    lines: s.lines.map(line => ({...line,modelScale:trainScaleForStorey()})),
     service: s.service,
     peaks: s.peaks,
     demand: s.demand,
@@ -124,6 +130,7 @@ export function cloneState(s: StationState): StationState {
     nameEn: s.nameEn,
     seed: s.seed,
     levelBase: s.levelBase,
+    storeyHeight: s.storeyHeight,
     cells: s.cells.map(cloneCell),
     modules: s.modules.map((m) => deepCopy(m)),
     lines: s.lines.map((l) => deepCopy(l)),

@@ -11,7 +11,7 @@ import { batchStaticParts } from '../../batchStaticModule.ts'
 import { batchTrainDoors, batchTrainTransparent } from '../../trainBatches.ts'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { STOCK, STOCK_CLASSES, TRAIN_ORIGIN_Z } from '../../../sim/stock.ts'
+import { STOCK, STOCK_CLASSES, trainOriginForScale, trainScaleForStorey } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -115,6 +115,7 @@ export class TrainSystem extends SceneSystem {
       entry.missed++
     }
     const openTrains: Array<{ x: number; y: number; z: number; fx: number; fy: number; half: number }> = []
+    const occurrences = new Map<string, number>()
     for (let i = 0; i < n; i++) {
       const o = i * STRIDE
       const x = buffer[o]
@@ -131,13 +132,19 @@ export class TrainSystem extends SceneSystem {
       const power = (flags & 4) !== 0 ? 'catenary' : 'third-rail'
       if (doorsOpen && doorSides !== 0) {
         const cls = STOCK_CLASSES[stockIdx] ?? 'B'
-        openTrains.push({ x, y, z, fx: Math.cos(yaw), fy: Math.sin(yaw), half: (STOCK[cls].length * cars) / 2 })
+        openTrains.push({ x, y, z, fx: Math.cos(yaw), fy: Math.sin(yaw), half: (STOCK[cls].length * cars * trainScaleForStorey(this.ctx.storeyHeight)) / 2 })
       }
-      const sig = `${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      const modelScale = trainScaleForStorey(this.ctx.storeyHeight)
+      const modelKey = `${modelScale}:${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      // A snapshot may contain several identical consists on different tracks.
+      // Appearance selects the model, while its occurrence owns a distinct pose.
+      const occurrence = occurrences.get(modelKey) ?? 0
+      occurrences.set(modelKey, occurrence + 1)
+      const sig = `${modelKey}:${occurrence}`
       let entry = this.trainSlots.get(sig)
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
-        const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, power, doorsOpen, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
+        const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, power, doorsOpen, modelScale, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
         group.userData.renderFamily = 'train'
         batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
         if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
@@ -161,7 +168,7 @@ export class TrainSystem extends SceneSystem {
       // parked — and `parked` carries it across an `applyLevel`, which owns the
       // flag otherwise (the level slicing and the sim both write it).
       // Recover the track anchor from the platform-aligned cabin origin, including cached poses.
-      entry.group.userData.levelZs = [storeyBand(Math.round(z - TRAIN_ORIGIN_Z), this.ctx.levelBase)]
+      entry.group.userData.levelZs = [storeyBand(Math.round(z - trainOriginForScale(modelScale)), this.ctx.levelBase, this.ctx.storeyHeight)]
       entry.group.userData.parked = false
       // Doors ease open and shut per bank in `updateTrains`, never snapping.
       entry.group.userData.doorOpen = doorsOpen ? 1 : 0

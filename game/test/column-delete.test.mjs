@@ -10,45 +10,45 @@ const block = (x, y, z, tags) => ({ x, y, z, fill: 'solid', ...(tags ? { tags } 
 const station = (cells, levelBase = 0) => toState({ name: 'columns', seed: 1, cells, modules: [], lines: [], levelBase })
 const heights = (cells) => cells.map(([, , z]) => z).sort((a, b) => a - b)
 
-test('G clears the -11..-8 wall and ceiling above the -12 floor when hit at -10', () => {
+test('G clears the -14..-10 wall and ceiling above the -15 floor when hit at -13', () => {
   const st = station([
-    ...[-13, -12, -11, -10, -9, -8].map((z) => block(2, 3, z, z === -11 ? ['wall'] : undefined)),
-    block(3, 3, -10),
+    ...[-16, -15, -14, -13, -12, -11, -10].map((z) => block(2, 3, z, z === -14 ? ['wall'] : undefined)),
+    block(3, 3, -13),
   ])
-  const remove = storeyColumnsAt(st, [[2, 3, -10]])
-  assert.deepEqual(heights(remove), [-11, -10, -9, -8])
-  assert.deepEqual(removeCells(st, remove).cells.map(({ x, y, z }) => [x, y, z]), [[2, 3, -13], [2, 3, -12], [3, 3, -10]])
+  const remove = storeyColumnsAt(st, [[2, 3, -13]])
+  assert.deepEqual(heights(remove), [-14, -13, -12, -11, -10])
+  assert.deepEqual(removeCells(st, remove).cells.map(({ x, y, z }) => [x, y, z]), [[2, 3, -16], [2, 3, -15], [3, 3, -13]])
 })
 
 test('G includes separated blocks across gaps and excludes void records', () => {
-  const st = station([block(2, 3, -11), { x: 2, y: 3, z: -10, fill: 'void' }, block(2, 3, -8, ['auto-wall'])])
-  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, -9]])), [-11, -8])
+  const st = station([block(2, 3, -14), { x: 2, y: 3, z: -13, fill: 'void' }, block(2, 3, -10, ['auto-wall'])])
+  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, -12]])), [-14, -10])
 })
 
 test('G follows every height basis at negative storey boundaries', () => {
   for (const base of [0, 1, 2, 3]) {
-    const bottom = -11 + base
-    const st = station(Array.from({ length: 6 }, (_, i) => block(2, 3, bottom - 1 + i)), base)
-    for (let hit = bottom; hit < bottom + 4; hit++) {
-      assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, hit]])), [bottom, bottom + 1, bottom + 2, bottom + 3])
+    const bottom = -14 + base
+    const st = station(Array.from({ length: 7 }, (_, i) => block(2, 3, bottom - 1 + i)), base)
+    for (let hit = bottom; hit < bottom + 5; hit++) {
+      assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, hit]])), [bottom, bottom + 1, bottom + 2, bottom + 3, bottom + 4])
     }
-    assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, bottom + 4]])), [bottom + 4])
+    assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, bottom + 5]])), [bottom + 5])
   }
 })
 
 test('G drag clears every selected column once, including sparse columns without a block at the drag height', () => {
-  const st = station([block(2, 3, -10), block(3, 3, -11), block(3, 3, -9), block(4, 3, -10)])
-  assert.deepEqual(storeyColumnsAt(st, [[2, 3, -10], [3, 3, -10], [2, 3, -9]]), [[2, 3, -10], [3, 3, -11], [3, 3, -9]])
-  assert.deepEqual(storeyColumnsAt(st, [[9, 9, -10]]), [])
+  const st = station([block(2, 3, -13), block(3, 3, -14), block(3, 3, -12), block(4, 3, -13)])
+  assert.deepEqual(storeyColumnsAt(st, [[2, 3, -13], [3, 3, -13], [2, 3, -12]]), [[2, 3, -13], [3, 3, -14], [3, 3, -12]])
+  assert.deepEqual(storeyColumnsAt(st, [[9, 9, -13]]), [])
 })
 
 test('G at +1 removes the wall and ceiling while preserving the floor', () => {
-  const st = station([block(2, 3, 0), ...[1, 2, 3, 4, 5].map((z) => block(2, 3, z))])
+  const st = station([block(2, 3, 0), ...[1, 2, 3, 4, 5, 6].map((z) => block(2, 3, z))])
   const remove = storeyColumnsAt(st, [[2, 3, 1]])
-  assert.deepEqual(heights(remove), [1, 2, 3, 4])
+  assert.deepEqual(heights(remove), [1, 2, 3, 4, 5])
   const next = removeCells(st, remove)
-  assert.deepEqual(next.cells.map((c) => c.z), [0, 5])
-  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, 4]])), [1, 2, 3, 4], 'the ceiling belongs to the wall below')
+  assert.deepEqual(next.cells.map((c) => c.z), [0, 6])
+  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, 4]])), [1, 2, 3, 4, 5], 'the ceiling belongs to the wall below')
   assert.deepEqual(storeyColumnsAt(next, [[2, 3, 1]]), [])
   const virtual = station([block(2, 3, 1), block(2, 3, 4)])
   assert.deepEqual(heights(storeyColumnsAt(virtual, [[2, 3, 1]])), [1, 4], 'the implicit street floor is preserved too')
@@ -58,7 +58,7 @@ test('G right-click and drag preview the blocks that release removes in one comm
   const before = useStore.getState()
   try {
     for (const dragRun of [false, true]) {
-      const st = station([block(2, 3, -12), block(2, 3, -10), block(3, 3, -9), block(2, 3, -8)])
+      const st = station([block(2, 3, -15), block(2, 3, -13), block(3, 3, -12), block(2, 3, -10)])
       let preview = []
       let cursorValid = false
       let commits = 0
@@ -77,7 +77,7 @@ test('G right-click and drag preview the blocks that release removes in one comm
       const tool = new WallTool(ctx)
       const press = (x, clientX = 0) => ({
         button: 2, clientX, clientY: 0, shiftKey: false, preventDefault() {},
-        hit: { cell: [x, 3, -10], place: [x + 1, 3, -10], solid: true, point: [x, 3, -10] },
+        hit: { cell: [x, 3, -13], place: [x + 1, 3, -13], solid: true, point: [x, 3, -13] },
       })
       tool.onDown(press(2))
       // Chrome/Windows dispatches contextmenu while the right button is down.
@@ -87,7 +87,7 @@ test('G right-click and drag preview the blocks that release removes in one comm
         ctx.drag.current.downTime -= 1000
         tool.onMove(press(3, 100))
       }
-      const expected = dragRun ? [[2, 3, -10], [3, 3, -9], [2, 3, -8]] : [[2, 3, -10], [2, 3, -8]]
+      const expected = dragRun ? [[2, 3, -13], [3, 3, -12], [2, 3, -10]] : [[2, 3, -13], [2, 3, -10]]
       assert.deepEqual(preview, expected)
       assert.equal(cursorValid, true)
       tool.onUp(dragRun ? press(3, 100) : press(2))

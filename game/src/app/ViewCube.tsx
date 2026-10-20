@@ -602,11 +602,15 @@ function DepthRail(): React.ReactElement {
   const activeZ = useStore((s) => s.activeZ)
   const setActiveZ = useStore((s) => s.setActiveZ)
   const levelBase = useStore((s) => s.station.levelBase)
+  const storeyHeight = useStore((s) => s.station.storeyHeight)
   const setLevelBase = useStore((s) => s.setLevelBase)
   const trackRef = useRef<HTMLDivElement>(null)
   const railRef = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   const [baseOpen, setBaseOpen] = useState(false)
+  const [heightEditing, setHeightEditing] = useState(false)
+  const [heightDraft, setHeightDraft] = useState('')
+  const heightInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!baseOpen) return
@@ -624,9 +628,20 @@ function DepthRail(): React.ReactElement {
     }
   }, [baseOpen])
 
-  // Fixed storeys (see `LEVEL_STEPS`): the rail always lists 24 down to -32
-  // in steps of 4, so every stop is a real work plane.
-  const levels = levelSteps(levelBase)
+  useEffect(() => {
+    if (heightEditing) {
+      heightInputRef.current?.focus()
+      heightInputRef.current?.select()
+    }
+  }, [heightEditing])
+
+  // Fixed storeys (`levelSteps`): the rail always lists fifteen stops, eight
+  // storeys down to six up, at the station's own storey height — -32 m down to
+  // -40 m to 30 m on the five-metre grid, so
+  // every stop is a real work plane.
+  // Viewing ladder is the new five-metre grid on every document, regardless of
+  // the document's own storey height (which keeps governing geometry).
+  const levels = levelSteps(levelBase, 5)
 
   const min = levels[0]
   const max = levels[levels.length - 1]
@@ -679,8 +694,45 @@ function DepthRail(): React.ReactElement {
             <i />
           </div>
         ))}
-        <div className="depthChip" style={{ top: `${frac(activeZ) * 100}%` }}>
-          <b>{translate(activeZ)}m</b>
+        <div className="depthChip" style={{ top: `${Math.min(100, Math.max(0, frac(activeZ) * 100))}%` }}>
+          {heightEditing ? (
+            <input
+              ref={heightInputRef}
+              className="depthChipInput"
+              type="number"
+              step="1"
+              value={heightDraft}
+              onChange={(e) => setHeightDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const n = Number(heightDraft)
+                  if (Number.isFinite(n)) setActiveZ(n)
+                  setHeightEditing(false)
+                } else if (e.key === 'Escape') {
+                  setHeightEditing(false)
+                }
+              }}
+              onBlur={() => {
+                const n = Number(heightDraft)
+                if (Number.isFinite(n)) setActiveZ(n)
+                setHeightEditing(false)
+              }}
+            />
+          ) : (
+            <b
+              role="button"
+              tabIndex={0}
+              title={t('height')}
+              onClick={() => { setHeightDraft(String(activeZ)); setHeightEditing(true) }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  setHeightDraft(String(activeZ))
+                  setHeightEditing(true)
+                }
+              }}
+            >{translate(activeZ)}m</b>
+          )}
         </div>
       </div>
       <button type="button" className="depthTag" aria-expanded={baseOpen} aria-controls="depthBaseMenu" onClick={() => setBaseOpen((open) => !open)}>{t('height')}</button>
@@ -688,7 +740,7 @@ function DepthRail(): React.ReactElement {
         <div className="depthBaseMenu" id="depthBaseMenu" role="group" aria-label={t('height_origin')}>
           <div className="depthBaseTitle">{t('origin')}</div>
           <div className="depthBaseChoices">
-            {[0, 1, 2, 3].map((base) => (
+            {Array.from({length:storeyHeight},(_,i)=>i).map((base) => (
               <button
                 key={base}
                 type="button"

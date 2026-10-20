@@ -4,7 +4,43 @@ import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { boxModelDetail, omitModelDetail, setModelDetail } from '../../modelDetail.ts'
-import { CABIN_FLOOR_Z, CABIN_HALF_W, CABIN_CEILING_Z } from '../../../sim/stock.ts'
+import { CABIN_FLOOR_Z, CABIN_HALF_W, CABIN_CEILING_Z, DOOR_HEAD_Z } from '../../../sim/stock.ts'
+
+const ROUTE_PANEL_HEIGHT = 0.24
+const ROUTE_PANEL_Z = DOOR_HEAD_Z + 0.03 + ROUTE_PANEL_HEIGHT / 2
+/** Continuous cabin lining follows the existing curved exterior envelope. */
+export function trainCeilingHalfWidth(shellWidth: number, express = false): number {
+  const roofHalfWidth = express ? dHalfWidth(CABIN_CEILING_Z) : Math.min(carShellAt(shellWidth, CABIN_CEILING_Z).y, carShellAt(shellWidth, CABIN_CEILING_Z, true).y)
+  return roofHalfWidth - .02
+}
+
+export function buildTrainCeiling(g: THREE.Group, material: THREE.Material, start: number, end: number, shellWidth: number, express = false): void {
+  slab(g, material, (start + end) / 2, 0, CABIN_CEILING_Z - .025, end - start, trainCeilingHalfWidth(shellWidth, express) * 2, .05).name = 'cabin-ceiling'
+  // The outside skin faces away from the cabin; an inward shoulder lining closes
+  // the space between the door header and the higher, continuous ceiling.
+  const lining = (side: number, low: boolean): THREE.BufferGeometry => {
+    const rows = low ? 3 : 12, positions: number[] = [], indices: number[] = []
+    for (let row = 0; row <= rows; row++) {
+      const z = DOOR_HEAD_Z + (CABIN_CEILING_Z - DOOR_HEAD_Z) * row / rows
+      const y = row === rows ? trainCeilingHalfWidth(shellWidth, express)
+        : (express ? dHalfWidth(z) : carShellAt(shellWidth, z, low).y) - .02
+      for (const x of [start, end]) positions.push(x, side * y, z)
+    }
+    for (let row = 0; row < rows; row++) {
+      const a = row * 2
+      indices.push(...(side > 0 ? [a,a+1,a+2,a+1,a+3,a+2] : [a,a+2,a+1,a+1,a+2,a+3]))
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions,3))
+    geometry.setIndex(indices); geometry.computeVertexNormals()
+    return geometry
+  }
+  for (const side of [-1,1]) {
+    const mesh = new THREE.Mesh(lining(side,false), material)
+    mesh.name = 'cabin-roof-lining'
+    setModelDetail(mesh, lining(side,true)); g.add(mesh)
+  }
+}
 
 /**
  * A handrail or hanging strap is a tube on a short path: full detail samples it 16
@@ -138,12 +174,12 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
   for (const x of doors) {
     for (const side of [-1, 1]) {
       const y = side * (halfWidth - 0.025)
-      slab(g, mats.white, x, y, (CABIN_CEILING_Z - .05) - 0.17, 0.95, 0.035, 0.24).name = 'cabin-route-panel'
-      slab(g, mats.blue, x, y - side * 0.024, (CABIN_CEILING_Z - .05) - 0.17, 0.82, 0.008, 0.015)
+      slab(g, mats.white, x, y, ROUTE_PANEL_Z, 0.95, 0.035, 0.24).name = 'cabin-route-panel'
+      slab(g, mats.blue, x, y - side * 0.024, ROUTE_PANEL_Z, 0.82, 0.008, 0.015)
       for (let stop = -3; stop <= 3; stop++) {
         // Three centimetres of stop ink per station: the board keeps its blue
         // route line and drops the printed stops when the car is far away.
-        omitModelDetail(slab(g, mats.white, x + stop * 0.11, y - side * 0.03, (CABIN_CEILING_Z - .05) - 0.17, 0.022, 0.008, 0.03))
+        omitModelDetail(slab(g, mats.white, x + stop * 0.11, y - side * 0.03, ROUTE_PANEL_Z, 0.022, 0.008, 0.03))
       }
     }
     tube([new THREE.Vector3(x, 0, CABIN_FLOOR_Z), new THREE.Vector3(x, 0, (CABIN_CEILING_Z - .05) - 0.04)], 0.027, mats.steel, 'cabin-centre-pole')

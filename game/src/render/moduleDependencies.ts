@@ -4,19 +4,23 @@ import { isEdgeDecor, edgeDecorCurtainShare, moduleEnvelope, moduleFootprint, ou
 import { hangerSupports } from '../sim/hangers.ts'
 import { isSimInertDecorModule } from '../sim/decorInert.ts'
 import { stairFlights } from '../sim/stairs.ts'
+import { trackCellAt, trackHeadroom } from '../sim/track.ts'
 
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
-  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'track', 'exit', 'guidepost', 'busstop', 'psd-end',
+  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end',
 ])
 
 /** The columns a cell-dependent builder reads. Height is intentionally unbounded:
  * hangers seek a slab, lifts discover stops, ramps inspect adjacent wall courses. */
 function dependsOnCell(mod: Module, cell: Cell): boolean {
   if (isOutdoorSurface(mod)) return cell.x === mod.x && cell.y === mod.y && cell.z === mod.z
+  if (mod.type === 'track') return mod.cfg.power === 'catenary' &&
+    cell.z > mod.z + 1 && cell.z <= mod.z + trackHeadroom(mod) + 1 &&
+    trackCellAt(mod, cell.x, cell.y, mod.z)
   if (CELL_INDEPENDENT.has(mod.type)) return false
   if (mod.type === 'shop') return cell.x >= mod.x - 1 && cell.x <= mod.x + mod.w
     && cell.y >= mod.y - 1 && cell.y <= mod.y + mod.h

@@ -87,7 +87,7 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
       // First rail on a fresh station: create the line it binds to, so placement
       // never stalls on an empty line list.
       if (station.lines.length === 0) {
-        const line = defaultLine('1', st.railDir, 'third-rail')
+        const line = defaultLine('1', st.railDir, 'third-rail', st.station.storeyHeight)
         station = { ...station, lines: [line] }
         lineId = line.id
       } else {
@@ -104,7 +104,7 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
     const [ox, oy] = trackOriginForCentre(st.railRot, at[0], at[1], w, d)
     // Eligibility: nothing may share the space, a platform must lie on solid
     // floor (the bed is a full three cells wide) and may not cross a wall.
-    const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d, catenaryStyle: st.railCatenaryStyle })
+    const candidate = makeTrack({ id: 'probe', lineId, dir: st.railDir, power: line.power, rot: st.railRot, x: ox, y: oy, z: at[2], w, d, catenaryStyle: st.railCatenaryStyle, storeyHeight:st.station.storeyHeight })
     const block = trackBlockReason(station, candidate)
     if (block) {
       set({ notice: trackBlockNotice(station, candidate, block) })

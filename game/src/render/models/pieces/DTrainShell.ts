@@ -1,12 +1,13 @@
 import * as THREE from 'three'
+import { openRoofUnderside } from './CarShellProfile.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { registerDoorLeaf, slab } from '../PieceBuilder.ts'
 import { setModelDetail } from '../../modelDetail.ts'
-import { DOOR_SILL_Z, DOOR_HEAD_Z } from '../../../sim/stock.ts'
+import { DOOR_SILL_Z, DOOR_HEAD_Z, trainRoofSection } from '../../../sim/stock.ts'
 import { PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
 
 export const D_BOTTOM = 0.45
-export const D_ROOF = 3.25
+export const D_ROOF = trainRoofSection('D').crown
 export const D_CROWN_HALF = 0.50
 const D_BASE_HALF = 0.90
 /** Broad continuous arcs carry the head's rounded profile through every car. */
@@ -159,7 +160,7 @@ export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: numb
   }
   for (const side of [-1, 1]) {
     sidePatch('d-car-sill', mats.trainBody, start, end, D_BOTTOM, 0.57, side)
-    sidePatch('d-car-shoulder', mats.trainBody, start, end, 2.63, D_ROOF, side)
+    sidePatch('d-car-shoulder', mats.trainBody, start, end, trainRoofSection('D').shoulder, D_ROOF, side)
     for (const [a, b] of runs) {
       sidePatch('d-car-lower-skin', mats.trainBody, a, b, 0.57, 1.52, side)
       sidePatch('d-car-window-surround', mats.trainDark, a, b, 1.52, 1.85, side)
@@ -188,7 +189,9 @@ export function buildDCarShell(g: THREE.Group, mats: ModelMaterials, start: numb
   if (pantographX !== undefined) {
     const width = D_CROWN_HALF * 2, length = PANTOGRAPH_WELL_HALF_LENGTH * 2
     const height = D_ROOF - PANTOGRAPH_MOUNT_Z
-    slab(g, mats.trainBody, pantographX, 0, PANTOGRAPH_MOUNT_Z - 0.01, length, width, 0.02).name = 'pantograph-roof-well'
+    const well = slab(g, mats.trainBody, pantographX, 0, PANTOGRAPH_MOUNT_Z - 0.01, length, width, 0.02)
+    well.name = 'pantograph-roof-well'
+    openRoofUnderside(well.geometry)
     for (const side of [-1, 1]) {
       slab(g, mats.trainBody, pantographX, side * D_CROWN_HALF, (D_ROOF + PANTOGRAPH_MOUNT_Z) / 2, length, 0.02, height)
       slab(g, mats.trainBody, pantographX + side * PANTOGRAPH_WELL_HALF_LENGTH, 0, (D_ROOF + PANTOGRAPH_MOUNT_Z) / 2, 0.02, width, height)

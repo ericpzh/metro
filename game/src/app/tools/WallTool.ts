@@ -77,7 +77,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       sy: info.clientY,
       downTime: performance.now(),
     }
-    if (mode === 'add') this.showWallGhost(wallRun([anchor]))
+    if (mode === 'add') this.showWallGhost(wallRun([anchor], st.station.storeyHeight))
     else scene.setGhost(storeyColumnsAt(st.station, [anchor]), 'remove')
     scene.setCursor(anchor, true)
   }
@@ -97,13 +97,13 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       // extends that line instead of re-snapping every cell it crosses.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const line = dragging ? (d.mode === 'remove' ? this.removeLine(d.anchor, target, d.z) : straightLineCells(d.anchor, target, d.z)) : [d.anchor]
-      if (d.mode === 'add') this.showWallGhost(wallRun(line))
+      if (d.mode === 'add') this.showWallGhost(wallRun(line, useStore.getState().station.storeyHeight))
       else scene.setGhost(storeyColumnsAt(st.station, line), 'remove')
       scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
       return
     }
     const c = wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base
-    this.showWallGhost(wallRun([c]))
+    this.showWallGhost(wallRun([c], useStore.getState().station.storeyHeight))
     scene.setCursor(c, true)
   }
 
@@ -142,7 +142,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       // the red boxes the ghost drew are the same verdict (`checkBlockCells`), and a
       // refusal that is about a piece of equipment says so rather than blaming a
       // reserved opening.
-      const check = checkBlockCells(st.station, d.single === true ? [d.anchor] : wallRun(line))
+      const check = checkBlockCells(st.station, d.single === true ? [d.anchor] : wallRun(line, useStore.getState().station.storeyHeight))
       const { state: next, changed, blocked } = addWalls(st.station, line, side, d.single === true ? 1 : undefined)
       if (changed > 0) st.commit(next)
       // Name the conflict the red boxes showed — the piece, the corridor, the

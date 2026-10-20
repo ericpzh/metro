@@ -15,7 +15,7 @@ import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars
 import { floorSpeed } from '../sim/finishes.ts'
 import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
-import { STOCK, doorCentres, trainLength } from '../sim/stock.ts'
+import { STOCK, doorCentres, trainLength, trainScaleForStorey } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
 import { lineColourFor } from '../data/line-colours.ts'
@@ -46,9 +46,10 @@ export function railRect(a: readonly [number, number, number], b: readonly [numb
 }
 
 /** A fresh line for the first rail a player lays, so placement never stalls. */
-export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary'): LineDef {
+export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary', _storeyHeight = 5): LineDef {
   return {
     id,
+    modelScale:trainScaleForStorey(),
     name: msg('line_value', id),
     colour: lineColourFor(id),
     stock: 'B',
@@ -127,8 +128,8 @@ export interface TrackPiece {
  * the whole train, so the dimension is known before the player places anything.
  * A/B/C/L fit the default bed; the 3.3 m D body needs four cells across.
  */
-export function trackPieceForLine(line: Pick<LineDef, 'stock' | 'cars'>): TrackPiece {
-  return { w: Math.max(1, Math.ceil(trainLength(line))), d: Math.max(RAIL_BED_DEPTH, Math.ceil(STOCK[line.stock].width)) }
+export function trackPieceForLine(line: Pick<LineDef, 'stock' | 'cars' | 'modelScale'>): TrackPiece {
+  return { w: Math.max(1, Math.ceil(trainLength(line))), d: Math.max(RAIL_BED_DEPTH, Math.ceil(STOCK[line.stock].width * (line.modelScale ?? 1))) }
 }
 
 /** A track module payload. Shared by placement and the on-hover ghost. */
@@ -145,10 +146,12 @@ export function makeTrack(o: {
   d: number
   tunnel?: boolean
   bridge?: boolean
+  storeyHeight?: number
   catenaryStyle?: 'canopy' | 'gantry'
 }): TrackModule {
   return {
     id: o.id,
+    storeyHeight: 5,
     type: 'track',
     x: o.x,
     y: o.y,
@@ -171,6 +174,7 @@ function makeEdge(
 ): PlatformEdgeModule {
   return {
     id: `edge-${track.id}-${side}`,
+    storeyHeight: 5,
     type: 'platform-edge',
     x,
     y,
@@ -404,6 +408,7 @@ function commitTrackRaw(state: StationState, track: TrackModule): StationState {
   const dug = new Set(trackCells(track).flatMap(([x, y, z]) => [cellKey(x, y, z), cellKey(x, y, z - 1)]))
   const cells = state.cells.filter((c) => !dug.has(cellKey(c.x, c.y, c.z)))
   const modules = state.modules.filter((m) => !dug.has(cellKey(m.x, m.y, m.z)))
+  track = {...track,storeyHeight:5}
   let next: StationState = { ...state, cells, modules: [...modules, track] }
   if (track.cfg.tunnel) next = boreTunnel(next, track)
   return syncBridgePillars({ ...next, modules: [...next.modules, ...derivePlatformEdges(next, track)] })
@@ -438,7 +443,7 @@ export interface PlaceTrackOptions {
 /** Place a fixed-footprint track piece (dig + track module + derived doors). */
 export function placeTrack(state: StationState, opts: PlaceTrackOptions): StationState {
   if (opts.w < 1 || opts.d < 1) return state
-  const track = makeTrack({ id: nextModuleId(state.modules, 'track'), ...opts })
+  const track = makeTrack({ id: nextModuleId(state.modules, 'track'), ...opts, storeyHeight:state.storeyHeight })
   return commitTrack(state, track)
 }
 
@@ -457,7 +462,7 @@ export function placeRail(state: StationState, rect: RailRect, opts: PlaceRailOp
   const w = rect.x1 - rect.x0 + 1
   const d = rect.y1 - rect.y0 + 1
   if (w < 1 || d < 1) return state
-  const track = makeTrack({ id: nextModuleId(state.modules, 'track'), lineId: opts.lineId, dir: opts.dir, power: opts.power, rot: 0, x: rect.x0, y: rect.y0, z: rect.z, w, d })
+  const track = makeTrack({ id: nextModuleId(state.modules, 'track'), lineId: opts.lineId, dir: opts.dir, power: opts.power, rot: 0, x: rect.x0, y: rect.y0, z: rect.z, w, d, storeyHeight:state.storeyHeight })
   return commitTrack(state, track)
 }
 
@@ -555,6 +560,7 @@ export function makeTunnel(src: TrackModule, end: 1 | -1, length: number, id: st
     w,
     d: src.d ?? 1,
     tunnel: true,
+    storeyHeight:src.storeyHeight,
   })
 }
 

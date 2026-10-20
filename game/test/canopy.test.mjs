@@ -21,9 +21,9 @@ for (const width of [4, 8, 12]) for (const rot of [0, 1, 2, 3]) test(`canopy ${w
   const root = new RoofModel({ mats: { steel }, finish: () => finish }).build(mod)
   const bounds = new THREE.Box3().setFromObject(root), envelope = moduleEnvelope(mod)
   assert.ok(Math.abs(bounds.min.z - 1) < 1e-6, 'columns stand on the floor top')
-  assert.ok(Math.abs(bounds.max.z - 5) < 1e-6, 'ridge is four metres above the floor')
-  assert.equal(envelope.z0, 1); assert.equal(envelope.z1, 5)
-  assert.deepEqual(moduleLevels(mod), [0, 4], 'columns and ridge remain visible on their intersected storeys')
+  assert.ok(Math.abs(bounds.max.z - 6) < 1e-6, 'ridge is five metres above the floor')
+  assert.equal(envelope.z0, 1); assert.equal(envelope.z1, 6)
+  assert.deepEqual(moduleLevels(mod), [0, 5], 'columns and ridge remain visible on their intersected storeys')
   const posts = root.children.filter(p => p.name === 'canopy-post')
   assert.equal(posts.length, 8)
   assert.deepEqual([...new Set(posts.map(p => p.position.y))], [...canopyPostRows(width)])
@@ -44,7 +44,10 @@ for (const width of [4, 8, 12]) for (const rot of [0, 1, 2, 3]) test(`canopy ${w
   assert.deepEqual(ray.intersectObject(root, true).map(h => [h.object.uuid, h.distance]), hits, 'Low retains exact source picks')
   detail.restore()
   posts.forEach((p, i) => assert.equal(p.geometry, original[i]))
-  assert.deepEqual(parse(serialize({ ...toState(emptyStation()), modules: [mod] })).state.modules, [mod])
+  // A five-metre document stamps its grid onto every module on the way in, so the
+  // reload is compared with the module as the load path holds it, not the literal.
+  const data = { ...toState(emptyStation()), modules: [mod] }
+  assert.deepEqual(parse(serialize(data)).state.modules, toState(data).modules)
 })
 
 test('canopy ground support, collisions and walking reserve columns while leaving the sheltered aisle open', () => {
@@ -68,5 +71,5 @@ test('canopy ground support, collisions and walking reserve columns while leavin
   assert.equal(graph.nodeIndex.has(`${px},${py},0`), false)
   const hanger = createModule('hanger-roof', 0, 3, 0, 'hanger')
   const height = hangerRoofZ(floor, [mod], hanger, 1, 3)
-  assert.ok(height > 4 && height < 5, 'hangers read the lowered shell rather than the old elevated roof')
+  assert.ok(height > 5 && height < 6, 'hangers read the lowered shell rather than the elevated roof')
 })

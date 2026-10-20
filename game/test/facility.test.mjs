@@ -430,8 +430,8 @@ test('the demo station ships one shop and one booth that stay connected', () => 
   const pf = new PathFinder(g)
   const needs = { stepFree: false, luggage: false }
   // The paid hall must still reach the down escalators past the shop.
-  const from = g.nodeIndex.get('0,5,-4')
-  const to = g.nodeIndex.get('-4,3,-4')
+  const from = g.nodeIndex.get("0,8,-5")
+  const to = g.nodeIndex.get("-4,6,-5")
   assert.ok(from !== undefined && to !== undefined)
   assert.ok(pf.search(from, to, needs), 'the shop seals off the platform exit')
   // The shop's authored street-side opening lets the crowd reach the shelves.

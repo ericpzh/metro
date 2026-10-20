@@ -222,7 +222,7 @@ test('a wall 指示牌 reserves a slab on its wall, not the whole storey column'
   // The sheet is the reservation: the 1 m panel centred on the cell, 3 mm off
   // the wall — no housing box, so a neighbour cell and the room in front stay free.
   assert.deepEqual({ ...envelope, y1: Number(envelope.y1.toFixed(3)), z0: Number(envelope.z0.toFixed(3)) }, { x0: 2, y0: 3, z0: 2.45, x1: 3, y1: 3.003, z1: 2.85 })
-  assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 }, 'the hung board keeps its column')
+  assert.deepEqual(moduleEnvelope(hung), { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 5 }, 'the hung board keeps its column')
   // It is found from the floor cell it hangs over, like every other piece.
   assert.equal(moduleAt([wall], 2, 3, 0)?.id, 'sign-w')
   // A 座椅 on the floor **under** it shares the tile — the panel is two metres up and a
@@ -263,7 +263,7 @@ test('the placement verdict answers each mount by its own rules', () => {
 test('a ceiling-hung piece envelope is the whole storey column', () => {
   for (const hung of [sign(2, 3, 0), tv(2, 3, 0)]) {
     const box = moduleEnvelope(hung)
-    assert.deepEqual(box, { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 4 })
+    assert.deepEqual(box, { x0: 2, y0: 3, z0: 1, x1: 3, y1: 4, z1: 5 })
     // It is found from its floor cell, and that cell is its own: a second hung
     // piece — the one thing that really wants the same air — is refused there.
     assert.equal(moduleAt([hung], 2, 3, 0)?.type, hung.type)

@@ -42,7 +42,7 @@ test('tactile placement and floor-mark deletion pick once for large-document mis
 test('exit snapping picks once when the selected stair is the last of 1334 modules', () => {
   const before = useStore.getState()
   try {
-    const stair = createModule('stair-straight', -1, 40, -4, 'last-stair', 0, STAIR_WIDTH_DOUBLE)
+    const stair = createModule('stair-straight', -1, 40, -5, 'last-stair', 0, STAIR_WIDTH_DOUBLE)
     const modules = Array.from({ length: 1333 }, (_, index) => createModule('bench', index + 5000, 0, 0, `bench-${index}`))
     const station = toState({ name: 'exit pick count', seed: 1, cells: [], modules: [...modules, stair], lines: [] })
     useStore.setState({ station, tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 0 })
@@ -79,7 +79,7 @@ test('floor-standing equipment still requires a solid floor hit', () => {
 test('an exit preview and click snap to the picked stair without a ground hit', () => {
   const before = useStore.getState()
   try {
-    const stair = createModule('stair-straight', -1, 40, -4, 'stair-b', 0, STAIR_WIDTH_DOUBLE)
+    const stair = createModule('stair-straight', -1, 40, -5, 'stair-b', 0, STAIR_WIDTH_DOUBLE)
     assert.ok(stair)
     const state = toState({ name: 'exit snap', seed: 1, cells: [], modules: [stair], lines: [] })
     useStore.setState({ station: state, past: [], future: [], tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 3, selected: null })
@@ -119,7 +119,7 @@ test('an exit preview and click snap to the picked stair without a ground hit', 
 test('an exit finds a stair through tread gaps when the pointer also hits the floor', () => {
   const before = useStore.getState()
   try {
-    const stair = createModule('stair-straight', -1, 40, -4, 'stair-gap', 0, STAIR_WIDTH_DOUBLE)
+    const stair = createModule('stair-straight', -1, 40, -5, 'stair-gap', 0, STAIR_WIDTH_DOUBLE)
     assert.ok(stair)
     const state = toState({ name: 'exit snap over tread gaps', seed: 1, cells: [], modules: [stair], lines: [] })
     useStore.setState({ station: state, past: [], future: [], tool: 'module', moduleType: 'exit-uncovered-2', moduleRot: 3, selected: null })
@@ -170,7 +170,7 @@ test('a 玻璃板 aimed at a wall hangs on that course, where a poster keeps its
     { x: 0, y: 0, z: 5, fill: 'solid' }, // the room floor: the storey is the one at 5
     { x: 0, y: 1, z: 6, fill: 'solid' }, // the wall's first course
     { x: 0, y: 1, z: 7, fill: 'solid' }, // the course aimed at, covered by…
-    { x: 0, y: 1, z: 8, fill: 'solid' }, // …the next one up
+    { x: 0, y: 1, z: 10, fill: 'solid' }, // …the next one up
   ]
   const before = useStore.getState()
   try {
@@ -201,7 +201,7 @@ test('a 玻璃板 aimed at a wall hangs on that course, where a poster keeps its
     // the storey floor as its anchor — the band a poster always hangs at.
     useStore.setState({ moduleType: 'billboard-wide' })
     tool.refreshHover()
-    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 5], 'the poster keeps its own band at the storey floor')
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 6], 'the poster keeps its own band at the storey floor')
   } finally {
     useStore.setState(before)
   }
@@ -248,13 +248,13 @@ test('bridge hover and click use visible rail and screen surfaces above a lower 
   const before = useStore.getState()
   try {
     for (const rot of [0, 1, 2, 3]) for (const i of [0, 4, 7]) for (const across of [0, 1, 2, 3, 4, 5, 6]) for (const floorHit of [false, true]) {
-      const track = { id: 'source', type: 'track', x: 20, y: 20, z: 4, w: 8, d: 3, rot, cfg: { line: '1', dir: 'up', power: 'third-rail' } }
+      const track = { id: 'source', type: 'track', x: 20, y: 20, z: 5, w: 8, d: 3, rot, cfg: { line: '1', dir: 'up', power: 'third-rail' } }
       const [edgeX, edgeY] = rotateLocal(rot, 0, 3)
-      const edge = { id: 'screens', type: 'platform-edge', x: 20 + edgeX, y: 20 + edgeY, z: 4, w: 8, rot, cfg: { from: track.id, side: 'left' } }
+      const edge = { id: 'screens', type: 'platform-edge', x: 20 + edgeX, y: 20 + edgeY, z: 5, w: 8, rot, cfg: { from: track.id, side: 'left' } }
       const cells = []
       for (let along = 0; along < 8; along++) for (let side = 3; side <= 6; side++) {
         const [x, y] = rotateLocal(rot, along, side)
-        cells.push({ x: 20 + x, y: 20 + y, z: 4, fill: 'solid' })
+        cells.push({ x: 20 + x, y: 20 + y, z: 5, fill: 'solid' })
       }
       const station = toState({ name: 'bridge aim', seed: 1, cells, modules: [track, edge], lines: [defaultLine('1', 'up', 'third-rail')] })
       useStore.setState({ station, past: [], future: [], tool: 'module', moduleType: 'bridge', bridgeLength: 4 })
@@ -276,7 +276,7 @@ test('bridge hover and click use visible rail and screen surfaces above a lower 
       assert.equal(picks, 1, 'one visible-surface pick per hover')
       assert.ok(preview, `the bed, screen strip and outer platform snap: rotation ${rot}, run ${i}, across ${across}`)
       const [ex, ey] = rotateLocal(rot, i > 3.5 ? 8 : -4, 0)
-      assert.deepEqual([preview.x, preview.y, preview.z], [20 + ex, 20 + ey, 4], 'the actual surface selects the near end')
+      assert.deepEqual([preview.x, preview.y, preview.z], [20 + ex, 20 + ey, 5], 'the actual surface selects the near end')
       tool.onDown(pointer)
       assert.equal(picks, 2, 'one visible-surface pick per click')
       const placed = useStore.getState().station.modules.find((m) => m.type === 'track' && m.cfg.bridge)

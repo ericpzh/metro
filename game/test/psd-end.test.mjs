@@ -13,10 +13,15 @@ import { buildModule } from '../src/render/models.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { PickTool } from '../src/app/tools/PickTool.ts'
+import { PSD_HALF_HEIGHT, psdFullHeight } from '../src/sim/constants.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 
-const panel = (rot = 0, psd = 'half') => ({ ...createModule('psd-end', 0, 0, 0, 'end', rot), cfg: { psd } })
-const screen = (rot = 0, side = 'left', psd = 'half') => ({ id: 'screen', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 6, cfg: { line: '1', name: '', dir: 'up', side, psd } })
+// The grid a new station builds on. Every piece a test makes for one carries it —
+// `toState` stamps it on the way in and the placement tool hands it to
+// `createModule` — so both the model and the collision envelope read one grid.
+const STOREY = emptyStation().storeyHeight
+const panel = (rot = 0, psd = 'half') => ({ ...createModule('psd-end', 0, 0, 0, 'end', rot, undefined, 'up', 'lane', [], undefined, { storeyHeight: STOREY }), cfg: { psd } })
+const screen = (rot = 0, side = 'left', psd = 'half') => ({ id: 'screen', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 6, storeyHeight: STOREY, cfg: { line: '1', name: '', dir: 'up', side, psd } })
 
 test('one decor tile switches height and refreshes a stationary ghost', () => {
   assert.ok(folderTiles('decor').some((t) => t.anchor === 'psd-end'))
@@ -51,7 +56,7 @@ test('fixed glass blocks walking and keeps both heights through save/load', () =
     const p = panel(0, psd)
     assert.deepEqual(moduleFootprint(p), [[0, 0]])
     const envelope = moduleEnvelope(p)
-    assert.ok(Math.abs(envelope.z1 - envelope.z0 - (psd === 'half' ? 1.45 : 2.95)) < 1e-9)
+    assert.ok(Math.abs(envelope.z1 - envelope.z0 - (psd === 'half' ? PSD_HALF_HEIGHT : psdFullHeight(STOREY))) < 1e-9)
     const data = { ...emptyStation(), modules: [p] }
     assert.equal(buildGraph(data).nodeIndex.has('0,0,0'), false)
     const loaded = parse(serialize(toState(data)))
@@ -72,7 +77,9 @@ test('model reuses screen fixed glass, matches its cap height, and has no slidin
       const glass = g.children.filter((c) => c.name === 'psd-fixed-glass')
       assert.equal(glass.length, 1)
       assert.equal(glass[0].geometry.parameters.width, 1)
-      assert.ok(Math.abs(glass[0].geometry.parameters.height - (psd === 'half' ? 1.28 : 2.37)) < 1e-9)
+      // Full glazing fills the space below the top information plate.
+      const paneH = psd === 'half' ? 1.28 : 2.35
+      assert.ok(Math.abs(glass[0].geometry.parameters.height - paneH) < 1e-9)
       assert.deepEqual(g.userData.doors, [])
       assert.ok(g.children.filter(c=>c.name!=='psd-concrete-foundation').every((c) => c.userData.wall))
       const reference = buildModule({ ...screen(0, 'left', psd), w: 1 }, ctx)
@@ -103,9 +110,13 @@ test('corner glass is shortened and all frame meshes stay inside their tile', ()
             assert.ok(bounds.min.x >= m.x - 1e-6 && bounds.max.x <= m.x + 1 + 1e-6, 'cap/frame never protrude along x')
             assert.ok(bounds.min.y >= m.y - 1e-6 && bounds.max.y <= m.y + 1 + 1e-6, 'cap/frame never protrude along y')
           }
-          const ceilingZ = m.z + (psd === 'full' ? 4 : 3)
-          assert.ok(bounds.max.z <= ceilingZ - 0.0499, 'the complete screen fits below the overhead block')
-          assert.ok(Math.abs(bounds.max.z - moduleEnvelope(m).z1) < 1e-6, 'the cap stays inside the placement reservation')
+          const envelope = moduleEnvelope(m)
+          // The first whole course the screen leaves free: on a five-metre station a
+          // full screen's glass tops out exactly on the storey's ceiling plane, and a
+          // half screen leaves the 3 m course above its 2.45 m reservation.
+          const ceilingZ = m.z + Math.ceil(envelope.z1 - m.z)
+          assert.ok(bounds.max.z <= ceilingZ + 1e-6, 'the complete screen fits below the overhead block')
+          assert.ok(Math.abs(bounds.max.z - envelope.z1) < 1e-6, 'the cap stays inside the placement reservation')
           assert.equal(blockReason([], [m], m.x, m.y, ceilingZ).ok, true, 'the overhead block can be placed')
           if (m !== s) assert.equal(blockReason([], [m], m.x, m.y, ceilingZ - 1).ok, false, 'a block inside the extension is still refused')
         }
@@ -157,7 +168,7 @@ test('trimmed extension fittings have no competing coplanar faces', () => {
           const [ox] = p.cfg.offset
           const span = psdEndSpan(p)
           for (const [height, material, depth] of psd === 'full'
-            ? [[3.8, mats.white, 0.12], [3.925, mats.black, 0.14]]
+            ? [[3.8, mats.white, 0.12], [3.975, mats.black, 0.14]]
             : [[0.99, mats.black, 0.09], [2.425, mats.black, 0.05]]) {
             const fitting = g.children.find((c) => {
               if (c.material !== material || !(c.geometry instanceof THREE.BoxGeometry)) return false

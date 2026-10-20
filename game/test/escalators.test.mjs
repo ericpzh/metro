@@ -5,7 +5,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createModule, ESCALATOR_RISE, ESCALATOR_RUN, nextEscalatorDir, toState, addEquipment } from '../src/build/model.ts'
-import { escalatorModule } from '../src/sim/escalators.ts'
+import { escalatorModule, escalatorSpanOf } from '../src/sim/escalators.ts'
+import { DOUBLE_RAMP_LENGTHS } from '../src/sim/rampLengths.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { moduleEnvelope, placementBlocked } from '../src/sim/placement.ts'
 import { stairFacing } from '../src/sim/stairs.ts'
@@ -24,18 +25,18 @@ const floor = (x0, x1, y0, y1, z) => {
 
 test('a wide escalator is one two-block piece in every rotation and direction', () => {
   for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
-    const wide = createModule('escalator', 0, 0, -4, 'wide', rot, 2, dir)
-    const narrow = createModule('escalator', 0, 0, -4, 'narrow', rot, 1, dir)
+    const wide = createModule('escalator', 0, 0, -5, 'wide', rot, 2, dir)
+    const narrow = createModule('escalator', 0, 0, -5, 'narrow', rot, 1, dir)
     const [dx, dy] = stairFacing(rot)
     const e = moduleEnvelope(wide)
     assert.equal(dx === 0 ? e.x1 - e.x0 : e.y1 - e.y0, 2, 'reserves exactly two blocks across')
     assert.equal(dx === 0 ? e.y1 - e.y0 : e.x1 - e.x0, ESCALATOR_RUN + 1, 'keeps the same run length')
     assert.notEqual(moduleGhostKey(wide), moduleGhostKey(narrow), 'width change redraws the ghost')
-    const lower = { x: 0, y: 0, z: -4 }
+    const lower = { x: 0, y: 0, z: -5 }
     const upper = { x: dx * ESCALATOR_RUN, y: dy * ESCALATOR_RUN, z: 0 }
-    const second = { x: dy, y: -dx, z: -4 }
-    assert.equal(placementBlocked([wide], createModule('escalator', second.x, second.y, -4, 'overlap', rot)), true)
-    assert.equal(placementBlocked([wide], createModule('escalator', 2 * dy, -2 * dx, -4, 'beside', rot)), false)
+    const second = { x: dy, y: -dx, z: -5 }
+    assert.equal(placementBlocked([wide], createModule('escalator', second.x, second.y, -5, 'overlap', rot)), true)
+    assert.equal(placementBlocked([wide], createModule('escalator', 2 * dy, -2 * dx, -5, 'beside', rot)), false)
     const cells = escalatorLandings(wide).map((p) => ({ ...p, fill: 'solid' }))
     const cuts = rampSlopeCuts([wide])
     for (const p of escalatorLandings(wide)) {
@@ -44,9 +45,9 @@ test('a wide escalator is one two-block piece in every rotation and direction', 
     assert.equal(escalatorBasesSolid(cells, [], wide), true)
     assert.equal(escalatorBasesSolid(cells.filter((c) => c.x !== second.x || c.y !== second.y || c.z !== second.z), [], wide), false, 'both blocks need lower support')
     for (const offset of [0, 1]) {
-      assert.equal(rampOpeningAt([wide], 3 * dx + offset * dy, 3 * dy - offset * dx, 0), true, 'opens both columns')
+      assert.equal(rampOpeningAt([wide], 6 * dx + offset * dy, 6 * dy - offset * dx, 0), true, 'opens both columns')
     }
-    const state = toState({ name: 'wide', seed: 1, cells: [...floor(-8, 8, -8, 8, 0), ...floor(-8, 8, -8, 8, -4)], modules: [], lines: [] })
+    const state = toState({ name: 'wide', seed: 1, cells: [...floor(-10, 10, -10, 10, 0), ...floor(-10, 10, -10, 10, -5)], modules: [], lines: [] })
     const placed = addEquipment(state, wide)
     assert.equal(placed.modules.length, 1, 'placement creates one module')
     for (const p of escalatorLandings(wide)) assert.ok(placed.cells.some((c) => c.x === p.x && c.y === p.y && c.z === p.z), 'retains every landing floor')
@@ -76,11 +77,11 @@ test('the wide escalator tool previews one piece, including downward travel', ()
 
 test('an up escalator rises from the dropped cell to the storey above', () => {
   for (let rot = 0; rot < 4; rot++) {
-    const m = createModule('escalator', 3, 5, -4, 'e', rot, undefined, 'up')
+    const m = createModule('escalator', 3, 5, -5, 'e', rot, undefined, 'up')
     assert.ok(m && m.type === 'escalator')
     const [dx, dy] = stairFacing(rot)
-    assert.deepEqual(m.from, { x: 3, y: 5, z: -4 }, 'up travels from the base (lower) landing')
-    assert.deepEqual(m.to, { x: 3 + dx * ESCALATOR_RUN, y: 5 + dy * ESCALATOR_RUN, z: -4 + ESCALATOR_RISE })
+    assert.deepEqual(m.from, { x: 3, y: 5, z: -5 }, 'up travels from the base (lower) landing')
+    assert.deepEqual(m.to, { x: 3 + dx * ESCALATOR_RUN, y: 5 + dy * ESCALATOR_RUN, z: -5 + ESCALATOR_RISE })
     assert.equal(m.cfg.dir, 'up')
     assert.equal(m.rot, rot)
   }
@@ -88,8 +89,8 @@ test('an up escalator rises from the dropped cell to the storey above', () => {
 
 test('a down escalator keeps the same footprint, entered from the top', () => {
   for (let rot = 0; rot < 4; rot++) {
-    const up = createModule('escalator', 3, 5, -4, 'u', rot, undefined, 'up')
-    const down = createModule('escalator', 3, 5, -4, 'd', rot, undefined, 'down')
+    const up = createModule('escalator', 3, 5, -5, 'u', rot, undefined, 'up')
+    const down = createModule('escalator', 3, 5, -5, 'd', rot, undefined, 'down')
     assert.ok(up && down && up.type === 'escalator' && down.type === 'escalator')
     // A down run is entered at the storey above and lands on the dropped cell.
     assert.deepEqual(down.from, up.to)
@@ -118,7 +119,7 @@ test('placing an escalator appends it and carves the slab it climbs through', ()
     modules: [],
     lines: [],
   })
-  const mod = createModule('escalator', 1, 0, -4, 'esc-1', 0, undefined, 'up')
+  const mod = createModule('escalator', 1, 0, -5, 'esc-1', 0, undefined, 'up')
   assert.ok(mod)
   const next = addEquipment(state, mod)
   assert.equal(next.modules.length, 1)
@@ -152,6 +153,31 @@ test('switching a selected escalator reverses travel and undo restores it', () =
     assert.equal(restored.cfg.dir, 'up')
     assert.deepEqual(restored.from, escalator.from)
     assert.deepEqual(restored.to, escalator.to)
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('a 双层 escalator climbs two floors and the tool builds the family its span selected', () => {
+  const before = useStore.getState()
+  try {
+    const station = toState({ name: 'double', seed: 1, cells: [], modules: [], lines: [] })
+    const tool = new EquipmentTool({})
+    useStore.setState({ station, escalatorSpan: 'double', doubleRampLength: 'ultra-long', escalatorDir: 'up', moduleRot: 0, escalatorWide: false })
+    const two = tool.buildPlacementModules('escalator', [3, 5, 0], 'double')[0]
+    assert.equal(two.to.z - two.from.z, 10, '超长 spans two five-metre floors')
+    assert.equal(Math.hypot(two.to.x - two.from.x, two.to.y - two.from.y), 18)
+    assert.equal(two.cfg.dir, 'up')
+    // The single-floor family is untouched while the span is 双层.
+    useStore.setState({ escalatorSpan: 'single', rampLength: 'short' })
+    const one = tool.buildPlacementModules('escalator', [3, 5, 0], 'single')[0]
+    assert.equal(one.to.z - one.from.z, 3)
+    assert.equal(escalatorSpanOf(one), 'single')
+    // Toggling the span is one Tab tile and redraws the ghost.
+    useStore.setState({ escalatorSpan: 'single' })
+    const key = moduleGhostKey(tool.buildPlacementModules('escalator', [3, 5, 0], 'k')[0])
+    useStore.setState({ escalatorSpan: 'double' })
+    assert.notEqual(moduleGhostKey(tool.buildPlacementModules('escalator', [3, 5, 0], 'k')[0]), key)
   } finally {
     useStore.setState(before)
   }

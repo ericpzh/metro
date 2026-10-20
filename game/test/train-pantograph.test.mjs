@@ -1,4 +1,4 @@
-import { TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
+import { PANTOGRAPH_CONTACT_Z } from '../src/sim/stock.ts'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -17,8 +17,8 @@ function withMaterials(run) {
   const mats = createModelMaterials()
   try { run(mats) } finally { disposeModelMaterials(mats); globalThis.document = previous }
 }
-test('raised contact sits 0.99 m above the previous wire underside', () => {
-  assert.ok(Math.abs(CONTACT_STRIP_Z - 4.758) < 1e-9)
+test('collector meets the raised wire in the five-metre profile', () => {
+  assert.ok(Math.abs(CONTACT_STRIP_Z - 3.891) < 1e-9)
 })
 
 const collectors = root => root.children.filter(child => child.name === 'train-pantograph')
@@ -43,11 +43,11 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         assert.equal(strips.length, 2)
         for (const strip of strips) {
           const bounds = new THREE.Box3().setFromObject(strip)
-          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - TRAIN_ORIGIN_Z)) < 1e-6, 'contact reaches the real wire underside in world space')
+          assert.ok(Math.abs(bounds.max.z - (pose.z + PANTOGRAPH_CONTACT_Z)) < 1e-6, 'contact reaches the real wire underside in world space')
         }
         assert.ok(pan.getObjectByName('pantograph-lower-arm'))
         assert.ok(pan.getObjectByName('pantograph-upper-arm'))
-        assert.ok(new THREE.Box3().setFromObject(pan.getObjectByName('pantograph-upper-arm')).max.z > pose.z + 4.0, 'the upper arm projects visibly above the car roof')
+        assert.ok(new THREE.Box3().setFromObject(pan.getObjectByName('pantograph-upper-arm')).max.z > pose.z + 3.25, 'the upper arm clears the car roof with a compact reach')
         assert.equal(pan.getObjectByName('pantograph-tie-rod').userData.lowDetailGeometry.getAttribute('position').count, 0)
       }
       for (const rotation of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
@@ -56,7 +56,7 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         for (const pan of pans) {
           const strip = pan.getObjectByName('pantograph-contact-strip')
           const bounds = new THREE.Box3().setFromObject(strip)
-          assert.ok(Math.abs(bounds.max.z - (pose.z + CONTACT_STRIP_Z - TRAIN_ORIGIN_Z)) < 1e-6)
+          assert.ok(Math.abs(bounds.max.z - (pose.z + PANTOGRAPH_CONTACT_Z)) < 1e-6)
           const well = new THREE.Raycaster(new THREE.Vector3(pan.position.x, 0, 4), new THREE.Vector3(0, 0, -1))
           root.rotation.z = 0
           root.position.set(0, 0, 0)
@@ -133,17 +133,23 @@ test('collector has a wide downturned bow, solid articulated arms and ribbed ele
       assert.equal(points.filter(p => p.x === .14).length, 5, 'five flared ceramic sheds')
       assert.ok(bounds(insulator).min.z >= PANTOGRAPH_MOUNT_Z)
       assert.ok(bounds(insulator).max.z < bounds(named('pantograph-base')[0]).min.z)
+      assert.ok(bounds(insulator).getSize(new THREE.Vector3()).z < .18,'short ceramic stacks keep the base low')
     }
     assert.equal(named('pantograph-lower-arm').length, 1, 'one substantial lower spine')
     const lower = named('pantograph-lower-arm')[0]
     assert.ok(lower.geometry.parameters.radiusBottom > lower.geometry.parameters.radiusTop)
     assert.ok(lower.geometry.parameters.radiusBottom >= .1, 'arm has a solid cross-section')
     assert.equal(named('pantograph-upper-arm').length, 2, 'upper fork carries both head sides')
+    for(const arm of [lower,...named('pantograph-upper-arm')]) {
+      const axis=new THREE.Vector3(0,1,0).applyQuaternion(arm.quaternion)
+      assert.ok(Math.asin(Math.abs(axis.z))*180/Math.PI < 10,'both articulated arms fold almost level')
+    }
+    assert.ok(new THREE.Box3().setFromObject(pan).max.z-PANTOGRAPH_MOUNT_Z < .73,'complete collector is less than half its old 1.53 m rise')
     for (const name of ['pantograph-base-axle','pantograph-elbow-pivot','pantograph-head-pivot','pantograph-tension-spring','pantograph-spring-clevis','pantograph-bonding-lead','pantograph-power-bushing','pantograph-power-lead']) assert.ok(named(name).length, name)
     const horns = named('pantograph-horn')
     const headBounds = horns.reduce((box, part) => box.union(bounds(part)), new THREE.Box3())
     assert.ok(headBounds.getSize(new THREE.Vector3()).y > 2.2, 'bow spans most of the roof width')
-    const stripZ = CONTACT_STRIP_Z - TRAIN_ORIGIN_Z
+    const stripZ = PANTOGRAPH_CONTACT_Z
     assert.ok(headBounds.min.z < stripZ - .2, 'horns turn down visibly')
     assert.ok(headBounds.max.z < stripZ, 'metal bow stays below carbon contact')
     assert.ok(new THREE.Box3().setFromObject(pan).max.z <= stripZ + 1e-6, 'no hardware penetrates the contact wire')

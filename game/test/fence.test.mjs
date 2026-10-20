@@ -81,7 +81,9 @@ test('fence drag previews and places the selected variant, and deletion leaves d
   const before = useStore.getState()
   try {
     for (const type of ['fence', 'fence-gate', 'fence-iron', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
-      const decals = type === 'fence-gate' ? [createModule('tactile-guide', 0, 0, 0, 'decal')] : []
+      // The decal as the document holds it: a five-metre station stamps its grid
+      // onto every module on the way in, and the deletion must leave exactly these.
+      const decals = type === 'fence-gate' ? toState({ ...emptyStation(), modules: [createModule('tactile-guide', 0, 0, 0, 'decal')] }).modules : []
       useStore.setState({ station: toState({ ...emptyStation(), modules: decals }), past: [], future: [], tool: 'module', moduleType: type, moduleRot: 0 })
       let ghost = []
       const scene = { setFencePreview: (mods) => { ghost = mods ?? [] }, setModulePreview() {}, setCollisionHighlight() {}, setGhost() {}, setCursor() {} }
@@ -272,7 +274,7 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   const stair = createModule('stair-straight', 0, 0, 0, 's', 0)
   assert.ok(stair)
   assert.equal(railLandingAt([stair], 0, 0, 0), true, 'the lower landing connects')
-  assert.equal(railLandingAt([stair], 0, 6, 4), true, 'the upper landing connects')
+  assert.equal(railLandingAt([stair], 0, 8, 5), true, 'the upper landing connects')
   assert.equal(railLandingAt([stair], 0, 3, 2), false, 'mid-flight does not')
   const esc = createModule('escalator', 0, 0, 0, 'e', 0)
   assert.ok(esc)
@@ -280,7 +282,7 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   assert.equal(railLandingAt([esc], esc.to.x, esc.to.y, esc.to.z), true)
   const wide = { ...esc, cfg: { ...esc.cfg, width: 2 } }
   assert.equal(railLandingAt([wide], 1, 0, 0), true, 'the extra lower landing cell connects')
-  assert.equal(railLandingAt([wide], 1, 6, 4), true, 'the extra upper landing cell connects')
+  assert.equal(railLandingAt([wide], 1, 9, 5), true, 'the extra upper landing cell connects')
   assert.equal(railLandingAt([wide], 2, 0, 0), false, 'only the two landing columns connect')
   assert.equal(railLandingAt([], 0, 0, 0), false)
 })
@@ -299,15 +301,15 @@ test('a fence on a landing closes the flight it stands on', () => {
   // step really does shut the stair.
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' },
-    { x: 0, y: 6, z: 4, fill: 'solid' },
+    { x: 0, y: 8, z: 5, fill: 'solid' },
   ]
   const stair = createModule('stair-straight', 0, 0, 0, 's', 0)
   assert.ok(stair)
-  const guard = fence(0, 6, 4, 0, 'guard')
+  const guard = fence(0, 8, 5, 0, 'guard')
   assert.equal(placementBlocked([stair], guard), false, 'the landing takes the panel')
   const open = buildGraph({ name: 't', seed: 1, cells, modules: [stair], lines: [] })
   const bottom = open.nodeIndex.get('0,0,0')
-  const top = open.nodeIndex.get('0,6,4')
+  const top = open.nodeIndex.get("0,8,5")
   assert.notEqual(bottom, undefined)
   assert.notEqual(top, undefined)
   const edgesFrom = (g, a) => {
@@ -317,10 +319,10 @@ test('a fence on a landing closes the flight it stands on', () => {
   }
   // The street is walkable ground, so the bottom landing also has edges to the
   // ground beside it; the flight is the one that leads to the upper landing.
-  assert.ok(edgesFrom(open, bottom).includes('0,6,4'), 'the flight is the way up')
+  assert.ok(edgesFrom(open, bottom).includes("0,8,5"), 'the flight is the way up')
   const shut = buildGraph({ name: 't', seed: 1, cells, modules: [stair, guard], lines: [] })
-  assert.equal(shut.nodeIndex.get('0,6,4'), undefined, 'the fenced landing is no node')
-  assert.equal(edgesFrom(shut, shut.nodeIndex.get('0,0,0')).includes('0,6,4'), false, 'and the flight is gone')
+  assert.equal(shut.nodeIndex.get("0,8,5"), undefined, 'the fenced landing is no node')
+  assert.equal(edgesFrom(shut, shut.nodeIndex.get('0,0,0')).includes("0,8,5"), false, 'and the flight is gone')
 })
 
 

@@ -39,23 +39,27 @@ function edgeKind(g, a, b) {
   return -1
 }
 
+/** Two stories: levels 0 and LIFT_STEP, with the top cap at 2 × LIFT_STEP. */
+const twoStorey = (x = 2, y = 2, z = 0, rot = 0) => liftExtendedUp(liftModule({ x, y, z }, rot, 'lift-1'), LIFT_STEP)
+
 test('the door side defaults to the front and stores only the exceptions', () => {
   const base = liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1')
   assert.equal(liftDoorSide(base.cfg, 0), 'front')
-  assert.equal(liftDoorSide(base.cfg, 4), 'front')
+  assert.equal(liftDoorSide(base.cfg, 5), 'front')
 
   const back = liftWithDoorSide(base, 0, 'back')
   assert.equal(liftDoorSide(back.cfg, 0), 'back')
-  assert.equal(liftDoorSide(back.cfg, 4), 'front')
+  assert.equal(liftDoorSide(back.cfg, 5), 'front')
 
-  const both = liftWithDoorSide(back, 4, 'both')
+  const both = liftWithDoorSide(back, 5, 'both')
   assert.equal(liftDoorSide(both.cfg, 0), 'back')
-  assert.equal(liftDoorSide(both.cfg, 4), 'both')
+  assert.equal(liftDoorSide(both.cfg, 5), 'both')
 
   // Choosing the front again drops the entry, and an all-front shaft carries no
-  // `doors` field at all, so an untouched save is byte-for-byte what it was.
-  const cleaned = liftWithDoorSide(liftWithDoorSide(both, 0, 'front'), 4, 'front')
-  assert.deepEqual(cleaned.cfg, {})
+  // `doors` field at all, so an untouched save keeps only the segment rises the
+  // piece needs to remember its own floor spacing.
+  const cleaned = liftWithDoorSide(liftWithDoorSide(both, 0, 'front'), 5, 'front')
+  assert.deepEqual(cleaned.cfg, { rises: [5] })
 })
 
 test('a storey lists its landing rows front first, and both sides together', () => {
@@ -81,12 +85,12 @@ test('landing side is read from the geometry, front 1 and back 2', () => {
 })
 
 test('a through-floor adds a stop on its back face and joins both faces to other floors', () => {
-  const mod = liftWithDoorSide(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'), LIFT_STEP, 'both')
+  const mod = liftWithDoorSide(twoStorey(), LIFT_STEP, 'both')
   const g = buildGraph({ name: 't', seed: 1, cells: floors([0, LIFT_STEP]), modules: [mod], lines: [] })
   const s = g.servers.find((x) => x.kind === 'lift')
   const front0 = g.nodeIndex.get('2,1,0')
-  const front4 = g.nodeIndex.get('2,1,4')
-  const back4 = g.nodeIndex.get('2,4,4')
+  const front4 = g.nodeIndex.get("2,1,5")
+  const back4 = g.nodeIndex.get("2,4,5")
   assert.notEqual(back4, undefined, 'the back landing is a stop')
   // stopZ has three entries: front 0, then front 4 and back 4.
   assert.deepEqual([...s.lift.stops], [front0, front4, back4])
@@ -99,11 +103,11 @@ test('a through-floor adds a stop on its back face and joins both faces to other
 })
 
 test('a back-only floor boards and alights through its back landing', () => {
-  const mod = liftWithDoorSide(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'), 0, 'back')
+  const mod = liftWithDoorSide(twoStorey(), 0, 'back')
   const g = buildGraph({ name: 't', seed: 1, cells: floors([0, LIFT_STEP]), modules: [mod], lines: [] })
   const s = g.servers.find((x) => x.kind === 'lift')
   assert.equal(s.lift.stops[0], g.nodeIndex.get('2,4,0'))
-  assert.equal(s.lift.stops[1], g.nodeIndex.get('2,1,4'))
+  assert.equal(s.lift.stops[1], g.nodeIndex.get("2,1,5"))
   assert.ok(!s.lift.stops.includes(g.nodeIndex.get('2,1,0')), 'the front is not a stop when the doors face back')
 })
 
@@ -116,19 +120,19 @@ test('a sealed storey has no landing rows or lift stop while the car serves floo
   const graph = buildGraph({ name: 'sealed', seed: 1, cells: floors([0, LIFT_STEP, LIFT_STEP * 2]), modules: [mod], lines: [] })
   const server = graph.servers.find((x) => x.kind === 'lift')
   assert.ok(server)
-  assert.deepEqual(server.lift.stopZ, [1, 9], 'only the open bottom and top storeys are served at their floor tops')
+  assert.deepEqual(server.lift.stopZ, [1, 11], 'only the open bottom and top storeys are served at their floor tops')
   assert.ok(!server.lift.stops.includes(graph.nodeIndex.get(`2,1,${LIFT_STEP}`)))
   assert.ok(!server.lift.stops.includes(graph.nodeIndex.get(`2,4,${LIFT_STEP}`)))
 })
 
 test('a passenger rides the car from a back landing to a front one', () => {
-  const mod = liftWithDoorSide(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'), 0, 'both')
+  const mod = liftWithDoorSide(twoStorey(), 0, 'both')
   const data = { name: 't', seed: 1, cells: floors([0, LIFT_STEP]), modules: [mod], lines: [] }
   const w = new World(data, 1)
   const g = w.graph
   const s = g.servers.find((x) => x.kind === 'lift')
   const back = g.nodeIndex.get('2,4,0')
-  const front = g.nodeIndex.get('2,1,4')
+  const front = g.nodeIndex.get("2,1,5")
   const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, g.nodeX[back], g.nodeY[back], g.nodeZ[back], 0)
   a.state = 2
   a.server = s.id
@@ -145,26 +149,25 @@ test('a passenger rides the car from a back landing to a front one', () => {
   assert.ok(Math.abs(releasedZ - g.nodeZ[front]) < 0.05, `released at z=${releasedZ}`)
 })
 
-test('the render snapshot reports the face a stop opens: front 1, back 2', () => {
+test('the render snapshot reports the face a stop opens: front 1, back 2, both 3', () => {
   const make = (side) => {
-    const mod = liftWithDoorSide(liftModule({ x: 2, y: 2, z: 0 }, 0, 'lift-1'), 0, side)
+    const mod = liftWithDoorSide(twoStorey(), 0, side)
     const data = { name: 't', seed: 1, cells: floors([0, LIFT_STEP]), modules: [mod], lines: [] }
     const w = new World(data, 7)
     const g = w.graph
     const s = g.servers.find((x) => x.kind === 'lift')
     const board = g.nodeIndex.get(side === 'back' ? '2,4,0' : '2,1,0')
-    const dest = g.nodeIndex.get('2,1,4')
-    const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, g.nodeX[board], g.nodeY[board], g.nodeZ[board], 0)
-    a.state = 2
-    a.server = s.id
-    a.liftBoard = board
-    a.liftDest = dest
-    s.queue.push(a.id)
-    for (let i = 0; i < 60; i++) w.tickOnce()
+    // Park the car at that level and open its doors; the snapshot's seventh number
+    // is the face mask the renderer obeys.
+    s.lift.at = s.lift.stops.indexOf(board)
+    s.lift.z = g.nodeZ[board]
+    s.lift.door = 1
     return w.liftRenderState()
   }
   assert.equal(make('front')[6], 1)
   assert.equal(make('back')[6], 2)
+  // A both-side level opens front and back in the same pose, not one after the other.
+  assert.equal(make('both')[6], 3)
 })
 
 test('the per-floor door choice survives a save', () => {

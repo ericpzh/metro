@@ -29,7 +29,9 @@ test('floor decorations preserve variants and rotation through save/load', () =>
   for (const [i, id] of ids.entries()) state = addEquipment(state, createModule(id, i * 6, 0, 0, id, 1))
   const loaded = parse(serialize(state))
   assert.equal(loaded.ok, true)
-  assert.deepEqual(loaded.state.modules, state.modules)
+  // A five-metre state carries the station's grid on every module, and the one load
+  // path adds that stamp, so the reload is compared with the state through it.
+  assert.deepEqual(loaded.state.modules, toState(state).modules)
   assert.equal(moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'a')), moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'b')))
   assert.notEqual(moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'a')), moduleGhostKey(createModule('tactile-warning', 0, 0, 0, 'a')))
   assert.notEqual(moduleGhostKey(createModule('floor-mark-boarding', 0, 0, 0, 'a')), moduleGhostKey(createModule('floor-mark-waiting', 0, 0, 0, 'a')))
