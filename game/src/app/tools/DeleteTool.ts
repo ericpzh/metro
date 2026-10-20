@@ -4,8 +4,9 @@ import { msg } from '../../sim/i18n.ts'
 // commit. Moved verbatim from app/Viewport.tsx (GAME-SPEC §9.5). The sweep rule
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
-import { removeFloor, removeModule, sameCells } from '../../build/model.ts'
+import { removeFloor, removeLiftExtension, removeModule, sameCells } from '../../build/model.ts'
 import { isOutdoorSurface } from '../../sim/outdoorSurfaces.ts'
+import { liftRises } from '../../sim/lifts.ts'
 import type { Module } from '../../sim/types.ts'
 import { removeSweptModules, sweepFamily, sweepThrough } from '../sweep.ts'
 import { moduleLabel, useStore } from '../store.ts'
@@ -18,6 +19,34 @@ import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 
+/** Return an outer extension only; clicking the base or an interior interval keeps whole-shaft teardown. */
+function liftExtensionAtPoint(mod: Extract<Module, { type: 'lift' }>, point: readonly number[]): 'bottom' | 'top' | undefined {
+  const rises = liftRises(mod)
+  if (rises.length < 2 || point.length < 3 || !Number.isFinite(point[2])) return undefined
+  const starts: number[] = []
+  let z = Math.min(mod.from.z, mod.to.z)
+  for (const rise of rises) { starts.push(z); z += rise }
+  const baseIndex = starts.findIndex((start, index) => mod.z >= start - 1e-6 && mod.z < start + rises[index]! - 1e-6)
+  const hitZ = point[2]!
+  let hitIndex = starts.findIndex((start, index) => hitZ >= start - 1e-5 && hitZ < start + rises[index]! - 1e-5)
+  // The top cap belongs to the last interval for picking purposes.
+  if (hitIndex < 0 && hitZ >= mod.to.z - 1e-5 && hitZ <= mod.to.z + 1e-5) hitIndex = rises.length - 1
+  if (baseIndex < 0 || hitIndex < 0) return undefined
+  if (hitIndex === 0 && baseIndex !== 0) return 'bottom'
+  if (hitIndex === rises.length - 1 && baseIndex !== rises.length - 1) return 'top'
+  return undefined
+}
+
+function liftExtensionPreview(mod: Extract<Module, { type: 'lift' }>, end: 'bottom' | 'top'): Extract<Module, { type: 'lift' }> {
+  const rises = liftRises(mod)
+  if (end === 'bottom') {
+    const rise = rises[0]!
+    return { ...mod, z: mod.from.z, from: { ...mod.from }, to: { ...mod.from, z: mod.from.z + rise }, cfg: { ...mod.cfg, rises: [rise], doors: undefined } }
+  }
+  const rise = rises[rises.length - 1]!
+  return { ...mod, z: mod.to.z - rise, from: { ...mod.to, z: mod.to.z - rise }, to: { ...mod.to }, cfg: { ...mod.cfg, rises: [rise], doors: undefined } }
+}
+
 export class DeleteTool extends ToolController {
   readonly tool = 'delete' as const
 
@@ -27,11 +56,21 @@ export class DeleteTool extends ToolController {
    * same resolution the right-click teardown uses, and it is asked **once** per
    * event — the scene pick is the expensive half of it.
    */
-  private deleteTarget(info: PointerInfo): Module | undefined {
+  private deleteTarget(info: PointerInfo): { module: Module | undefined; point?: [number, number, number] } {
     const hit = info.hit
-    if (!hit) return undefined
+    if (!hit) return { module: undefined }
+    // Keep the module identity and its actual surface point from one scene pick.
+    // The terrain hit alone cannot tell which interval of a tall shaft was aimed at.
+    const scene = this.ctx.scene()
+    const moduleHit = scene && 'pickModuleHit' in scene
+      ? scene.pickModuleHit(info.clientX, info.clientY)
+      : null
+    const pickedId = scene && 'pickModuleHit' in scene ? moduleHit?.moduleId ?? null : this.pickModuleAt(info)
     const modules = useStore.getState().station.modules
-    return this.visibleModule(deletionTarget(modules, this.pickModuleAt(info), hit.cell, this.facing()))
+    return {
+      module: this.visibleModule(deletionTarget(modules, pickedId, hit.cell, this.facing())),
+      point: moduleHit?.point,
+    }
   }
 
   onDown(info: PointerInfo): void {
@@ -45,7 +84,7 @@ export class DeleteTool extends ToolController {
     // A drawn module under the pointer is the pending delete instead — the
     // whole piece goes, not the floor block beneath it — except a 围栏 panel,
     // which drags out a line of its own like the 围栏 tool (see below).
-    const picked = this.deleteTarget(info)
+    const { module: picked, point } = this.deleteTarget(info)
     if (picked) {
       if (picked.type === 'road') { new RoadTool(this.ctx).beginDelete(info,picked.id); return }
       if (picked.type === 'tactile') { new TactileTool(this.ctx).onDown(info); return }
@@ -95,6 +134,7 @@ export class DeleteTool extends ToolController {
       // passes through is highlighted and joins the pending list (§9.5).
       const fence = picked.type === 'fence'
       const family = fence ? null : sweepFamily(picked)
+      const liftExtension = picked.type === 'lift' && point ? liftExtensionAtPoint(picked, point) : undefined
       this.ctx.drag.current = {
         active: true,
         button: info.button,
@@ -106,6 +146,7 @@ export class DeleteTool extends ToolController {
         // A piece that may not be swept still rides the same list, so the
         // release has one path: a one-id sweep is the plain bulldoze.
         modules: fence ? undefined : [picked.id],
+        liftExtension,
         family: family ?? undefined,
         lx: info.clientX,
         ly: info.clientY,
@@ -113,7 +154,7 @@ export class DeleteTool extends ToolController {
         sy: info.clientY,
         downTime: performance.now(),
       }
-      scene.setModulePreview(picked, true)
+      scene.setModulePreview(liftExtension && picked.type === 'lift' ? liftExtensionPreview(picked, liftExtension) : picked, true)
       scene.setCollisionHighlight(null)
       scene.setGhost([], 'remove')
       // The equipment model is the delete preview; a cell cursor underneath it
@@ -196,7 +237,10 @@ export class DeleteTool extends ToolController {
           .filter((m) => this.visibleModule(m) !== undefined)
         scene.setGhost([], 'remove')
         scene.setCollisionHighlight(null)
-        scene.setModulePreview(mods, true)
+        const preview = mods.map((mod, index) => index === 0 && d.liftExtension && mod.type === 'lift'
+          ? liftExtensionPreview(mod, d.liftExtension)
+          : mod)
+        scene.setModulePreview(preview, true)
         scene.setCursor(null)
         return
       }
@@ -218,7 +262,7 @@ export class DeleteTool extends ToolController {
     // panel or a hung fitting never rings the floor beneath it. The same
     // resolution the press uses, so the ghost is the piece the release removes —
     // a 人行道 tile under a tree's canopy is ghosted, not the tree.
-    const picked = this.deleteTarget(info)
+    const { module: picked, point } = this.deleteTarget(info)
     if (picked) {
       if (picked.type === 'road') {
         new RoadTool(this.ctx).previewDelete(info, picked.id)
@@ -226,7 +270,8 @@ export class DeleteTool extends ToolController {
       }
       scene.setGhost([], 'remove')
       scene.setCollisionHighlight(null)
-      scene.setModulePreview(picked, true)
+      const liftExtension = picked.type === 'lift' && point ? liftExtensionAtPoint(picked, point) : undefined
+      scene.setModulePreview(liftExtension && picked.type === 'lift' ? liftExtensionPreview(picked, liftExtension) : picked, true)
       scene.setCursor(null)
     } else {
       scene.setModulePreview(null)
@@ -269,6 +314,12 @@ export class DeleteTool extends ToolController {
         return
       }
       if (swept.length === 1) {
+        if (d.liftExtension && swept[0].type === 'lift') {
+          st.commit(removeLiftExtension(st.station, swept[0].id, d.liftExtension))
+          st.select(null)
+          st.setNotice(msg('removed_value', moduleLabel(swept[0])))
+          return
+        }
         this.removePlacedModule(swept[0])
         return
       }

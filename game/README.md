@@ -1772,6 +1772,9 @@ platform below. The piece stores each segment rise (`cfg.rises`), because a mixe
 shaft's levels are not evenly spaced; a legacy shaft falls back to its document's
 storey grid. The door chooser lists **one row per level** (`liftLevels`), so an
 initial placement has one row and one extension two; the top cap is not a row.
+With 删除 (B), clicking an added top or bottom interval removes just that end
+extension; clicking the original base interval or an interior interval removes
+the whole shaft. The preview marks only the extension that will be trimmed.
 Extending never checks for floor, so a shaft may run past a level with no slab
 (it simply has no landing there); only a fresh piece must stand on floor. One
 shaft is **one car**: `buildGraph` makes the walkable landing tile in front of

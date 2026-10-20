@@ -82,6 +82,8 @@ export interface AreaDrag {
    * list is a same-type sweep (§9.5), bulldozed in one commit on release.
    */
   modules?: string[]
+  /** A clicked outer lift extension to shorten on release instead of removing the shaft. */
+  liftExtension?: 'bottom' | 'top'
   /**
    * The sweep identity every collected module shares (`sweepFamily`). Unset
    * for a piece that may not be swept — a room, a rail, an exit, a 楼梯 — so

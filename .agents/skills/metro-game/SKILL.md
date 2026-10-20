@@ -1549,6 +1549,10 @@ including the depth prepass, for all six appearances.
   `test/module-build.test.mjs` pins served-floor doors, independent car doors, and the aligned
   landing animation in both styles and all four rotations.
 * **An exit is named and selected in both views.** The RHS 出入口 folder lists one card per
+  删除 (B) trims only a clicked top/bottom extension; the original base or an interior
+  interval still removes the whole shaft. Resolve the actual module-surface hit point once
+  per event, keep the red preview aligned with the interval being removed, and pin both
+  endpoint trims plus whole-shaft base/interior deletion in `test/delete-tool.test.mjs`.
   exit (`app/windows/inspector/ExitCard.tsx`): name (Enter/blur commits, and the model's street
   header reprints it), demand and open toggle. Clicking or focusing a control selects the exit,
   and clicking the exit in 3D selects it, so `SceneRenderer.setSelection` draws a box around

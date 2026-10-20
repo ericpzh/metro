@@ -5,6 +5,7 @@ import { useStore } from '../src/app/store.ts'
 import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
+import { liftExtendedDown, liftExtendedUp, liftModule, liftWithDoorSide } from '../src/sim/lifts.ts'
 
 function setup() {
   const z = -4
@@ -77,6 +78,59 @@ test('delete starts a block deletion when the module on the cell is hidden by th
     fixture.scene.isModuleVisible = () => true
     fixture.tool.onDown(fixture.event(1, 1))
     assert.deepEqual(fixture.drag.current.modules, ['hidden-tvm'])
+  } finally { useStore.setState(before) }
+})
+
+test('deleting a pointed top or bottom lift extension trims only that interval', () => {
+  const before = useStore.getState()
+  try {
+    for (const [end, point, expectedFrom, expectedTo, expectedRises] of [
+      ['top', [1.5, 1.5, 7], -3, 5, [3, 5]],
+      ['bottom', [1.5, 1.5, -1], 0, 9, [5, 4]],
+    ]) {
+      const fixture = setup()
+      let lift = liftModule({ x: 1, y: 1, z: 0 }, 0, `lift-${end}`, 5)
+      lift = liftExtendedDown(lift, 3)
+      lift = liftExtendedUp(lift, 4)
+      lift = liftWithDoorSide(lift, -3, 'back')
+      lift = liftWithDoorSide(lift, 5, 'both')
+      useStore.setState({ station: { ...useStore.getState().station, modules: [lift] } })
+      fixture.scene.pickModuleHit = () => ({ moduleId: lift.id, point })
+      fixture.scene.isModuleVisible = () => true
+      fixture.tool.onDown(fixture.event(1, 1))
+      fixture.tool.onUp(fixture.event(1, 1))
+
+      const kept = useStore.getState().station.modules.find((m) => m.id === lift.id)
+      assert.ok(kept, `${end} extension leaves the shaft module in place`)
+      assert.equal(kept.from.z, expectedFrom)
+      assert.equal(kept.to.z, expectedTo)
+      assert.deepEqual(kept.cfg.rises, expectedRises)
+      assert.equal(useStore.getState().past.length, 1, 'trimming is one undoable edit')
+      if (end === 'bottom') assert.equal(kept.cfg.doors?.['-3'], undefined, 'the removed bottom landing door is discarded')
+      if (end === 'top') assert.equal(kept.cfg.doors?.['5'], undefined, 'the removed top landing door is discarded')
+      useStore.setState(before)
+    }
+  } finally { useStore.setState(before) }
+})
+
+test('deleting the base or an interior lift interval still removes the whole shaft', () => {
+  const before = useStore.getState()
+  try {
+    for (const point of [[1.5, 1.5, 2], [1.5, 1.5, 7]]) {
+      const fixture = setup()
+      let lift = liftModule({ x: 1, y: 1, z: 0 }, 0, 'lift-whole', 5)
+      lift = liftExtendedDown(lift, 3)
+      lift = liftExtendedUp(lift, 4)
+      lift = liftExtendedUp(lift, 6)
+      useStore.setState({ station: { ...useStore.getState().station, modules: [lift] } })
+      fixture.scene.pickModuleHit = () => ({ moduleId: lift.id, point })
+      fixture.scene.isModuleVisible = () => true
+      fixture.tool.onDown(fixture.event(1, 1))
+      fixture.tool.onUp(fixture.event(1, 1))
+      assert.equal(useStore.getState().station.modules.some((m) => m.id === lift.id), false)
+      assert.equal(useStore.getState().past.length, 1)
+      useStore.setState(before)
+    }
   } finally { useStore.setState(before) }
 })
 

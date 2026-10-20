@@ -1,6 +1,6 @@
 // Build model: lifts — the elevator shaft column and its growth (§5).
 
-import { liftExtendedDown, liftExtendedUp, type LiftInterval } from '../../sim/lifts.ts';
+import { liftExtendedDown, liftExtendedUp, liftRises, type LiftInterval } from '../../sim/lifts.ts';
 import type { Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
 
@@ -23,4 +23,30 @@ export function extendLift(state: StationState, id: string, up: boolean, interva
   if (!mod || mod.type !== 'lift') return state;
   const grown = up ? liftExtendedUp(mod, interval) : liftExtendedDown(mod, interval);
   return { ...state, modules: state.modules.map((m) => (m.id === id ? grown : m)) };
+}
+
+/** Remove one outer extension interval, keeping the rest of the shaft intact. */
+export function removeLiftExtension(state: StationState, id: string, end: 'bottom' | 'top'): StationState {
+  const mod = state.modules.find((m) => m.id === id);
+  if (!mod || mod.type !== 'lift') return state;
+  const rises = liftRises(mod);
+  if (rises.length < 2) return state;
+
+  const cfg = { ...mod.cfg, rises: end === 'bottom' ? rises.slice(1) : rises.slice(0, -1) };
+  const doors = { ...(mod.cfg.doors ?? {}) };
+  if (end === 'bottom') {
+    delete doors[String(mod.from.z)];
+    if (Object.keys(doors).length) cfg.doors = doors;
+    else delete cfg.doors;
+  } else {
+    const topLevel = mod.to.z - rises[rises.length - 1]!;
+    delete doors[String(topLevel)];
+    if (Object.keys(doors).length) cfg.doors = doors;
+    else delete cfg.doors;
+  }
+
+  const trimmed = end === 'bottom'
+    ? { ...mod, from: { ...mod.from, z: mod.from.z + rises[0]! }, cfg }
+    : { ...mod, to: { ...mod.to, z: mod.to.z - rises[rises.length - 1]! }, cfg };
+  return { ...state, modules: state.modules.map((m) => m.id === id ? trimmed : m) };
 }
