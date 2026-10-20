@@ -3233,7 +3233,9 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   The service-room R tile cycles the front face.
 * `builder-attributes.test.mjs` — module action tiles and R / Tab / Shift+Tab dispatch share
   one capability list, variants follow the width → length → span → height → direction → position → style
-  priority, and every width uses the shared width glyph. The **run length** is on that list for the
+  priority, and selected width, height and length sizes use shared centred box marks. Length marks line up
+  on their left edge, including the tunnel and bridge controls; platforms share the up/down direction
+  mark with module directions, and rotations share the four-way mark. The **run length** is on that list for the
   扶梯 and for every staircase but the 楼梯块 — the one-floor sizes named 超短 / 短 / 中 / 长, cycled
   超短 → 短 → 中 → 长 (Tab takes the stair's width, Shift+Tab its length) — and the 扶梯's
   **单层 / 双层** tile sits beside it, naming 超长 for the two-floor family. The 电梯's first tile is

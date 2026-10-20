@@ -126,6 +126,10 @@ test('all width action tiles use the shared width glyph and the shell delegates 
   const shell = fs.readFileSync(new URL('../src/app/windows/AppShell.tsx', import.meta.url), 'utf8')
   assert.match(actions, /<DimensionArt vertical=/)
   assert.match(actions, /<StoreyArt double=\{state\.escalatorSpan === 'double'\}/)
+  const structure = fs.readFileSync(new URL('../src/app/rail/menus/StructurePanel.tsx', import.meta.url), 'utf8')
+  assert.match(structure, /DimensionArt selected=\{TRACK_RUN_LENGTHS\.indexOf\(bridgeLength/)
+  const rail = fs.readFileSync(new URL('../src/app/rail/folders/RailFolder.tsx', import.meta.url), 'utf8')
+  assert.match(rail, /DimensionArt selected=\{TRACK_RUN_LENGTHS\.indexOf\(tunnelLength/)
   assert.match(shell, /activateModuleBuilderShortcut\(st\.moduleType, st, 'R'\)/)
   assert.match(shell, /activateModuleBuilderShortcut\(st\.moduleType, st, e\.shiftKey \? 'Shift\+Tab' : 'Tab'\)/)
 })
@@ -137,6 +141,7 @@ test('all width action tiles use the shared width glyph and the shell delegates 
     ['curtain-wall', 'height', 'curtainHeight', [2,3,4]],
     ['pillar', 'length', 'pillarLength', [2,5]],
     ['walkway', 'length', 'walkwayLength', ['short','medium','long']],
+    ['bridge', 'length', 'bridgeLength', [4,16,32,64,128]],
     ['psd-end', 'height', 'psdEndHeight', ['half','full']],
   ]) values.forEach((value, selected) => assert.deepEqual(dimensionSelection(kind, type, stateWith({ [key]: value })), { selected, count: values.length }))
   assert.equal(dimensionSelection('direction', 'road', stateWith()), undefined)
