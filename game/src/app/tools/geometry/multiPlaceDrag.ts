@@ -19,6 +19,7 @@ import { MAX_DRAG_CELLS } from '../../../sim/constants.ts'
 import { msg } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
 import { StablePreviewDelay } from './stablePreviewDelay.ts'
+import { FramePreview } from './framePreview.ts'
 
 /** A cell coordinate as the scene and drag tools spell it. */
 export type DragCell = [number, number, number]
@@ -40,13 +41,14 @@ export function multiPlaceFor(context: object): MultiPlaceDrag {
  *
  * `check`/`setNotice` own the bottom notice, `refuse` clears every accepted
  * preview and paints the whole footprint red, and `schedule` is the same
- * stable-cell debounce the 方块 preview uses. Tools with an already cheap live
- * preview can draw it immediately and use the scheduler only for a refusal;
- * the budget and release verdict are still the same.
+ * stable-cell debounce the 方块 preview uses. `scheduleFrame` coalesces cheap
+ * replaceable previews without waiting for the pointer to stop. Both share
+ * cancellation, the budget and the release verdict.
  */
 export class MultiPlaceDrag {
   readonly limit: number
   private readonly delay: StablePreviewDelay
+  private readonly frame = new FramePreview()
 
   constructor(limit = MAX_DRAG_CELLS, delay = new StablePreviewDelay()) {
     this.limit = limit
@@ -56,17 +58,28 @@ export class MultiPlaceDrag {
   /** Invalidate a pending stable preview or refusal. */
   cancelPreview(): void {
     this.delay.clear()
+    this.frame.clear()
   }
 
   /** Flush the latest preview before a synchronous release path when needed. */
   flushPreview(): void {
     this.delay.flush()
+    this.frame.flush()
   }
 
   /** Run one preview after the latest snapped footprint has stayed stable. */
   schedule(key: string, run: () => void): boolean {
+    this.frame.clear()
     return this.delay.scheduleLatest(key, run)
   }
+
+  /** Cheap previews keep their prior draw until the latest target is ready next frame. */
+  scheduleFrame(key: string, run: () => void): boolean {
+    this.delay.clear()
+    return this.frame.scheduleLatest(key, run)
+  }
+
+  flushFramePreview(): void { this.frame.flush() }
 
   /** Clear accepted previews on a new snapped target, then render after 100 ms. */
   deferPreview(scene: SceneRenderer, key: string, run: () => void): boolean {

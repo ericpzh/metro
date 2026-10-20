@@ -32,6 +32,7 @@ import type { LevelSystem } from './LevelSystem.ts'
 import { fenceConnectionIndex } from '../../../sim/fences.ts'
 import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
 import { instanceRoofPreview } from '../../roofPreview.ts'
+import { PreviewMaterialCache } from '../../previewMaterialCache.ts'
 
 /**
  * Starting pool size for the instanced ghost meshes. The box pool grows when a
@@ -92,6 +93,7 @@ export class GhostSystem extends SceneSystem {
   previewGroup: THREE.Group = new THREE.Group()
   private previewKey = ''
   private previewDocument = new ModulePreviewDocument()
+  private readonly roofPreviewMaterials = new PreviewMaterialCache()
   /** Materials/geometries owned by the current preview, disposed on replacement. */
   private previewMats: THREE.Material[] = []
   private previewBases: THREE.Material[] = []
@@ -515,12 +517,22 @@ export class GhostSystem extends SceneSystem {
     }
     const tint = blocked ? MODULE_GHOST_BAD : tintOverride === undefined ? MODULE_GHOST_TINT : new THREE.Color(tintOverride)
     const first = mods[0]
-    if (mods.length > 1 && first.type === 'roof' && mods.every(piece => piece.type === 'roof'
+    // Hover and a full run share the instanced shader, so the first movement
+    // does not compile a second program after the single-tile hover (§9.5).
+    if (first.type === 'roof' && mods.every(piece => piece.type === 'roof'
       && piece.w === first.w && piece.d === first.d && piece.rot === first.rot
       && JSON.stringify(piece.cfg) === JSON.stringify(first.cfg))) {
       const source = buildModule(first, ctx)
       if (source) {
-        this.tintModuleGhost(source, first, tint, 0.72, this.previewMats, this.previewBases, m => this.sceneOwns(m))
+        source.traverse(object => {
+          const mesh = object as THREE.Mesh
+          if (!mesh.isMesh) return
+          // Geometry is replaceable; the material stays alive so clearing the
+          // previous target does not delete and recompile its WebGL program.
+          mesh.material = this.roofPreviewMaterials.get(mesh.material as THREE.Material, tint, 0.72)
+          mesh.renderOrder = 5
+          mesh.frustumCulled = false
+        })
         this.previewGroup.add(instanceRoofPreview(source, mods))
       }
       this.previewGroup.visible = true
@@ -741,6 +753,7 @@ export class GhostSystem extends SceneSystem {
     }
     this.clearShapeGhost()
     this.clearModulePreview()
+    this.roofPreviewMaterials.dispose()
     this.clearFencePreview()
     this.ghostMaterial?.dispose()
     // The remove-drag pool is scene-lifetime, not per-drag: without this a

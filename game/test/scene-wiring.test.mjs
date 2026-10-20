@@ -26,7 +26,7 @@ test('pointer preview coalescing preserves touch/delete paths, flushes release a
   const moves = viewport.slice(viewport.indexOf('const onPointerMove ='), viewport.indexOf('const onPointerUp ='))
   assert.match(moves, /e\.pointerType === 'touch' \|\| dragRef\.current\?\.modules !== undefined/, 'touch gestures and deletion sweeps retain every path sample')
   assert.match(moves, /pointerFrame\.current\.flush\(\)\s*handlePointerMove\(e\)/, 'preserved paths drain an older queued sample before delivering the new one')
-  assert.match(moves, /else pointerFrame\.current\.schedule\(\(\) => handlePointerMove\(e\)\)/)
+  assert.match(moves, /else pointerFrame\.current\.schedule\(\(\) => \{\s*handlePointerMove\(e\)\s*if \(pointerFrame\.current\.inAnimationFrame\) tools\.block\.flushFramePreview\(\)/, 'preview work finishes in the current pointer frame without an extra frame delay')
   assert.match(viewport, /const onPointerUp = [^{]+\{\s*pointerFrame\.current\.flush\(\)/, 'release processes the latest drag position before committing')
   assert.match(viewport, /useEffect\(\(\) => \(\) => \{\s*pointerFrame\.current\.cancel\(\)\s*tools\.block\.cancelPreview\(\)\s*\}, \[tools\]\)/, 'an unmounted viewport cannot deliver a stale preview')
 })

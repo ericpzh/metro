@@ -152,11 +152,13 @@ export class TileEquipmentTool extends ToolController {
       } else if (dragging) {
         this.multiPlace.setNotice(false)
         scene.setCursor(target, true)
-        this.multiPlace.deferPreview(scene, key, () => {
+        const render = () => {
           if (this.ctx.drag.current !== drag) return
           const cells = this.cells(info)
           this.draw(cells)
-        })
+        }
+        if (type.startsWith('roof')) this.multiPlace.scheduleFrame(key, render)
+        else this.multiPlace.deferPreview(scene, key, render)
       } else {
         this.multiPlace.setNotice(false)
         this.cancelPreview()

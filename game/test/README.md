@@ -116,6 +116,11 @@ release validates the run and commits only accepted tiles once.
 `roof-preview` pins exact instanced roof geometry/rotation for all roof variants,
 all 10,000 tiles in one thin-roof draw, and instance-buffer disposal. `roof-tool`
 also guards bulk roof release against per-tile collision-cache preparation.
+`frame-preview` guards continuous latest-target previews without resetting the
+frame wait, cancellation and duplicate-target reuse; `solid-cell-index` guards
+the roof's indexed floor collision candidates and immutable invalidation.
+`preview-material-cache` guards shader-owner reuse across roof targets, refusal
+tints, source ownership, clipping refresh, bounded eviction and disposal.
 It also checks a 1,334-module station produces one mouse-down raycast for both
 an empty hit and a hit on the final module, preserving the chosen anchor.
 `multi-place-drag` covers the shared equipment/decor limit, context-scoped

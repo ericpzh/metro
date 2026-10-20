@@ -18,11 +18,17 @@ test('the real ghost system batches compatible roofs, preserves mixed roofs, and
   ghost.plates = { ownsTexture: () => false }
   const first = createModule('roof', 0, 0, 0, 'first')
   const second = { ...first, x: 1, id: 'second' }
+  ghost.setModulePreview(first)
+  assert.equal(ghost.previewGroup.children[0].children[0].isInstancedMesh, true, 'hover prepares the same shader path as the drag')
+  const hoverMaterial = ghost.previewGroup.children[0].children[0].material
+  let materialReleased = 0
+  hoverMaterial.addEventListener('dispose', () => materialReleased++)
   ghost.setModulePreview([first, second])
   assert.equal(ghost.previewGroup.children.length, 1)
   const mesh = ghost.previewGroup.children[0].children[0]
   assert.equal(mesh.isInstancedMesh, true)
   assert.equal(mesh.count, 2)
+  assert.equal(mesh.material, hoverMaterial, 'movement keeps the shader owner from the hover')
   let released = 0
   mesh.addEventListener('dispose', () => released++)
   ghost.setModulePreview([first, second])
@@ -33,6 +39,9 @@ test('the real ghost system batches compatible roofs, preserves mixed roofs, and
   ghost.clearModulePreview()
   assert.equal(ghost.previewGroup.visible, false)
   assert.equal(ghost.previewGroup.children.length, 0)
+  assert.equal(materialReleased, 0, 'cancellation retains the bounded material cache')
+  ghost.dispose()
+  assert.equal(materialReleased, 1, 'scene teardown releases the cached shader owner')
   material.dispose()
 })
 

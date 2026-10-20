@@ -29,6 +29,9 @@ export abstract class ToolController {
     this.multiPlace.cancelPreview()
   }
 
+  /** The viewport already coalesced this move; avoid a second animation-frame wait. */
+  flushFramePreview(): void { this.multiPlace.flushFramePreview() }
+
   abstract readonly tool: Tool | 'move'
   abstract onDown(info: PointerInfo): void
   abstract onMove(info: PointerInfo): void

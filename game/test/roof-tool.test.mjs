@@ -44,6 +44,17 @@ test('bulk roof release prepares existing collision geometry once and appends th
   assert.equal(useStore.getState().station.modules.length, 1)
 })
 
+test('roof validation indexes the floor once instead of scanning it for every tile', () => {
+  let reads = 0
+  const cells = Array.from({length:10_000},(_,i)=>({get x(){reads++;return i%100},y:Math.floor(i/100),z:0,fill:'solid'}))
+  const h = harness(cells)
+  h.tool.onDown(h.event(0,0))
+  h.tool.onMove(h.event(29,29))
+  h.tool.onUp(h.event(29,29))
+  assert.equal(useStore.getState().station.modules.length,900)
+  assert.ok(reads < 40_000, `floor should be indexed once, got ${reads} coordinate reads`)
+})
+
 test('stair-block mouse-down raycasts once with many modules, including misses and late hits', () => {
   const modules = Array.from({ length: 1333 }, (_, index) => createModule('bench', index, 0, 0, `bench-${index}`))
   modules.push(createModule('stair-block', 8, 9, 0, 'last-stair'))

@@ -919,6 +919,7 @@ export function Viewport(): React.ReactElement {
     }
     const hit = pickAt(e.clientX, e.clientY, e.buttons & 2 ? 2 : 0)
     if (!hit) {
+      tools.block.cancelPreview()
       hoverRef.current = null
       scene.setHoverHighlight(null)
       setBuildMeasure(null)
@@ -966,7 +967,10 @@ export function Viewport(): React.ReactElement {
       pointerFrame.current.flush()
       handlePointerMove(e)
     }
-    else pointerFrame.current.schedule(() => handlePointerMove(e))
+    else pointerFrame.current.schedule(() => {
+      handlePointerMove(e)
+      if (pointerFrame.current.inAnimationFrame) tools.block.flushFramePreview()
+    })
   }
 
   const onPointerUp = (e: React.PointerEvent): void => {
@@ -1063,6 +1067,7 @@ export function Viewport(): React.ReactElement {
         onContextMenu={onContextMenu}
         onPointerLeave={() => {
           pointerFrame.current.cancel()
+          tools.block.cancelPreview()
           hoverRef.current = null
           sceneRef.current?.setHoverHighlight(null)
           setBuildMeasure(null)

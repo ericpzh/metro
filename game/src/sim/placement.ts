@@ -1,6 +1,7 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
 import { ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
+import { solidCellsInBounds } from './solidCellIndex.ts'
 import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
 import { blockIndex, type BlockIndex } from './blockIndex.ts'
 import { isOutdoorSurface, outdoorSurfaceIndex, surfaceKey } from './outdoorSurfaces.ts'
@@ -2231,7 +2232,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (placementColliders(modules, candidate).length > 0) return 'occupied'
     const box = moduleEnvelope(candidate, modules)!
     const boxes = collisionBoxes(candidate, box)
-    for (const c of cells) {
+    for (const c of solidCellsInBounds(cells, box)) {
       if (c.fill === 'solid' && boxes.some(b => boxesOverlap(b, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
     }
     return ''

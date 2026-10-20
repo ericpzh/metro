@@ -5,7 +5,77 @@ storey profile and trains use uniform 0.98 scale. Measurements below describe
 the current geometry and the latest completed validation. Raw reports belong
 in ignored `.preview/perf/`.
 
-## Block drag footprint
+## Drag preview performance
+
+### Pointer-to-preview latency follow-up (2026-10-20)
+
+The baseline below was committed as `f097616` before this follow-up. Profiling
+the whole settled callback exposed a second cost hidden by the ghost-only timer:
+with a 100×100 floor and a 10,000-roof preview, the warm timer waited 103.4 ms
+and then spent 337.5 ms constructing/validating/submitting the preview. Only
+5.0 ms of that was geometry submission. Pointer-to-ready was 441.2 ms and
+pointer through two animation frames was 447.4 ms. The cold callback took
+373.2 ms; its timer was also delayed by initial scene work. Merely reducing the
+timer cannot remove the repeated full-floor collision scan.
+
+Roof collision queries now use immutable cell buckets at each height, retaining
+the exact collision-box verdict and naturally invalidating on a new cell array.
+Accepted roof drags use the shared `FramePreview` scheduler: at most one pending
+animation-frame callback, latest target wins without restarting the wait, and
+unchanged rendered targets do no work. The viewport flushes the work inside its
+existing coalesced pointer frame, avoiding a second frame wait. Explicit release
+drains do not build a preview that is about to be discarded; losing the pick or
+leaving the viewport cancels pending work. The previous preview remains visible
+until its replacement is ready. Over-limit refusals keep immediate red cursor/
+notice feedback and the stable heavy-footprint path; release/tool changes cancel
+both schedulers. Other tools retain their existing stable-preview policy.
+
+The CPU profile also found shader compilation (`getProgramInfoLog`: 43 samples).
+Hover and drag now share the instanced path, and a 16-entry material cache keeps
+the shader owner alive across target replacements. Clearing geometry no longer
+disposes the last material using that program. Refusal tints are distinct, source
+materials stay scene-owned, clipping changes propagate, and eviction/teardown
+release cached clones. An intermediate cold-drag profile recorded 2 samples in
+`getProgramInfoLog`; retaining geometry alone would not have fixed recompilation.
+
+Same 100×100 floor/roof fixture, Chrome 155, SwiftShader, 1424×905: final
+pointer-to-ready was 19.0 ms cold / 10.6 ms warm, including the frame queue and
+all preview validation. Ghost submission was 5.8/4.9 ms. Through two animation
+frames it was 34.8/33.7 ms: software rendering/presentation is variable and still
+contributes delay, so CPU readiness must not be described as displayed-pixel latency.
+The cold first hover was still 309.2 ms through two frames (warm: 51.1 ms), a
+remaining initialization/rendering stall, rather than a hidden zero-cost warmup.
+A 12-position continuous drag produced 12 previews before movement stopped,
+for both cold and warm runs. The 100 ms restart-on-change wait is gone for roofs.
+
+Reports: `.preview/perf/roof-latency-100ms.json`,
+`roof-latency-floor-100ms.json`, `roof-latency-16ms.json`,
+`roof-latency-floor-frame-final.json`, `roof-latency-continuous-frame.json`, and
+`roof-latency-final-cached-materials.json`, `roof-latency-one-frame-final.json`,
+and `roof-latency-continuous-final.json`. CPU profiles are
+`roof-latency-floor-frame-settled.cpuprofile`,
+`roof-latency-final-cached-materials.cpuprofile` and
+`roof-latency-one-frame-final.cpuprofile`.
+The final fixture waits for initial floor rendering before measuring the first
+roof interaction. `BENCH_FLOOR=1 BENCH_SIDE=100` selects it;
+`BENCH_CONTINUOUS=1` drives repeated real pointer moves and `BENCH_PROFILE=1`
+captures CPU samples. The two-frame reading is a presentation proxy, not a GPU
+timer or an FPS threshold. Release scene rebuilding remains a separate cost.
+
+`frame-preview` pins no starvation during continuous movement, latest-target
+coalescing, unchanged-target reuse, existing-frame flushing, release drains and
+cancellation. `solid-cell-index`
+pins negative coordinates, bucket/course boundaries, broad bounds and immutable
+invalidation. `roof-tool` guards against scanning a 10,000-cell floor per tile.
+`preview-material-cache` pins stable material identity, independent refusal tints,
+source ownership, clipping refresh and bounded eviction/disposal.
+
+Validation: production build and all 1,962 normal tests pass. The focused
+performance regression run passes 64 tests with V8 coverage: `FrameTask`,
+`PreviewMaterialCache` and `solidCellsInBounds` each have 100% line/branch/function
+coverage; `FramePreview` has 94% line coverage (the native RAF adapter is exercised
+by the browser benchmark). Logs: `.preview/perf/roof-latency-build-final.log`,
+`roof-latency-tests-final.log` and `roof-latency-coverage-final.log`.
 
 ### Roof drag correction (2026-10-20)
 
@@ -37,6 +107,8 @@ evidence, not a deterministic test threshold.
 10,000 retained instances in one thin-roof draw, and instance buffer disposal.
 `roof-tool` pins one collision preparation and one undoable bulk placement.
 
+### Shared drag footprint
+
 Every drag that places multiple equipment or decor cells shares a 10,000-cell
 budget in `app/tools/geometry/multiPlaceDrag.ts`. Block patches include generated
 auto-wall courses; full-height wall columns count each course; fence and tactile
@@ -46,10 +118,11 @@ large preview allocation. Over-budget drags are refused whole, show a red
 footprint after the pointer target settles, and commit nothing. A 10,000-cell
 release remains accepted.
 
-Each tool updates the cursor and limit notice on the pointer event, then waits
-100 ms on a replaceable timer before building the latest heavy preview. Changing
+Each tool updates the cursor and limit notice on the pointer event. The stable
+heavy-preview policy waits 100 ms on a replaceable timer. Changing
 the snapped target restarts the timer; release, cancellation and tool changes
-clear pending work. Single-cell hover previews remain immediate. The stable
+clear pending work. Accepted roofs now use the frame policy described above;
+single-cell hover previews remain immediate. The stable
 timer is deterministic and uses no wall-clock threshold in tests.
 
 Production-browser measurement on an empty station, active level 1, 99×99 real

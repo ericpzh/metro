@@ -3,6 +3,8 @@
 export class FrameTask {
   private handle = 0
   private task: (() => void) | null = null
+  private runningFrame = false
+  get inAnimationFrame(): boolean { return this.runningFrame }
   private request: (callback: FrameRequestCallback) => number
   private cancelRequest: (handle: number) => void
 
@@ -13,7 +15,11 @@ export class FrameTask {
 
   schedule(task: () => void): void {
     this.task = task
-    if (!this.handle) this.handle = this.request(() => { this.handle = 0; this.flush() })
+    if (!this.handle) this.handle = this.request(() => {
+      this.handle = 0
+      this.runningFrame = true
+      try { this.flush() } finally { this.runningFrame = false }
+    })
   }
 
   flush(): void {
