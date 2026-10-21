@@ -146,8 +146,8 @@ test('a 高画质 crowd on one storey is one draw, and 显示其他层 is what a
   } finally { cleanup(ghosted) }
 })
 
-test('低画质 draws the whole crowd reduced; Hide UI and a disabled detail setting restore full bodies', () => {
-  const low = crowdFixture('low', { ghost: true })
+test('低画质 draws the whole crowd reduced, including in Hide UI; disabled detail restores full bodies', () => {
+  const low = crowdFixture('low', { ghost: true, hideUI: true })
   try {
     assert.equal(low.crowd.agents.count, 0)
     assert.equal(low.crowd.agentsLow.count, 3, 'every drawn passenger, on every storey, is reduced')

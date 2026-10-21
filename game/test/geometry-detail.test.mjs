@@ -106,14 +106,15 @@ test('alpha-cut surfaces and moving rigs never acquire generic geometry LoD',()=
   f.batches.clear();f.geometry.dispose();f.mat.dispose()
 })
 
-test('real batches force reduced other-storey geometry, keep current detail and override low quality in Hide UI',()=>{
+test('real batches reduce other storeys and keep low quality in Hide UI',()=>{
   const f=fixture(),mesh=f.batches.root.children[0],full=mesh.geometry
   f.camera.position.z=2;f.camera.updateMatrixWorld()
   f.batches.activeZ=4;f.batches.updateDetail(f.camera,800)
   assert.notEqual(mesh.geometry,full,'other storeys are reduced even near the camera')
   f.batches.activeZ=0;f.batches.updateDetail(f.camera,800);assert.equal(mesh.geometry,full)
   f.batches.graphicsQuality='low';f.batches.updateDetail(f.camera,800);assert.notEqual(mesh.geometry,full)
-  f.batches.hideUI=true;f.batches.updateDetail(f.camera,800);assert.equal(mesh.geometry,full)
-  f.batches.hideUI=false;f.batches.updateDetail(f.camera,800);assert.notEqual(mesh.geometry,full)
+  const reduced=mesh.geometry
+  f.batches.hideUI=true;f.batches.updateDetail(f.camera,800);assert.equal(mesh.geometry,reduced)
+  f.batches.hideUI=false;f.batches.updateDetail(f.camera,800);assert.equal(mesh.geometry,reduced)
   f.batches.clear();f.geometry.dispose();f.mat.dispose()
 })

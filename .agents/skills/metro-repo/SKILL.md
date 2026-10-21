@@ -45,6 +45,13 @@ resetting dynamic simulation state. `nonstructural-updates`, `equipment-retentio
 [settings rebuild audit](../../../game/PERFORMANCE.md#remaining-settings-rebuilds-resolved-2026-10-21)
 for first-use browser timings and current coverage limits.
 
+Graphics quality applies in every view, including Hide UI: Low keeps reduced model
+geometry for equipment, trains, passengers and station chunks. Hide UI puts all
+storeys into the presentation view and disables storey-based LOD, but must not
+override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
+`CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
+`geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
+
 | Work | Skill |
 |---|---|
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |

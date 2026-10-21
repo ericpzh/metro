@@ -231,15 +231,16 @@ export class CrowdSystem extends SceneSystem {
   /**
    * Which prepared topology a passenger on storey band `level` is drawn with.
    *
-   * 低画质 draws the whole crowd reduced and 隐藏UI — the presentation mode —
-   * always draws full bodies. In 高画质 the crowd follows the same rule as the
+   * 低画质 draws the whole crowd reduced, including in 隐藏UI. In 高画质 the
+   * crowd follows the same rule as the
    * fixtures and consists beside it: the storey being edited is drawn full, and a
    * ghosted storey (显示其他层) is drawn with the reduced topology. `level` is the
    * `storeyBand` the same repack records in the draw's `passengerLevel` attribute.
    */
   private crowdDetail(level: number): 'full' | 'low' {
-    if (this.ctx.detailEnabled === false || this.ctx.hideUI) return 'full'
+    if (this.ctx.detailEnabled === false) return 'full'
     if (this.ctx.graphicsQuality === 'low') return 'low'
+    if (this.ctx.hideUI) return 'full'
     return levelSide([level], this.ctx.activeZ) === 'active' ? 'full' : 'low'
   }
 

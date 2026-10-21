@@ -60,8 +60,8 @@ export class TrainSystem extends SceneSystem {
   /** Geometry changes keep the consist, door matrices and all animation references. */
   updateGeometryDetail(): void {
     for (const [group, details] of this.details) {
-      const reduced = this.ctx.detailEnabled !== false && !this.ctx.hideUI &&
-        (this.ctx.graphicsQuality === 'low' || levelSide(group.userData.levelZs, this.ctx.activeZ) !== 'active')
+      const reduced = this.ctx.detailEnabled !== false &&
+        (this.ctx.graphicsQuality === 'low' || (!this.ctx.hideUI && levelSide(group.userData.levelZs, this.ctx.activeZ) !== 'active'))
       if (group.userData.trainReduced === reduced) continue
       group.userData.trainReduced = reduced
       for (const detail of details) detail.apply(reduced)

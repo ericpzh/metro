@@ -322,7 +322,7 @@ test('authored omissions survive merged batches, Hide UI restoration and repeate
     batches.graphicsQuality = 'low'; batches.updateDetail(camera, 800)
     assert.equal(triangles(mesh.geometry), 12, 'identical full meshes with different Low variants cannot share one instanced geometry')
     const reduced = mesh.geometry
-    batches.hideUI = true; batches.updateDetail(camera, 800); assert.equal(mesh.geometry, full)
+    batches.hideUI = true; batches.updateDetail(camera, 800); assert.equal(mesh.geometry, reduced)
     batches.hideUI = false; batches.updateDetail(camera, 800); assert.equal(mesh.geometry, reduced)
     assert.equal(batches.root.children[0], mesh)
   } finally {

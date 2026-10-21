@@ -47,7 +47,7 @@ test('chunk detail keeps original ray hits and restores shared full geometry bef
   chunks.disposeChunks();mesh.material.dispose()
 })
 
-test('other-floor train geometry reduces without changing doors, and Hide UI/full-detail controls restore originals',()=>{
+test('other-floor train geometry reduces without changing doors, and Low quality stays reduced in Hide UI',()=>{
   const previous=globalThis.document
   globalThis.document={createElement:()=>{const c={width:0,height:0};const {g}=stubCanvas();g.canvas=c;c.getContext=()=>g;return c}}
   let mats,trains

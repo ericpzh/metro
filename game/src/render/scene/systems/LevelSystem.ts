@@ -140,7 +140,8 @@ export class LevelSystem extends SceneSystem {
       for (const child of group.children) {
         const mesh = child as THREE.Mesh
         if (!mesh.isMesh) continue
-        this.chunks.setGeometryDetail?.(mesh, this.ctx.detailEnabled !== false && !this.ctx.hideUI && (this.ctx.graphicsQuality === 'low' || side !== 'active'))
+        this.chunks.setGeometryDetail?.(mesh, this.ctx.detailEnabled !== false &&
+          (this.ctx.graphicsQuality === 'low' || (!this.ctx.hideUI && side !== 'active')))
         const isOutline = this.chunks.outlineSet.has(mesh)
         // **隐藏地面: the street plane, gone in every mode.** It is the generated
         // window (`sim/ground.ts`), meshed as its own pass and tagged `ground`

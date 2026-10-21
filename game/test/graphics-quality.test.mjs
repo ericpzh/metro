@@ -6,14 +6,15 @@ import { detailHeight } from '../src/render/detailPolicy.ts'
 import { createViewSlice } from '../src/app/store/slices/ViewSlice.ts'
 import { readGraphicsQuality } from '../src/app/graphicsQuality.ts'
 
-test('other storeys reduce even near the camera; Hide UI always restores full visible geometry',()=>{
+test('other storeys reduce near the camera; low quality stays reduced in Hide UI',()=>{
   assert.equal(detailHeight([0],0,false,'high',800),800)
   assert.equal(detailHeight([-4],0,false,'high',800),0)
   assert.equal(detailHeight([4],0,false,'high',800),0)
   assert.equal(detailHeight([-4,4],0,false,'high',800),800,'spanning the active storey remains current')
   assert.equal(detailHeight([0],0,false,'low',800),0)
   assert.equal(detailHeight(undefined,0,false,'high',800),800)
-  for(const quality of ['high','low'])for(const zs of [[0],[-4],[4],undefined])assert.equal(detailHeight(zs,0,true,quality,800),Infinity)
+  for(const zs of [[0],[-4],[4],undefined])assert.equal(detailHeight(zs,0,true,'high',800),Infinity)
+  for(const zs of [[0],[-4],[4],undefined])assert.equal(detailHeight(zs,0,true,'low',800),0)
 })
 
 test('quality persists separately from station saves and survives unavailable/invalid storage',()=>{

@@ -1,9 +1,10 @@
 import { levelSide } from './levelSlicing.ts'
 
 export type GraphicsQuality = 'high' | 'low'
-/** Hide UI is the presentation mode: visible geometry is always complete. */
+/** Low quality keeps reduced geometry in every view; Hide UI only disables storey-based reduction. */
 export function detailHeight(levels: number[] | undefined, activeZ: number, hideUI: boolean, quality: GraphicsQuality, height: number): number {
+  if (quality === 'low') return 0
   if (hideUI) return Infinity
-  if (quality === 'low' || levelSide(levels, activeZ) !== 'active') return 0
+  if (levelSide(levels, activeZ) !== 'active') return 0
   return height
 }

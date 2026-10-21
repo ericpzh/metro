@@ -592,7 +592,7 @@ export class SceneRenderer {
     this.requestRender()
     this.grid.setHideUI(on)
     this.level.setHideUI(on)
-    // Hide UI is the presentation mode: it always restores full bodies.
+    // Reapply the quality policy; Hide UI removes storey reduction, while Low stays reduced.
     this.crowd.applyDetail()
   }
 
