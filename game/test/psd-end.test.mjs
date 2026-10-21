@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { createModule, toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
-import { psdEndSpan, snapPsdEnd } from '../src/sim/psdEnds.ts'
-import { rotateLocal } from '../src/sim/track.ts'
+import { isPsdEndCoverSupport, psdEndSpan, snapPsdEnd, snapPsdEndCover } from '../src/sim/psdEnds.ts'
+import { edgeCells, rotateLocal } from '../src/sim/track.ts'
 import { moduleEnvelope, equipmentReason, moduleFootprint, placementBlocked, moveCandidate, movedModule, blockReason } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { useStore, placementPreviewKey, folderTiles } from '../src/app/store.ts'
@@ -12,7 +12,7 @@ import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { buildModule } from '../src/render/models.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
-import { PickTool } from '../src/app/tools/PickTool.ts'
+import { PickTool, paletteIdForModule } from '../src/app/tools/PickTool.ts'
 import { PSD_HALF_HEIGHT, psdFullHeight } from '../src/sim/constants.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 
@@ -24,7 +24,7 @@ const panel = (rot = 0, psd = 'half') => ({ ...createModule('psd-end', 0, 0, 0, 
 const screen = (rot = 0, side = 'left', psd = 'half') => ({ id: 'screen', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 6, storeyHeight: STOREY, cfg: { line: '1', name: '', dir: 'up', side, psd } })
 
 test('one decor tile switches height and refreshes a stationary ghost', () => {
-  assert.ok(folderTiles('decor').some((t) => t.anchor === 'psd-end'))
+  assert.ok(folderTiles('decor').some((t) => t.anchor === '__psd-end'))
   const before = useStore.getState().psdEndHeight
   try {
     useStore.setState({ psdEndHeight: 'half' })
@@ -36,6 +36,270 @@ test('one decor tile switches height and refreshes a stationary ghost', () => {
     assert.equal(useStore.getState().psdEndHeight, 'half')
     assert.notEqual(moduleGhostKey(panel(0, 'half')), moduleGhostKey(panel(0, 'full')))
   } finally { useStore.setState({ psdEndHeight: before }) }
+})
+
+test('屏蔽门盖板 snaps above full PSDs and stacks in one metre white courses', () => {
+  const screenMod = screen(0, 'left', 'full')
+  const draft = createModule('psd-end-cover', 0, 0, 0, 'cover')
+  assert.equal(draft?.type, 'psd-end')
+  assert.equal(draft?.cfg.variant, 'cover')
+  assert.equal(paletteIdForModule(draft), 'psd-end-cover')
+  assert.ok(folderTiles('decor').some((tile) => tile.anchor === '__psd-end'))
+  const first = snapPsdEndCover(draft, [screenMod])
+  assert.ok(first)
+  assert.equal(first.z, 4)
+  assert.equal(first.cfg.support, screenMod.id)
+  assert.equal(equipmentReason([], [screenMod], first, true), '')
+  const second = snapPsdEndCover({ ...first, id: 'cover-2', z: first.z, cfg: { ...first.cfg, support: undefined } }, [screenMod, first], [], first.id)
+  assert.ok(second)
+  assert.equal(second.z, first.z + 1)
+  assert.equal(second.cfg.support, first.id)
+  assert.equal(moduleEnvelope(second).z1 - moduleEnvelope(second).z0, 1)
+  const saved = parse(serialize(toState({ ...emptyStation(), modules: [screenMod, first, second] })))
+  assert.equal(saved.ok, true)
+  assert.deepEqual(saved.state.modules.slice(1), [first, second])
+  assert.equal(snapPsdEndCover(draft, []), null, 'an unsupported cover cannot be placed')
+
+  const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
+  const group = buildModule(first, { mats, data: { ...emptyStation(), modules: [screenMod, first] }, trackCells: new Set(), finish: () => mats.steel, owned: [] })
+  const panel = group.getObjectByName('psd-cover-panel')
+  assert.ok(panel)
+  assert.equal(panel.material, mats.white)
+  panel.geometry.computeBoundingBox()
+  assert.equal(panel.geometry.boundingBox.max.z - panel.geometry.boundingBox.min.z, 1)
+})
+
+test('clicking an existing cover previews and commits a dimension-matched upper course', () => {
+  const before = useStore.getState()
+  try {
+    const s = screen(0, 'left', 'full')
+    const end = { ...panel(0, 'full'), x: 2, cfg: { psd: 'full', corner: s.id, offset: [0.25, 0] } }
+    const base = snapPsdEndCover(createModule('psd-end-cover', 2, 0, 0, 'base'), [s, end], [], end.id)
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [s, end, base] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    let preview
+    const scene = { setModulePreview(mods) { preview = mods }, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => base.id, hover: { current: null }, drag: { current: null } })
+    const event = pointer()
+    event.hit = null
+    tool.onMove(event)
+    assert.equal(preview.length, 1)
+    assert.equal(preview[0].z, base.z + 1)
+    assert.equal(preview[0].cfg.width, base.cfg.width)
+    assert.equal(preview[0].cfg.depth, base.cfg.depth)
+    assert.deepEqual(preview[0].cfg.offset, base.cfg.offset)
+    assert.equal(equipmentReason(useStore.getState().station.cells, useStore.getState().station.modules, preview[0], true), '')
+    tool.onDown(event)
+    const upper = useStore.getState().station.modules.find((m) => m.type === 'psd-end' && m.cfg.support === base.id)
+    assert.deepEqual(upper, preview[0])
+  } finally { useStore.setState(before) }
+})
+
+test('屏蔽门盖板 matches a shortened 屏蔽端门 span and center', () => {
+  const screenMod = screen(0, 'left', 'full')
+  const end = {
+    ...createModule('psd-end', 5, 0, 0, 'short-end', 0, undefined, 'up', 'lane', [], undefined, { storeyHeight: STOREY }),
+    cfg: { psd: 'full', corner: screenMod.id, offset: [0.25, 0] },
+  }
+  const cover = snapPsdEndCover(createModule('psd-end-cover', 5, 0, 0, 'cover'), [screenMod, end], [], end.id)
+  assert.ok(cover)
+  assert.equal(cover.cfg.width, 0.75)
+  assert.deepEqual(cover.cfg.offset, [0.125, 0])
+  assert.ok(isPsdEndCoverSupport(cover, end))
+
+  const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
+  const group = buildModule(cover, { mats, data: { ...emptyStation(), modules: [screenMod, end, cover] }, trackCells: new Set(), finish: () => mats.steel, owned: [] })
+  const panel = group.getObjectByName('psd-cover-panel')
+  assert.ok(panel)
+  panel.geometry.computeBoundingBox()
+  assert.equal(panel.geometry.boundingBox.max.x - panel.geometry.boundingBox.min.x, 0.75)
+  assert.equal(panel.position.x, 0.125)
+})
+
+test('屏蔽门盖板 applies across the whole run when the PSD is picked', () => {
+  for (let rot = 0; rot < 4; rot++) {
+    const before = useStore.getState()
+    try {
+      const screenMod = screen(rot, 'left', 'full')
+      const [firstX, firstY] = edgeCells(screenMod)[0]
+      const existing = snapPsdEndCover(createModule('psd-end-cover', firstX, firstY, screenMod.z, 'existing-cover'), [screenMod])
+      useStore.setState({ station: toState({ ...emptyStation(), modules: [screenMod, existing] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+      const scene = { setModulePreview() {}, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+      const tool = new EquipmentTool({ scene: () => scene, pickModule: () => screenMod.id, hover: { current: null }, drag: { current: null } })
+      const hit = pointer()
+      hit.hit.solid = false
+      tool.onDown(hit)
+      const placed = useStore.getState().station.modules.filter((m) => m.type === 'psd-end' && m.cfg.variant === 'cover')
+      assert.equal(placed.length, screenMod.w)
+      assert.equal(new Set(placed.map((m) => m.id)).size, screenMod.w)
+      assert.deepEqual(placed.map((m) => [m.x, m.y]), edgeCells(screenMod).map(([x, y]) => [x, y]))
+      assert.ok(placed.every((m) => m.z === 4 && m.cfg.support === screenMod.id))
+      assert.equal(useStore.getState().past.length, 1)
+    } finally { useStore.setState(before) }
+  }
+})
+
+test('picking the PSD run fills its terminal tile without snapping over a separate 屏蔽端门', () => {
+  const before = useStore.getState()
+  try {
+    const screenMod = screen(0, 'left', 'full')
+    const end = {
+      ...createModule('psd-end', 5, 0, 0, 'terminal-end', 0, undefined, 'up', 'lane', [], undefined, { storeyHeight: STOREY }),
+      cfg: { psd: 'full', corner: screenMod.id, offset: [0.25, 0] },
+    }
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [screenMod, end] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    const scene = { setModulePreview() {}, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => screenMod.id, hover: { current: null }, drag: { current: null } })
+    const hit = pointer()
+    hit.hit.solid = false
+    tool.onDown(hit)
+    const covers = useStore.getState().station.modules.filter((m) => m.type === 'psd-end' && m.cfg.variant === 'cover')
+    assert.equal(covers.length, screenMod.w)
+    const terminal = covers.find((m) => m.x === end.x && m.y === end.y)
+    assert.ok(terminal, 'the terminal screen tile receives a cover')
+    assert.equal(terminal.cfg.support, screenMod.id)
+    assert.equal(terminal.cfg.width, undefined, 'PSD run covers keep the full tile width')
+    assert.equal(terminal.cfg.offset, undefined, 'the end door does not pull the run cover off the PSD tile')
+  } finally { useStore.setState(before) }
+})
+
+test('屏蔽门盖板 uses the picked upper PSD when levels share the same footprint', () => {
+  const before = useStore.getState()
+  try {
+    const lower = screen(0, 'left', 'full')
+    const upper = { ...screen(0, 'left', 'full'), id: 'upper-screen', z: STOREY }
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [lower, upper] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    const scene = { setModulePreview() {}, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => upper.id, hover: { current: null }, drag: { current: null } })
+    const hit = pointer()
+    hit.hit.cell = [0, 0, STOREY]
+    hit.hit.place = [0, 0, STOREY]
+    hit.hit.solid = false
+    tool.onDown(hit)
+    const placed = useStore.getState().station.modules.filter((m) => m.type === 'psd-end' && m.cfg.variant === 'cover')
+    assert.equal(placed.length, upper.w)
+    assert.ok(placed.every((m) => m.z === STOREY + 4 && m.cfg.support === upper.id))
+  } finally { useStore.setState(before) }
+})
+
+test('屏蔽门盖板 previews and snaps when 屏蔽端门 is picked', () => {
+  const before = useStore.getState()
+  try {
+    const screenMod = screen(0, 'left', 'full')
+    const end = {
+      ...createModule('psd-end', 2, 0, 0, 'end', 0, undefined, 'up', 'lane', [], undefined, { storeyHeight: STOREY }),
+      cfg: { psd: 'full', corner: screenMod.id, offset: [0.25, 0] },
+    }
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [screenMod, end] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    const previews = []
+    const scene = { setModulePreview(mods) { previews.push(mods) }, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    let picks = 0
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: (_x, _y, support) => { assert.equal(support, true); picks++; return end.id }, hover: { current: null }, drag: { current: null } })
+    const hover = pointer()
+    hover.hit = null
+    tool.onMove(hover)
+    const preview = previews.at(-1)
+    assert.equal(picks, 1, 'the hover resolves the drawn module once')
+    assert.equal(preview.length, 1)
+    assert.equal(preview[0].cfg.support, end.id)
+    assert.equal(preview[0].z, end.z + 1 + psdFullHeight(STOREY))
+    assert.equal(preview[0].cfg.width, 0.75)
+    assert.deepEqual(preview[0].cfg.offset, [0.125, 0])
+
+    const click = pointer()
+    click.hit = null
+    tool.onDown(click)
+    const placed = useStore.getState().station.modules.find((m) => m.type === 'psd-end' && m.cfg.variant === 'cover')
+    assert.ok(placed)
+    assert.equal(placed.cfg.support, end.id)
+    assert.equal(placed.z, preview[0].z)
+    assert.equal(placed.cfg.width, 0.75)
+    assert.deepEqual(placed.cfg.offset, [0.125, 0])
+    assert.equal(picks, 2, 'the press resolves the drawn module once')
+  } finally { useStore.setState(before) }
+})
+
+test('the real snapped corner receives its own cover beside an already covered PSD run', () => {
+  const before = useStore.getState()
+  try {
+    const s = screen(0, 'left', 'full')
+    const end = snapPsdEnd(panel(1, 'full'), [s])
+    assert.equal(end.cfg.corner, s.id)
+    const run = edgeCells(s).map(([x, y, z], i) => snapPsdEndCover(createModule('psd-end-cover', x, y, z, `run-${i}`), [s], [], s.id))
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [s, end, ...run] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    let preview, blocked
+    const scene = { setModulePreview(mods, refused) { preview = mods; blocked = refused }, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => end.id, hover: { current: null }, drag: { current: null } })
+    const event = pointer()
+    event.hit = null
+    tool.onMove(event)
+    assert.equal(preview.length, 1, 'the PSD cover in the same tile does not suppress the corner cover')
+    assert.equal(blocked, false, 'the fitted corner must clear the existing PSD cover')
+    const candidate = preview[0]
+    assert.equal(equipmentReason([], [s, end, ...run], candidate, true), '')
+    const envelope = moduleEnvelope(candidate)
+    assert.ok(Math.abs(envelope.x1 - envelope.x0 - 0.12) < 1e-6)
+    assert.ok(Math.abs(envelope.y1 - envelope.y0 - 0.72) < 1e-6)
+    const mats = new Proxy({}, { get: (t, k) => t[k] ??= new THREE.MeshStandardMaterial() })
+    const group = buildModule(candidate, { mats, data: { ...emptyStation(), modules: [s, end, ...run] }, trackCells: new Set(), finish: () => mats.steel, owned: [] })
+    const bounds = new THREE.Box3().setFromObject(group)
+    assert.ok(Math.abs(bounds.min.x - envelope.x0) < 1e-6)
+    assert.ok(Math.abs(bounds.max.x - envelope.x1) < 1e-6)
+    assert.ok(Math.abs(bounds.min.y - envelope.y0) < 1e-6)
+    assert.ok(Math.abs(bounds.max.y - envelope.y1) < 1e-6)
+    tool.onDown(event)
+    const placed = useStore.getState().station.modules.filter((m) => m.type === 'psd-end' && m.cfg.support === end.id)
+    assert.equal(placed.length, 1)
+    assert.deepEqual(placed[0], candidate)
+    tool.onDown(event)
+    assert.equal(useStore.getState().past.length, 1, 'a repeated click does not duplicate the corner cover')
+    const upper = snapPsdEndCover(createModule('psd-end-cover', 0, 0, 0, 'upper'), [placed[0]], [], placed[0].id)
+    assert.equal(upper.cfg.width, candidate.cfg.width)
+    assert.equal(upper.cfg.depth, candidate.cfg.depth)
+  } finally { useStore.setState(before) }
+})
+
+test('corner covers clear the covered PSD at both endpoints, track sides and every rotation', () => {
+  for (let rot = 0; rot < 4; rot++) for (const side of ['left', 'right']) for (const at of [0, 5]) {
+    const s = screen(rot, side, 'full')
+    const [x, y] = edgeCells(s)[at]
+    const end = snapPsdEnd({ ...panel((rot + 1) % 4, 'full'), x, y }, [s])
+    assert.equal(end.cfg.corner, s.id)
+    const run = edgeCells(s).map(([x, y, z], i) => snapPsdEndCover(createModule('psd-end-cover', x, y, z, `run-${i}`), [s], [], s.id))
+    const cover = snapPsdEndCover(createModule('psd-end-cover', x, y, 0, 'corner-cover'), [s, end, ...run], [], end.id)
+    assert.ok(cover.cfg.width > 0 && cover.cfg.depth > 0)
+    assert.equal(equipmentReason([], [s, end, ...run], cover, true), '', `rotation ${rot}, ${side}, endpoint ${at}`)
+  }
+})
+
+test('屏蔽门盖板 applies one tile when the ground is picked', () => {
+  const before = useStore.getState()
+  try {
+    const screenMod = screen(0, 'left', 'full')
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [screenMod] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    const scene = { setModulePreview() {}, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => null, hover: { current: null }, drag: { current: null } })
+    const hit = pointer()
+    hit.hit.cell = [2, 0, 0]
+    hit.hit.place = [2, 0, 0]
+    hit.hit.solid = true
+    tool.onDown(hit)
+    const placed = useStore.getState().station.modules.filter((m) => m.type === 'psd-end' && m.cfg.variant === 'cover')
+    assert.equal(placed.length, 1)
+    assert.equal(placed[0].x, 2)
+    assert.equal(placed[0].z, 4)
+    assert.equal(placed[0].cfg.support, screenMod.id)
+    assert.equal(useStore.getState().past.length, 1)
+  } finally { useStore.setState(before) }
+})
+
+test('a ground click on an upper platform snaps to that level PSD', () => {
+  const lower = screen(0, 'left', 'full')
+  const upper = { ...screen(0, 'left', 'full'), id: 'upper-screen', z: STOREY }
+  const draft = createModule('psd-end-cover', 2, 0, STOREY, 'upper-cover')
+  const snapped = snapPsdEndCover(draft, [lower, upper])
+  assert.ok(snapped)
+  assert.equal(snapped.z, STOREY + 4)
+  assert.equal(snapped.cfg.support, upper.id)
 })
 
 test('neighbouring screens never stretch a panel beyond its own metre', () => {
@@ -263,7 +527,7 @@ test('the corner hover is accepted and the click commits the same snapped pose',
 
 test('curtain wall has one tile beside the screen end, four Tab widths, and pick restores its width', () => {
   const tiles = folderTiles('decor').map((t) => t.anchor)
-  const index = tiles.indexOf('psd-end')
+  const index = tiles.indexOf('__psd-end')
   assert.equal(index % 2, 0)
   assert.equal(tiles[index + 1], 'curtain-wall')
   const before = useStore.getState()

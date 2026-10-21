@@ -115,6 +115,31 @@ test('real module picking reaches batch source IDs, restores ray layers and resp
   } finally { cam.dispose(); batches.clear(); cleanup(modules); wall.geometry.dispose(); material.dispose() }
 })
 
+test('cover support picking catches an end-door seam ahead of equipment behind it and respects walls', () => {
+  const { cam } = cameraRig(), modules = new THREE.Group(), material = new THREE.MeshBasicMaterial()
+  const left = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 2), material)
+  const right = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.14, 2), material)
+  left.position.x = -0.4; right.position.x = 0.4
+  const end = root([left, right], 'end', 'psd-end')
+  const behind = new THREE.Mesh(new THREE.BoxGeometry(2, 0.1, 2), material)
+  behind.position.y = 1
+  modules.add(end, root([behind], 'behind', 'platform-edge'))
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(3, 0.1, 2), material)
+  wall.position.y = -1; wall.updateMatrixWorld(true)
+  try {
+    cam.modules = { moduleMeshes: modules }
+    modules.updateMatrixWorld(true)
+    cam.camera.position.set(0, -5, 0); cam.camera.lookAt(0, 0, 0); cam.camera.updateMatrixWorld(true)
+    assert.equal(cam.pickModule(640, 410), 'behind')
+    assert.equal(cam.pickModule(640, 410, true), 'end', 'the cover attaches to the nearer end panel')
+    end.visible = false
+    assert.equal(cam.pickModule(640, 410, true), 'behind', 'hidden-storey panels cannot receive covers')
+    end.visible = true
+    cam.setPickables([wall])
+    assert.equal(cam.pickModule(640, 410, true), null, 'a nearer station wall still occludes the end panel')
+  } finally { cam.dispose(); cleanup(modules); wall.geometry.dispose(); material.dispose() }
+})
+
 test('ramp bound picking reaches between stair treads but still respects walls', () => {
   const { cam } = cameraRig(), modules = new THREE.Group(), material = new THREE.MeshBasicMaterial()
   const left = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1, 0.1), material)

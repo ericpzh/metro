@@ -302,7 +302,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       // The palette tile shows the default lane gate; the choice itself is Tab.
       return { id, type: 'gate', x: 0, y: 0, z: 0, rot: 0, cfg: { dir: 'both', door: 'lane', variant: id === 'gate-new' ? 'new' : 'old' } }
     case 'psd-end':
-      return createModule('psd-end', 0, 0, 0, id)
+    case 'psd-end-cover':
+      return createModule(id, 0, 0, 0, id)
     case 'fence':
     case 'noise-barrier':
     case 'noise-barrier-half':

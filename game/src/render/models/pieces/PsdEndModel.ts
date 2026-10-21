@@ -10,6 +10,19 @@ import { finishPsdHousing } from './PsdHousing.ts'
 export class PsdEndModel extends PieceBuilder {
   readonly kind = 'psd-end'
   build(mod: Extract<Module, { type: 'psd-end' }>): THREE.Group {
+    if (mod.cfg.variant === 'cover') {
+      const group = new THREE.Group()
+      const panel = new THREE.Mesh(new THREE.BoxGeometry(mod.cfg.width ?? 1, mod.cfg.depth ?? 0.24, 1), this.ctx.mats.white)
+      panel.name = 'psd-cover-panel'
+      panel.position.set(mod.cfg.offset?.[0] ?? 0, (mod.cfg.side === 'right' ? 0.34 : -0.34) + (mod.cfg.offset?.[1] ?? 0), 0.5)
+      panel.castShadow = true
+      panel.receiveShadow = true
+      group.add(panel)
+      group.position.set(mod.x + 0.5, mod.y + 0.5, mod.z)
+      group.rotation.z = (mod.rot ?? 0) * Math.PI / 2
+      group.traverse((child) => { child.userData.wall = true })
+      return group
+    }
     const span = psdEndSpan(mod, this.ctx.data.modules, this.ctx.data.lines)
     const group = buildPsd(this.ctx, { ...mod, type: 'platform-edge', w: 1,
       cfg: { name: t('screen_end_door'), dir: 'up', line: '', side: 'left', psd: mod.cfg.psd } }, span)

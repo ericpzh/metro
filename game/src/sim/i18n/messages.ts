@@ -910,6 +910,10 @@ export const messages = {
     "zh": "屏蔽端门",
     "en": "Screen end door"
   },
+  "screen_door_cover": {
+    "zh": "屏蔽门盖板",
+    "en": "Screen door cover"
+  },
   "glass_fence": {
     "zh": "玻璃围栏",
     "en": "Glass fence"

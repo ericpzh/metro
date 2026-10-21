@@ -37,7 +37,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
   floor: new Set([
     'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning',
     'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1',
-    'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'rail-signal',
+    'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'psd-end-cover', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
   ]),
   outside: new Set(['cctv-post', 'sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
@@ -85,6 +85,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'gate', label: msg('old'), type: 'gate', w: 1, h: 1 },
   { id: 'gate-new', label: msg('new'), type: 'gate', w: 1, h: 1 },
   { id: 'psd-end', label: msg('screen_end_door'), type: 'psd-end', w: 1, h: 1 },
+  { id: 'psd-end-cover', label: msg('screen_door_cover'), type: 'psd-end', w: 1, h: 1 },
   { id: 'fence', label: msg('glass_fence'), type: 'fence', w: 1, h: 1 },
   { id: 'fence-gate', label: msg('door'), type: 'fence', w: 1, h: 1 },
   { id: 'fence-iron', label: msg('iron_fence'), type: 'fence', w: 1, h: 1 },
@@ -252,7 +253,7 @@ export function isDecorType(type: string): boolean {
     type === 'tactile' || type.startsWith('tactile-') || type === 'floor-mark' || type.startsWith('floor-mark-') ||
     type === 'ac-unit' || type === 'electrical-cabinet' ||
     isBenchType(type) ||
-    type === 'curtain-wall' || type === 'psd-end' ||
+    type === 'curtain-wall' || type === 'psd-end' || type === 'psd-end-cover' ||
     isShelfType(type) ||
     type === 'desk' ||
     type === 'checkout' ||
@@ -417,7 +418,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign'
+export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -467,6 +468,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'calligraphy', owns: isCalligraphyType },
   { key: 'linemap', owns: isLineMapType },
   { key: 'sign', owns: isSignType },
+  { key: 'psd-end', owns: (id) => id === 'psd-end' || id === 'psd-end-cover' },
 ]
 
 /**
@@ -527,6 +529,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
     folder: 'decor',
     owns: isSignType,
   },
+  { key: 'psd-end', label: msg('screen_end_door'), folder: 'decor', owns: (id) => id === 'psd-end' || id === 'psd-end-cover' },
   { key: 'noise-barrier', label: msg('noise_barrier'), folder: 'decor', owns: isNoiseBarrierType },
 ]
 
@@ -610,7 +613,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'tv',
     familyAnchor('monitor'),
     'rail-signal',
-    'psd-end',
+    familyAnchor('psd-end'),
     'curtain-wall',
     'bin',
     familyAnchor('extinguisher'),
@@ -649,7 +652,7 @@ const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = 
     familyAnchor('calligraphy'), familyAnchor('linemap'),
   ],
   floor: [
-    'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', 'psd-end',
+    'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', familyAnchor('psd-end'),
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
     familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ],
@@ -857,6 +860,7 @@ const MODULE_LABELS: Record<string, string> = {
   roof: msg('station_roof'),
   gate: msg('fare_gate'),
   'psd-end': msg('screen_end_door'),
+  'psd-end-cover': msg('screen_door_cover'),
   fence: msg('glass_fence'),
   tvm: msg('ticket_machine'),
   vending: msg('vending_machine'),

@@ -576,8 +576,8 @@ export class CameraSystem extends SceneSystem {
    * otherwise miss it and land on the floor beyond. Only visible modules count,
    * matching the level slicing. Null over bare floor or station geometry.
    */
-  pickModule(clientX: number, clientY: number): string | null {
-    return this.pickModuleHit(clientX, clientY)?.moduleId ?? null
+  pickModule(clientX: number, clientY: number, psdCoverSupport = false): string | null {
+    return this.pickModuleSurfaceHit(clientX, clientY, psdCoverSupport)?.moduleId ?? null
   }
 
   /**
@@ -617,7 +617,7 @@ export class CameraSystem extends SceneSystem {
   }
 
   /** The visible module face and normal, used by the face-aware 材质 brush. */
-  pickModuleSurfaceHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number]; normal: [number, number, number] } | null {
+  pickModuleSurfaceHit(clientX: number, clientY: number, psdCoverSupport = false): { moduleId: string; point: [number, number, number]; normal: [number, number, number] } | null {
     const rect = this.canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
@@ -637,10 +637,31 @@ export class CameraSystem extends SceneSystem {
         break
       }
     }
-    if (!modHit || !moduleId) return null
+    // Cover placement targets the end panel even through a glazing/frame seam.
+    // Reuse this event's ray and keep the actual trimmed model bounds (§5.7).
+    let supportHit: { moduleId: string; point: THREE.Vector3; distance: number } | null = null
+    if (psdCoverSupport) {
+      const bounds = new THREE.Box3()
+      const point = new THREE.Vector3()
+      for (const group of shown) {
+        if (group.userData.moduleType !== 'psd-end' || typeof group.userData.moduleId !== 'string') continue
+        group.updateWorldMatrix(true, true)
+        bounds.setFromObject(group)
+        if (!this.raycaster.ray.intersectBox(bounds, point)) continue
+        const distance = this.raycaster.ray.origin.distanceTo(point)
+        if (modHit && distance >= modHit.distance) continue
+        if (!supportHit || distance < supportHit.distance) supportHit = { moduleId: group.userData.moduleId, point: point.clone(), distance }
+      }
+    }
+    if ((!modHit || !moduleId) && !supportHit) return null
     // A block nearer the camera occludes the module: never select through a wall.
     const blocks = this.pickables.filter(visibleThroughParents)
     const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
+    if (supportHit) {
+      if (blockHits.length > 0 && blockHits[0].distance < supportHit.distance) return null
+      return { moduleId: supportHit.moduleId, point: [supportHit.point.x, supportHit.point.y, supportHit.point.z], normal: [0, 0, 1] }
+    }
+    if (!modHit || !moduleId) return null
     if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
     const normal = modHit.face?.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(modHit.object.matrixWorld)).normalize()
       ?? new THREE.Vector3(0, 0, 1)

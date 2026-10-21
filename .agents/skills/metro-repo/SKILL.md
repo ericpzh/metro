@@ -122,6 +122,18 @@ changed modules' line, branch and function coverage, and use their real producti
 browser check. Preserve deterministic work-count/lifecycle assertions; browser timing
 is evidence, not a pass threshold.
 
+PSD cover placement is regression-sensitive across picking, snapping and collision.
+`psd-end.test.mjs` must pin whole-run clicks, one-tile ground clicks, direct end-door
+clicks, floorless hover/click agreement, same-footprint level selection, upward stacking,
+save/load, and the actual shortened corner's rendered width/depth against its placement
+bounds. `batching-lifecycle.test.mjs` must pin end-door seam targeting through visible
+module bounds, nearer-wall occlusion and hidden-storey exclusion. Exercise both screen
+endpoints, both track sides and all four rotations with an already-covered PSD run: the
+corner and straight cover can share a grid tile but have different supports, so duplicate
+detection must use support/shape rather than x/y/z alone. Keep the corner cover trimmed
+against the PSD housing and verify preview, release and collision validation agree.
+Update both suites and this coverage map whenever those contracts move.
+
 ## What lives where
 
 `model/` is the third app: a Vite + three.js character viewer at port 5175.

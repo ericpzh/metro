@@ -33,7 +33,7 @@ function modelGhostKey(mod: Module): string {
   if (mod.type === 'shelf') return `shelf:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.variant ?? 'dark-tall'}`
   if (mod.type === 'tactile' || mod.type === 'floor-mark') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod.cfg)}`
   if (mod.type === 'guidepost' || mod.type === 'busstop' || mod.type === 'light' || mod.type === 'pillar' || mod.type === 'roof' || mod.type === 'exit') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${JSON.stringify(mod)}`
-  if (mod.type === 'psd-end') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.psd}:${JSON.stringify(mod.cfg.offset ?? [])}:${mod.cfg.corner ?? ''}`
+  if (mod.type === 'psd-end') return `${mod.type}:${mod.x},${mod.y},${mod.z}:${mod.rot ?? 0}:${mod.cfg.psd}:${JSON.stringify(mod.cfg)}`
   if (mod.type === 'booth') return `booth:${mod.x},${mod.y},${mod.z}:${mod.w}x${mod.h}:${mod.cfg.kind ?? 'ticket'}:${mod.cfg.front ?? 0}`
   const span =
     mod.type === 'stair'

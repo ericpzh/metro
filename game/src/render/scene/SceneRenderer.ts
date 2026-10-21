@@ -743,8 +743,8 @@ export class SceneRenderer {
     return this.cameraSys.pickHorizontalPlane(clientX, clientY, height, anchorZ)
   }
 
-  pickModule(clientX: number, clientY: number): string | null {
-    return this.cameraSys.pickModule(clientX, clientY)
+  pickModule(clientX: number, clientY: number, psdCoverSupport = false): string | null {
+    return this.cameraSys.pickModule(clientX, clientY, psdCoverSupport)
   }
 
   pickModuleSurface(clientX: number, clientY: number): { moduleId: string; normal: [number, number, number] } | null {

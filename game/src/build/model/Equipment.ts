@@ -189,6 +189,8 @@ function createModuleRaw(
       return { id, type: 'gate', x, y, z, rot, cfg: { dir: 'both', door, variant: type === 'gate-new' ? 'new' : 'old' } };
     case 'psd-end':
       return { id, type: 'psd-end', x, y, z, rot, cfg: { psd: 'half' } };
+    case 'psd-end-cover':
+      return { id, type: 'psd-end', x, y, z, rot, cfg: { psd: 'full', variant: 'cover' } };
     case 'fence':
     case 'noise-barrier':
     case 'noise-barrier-half':

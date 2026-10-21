@@ -29,7 +29,7 @@ import { CHECKOUT_HEIGHT, DESK_HEIGHT } from './constants.ts'
 import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
 import { fenceArms, railLandingAt, type FenceNeighbours } from './fences.ts'
 import { gateSolidFaces } from './gates.ts'
-import { isPsdCornerPair, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd } from './psdEnds.ts'
+import { isPsdCornerPair, isPsdEndCoverSupport, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd, snapPsdEndCover } from './psdEnds.ts'
 import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
@@ -501,6 +501,15 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return wallPanelBox(m, lineMapCells(m), z0 + bottom - LINE_MAP_FRAME_PAD, z0 + bottom + spec.panelH + LINE_MAP_FRAME_PAD)
     }
     case 'psd-end': {
+      if (m.cfg.variant === 'cover') {
+        const side = m.cfg.side === 'right' ? 1 : -1
+        const [cx, cy] = rotateLocal(m.rot, m.cfg.offset?.[0] ?? 0, side * 0.34 + (m.cfg.offset?.[1] ?? 0))
+        const [axX, axY] = rotateLocal(m.rot, 1, 0), [ayX, ayY] = rotateLocal(m.rot, 0, 1)
+        const rx = Math.abs(axX) * (m.cfg.width ?? 1) * 0.5 + Math.abs(ayX) * (m.cfg.depth ?? 0.24) * 0.5
+        const ry = Math.abs(axY) * (m.cfg.width ?? 1) * 0.5 + Math.abs(ayY) * (m.cfg.depth ?? 0.24) * 0.5
+        return { x0: m.x + 0.5 + cx - rx, y0: m.y + 0.5 + cy - ry, z0: m.z,
+          x1: m.x + 0.5 + cx + rx, y1: m.y + 0.5 + cy + ry, z1: m.z + 1 }
+      }
       const h = m.cfg.psd === 'half' ? PSD_HALF_HEIGHT : psdFullHeight(m.storeyHeight)
       const [ox, oy] = psdEndOffset(m)
       const [a, b] = psdEndSpan(m)
@@ -1752,7 +1761,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     // fit underneath in either placement order, while other equipment still collides.
     if ((isFloorSticker(m) && candidate.type === 'fence' && candidate.cfg.variant === 'gate')
       || (isFloorSticker(candidate) && m.type === 'fence' && m.cfg.variant === 'gate')) continue
-    if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate)) continue
+    if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate) || isPsdEndCoverSupport(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue
     // A hung fitting hangs *from* a 站台 or 轨道桥 deck: the deck over its cell
@@ -2228,6 +2237,8 @@ export type EquipmentRefusal =
  * those produce the piece, not the verdict.
  */
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
+  if (candidate.type === 'psd-end' && candidate.cfg.variant === 'cover' &&
+    !modules.some((m) => isPsdEndCoverSupport(candidate, m))) return 'floor'
   if (isOutdoorSurface(candidate)) {
     if (candidate.z < 0) return 'outdoor-below-ground'
     const { x, y, z } = candidate, occupied = blockIndex(cells, modules)
@@ -2317,7 +2328,8 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   // It is still refused standing on a track bed, in another piece's space and
   // under open sky — but a 站台 or 轨道桥 deck over its cell is its ceiling, not
   // the bed it stands on (`placementOnTrack` lets a hung fitting hang under one).
-  if (!isCeilingHung(candidate) && !moduleFloorOk(cells, modules, candidate)) {
+  if (!(candidate.type === 'psd-end' && candidate.cfg.variant === 'cover' && modules.some((m) => isPsdEndCoverSupport(candidate, m))) &&
+    !isCeilingHung(candidate) && !moduleFloorOk(cells, modules, candidate)) {
     return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
   }
   if (placementOnTrack(cells, candidate, modules)) return 'track'
@@ -2384,6 +2396,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
  * Mirrors `app/store/catalog.ts`'s `MODULE_LABELS`.
  */
 export function moduleTypeLabel(m: Module): string {
+  if (m.type === 'psd-end' && m.cfg.variant === 'cover') return msg('screen_door_cover')
   if (m.type === 'fence') return m.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : m.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : m.cfg.variant === 'bridge-railing' ? msg('railing') : m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
   if (m.type === 'shop') {
     const kind = (m.cfg as { kind?: string } | undefined)?.kind
@@ -2512,6 +2525,8 @@ export function moveCandidate(
     moved = snapSignToBooth(modules, moved, near ?? [at.x + 0.5, at.y + 0.5], at.z)
   }
   moved = autofaceWallMount(cells, moved, near, modules, facing)
-  if (moved.type === 'psd-end') moved = snapPsdEnd(moved, modules)
+  if (moved.type === 'psd-end') moved = moved.cfg.variant === 'cover'
+    ? snapPsdEndCover(moved, modules) ?? moved
+    : snapPsdEnd(moved, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }

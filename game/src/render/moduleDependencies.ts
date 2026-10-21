@@ -181,7 +181,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'road' && types.has('road') && !equal(roadModelInputs(before, mod), roadModelInputs(after, mod))) continue
     if (mod.type === 'track' && (types.has('track') || types.has('platform-edge')) && !equal(trackModelInputs(before, mod), trackModelInputs(after, mod))) continue
     if (mod.type === 'platform-edge' && changes.some(m => m.id === mod.cfg.from)) continue
-    if (mod.type === 'psd-end' && changes.some(m => m.id === mod.cfg.corner)) continue
+    if (mod.type === 'psd-end' && changes.some(m => m.id === mod.cfg.corner || m.id === mod.cfg.support)) continue
     if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
     if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
     if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => OPENINGS.has(m.type) && nearbyOpening(mod, m))) continue

@@ -19,8 +19,8 @@ import {
 } from '../../build/model.ts'
 import { railModuleAtPlatform, makeBridge, freeTunnelEnd, trackBlockNotice, trackBlockReason, trackColliders, commitTrack } from '../../build/rail.ts'
 import { bridgePillarCandidates } from '../../build/model/BridgePillars.ts'
-import { rotateLocal } from '../../sim/track.ts'
-import { snapPsdEnd } from '../../sim/psdEnds.ts'
+import { edgeCells, rotateLocal } from '../../sim/track.ts'
+import { snapPsdEnd, snapPsdEndCover } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorLengthSpec, escalatorModule } from '../../sim/escalators.ts'
 import { walkwayModule } from '../../sim/walkways.ts'
@@ -93,6 +93,21 @@ export class EquipmentTool extends ToolController {
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
     const st = useStore.getState()
+    // Resolve the drawn target once for this press. A direct PSD pick applies a
+    // cover to its whole run; a floor hit stays a one-tile placement.
+    const pickedCoverId = info.button !== 2 && st.moduleType === 'psd-end-cover'
+      ? this.ctx.pickModule(info.clientX, info.clientY, true)
+      : null
+    const pickedCoverTarget = pickedCoverId
+      ? st.station.modules.find((m) => m.id === pickedCoverId)
+      : undefined
+    if ((pickedCoverTarget?.type === 'platform-edge' || pickedCoverTarget?.type === 'psd-end') && !hit) {
+      const [x, y, z] = pickedCoverTarget.type === 'platform-edge'
+        ? edgeCells(pickedCoverTarget)[0] ?? [pickedCoverTarget.x, pickedCoverTarget.y, pickedCoverTarget.z]
+        : [pickedCoverTarget.x, pickedCoverTarget.y, pickedCoverTarget.z]
+      this.placeModule([x, y, z], [x, y, z], false, st.moduleType, undefined, undefined, pickedCoverTarget)
+      return
+    }
     const pickedRamp = isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info) : undefined
     if (info.button !== 2 && !hit && pickedRamp) {
       const upper = pickedRamp.from.z >= pickedRamp.to.z ? pickedRamp.from : pickedRamp.to
@@ -234,11 +249,12 @@ export class EquipmentTool extends ToolController {
     // Let their placement checks decide; floor-standing equipment still needs
     // an actual solid floor hit — and a press on void says so instead of
     // dropping the click in silence.
-    if (!hit.solid && !canPlaceWithoutFloorHit(st.moduleType)) {
+    const directCoverPick = pickedCoverTarget?.type === 'platform-edge' || pickedCoverTarget?.type === 'psd-end'
+    if (!hit.solid && !directCoverPick && !canPlaceWithoutFloorHit(st.moduleType)) {
       st.setNotice(equipmentRefusalNotice('floor'))
       return
     }
-    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]])
+    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]], undefined, pickedCoverTarget)
   }
 
   onMove(info: PointerInfo): void {
@@ -253,7 +269,21 @@ export class EquipmentTool extends ToolController {
       ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
       : info.hit
     const st = useStore.getState()
+    const pickedCoverId = st.moduleType === 'psd-end-cover'
+      ? this.ctx.pickModule(info.clientX, info.clientY, true)
+      : null
     if (!hit) {
+      const coverTarget = pickedCoverId ? st.station.modules.find((m) => m.id === pickedCoverId) : undefined
+      if (coverTarget?.type === 'platform-edge' || coverTarget?.type === 'psd-end') {
+        this.ctx.hover.current = {
+          cell: [coverTarget.x, coverTarget.y, coverTarget.z],
+          place: [coverTarget.x, coverTarget.y, coverTarget.z],
+          solid: false,
+          moduleId: coverTarget.id,
+        }
+        this.refreshHover()
+        return
+      }
       const targetRamp = isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info) : undefined
       if (targetRamp) {
         const upper = targetRamp.from.z >= targetRamp.to.z ? targetRamp.from : targetRamp.to
@@ -350,7 +380,9 @@ export class EquipmentTool extends ToolController {
       cell: hit.cell,
       place: hit.place,
       solid: hit.solid,
-      moduleId: isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : null,
+      moduleId: st.moduleType === 'psd-end-cover'
+        ? pickedCoverId
+        : isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : null,
       point: [hit.point[0], hit.point[1]],
     }
     this.refreshHover()
@@ -552,7 +584,7 @@ export class EquipmentTool extends ToolController {
    * the pointer positions the run on the top floor the exit opens onto rather
    * than the floor it climbs from. Everywhere else the cell is the base.
    */
-  private buildPlacementModule(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module | null {
+  private buildPlacementModule(type: string, cell: [number, number, number], id: string, targetRamp?: Module, psdCoverSupport?: Module): Module | null {
     const st = useStore.getState()
     const placementType = type.startsWith('door-')
       ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
@@ -629,8 +661,12 @@ export class EquipmentTool extends ToolController {
       mod.cfg.exitId = exit?.id;
     }
     if (mod?.type === 'psd-end') {
-      mod.cfg.psd = st.psdEndHeight
-      mod = snapPsdEnd(mod, st.station.modules, st.station.lines)
+      if (mod.cfg.variant === 'cover') {
+        mod = snapPsdEndCover(mod, st.station.modules, st.station.lines, psdCoverSupport?.id)
+      } else {
+        mod.cfg.psd = st.psdEndHeight
+        mod = snapPsdEnd(mod, st.station.modules, st.station.lines)
+      }
     }
     if (mod?.type === 'lift') mod.cfg.style = st.liftStyle
     if (mod?.type === 'light') mod.cfg.position = st.lightPosition
@@ -697,6 +733,27 @@ export class EquipmentTool extends ToolController {
   private buildPlacementModules(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module[] {
     const one = this.buildPlacementModule(type, cell, id, targetRamp)
     return one ? [one] : []
+  }
+
+  /** A direct screen pick lays one cover over every tile in that screen run. */
+  private buildPsdEndCoverModules(cell: [number, number, number], direct?: Module): Module[] {
+    const st = useStore.getState()
+    const cells = direct?.type === 'platform-edge'
+      ? edgeCells(direct)
+      : direct?.type === 'psd-end' ? [[direct.x, direct.y, direct.z] as [number, number, number]] : [cell]
+    const mods: Module[] = []
+    for (const target of cells) {
+      const id = nextModuleId([...st.station.modules, ...mods], 'psd-end-cover')
+      const mod = this.buildPlacementModule('psd-end-cover', target, id, undefined, direct)
+      if (!mod) continue
+      // A run click fills uncovered cells. Existing covers at the same course
+      // already satisfy that tile, so they are not a placement collision.
+      const alreadyCovered = !!direct && st.station.modules.some((placed) => placed.type === 'psd-end' &&
+        placed.cfg.variant === 'cover' && mod.type === 'psd-end' && placed.cfg.support === mod.cfg.support &&
+        placed.x === mod.x && placed.y === mod.y && placed.z === mod.z)
+      if (!alreadyCovered) mods.push(mod)
+    }
+    return mods
   }
 
   /**
@@ -906,7 +963,8 @@ export class EquipmentTool extends ToolController {
     // below, so the exit's own floor is enough to stand its upper landing on.
     const snapSpec = this.isStraightRamp(st.moduleType) ? this.rampSnapSpec(st.moduleType) : null
     const snap = snapSpec ? exitRunSnap(st.station.modules, x, y, z, snapSpec.run, snapSpec.rise) : null
-    const placeable = floorHere || !!liftExt || !!snap
+    const directCoverTarget = st.moduleType === 'psd-end-cover' && (pointed?.type === 'platform-edge' || pointed?.type === 'psd-end')
+    const placeable = floorHere || !!liftExt || !!snap || directCoverTarget
     let mods: Module[] = []
     if (st.moduleType === 'lift') {
       if (liftExt) {
@@ -916,7 +974,9 @@ export class EquipmentTool extends ToolController {
         if (lift) mods = [lift]
       }
     } else if (placeable) {
-      mods = this.buildPlacementModules(st.moduleType, h.cell, nextModuleId(st.station.modules, st.moduleType))
+      mods = st.moduleType === 'psd-end-cover'
+        ? this.buildPsdEndCoverModules(h.cell, directCoverTarget ? pointed : undefined)
+        : this.buildPlacementModules(st.moduleType, h.cell, nextModuleId(st.station.modules, st.moduleType))
     }
     // **One verdict, one display.** The rules are `build/validation.ts`'s (the same
     // ones the release asks), so a piece is refused here for exactly the reason it
@@ -940,8 +1000,27 @@ export class EquipmentTool extends ToolController {
     type: string,
     near?: [number, number],
     targetRamp?: Module,
+    directTarget?: Module,
   ): void {
     const st = useStore.getState()
+    if (type === 'psd-end-cover') {
+      const mods = this.buildPsdEndCoverModules(cell, directTarget)
+      if (mods.length === 0 && directTarget && st.station.modules.some((placed) => placed.type === 'psd-end' &&
+        placed.cfg.variant === 'cover' && placed.cfg.support === directTarget.id)) return
+      if (mods.length === 0 || mods.some((mod) => mod.type !== 'psd-end')) {
+        st.setNotice(equipmentRefusalNotice('floor'))
+        return
+      }
+      for (const mod of mods) {
+        const refusal = equipmentReason(st.station.cells, st.station.modules, mod, true)
+        if (refusal) {
+          st.setNotice(equipmentRefusalNotice(refusal, placementColliders(st.station.modules, mod)))
+          return
+        }
+      }
+      st.commit(mods.reduce((state, mod) => addEquipment(state, mod), st.station))
+      return
+    }
     // A wall-mounted 广告牌 needs only a wall behind it — it may hang over a
     // track, so it goes through the same verdict as everything else and never
     // through the ground rules.

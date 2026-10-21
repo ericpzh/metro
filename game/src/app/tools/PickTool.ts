@@ -145,6 +145,8 @@ export function paletteIdForModule(mod: Module): string | null {
       id = mod.cfg.variant === 'compact' ? 'extinguisher-compact' : mod.cfg.variant === 'glass' ? 'extinguisher-glass' : 'extinguisher'
       break
     case 'psd-end':
+      id = mod.cfg.variant === 'cover' ? 'psd-end-cover' : 'psd-end'
+      break
     case 'guidepost':
     case 'tvm':
     case 'vending':
@@ -260,7 +262,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction, roadWidth: (mod.rot??0)%2?mod.d:mod.w })
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
       if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
-      if (mod.type === 'psd-end') useStore.setState({ psdEndHeight: mod.cfg.psd })
+      if (mod.type === 'psd-end' && mod.cfg.variant !== 'cover') useStore.setState({ psdEndHeight: mod.cfg.psd })
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)

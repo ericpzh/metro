@@ -34,7 +34,7 @@ for (const type of ['sidewalk', 'lawn']) {
       const mod = createModule(option.id, 0, 0, 0, option.id)
       if (!mod || ['road', 'sidewalk', 'lawn'].includes(mod.type)) continue
       assert.equal(equipmentReason([], [surface], mod, true), equipmentReason([], [], mod, true), option.id + ' keeps its original placement verdict')
-      if (!isWallMounted(mod) && !isCeilingHung(mod)) assert.equal(outdoorSurfaceLift([surface], mod), .1, option.id + ' stands on the raised finish')
+      if (!isWallMounted(mod) && !isCeilingHung(mod) && !(mod.type === 'psd-end' && mod.cfg.variant === 'cover')) assert.equal(outdoorSurfaceLift([surface], mod), .1, option.id + ' stands on the raised finish')
     }
     const ctx = { data: { ...emptyStation(), modules: [surface] }, mats: {}, owned: [] }
     const model = new OutdoorSurfaceModel(ctx).build(surface)

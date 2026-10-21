@@ -448,7 +448,7 @@ export type Module =
   | (ModuleBase & { type: 'roof'; w: number; d: number; cfg: { variant?: 'shell' | 'truss' | 'tapered-truss' | 'canopy'; finish?: FinishId; plateSnap?: 'lower' | 'upper' } })
   | (ModuleBase & { type: 'exit'; cfg: ExitCfg })
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
-  | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; offset?: [number, number]; corner?: string } })
+  | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; variant?: 'cover'; width?: number; depth?: number; offset?: [number, number]; corner?: string; support?: string; side?: 'left' | 'right' } })
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' | 'bridge-railing' | 'sound-barrier-half' | 'sound-barrier' } })
   | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { incline?: 30 | 35; dir: 'up' | 'down'; width?: 1 | 2 } })
   | (ModuleBase & {
