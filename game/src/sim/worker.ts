@@ -7,6 +7,7 @@ import type { FromWorker, ToWorker } from './protocol.ts'
 import type { Metrics } from './world.ts'
 import type { StationData } from './types.ts'
 import { World } from './world.ts'
+import { applyPopulationEdit } from './populationEdit.ts'
 import { isCosmeticStationEdit } from './cosmeticEdit.ts'
 
 const ctx = self as unknown as {
@@ -210,6 +211,20 @@ ctx.addEventListener('message', (e: MessageEvent) => {
         // they join it, rather than publishing data against an obsolete graph.
         if (buildTimer === null && isCosmeticStationEdit(world.data, msg.data)) applyBuild()
         else if (buildTimer === null) buildTimer = ctx.setTimeout(applyBuild, BUILD_COALESCE_MS)
+      }
+      break
+    }
+    case 'population': {
+      if (world) {
+        world.updatePopulation(msg.edit)
+        // A preceding structural edit still installs as one coherent build.
+        if (pendingBuild) pendingBuild = applyPopulationEdit(pendingBuild, msg.edit)
+        // No visible state changed. The next scheduled tick uses these inputs;
+        // a paused sim needs neither a cloned crowd frame nor a redraw.
+        if (msg.edit.headways || msg.edit.settings || (world.trains.length > 0 && msg.edit.labels?.some(l => l.colour !== undefined))) {
+          dirty = true
+          run(false)
+        }
       }
       break
     }

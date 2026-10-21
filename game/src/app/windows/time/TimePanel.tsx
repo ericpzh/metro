@@ -168,7 +168,7 @@ export function TimePanel(): React.ReactElement | null {
   /**
    * Let go: the draft becomes the document. The three setters are each a no-op when their own
    * span did not move (`StationSlice` compares before committing), so one drag is one undo frame
-   * and one worker rebuild whichever of the six boundaries it was.
+   * and one settings patch whichever of the six boundaries it was.
    *
    * It takes the value it is committing rather than reading the draft state: a keyboard nudge is
    * a move *and* a release in one event, and state written in that event is not in this closure

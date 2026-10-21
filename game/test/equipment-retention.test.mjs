@@ -14,6 +14,7 @@ import { stubCanvas } from './support/stub-canvas.mjs'
 import { StationGeometry } from '../src/app/stationGeometry.ts'
 import { PlateSystem } from '../src/render/scene/systems/PlateSystem.ts'
 import { signBoardsPanel } from '../src/sim/sign.ts'
+import { defaultLine } from '../src/build/rail.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 function station(modules) {
@@ -171,8 +172,35 @@ test('structural edits leave remote sign pixels intact; changed boards and lines
   assert.equal(material.map.version, version + 1, 'changed board repaints its retained texture')
   ctx.stationData = { ...edited, lines: [{ id: '1', color: '#ff0000' }] }
   plates.redrawSignPlates(edited)
-  assert.equal(material.map.version, version + 2, 'line edits still reach all sign shields')
+  assert.equal(material.map.version, version + 1, 'a text-only sign does not upload for an unrelated line edit')
   plates.clearSignPlates()
+}))
+
+test('metadata repaint retains model geometry, TV allocations and unrelated line pixels', () => withDrawing(({ctx,modules}) => {
+  const plates = new PlateSystem(ctx)
+  modules.plates = plates
+  const edge=id=>({id:'edge'+id,type:'platform-edge',x:0,y:Number(id)*5,z:0,w:16,cfg:{line:id,side:'left',dir:'up',name:'Platform',psd:'full'}})
+  const before={...station([edge('1'),edge('2'),createModule('bench',30,0,0,'bench'),createModule('exit',0,0,0,'exit')].filter(Boolean)),lines:[defaultLine('1','up'),defaultLine('2','up')]}
+  ctx.stationData=before;modules.buildModules(before,new Set())
+  const roots=new Map(modules.moduleMeshes.children.filter(g=>g.userData.moduleId).map(g=>[g.userData.moduleId,g]))
+  const geometry=[];for(const root of roots.values())root.traverse(m=>{if(m.isMesh)geometry.push([m,m.geometry])})
+  const maps=id=>{const out=new Set();roots.get(id).traverse(m=>{if(m.isMesh)for(const mat of Array.isArray(m.material)?m.material:[m.material])if(mat.map)out.add(mat.map)});return [...out]}
+  const first=maps('edge1').map(map=>[map,map.version]), other=maps('edge2').map(map=>[map,map.version])
+  plates.retainTvPlates(before)
+  const texture=plates.makeTvPlate('tv',0,0), version=texture.version
+  const after={...before,lines:before.lines.map(l=>l.id==='1'?{...l,upTerminus:'New destination'}:l)}
+  ctx.stationData=after
+  const keep=modules.repaintPresentation(after,modules.presentationKeepIds(after))
+  assert.equal(keep.size,after.modules.length,'all artwork updates retain their source model')
+  modules.updatePopulationData(after)
+  for(const [id,root] of roots)assert.equal(modules.moduleMeshes.children.find(g=>g.userData.moduleId===id),root)
+  for(const [mesh,buffer] of geometry)assert.equal(mesh.geometry,buffer)
+  assert.ok(first.some(([map,v])=>map.version>v),'changed line headers repaint')
+  assert.ok(other.every(([map,v])=>map.version===v),'other line headers retain their pixels')
+  plates.retainTvPlates({...after,modules:[...after.modules,{id:'tv',type:'tv',x:0,y:0,z:0,cfg:{}}]})
+  assert.equal(plates.tvPlates.get('tv'),texture,'metadata preserves texture identity')
+  assert.equal(texture.version,version)
+  plates.clearTvPlates()
 }))
 
 test('real ModuleSystem preserves remote geometry and owned material allocations across equipment edits', () => withDrawing(({ modules }) => {

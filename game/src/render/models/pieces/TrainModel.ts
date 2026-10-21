@@ -75,6 +75,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   const s = STOCK[pose.stock]
   const total = s.length * pose.cars
   const blue = new THREE.MeshStandardMaterial({ color: new THREE.Color(pose.colour), roughness: 0.3, metalness: 0.4 })
+  g.userData.liveryMaterial = blue
   // The consist's own livery is minted per build (it wears the line's colour), so the
   // group owns it: everything else on a train is the shared kit, which `disposeObject`
   // deliberately keeps. `TrainSystem` releases these when it evicts the consist.

@@ -24,6 +24,10 @@ export class DoorwayExitModel extends PieceBuilder {
       0, 0,
     ))
     const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
+    bindArtworkTexture(g,map,(c,data)=>{
+      const next=data.modules.find(m=>m.id===mod.id)
+      c.drawImage(exitHeaderCanvas(data.name || t('metro'),next?.type==='exit'?next.cfg.name:mod.cfg.name,data.nameEn,headerWidth),0,0)
+    })
     plate(g, mat, width - 0.12, 0.48, centre, -0.428, 0.5, Math.PI)
     this.placeLocal(g, mod)
     // The logical exit remains on the floor storey; only the sign follows the
@@ -32,3 +36,4 @@ export class DoorwayExitModel extends PieceBuilder {
     return g
   }
 }
+import { bindArtworkTexture } from '../../artwork.ts'

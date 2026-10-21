@@ -142,10 +142,26 @@ export class TrainSystem extends SceneSystem {
       occurrences.set(modelKey, occurrence + 1)
       const sig = `${modelKey}:${occurrence}`
       let entry = this.trainSlots.get(sig)
+      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      if (!entry) {
+        // A colour edit posts the same pose without stepping. Re-key that live
+        // consist and recolour its owned material; retain door rigs and buffers.
+        entry = [...this.trainSlots.values()].find(e => e.missed === 1 &&
+          e.group.userData.shapeKey === shapeKey && (e.to.x-x)**2+(e.to.y-y)**2+(e.to.z-z)**2 < 0.001)
+          ?? [...this.trainSlots.values()].find(e=>e.missed>1 && e.group.userData.shapeKey===shapeKey)
+        if (entry) {
+          this.trainSlots.delete(entry.sig)
+          entry.sig = sig
+          const material = entry.group.userData.liveryMaterial as THREE.MeshStandardMaterial
+          material.color.setHex(colour)
+          this.trainSlots.set(sig, entry)
+        }
+      }
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
         const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, power, doorsOpen, modelScale, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
         group.userData.renderFamily = 'train'
+        group.userData.shapeKey = shapeKey
         batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
         if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
         this.details.set(group, trainDetails(group))

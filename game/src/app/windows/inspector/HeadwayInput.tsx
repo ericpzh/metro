@@ -5,8 +5,8 @@ import { useEffect, useState } from 'react'
 
 /**
  * One headway row: the 分 / 秒 pair the timetable runs on (§6.5). Drafts stay
- * local and commit on blur / Enter — every commit rebuilds the worker's
- * station, so typing must not spam it (the same contract `LineFields` keeps).
+ * local and commit on blur / Enter. Each accepted change is one timetable
+ * patch and undo frame (the same draft contract `LineFields` keeps).
  */
 export function HeadwayInput({
   label,

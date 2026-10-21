@@ -34,6 +34,17 @@ loads remain immediate. Read the
 [placement invalidation audit](../../../game/PERFORMANCE.md#placement-invalidation-audit-2026-10-20)
 for its deterministic work counts, production measurements and validation limits.
 
+Settings and presentation edits have a separate fast path. Line/station/exit labels,
+line colours, termini, population and exit policy must not rebuild station geometry
+or routing. Repaint only artwork whose declared inputs changed, preserving original
+textures, geometry and batch allocations; unknown artwork dependencies keep the
+conservative rebuild path. Invisible population and exit-policy edits must not
+request a frame. Restart should reuse the static graph and collision indexes while
+resetting dynamic simulation state. `nonstructural-updates`, `equipment-retention`,
+`train-lod`, `line-edit` and `scene-wiring` pin these contracts. See the measured
+[settings rebuild audit](../../../game/PERFORMANCE.md#remaining-settings-rebuilds-resolved-2026-10-21)
+for first-use browser timings and current coverage limits.
+
 | Work | Skill |
 |---|---|
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
@@ -43,6 +54,9 @@ for its deterministic work counts, production measurements and validation limits
 
 For the 5 m grid, current 98% train profile, PSD layout and ceiling/save
 rules, follow `metro-game` → [five-metre profile](../metro-game/references/five-metre-profile.md).
+`game/src/sim/constants.ts` owns the sole numeric definition, `STOREY_HEIGHT`;
+document defaults, view stepping, slicing, placement and renderer fallbacks must
+read it instead of repeating `5`. The game currently supports only this profile.
 
 The game's first-run tutorial belongs to `metro-game` (`app/windows/tutorial/`).
 Its interactive browser regression is `npm run check:tutorial`; use `metro-game-test`

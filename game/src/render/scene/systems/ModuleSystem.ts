@@ -19,6 +19,9 @@ import { detailHeight } from '../../detailPolicy.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
 import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentModelEdit } from '../../moduleDependencies.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
+import { populationEdit } from '../../../sim/populationEdit.ts'
+import { presentationKeepIds } from '../../presentationEdit.ts'
+import { prepareArtwork, repaintArtwork } from '../../artwork.ts'
 import {
   buildModule,
   disposeObject,
@@ -40,6 +43,29 @@ import type { GhostSystem } from './GhostSystem.ts'
 import { fenceConnectionIndex } from '../../../sim/fences.ts'
 
 export class ModuleSystem extends SceneSystem {
+  presentationKeepIds(data: StationData): Set<string> | null {
+    if (!this.builtData || this.builtLanguage !== getLanguage()) return null
+    const edit = populationEdit(this.builtData, data)
+    return edit ? presentationKeepIds(this.builtData, data, edit) : null
+  }
+
+  repaintPresentation(data: StationData, keep: Set<string>): Set<string> {
+    const roots = new Map(this.moduleMeshes.children.map(g => [g.userData.moduleId, g]))
+    const retained = new Set(keep)
+    for (const mod of data.modules) {
+      if (retained.has(mod.id)) continue
+      const root = roots.get(mod.id)
+      if (root && repaintArtwork(root,data)) retained.add(mod.id)
+    }
+    return retained
+  }
+  /** Keep later equipment edits relative to the latest demand metadata, without
+   * touching any model, batch, selection or allocation (§7). */
+  updatePopulationData(data: StationData): boolean {
+    if (!this.builtData || this.builtLanguage !== getLanguage() || !populationEdit(this.builtData, data)) return false
+    this.builtData = data
+    return true
+  }
   private builtData: StationData | null = null
   private builtLanguage: ReturnType<typeof getLanguage> | null = null
 
@@ -228,6 +254,7 @@ export class ModuleSystem extends SceneSystem {
       const group = kept.get(mod.id) ?? buildModule(mod, ctx)
       if (!group) continue
       if (!kept.has(mod.id)) {
+        prepareArtwork(group)
         batchStaticModule(group, mod.type)
         group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)
       }

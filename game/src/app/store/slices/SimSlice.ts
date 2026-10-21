@@ -1,4 +1,5 @@
 import { msg } from '../../../sim/i18n.ts'
+import { populationEdit } from '../../../sim/populationEdit.ts'
 // The sim slice: the worker plumbing and the live readouts it feeds. The station
 // document lives in the store; the sim lives in the worker and is driven by the
 // messages in `sim/protocol.ts`. Panels only — no sim logic.
@@ -190,8 +191,10 @@ export function initSim(data: StationData, seed: number, opts: { startSeconds?: 
   ensureClient().postMessage({ type: 'init', data, seed, playing: false, speed: 1, ...opts })
 }
 
-export function rebuildSim(data: StationData): void {
-  client?.postMessage({ type: 'build', data })
+export function rebuildSim(data: StationData, previous?: StationData): void {
+  const edit = previous ? populationEdit(previous, data) : null
+  if (edit) client?.postMessage({ type: 'population', edit })
+  else client?.postMessage({ type: 'build', data })
 }
 
 /**

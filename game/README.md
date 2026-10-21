@@ -1,5 +1,11 @@
 # Station Designer — the game
 
+Population sliders update future train alighting and street arrivals without
+rebuilding station models or walking routes. `population-edit`, `line-edit` and
+`worker-preview` guard the narrow update, history and pending-build ordering.
+Headway, opening hours, peak windows and demand-curve edits use the same path;
+Undo/Redo retain immutable geometry for these settings rather than rebuilding it.
+
 Every stock uses 0.8 m wheels, with bogies beneath inter-door window bays and sealed under-seat housings around the unchanged-height aisle. A/B/C/L passenger roofs and lower skirts derive from the cab rear cut in High and Low; C lamps sit in its coloured band and the floating white skirt blocks are removed. A/B/C/L cab face and lower colour are disjoint paint sections of the same shell, with flush fitted glazing, smooth circular headlights and wiper pivots fully below the glass. Passenger overhead fittings stop at the cab seam. A/B/C/L cabs have a ten-degree front rake that fades to zero at the rear body seam. A/B/L carry glazed crew doors on both sides; all five classes have surface-fitted windshield wipers. A/B/L use the same small centred emblem as C, whose narrower evacuation door clears it. The cabin ceiling stops at the cab seam; the aisle floor and passenger door centres keep their platform alignment. The A/B/C/L passenger leaves, seals and black lower panels follow the common skirt curve through opening travel. A/B/L crew doors stay upright and narrow, moved forward to clear fully opening passenger leaves by over 10 cm.
 
 Type D has four doorways and six small windows on each car side, with two windows
@@ -4130,3 +4136,8 @@ and age variation remain proportional; simulation walking speeds are unchanged.
 continuous full-cabin 2.94 m ceiling clearance, curved-roof
 containment and unchanged exterior roof geometry for A/B/C/D/L, both banks, High/Low
 and open/closed doors. `TrainInterior.ts` owns these fittings.
+
+Presentation edits (station/exit/line names, colours and termini) repaint dependent
+artwork in place. Population and exit-policy edits keep routing and scene geometry;
+restart reuses static connectivity while resetting dynamic simulation state.
+See PERFORMANCE.md, “Remaining settings rebuilds resolved (2026-10-21)”.

@@ -9,6 +9,8 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
+import { populationEdit, hasPresentationEdit } from '../../sim/populationEdit.ts'
+import { STOREY_HEIGHT } from '../../sim/constants.ts'
 import { RenderDemand } from '../renderDemand.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
 import type { GraphicsQuality } from '../detailPolicy.ts'
@@ -269,7 +271,7 @@ export class SceneRenderer {
     const previousData = this.ctx.stationData
     this.modules.batches.invalidateViews()
     this.ctx.levelBase = data.levelBase ?? 0
-    this.ctx.storeyHeight = data.storeyHeight ?? 5
+    this.ctx.storeyHeight = data.storeyHeight ?? STOREY_HEIGHT
     // A sign-board preview changes no cell and no other module, so the chunks
     // this meshes are identical: only that sign's own model and plates are
     // rebuilt, and the chunk remesh plus the station-wide plate repaints are
@@ -325,6 +327,42 @@ export class SceneRenderer {
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
     this.modules.refreshHoverHighlight()
+  }
+
+  /** Nonstructural edits keep cache metadata current. Visible artwork repaints
+   * its owned resources; invisible settings retain the framebuffer as well. */
+  updatePopulationData(data: StationData): boolean {
+    const previous = this.ctx.stationData
+    const edit = previous && populationEdit(previous, data)
+    if (edit && hasPresentationEdit(edit)) {
+      const candidates = this.modules.presentationKeepIds(data)
+      if (!candidates) return false
+      this.ctx.stationData = data
+      this.plates.redrawSignPlates(previous ?? undefined)
+      this.plates.redrawDecorPlates(previous ?? undefined)
+      const keep = this.modules.repaintPresentation(data,candidates)
+      if (keep.size === data.modules.length) this.modules.updatePopulationData(data)
+      else {
+        this.modules.buildModules(data, new Set(), true, keep)
+        this.ctx.levelKey = ''
+        this.level.applyLevel()
+        this.sectionSys.applyClip()
+        this.modules.setMovingModule(this.ghostSys.movingModuleId)
+        this.modules.refreshSelection()
+        this.modules.refreshCollisionHighlight()
+        this.modules.refreshHoverHighlight()
+      }
+      this.plates.refreshSettings()
+      this.requestRender()
+      return true
+    }
+    if (!this.modules.updatePopulationData(data)) return false
+    this.ctx.stationData = data
+    if (edit && (edit.settings || edit.headways)) {
+      this.plates.refreshSettings()
+      this.requestRender()
+    }
+    return true
   }
 
   /**

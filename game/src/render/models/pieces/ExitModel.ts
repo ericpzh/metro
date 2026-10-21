@@ -320,6 +320,10 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   panelModelDetail(slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard))
   const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || t('metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  bindArtworkTexture(house, (header.material as THREE.MeshBasicMaterial).map!, (c, data) => {
+    const next = data.modules.find(m => m.id === mod.id)
+    c.drawImage(exitHeaderCanvas(data.name || t('metro'), next?.type === 'exit' ? next.cfg.name || t('entrances') : mod.cfg.name, data.nameEn),0,0)
+  })
   header.renderOrder = 1
   return g
 }
@@ -349,3 +353,4 @@ export class ExitModel extends PieceBuilder {
   }
 }
 
+import { bindArtworkTexture } from '../../artwork.ts'

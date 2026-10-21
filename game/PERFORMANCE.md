@@ -871,3 +871,249 @@ The broad `npm --prefix game run test:perf` attempt was stopped after over four
 minutes while instrumenting the block-drag section (last completed assertion:
 auto-wall drag cap); it did not complete and no full performance-coverage result
 is claimed. Raw validation logs are `.preview/perf/levels-*.log`.
+# Population controls (2026-10-20)
+
+Changing per-train alighting or exit entry demand previously ran a full station
+commit: bridge-support synchronization, a complete worker document clone and
+routing rebuild, tool geometry preparation, model/chunk rebuilds and batch-view
+invalidation. The range inputs commit on every input event, multiplying that work.
+
+The two population fields now use a fail-closed classifier and a compact worker
+message containing only changed IDs and numbers. The worker updates the installed
+document and line lookup without rebuilding routing, replacing queues/crowd or
+advancing time. A pending structural build receives the same patch; station loads
+still cancel that build. Paused population edits emit no redundant crowd frame.
+The viewport skips station/geometry rebuilding for these edits, preserving normal
+language, sign-preview and station-load invalidation. Undo/save semantics remain
+unchanged; document history still deep-copies its snapshot. Undo/Redo themselves
+continue to use the full document path.
+
+`node tools/bench-population-edit.mjs` drives real ArrowRight input on the mounted
+production train-load and exit-demand ranges. It records the first edit and two
+repetitions, one commit per input, synchronous commit CPU, scene work and an
+input-through-two-RAF proxy. `BENCH_ASSERT_FAST=1` rejects any chunk preparation,
+remesh, module rebuild or batch-view invalidation. Raw reports are in ignored
+`.preview/perf/population-{before,after,after-cpu,final,hardware,final-cache,hardware-cache}.json`.
+
+The controlled software-rendered comparison used the same local demo, 动物园,
+14,073 cells / 4,291 modules, paused, a fresh Chrome profile per run, 1440×1000
+window, default opening camera/storey and three +1-step inputs per control:
+
+| Control | Before: first / repeat two-RAF ms | After: first / repeat two-RAF ms | Before scene CPU ms | After scene work |
+|---|---|---|---|---|
+| Train load | 2666 / 2573, 2541 | 255 / 239, 241 | 934 / 900, 888 | zero calls |
+| Exit demand | 1362 / 1432, 1439 | 251 / 510, 420 | 609 / 681, 670 | zero calls |
+
+The final software run's commit CPU was 8.0–14.2 ms. A separate hardware-enabled
+run (`METRO_BROWSER_GPU=hardware`) measured train first/repeats at 67.6 / 58.3,
+33.1 ms and exit first/repeats at 107.5 / 115.4, 97.3 ms; synchronous commit CPU
+was 6.5–7.1 ms. Both final runs had zero scene/geometry/batch work, one commit per
+input and no runtime errors. Hardware timings are additional evidence, not a
+controlled comparison against the software baseline. Two RAFs include UI, browser
+and rendering overhead; these numbers are not GPU timer queries or a claim of
+zero end-to-end latency. Exit/UI/frame overhead and history-copy cost remain.
+
+Deterministic guards: `population-edit` rejects geometry, renaming, consist,
+headway, exit-open and unknown-field changes; preserves prepared tool geometry;
+and proves immutable patch application. `line-edit` checks compact payloads and
+Undo/Redo. `worker-preview` asserts retained graph/pool/queue identity, updated
+spawn inputs, no rebuild/tick/redundant frame, pending-build ordering and load
+cancellation. `scene-wiring` guards the viewport early return before rebuilding.
+The geometry and module caches accept the latest population metadata without
+rebuilding; a regression also checks that the next bench edit retains the local
+equipment path instead of rebuilding because of stale population fields.
+
+The six population-specific tests pass. Focused classifier coverage is 100%
+lines/branches/functions; `stationGeometry.ts` is 100%/90.91%/100%. The broader
+focused run measured `StationSlice.ts` 100%/95%/100%, `SimSlice.ts`
+87.13%/86.21%/68.42%, `worker.ts` 96.32%/90.20%/100% and `ModuleSystem.ts`
+33.08%/90.91%/22.73%. The latter tests exercise population cache acceptance, not
+the entire model-building lifecycle; imported-file percentages are not GPU
+coverage. Raw summaries are `population-{only-coverage,coverage-verified}.log`.
+
+The production build passes. The final normal suite reports 1,999 passing / two
+failing / zero skipped tests (2,001 total). Both failures concern the independently
+edited Tanwei fixture: plain `toStateRepairing(referenceStation('tanwei'))` changes
+9,572 authored modules into 9,583 modules with zero dropped records, failing the
+demo-integrity and demo-switch assertions. The same loader-only reproduction does
+not invoke the population update. An earlier full run, before that fixture change
+and the final cache guard, passed all 2,000 tests. No fixture or acceptance assertion
+was weakened. Logs: `population-full-{final,verified}.log`.
+
+`npm --prefix game run test:perf` was attempted and stopped after several minutes
+without test output, consistent with the previously recorded long instrumented
+geometry runs. This is not a full performance-suite pass. The focused coverage
+above, normal-suite results and real production slider work counts are the
+completed validation; raw partial output is `population-perf-verified.log`.
+
+## Settings rebuild audit (2026-10-20)
+
+Audited document commits, line/exit inspectors, the time panel, history, view
+actions, worker installation, scene/module/plate invalidation and inert-decor
+classification. The same full-rebuild mistake also affected headways, opening
+hours, peak windows and demand curves. Population Undo/Redo lost the narrow path
+because history deep-copied otherwise unchanged geometry.
+
+Fixed these flows by extending the compact population/settings message to the
+known timetable/day fields (including calendar settings). World refreshes its
+normalized day/calendar and line lookup, adjusts pending departures by the changed
+current headway, and preserves graph/pathfinder, route caches, live journeys,
+trains, queues, collision buffers, RNG and simulation time. A shortened pending
+departure clamps to now; untouched headways retain their schedule. Paused
+timetable edits acknowledge updated forecasts without a simulation tick, and
+retained screen pixels reconcile the document and worker acknowledgement in
+either arrival order. The next structural build still installs one coherent
+document/graph and receives any preceding settings patches.
+
+Settings history now shares the immutable document instead of deep-copying its
+geometry. Undo/Redo send compact settings patches and preserve the same prepared
+scene/geometry. Structural edits retain the conservative snapshot/build behavior.
+Same-document commits, stale line IDs and unchanged scalar line patches do no
+work. Explicit stock/cars/power/PSD retries still run: an identical geometry option
+can legitimately retry a previously refused rail resize after removing a blocker.
+
+`tools/bench-settings-audit.mjs` drives actual mounted headway number inputs,
+demand sliders and service/peak chart grips with keyboard input. Undo/Redo are
+driven through their store actions, independently of editor text undo. Each case
+records its first invocation and one repetition, one history/version update, and
+scene/chunk/module/batch work counts. `BENCH_ASSERT_FAST=1` requires zero scene
+rebuild calls. Both runs use the same 动物园 fixture: 14,073 cells, 4,291 modules,
+seed 7654321, paused at 06:30 on Monday Jan 5, 2026, zero passengers, opening camera
+at −20 m, 1440×1000 Chrome 155 window and hardware rendering enabled. Runs were
+sequential without this task's builds/tests competing. Raw reports:
+`.preview/perf/settings-audit-{before,final,metadata}.json`.
+
+| Flow | Before first / repeat ms | After first / repeat ms | After scene rebuilds |
+|---|---:|---:|---:|
+| Headway | 1703 / 1656 | 202 / 163 | 0 |
+| Demand curve | 1502 / 1401 | 127 / 127 | 0 |
+| Opening hours | 1498 / 1363 | 106 / 201 | 0 |
+| Peak window | 1473 / 1409 | 122 / 137 | 0 |
+| Settings Undo | 1524 / 1445 | 117 / 111 | 0 |
+| Settings Redo | 1463 / 1420 | 103 / 99 | 0 |
+
+These are interaction-through-two-RAF proxies, including React, browser and
+rendering overhead. They are not just CPU or GPU times. Undo/Redo synchronous
+work fell from 9.8–10.3 ms to 0.2–0.4 ms; the remaining display delay is not a
+hidden station rebuild. No runtime errors occurred in the measured runs.
+
+Remaining savings, ordered by evidence and expected impact:
+
+* **Names/colours/termini:** a real line-name edit still measured 1783 / 1537 ms,
+  including 967 / 857 ms in `setStation`, one full module build, chunk remesh and
+  routing invalidation. A name needs affected plates refreshed; a colour also
+  affects train and PSD appearance. This needs explicit artwork/model dependency
+  invalidation rather than treating all line changes as invisible settings.
+  Station and exit names use the same conservative metadata path; their individual
+  timings were not measured here.
+* **Redundant redraw requests:** overlay and move/highlight effects still observe
+  the general document version, including invisible settings edits. Idempotent
+  view updates or a distinct visual revision could avoid clean 3D redraws. The
+  measured residual two-RAF latency includes this work, but its separate cost was
+  not profiled here.
+* **Exit open/closed:** source audit finds its flag in street spawning and new
+  exit selection, rather than walking-graph construction. It is a candidate for
+  the compact path, after pinning passengers already travelling to that exit and
+  verifying its visual contract. Not changed or timed in this pass.
+* **Restart:** `World.restart()` rebuilds the static graph after replacing the
+  crowd. Reusing graph/pathfinder geometry could save work, but dynamic queues,
+  lifts, dispatch and route caches still require a complete reset. Not changed or
+  timed here.
+* **Visual metadata/language:** unchanged cells should allow retained chunks even
+  when translated artwork must refresh. Model/plate inputs need separate keys;
+  broad metadata equality currently makes this conservative. Not timed here.
+
+Already separated: ordinary view toggles do not commit or route; date seeking
+retains the graph/crowd; inert decor and side paint skip routing; sign drafts and
+placement previews have their own local/coalesced paths. Actual structural edits,
+stock/formation/PSD/power changes and lift-door changes keep their required geometry
+or connectivity work. No pick-inside-document-predicate pattern was found in the
+current source search; no pointer contracts were changed.
+
+Validation: production build and all 2,006 normal tests pass, with zero failures
+or skips (`audit-build-final.log`, `audit-full-tests.log`). The 73-test focused run
+also passes. Focused instrumented coverage (`audit-focused-coverage.log`, 67 tests,
+all passing), in lines/branches/functions: `populationEdit.ts` 100/100/100,
+`LineSlice.ts` 100/98.46/100, `StationSlice.ts` 100/95.65/100, `World.ts`
+90.47/80.22/87.40, `worker.ts` 96.35/84/100, `PlateSystem.ts` 51.22/85.71/17.39.
+The low PlateSystem function total reflects the many unrelated artwork methods;
+new paused-settings reconciliation is covered, including the uninitialized case.
+GPU correctness is checked by the production interaction/work-count run, not by
+V8 percentages. The broad instrumented geometry suite was attempted again and
+did not complete; its partial output is `audit-perf-coverage.log`.
+
+Final dispatch edge guards also preserve an already-due first train and clamp a
+shortened departure to now. They pass in `audit-settings-coverage-verified.log`
+(10 tests; the settings classifier remains 100% lines/branches/functions).
+Final build and normal-suite logs are `audit-build-verified.log` and
+`audit-full-verified.log`.
+
+## Remaining settings rebuilds resolved (2026-10-21)
+
+This supersedes the unoptimized metadata, exit-policy and restart candidates in
+ the preceding settings audit. Names, line colours and termini now repaint only
+artwork whose inputs changed, retaining module roots, geometry, materials, atlas
+slots and static batches. PSD colour bands use live textures; train recolouring
+updates the owned livery material and retains door buffers. Unknown module artwork
+dependencies conservatively retain the rebuild fallback. Structural edits still
+rebuild their geometry and routing as required.
+
+Exit open/closed and population changes patch the running document without
+rebuilding connectivity or requesting a 3D redraw. Closing an exit excludes new
+spawns/destinations while allowing existing journeys to complete. A separate
+geometry revision prevents metadata/history changes from rebuilding zone and move
+overlays. Restart retains the graph, node indexes and collision buffers, while
+resetting dynamic queues, servers, lifts, dispatch and routing scratch state.
+
+Production Chrome 155, hardware GPU, fresh profile, Zoo fixture (14,073 cells,
+4,291 modules), seed 7654321, paused Monday 2026-01-05 06:30, zero passengers,
+storey -20, 1440x1000. Each value measures input through two animation frames;
+first invocation is included. Names/terminus/exit-policy/population use keyboard
+UI; colour/station-name/restart use store actions. Values are milliseconds,
+first/repeat, and include frame scheduling rather than just handler CPU time.
+
+| Interaction | Before | After |
+|---|---:|---:|
+| Line name | 1784 / 1796 | 138 / 115 |
+| Terminus | 1788 / 1538 | 118 / 41 |
+| Line colour | 1627 / 1624 | 38 / 42 |
+| Station name | 1482 / 1592 | 37 / 35 |
+| Exit name | 865 / 746 | 182 / 185 |
+| Exit open/closed | 693 / 684 | 106 / 33 |
+| Population | 112 / 113 | 34 / 34 |
+| Restart | 217 / 202 | 77 / 123 |
+
+Raw reports: `.preview/perf/remaining-before.json` and
+`remaining-traced.json`; reproduction: `BENCH_REMAINING=1 BENCH_ASSERT_FAST=1
+node tools/bench-settings-audit.mjs`. Every final sample records zero setStation,
+chunk preparation/meshing, module builds and batch invalidations. Exit policy and
+population record zero requestRender calls. A preceding run (`remaining-complete`)
+caught one overlapping redraw during the first exit toggle; the traced rerun
+passed all assertions. Existing render frames may still finish after a visible edit.
+Artwork PNGs in `remaining-final2-psd.png` and `remaining-final2-exit.png` were
+visually checked for station, exit, terminus and colour updates.
+
+Deterministic regressions cover strict patch classification, artwork dependencies,
+texture/geometry identity and unaffected-line uploads, paused screen retention,
+structural revisions through undo/redo, exit routing policy, live/parked/concurrent
+train recolouring, and seeded restart equivalence with a legacy full rebuild for
+24 subsequent ticks. GPU cache eviction remains pinned using distinct orientations.
+
+Focused instrumented coverage (lines/branches/functions): populationEdit
+100/100/100, artwork 100/81.82/100, presentationEdit 85.71/87.10/80;
+StationSlice 70.97/65.52/44.44, ModuleSystem 64.19/54/24.39,
+PlateSystem 58.96/63.89/57.69, TrainSystem 85.76/64.29/64.29,
+World 71.23/69.08/70.16. These focused runs leave unrelated system methods
+unexecuted; they are not whole-system coverage claims. Reports:
+`remaining-coverage.log`, `remaining-system-coverage.log`. Production build passes
+(`remaining-build-final3.log`).
+
+The broad `npm --prefix game run test:perf` instrumentation was attempted again
+(`remaining-perf-suite.log`) and stopped after several minutes without test output;
+it is not counted as passing. Focused coverage and the production interaction
+assertions completed successfully.
+
+Final normal suite: **2,020 tests pass, zero failures/skips**
+(`remaining-full-tests-final.log`). The first run exposed the old colour-allocation
+expectation; its replacement still verifies bounded cache eviction and exactly-once
+GPU disposal with distinct orientations. `git diff --check` passes.

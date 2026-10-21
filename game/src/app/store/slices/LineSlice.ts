@@ -59,6 +59,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
   updateLine: (lineId, patch) => {
     const st = get()
     const prev = st.station.lines.find((l) => l.id === lineId)
+    if (!prev) return
     // Consist is one of the fixed menu entries in `sim/headway.ts`; snap so a bad
     // save or a stale caller cannot produce a one- or five-car train.
     let fixed = patch.cars !== undefined ? { ...patch, cars: snapFormation(patch.cars) } : patch
@@ -77,6 +78,10 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
       const cars = snapFormation(patch.cars)
       fixed = { ...fixed, alightPerTrain: Math.round((prev.alightPerTrain / prev.cars) * cars) }
     }
+    // Geometry options can deliberately retry a previously refused rail resize.
+    // Keep that repair contract even when the line already carries the value.
+    if (patch.stock === undefined && patch.cars === undefined && patch.power === undefined && patch.psd === undefined &&
+      Object.entries(fixed).every(([key, value]) => JSON.stringify(prev[key as keyof LineDef]) === JSON.stringify(value))) return
     const lines = st.station.lines.map((l) => (l.id === lineId ? { ...l, ...fixed } : l))
     let station = { ...st.station, lines }
     // Power is a line option, so carry it to every track bound to the line —

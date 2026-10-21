@@ -5,6 +5,7 @@
 import type { Metrics } from './world.ts'
 import type { StationData } from './types.ts'
 import type { TrainService } from './trainSchedule.ts'
+import type { PopulationEdit } from './populationEdit.ts'
 
 export interface GraphInfo {
   nodeCount: number
@@ -21,6 +22,7 @@ export type ToWorker =
   // keeps the crowd.
   | { type: 'init'; data: StationData; seed: number; playing: boolean; speed: number; startSeconds?: number; warmup?: number }
   | { type: 'build'; data: StationData }
+  | { type: 'population'; edit: PopulationEdit }
   | { type: 'control'; playing: boolean; speed: number }
   // A restart keeps the built station and the clock but empties the crowd: every
   // agent, train and queue is dropped and the sim runs on from here.

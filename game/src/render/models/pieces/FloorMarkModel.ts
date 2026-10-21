@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { bindArtworkTexture } from '../../artwork.ts'
 import type { Module } from '../../../sim/types.ts'
 import { floorDecorSpec, floorMarkLine } from '../../../sim/floorDecor.ts'
 import { drawFloorMark } from '../../floorMarkArt.ts'
@@ -10,6 +11,7 @@ export class FloorMarkModel extends PieceBuilder {
     const g = new THREE.Group()
     const { w, d } = floorDecorSpec(mod)
     const texture = canvasTexture(768, 512, (ctx) => drawFloorMark(ctx, mod.cfg.variant, floorMarkLine(mod, this.ctx.data?.lines ?? [])))
+    bindArtworkTexture(g,texture,(c,data)=>drawFloorMark(c,mod.cfg.variant,floorMarkLine(mod,data.lines)))
     const material = this.ownedMaterial(new THREE.MeshStandardMaterial({ map: texture, transparent: true, roughness: 0.9, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }))
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material)
     mesh.position.set((w - 1) / 2, (Math.ceil(d) - 1) / 2, 0.006)

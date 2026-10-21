@@ -6,6 +6,7 @@
 // iteration order, so `seed + tick -> identical crowd` (§7.6).
 
 import { AgentPool, type Agent } from '../agents.ts'
+import { applyPopulationEdit, type PopulationEdit } from '../populationEdit.ts'
 import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
 import {
   CONGESTION_CAP,
@@ -319,7 +320,7 @@ export class World {
     this.routeTails.clear()
     this.routeTailGraph = null
     this.history.reset(this.simTime)
-    this.rebuild()
+    this.rebuild(true)
   }
 
   /**
@@ -342,6 +343,43 @@ export class World {
    * for an answer that changes once a day.
    */
   private dayTypeCache: { index: number; type: DayType } = { index: Number.NaN, type: 'workday' }
+
+  /** §6.5/§7.4: refresh only demand and dispatch inputs; retain live journeys,
+   * trains, queues, route caches, collision buffers and RNG state. */
+  updatePopulation(edit: PopulationEdit): void {
+    const oldPeriod = periodOf(this.simTime, this.day.service, this.day.peaks, this.dayType() === 'workday')
+    const oldHeadways = new Map(this.data.lines.map(l => [l.id, l.headwayProfile[oldPeriod]]))
+    this.data = applyPopulationEdit(this.data, edit)
+    for (const line of this.data.lines) this.lineById.set(line.id, line)
+    for (const e of edit.exits) if (e.name !== undefined) {
+      const exit = this.graph.exits.find(x => x.id === e.id)
+      if (exit) exit.name = e.name
+    }
+    if (edit.settings) this.refreshDay()
+    const period = periodOf(this.simTime, this.day.service, this.day.peaks, this.dayType() === 'workday')
+    this.metrics.period = period
+    if (!edit.headways && !edit.settings) return
+    for (const line of this.data.lines) {
+      const delta = line.headwayProfile[period] - (oldHeadways.get(line.id) ?? line.headwayProfile[period])
+      if (delta === 0) continue
+      const tracks = this.serviceTracks(line.id)
+      for (const track of tracks.length ? tracks : [undefined]) {
+        const key = trainKey(line.id, track?.id ?? '')
+        const next = this.nextDispatch.get(key)
+        if (next !== undefined && next > this.simTime) this.nextDispatch.set(key, Math.max(this.simTime, next + delta))
+      }
+    }
+  }
+
+  private refreshDay(): void {
+    this.day = {
+      service: normalizeService(this.data.service),
+      peaks: normalizePeaks(this.data.peaks),
+      ...normalizeDayDemand(this.data.demand),
+    }
+    this.calendar = normalizeCalendar(this.data.calendar)
+    this.dayTypeCache.index = Number.NaN
+  }
 
   /**
    * Move the clock to `seconds` — the 时刻 window's calendar pick, and §7.9's scrub (§7.9 "drag the
@@ -366,61 +404,64 @@ export class World {
   /** Rebuild the graph from static data and reset derived state. */
   private roads: Road[] = []
 
-  rebuild(): void {
+  rebuild(reuseGraph = false): void {
     this.doorWaiting.clear()
     this.roads = this.data.modules.filter((m): m is Road => m.type === 'road')
     // The authored day is document data: re-read and re-normalize it on every rebuild,
     // which is the same path a live edit takes (`build` → `rebuild`).
-    this.day = {
-      service: normalizeService(this.data.service),
-      peaks: normalizePeaks(this.data.peaks),
-      ...normalizeDayDemand(this.data.demand),
+    this.refreshDay()
+    if (!reuseGraph) {
+      this.graph = buildGraph(this.data, this.zoneBarriers)
+      // A tail is a list of node ids, so every one of them is stale the moment the
+      // graph is re-cut — dropped here rather than left to the identity check in
+      // `routeTail`, which only fires on the next preview.
+      this.routeTails.clear()
+      this.routeTailGraph = this.graph
+      this.nodePop = new Int32Array(this.graph.nodeCount)
+      this.doorsByLine.clear()
+      this.doorLoads = new Int32Array(this.graph.servers.length)
+      this.doorsByTrack.clear()
+      this.doorOwner.clear()
+      this.doorEdge.clear()
+      this.lineById.clear()
+      for (const l of this.data.lines) this.lineById.set(l.id, l)
+      this.computeLineAnchors()
+      for (const p of this.graph.platforms) {
+        const arr = this.doorsByLine.get(p.line) ?? []
+        for (const d of p.doors) {
+          arr.push(d)
+          this.doorOwner.set(d, p.line)
+          this.doorEdge.set(d, { line: p.line, index: p.doors.indexOf(d) })
+        }
+        this.doorsByLine.set(p.line, arr)
+        // Each platform belongs to the rail that derived it (`cfg.from`), so a
+        // consist boards only at its own screen doors. Edges that predate
+        // `cfg.from` fall back to the rail of the same direction, or the line's
+        // only rail.
+        const edgeMod = this.data.modules.find((m) => m.id === p.id)
+        const from = edgeMod?.type === 'platform-edge' ? edgeMod.cfg.from : undefined
+        const rails = this.serviceTracks(p.line)
+        const trackId = rails.some((t) => t.id === from)
+          ? (from as string)
+          : (rails.filter((t) => (t.cfg.dir ?? this.lineById.get(p.line)?.direction) === p.dir)[0] ?? rails[0])?.id
+        if (trackId !== undefined) {
+          const key = trainKey(p.line, trackId)
+          const tarr = this.doorsByTrack.get(key) ?? []
+          for (const d of p.doors) tarr.push(d)
+          this.doorsByTrack.set(key, tarr)
+        }
+      }
+    } else {
+      this.nodePop.fill(0)
+      this.doorLoads.fill(0)
     }
-    this.calendar = normalizeCalendar(this.data.calendar)
-    this.dayTypeCache.index = Number.NaN
-    this.graph = buildGraph(this.data, this.zoneBarriers)
+    // Search queues, congestion and forecasts are dynamic even when topology is
+    // retained. Their fresh state must match a full restart, including lifts.
     this.path = new PathFinder(this.graph)
     this.gateTraffic = new GateTraffic(this.graph)
     this.path.gateWait = (s, dir) => this.gateTraffic.wait(s, dir)
-    // A tail is a list of node ids, so every one of them is stale the moment the
-    // graph is re-cut — dropped here rather than left to the identity check in
-    // `routeTail`, which only fires on the next preview.
     this.routeTails.clear()
     this.routeTailGraph = this.graph
-    this.nodePop = new Int32Array(this.graph.nodeCount)
-    this.doorsByLine.clear()
-    this.doorLoads = new Int32Array(this.graph.servers.length)
-    this.doorsByTrack.clear()
-    this.doorOwner.clear()
-    this.doorEdge.clear()
-    this.lineById.clear()
-    for (const l of this.data.lines) this.lineById.set(l.id, l)
-    this.computeLineAnchors()
-    for (const p of this.graph.platforms) {
-      const arr = this.doorsByLine.get(p.line) ?? []
-      for (const d of p.doors) {
-        arr.push(d)
-        this.doorOwner.set(d, p.line)
-        this.doorEdge.set(d, { line: p.line, index: p.doors.indexOf(d) })
-      }
-      this.doorsByLine.set(p.line, arr)
-      // Each platform belongs to the rail that derived it (`cfg.from`), so a
-      // consist boards only at its own screen doors. Edges that predate
-      // `cfg.from` fall back to the rail of the same direction, or the line's
-      // only rail.
-      const edgeMod = this.data.modules.find((m) => m.id === p.id)
-      const from = edgeMod?.type === 'platform-edge' ? edgeMod.cfg.from : undefined
-      const rails = this.serviceTracks(p.line)
-      const trackId = rails.some((t) => t.id === from)
-        ? (from as string)
-        : (rails.filter((t) => (t.cfg.dir ?? this.lineById.get(p.line)?.direction) === p.dir)[0] ?? rails[0])?.id
-      if (trackId !== undefined) {
-        const key = trainKey(p.line, trackId)
-        const tarr = this.doorsByTrack.get(key) ?? []
-        for (const d of p.doors) tarr.push(d)
-        this.doorsByTrack.set(key, tarr)
-      }
-    }
     // Reset server queues; agents will re-request on the next tick.
     for (const s of this.graph.servers) {
       s.queue.length = 0
@@ -428,6 +469,17 @@ export class World {
       s.served = 0
       s.waitAccum = 0
       s.waitCount = 0
+      s.lane = 0
+      if (s.ramp) {
+        s.ramp.next = 0
+        if (s.ramp.traffic) { s.ramp.traffic.direction = -1; s.ramp.traffic.until = 0 }
+      }
+      if (s.lift) {
+        const car = s.lift
+        car.at = 0; car.z = car.stopZ[0]
+        car.legFrom = 0; car.legTo = 0; car.moveT = 0; car.moveTotal = 0
+        car.phase = 'idle'; car.t = 0; car.door = 0; car.riders.length = 0
+      }
     }
     /**
      * A consist still on the road holds its own doorways, and an edit re-cuts
@@ -485,7 +537,11 @@ export class World {
       a.liftPhase = 0
       a.liftT = 0
     })
-    this.setupGrid()
+    if (!reuseGraph) this.setupGrid()
+    else {
+      this.cCounts.fill(0); this.cStart.fill(0); this.cOrder.fill(0)
+      this.cellDensity.fill(0); this.crowdNear.fill(0)
+    }
     this.nextDispatch.clear()
     let stagger = 0
     for (const l of this.data.lines) {

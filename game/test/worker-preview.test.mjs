@@ -44,9 +44,81 @@ function post(msg) {
 }
 const lastState = () => frames.filter((f) => f.type === 'state').pop()
 
+test('population edits keep graph, crowd, queues and clock, including a pending build', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const data = referenceStation()
+  let installed
+  const originalRebuild = World.prototype.rebuild
+  World.prototype.rebuild = function (...args) { installed = this; return originalRebuild.apply(this, args) }
+  try {
+    post({ type: 'init', data, seed: 1234, playing: false, speed: 1 })
+    const world = installed
+    const graph = world.graph, pool = world.pool, doors = world.doorLoads
+    const tick = lastState().metrics.tick
+    const line = data.lines[0], exit = data.modules.find(m => m.type === 'exit')
+    const edit = { lines: [{ id: line.id, alightPerTrain: 123 }], exits: [{ id: exit.id, inRate: 456 }] }
+    let rebuilds = 0
+    World.prototype.rebuild = function (...args) { rebuilds++; return originalRebuild.apply(this, args) }
+    const frameCount = frames.length
+    post({ type: 'population', edit })
+    assert.equal(frames.length, frameCount, 'paused demand edit clones no crowd frame and requests no redraw')
+    assert.equal(rebuilds, 0)
+    assert.equal(world.graph, graph)
+    assert.equal(world.pool, pool)
+    assert.equal(world.doorLoads, doors)
+    assert.equal(lastState().metrics.tick, tick)
+    assert.equal(world.lineById.get(line.id).alightPerTrain, 123, 'future train arrivals read the updated line index')
+    assert.equal(world.data.modules.find(m => m.id === exit.id).cfg.inRate, 456, 'street spawns read the updated exit')
+    post({ type: 'build', data: { ...data, name: 'pending structural edit' } })
+    post({ type: 'population', edit })
+    assert.equal(rebuilds, 0, 'population message does not flush topology work')
+    flushBuild()
+    assert.equal(rebuilds, 1)
+    assert.equal(world.data.name, 'pending structural edit')
+    assert.equal(world.lineById.get(line.id).alightPerTrain, 123)
+    assert.equal(world.data.modules.find(m => m.id === exit.id).cfg.inRate, 456)
+    assert.equal(lastState().metrics.tick, tick)
+    post({ type: 'build', data })
+    post({ type: 'population', edit })
+    post({ type: 'init', data, seed: 1234, playing: false, speed: 1 })
+    flushBuild()
+    assert.equal(world.data.lines[0].alightPerTrain, line.alightPerTrain, 'loading cancels the pending edit')
+  } finally { World.prototype.rebuild = originalRebuild }
+})
+
 post({ type: 'init', data: referenceStation(), seed: 1234, startSeconds: 6.5 * 3600 })
 const first = lastState()
 assert.ok(first, 'the worker posted its first frame')
+
+test('service settings acknowledge changed forecasts without stepping or flushing a pending graph build', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const data=referenceStation()
+  const original=World.prototype.rebuild
+  let world, rebuilds=0
+  World.prototype.rebuild=function(...args){world=this;rebuilds++;return original.apply(this,args)}
+  try {
+    post({type:'init',data,seed:1,playing:false,speed:1})
+    const graph=world.graph, tick=world.tick
+    rebuilds=0
+    const edit={lines:[],exits:[],headways:[{id:data.lines[0].id,headwayProfile:{peak:120,offpeak:240,late:360}}],settings:{service:{from:18000,to:82800}}}
+    post({type:'build',data:{...data,name:'pending'}})
+    const count=frames.length
+    post({type:'population',edit})
+    assert.equal(frames.length,count+1,'paused forecast updates are acknowledged')
+    assert.equal(world.tick,tick)
+    assert.equal(world.graph,graph)
+    assert.equal(rebuilds,0)
+    assert.deepEqual(world.day.service,edit.settings.service)
+    flushBuild()
+    assert.equal(rebuilds,1)
+    assert.deepEqual(world.data.service,edit.settings.service)
+    assert.deepEqual(world.lineById.get(data.lines[0].id).headwayProfile,edit.headways[0].headwayProfile)
+    post({type:'control',playing:true,speed:1})
+    const runningTick=world.tick
+    post({type:'population',edit:{lines:[],exits:[],settings:{service:{from:21600,to:72000}}}})
+    assert.equal(world.tick,runningTick,'running settings updates never advance the clock either')
+  } finally {World.prototype.rebuild=original}
+})
 
 test('selecting a passenger while the sim runs does not step it', () => {
   post({ type: 'control', playing: true, speed: 1 })

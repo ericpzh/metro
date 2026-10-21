@@ -81,6 +81,63 @@ const line = (id) => st().station.lines.find((l) => l.id === id)
 const tracksOf = (id) => st().station.modules.filter((m) => m.type === 'track' && m.cfg.line === id)
 const edgesOf = (id) => st().station.modules.filter((m) => m.type === 'platform-edge' && m.cfg.line === id)
 
+test('population controls send only numbers and preserve undo/redo', () => {
+  const data = { name: 'demand', seed: 1, cells: [], lines: [defaultLine('1', 'up')],
+    modules: [{id:'exit',type:'exit',x:0,y:0,z:0,cfg:{name:'A',inRate:100,open:true}}] }
+  load(data)
+  initSim(data, 1)
+  const old = line('1').alightPerTrain
+  const cells = st().station.cells, modules = st().station.modules
+  st().updateLine('1', {alightPerTrain:123})
+  assert.equal(st().station.cells, cells)
+  assert.equal(st().station.modules, modules)
+  assert.deepEqual(workerInbox.at(-1), {type:'population',edit:{lines:[{id:'1',alightPerTrain:123}],exits:[]}})
+  st().undo()
+  assert.equal(workerInbox.at(-1).type, 'population', 'settings undo never sends the full station')
+  assert.equal(st().station.cells, cells, 'history retains immutable geometry identity')
+  assert.equal(line('1').alightPerTrain, old)
+  st().redo()
+  assert.equal(workerInbox.at(-1).type, 'population')
+  assert.equal(line('1').alightPerTrain, 123)
+  const s = st().station
+  st().commit({...s,modules:s.modules.map(m=>m.type==='exit'?{...m,cfg:{...m.cfg,inRate:456}}:m)})
+  assert.deepEqual(workerInbox.at(-1), {type:'population',edit:{lines:[],exits:[{id:'exit',inRate:456}]}})
+  assert.equal(st().station.modules[0].cfg.inRate, 456)
+  st().undo()
+  assert.equal(st().station.modules[0].cfg.inRate, 100)
+  st().redo()
+  assert.equal(st().station.modules[0].cfg.inRate, 456)
+})
+
+test('unchanged line patches, missing lines and same-document commits do no work', () => {
+  const data={name:'no-op',seed:1,cells:[],modules:[],lines:[defaultLine('1','up')]}
+  load(data)
+  const s=st().station, v=st().version, messages=workerInbox.length
+  st().updateLine('1',{headwayProfile:{...s.lines[0].headwayProfile}})
+  st().updateLine('1',{name:s.lines[0].name,alightPerTrain:s.lines[0].alightPerTrain})
+  st().updateLine('missing',{alightPerTrain:123})
+  st().commit(s)
+  assert.equal(st().station,s)
+  assert.equal(st().version,v)
+  assert.equal(workerInbox.length,messages)
+  assert.equal(st().past.length,0)
+})
+
+test('metadata and exit policy history preserve the structural view revision', () => {
+  load({name:'View revision',seed:1,cells:[],modules:[{id:'exit',type:'exit',x:0,y:0,z:0,cfg:{name:'A',inRate:100,open:true}}],lines:[defaultLine('1','up')]})
+  const geometry=st().geometryVersion, version=st().version
+  st().renameStation('Renamed')
+  st().updateLine('1',{colour:'#123456',name:'Line',upTerminus:'East',downTerminus:'West'})
+  const s=st().station
+  st().commit({...s,modules:s.modules.map(m=>({...m,cfg:{...m.cfg,open:false}}))})
+  st().undo();st().redo()
+  assert.equal(st().geometryVersion,geometry,'artwork and policy do not wake zone/move effects')
+  assert.equal(st().version,version+5,'history and autosave still see every edit')
+  st().commit({...st().station,cells:[{x:0,y:0,z:0,fill:'solid'}]})
+  assert.equal(st().geometryVersion,geometry+1)
+  st().undo();assert.equal(st().geometryVersion,geometry+2,'structural undo wakes geometry-dependent effects')
+})
+
 /** Every block a tunnel raised around itself, whatever track it belongs to. */
 const shellCells = () => st().station.cells.filter((c) => c.tags?.some((t) => t.startsWith('tunnel-shell:'))).length
 
@@ -230,15 +287,12 @@ test('a 行车间隔 edit clamps leg by leg and keeps the legs it did not touch'
   )
 })
 
-test('updateLine with an id the document does not hold still spends an undo frame', () => {
-  // `removeLine` guards with `if (!line) return`; `updateLine` does not, so a stale
-  // caller — a 线路 card unmounted between render and click — commits a document that
-  // is identical and leaves a Ctrl+Z that appears to do nothing.
+test('updateLine with an id the document does not hold is a no-op', () => {
   load(twoLines())
   st().updateLine('nope', { name: '不存在的线路' })
   assert.deepEqual(st().station.lines.map((l) => l.name), ['1号线', '2号线'], 'no line was touched')
-  assert.equal(st().past.length, 1, 'and yet a frame was pushed')
-  assert.equal(st().version, 1, 'and the document was versioned')
+  assert.equal(st().past.length, 0, 'a stale card does not spend an undo frame')
+  assert.equal(st().version, 0, 'and does not version an unchanged document')
 })
 
 test('a 供电 switch reaches every track bound to the line and no other line', () => {
@@ -411,7 +465,7 @@ test('commit pushes the document as it was, and undo / redo walk it both ways', 
   assert.equal(st().station.name, '第二步')
   assert.equal(st().past.length, 1, 'the document the edit replaced is the frame')
   assert.equal(st().past[0].name, '线路测试')
-  assert.notEqual(st().past[0], first, 'stored as a copy, so a later edit cannot rewrite history')
+  assert.equal(st().past[0], first, 'immutable metadata history retains geometry identity')
   assert.equal(st().version, version + 1, 'a commit is a new document version')
   assert.deepEqual(st().future, [])
 
@@ -532,7 +586,7 @@ test('Tanwei loads both authored lines, resets the view, and preserves undo acro
   assert.deepEqual(st().station.lines.map((l) => l.id), ['5', '6'])
   assert.equal(st().station.cells.length, expected.cells.length)
   assert.equal(st().station.modules.length, expected.modules.length)
-  assert.equal(st().activeZ, -7, 'it opens on its deepest built level, like a regular station')
+  assert.equal(st().activeZ, -10, 'it opens on its deepest built level, like a regular station')
   assert.equal(st().stationEpoch, epoch + 1)
   assert.equal(st().selected, null)
   assert.equal(st().moveDraft, null)
@@ -816,8 +870,8 @@ test('the 时刻 panel writes the day into the document, and a no-op keystroke w
   assert.equal(st().past.length, frames + 1, 'and is one Ctrl+Z away')
   {
     const build = workerInbox[workerInbox.length - 1]
-    assert.equal(build.type, 'build', 'and reaches the worker as an edit, not a reload')
-    assert.deepEqual(build.data.service, { from: 7 * 3600, to: 22 * 3600 }, 'with the window on the document')
+    assert.equal(build.type, 'population', 'and reaches the worker as a settings patch')
+    assert.deepEqual(build.edit.settings.service, { from: 7 * 3600, to: 22 * 3600 })
   }
 
   const settled = workerInbox.length
@@ -832,8 +886,8 @@ test('the 时刻 panel writes the day into the document, and a no-op keystroke w
   assert.deepEqual(st().station.peaks[1], before[1], 'the 晚高峰 is untouched')
   {
     const build = workerInbox[workerInbox.length - 1]
-    assert.equal(build.data.peaks[0].from, 8 * 3600)
-    assert.deepEqual(build.data.peaks[1], before[1])
+    assert.equal(build.edit.settings.peaks[0].from, 8 * 3600)
+    assert.deepEqual(build.edit.settings.peaks[1], before[1])
   }
   const peakFrames = st().past.length
   st().setPeakWindow(0, 8 * 3600, 10 * 3600)

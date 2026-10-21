@@ -2,6 +2,7 @@ import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { bindArtworkTexture } from '../../artwork.ts'
 import { PieceBuilder, canvasTexture, slab, finishSlab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { psdFullHeight, PSD_HALF_HEIGHT, PSD_FULL_DOOR_WIDTH_SCALE, PSD_WALL_OFFSET, PSD_BASE_DEPTH } from '../../../sim/constants.ts'
@@ -119,9 +120,14 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     // Station panels sit above train-aligned doorways; route panels fill
     // the fixed spans between them. Both face the platform only (§5.9).
     if (!fixedSpan) {
-      const headerMaterial = (kind: 'route' | 'station') => ownedMaterial(ctx,
-        new THREE.MeshBasicMaterial({ map: canvasTexture(1024, PSD_HEADER_PIXELS,
-          (c) => drawPsdHeader(c, kind, colour, headerInfo, name, nameEn)), side: THREE.FrontSide }))
+      const headerMaterial = (kind: 'route' | 'station') => {
+        const map = canvasTexture(1024, PSD_HEADER_PIXELS, c => drawPsdHeader(c, kind, colour, headerInfo, name, nameEn))
+        bindArtworkTexture(g, map, (c, data) => {
+          const next = data.lines.find(l => l.id === mod.cfg.line) ?? data.lines[0]
+          drawPsdHeader(c, kind, next?.colour ?? '#1b6fd6', psdHeaderInfo(next, mod, data.name), data.name || t('metro_station'), data.nameEn || '')
+        })
+        return ownedMaterial(ctx, new THREE.MeshBasicMaterial({map, side:THREE.FrontSide}))
+      }
       const routeMat = headerMaterial('route'), stationMat = headerMaterial('station')
       const headerPanel = (a: number, b: number, station: boolean) => {
         if (b - a < 0.05) return
@@ -140,8 +146,15 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
       headerPanel(start, x0 + len, false)
     }
     // The fascia's bottom edge follows the bound line colour.
-    const lineBand = housingOnly ? mats.white : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ color: colour }))
-    slab(g, lineBand, cx, yWall - toward * 0.13, z0 + headerBottom + 0.012, len, 0.03, 0.025)
+    const bandMap = housingOnly ? null : canvasTexture(2,2,c=>{c.fillStyle=colour;c.fillRect(0,0,2,2)})
+    if (bandMap) bindArtworkTexture(g,bandMap,(c,data)=>{
+      c.fillStyle=(data.lines.find(l=>l.id===mod.cfg.line)??data.lines[0])?.colour??'#1b6fd6'
+      c.fillRect(0,0,2,2)
+    })
+    // A tiny live ink texture keeps the atlas/material key stable on recolour;
+    // changing a shared solid material would force station-wide re-bucketing.
+    const lineBand = bandMap ? ownedMaterial(ctx,new THREE.MeshBasicMaterial({map:bandMap})) : mats.white
+    slab(g, lineBand, cx, yWall - toward * 0.13, z0 + headerBottom + 0.012, len, 0.03, 0.025).name='psd-line-colour-band'
 
   }
   // The red "mind the gap" threshold, just under the doors so it never crosses
@@ -158,6 +171,14 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
     drawPsdHeader(c, 'station', colour, headerInfo, name, nameEn)
     c.restore()
   }) : null
+  if (stickerMap) bindArtworkTexture(g, stickerMap, (c, data) => {
+    const next = data.lines.find(l => l.id === mod.cfg.line) ?? data.lines[0]
+    const info = psdHeaderInfo(next, mod, data.name), ink = next?.colour ?? '#1b6fd6'
+    drawPsdHeader(c, 'route', ink, info, data.name || t('metro_station'), data.nameEn || '')
+    c.save(); c.translate(1024,0)
+    drawPsdHeader(c, 'station', ink, info, data.name || t('metro_station'), data.nameEn || '')
+    c.restore()
+  })
   const stickerMat = stickerMap ? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: stickerMap, side: THREE.FrontSide })) : null
   const bandMat = half || housingOnly ? null : ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(1024, 128, drawPsdBand), side: THREE.FrontSide }))
   if (bandMat?.map) bandMat.map.wrapS = THREE.RepeatWrapping

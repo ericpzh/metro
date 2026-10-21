@@ -9,6 +9,7 @@
 // changes, only the artwork inside cycles, on its own cadence per screen.
 
 import * as THREE from 'three'
+import { signLineInk } from '../../presentationEdit.ts'
 import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
@@ -91,6 +92,7 @@ export class PlateSystem extends SceneSystem {
    * retained by module id, so a rename or a new terminus would never be redrawn.
    */
   private tvPlateStamp = ''
+  private lastSimTime: number | null = null
   /**
    * Every plate texture this system minted. A lit face wraps one of these, and the
    * two places that free a builder-minted material's map (`ModuleSystem.clearModules`,
@@ -129,8 +131,9 @@ export class PlateSystem extends SceneSystem {
       .join('|')}`
     if (stamp !== this.tvPlateStamp) {
       this.tvPlateStamp = stamp
-      this.clearTvPlates()
-      return
+      // The board dimensions did not change. Repaint its retained texture;
+      // disposing it would strand the map on a retained TV mesh.
+      this.tvInk.clear()
     }
     const keep = new Set<string>()
     for (const mod of data.modules) if (mod.type === 'tv') keep.add(mod.id)
@@ -236,6 +239,12 @@ export class PlateSystem extends SceneSystem {
       if (sameLines && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
       const boards = signBoardsOf(mod.cfg, this.ctx.stationData)
       const layout = signFaceLayout(boards, entry.face === 'right' ? 'back' : 'front')
+      const previousMod = old.get(id)
+      if (previous && previousMod?.type === 'sign' && JSON.stringify(previousMod) === JSON.stringify(mod)) {
+        const oldLayout = signFaceLayout(signBoardsOf(previousMod.cfg,previous),entry.face === 'right' ? 'back' : 'front')
+        const ink = signLineInk(oldLayout,previous.lines)
+        if (ink !== null && ink === signLineInk(layout,lines) && JSON.stringify(oldLayout) === JSON.stringify(layout)) continue
+      }
       const canvas = entry.texture.image as HTMLCanvasElement | undefined
       const g = canvas?.getContext('2d')
       if (!canvas || !g) continue
@@ -424,7 +433,8 @@ export class PlateSystem extends SceneSystem {
     const data = this.ctx.stationData
     if (!data) return
     const old = new Map(previous?.modules.map(m => [m.id, m]))
-    const sameWords = previous && previous.name === data.name && JSON.stringify(previous.lines) === JSON.stringify(data.lines)
+    const mapInk = (d: StationData) => d.lines.map(l=>[l.id,l.name,l.colour,l.stations])
+    const sameWords = previous && previous.name === data.name && JSON.stringify(mapInk(previous)) === JSON.stringify(mapInk(data))
     for (const [key, entry] of this.decorPlates) {
       if (!entry.owned || !entry.face.texture) continue
       const id = key.slice(0, key.indexOf('|'))
@@ -435,6 +445,7 @@ export class PlateSystem extends SceneSystem {
       const g = canvas?.getContext('2d')
       if (!canvas || !g) continue
       if (mod.type === 'calligraphy') {
+        if (previous && previous.name === data.name && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
         const axis = mod.cfg?.axis === 'v' ? 'v' : 'h'
         const panel = calligraphyPanelSize(axis, mod.w, mod.panelH)
         const plate = calligraphyPlate(panel)
@@ -475,6 +486,7 @@ export class PlateSystem extends SceneSystem {
 
   /** Refresh on every worker frame, uploading only when the printed arrivals or clock change. */
   setSimClock(simTime: number, services: TrainService[] = []): void {
+    this.lastSimTime = simTime
     this.services = services
     const data = this.ctx.stationData
     const stamp = stampAt(simTime, data?.calendar)
@@ -491,6 +503,12 @@ export class PlateSystem extends SceneSystem {
       drawStationDisplay(g, status, data?.name ?? '', stamp.clock, stamp.dateLabel)
       tex.needsUpdate = true
     }
+  }
+
+  /** A paused settings edit can finish rendering after its worker acknowledgement.
+   * Reconcile the retained screen pixels with the latest document in either order. */
+  refreshSettings(): void {
+    if (this.lastSimTime !== null) this.setSimClock(this.lastSimTime, this.services)
   }
 
   /**

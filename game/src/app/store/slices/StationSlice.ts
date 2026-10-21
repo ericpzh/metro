@@ -1,4 +1,5 @@
 import { msg } from '../../../sim/i18n.ts'
+import { populationEdit } from '../../../sim/populationEdit.ts'
 // The station-document slice: the document itself, the undo stack, the
 // selection, the transient toast, and opening/saving/renaming/reference
 // stations. Every mutation goes through `commit` so the worker (`rebuildSim`)
@@ -72,6 +73,8 @@ function pushPast(past: readonly StationState[], snap: StationState): StationSta
 export interface StationSlice {
   station: StationState
   version: number
+  /** Structural document revision; invisible settings never dirty view effects. */
+  geometryVersion: number
   /**
    * Counts station switches (打开存档 / 示例车站 / 新建), never edits: the
    * viewport resets the camera home when this moves, after the fresh bounds
@@ -116,6 +119,7 @@ export interface StationSlice {
 export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = (set, get) => ({
   station: toState(emptyStation()),
   version: 0,
+  geometryVersion: 0,
   stationEpoch: 0,
   notice: null,
   selected: null,
@@ -143,7 +147,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       return
     }
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s))
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -155,7 +159,11 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
         : msg('opened_save_vvalue', r.version),
     })
   },
-  select: (sel) => set({ selected: sel }),
+  select: (sel) => {
+    const current = get().selected
+    if (current?.kind === sel?.kind && current?.key === sel?.key && current?.label === sel?.label) return
+    set({ selected: sel })
+  },
 
   renameStation: (name, nameEn) => {
     const s = get().station
@@ -196,28 +204,34 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   },
 
   commit: (next) => {
-    next = syncBridgePillars(next)
     const cur = get().station
-    set({ station: next, version: get().version + 1, past: pushPast(get().past, cloneState(cur)), future: [] })
-    rebuildSim(toData(next))
+    if (next === cur) return
+    const settingsOnly = populationEdit(cur, next)
+    if (!settingsOnly) next = syncBridgePillars(next)
+    // Documents are immutable (the renderer and placement caches rely on this).
+    // Retain their geometry identity for settings history as well as live edits.
+    set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, settingsOnly ? cur : cloneState(cur)), future: [] })
+    rebuildSim(toData(next), toData(cur))
   },
   undo: () => {
     const { past, station, future } = get()
     if (past.length === 0) return
     const prev = past[past.length - 1]
-    set({ station: prev, past: past.slice(0, -1), future: [...future, cloneState(station)], version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
-    rebuildSim(toData(prev))
+    const settingsOnly = populationEdit(station, prev)
+    set({ station: prev, past: past.slice(0, -1), future: [...future, settingsOnly ? station : cloneState(station)], version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
+    rebuildSim(toData(prev), toData(station))
   },
   redo: () => {
     const { future, station, past } = get()
     if (future.length === 0) return
     const next = future[future.length - 1]
-    set({ station: next, future: future.slice(0, -1), past: pushPast(past, cloneState(station)), version: get().version + 1, activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
-    rebuildSim(toData(next))
+    const settingsOnly = populationEdit(station, next)
+    set({ station: next, future: future.slice(0, -1), past: pushPast(past, settingsOnly ? station : cloneState(station)), version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
+    rebuildSim(toData(next), toData(station))
   },
   newStation: () => {
     const s = toState(emptyStation())
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
   },
   loadReference: (id = 'zoo') => {
@@ -225,7 +239,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation(id))
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: msg('example_station_repair_removed_value_blocks_outside_the_grid', repaired.droppedCells + repaired.droppedModules) })

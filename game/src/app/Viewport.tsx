@@ -1,4 +1,5 @@
 import { TouchZoom } from './touchZoom.ts'
+import { populationEdit } from '../sim/populationEdit.ts'
 import { FrameTask } from './frameTask.ts'
 import { translate } from '../sim/i18n.ts'
 import { useLanguage } from './i18n.ts'
@@ -213,6 +214,7 @@ export function Viewport(): React.ReactElement {
   }, [tools])
 
   const version = useStore((s) => s.version)
+  const geometryVersion = useStore((s) => s.geometryVersion)
   const station = useStore((s) => s.station)
   const stationEpoch = useStore((s) => s.stationEpoch)
   // A 指示牌 whose board the editor has open draws the board being arranged, not the
@@ -327,7 +329,7 @@ export function Viewport(): React.ReactElement {
 
   useEffect(() => {
     buildZoneOverlay()
-  }, [zoneOverlayOn, version, activeZ])
+  }, [zoneOverlayOn, geometryVersion, activeZ])
 
   useEffect(() => {
     if (!graph) return
@@ -659,11 +661,27 @@ export function Viewport(): React.ReactElement {
     }
   }, [])
 
+  const renderedStationRef = useRef<{
+    station: typeof station; stationEpoch: number; signVersion: number
+    signPreviewId: typeof signPreviewId; language: typeof language
+  } | null>(null)
   // Rebuild the static meshes only when the station itself changes.
   useEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
     const st = useStore.getState()
+    const previous = renderedStationRef.current
+    renderedStationRef.current = { station, stationEpoch, signVersion, signPreviewId, language }
+    if (previous && !signPreviewId && previous.stationEpoch === stationEpoch &&
+      previous.signPreviewId === signPreviewId &&
+      previous.signVersion === signVersion && previous.language === language &&
+      populationEdit(previous.station, station)) {
+      const data = toData(station)
+      if (scene.updatePopulationData(data)) {
+        geometryRef.current.resolve(data)
+        return
+      }
+    }
     // The tools' live "is there a block here" set is the **effective** cell list —
     // the document's own cells plus the generated street window (`withGround`) —
     // not the raw document. The street is stored inverted (only holes are cells),
@@ -718,8 +736,8 @@ export function Viewport(): React.ReactElement {
   // it is in the air rebuilds that ghost at once instead of waiting for the next
   // pointer move. When the lift ends the ghost goes with it — and a cancel is not a
   // commit, so nothing else has rebuilt the station to drop it: that is this effect's
-  // job, which is what makes the card's 取消 clear the piece on screen. `version` is in
-  // the list because a commit clears the ghost with the station (`setStation`), so an
+  // job, which is what makes the card's 取消 clear the piece on screen. `geometryVersion` is in
+  // the list because a structural commit clears the ghost with the station (`setStation`), so an
   // edit made while a piece is in the air — an undo, say — puts it back on screen.
   useEffect(() => {
     sceneRef.current?.setMovingModule(moveId)
@@ -731,7 +749,7 @@ export function Viewport(): React.ReactElement {
       // node handles after that cleanup and any station rebuild.
       if(st.tool==='module'&&st.moduleType==='road'&&!dragRef.current?.road) tools.equipment.refreshHover()
     }
-  }, [moveKey, moveId, version, tools])
+  }, [moveKey, moveId, geometryVersion, tools])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild
   // re-applies it inside setStation, so this only has to run on the id itself.

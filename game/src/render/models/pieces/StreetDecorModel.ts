@@ -163,9 +163,11 @@ export class GuidepostModel extends PieceBuilder {
     const yellow = new THREE.Mesh(yellowPyramidGeometry(), mats.psu)
     yellow.position.z = GUIDE_LOGO_BOTTOM; collar.add(yellow); g.add(collar)
     const labels = guideLabels(this.ctx.data, mod); g.userData.guideLabels = labels
+    bindArtwork(g,data=>{g.userData.guideLabels=guideLabels(data,mod)})
     const iconMat = typeof document === 'undefined' ? mats.blue : ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 256, c => c.drawImage(guideTrainIconFace(), 0, 0)) }))
     threeFaces(g, 1, iconMat, 2.31, 2.49, 'guide-square-train-icon', GUIDE_PLAN, .18)
     const letterMat = typeof document === 'undefined' ? mats.white : ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ transparent: true, map: canvasTexture(256, 256, c => c.drawImage(guideExitLetterFace(labels.exit), 0, 0)) }))
+    if (typeof document !== 'undefined') bindArtworkTexture(g,(letterMat as THREE.MeshBasicMaterial).map!,(c,data)=>c.drawImage(guideExitLetterFace(guideLabels(data,mod).exit),0,0))
     threeFaces(g, 1, letterMat, 2.71, 2.89, 'guide-square-exit-letter', GUIDE_PLAN, .18)
     if (typeof document !== 'undefined') {
       const ink = guideFace(labels.station, labels.exit)
@@ -173,6 +175,8 @@ export class GuidepostModel extends PieceBuilder {
       const englishInk = guideEnglishFace(this.ctx.data.nameEn?.trim() || t('printed_metro_station'))
       const rear = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ transparent: true,
         map: canvasTexture(englishInk.width, englishInk.height, c => c.drawImage(englishInk, 0, 0)) }))
+      bindArtworkTexture(g,upper.map!,(c,data)=>{const next=guideLabels(data,mod);c.drawImage(guideFace(next.station,next.exit),0,0,256,277,0,0,256,277)})
+      bindArtworkTexture(g,rear.map!,(c,data)=>c.drawImage(guideEnglishFace(data.nameEn?.trim() || t('printed_metro_station')),0,0))
       threeFaces(g, 1, [upper, upper, rear], GUIDE_LOGO_TOP, 4, 'guide-station-face')
       const logo = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, c => c.drawImage(guideLogoFace(), 0, 0)) }))
       plate(collar, logo, .34 * GUIDE_WIDTH_SCALE, GUIDE_LOGO_TOP - GUIDE_LOGO_BOTTOM, 0, .071, (GUIDE_LOGO_BOTTOM + GUIDE_LOGO_TOP) / 2, Math.PI).name = 'guide-metro-logo-face'
@@ -232,6 +236,7 @@ export class BusstopModel extends PieceBuilder {
     slab(g, green, .53, 1.10, 1.35, .95, .18, 2.2)
     if (typeof document !== 'undefined') {
       const mat = ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 768, (c) => c.drawImage(routeFace(ctx.data.name || t('metro_station')), 0, 0)) }))
+      bindArtworkTexture(g,mat.map!,(c,data)=>c.drawImage(routeFace(data.name || t('metro_station')),0,0))
       plate(g, mat, .76, 1.91, .53, .998, 1.35, 0)
     } else slab(g, ctx.mats.green, .53, .995, 1.35, .76, .02, 1.91)
     // Centre the end lightbox between the last two posts, including its outer frame.
@@ -271,3 +276,4 @@ export class BusstopModel extends PieceBuilder {
     return placeLocal(g, mod)
   }
 }
+import { bindArtwork, bindArtworkTexture } from '../../artwork.ts'

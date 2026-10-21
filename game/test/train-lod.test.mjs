@@ -53,6 +53,31 @@ function trainSystem(mats, stock, cars, doorSides = 3) {
   return { ctx, trains, group, details: trains.details.get(group) }
 }
 
+test('a live line recolour retains consist geometry, door banks, poses and detail allocations', () => withDocument(mats=>{
+  const {trains,group,details}=trainSystem(mats,'B',2)
+  try {
+    const geometry=[];group.traverse(m=>{if(m.isMesh)geometry.push([m,m.geometry])})
+    const doors=group.userData.doors, banks=group.userData.trainDoorBatches
+    const count=trains.trainGroup.children.length
+    trains.setTrains(new Float32Array([0,0,0,2,STOCK_CLASSES.indexOf('B'),1,0x995533,1,0,3]))
+    assert.equal(trains.trainGroup.children.length,count)
+    const entry=[...trains.trainSlots.values()].find(e=>e.active)
+    assert.equal(entry.group,group)
+    assert.equal(group.userData.liveryMaterial.color.getHex(),0x995533)
+    assert.equal(group.userData.doors,doors);assert.equal(group.userData.trainDoorBatches,banks)
+    assert.equal(trains.details.get(group),details)
+    for(const [mesh,buffer] of geometry)assert.equal(mesh.geometry,buffer)
+    trains.setTrains(new Float32Array())
+    trains.setTrains(new Float32Array())
+    trains.setTrains(new Float32Array([50,0,0,2,STOCK_CLASSES.indexOf('B'),1,0x775599,1,0,3]))
+    assert.equal(trains.trainGroup.children.length,count,'a parked consist can be recoloured for the next service')
+    assert.equal([...trains.trainSlots.values()].find(e=>e.active).group,group)
+    trains.setTrains(new Float32Array([50,0,0,2,STOCK_CLASSES.indexOf('B'),1,0x775599,1,0,3,100,0,0,2,STOCK_CLASSES.indexOf('B'),1,0x445566,1,0,3]))
+    assert.equal(trains.trainGroup.children.length,count+1,'a simultaneous second service keeps its own model and material')
+    assert.equal(group.userData.liveryMaterial.color.getHex(),0x775599)
+  } finally {trains.dispose()}
+}))
+
 // One row per consist the game can build, with the full count the performance
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
