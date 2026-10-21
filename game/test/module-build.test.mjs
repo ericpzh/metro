@@ -1109,6 +1109,22 @@ test('a shaft is capped at both ends, and extending moves the caps instead of le
     assert.ok(grownCaps.every((z) => Math.abs(z - 0.07) < 1e-6 || Math.abs(z - 7.93) < 1e-6), `${style}: no cap left at the middle joint`)
   }
 })
+test('the lift roof cap clears blocks around its two-metre footprint', () => {
+  for (const style of ['glass', 'steel']) {
+    const mod = { ...liftModule({ x: 4, y: 4, z: 0 }, 0, `cap-clearance-${style}`, 5), cfg: { rises: [5], style } }
+    let cap
+    build(mod).group.traverse((o) => {
+      if (o.isMesh && o.name === 'lift-cap-top') cap = o
+    })
+    assert.ok(cap, `${style}: top cap exists`)
+    const { width, height } = cap.geometry.parameters
+    assert.ok(width < 2 && height < 2, `${style}: top cap stays inside the 2 × 2 m module footprint`)
+    assert.ok(Math.abs(cap.position.x - width / 2 + 0.99) < 1e-6, `${style}: one-centimetre clearance on the left`)
+    assert.ok(Math.abs(cap.position.x + width / 2 - 0.99) < 1e-6, `${style}: one-centimetre clearance on the right`)
+    assert.ok(Math.abs(cap.position.y - height / 2 + 0.99) < 1e-6, `${style}: one-centimetre clearance at the front`)
+    assert.ok(Math.abs(cap.position.y + height / 2 - 0.99) < 1e-6, `${style}: one-centimetre clearance at the back`)
+  }
+})
 
 test('an upper level whose slab is cut away under the cabin still draws its landing doors', () => {
   // The cabin passes through the upper slab, so the 2 × 2 shaft cells are holes in

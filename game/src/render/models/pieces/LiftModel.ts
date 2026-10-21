@@ -12,6 +12,8 @@ import { omitModelDetail } from '../../modelDetail.ts'
 const LIFT_OUTER = 0.94
 /** The end caps' thickness, metres: a closed plate at each end of the shaft. */
 const LIFT_CAP = 0.14
+/** Keep the roof cap inside the two-metre module boundary to clear adjacent blocks. */
+const LIFT_CAP_PLAN = 1.98
 /** 1.44 m clear carriage. */
 const LIFT_INNER = 0.72
 /** How far up the doorway is cut before the header closes it (metres). */
@@ -236,7 +238,7 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   // A closed plate at the top; the bottom cap is a ring around the cabin so the
   // car sits on the station floor while the shaft still closes at its own foot.
   // Both sit **inside** the intervals, so the piece is still exactly its rise.
-  slab(g, mats.darkSteel, 0, 0, H - LIFT_CAP / 2, 2.04, 2.04, LIFT_CAP).name = 'lift-cap-top'
+  slab(g, mats.darkSteel, 0, 0, H - LIFT_CAP / 2, LIFT_CAP_PLAN, LIFT_CAP_PLAN, LIFT_CAP).name = 'lift-cap-top'
   for (const y of [-0.885, 0.885]) slab(g, mats.darkSteel, 0, y, LIFT_CAP / 2, 2.04, 0.27, LIFT_CAP).name = 'lift-cap-bottom'
   for (const x of [-0.885, 0.885]) slab(g, mats.darkSteel, x, 0, LIFT_CAP / 2, 0.27, 1.5, LIFT_CAP).name = 'lift-cap-bottom'
 
@@ -345,7 +347,7 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   }
   // Closed caps at the shaft's two ends, both inside the interval: a plate over
   // the top and a ring around the cabin at the foot.
-  slab(g, steel, 0, 0, H - LIFT_CAP / 2, 2.04, 2.04, LIFT_CAP).name = 'lift-cap-top'
+  slab(g, steel, 0, 0, H - LIFT_CAP / 2, LIFT_CAP_PLAN, LIFT_CAP_PLAN, LIFT_CAP).name = 'lift-cap-top'
   for (const y of [-0.885, 0.885]) slab(g, steel, 0, y, LIFT_CAP / 2, 2.04, 0.27, LIFT_CAP).name = 'lift-cap-bottom'
   for (const x of [-0.885, 0.885]) slab(g, steel, x, 0, LIFT_CAP / 2, 0.27, 1.5, LIFT_CAP).name = 'lift-cap-bottom'
   const cabin = new THREE.Group()
