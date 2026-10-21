@@ -59,3 +59,40 @@ test('a drag that pitches far enough stops short of the pole instead of flipping
   const phi = Math.acos(Math.max(-1, Math.min(1, offset.z / offset.length())))
   assert.ok(phi > 0.01, `the camera reached the pole itself (phi ${phi})`)
 })
+
+test('WASD follows the plan view screen axes when the camera looks straight down', () => {
+  const { cam, keys } = cameraRig()
+  cam.setPreset('plan')
+  const target = cam.controls.target.clone()
+  const camera = cam.camera.position.clone()
+  const dt = 0.25
+
+  keys.add('w')
+  cam.panCamera(dt)
+  const forward = cam.controls.target.clone().sub(target)
+  assert.ok(forward.y < 0, `W moved opposite screen-up in plan view: ${forward.toArray()}`)
+  assert.ok(Math.abs(forward.x) < 1e-9, `W drifted sideways: ${forward.toArray()}`)
+  assert.ok(cam.camera.position.distanceTo(camera.clone().add(forward)) < 1e-9, 'camera and aim should move together')
+
+  keys.clear()
+  const beforeRight = cam.controls.target.clone()
+  keys.add('d')
+  cam.panCamera(dt)
+  const right = cam.controls.target.clone().sub(beforeRight)
+  assert.ok(right.x < 0, `D moved opposite screen-right in plan view: ${right.toArray()}`)
+  assert.ok(Math.abs(right.y) < 1e-9, `D drifted vertically: ${right.toArray()}`)
+
+  keys.clear()
+  const beforeBack = cam.controls.target.clone()
+  keys.add('s')
+  cam.panCamera(dt)
+  const back = cam.controls.target.clone().sub(beforeBack)
+  assert.ok(back.y > 0, `S did not oppose W in plan view: ${back.toArray()}`)
+
+  keys.clear()
+  const beforeLeft = cam.controls.target.clone()
+  keys.add('a')
+  cam.panCamera(dt)
+  const left = cam.controls.target.clone().sub(beforeLeft)
+  assert.ok(left.x > 0, `A did not oppose D in plan view: ${left.toArray()}`)
+})

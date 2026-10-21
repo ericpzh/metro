@@ -36,6 +36,10 @@ save must keep the station's basis floor (`levelBase`) or the lowest level with
 user placement as the edited storey; the infinite 0 m ground plane is not a
 placement and the worker's `ready` message must not reset the view to grade.
 
+The straight-down plan view keeps WASD aligned with the visible screen axes,
+including at the vertical-camera singularity; pin this in
+`game/test/camera-orbit.test.mjs` when changing camera pan behavior.
+
 Ambient road traffic has six seeded vehicle appearances: pale/orange and red-mosaic
 buses, SUV, sedan, moped and step-through bicycle. Low graphics quality uses authored
 reduced geometry capped at 25% of High; High uses full detail. Low vehicles and Low

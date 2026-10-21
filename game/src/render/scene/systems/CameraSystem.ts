@@ -462,7 +462,13 @@ export class CameraSystem extends SceneSystem {
     const dir = new THREE.Vector3()
     this.camera.getWorldDirection(dir)
     dir.z = 0
-    if (dir.lengthSq() < 1e-6) dir.set(0, 1, 0) // looking straight down
+    if (dir.lengthSq() < 1e-6) {
+      // At the plan preset, forward has no horizontal component. Use the
+      // camera's screen-up axis instead of a world-axis guess, so WASD keeps
+      // following the visible orientation even at the top-view singularity.
+      dir.set(0, 1, 0).applyQuaternion(this.camera.quaternion)
+      dir.z = 0
+    }
     dir.normalize()
     // Screen right = forward x up (up is +z): (dx,dy,0) x (0,0,1) = (dy,-dx,0).
     const right = new THREE.Vector3(dir.y, -dir.x, 0)
