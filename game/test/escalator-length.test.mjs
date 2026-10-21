@@ -1,7 +1,8 @@
-// The fixed run lengths — one floor for every 扶梯 / 楼梯 (超短 2 m, 短 3 m,
-// 中 4 m, 长 5 m) and two floors for the 双层 扶梯 (超短 6 m … 超长 10 m) — and
-// every consumer of a run's endpoints (§5.1). A piece's length is its endpoints,
-// so a save made before the family grew still reads back from its span.
+// The fixed run lengths — one floor for every 扶梯 (超短 2 m, 短 3 m, 中 4 m,
+// 长 5 m) and every 楼梯 (the same four plus 超长 6 m), and two floors for the
+// 双层 扶梯 (超短 6 m … 超长 10 m) — and every consumer of a run's endpoints
+// (§5.1). A piece's length is its endpoints, so a save made before the family
+// grew still reads back from its span.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -12,11 +13,13 @@ import {
   DOUBLE_RAMP_LENGTH_DEFAULT,
   RAMP_LENGTHS,
   RAMP_LENGTH_DEFAULT,
+  STAIR_LENGTHS,
   defaultRampLength,
   nextRampLength,
   rampLengthLabel,
   rampLengthOf,
   rampLengthSpec,
+  stairLengthSpec,
 } from '../src/sim/rampLengths.ts'
 import { moduleEnvelope, movedModule } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
@@ -48,7 +51,7 @@ test('every single-floor length rises its own metres over its own run, in either
   }
 })
 
-test('the one-floor family is 2/3/4/5 m named 超短 / 短 / 中 / 长, and 长 is the default', () => {
+test('the one-floor 扶梯 family is 2/3/4/5 m named 超短 / 短 / 中 / 长, and 长 is the default', () => {
   assert.deepEqual(RAMP_LENGTHS.map((s) => [s.id, s.rise, s.run]), [
     ['ultra-short', 2, 3],
     ['short', 3, 5],
@@ -66,6 +69,38 @@ test('the one-floor family is 2/3/4/5 m named 超短 / 短 / 中 / 长, and 长 
   }
 })
 
+test('the 楼梯 family adds 超长 6 m, exactly one metre above 长', () => {
+  assert.deepEqual(STAIR_LENGTHS.map((s) => [s.id, s.rise, s.run]), [
+    ['ultra-short', 2, 3],
+    ['short', 3, 5],
+    ['medium', 4, 6],
+    ['long', 5, 8],
+    ['ultra-long', 6, 9],
+  ])
+  assert.deepEqual(STAIR_LENGTHS.map((s) => rampLengthLabel(s.id, 'single', 'stair')), ['超短', '短', '中', '长', '超长'])
+  assert.deepEqual([STAIR_LENGTHS.at(-2).rise, STAIR_LENGTHS.at(-1).rise], [5, 6], '超长 is one metre above 长')
+  assert.equal(stairLengthSpec(undefined).id, 'long', 'a fresh stair is 长')
+  assert.equal(stairLengthSpec('ultra-long').rise, 6)
+  // The two families share every rung below 超长, so one armed bank length still
+  // builds an 扶梯 and a 楼梯 side by side.
+  for (const spec of RAMP_LENGTHS) assert.deepEqual(stairLengthSpec(spec.id), spec)
+  // Tab walks the stair family's five rungs and wraps; an 扶梯 resolves the same
+  // armed 超长 to its own maximum (长) before its cycle wraps.
+  let id = 'ultra-short'
+  for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
+    id = nextRampLength(id, 'single', 'stair')
+    assert.equal(id, next)
+  }
+  assert.equal(nextRampLength('ultra-long', 'single', 'escalator'), 'ultra-short')
+  assert.equal(rampLengthLabel('ultra-long', 'single', 'escalator'), '长')
+  assert.equal(rampLengthLabel('ultra-long', 'single', 'stair'), '超长')
+  // A placed 6 m stair reads back into the stair family; the same climb on a
+  // 扶梯 is the 双层 超短 piece, never a one-floor 6 m escalator.
+  assert.equal(rampLengthOf(6, 9, 'single', 'stair'), 'ultra-long')
+  assert.equal(stairLengthSpec('ultra-long').label, 'ultra_long')
+  assert.deepEqual(defaultRampLength(5, 'single', 'stair'), 'long')
+})
+
 test('the double-floor family is 6…10 m named 超短 / 短 / 中 / 长 / 超长, and 超长 is its default', () => {
   assert.deepEqual(DOUBLE_RAMP_LENGTHS.map((s) => [s.id, s.rise, s.run]), [
     ['ultra-short', 6, 9],
@@ -80,7 +115,8 @@ test('the double-floor family is 6…10 m named 超短 / 短 / 中 / 长 / 超�
   // A single-floor id the double family also spells keeps its own rise there:
   // 中 is 4 m on one floor and 8 m on two.
   assert.deepEqual([rampLengthSpec('medium').rise, rampLengthSpec('medium', 'double').rise], [4, 8])
-  // 超长 only exists on two floors; asking for it on one falls back to 长.
+  // 超长 is not a 单层 扶梯 rung; asking for it on one falls back to 长. (The
+  // stair family owns that rung on one floor — see its own test above.)
   assert.equal(rampLengthSpec('ultra-long', 'single').id, 'long')
   let id = 'ultra-short'
   for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
@@ -124,8 +160,9 @@ test('a placed run reads its length back from its endpoints, old saves included'
     assert.equal(rampLengthOf(rise, run, span), id)
     assert.equal(rampLengthOf(-rise, run, span), id, 'a down run reads the same length')
   }
-  // A 楼梯 is built from the one-floor family, and reports the one it was built at.
-  for (const spec of RAMP_LENGTHS) {
+  // A 楼梯 is built from the stair family, and reports the one it was built at —
+  // 超长 6 m included.
+  for (const spec of STAIR_LENGTHS) {
     const stair = createModule('stair-straight', 0, 0, 0, `stair-${spec.id}`, 0, 0.68, 'up', 'lane', [], undefined, { rampLength: spec.id })
     assert.deepEqual(stair.to, { x: 0, y: spec.run, z: spec.rise }, `${spec.id} stair climbs its own run`)
     assert.equal(stairLengthOf(stair), spec.id)
@@ -203,13 +240,34 @@ test('every length snaps into an exit bay, and the setting redraws previews and 
   }
 })
 
-test('a 楼梯 dropped in an exit bay snaps to its own length too', () => {
+test('a 超长 stair climbs 6 m over 9 cells, opens the slab above and keeps its landing', () => {
+  // The staircase's extra rung is the one length that leaves the fixed 5 m
+  // storey: it must carve the ceiling it climbs through and still found its top
+  // landing one metre above the storey grid (a mezzanine floor the player built).
+  const cells = []
+  for (let x = -2; x <= 2; x++) for (let y = -2; y <= 12; y++) for (const z of [0, 5]) cells.push({ x, y, z, fill: 'solid' })
+  for (let x = -2; x <= 2; x++) for (let y = 8; y <= 12; y++) cells.push({ x, y, z: 6, fill: 'solid' })
+  const stair = createModule('stair-straight', 0, 0, 0, 'stair-ultra', 0, 0.68, 'up', 'lane', [], undefined, { rampLength: 'ultra-long' })
+  assert.deepEqual([stair.from, stair.to], [{ x: 0, y: 0, z: 0 }, { x: 0, y: 9, z: 6 }])
+  const state = addEquipment(toState({ name: 'ultra', seed: 1, cells, modules: [], lines: [] }), stair)
+  assert.ok(state.cells.length < cells.length, 'the flight opens the slab it climbs through')
+  assert.ok(!state.cells.some((c) => c.x === 0 && c.y === 7 && c.z === 5 && c.fill === 'solid'), 'the storey ceiling over the flight is carved')
+  assert.ok(state.cells.some((c) => c.x === 0 && c.y === 9 && c.z === 6 && c.fill === 'solid'), 'the top landing stays solid')
+  const g = buildGraph({ name: 'ultra', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
+  const bottom = g.nodeIndex.get('0,0,0')
+  const top = g.nodeIndex.get('0,9,6')
+  assert.notEqual(bottom, undefined, 'the foot is a walk node')
+  assert.notEqual(top, undefined, 'the top landing is a walk node one metre above the storey')
+  assert.ok(g.servers.some((s) => s.kind === 'stair' && s.node === bottom && s.exitNode === top), 'one flight joins them')
+})
+
+test('a 楼梯 dropped in an exit bay snaps to its own length too, 超长 included', () => {
   const before = useStore.getState()
   try {
     const exit = createModule('exit-covered-2', 0, 0, 0, 'exit')
     const station = toState({ name: 'exit', seed: 1, cells: [], modules: [exit], lines: [] })
     const tool = new EquipmentTool({})
-    for (const spec of RAMP_LENGTHS) {
+    for (const spec of STAIR_LENGTHS) {
       useStore.setState({ station, rampLength: spec.id })
       const m = tool.buildPlacementModules('stair-straight', [0, 0, 0], `snap-stair-${spec.id}`)[0]
       // A 楼梯 has no direction: the snapped bay cell is where it *lands*, so its
@@ -218,6 +276,10 @@ test('a 楼梯 dropped in an exit bay snaps to its own length too', () => {
       assert.equal(m.to.z, 0)
       assert.equal(Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), spec.run)
       assert.equal(stairLengthOf(m), spec.id)
+      // The snap's descent and the piece built must agree for every rung: a
+      // 超长 stair that descended 5 m would land a storey above the concourse.
+      const stairSpec = stairLengthSpec(spec.id)
+      assert.deepEqual([m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y)], [stairSpec.rise, stairSpec.run])
     }
   } finally {
     useStore.setState(before)
@@ -244,7 +306,7 @@ test('a save the catalogue cannot spell, or a span it never built, still arms a 
 })
 
 test('a turning stair takes the same length tile, with its platform at half the rise', () => {
-  for (const spec of RAMP_LENGTHS) {
+  for (const spec of STAIR_LENGTHS) {
     const turn = createModule('stair-right180', 0, 0, 0, `turn-${spec.id}`, 0, 0.68, 'up', 'lane', [], undefined, { rampLength: spec.id })
     assert.equal(Math.abs(turn.to.z - turn.from.z), spec.rise, `${spec.id} turning stair climbs its own rise`)
     assert.equal(stairLengthOf(turn), spec.id)
@@ -253,11 +315,11 @@ test('a turning stair takes the same length tile, with its platform at half the 
     assert.equal(flights[0].to.z, spec.rise / 2, `${spec.id} platform is at half the rise`)
     assert.equal(flights[1].from.z, spec.rise / 2)
   }
-  const keys = RAMP_LENGTHS.map((s) => moduleGhostKey(createModule('stair-right180', 0, 0, 0, 's', 0, 0.68, 'up', 'lane', [], undefined, { rampLength: s.id })))
-  assert.equal(new Set(keys).size, RAMP_LENGTHS.length, 'a stair length is in the ghost the viewport rebuilds from')
+  const keys = STAIR_LENGTHS.map((s) => moduleGhostKey(createModule('stair-right180', 0, 0, 0, 's', 0, 0.68, 'up', 'lane', [], undefined, { rampLength: s.id })))
+  assert.equal(new Set(keys).size, STAIR_LENGTHS.length, 'a stair length is in the ghost the viewport rebuilds from')
 })
 
-test('one armed length drives both pieces, so a bank is one size', () => {
+test('one armed length drives both pieces, and only a stair takes 超长', () => {
   const before = useStore.getState()
   try {
     const station = toState({ name: 'bank', seed: 1, cells: [], modules: [], lines: [] })
@@ -275,6 +337,15 @@ test('one armed length drives both pieces, so a bank is one size', () => {
       assert.equal(Math.abs(esc.to.z - esc.from.z), spec.rise)
       assert.equal(Math.abs(stair.to.z - stair.from.z), spec.rise)
     }
+    // 超长 is the stair's own rung: the same armed setting builds a 6 m stair and
+    // resolves the 扶梯 beside it to its 5 m maximum, never a one-floor 6 m run.
+    useStore.setState({ station, moduleType: 'stair-straight', rampLength: 'ultra-long', escalatorSpan: 'single' })
+    const tallStair = tool.buildPlacementModules('stair-straight', [1, 0, 0], 'bank-stair-ultra')[0]
+    assert.equal(Math.abs(tallStair.to.z - tallStair.from.z), 6)
+    assert.equal(stairLengthOf(tallStair), 'ultra-long')
+    const clampedEsc = tool.buildPlacementModules('escalator', [0, 0, 0], 'bank-esc-ultra')[0]
+    assert.equal(Math.abs(clampedEsc.to.z - clampedEsc.from.z), 5)
+    assert.equal(escalatorLength(clampedEsc), 'long')
   } finally {
     useStore.setState(before)
   }
@@ -297,17 +368,16 @@ test('the drawn 扶梯 and 楼梯 follow the run they were built at', () => {
     assert.ok(size.y > escalatorLengthSpec(spec.id, 5, spanFamily).run && size.y < escalatorLengthSpec(spec.id, 5, spanFamily).run + 2, `${spanFamily} ${spec.id} escalator spans its own ${escalatorLengthSpec(spec.id, 5, spanFamily).run} cell run`)
     assert.ok(size.z > spec.rise + 0.9 && size.z < spec.rise + 2, `${spanFamily} ${spec.id} escalator climbs its own ${spec.rise} m rise`)
     spans.push(size.y)
-
+  }
+  for (let i = 1; i < spans.length; i++) assert.ok(spans[i] > spans[i - 1], 'a longer piece really is longer')
+  // The stair draws its own five-rung family, 超长 6 m included.
+  for (const spec of STAIR_LENGTHS) {
     const stair = createModule('stair-straight', 0, 0, -spec.rise, `stair-${spec.id}`, 0, 0.68, 'up', 'lane', [], undefined, { rampLength: spec.id })
-    // A double family's ids are not all in the one-floor catalogue; a straight stair
-    // only takes one-floor lengths, so the stair half of this check is one-floor only.
-    if (spanFamily !== 'single') continue
-    const sg = new StairModel({ mats, finish, data: { ...data, modules: [stair] }, preview: false }).build(stair)
+    const sg = new StairModel({ mats, finish, data: { name: 'runs', seed: 1, cells: [], modules: [stair], lines: [] }, preview: false }).build(stair)
     sg.updateMatrixWorld(true)
     const ssize = new THREE.Box3().setFromObject(sg).getSize(new THREE.Vector3())
     assert.ok(Number.isFinite(ssize.x + ssize.y + ssize.z), `${spec.id} stair builds`)
     assert.ok(Math.abs(ssize.y - spec.run) < 1.5, `${spec.id} stair spans its own ${spec.run} cell run`)
     assert.ok(ssize.z > spec.rise + 0.9 && ssize.z < spec.rise + 2, `${spec.id} stair climbs its own ${spec.rise} m rise`)
   }
-  for (let i = 1; i < spans.length; i++) assert.ok(spans[i] > spans[i - 1], 'a longer piece really is longer')
 })

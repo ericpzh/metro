@@ -1,7 +1,7 @@
 import type { AppState } from '../../store/Store.ts'
 import { isBenchType, isDoorType, isStairType } from '../../store/catalog.ts'
 import { STAIR_WIDTHS } from '../../../sim/stairs.ts'
-import { rampLengthsFor } from '../../../sim/rampLengths.ts'
+import { rampLengthsFor, rampLengthSpec } from '../../../sim/rampLengths.ts'
 import { TRACK_RUN_LENGTHS } from '../../../sim/track.ts'
 
 /** Read the selected size from builder state, never from translated labels. */
@@ -27,8 +27,13 @@ export function dimensionSelection(kind: string, type: string, s: AppState): { s
     if (type.startsWith('pillar')) return choice(s.pillarLength, [2, 5])
     if (type === 'lift') return choice(s.liftInterval, [3, 4, 5, 6, 7])
     if (type === 'bridge') return choice(s.bridgeLength, TRACK_RUN_LENGTHS)
+    // A 楼梯's family carries the extra 超长 6 m rung; a 扶梯 resolves the same
+    // armed setting into its own 2–5 m family, so its marks show the piece it
+    // will actually build.
     const span = type === 'escalator' ? s.escalatorSpan : 'single'
-    return choice(span === 'double' ? s.doubleRampLength : s.rampLength, rampLengthsFor(span).map(v => v.id))
+    const family = isStairType(type) ? 'stair' : 'escalator'
+    const armed = span === 'double' ? s.doubleRampLength : s.rampLength
+    return choice(rampLengthSpec(armed, span, family).id, rampLengthsFor(span, family).map(v => v.id))
   }
   return undefined
 }

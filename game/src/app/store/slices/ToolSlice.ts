@@ -12,7 +12,7 @@ import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '.
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
-import { DEFAULT_ZONE_BRUSH, isBenchType, isRotatableType, type CutMode, type ZoneBrush } from '../catalog.ts'
+import { DEFAULT_ZONE_BRUSH, isBenchType, isRotatableType, isStairType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
 export type Tool = 'select' | 'pick' | 'move' | 'block' | 'wall' | 'delete' | 'module' | 'paint' | 'zone' | 'rail' | 'tunnel'
@@ -104,8 +104,10 @@ export interface ToolSlice {
    * The length a newly placed **run** is built at — every 扶梯 and every 楼梯 come
    * in the same one-floor sizes (`sim/rampLengths.ts`): 超短 2 m, 短 3 m,
    * 中 4 m, 长 5 m. One setting for both pieces, because the two stand in one bay
-   * and a player who builds a bank picks the length once. A 双层 扶梯 has its own
-   * family below.
+   * and a player who builds a bank picks the length once. A 楼梯 adds one rung,
+   * **超长 6 m** (one metre above 长), for uneven floors a 扶梯 cannot climb on one
+   * level; a 单层 扶梯 resolves that armed rung to 长, its own maximum. A 双层
+   * 扶梯 has its own family below.
    */
   rampLength: RampLength
   /** Whether a newly placed 扶梯 is 单层 (one floor) or 双层 (two floors). */
@@ -221,7 +223,7 @@ export interface ToolSlice {
   cycleEscalatorDir: () => void
   /** Toggle a narrow or two-block-wide escalator from its rail tile. */
   toggleEscalatorWidth: () => void
-  /** Step the run length on to the next size (超短 → 短 → 中 → 长), for 扶梯 and stairs alike. */
+  /** Step the run length on to the next size (超短 → 短 → 中 → 长 → 超长 on a 楼梯), for 扶梯 and stairs alike. */
   cycleRampLength: () => void
   /** Flip a 扶梯 between 单层 (one floor) and 双层 (two floors). */
   cycleEscalatorSpan: () => void
@@ -364,7 +366,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
   cycleRampLength: () => set((s) => s.moduleType === 'escalator' && s.escalatorSpan === 'double'
     ? { doubleRampLength: nextRampLength(s.doubleRampLength, 'double') }
-    : { rampLength: nextRampLength(s.rampLength, 'single') }),
+    : { rampLength: nextRampLength(s.rampLength, 'single', isStairType(s.moduleType) ? 'stair' : 'escalator') }),
   cycleEscalatorSpan: () => set((s) => ({ escalatorSpan: s.escalatorSpan === 'single' ? 'double' : 'single' })),
   setEscalatorSpan: (escalatorSpan) => set({ escalatorSpan }),
   setDoubleRampLength: (doubleRampLength) => set({ doubleRampLength }),

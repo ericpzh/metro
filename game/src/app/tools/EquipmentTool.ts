@@ -24,7 +24,7 @@ import { snapPsdEnd, snapPsdEndCover } from '../../sim/psdEnds.ts'
 import { extendedPillar } from '../../sim/structures.ts'
 import { escalatorLengthSpec, escalatorModule } from '../../sim/escalators.ts'
 import { walkwayModule } from '../../sim/walkways.ts'
-import { RAMP_LENGTH_DEFAULT, rampLengthSpec, type RampLength } from '../../sim/rampLengths.ts'
+import { RAMP_LENGTH_DEFAULT, stairLengthSpec, type RampLength, type RampLengthSpec } from '../../sim/rampLengths.ts'
 import { exitFloorAt, exitRunSnap, snapExitToRamp } from '../../sim/exits.ts'
 import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
@@ -37,7 +37,7 @@ import {
   equipmentRefusalNotice,
   hungCeilingAim,
   isCeilingHung,
-  moduleAt,
+  liftAt,
   pillarAt,
   placementColliders,
   wallMountFollowsCourse,
@@ -210,8 +210,8 @@ export class EquipmentTool extends ToolController {
         this.bulldoze(hit.cell, hit.place, this.facing())
         return
       }
-      const shaft = moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2], undefined, st.station.levelBase, st.station.storeyHeight)
-      if ((shaft && shaft.type === 'lift') || hit.solid) this.placeLift(hit)
+      const shaft = liftAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2], st.station.levelBase, st.station.storeyHeight)
+      if (shaft || hit.solid) this.placeLift(hit)
       else st.setNotice(equipmentRefusalNotice('lift-footprint'))
       return
     }
@@ -525,14 +525,17 @@ export class EquipmentTool extends ToolController {
    * shaft grows it a storey — upper half up, lower half down — instead of
    * dropping a second piece. Extending never checks for floor: a shaft may run
    * past a level that has no slab (it just has no landing there).
+   *
+   * The shaft is found from its own 2 × 2 column (`liftAt`), not from the first
+   * module whose envelope covers the cell: a canopy roof or a stair's turn
+   * envelope spans the plan without occupying the shaft, and a generic `moduleAt`
+   * answers one of those whenever it is earlier in the document, so the snap
+   * silently never fires. Hover and release ask the same resolver.
    */
   private liftHover(x: number, y: number, z: number): { mod: LiftModule } | null {
     const st = useStore.getState()
-    // `moduleAt` finds the shaft from any cell its envelope covers, so hovering
-    // the visible cabin/shaft (whose landing slab is now an opening) still works.
-    const found = moduleAt(st.station.modules, x, y, z, undefined, st.station.levelBase, st.station.storeyHeight)
-    if (!found || found.type !== 'lift') return null
-    const shaft = found
+    const shaft = liftAt(st.station.modules, x, y, z, st.station.levelBase, st.station.storeyHeight)
+    if (!shaft) return null
     const lo = Math.min(shaft.from.z, shaft.to.z)
     const hi = Math.max(shaft.from.z, shaft.to.z)
     // The midpoint belongs to the upper half, so hovering the exact middle of a
@@ -553,8 +556,9 @@ export class EquipmentTool extends ToolController {
 
   /**
    * The length a hovered run would be built at: the armed one-floor setting for a
-   * stair, and — for a 扶梯 — the family its 单层 / 双层 span selected. A type with
-   * no run reads the one-floor default only so the caller has something to hold.
+   * stair (which carries 超长 6 m), and — for a 扶梯 — the family its 单层 / 双层
+   * span selected. A type with no run reads the one-floor default only so the
+   * caller has something to hold.
    */
   private rampLengthFor(type: string): RampLength {
     const st = useStore.getState()
@@ -568,12 +572,12 @@ export class EquipmentTool extends ToolController {
    * it. The hover must ask the same question the release does, or a bay the ghost
    * says the run will snap into is built unsnapped (and the other way round).
    */
-  private rampSnapSpec(type: string): ReturnType<typeof rampLengthSpec> {
+  private rampSnapSpec(type: string): RampLengthSpec {
     const st = useStore.getState()
     const length = this.rampLengthFor(type)
     return type === 'escalator'
       ? escalatorLengthSpec(length, st.station.storeyHeight, st.escalatorSpan)
-      : rampLengthSpec(length)
+      : stairLengthSpec(length)
   }
 
   /**
@@ -606,8 +610,9 @@ export class EquipmentTool extends ToolController {
     } else if (this.isStraightRamp(type)) {
       const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
       // The piece's own length decides both the bay snap's descent and the run
-      // that is built, so a 超短 / 短 / 中 / 长 piece snaps to the floor its own rise
-      // reaches instead of always to the storey below.
+      // that is built, so a 超短 / 短 / 中 / 长 / 超长 piece snaps to the floor its
+      // own rise reaches instead of always to the storey below. A 扶梯's 超长 in
+      // the shared setting resolves to 长, which is the run it also builds.
       const length = this.rampLengthFor(type)
       const spec = this.rampSnapSpec(type)
       const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], spec.run, spec.rise)
@@ -1097,8 +1102,7 @@ export class EquipmentTool extends ToolController {
   private placeLift(hit: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): void {
     const st = useStore.getState()
     const [x, y, z] = hit.cell
-    const found = moduleAt(st.station.modules, x, y, z, undefined, st.station.levelBase, st.station.storeyHeight)
-    const shaft = found && found.type === 'lift' ? found : undefined
+    const shaft = liftAt(st.station.modules, x, y, z, st.station.levelBase, st.station.storeyHeight)
     if (shaft) {
       const lo = Math.min(shaft.from.z, shaft.to.z)
       const hi = Math.max(shaft.from.z, shaft.to.z)

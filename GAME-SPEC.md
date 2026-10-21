@@ -400,11 +400,15 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 | Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
 
 A **run** — an escalator or any staircase but the 1 × 1 楼梯块 — climbs one of the
-**one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m and
-**长** 5 m (the default). The length is the piece's own endpoints, so a run is a fixed piece
-that a save carries with it. A **单跑楼梯** climbs it in one flight; a **turning staircase**
-splits it into two flights and puts its middle platform at half the rise (1 m for 超短,
-2.5 m for 长). That platform is the stair's **own 0.5 m slab**, not a placed block: the
+**one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m,
+**长** 5 m and — for a staircase alone — **超长** 6 m (长 is the default for both).
+The stair's extra rung sits one metre above 长 and serves the uneven floors the
+elevator already spans; a **single-storey** escalator stops at 长, because six
+metres of 30° escalator climb is the **双层 超短** piece. The length is the piece's
+own endpoints, so a run is a fixed piece that a save carries with it. A
+**单跑楼梯** climbs it in one flight; a **turning staircase** splits it into two
+flights and puts its middle platform at half the rise (1 m for 超短, 3 m for
+超长). That platform is the stair's **own 0.5 m slab**, not a placed block: the
 piece stands alone like an escalator, the model draws the platform, and the crowd walks it
 as the stair's virtual landing. Turning stairs take the length tile exactly as straight
 ones do; only the 楼梯块, a single stepped building block, has no run.

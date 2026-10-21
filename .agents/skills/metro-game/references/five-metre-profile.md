@@ -47,7 +47,8 @@ Placing ceilings rehangs existing fixtures in the same storey without moving
 fixtures on another floor. Hidden-ceiling mode hides the tiles; fixtures remain
 visible. Do not recreate removed chunk outline hulls.
 
-The stair catalogue's 长 5 m run spans 8 cells. Turning flights use a 2.5 m
+The stair catalogue's 长 5 m run spans 8 cells, and the staircase-only 超长 6 m
+rung spans 9. Turning flights use a 2.5 m
 internal landing; the graph supplies fractional landing nodes, never fractional
 editable cells. Import validation must use the station height even when the
 module tag is missing/stale. Outer endpoints stay integer. Five-metre escalators

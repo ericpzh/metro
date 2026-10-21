@@ -338,9 +338,10 @@ accounting), `diagonal-walk` (√2 cost, 2×2 clearance, barrier awareness),
 `touch-zoom` (pinch direction, cancel, release suppression),
 `sim-pause` (escalator bands, gate leaves and train/screen doors hold while
 paused; consists settle; orchestrator forwarding),
-`escalator-length` (the four run lengths on both the 扶梯 and the 单跑楼梯: spans,
+`escalator-length` (the run families on the 扶梯 and the 单跑楼梯 — the four
+one-floor rungs, the staircase-only 超长 6 m, and the 双层 family — spans,
 envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
-drawn models, and the catalogue's fallback and nearest-match answers — with
+drawn models, and the catalogue's family fallback and nearest-match answers — with
 `ramp-join` for the seam at each length and `builder-attributes` for the tile,
 the predicate and the dispatch),
 `walkways` (the 扶梯's level twin: its three lengths 短 30 m / 中 60 m / 长 90 m in

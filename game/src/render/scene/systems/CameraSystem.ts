@@ -536,7 +536,15 @@ export class CameraSystem extends SceneSystem {
     // Blocks removed from the level above are not pickable: a click must not
     // grab a slab that is no longer drawn.
     const shown = this.pickables.filter(visibleThroughParents)
+    // A 电梯 keeps its own mesh surfaces in `pickables` so a hover can find the
+    // shaft and extend it (`LiftSystem.liftPickMeshes`). Equipment batching moves
+    // those static surfaces to `BATCH_SOURCE_LAYER` (only the cabin and door
+    // leaves stay on layer 0), so the one raycast has to see both layers or the
+    // upper shaft stops answering: the pointer falls through to the floor behind
+    // and the extension snap never fires. Restore the layer for the block picks.
+    this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
     const hits = this.raycaster.intersectObjects(shown, false).filter((hit) => visibleThroughParents(hit.object))
+    this.raycaster.layers.disable(BATCH_SOURCE_LAYER)
     if (hits.length > 0) {
       const hit = hits[0]
       const p = hit.point

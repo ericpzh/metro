@@ -2012,6 +2012,42 @@ export function pillarAt(
   )
 }
 
+/**
+ * The 电梯 shaft under the pointer, found from its own 2 × 2 column rather than
+ * from the first module whose envelope overlaps the cell. The hover and the
+ * release both ask this, so what the ghost grows is what the click grows.
+ *
+ * A generic `moduleAt` is order-dependent: a canopy roof reserves the sheltered
+ * plan from its storey floor to above its plate, and a stair's `rampEnvelope`
+ * spans the whole corner it turns through. Neither occupies the shaft, and
+ * neither collides with a lift standing inside it, so a legal shaft can sit
+ * under one — and whenever that piece is earlier in the document `moduleAt`
+ * answers it and the extension snap never fires. The shaft's own column (all
+ * four footprint cells) decides first; only then does the storey band say
+ * whether the pointer is on this piece.
+ */
+export function liftAt(
+  modules: readonly Module[],
+  x: number,
+  y: number,
+  z: number,
+  levelBase = 0,
+  storeyHeight = 5,
+): Extract<Module, { type: 'lift' }> | undefined {
+  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
+  return modules.find(
+    (m): m is Extract<Module, { type: 'lift' }> => {
+      if (m.type !== 'lift') return false
+      // The anchor cell owns the whole 2 × 2 assembly: the pointer may be on any
+      // of its four columns and on any storey the shaft reaches.
+      if (x < m.x || x >= m.x + LIFT_SIZE || y < m.y || y >= m.y + LIFT_SIZE) return false
+      const e = moduleEnvelope(m)
+      return !!e && boxesOverlap(e, cell)
+    },
+  )
+}
+
 /* -------------------------------------------------------- moving a piece */
 
 /**

@@ -586,10 +586,6 @@ export const messages = {
     "zh": "双层",
     "en": "Double storey"
   },
-  "floor_interval_value": {
-    "zh": "{0} {1} m",
-    "en": "{0} {1} m"
-  },
   "extra_narrow": {
     "zh": "超窄",
     "en": "Extra narrow"

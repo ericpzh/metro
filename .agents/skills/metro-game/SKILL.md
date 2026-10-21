@@ -490,13 +490,17 @@ the four rules most changes trip over.
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house
-  plinth; the graph stays on the storey). A run comes in **two length families**
-  (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m for the 扶梯 and every
-  staircase, and the escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m.
+  plinth; the graph stays on the storey). A run comes in **length families**
+  (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m for the 扶梯 and
+  every staircase, a **staircase adds 超长 6 m** (one metre above 长, for uneven floors;
+  a 单层 扶梯 stops at 长 because six metres of its climb is the 双层 超短 piece), and the
+  escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m.
   A fresh piece defaults to 长 / 超长 on the five-metre grid (`defaultRampLength`).
   Length is read off the endpoints (`escalatorLength` / `stairLengthOf`, no `cfg` flag);
-  the one-floor setting is shared with every staircase so a bank is picked once,
-  but the seam cap between two facing handrails forms only where the **endpoints** line up — the
+  the one-floor setting is shared with every staircase so a bank is picked once — a
+  staircase's armed 超长 resolves to 长 on the 扶梯 beside it (`rampLengthSpec`'s family
+  fallback), and the rail marks the rung the piece will really build.
+  The seam cap between two facing handrails forms only where the **endpoints** line up — the
   five-metre 30° escalator is a cell longer than the stair of the same length — and the exit-bay
   snap descends the piece's *own* length (`escalator-length.test.mjs`, `ramp-join.test.mjs`). A fence *on* a landing is read the same way as
   one beside it: the fence cell is not a walkable node, so that flight drops out of the
@@ -521,11 +525,12 @@ the four rules most changes trip over.
   wide rate, the no-carve placement and the shared flat model). There is **no exit-bay snap** and
   no `RampJoinModel` seam (a level bank's glass meets with no infill).
 * **A stair has three sizes** (`sim/stairs.ts`, §5.1) — and every staircase but the 楼梯块 has a
-  **length** as well, the one-floor family a 扶梯 comes in (`sim/rampLengths.ts`): 超短 2 m /
-  短 3 m / 中 4 m / 长 5 m, cycled on the action tile beside the size (**Shift+Tab**) and carried
-  into `stairFlightsFor`. A straight stair climbs it in one flight; a **turning** stair splits it
-  into two flights with its platform at **half the rise** (1 m for 超短, 2.5 m for 长). The setting
-  is **shared** with the 扶梯 — one armed one-floor length for both — so a bank is picked once; the
+  **length** as well, the staircase's own five-rung family (`sim/rampLengths.ts`): 超短 2 m /
+  短 3 m / 中 4 m / 长 5 m / 超长 6 m, cycled on the action tile beside the size (**Shift+Tab**)
+  and carried into `stairFlightsFor`. A straight stair climbs it in one flight; a **turning** stair
+  splits it into two flights with its platform at **half the rise** (1 m for 超短, 3 m for 超长). The setting
+  is **shared** with the 扶梯 — one armed one-floor length for both, resolved into each family — so
+  a bank is picked once; the
   seam between two runs fills only when their endpoints line up (see the escalator note above). Only
   a 楼梯块 has no run and grows
   no length tile. Tab cycles 窄 / 中 / 宽
@@ -608,8 +613,15 @@ the four rules most changes trip over.
   why `movedModule` re-lays the run's own `from`/`to` and flights.
 * **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a 2 × 2 m
   assembly with a 1.5 m carriage and **one story** — the 层高 tile's 超短 3 m / 短 4 m /
-  中 5 m (default) / 长 6 m / 超长 7 m; hovering its upper/lower half stacks another story
-  at the currently armed size, so one shaft can serve uneven floors. A story serves the
+  中 5 m (default) / 长 6 m / 超长 7 m, named by the rung alone (the mark carries the size);
+  hovering its upper/lower half stacks another story
+  at the currently armed size, so one shaft can serve uneven floors. Find the shaft with
+  `liftAt` (its own 2 × 2 column), never a generic `moduleAt`: a canopy roof or a run
+  envelope can cover the cell without occupying the shaft and win the document-order
+  lookup, so the snap silently never fires. The shaft's retained meshes stay in
+  `liftPickMeshes`, and `CameraSystem.pick` enables the equipment batch source layer or
+  the upper shaft (above the cabin and door leaves) stops answering the pointer
+  (`lift-extension.test.mjs`). A story serves the
   **level at its base**: the level's door and the cabin's headroom live in the story above,
   so the top of the last story is a **cap**, not a landing. A fresh 5 m piece is one level
   (the floor it was dropped on); stacking a 3 m story adds the level at 5 m and moves the

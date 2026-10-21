@@ -7,10 +7,12 @@
 //   双层 (two floors)  超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m
 //
 // The 单层 family is shared with every staircase, so a player picks that length
-// once for a bank of runs. The span is the piece's own: a two-floor run climbs
-// twice the distance and its endpoints say so. All of them run along the
-// placement rotation; a five-metre station lays a strict 30° incline inside
-// whole-cell landings.
+// once for a bank of runs — but a **stair** adds the 超长 6 m rung its uneven
+// floors ask for, and a 单层 扶梯 has no such rung: six metres of escalator
+// climb *is* the 双层 超短 piece, and one 30° run cannot be both. The span is
+// the piece's own: a two-floor run climbs twice the distance and its endpoints
+// say so. All of them run along the placement rotation; a five-metre station
+// lays a strict 30° incline inside whole-cell landings.
 // `dir` only orders `from`/`to` — the single
 // one-way travel the sim and the label read — so an up and a down piece share
 // one footprint.
@@ -145,7 +147,8 @@ export function nextEscalatorDir(dir: EscalatorDir): EscalatorDir {
 /**
  * `base` is the lower landing, `length` the piece's size — 超短 2 m … 长 5 m on
  * one floor, or 超短 6 m … 超长 10 m for a `double` span (`sim/rampLengths.ts`).
- * An omitted length is the document's own default (`defaultRampLength`), so a
+ * A one-floor 超长 in the shared setting clamps to 长: the 6 m rung belongs to a
+ * 楼梯. An omitted length is the document's own default (`defaultRampLength`), so a
  * station gets 长. `dir` orders `from`/`to`
  * (up: base → top, down: top → base) without moving the run, so up and down
  * share one footprint.

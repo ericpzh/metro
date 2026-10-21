@@ -928,7 +928,7 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 /**
  * Everything a hover ghost is drawn from: the piece being placed, its rotation,
  * and every Tab cycle — the stair and roof widths, the **run length** a 扶梯 or a
- * 单跑楼梯 is built at, the escalator direction, the 闸机's lane
+ * 楼梯 (turning shapes included) is built at, the escalator direction, the 闸机's lane
  * or fence, and the 方块 tool's cut modes (**半墙** / **三角上** / **三角下**) with the
  * wall-face cycle they share. The viewport subscribes to this one key, so anything
  * that changes what a ghost looks like rebuilds it under the pointer at once

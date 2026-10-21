@@ -65,8 +65,9 @@ test('every staircase but the 楼梯块 carries the run length tile, and so does
   const lift = moduleBuilderAttributes('lift', state)
   assert.deepEqual(lift.map(({ kind }) => kind), ['rotation', 'length', 'style'])
   assert.deepEqual(lift.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab'])
-  assert.equal(lift[1].label, '中 5 m')
-  assert.equal(moduleBuilderAttributes('lift', stateWith({ liftInterval: 7 }))[1].label, '超长 7 m')
+  // The tile names the rung, never the metres: the mark carries the size.
+  assert.equal(lift[1].label, '中')
+  assert.equal(moduleBuilderAttributes('lift', stateWith({ liftInterval: 7 }))[1].label, '超长')
 })
 
 test('the straight-stair predicate answers for the palette ids the rail arms', () => {
@@ -80,10 +81,22 @@ test('the straight-stair predicate answers for the palette ids the rail arms', (
   }
 })
 
-test('the length tile names the four sizes and cycles through them', () => {
+test('the stair length tile names the five sizes and cycles through them', () => {
   const state = stateWith()
   const tile = (rampLength) => moduleBuilderAttributes('stair-straight', stateWith({ rampLength })).at(-1)
-  assert.deepEqual(['ultra-short', 'short', 'medium', 'long'].map((id) => tile(id).label), ['超短', '短', '中', '长'])
+  assert.deepEqual(['ultra-short', 'short', 'medium', 'long', 'ultra-long'].map((id) => tile(id).label), ['超短', '短', '中', '长', '超长'])
+  // Tab walks 超短 → 短 → 中 → 长 → 超长 and wraps; the escalator beside it stays
+  // on its own four-rung family, so a stair's 超长 arms 长 on the 扶梯.
+  useStore.setState({ moduleType: 'stair-straight', rampLength: 'ultra-short' })
+  for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
+    useStore.getState().cycleRampLength()
+    assert.equal(useStore.getState().rampLength, next)
+  }
+  useStore.setState({ rampLength: 'ultra-long', moduleType: 'escalator', escalatorSpan: 'single' })
+  assert.equal(moduleBuilderAttributes('escalator', useStore.getState()).find((a) => a.kind === 'length').label, '长')
+  useStore.getState().cycleRampLength()
+  assert.equal(useStore.getState().rampLength, 'ultra-short', 'the escalator cycle starts again at its own 超短')
+  useStore.setState(state)
   const calls = []
   const cycles = stateWith({
     cycleStairWidth: () => calls.push('width'),
@@ -141,8 +154,13 @@ test('all width action tiles use the shared width glyph and the shell delegates 
     ['curtain-wall', 'height', 'curtainHeight', [2,3,4]],
     ['pillar', 'length', 'pillarLength', [2,5]],
     ['walkway', 'length', 'walkwayLength', ['short','medium','long']],
+    ['lift', 'length', 'liftInterval', [3,4,5,6,7]],
     ['bridge', 'length', 'bridgeLength', [4,16,32,64,128]],
     ['psd-end', 'height', 'psdEndHeight', ['half','full']],
   ]) values.forEach((value, selected) => assert.deepEqual(dimensionSelection(kind, type, stateWith({ [key]: value })), { selected, count: values.length }))
+  // A 楼梯 has five rungs; a 扶梯 marks the 长 it will build when the shared
+  // setting is the stair-only 超长.
+  assert.deepEqual(dimensionSelection('length', 'stair-straight', stateWith({ rampLength: 'ultra-long' })), { selected: 4, count: 5 })
+  assert.deepEqual(dimensionSelection('length', 'escalator', stateWith({ escalatorSpan: 'single', rampLength: 'ultra-long' })), { selected: 3, count: 4 })
   assert.equal(dimensionSelection('direction', 'road', stateWith()), undefined)
  })

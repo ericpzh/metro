@@ -1,7 +1,7 @@
 import { msg } from './i18n.ts'
 // Staircase geometry — GAME-SPEC.md §5.1.
 //
-// A stair climbs one chosen run — 超短 2 m … 长 5 m (`sim/rampLengths.ts`) — and
+// A stair climbs one chosen run — 超短 2 m … 超长 6 m (`sim/rampLengths.ts`) — and
 // it is walkable in both directions and it can turn. The turn is real, not a
 // texture: each flight is a capacity-limited graph edge and each half/quarter
 // landing is a walkable node between them, so the crowd visibly walks the corner.
@@ -15,7 +15,7 @@ import { msg } from './i18n.ts'
 // implied run. Pure data — no three, no DOM.
 
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from './constants.ts'
-import { defaultRampLength, rampLengthOf, rampLengthSpec, type RampLength } from './rampLengths.ts'
+import { defaultRampLength, rampLengthOf, stairLengthSpec, type RampLength } from './rampLengths.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
 
 export type { StairFlight, StairStyle } from './types.ts'
@@ -145,8 +145,8 @@ export function stairLanes(width: number): number {
 }
 
 /** The default five-metre staircase spans eight cells along its placement rotation. */
-export const STAIR_RUN = rampLengthSpec('long').run
-export const STAIR_RISE = rampLengthSpec('long').rise
+export const STAIR_RUN = stairLengthSpec('long').run
+export const STAIR_RISE = stairLengthSpec('long').rise
 
 /**
  * How far a flight's treads stop short of each landing **centre**, metres: half a
@@ -258,8 +258,8 @@ export function planStairLanes(
 }
 
 /** Per-flight run and rise for the default five-metre turning stair. */
-export const STAIR_FLIGHT_RUN = Math.ceil(rampLengthSpec('long').run / 2)
-export const STAIR_FLIGHT_RISE = rampLengthSpec('long').rise / 2
+export const STAIR_FLIGHT_RUN = Math.ceil(stairLengthSpec('long').run / 2)
+export const STAIR_FLIGHT_RISE = stairLengthSpec('long').rise / 2
 
 /** A stair lane of the same flight standing right beside this one. */
 export interface StairLaneMate {
@@ -481,16 +481,16 @@ export function stairWallSides(
  * width is what separates them) and by a 90° turn (its landing is a square one block of
  * side per lane, and that is how far in the second leg starts).
  *
- * `length` is the stair's own climb (`sim/rampLengths.ts`): 超短 2 m … 长 5 m.
+ * `length` is the stair's own climb (`sim/rampLengths.ts`): 超短 2 m … 超长 6 m.
  * A **single-run** stair climbs it in one flight. A **turning** stair splits it
  * into two flights of half the rise with the turn platform between them — the
- * platform sits at 0.5 × the stair's rise (1 m for 超短, 2.5 m for 长) — and each
+ * platform sits at 0.5 × the stair's rise (1 m for 超短, 3 m for 超长) — and each
  * flight takes the whole cells half the catalogue run rounds up to, so the
  * middle landing stays on the block grid and the piece needs no floor of its
  * own to stand on. An omitted `length` uses the five-metre 长 run.
  */
 export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = 5): StairFlight[] {
-  const { run, rise } = rampLengthSpec(length ?? defaultRampLength(storeyHeight), 'single')
+  const { run, rise } = stairLengthSpec(length ?? defaultRampLength(storeyHeight, 'single', 'stair'))
   // A turn's two flights are whole cells of run each; the catalogue run is
   // rounded up to an even split so the half-landing lands on a cell edge.
   const flightRun = Math.max(1, Math.ceil(run / 2))
@@ -555,8 +555,8 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
  * two. A 楼梯块 has no run of its own.
  */
 export function stairLengthOf(m: StairModule): RampLength {
-  if (m.cfg.block) return defaultRampLength(m.storeyHeight)
-  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), 'single')
+  if (m.cfg.block) return defaultRampLength(m.storeyHeight, 'single', 'stair')
+  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), 'single', 'stair')
 }
 
 /**

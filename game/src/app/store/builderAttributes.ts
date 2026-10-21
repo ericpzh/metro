@@ -88,14 +88,17 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     ))
     // Every staircase but the 1 × 1 楼梯块 climbs a chosen run length: a straight
     // stair in one flight, a turning stair in two with its platform at half the
-    // rise. A 楼梯块 is a single stepped block with no run at all.
-    if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.rampLength), s.cycleRampLength))
+    // rise. The 楼梯 family runs one rung past the 扶梯's, to 超长 6 m. A 楼梯块 is
+    // a single stepped block with no run at all.
+    if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.rampLength, 'single', 'stair'), s.cycleRampLength))
   }
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))
   if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })
   if (type === 'lift') {
-    attrs.push(variant('length', msg('floor_interval_value', liftIntervalLabel(s.liftInterval), s.liftInterval), s.cycleLiftInterval))
+    // The interval is named 超短 / 短 / 中 / 长 / 超长 only: the exact metres a
+    // piece spans belong to the mark, not a suffix the player has to parse.
+    attrs.push(variant('length', liftIntervalLabel(s.liftInterval), s.cycleLiftInterval))
     attrs.push(variant('style', msg(s.liftStyle), s.cycleLiftStyle))
   }
   if (type === 'psd-end') attrs.push(variant('height', msg(s.psdEndHeight === 'half' ? 'half_height' : 'full_height'), s.cyclePsdEndHeight))

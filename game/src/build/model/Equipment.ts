@@ -108,9 +108,10 @@ export interface ModuleBuildSettings {
   /** 玻璃板 only: the storeys of curtain the board leaves (2 / 3 / 4). */
   curtainHeight?: 2 | 3 | 4
   /**
-   * A run's length: 超短 2 m … 长 5 m for a 扶梯 or any 楼梯, and 超短 6 m …
-   * 超长 10 m when `escalatorSpan` is `double`. Omitted, it is the document's
-   * own default (`defaultRampLength`): 长 on the fixed five-metre grid.
+   * A run's length: 超短 2 m … 长 5 m for a 扶梯, 超短 2 m … 超长 6 m for any
+   * 楼梯, and 超短 6 m … 超长 10 m when `escalatorSpan` is `double`. Omitted, it
+   * is the document's own default (`defaultRampLength`): 长 on the fixed
+   * five-metre grid.
    */
   rampLength?: RampLength
   /** A 双层 扶梯: the length family its tile cycles (single floor by default). */
@@ -502,8 +503,8 @@ function createModuleRaw(
       // The **size** lays the flights (a switchback's two runs stand `stairLanes` cells
       // apart); the piece is then built at the width that size means — a 双跑楼梯's runs
       // are block-wide, so its two flush runs fill whole blocks (`stairBuildWidth`).
-      // `rampLength` is read by the single-run (`straight`) shape alone: a turning stair
-      // is the fixed footprint the turn is drawn at and ignores it.
+      // `rampLength` is every stair shape's own climb (超短 2 m … 超长 6 m): a turning
+      // stair splits it between its two flights and turns on the platform at half.
       const size = width ?? STAIR_WIDTH_NARROW;
       const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength, storeyHeight);
       return {
