@@ -73,7 +73,23 @@ export function facePresent(
   if (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face) return true;
   if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) return true;
   const step = FACE_STEP[face];
-  return !solid.has(cellKey(x + step[0], y + step[1], z + step[2]));
+  const neighbourKey = cellKey(x + step[0], y + step[1], z + step[2]);
+  if (!solid.has(neighbourKey)) return true;
+
+  // Match the mesher's cap culling: a triangular neighbour only covers the
+  // horizontal face when its flat base is against it. Its sloping half leaves
+  // the rest of the adjacent block's cap visible, and that surface must remain
+  // available to the 材质 brush too.
+  if (face === 'top' || face === 'bottom') {
+    const neighbour = thin.get(neighbourKey);
+    if (isTriangleShape(neighbour)) {
+      const covers = face === 'top'
+        ? neighbour.triangle === 'upper'
+        : neighbour.triangle === 'lower';
+      if (!covers) return true;
+    }
+  }
+  return false;
 }
 
 /* ---------------------------------------------------------- surfaces (§4.3) */

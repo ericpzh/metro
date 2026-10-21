@@ -1510,7 +1510,10 @@ including the depth prepass, for all six appearances.
   **slope is a face of the piece**, not of its cell: `triangleSlopeFace(kind)` names the finish
   slot it wears (`top` for 上, `bottom` for 下), `facePresent` offers it to the 材质 brush
   **even when a solid block stands against the face it leans to**, and the paint ghost rides
-  the sawn plane (`wedgeSlope`). `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
+  the sawn plane (`wedgeSlope`). On a horizontal face beside a wedge, the brush follows the
+  mesher's cap coverage: its flat base covers the adjacent block's cap, while the sloping half
+  leaves that cap paintable; `triangle.test.mjs` pins the face target and stored finish.
+  `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
   (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
   mesher, the build ghost, the chunk hash and `facePresent` all read. A dragged 三角 run
   travels its **ridge only** (`triangleLineCells`: the off-axis extent is dropped, so the line

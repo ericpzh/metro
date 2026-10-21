@@ -2104,6 +2104,9 @@ for exactly that reason, the one rule the viewport's paint rectangle and `M` 整
 and the paint ghost (`GhostSystem`) rides the sawn plane (`wedgeSlope`, `chunkMesher`) rather than
 the cell's ceiling a metre above the crest. Before that the diagonal was drawn but untexturable:
 the stroke fell through to whatever ceiling stood beside it. See `test/triangle.test.mjs`.
+The brush also follows the mesher's cap coverage beside a wedge: the flat base covers the
+adjacent block's horizontal face, but the sloping half leaves that face exposed and paintable;
+`triangle.test.mjs` pins the face target and material assignment.
 
 A hole dug through the middle stays open rather than getting
 boarded up. The platform/tunnel footprint is covered ground too: a placed rail digs its bed, so the
@@ -3347,7 +3350,8 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   with a block against the face it leans to as much as without one, the block landed there or not
   (`facePresent`), the stroke landing in the very finish the mesher draws the diagonal in
   (`triangleSlopeFace`), the paint ghost riding the sawn plane (`wedgeSlope`) instead of the cell's
-  ceiling, and that plane's frame right-handed — `along × ridge` is the normal — for all eight pieces,
+  ceiling, adjacent exposed caps beside a wedge accepting the finish while its flat base still covers
+  the face, and that plane's frame right-handed — `along × ridge` is the normal — for all eight pieces,
   which is what keeps the quad on the diagonal rather than folded through it; the tile
   cycles 半墙 → 三角上 → 三角下 → 关, the three cut modes are exclusive with each other and with the ring, and
   the kind and the side both join the ghost key (R rebuilds the preview without the cell moving).

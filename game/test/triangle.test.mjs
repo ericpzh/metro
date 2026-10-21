@@ -258,6 +258,27 @@ test('a 三角’s slope is a surface to paint, block against it or not', () => 
   }
 })
 
+test('the exposed cap beside a triangular slope accepts material', () => {
+  // The mesher keeps this half of the neighboring block's cap, so the brush
+  // must not treat the wedge's whole cell as a covering block.
+  const wedge = { x: 0, y: 0, z: 0, fill: 'solid', tags: [WALL, triangleTag('upper', 'w')] }
+  const above = floor(0, 0, 1)
+  const state = toState({ name: 't', seed: 1, cells: [wedge, above], modules: [], lines: [] })
+  const solid = solidKeys(state.cells)
+  const thin = thinWallSideMap(state.cells)
+  assert.equal(facePresent(solid, thin, 0, 0, 1, 'bottom'), true, 'the upper wedge tip leaves the underside cap exposed')
+
+  const targets = faceTargets([[0, 0, 1]], 'bottom', solid, thin)
+  assert.deepEqual(targets, [[0, 0, 1]], 'the pointer target list includes the visible cap')
+  const painted = paintFaces(state, targets, 'bottom', 'wall.enamel')
+  assert.equal(painted.cells.find((c) => c.x === 0 && c.y === 0 && c.z === 1).finish.bottom, 'wall.enamel')
+
+  const coveringWedge = { ...wedge, tags: [WALL, triangleTag('lower', 'w')] }
+  const coveredThin = thinWallSideMap([coveringWedge, above])
+  assert.equal(facePresent(solidKeys([coveringWedge, above]), coveredThin, 0, 0, 1, 'bottom'), false,
+    'a lower wedge presents its flat base against the same cap')
+})
+
 test('painting a wedge’s diagonal colours the slope the mesher draws', () => {
   // The promise the brush makes: paint the surface, see the surface change. The whole
   // loop is the app's — `faceTargets` is the list the viewport's press hands `paintFaces`
