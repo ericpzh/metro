@@ -25,6 +25,7 @@
 // no DOM.
 
 import { rotateLocal } from './track.ts'
+import { STOREY_HEIGHT } from './constants.ts'
 import { msg, type MessageKey } from './i18n.ts'
 import type { LiftDoorSide, Module, Vec3i } from './types.ts'
 
@@ -146,7 +147,7 @@ export function liftModule(base: Vec3i, rot: number, id: string, interval?: Lift
   return {
     id,
     type: 'lift',
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     x: base.x,
     y: base.y,
     z: base.z,

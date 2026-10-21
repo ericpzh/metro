@@ -160,7 +160,7 @@ function createModuleRaw(
   sign?: SignBoardsDraft,
   settings: ModuleBuildSettings = {},
 ): Module | null {
-  const storeyHeight = settings.storeyHeight??5
+  const storeyHeight = settings.storeyHeight ?? STOREY_HEIGHT
   const curtainHeight = settings.curtainHeight ?? 4
   const span = settings.escalatorSpan ?? 'single'
   const rampLength = settings.rampLength ?? defaultRampLength(storeyHeight, span)

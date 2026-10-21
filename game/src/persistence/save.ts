@@ -11,7 +11,7 @@ import { msg } from '../sim/i18n.ts'
 // app layer. This module is pure and runs in Node.
 
 import { repairGrid, toData, toStateRepairing, type StationState } from '../build/model.ts'
-import type { PeakWindows, TimeSpan } from '../sim/constants.ts'
+import { STOREY_HEIGHT, type PeakWindows, type TimeSpan } from '../sim/constants.ts'
 import type { DayDemand } from '../sim/demand.ts'
 import type { SimCalendar } from '../sim/clock.ts'
 import type { Cell, LineDef, Module, StationData } from '../sim/types.ts'
@@ -72,7 +72,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     nameEn: state.nameEn,
     seed: state.seed,
     levelBase: state.levelBase,
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     service: state.service,
     peaks: state.peaks,
     demand: state.demand,
@@ -108,7 +108,7 @@ export function parse(text: string): ParseResult {
     nameEn: typeof d.nameEn === 'string' ? d.nameEn : '',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,
     levelBase: d.levelBase,
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     cells: d.static.cells,
     modules: d.static.modules ?? [],
     lines: d.static.lines ?? [],

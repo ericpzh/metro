@@ -4,6 +4,7 @@
 
 import type { StateCreator } from 'zustand'
 import { nearestLevel } from '../../../build/model.ts'
+import { STOREY_HEIGHT } from '../../../sim/constants.ts'
 
 import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts'
 import type { Section, Vec3 } from '../../../render/section.ts'
@@ -158,7 +159,7 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
   },
   stepLevel: (dir) => {
     const base = get().station.levelBase
-    const step = 5
+    const step = STOREY_HEIGHT
     const levels = Array.from({ length: 15 }, (_, i) => (i - 8) * step + base)
     const cur = levels.reduce((a, l) => (Math.abs(l - get().activeZ) < Math.abs(a - get().activeZ) ? l : a), levels[0])
     const idx = levels.indexOf(cur)

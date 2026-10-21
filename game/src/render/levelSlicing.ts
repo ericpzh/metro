@@ -18,7 +18,7 @@
 //   its own columns — and loses its ceilings. With it off, the ceilings draw
 //   with the rest of the storey.
 
-import { storeyBand } from '../sim/constants.ts'
+import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 
 /** Where a piece sits relative to the storey being edited. */
 export type LevelSide = 'active' | 'below' | 'above'
@@ -150,7 +150,7 @@ export function trainVisible(side: LevelSide, ghost: boolean, parked: boolean): 
  * draws every storey, so it draws everyone on them — the people on the floor
  * above are exactly what a station drawn whole shows.
  */
-export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false, base = 0, height = 5): boolean {
+export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEveryStorey = false, base = 0, height = STOREY_HEIGHT): boolean {
   if (showEveryStorey) return true
   const side = levelSide([storeyBand(z, base, height)], activeZ)
   return side === 'active' || (ghost && side === 'below')

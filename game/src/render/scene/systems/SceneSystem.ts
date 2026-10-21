@@ -18,7 +18,7 @@ import type { MaterialSet } from '../../materials.ts'
 import type { AdArt } from '../../adArt.ts'
 import type { LineMapArt } from '../../lineMapArt.ts'
 import type { ModelMaterials } from '../../models.ts'
-import { storeyBand } from '../../../sim/constants.ts'
+import { STOREY_HEIGHT, storeyBand } from '../../../sim/constants.ts'
 import { ROOF_THICKNESS, CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, trussRoofTop } from '../../../sim/structures.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
@@ -230,7 +230,7 @@ export class SceneContextData implements SceneContext {
   groundOf = new Map<string, number>()
   activeZ = 0
   levelBase = 0
-  storeyHeight = 5
+  storeyHeight = STOREY_HEIGHT
   ghost = true
   autoCeiling = true
   hideWalls = false
@@ -293,7 +293,7 @@ export abstract class SceneSystem {
  * active storey would ever draw it. A run keeps both of its ends, and its landings
  * come out of `stairLevels` already on the grid.
  */
-export function moduleLevels(mod: Module, base = 0, height = 5): number[] {
+export function moduleLevels(mod: Module, base = 0, height = STOREY_HEIGHT): number[] {
   switch (mod.type) {
     case 'roof': {
       const lowZ = !mod.cfg.variant && mod.cfg.plateSnap

@@ -26,7 +26,7 @@
 import type { Module, Vec3i } from './types.ts'
 import { defaultRampLength, rampLengthOf, rampLengthSpec, type RampLength, type RampSpan } from './rampLengths.ts'
 import { STAIR_RISE, stairFacing } from './stairs.ts'
-import { ESCALATOR_BAND, ESCALATOR_BALUSTRADE, ESCALATOR_SKIRT_INSET, ESCALATOR_TRANSITION_LENGTH } from './constants.ts'
+import { ESCALATOR_BAND, ESCALATOR_BALUSTRADE, ESCALATOR_SKIRT_INSET, ESCALATOR_TRANSITION_LENGTH, STOREY_HEIGHT } from './constants.ts'
 
 type Escalator = Extract<Module, { type: 'escalator' }>
 
@@ -104,7 +104,7 @@ export function escalatorInclineRun(m: RampPiece, landingRiseDelta = 0): { from:
  * escalator at a strict 30° inside whole-cell landings (the remainder becomes
  * level terminal tracks, `escalatorInclineRun`). The rise is the length's own.
  */
-export function escalatorLengthSpec(length: RampLength | undefined, _storeyHeight = 5, span: RampSpan = 'single') {
+export function escalatorLengthSpec(length: RampLength | undefined, _storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single') {
   const spec = rampLengthSpec(length, span)
   return { ...spec, run: Math.ceil(spec.rise / Math.tan(Math.PI / 6)) }
 }
@@ -153,7 +153,7 @@ export function nextEscalatorDir(dir: EscalatorDir): EscalatorDir {
  * (up: base → top, down: top → base) without moving the run, so up and down
  * share one footprint.
  */
-export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: 1 | 2 = 1, length?: RampLength, storeyHeight = 5, span: RampSpan = 'single'): Module {
+export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: 1 | 2 = 1, length?: RampLength, storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single'): Module {
   const [dx, dy] = stairFacing(rot)
   const size = length ?? defaultRampLength(storeyHeight, span)
   const { run, rise } = escalatorLengthSpec(size, storeyHeight, span)
@@ -167,7 +167,7 @@ export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id:
   return {
     id,
     type: 'escalator',
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     x: base.x,
     y: base.y,
     z: base.z,

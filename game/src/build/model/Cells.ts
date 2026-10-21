@@ -1,7 +1,7 @@
 // Build model: cells — the sparse cell list primitives (§4.1).
 // Leaf module: only sim/ imports plus a type-only StationState.
 
-import { levelSteps, storeyBand } from '../../sim/constants.ts';
+import { levelSteps, STOREY_HEIGHT, storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
@@ -35,7 +35,7 @@ export function sameCells(a: readonly Cell[], b: readonly Cell[]): boolean {
  * offset instead of jumping between
  * whatever z values happen to have walkable cells.
  */
-export function nearestLevel(z: number, base = 0, height = 5): number {
+export function nearestLevel(z: number, base = 0, height = STOREY_HEIGHT): number {
   const levels = levelSteps(base, height);
   let best = levels[0];
   for (const l of levels) if (Math.abs(l - z) < Math.abs(best - z)) best = l;

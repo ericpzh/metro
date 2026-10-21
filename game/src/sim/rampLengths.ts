@@ -1,4 +1,5 @@
 import { msg, type MessageKey } from './i18n.ts'
+import { STOREY_HEIGHT } from './constants.ts'
 // The fixed lengths a run comes in — 扶梯 (escalator), 单跑楼梯 (straight stair)
 // and every turning stair — GAME-SPEC §5.1.
 //
@@ -121,7 +122,7 @@ export function stairLengthSpec(id?: RampLength): RampLengthSpec {
  * names one: the entry closest to the storey it climbs (or to two storeys, for
  * 双层). A new five-metre station arms 长 5 m / 超长 10 m.
  */
-export function defaultRampLength(_storeyHeight = 5, span: RampSpan = 'single', family: RampFamily = 'escalator'): RampLength {
+export function defaultRampLength(_storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single', family: RampFamily = 'escalator'): RampLength {
   if (span === 'double') return DOUBLE_RAMP_LENGTH_DEFAULT
   return family === 'stair' ? STAIR_LENGTH_DEFAULT : RAMP_LENGTH_DEFAULT
 }

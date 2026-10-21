@@ -1,4 +1,5 @@
 import { msg } from '../sim/i18n.ts'
+import { STOREY_HEIGHT } from '../sim/constants.ts'
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
 // 2026-10-16 06:16Z) by `tools/bake-demo-station.mjs`, which parses the envelope
@@ -67,7 +68,7 @@ export const REFERENCE_BOOT = { startSeconds: DEFAULT_SIM_TIME, warmup: 0 } as c
 export function emptyStation(name = msg('unnamed_station')): StationData {
   return {
     name,
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     seed: 7654321,
     cells: [],
     modules: [],

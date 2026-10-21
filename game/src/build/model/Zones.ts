@@ -3,7 +3,7 @@
 // draws one storey at a time).
 
 import { finishOf, floorSpeed } from '../../sim/finishes.ts';
-import { storeyBand } from '../../sim/constants.ts';
+import { STOREY_HEIGHT, storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { zoneDisplayIndexOf, zoneOf, type ZonePaint } from '../../sim/zones.ts';
 import { DEFAULT_ZONE, type Cell, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
@@ -314,7 +314,7 @@ export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[]
  * and no region ever spanned storeys (`zoneRegionLabels` walks the four in-plane
  * neighbours), so they follow for free.
  */
-export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = [], base = 0, height = 5): Cell[] {
+export function zoneMapFloorsAt(cells: readonly Cell[], z: number, modules: readonly Module[] = [], base = 0, height = STOREY_HEIGHT): Cell[] {
   const storey = storeyBand(z, base, height);
   return zoneMapFloors(cells, modules).filter((c) => storeyBand(c.z, base, height) === storey);
 }

@@ -13,6 +13,7 @@ import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/st
 import { GROUND_Z, virtualSolidAt } from '../sim/ground.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
+import { STOREY_HEIGHT } from '../sim/constants.ts'
 import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { STOCK, doorCentres, trainLength, trainScaleForStorey } from '../sim/stock.ts'
@@ -46,7 +47,7 @@ export function railRect(a: readonly [number, number, number], b: readonly [numb
 }
 
 /** A fresh line for the first rail a player lays, so placement never stalls. */
-export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary', _storeyHeight = 5): LineDef {
+export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary', _storeyHeight = STOREY_HEIGHT): LineDef {
   return {
     id,
     modelScale:trainScaleForStorey(),
@@ -151,7 +152,7 @@ export function makeTrack(o: {
 }): TrackModule {
   return {
     id: o.id,
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     type: 'track',
     x: o.x,
     y: o.y,
@@ -174,7 +175,7 @@ function makeEdge(
 ): PlatformEdgeModule {
   return {
     id: `edge-${track.id}-${side}`,
-    storeyHeight: 5,
+    storeyHeight: STOREY_HEIGHT,
     type: 'platform-edge',
     x,
     y,
@@ -408,7 +409,7 @@ function commitTrackRaw(state: StationState, track: TrackModule): StationState {
   const dug = new Set(trackCells(track).flatMap(([x, y, z]) => [cellKey(x, y, z), cellKey(x, y, z - 1)]))
   const cells = state.cells.filter((c) => !dug.has(cellKey(c.x, c.y, c.z)))
   const modules = state.modules.filter((m) => !dug.has(cellKey(m.x, m.y, m.z)))
-  track = {...track,storeyHeight:5}
+  track = {...track,storeyHeight:STOREY_HEIGHT}
   let next: StationState = { ...state, cells, modules: [...modules, track] }
   if (track.cfg.tunnel) next = boreTunnel(next, track)
   return syncBridgePillars({ ...next, modules: [...next.modules, ...derivePlatformEdges(next, track)] })

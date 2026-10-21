@@ -19,7 +19,7 @@ import * as THREE from 'three'
 import { DEFAULT_FOV, FOV_MAX_DEG, FOV_MIN_DEG, PAN_DOWN, PAN_UP, type SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
 import { goHomeView } from './viewHome.ts'
-import { levelSteps } from '../sim/constants.ts'
+import { levelSteps, STOREY_HEIGHT } from '../sim/constants.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
 const HALF = 0.5
@@ -641,7 +641,7 @@ function DepthRail(): React.ReactElement {
   // every stop is a real work plane.
   // Viewing ladder is the new five-metre grid on every document, regardless of
   // the document's own storey height (which keeps governing geometry).
-  const levels = levelSteps(levelBase, 5)
+  const levels = levelSteps(levelBase, STOREY_HEIGHT)
 
   const min = levels[0]
   const max = levels[levels.length - 1]

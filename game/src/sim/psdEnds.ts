@@ -1,7 +1,7 @@
 // Fixed platform-screen infill joins, GAME-SPEC §5.7.
 import type { Module, LineDef } from './types.ts'
 import { edgeCells, rotateLocal } from './track.ts'
-import { psdFullHeight } from './constants.ts'
+import { psdFullHeight, STOREY_HEIGHT } from './constants.ts'
 
 /** Only the corner carries a length offset; continuations stay on the metre grid. */
 export function psdEndOffset(mod: Extract<Module, { type: 'psd-end' }>): [number, number] {
@@ -115,7 +115,7 @@ export function snapPsdEndCover(
     // The cover follows the end door's trimmed local span. End doors render on
     // the left PSD face, even when their parent screen is on its right side.
     return {
-      ...mod, x: end.x, y: end.y, z: end.z + 1 + psdFullHeight(end.storeyHeight ?? 5), rot: end.rot,
+      ...mod, x: end.x, y: end.y, z: end.z + 1 + psdFullHeight(end.storeyHeight ?? STOREY_HEIGHT), rot: end.rot,
       cfg: { ...mod.cfg, psd: 'full' as const, support: support.id, width: maxX - minX, depth: maxY - minY,
         offset: [(minX + maxX) / 2, (minY + maxY) / 2 + 0.34] as [number, number], side: 'left' as const },
     }
@@ -130,7 +130,7 @@ export function snapPsdEndCover(
   }
   if (preferred?.type === 'platform-edge' && (preferred.cfg.psd ?? lines.find((l) => l.id === preferred.cfg.line)?.psd ?? 'full') === 'full' &&
     edgeCells(preferred).some(([x, y]) => x === mod.x && y === mod.y)) {
-    return { ...mod, z: preferred.z + 1 + psdFullHeight(preferred.storeyHeight ?? 5), rot: preferred.rot, cfg: { ...mod.cfg, psd: 'full', support: preferred.id, side: preferred.cfg.side } }
+    return { ...mod, z: preferred.z + 1 + psdFullHeight(preferred.storeyHeight ?? STOREY_HEIGHT), rot: preferred.rot, cfg: { ...mod.cfg, psd: 'full', support: preferred.id, side: preferred.cfg.side } }
   }
 
   if (preferredSupportId) return null
@@ -144,7 +144,7 @@ export function snapPsdEndCover(
   for (const screen of modules) {
     if (screen.type !== 'platform-edge' || screen.z !== mod.z || (screen.cfg.psd ?? lines.find((l) => l.id === screen.cfg.line)?.psd ?? 'full') !== 'full') continue
     if (!edgeCells(screen).some(([x, y]) => x === mod.x && y === mod.y)) continue
-    return { ...mod, z: screen.z + 1 + psdFullHeight(screen.storeyHeight ?? 5), rot: screen.rot, cfg: { ...mod.cfg, psd: 'full', support: screen.id, side: screen.cfg.side } }
+    return { ...mod, z: screen.z + 1 + psdFullHeight(screen.storeyHeight ?? STOREY_HEIGHT), rot: screen.rot, cfg: { ...mod.cfg, psd: 'full', support: screen.id, side: screen.cfg.side } }
   }
   return null
 }
@@ -159,7 +159,7 @@ export function isPsdEndCoverSupport(a: Module, b: Module): boolean {
     return cover.x === support.x && cover.y === support.y && cover.z === support.z + 1 && cover.rot === support.rot
   }
   if (support.type === 'psd-end') {
-    const h = support.cfg.psd === 'half' ? 1.5 : psdFullHeight(support.storeyHeight ?? 5)
+    const h = support.cfg.psd === 'half' ? 1.5 : psdFullHeight(support.storeyHeight ?? STOREY_HEIGHT)
     const [ox, oy] = psdEndOffset(support)
     const [a, b] = psdEndSpan(support)
     return support.cfg.psd === 'full' && cover.x === support.x && cover.y === support.y && cover.z === support.z + 1 + h && cover.rot === support.rot &&
@@ -170,7 +170,7 @@ export function isPsdEndCoverSupport(a: Module, b: Module): boolean {
       (cover.cfg.offset?.[1] ?? 0) - 0.34 + (cover.cfg.depth ?? 0.24) / 2 <= Math.min(0.5, oy - 0.22) + 1e-6
   }
   if (support.type === 'platform-edge') {
-    return (support.cfg.psd ?? 'full') === 'full' && cover.z === support.z + 1 + psdFullHeight(support.storeyHeight ?? 5) &&
+    return (support.cfg.psd ?? 'full') === 'full' && cover.z === support.z + 1 + psdFullHeight(support.storeyHeight ?? STOREY_HEIGHT) &&
       edgeCells(support).some(([x, y]) => x === cover.x && y === cover.y) && cover.rot === support.rot
   }
   return false

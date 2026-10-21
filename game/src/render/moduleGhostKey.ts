@@ -16,12 +16,13 @@
 // mount is therefore read here as the two words it is, not through `sim/sign.ts`.
 
 import { gateDoorOf } from '../sim/gates.ts'
+import { STOREY_HEIGHT } from '../sim/constants.ts'
 import type { Module } from '../sim/types.ts'
 
 /** The ghost identity of one module, ignoring its id (a ghost is a prototype). */
 export function moduleGhostKey(mod: Module): string {
   const incline = mod.type === 'escalator' ? mod.cfg.incline ?? '' : ''
-  return `${modelGhostKey(mod)}:storey:${mod.storeyHeight ?? 5}:${incline}:${mod.ceilingAnchored ?? false}`
+  return `${modelGhostKey(mod)}:storey:${mod.storeyHeight ?? STOREY_HEIGHT}:${incline}:${mod.ceilingAnchored ?? false}`
 }
 
 function modelGhostKey(mod: Module): string {

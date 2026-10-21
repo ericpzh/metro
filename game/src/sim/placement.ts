@@ -1,5 +1,5 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
-import { MAX_DRAG_CELLS, ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
+import { MAX_DRAG_CELLS, ROAD_LANE_WIDTH, STOREY_HEIGHT, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
 import { solidCellsInBounds } from './solidCellIndex.ts'
 import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
@@ -47,7 +47,7 @@ import { escalatorLandings } from './escalators.ts'
 import { walkwayCoveredCells, walkwayLandings } from './walkways.ts'
 import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
 import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
-import { PSD_FULL_HEIGHT, psdFullHeight, PSD_HALF_HEIGHT, storeyBand, STOREY_HEIGHT } from './constants.ts'
+import { PSD_FULL_HEIGHT, psdFullHeight, PSD_HALF_HEIGHT, storeyBand } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
@@ -970,7 +970,7 @@ export function wallMountStandCell(
   snapToSolidBlock = false,
   levelBase = 0,
   followCourse = false,
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   // 地面 exits attach to an ordinary block face too; they do not require the
@@ -1042,7 +1042,7 @@ export function ceilingMountStandCell(
   place: readonly [number, number, number],
   levelBase = 0,
   cells?: readonly Cell[],
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): [number, number, number] {
   const dz = place[2] - cell[2]
   if (dz === -1) {
@@ -1102,7 +1102,7 @@ export function hungCeilingAim(
   levelBase = 0,
   cells: readonly Cell[] = [],
   modules: readonly Module[] = [],
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): [number, number, number] {
   const side = place[0] !== cell[0] || place[1] !== cell[1]
   const x = side ? place[0] : cell[0]
@@ -1947,7 +1947,7 @@ export function moduleAt(
   z: number,
   facing?: readonly [number, number],
   levelBase = 0,
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): Module | undefined {
   // The test volume is the **air of the cell's own storey**, not just the first
   // metre above its block: a 广告牌 hangs from 1.36 m up, but a 站名 横排 is written
@@ -1999,7 +1999,7 @@ export function pillarAt(
   y: number,
   z: number,
   levelBase = 0,
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): Extract<Module, { type: 'pillar' }> | undefined {
   const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
@@ -2032,7 +2032,7 @@ export function liftAt(
   y: number,
   z: number,
   levelBase = 0,
-  storeyHeight = 5,
+  storeyHeight = STOREY_HEIGHT,
 ): Extract<Module, { type: 'lift' }> | undefined {
   const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
   const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }

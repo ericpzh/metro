@@ -14,7 +14,7 @@ import { msg } from './i18n.ts'
 // A straight stair declares no flights, and this helper returns the single
 // implied run. Pure data — no three, no DOM.
 
-import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from './constants.ts'
+import { ESCALATOR_BAND, STAIR_RAIL_PROUD, STOREY_HEIGHT } from './constants.ts'
 import { defaultRampLength, rampLengthOf, stairLengthSpec, type RampLength } from './rampLengths.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
 
@@ -489,7 +489,7 @@ export function stairWallSides(
  * middle landing stays on the block grid and the piece needs no floor of its
  * own to stand on. An omitted `length` uses the five-metre 长 run.
  */
-export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = 5): StairFlight[] {
+export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = STOREY_HEIGHT): StairFlight[] {
   const { run, rise } = stairLengthSpec(length ?? defaultRampLength(storeyHeight, 'single', 'stair'))
   // A turn's two flights are whole cells of run each; the catalogue run is
   // rounded up to an even split so the half-landing lands on a cell edge.
