@@ -612,6 +612,12 @@ export class CameraSystem extends SceneSystem {
 
   /** Actual visible surface, so a booth-mounted sign snaps to the frame under the ray. */
   pickModuleHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number] } | null {
+    const hit = this.pickModuleSurfaceHit(clientX, clientY)
+    return hit ? { moduleId: hit.moduleId, point: hit.point } : null
+  }
+
+  /** The visible module face and normal, used by the face-aware 材质 brush. */
+  pickModuleSurfaceHit(clientX: number, clientY: number): { moduleId: string; point: [number, number, number]; normal: [number, number, number] } | null {
     const rect = this.canvas.getBoundingClientRect()
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
     this.raycaster.setFromCamera(ndc, this.activeCamera())
@@ -636,7 +642,9 @@ export class CameraSystem extends SceneSystem {
     const blocks = this.pickables.filter(visibleThroughParents)
     const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
     if (blockHits.length > 0 && blockHits[0].distance < modHit.distance) return null
-    return { moduleId, point: [modHit.point.x, modHit.point.y, modHit.point.z] }
+    const normal = modHit.face?.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(modHit.object.matrixWorld)).normalize()
+      ?? new THREE.Vector3(0, 0, 1)
+    return { moduleId, point: [modHit.point.x, modHit.point.y, modHit.point.z], normal: [normal.x, normal.y, normal.z] }
   }
 
   /**

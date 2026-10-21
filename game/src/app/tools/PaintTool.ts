@@ -4,7 +4,7 @@
 // reach for — it lifts equipment as well as finishes. Moved verbatim from
 // app/Viewport.tsx (GAME-SPEC §8: 材质 paint tools).
 
-import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface, paintPillarSurface, paintBridgeSurface } from '../../build/model.ts'
+import { eraseFaces, faceFinish, fillSurface, paintFaces, paintRoofSurface, paintStairSurface, paintPillarSurface, paintBridgeSurface, paintTrackSurface } from '../../build/model.ts'
 import { DEFAULT_ROOF_FINISH } from '../../sim/structures.ts'
 import { DEFAULT_MATERIAL, finishDef } from '../../sim/finishes.ts'
 import type { FinishId } from '../../sim/types.ts'
@@ -30,7 +30,9 @@ export class PaintTool extends ToolController {
     // pointer lands on treads, which no cell owns (and the flights run over a
     // carved well), so the brush resolves the stair before anything that needs the
     // cell the ray hit — its treads, risers and half-landing are one material.
-    const pickedId = this.pickModuleAt(info)
+    const moduleSurfacePick = this.ctx.pickModuleSurface
+    const moduleHit = moduleSurfacePick?.(info.clientX, info.clientY) ?? null
+    const pickedId = moduleSurfacePick ? moduleHit?.moduleId ?? null : this.pickModuleAt(info)
     const stair = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
     if (stair?.type === 'track' && stair.cfg.bridge) {
       info.preventDefault()
@@ -40,6 +42,18 @@ export class PaintTool extends ToolController {
         return
       }
       const next = paintBridgeSurface(st.station, stair.id, info.button === 2 ? null : st.paintFinish)
+      if (next !== st.station) st.commit(next)
+      return
+    }
+    if (stair?.type === 'track') {
+      info.preventDefault()
+      const face = dominantFace(moduleHit?.normal ?? info.hit?.normal ?? [0, 0, 1])
+      if (st.paintMode === 'pick') {
+        st.setPaintFinish(stair.cfg.surfaceFinishes?.[face] ?? 'floor.concrete')
+        st.resumePaintMode()
+        return
+      }
+      const next = paintTrackSurface(st.station, stair.id, face, info.button === 2 ? null : st.paintFinish)
       if (next !== st.station) st.commit(next)
       return
     }
@@ -114,7 +128,7 @@ export class PaintTool extends ToolController {
     // face is previewed (that would point at the wrong thing).
     const stairId = this.pickModuleAt(info)
     const stair = stairId ? st.station.modules.find((m) => m.id === stairId) : undefined
-    if (stair && (stair.type === 'stair' || stair.type === 'roof' || stair.type === 'pillar' || (stair.type === 'track' && stair.cfg.bridge))) {
+    if (stair && (stair.type === 'stair' || stair.type === 'roof' || stair.type === 'pillar' || stair.type === 'track')) {
       scene.clearFaceGhost()
       scene.setModulePreview(stair, false)
       scene.setCursor([stair.x, stair.y, stair.z], true)

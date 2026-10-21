@@ -45,7 +45,7 @@ function buildDirectionArrow(mat: THREE.Material, x: number, y: number, z: numbe
   return g
 }
 
-function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1, neighborPosts: readonly { x: number; y: number }[] = [], vehicleWidth = 0, ceilingZ?: number): THREE.Group {
+function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }>, concrete: THREE.Material, surfaceMats: THREE.Material[], railWeb: THREE.Material, preview = false, deckMat: THREE.Material = mats.white, thirdRail: 1 | -1 = -1, neighborPosts: readonly { x: number; y: number }[] = [], vehicleWidth = 0, ceilingZ?: number): THREE.Group {
   const g = new THREE.Group()
   const d = mod.d ?? 1
   // Build in the track's local frame: the run along +x, the amount across +y,
@@ -64,9 +64,9 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
   // walls; the module only supplies the bed and the power supply on top.
   // Fill the dug lower block completely. The rail datum stays recessed, but
   // its concrete underside meets neighbouring blocks on the integer grid.
-  if (!mod.cfg.bridge) finishSlab(g, concrete, cx, cy, (bedTop - 1) / 2, mod.w, d, bedTop + 1).name = 'track-bed'
+  if (!mod.cfg.bridge) finishSlab(g, surfaceMats, cx, cy, (bedTop - 1) / 2, mod.w, d, bedTop + 1).name = 'track-bed'
   // Raised centre slab leaves the drainage troughs below the sleeper bearing surface.
-  finishSlab(g, concrete, cx, cy, bedTop + .02, mod.w, Math.max(0.8, d - 0.52), 0.04)
+  finishSlab(g, mod.cfg.bridge ? concrete : surfaceMats, cx, cy, bedTop + .02, mod.w, Math.max(0.8, d - 0.52), 0.04)
   if (mod.cfg.bridge) {
     // A recessed concrete trough above the unchanged pier seats (§5.4). Edge girders previously shared its outer
     // face, making the underside flicker as the camera moved.
@@ -89,7 +89,7 @@ function buildTrack(mats: ModelMaterials, mod: Extract<Module, { type: 'track' }
       }
     }
   }
-  if (!mod.cfg.bridge) for (const side of [-1, 1]) finishSlab(g, concrete, cx, cy + side * (d / 2 - .025), bedTop / 2, mod.w, .05, -bedTop).name = 'track-trench-wall'
+  if (!mod.cfg.bridge) for (const side of [-1, 1]) finishSlab(g, surfaceMats, cx, cy + side * (d / 2 - .025), bedTop / 2, mod.w, .05, -bedTop).name = 'track-trench-wall'
   const hardware = new THREE.Group()
   hardware.scale.set(1,scale,scale); hardware.position.set(0,cy*(1-scale),hardwareLift); g.add(hardware)
   buildTrackDetails(hardware, mats, concrete, railWeb, mod.w, d)
@@ -156,7 +156,17 @@ export class TrackModel extends PieceBuilder {
       return [m]
     }) : []
     const neighborPosts = neighboringGantryPosts(mod, tracks, edges, data?.lines)
-    return buildTrack(this.ctx.mats, mod, this.ctx.finish('floor.concrete'), railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side, neighborPosts, line ? STOCK[line.stock].width : 0, trackCeilingUnderside(mod, data?.cells) - mod.z)
+    const concrete = this.ctx.finish('floor.concrete')
+    const rot = ((mod.rot ?? 0) % 4 + 4) % 4
+    const faceByLocalSide = [
+      ['e', 'w', 'n', 's'],
+      ['n', 's', 'w', 'e'],
+      ['w', 'e', 's', 'n'],
+      ['s', 'n', 'e', 'w'],
+    ] as const
+    const faceIds = [faceByLocalSide[rot]![0], faceByLocalSide[rot]![1], faceByLocalSide[rot]![2], faceByLocalSide[rot]![3], 'top', 'bottom'] as const
+    const surfaceMats = faceIds.map((face) => this.ctx.finish(mod.cfg.surfaceFinishes?.[face] ?? 'floor.concrete'))
+    return buildTrack(this.ctx.mats, mod, concrete, surfaceMats, railWeb, this.ctx.preview, this.ctx.finish(mod.cfg.bridgeFinish ?? 'floor.concrete'), side, neighborPosts, line ? STOCK[line.stock].width : 0, trackCeilingUnderside(mod, data?.cells) - mod.z)
   }
 }
 

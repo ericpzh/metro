@@ -161,6 +161,7 @@ export function Viewport(): React.ReactElement {
       scene: () => sceneRef.current,
       pick: (clientX, clientY) => sceneRef.current?.pick(clientX, clientY, useStore.getState().activeZ) ?? null,
       pickModule: (clientX, clientY) => sceneRef.current?.pickModule(clientX, clientY) ?? null,
+      pickModuleSurface: (clientX, clientY) => sceneRef.current?.pickModuleSurface(clientX, clientY) ?? null,
       facing: () => sceneRef.current?.pickFacing(),
       solids: () => solidRef.current,
       floors: () => floorRef.current,

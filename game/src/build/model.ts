@@ -26,6 +26,7 @@ export {
 export { extendLift, liftInColumn, removeLiftExtension } from './model/Lifts.ts';
 export { addRoadSegment, removeRoadSegment } from './model/Roads.ts';
 export { paintBridgeSurface } from './model/BridgePaint.ts';
+export { paintTrackSurface } from './model/TrackPaint.ts';
 export { syncBridgePillars } from './model/BridgePillars.ts';
 export {
   eraseFace,

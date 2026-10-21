@@ -239,6 +239,12 @@ instead of being covered by them. The reusable models live in
 `BridgeEdgeConcrete.ts` and `TrackGantry.ts`; pin alignment, frame clearance,
 neighbor joins and line editing in `module-build.test.mjs` and `fence.test.mjs`.
 
+The 材质 tool paints platform and tunnel track concrete **per face**, stored in
+`track.cfg.surfaceFinishes`; resolve the actual module hit normal and map world
+faces onto the rotated track slab. Tunnel shell cells remain ordinary per-face
+block surfaces. Keep the surface finish out of rail hardware, and cover the
+per-face model assignment and paint/pick behavior in the owning game suite.
+
 The RHS selected-piece information card is `app/windows/inspector/InfoCard.tsx`.
 Keep its details and boxed action column side by side; selected one-way roads
 reverse from that column, and all icon actions expose matching translated

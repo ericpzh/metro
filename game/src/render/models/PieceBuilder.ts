@@ -1248,7 +1248,7 @@ function metreUv(geo: THREE.BufferGeometry, sx: number, sy: number, sz: number):
  * geometry gets a flat white colour attribute — the AO the mesher bakes in is
  * only meaningful for chunk cells.
  */
-export function finishSlab(parent: THREE.Object3D, mat: THREE.Material, x: number, y: number, z: number, sx: number, sy: number, sz: number): THREE.Mesh {
+export function finishSlab(parent: THREE.Object3D, mat: THREE.Material | THREE.Material[], x: number, y: number, z: number, sx: number, sy: number, sz: number): THREE.Mesh {
   const geo = new THREE.BoxGeometry(sx, sy, sz)
   metreUv(geo, sx, sy, sz)
   const n = geo.attributes.position.count

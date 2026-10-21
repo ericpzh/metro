@@ -150,6 +150,7 @@ export interface ToolContext {
   scene: () => SceneRenderer | null
   pick: (clientX: number, clientY: number) => PickResult | null
   pickModule: (clientX: number, clientY: number) => string | null
+  pickModuleSurface?: (clientX: number, clientY: number) => { moduleId: string; normal: [number, number, number] } | null
   facing: () => [number, number] | undefined
   /** Solid cell keys, refreshed with the station. */
   solids: () => Set<string>

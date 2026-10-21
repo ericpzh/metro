@@ -25,6 +25,7 @@ export function customPaintColoursInStation(
   for (const module of station.modules) {
     if ('finish' in module.cfg) add(module.cfg.finish)
     if ('bridgeFinish' in module.cfg) add(module.cfg.bridgeFinish)
+    if ('surfaceFinishes' in module.cfg) for (const finish of Object.values(module.cfg.surfaceFinishes ?? {})) add(finish)
   }
   return [...found].sort((a, b) => a - b)
 }

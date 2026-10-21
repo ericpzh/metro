@@ -747,6 +747,11 @@ export class SceneRenderer {
     return this.cameraSys.pickModule(clientX, clientY)
   }
 
+  pickModuleSurface(clientX: number, clientY: number): { moduleId: string; normal: [number, number, number] } | null {
+    const hit = this.cameraSys.pickModuleSurfaceHit(clientX, clientY)
+    return hit ? { moduleId: hit.moduleId, normal: hit.normal } : null
+  }
+
   pickModuleInBounds(clientX: number, clientY: number, moduleIds: ReadonlySet<string>): string | null {
     return this.cameraSys.pickModuleInBounds(clientX, clientY, moduleIds)
   }

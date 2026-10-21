@@ -768,7 +768,7 @@ export type Module =
       /** Bed depth in cells across the run (+y). Defaults to 1. */
       d?: number
       /** A pure tunnel run: an extension of a line's track, never platform doors. */
-        cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; catenaryStyle?: 'canopy' | 'gantry'; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; removedBridgePillars?: string[]; removedPsdSides?: Array<'left' | 'right'> }
+        cfg: { line: string; power: 'third-rail' | 'catenary'; dir?: LineDirection; tunnel?: boolean; bridge?: boolean; catenaryStyle?: 'canopy' | 'gantry'; bridgeRailing?: BridgeRailing; bridgeFinish?: FinishId; surfaceFinishes?: Partial<Record<Face, FinishId>>; removedBridgePillars?: string[]; removedPsdSides?: Array<'left' | 'right'> }
     })
 
 export type ModuleType = Module['type']
