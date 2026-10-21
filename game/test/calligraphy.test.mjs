@@ -577,3 +577,19 @@ test('a rename reprints every inscription already on the wall', async () => {
   assert.equal(plates.decorPlates.size, 0, 'a piece the document no longer holds releases its plate')
 })
 
+test('structural placement keeps existing inscription pixels; rename still repaints', async () => {
+  const mod = placed('动物园', 'calligraphy-kai-h')
+  const { plates, data, canvases } = await plateRig('动物园', mod)
+  plates.makeCalligraphyPlate(mod.id, { style: 'kai', axis: 'h', panel: { w: 3, h: 1 } })
+  const old = { ...data, modules: [...data.modules] }
+  data.modules = [...data.modules, { id: 'new', type: 'track', x: 60, y: 60, z: 0, cfg: {} }]
+  canvases[0].ops.words.length = 0
+  plates.redrawDecorPlates(old)
+  assert.equal(canvases[0].ops.words.length, 0, 'a track placement does not repaint remote station names')
+  const previous = { ...data }
+  data.name = '汉溪长隆'
+  plates.redrawDecorPlates(previous)
+  assert.ok(canvases[0].ops.words.length > 0, 'a station rename still reaches retained pixels')
+  plates.clearDecorPlates()
+})
+

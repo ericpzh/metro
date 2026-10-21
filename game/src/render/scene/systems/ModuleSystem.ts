@@ -200,7 +200,10 @@ export class ModuleSystem extends SceneSystem {
     const liftRigs = new Map(this.lifts.liftRigs.map(r => [r.group, r]))
     const gateWings = new Map(this.crowd.gateWings.map(r => [r.root, r]))
     const tvScreens = new Map(this.plates.tvScreens.map(r => [r.moduleId, r]))
-    this.clearModules(data, new Set(kept.values()))
+    const contactBlobs = new Map(this.moduleMeshes.children
+      .filter(g => typeof g.userData.contactBlobKey === 'string')
+      .map(g => [g.userData.contactBlobKey as string, g as THREE.InstancedMesh]))
+    this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]))
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
     const trackCells = trackBedKeys(data.cells, data.modules)
@@ -301,27 +304,47 @@ export class ModuleSystem extends SceneSystem {
         else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
       }
     }
-    // Contact blobs under the floor-standing modules (§11), one batch per level
-    // so a shadow disappears with the storey it sits on. `clearModules` disposes
-    // every previous batch, so none of them are removed again here.
+    // Contact blobs under floor-standing modules (§11), one retained batch per
+    // level. Equipment edits update changed matrices, rather than recreating all
+    // station shadows. Spare capacity avoids reallocating for each new piece.
     const m = new THREE.Matrix4()
     const p = new THREE.Vector3()
     const q = new THREE.Quaternion()
     const s = new THREE.Vector3()
-    for (const entry of blobsByKey.values()) {
+    for (const [key, entry] of blobsByKey) {
       const { levelZ, ground, blobs } = entry
-      const inst = new THREE.InstancedMesh(new THREE.CircleGeometry(0.62, 12), this.ctx.mats.blob, Math.max(1, blobs.length))
+      let inst = contactBlobs.get(key)
+      contactBlobs.delete(key)
+      if (inst && (blobs.length > inst.instanceMatrix.count || blobs.length < inst.instanceMatrix.count / 4)) {
+        disposeObject(inst)
+        this.moduleMeshes.remove(inst)
+        inst = undefined
+      }
+      const previous = inst?.userData.contactBlobValues as Array<[number, number, number, number]> | undefined
+      if (!inst) inst = new THREE.InstancedMesh(new THREE.CircleGeometry(0.62, 12), this.ctx.mats.blob, THREE.MathUtils.ceilPowerOfTwo(Math.max(1, blobs.length)))
       inst.renderOrder = 2
       inst.frustumCulled = false
       inst.userData.levelZs = [levelZ]
       inst.userData.groundBand = ground
+      inst.userData.contactBlobKey = key
+      let changed = false
       for (let i = 0; i < blobs.length; i++) {
         const [x, y, z, r] = blobs[i]
+        if (previous?.[i]?.every((value, j) => value === blobs[i][j])) continue
         m.compose(p.set(x, y, z), q, s.set(r, r, r))
         inst.setMatrixAt(i, m)
+        // A new buffer uploads in full; ranges are only for subsequent edits.
+        if (previous) inst.instanceMatrix.addUpdateRange(i * 16, 16)
+        changed = true
       }
+      if (changed) inst.instanceMatrix.needsUpdate = true
+      inst.userData.contactBlobValues = blobs
       inst.count = blobs.length
       this.moduleMeshes.add(inst)
+    }
+    for (const inst of contactBlobs.values()) {
+      disposeObject(inst)
+      this.moduleMeshes.remove(inst)
     }
     this.builtData = data
     this.builtLanguage = getLanguage()

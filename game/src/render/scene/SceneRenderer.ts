@@ -266,6 +266,7 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
+    const previousData = this.ctx.stationData
     this.modules.batches.invalidateViews()
     this.ctx.levelBase = data.levelBase ?? 0
     this.ctx.storeyHeight = data.storeyHeight ?? 5
@@ -279,7 +280,8 @@ export class SceneRenderer {
     // Anything else takes the full path below.
     const signOnly = this.modules.signBoardsOnlyChanged(data)
     const equipmentOnly = signOnly === null && this.modules.equipmentOnlyChanged(data)
-    this.chunks.prepareStation(data, effective)
+    if (signOnly !== null || equipmentOnly) this.ctx.stationData = data
+    else this.chunks.prepareStation(data, effective)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
     // shade, so a long painting session used to keep every shade it ever tried.
@@ -291,8 +293,8 @@ export class SceneRenderer {
     // carry the station's own words, a 站名's name and a 线网图's network, are
     // reprinted for the same reason: a rename or a recoloured line reaches the wall.
     if (signOnly === null && !equipmentOnly && !retainedModules && !this.modules.hasSameMetadata(data)) {
-      this.plates.redrawSignPlates()
-      this.plates.redrawDecorPlates()
+      this.plates.redrawSignPlates(previousData ?? undefined)
+      this.plates.redrawDecorPlates(previousData ?? undefined)
     }
     if (signOnly === null && !equipmentOnly) {
       this.chunks.meshStation()

@@ -15,6 +15,18 @@ the station either copes or it does not.
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.
+When auditing placement invalidation, check every equipment, structure and decor
+module against the inputs its builder actually reads; unknown dependencies must
+keep the conservative rebuild path. Reuse prepared tool occupancy for local
+equipment-only edits, skip chunk preparation when cells and street bounds are
+unchanged, and repaint cached plates only when their inputs change. Keep contact
+shadow batches and buffers alive across local edits. Functional worker builds can
+install the latest document asynchronously in a coalesced job, but keep the old
+document and routing graph coherent until installation, let ticks continue on
+that pair, and cancel pending edits when loading another station. Initial station
+loads remain immediate. Read the
+[placement invalidation audit](../../../game/PERFORMANCE.md#placement-invalidation-audit-2026-10-20)
+for its deterministic work counts, production measurements and validation limits.
 
 | Work | Skill |
 |---|---|

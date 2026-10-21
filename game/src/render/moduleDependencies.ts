@@ -1,4 +1,4 @@
-import { roadsOnlyChange } from '../sim/roads.ts'
+import { trackModelInputs, pillarModelInputs, hangerModelInputs, ceilingModelInputs, surfaceModelInputs, nearbyOpening, roadModelInputs } from './structuralModelInputs.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
 import { isEdgeDecor, edgeDecorCurtainShare, curtainCornerJoin, curtainDoorShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface, isCeilingHung } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
@@ -11,7 +11,7 @@ import { fenceConnectionIndex } from '../sim/fences.ts'
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
 const EQUIPMENT_ONLY = new Set<Module['type']>([
-  'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth',
+  'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth', 'road', 'psd-end', 'walkway',
 ])
 const STANDALONE = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink',
@@ -87,15 +87,11 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
 export function retainedModuleIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
   if (!sameModuleMetadata(before, after)) {
-    // A road changes road ink, never other equipment geometry. Keep routing
-    // invalidation separate: roads still cut the pedestrian graph.
     // A stair-block addition only contributes its own stepped tile. It does not
     // change neighbouring module geometry, so keep every existing model and
     // build the new tile alone. This avoids rebuilding a large station's full
     // equipment catalogue for each block in a dragged stair-block patch.
-    if (roadsOnlyChange(before, after)) {
-      for (const mod of before.modules) if (mod.type !== 'road') retained.add(mod.id)
-    } else if (onlyAddedStairBlocks(before, after)) {
+    if (onlyAddedStairBlocks(before, after)) {
       for (const mod of before.modules) retained.add(mod.id)
     } else {
       for (const id of equipmentRetainedIds(before, after)) retained.add(id)
@@ -172,7 +168,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     // centre, so adding/lifting a curtain rebuilds the furniture leaning on it.
     if (isEdgeDecor(mod) && changes.some(c => c.type === 'glass' && edgeDecorCurtainShare(c, mod))) continue
     if (changes.some(h => h.type === 'hanger' && hangerSupports(h, mod))) continue
-    if (isCeilingHung(mod) && openingChanged) continue // Decks and street holes supply ceilings.
+    if (isCeilingHung(mod) && openingChanged && !equal(ceilingModelInputs(before, mod), ceilingModelInputs(after, mod))) continue
     if (STANDALONE.has(mod.type)) { retained.add(mod.id); continue }
     if (mod.type === 'tactile' && changes.some(m => m.type === 'tactile' && adjacent(m, mod))) continue
     if ((mod.type === 'fence' || mod.type === 'gate') && changes.some(m => (m.type === 'fence' || m.type === 'gate') && adjacent(m, mod))) continue
@@ -182,14 +178,15 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'tv' && changes.some(m => m.type === 'tv' && m.x === mod.x && m.y === mod.y && m.z === mod.z)) continue
     if (mod.type === 'glass' && changes.some(m => (m.type === 'glass' && curtainCornerJoin(mod, m).length > 0)
       || (m.type === 'door' && curtainDoorShare(mod, m)))) continue
-    if (mod.type === 'road' && types.has('road')) continue
-    if (mod.type === 'track' && (types.has('track') || types.has('platform-edge'))) continue
+    if (mod.type === 'road' && types.has('road') && !equal(roadModelInputs(before, mod), roadModelInputs(after, mod))) continue
+    if (mod.type === 'track' && (types.has('track') || types.has('platform-edge')) && !equal(trackModelInputs(before, mod), trackModelInputs(after, mod))) continue
     if (mod.type === 'platform-edge' && changes.some(m => m.id === mod.cfg.from)) continue
-    if (mod.type === 'psd-end' && (types.has('platform-edge') || types.has('track'))) continue
-    if (mod.type === 'pillar' && types.has('track')) continue
-    if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof')) continue
-    if ((RAMPS.has(mod.type) || mod.type === 'lift' || isOutdoorSurface(mod)) && openingChanged) continue
-    if (mod.type === 'exit' && [...types].some(t => RAMPS.has(t))) continue
+    if (mod.type === 'psd-end' && changes.some(m => m.id === mod.cfg.corner)) continue
+    if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
+    if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
+    if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => OPENINGS.has(m.type) && nearbyOpening(mod, m))) continue
+    if (isOutdoorSurface(mod) && openingChanged && !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
+    if (mod.type === 'exit' && changes.some(m => RAMPS.has(m.type) && nearbyOpening(mod, m))) continue
     if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
     retained.add(mod.id)
   }

@@ -11,11 +11,47 @@ import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { buildModule, createModelMaterials, disposeModelMaterials, disposeObject } from '../src/render/models.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
+import { StationGeometry } from '../src/app/stationGeometry.ts'
+import { PlateSystem } from '../src/render/scene/systems/PlateSystem.ts'
+import { signBoardsPanel } from '../src/sim/sign.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 function station(modules) {
   return { ...emptyStation(), modules, cells: [{ x: -30, y: -30, z: 0, fill: 'solid' }, { x: 100, y: 100, z: 0, fill: 'solid' }] }
 }
+
+test('every palette placement/deletion retains remote models of its own type', async () => {
+  const { MODULE_OPTIONS } = await import('../src/app/store/catalog.ts')
+  const catalogue = MODULE_OPTIONS.map(option => createModule(option.id, 60, 60, 0, `remote-${option.id}`))
+  for (const option of MODULE_OPTIONS) {
+    const remote = createModule(option.id, 60, 60, 0, 'remote')
+    const added = createModule(option.id, 0, 0, 0, 'added')
+    assert.ok(remote && added, option.id)
+    const before = station([remote]), after = { ...before, modules: [remote, added] }
+    assert.equal(retainedModuleIds(before, after).has('remote'), true, `${option.id}: placement retains remote sibling`)
+    assert.equal(retainedModuleIds(after, before).has('remote'), true, `${option.id}: deletion retains remote sibling`)
+    const mixed = station(catalogue), placed = { ...mixed, modules: [...catalogue, added] }
+    assert.equal(retainedModuleIds(mixed, placed).size, catalogue.length, `${option.id}: keeps the entire remote catalogue`)
+    assert.equal(retainedModuleIds(placed, mixed).size, catalogue.length, `${option.id}: deletion keeps the remote catalogue`)
+  }
+})
+
+test('equipment edits reuse prepared tool occupancy; structural edits and ground expansion invalidate it', () => {
+  const cache = new StationGeometry(), before = station([])
+  const prepared = cache.resolve(before)
+  assert.equal(cache.resolve({ ...before }), prepared, 'render-only updates retain prepared sets')
+  for (const type of [...equipment, 'walkway', 'psd-end', 'road']) {
+    const data = { ...before, modules: [createModule(type, 0, 0, 0, 'added')] }
+    assert.equal(cache.resolve(data), prepared, `${type} reuses every map-wide occupancy allocation`)
+    assert.equal(cache.resolve(before), prepared, `${type} undo also retains prepared sets`)
+  }
+  for (const data of [{ ...before, cells: [...before.cells, { x: 2, y: 2, z: 0, fill: 'solid' }] },
+    { ...before, modules: [createModule('bench', 5000, 0, 0, 'far')] },
+    { ...before, modules: [createModule('stair-straight', 0, 0, 0, 'stairs')] }]) {
+    assert.notEqual(cache.resolve(data), prepared, 'map geometry changes rebuild occupancy')
+    cache.resolve(before)
+  }
+})
 
 test('ordinary equipment edits retain 1024 unrelated models while functional edits still rebuild routes', () => {
   const before = station(Array.from({ length: 1024 }, (_, i) => createModule('bench', i % 32, Math.floor(i / 32), 0, 'old-' + i)))
@@ -65,17 +101,17 @@ test('coupled equipment rebuilds only dependent neighbours in both edit directio
   assert.equal(retainedModuleIds(after, removed).has('far'), true, 'combined structural/cell edits retain independent remote equipment')
 })
 
-test('structural dependencies invalidate their model families without rebuilding independent furniture', () => {
+test('structural dependencies invalidate changed inputs without rebuilding independent furniture', () => {
   const bench = createModule('bench', 90, 90, 0, 'far')
   const track = { id: 'track', type: 'track', x: 0, y: 0, z: 0, w: 8, d: 3, rot: 0, cfg: { line: '1' } }
-  const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 3, z: 0, w: 8, rot: 0, cfg: { line: '1', from: 'track', psd: 'full' } }
+  const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 3, z: 0, w: 8, rot: 0, cfg: { line: '1', from: 'track', psd: 'full', side: 'right' } }
   const exit = createModule('exit-covered-2', 0, 0, 0, 'exit')
   const cases = [
     [track, edge], [edge, track],
     [{ id: 'end', type: 'psd-end', x: 0, y: 3, z: 0, rot: 0, cfg: { corner: 'edge', psd: 'full' } }, edge],
-    [createModule('pillar', 0, 0, 0, 'pillar'), track],
+    [createModule('pillar', 0, 0, 0, 'pillar'), { ...track, z: createModule('pillar', 0, 0, 0, 'pillar').cfg.height, cfg: { ...track.cfg, bridge: true } }],
     [createModule('hanger-roof', 0, 0, 0, 'hanger'), createModule('roof-canopy', 0, 0, 0, 'roof')],
-    [createModule('light-circular', 0, 0, -5, 'light'), track],
+    [createModule('tv', 0, 0, -10, 'light'), { ...track, z: -5 }],
     [createModule('sidewalk', 0, 0, 0, 'surface'), exit],
     [createModule('lift', 0, 0, 0, 'lift'), createModule('stair-straight', 0, 0, 0, 'stair')],
     [exit, createModule('stair-straight', 0, 0, 0, 'stair')],
@@ -117,6 +153,28 @@ function withDrawing(run) {
   finally { modules.clearModules(); modules.batches.clear(); disposeModelMaterials(mats); blob.dispose(); globalThis.document = previous }
 }
 
+test('structural edits leave remote sign pixels intact; changed boards and lines repaint', () => withDrawing(({ ctx }) => {
+  const front = [{ id: 'text', kind: 'text', text: 'East', x: 0, y: .35, scale: 1, side: 'both' }]
+  const sign = createModule('sign-ceiling', 0, 0, 0, 'sign')
+  sign.cfg = { ...sign.cfg, front, back: [] }
+  const data = station([sign]), plates = new PlateSystem(ctx)
+  ctx.stationData = data
+  const material = plates.makeSignPlate(sign.id, front, 'left', signBoardsPanel({ front, back: [] }))
+  const version = material.map.version
+  const placed = { ...data, modules: [sign, createModule('stair-straight', 60, 60, 0, 'stairs')] }
+  ctx.stationData = placed
+  plates.redrawSignPlates(data)
+  assert.equal(material.map.version, version, 'placing structure does not upload every sign texture')
+  const edited = { ...placed, modules: [{ ...sign, cfg: { ...sign.cfg, front: [{ ...front[0], text: 'West' }] } }, placed.modules[1]] }
+  ctx.stationData = edited
+  plates.redrawSignPlates(placed)
+  assert.equal(material.map.version, version + 1, 'changed board repaints its retained texture')
+  ctx.stationData = { ...edited, lines: [{ id: '1', color: '#ff0000' }] }
+  plates.redrawSignPlates(edited)
+  assert.equal(material.map.version, version + 2, 'line edits still reach all sign shields')
+  plates.clearSignPlates()
+}))
+
 test('real ModuleSystem preserves remote geometry and owned material allocations across equipment edits', () => withDrawing(({ modules }) => {
   const before = station([createModule('tvm', 0, 0, 0, 'machine'), createModule('cubicle', 10, 0, 0, 'cubicle')])
   modules.buildModules(before, new Set())
@@ -134,6 +192,49 @@ test('real ModuleSystem preserves remote geometry and owned material allocations
     assert.equal(released, 0)
     modules.buildModules(before, new Set(), true)
   }
+}))
+
+test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules }) => {
+  const benches = Array.from({ length: 3 }, (_, i) => createModule('bench', i * 2, 0, 0, `bench-${i}`))
+  const upper = createModule('bench', 0, 0, 5, 'upper')
+  const before = station([...benches, upper])
+  modules.buildModules(before, new Set())
+  const blob = z => modules.moduleMeshes.children.find(g => g.userData.contactBlobKey && g.userData.levelZs[0] === z)
+  const lowerBlob = blob(0), upperBlob = blob(5)
+  let meshesReleased = 0, geometriesReleased = 0
+  lowerBlob.addEventListener('dispose', () => meshesReleased++)
+  lowerBlob.geometry.addEventListener('dispose', () => geometriesReleased++)
+  const upperVersion = upperBlob.instanceMatrix.version
+  lowerBlob.instanceMatrix.clearUpdateRanges() // As after the renderer's upload.
+  const added = { ...before, modules: [...before.modules, createModule('bench', 8, 0, 0, 'fourth')] }
+  modules.buildModules(added, new Set(), true)
+  assert.equal(blob(0), lowerBlob, 'spare capacity retains the geometry and instance buffer')
+  assert.equal(blob(5), upperBlob, 'another storey keeps its shadow allocation')
+  assert.equal(upperBlob.instanceMatrix.version, upperVersion, 'untouched storey uploads nothing')
+  assert.deepEqual(lowerBlob.instanceMatrix.updateRanges, [{ start: 48, count: 16 }], 'only the appended matrix uploads')
+  const moved = { ...added, modules: added.modules.map(m => m.id === 'bench-1' ? { ...m, x: 12 } : m) }
+  lowerBlob.instanceMatrix.clearUpdateRanges()
+  modules.buildModules(moved, new Set(), true)
+  assert.deepEqual(lowerBlob.instanceMatrix.updateRanges, [{ start: 16, count: 16 }], 'moving a piece updates one shadow')
+  const matrix = new THREE.Matrix4()
+  lowerBlob.getMatrixAt(1, matrix)
+  assert.equal(matrix.elements[12], 12.5)
+  const grown = { ...moved, modules: [...moved.modules, createModule('bench', 14, 0, 0, 'fifth')] }
+  modules.buildModules(grown, new Set(), true)
+  assert.notEqual(blob(0), lowerBlob, 'growth replaces a full buffer')
+  assert.equal(meshesReleased, 1)
+  assert.equal(geometriesReleased, 1)
+  const expanded = blob(0)
+  const shrunken = station([benches[0], upper])
+  modules.buildModules(shrunken, new Set(), true)
+  assert.notEqual(blob(0), expanded, 'large deletions release excessive spare capacity')
+  assert.equal(blob(0).instanceMatrix.count, 1, 'retained capacity stays bounded after deletion')
+  modules.buildModules(station([upper]), new Set(), true)
+  assert.equal(blob(0), undefined, 'the last removed piece drops its shadow batch')
+  assert.equal(blob(5), upperBlob)
+  modules.clearModules()
+  assert.equal(meshesReleased, 1, 'a previously evicted buffer is never disposed twice')
+  assert.equal(geometriesReleased, 1)
 }))
 
 function geometryOf(root) {
@@ -163,6 +264,31 @@ test('retained rebuilds match fresh joined fence, cubicle and curtain geometry a
       modules.buildModules(destination, new Set(), true)
       const actual = modules.moduleMeshes.children.find(g => g.userData.moduleId === old.id)
       assert.deepEqual(geometryOf(actual), expected, `${old.type}/${neighbour.type}: local rebuild equals a complete build`)
+    }
+  }
+}))
+
+test('structural input retention matches fresh geometry for remote and connected edits', () => withDrawing(({ modules }) => {
+  const track = { id: 'track', type: 'track', x: 0, y: 0, z: 5, w: 8, d: 3, rot: 0, cfg: { line: '1', bridge: true, power: 'catenary' } }
+  const road = { id: 'road', type: 'road', x: 0, y: 0, z: 0, w: 6, d: 60, rot: 0, cfg: { direction: 'two-way' } }
+  const pairs = [
+    [track, { ...track, id: 'next', x: 8 }],
+    [track, { ...track, id: 'remote', x: 60, y: 60 }],
+    [road, { ...road, id: 'cross', x: -20, y: 25, w: 50, d: 6, rot: 1 }],
+    [road, { ...road, id: 'remote', x: 60, y: 60 }],
+    [createModule('hanger-roof', 0, 0, 0, 'hanger'), createModule('roof-canopy', 0, 0, 0, 'roof')],
+    [createModule('hanger-roof', 0, 0, 0, 'hanger'), createModule('roof-canopy', 60, 60, 0, 'roof')],
+    [createModule('pillar', 0, 0, 0, 'pillar'), track],
+  ]
+  for (const [old, added] of pairs) {
+    const before = station([old]), after = { ...before, modules: [old, added] }
+    for (const [source, destination] of [[before, after], [after, before]]) {
+      modules.buildModules(destination, new Set())
+      const expected = geometryOf(modules.moduleMeshes.children.find(g => g.userData.moduleId === old.id))
+      modules.buildModules(source, new Set())
+      modules.buildModules(destination, new Set(), true)
+      assert.deepEqual(geometryOf(modules.moduleMeshes.children.find(g => g.userData.moduleId === old.id)), expected,
+        `${old.type}/${added.id}: retained result matches complete build`)
     }
   }
 }))

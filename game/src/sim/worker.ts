@@ -2,9 +2,10 @@
 // Each tick is one synchronous task: run the world, then post. No await, no
 // per-agent microtasks (PLAN.md §2.4).
 
-import { BASE_TICK_MS } from './constants.ts'
+import { BASE_TICK_MS, BUILD_COALESCE_MS } from './constants.ts'
 import type { FromWorker, ToWorker } from './protocol.ts'
 import type { Metrics } from './world.ts'
+import type { StationData } from './types.ts'
 import { World } from './world.ts'
 import { isCosmeticStationEdit } from './cosmeticEdit.ts'
 
@@ -13,6 +14,8 @@ const ctx = self as unknown as {
   addEventListener(type: string, fn: (e: MessageEvent) => void): void
   setInterval(fn: () => void, ms: number): number
   clearInterval(id: number): void
+  setTimeout(fn: () => void, ms: number): number
+  clearTimeout(id: number): void
 }
 
 let world: World | null = null
@@ -41,6 +44,27 @@ const NO_ROUTE = new Float32Array(0)
  * was already on screen. So a paused `run` with nothing dirty returns immediately.
  */
 let dirty = true
+// Live edits are replaceable snapshots (§9.5). Keep the old document and graph
+// together until a queued task installs the latest edit; never tick a mixed pair.
+let pendingBuild: StationData | null = null
+let buildTimer: number | null = null
+
+function cancelBuild(): void {
+  if (buildTimer !== null) ctx.clearTimeout(buildTimer)
+  buildTimer = null
+  pendingBuild = null
+}
+
+function applyBuild(): void {
+  const data = pendingBuild
+  cancelBuild()
+  if (!world || !data) return
+  const cosmetic = isCosmeticStationEdit(world.data, data)
+  world.data = data
+  if (!cosmetic) world.rebuild()
+  dirty = true
+  run(false)
+}
 
 /**
  * The record's own cursor (§8.1): how many samples the app has been sent. The world
@@ -79,9 +103,9 @@ function stepping(): boolean {
   return playing && speed > 0
 }
 
-function run(): void {
+function run(advance = true): void {
   if (!world) return
-  if (stepping()) world.tickOnce()
+  if (advance && stepping()) world.tickOnce()
   // Paused with nothing changed since the last frame: there is no news to post.
   else if (!dirty) return
   dirty = false
@@ -139,6 +163,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as ToWorker
   switch (msg.type) {
     case 'init': {
+      cancelBuild()
       // The first `init` boots a world; sending it again loads a different
       // station. Either way it is a full reset — no agent, train, queue or clock
       // survives. Live edits use `build`, which keeps the crowd on purpose.
@@ -180,13 +205,11 @@ ctx.addEventListener('message', (e: MessageEvent) => {
     }
     case 'build': {
       if (world) {
-        const cosmetic = isCosmeticStationEdit(world.data, msg.data)
-        world.data = msg.data
-        if (!cosmetic) world.rebuild()
-        // The edit has to reach the screen now: while paused there is no stream to
-        // carry it later, which is the other half of the dirty flag.
-        dirty = true
-        run()
+        pendingBuild = msg.data
+        // Inert edits remain cheap when no topology edit is waiting. Otherwise
+        // they join it, rather than publishing data against an obsolete graph.
+        if (buildTimer === null && isCosmeticStationEdit(world.data, msg.data)) applyBuild()
+        else if (buildTimer === null) buildTimer = ctx.setTimeout(applyBuild, BUILD_COALESCE_MS)
       }
       break
     }

@@ -224,13 +224,16 @@ export class PlateSystem extends SceneSystem {
    * 电视's clock. `setStation` calls it before the rebuild, so a recoloured shield
    * reaches the boards a 线路 edit never touched.
    */
-  redrawSignPlates(): void {
+  redrawSignPlates(previous?: StationData): void {
     if (this.signPlates.size === 0) return
     const lines = this.ctx.stationData?.lines ?? []
+    const old = new Map(previous?.modules.map(m => [m.id, m]))
+    const sameLines = previous && JSON.stringify(previous.lines) === JSON.stringify(lines)
     for (const [key, entry] of this.signPlates) {
       const id = key.slice(0, key.indexOf('|'))
       const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
       if (!mod || mod.type !== 'sign') continue
+      if (sameLines && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
       const boards = signBoardsOf(mod.cfg, this.ctx.stationData)
       const layout = signFaceLayout(boards, entry.face === 'right' ? 'back' : 'front')
       const canvas = entry.texture.image as HTMLCanvasElement | undefined
@@ -416,15 +419,18 @@ export class PlateSystem extends SceneSystem {
    * The map's **artwork** is a supplied poster and does not depend on the document, so
    * its face is skipped — a line edit cannot change a picture of the whole network.
    */
-  redrawDecorPlates(): void {
+  redrawDecorPlates(previous?: StationData): void {
     if (this.decorPlates.size === 0) return
     const data = this.ctx.stationData
     if (!data) return
+    const old = new Map(previous?.modules.map(m => [m.id, m]))
+    const sameWords = previous && previous.name === data.name && JSON.stringify(previous.lines) === JSON.stringify(data.lines)
     for (const [key, entry] of this.decorPlates) {
       if (!entry.owned || !entry.face.texture) continue
       const id = key.slice(0, key.indexOf('|'))
       const mod = data.modules.find((m) => m.id === id)
       if (!mod) continue
+      if (sameWords && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
       const canvas = entry.face.texture.image as HTMLCanvasElement | undefined
       const g = canvas?.getContext('2d')
       if (!canvas || !g) continue

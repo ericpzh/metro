@@ -16,7 +16,16 @@ import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
 const frames = []
 const listeners = []
 let timerFn = null
+const builds = new Map()
+let nextBuild = 0
+function flushBuild() {
+  const callbacks = [...builds.values()]
+  builds.clear()
+  for (const fn of callbacks) fn()
+}
 globalThis.self = {
+  setTimeout: fn => { builds.set(++nextBuild, fn); return nextBuild },
+  clearTimeout: id => builds.delete(id),
   postMessage: (msg) => frames.push(msg),
   addEventListener: (type, fn) => listeners.push([type, fn]),
   setInterval: (fn) => {
@@ -106,8 +115,11 @@ test('cosmetic builds acknowledge edits without rebuilding routes; speed and top
     assert.equal(lastState().metrics.tick, tick)
     const slow = { ...painted, cells: [{ ...painted.cells[0], finish: { top: 'floor.concrete' } }] }
     post({ type: 'build', data: slow })
+    assert.equal(rebuilds, 0, 'topology work is deferred out of the build message')
+    flushBuild()
     assert.equal(rebuilds, 1, 'changed walking speed rebuilds the graph')
     post({ type: 'build', data: { ...slow, cells: [...slow.cells, { x: 1, y: 0, z: -4, fill: 'solid' }] } })
+    flushBuild()
     assert.equal(rebuilds, 2, 'structural edits rebuild the graph')
   } finally { World.prototype.rebuild = original }
 })
@@ -126,6 +138,7 @@ test('inert decor builds skip routing while a bench stop still rebuilds', async 
     assert.equal(rebuilds, 0, 'a floor sticker draws without walking')
     const bench = createModule('bench', 1, 0, -4, 'bench')
     post({ type: 'build', data: { ...data, modules: [sticker, bench] } })
+    flushBuild()
     assert.equal(rebuilds, 1, 'a bench stop still rebuilds the graph')
   } finally { World.prototype.rebuild = original }
 })
@@ -147,5 +160,43 @@ test('sidewalk, lawn and tree builds keep routes and paused simulation untouched
       assert.equal(rebuilds, 0, `a ${type} placement needs no new routes`)
       assert.equal(lastState().metrics.tick, tick)
     }
+  } finally { World.prototype.rebuild = original }
+})
+
+test('functional edit bursts install only the latest snapshot without advancing the clock', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const data = { name: 'burst', seed: 1, modules: [], lines: [], cells: [] }
+  post({ type: 'init', data, seed: 1, playing: true, speed: 1 })
+  const original = World.prototype.rebuild
+  const installed = []
+  World.prototype.rebuild = function (...args) { installed.push(this.data); return original.apply(this, args) }
+  try {
+    const tick = lastState().metrics.tick
+    let latest
+    for (let x = 0; x < 20; x++) {
+      latest = { ...data, cells: [{ x, y: 0, z: -5, fill: 'solid' }] }
+      post({ type: 'build', data: latest })
+    }
+    // An inert edit joins pending topology, it must not discard that edit.
+    latest = { ...latest, name: 'latest' }
+    post({ type: 'build', data: latest })
+    assert.equal(installed.length, 0)
+    assert.equal(builds.size, 1, 'one bounded task, even during continuous edits')
+    timerFn()
+    assert.equal(lastState().metrics.tick, tick + 1, 'old coherent world continues to tick')
+    flushBuild()
+    assert.deepEqual(installed, [latest])
+    assert.equal(lastState().metrics.tick, tick + 1, 'installing the graph is not a simulation tick')
+    assert.equal(builds.size, 0)
+    // Undo back to the applied document avoids rebuilding intermediate layouts.
+    post({ type: 'build', data })
+    post({ type: 'build', data: latest })
+    flushBuild()
+    assert.equal(installed.length, 1, 'a reverted burst needs no graph rebuild')
+    post({ type: 'build', data })
+    post({ type: 'init', data: { ...data, name: 'replacement' }, seed: 2, playing: false, speed: 1 })
+    const count = installed.length
+    flushBuild()
+    assert.equal(installed.length, count, 'loading cancels stale queued edits')
   } finally { World.prototype.rebuild = original }
 })

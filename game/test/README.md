@@ -12,6 +12,15 @@
 
 # `game/test` — how the game is tested
 
+Placement invalidation: `equipment-retention` sweeps all 119 palette options
+against the remote catalogue, pins prepared tool occupancy and shadow-buffer
+reuse/partial uploads/bounded capacity/exact disposal, and compares
+incremental road/bridge/pillar/hanger geometry with fresh builds in both edit
+directions. `worker-preview` pins deferred/coalesced topology updates, coherent
+old-world ticks, no edit-induced tick, undo cancellation and load cancellation.
+`scene-wiring` guards the chunk-preparation fast path; `calligraphy` guards
+unchanged plate pixels across structural placements and repainting on rename.
+
 `covered-clearance` checks that full PSD warnings, arrows and safety bands fit
 the compact glass for every stock on both platform sides, with aligned bands
 and clear space between stickers. `storey-height` pins the full-height screen's

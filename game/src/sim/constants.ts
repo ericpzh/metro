@@ -26,6 +26,8 @@ import { trainContactWireZ } from './stock.ts'
 export const SIM_SECONDS_PER_TICK = 1.0
 /** Real milliseconds per tick at 1x: one simulated second per real second. */
 export const BASE_TICK_MS = SIM_SECONDS_PER_TICK * 1000
+/** Coalesce live document snapshots in the worker without delaying placement. */
+export const BUILD_COALESCE_MS = 100
 /** Simulated seconds per real second, at 1x. */
 export const SIM_RATE = 1000 / BASE_TICK_MS
 /** Real seconds that make up one simulated hour (3600 s = one real hour at 1x). */

@@ -5,6 +5,98 @@ storey profile and trains use uniform 0.98 scale. Measurements below describe
 the current geometry and the latest completed validation. Raw reports belong
 in ignored `.preview/perf/`.
 
+## Placement invalidation audit (2026-10-20)
+
+Audited all 119 equipment/structure/decor palette options, plus generated track
+and platform dependencies. The palette matrix places each option beside a
+remote catalogue containing every option, then checks deletion as well. Against
+the pre-change dependency policy, the 119 additions unnecessarily replaced 670
+remote models in total; the updated policy replaces zero. This is a deterministic
+work count, not a timing claim. Raw per-option results and the reproduction are
+`.preview/perf/placement-classification-audit.json` and
+`.preview/perf/placement-classification-audit.mjs`.
+
+| Placement work | Previous behavior | Current behavior |
+|---|---|---|
+| Roads | Every road model rebuilt | Compare each road's ink, junction sides, arrival markings and signals |
+| Tracks/platform screens | All track models rebuilt | Compare third-rail side and neighboring gantry posts; screens retain their owning-track dependency |
+| Screen-end returns | Every return rebuilt for track/screen edits | Rebuild the return when its referenced corner changes |
+| Pillars/roof hangers | All pillars or roof hangers rebuilt | Compare supporting bridge height or actual suspension heights |
+| Hung decor | Every hung piece rebuilt on an opening edit | Compare the actual common ceiling height |
+| Ramps/lifts/exits | Whole families rebuilt on opening/ramp edits | Retain remote pieces; conservatively rebuild intersecting columns and nearby landings |
+| Sidewalk/lawn | All surfaces invalidated on opening edits | Compare actual opening/ground visibility |
+| Tool occupancy and chunk preparation | Rebuilt the generated plane and solid/floor/thin sets for every placement | Reuse prepared inputs for equipment-only edits within the existing street window |
+| Road, screen end, moving walkway | Took the chunk path | Skip chunk preparation/remeshing when cells and street bounds are unchanged |
+| Existing signs/inscriptions/maps | Structural placement repainted the whole station's cached plates | Repaint only changed plate inputs; name/line edits still propagate |
+| Contact shadows | Every storey's mesh, geometry and instance buffer recreated | Retain batches and power-of-two capacity; upload changed matrices only; shrink excessive capacity and release empty levels |
+| Functional simulation edits | Rebuilt routing in every worker build-message handler | Install the latest snapshot in one queued worker task per 100 ms window |
+
+The worker retains its old document and graph together until installation; ticks
+can continue against that coherent pair. Cosmetic edits join pending topology
+work. Installing an edit does not advance the simulation clock. Loading another
+station cancels pending edits, and a burst undone to the applied document skips
+the graph rebuild. Initial station loading remains immediate. The queued job
+still performs a complete graph rebuild; this change coalesces and defers that
+work rather than making graph construction incremental.
+
+Production input measurement: `bench-tree-placement.mjs`,
+`BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=2 PIECE=bench`, paused with no
+passengers, seed 12345, 128 untouched fences, 1440×1000 Chrome window, ANGLE
+SwiftShader. Baseline and final runs use the same fixture/assets. The harness now
+counts chunk preparation and plate repaints and records commit-to-worker-frame
+latency separately from pointer phases, so deferred acknowledgements are not
+misattributed to a later release.
+
+| Unprofiled production phase | Before | Final |
+|---|---:|---:|
+| First hover, event through two RAFs | 271 ms | 208 ms |
+| First press, event through two RAFs | 225 ms | 199 ms |
+| First release, event through two RAFs | 45 ms | 45 ms |
+| First press `setStation` CPU | 10.0 ms | 5.4 ms |
+| Repeated press `setStation` CPU | 9.4 ms | 4.7 ms |
+| Repeated press, event through two RAFs | 134 ms | 156 ms |
+
+Both presses retain all prior equipment roots and build exactly one added model;
+the final instrumentation records zero chunk preparation/remesh or station-wide
+plate repaint calls. Both runs end at 115 draws / 85,536 triangles with two
+commits and no captured runtime errors. Final commit-to-worker-frame latency is
+145.6 / 149.9 ms, including the intentional 100 ms coalescing window. Cold hover
+and software-GPU frame latency remain significant; the repeated end-to-end press
+did not improve, so this is not a blanket responsiveness or FPS claim. This shared
+workspace also had independent validation processes running; timings are
+single-run evidence, while deterministic work counts are the regression gates.
+
+`PIECE=psd-end` also commits twice through production input with no chunk remesh,
+retaining the 128/129 prior models; `setStation` CPU is 5.5 / 4.0 ms. Raw reports:
+`.preview/perf/placement-audit-before.json`,
+`placement-audit-final-instrumented.json`, `placement-audit-psd-end.json`, and
+`placement-audit-profiled.json` plus its `.cpuprofile`, all under `.preview/perf/`.
+
+Validation: full game suite **1,979 passing, zero failures/skips**, production
+build/typecheck, focused placement/shadow/worker/sign regressions, native
+multi-draw and extension-free production rendering checks, and profiler smoke
+check. Rendering checks preserve triangles with no captured GLSL/WebGL/runtime
+errors. Full logs are `.preview/perf/placement-audit-tests-final-all.txt`,
+`placement-audit-build-final.txt`, `placement-render-native.txt`,
+`placement-render-fallback.txt` and `placement-profiler-check.txt`.
+
+Focused line/branch/function coverage (`placement-audit-coverage-final.txt`):
+`stationGeometry` 100/100/100%, `moduleDependencies` 100/96.15/100%,
+`structuralModelInputs` 100/93.94/94.74%, `worker` 96.14/89.80/100%,
+`ModuleSystem` 65.04/88.24/37.84%, `PlateSystem` 74.57/64.79/64.29%.
+The latter systems include unrelated animation/picking/plate lifecycle paths;
+the changed shadow update/disposal and selective repaint paths are exercised.
+The broad `npm --prefix game run test:perf` attempt was stopped after stalling
+in the existing block-drag section after the auto-wall cap assertion; no complete
+broad performance-coverage result is claimed. Its log is
+`.preview/perf/placement-audit-perf.txt`.
+
+Remaining document-wide work includes dependency/index bookkeeping and structural
+chunk-input derivation. Actual structural/cell changes, street-window expansion,
+station metadata/language/artwork changes and unknown future model dependencies
+retain their conservative invalidation paths. Chunk meshes and equipment draw
+buckets still reuse unchanged GPU allocations.
+
 ## Drag preview performance
 
 ### Pointer-to-preview latency follow-up (2026-10-20)

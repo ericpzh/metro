@@ -104,6 +104,9 @@ test('a boards-only sign preview rebuilds one sign and skips the chunk remesh', 
   const body = renderer.slice(renderer.indexOf('setStation(data: StationData'), renderer.indexOf('defaultSection('))
   assert.ok(body.includes('signBoardsOnlyChanged'), 'a preview is checked for the one sign it belongs to')
   assert.ok(body.includes('equipmentOnlyChanged'), 'and equipment edits are classified independently of simulation routing')
+  assert.match(body, /if \(signOnly !== null \|\| equipmentOnly\) this\.ctx\.stationData = data\s*else this\.chunks\.prepareStation\(data, effective\)/,
+    'equipment-only edits update the document without rebuilding map-wide chunk inputs')
+  assert.match(body, /redrawSignPlates\(previousData \?\? undefined\)/, 'structural edits compare signage inputs before repainting')
   assert.ok(body.includes('signOnly === null && !equipmentOnly'), 'only a fuller change remeshes the chunks')
   assert.ok(body.includes('signOnly === null && !equipmentOnly && !retainedModules'), 'station-wide plate repaints stay on the full path')
   assert.ok(body.includes('id !== signOnly'), 'the module rebuild retains everything but that sign')

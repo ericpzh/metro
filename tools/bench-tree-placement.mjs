@@ -43,15 +43,16 @@ try {
     window.__tbRowsRef=window.__tbRows
     scene.setPreset('plan');scene.setOrtho(true);scene.cameraSys.controls.enableDamping=false
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))
-    window.__tb={samples:[],sceneCalls:[],errors:[],commits:0,phase:'idle',notices:[],previews:[]}
+    window.__tb={samples:[],sceneCalls:[],errors:[],commits:0,phase:'idle',notices:[],previews:[],workerAcks:[]}
     addEventListener('error',e=>__tb.errors.push(e.message));addEventListener('unhandledrejection',e=>__tb.errors.push(String(e.reason)))
     let last=store.getState().metrics
-    store.subscribe(st=>{if(st.metrics!==last){last=st.metrics;if(__tb.lastEditAt)__tb.lastMetricsAt=performance.now()}})
-    const commit=store.getState().commit;store.setState({commit:(...args)=>{__tb.commits++;return commit(...args)}})
+    store.subscribe(st=>{if(st.metrics!==last){last=st.metrics;if(__tb.lastEditAt)__tb.lastMetricsAt=performance.now();
+      if(__tb.lastCommitAt){__tb.workerAcks.push({commit:__tb.commits,phase:__tb.phase,ms:performance.now()-__tb.lastCommitAt});__tb.lastCommitAt=null}}})
+    const commit=store.getState().commit;store.setState({commit:(...args)=>{__tb.commits++;__tb.lastCommitAt=performance.now();return commit(...args)}})
     const notice=store.getState().setNotice;store.setState({setNotice:(...args)=>{__tb.notices.push({phase:__tb.phase,text:String(args[0])});return notice(...args)}})
     const preview=scene.setModulePreview
     scene.setModulePreview=function(mods,...rest){const list=mods?(Array.isArray(mods)?mods:[mods]):[];__tb.previews.push({phase:__tb.phase,mods:list.length,types:list.map(m=>m.type).join(','),blocked:Boolean(rest[0])});return preview.call(this,mods,...rest)}
-    for(const [object,key] of [[scene,'pickModule'],[scene,'setStation'],[scene.chunks,'meshStation'],[scene.modules,'buildModules']]){
+    for(const [object,key] of [[scene,'pickModule'],[scene,'setStation'],[scene.chunks,'prepareStation'],[scene.chunks,'meshStation'],[scene.plates,'redrawSignPlates'],[scene.plates,'redrawDecorPlates'],[scene.modules,'buildModules']]){
       const original=object[key]
       object[key]=function(...args){const t=performance.now(),before=key==='buildModules'?new Map(scene.modules.moduleMeshes.children.filter(g=>g.userData.moduleId).map(g=>[g.userData.moduleId,g])):null
         try{return original.apply(this,args)}finally{const stat=__tb.sceneCalls[key]??={calls:0,ms:0};stat.calls++;stat.ms+=performance.now()-t
@@ -122,7 +123,8 @@ try {
     deleted={target:last,pointedModuleId:at.moduleId,...await page.evaluate(`({pieces:__metro.getState().station.modules.filter(m=>m.type===${JSON.stringify(piece)}).length,notice:__metro.getState().notice,draws:__scene.renderer.info.render.calls,triangles:__scene.renderer.info.render.triangles,allTrees:__metro.getState().station.modules.filter(m=>m.type==='tree').length,moduleMeshes:__scene.modules.moduleMeshes.children.filter(g=>typeof g.userData.moduleId==='string').length})`)}
   }
   const status=await page.evaluate(`({modules:__metro.getState().station.modules.length,placed:__metro.getState().station.modules.filter(m=>m.type===${JSON.stringify(piece)}).length,draws:__scene.renderer.info.render.calls,triangles:__scene.renderer.info.render.triangles,shaderFailures:__scene.renderer.info.programs.filter(p=>p.diagnostics&&!p.diagnostics.runnable).length,errors:__tb.errors,commits:__tb.commits,notices:__tb.notices,previews:__tb.previews,samples:__tb.samples})`)
-  const report={piece,count,fixture,aims,status,deleted,profiled:!!profile,hardwareGpu:process.env.METRO_BROWSER_GPU==='hardware'}
+  const workerAcks=await page.evaluate('window.__tb.workerAcks')
+  const report={piece,count,fixture,aims,status,workerAcks,deleted,profiled:!!profile,hardwareGpu:process.env.METRO_BROWSER_GPU==='hardware'}
   writeFileSync(output,JSON.stringify(report,null,2))
   if(profile)writeFileSync(output.replace(/\.json$/,'.cpuprofile'),JSON.stringify(profile))
   const fmt=(s)=>`${s.phase.padEnd(16)} twoRaf ${s.twoRafMs.toFixed(0).padStart(5)} ms  metrics ${s.workerMs===null?'    -':s.workerMs.toFixed(0).padStart(5)} ms  ${Object.entries(s.work).map(([k,v])=>`${k}:${v.calls}x${v.ms.toFixed(1)}`).join(' ')}`

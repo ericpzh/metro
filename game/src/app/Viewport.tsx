@@ -17,8 +17,8 @@ import { TfiHandDrag } from 'react-icons/tfi'
 import { TbBulldozer } from 'react-icons/tb'
 import { CgColorPicker } from 'react-icons/cg'
 import { SceneRenderer, PAN_DOWN, PAN_UP, type PickResult } from '../render/scene.ts'
-import { cellKey, removeFloor, thinWallSideMap, toData, zoneFloorKeys, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
-import { withGround } from '../sim/ground.ts'
+import { removeFloor, toData, zoneMapFloorsAt, zoneRegionLabels } from '../build/model.ts'
+import { StationGeometry } from './stationGeometry.ts'
 import { trussRoofTop } from '../sim/structures.ts'
 import type { CellShape } from '../sim/types.ts'
 import { zoneDisplayIndexOf } from '../sim/zones.ts'
@@ -79,6 +79,7 @@ export function Viewport(): React.ReactElement {
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
   const solidRef = useRef<Set<string>>(new Set())
+  const geometryRef = useRef(new StationGeometry())
   /**
    * The keys of the cells a **zone may be painted on** — the station's floor, by
    * the same rule the 分区 map draws with (`zoneFloorKeys`), refreshed with the
@@ -668,13 +669,14 @@ export function Viewport(): React.ReactElement {
     // so a scan of `station.cells` alone would leave the plane real to the crowd
     // and to the mesher but invisible to the pointer: no red box, no paintable
     // top face, no zoned ground, no block to remove.
-    const ground = withGround(station.cells, station.modules)
-    solidRef.current = new Set(ground.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)))
+    const geometry = geometryRef.current.resolve(toData(station))
+    const ground = geometry.ground
+    solidRef.current = geometry.solids
     // The 分区 brush's own set, off the same effective list and by the same rule
     // the map draws with — so a zone lands on the street, which the document does
     // not store, and never on a wall coping, which the map could not tint.
-    floorRef.current = zoneFloorKeys(ground)
-    thinRef.current = thinWallSideMap(station.cells, station.modules)
+    floorRef.current = geometry.floors
+    thinRef.current = geometry.thins
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
     // while the move effect hides a lifted piece without changing drawn data.
     const modules = station.modules
