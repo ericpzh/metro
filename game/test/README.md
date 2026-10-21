@@ -65,9 +65,13 @@ replacement, invalid saved data, quota failures and retries.
 
 `level-view-cache.test.mjs` covers 1,024-module Q/E batch reuse without source
 traversal, four-view eviction, exact disposal, transform/appearance/clip invalidation,
-and move masking after cache restoration. `tools/bench-level-switch.mjs` drives real
+and move masking after cache restoration. It also pins prewarming both five-metre
+neighbours of the edited storey (shifted bases and boundary storeys included),
+retained grid allocations on Q/E, and grid disposal/rebuild on bounds changes.
+`tools/bench-level-switch.mjs` drives real
 Q/E input on both demos, including the first press; `--uncached` provides a paired
-baseline and `--no-multi-draw` checks the fallback renderer.
+baseline, `--baseline` records a pre-fix opening-cache miss without suppressing
+render/correctness assertions, and `--no-multi-draw` checks the fallback renderer.
 
 `geometry-detail.test.mjs` covers generated fixture approximations, original
 attributes/indices, complete near restoration, fixed allocation identity for

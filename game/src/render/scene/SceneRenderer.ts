@@ -410,7 +410,7 @@ export class SceneRenderer {
     this.grid.buildGrid()
   }
 
-  /** Opening work only: prepare the platform and next storey before building begins. */
+  /** Opening work only: prepare both Q/E neighbours of the actual editing storey. */
   prepareBuildViews(): void {
     this.requestRender()
     if (!this.artReady) {
@@ -418,14 +418,13 @@ export class SceneRenderer {
       return
     }
     if (this.ctx.cutaway || this.ctx.hideUI || this.chunks.levelGroups.size === 0) return
-    const deepest = Math.min(...this.chunks.levelGroups.keys())
     // Populate the renderer's buffer/program caches too. A tiny offscreen target
     // uploads the exact visible batches without presenting temporary storeys.
     const target = new THREE.WebGLRenderTarget(1, 1)
     const previous = this.renderer.getRenderTarget()
     try {
       this.renderer.setRenderTarget(target)
-      this.level.prepareViews([deepest, deepest + 4], () => {
+      this.level.prepareAdjacentViews(() => {
         const camera = this.cameraSys.activeCamera()
         camera.updateMatrixWorld()
         this.modules.batches.updateDetail(camera, this.renderer.domElement.clientHeight)

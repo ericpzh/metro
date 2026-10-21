@@ -11,7 +11,7 @@ import type { SceneContext } from './SceneSystem.ts'
 
 export class GridSystem extends SceneSystem {
   grid: THREE.Group = new THREE.Group()
-  /** The extent and storey the drawn grid was built for, so it is only remade when it moves. */
+  /** The horizontal extent; storey changes only translate the group. */
   private gridKey = ''
   cursor: THREE.Mesh
   /** 隐藏UI: the lattice and its cell cursor are put away. */
@@ -48,20 +48,21 @@ export class GridSystem extends SceneSystem {
     const y0 = Math.floor(box.min.y / 5) * 5 - 5
     const y1 = Math.ceil(box.max.y / 5) * 5 + 5
     const z = this.ctx.activeZ + 1.002
-    // The grid depends on the station's extent and the active storey, not on what
-    // the last edit changed — and `setStation` and `setLevel` both call this, so
-    // most edits rebuild an identical grid. Reuse it when nothing it reads moved.
-    const key = `${x0},${x1},${y0},${y1},${z}`
+    // Q/E only translates the lattice; retain its geometry, material and GPU buffer.
+    this.grid.position.z = z
+    // Only a horizontal extent change needs new vertices. Both setStation and
+    // setLevel call this; neither needs another allocation for unchanged bounds.
+    const key = `${x0},${x1},${y0},${y1}`
     if (key === this.gridKey && this.grid.children.length > 0) return
     this.clearGrid()
     this.gridKey = key
     const minor = new Float32Array(((x1 - x0) + (y1 - y0) + 2) * 6)
     let k = 0
     for (let x = x0; x <= x1; x++) {
-      minor[k++] = x; minor[k++] = y0; minor[k++] = z; minor[k++] = x; minor[k++] = y1; minor[k++] = z
+      minor[k++] = x; minor[k++] = y0; minor[k++] = 0; minor[k++] = x; minor[k++] = y1; minor[k++] = 0
     }
     for (let y = y0; y <= y1; y++) {
-      minor[k++] = x0; minor[k++] = y; minor[k++] = z; minor[k++] = x1; minor[k++] = y; minor[k++] = z
+      minor[k++] = x0; minor[k++] = y; minor[k++] = 0; minor[k++] = x1; minor[k++] = y; minor[k++] = 0
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(minor.subarray(0, k), 3))

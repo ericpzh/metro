@@ -87,6 +87,13 @@ for local frame-rate, draw-call and edit-latency measurements, and `npm run benc
 for simulation tick and build-helper timings. These diagnostics are hardware-dependent
 and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
 
+`level-view-cache.test.mjs` pins prepared Q/E view reuse and disposal, actual
+five-metre neighbour selection from a shifted `levelBase`, the top/bottom level
+boundaries, and retention of the editing-grid geometry across storey changes.
+When profiling level changes, use the production `tools/bench-level-switch.mjs`
+and record the first key press separately from warmed presses; Node tests pin
+work and allocation identity but do not exercise WebGL presentation.
+
 ### Performance regression coverage
 
 `test:perf` also includes `train-pantograph`, `storey-height`,

@@ -12,6 +12,7 @@
 // owns the plane and the highlighted surface.
 
 import * as THREE from 'three'
+import { levelSteps, STOREY_HEIGHT } from '../../../sim/constants.ts'
 import { levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
 import type { SliceOptions } from '../../levelSlicing.ts'
 import { SceneSystem } from './SceneSystem.ts'
@@ -49,6 +50,12 @@ export class LevelSystem extends SceneSystem {
   }
 
   /** Prepare immutable slice batches during station opening, without moving the view. */
+  prepareAdjacentViews(prepared?: () => void): void {
+    const levels = levelSteps(this.ctx.stationData?.levelBase)
+      .filter(z => Math.abs(z - this.ctx.activeZ) <= STOREY_HEIGHT)
+    this.prepareViews(levels, prepared)
+  }
+
   prepareViews(levels: readonly number[], prepared?: () => void): void {
     const z = this.ctx.activeZ
     try {

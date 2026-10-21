@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { EquipmentBatches } from '../src/render/equipmentBatches.ts'
 import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
+import { GridSystem } from '../src/render/scene/systems/GridSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { readFileSync } from 'node:fs'
 
@@ -27,6 +28,46 @@ function fixture() {
   }
   return {ctx,modules,level,geometry,material,dispose}
 }
+
+test('opening prepares both five-metre Q/E neighbours of the edited storey, including a shifted base', () => {
+  const f = fixture()
+  try {
+    for (const [base, active, expected] of [[0,-15,[-20,-15,-10]], [2,7,[2,7,12]], [0,-40,[-40,-35]], [0,30,[25,30]]]) {
+      f.ctx.stationData = {levelBase:base}
+      f.ctx.activeZ = active
+      const visited = []
+      f.level.prepareAdjacentViews(() => visited.push(f.ctx.activeZ))
+      assert.deepEqual(visited,expected)
+      assert.equal(f.ctx.activeZ,active)
+      assert.ok(f.modules.batches.views.size <= 4)
+    }
+    const renderer = readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
+    assert.match(renderer,/this.level.prepareAdjacentViews\(/,'opening uses the tested neighbour selection')
+  } finally { f.dispose() }
+})
+
+test('Q/E translates the grid without replacing or disposing GPU resources; bounds edits still rebuild', () => {
+  const ctx = new SceneContextData(new THREE.Scene(), {}, {}, {})
+  ctx.bounds = new THREE.Box3(new THREE.Vector3(-10,-10,0),new THREE.Vector3(10,10,5))
+  const grid = new GridSystem(ctx)
+  try {
+    ctx.activeZ = -15; grid.buildGrid()
+    const lines = grid.grid.children[0], geometry = lines.geometry, material = lines.material
+    let releases = 0
+    geometry.addEventListener('dispose',() => releases++)
+    for (const z of [-10,-15,-20,0]) {
+      ctx.activeZ = z; grid.buildGrid()
+      assert.equal(grid.grid.children[0],lines)
+      assert.equal(lines.geometry,geometry); assert.equal(lines.material,material)
+      assert.equal(grid.grid.position.z,z+1.002)
+      assert.equal(geometry.getAttribute('position').getZ(0),0)
+      assert.equal(releases,0)
+    }
+    ctx.bounds.max.x += 10; grid.buildGrid()
+    assert.notEqual(grid.grid.children[0],lines)
+    assert.equal(releases,1)
+  } finally { grid.dispose() }
+})
 
 test('1,024 modules: prepared Q/E views restore exact GPU allocations without traversing source geometry', () => {
   const f=fixture(), {level,modules}=f

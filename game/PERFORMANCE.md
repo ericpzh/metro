@@ -570,3 +570,54 @@ GPU backend between comparisons, and run without competing tests/builds.
 `.preview/perf/` and use separate output paths for profiled and clean runs.
 CPU render submission, asynchronous GPU time and frame presentation are distinct
 measurements; frame edits measured through two animation frames are not GPU fences.
+
+## Q/E neighbour prewarm and retained editing grid (2026-10-20)
+
+The opening path still prepared `deepest + 4` after the five-metre migration.
+The production key-input benchmark reproduced a cache miss on the first E press
+in both shipped demos. Opening now prepares the actual editing storey and both
+valid Q/E neighbours using `STOREY_HEIGHT` and `levelSteps(levelBase)`, so shifted
+bases and non-deepest opening levels receive the right views. The existing
+four-view cache limit, appearance/transform invalidation and eviction disposal
+are unchanged. The editing grid now retains its geometry/material/buffer across
+storey changes and translates its group; horizontal bounds changes still rebuild
+and dispose the previous resources.
+
+Production runs were sequential, with no tests/builds competing: Windows Chrome,
+RTX 4080 SUPER / ANGLE D3D11, native multi-draw, 852x715 backing viewport, paused
+population 0, same demo seeds/documents and eight real E/Q presses per fixture.
+Numbers are event-through-two-RAF latency, not GPU completion or a frame budget.
+
+| Fixture | Cells / modules | First E before -> after | Repeated mean before -> after | Opening prewarm before -> after |
+|---|---:|---:|---:|---:|
+| Zoo | 16,201 / 4,062 | 558.4 -> 94.0 ms | 30.7 -> 36.8 ms | 1,628.5 -> 2,553.8 ms |
+| Tanwei | 14,717 / 9,572 | 723.0 -> 276.9 ms | 73.9 -> 65.0 ms | 2,269.8 -> 2,555.3 ms |
+
+First E is 83% / 62% shorter in these samples. This trades more opening work for
+removing the first interactive batch build; it does not establish an improvement
+in warmed throughput. All revisited views retain every batch allocation, both
+first presses hit the prepared cache, simulation ticks stay unchanged and there
+are no console/runtime/WebGL errors. After switching, three views retain 1,579 /
+1,885 owned batches. Rendering remains substantial (average 2,348 / 3,003 draw
+calls and about 591k / 977k triangles); first-switch presentation still stalls,
+especially on Tanwei. Broader batch submission/material work and first-use GPU
+work remain candidates for profiling. This change does not prewarm every storey,
+and visiting an unprepared or evicted storey can still build its view.
+
+Raw before/after reports: `.preview/perf/levels-{before,after}.json` (baseline uses
+`node tools/bench-level-switch.mjs --baseline`; final omits that flag).
+`level-view-cache` now pins actual neighbour selection, shifted bases, both level
+boundaries, restored active state, retained grid allocations and bounds disposal.
+
+Validation: production build passed; full normal game suite passed 1,968 tests
+with no skips/failures. Focused coverage passed 30 tests: LevelSystem 91.10% lines /
+78.79% branches / 86.36% functions; GridSystem 83.33% / 100% / 55.56% (uncovered
+functions are the unchanged cursor/visibility controls). SceneRenderer integration
+is pinned by source contracts and the real production Q/E run, rather than Node
+WebGL coverage. Native and forced-no-multi-draw render-batching checks passed with
+triangles preserved and no GLSL/WebGL/runtime errors; profiler export smoke check
+passed. The first fallback attempt timed out in CDP; the separate-port retry passed.
+The broad `npm --prefix game run test:perf` attempt was stopped after over four
+minutes while instrumenting the block-drag section (last completed assertion:
+auto-wall drag cap); it did not complete and no full performance-coverage result
+is claimed. Raw validation logs are `.preview/perf/levels-*.log`.

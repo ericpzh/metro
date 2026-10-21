@@ -9,6 +9,7 @@ const server = await serveDir(resolve('game/dist'), 0)
 const reports = []
 const uncached = process.argv.includes('--uncached')
 const noMultiDraw = process.argv.includes('--no-multi-draw')
+const baseline = process.argv.includes('--baseline')
 try {
   for (const id of ['zoo', 'tanwei']) {
     const page = await withPage({url:`http://127.0.0.1:${server.address().port}/`,
@@ -86,7 +87,7 @@ try {
       assert.deepEqual(state.errors,[])
       assert.equal(state.glError,0)
       assert.equal(state.tickStart,state.tickEnd,'paused Q/E never advances simulation')
-      if(!uncached) assert.equal(events[0].batchHit,true,'first Q/E uses an opening view prepared during loading')
+      if(!uncached && !baseline) assert.equal(events[0].batchHit,true,'first Q/E uses an opening view prepared during loading')
       if (!uncached) for(const event of events) if(event.sameViewRetained!==null) assert.equal(event.sameViewRetained,event.batches,'Q/E must retain every batch of a revisited level')
       if(noMultiDraw) assert.equal(state.multiDraw,false)
       const mean = values => values.reduce((a,b)=>a+b,0)/values.length

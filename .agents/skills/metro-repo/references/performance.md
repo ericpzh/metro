@@ -19,6 +19,22 @@ allocations, uploads and cache hits. The stair-block regression came from
 raycast for every document entry. Pick once, then find the document entry by ID.
 Test both a miss and a hit near the end of a realistically large module list.
 
+### Q/E level switching
+
+Use `node tools/bench-level-switch.mjs` against both shipped demos after building
+`game/dist`. Record the first real Q/E press separately from warmed presses,
+opening prewarm time, batch-cache hits, retained allocations, draw calls and
+triangles. Keep the before run comparable (`--baseline` permits the known opening
+cache miss while retaining correctness checks); `--no-multi-draw` checks the
+fallback renderer. A level-cache hit must preserve exact batch allocations and
+must not advance the paused simulation. Prewarm the edited storey and immediate
+valid neighbours from `levelBase` using `STOREY_HEIGHT`; never infer neighbours
+from the lowest rendered chunk or assume a four-metre step. The editing grid
+should translate on Q/E while retaining its geometry and buffer, rebuilding only
+when horizontal station bounds change. Pin neighbour boundaries, shifted bases,
+cache invalidation/disposal and grid allocation identity in
+`game/test/level-view-cache.test.mjs`.
+
 ## Keep interactive work bounded
 
 - Hoist event-invariant queries out of loops and predicates. Reuse the hit,
