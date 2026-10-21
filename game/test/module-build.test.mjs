@@ -413,7 +413,7 @@ const PIECES = [
   // lightbox face plus two for the upright one (21 and 30 before the back faces existed).
   // Every face mounts the shared `adArt` quad: one plate each, no duplicated geometry.
   ['公交站 短版', palette('busstop-short'), 25, '3.88×1.88×3'],
-  ['公交站 长版', palette('busstop-long'), 36, '7.91×1.88×3'],
+  ['公交站 长版', palette('busstop-long'), 36, '7.88×1.88×3'],
   ['广告牌 横版', palette('billboard-wide'), 5, '0.98×0.185×0.86'],
   ['广告牌 标准', palette('billboard-standard'), 5, '1.84×0.185×1.14'],
   ['广告牌 大横版', palette('billboard-large'), 5, '1.98×0.185×1.33'],

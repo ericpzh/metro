@@ -234,7 +234,8 @@ export class BusstopModel extends PieceBuilder {
       const mat = ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 768, (c) => c.drawImage(routeFace(ctx.data.name || t('metro_station')), 0, 0)) }))
       plate(g, mat, .76, 1.91, .53, .998, 1.35, 0)
     } else slab(g, ctx.mats.green, .53, .995, 1.35, .76, .02, 1.91)
-    const panels = mod.cfg.variant === 'long' ? [[2.75, 2.8], [6.1, 2.6]] : [[2.13, 1.63]]
+    // Centre the end lightbox between the last two posts, including its outer frame.
+    const panels = mod.cfg.variant === 'long' ? [[2.75, 2.8], [5.7, 2.25]] : [[2.13, 1.63]]
     // Every display the shelter prints, in panel order: the landscape lightboxes down the
     // shelter, then the upright panel on the route cabinet. Each one advertises its **own**
     // campaign (`panelPosters`), so a long shelter shows three different ads rather than one
