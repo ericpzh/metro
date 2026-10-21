@@ -1899,7 +1899,19 @@ including the depth prepass, for all six appearances.
   and decoded artwork changes still rebuild. Retained groups keep owned materials and live rigs until
   invalidation or disposal. `blockIndex` caches occupancy, tracks, openings and virtual
   ground by immutable document arrays; preview and release share the same refusal rules.
-  `FrameTask` coalesces mouse previews and flushes before release. Touch gestures and
+  `placement.ts` caches exact block verdicts and prepares local collision buckets by
+  immutable module snapshot; keep bounded retention, blocker ordering and refusal
+  priority. `BlockTool` retains a refused cell as a red-cursor witness while the
+  rectangle still covers it, and geometry identity changes must invalidate collision
+  and rendered-preview caches (`stationEpoch` does not track edits/undo).
+  `MultiPlaceDrag` shares the 50 ms latest-target scheduler across supported block,
+  wall, fence, tactile, road and tile-equipment drags; target changes do not restart
+  the cadence and unchanged rendered keys are skipped. Keep over-budget refusal
+  immediate and whole, preserve each tool's release contract, and retain the roof
+  frame scheduler. `GhostSystem` meshes sparse candidates by occupied course/chunk
+  visits rather than scanning empty volume; preserve exact output and temporary
+  occupancy restoration. `FrameTask` coalesces mouse previews and flushes before
+  release. Touch gestures and
   deletion sweeps preserve every path sample; cancel/tool changes/unmount must not
   deliver stale queued work. Crowd draws pack only
   visible storey/frustum instances, retain paused poses and upload active prefixes;

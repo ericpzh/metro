@@ -288,10 +288,10 @@ export class EquipmentTool extends ToolController {
         scene.setCursor(cursor, !over)
         const lineKey = [...d.anchor, ...target, d.z, st.moduleType, st.moduleRot, st.stationEpoch].join(':')
         if (over) {
-          // Count first, then build the red run only once the snapped end has
-          // settled. The accepted fence preview is cleared immediately so the
+          // Count first, then build the red run on the shared 50 ms cadence.
+          // The accepted fence preview is cleared immediately so the
           // player never reads a shorter run as the one about to be laid.
-          this.multiPlace.deferPreview(scene, lineKey, () => {
+          this.multiPlace.deferRefusal(scene, lineKey, () => {
             if (this.ctx.drag.current !== d) return
             const sceneNow = this.ctx.scene()
             if (!sceneNow) return

@@ -7,6 +7,9 @@ import { instanceRoofPreview } from '../src/render/roofPreview.ts'
 import { disposeObject } from '../src/render/models.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
+import { rampFillKeys } from '../src/sim/openings.ts'
+import { packKey } from '../src/sim/types.ts'
+import { meshChunk } from '../src/render/chunkMesher.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 
 test('the real ghost system batches compatible roofs, preserves mixed roofs, and disposes on cancellation', () => {
@@ -90,4 +93,49 @@ test('10,000 thin roof tiles use one preview draw with all tiles retained', () =
   preview.children[0].getMatrixAt(9_999, matrix)
   assert.ok(matrix.elements[12] > 98 && matrix.elements[13] > 98)
   disposeObject(preview); material.dispose()
+})
+
+
+test('sparse block ghosts visit candidates, preserve exact mesher output and restore station occupancy', () => {
+  class CountedSet extends Set {
+    reads = 0
+    has(key) { this.reads++; return super.has(key) }
+  }
+  const cells = Array.from({ length: 32 }, (_, i) => [-257 + i * 16, -17, 1])
+  const solid = new CountedSet([packKey(-258, -17, 1)])
+  const initial = [...solid]
+  const sys = new GhostSystem({ scene: new THREE.Scene(), solid, slopeCuts: new Map(), finishes: new Map() })
+  sys.setGhost([...cells, cells[0]], 'add')
+  assert.ok(solid.reads < 6000, '32 sparse candidates must not scan 8,192 chunk cells: ' + solid.reads)
+  assert.deepEqual([...solid], initial, 'temporary occupancy is removed after meshing')
+  const expectedSolid = new Set([...initial, ...cells.map(c => packKey(...c))])
+  const emit = new Set(cells.map(c => packKey(...c)))
+  const expected = cells.flatMap(([x,y,z]) => meshChunk(expectedSolid, new Map(), Math.floor(x/16)*16, Math.floor(y/16)*16, z, z, emit).parts)
+  assert.equal(sys.ghostGroup.children.length, expected.length)
+  for (let i = 0; i < expected.length; i++) {
+    const geo = sys.ghostGroup.children[i].geometry
+    assert.deepEqual(geo.getAttribute('position').array, expected[i].positions)
+    assert.deepEqual(geo.getAttribute('normal').array, expected[i].normals)
+    assert.deepEqual(geo.getIndex().array, expected[i].indices)
+  }
+  sys.clearShapeGhost()
+})
+
+
+test('candidate-only ghost meshing retains ramp filling above pending cells exactly once', () => {
+  const solid = new Set(), finishes = new Map()
+  const cuts = new Map([[packKey(-1, 0, 2), { axis: 'x', lo: .2, hi: .8 }]])
+  const sys = new GhostSystem({ scene: new THREE.Scene(), solid, slopeCuts: cuts, finishes })
+  sys.setGhost([[-1, 0, 1], [-1, 0, 1]], 'add')
+  assert.equal(solid.size, 0)
+  const pending = new Set([packKey(-1, 0, 1)]), fills = rampFillKeys(pending, cuts)
+  const emit = new Set([...pending, ...fills])
+  const expected = [1, 2].flatMap(z => meshChunk(pending, finishes, -16, 0, z, z, emit, undefined, undefined, undefined, cuts, fills).parts)
+  assert.equal(sys.ghostGroup.children.length, expected.length)
+  for (let i = 0; i < expected.length; i++) {
+    const geo = sys.ghostGroup.children[i].geometry
+    assert.deepEqual(geo.getAttribute('position').array, expected[i].positions)
+    assert.deepEqual(geo.getIndex().array, expected[i].indices)
+  }
+  sys.clearShapeGhost()
 })

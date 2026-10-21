@@ -109,13 +109,28 @@ the npm test glob does not collect coverage. Read per-file line/function/branch
 results; imported dependencies inflate the overall denominator. Do not claim
 100% GPU coverage from Node percentages.
 
-For the 方块 drag budget, `blocktool` pins the 10,000-cell boundary, exact-cap
+For placement drags, `blocktool` pins the 10,000-cell boundary, exact-cap
 placement, over-cap all-red preview with no commit, auto-wall inclusion and the
-Shift/三角 counts; `refused-ghost` pins the red-box pool growing past its 4,096
-starting capacity. `StablePreviewDelay`'s same-cell replacement/refusal timing is
-a deterministic scheduler test there, not a sleep. Measure the real 99×99 pointer
-sequence with `npm run bench:block-drag`; report timings in `game/PERFORMANCE.md`
-as evidence, not thresholds.
+Shift/三角 counts; the shared `MultiPlaceDrag` scheduler tests pin one 50 ms
+latest-target timer across changing cells, no starvation, unchanged-key reuse,
+retained previews, immediate over-budget refusal, release/cancel behavior and
+the per-tool commit/refusal contract. Roofs keep their frame scheduler.
+`refused-ghost` pins the red-box pool growing past its 4,096 starting capacity.
+`StablePreviewDelay` timing is driven with fake timers, never sleeps. Measure real
+pointer sequences with `node tools/bench-drag-latency.mjs` (or the focused
+`npm run bench:block-drag` harness); report cold and warm timings in
+`game/PERFORMANCE.md` as evidence, not thresholds.
+
+`block-collision-cache.test.mjs` guards the demo-station collision cascade: exact
+verdict and blocker-order equivalence, bounded per-snapshot retention, cached
+occupancy/body-index work counts as a blocked patch grows, snapshot invalidation,
+blocker removal, broad imported geometry and refusal priority. `blocktool` pins the
+red blocked-coordinate witness through unchanged/metadata-only previews and its
+invalidation when the footprint, settings or geometry changes. `multi-place-drag`
+also pins that replacing cells/modules arrays refreshes a rendered target even
+when station epoch and pointer key are unchanged. Keep these deterministic work
+and stale-cache regressions alongside cold/warm browser profiles for both shipped
+demos; do not turn noisy timing into a unit-test threshold.
 
 Crowd distribution regressions belong in the focused deterministic suites:
 `crowd-routing.test.mjs` pins live detours around congestion, itinerary/cached-path

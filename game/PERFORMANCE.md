@@ -99,6 +99,164 @@ buckets still reuse unchanged GPU allocations.
 
 ## Drag preview performance
 
+### Demo-station blocked block drags (2026-10-20)
+
+The empty-floor measurements missed the reported cascade. In the shipped Tanwei
+station (9,572 modules / 14,717 cells), the drag grows a 49 x 48 footprint with 107
+refused cells alongside 2,243 accepted cells. Each refused cell previously rebuilt
+`moduleBlockedCells` and scanned the entire module list for blockers. The warm
+callback took 617.1 ms after a 50.5 ms wait; ghost submission was only 11.5 ms.
+
+Block decisions now remember each cell's exact verdict and blocker identity for
+the immutable cells/modules snapshot. Growing/shrinking drags reuse covered cells
+and check unseen coordinates. Leaving a blocked coordinate removes it from the
+preview; changing either document array invalidates its verdict (including blocker
+removal/movement and undo/redo). Retention is bounded to two drag budgets: 20,000
+cells per snapshot. Level occupancy and exact block-collider bodies are prepared
+once per module array; lazy 16 x 16 buckets per height course find nearby blockers.
+The block cursor also keeps one refused coordinate as a constant-time witness:
+it remains red while the rectangle covers that coordinate in the same snapshot.
+An unchanged preview key cannot reset it to cyan. Shrinking clear, changing the
+station/settings, cancel and release invalidate it. The shared preview scheduler
+also invalidates cached rendered keys when cells/modules identity changes:
+`stationEpoch` only tracks opening a station, so it cannot invalidate edits/undo. Shift lines and prepared
+suspended ceilings conservatively require the exact preview key before reuse.
+Broad imported bounds use a bounded fallback in document order. Refusal priority,
+exact geometry, partially accepted patches and release rules are preserved.
+
+Production browser comparison, first / repeated movement, milliseconds. The real
+demo loader retains authored geometry and seed. Long-press gestures aimed around
+a booth cross existing geometry, then cancel (zero commits). Tanwei starts on
+a roof hit and holds the pressed height while expanding across roof/support
+geometry, as the real block tool does. The 50 ms cadence is
+unchanged. Chrome 155 / SwiftShader, 1424 x 905, paused population. Projected
+endpoints agree within floating-point precision; hit cell/place coordinates agree
+exactly. Initial rendering settles before the first measured hover. Timings are
+evidence, not deterministic pass thresholds.
+
+| Fixture / phase | Before first / repeated | After first / repeated |
+|---|---:|---:|
+| Zoo: callback work | 62.6 / 49.2 | 8.3 / 3.4 |
+| Zoo: ghost CPU ready | 114.2 / 105.1 | 59.6 / 53.4 |
+| Zoo: event through two RAFs | 125.8 / 111.6 | 83.6 / 84.9 |
+| Tanwei: callback work | 676.2 / 617.1 | 47.0 / 22.8 |
+| Tanwei: ghost CPU ready | 722.3 / 664.1 | 91.7 / 73.3 |
+| Tanwei: event through two RAFs | 773.5 / 688.9 | 248.0 / 177.0 |
+
+Accepted/refused counts match: Zoo 492 / 35, Tanwei 2,243 / 107. Tanwei first-hover
+through two RAFs still takes 521.2 ms (baseline 443.8 ms); software rendering and
+initialization remain expensive and variable. CPU readiness is not displayed-pixel
+latency; two RAFs are a presentation proxy, not a GPU timer. A 12-position final
+Tanwei gesture produced 11 / 9 intermediate previews, no runtime errors or edits.
+
+`block-collision-cache` pins deterministic work on a 1,201-module blocked fixture:
+growing a 400-cell refusal by 20 cells performs no new reads of unrelated module
+types. It checks witness reuse, shrink/grow, blocker removal, cell replacement,
+snapshot isolation, reason priority, retention bounds and broad imported geometry.
+Both demos' blocker IDs/order are compared against the original geometry scan at
+sampled booth, gate, stair, roof and support positions. Existing placement and
+block-tool tests pin release agreement.
+
+Reproduce: `node tools/bench-drag-latency.mjs`, `BENCH_PIECE=block`,
+`BENCH_DEMO=zoo BENCH_SIDE=24` or `BENCH_DEMO=tanwei BENCH_SIDE=48`;
+`BENCH_PROFILE=1` captures CPU samples, `BENCH_CONTINUOUS=1` repeats movement.
+Reports/screenshots/profiles: `.preview/perf/demo-collision-<demo>-before.json`,
+`demo-collision-<demo>-verified.json` and corresponding `.cpuprofile`/`-preview.png`;
+`demo-collision-tanwei-continuous-final.json` records continuous movement.
+
+Final validation: production build and all 1,981 game tests pass. Focused V8
+coverage passes 105 tests: `placement.ts` 86.77% lines / 75.71% branches / 73.72%
+functions, `blockIndex.ts` 96.08% / 90% / 100%, `BlockTool.ts` 74.12% / 62.61% /
+58.82%, and `multiPlaceDrag.ts` 100% / 96% / 93.75%; unrelated tool/placement limbs
+remain outside this focused run. The new blocker-index lines are exercised.
+`BENCH_ASSERT_WITNESS=1` also passes through production input on Tanwei: first
+and repeated unchanged blocked footprints keep a red cursor without another
+preview draw. Report: `.preview/perf/demo-collision-witness-browser.json`.
+Build/test/coverage logs: `demo-collision-build-final.log`,
+`demo-collision-tests-final.log`, `demo-collision-coverage-final.log` under the
+same directory. The full instrumented `test:perf` attempts did not complete and
+were stopped; no full performance-gate pass is claimed. Logs are
+`demo-collision-perf-final.log` and `demo-collision-perf-deterministic-final.log`.
+
+### Shared 50 ms drag cadence (2026-10-20)
+
+Follow-up to `f41ea98`: blocks, walls, fences (including the fence-run decor),
+tactile paving, stair blocks, sidewalks, lawns and roads now share a 50 ms
+latest-target cadence. Changing a snapped cell replaces the pending work without
+restarting the timer, so continuous movement does not starve the preview. An
+unchanged rendered target does no further work. Accepted previews remain visible
+until replaced; a known oversized target immediately clears accepted layers and
+keeps the existing red-cursor/notice contract, with the whole refused footprint drawn
+on the same cadence. The 10,000-placement limit and release verdicts are unchanged.
+Roofs retain their faster existing-frame scheduler.
+
+The block profile confirmed both waiting and computation: the previous warm
+10,000-cell movement waited 106.8 ms and spent 25.1 ms in the callback, with
+20.9 ms in ghost submission. The new callback waited 57.1 ms and spent 28.9 ms;
+this dense fixture still has real geometry cost. Sparse block/wall ghosts now
+pass their candidate cells to the chunk mesher instead of visiting every empty
+cell of a 16 x 16 course. A deterministic 32-candidate regression spans 32 chunks
+(32 visits instead of 8,192), compares exact indexed geometry with the original
+mesher, covers duplicate/negative coordinates and ramp filling above pending
+cells, and checks temporary occupancy is restored. Dense geometry is still the full mesher output.
+
+Production input measurements below are pointer-to-preview **CPU readiness**,
+first invocation / repeated invocation, in ms. Same fixture, camera, seed 12345,
+paused empty population, Chrome 155, SwiftShader, 1424 x 905; each fixture has a
+solid square floor of the stated side. First hover/press, long press, movement,
+Escape/cancel and repeated drag/release are driven through CDP. Initial floor
+rendering settles before the first interaction; each report records first-hover
+cost separately. Browser timings are evidence, not deterministic test thresholds.
+
+| Tool / footprint | Before | After |
+|---|---:|---:|
+| Block: 10,000 cells over 100 x 100 floor | 134.9 / 132.3 | 88.9 / 86.3 |
+| Wall: 150 courses over 30 x 30 floor | 112.4 / 102.4 | 55.1 / 51.3 |
+| Fence: 30 panels | 106.9 / 105.6 | 65.0 / 60.9 |
+| Tactile: 30 tiles | 119.7 / 106.2 | 72.3 / 63.3 |
+| Stair block: 30 pieces | 111.1 / 102.9 | 69.5 / 55.8 |
+| Sidewalk: 900 tiles | 113.3 / 105.8 | 69.3 / 55.0 |
+| Lawn: 900 tiles | 123.0 / 105.5 | 72.2 / 64.5 |
+| Road: one 30 m segment | 106.5 / 102.5 | 55.4 / 50.8 |
+
+Block event-through-two-RAF presentation proxy fell from 138.1 / 135.4 ms to
+91.8 / 88.9 ms. This is not a displayed-pixel or GPU timer. The first block hover
+still took 142.3 ms through two frames; initialization and large release scene
+rebuilds remain separate costs. Additional final block runs: 9,880 floor/auto-wall
+candidates over a 90 x 90 floor were ready in 90.2 / 82.3 ms, and a 10,000-cell
+suspended ceiling over a 100 x 100 floor in 88.2 / 87.6 ms.
+
+A 12-position continuous block gesture produced **6 / 6 previews while moving**,
+versus **0 / 0** with the old restart-on-change delay. Other final continuous runs
+also produced intermediate previews: wall 5 / 5, fence 7 / 9, tactile 6 / 6,
+stair block 6 / 5, sidewalk 6 / 6, lawn 5 / 5, road 6 / 6; roofs remain 12 / 12.
+The shared fake-timer regression drives every deferred placement controller, asserts a single
+50 ms timer across target changes, retains the previous draw, reuses unchanged
+snapped targets, keeps previews out of document commits, and cancels on release.
+Oversized refusal tests remain in the same suite.
+
+Reproduce with `node tools/bench-drag-latency.mjs`: `BENCH_PIECE` selects the
+palette type (or `block` / `wall`), `BENCH_SIDE` the floor/camera span,
+`BENCH_CONTINUOUS=1` enables the 12-position gesture, and `BENCH_PROFILE=1`
+captures a CPU profile. `BENCH_AUTO_WALLS=1` and `BENCH_SUSPENDED_CEILING=1`
+select the block modes. A unique CDP port isolates each harness from other chats.
+Raw reports/screenshots: `.preview/perf/shared-<piece>-before.json` and
+`shared-<piece>-after.json` (lawn baseline: `shared-lawn-before-clean.json`),
+`shared-block-continuous-before-clean.json`, `shared-<piece>-continuous-final.json`,
+`shared-block-auto-walls-final.json` and `shared-block-ceiling-final.json`.
+CPU profiles: `shared-block-before.cpuprofile` and `shared-block-after.cpuprofile`.
+The abandoned overlapping run is excluded from these comparisons.
+
+Validation: production build and all 1,966 game tests pass. The focused drag
+coverage run passes 91 tests: `StablePreviewDelay` has 100% line/branch/function
+coverage, `MultiPlaceDrag` 100% / 95% / 93.33%, and the full `GhostSystem`
+84.23% / 70.83% / 70.73%. Browser fixtures reported no runtime errors. Logs:
+`.preview/perf/shared-drag-build-final.log`, `shared-drag-tests-final.log` and
+`shared-drag-coverage-final.log`. The full `npm run test:perf` instrumented run
+and its isolated-file retry did not complete and were stopped; neither is
+reported as a pass. Their logs are `shared-drag-perf-final.log` and
+`shared-drag-perf-isolated-final.log`.
+
 ### Pointer-to-preview latency follow-up (2026-10-20)
 
 The baseline below was committed as `f097616` before this follow-up. Profiling

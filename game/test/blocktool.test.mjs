@@ -20,11 +20,11 @@ import { cutLineCellCount, dragCellCount } from '../src/app/tools/geometry/cells
 import { StablePreviewDelay } from '../src/app/tools/geometry/stablePreviewDelay.ts'
 import { msg } from '../src/sim/i18n.ts'
 
-test('block drag preview waits for a stable snapped cell and only runs the latest target', () => {
+test('block drag preview coalesces the latest target without restarting its wait', () => {
   const callbacks = new Map()
   let nextId = 0
   const delay = new StablePreviewDelay(
-    100,
+    50,
     callback => { const id = ++nextId; callbacks.set(id, callback); return id },
     id => callbacks.delete(id),
   )
@@ -36,7 +36,7 @@ test('block drag preview waits for a stable snapped cell and only runs the lates
   callbacks.clear()
   assert.equal(delay.scheduleLatest('cell:2,1,0', () => draws.push('newest-cell')), true)
   assert.equal(delay.scheduleLatest('cell:3,1,0', () => draws.push('newest-cell-again')), true)
-  assert.equal(callbacks.size, 1, 'changing snapped cells replaces the pending timer')
+  assert.equal(callbacks.size, 1, 'changing snapped cells keeps one pending timer')
   for (const callback of callbacks.values()) callback()
   assert.deepEqual(draws, ['same-cell-latest', 'newest-cell-again'])
 })
@@ -58,9 +58,10 @@ test('the 10,000-cell drag budget counts the rectangle, a Shift line and a ä¸‰è§
  */
 function ctxFor({ street = false } = {}) {
   const ghosts = []
+  const cursors = []
   const scene = {
     setGhost: (cells, mode, module, thin, refused = []) => ghosts.push({ cells, mode, thin, refused }),
-    setCursor: () => {},
+    setCursor: (cell, valid) => cursors.push({cell, valid}),
     setModulePreview: () => {},
     setFencePreview: () => {},
     setCollisionHighlight: () => {},
@@ -69,6 +70,7 @@ function ctxFor({ street = false } = {}) {
   const drag = ref()
   return {
     ghosts,
+    cursors,
     drag,
     tool: new BlockTool({
       scene: () => scene,
@@ -147,7 +149,7 @@ test('auto-wall block drags count generated wall courses in the same placement c
   assert.ok(cells.length < MAX_BLOCK_DRAG_CELLS, 'the floor and wall ring together stay inside the cap')
 })
 
-test('a drag over the 10,000-cell cap previews every cell red and places nothing', async () => {
+test('a drag over the 10,000-cell cap previews every cell red and places nothing', () => {
   emptyStation()
   const { tool, drag, ghosts } = ctxFor()
   drag.current = {
@@ -162,9 +164,9 @@ test('a drag over the 10,000-cell cap previews every cell red and places nothing
     'the error appears while the pointer is still down',
   )
 
-  // The preview waits for a stable snapped cell, then draws the whole refused
+  // The preview uses the shared cadence, then draws the whole refused
   // footprint red instead of a clipped cyan patch.
-  await new Promise((resolve) => setTimeout(resolve, 150))
+  tool.multiPlace.flushPreview()
   const preview = ghosts.at(-1)
   assert.equal(preview.cells.length, 0, 'no cell is accepted')
   assert.equal(preview.refused.length, 101 * 101, 'every cell of the rectangle is a red box')
@@ -446,4 +448,42 @@ test('a right-press on the pavement digs it, and the hole is recorded', () => {
   upper.onDown(press([3, 3, 4], true, 2))
   upper.onUp(press([3, 3, 4], true, 2))
   assert.deepEqual(useStore.getState().station.cells, dug.cells, 'a dig off grade wrote a record')
+})
+
+
+test('a remembered block witness keeps the cursor red until the footprint or snapshot clears it', () => {
+  const blocker = createModule('gate',3,3,0,'blocker')
+  emptyStation({station:toState({name:'witness',seed:1,cells:[],modules:[blocker],lines:[]})})
+  const {tool,drag,ghosts,cursors} = ctxFor()
+  drag.current = {active:true,button:0,mode:'add',anchor:[0,0,1],z:1,shift:false,sx:0,sy:0,downTime:-1000}
+  const move = (x,y,shiftKey=false) => ({...press([x,y,1],false),clientX:100+x,clientY:100+y,shiftKey})
+  tool.onMove(move(5,5))
+  tool.multiPlace.flushPreview()
+  assert.equal(cursors.at(-1).valid,false)
+  const draws = ghosts.length
+  tool.onMove(move(5,5))
+  assert.equal(cursors.at(-1).valid,false,'an unchanged key cannot reset the refused cursor to cyan')
+  assert.equal(ghosts.length,draws,'the remembered preview is reused')
+  useStore.setState({station:{...useStore.getState().station,name:'renamed'}})
+  tool.onMove(move(5,5))
+  assert.equal(cursors.at(-1).valid,false,'metadata changes do not clear a geometric witness')
+  tool.onMove(move(6,6))
+  assert.equal(cursors.at(-1).valid,false,'growing over the same witness is red before the deferred callback')
+  tool.onMove(move(2,2))
+  tool.multiPlace.flushPreview()
+  assert.equal(cursors.at(-1).valid,true,'shrinking clear of the witness checks the new footprint')
+  tool.onMove(move(6,6))
+  tool.multiPlace.flushPreview()
+  tool.onMove(move(6,0,true))
+  tool.multiPlace.flushPreview()
+  assert.equal(cursors.at(-1).valid,true,'a Shift line cannot retain a rectangle witness outside its run')
+  tool.onMove(move(6,6))
+  tool.multiPlace.flushPreview()
+  assert.equal(cursors.at(-1).valid,false)
+  useStore.getState().commit({...useStore.getState().station,modules:[]})
+  tool.onMove(move(6,6))
+  tool.multiPlace.flushPreview()
+  assert.equal(cursors.at(-1).valid,true,'removing a blocker invalidates the remembered red cursor')
+  assert.equal(ghosts.at(-1).refused.length,0,'the new snapshot also clears the old red footprint')
+  tool.cancelPreview()
 })

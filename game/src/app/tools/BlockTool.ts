@@ -33,6 +33,16 @@ import type { PointerInfo } from './ToolContext.ts'
 export class BlockTool extends ToolController {
   readonly tool = 'block' as const
 
+  private blockedPreview: {
+    station: ReturnType<typeof useStore.getState>['station']; key: string
+    autoWalls: boolean; suspendedCeiling: boolean; cell: [number, number, number]
+  } | null = null
+
+  override cancelPreview(): void {
+    super.cancelPreview()
+    this.blockedPreview = null
+  }
+
   onDown(info: PointerInfo): void {
     this.cancelPreview()
     const scene = this.ctx.scene()
@@ -169,7 +179,7 @@ export class BlockTool extends ToolController {
       if (tooLarge) {
         this.multiPlace.setNotice(true)
         const key = [...d.anchor, ...target, d.z, shape.side, st.stationEpoch].join(':')
-        this.multiPlace.deferPreview(scene, key, () => {
+        this.multiPlace.deferRefusal(scene, key, () => {
           if (this.ctx.drag.current !== d) return
           const line = triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
           this.multiPlace.refuse(this.ctx.scene(), line, cursor)
@@ -203,8 +213,8 @@ export class BlockTool extends ToolController {
       // block even if the pointer jitters.
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       if (dragging && d.mode === 'add') {
-        // Snap the ring immediately, but wait until the snapped cell is stable
-        // for 100 ms before constructing and drawing its complete preview.
+        // Snap the ring immediately; coalesce the latest full preview within
+        // 50 ms even while the pointer keeps crossing new cells.
         const addTarget = hit.solid ? hit.place : hit.cell
         const tooLarge = this.multiPlace.check(dragCellCount(d.anchor, addTarget, info.shiftKey))
         scene.setCursor(addTarget, !tooLarge)
@@ -284,9 +294,21 @@ export class BlockTool extends ToolController {
       ...anchor, ...target, z, Number(shift), Number(initial.autoWalls),
       Number(initial.suspendedCeiling), initial.stationEpoch,
     ].join(':')
+    const known = this.blockedPreview
+    if (known && known.station.cells === initial.station.cells && known.station.modules === initial.station.modules
+      && known.autoWalls === initial.autoWalls
+      && known.suspendedCeiling === initial.suspendedCeiling) {
+      const [x, y, wz] = known.cell
+      const included = !shift && !initial.suspendedCeiling && wz === z && x >= Math.min(anchor[0], target[0]) && x <= Math.max(anchor[0], target[0])
+        && y >= Math.min(anchor[1], target[1]) && y <= Math.max(anchor[1], target[1])
+      // A remembered witness keeps the ring red immediately, even when the
+      // scheduler reuses an unchanged preview or defers its replacement.
+      if (known.key === key || included) this.ctx.scene()?.setCursor(target, false)
+      else this.blockedPreview = null
+    } else this.blockedPreview = null
     const changed = this.multiPlace.schedule(key, () => {
       const st = useStore.getState()
-      if (st.tool !== 'block' || st.station !== initial.station ||
+      if (st.tool !== 'block' || st.station.cells !== initial.station.cells || st.station.modules !== initial.station.modules ||
           st.autoWalls !== initial.autoWalls || st.suspendedCeiling !== initial.suspendedCeiling) return
       const scene = this.ctx.scene()
       if (!scene) return
@@ -307,11 +329,15 @@ export class BlockTool extends ToolController {
       const cells = [...footprint.cells, ...footprint.autoWalls]
       const station = st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station
       const check = checkBlockCells(station, cells)
+      this.blockedPreview = check.blockedCells[0] ? {
+        station: st.station, key, autoWalls: st.autoWalls, suspendedCeiling: st.suspendedCeiling,
+        cell: check.blockedCells[0],
+      } : null
       scene.setGhost(check.acceptedCells, 'add', undefined, undefined, check.blockedCells)
       scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
       scene.setCursor(target, check.blockedCells.length === 0)
     })
-    if (changed) {
+    if (changed && dragCellCount(anchor, target, shift) > this.multiPlace.limit) {
       const scene = this.ctx.scene()
       scene?.setGhost([], 'add')
       scene?.setCollisionHighlight(null)

@@ -52,7 +52,7 @@ export class TactileTool extends ToolController {
       scene?.setCursor(dragging ? target : drag.anchor, !over)
       const key = [...drag.anchor, ...target, drag.z, drag.tileType, drag.mode, useStore.getState().stationEpoch].join(':')
       if (over) {
-        this.multiPlace.deferPreview(scene, key, () => {
+        this.multiPlace.deferRefusal(scene, key, () => {
           if (this.ctx.drag.current !== drag) return
           this.multiPlace.refuse(this.ctx.scene(), this.cells(info), dragging ? target : drag.anchor)
         })

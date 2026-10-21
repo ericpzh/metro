@@ -145,7 +145,7 @@ export class TileEquipmentTool extends ToolController {
       const dragging = count > 1
       if (over) {
         scene.setCursor(target, false)
-        this.multiPlace.deferPreview(scene, key, () => {
+        this.multiPlace.deferRefusal(scene, key, () => {
           if (this.ctx.drag.current !== drag) return
           this.multiPlace.refuse(this.ctx.scene(), this.cells(info), target)
         })

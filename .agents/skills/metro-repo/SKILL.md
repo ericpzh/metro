@@ -15,6 +15,12 @@ the station either copes or it does not.
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.
+For placement drags, use the shared `MultiPlaceDrag` scheduler and its 50 ms
+latest-target policy where appropriate; preserve each tool's preview/refusal and
+release contract. Block collision checks are indexed and cached against immutable
+document arrays, and a refused block preview keeps a known blocked coordinate red
+until the footprint or geometry changes. See the drag and demo-collision notes in
+the performance guide and `game/PERFORMANCE.md` before changing these paths.
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local

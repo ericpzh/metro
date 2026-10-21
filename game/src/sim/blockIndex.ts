@@ -1,5 +1,5 @@
 import type { Cell, Module } from './types.ts'
-import { blockedCellsByLevel, trackBedKeys } from './placement.ts'
+import { blockedCellsByLevel, trackBedKeys, type BlockCheck } from './placement.ts'
 import { rampOpeningsInWindow } from './openings.ts'
 import { exitFootprintCells, isExitHeadHouse } from './exits.ts'
 import { trackCells } from './track.ts'
@@ -10,6 +10,7 @@ export interface BlockIndex {
   opening: (x: number, y: number, z: number) => boolean
   ground: (x: number, y: number, z: number) => boolean
   solid: Set<string>
+  checks: Map<string, BlockCheck>
 }
 
 const cache = new WeakMap<readonly Cell[], WeakMap<readonly Module[], BlockIndex>>()
@@ -22,6 +23,7 @@ export function blockIndex(cells: readonly Cell[], modules: readonly Module[]): 
   const held = byModules.get(modules)
   if (held) return held
   const index = blockedCellsByLevel(modules) as BlockIndex
+  index.checks = new Map()
   index.track = trackBedKeys(cells, modules)
   index.solid = new Set(cells.filter(c => c.fill === 'solid').map(c => `${c.x},${c.y},${c.z}`))
   const voidGround = new Set(cells.filter(c => c.z === 0 && c.fill !== 'solid').map(c => `${c.x},${c.y}`))

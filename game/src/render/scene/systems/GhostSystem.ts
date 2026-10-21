@@ -329,17 +329,18 @@ export class GhostSystem extends SceneSystem {
     this.clearShapeGhost()
     if (cells.length === 0) return
     const emit = new Set<number>()
-    const chunks = new Map<string, { cx: number; cy: number; cz: number }>()
+    const chunks = new Map<string, { cx: number; cy: number; cz: number; cells: Array<{ x: number; y: number; z: number }> }>()
     const added: number[] = []
     const put = (x: number, y: number, z: number): void => {
-      chunks.set(`${Math.floor(x / CHUNK) * CHUNK},${Math.floor(y / CHUNK) * CHUNK},${z}`, {
-        cx: Math.floor(x / CHUNK) * CHUNK,
-        cy: Math.floor(y / CHUNK) * CHUNK,
-        cz: z,
-      })
+      const cx = Math.floor(x / CHUNK) * CHUNK, cy = Math.floor(y / CHUNK) * CHUNK
+      const key = `${cx},${cy},${z}`
+      let chunk = chunks.get(key)
+      if (!chunk) chunks.set(key, chunk = { cx, cy, cz: z, cells: [] })
+      chunk.cells.push({ x, y, z })
     }
     for (const [x, y, z] of cells) {
       const k = packKey(x, y, z)
+      if (emit.has(k)) continue
       emit.add(k)
       put(x, y, z)
       if (!this.ctx.solid.has(k)) {
@@ -352,14 +353,16 @@ export class GhostSystem extends SceneSystem {
     // of what the release shows, so the preview draws it too.
     const fills = rampFillKeys(this.ctx.solid, this.ctx.slopeCuts)
     for (const [x, y, z] of cells) {
-      if (!fills.has(packKey(x, y, z + 1))) continue
+      if (!fills.has(packKey(x, y, z + 1)) || emit.has(packKey(x, y, z + 1))) continue
       emit.add(packKey(x, y, z + 1))
       put(x, y, z + 1)
     }
     const mat = this.shapeGhostMaterial()
     try {
-      for (const { cx, cy, cz } of chunks.values()) {
-        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, undefined, thin, this.ctx.slopeCuts, fills)
+      for (const { cx, cy, cz, cells: visits } of chunks.values()) {
+        // Sparse walls/cut runs visit only their candidates, never every empty
+        // cell in each 16 x 16 course. Neighbour queries still see the station.
+        const chunk = meshChunk(this.ctx.solid, this.ctx.finishes, cx, cy, cz, cz, emit, undefined, visits, thin, this.ctx.slopeCuts, fills)
         for (const part of chunk.parts) {
           const geo = new THREE.BufferGeometry()
           geo.setAttribute('position', new THREE.BufferAttribute(part.positions, 3))

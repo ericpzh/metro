@@ -50,7 +50,7 @@ export class RoadTool extends ToolController {
       if(!scene)return
       const key=[...d.roadStart!,Math.round(raw[0]),Math.round(raw[1]),d.z,s.roadWidth,s.roadDirection,s.moduleRot,s.stationEpoch].join(':')
       if(over){
-        this.multiPlace.deferPreview(scene,key,()=>{
+        this.multiPlace.deferRefusal(scene,key,()=>{
           if(this.ctx.drag.current!==d)return
           const cells=road?rectCells([road.x,road.y,road.z],[road.x+road.w-1,road.y+road.d-1,road.z],road.z,false):[]
           this.multiPlace.refuse(this.ctx.scene(),cells,road?.cfg.to?[road.cfg.to[0],road.cfg.to[1],road.z]:d.anchor)

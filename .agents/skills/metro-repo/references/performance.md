@@ -46,11 +46,29 @@ cache invalidation/disposal and grid allocation identity in
 - Coalesce replaceable pointer previews per frame; flush before release and
   cancel stale callbacks on cancellation, tool changes or unmount. Preserve all
   samples for deletion sweeps and touch gestures that depend on the path.
-- Count a drag's footprint arithmetically before allocating it, and debounce the
-  complete preview until the snapped cell is stable. An over-budget footprint is
-  refused whole — draw every cell as a refusal and commit nothing — rather than
-  clipping it to a smaller patch. The 方块 cap is 10,000 cells including generated
-  auto walls; `npm run bench:block-drag` measures the real pointer sequence.
+- Count a drag's footprint arithmetically before allocating it. The shared
+  `MultiPlaceDrag` scheduler uses a 50 ms latest-target throttle for block, wall,
+  fence, tactile, road, tile-equipment and related placement drags: target changes
+  replace pending work without restarting the timer, so motion does not starve
+  preview. It skips an unchanged rendered target, keeps the prior accepted preview
+  visible while work is pending, and flushes/cancels on release/cancel. Roofs use
+  their frame scheduler. Preserve each tool's preview/refusal contract; known
+  over-budget targets clear accepted layers immediately and remain refused whole.
+  The 10,000-cell budget applies to all supported placement drags and includes
+  generated auto walls. See `npm run bench:block-drag` and
+  `node tools/bench-drag-latency.mjs` for real pointer measurements.
+- Never assume the configured wait is the full delay. Profile callback work,
+  ghost submission and event-through-two-RAF separately, for both the first and
+  repeated interaction. Keep CPU readiness distinct from displayed-pixel/GPU
+  latency. Demo stations expose collision cascades that empty-floor fixtures miss.
+- Cache block occupancy and exact blocker verdicts by immutable `cells`/`modules`
+  arrays; prepare collision bodies once per module snapshot and query local spatial
+  buckets. Bound per-snapshot verdict retention. A blocked drag may retain one
+  refused coordinate as a constant-time red-cursor witness while its footprint
+  covers that coordinate; clear it on geometry/settings/footprint changes. Do not
+  reuse scheduler output across document identity changes just because the pointer
+  key or station epoch is unchanged. Preserve refusal priority, blocker order,
+  exact geometry and partial-acceptance/release semantics.
 - Retain unaffected geometry and GPU allocations. Move pickup/cancel masks the
   lifted piece and restores neighbours without rebuilding the station.
 - Key prepared data by immutable document inputs and test invalidation. Bound
@@ -81,6 +99,21 @@ Do not copy the station document for an ordinary hover, and do not remesh or reb
 unrelated models for a functional equipment edit. `fence-preview` and
 `equipment-retention` pin the deterministic work counts; record measured
 before/after numbers and fixture controls in `game/PERFORMANCE.md`.
+
+### Block collision cascades in demo stations
+
+Use `node tools/bench-drag-latency.mjs` with `BENCH_PIECE=block` and
+`BENCH_DEMO=zoo` or `tanwei`; choose `BENCH_SIDE` to include the real collision
+footprint. This loads the shipped example without replacing its authored data.
+Measure cold and warm movement through the real pointer path, including a blocked
+rectangle, then compare accepted/refused counts, callback CPU, ghost CPU and the
+two-RAF presentation proxy. `BENCH_ASSERT_WITNESS=1` checks that tiny movement
+within the same snapped blocked target leaves the cursor red without another
+preview draw. `BENCH_PROFILE=1` captures CPU profiles and `BENCH_CONTINUOUS=1`
+measures intermediate previews during ongoing movement. Save raw outputs in the
+ignored `.preview/perf/` directory and summarize setup, results and limitations in
+`game/PERFORMANCE.md`. Keep a deterministic work-count regression for the original
+cascade; browser timing is supporting evidence, never a unit-test threshold.
 
 ## Collect comparable evidence
 

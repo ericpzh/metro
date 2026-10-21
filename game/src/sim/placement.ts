@@ -1,5 +1,5 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
-import { ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
+import { MAX_DRAG_CELLS, ROAD_LANE_WIDTH, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
 import { solidCellsInBounds } from './solidCellIndex.ts'
 import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
@@ -1461,7 +1461,14 @@ const RUN_OR_RAIL: ReadonlySet<string> = new Set(['stair', 'escalator', 'lift', 
  * A **run**, a rail and the screen doors beside it are left to `RUN_OR_RAIL`'s own
  * rules; everything else claims its cell and the column above it.
  */
+const blockedLevelCache = new WeakMap<readonly Module[], Map<number, Set<string>>>()
+
 export function moduleBlockedCells(modules: readonly Module[], z: number): Set<string> {
+  let levels = blockedLevelCache.get(modules)
+  if (!levels) blockedLevelCache.set(modules, levels = new Map())
+  const held = levels.get(z)
+  // Shared immutable snapshot data: callers must not mutate these sets.
+  if (held) return held
   const out = new Set<string>()
   for (const m of modules) {
     if (RUN_OR_RAIL.has(m.type) && !(m.type === 'stair' && m.cfg.block)) continue
@@ -1484,6 +1491,7 @@ export function moduleBlockedCells(modules: readonly Module[], z: number): Set<s
       }
     }
   }
+  levels.set(z, out)
   return out
 }
 
@@ -1543,13 +1551,23 @@ export function blockReason(
   z: number,
   level?: ((z: number) => Set<string>) | BlockIndex,
 ): BlockCheck {
-  const cell: [number, number, number] = [x, y, z]
+  const key = `${x},${y},${z}`
   const index = level && 'opening' in level ? level : undefined
-  if (index ? index.opening(x, y, z) : reservedOpening(modules, x, y, z)) return { cell, ok: false, reason: 'opening', blockers: [] }
-  const occupied = (level ?? blockedCellsByLevel(modules))(z)
-  if (occupied.has(`${x},${y},${z}`)) return { cell, ok: false, reason: 'equipment', blockers: equipmentBlockingCell(modules, x, y, z) }
-  if (index ? index.track.has(`${x},${y},${z}`) : isTrackCell(cells, modules, x, y, z)) return { cell, ok: false, reason: 'track', blockers: [] }
-  return { cell, ok: true, reason: '', blockers: [] }
+  const held = index?.checks.get(key)
+  if (held) return held
+  const cell: [number, number, number] = [x, y, z]
+  let check: BlockCheck
+  if (index ? index.opening(x, y, z) : reservedOpening(modules, x, y, z)) check = { cell, ok: false, reason: 'opening', blockers: [] }
+  else if ((level ?? blockedCellsByLevel(modules))(z).has(key)) check = { cell, ok: false, reason: 'equipment', blockers: equipmentBlockingCell(modules, x, y, z) }
+  else if (index ? index.track.has(key) : isTrackCell(cells, modules, x, y, z)) check = { cell, ok: false, reason: 'track', blockers: [] }
+  else check = { cell, ok: true, reason: '', blockers: [] }
+  if (index) {
+    // The immutable snapshot keeps exact witnesses, including refused cells,
+    // across growing/shrinking drags. Bound retained verdicts on a long-lived save.
+    if (index.checks.size >= 2 * MAX_DRAG_CELLS) index.checks.delete(index.checks.keys().next().value!)
+    index.checks.set(key, check)
+  }
+  return check
 }
 
 /**
@@ -1558,29 +1576,61 @@ export function blockReason(
  * answers with a cell key and a preview needs the object: the collision highlight
  * boxes a module group by id, and a notice names the piece.
  */
+interface BlockBody { module: Module; boxes: ModuleBox[]; bounds: ModuleBox; order: number }
+const BLOCK_BODY_BUCKET = 16
+const blockBodyCache = new WeakMap<readonly Module[], { bodies: BlockBody[]; levels: Map<number, { buckets: Map<string, BlockBody[]>; broad: BlockBody[] }> }>()
+
+/** Exact block blockers, prepared once per immutable module snapshot (§5/§9.5). */
+function blockBodiesAt(modules: readonly Module[], x: number, y: number, z: number): BlockBody[] {
+  let index = blockBodyCache.get(modules)
+  if (!index) {
+    const bodies: BlockBody[] = []
+    for (const module of modules) {
+      let boxes: ModuleBox[]
+      if (module.type === 'hanger') boxes = hangerBoxes(module)
+      else if (module.type === 'roof' && module.cfg.variant === 'canopy') boxes = canopyBodyBoxes(module)
+      else if (module.type === 'stair' && !module.cfg.block) boxes = rampBodyBoxes(module)
+      else {
+        const envelope = moduleEnvelope(module)
+        boxes = envelope ? [envelope] : []
+      }
+      const bounds = collisionBounds(boxes)
+      if (bounds) bodies.push({ module, boxes, bounds, order: bodies.length })
+    }
+    index = { bodies, levels: new Map() }
+    blockBodyCache.set(modules, index)
+  }
+  let level = index.levels.get(z)
+  if (!level) {
+    level = { buckets: new Map(), broad: [] }
+    for (const body of index.bodies) {
+      const box = body.bounds
+      if (box.z1 <= z || box.z0 >= z + 1) continue
+      const x0 = Math.floor(box.x0 / BLOCK_BODY_BUCKET), x1 = Math.ceil(box.x1 / BLOCK_BODY_BUCKET) - 1
+      const y0 = Math.floor(box.y0 / BLOCK_BODY_BUCKET), y1 = Math.ceil(box.y1 / BLOCK_BODY_BUCKET) - 1
+      // Imported large envelopes cannot allocate an unbounded empty grid.
+      if ((x1 - x0 + 1) * (y1 - y0 + 1) > 4096) { level.broad.push(body); continue }
+      for (let by = y0; by <= y1; by++) for (let bx = x0; bx <= x1; bx++) {
+        const key = `${bx},${by}`
+        let bucket = level.buckets.get(key)
+        if (!bucket) level.buckets.set(key, bucket = [])
+        bucket.push(body)
+      }
+    }
+    index.levels.set(z, level)
+  }
+  const bucket = level.buckets.get(`${Math.floor(x / BLOCK_BODY_BUCKET)},${Math.floor(y / BLOCK_BODY_BUCKET)}`) ?? []
+  if (!level.broad.length) return bucket
+  // Preserve document order even for broad imported bodies.
+  return [...bucket, ...level.broad].sort((a, b) => a.order - b.order)
+}
+
 export function equipmentBlockingCell(modules: readonly Module[], x: number, y: number, z: number): Module[] {
-  const out: Module[] = []
-  const occupied = moduleBlockedCells(modules, z)
-  if (!occupied.has(`${x},${y},${z}`)) return out
-  // The 1 m box of the block the cell would hold, in world space.
+  if (!moduleBlockedCells(modules, z).has(`${x},${y},${z}`)) return []
   const box: ModuleBox = { x0: x, y0: y, z0: z, x1: x + 1, y1: y + 1, z1: z + 1 }
-  for (const m of modules) {
-    if (m.type === 'hanger' || (m.type === 'roof' && m.cfg.variant === 'canopy')) {
-      if ((m.type === 'hanger' ? hangerBoxes(m) : canopyBodyBoxes(m)).some((b) => boxesOverlap(b, box))) out.push(m)
-      continue
-    }
-    // The piece's own space, **not** its anchor's z: a 闸机 dropped on the floor at
-    // z stands in the column above it (`m.z + 1` and up), and a run reaches the
-    // storeys it climbs through. Asking `m.z === z` would find only the piece
-    // dropped on this very course and miss every piece standing on the one below.
-    // A stair is only its slope (`rampBodyBoxes`), never the vertical column
-    // beneath it — otherwise every block under its upper half names it.
-    if (m.type === 'stair' && !m.cfg.block) {
-      if (rampBodyBoxes(m).some((b) => boxesOverlap(b, box))) out.push(m)
-      continue
-    }
-    const e = moduleEnvelope(m)
-    if (e && boxesOverlap(e, box)) out.push(m)
+  const out: Module[] = []
+  for (const body of blockBodiesAt(modules, x, y, z)) {
+    if (boxesOverlap(body.bounds, box) && body.boxes.some(part => boxesOverlap(part, box))) out.push(body.module)
   }
   return out
 }

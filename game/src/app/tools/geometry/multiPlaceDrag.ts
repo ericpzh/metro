@@ -41,7 +41,7 @@ export function multiPlaceFor(context: object): MultiPlaceDrag {
  *
  * `check`/`setNotice` own the bottom notice, `refuse` clears every accepted
  * preview and paints the whole footprint red, and `schedule` is the same
- * stable-cell debounce the 方块 preview uses. `scheduleFrame` coalesces cheap
+ * 50 ms latest-target cadence the 方块 preview uses. `scheduleFrame` coalesces cheap
  * replaceable previews without waiting for the pointer to stop. Both share
  * cancellation, the budget and the release verdict.
  */
@@ -49,14 +49,16 @@ export class MultiPlaceDrag {
   readonly limit: number
   private readonly delay: StablePreviewDelay
   private readonly frame = new FramePreview()
+  private previewSnapshot: Pick<ReturnType<typeof useStore.getState>['station'], 'cells' | 'modules'> | null = null
 
   constructor(limit = MAX_DRAG_CELLS, delay = new StablePreviewDelay()) {
     this.limit = limit
     this.delay = delay
   }
 
-  /** Invalidate a pending stable preview or refusal. */
+  /** Invalidate a pending preview or refusal. */
   cancelPreview(): void {
+    this.previewSnapshot = null
     this.delay.clear()
     this.frame.clear()
   }
@@ -67,22 +69,37 @@ export class MultiPlaceDrag {
     this.frame.flush()
   }
 
-  /** Run one preview after the latest snapped footprint has stayed stable. */
+  /** Run the latest target within 50 ms without restarting a pending wait. */
   schedule(key: string, run: () => void): boolean {
+    this.prepareSnapshot()
     this.frame.clear()
     return this.delay.scheduleLatest(key, run)
   }
 
   /** Cheap previews keep their prior draw until the latest target is ready next frame. */
   scheduleFrame(key: string, run: () => void): boolean {
+    this.prepareSnapshot()
     this.delay.clear()
     return this.frame.scheduleLatest(key, run)
   }
 
+  /** Edits/undo keep stationEpoch stable, so geometry identity owns invalidation. */
+  private prepareSnapshot(): void {
+    const { cells, modules } = useStore.getState().station
+    if (this.previewSnapshot?.cells === cells && this.previewSnapshot.modules === modules) return
+    this.cancelPreview()
+    this.previewSnapshot = { cells, modules }
+  }
+
   flushFramePreview(): void { this.frame.flush() }
 
-  /** Clear accepted previews on a new snapped target, then render after 100 ms. */
-  deferPreview(scene: SceneRenderer, key: string, run: () => void): boolean {
+  /** Keep the previous draw visible until the latest target replaces it. */
+  deferPreview(_scene: SceneRenderer, key: string, run: () => void): boolean {
+    return this.schedule(key, run)
+  }
+
+  /** An oversized target must never leave an accepted smaller footprint visible. */
+  deferRefusal(scene: SceneRenderer, key: string, run: () => void): boolean {
     const changed = this.schedule(key, run)
     if (changed) this.clearPreview(scene)
     return changed

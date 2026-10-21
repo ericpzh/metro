@@ -106,11 +106,11 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
         const over = this.multiPlace.check(columns * courses)
         scene.setCursor(cursor, !over)
         if (over) {
-          // Build the red footprint only after the snapped cell settles; the
+          // Coalesce the red footprint on the shared 50 ms cadence; the
           // notice and pointer verdict are already live.
           const initial = st
           const key = [...d.anchor, ...target, d.z, courses, initial.stationEpoch].join(':')
-          this.multiPlace.deferPreview(scene, key, () => {
+          this.multiPlace.deferRefusal(scene, key, () => {
             const latest = useStore.getState()
             if (latest.station !== initial.station || latest.tool !== 'wall') return
             const sceneNow = this.ctx.scene()

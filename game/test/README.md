@@ -136,9 +136,22 @@ the roof's indexed floor collision candidates and immutable invalidation.
 tints, source ownership, clipping refresh, bounded eviction and disposal.
 It also checks a 1,334-module station produces one mouse-down raycast for both
 an empty hit and a hit on the final module, preserving the chosen anchor.
+`block-collision-cache` guards remembered cell verdicts across growing/shrinking
+blocked drags, zero rescans of unrelated modules, immutable snapshot invalidation,
+bounded verdict retention, and exact blocker identity/order against the original
+geometry scan on both demo stations. `blocktool` also guards immediate red cursor
+witness reuse across growing/unchanged rectangles, clearing the witness, Shift
+lines, and immutable blocker removal.
 `multi-place-drag` covers the shared equipment/decor limit, context-scoped
-ownership, 100 ms latest-target preview scheduling and cancellation, plus whole
+ownership, 50 ms non-starving latest-target preview scheduling and cancellation, plus whole
 refusal for fence, tactile, wall, outdoor-tile and road drags over 10,000 cells.
+It also guards geometry-identity invalidation of both preview schedulers when an
+edit/undo leaves `stationEpoch` and the pointer key unchanged.
+`multi-place-drag` also drives accepted block, wall, fence, tactile, stair-block,
+sidewalk, lawn and road movement through one 50 ms timer, keeps the previous
+preview visible, reuses unchanged targets and cancels pending work on release.
+`roof-preview` additionally guards sparse block-ghost candidate visits against
+full chunk-volume scans and compares their exact geometry with the chunk mesher, including ramp filling above pending cells.
 `equipment-placement-input` guards one scene pick per event for tactile placement,
 floor-mark deletion and exit snapping with large-document misses and late hits.
 It also pins bridge snapping across visible track/screen surfaces above lower floors,

@@ -1,4 +1,4 @@
-/** Run one preview after its snapped cell has stayed stable for a short delay. */
+/** Rate-limit replaceable previews without waiting for the pointer to stop (§9.5). */
 type TimerHandle = ReturnType<typeof globalThis.setTimeout>
 type ScheduleTimer = (callback: () => void, delayMs: number) => TimerHandle
 type CancelTimer = (timer: TimerHandle) => void
@@ -12,7 +12,7 @@ export class StablePreviewDelay {
   private readonly cancel: CancelTimer
 
   constructor(
-    delayMs = 100,
+    delayMs = 50,
     schedule: ScheduleTimer = (callback, ms) => globalThis.setTimeout(callback, ms),
     cancel: CancelTimer = timer => globalThis.clearTimeout(timer),
   ) {
@@ -22,21 +22,17 @@ export class StablePreviewDelay {
   }
 
   scheduleLatest(key: string, run: () => void): boolean {
-    if (key === this.key && this.timer !== null) {
-      this.run = run
-      return false
-    }
-    this.clear()
+    if (key === this.key && this.timer === null) return false
+    const changed = key !== this.key
     this.key = key
     this.run = run
-    this.timer = this.schedule(() => {
+    if (this.timer === null) this.timer = this.schedule(() => {
       this.timer = null
       const latest = this.run
-      this.key = null
       this.run = null
       latest?.()
     }, this.delayMs)
-    return true
+    return changed
   }
 
   clear(): void {
@@ -52,7 +48,6 @@ export class StablePreviewDelay {
     this.cancel(this.timer)
     const latest = this.run
     this.timer = null
-    this.key = null
     this.run = null
     latest?.()
   }
