@@ -24,6 +24,9 @@ import { msg } from '../sim/i18n.ts'
 import * as THREE from 'three'
 import { createModelMaterials, disposeModelMaterials, disposeObject, type ModelMaterials } from '../render/models.ts'
 import { buildTrain, setDoors } from '../render/models/pieces/TrainModel.ts'
+import { batchStaticParts } from '../render/batchStaticModule.ts'
+import { batchTrainDoors, batchTrainTransparent } from '../render/trainBatches.ts'
+import { trainDetails } from '../render/trainDetail.ts'
 import { TrackModel } from '../render/models/pieces/TrackModel.ts'
 import type { ModuleContext } from '../render/models/PieceBuilder.ts'
 import { createMaterials } from '../render/materials.ts'
@@ -321,6 +324,7 @@ const SHOW: ReadonlyArray<{ id: string; label: string; note: string; width: numb
 ]
 
 export interface TrainFrame {
+  detail?: 'high' | 'low'
   power?: 'third-rail' | 'catenary'
   id: string
   /** Review a model from another angle without changing its catalogue specimen. */
@@ -589,6 +593,7 @@ export async function captureTrains(
 ): Promise<CapturedTrain[]> {
   const out: CapturedTrain[] = []
   const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true, alpha: true })
+  renderer.debug.onShaderError=(gl,program)=>{throw new Error(gl.getProgramInfoLog(program)??'Train shader failed')}
   renderer.setPixelRatio(2)
   // The station's own rig and renderer settings, not a rig of this pass's own: the sheet
   // exists to show what the player sees.
@@ -646,6 +651,14 @@ export async function captureTrains(
       // The leaves are placed by `setDoors`, which the live scene drives from the
       // dwell's own progress — the pose's `doorsOpen` is a hint, not a control.
       if (!show.scene.track) setDoors(group, frame.doorProgress ?? (show.scene.doorsOpen ? 1 : 0))
+      // Explicit review frames exercise production static/door/glass batching.
+      // Existing art frames keep their full-detail capture path unchanged.
+      const details = frame.detail && !show.scene.track ? (() => {
+        batchStaticParts(group,new Set(group.userData.doors),true)
+        batchTrainDoors(group);batchTrainTransparent(group)
+        return trainDetails(group)
+      })() : []
+      for(const detail of details)detail.apply(frame.detail==='low')
       mats.headlight.color.setHex(frame.headlights === false ? 0x27303a : 0xfff6e2)
       scene.add(group)
 
@@ -777,6 +790,7 @@ export async function captureTrains(
       }
 
       renderer.render(scene, camera)
+      if(renderer.getContext().getError()!==renderer.getContext().NO_ERROR)throw new Error(`Train WebGL error: ${frame.id}`)
       out.push({
         id: frame.id,
         width: frame.width,
@@ -800,6 +814,7 @@ export async function captureTrains(
       })
 
       scene.remove(group)
+      for(const detail of details){detail.apply(false);detail.dispose?.()}
       // The livery is minted per build and the group owns it; everything else on a
       // train is the shared kit, which `disposeObject` deliberately keeps.
       for (const m of (group.userData.ownedMats as THREE.Material[] | undefined) ?? []) m.dispose()

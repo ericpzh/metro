@@ -15,6 +15,28 @@ function withKit(run) {
   const mats=createModelMaterials()
   try {run(mats)} finally {disposeModelMaterials(mats);globalThis.document=previous}
 }
+
+test('D Low windshield stays above the coarse crown and solid rubber surround',()=>withKit(mats=>{
+ const root=buildTrain(mats,{x:0,y:0,z:0,stock:'D',cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})
+ const originals=[]
+ try {
+  root.traverse(p=>{if(p.isMesh&&p.userData.lowDetailGeometry){originals.push([p,p.geometry]);p.geometry=p.userData.lowDetailGeometry}})
+  root.updateMatrixWorld(true)
+  for(const cab of root.children.filter(p=>p.name==='streamlined-cab')) {
+   const glass=cab.getObjectByName('d-cab-windscreen'),positions=glass.geometry.attributes.position
+   for(const row of [4,8,12])for(const column of [4,9,14]) {
+    const first=(row*18+column)*6,index=glass.geometry.index
+    const p=new THREE.Vector3()
+    for(let i=0;i<3;i++)p.add(new THREE.Vector3().fromBufferAttribute(positions,index.getX(first+i)))
+    p.multiplyScalar(1/3)
+    const origin=cab.localToWorld(p.clone().add(new THREE.Vector3(3,0,0)))
+    const direction=new THREE.Vector3(-1,0,0).transformDirection(cab.matrixWorld)
+    const hit=new THREE.Raycaster(origin,direction).intersectObject(cab)[0]
+    assert.equal(hit?.object?.name,glass.name,`Low windshield sample ${row},${column} is unobstructed`)
+   }
+  }
+ } finally {for(const [mesh,geometry]of originals)mesh.geometry=geometry;disposeObject(root)}
+}))
 test('A/B/C/L fronts rake inward at the roof while their square rear seams and couplers stay fixed',()=>withKit(mats=>{
  for(const cls of ['A','B','C','L']) for(const outward of [-1,1]) {
   const root=new THREE.Group();buildCab(root,mats,STOCK[cls],0,outward,true);root.updateMatrixWorld(true)

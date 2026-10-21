@@ -36,7 +36,7 @@ test('six vehicle variants have finite outward geometry, grounded tires and boun
         assert.ok(ray(m.group, [0, 8, variant.startsWith('bus') ? 2 : 1.1], [0,-1,0]).length, `${variant} ${detail}: front faces are outward`)
       }
       const count = m => m.parts.reduce((n,{geometry})=>n+geometry.index.count/3,0)
-      assert.ok(count(low) <= count(high) * .25, `${variant}: Low stays within 25% of High (${count(low)}/${count(high)})`)
+      assert.ok(count(low) <= Math.floor(count(high) * .1), `${variant}: Low stays within 10% of High, including its matching depth pass (${count(low)}/${count(high)})`)
       assert.equal(count(high), { suv:2568, sedan:2492, 'bus-orange':5612, 'bus-mosaic':5753, moped:3560, bicycle:4080 }[variant], 'High geometry is unchanged')
       for (const axis of ['x','y','z']) {
         assert.ok(Math.abs(high.bounds.min[axis]-low.bounds.min[axis]) < .08, `${variant}: Low retains minimum ${axis}`)
@@ -85,6 +85,7 @@ test('bicycle has open spoke wheels and a basket; moped has a leg shield and rea
   const bike=model('bicycle', detail), moped=model('moped', detail)
   try {
     assert.equal(ray(bike.group, [1,.78,.4], [-1,0,0]).length,0,'space between bicycle spokes stays open')
+    for(const side of [-1,1])assert.equal(ray(bike.group,[side,.62+.31,.33],[-side,0,0])[0]?.object.material.color.getHex(),INK.rubber,'both tire sidewalls face outward')
     assert.ok(ray(moped.group, [1,.76,.24], [-1,0,0]).length,'moped retains a solid tire')
     assert.ok(ray(bike.group, [1,.92,1.13], [-1,0,0]).length,'basket front upper wire')
     assert.ok(ray(moped.group, [1,-.77,1.04], [-1,0,0]).length,'rear top box')

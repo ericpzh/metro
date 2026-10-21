@@ -27,7 +27,7 @@ const data={name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
 const ads={adFace:(slug,w,h)=>({material:new THREE.MeshBasicMaterial(),geometry:new THREE.PlaneGeometry(w,h),slug}),adWindow:(w,h)=>ads.adFace('a',w,h),load:async()=>{},dispose(){}}
 const ctx={mats,ads,data,trackCells:new Set(),tvPlate:()=>new THREE.CanvasTexture(canvas()),signFace:()=>new THREE.MeshBasicMaterial(),finish:()=>mats.steel,preview:false,ownedMats:[]}
 const tris=g=>(g.index?.count??g.getAttribute('position')?.count??0)/3
-const table=(header,rows)=>['| '+header.join(' | ')+' |','|---'+(header.map((_,i)=>i===0?'|':'|---:').join(''))+'|',...rows.map(r=>'| '+r.join(' | ')+' |')].join('\n')+'\n'
+const table=(header,rows)=>['| '+header.join(' | ')+' |','|'+header.map((_,i)=>i===0?'---':'---:').join('|')+'|',...rows.map(r=>'| '+r.join(' | ')+' |')].join('\n')+'\n'
 const output=(name)=>resolve(process.env.BENCH_OUTPUT?dirname(process.env.BENCH_OUTPUT):'.preview/perf',name)
 
 /* --------------------------------------------------------------- equipment */
@@ -53,6 +53,8 @@ for(const option of MODULE_OPTIONS){
  disposeObject(root)
 }
 if(results.some(result=>result.reason))throw new Error(JSON.stringify(results.filter(result=>result.reason)))
+const missingLow=results.filter(result=>result.high>10 && !(result.low>0 && result.low<result.high))
+if(missingLow.length)throw new Error(`Palette models over ten triangles require reduced Low geometry: ${JSON.stringify(missingLow)}`)
 results.sort((a,b)=>b.high-a.high)
 let out=output('model-triangles.json')
 mkdirSync(dirname(out),{recursive:true})
@@ -85,6 +87,7 @@ try{
  }
 } catch(error){disposeModelMaterials(mats);throw error}
 trains.sort((a,b)=>b.high-a.high)
+if(trains.some(row=>!(row.low>0 && row.low<=Math.floor(row.high*.1))))throw new Error('Train inventory exceeds the 10% Low budget')
 out=output('train-triangles.json')
 writeFileSync(out,JSON.stringify({revision:THREE.REVISION,results:trains},null,2))
 writeFileSync(out.replace(/\.json$/,'.md'),table(['Train model','Low triangles','High triangles'],trains.map(r=>[r.model,r.low,r.high])))
@@ -96,6 +99,7 @@ const human=JSON.parse(readFileSync(new URL('../game/src/assets/passenger-approv
 if(human.lowTriangles===undefined)throw new Error('Passenger atlas has no baked Low topology; run npm run bake:passengers')
 const passengers=human.library.map(model=>({model:model.id,low:model.lowTriangles,high:model.triangles}))
  .sort((a,b)=>b.high-a.high)
+if(passengers.some(row=>row.high>10 && !(row.low>0 && row.low<row.high)))throw new Error('Passenger inventory contains a missing Low variant')
 out=output('passenger-triangles.json')
 writeFileSync(out,JSON.stringify({revision:THREE.REVISION,atlas:{vertices:human.vertices,corners:human.corners,lowCorners:human.lowCorners,triangles:human.triangles,lowTriangles:human.lowTriangles},results:passengers},null,2))
 writeFileSync(out.replace(/\.json$/,'.md'),table(['Passenger model','Low triangles','High triangles'],passengers.map(r=>[r.model,r.low,r.high])))

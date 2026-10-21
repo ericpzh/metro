@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { trainRoofSection } from '../../../sim/stock.ts'
 import { cabShellGeometry } from './TrainShell.ts'
 import { setModelDetail } from '../../modelDetail.ts'
+import { trainDoorLow } from './TrainDoorLow.ts'
+import type { TrainDoorFrame } from './TrainDoorLow.ts'
 
 export const CAR_ROUND_SILL = .49
 export const CAR_ROUND_WAIST = trainRoofSection('B').shoulder
@@ -140,7 +142,8 @@ export function curveCarDoor(root: THREE.Mesh, width: number, side: number): voi
     for(let parent: THREE.Object3D|null=object;parent&&parent!==root;parent=parent.parent)z+=parent.position.z
     const source=object.geometry, previous=object.userData.lowDetailGeometry as THREE.BufferGeometry|undefined
     const high=curvedDoorGeometry(source,width,side,z,false)
-    const low=curvedDoorGeometry(previous??source,width,side,z,true)
+    const frame=object.userData.trainDoorFrame as TrainDoorFrame|undefined
+    const low=frame?trainDoorLow(frame,carShellProfile(width,true).map(p=>p.z-z),height=>side*(carShellAt(width,height+z,true).y-width/2)):curvedDoorGeometry(previous??source,width,side,z,true)
     source.dispose();object.geometry=high;setModelDetail(object,low)
   })
 }

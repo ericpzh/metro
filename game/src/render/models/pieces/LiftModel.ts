@@ -330,8 +330,11 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   storyGlass('front', -outer)
   storyGlass('back', outer)
   // The car's black guide rails run up the two side walls, clear of both door faces.
+  // Stop them at the top cap's underside; carrying them through the plate leaves
+  // dark marks visible on the lift roof.
+  const guideHeight = H - LIFT_CAP
   for (const side of [-1, 1]) {
-    slab(g, mats.darkSteel, side * 0.84, 0, H / 2, 0.055, 0.065, H).name = 'guide-rail'
+    slab(g, mats.darkSteel, side * 0.84, 0, guideHeight / 2, 0.055, 0.065, guideHeight).name = 'guide-rail'
     for (let z = 0.4; z < H; z += 2) {
       slab(g, steel, side * 0.88, 0, z, 0.13, 0.16, 0.06).name = 'guide-rail-bracket'
     }

@@ -19,10 +19,12 @@ export function buildRoadCycle(k: VehicleKit, bike: boolean): void {
     // Open wire basket, rather than a solid box in front of the rider.
     for (const z of [.96, 1.13]) {
       for (const x of [-.23, .23]) k.rod(INK.rubber, [x, .62, z], [x, .92, z], .012)
-      for (const y of [.62, .92]) k.rod(INK.rubber, [-.23, y, z], [.23, y, z], .012)
+      for (const y of [.62, .92]) k.rod(INK.rubber, [-.23, y, z], [.23, y, z], .012, 8, y===.92&&z===1.13)
     }
-    for (let x = -.2; x <= .21; x += .1) for (const y of [.62, .92]) k.rod(INK.rubber, [x, y, .96], [x, y, 1.13], .007, 4)
-    for (const y of [.65, .75, .85]) for (const x of [-.23, .23]) k.rod(INK.rubber, [x, y, .96], [x, y, 1.13], .007, 4)
+    if(!k.low){
+      for (let x = -.2; x <= .21; x += .1) for (const y of [.62, .92]) k.rod(INK.rubber, [x, y, .96], [x, y, 1.13], .007, 4)
+      for (const y of [.65, .75, .85]) for (const x of [-.23, .23]) k.rod(INK.rubber, [x, y, .96], [x, y, 1.13], .007, 4)
+    }
   } else {
     k.loft(INK.accent, [[-.89, .14, .3, .48], [-.67, .26, .3, .72], [-.08, .24, .3, .69], [.1, .18, .25, .36]])
     k.box(INK.rubber, [0, .1, .29], [.4, .73, .09])

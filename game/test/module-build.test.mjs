@@ -1109,6 +1109,7 @@ test('a shaft is capped at both ends, and extending moves the caps instead of le
     assert.ok(grownCaps.every((z) => Math.abs(z - 0.07) < 1e-6 || Math.abs(z - 7.93) < 1e-6), `${style}: no cap left at the middle joint`)
   }
 })
+
 test('the lift roof cap clears blocks around its two-metre footprint', () => {
   for (const style of ['glass', 'steel']) {
     const mod = { ...liftModule({ x: 4, y: 4, z: 0 }, 0, `cap-clearance-${style}`, 5), cfg: { rises: [5], style } }
@@ -1124,6 +1125,23 @@ test('the lift roof cap clears blocks around its two-metre footprint', () => {
     assert.ok(Math.abs(cap.position.y - height / 2 + 0.99) < 1e-6, `${style}: one-centimetre clearance at the front`)
     assert.ok(Math.abs(cap.position.y + height / 2 - 0.99) < 1e-6, `${style}: one-centimetre clearance at the back`)
   }
+})
+
+test('glass lift guide rails stop at the underside of the top cap', () => {
+  const mod = { ...liftModule({ x: 4, y: 4, z: 0 }, 0, 'guide-rail-cap', 5), cfg: { rises: [5], style: 'glass' } }
+  const group = build(mod).group
+  const rails = []
+  let cap
+  group.traverse((o) => {
+    if (!o.isMesh) return
+    if (o.name === 'guide-rail') rails.push(o)
+    if (o.name === 'lift-cap-top') cap = o
+  })
+  assert.equal(rails.length, 2, 'both side rails remain present')
+  assert.ok(cap, 'the top plate remains present')
+  const top = (mesh) => mesh.position.z + mesh.geometry.parameters.depth / 2
+  const capBottom = cap.position.z - cap.geometry.parameters.depth / 2
+  assert.ok(rails.every((rail) => Math.abs(top(rail) - capBottom) < 1e-6), 'rails meet the cap underside without passing through it')
 })
 
 test('an upper level whose slab is cut away under the cabin still draws its landing doors', () => {

@@ -150,6 +150,13 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         const geometry=new THREE.ExtrudeGeometry(endShape,{depth:.08,bevelEnabled:false})
         geometry.rotateY(Math.PI/2);geometry.rotateX(Math.PI/2)
         const end=new THREE.Mesh(geometry,mats.trainBody);end.name='car-end-bulkhead'
+        const lowProfile=carShellProfile(s.width,true),lowShape=new THREE.Shape()
+        lowShape.moveTo(-lowProfile[0].y,lowProfile[0].z)
+        for(const p of lowProfile)lowShape.lineTo(p.y,p.z)
+        for(const p of [...lowProfile].reverse())lowShape.lineTo(-p.y,p.z)
+        lowShape.closePath()
+        const lowEnd=new THREE.ExtrudeGeometry(lowShape,{depth:.08,bevelEnabled:false})
+        lowEnd.rotateY(Math.PI/2);lowEnd.rotateX(Math.PI/2);setModelDetail(end,lowEnd)
         end.position.x=carCentre+e*(halfLen-.04)-.04;g.add(end)
       }
       // A rolled shoulder joins the flat side to the roof without a square eave. The
@@ -250,6 +257,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
         }
         for (const px of [-1, 1]) {
           const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, doorH - 0.12, 8), mats.steel)
+          setModelDetail(pole,new THREE.CylinderGeometry(.028,.028,doorH-.12,3,1,true))
           // A cylinder's axis is +y; the cabin's up is +z, so tip it upright.
           pole.rotation.x = Math.PI / 2
           pole.position.set(dx + px * (s.doorWidth / 2 + 0.1), side * (skinY - 0.16), doorZMid)
@@ -291,6 +299,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           geometry.rotateX(Math.PI / 2)
           geometry.translate(0, 0.025, 0)
           const m = new THREE.Mesh(geometry, mats.trainBody)
+          m.userData.trainDoorFrame={outer:[-lw/2,lw/2,-doorH/2,doorH/2],hole:[-windowHalfW,windowHalfW,.28-.43,.28+.43],front:.025,back:-.025}
           m.position.set(dx + (leaf * s.doorWidth) / 4, face - side * 0.025, doorZMid)
           g.add(m)
           // Inset 5 mm from the aperture edges; the pane has no opaque backing.
@@ -307,6 +316,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
           const sealGeometry = new THREE.ExtrudeGeometry(sealShape,{depth:.008,bevelEnabled:false})
           sealGeometry.rotateX(Math.PI/2)
           const leafSeal = new THREE.Mesh(sealGeometry,mats.rubber)
+          leafSeal.userData.trainDoorFrame={outer:[-lw/2,lw/2,-doorH/2,doorH/2],hole:[-lw/2+.025,lw/2-.025,-doorH/2+.025,doorH/2-.025],front:0,back:-.008}
           leafSeal.position.y = side * .031 + .004
           leafSeal.name = 'train-door-perimeter-seal'
           m.add(leafSeal)

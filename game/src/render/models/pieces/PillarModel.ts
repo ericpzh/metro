@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { setModelDetail } from '../../modelDetail.ts'
 import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { PieceBuilder, finishSlab, slab } from '../PieceBuilder.ts'
 import { pillarWidth, pillarOffset, pillarSupportsBridge, BRIDGE_DECK_DEPTH } from '../../../sim/structures.ts'
@@ -14,26 +15,31 @@ export class PillarModel extends PieceBuilder {
     const mat = mod.cfg.finish ? this.ctx.finish(mod.cfg.finish) : mod.cfg.size === 'thick' ? this.ctx.finish(DEFAULT_MATERIAL) : this.ctx.mats.darkSteel
     if (mod.cfg.size === 'thick') {
       const cylinder = (material: THREE.Material, radius: number, height: number, z: number, finish = false): void => {
-        const geometry = new THREE.CylinderGeometry(radius, radius, height, 48)
-        if (finish) {
-          // Match the painted box's one texture repeat per metre around the shaft.
-          const uv = geometry.attributes.uv as THREE.BufferAttribute
-          const scaled = new Set<number>()
-          for (const group of geometry.groups) {
-            const uScale = group.materialIndex === 0 ? 2 * Math.PI * radius : 2 * radius
-            const vScale = group.materialIndex === 0 ? height : 2 * radius
-            for (let i = group.start; i < group.start + group.count; i++) {
-              // Cylinder vertices are shared by adjacent triangles; scale each once.
-              const vertex = geometry.index!.getX(i)
-              if (scaled.has(vertex)) continue
-              scaled.add(vertex)
-              uv.setXY(vertex, uv.getX(vertex) * uScale, uv.getY(vertex) * vScale)
+        const makeGeometry = (segments: number): THREE.CylinderGeometry => {
+          const geometry = new THREE.CylinderGeometry(radius, radius, height, segments)
+          if (finish) {
+            // Match the painted box's one texture repeat per metre around the shaft.
+            const uv = geometry.attributes.uv as THREE.BufferAttribute
+            const scaled = new Set<number>()
+            for (const group of geometry.groups) {
+              const uScale = group.materialIndex === 0 ? 2 * Math.PI * radius : 2 * radius
+              const vScale = group.materialIndex === 0 ? height : 2 * radius
+              for (let i = group.start; i < group.start + group.count; i++) {
+                // Cylinder vertices are shared by adjacent triangles; scale each once.
+                const vertex = geometry.index!.getX(i)
+                if (scaled.has(vertex)) continue
+                scaled.add(vertex)
+                uv.setXY(vertex, uv.getX(vertex) * uScale, uv.getY(vertex) * vScale)
+              }
             }
+            geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count * 3).fill(1), 3))
           }
-          geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geometry.attributes.position.count * 3).fill(1), 3))
+          geometry.rotateX(Math.PI / 2)
+          return geometry
         }
-        geometry.rotateX(Math.PI / 2)
+        const geometry = makeGeometry(48)
         const mesh = new THREE.Mesh(geometry, material)
+        setModelDetail(mesh, makeGeometry(8))
         mesh.position.set(offset.x, offset.y, z)
         g.add(mesh)
       }

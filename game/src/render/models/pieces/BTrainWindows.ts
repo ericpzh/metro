@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { setModelDetail } from '../../modelDetail.ts'
+import { trainWindowLow } from './TrainWindowLow.ts'
 
 /** A/B stock's inset windows leave broad painted pillars beside every doorway (§1.12). */
 export function buildBWindowBay(g: THREE.Group, mats: ModelMaterials, a: number, b: number,
@@ -42,7 +43,7 @@ export function buildBWindowBay(g: THREE.Group, mats: ModelMaterials, a: number,
     }
     const mesh = new THREE.Mesh(geometry(6), material)
     // Low keeps the aperture and rubber surround, with chamfered corners.
-    setModelDetail(mesh, geometry(1))
+    setModelDetail(mesh, trainWindowLow(shape,depth))
     mesh.position.set(x, y, z)
     mesh.name = name
     g.add(mesh)

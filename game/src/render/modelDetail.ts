@@ -2,6 +2,35 @@ import * as THREE from 'three'
 import { coarseGeometry } from './geometryDetail.ts'
 const releases = new WeakMap<THREE.Mesh, () => void>()
 
+/** Palette fittings built from boxes: retain source UVs, colours and broad faces.
+ * Thin sheets drop narrow edges; rods drop their small end caps. This is prepared
+ * once by the dispatcher, before batching, and never changes source picking.
+ */
+export function preparePrimitiveModelDetail(root: THREE.Object3D): void {
+  root.traverse(object => {
+    if (!(object instanceof THREE.Mesh) || object.userData.lowDetailGeometry || Array.isArray(object.material)) return
+    const source = object.geometry
+    if (!(source instanceof THREE.BoxGeometry)) return
+    source.computeBoundingBox()
+    const size = source.boundingBox!.getSize(new THREE.Vector3())
+    const axes = size.toArray().map((size, axis) => ({ size, axis })).sort((a, b) => a.size - b.size)
+    const sheet = axes[0].size <= axes[1].size * .25
+    const axis = sheet ? axes[0].axis : axes[2].axis
+    const normal = source.getAttribute('normal'), indices: number[] = []
+    const count = source.index?.count ?? source.getAttribute('position').count
+    for (let i = 0; i < count; i += 3) {
+      const vertex = source.index ? source.index.getX(i) : i
+      const aligned = Math.abs(normal.getComponent(vertex, axis)) > .9
+      if (aligned === sheet) for (let j = 0; j < 3; j++) indices.push(source.index ? source.index.getX(i + j) : i + j)
+    }
+    if (!indices.length || indices.length >= count) return
+    const low = source.clone()
+    low.setIndex(indices)
+    low.clearGroups()
+    setModelDetail(object, low)
+  })
+}
+
 /** Authored §9.3 approximations belong to their full picking geometry. */
 export function setModelDetail(mesh: THREE.Mesh, geometry: THREE.BufferGeometry): void {
   releases.get(mesh)?.()

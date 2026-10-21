@@ -172,17 +172,19 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   ;(root.userData.ownedMats as THREE.Material[]).push(glass,accent)
   const shield = (name: string, material: THREE.Material, extra: number, lift: number) => {
     let error = 0
-    const point = (u: number, v: number) => {
+    const point = (u: number, v: number, lowLift = 0) => {
       const across = v * 2 - 1
       const halfWidth = 0.88 * (0.43 + 0.32 * Math.sin(u * Math.PI / 2) - 0.08 * THREE.MathUtils.smoothstep(u, 0.85, 1))
-      const fitted = frontPoint(across * (halfWidth + extra), 2.08 - extra + (0.80 + 2 * extra) * u + 0.18 * across ** 2 * (1 - u) ** 3 - 0.08 * across ** 4 * u ** 3, length, lift)
+      const fitted = frontPoint(across * (halfWidth + extra), 2.08 - extra + (0.80 + 2 * extra) * u + 0.18 * across ** 2 * (1 - u) ** 3 - 0.08 * across ** 4 * u ** 3, length, lift + lowLift)
       error = Math.max(error, fitted.error)
       return fitted.point
     }
     const geometry = dSurface(point, 32, 36)
     geometry.userData.projectionError = error
     const part = mesh(name, geometry, material)
-    setModelDetail(part, dSurface(point, 8, 9))
+    // The coarse crown and mask have different chord errors. Keep the Low
+    // glazing above both surfaces instead of letting their triangles cut through it.
+    setModelDetail(part, dSurface((u, v) => point(u, v, extra ? 0.04 : 0.08), 16, 18))
   }
   shield('d-windscreen-seal', mats.rubber, 0.025, 0.012)
   shield('d-cab-windscreen', glass, 0, 0.014)
@@ -194,7 +196,7 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
   const outerEdge = (t: number) => new THREE.Vector2(0.12 + 0.94 * Math.sin(t * Math.PI / 2),1.89 + 0.97 * (1 - Math.cos(t * Math.PI / 2)))
   // Clip the existing surface strip against the same plan contour as the mask.
   // Resampling its rows preserves the shell fit and the outer panel silhouette.
-  const clipToMask = (source: THREE.BufferGeometry, reverse: boolean) => {
+  const clipToMask = (source: THREE.BufferGeometry, reverse: boolean, rows = 48, columns = 12) => {
     const positions = source.attributes.position
     const sample = (u: number, v: number) => {
       const row = u * 48, col = v * 12
@@ -233,8 +235,8 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
         cuts.set(u, high)
       }
       return sample(row, THREE.MathUtils.lerp(cuts.get(u)!, 1, v))
-    }, 48, 12, reverse)
-    source.dispose()
+    }, rows, columns, reverse)
+
     return clipped
   }
   const strip = (name: string, material: THREE.Material, side: number, from: number, to: number, lift: number, border = false, rearCut = false) => {
@@ -257,7 +259,9 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
       const p = innerEdge(t).lerp(outerEdge(t),across)
       return frontPoint(side*p.x,p.y,length,lift).point
     },48,12,side < 0)
-    mesh(name,clipToMask(geometry,side < 0),material)
+    const part = mesh(name,clipToMask(geometry,side < 0),material)
+    setModelDetail(part, clipToMask(geometry, side < 0, 12, 3))
+    geometry.dispose()
   }
   for (const side of [-1,1]) {
     strip('d-side-window-seal',mats.rubber,side,0.70,0.88,0.012,true,true)

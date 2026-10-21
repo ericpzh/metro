@@ -2,10 +2,11 @@
 // the live crowd (§9.5). Capture with alpha; sheet placement keeps the foot origin.
 import * as THREE from 'three'
 import { passengerMesh, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_LIBRARY, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES } from '../render/passengerModel.ts'
+import type { PassengerDetail } from '../render/passengerModel.ts'
 import { passengerIsChild, passengerWalkProfile } from '../sim/walking.ts'
 import { passengerEligible } from '../render/passengerEligibility.ts'
 
-function createCaptureContext() {
+function createCaptureContext(detail: PassengerDetail = 'full') {
   const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true, preserveDrawingBuffer: true })
   renderer.setSize(192, 256)
   renderer.setClearColor(0x000000, 0)
@@ -15,11 +16,11 @@ function createCaptureContext() {
   const light = new THREE.DirectionalLight(0xffffff, 3)
   light.position.set(-3, -4, 7)
   scene.add(light)
-  const mesh = passengerMesh(1)
+  const mesh = passengerMesh(1, detail)
   mesh.count = 1
   mesh.setMatrixAt(0, new THREE.Matrix4())
   scene.add(mesh)
-  return { renderer, scene, mesh }
+  return { renderer, scene, mesh, detail }
 }
 
 type CaptureContext = ReturnType<typeof createCaptureContext>
@@ -37,12 +38,14 @@ export function disposePassengerCapture(): void {
   sharedCapture = undefined
 }
 
-export function capturePassengers(options: { age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[]; reuseContext?: boolean } = {}) {
+export function capturePassengers(options: { detail?: PassengerDetail; age?: 'adult' | 'child'; walkCycles?: boolean; cycleView?: string; cycleHeading?: number; walkProfile?: number; cycleVariants?: number[]; reuseContext?: boolean } = {}) {
   const cycles = options.walkCycles === true
   const age = options.age ?? 'adult'
   // Bounded art batches share one GPU atlas instead of uploading it per call.
   // One-shot callers retain the existing immediate-disposal behavior.
-  const context = options.reuseContext ? sharedCapture ??= createCaptureContext() : createCaptureContext()
+  const detail = options.detail ?? 'full'
+  if (sharedCapture && sharedCapture.detail !== detail) disposePassengerCapture()
+  const context = options.reuseContext ? sharedCapture ??= createCaptureContext(detail) : createCaptureContext(detail)
   const { renderer, scene, mesh } = context
   const pose = mesh.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute
   const outfit = mesh.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute

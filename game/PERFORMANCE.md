@@ -1117,3 +1117,241 @@ Final normal suite: **2,020 tests pass, zero failures/skips**
 (`remaining-full-tests-final.log`). The first run exposed the old colour-allocation
 expectation; its replacement still verifies bounded cache eviction and exactly-once
 GPU disposal with distinct orientations. `git diff --check` passes.
+
+### Passenger 10% Low LOD feasibility (2026-10-21)
+
+A topology-only experiment against all 232 current atlas entries requested
+`floor(highTriangles * 0.10)` triangles per appearance. It decoded the actual
+standing frame and full index rows, compacted referenced vertex IDs, and used
+existing baked vertices without changing the shipped atlas. The current shared
+submission stride is 9,370 High / 2,825 Low triangles (30.15% retained); a 10%
+shared-stride budget would be 937 triangles. Individual 10% budgets range from
+382 to 937 triangles.
+
+With the current meshoptimizer simplification method and 3% relative error,
+0/232 entries reached their individual target (largest output: 2,824 triangles).
+Raising the error limit to 5%, 10%, and 100% still reached 0/232 targets; even
+100% left a largest row of 2,684 triangles. A permissive attribute simplification
+experiment at 3% error reached only 3/232 targets, with a largest row of 2,501.
+This indicates topology/seam restrictions as well as the error budget prevent a
+simple target-constant change from enforcing 10%. Existing animated vertex
+identity includes normals, palette and every pose; welding only by standing
+position could merge vertices that move differently or cross material boundaries.
+
+Raw per-appearance counts and the reproducible script are in ignored
+`.preview/perf/passenger-10pct/report.json` and `assess.mjs`. These are offline
+geometry feasibility results, not FPS, GPU or first-toggle latency measurements.
+No production asset or runtime code changed. A 10% implementation would need
+further topology work or authored reduced parts, with standing and all-walk
+visual validation for hair, bags, straps, skirts and material boundaries. It
+would reduce submitted triangle work, but retaining the shared pose pool would
+not reduce the pose textures' memory.
+
+## Complete palette Low geometry audit (2026-10-21)
+
+The current inventory has 120 palette options, including the PSD end cover.
+All 104 models above ten High triangles now have nonempty Low geometry with
+strictly fewer triangles. The baseline had 45 identical High/Low models.
+Across one default copy of every option, Low geometry falls from 23,563 to
+20,804 triangles. These are geometry counts, not an FPS improvement claim.
+The ten train consists and 232 baked passenger variants already had reductions;
+the inventory now rejects missing Low variants in all three tables.
+
+The small box-based families keep original artwork, UVs and colours. Thin sheets
+retain both broad faces and omit narrow edges; rods omit their small end caps.
+Pillars and circular lights have eight-sided Low cylinders, with painted pillar
+UV scaling preserved. Guide columns omit buried bottom caps. The exact full
+geometry remains available for picking and restoration; existing authored Low
+variants take precedence. There is no runtime simplification or rig replacement.
+
+Production quality switching on the shipped demo drew 397,264 triangles at Low
+and 562,360 at High. First Low switch through two RAFs was 516.2 ms; the repeated
+Low switch was 558.1 ms (High switches: 580.1 / 406.2 ms). This is a presentation
+proxy on the current host, with other local work active, not a controlled timing
+comparison or GPU duration. No shader/runtime/WebGL errors occurred; simulation
+remained paused. Both native multi-draw and its extension-free fallback production
+checks passed; the CPU/trace exporter check passed too.
+
+The catalogue regression covers reduction before/after local batching and source
+restoration. A separate panel regression pins UVs, exact removed-edge picking,
+cached buffer identity and single disposal. Focused tests pass 219/219. Focused
+line/branch/function coverage: `modelDetail.ts` 100/92.45/100%; dispatcher
+97.37/91.07/100%; lights 100/100/100%; pillars 100/76.47/100%; street decor
+100/91.40/83.87%. Production build passed. The first full game run passed
+2,140 tests with zero skips. A final rerun after the additional panel regression
+passed 2,140/2,141 with zero skips: the concurrently changed passenger LOD test
+requires 10% geometry, while the current atlas's `male-original-bag` is
+2,547/9,370 triangles. This palette work does not modify that test or atlas.
+The broad `test:perf` instrumented run was stopped
+after approximately 5.4 minutes without test output; the focused changed-module
+coverage run completed as listed above. Raw inventories, baseline, quality-switch report,
+browser checks and test/coverage logs are under ignored `.preview/perf/lod-*`
+and `.preview/perf/model-triangles*`.
+
+### Passenger Low LOD: every appearance below 10% (2026-10-21)
+
+The approved atlas now enforces `floor(highTriangles * 0.10)` for each of its
+232 appearances, as well as a 10% cap on the padded shared draw. High remains
+9,370 triangles per submitted passenger; Low changes from 2,825 to **841 (8.98%
+of High, 70.23% fewer than the previous Low)**. Real Low rows range from 371 to
+841 triangles and total **123,928**, against 1,308,230 High triangles. The
+published performance reference contains the regenerated 232-row inventory;
+`PASSENGERS.md` summarizes its budgets. Raw inventory is
+`.preview/perf/passenger-triangles.json`.
+
+`tools/passenger-low-topology.mjs` builds separate faceted envelopes for anatomy
+and palette regions, then simplifies the closed envelopes without pruning their
+components. Original source faces retain exact extrema through every one of the
+73 poses. Skirts keep their original cloth surfaces and use displacement
+attributes from all three gaits during reduction, with a separate triangle
+allocation. All Low corners reference existing animated vertices belonging to
+that appearance and all triangles retain one original flat palette region.
+This removes concavities and small detail and makes Low visibly faceted.
+
+A bounds-only implementation was insufficient: grid clustering could retain
+isolated extrema while deleting trouser surfaces, and standing skirt envelopes
+lost fast-walk plan coverage. Both candidates were rejected. The deterministic
+`passenger-lod` regression now checks projected surface coverage from three axes
+in standing and four phases per gait for every appearance, in addition to exact
+all-frame bounds, vertex ownership, flat palettes, both budgets and draw/disposal
+contracts. The production capture can explicitly select Low while preserving
+full-detail defaults for existing art callers.
+
+A full bake consumed the reviewed GLBs. All 232 source hashes matched the prior
+atlas. A subsequent `--low-only` bake verifies those hashes before regenerating
+only Low fields; a repeat produced byte-identical JSON. SHA-256 comparisons show
+that positions, normals, regions, full indices, source hashes, eligibility and
+other library metadata are unchanged. The shared pose pool remains 226,731
+vertices with 73 frames and 21 palette stops. Its texture memory is unchanged;
+the smaller Low index table and geometry reduce their own allocations. JSON
+shrinks from 42,746,457 to 40,707,627 bytes; decoded buffers total 177,616,422 bytes.
+
+Production GPU validation compared **11,736 paired High/Low renders**: every
+eligible adult/child appearance, all three gait profiles, standing and three
+walking samples per profile, in isometric/elevation/plan views. Every comparison
+passed the fixed gates (80% High-mask coverage, 70% intersection-over-union).
+Worst overlap was **78.59%**, and minimum High-mask coverage **86.15%**. The
+864 skirt-only comparisons reached minimum overlap 92.49% and coverage 95.63%.
+Worst pairs were visually reviewed; no missing legs, shader errors or runtime
+errors were accepted. These samples do not claim exhaustive visual coverage of
+all interpolated poses, camera angles or age-size extremes.
+
+The quality-switch browser fixture uses 232 paused passengers, seed 7654321,
+viewport 852 x 715, DPR 1, Chrome 155 and hardware ANGLE/D3D11 on an RTX 4080 SUPER.
+It drives the real settings buttons and measures event-to-two-RAF presentation
+proxies, separately for first use and repetitions. Baseline first Low was
+18.5 ms, repeats 29.5 / 18.6 ms; final first Low was 32.6 ms, repeats 22.3 / 26.9 ms.
+This is **not evidence of lower switch latency or higher FPS**. Low submitted
+scene triangles fell from 666,696 to 206,408; High stayed at 2,185,136. Both
+prepared geometries and instance buffers were retained, all 232 passengers
+remained drawn, the paused tick/document version stayed unchanged, and GL/shader
+error counts were zero. No second pose atlas or runtime simplification was added.
+
+Validation: production build/typecheck passed; full game suite **2,144 passed,
+zero failures/skips**; model suite **9 passed**; focused final coverage **17 passed**
+with reducer **100% lines, 96% branches, 100% functions**; `check-perf-tools` passed.
+The capture module is exercised in the production browser; its source-contract
+Node tests do not provide runtime V8 coverage. Raw bake logs, integrity hashes,
+paired masks, worst-pair PNGs, benchmark JSON and coverage/test logs are under
+ignored `.preview/perf/passenger-10pct/`.
+
+The broad `npm --prefix game run test:perf` instrumented run was stopped after
+approximately 15 minutes without completion (its log reached the passenger
+all-frame bounds test). This is not a passing full performance-coverage result.
+The final reducer's focused coverage, the full normal game suite and production
+GPU comparisons above passed independently. No test was skipped or weakened to
+make the triangle-budget change pass.
+
+
+## 2026-10-21: road and train Low geometry capped at 10%
+
+Low road traffic and every train stock now have a hard budget of at most
+10% of their own High triangles. High source counts remain unchanged.
+Road totals below include the matching depth-only prepass; train totals use
+production static batching, door banks and sorted glass, with third-rail roofs.
+
+| Road vehicle | Low submitted triangles | High submitted triangles | Low / High |
+|---|---:|---:|---:|
+| bus-orange | 956 | 11224 | 8.52% |
+| bus-mosaic | 1014 | 11506 | 8.81% |
+| suv | 464 | 5136 | 9.03% |
+| sedan | 436 | 4984 | 8.75% |
+| moped | 612 | 7120 | 8.60% |
+| bicycle | 764 | 8160 | 9.36% |
+
+| Train | Previous Low | Final Low | High | Low / High |
+|---|---:|---:|---:|---:|
+| D-8 | 129952 | 78144 | 1303424 | 6.00% |
+| D-6 | 104876 | 61196 | 1008052 | 6.07% |
+| A-8 | 166728 | 71016 | 730512 | 9.72% |
+| A-6 | 126140 | 54612 | 574244 | 9.51% |
+| C-6 | 112708 | 50516 | 534888 | 9.44% |
+| B-6 | 109376 | 48480 | 513888 | 9.43% |
+| L-6 | 96120 | 44272 | 464576 | 9.53% |
+| C-4 | 76640 | 35616 | 395652 | 9.00% |
+| B-4 | 74332 | 34028 | 378236 | 9.00% |
+| L-4 | 65260 | 31132 | 344492 | 9.04% |
+
+The regression exercises all **80** stock/length/power combinations: A/B/C/D/L,
+one through eight cars, third rail and catenary. Each stays within its own 10%
+budget with both door banks moving and restores the exact High count.
+
+Road Low uses outward thin panels, open triangular rods, diamond car/bus tyres
+and hubs, flat wheel-arch strips and two-sided open bicycle rims/spokes.
+Fine basket grid is omitted while its outline remains. Train Low retains real
+door/window apertures and both broad frame faces, hollow triangular straps,
+coarse handrails/ring lights, wheel tread/flange profiles and suspension shapes.
+Fine brake/bearing fittings are omitted. D cab trim has explicit reduced surfaces;
+its Low windshield has denser sampling and separation from the coarse crown and
+surround to prevent intersections. A ray regression samples both cab ends.
+No runtime simplification or extra quality-switch geometry allocation was added.
+
+Production captures cover 50 High/Low pairs: all stocks and both roofs in front,
+side, three-quarter closed/half-open/open poses. Elevation masks must retain
+80% High coverage and 70% intersection-over-union. Road front/rear views and
+representative train pairs were visually reviewed, including the corrected D
+windshield. The High road front PNG matches its baseline SHA-256 exactly.
+
+Validation: production build/typecheck passed; the final full game suite passed
+**2,147 tests, zero failures/skips**. Native and extension-free GPU batching
+checks passed with no GLSL, WebGL or runtime errors; profiler exports passed.
+The floor-detail test now asserts the existing policy that Low remains Low in
+Hide UI. The road geometry regression is included in future test:perf runs.
+Raw inventories, browser captures, timing JSON and test/coverage logs are under
+ignored `.preview/perf/transport-10pct/`; road captures are also retained under
+`.preview/road-vehicles/`.
+
+The paused production quality-switch fixture uses seed 7654321, a 24 × 1000 m
+road with all six traffic variants, and five A/B/C/D/L services (8/6/6/8/6 cars).
+Chrome 155, hardware ANGLE/D3D11 on RTX 4080 SUPER, viewport 852 × 715, DPR 1.
+The real settings buttons measure event-to-two-RAF presentation proxies:
+
+| Quality | Baseline first / repeat / repeat (ms) | Final first / repeat / repeat (ms) |
+|---|---|---|
+| low | 23.0 / 22.5 / 26.8 | 21.8 / 18.3 / 29.7 |
+| high | 24.5 / 24.5 / 30.6 | 28.8 / 25.5 / 17.0 |
+
+Low scene triangles fell from **1,304,998 to 749,766**; High remained **5,622,354**.
+Traffic populations, prepared train detail arrays, road geometry and instance
+buffers were retained. Tick and document version stayed at zero; GL, shader and
+runtime errors stayed at zero. Model preparation was 6802.7 ms before / 6435.7 ms
+after. These samples establish fewer triangles and retained switch resources;
+they do **not** establish higher FPS or lower switch latency.
+
+All 20 elevation comparisons passed, with minimum High-mask coverage **98.31%**
+and minimum intersection-over-union **98.29%**. The other 30 pairs capture three
+door poses for visual review. Targeted runtime coverage passed six regressions
+with **100% lines, branches and functions** in TrainDoorLow, TrainWindowLow,
+TrainStrapLow and VehicleKit (`targeted-coverage.log`). The broad instrumented
+`test:perf` attempt was stopped after 592 seconds without completing; a wider
+focused instrumented attempt was stopped after 258 seconds. Neither is counted
+as passing coverage. The targeted coverage and the full normal suite passed
+independently; no budget regression was skipped in the normal suite.
+
+The required artwork refresh completed after validation: 24 train stills, 60
+real door/headlight poses and 25 module cards were recaptured. Sheets 01, 02,
+04, 05, 11, 12 and 13 were regenerated in both locales, with 14 current browser
+previews at 8 seconds and 14 tracked 300-DPI print exports. Reviewed layouts
+retain model details, collectors, door alignment and readable labels. Train-art
+pipeline tests passed 6/6; all 16 train playback samples and passenger gait
+playback checks passed. The web build synced the regenerated SVGs and passed.

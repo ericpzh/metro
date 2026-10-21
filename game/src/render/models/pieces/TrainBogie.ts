@@ -43,7 +43,7 @@ export function buildTrainBogie(parent: THREE.Group, mats: ModelMaterials, centr
     const part = mesh(new THREE.CylinderGeometry(radius, radius, length, 16), material, name)
     part.position.set(centre + x, y, z)
     if (vertical) part.rotation.x = Math.PI / 2
-    if (detail) setModelDetail(part, new THREE.CylinderGeometry(radius, radius, length, 6))
+    if (detail&&!['brake-disc','bearing-cap','air-spring-top-plate'].includes(name)) setModelDetail(part, new THREE.CylinderGeometry(radius, radius, length, 6))
     else omitModelDetail(part)
     return part
   }
@@ -59,7 +59,10 @@ export function buildTrainBogie(parent: THREE.Group, mats: ModelMaterials, centr
   const lathe = (name: string, material: THREE.Material, profile: number[][], segments: number, low: number, x: number, y: number, z: number) => {
     const points = profile.map(([radius, axis]) => new THREE.Vector2(radius, axis))
     const part = mesh(new THREE.LatheGeometry(points, segments), material, name)
-    setModelDetail(part, new THREE.LatheGeometry(points, low))
+    const coarse=name==='wheel-web'?[[0,-.055],[.135,-.045],[.13,.045],[0,.09]]:
+      name==='wheel-tyre'?[[.178,-.058],[.178,-.042],[.165,-.03],[.165,.07]]:
+      name==='air-spring'?[[0,.425],[.16,.425],[.16,.483],[0,.483]]:profile
+    setModelDetail(part, new THREE.LatheGeometry(coarse.map(([r,z])=>new THREE.Vector2(r,z)), name==='wheel-web'?6:low))
     part.position.set(centre + x, y, z)
     return part
   }

@@ -13,7 +13,9 @@ import {
   PASSENGER_FULL_TRIANGLES, passengerAppearance,
 } from '../src/render/passengerModel.ts'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
-import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
+import { decodePassengerBytes, restorePassengerFrames } from '../src/render/passengerAtlas.ts'
+import { passengerLowTopology } from '../../tools/passenger-low-topology.mjs'
+import { MeshoptSimplifier } from '../node_modules/meshoptimizer/meshopt_simplifier.js'
 
 const decoded = key => Buffer.from(decodePassengerBytes(human[key], human.encoding))
 const triangles = geometry => (geometry.index?.count ?? geometry.getAttribute('position').count) / 3
@@ -53,19 +55,108 @@ test('the baked atlas carries a Low topology for every variant, padded the same 
   assert.equal(human.lowTriangles, human.lowCorners / 3)
   const raw = decoded('lowIndices')
   const table = human.indexBits === 32 ? new Uint32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4) : new Uint16Array(raw.buffer, raw.byteOffset, raw.byteLength / 2)
+  const fullRaw = decoded('indices')
+  const full = human.indexBits === 32 ? new Uint32Array(fullRaw.buffer, fullRaw.byteOffset, fullRaw.byteLength / 4) : new Uint16Array(fullRaw.buffer, fullRaw.byteOffset, fullRaw.byteLength / 2)
+  const regions = decoded('regions')
   assert.equal(table.length, human.library.length * human.lowCorners)
   for (const [outfit, model] of human.library.entries()) {
+    const source = new Set(full.subarray(outfit * human.corners, outfit * human.corners + model.triangles * 3))
     let real = 0
     for (let i = outfit * human.lowCorners; i < (outfit + 1) * human.lowCorners; i += 3) {
       assert.ok(table[i] < human.vertices && table[i + 1] < human.vertices && table[i + 2] < human.vertices, 'every Low corner reuses a baked vertex')
+      for (const v of table.subarray(i, i + 3)) assert.ok(source.has(v), `${model.id}: Low must use this appearance's own animated vertices`)
+      assert.equal(regions[table[i]], regions[table[i + 1]], `${model.id}: Low must retain flat palette boundaries`)
+      assert.equal(regions[table[i]], regions[table[i + 2]], `${model.id}: Low must retain flat palette boundaries`)
       if (new Set(table.slice(i, i + 3)).size === 3) real++
     }
     assert.equal(real, model.lowTriangles, `${model.id}: shorter variants pad only degenerate triangles`)
-    assert.ok(model.lowTriangles > 0 && model.lowTriangles < model.triangles, `${model.id}: ${model.lowTriangles}/${model.triangles} triangles`)
+    assert.ok(model.lowTriangles > 0 && model.lowTriangles <= Math.floor(model.triangles * .1), `${model.id}: ${model.lowTriangles}/${model.triangles} triangles exceeds 10%`)
   }
   // A shared instanced stride, so the widest Low row is the crowd's floor.
   assert.equal(PASSENGER_LOW_TRIANGLES, Math.max(...human.library.map(model => model.lowTriangles)))
-  assert.ok(PASSENGER_LOW_TRIANGLES <= PASSENGER_FULL_TRIANGLES * .31, `Low ${PASSENGER_LOW_TRIANGLES} vs full ${PASSENGER_FULL_TRIANGLES}`)
+  assert.ok(PASSENGER_LOW_TRIANGLES <= PASSENGER_FULL_TRIANGLES * .1, `Low ${PASSENGER_LOW_TRIANGLES} vs full ${PASSENGER_FULL_TRIANGLES}`)
+})
+
+test('every reduced appearance retains its silhouette bounds and ground contact through all three walks', () => {
+  const positions = restorePassengerFrames(new Int16Array(decoded('positions').buffer), human.vertices, human.poseEncoding)
+  const read = key => { const b = decoded(key); return human.indexBits === 32 ? new Uint32Array(b.buffer, b.byteOffset, b.byteLength / 4) : new Uint16Array(b.buffer, b.byteOffset, b.byteLength / 2) }
+  const full = read('indices'), low = read('lowIndices')
+  for (const [variant, model] of human.library.entries()) {
+    const fullVertices = [...new Set(full.subarray(variant * human.corners, variant * human.corners + model.triangles * 3))]
+    const lowVertices = [...new Set(low.subarray(variant * human.lowCorners, variant * human.lowCorners + model.lowTriangles * 3))]
+    for (let frame = 0; frame < human.frames; frame++) {
+      for (let axis = 0; axis < 3; axis++) {
+        const offset = frame * human.vertices * 3 + axis
+        const bounds = vertices => {
+          let min = Infinity, max = -Infinity
+          for (const v of vertices) { const value = positions[offset + v * 3]; min = Math.min(min, value); max = Math.max(max, value) }
+          return [min, max]
+        }
+        assert.deepEqual(bounds(lowVertices), bounds(fullVertices), `${model.id}, frame ${frame}, axis ${axis}: extrema must survive reduction`)
+      }
+    }
+  }
+})
+
+test('the offline reducer leaves authoritative poses and topology unchanged and rejects an impossible budget', async () => {
+  await MeshoptSimplifier.ready
+  const raw = decoded('indices'), full = new Uint32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4)
+  const source = [...full.subarray(0, human.library[0].triangles * 3)]
+  const poses = restorePassengerFrames(new Int16Array(decoded('positions').buffer), human.vertices, human.poseEncoding)
+  const before = poses.slice()
+  const regions = decoded('regions')
+  const result = passengerLowTopology({ indices: source, poses, regions, vertices: human.vertices })
+  assert.ok(result.indices.length > 0 && result.indices.length <= Math.floor(source.length / 30) * 3)
+  const clothIndex = human.library.findIndex(m => m.garmentShape === 'a-line'), cloth = human.library[clothIndex]
+  const clothSource = [...full.subarray(clothIndex * human.corners, clothIndex * human.corners + cloth.triangles * 3)]
+  const clothLow = passengerLowTopology({ indices: clothSource, poses, regions, vertices: human.vertices, garmentShape: cloth.garmentShape })
+  assert.ok(clothLow.indices.length > 0 && clothLow.indices.length <= Math.floor(cloth.triangles * .1) * 3)
+  assert.deepEqual(source, [...full.subarray(0, source.length)])
+  assert.deepEqual(poses, before, 'Low reduction cannot modify High geometry or animation')
+  assert.throws(() => passengerLowTopology({ indices: [0, 1, 2], poses: new Int16Array(9), vertices: 3 }), /at least ten/)
+  const invalid = Array(10).fill([0, 1, 2]).flat()
+  assert.throws(() => passengerLowTopology({ indices: invalid, poses: new Int16Array(9), vertices: 3, regions: [0, 1, 0] }), /crosses palette/)
+})
+
+test('reduced bodies keep their projected surfaces, not just isolated extremum triangles', () => {
+  const positions = restorePassengerFrames(new Int16Array(decoded('positions').buffer), human.vertices, human.poseEncoding)
+  const read = key => { const b = decoded(key); return human.indexBits === 32 ? new Uint32Array(b.buffer, b.byteOffset, b.byteLength / 4) : new Uint16Array(b.buffer, b.byteOffset, b.byteLength / 2) }
+  const full = read('indices'), low = read('lowIndices'), size = 40
+  const frames = [0, ...human.walkProfiles.flatMap(p => [0, 6, 12, 18].map(f => p.firstFrame + f))]
+  for (const [variant, model] of human.library.entries()) {
+    const source = full.subarray(variant * human.corners, variant * human.corners + model.triangles * 3)
+    const reduced = low.subarray(variant * human.lowCorners, variant * human.lowCorners + model.lowTriangles * 3)
+    const vertices = [...new Set(source)]
+    for (const frame of frames) for (const axes of [[0, 2], [1, 2], [0, 1]]) {
+      const offset = frame * human.vertices * 3
+      const bounds = axes.map(axis => {
+        let min = Infinity, max = -Infinity
+        for (const v of vertices) { const value = positions[offset + v * 3 + axis]; min = Math.min(min, value); max = Math.max(max, value) }
+        return [min - 1, max - min + 2]
+      })
+      const project = v => axes.map((axis, a) => (positions[offset + v * 3 + axis] - bounds[a][0]) / bounds[a][1] * (size - 2) + 1)
+      const raster = indices => {
+        const pixels = new Uint8Array(size * size), projected = new Map()
+        const point = v => { if (!projected.has(v)) projected.set(v, project(v)); return projected.get(v) }
+        for (let i = 0; i < indices.length; i += 3) {
+          const [a, b, c] = [point(indices[i]), point(indices[i + 1]), point(indices[i + 2])]
+          const cross = (a, b, x, y) => (b[0] - a[0]) * (y - a[1]) - (b[1] - a[1]) * (x - a[0])
+          if (Math.abs(cross(a, b, c[0], c[1])) < 1e-7) continue
+          const minX = Math.max(0, Math.floor(Math.min(a[0], b[0], c[0]))), maxX = Math.min(size - 1, Math.ceil(Math.max(a[0], b[0], c[0])))
+          const minY = Math.max(0, Math.floor(Math.min(a[1], b[1], c[1]))), maxY = Math.min(size - 1, Math.ceil(Math.max(a[1], b[1], c[1])))
+          for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+            const e = [cross(a, b, x + .5, y + .5), cross(b, c, x + .5, y + .5), cross(c, a, x + .5, y + .5)]
+            if (e.every(v => v >= 0) || e.every(v => v <= 0)) pixels[y * size + x] = 1
+          }
+        }
+        return pixels
+      }
+      const a = raster(source), b = raster(reduced)
+      let fullPixels = 0, overlap = 0
+      for (let i = 0; i < a.length; i++) { fullPixels += a[i]; overlap += a[i] && b[i] }
+      assert.ok(overlap / fullPixels >= .8, `${model.id}, frame ${frame}, axes ${axes}: only ${(overlap / fullPixels * 100).toFixed(1)}% of the full surface remains`)
+    }
+  }
 })
 
 test('the Low body is a coarser mesh over the same atlas, not a second pose set', () => {

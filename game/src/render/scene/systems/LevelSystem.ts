@@ -39,6 +39,13 @@ export class LevelSystem extends SceneSystem {
   /** The cut's plane while a cut is on, shared by every material this walk dresses. */
   private clip: THREE.Plane | null = null
 
+  private mapMaterials(
+    materials: THREE.Material | THREE.Material[],
+    map: (material: THREE.Material) => THREE.Material,
+  ): THREE.Material | THREE.Material[] {
+    return Array.isArray(materials) ? materials.map(map) : map(materials)
+  }
+
   constructor(ctx: SceneContext) {
     super(ctx)
   }
@@ -270,12 +277,13 @@ export class LevelSystem extends SceneSystem {
    * strength — a cut where nothing is really cut.
    */
   private clipMesh(mesh: THREE.Mesh, plane: THREE.Plane | null): void {
-    const mat = mesh.material as THREE.Material
-    if (!mat) return
     const planes = plane ? [plane] : null
-    if (mat.clippingPlanes === planes) return
-    mat.clippingPlanes = planes
-    mat.needsUpdate = true
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+    for (const mat of materials) {
+      if (mat.clippingPlanes === planes) continue
+      mat.clippingPlanes = planes
+      mat.needsUpdate = true
+    }
   }
 
   /**
@@ -294,9 +302,9 @@ export class LevelSystem extends SceneSystem {
     this.applyLevel()
   }
 
-  baseOf(mesh: THREE.Mesh): THREE.Material {
+  baseOf(mesh: THREE.Mesh): THREE.Material | THREE.Material[] {
     if (!mesh.userData.base) mesh.userData.base = mesh.material
-    return mesh.userData.base as THREE.Material
+    return mesh.userData.base as THREE.Material | THREE.Material[]
   }
 
   /**
@@ -316,7 +324,7 @@ export class LevelSystem extends SceneSystem {
    * Returns true when the mesh was taken over (hidden, or given the see-through
    * clone), so the caller knows not to dress it again.
    */
-  private dressWall(mesh: THREE.Mesh, base: THREE.Material, isOutline: boolean, clip: THREE.Plane | null): boolean {
+  private dressWall(mesh: THREE.Mesh, base: THREE.Material | THREE.Material[], isOutline: boolean, clip: THREE.Plane | null): boolean {
     const wall = mesh.userData.wall === true
     // Leaving 隐藏墙壁: put the wall back as the building rather than as a
     // see-through clone. This has to happen here and not only in the walk, because
@@ -346,7 +354,8 @@ export class LevelSystem extends SceneSystem {
    * occludes another ghost — the layers stack as translucent sheets and the
    * active storey, drawn opaque and first, still wins every pixel it covers.
    */
-  dimOf(base: THREE.Material): THREE.Material {
+  dimOf(base: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] {
+    if (Array.isArray(base)) return this.mapMaterials(base, material => this.dimOf(material) as THREE.Material)
     let d = this.ctx.dimMats.get(base)
     if (!d) {
       d = base.clone()
@@ -371,7 +380,8 @@ export class LevelSystem extends SceneSystem {
    * stay legible as surfaces but stop hiding the crowd and the station behind
    * them. `depthWrite` is off so the layers behind actually show through.
    */
-  clearOf(base: THREE.Material): THREE.Material {
+  clearOf(base: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] {
+    if (Array.isArray(base)) return this.mapMaterials(base, material => this.clearOf(material) as THREE.Material)
     let c = this.ctx.clearMats.get(base)
     if (!c) {
       c = base.clone()

@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { buildModule, createModelMaterials, disposeModelMaterials, disposeObject, rollEscalator, setDoors } from '../src/render/models.ts'
 import { createModule } from '../src/build/model.ts'
 import { geometryDetailReady } from '../src/render/geometryDetail.ts'
-import { beamModelDetail, modelDetailGeometry, omitModelDetail, panelModelDetail, setModelDetail } from '../src/render/modelDetail.ts'
+import { beamModelDetail, modelDetailGeometry, omitModelDetail, panelModelDetail, preparePrimitiveModelDetail, setModelDetail } from '../src/render/modelDetail.ts'
 import { batchStaticModule } from '../src/render/batchStaticModule.ts'
 import { EquipmentBatches } from '../src/render/equipmentBatches.ts'
 import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
@@ -12,13 +12,34 @@ import { reposeClockHands } from '../src/render/models/pieces/ClockModel.ts'
 import { setGateWing } from '../src/render/models/pieces/GateModel.ts'
 import { buildBridgeNoiseBarrier } from '../src/render/models/pieces/BridgeNoiseBarrier.ts'
 import { buildBridgeRailing } from '../src/render/models/pieces/BridgeRailing.ts'
+import { MODULE_OPTIONS } from '../src/app/store/catalog.ts'
 
 await geometryDetailReady
+test('primitive Low retains painted faces, exact picks, cached swaps and single disposal', () => {
+  const root = new THREE.Group(), geometry = new THREE.BoxGeometry(2, .02, 3)
+  geometry.attributes.uv.array.fill(.37)
+  const material = new THREE.MeshStandardMaterial(), mesh = new THREE.Mesh(geometry, material)
+  root.add(mesh); root.updateMatrixWorld(true)
+  preparePrimitiveModelDetail(root)
+  const low = modelDetailGeometry(mesh), detail = new SourceGeometryDetail()
+  assert.equal((low.index.count / 3), 4)
+  assert.deepEqual(low.attributes.uv.array, geometry.attributes.uv.array)
+  let disposed = 0; low.addEventListener('dispose', () => disposed++)
+  const ray = new THREE.Raycaster(new THREE.Vector3(-3, 0, 0), new THREE.Vector3(1, 0, 0))
+  const hits = ray.intersectObject(mesh).map(hit => hit.distance)
+  try {
+    detail.apply(root, true)
+    assert.deepEqual(ray.intersectObject(mesh).map(hit => hit.distance), hits, 'narrow removed edges remain pickable')
+    detail.restore(); preparePrimitiveModelDetail(root)
+    assert.equal(modelDetailGeometry(mesh), low)
+  } finally { detail.restore(); disposeObject(root); material.dispose() }
+  assert.equal(disposed, 1)
+})
 const triangles = geometry => (geometry.index?.count ?? geometry.attributes.position.count) / 3
 function totals(root, low = false) {
   let count = 0
   root.traverseVisible(mesh => {
-    if (mesh.isMesh) count += triangles(low ? modelDetailGeometry(mesh) ?? mesh.geometry : mesh.geometry) * (mesh.isInstancedMesh ? mesh.count : 1)
+    if (mesh.isMesh) count += triangles(low ? mesh.userData.staticFarGeometry ?? mesh.userData.staticDetailGeometry ?? modelDetailGeometry(mesh) ?? mesh.geometry : mesh.geometry) * (mesh.isInstancedMesh ? mesh.count : 1)
   })
   return count
 }
@@ -32,7 +53,8 @@ function fixture(id, run, configure) {
   const mats = createModelMaterials(), mod = createModule(id, 4, 4, 0, id)
   const data = { name: 'Test', seed: 1, cells: [], modules: [mod], lines: [] }
   configure?.(mod, data)
-  const ctx = { mats, data, trackCells: new Set(), finish: () => mats.steel, ownedMats: [], preview: false }
+  const ads = { adFace: (slug, w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h), slug }), adWindow: (w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h) }) }
+  const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, tvPlate: () => new THREE.CanvasTexture(canvas()), ownedMats: [], preview: false }
   let root
   try {
     root = buildModule(mod, ctx)
@@ -62,6 +84,23 @@ const budgets = [
   ['escalator', .2], ['walkway', .2], ['lift', .4], ['stair-block', .75],
   ...['straight', 'leftForward', 'centerForward', 'rightForward', 'left90', 'right90', 'left180', 'right180'].map(v => [`stair-${v}`, .5]),
 ]
+for (const option of MODULE_OPTIONS) test(`${option.id}: every palette model over ten triangles has reduced Low geometry`, () => fixture(option.id, (root, mod) => {
+  if (!root) return
+  const full = totals(root), low = totals(root, true)
+  if (full <= 10) return
+  assert.ok(low > 0 && low < full, `${option.id}: ${low}/${full}`)
+  const detail = new SourceGeometryDetail(), original = new Map()
+  root.traverse(mesh => { if (mesh.isMesh) original.set(mesh, mesh.geometry) })
+  try {
+    detail.apply(root, true)
+    if (![...original.keys()].some(mesh => mesh.userData.staticInstances)) assert.equal(totals(root), low)
+    detail.restore()
+    for (const [mesh, geometry] of original) assert.equal(mesh.geometry, geometry)
+    batchStaticModule(root, mod.type)
+    assert.equal(totals(root), full)
+    assert.equal(totals(root, true), low, 'batching preserves the reduced variant')
+  } finally { detail.restore() }
+}))
 for (const [id, ratio] of budgets) test(`${id} meets its authored Low triangle budget before and after local batching`, () => fixture(id, (root, mod) => {
   const full = totals(root), low = totals(root, true)
   assert.ok(full > 0 && low > 0)
@@ -306,7 +345,7 @@ for (const id of ['fence', 'fence-gate', 'fence-iron']) test(`${id} Low keeps jo
   data.modules.push(createModule(id, mod.x + 1, mod.y, mod.z, 'east'), createModule(id, mod.x, mod.y + 1, mod.z, 'north'))
 }))
 
-test('authored omissions survive merged batches, Hide UI restoration and repeated disposal', () => {
+test('authored omissions survive merged batches, low detail in Hide UI and repeated disposal', () => {
   const material = new THREE.MeshStandardMaterial(), root = new THREE.Group(), model = new THREE.Group()
   model.userData = { moduleType: 'bench', moduleId: 'one', levelZs: [0] }; root.add(model)
   const first = new THREE.Mesh(new THREE.BoxGeometry(), material), second = new THREE.Mesh(new THREE.BoxGeometry(), material)

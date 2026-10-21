@@ -11,6 +11,12 @@ import {createPassengerWalkPoser} from './passenger-walk-poses.mjs';
 import {applyPassengerCarryPose} from '../model/src/animation/carry-pose.js';
 import {OUTFITS,outfitFor} from '../model/src/characters/outfit-presets.js';
 import {passengerBakePart,passengerVertexKey,deltaPassengerFrames,passengerExteriorGeometry} from './passenger-bake-geometry.mjs';
+import {passengerLowTopology} from './passenger-low-topology.mjs';
+
+if(process.argv.includes('--low-only')){
+ await import('./bake-passenger-low.mjs');
+ process.exit(0);
+}
 
 // Consume the reviewed exports, including closed coats and trimmed strap surfaces.
 // Regenerate them first: node model/scripts/prepare-assets.mjs.
@@ -129,15 +135,11 @@ for(const model of models){
 // (§9.3): every simplified corner references a vertex whose walks, normals and
 // palette region are already baked, so the two draws share one texture set and a
 // quality change only swaps which index table the shader reads. Simplification
-// runs on the standing pose and only selects existing vertices; a target of
-// LOW_TRIANGLES is a ceiling — meshoptimizer stops at the 3% error it may not
-// exceed, so a bag-heavy variant keeps more corners than a plain one.
-const LOW_TRIANGLES=1400,LOW_ERROR=.03;
-if(!(LOW_TRIANGLES>0))throw Error('Passenger Low LoD needs a positive triangle budget');
+// uses separate faceted anatomical/palette envelopes with a hard 10% per-
+// appearance budget. Original faces retain every pose's extrema; the full
+// animation/normal/palette pool is untouched.
 for(const model of models){
- const positions=new Float32Array(model.vertices*3);
- for(let i=0;i<positions.length;i++)positions[i]=model.poses[i]/4096;
- const [reduced]=MeshoptSimplifier.simplify(Uint32Array.from(model.indices),positions,3,Math.min(model.corners,LOW_TRIANGLES*3),LOW_ERROR);
+ const {indices:reduced}=passengerLowTopology(model);
  const low=[];
  for(let i=0;i<reduced.length;i+=3){
   const [a,b,c]=[reduced[i],reduced[i+1],reduced[i+2]].map(v=>model.lookup[v]);

@@ -87,7 +87,7 @@ Pose texture width doubles when needed to keep the row count below 8,192.
 The first pose is absolute; later position/normal frames store exact signed
 integer differences with `poseEncoding: "frame-delta"`. These buffers are
 losslessly zlib-compressed and stored as base64 with `encoding: "zlib-base64"`.
-The JSON is 42.7 MB; its decoded buffers occupy 183.2 MB.
+The JSON is 40.7 MB; its decoded buffers occupy 177.6 MB.
 `render/passengerAtlas.ts` inflates and restores frame deltas once before GPU
 upload, preserving the same positions, normals, indices and palette regions; older absolute and raw-base64
 atlases remain readable. `passenger-atlas` pins byte-exact signed overflow and
@@ -98,26 +98,36 @@ runtime GLB downloads or per-agent skeletons. Both 16/32-bit indices are support
 ### Crowd Low LoD
 
 `lowIndices`, `lowCorners` and `lowTriangles` (plus `library[].lowTriangles`) are a
-second index table over the *same* animated vertex pool (§9.3): the baker simplifies
-each variant's standing topology toward a 1,400-triangle ceiling at a 3 % relative
-error, keeps a triangle only where its three corners still reference baked vertices,
-and pads every row to the widest one exactly as the full table does. A padded Low row
-is 8,475 corners (2,825 triangles) against 28,110 corners (9,370), and the 232 variants
-carry 401,778 rather than 1,308,230 triangles — 30 % of the stride, its vertices and
-its triangle work, with no second pose set and no second bake of the walks.
+second index table over the same animated vertex pool (§9.3), with a hard 10%
+triangle budget for every appearance. The baker builds closed faceted envelopes
+for separate anatomical parts and palette regions, reduces those envelopes
+without pruning components, and retains source faces at every pose's extrema.
+Skirts retain their original cloth surface with motion-aware reduction instead
+of a standing envelope. This preserves complete legs and flat palette boundaries while removing small
+detail and concavities. All output vertices retain their existing sampled walks.
 
-`render/passengerModel.ts` uploads the table as one extra index texture and shares the
-pose/normal/region atlases between both draws, so nothing but the geometry, the index
-table and the per-instance level is duplicated. Each packed instance records the
-storey it stands on in `passengerLevel` (the `storeyBand` the detail rule compares),
-and `CrowdSystem` packs every drawn passenger into the draw its storey asks for: 高画质
-draws the storey being edited full and a ghosted storey (显示其他层) reduced, 低画质
-draws the whole crowd reduced, and 隐藏UI always restores full bodies. A crowd that
-shares the edited storey is still one draw; only a ghosted storey's crowd adds a
-second. Pose sampling, identity, the 70 % material and picking are identical.
-`passenger-lod` pins the table, the per-instance attribution, pause and single
-shared-atlas disposal. The generated Low rows are never hand-edited; regenerate them
-with `npm run bake:passengers`.
+The padded stride is **841 Low / 9,370 High triangles (9.0%)**; individual rows
+range from 371 to 841 triangles. All 232 variants carry 123,928 Low rather than
+1,308,230 High triangles. The prior Low stride was 2,825; the reduction is 70.2%.
+No pose, normal or region buffer is duplicated or changed, so pose texture memory
+is unchanged. The Low row has 2,523 corners against 28,110 High corners.
+
+`render/passengerModel.ts` uploads one extra index texture and shares the pose,
+normal and region atlases. `CrowdSystem` selects topology per instance's
+`passengerLevel`: 高画质 keeps the edited storey full and ghosted storeys reduced,
+低画质 reduces the whole crowd, and 隐藏UI restores full bodies. High uses 70%
+opacity and Low 45%; simulation, pose sampling, identity and picking stay shared.
+
+`passenger-lod` pins per-appearance and padded 10% budgets, vertex ownership,
+flat palette boundaries, exact bounds through all 73 frames, quality switching,
+pause and shared disposal. `tools/check-passenger-lod.mjs` checks paired production
+High/Low silhouettes across all variants, eligible ages, three gaits and views,
+with worst pairs saved for visual review. Bounds alone cannot prove intact limbs.
+
+Regenerate with `npm run bake:passengers`. For a Low-policy-only change,
+`node tools/bake-approved-passenger.mjs --low-only` verifies every reviewed GLB
+hash and regenerates only Low fields from the authoritative full atlas. A stale
+export requires the full bake. Never hand-edit generated topology or provenance.
 
 Production builds deliver the packed bytes as parallel binary fetches via
 `game/scripts/passenger-assets.ts`, avoiding base64 JavaScript parsing and decoding.

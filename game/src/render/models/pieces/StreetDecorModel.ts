@@ -1,6 +1,7 @@
 import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
+import { setModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab, plate, plateOf, placeLocal, ownedMaterial, canvasTexture, drawMetroMark } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { panelPosters } from '../../../sim/billboards.ts'
@@ -99,7 +100,17 @@ function triangleColumn(material: THREE.Material, height: number, scale = 1, pla
   const shape = new THREE.Shape()
   plan.forEach(([x, y], i) => i === 0 ? shape.moveTo(x * scale, y * scale) : shape.lineTo(x * scale, y * scale))
   shape.closePath()
-  return new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false }), material)
+  const geometry = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false })
+  const mesh = new THREE.Mesh(geometry, material)
+  // The foot sits on the ground; each upper prism sits on the preceding section.
+  const low = geometry.clone(), indices: number[] = []
+  for (let i = 0; i < geometry.attributes.position.count; i += 3) {
+    if (geometry.attributes.normal.getZ(i) > -.9) indices.push(i, i + 1, i + 2)
+  }
+  low.setIndex(indices); low.clearGroups()
+  if (height > .07) setModelDetail(mesh, low)
+  else low.dispose()
+  return mesh
 }
 
 function guideLogoFace(triangular = false, leftSide = false): HTMLCanvasElement {

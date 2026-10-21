@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { setModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec, type LightModule } from '../../../sim/lights.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
@@ -26,10 +27,12 @@ export class LightModel extends PieceBuilder {
     } else {
       const housing = new THREE.Mesh(new THREE.CylinderGeometry(width / 2, width / 2, housingDepth, 32), this.ctx.mats.steel)
       housing.rotation.x = Math.PI / 2
+      setModelDetail(housing, new THREE.CylinderGeometry(width / 2, width / 2, housingDepth, 8))
       housing.position.z = ceiling - housingDepth / 2
       g.add(housing)
       const diffuser = new THREE.Mesh(new THREE.CylinderGeometry(width / 2 - 0.02, width / 2 - 0.02, diffuserDepth, 32), diffuserMat)
       diffuser.rotation.x = Math.PI / 2
+      setModelDetail(diffuser, new THREE.CylinderGeometry(width / 2 - 0.02, width / 2 - 0.02, diffuserDepth, 8))
       diffuser.position.z = ceiling - LIGHT_DEPTH + diffuserDepth / 2
       g.add(diffuser)
     }

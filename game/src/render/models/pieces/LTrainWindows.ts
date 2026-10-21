@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { setModelDetail } from '../../modelDetail.ts'
+import { trainWindowLow } from './TrainWindowLow.ts'
 
 /** L stock (§1.12): small end panes and wide, paired inter-door windows.
  * Door positions still come from stock.ts so platform alignment is unchanged.
@@ -47,7 +48,7 @@ export function buildLWindowBay(g: THREE.Group, mats: ModelMaterials, a: number,
       return result
     }
     const mesh = new THREE.Mesh(geometry(6), material)
-    setModelDetail(mesh, geometry(1))
+    setModelDetail(mesh, trainWindowLow(shape,depth))
     mesh.position.set(x, y, z)
     mesh.name = name
     g.add(mesh)

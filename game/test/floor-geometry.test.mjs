@@ -65,7 +65,7 @@ test('other-floor train geometry reduces without changing doors, and Low quality
     assert.ok(swapped.every(d=>d.mesh.geometry===d.far))
     assert.deepEqual(group.userData.doors.map(d=>d.position.toArray()),doors)
     ctx.hideUI=true;ctx.graphicsQuality='low';trains.updateGeometryDetail()
-    assert.ok(swapped.every(d=>d.mesh.geometry===d.near))
+    assert.ok(swapped.every(d=>d.mesh.geometry===d.far),'Hide UI preserves the chosen Low quality')
     ctx.hideUI=false;trains.updateGeometryDetail();assert.ok(swapped.every(d=>d.mesh.geometry===d.far))
     ctx.detailEnabled=false;trains.updateGeometryDetail();assert.ok(swapped.every(d=>d.mesh.geometry===d.near))
     let disposed=0;swapped.forEach(d=>d.far.addEventListener('dispose',()=>disposed++))

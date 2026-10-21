@@ -13,8 +13,9 @@ export function buildRoadCar(k: VehicleKit, suv: boolean): void {
       shape.lineTo(y + .4, .4); shape.absarc(y, r, r + .055, .15, Math.PI - .15, false)
     }
     shape.lineTo(-2.02, .4); shape.closePath()
-    const geo = new THREE.ExtrudeGeometry(shape, { depth: .045, bevelEnabled: false, curveSegments: k.low ? 2 : 10 })
+    const geo = k.low ? new THREE.ShapeGeometry(shape, 2) : new THREE.ExtrudeGeometry(shape, { depth: .045, bevelEnabled: false, curveSegments: 10 })
     geo.applyMatrix4(new THREE.Matrix4().set(0,0,1,side * .85, 1,0,0,0, 0,1,0,0, 0,0,0,1))
+    if(k.low&&side<0){const ix=geo.index!;for(let i=0;i<ix.count;i+=3){const b=ix.getX(i+1);ix.setX(i+1,ix.getX(i+2));ix.setX(i+2,b)}geo.computeVertexNormals()}
     k.add(paint, geo)
     for (const y of axles) k.wheel(side * .84, y, r, .19)
     k.box(INK.rubber, [side * .882, -.1, .42], [.025, 1.52, .075])

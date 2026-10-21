@@ -1168,6 +1168,7 @@ export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; 
  * no slab to read at all (a ghost in an empty station).
  */
 export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: readonly Module[] = [], fallback?: number): number {
+  if (m.ceilingAnchored) return 0
   if (topBlockOver(cells, m, modules)) return 0
   const resolvedFallback = fallback ?? ((m as { storeyHeight?: number }).storeyHeight ?? STOREY_HEIGHT) - 1
   return ceilingMountHeight(cells, m, modules) ?? resolvedFallback

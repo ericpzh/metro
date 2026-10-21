@@ -30,7 +30,7 @@ export function buildTrainSuspension(g: THREE.Group, mats: ModelMaterials, centr
     air.rotation.x = Math.PI / 2
     air.position.set(centre, side * .78, 0)
     air.name = 'bogie-secondary-air-cushion'
-    setModelDetail(air, new THREE.LatheGeometry(profile.map(([r,z])=>new THREE.Vector2(r,.24+(z-.10)*(.16/.30))),6))
+    setModelDetail(air, new THREE.CylinderGeometry(.24,.24,.16,6).translate(0,.32,0))
     g.add(air)
     bar('air-cushion-seat', mats.darkSteel, 0, side * .78, .22, .55, .55, .04)
     bar('body-load-pad', mats.darkSteel, 0, side * .78, .445, .62, .62, .11)

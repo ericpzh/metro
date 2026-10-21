@@ -97,7 +97,10 @@ disposal, UV attributes, alpha-cut exclusions and moving rigs. `floor-geometry`
 pins chunk picking against full source geometry and train rig/restoration/disposal.
 It also covers unbatched moving equipment, hidden/batched-source exclusions and
 source-owned approximation disposal.
-`model-detail.test.mjs` covers authored Low triangle budgets for all shelf,
+`model-detail.test.mjs` sweeps every palette option: models above ten triangles
+must have a nonempty, smaller Low variant before and after batching, with restored
+source geometry. Primitive panels also pin UVs, exact edge picks, cached swaps and
+single disposal. It covers authored Low triangle budgets for all shelf,
 restroom, CCTV, cabinet, AC, tactile, track, ramp, lift and stair models; exact
 instanced stock picks, retained motion/geometry, painted finishes, local/cross-model
 batching, Hide UI restoration and single disposal. Clock Low keeps two animated,
@@ -175,12 +178,24 @@ checks the native base64 decoder and the compatibility path preserve every byte.
 placement at every rotation and direction, contact-wire height, one-car placement,
 third-rail absence, worker power flags, door-mask isolation and cached power changes.
 `train-lod` pins the published full triangle count of every consist (asset integrity),
-its Low budget through the real TrainSystem path, one prepared swap per drawn piece
+its 10% Low budget for all five stocks, one through eight cars and both power systems
+through the real TrainSystem path, one prepared swap per drawn piece
 with full sources kept, door-bank and sorted-glass geometry swaps under Low, the
 authored parts a passenger still recognizes (straps, ring lights, benches, bellows,
 D plug doors), the `TRAIN_DETAIL_MAX_RADIUS` guard that keeps a consist-wide merged
 mesh out of the relative-error simplifier, and batching carrying both variants.
-`passenger-lod` pins the baked Low topology (every variant, padded the same way), the
+Door apertures and hollow strap loops must remain visible from both sides.
+`passenger-lod` pins a hard 10% Low triangle budget for every appearance and the
+shared padded draw, each Low vertex's membership in its source appearance, flat
+palette boundaries, and exact silhouette bounds/ground contact in all 73 poses.
+Projected-surface coverage at standing and four phases per gait catches missing
+limbs that isolated extremum triangles could hide from a bounds-only check.
+It also checks that offline reduction leaves the source topology and poses intact;
+`tools/check-passenger-lod.mjs` compares production High/Low renders for every
+eligible appearance and age, all three gaits and three views, saving the worst
+silhouette pairs for review. Node bounds alone cannot detect missing body surfaces.
+The suite retains
+the baked Low topology (every variant, padded the same way), the
 coarser body's unchanged shader contract and silhouette, one shared pose atlas with a
 separate index table and 70% High / 45% Low opacity, the per-storey split (the edited storey full, a ghosted storey
 reduced, one draw when the crowd shares the edited storey), 低画质/隐藏UI, the recorded
@@ -280,6 +295,9 @@ gaps, negative heights, all height bases, drag deduplication, adjacent storeys
 and preserved street floors, plus controller preview/release agreement and
 one commit per click or drag, native context-menu drag preservation (also used by
 right-button 分区 erasure) and available erase cursors.
+
+`ceiling-decor` also pins explicit underground ceiling anchors beneath 0 m and
+−5 m, with physical slabs or the virtual ground plane and a taller fallback.
 
 `monitor-signal` pins the 监视器's two mounts, all rotated wall backing courses,
 3×2 m wall dimensions, twelve 1×0.5 m screens in four rows facing away from their backing in every rotation,
@@ -525,7 +543,7 @@ thick-pillar shaft and collars, periodic obsidian pixels, and material roughness
 | Area | Files |
 |---|---|
 | Authored road nodes | `road-document.test.mjs` — segment splits, shared-node lifetime, legacy migration, duplicate/elevation rules, width merges, snapped starts keeping the selected width/direction, save/undo, node input, hidden/refused pieces and node-buffer ownership. |
-| Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, Low at most 25% of High, fixed High counts, outward fittings at both details, grayscale, 70% High / 45% Low opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
+| Road vehicle models | `road-vehicles.test.mjs` — six silhouettes at both detail levels, Low at most 10% of High, fixed High counts, outward fittings at both details, grayscale, 70% High / 45% Low opacity, depth prepass, seeded variant packing, quality switching, pause and disposal. Production GPU views/counts: `tools/check-road-vehicles.mjs`. |
 | Road network and traffic | `road-network.test.mjs` — crossings/T joins, a crossing on every junction side whatever the one-way setting, directed turns, bounded topology cache/vehicle capacity, signals, lane gaps, bus tail reservations, clock seeks, derived facilities and traffic-light decor; right-hand rotations, lane-specific turns/T splits, preview arrows and incoming-only stop lines. |
 | Elevator doors | `lift-doors.test.mjs` — per-level front/back/both/none choices, landing geometry, two-track telescoping cabin/landing panels and bounded opening travel (`module-build`), graph stops and ride edges, render-facing snapshot, and save round trip. `check:info-panel` covers the browser dialog and per-level undo. |
 | Elevator floor intervals | `lift-interval.test.mjs` — the 超短 3 m / 短 4 m / 中 5 m / 长 6 m / 超长 7 m 层高 tile (named by rung only; the metres live in the mark), a 5 m default, one-story fresh pieces, uneven stacking on both sides, exact mixed-shaft levels, the graph's one-car edges, ghost/preview keys, save round trip, and a drawn shaft exactly the stacked stories (a 5 m piece is 5 m) closed by a cap at each end, with landing portals at every level and glazing on the door side. |
@@ -690,7 +708,7 @@ percentages.
 | `sim/trainSchedule.ts` (the timetable forecast) | — (new) | 100 % lines / 100 % branches | `station-display` (forecasts checked against the real dispatcher) |
 | `sim/headway.ts` (formation and train curve) | — (new) | 100 % lines / 82.5 % branches | `headway` (repair, dispatch count, readouts and the train curve) |
 | `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
-| `render/modelDetail.ts` | — (new) | 100 % lines / 92.86 % branches / 100 % functions (`test:perf`) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
+| `render/modelDetail.ts` | — (new) | 100 % lines / 92.45 % branches / 100 % functions (focused `model-detail` coverage) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
 | `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
 | `render/moduleDependencies.ts` | — (new) | 99.6 % lines / 93.6 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` and `performance-policy` (per-model inputs, functional versus render-only and combined cell/module edits, fence/gate/tactile, glass/door, cubicle, TV, hanger, track/pillar, ramp/exit and PSD dependencies, structural invalidation, unknown types and the boards-only sign verdict) |
 | `render/modulePreviewDocument.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` (prepared-station hover reuse, cached move removal and coupled candidate merging) |
@@ -807,7 +825,7 @@ pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
 grayscale and share the passenger material's 70% High / 45% Low opacity, with a depth prepass for self-occlusion.
 `road-vehicles.test.mjs` covers all six procedural variants: grounded finite geometry,
-bounded material/triangle counts, visible car hubs and windscreens, distinct rooflines,
+a 10% triangle cap with fixed High counts, visible outward tyres/hubs on both sides and windscreens, distinct rooflines,
 curb-side bus doors and exposed route/lamp surfaces, open bicycle spokes/basket,
 moped luggage, deterministic variant selection, actual six-way instance packing,
 paused buffer retention and exactly-once disposal. `node tools/check-road-vehicles.mjs`

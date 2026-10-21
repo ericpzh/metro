@@ -4041,7 +4041,10 @@ platform, both ends, all rotations, one module pick per event and preview/click
 agreement.
 
 
-`model-detail.test.mjs` pins authored Low geometry budgets, empty shelves with exact
+`model-detail.test.mjs` sweeps the complete palette for a smaller nonempty Low
+variant on every model above ten triangles, including batching and restoration;
+primitive panels pin UVs, exact edge picks, cached swaps and disposal.
+It pins authored Low geometry budgets, empty shelves with exact
 stock picking, unchanged full geometry and finishes, retained ramp/lift motion,
 batch allocation reuse, Hide UI restoration and single disposal. Generate the
 per-model triangle inventory with `node tools/model-triangle-inventory.mjs` from

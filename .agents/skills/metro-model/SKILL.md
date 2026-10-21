@@ -103,11 +103,19 @@ Work from the metro root. Read `model/README.md` and
   decodes them losslessly and retains support for legacy raw-base64 data.
   The bake also emits the crowd's Low LoD: `lowIndices`/`lowCorners`/`lowTriangles`
   and `library[].lowTriangles` are a second index table over the *same* animated
-  vertex pool, simplified from the standing pose (target 1,400 triangles, 3 % relative
-  error), filtered to triangles that still reference baked vertices, and padded per
+  vertex pool, with a hard 10% triangle budget per appearance. Offline faceted
+  envelopes separate anatomical parts and palette regions; original faces retain
+  extrema from all 73 poses. Envelopes reference existing animated vertices and
+  are reduced without component pruning. Skirts retain their original cloth
+  surface with motion-weighted simplification instead of a standing hull. This
+  is a surface approximation, not
+  a bounded-error version of the source surface. Results are padded per
   row to the widest one. It is not a second atlas: never duplicate the pose buffers,
   never re-simplify at runtime, and keep the full topology the authoritative record
-  (`triangles`) beside the reduced one. The game's `passenger-lod` pins the table,
+  (`triangles`) beside the reduced one. For a Low-policy-only edit,
+  `node tools/bake-approved-passenger.mjs --low-only` verifies every export hash
+  and regenerates only Low fields from the current full atlas; stale exports
+  require the full bake. The game's `passenger-lod` pins the table,
   the 低画质 switch and shared-atlas disposal; `node tools/model-triangle-inventory.mjs`
   regenerates the published passenger table.
   Carry age/side/bag metadata through exports and bake. Game `passengerEligibility`

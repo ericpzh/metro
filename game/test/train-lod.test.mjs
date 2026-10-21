@@ -41,11 +41,11 @@ function consist(mats, stock, cars) {
 }
 
 /** A TrainSystem holding one consist, with a storey-slicing stub. */
-function trainSystem(mats, stock, cars, doorSides = 3) {
+function trainSystem(mats, stock, cars, doorSides = 3, power = 'third-rail') {
   const ctx = new SceneContextData(new THREE.Scene(), {}, mats, {})
   const trains = new TrainSystem(ctx)
   trains.level = { applyGroupLevel(group) { group.visible = true } }
-  trains.setTrains(new Float32Array([0, 0, 0, cars, STOCK_CLASSES.indexOf(stock), 1, 0x336699, 1, 0, doorSides]))
+  trains.setTrains(new Float32Array([0, 0, 0, cars, STOCK_CLASSES.indexOf(stock), 1, 0x336699, 1, 0, doorSides | (power === 'catenary' ? 4 : 0)]))
   const group = trains.trainGroup.children[0]
   group.updateMatrixWorld(true)
   // Put the camera's storey on the consist so "high quality" really is the current floor.
@@ -82,16 +82,16 @@ test('a live line recolour retains consist geometry, door banks, poses and detai
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
 const consists = [
-  ['D', 8, 1303424, .11],
-  ['D', 6, 1008052, .11],
-  ['A', 8, 730512, .28],
-  ['A', 6, 574244, .27],
-  ['B', 6, 513888, .27],
-  ['C', 6, 534888, .27],
-  ['L', 6, 464576, .25],
-  ['B', 4, 378236, .26],
-  ['C', 4, 395652, .26],
-  ['L', 4, 344492, .24],
+  ['D', 8, 1303424, .1],
+  ['D', 6, 1008052, .1],
+  ['A', 8, 730512, .1],
+  ['A', 6, 574244, .1],
+  ['B', 6, 513888, .1],
+  ['C', 6, 534888, .1],
+  ['L', 6, 464576, .1],
+  ['B', 4, 378236, .1],
+  ['C', 4, 395652, .1],
+  ['L', 4, 344492, .1],
 ]
 
 test('identical consists on separate five-metre floors retain distinct cached poses', () => withDocument(mats => {
@@ -129,6 +129,22 @@ test('every consist draws its published full count and a Low within budget', () 
       const low = trainDrawnTriangles(group)
       assert.equal(high, full, `${stock}-${cars}: full geometry is unchanged`)
       assert.ok(low > 0 && low <= full * ratio, `${stock}-${cars}: Low ${low}/${full} (${(low / full * 100).toFixed(1)}%)`)
+    } finally { trains.dispose() }
+  }
+}))
+
+test('one through eight cars, both roof powers and both door banks retain the 10% Low budget', () => withDocument(mats => {
+  for (const stock of STOCK_CLASSES) for (let cars = 1; cars <= 8; cars++) for (const power of ['third-rail', 'catenary']) {
+    const { ctx, trains, group } = trainSystem(mats, stock, cars, 3, power)
+    try {
+      const high = trainDrawnTriangles(group)
+      ctx.graphicsQuality = 'low'; trains.updateGeometryDetail()
+      const low = trainDrawnTriangles(group)
+      assert.ok(low > 0 && low <= Math.floor(high * .1), `${stock}-${cars} ${power}: ${low}/${high} triangles`)
+      setDoorsSides(group, 0, 1)
+      assert.equal(trainDrawnTriangles(group), low, 'door motion cannot change the submitted triangle budget')
+      ctx.graphicsQuality = 'high'; trains.updateGeometryDetail()
+      assert.equal(trainDrawnTriangles(group), high, 'restoring High retains its exact topology')
     } finally { trains.dispose() }
   }
 }))
@@ -197,8 +213,8 @@ test('Low keeps the parts a passenger recognizes: straps, ring lights, benches a
       assert.ok(triangles(low) < triangles(mesh.geometry), `${mesh.name}: ${triangles(low)}/${triangles(mesh.geometry)} triangles`)
       assert.ok(low.boundingBox.containsBox(mesh.geometry.boundingBox), `${mesh.name} keeps its source envelope`)
     }
-    assert.equal(triangles(modelDetailGeometry(strap)), 48)
-    assert.equal(triangles(modelDetailGeometry(ring)), 96)
+    assert.equal(triangles(modelDetailGeometry(strap)), 12)
+    assert.equal(triangles(modelDetailGeometry(ring)), 48)
     assert.equal(triangles(modelDetailGeometry(bench)), 12)
     const ringSize = extent(ring.geometry).getSize(new THREE.Vector3()), ringLow = extent(modelDetailGeometry(ring)).getSize(new THREE.Vector3())
     assert.ok(Math.abs(ringSize.x - ringLow.x) < 0.02 && Math.abs(ringSize.z - ringLow.z) < 0.02, 'the ring light keeps its diameter')
@@ -207,6 +223,33 @@ test('Low keeps the parts a passenger recognizes: straps, ring lights, benches a
     const lowBellows = extent(gangwayGeometry([0, STOCK.B.length], STOCK.B.width, true))
     assert.ok(lowBellows.min.z > 0.3 && lowBellows.max.z > 3, 'a Low bellows still spans the gap between cars')
   } finally { disposeObject(group) }
+}))
+
+test('Low door apertures and hollow strap loops keep visible surfaces on both sides', () => withDocument(mats => {
+  const group=consist(mats,'B',2)
+  try {
+    const door=group.children.find(m=>m.name==='passenger-curved-door'),seal=door.children.find(m=>m.name==='train-door-perimeter-seal')
+    for(const source of [door,seal]){
+      const mesh=new THREE.Mesh(modelDetailGeometry(source),source.material)
+      mesh.updateMatrixWorld(true);mesh.geometry.computeBoundingBox()
+      const bounds=extent(mesh.geometry),x=bounds.max.x-.01
+      for(const side of [-1,1]){
+        const ray=new THREE.Raycaster(new THREE.Vector3(x,side*4,.28),new THREE.Vector3(0,-side,0))
+        assert.ok(ray.intersectObject(mesh).length,`${source.name}: both broad faces remain visible`)
+        ray.ray.origin.x=0
+        assert.equal(ray.intersectObject(mesh).length,0,`${source.name}: the window/inner opening is unbacked`)
+      }
+    }
+    const strap=group.children.find(m=>m.name==='hanging-strap'),path=strap.geometry.parameters.path
+    const top=path.getPoint(0),center=[0,1/3,2/3].map(t=>path.getPoint(t)).reduce((sum,p)=>sum.add(p),new THREE.Vector3()).multiplyScalar(1/3)
+    const loop=new THREE.Mesh(modelDetailGeometry(strap),strap.material);loop.updateMatrixWorld(true)
+    for(const side of [-1,1]){
+      const ray=new THREE.Raycaster(new THREE.Vector3(top.x,top.y+side*2,top.z),new THREE.Vector3(0,-side,0))
+      assert.ok(ray.intersectObject(loop).length,'the loop rim is drawn from both cabin directions')
+      ray.ray.origin.x=center.x;ray.ray.origin.z=center.z
+      assert.equal(ray.intersectObject(loop).length,0,'a Low strap remains a hollow loop')
+    }
+  } finally {disposeObject(group)}
 }))
 
 test('the D plug door keeps its opening and its glass at Low', () => withDocument((mats) => {

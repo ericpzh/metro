@@ -100,7 +100,9 @@ test('capture includes every model and bounds optional walking batches without a
 
 test('bounded art batches reuse one GPU capture atlas and explicitly dispose it at completion',()=>{
  const capture=read('app/capturePassengers.ts'),driver=readTool('render-passenger-cards.mjs')
- assert(capture.includes('sharedCapture ??= createCaptureContext()'))
+ assert(capture.includes('sharedCapture ??= createCaptureContext(detail)'))
+ assert(capture.includes("options.detail ?? 'full'") && capture.includes('passengerMesh(1, detail)'))
+ assert(capture.includes('sharedCapture.detail !== detail) disposePassengerCapture()'))
  assert(capture.includes('if (!options.reuseContext) disposeContext(context)'),'one-shot callers release resources immediately')
  assert(capture.includes('mesh.dispose()')&&capture.includes('renderer.forceContextLoss()'))
  assert(driver.includes('reuseContext:true')&&driver.includes('disposePassengerCapture'))

@@ -12,8 +12,9 @@ export function buildRoadBus(k: VehicleKit, mosaic: boolean): void {
       skirt.lineTo(y + .52, .37); skirt.absarc(y, .46, .52, -.17, Math.PI + .17, false)
     }
     skirt.lineTo(-4.95, .37); skirt.closePath()
-    const geo = new THREE.ExtrudeGeometry(skirt, { depth: .07, bevelEnabled: false, curveSegments: k.low ? 3 : 12 })
+    const geo = k.low ? new THREE.ShapeGeometry(skirt, 2) : new THREE.ExtrudeGeometry(skirt, { depth: .07, bevelEnabled: false, curveSegments: 12 })
     geo.applyMatrix4(new THREE.Matrix4().set(0,0,1,s > 0 ? 1.1 : -1.17, 1,0,0,0, 0,1,0,0, 0,0,0,1))
+    if(k.low&&s<0){const ix=geo.index!;for(let i=0;i<ix.count;i+=3){const b=ix.getX(i+1);ix.setX(i+1,ix.getX(i+2));ix.setX(i+2,b)}geo.computeVertexNormals()}
     k.add(accent, geo)
     k.box(INK.glass, [s * 1.176, -.05, 2.04], [.025, 8.98, 1.28])
     for (let y = -4.3; y < 4.6; y += k.low ? 1.5 : 1.14) k.box(paint, [s * 1.197, y, 2.04], [.022, .055, 1.29])

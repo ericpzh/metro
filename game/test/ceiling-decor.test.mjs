@@ -41,6 +41,18 @@ import { clockHandAngles } from '../src/sim/clock.ts'
 /** The drawn height of each piece: the whole storey, floor top to ceiling. */
 const HUNG_H = 4.0
 
+test('explicit underground ceiling anchors mount under grade and the lower slab', () => {
+  for (const ceiling of [0, -5]) {
+    for (const type of ['light', 'sign', 'clock', 'cctv', 'monitor', 'vent']) {
+      const m = { id: 'anchored', type, x: 0, y: 0, z: ceiling - 1,
+        ceilingAnchored: true, cfg: { mount: 'ceiling' } }
+      for (const cells of [[], [{ x: 0, y: 0, z: ceiling, fill: 'solid' }]]) {
+        assert.equal(m.z + 1 + hangCeilingLocal(m, cells, [], 4), ceiling)
+      }
+    }
+  }
+})
+
 const clock = (x, y, z = 0, id = 'clock-1', rot = 0) => ({ id, type: 'clock', x, y, z, rot, cfg: {} })
 const cctv = (x, y, z = 0, id = 'cctv-1', rot = 0) => ({ id, type: 'cctv', x, y, z, rot, cfg: {} })
 const gate = (x, y, z, id = 'gate-1') => ({ id, type: 'gate', x, y, z, rot: 0, cfg: { dir: 'both' } })

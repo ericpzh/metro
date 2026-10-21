@@ -3,7 +3,8 @@ import { dHalfWidth } from './DTrainShell.ts'
 import * as THREE from 'three'
 import { slab } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
-import { boxModelDetail, omitModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { boxModelDetail, omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { trainStrapLow } from './TrainStrapLow.ts'
 import { CABIN_FLOOR_Z, CABIN_HALF_W, CABIN_CEILING_Z, DOOR_HEAD_Z } from '../../../sim/stock.ts'
 
 const ROUTE_PANEL_HEIGHT = 0.24
@@ -44,14 +45,15 @@ export function buildTrainCeiling(g: THREE.Group, material: THREE.Material, star
 
 /**
  * A handrail or hanging strap is a tube on a short path: full detail samples it 16
- * times round a six-sided section, Low six times round four sides. The path's own
+ * times round a six-sided section. Low uses hollow flat strap loops and short
+ * triangular tubes for rails. The path's own
  * ends (a rail's run, a strap's loop) are the tube's, not new geometry, so the shape
  * a passenger holds stays where it was.
  */
 function tubeDetail(mesh: THREE.Mesh): void {
   const surface = mesh.geometry as THREE.TubeGeometry
   const p = surface.parameters
-  setModelDetail(mesh, new THREE.TubeGeometry(p.path, Math.min(p.closed ? 6 : 4, p.tubularSegments), p.radius, 4, p.closed))
+  setModelDetail(mesh, p.closed?trainStrapLow(p.path,p.radius):new THREE.TubeGeometry(p.path, Math.min(2,p.tubularSegments), p.radius, 3, false))
 }
 
 /** Benches, seat-end guards, handrails and lighting from the metro cabin references (§1.13). */
@@ -148,7 +150,7 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
         guard.name = 'seat-end-panel'
         guard.scale.y = side
         guard.position.set(x - 0.03, y, CABIN_FLOOR_Z)
-        boxModelDetail(guard)
+        panelModelDetail(guard,'x')
         g.add(guard)
         tube([
           new THREE.Vector3(x, y - side * 0.29, CABIN_FLOOR_Z + 0.12),
@@ -186,7 +188,7 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.018, 6, 32), mats.glow)
     ring.name = 'cabin-ring-light'
     ring.position.set(x, 0, (CABIN_CEILING_Z - .05) - 0.025)
-    setModelDetail(ring, new THREE.TorusGeometry(0.26, 0.018, 4, 12))
+    setModelDetail(ring, new THREE.TorusGeometry(0.26, 0.018, 3, 8))
     g.add(ring)
   }
 }
