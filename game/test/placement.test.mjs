@@ -70,6 +70,14 @@ test('every stair shape needs ground at its foot, but may form its upper and tur
   }
 })
 
+test('an escalator only needs support at its lower landing, even when the run leaves the floor', () => {
+  const base = { x: -7, y: -1, z: 6, fill: 'solid' }
+  const escalator = createModule('escalator', base.x, base.y, base.z, 'supported-escalator', 3)
+  assert.ok(escalator)
+  assert.equal(equipmentReason([base], [], escalator), '', 'the ramp may extend beyond the platform floor')
+  assert.equal(equipmentReason([], [], escalator), 'escalator-bases', 'the lower landing still needs support')
+})
+
 test('moduleAt finds a module from any cell it covers', () => {
   assert.equal(moduleAt([gate(0, 0, 0, 'a')], 0, 0, 0)?.id, 'a')
   assert.equal(moduleAt([gate(0, 0, 0, 'a')], 1, 0, 0), undefined)

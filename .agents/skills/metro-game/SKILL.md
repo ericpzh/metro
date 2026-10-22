@@ -84,6 +84,10 @@ endpoints; reverse both together. The inspector's selected-run reverse is
 `game/test/escalators.test.mjs`.
 Escalator equipment collisions use `rampBodyBoxes`'s per-tile slope, even against
 another run; do not substitute the landing-to-landing vertical envelope there.
+Placement support is separate from collision: an escalator requires floor only at
+its lower landing, not under the full projected incline. Keep `equipmentReason`
+from routing it through the generic full-footprint floor check; `placement.test.mjs`
+pins a supported lower base with open space along the run and the missing-base refusal.
 Runs may occupy vertically adjacent storeys when their bodies only meet at the
 landing plane. Pin slope clearance and real body overlap in
 `game/test/placement.test.mjs` and `game/test/bay.test.mjs`.

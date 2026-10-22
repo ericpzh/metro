@@ -2261,7 +2261,8 @@ export type EquipmentRefusal =
  * all ask this, so a ghost can never promise a piece the release refuses.
  *
  * Every rule here was already enforced by the builder, gathered rather than
- * changed: the ground under every cell the piece stands on, the storey an 出入口
+ * changed: the ground under each full floor-standing footprint (ramps check their
+ * own footing), the storey an 出入口
  * belongs to (`layer`: true only while placing, so a 移动 of an existing one is not
  * refused for where it already is), the rails, the space another piece holds, a
  * 广告牌's wall, a hung piece's slab, a 扶梯's two landings and a 电梯's 2 × 2
@@ -2366,7 +2367,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   // under open sky — but a 站台 or 轨道桥 deck over its cell is its ceiling, not
   // the bed it stands on (`placementOnTrack` lets a hung fitting hang under one).
   if (!(candidate.type === 'psd-end' && candidate.cfg.variant === 'cover' && modules.some((m) => isPsdEndCoverSupport(candidate, m))) &&
-    !isCeilingHung(candidate) && !moduleFloorOk(cells, modules, candidate)) {
+    !isCeilingHung(candidate) && candidate.type !== 'escalator' && !moduleFloorOk(cells, modules, candidate)) {
     return candidate.type === 'lift' ? 'lift-footprint' : 'floor'
   }
   if (placementOnTrack(cells, candidate, modules)) return 'track'

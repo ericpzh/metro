@@ -349,7 +349,7 @@ with no view attached.
 
 `placement` and `bay` pin escalator collision against its per-tile sloped body: space above the
 lower section stays free, same-storey treads still collide, and vertically adjacent runs do not
-reserve an entire shared shaft. `escalators` also pins the inspector's selected-run direction switch and its undo: travel reverses
+reserve an entire shared shaft. `placement` also pins that escalator support is required only at its lower landing, not across the incline's full projected footprint. `escalators` also pins the inspector's selected-run direction switch and its undo: travel reverses
 by swapping `from`/`to` together with `cfg.dir`. `escalators` and `module-build` also pin the
 single two-block-wide escalator: its continuous
 moving band, outer rails, rotated footprint, landing support and two-column opening.

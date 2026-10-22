@@ -305,11 +305,10 @@ test('a 扶梯 stands on its lower base; the upper landing is carved, not requir
   assert.deepEqual(moduleFootprint(run), [[0, 0], [0, 9]], 'its footprint is the two landings, not the slope between them')
   assert.equal(equipmentReason(step.cells, step.modules, run), '', 'the upper landing is carved on placement')
   assert.match(equipmentRefusalNotice('escalator-bases'), /底端/, 'in the words the notice bar uses')
-  // Dig the lower base out and the same run has nowhere to stand: the generic floor
-  // rule answers first, because the base plan cell is in the footprint it checks.
+  // Dig the lower base out and the escalator-specific refusal names its missing support.
   const dug = flatStation([{ x: 0, y: 9, z: 0, fill: 'solid' }])
   dug.cells = dug.cells.map((c) => (c.x === 0 && c.y === 0 && c.z === 0 ? { ...c, fill: 'void' } : c))
-  assert.equal(equipmentReason(dug.cells, dug.modules, run), 'floor')
+  assert.equal(equipmentReason(dug.cells, dug.modules, run), 'escalator-bases')
   // Everything between the landings is carved on placement, so a void middle is no
   // refusal: give the run its base and the same run stands.
   const landed = flatStation([
