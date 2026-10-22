@@ -31,6 +31,7 @@ import { cellKey, faceFinish, facePresent } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
 import { finishLabel } from '../../sim/finishes.ts'
 import { moduleAt } from '../../sim/placement.ts'
+import { pillarSectionOf } from '../../sim/structures.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
 import { MODULE_OPTIONS, moduleLabel, useStore } from '../store.ts'
@@ -266,7 +267,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'floor-mark' && mod.cfg.variant === 'direction' && mod.cfg.line) st.setRailLine(mod.cfg.line)
       if (mod.type === 'guidepost') st.setGuideExitId(mod.cfg.exitId ?? null)
       if (mod.type === 'light') st.setLightPosition(mod.cfg.position ?? 0)
-      if (mod.type === 'pillar') useStore.setState({ pillarLength: mod.cfg.height === 2 ? 2 : 5 })
+      if (mod.type === 'pillar') useStore.setState({ pillarLength: pillarSectionOf(mod.cfg.height) })
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)

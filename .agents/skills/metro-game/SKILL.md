@@ -1060,12 +1060,16 @@ the four rules most changes trip over.
   `app/rail/menus/StructurePanel.tsx`; `overground.test.mjs` + `roof-tool.test.mjs` +
   `structures-gaps.test.mjs` + `pillar-length.test.mjs` + `pick-tool.test.mjs` +
   `pillar-extension.test.mjs` + `move.test.mjs`). A pillar is a slim (0.3 m) or thick (1 m) column grown
-  in 2 m or 5 m sections (`extendedPillar`, `PILLAR_SHORT_STEP` / `PILLAR_STEP`), chosen
+  in 超短 2 m / 短 3 m / 中 4 m / 长 5 m / 超长 6 m sections (`extendedPillar`,
+  `PILLAR_LENGTHS` / `nextPillarLength` / `pillarLengthLabel` / `pillarSectionOf`), chosen
   with Tab and copied when picked; R places a slim pillar at one of nine
   in-cell offsets on the shared centre-then-reading-order cycle (`sim/inCellPositions.ts`,
   which also drives a rectangular 灯具's Tab `position`; a slim pillar's module `rot` is
   an index, not a quarter-turn), shared by its drawn shaft and collision envelope.
-  Thick pillars stay centred. Clicking a pillar grows it by the armed section, and the
+  Thick pillars stay centred. Every column draws as one continuous shaft, with steel
+  collars capping only its two ends — never the old 4 m mid-joints — so 长 5 m and
+  超长 6 m never read as shorter pillars stacked together (`PillarModel`,
+  `render-regressions.test.mjs`). Clicking a pillar grows it by the armed section, and the
   hover and the release both read it through `pillarAt` (`sim/placement.ts`): the
   pillar's own anchor cell, never a generic `moduleAt` — a turning stair's envelope
   spans the whole corner it turns through and would otherwise win the lookup whenever

@@ -49,8 +49,11 @@ export class PillarModel extends PieceBuilder {
       }
       // Recess the round shaft beneath its round steel collars to avoid coincident faces.
       if (h > 0.2) cylinder(mat, w / 2 - 0.01, h - 0.2, h / 2, true)
-      for (let z = 0; z <= h; z += 4) cylinder(this.ctx.mats.steel, w / 2, 0.1, Math.max(0.05, Math.min(h - 0.05, z)))
-      if (bridge || h % 4 !== 0) cylinder(this.ctx.mats.steel, w / 2, 0.1, h - 0.05)
+      // One continuous column: collars cap the ends only, so a 长 5 m or 超长
+      // 6 m section never reads as two shorter pillars stacked on each other.
+      const collar = (z: number) => cylinder(this.ctx.mats.steel, w / 2, 0.1, Math.max(0.05, Math.min(h - 0.05, z)))
+      collar(0)
+      if (h > 0.1) collar(h)
       return this.placeLocal(g, mod)
     }
     // Keep the slim shaft inside its steel collars. Coincident outer faces and
@@ -64,14 +67,14 @@ export class PillarModel extends PieceBuilder {
       if (mod.cfg.finish) finishSlab(g, mat, offset.x, offset.y, (shaftStart + shaftEnd) / 2, shaftW, shaftW, shaftH)
       else slab(g, mat, offset.x, offset.y, (shaftStart + shaftEnd) / 2, shaftW, shaftW, shaftH)
     }
-    // Steel collars make each five-metre extension legible without enlarging its footprint.
+    // One continuous column: collars cap the ends only, so a 长 5 m or 超长
+    // 6 m section never reads as two shorter pillars stacked on each other.
     const collar = (z: number) => {
-      const mesh = slab(g, this.ctx.mats.steel, offset.x, offset.y, z, w, w, .1)
-      if (z <= .1 || z >= h - .1) surfaceModelDetail(mesh, 'z')
-      else omitModelDetail(mesh)
+      const mesh = slab(g, this.ctx.mats.steel, offset.x, offset.y, Math.max(.05, Math.min(h - .05, z)), w, w, .1)
+      surfaceModelDetail(mesh, 'z')
     }
-    for (let z = 0; z <= h; z += 4) collar(Math.max(.05, Math.min(h - .05, z)))
-    if (bridge || h % 4 !== 0) collar(h - .05)
+    collar(0)
+    if (h > .1) collar(h)
     // Slim pillar `rot` selects one of nine in-cell positions; the offset above
     // already expresses that position, so applying it again as a model turn
     // would collapse several edge and corner choices onto the same locations.

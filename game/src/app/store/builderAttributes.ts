@@ -5,7 +5,7 @@ import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { walkwayLengthLabel } from '../../sim/walkways.ts'
 import { liftIntervalLabel } from '../../sim/lifts.ts'
 import { stairWidthLabel } from '../../sim/stairs.ts'
-import { roofWidthLabel } from '../../sim/structures.ts'
+import { pillarLengthLabel, roofWidthLabel } from '../../sim/structures.ts'
 import { trackRunLengthLabel } from '../../sim/track.ts'
 import type { AppState } from './Store.ts'
 import {
@@ -77,7 +77,7 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
   if (type === 'hanger-roof' || type === 'hanger-post') attrs.push(variant('length', msg(s.hangerLength === 4 ? 'short' : s.hangerLength === 6 ? 'medium' : 'long'), s.cycleHangerLength))
-  if (type.startsWith('pillar')) attrs.push(variant('length', msg(s.pillarLength === 2 ? 'short' : 'long'), s.togglePillarLength))
+  if (type.startsWith('pillar')) attrs.push(variant('length', pillarLengthLabel(s.pillarLength), s.cyclePillarLength))
   if (type === 'light-rectangular') attrs.push({ kind: 'position', label: msg('position_value_9', s.lightPosition + 1), shortcut: undefined, activate: s.cycleLightPosition, visual: 'grid-position' })
   if (isBenchType(type)) attrs.push(variant('width', msg(type.endsWith('-2') ? 'wide' : 'narrow'), s.cycleBenchWidth))
   if (isStairType(type)) {

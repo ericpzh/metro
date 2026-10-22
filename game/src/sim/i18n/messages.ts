@@ -255,8 +255,8 @@ export const messages = {
     "en": "Accessible, {0} people/trip"
   },
   "tab_adds_2_4_m_of_height": {
-    "zh": "Tab 切换，每次加高 2 / 4 m",
-    "en": "Tab adds 2 / 4 m of height"
+    "zh": "Tab 切换，每次加高 2 / 3 / 4 / 5 / 6 m",
+    "en": "Tab adds 2 / 3 / 4 / 5 / 6 m of height"
   },
   "thin_canopy_can_be_painted": {
     "zh": "薄顶棚，材质可涂刷",

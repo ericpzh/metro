@@ -5,7 +5,29 @@ import { inCellOffset } from './inCellPositions.ts'
 import { rotateLocal, trackCellAt, trackCells } from './track.ts'
 import type { BridgeRailing, Module } from './types.ts'
 export const PILLAR_STEP = 5
-export const PILLAR_SHORT_STEP = 2
+/**
+ * The section lengths a pillar is built and extended in, cycled with Tab:
+ * 超短 2 m → 短 3 m → 中 4 m → 长 5 m → 超长 6 m. A click on an existing pillar
+ * stacks the armed section on top of it, so a mixed stack stays one shaft.
+ */
+export const PILLAR_LENGTHS = [2, 3, 4, 5, 6] as const
+export type PillarLength = (typeof PILLAR_LENGTHS)[number]
+/** A fresh five-metre station's pillar section is 长 5 m, matching the storey. */
+export const PILLAR_LENGTH_DEFAULT: PillarLength = PILLAR_STEP
+export function nextPillarLength(length: number): PillarLength {
+  const index = PILLAR_LENGTHS.indexOf(length as PillarLength)
+  return PILLAR_LENGTHS[(index + 1) % PILLAR_LENGTHS.length]
+}
+/** The name the Tab tile wears for a section: 超短 / 短 / 中 / 长 / 超长. */
+export function pillarLengthLabel(length: number): string {
+  const labels = ['ultra_short', 'short', 'medium', 'long', 'ultra_long'] as const
+  const index = PILLAR_LENGTHS.indexOf(length as PillarLength)
+  return msg(labels[index < 0 ? 3 : index])
+}
+/** The section a placed pillar arms when picked; a legacy height falls back to 长. */
+export function pillarSectionOf(height: number | undefined): PillarLength {
+  return PILLAR_LENGTHS.includes(height as PillarLength) ? (height as PillarLength) : PILLAR_LENGTH_DEFAULT
+}
 export const ROOF_THICKNESS = 0.25
 export const TRUSS_ROOF_BAY = 4
 export const ROOF_WIDTHS = [4, 8, 12] as const

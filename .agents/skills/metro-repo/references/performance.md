@@ -239,7 +239,7 @@ the shared bridge builders also prepare these Low variants.
 | exit-covered-3 | 68 | 902 |
 | roof-canopy | 56 | 840 |
 | tactile-warning | 4 | 812 |
-| pillar-thick | 64 | 768 |
+| pillar-thick | 48 | 576 |
 | fence-iron | 72 | 768 |
 | checkout | 64 | 750 |
 | gate-new | 68 | 720 |
@@ -288,7 +288,7 @@ the shared bridge builders also prepare these Low variants.
 | glass-3x2 | 18 | 60 |
 | exit-virtual | 46 | 60 |
 | road | 10 | 50 |
-| pillar-slim | 16 | 48 |
+| pillar-slim | 16 | 36 |
 | stair-block | 34 | 48 |
 | billboard-wide | 6 | 40 |
 | billboard-standard | 6 | 40 |
@@ -355,7 +355,7 @@ Low targets strictly less than 10% of High. The user-approved exceptions below k
 | glass-3x2 | 18 / 60 | Four frame members and one double-sided glass surface. |
 | exit-virtual | 46 / 60 | Three printed sides and shaped metro-logo collar. |
 | road | 10 / 50 | Road surface plus four lane/edge markings. |
-| pillar-slim | 16 / 48 | Shaft and end collars, preserving height and support footprint. |
+| pillar-slim | 16 / 36 | Shaft and end collars, preserving height and support footprint. |
 | stair-block | 34 / 48 | All four solid treads, exposed risers and closed side silhouette. |
 | billboard-wide | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
 | billboard-standard | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |

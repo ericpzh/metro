@@ -152,7 +152,7 @@ test('all width action tiles use the shared width glyph and the shell delegates 
   for (const [type, kind, key, values] of [
     ['road', 'width', 'roadWidth', [6,12,18,24]],
     ['curtain-wall', 'height', 'curtainHeight', [2,3,4]],
-    ['pillar', 'length', 'pillarLength', [2,5]],
+    ['pillar', 'length', 'pillarLength', [2,3,4,5,6]],
     ['walkway', 'length', 'walkwayLength', ['short','medium','long']],
     ['lift', 'length', 'liftInterval', [3,4,5,6,7]],
     ['bridge', 'length', 'bridgeLength', [4,16,32,64,128]],

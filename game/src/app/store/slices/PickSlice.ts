@@ -14,6 +14,7 @@ import type { StateCreator } from 'zustand'
 import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
 import type { RampLength, RampSpan } from '../../../sim/rampLengths.ts'
 import type { LiftInterval } from '../../../sim/lifts.ts'
+import type { PillarLength } from '../../../sim/structures.ts'
 import type { WalkwayLength } from '../../../sim/walkways.ts'
 import type { SignBoards } from '../../../sim/sign.ts'
 import type { ZoneBrush } from '../catalog.ts'
@@ -42,7 +43,7 @@ export interface PickDraft {
   railCatenaryStyle: 'canopy' | 'gantry'
   guideExitId: string | null
   lightPosition: number
-  pillarLength: 2 | 5
+  pillarLength: PillarLength
   roofWidth: number
   roofPlateSnap: 'lower' | 'upper'
   bridgeLength: number

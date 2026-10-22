@@ -3,6 +3,7 @@ import { isBenchType, isDoorType, isStairType } from '../../store/catalog.ts'
 import { STAIR_WIDTHS } from '../../../sim/stairs.ts'
 import { rampLengthsFor, rampLengthSpec } from '../../../sim/rampLengths.ts'
 import { TRACK_RUN_LENGTHS } from '../../../sim/track.ts'
+import { PILLAR_LENGTHS } from '../../../sim/structures.ts'
 
 /** Read the selected size from builder state, never from translated labels. */
 export function dimensionSelection(kind: string, type: string, s: AppState): { selected: number; count: number } | undefined {
@@ -24,7 +25,7 @@ export function dimensionSelection(kind: string, type: string, s: AppState): { s
   if (kind === 'length') {
     if (type === 'walkway') return choice(s.walkwayLength, ['short', 'medium', 'long'])
     if (type.startsWith('hanger')) return choice(s.hangerLength, [4, 6, 8])
-    if (type.startsWith('pillar')) return choice(s.pillarLength, [2, 5])
+    if (type.startsWith('pillar')) return choice(s.pillarLength, PILLAR_LENGTHS)
     if (type === 'lift') return choice(s.liftInterval, [3, 4, 5, 6, 7])
     if (type === 'bridge') return choice(s.bridgeLength, TRACK_RUN_LENGTHS)
     // A 楼梯's family carries the extra 超长 6 m rung; a 扶梯 resolves the same

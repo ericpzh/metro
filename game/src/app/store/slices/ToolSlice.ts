@@ -11,7 +11,7 @@ import { LIFT_INTERVAL_DEFAULT, nextLiftInterval, type LiftInterval } from '../.
 import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '../../../sim/walkways.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
-import { nextRoofWidth, supportedRoofWidth } from '../../../sim/structures.ts'
+import { nextPillarLength, nextRoofWidth, supportedRoofWidth, PILLAR_LENGTH_DEFAULT, type PillarLength } from '../../../sim/structures.ts'
 import { DEFAULT_ZONE_BRUSH, isBenchType, isRotatableType, isStairType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
@@ -90,8 +90,8 @@ export interface ToolSlice {
   /** Width of a newly placed swing door, cycled 窄/宽 like the stair width. */
   doorWide: boolean
   stairBlockHeight: 0.5 | 1
-  /** New pillar section length, toggled between 2 m and 4 m with Tab. */
-  pillarLength: 2 | 5
+  /** New pillar section length, cycled 超短 2 m → … → 超长 6 m with Tab. */
+  pillarLength: PillarLength
   /** Width across a truss roof, cycled 窄 4 m → 中 8 m → 宽 12 m with Tab. */
   roofWidth: number
   /** Thin roof plate position against the hit 1 m cell, cycled lower/upper with Tab. */
@@ -215,7 +215,7 @@ export interface ToolSlice {
   setDoorWidth: (wide: boolean) => void
   cycleBenchWidth: () => void
   setStairBlockHeight: (height: 0.5 | 1) => void
-  togglePillarLength: () => void
+  cyclePillarLength: () => void
   cycleRoofWidth: () => void
   setRoofWidth: (width: number) => void
   cycleRoofPlateSnap: () => void
@@ -285,7 +285,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   stairWidth: STAIR_WIDTH_NARROW,
   doorWide: false,
   stairBlockHeight: 1,
-  pillarLength: 5,
+  pillarLength: PILLAR_LENGTH_DEFAULT,
   roofWidth: 4,
   roofPlateSnap: 'upper',
   escalatorDir: 'up',
@@ -355,7 +355,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   toggleDoorWidth: () => set((s) => ({ doorWide: !s.doorWide })),
   setDoorWidth: (doorWide) => set({ doorWide }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
-  togglePillarLength: () => set((s) => ({ pillarLength: s.pillarLength === 5 ? 2 : 5 })),
+  cyclePillarLength: () => set((s) => ({ pillarLength: nextPillarLength(s.pillarLength) })),
   cycleBenchWidth: () => set((s) => isBenchType(s.moduleType)
     ? { moduleType: s.moduleType === 'bench' ? 'bench-steel-2' : s.moduleType.replace(/-[12]$/, s.moduleType.endsWith('-2') ? '-1' : '-2') }
     : {}),

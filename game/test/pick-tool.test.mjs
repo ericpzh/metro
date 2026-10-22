@@ -128,14 +128,15 @@ test('picking a 自动步道 copies its level length, width and direction', () =
 test('picking a pillar copies its section length and Esc restores the chosen length', () => {
   const before = useStore.getState()
   try {
-    for (const height of [2, 5, 10]) {
+    for (const [height, section] of [[2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [10, 5]]) {
       const m = createModule('pillar-slim', 0, 0, 0, `picked-pillar-${height}`)
       m.cfg.height = height
-      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, pillarLength: height === 2 ? 5 : 2 })
+      const previous = section === 5 ? 2 : 5
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, pillarLength: previous })
       ctxFor(m.id).onDown(press([0, 0, 0]))
-      assert.equal(useStore.getState().pillarLength, height === 2 ? 2 : 5, `${height} m pillar selects its next section length`)
+      assert.equal(useStore.getState().pillarLength, section, `${height} m pillar arms its own section length`)
       useStore.getState().cancelPick()
-      assert.equal(useStore.getState().pillarLength, height === 2 ? 5 : 2, 'Esc restores the pre-pick choice')
+      assert.equal(useStore.getState().pillarLength, previous, 'Esc restores the pre-pick choice')
     }
   } finally {
     useStore.setState(before)
