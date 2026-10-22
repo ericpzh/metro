@@ -244,8 +244,14 @@ carry no variant and arm by their own type.
 
 Delete targeting preserves a directly hit thin roof even when the terrain pick
 lands on a road or other module behind it at another storey. Keep this priority
-in `app/tools/deletionTarget.ts`; `delete-tool.test.mjs` pins Tanwei D’s roof at
+in `app/tools/deletionTarget.ts`; `delete-tool.test.mjs` pins Tanwei D's roof at
 `(33,45,9)` through hover and removal.
+
+Fence joints also meet ramp handrails at landing cells. `sim/fences.ts` indexes
+every lane of each stair flight's full-width landing, using the flight direction
+for turning stairs; keep that shared lookup aligned across placement, committed
+models and fence previews. `fence.test.mjs` pins the Tanwei upper landing at
+`(39,36,6)`.
 
 Street roads (`道路`) are placed as orthogonal node-to-node segments from the 站外
 palette. The document derives shared nodes from segment endpoints: intersections
