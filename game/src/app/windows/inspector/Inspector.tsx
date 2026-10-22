@@ -29,7 +29,7 @@ import { LineCard } from './LineCard.tsx'
 const INSPECTOR_FOLDER_KEYS: ReadonlySet<string> = new Set(INSPECTOR_FOLDERS.map((f) => f.key))
 
 export function Inspector(): React.ReactElement {
-  useLanguage()
+  const language = useLanguage()
   const station = useStore((s) => s.station)
   const addLine = useStore((s) => s.addLine)
   // Every row of the stack opens where the player needs it: the report sections, and
@@ -73,7 +73,9 @@ export function Inspector(): React.ReactElement {
 
   const toggle = (k: InspectorFolderKey): void => setOpen((o) => ({ ...o, [k]: !o[k] }))
 
-  const exits = useMemo(() => station.modules.filter((m) => m.type === 'exit'), [station.modules])
+  const exits = useMemo(() => station.modules
+    .filter((m) => m.type === 'exit')
+    .sort((a, b) => a.cfg.name.localeCompare(b.cfg.name, language, { sensitivity: 'base', numeric: true })), [language, station.modules])
 
   // What each row shows and the count its header prints — the one half of a folder the
   // table cannot carry. 视图's is its own nine tiles (显示其他层 / 剖切 / 隐藏UI /
@@ -88,7 +90,11 @@ export function Inspector(): React.ReactElement {
       body: (
         <>
           {exits.length === 0 && <div className="muted small">{t('no_exits_built_yet')}</div>}
-          {exits.map((m) => (m.type === 'exit' ? <ExitCard key={m.id} mod={m} /> : null))}
+          {exits.length > 0 && (
+            <div className="blockGrid exitGrid">
+              {exits.map((m) => <ExitCard key={m.id} mod={m} />)}
+            </div>
+          )}
         </>
       ),
     },

@@ -1725,6 +1725,10 @@ export const messages = {
     "zh": "开放",
     "en": "Open"
   },
+  "closed": {
+    "zh": "已关闭",
+    "en": "Closed"
+  },
   "position": {
     "zh": "位置",
     "en": "Position"

@@ -39,34 +39,52 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
   const pick = (): void => select({ kind: 'module', key: mod.id, label: moduleLabel('exit') })
 
   return (
-    <div ref={ref} className={isSelected ? 'card sel' : 'card'} onClick={pick} onFocus={pick}>
-      <label className="field">
-        <span>{t('name')}</span>
-        <input
-          className="lineNameInput"
-          value={name}
-          maxLength={12}
-          placeholder={t('exit_name')}
-          aria-label={t('exit_name_377')}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={commitName}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur()
-            else if (e.key === 'Escape') {
-              setName(mod.cfg.name)
-              e.currentTarget.blur()
-            }
-          }}
-        />
-      </label>
-      <label className="field">
-        <span>{t('entering')}{' '}{translate(mod.cfg.inRate)} {' '}{t('people_h')}</span>
-        <input type="range" min={0} max={6000} step={10} value={mod.cfg.inRate} onChange={(e) => patch({ inRate: Number(e.target.value) })} />
-      </label>
-      <label className="field inline">
-        <input type="checkbox" checked={mod.cfg.open} onChange={(e) => patch({ open: e.target.checked })} />
-        <span>{t('open')}</span>
-      </label>
+    <div ref={ref} className="card exitTile">
+      <div className="exitTileHeader">
+        <label className="field exitNameField">
+          <input
+            className="lineNameInput"
+            value={name}
+            maxLength={12}
+            placeholder={t('exit_name')}
+            aria-label={t('exit_name_377')}
+            onFocus={pick}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              else if (e.key === 'Escape') {
+                setName(mod.cfg.name)
+                e.currentTarget.blur()
+              }
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          className={mod.cfg.open ? 'exitSwitch on' : 'exitSwitch'}
+          role="switch"
+          aria-checked={mod.cfg.open}
+          aria-label={t('open')}
+          title={mod.cfg.open ? t('open') : t('closed')}
+          onFocus={pick}
+          onClick={() => patch({ open: !mod.cfg.open })}
+        >
+          <span className="exitSwitchThumb" />
+        </button>
+      </div>
+      <span className="exitRateReadout">{t('entering')}{' '}{translate(mod.cfg.inRate)} {' '}{t('people_h')}</span>
+      <input
+        className="exitRateSlider"
+        type="range"
+        min={0}
+        max={6000}
+        step={10}
+        value={mod.cfg.inRate}
+        aria-label={t('entering', translate(mod.cfg.inRate), t('people_h'))}
+        onFocus={pick}
+        onChange={(e) => patch({ inRate: Number(e.target.value) })}
+      />
     </div>
   )
 }
