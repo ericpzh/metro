@@ -12,6 +12,11 @@ import type { Module, Vec3i } from '../../../sim/types.ts'
 import { isRotatableType, moduleLabel } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
+/** A doorway's clicked block course can change without changing its storey anchor. */
+function exitMountZ(module: Module | null): number | undefined {
+  return module?.type === 'exit' && module.cfg.style === 'doorway' ? module.cfg.mountZ : undefined
+}
+
 /**
  * A placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece the 信息 card's **移动** has picked up (§9.5).
  *
@@ -136,7 +141,8 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     // Re-aiming at the same cell with the same piece and the same verdict changes
     // nothing the player can see, so the card is not re-rendered for it.
     const samePosition = d.candidate?.type !== 'light' || candidate?.type !== 'light' || d.candidate.cfg.position === candidate.cfg.position
-    if (samePosition && sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
+    const sameMount = exitMountZ(d.candidate) === exitMountZ(candidate)
+    if (samePosition && sameMount && sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
     set({ moveDraft: { ...d, at, candidate, reason } })
   },
   rotateMove: () => {
@@ -175,7 +181,12 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     // today's poster, today's lane — put at the cell and rotation the ghost showed.
     // Only the aim is the draft's; the state is never a lift-time snapshot, so an
     // edit (or an undo) taken while the piece was in the air survives the move.
-    const to = movedModule(from, d.at, d.candidate.rot ?? 0)
+    let to = movedModule(from, d.at, d.candidate.rot ?? 0)
+    // The attachment course is part of the pointer's aim, like position/rotation.
+    // Reusing the old offset can move a legal wall mount down to street level.
+    if (to.type === 'exit' && to.cfg.style === 'doorway' && d.candidate.type === 'exit') {
+      to = { ...to, cfg: { ...to.cfg, mountZ: d.candidate.cfg.mountZ } }
+    }
     // Ask the drop rules again of that exact piece, so a station that changed under
     // the lift cannot commit a stale aim.
     const reason = moveDropReason(st.station.cells, st.station.modules, to)
@@ -183,7 +194,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       set({ notice: reason })
       return
     }
-    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0)) {
+    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from)) {
       set({ moveDraft: null, notice: msg('position_unchanged') })
       return
     }

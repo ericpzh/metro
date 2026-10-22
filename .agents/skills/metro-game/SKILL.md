@@ -1023,8 +1023,13 @@ the four rules most changes trip over.
   (`MoveController.moveAnchorAt`, reading the placed module's own mount), with the station's
   `levelBase` for the storey and — for a 玻璃板 / 广告牌 / 站名 — the **camera** for which wall it
   hangs on (`moveCandidate`'s `facing`; a 地面出入口 whose turn came from the block under the
-  pointer passes none), and either
-  previews with no floor cursor: the ghost is the highlight. A moved rectangular 灯具
+  pointer passes none). A doorway exit's `cfg.mountZ` is part of its aim: `MoveSlice.aimMove`
+  must refresh when only that course changes, and confirmation must commit the candidate's
+  mount height along with its anchor and rotation; otherwise the visible ghost can be legal
+  while the drop checks the old course and falsely reports a missing wall. `move.test.mjs`
+  pins the Tanwei D exit facing west at `(33,37,4)`, a same-storey course change, live settings,
+  and undo/redo. It previews without a floor cursor; the ghost is the highlight. A moved
+  rectangular 灯具
   carries its in-cell spot with it (`cycleMoveLightPosition`, Tab; in the ghost key),
   and a picked one adopts the spot it hung from. The ways out are a left press
   on the ground, the card's 确认 (or `Enter`), and 取消 / `Esc` / a right press. A ghost

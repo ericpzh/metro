@@ -54,6 +54,51 @@ const ceilingSlab = { x: 3, y: 3, z: 5, fill: 'solid' }
 const ceilingRun = [ceilingSlab, { x: 4, y: 3, z: 5, fill: 'solid' }]
 const at = (x, y, z = 0) => ({ x, y, z })
 
+test('Tanwei D exit commits the west-facing block course shown by its move preview', () => {
+  const source = piece('exit-doorway-2', 30, 40, 4, 1)
+  source.cfg.mountZ = 4
+  source.cfg.name = 'D'
+  const cells = [1, 2, 3, 4].map(z => ({ x: 33, y: 37, z, fill: 'solid' }))
+  load(cells, [source], { tool: 'move' })
+  st().liftModule(source.id)
+  let ghost
+  const scene = { setModulePreview(m) { ghost = m }, setCursor() {}, setCollisionHighlight() {} }
+  const tool = new MoveController({ scene: () => scene, facing: () => [-1, 0], hover: { current: null }, drag: { current: null } })
+  const event = z => ({ clientX: 10, clientY: 10, button: 0,
+    hit: { cell: [33, 37, z], place: [32, 37, z], solid: true, point: [33, 37.5, z + .5] }, preventDefault() {} })
+  tool.onMove(event(3))
+  assert.equal(st().moveDraft.reason, '')
+  assert.equal(ghost.cfg.mountZ, 3)
+  tool.onMove(event(4))
+  assert.equal(st().moveDraft.candidate.cfg.mountZ, 4, 'another course in the same storey updates the stored aim')
+  assert.equal(ghost.cfg.mountZ, 4)
+  assert.equal(ghost.rot, 1, 'the panel faces west from its backing block')
+  // Confirmation must retain current settings while carrying the aimed mount.
+  useStore.setState({ station: { ...st().station, modules: [{ ...source, cfg: { ...source.cfg, name: 'D updated' } }] } })
+  st().confirmMove()
+  assert.equal(st().moveDraft, null, 'a legal preview must commit without a false wall refusal')
+  const placed = held(source.id)
+  assert.deepEqual([placed.x, placed.y, placed.z, placed.rot, placed.cfg.mountZ], [32, 37, 0, 1, 4])
+  assert.equal(placed.cfg.name, 'D updated')
+  assert.equal(st().past.length, 1)
+  st().undo()
+  assert.equal(held(source.id).x, 30)
+  st().redo()
+  assert.equal(held(source.id).cfg.mountZ, 4)
+})
+
+test('moving an exit to another course at the same anchor is an edit', () => {
+  const source = piece('exit-doorway-1', 32, 37, 0, 1)
+  source.cfg.mountZ = 1
+  load([1, 4].map(z => ({ x: 33, y: 37, z, fill: 'solid' })), [source])
+  st().liftModule(source.id)
+  const candidate = { ...source, cfg: { ...source.cfg, mountZ: 4 } }
+  st().aimMove(at(32, 37), candidate, '')
+  st().confirmMove()
+  assert.equal(held(source.id).cfg.mountZ, 4)
+  assert.equal(st().past.length, 1)
+})
+
 /** A piece built by the real factory, so its `cfg` is the one the game makes. */
 function piece(type, x, y, z = 0, rot = 0, extra = {}) {
   const mod = createModule(type, x, y, z, `${type}-1`, rot, extra.width, extra.dir, extra.door, [], extra.sign)

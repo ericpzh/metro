@@ -1,5 +1,9 @@
 # Station Designer — the game
 
+Moving a ground-exit header keeps the exact wall course shown by its preview,
+including moves within one storey. `move` pins the Tanwei D exit's west-facing
+drop at the `(33,37,4)` backing block, current exit settings and undo/redo.
+
 Population sliders update future train alighting and street arrivals without
 rebuilding station models or walking routes. `population-edit`, `line-edit` and
 `worker-preview` guard the narrow update, history and pending-build ordering.

@@ -4,6 +4,8 @@
 
 `train-bogie` pins complete bogies on every A/B/C/D/L car, actual rail-crown contact in High/Low, inboard flanges, fixed cabin-floor clearance, suspension/brake details, authored Low budgets and geometry disposal. It runs in `test:perf`; `train-lod` pins the regenerated per-consist inventory.
 
+`move` pins ground-exit attachment courses through hover and confirmation: Tanwei D's west-facing drop against `(33,37,4)`, course changes within the same storey anchor, preserved current settings, undo/redo, and a course-only move counting as an edit.
+
 `catenary-model` covers flexible messenger sag, level contact at every seam/rotation/width, droppers, return wire, insulated registration arms, lattice portals, seated post/cleat/arm and upper-chord joints in every rotation, rigid tunnel/canopy fittings, crown clearance, authored Low contact/budgets and exactly-once disposal. It runs in `test:perf`.
 
 `train-pantograph` also checks the broad downturned bow, tapered lower spine, upper fork, five-shed insulators, pivot/spring/bonding hardware, wire clearance and authored Low triangle budget.

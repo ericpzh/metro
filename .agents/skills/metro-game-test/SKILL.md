@@ -388,6 +388,11 @@ covers the clicked course where a 广告牌 on the same hover keeps its band. Al
 is preview-and-release agreement: the ghost
 and the click ask one function.
 
+`move.test.mjs` also pins a 地面出入口's clicked wall course through preview and confirmation.
+The moved Tanwei D exit facing west at `(33,37,4)` must commit at that height with its live
+settings; changing only the mount course at the same storey anchor is still an edit, and undo
+and redo restore the mount course with the module.
+
 For a **hung** piece the same split applies to `hungCeilingAim` + `hangCeilingLocal`:
 `wall-ceiling-snap` pins the anchor itself — the free cell under the first underside
 above the pointer (`topBlockZ` skipping a wall's own courses, `topBlockOver` for a cell
