@@ -2147,8 +2147,10 @@ translucent fence models while you drag. Every panel is built from its neighbour
 an L, T or + junction turns through the shared centre post with no overhang — dragging a new
 segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
-fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short
-(a wide escalator's second landing column counts too, via `escalatorLandings`).
+fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
+Wide turning-stair landings include each lane under the outer rail, and both landing columns of a
+wide escalator count too. This lets a fence at `(39,36,6)` in the Tanwei save meet the far lane of
+the right-turn stair's upper rail; `fence.test.mjs` pins that saved geometry.
 A 楼梯块 is a stepped floor tile without a handrail, so it is not a fence neighbour.
 That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
 is free ground and the fence's own thin box never meets the run's. The **landing tile itself** is free
@@ -2936,8 +2938,9 @@ approximated); neither needs WebGL.
   fence cell is not a walkable node so the run plus its gates is a barrier the crowd only crosses
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
   a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap;
-  `railLandingAt` lets a fence connect to a stair or escalator landing, both landing columns of
-  a wide escalator included, while a 楼梯块 has no handrail connection. The equipment preview
+  `railLandingAt` lets a fence connect to a stair or escalator landing, every lane of a wide
+  turning-stair landing and both landing columns of a wide escalator included, while a 楼梯块
+  has no handrail connection. The equipment preview
   refresh also stays silent after 方块 takes over shared placement settings.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 5 m grid line at or
   below it (`storeyBand`), so a floor and its 5 m auto walls share a storey while a second floor one
