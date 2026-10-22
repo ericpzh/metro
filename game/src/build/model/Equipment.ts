@@ -108,10 +108,9 @@ export interface ModuleBuildSettings {
   /** 玻璃板 only: the storeys of curtain the board leaves (2 / 3 / 4). */
   curtainHeight?: 2 | 3 | 4
   /**
-   * A run's length: 超短 2 m … 长 5 m for a 扶梯, 超短 2 m … 超长 6 m for any
-   * 楼梯, and 超短 6 m … 超长 10 m when `escalatorSpan` is `double`. Omitted, it
-   * is the document's own default (`defaultRampLength`): 长 on the fixed
-   * five-metre grid.
+   * A run's length: 超短 2 m … 超长 6 m on one floor for a 扶梯 and any 楼梯, and
+   * 超短 6 m … 超长 10 m when `escalatorSpan` is `double`. Omitted, it is the
+   * document's own default (`defaultRampLength`): 长 on the fixed five-metre grid.
    */
   rampLength?: RampLength
   /** A 双层 扶梯: the length family its tile cycles (single floor by default). */

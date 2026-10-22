@@ -103,10 +103,8 @@ export interface ToolSlice {
   /**
    * The length a newly placed **run** is built at — every 扶梯 and every 楼梯 come
    * in the same one-floor sizes (`sim/rampLengths.ts`): 超短 2 m, 短 3 m,
-   * 中 4 m, 长 5 m. One setting for both pieces, because the two stand in one bay
-   * and a player who builds a bank picks the length once. A 楼梯 adds one rung,
-   * **超长 6 m** (one metre above 长), for uneven floors a 扶梯 cannot climb on one
-   * level; a 单层 扶梯 resolves that armed rung to 长, its own maximum. A 双层
+   * 中 4 m, 长 5 m, **超长 6 m**. One setting for both pieces, because the two
+   * stand in one bay and a player who builds a bank picks the length once. A 双层
    * 扶梯 has its own family below.
    */
   rampLength: RampLength

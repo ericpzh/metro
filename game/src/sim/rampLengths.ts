@@ -6,21 +6,23 @@ import { STOREY_HEIGHT } from './constants.ts'
 // A run is fixed equipment: it climbs `rise` metres over `run` cells of
 // horizontal travel, and both ends land on the block grid. The **endpoints are
 // authoritative** (`escalatorModule` / `stairFlightsFor` write them), so a piece
-// loaded from an older save reads its length back from its span and no `cfg`
-// flag has to be migrated.
+// loaded from an older save reads its length back from its endpoints. Only the
+// one ambiguous 6 m family needs a `cfg` flag, described below.
 //
-// The catalogue is measured in **metres of climb**, and comes in three families:
+// The catalogue is measured in **metres of climb**, and comes in two families:
 //
-//   single floor (扶梯):        超短 2, 短 3, 中 4, 长 5 m
-//   single floor (every 楼梯):  超短 2, 短 3, 中 4, 长 5, 超长 6 m
-//   double floor (扶梯 only):   超短 6, 短 7, 中 8, 长 9, 超长 10 m
+//   single floor (扶梯 and every 楼梯):  超短 2, 短 3, 中 4, 长 5, 超长 6 m
+//   double floor (扶梯 only):            超短 6, 短 7, 中 8, 长 9, 超长 10 m
 //
 // The single-floor family fills the station's storey: a five-metre station's
-// one-storey run is 长 5 m, the default a fresh piece is built at. A **stair**
-// climbs one metre further than its 扶梯 twin: 超长 6 m is one metre above 长 and
-// serves the uneven floors the 电梯 already spans (a six-metre mezzanine), while
-// a 单层 扶梯 stops at 长 — six metres of escalator climb is the 双层 超短 piece,
-// and one 30° run cannot be both.
+// one-storey run is 长 5 m, the default a fresh piece is built at. Both pieces
+// also climb 超长 6 m — one metre above 长 — for the uneven floors the 电梯
+// already spans (a six-metre mezzanine).
+//
+// A one-floor 超长 6 m and a 双层 超短 6 m are the **same 30° run**: the rise
+// cannot tell them apart, so the builder stamps `cfg.span` on the one-floor
+// piece it makes (`sim/escalators.ts`). Every other rise names its own family
+// from its endpoints.
 //
 // `run` is the **stair's** catalogue run: the 2:3 slope the reference staircase
 // has always had (2 m over 3 m … 6 m over 9 m), rounded up to whole cells so
@@ -34,14 +36,15 @@ import { STOREY_HEIGHT } from './constants.ts'
 export type RampSpan = 'single' | 'double'
 
 /**
- * Which piece a one-floor length belongs to. Only a 楼梯 grows the 超长 rung; the
- * 扶梯's one-floor family stops at 长 and its second family is 双层.
+ * Which piece a one-floor length belongs to. Both families carry all five rungs;
+ * the parameter stays because the builder and the label still ask with the
+ * piece's name, and the 双层 family ignores it.
  */
 export type RampFamily = 'escalator' | 'stair'
 
 /**
- * The run sizes. `ultra-long` is the 楼梯's 超长 6 m rung on one floor, and the
- * 双层 扶梯's 超长 10 m rung on two.
+ * The run sizes. `ultra-long` is the 超长 6 m rung on one floor and the 双层
+ * 扶梯's 超长 10 m rung on two.
  */
 export type RampLength = 'ultra-short' | 'short' | 'medium' | 'long' | 'ultra-long'
 
@@ -55,22 +58,17 @@ export interface RampLengthSpec {
   label: MessageKey
 }
 
-/** The one-floor 扶梯 family: 2 m to 5 m of climb. */
+/** The one-floor family: 2 m to 6 m of climb, shared by the 扶梯 and every 楼梯. */
 export const RAMP_LENGTHS: readonly RampLengthSpec[] = [
   { id: 'ultra-short', rise: 2, run: 3, label: 'ultra_short' },
   { id: 'short', rise: 3, run: 5, label: 'short' },
   { id: 'medium', rise: 4, run: 6, label: 'medium' },
   { id: 'long', rise: 5, run: 8, label: 'long' },
-]
-
-/**
- * The one-floor stair family: every 扶梯 size plus 超长 6 m, one metre above 长.
- * A 扶梯 never takes this rung — its 6 m run is the 双层 超短 piece.
- */
-export const STAIR_LENGTHS: readonly RampLengthSpec[] = [
-  ...RAMP_LENGTHS,
   { id: 'ultra-long', rise: 6, run: 9, label: 'ultra_long' },
 ]
+
+/** The stair's name for the same one-floor family. */
+export const STAIR_LENGTHS: readonly RampLengthSpec[] = RAMP_LENGTHS
 
 /** The two-floor family: 双层 扶梯 only, 6 m to 10 m of climb. */
 export const DOUBLE_RAMP_LENGTHS: readonly RampLengthSpec[] = [
@@ -103,16 +101,16 @@ export function rampLengthsFor(span: RampSpan = 'single', family: RampFamily = '
 }
 
 /**
- * The catalogue entry for `id` in `span` and `family`; an id that family cannot
- * spell falls back to its default. A 扶梯 asked for the 楼梯's 超长 therefore
- * builds 长 5 m, and a 楼梯 asked for a 双层 id builds 长 too.
+ * The catalogue entry for `id` in `span` and `family`; an id the catalogue cannot
+ * spell falls back to that family's default, so an older or newer save still arms
+ * a tile. Both one-floor families spell every rung.
  */
 export function rampLengthSpec(id: RampLength | undefined, span: RampSpan = 'single', family: RampFamily = 'escalator'): RampLengthSpec {
   const list = rampLengthsFor(span, family)
   return list.find((s) => s.id === id) ?? rampLengthSpec(defaultRampLength(5, span, family), span, family)
 }
 
-/** The 楼梯 family's entry for `id`; the one-floor sizes plus 超长 6 m. */
+/** The 楼梯 family's entry for `id` (the same five-rung one-floor family). */
 export function stairLengthSpec(id?: RampLength): RampLengthSpec {
   return rampLengthSpec(id, 'single', 'stair')
 }
@@ -129,8 +127,8 @@ export function defaultRampLength(_storeyHeight = STOREY_HEIGHT, span: RampSpan 
 
 /**
  * The next length in the span and family's cycle (wraps). The armed id is first
- * resolved into that family, so a 楼梯's 超长 arms an 扶梯 as 长 before it wraps
- * to 超短 — the tile the player sees is the piece the escalator will build.
+ * resolved into that family, so the tile the player sees is the piece that will
+ * be built.
  */
 export function nextRampLength(id: RampLength, span: RampSpan = 'single', family: RampFamily = 'escalator'): RampLength {
   const list = rampLengthsFor(span, family)

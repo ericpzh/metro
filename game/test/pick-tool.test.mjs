@@ -47,16 +47,22 @@ test('picking each fire cabinet copies its size and Esc restores the previous pi
 test('picking a run copies its length and Esc restores it, for 扶梯 and 单跑楼梯 alike', () => {
   const before = useStore.getState()
   try {
-    const lengths = ['ultra-short', 'short', 'medium', 'long']
+    const lengths = ['ultra-short', 'short', 'medium', 'long', 'ultra-long']
     for (const length of lengths) {
       const m = escalatorModule({ x: 0, y: 0, z: -8 }, 2, 'down', 'picked-escalator', 2, length)
-      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, rampLength: length === 'long' ? 'short' : 'long' })
+      useStore.setState({
+        station: { ...toState(emptyStation()), modules: [m] },
+        escalatorSpan: 'double',
+        rampLength: length === 'long' ? 'short' : 'long',
+      })
       ctxFor(m.id).onDown(press([0, 0, -8]))
       assert.equal(useStore.getState().rampLength, length)
+      assert.equal(useStore.getState().escalatorSpan, 'single', 'a one-floor 超长 comes back as 单层')
       assert.equal(useStore.getState().escalatorWide, true)
       assert.equal(useStore.getState().escalatorDir, 'down')
       useStore.getState().cancelPick()
       assert.equal(useStore.getState().rampLength, length === 'long' ? 'short' : 'long')
+      assert.equal(useStore.getState().escalatorSpan, 'double')
     }
     // A 单跑楼梯's own length comes with it too, read from its flight's endpoints —
     // the length a bank of 扶梯 and 楼梯 needs both pieces to share.

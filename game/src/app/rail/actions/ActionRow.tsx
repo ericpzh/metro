@@ -37,6 +37,7 @@ import { LuArrowDownToLine } from 'react-icons/lu'
 import { armedCut } from '../helpers.ts'
 import type { BuilderAttribute } from '../../store/builderAttributes.ts'
 import { DimensionArt, DirectionArt, StoreyArt } from '../shared/AttributeArt.tsx'
+import { dimensionMarkAlign } from '../shared/dimensionMark.ts'
 import { dimensionSelection } from '../shared/dimensionSelection.ts'
 import { Block } from '../shared/Block.tsx'
 import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
@@ -133,7 +134,7 @@ function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: Bui
   }
   const dimension = dimensionSelection(attribute.kind, moduleType, state)
   const art = attribute.kind === 'span' ? <StoreyArt double={state.escalatorSpan === 'double'} />
-    : dimension ? <DimensionArt vertical={attribute.kind === 'height' || (attribute.kind === 'length' && (moduleType.startsWith('pillar') || moduleType === 'lift'))} {...dimension} />
+    : dimension ? <DimensionArt vertical={attribute.kind === 'height' || (attribute.kind === 'length' && (moduleType.startsWith('pillar') || moduleType === 'lift'))} {...dimension} align={dimensionMarkAlign(attribute.kind)} />
     : attribute.kind === 'direction' ? <DirectionArt direction={moduleType === 'road' ? state.roadDirection : state.escalatorDir} />
     : attribute.visual === 'roof-snap' ? (state.roofPlateSnap === 'lower' ? <LuArrowDownToLine /> : <LuArrowUpToLine />)
     : undefined

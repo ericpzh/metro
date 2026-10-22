@@ -3,16 +3,15 @@
 // An escalator is fixed-length equipment, and it comes in the lengths of
 // `sim/rampLengths.ts`:
 //
-//   单层 (one floor)   超短 2 m / 短 3 m / 中 4 m / 长 5 m
+//   单层 (one floor)   超短 2 m / 短 3 m / 中 4 m / 长 5 m / 超长 6 m
 //   双层 (two floors)  超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m
 //
 // The 单层 family is shared with every staircase, so a player picks that length
-// once for a bank of runs — but a **stair** adds the 超长 6 m rung its uneven
-// floors ask for, and a 单层 扶梯 has no such rung: six metres of escalator
-// climb *is* the 双层 超短 piece, and one 30° run cannot be both. The span is
-// the piece's own: a two-floor run climbs twice the distance and its endpoints
-// say so. All of them run along the placement rotation; a five-metre station
-// lays a strict 30° incline inside whole-cell landings.
+// once for a bank of runs. Its 超长 6 m rung is the one climb whose family the
+// endpoints cannot name: it and the 双层 超短 piece are the same 30° run. The
+// builder therefore stamps `span: 'single'` on that piece, and every other rise
+// is inferred. All of them run along the placement rotation; a five-metre
+// station lays a strict 30° incline inside whole-cell landings.
 // `dir` only orders `from`/`to` — the single
 // one-way travel the sim and the label read — so an up and a down piece share
 // one footprint.
@@ -110,12 +109,16 @@ export function escalatorLengthSpec(length: RampLength | undefined, _storeyHeigh
 }
 
 /**
- * Which length family a placed 扶梯 belongs to, read from its climb: a run that
- * rises more than the one-floor maximum (5 m) is a 双层 piece. The endpoints are
- * authoritative, so an old 8 m escalator reads back as 双层 中 with no flag.
+ * Which length family a placed 扶梯 belongs to. A run that rises more than the
+ * one-floor 长 (5 m) is a 双层 piece — except the ambiguous one-floor 超长 6 m,
+ * which carries `cfg.span: 'single'` because it is drawn exactly like 双层 超短.
+ * The flag is trusted only at that rise; every other piece is read from its
+ * endpoints, so an old 8 m escalator still reads back as 双层 中.
  */
-export function escalatorSpanOf(m: Pick<Escalator, 'from' | 'to'>): RampSpan {
-  return Math.abs(m.to.z - m.from.z) > rampLengthSpec('long').rise ? 'double' : 'single'
+export function escalatorSpanOf(m: Pick<Escalator, 'from' | 'to'> & { cfg?: Pick<Escalator['cfg'], 'span'> }): RampSpan {
+  const climb = Math.abs(m.to.z - m.from.z)
+  if (m.cfg?.span === 'single' && climb === rampLengthSpec('ultra-long').rise) return 'single'
+  return climb > rampLengthSpec('long').rise ? 'double' : 'single'
 }
 
 /** All floor cells supporting the two ends of this single piece. */
@@ -145,11 +148,11 @@ export function nextEscalatorDir(dir: EscalatorDir): EscalatorDir {
 }
 
 /**
- * `base` is the lower landing, `length` the piece's size — 超短 2 m … 长 5 m on
+ * `base` is the lower landing, `length` the piece's size — 超短 2 m … 超长 6 m on
  * one floor, or 超短 6 m … 超长 10 m for a `double` span (`sim/rampLengths.ts`).
- * A one-floor 超长 in the shared setting clamps to 长: the 6 m rung belongs to a
- * 楼梯. An omitted length is the document's own default (`defaultRampLength`), so a
- * station gets 长. `dir` orders `from`/`to`
+ * The one-floor 超长 piece carries `cfg.span: 'single'`, because its 6 m climb is
+ * geometrically the 双层 超短 run. An omitted length is the document's own default
+ * (`defaultRampLength`), so a station gets 长. `dir` orders `from`/`to`
  * (up: base → top, down: top → base) without moving the run, so up and down
  * share one footprint.
  */
@@ -174,6 +177,14 @@ export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id:
     rot,
     from: up ? lower : upper,
     to: up ? upper : lower,
-    cfg: { incline: 30 as const, dir: up ? 'up' : 'down', ...(width === 2 ? { width } : {}) },
+    cfg: {
+      incline: 30 as const,
+      dir: up ? 'up' : 'down',
+      ...(width === 2 ? { width } : {}),
+      // The one-floor 超长 6 m run is indistinguishable from the 双层 超短 piece
+      // by its endpoints, so stamp the family it was built from. Older saves
+      // carry no flag; a 6 m run there still reads as 双层, which is what it was.
+      ...(span === 'single' && size === 'ultra-long' ? { span } : {}),
+    },
   }
 }

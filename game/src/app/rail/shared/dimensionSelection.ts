@@ -28,9 +28,9 @@ export function dimensionSelection(kind: string, type: string, s: AppState): { s
     if (type.startsWith('pillar')) return choice(s.pillarLength, PILLAR_LENGTHS)
     if (type === 'lift') return choice(s.liftInterval, [3, 4, 5, 6, 7])
     if (type === 'bridge') return choice(s.bridgeLength, TRACK_RUN_LENGTHS)
-    // A 楼梯's family carries the extra 超长 6 m rung; a 扶梯 resolves the same
-    // armed setting into its own 2–5 m family, so its marks show the piece it
-    // will actually build.
+    // A 楼梯 and a 单层 扶梯 share the five-rung one-floor family; a 双层 扶梯
+    // resolves the armed setting into its own 6–10 m family, so the marks show
+    // the piece it will actually build.
     const span = type === 'escalator' ? s.escalatorSpan : 'single'
     const family = isStairType(type) ? 'stair' : 'escalator'
     const armed = span === 'double' ? s.doubleRampLength : s.rampLength

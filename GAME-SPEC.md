@@ -401,11 +401,12 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 
 A **run** — an escalator or any staircase but the 1 × 1 楼梯块 — climbs one of the
 **one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m,
-**长** 5 m and — for a staircase alone — **超长** 6 m (长 is the default for both).
-The stair's extra rung sits one metre above 长 and serves the uneven floors the
-elevator already spans; a **single-storey** escalator stops at 长, because six
-metres of 30° escalator climb is the **双层 超短** piece. The length is the piece's
-own endpoints, so a run is a fixed piece that a save carries with it. A
+**长** 5 m and **超长** 6 m (长 is the default for both). The 6 m rung sits one metre
+above 长 and serves the uneven floors the elevator already spans. It is also the one
+climb the endpoints cannot name: a **single-storey 超长** escalator and a **双层 超短**
+one are the same 30° run, so the placed piece carries its span and a picked or
+reloaded one returns to the family it was built from. The length is the piece's own
+endpoints, so a run is a fixed piece that a save carries with it. A
 **单跑楼梯** climbs it in one flight; a **turning staircase** splits it into two
 flights and puts its middle platform at half the rise (1 m for 超短, 3 m for
 超长). That platform is the stair's **own 0.5 m slab**, not a placed block: the

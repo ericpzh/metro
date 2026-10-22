@@ -1470,8 +1470,8 @@ each placed as fixed-length equipment: its base sits on the hovered floor cell, 
 previews as a translucent ghost, and **R** turns the run; **Tab** cycles its **size**, which the action
 tile names **窄 / 中 / 宽** (`STAIR_WIDTH_LABELS`) — the player picks a size, never a metre. Every
 staircase but the 1 × 1 楼梯块 then carries its **length** on the next tile along (**Shift+Tab**):
-**超短** 2 m, **短** 3 m, **中** 4 m, **长** 5 m and — on a staircase alone — **超长** 6 m
-(`sim/rampLengths.ts`), the same one-floor sizes a 扶梯 comes in (the 扶梯 stops at 长), so a bank is picked once.
+**超短** 2 m, **短** 3 m, **中** 4 m, **长** 5 m and **超长** 6 m
+(`sim/rampLengths.ts`), the same five-rung one-floor family a 扶梯 comes in, so a bank is picked once.
 A 单跑楼梯 climbs that rise in
 one flight; a **turning** stair splits it into two flights with its platform at **half the rise** —
 1 m for 超短, 3 m for 超长 — and that platform is the stair's own 0.5 m model, never a floor block.
@@ -2817,26 +2817,23 @@ approximated); neither needs WebGL.
   closed rounded end shells and true hemispheres seated along the sloping centreline.
   A bank of one type fills its seam at every one of the one-floor run lengths, and two pieces of **different**
   lengths — different landings, slopes and rail returns — never share one.
-* `escalator-length.test.mjs` — the run families: one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m
-  for the 扶梯 and every staircase, a staircase adds 超长 6 m (one metre above 长; a 扶梯 resolves
-  that armed setting to 长), and 双层 is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m for the
-  escalator alone. Each size is its own ghost and its own name on the tile, the 扶梯's one-floor cycle is
-  超短 → 短 → 中 → 长, a stair's is 超短 → 短 → 中 → 长 → 超长, and the two-floor cycle adds 超长; a fresh piece defaults to the size nearest its
-  storey (长 / 超长 on the five-metre grid) and a five-metre station
+* `escalator-length.test.mjs` — the run families: one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m /
+  超长 6 m for the 扶梯 and every staircase, and 双层 is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m
+  for the escalator alone. Each size in a family is its own ghost and its own name on the tile; both one-floor cycles
+  are 超短 → 短 → 中 → 长 → 超长 and the two-floor cycle adds 超长; a fresh piece defaults to the size
+  nearest its storey (长 / 超长 on the five-metre grid) and a five-metre station
   lays every escalator at a strict 30° over whole-cell landings. Every length carves
   its own passage, keeps both landings on the crowd graph, snaps into exit bays (a 扶梯 at its own
   descent, a single-run stair its own rise below the bay it lands in), moves and survives saving, and
   both drawn models span the run they were built at. A placed run's length is read back from its
-  endpoints (for an escalator, a rise above 5 m reads as 双层), so the run family is determined by
-  its endpoints;
-  a size the catalogue cannot spell reads as its family default, and a span it never built arms the
-  nearest tile. A turning stair takes the same five-rung staircase length tile — its outer landings span the
-  whole climb and its platform sits at half the rise — and the length redraws the **stair's** ghost as
-  well as the 扶梯's. The one-floor tile is one store setting for both pieces, so switching from the
-  扶梯 to the stair that will stand beside it keeps the size on every shared rung; the stair-only
-  超长 resolves to 长 on the 扶梯, and the two runs a bank builds from one setting are the same span
-  wherever both families have the rung — which is what the seam between them needs; previews and
-  picking carry it, span and family included.
+  endpoints (for an escalator, a rise above 5 m reads as 双层, except the one-floor 超长 6 m whose
+  cfg carries its span), so a size the catalogue cannot spell reads as its family default and a span
+  it never built arms the nearest tile. A turning stair takes the same five-rung length tile — its outer
+  landings span the whole climb and its platform sits at half the rise — and the length redraws the
+  **stair's** ghost as well as the 扶梯's. The one-floor tile is one store setting for both pieces, so
+  switching from the 扶梯 to the stair that will stand beside it keeps the size on every rung; the two
+  runs a bank builds from one setting are the same span — which is what the seam between them needs;
+  previews and picking carry it, span and family included.
 * `escalators.test.mjs` — the escalator is a fixed run: an up run travels from
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
@@ -3259,12 +3256,13 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   The service-room R tile cycles the front face.
 * `builder-attributes.test.mjs` — module action tiles and R / Tab / Shift+Tab dispatch share
   one capability list, variants follow the width → length → span → height → direction → position → style
-  priority, and selected width, height and length sizes use shared centred box marks. Length marks line up
-  on their left edge, including the tunnel and bridge controls; platforms share the up/down direction
+  priority, and selected width, height and length sizes use shared centred box marks. Width marks centre
+  their bars on the tile midline; length marks line up on their left edge, including the tunnel and bridge
+  controls; platforms share the up/down direction
   mark with module directions, and rotations share the four-way mark. The **run length** is on that list for the
-  扶梯 and for every staircase but the 楼梯块 — the one-floor sizes named 超短 / 短 / 中 / 长, plus
-  超长 6 m on a staircase alone, cycled 超短 → 短 → 中 → 长 → 超长 on a stair and
-  超短 → 短 → 中 → 长 on a 扶梯 (Tab takes the stair's width, Shift+Tab its length) — and the 扶梯's
+  扶梯 and for every staircase but the 楼梯块 — the one-floor sizes named 超短 / 短 / 中 / 长 / 超长,
+  cycled 超短 → 短 → 中 → 长 → 超长 on both pieces (Tab takes the stair's width, Shift+Tab its
+  length) — and the 扶梯's
   **单层 / 双层** tile sits beside it, naming 超长 for the two-floor family. The 电梯's first tile is
   its 层高 interval (中 by default), the housing the second; the tile names the rung, not its metres.
   `isStraightStairType` still answers for
@@ -4085,8 +4083,9 @@ smaller emblem clears both panes and the front door at both ends.
 
 Stations use a single 5 m storey grid. Level controls, wall generation,
 columns, lifts and floor slicing use that fixed spacing. A fresh one-floor
-run defaults to 长 5 m over an 8 m stair run; a staircase adds 超长 6 m over 9
-cells, one metre above 长. A turning stair splits
+run defaults to 长 5 m over an 8 m stair run; both a staircase and a 单层 扶梯
+also climb 超长 6 m, one metre above 长 (the stair's catalogue run is 9 cells; the
+escalator lays its 30° climb inside 11). A turning stair splits
 its chosen length into two flights with its platform at half the rise — 2.5 m for 长,
 3 m for 超长 —
 and that platform is the staircase's own 0.5 m slab: no document block is laid, so it

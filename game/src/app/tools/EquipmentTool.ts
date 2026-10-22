@@ -556,9 +556,9 @@ export class EquipmentTool extends ToolController {
 
   /**
    * The length a hovered run would be built at: the armed one-floor setting for a
-   * stair (which carries 超长 6 m), and — for a 扶梯 — the family its 单层 / 双层
-   * span selected. A type with no run reads the one-floor default only so the
-   * caller has something to hold.
+   * stair and a 单层 扶梯 (both carry 超长 6 m), and — for a 扶梯 — the family its
+   * 单层 / 双层 span selected. A type with no run reads the one-floor default only
+   * so the caller has something to hold.
    */
   private rampLengthFor(type: string): RampLength {
     const st = useStore.getState()
@@ -611,8 +611,8 @@ export class EquipmentTool extends ToolController {
       const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
       // The piece's own length decides both the bay snap's descent and the run
       // that is built, so a 超短 / 短 / 中 / 长 / 超长 piece snaps to the floor its
-      // own rise reaches instead of always to the storey below. A 扶梯's 超长 in
-      // the shared setting resolves to 长, which is the run it also builds.
+      // own rise reaches instead of always to the storey below. Both a 楼梯 and a
+      // 单层 扶梯 take the shared 超长 6 m rung.
       const length = this.rampLengthFor(type)
       const spec = this.rampSnapSpec(type)
       const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], spec.run, spec.rise)

@@ -88,8 +88,8 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     ))
     // Every staircase but the 1 × 1 楼梯块 climbs a chosen run length: a straight
     // stair in one flight, a turning stair in two with its platform at half the
-    // rise. The 楼梯 family runs one rung past the 扶梯's, to 超长 6 m. A 楼梯块 is
-    // a single stepped block with no run at all.
+    // rise. The 楼梯 shares the 扶梯's one-floor family through 超长 6 m. A 楼梯块
+    // is a single stepped block with no run at all.
     if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.rampLength, 'single', 'stair'), s.cycleRampLength))
   }
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))

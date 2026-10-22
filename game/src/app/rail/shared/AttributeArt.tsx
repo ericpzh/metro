@@ -1,12 +1,11 @@
+import { dimensionBars, type DimensionMarkAlign } from './dimensionMark.ts'
+
 /** Shared abstract state marks for every builder tile. */
-export function DimensionArt({ vertical = false, selected, count }: { vertical?: boolean; selected: number; count: number }): React.ReactElement {
+export function DimensionArt({ vertical = false, selected, count, align = 'start' }: { vertical?: boolean; selected: number; count: number; align?: DimensionMarkAlign }): React.ReactElement {
   return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8">
-    {Array.from({ length: count }, (_, i) => {
-      const size = 5 + 12 * (i + 1) / count
-      const cross = 2.4
-      const lane = (20 - ((count - 1) * 16 / count + cross)) / 2 + i * 16 / count
-      return <rect key={i} x={vertical ? lane : 1.5} y={vertical ? 18.5 - size : lane} width={vertical ? cross : size} height={vertical ? size : cross} rx="0.4" fill={i === selected ? 'currentColor' : 'none'} opacity={i === selected ? 1 : 0.45} />
-    })}
+    {dimensionBars(count, { vertical, align }).map((bar, i) => (
+      <rect key={i} {...bar} rx="0.4" fill={i === selected ? 'currentColor' : 'none'} opacity={i === selected ? 1 : 0.45} />
+    ))}
   </svg>
 }
 

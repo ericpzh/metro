@@ -497,15 +497,15 @@ the four rules most changes trip over.
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house
   plinth; the graph stays on the storey). A run comes in **length families**
-  (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m for the 扶梯 and
-  every staircase, a **staircase adds 超长 6 m** (one metre above 长, for uneven floors;
-  a 单层 扶梯 stops at 长 because six metres of its climb is the 双层 超短 piece), and the
-  escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m.
-  A fresh piece defaults to 长 / 超长 on the five-metre grid (`defaultRampLength`).
-  Length is read off the endpoints (`escalatorLength` / `stairLengthOf`, no `cfg` flag);
-  the one-floor setting is shared with every staircase so a bank is picked once — a
-  staircase's armed 超长 resolves to 长 on the 扶梯 beside it (`rampLengthSpec`'s family
-  fallback), and the rail marks the rung the piece will really build.
+  (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m / 超长 6 m for the
+  扶梯 and every staircase, and the escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m /
+  长 9 m / 超长 10 m. A fresh piece defaults to 长 / 超长 on the five-metre grid
+  (`defaultRampLength`). Length is read off the endpoints (`escalatorLength` /
+  `stairLengthOf`); the one-floor **超长 6 m** is the sole exception, because it is the
+  same 30° run as 双层 超短 — the builder stamps `cfg.span: 'single'` on it and
+  `escalatorSpanOf` trusts that flag at that rise. The one-floor setting is shared with
+  every staircase so a bank is picked once, and the rail marks the rung the piece will
+  really build.
   The seam cap between two facing handrails forms only where the **endpoints** line up — the
   five-metre 30° escalator is a cell longer than the stair of the same length — and the exit-bay
   snap descends the piece's *own* length (`escalator-length.test.mjs`, `ramp-join.test.mjs`). A fence *on* a landing is read the same way as
@@ -531,11 +531,11 @@ the four rules most changes trip over.
   wide rate, the no-carve placement and the shared flat model). There is **no exit-bay snap** and
   no `RampJoinModel` seam (a level bank's glass meets with no infill).
 * **A stair has three sizes** (`sim/stairs.ts`, §5.1) — and every staircase but the 楼梯块 has a
-  **length** as well, the staircase's own five-rung family (`sim/rampLengths.ts`): 超短 2 m /
+  **length** as well, the shared five-rung one-floor family (`sim/rampLengths.ts`): 超短 2 m /
   短 3 m / 中 4 m / 长 5 m / 超长 6 m, cycled on the action tile beside the size (**Shift+Tab**)
   and carried into `stairFlightsFor`. A straight stair climbs it in one flight; a **turning** stair
   splits it into two flights with its platform at **half the rise** (1 m for 超短, 3 m for 超长). The setting
-  is **shared** with the 扶梯 — one armed one-floor length for both, resolved into each family — so
+  is **shared** with the 扶梯 — one armed one-floor length for both, carrying the same five rungs — so
   a bank is picked once; the
   seam between two runs fills only when their endpoints line up (see the escalator note above). Only
   a 楼梯块 has no run and grows
@@ -1760,7 +1760,10 @@ including the depth prepass, for all six appearances.
   drives the row and keyboard dispatch: **R** is the transform key; variants follow the
   shared priority width → length → height → direction → position → style, with **Tab** on
   the first and **Shift+Tab** on the second. The shared tile renderer owns each kind's icon,
-  so every width uses one mark. Add a focused `builder-attributes.test.mjs` case for new
+  so every width uses one mark: **width bars centre on the tile midline** (窄 / 中 / 宽 is one
+  gauge), while a **length's bars keep the shared start edge** — tunnel and bridge controls
+  included. `rail/shared/dimensionMark.ts` owns that bar geometry so the Node suite can pin it.
+  Add a focused `builder-attributes.test.mjs` case for new
   capabilities and update `placementPreviewKey` plus `render/moduleGhostKey.ts` when the new
   setting changes a placement ghost — a **run length** needs the first only, because the
   endpoints `moduleGhostKey` already keys a stair and an escalator on *are* the length. List the

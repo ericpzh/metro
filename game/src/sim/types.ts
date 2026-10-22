@@ -450,7 +450,23 @@ export type Module =
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; variant?: 'cover'; width?: number; depth?: number; offset?: [number, number]; corner?: string; support?: string; side?: 'left' | 'right' } })
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' | 'bridge-railing' | 'sound-barrier-half' | 'sound-barrier' } })
-  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { incline?: 30 | 35; dir: 'up' | 'down'; width?: 1 | 2 } })
+  | (ModuleBase & {
+      type: 'escalator'
+      from: Vec3i
+      to: Vec3i
+      cfg: {
+        incline?: 30 | 35
+        dir: 'up' | 'down'
+        width?: 1 | 2
+        /**
+         * The one-floor 超长 6 m run and the 双层 超短 6 m run are the same 30°
+         * geometry, so the climb cannot name their family. The builder stamps
+         * `single` on the one-floor piece; every other rise (and every older
+         * save) is read from its endpoints.
+         */
+        span?: 'single' | 'double'
+      }
+    })
   | (ModuleBase & {
       /**
        * A 自动步道 (`sim/walkways.ts`): the level member of the ramp family, an

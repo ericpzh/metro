@@ -1,8 +1,9 @@
-// The fixed run lengths — one floor for every 扶梯 (超短 2 m, 短 3 m, 中 4 m,
-// 长 5 m) and every 楼梯 (the same four plus 超长 6 m), and two floors for the
-// 双层 扶梯 (超短 6 m … 超长 10 m) — and every consumer of a run's endpoints
-// (§5.1). A piece's length is its endpoints, so a save made before the family
-// grew still reads back from its span.
+// The fixed run lengths — one floor for every 扶梯 and 楼梯 (超短 2 m, 短 3 m,
+// 中 4 m, 长 5 m, 超长 6 m), and two floors for the 双层 扶梯 (超短 6 m … 超长
+// 10 m) — and every consumer of a run's endpoints (§5.1). A piece's length is its
+// endpoints, so a save made before the family grew still reads back from its span;
+// the one-floor 超长 6 m is the sole climb whose family needs a stored flag, since
+// it is the same 30° run as 双层 超短.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
@@ -51,52 +52,50 @@ test('every single-floor length rises its own metres over its own run, in either
   }
 })
 
-test('the one-floor 扶梯 family is 2/3/4/5 m named 超短 / 短 / 中 / 长, and 长 is the default', () => {
+test('the one-floor family is 2/3/4/5/6 m named 超短 / 短 / 中 / 长 / 超长, and 长 is the default', () => {
   assert.deepEqual(RAMP_LENGTHS.map((s) => [s.id, s.rise, s.run]), [
-    ['ultra-short', 2, 3],
-    ['short', 3, 5],
-    ['medium', 4, 6],
-    ['long', 5, 8],
-  ])
-  assert.deepEqual(RAMP_LENGTHS.map((s) => rampLengthLabel(s.id)), ['超短', '短', '中', '长'])
-  assert.equal(RAMP_LENGTH_DEFAULT, 'long')
-  assert.equal(rampLengthSpec(undefined).id, 'long')
-  // Tab walks 超短 → 短 → 中 → 长 and wraps.
-  let id = 'ultra-short'
-  for (const next of ['short', 'medium', 'long', 'ultra-short']) {
-    id = nextRampLength(id)
-    assert.equal(id, next)
-  }
-})
-
-test('the 楼梯 family adds 超长 6 m, exactly one metre above 长', () => {
-  assert.deepEqual(STAIR_LENGTHS.map((s) => [s.id, s.rise, s.run]), [
     ['ultra-short', 2, 3],
     ['short', 3, 5],
     ['medium', 4, 6],
     ['long', 5, 8],
     ['ultra-long', 6, 9],
   ])
+  assert.deepEqual(RAMP_LENGTHS.map((s) => rampLengthLabel(s.id)), ['超短', '短', '中', '长', '超长'])
+  assert.deepEqual([RAMP_LENGTHS.at(-2).rise, RAMP_LENGTHS.at(-1).rise], [5, 6], '超长 is one metre above 长')
+  assert.equal(RAMP_LENGTH_DEFAULT, 'long')
+  assert.equal(rampLengthSpec(undefined).id, 'long')
+  // Tab walks 超短 → 短 → 中 → 长 → 超长 and wraps.
+  let id = 'ultra-short'
+  for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
+    id = nextRampLength(id)
+    assert.equal(id, next)
+  }
+})
+
+test('the 楼梯 is the same five-rung family, 超长 6 m included', () => {
+  assert.deepEqual(STAIR_LENGTHS, RAMP_LENGTHS, 'one catalogue, both pieces')
   assert.deepEqual(STAIR_LENGTHS.map((s) => rampLengthLabel(s.id, 'single', 'stair')), ['超短', '短', '中', '长', '超长'])
-  assert.deepEqual([STAIR_LENGTHS.at(-2).rise, STAIR_LENGTHS.at(-1).rise], [5, 6], '超长 is one metre above 长')
   assert.equal(stairLengthSpec(undefined).id, 'long', 'a fresh stair is 长')
   assert.equal(stairLengthSpec('ultra-long').rise, 6)
-  // The two families share every rung below 超长, so one armed bank length still
-  // builds an 扶梯 and a 楼梯 side by side.
-  for (const spec of RAMP_LENGTHS) assert.deepEqual(stairLengthSpec(spec.id), spec)
-  // Tab walks the stair family's five rungs and wraps; an 扶梯 resolves the same
-  // armed 超长 to its own maximum (长) before its cycle wraps.
+  // The two families share every rung, so one armed bank length builds an 扶梯 and
+  // a 楼梯 side by side — 超长 included.
+  for (const spec of RAMP_LENGTHS) {
+    assert.deepEqual(stairLengthSpec(spec.id), spec)
+    assert.deepEqual(rampLengthSpec(spec.id, 'single', 'stair'), spec)
+    assert.deepEqual(rampLengthSpec(spec.id), spec)
+  }
   let id = 'ultra-short'
   for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
     id = nextRampLength(id, 'single', 'stair')
     assert.equal(id, next)
   }
   assert.equal(nextRampLength('ultra-long', 'single', 'escalator'), 'ultra-short')
-  assert.equal(rampLengthLabel('ultra-long', 'single', 'escalator'), '长')
+  assert.equal(rampLengthLabel('ultra-long', 'single', 'escalator'), '超长')
   assert.equal(rampLengthLabel('ultra-long', 'single', 'stair'), '超长')
-  // A placed 6 m stair reads back into the stair family; the same climb on a
-  // 扶梯 is the 双层 超短 piece, never a one-floor 6 m escalator.
+  // A placed 6 m stair reads back into the stair family, and the same climb on a
+  // 单层 扶梯 is the same 超长 rung.
   assert.equal(rampLengthOf(6, 9, 'single', 'stair'), 'ultra-long')
+  assert.equal(rampLengthOf(6, 9, 'single', 'escalator'), 'ultra-long')
   assert.equal(stairLengthSpec('ultra-long').label, 'ultra_long')
   assert.deepEqual(defaultRampLength(5, 'single', 'stair'), 'long')
 })
@@ -115,14 +114,46 @@ test('the double-floor family is 6…10 m named 超短 / 短 / 中 / 长 / 超�
   // A single-floor id the double family also spells keeps its own rise there:
   // 中 is 4 m on one floor and 8 m on two.
   assert.deepEqual([rampLengthSpec('medium').rise, rampLengthSpec('medium', 'double').rise], [4, 8])
-  // 超长 is not a 单层 扶梯 rung; asking for it on one falls back to 长. (The
-  // stair family owns that rung on one floor — see its own test above.)
-  assert.equal(rampLengthSpec('ultra-long', 'single').id, 'long')
+  // 超长 is also a 单层 rung now, at its own 6 m climb: the same id spells the
+  // double family's 10 m piece, and the span picks which rise it means.
+  assert.deepEqual([rampLengthSpec('ultra-long', 'single').rise, rampLengthSpec('ultra-long', 'double').rise], [6, 10])
   let id = 'ultra-short'
   for (const next of ['short', 'medium', 'long', 'ultra-long', 'ultra-short']) {
     id = nextRampLength(id, 'double')
     assert.equal(id, next)
   }
+})
+
+test('a one-floor 超长 6 m keeps its family through a save, while 双层 超短 still reads double', () => {
+  const base = { x: 0, y: 0, z: 0 }
+  const single = escalatorModule(base, 0, 'up', 'single-ultra', 1, 'ultra-long', 5, 'single')
+  const double = escalatorModule(base, 0, 'up', 'double-short', 1, 'ultra-short', 5, 'double')
+  assert.deepEqual([single.from, single.to], [double.from, double.to], 'the two 6 m runs are one geometry')
+  assert.equal(single.cfg.span, 'single')
+  assert.equal(double.cfg.span, undefined)
+  assert.equal(escalatorSpanOf(single), 'single')
+  assert.equal(escalatorSpanOf(double), 'double')
+  assert.equal(escalatorLength(single), 'ultra-long')
+  assert.equal(escalatorLength(double), 'ultra-short')
+  const loaded = parse(serialize(toState({ name: 'six', seed: 1, cells: [], modules: [single], lines: [] })))
+  assert.equal(loaded.ok, true)
+  const restored = loaded.state.modules[0]
+  assert.equal(restored.cfg.span, 'single')
+  assert.equal(escalatorSpanOf(restored), 'single')
+  assert.equal(escalatorLength(restored), 'ultra-long')
+  // A move rebuilds the piece in its new bay; the family and rung come along.
+  const moved = movedModule(single, { x: 20, y: 20, z: 0 }, 1)
+  assert.equal(escalatorSpanOf(moved), 'single')
+  assert.equal(escalatorLength(moved), 'ultra-long')
+  // An older save's 6 m run has no flag: it is the 双层 超短 piece it always was.
+  const legacy = { ...single, cfg: { incline: 30, dir: 'up' } }
+  assert.equal(escalatorSpanOf(legacy), 'double')
+  assert.equal(escalatorLength(legacy), 'ultra-short')
+  // The flag only disambiguates the 6 m climb; a stray one cannot rename a
+  // two-floor run.
+  const ten = escalatorModule(base, 0, 'up', 'ten', 1, 'ultra-long', 5, 'double')
+  const stray = { ...ten, cfg: { ...ten.cfg, span: 'single' } }
+  assert.equal(escalatorSpanOf(stray), 'double')
 })
 
 test('every length is its own ghost, and the 双层 family spans two floors', () => {
@@ -319,7 +350,7 @@ test('a turning stair takes the same length tile, with its platform at half the 
   assert.equal(new Set(keys).size, STAIR_LENGTHS.length, 'a stair length is in the ghost the viewport rebuilds from')
 })
 
-test('one armed length drives both pieces, and only a stair takes 超长', () => {
+test('one armed length drives both pieces, 超长 included', () => {
   const before = useStore.getState()
   try {
     const station = toState({ name: 'bank', seed: 1, cells: [], modules: [], lines: [] })
@@ -337,15 +368,16 @@ test('one armed length drives both pieces, and only a stair takes 超长', () =>
       assert.equal(Math.abs(esc.to.z - esc.from.z), spec.rise)
       assert.equal(Math.abs(stair.to.z - stair.from.z), spec.rise)
     }
-    // 超长 is the stair's own rung: the same armed setting builds a 6 m stair and
-    // resolves the 扶梯 beside it to its 5 m maximum, never a one-floor 6 m run.
+    // 超长 is one armed rung for both: a 6 m stair and a 6 m 单层 扶梯 beside it.
     useStore.setState({ station, moduleType: 'stair-straight', rampLength: 'ultra-long', escalatorSpan: 'single' })
     const tallStair = tool.buildPlacementModules('stair-straight', [1, 0, 0], 'bank-stair-ultra')[0]
     assert.equal(Math.abs(tallStair.to.z - tallStair.from.z), 6)
     assert.equal(stairLengthOf(tallStair), 'ultra-long')
-    const clampedEsc = tool.buildPlacementModules('escalator', [0, 0, 0], 'bank-esc-ultra')[0]
-    assert.equal(Math.abs(clampedEsc.to.z - clampedEsc.from.z), 5)
-    assert.equal(escalatorLength(clampedEsc), 'long')
+    const tallEsc = tool.buildPlacementModules('escalator', [0, 0, 0], 'bank-esc-ultra')[0]
+    assert.equal(Math.abs(tallEsc.to.z - tallEsc.from.z), 6)
+    assert.equal(escalatorLength(tallEsc), 'ultra-long')
+    assert.equal(escalatorSpanOf(tallEsc), 'single', 'the 单层 family keeps its 超长 rung')
+    assert.equal(tallEsc.cfg.span, 'single', 'the ambiguous 6 m run carries its family')
   } finally {
     useStore.setState(before)
   }
@@ -367,9 +399,20 @@ test('the drawn 扶梯 and 楼梯 follow the run they were built at', () => {
     assert.ok(Number.isFinite(size.x + size.y + size.z), `${spanFamily} ${spec.id} escalator builds`)
     assert.ok(size.y > escalatorLengthSpec(spec.id, 5, spanFamily).run && size.y < escalatorLengthSpec(spec.id, 5, spanFamily).run + 2, `${spanFamily} ${spec.id} escalator spans its own ${escalatorLengthSpec(spec.id, 5, spanFamily).run} cell run`)
     assert.ok(size.z > spec.rise + 0.9 && size.z < spec.rise + 2, `${spanFamily} ${spec.id} escalator climbs its own ${spec.rise} m rise`)
-    spans.push(size.y)
+    spans.push({ spanFamily, id: spec.id, run: size.y })
   }
-  for (let i = 1; i < spans.length; i++) assert.ok(spans[i] > spans[i - 1], 'a longer piece really is longer')
+  // Each family grows run by run. The one-floor 超长 and the 双层 超短 cross the
+  // family boundary at the same 6 m / 11-cell run, so the comparison is within a
+  // family; the two drawings should coincide.
+  for (const spanFamily of ['single', 'double']) {
+    const familySpans = spans.filter((s) => s.spanFamily === spanFamily)
+    for (let i = 1; i < familySpans.length; i++) {
+      assert.ok(familySpans[i].run > familySpans[i - 1].run, `${spanFamily} ${familySpans[i].id} is longer than ${familySpans[i - 1].id}`)
+    }
+  }
+  const singleUltra = spans.find((s) => s.spanFamily === 'single' && s.id === 'ultra-long')
+  const doubleShort = spans.find((s) => s.spanFamily === 'double' && s.id === 'ultra-short')
+  assert.ok(Math.abs(singleUltra.run - doubleShort.run) < 1e-9, 'the two 6 m runs draw the same piece')
   // The stair draws its own five-rung family, 超长 6 m included.
   for (const spec of STAIR_LENGTHS) {
     const stair = createModule('stair-straight', 0, 0, -spec.rise, `stair-${spec.id}`, 0, 0.68, 'up', 'lane', [], undefined, { rampLength: spec.id })
