@@ -179,6 +179,27 @@ function paving() {
   return { ctx, drag, previews, event, pick, tileIds, voids, deleteTool: new DeleteTool(ctx), tileTool: new EquipmentTool(ctx) }
 }
 
+test('Tanwei D roof hit wins over the road terrain behind it in hover and deletion', () => {
+  const before = useStore.getState()
+  try {
+    const fixture = paving()
+    const roof = { ...createModule('roof', 33, 45, 9, 'roof-898'), cfg: { plateSnap: 'lower', finish: 'ceil.steel' } }
+    const road = createModule('road', 33, 50, 0, 'road-behind')
+    useStore.setState({ station: { ...useStore.getState().station, modules: [road, roof] } })
+    fixture.pick.current = roof.id
+    const event = fixture.event(33, 50)
+    event.hit.cell = [33, 50, 0]
+    event.hit.place = [33, 50, 1]
+    fixture.deleteTool.onMove(event)
+    assert.deepEqual(fixture.previews.at(-1).ids, [roof.id])
+    fixture.deleteTool.onDown(event)
+    assert.deepEqual(fixture.drag.current.anchor, [33, 45, 9])
+    fixture.deleteTool.onUp(event)
+    assert.deepEqual(useStore.getState().station.modules.map(m => m.id), [road.id])
+    assert.equal(useStore.getState().past.length, 1)
+  } finally { useStore.setState(before) }
+})
+
 test('删除 (B) deletes the 人行道 tile under the pointer when the ray lands on a tree beyond it', () => {
   const before = useStore.getState()
   try {

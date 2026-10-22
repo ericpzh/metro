@@ -21,6 +21,11 @@ export function deletionTarget(
   facing?: readonly [number, number],
 ): Module | undefined {
   const drawn = modules.find((module) => module.id === pickedId)
+  // A roof surface can be a storey above the terrain pick (Tanwei D's thin
+  // plates at z=9 above the road). The visible slab owns the click, even when
+  // the terrain cell behind it contains another module. Keep the cell-based
+  // exception for overhanging trees and raised paving below.
+  if (drawn?.type === 'roof') return drawn
   // The common case, and O(1): the model the ray drew occupies the pointed cell
   // itself, so it is the piece the player means — a wall panel or a hung fitting
   // included, because its own stand cell is the one the pointer is over.

@@ -242,6 +242,11 @@ it (`paletteIdForModule` in `game/src/app/tools/PickTool.ts`, pinned by the
 `pick-tool` palette sweep) — including the setting-free 空调风机 and 设备柜, which
 carry no variant and arm by their own type.
 
+Delete targeting preserves a directly hit thin roof even when the terrain pick
+lands on a road or other module behind it at another storey. Keep this priority
+in `app/tools/deletionTarget.ts`; `delete-tool.test.mjs` pins Tanwei D’s roof at
+`(33,45,9)` through hover and removal.
+
 Street roads (`道路`) are placed as orthogonal node-to-node segments from the 站外
 palette. The document derives shared nodes from segment endpoints: intersections
 and branches split segments, extension snaps to existing nodes, and deleting a
