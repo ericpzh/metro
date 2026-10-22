@@ -42,13 +42,19 @@ loads remain immediate. Read the
 for its deterministic work counts, production measurements and validation limits.
 
 Settings and presentation edits have a separate fast path. Line/station/exit labels,
-line colours, termini, population and exit policy must not rebuild station geometry
-or routing. Repaint only artwork whose declared inputs changed, preserving original
-textures, geometry and batch allocations; unknown artwork dependencies keep the
-conservative rebuild path. Invisible population and exit-policy edits must not
-request a frame. Restart should reuse the static graph and collision indexes while
-resetting dynamic simulation state. `nonstructural-updates`, `equipment-retention`,
-`train-lod`, `line-edit` and `scene-wiring` pin these contracts. See the measured
+line colours, termini (including their optional English secondary names), population
+and exit policy must not rebuild station geometry or routing. The RHS line editor
+(`app/windows/inspector/LineCard.tsx`) uses compact square tiles and fixed-width
+headway inputs; keep its bilingual terminus drafts in one commit/undo step. English
+terminus names persist in `LineDef` and appear beneath the matching directional
+destination on platform signage; older lines without them retain their current
+single-language signage. Repaint only artwork whose declared inputs changed,
+preserving original textures, geometry and batch allocations; unknown artwork
+dependencies keep the conservative rebuild path. Invisible population and exit-policy
+edits must not request a frame. Restart should reuse the static graph and collision
+indexes while resetting dynamic simulation state. `nonstructural-updates`,
+`equipment-retention`, `train-lod`, `line-edit` and `scene-wiring` pin these contracts.
+See the measured
 [settings rebuild audit](../../../game/PERFORMANCE.md#remaining-settings-rebuilds-resolved-2026-10-21)
 for first-use browser timings and current coverage limits.
 
