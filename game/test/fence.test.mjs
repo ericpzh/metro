@@ -6,7 +6,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { boxesOverlap, equipmentReason, moduleEnvelope, placementBlocked, placementOnTrack } from '../src/sim/placement.ts'
-import { fenceArms, railLandingAt } from '../src/sim/fences.ts'
+import { fenceArms, fenceConnectionIndex, railLandingAt } from '../src/sim/fences.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { createModule, fenceRotForLine } from '../src/build/model.ts'
 import { toState } from '../src/build/model.ts'
@@ -287,6 +287,26 @@ test('a fence treats a stair or escalator landing as a neighbour', () => {
   assert.equal(railLandingAt([wide], 1, 9, 5), true, 'the extra upper landing cell connects')
   assert.equal(railLandingAt([wide], 2, 0, 0), false, 'only the two landing columns connect')
   assert.equal(railLandingAt([], 0, 0, 0), false)
+})
+
+test('a wide turning stair rail connects fences beside every upper landing lane', () => {
+  // Tanwei save: the right-turn stair's upper landing starts at x=37 and spans
+  // two cells through x=38. The fence at (39,36,6) must see the far landing
+  // lane at x=38 and drop its end cap instead of looking only at the graph node.
+  const stair = {
+    id: 'stair-right90-test', type: 'stair', x: 32, y: 42, z: 0, rot: 1,
+    from: { x: 32, y: 42, z: 0 }, to: { x: 37, y: 36, z: 6 },
+    cfg: { width: 1.79, style: 'right90', flights: [
+      { from: { x: 32, y: 42, z: 0 }, to: { x: 37, y: 42, z: 3 } },
+      { from: { x: 37, y: 41, z: 3 }, to: { x: 37, y: 36, z: 6 } },
+    ] },
+  }
+  const modules = [stair]
+  assert.equal(railLandingAt(modules, 37, 36, 6), true)
+  assert.equal(railLandingAt(modules, 38, 36, 6), true)
+  assert.equal(railLandingAt(modules, 39, 36, 6), false, 'the fence cell is beside, not part of, the landing')
+  const index = fenceConnectionIndex(modules)
+  assert.equal(index.connects(38, 36, 6, 1, 0), true, 'fence at x=39 joins the stair rail in its neighbouring cell')
 })
 
 test('a stair block is not a fence neighbour because it has no handrail', () => {

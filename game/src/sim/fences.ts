@@ -10,7 +10,7 @@
 // the lane side is a doorway the run must end at. The caller resolves that — the
 // booleans here are just "this side holds something a panel may meet".
 
-import { stairFlights } from './stairs.ts'
+import { stairFlights, stairLanes } from './stairs.ts'
 import { escalatorLandings } from './escalators.ts'
 import { walkwayLandings } from './walkways.ts'
 import { gateSolidFaces } from './gates.ts'
@@ -19,6 +19,7 @@ import type { Module } from './types.ts'
 type Fence = Extract<Module, { type: 'fence' }>
 export interface FenceConnectionIndex {
   fencesAt(x: number, y: number, z: number): readonly Fence[]
+  hasRailLanding(x: number, y: number, z: number): boolean
   /** Direction from the neighbouring cell back to the fence being drawn. */
   connects(x: number, y: number, z: number, dx: number, dy: number): boolean
 }
@@ -42,13 +43,27 @@ export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectio
       const at = gates.get(k) ?? []
       at.push(mod); gates.set(k, at)
     } else if (mod.type === 'stair' && !mod.cfg.block) {
-      for (const f of stairFlights(mod)) for (const p of [f.from, f.to]) landings.add(key(p.x, p.y, p.z))
+      const lanes = stairLanes(mod.cfg.width ?? 0.68)
+      for (const f of stairFlights(mod)) {
+        // A landing's graph node is the first lane only; its rail spans the full
+        // stair width. Derive the lane axis from each flight itself because a
+        // turning stair's final flight can be perpendicular to the module rot.
+        const dx = Math.sign(f.to.x - f.from.x)
+        const dy = Math.sign(f.to.y - f.from.y)
+        const rightX = dy
+        const rightY = -dx
+        for (let i = 0; i < lanes; i++) {
+          landings.add(key(f.from.x + rightX * i, f.from.y + rightY * i, f.from.z))
+          landings.add(key(f.to.x - rightX * i, f.to.y - rightY * i, f.to.z))
+        }
+      }
     } else if (mod.type === 'escalator' || mod.type === 'walkway') {
       for (const p of mod.type === 'escalator' ? escalatorLandings(mod) : walkwayLandings(mod)) landings.add(key(p.x, p.y, p.z))
     }
   }
   const index: FenceConnectionIndex = {
     fencesAt: (x, y, z) => fences.get(key(x, y, z)) ?? [],
+    hasRailLanding: (x, y, z) => landings.has(key(x, y, z)),
     connects: (x, y, z, dx, dy) => {
       const k = key(x, y, z)
       return fences.has(k) || landings.has(k) || (gates.get(k)?.some(m => gateSolidFaces(m, dx, dy)) ?? false)
@@ -59,25 +74,13 @@ export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectio
 }
 
 /**
- * True when a stair, escalator or 自动步道 has a landing on `(x, y, z)`. A fence
+ * True when a stair, escalator or 自动步道 has a landing on `(x, y, z)`. Stair
+ * landings include every lane under the full-width rail. A fence
  * run may meet a run's balustrade at that cell, so the fence treats it as a
  * neighbour (drops its end cap and butts up to the rail) instead of stopping short.
  */
 export function railLandingAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
-  for (const m of modules) {
-    if (m.type === 'stair') {
-      // A 楼梯块 is a stepped floor tile, not a ramp with a handrail to meet (§5.1–§5.2).
-      if (m.cfg.block) continue
-      for (const f of stairFlights(m)) {
-        if ((f.from.x === x && f.from.y === y && f.from.z === z) || (f.to.x === x && f.to.y === y && f.to.z === z)) return true
-      }
-    } else if (m.type === 'escalator') {
-      if (escalatorLandings(m).some((p) => p.x === x && p.y === y && p.z === z)) return true
-    } else if (m.type === 'walkway') {
-      if (walkwayLandings(m).some((p) => p.x === x && p.y === y && p.z === z)) return true
-    }
-  }
-  return false
+  return fenceConnectionIndex(modules).hasRailLanding(x, y, z)
 }
 
 /** Which of a fence cell's four same-level sides hold a fence or a gate. */

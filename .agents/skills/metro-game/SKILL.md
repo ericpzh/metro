@@ -457,7 +457,9 @@ the four rules most changes trip over.
   through the shared centre post with no overhang. A gate neighbour counts only on its
   machine side (`gateSolidFaces`), and `railLandingAt` also treats a stair/escalator
   landing as a neighbour — read through `escalatorLandings`, so both landing columns
-  of a wide escalator count — so a run butts up to the handrail instead of stopping short.
+  of a wide escalator count, and through each stair flight's full-width landing lanes,
+  including a turned final flight whose axis differs from the module rotation. A fence
+  beside any of those lanes butts up to the handrail instead of keeping an end cap.
   A 楼梯块 is a stepped floor tile without a handrail; `railLandingAt` skips it so an adjacent
   fence stays capped rather than snapping into it. Pin this beside the ramp landing cases in
   `game/test/fence.test.mjs`.

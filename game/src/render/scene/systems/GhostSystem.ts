@@ -543,7 +543,11 @@ export class GhostSystem extends SceneSystem {
     }
     if (mods.some(m => m.type === 'fence')) {
       const placed = fenceConnectionIndex(data.modules), added = fenceConnectionIndex(mods)
-      ctx.fenceConnections = { fencesAt: placed.fencesAt, connects: (...args) => placed.connects(...args) || added.connects(...args) }
+      ctx.fenceConnections = {
+        fencesAt: placed.fencesAt,
+        hasRailLanding: (...args) => placed.hasRailLanding(...args) || added.hasRailLanding(...args),
+        connects: (...args) => placed.connects(...args) || added.connects(...args),
+      }
     }
     for (const piece of mods) {
       const group = buildModule(piece, ctx)
@@ -698,6 +702,7 @@ export class GhostSystem extends SceneSystem {
       data: this.ctx.stationData,
       fenceConnections: {
         fencesAt: placed.fencesAt,
+        hasRailLanding: (...args) => placed.hasRailLanding(...args) || added.hasRailLanding(...args),
         connects: (...args) => placed.connects(...args) || added.connects(...args),
       },
       trackCells: this.ctx.trackCellSet,
