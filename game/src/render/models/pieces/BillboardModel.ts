@@ -1,6 +1,7 @@
 // Advertisement lightbox (广告牌) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { omitModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab, plate, plateOf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { billboardSpec, posterFor } from '../../../sim/billboards.ts'
@@ -33,8 +34,8 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
   g.rotation.z = (normRot(mod.rot) * Math.PI) / 2
   const { panelW: pw, panelH: ph, panelZ: pz } = spec
   // Housing flat against the wall, with a steel edge frame around it.
-  slab(g, ctx.mats.darkSteel, 0, -0.42, pz, pw + 0.08, 0.16, ph + 0.2)
-  slab(g, ctx.mats.steel, 0, -0.34, pz, pw + 0.12, 0.04, ph + 0.24)
+  omitModelDetail(slab(g, ctx.mats.darkSteel, 0, -0.42, pz, pw + 0.08, 0.16, ph + 0.2))
+  surfaceModelDetail(slab(g, ctx.mats.steel, 0, -0.34, pz, pw + 0.12, 0.04, ph + 0.24), 'y', 1)
   // The artwork fills the panel with a centred crop, without stretching.
   const face = ctx.ads.adFace(poster.slug, pw, ph)
   const ad = plateOf(g, face.geometry, face.material, 0, -0.315, pz, Math.PI)
@@ -42,7 +43,7 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
   ad.userData.adPoster = poster.slug
   // A small illuminated 广告 / AD bar under the frame.
   const barZ = pz - ph / 2 - 0.18
-  slab(g, ctx.mats.black, 0, -0.36, barZ, Math.min(0.5, pw * 0.7), 0.03, 0.16)
+  omitModelDetail(slab(g, ctx.mats.black, 0, -0.36, barZ, Math.min(0.5, pw * 0.7), 0.03, 0.16))
   const label = plate(g, ctx.mats.glow, Math.min(0.42, pw * 0.6), 0.1, 0, -0.335, barZ, Math.PI)
   label.renderOrder = 1
   g.userData.adScreen = ad

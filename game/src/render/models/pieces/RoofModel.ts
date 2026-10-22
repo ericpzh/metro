@@ -3,7 +3,7 @@ import { PieceBuilder, finishSlab } from '../PieceBuilder.ts'
 import { DEFAULT_ROOF_FINISH, ROOF_THICKNESS, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, TRUSS_ROOF_SKIN, TRUSS_ROOF_CHORD, trussRoofRidge, CANOPY_ROOF_DROP, CANOPY_POST_RADIUS, canopyPosts } from '../../../sim/structures.ts'
 import type { Module } from '../../../sim/types.ts'
 
-import { setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 type Point = [number, number, number]
 
@@ -15,6 +15,7 @@ function member(group: THREE.Group, mat: THREE.Material, a: Point, b: Point, wid
   const mesh = finishSlab(group, mat, 0, 0, 0, width, direction.length(), width)
   mesh.position.copy(start.add(end).multiplyScalar(0.5))
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize())
+  mesh.name = [direction.x, direction.y, direction.z].filter(value => Math.abs(value) > 1e-6).length > 1 ? 'roof-web-diagonal' : 'roof-web-post'
 }
 
 export class RoofModel extends PieceBuilder {
@@ -48,6 +49,8 @@ export class RoofModel extends PieceBuilder {
     const longitudinal = (y: number, z: number, thickness: number, name: string): void => {
       const beam = finishSlab(group, metal, centreX, y, z, length, thickness, thickness)
       beam.name = name
+      if (name === 'roof-purlin') omitModelDetail(beam)
+      else tubeModelDetail(beam)
     }
 
     // A shallow pitched shell: two continuous sheet runs, with the crest along X.
@@ -80,7 +83,7 @@ export class RoofModel extends PieceBuilder {
         const post = new THREE.Mesh(geometry, metal)
         post.name = 'canopy-post'
         post.position.set(x, y, height / 2)
-        const low = new THREE.CylinderGeometry(CANOPY_POST_RADIUS, CANOPY_POST_RADIUS, height, 8)
+        const low = new THREE.CylinderGeometry(CANOPY_POST_RADIUS, CANOPY_POST_RADIUS, height, 3, 1, true)
         low.rotateX(Math.PI / 2)
         setModelDetail(post, low)
         group.add(post)
@@ -119,6 +122,13 @@ export class RoofModel extends PieceBuilder {
       }
     }
 
+    const diagonals = group.children.filter(mesh => mesh.name === 'roof-web-diagonal')
+    const count = mod.cfg.variant === 'tapered-truss' ? 4 : 1
+    const keep = new Set(Array.from({ length: Math.min(count, diagonals.length) }, (_, i) => diagonals[Math.floor(i * diagonals.length / Math.min(count, diagonals.length))]))
+    for (const mesh of group.children) if (mesh instanceof THREE.Mesh && mesh.name.startsWith('roof-web-')) {
+      if (keep.has(mesh)) tubeModelDetail(mesh)
+      else omitModelDetail(mesh)
+    }
     return this.placeLocal(group, mod)
   }
 }

@@ -1377,3 +1377,62 @@ loading. This measurement covers local production assets under SwiftShader at 14
 station's broader initial boot. Raw reports and Chrome profiles are in
 `.preview/perf/menu-thumbnails/`; regenerate with `npm --prefix game run build`,
 `npm --prefix game run render:menu-thumbnails`, then `npm --prefix game run build`.
+
+## Equipment Low geometry below ten percent (2026-10-21)
+
+The complete 120-option equipment/decor inventory now totals **9,295 Low / 155,167
+High triangles**, down from 20,804 Low (55.3% fewer). Every individual High count
+is unchanged. **60 options are strictly below 10%** of their High geometry; **60
+use the user-approved minimum usable shape**, including 16 existing two-triangle
+artwork/floor quads. The performance guide's equipment table and adjacent exception
+table list every count and reason. `tools/equipment-low-budgets.mjs` shares the strict
+integer limit (`ceil(High / 10) - 1`) and explicit exception caps between inventory,
+regression and browser checks. No High geometry was inflated to meet the ratio.
+
+Low uses exposed faces, triangular support tubes, simpler silhouettes and a bounded
+print of the original static monitor vectors. Live TV artwork, clock hands, moving
+escalator/walkway/lift rigs, exact source picks and material ownership remain intact.
+Every real stair tread/riser remains at its original height and extent. Touching
+coplanar exit pads merge without filling actual stair wellways; folded canopy and
+glass surfaces remain joined. Models with coherent artwork/surfaces switch together
+through local and global batches, including Hide UI and ghost-storey transitions.
+All three equipment batch paths retain conservative union bounds for Near and Low,
+so simplified geometry outside a source part's bounds remains visible and picked
+through the original source. Deterministic tests cover these contracts and restoration.
+
+`npm run check:equipment-lod` rendered all 120 High and Low options in a real browser,
+passed visible-pixel, geometry-budget and WebGL/shader checks, and checked monitor
+and open-exit counts through real local/global batching. Contact sheets and the raw
+GPU/model counts are in `.preview/perf/equipment-10pct/`. The table measures geometry;
+transparent DoubleSide materials can submit an extra pass. The browser report records
+this separately (for example, the narrow open exit has 52 model triangles and 58 GPU
+triangles). This is not a claim that every complete GPU submission is below 10%.
+
+The production build passed. Production native and fallback batching checks passed:
+station draws 3,789 → 1,104 / 1,767; train draws 779 → 29 / 594, preserving triangles
+and reporting no GLSL, WebGL or runtime errors. Raw logs are
+`.preview/perf/equipment-10pct-production{,-fallback}.log` and copies of the reports
+are in `.preview/perf/equipment-10pct/production-{native,fallback}.json`.
+
+Focused instrumented coverage passed 263 tests. Model-detail coverage is
+100% lines / 95.65% branches / 100% functions; planar artwork 100 / 90.48 / 100;
+local static batching 100 / 90 / 100; equipment batches 95.77 / 90.23 / 94.59;
+generic geometry detail 92.77 / 86 / 90.91. The complete changed-piece coverage
+report, including uncovered branches, is `.preview/perf/equipment-10pct-coverage.log`.
+These focused percentages do not cover every placement variant or replace the full
+suite. The required broad `npm --prefix game run test:perf` attempt produced no test
+output after approximately 6.7 minutes and was stopped; it is incomplete, not a pass.
+
+The production quality-switch diagnostic includes the first invocation and two RAFs:
+Low 391.4 ms first / 379.8 ms repeated, High 382.5 / 370.5 ms; Low 357,843 versus
+High 532,775 submitted triangles, with no errors and simulation still paused.
+Raw before/after reports are `.preview/perf/equipment-10pct-switch-{before,after}.json`.
+The earlier report had different High totals (562,360), concurrent shared-workspace
+changes and different system load; these are not controlled timing comparisons and
+establish no FPS or interaction-latency improvement. Geometry reductions are measured
+by the fixed per-option inventory instead. Timings are diagnostic evidence only.
+
+The final complete game suite passed **2,169 / 2,169 tests** (zero failures); raw
+output is `.preview/perf/equipment-10pct-final-tests-clean.log`. The preliminary
+run exposed an index-only assumption in the new test itself; its corrected assertion
+handles indexed and non-indexed Low geometry and passed both focused and full runs.

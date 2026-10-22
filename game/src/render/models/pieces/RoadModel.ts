@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { surfaceModelDetail } from '../../modelDetail.ts'
 import { batchStaticParts } from '../../batchStaticModule.ts'
 import { PieceBuilder, slab, ownedMaterial } from '../PieceBuilder.ts'
 import { roadLayout, roadPoint, roadInkIntervals } from '../../../sim/roads.ts'
@@ -25,7 +26,7 @@ export class RoadModel extends PieceBuilder {
           const lo = Math.max(a, from), hi = Math.min(b, dashed ? from + 3 : b)
           if (hi <= lo) continue
           const [x, y] = roadPoint(r, across, (lo + hi) / 2)
-          slab(g, material, x, y, r.z + 1.035, acrossX ? .12 : hi - lo, acrossX ? hi - lo : .12, .008)
+          surfaceModelDetail(slab(g, material, x, y, r.z + 1.035, acrossX ? .12 : hi - lo, acrossX ? hi - lo : .12, .008), 'z', 1)
         }
       }
     }

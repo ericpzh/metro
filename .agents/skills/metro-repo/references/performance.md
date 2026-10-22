@@ -188,17 +188,17 @@ Every palette model above ten High triangles must have a nonempty Low variant
 with fewer triangles, guarded by the catalogue sweep in `model-detail` and the
 inventory script. The smaller primitive families retain source UVs, colours and
 artwork: thin box sheets keep both broad faces, and rods omit their end caps.
-Round pillars and ceiling lights use eight-sided Low cylinders; guide columns
+Round pillar shafts keep eight sides, narrow support rods use triangular tubes, and circular lights use a hexagonal rim and two-sided diffuser; guide columns
 omit buried bottom caps. Source picking and animated rig identities remain exact.
 
 Furniture/cabinets omit stock and fine fittings; vending drinks become thin colour
-panels. Fences use four-sided tubes without clamps/feet fittings. Fare gates retain
+panels. Fences use open triangular tubes without clamps/feet fittings and fewer iron bars. Fare gates retain
 reader/entry artwork and animated leaves. Exit Low retains openings, printed
 headers and the wave profile, with thin roof/glass surfaces and fewer frame posts.
 `panelModelDetail` retains two broad faces; approximation bounds include both full
 and reduced shapes so combined fittings do not disappear at the screen edge.
 
-Rail-signal Low keeps three eight-sided aspects/rims and coarse hood shells.
+Rail-signal Low keeps three six-sided aspects, diamond rims and coarse hood shells.
 Noise barriers retain full posts and all bay/gantry cutouts, using two broad faces
 per thin panel/middle rail. Top beams retain thickness with hidden end caps omitted;
 the shared bridge builders also prepare these Low variants.
@@ -213,100 +213,100 @@ the shared bridge builders also prepare these Low variants.
 | shelf-dark-tall | 240 | 7244 |
 | shelf-wire | 412 | 6524 |
 | cubicle | 84 | 5688 |
-| cctv-dome | 360 | 5208 |
-| walkway | 496 | 5162 |
-| cctv-post | 376 | 5096 |
+| cctv-dome | 336 | 5208 |
+| walkway | 290 | 5162 |
+| cctv-post | 352 | 5096 |
 | sink | 224 | 4972 |
-| cctv-ptz | 332 | 4924 |
+| cctv-ptz | 308 | 4924 |
 | shelf-white-short | 192 | 4420 |
-| escalator | 410 | 3410 |
+| escalator | 204 | 3410 |
 | ac-unit | 140 | 2924 |
-| stair-leftForward | 1040 | 2336 |
-| stair-rightForward | 1040 | 2336 |
-| stair-left180 | 992 | 2288 |
-| stair-right180 | 992 | 2288 |
-| stair-centerForward | 944 | 2240 |
-| stair-left90 | 944 | 2240 |
-| stair-right90 | 944 | 2240 |
-| clock | 212 | 1940 |
-| stair-straight | 644 | 1940 |
+| stair-leftForward | 232 | 2336 |
+| stair-rightForward | 232 | 2336 |
+| stair-left180 | 222 | 2288 |
+| stair-right180 | 222 | 2288 |
+| stair-centerForward | 212 | 2240 |
+| stair-left90 | 212 | 2240 |
+| stair-right90 | 212 | 2240 |
+| clock | 188 | 1940 |
+| stair-straight | 150 | 1940 |
 | cctv | 124 | 1888 |
-| lift | 588 | 1740 |
+| lift | 140 | 1740 |
 | electrical-cabinet | 36 | 1224 |
-| extinguisher-glass | 134 | 918 |
-| exit-covered-1 | 346 | 902 |
-| exit | 346 | 902 |
-| exit-covered-3 | 346 | 902 |
-| roof-canopy | 296 | 840 |
+| extinguisher-glass | 86 | 918 |
+| exit-covered-1 | 68 | 902 |
+| exit | 68 | 902 |
+| exit-covered-3 | 68 | 902 |
+| roof-canopy | 56 | 840 |
 | tactile-warning | 4 | 812 |
-| pillar-thick | 128 | 768 |
-| fence-iron | 256 | 768 |
-| checkout | 104 | 750 |
-| gate-new | 130 | 720 |
-| rail-signal | 144 | 708 |
-| vending | 200 | 676 |
-| gate | 162 | 668 |
-| desk | 212 | 652 |
-| exit-uncovered-2 | 150 | 554 |
-| exit-uncovered-3 | 150 | 554 |
-| exit-uncovered-1 | 150 | 530 |
-| fence-gate | 100 | 432 |
-| roof-tapered | 256 | 396 |
-| tvm | 172 | 372 |
-| busstop-long | 204 | 372 |
-| fence | 68 | 360 |
-| door-steel-1 | 248 | 324 |
-| door-glass-1 | 248 | 324 |
-| roof-truss | 168 | 264 |
-| busstop-short | 144 | 260 |
-| light-circular | 64 | 256 |
-| monitor-wall | 205 | 213 |
+| pillar-thick | 64 | 768 |
+| fence-iron | 72 | 768 |
+| checkout | 64 | 750 |
+| gate-new | 68 | 720 |
+| rail-signal | 64 | 708 |
+| vending | 40 | 676 |
+| gate | 64 | 668 |
+| desk | 60 | 652 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| fence-gate | 38 | 432 |
+| roof-tapered | 38 | 396 |
+| tvm | 30 | 372 |
+| busstop-long | 30 | 372 |
+| fence | 26 | 360 |
+| door-steel-1 | 20 | 324 |
+| door-glass-1 | 18 | 324 |
+| roof-truss | 26 | 264 |
+| busstop-short | 24 | 260 |
+| light-circular | 18 | 256 |
+| monitor-wall | 8 | 213 |
 | lawn | 12 | 204 |
-| bin | 104 | 196 |
-| vent | 108 | 168 |
-| bench-seat-1 | 80 | 156 |
-| extinguisher | 50 | 146 |
-| extinguisher-compact | 50 | 146 |
-| door-wood-1 | 84 | 144 |
+| bin | 26 | 196 |
+| vent | 32 | 168 |
+| bench-seat-1 | 20 | 156 |
+| extinguisher | 12 | 146 |
+| extinguisher-compact | 12 | 146 |
+| door-wood-1 | 20 | 144 |
 | sidewalk | 12 | 132 |
-| psd-end | 78 | 114 |
-| tv | 66 | 114 |
-| noise-barrier | 52 | 108 |
-| noise-barrier-half | 52 | 108 |
-| traffic-light | 100 | 108 |
-| bench-steel-1 | 40 | 84 |
-| sign-ceiling | 34 | 74 |
-| monitor-ceiling | 48 | 72 |
-| tactile-guide | 20 | 60 |
+| psd-end | 30 | 114 |
+| tv | 22 | 114 |
+| noise-barrier | 46 | 108 |
+| noise-barrier-half | 46 | 108 |
+| traffic-light | 28 | 108 |
+| bench-steel-1 | 16 | 84 |
+| sign-ceiling | 18 | 74 |
+| monitor-ceiling | 20 | 72 |
+| tactile-guide | 10 | 60 |
 | guidepost | 57 | 60 |
-| curtain-wall | 36 | 60 |
-| glass-1x1 | 36 | 60 |
-| glass-2x1 | 36 | 60 |
-| glass-3x1 | 36 | 60 |
-| glass-1x2 | 36 | 60 |
-| glass-2x2 | 36 | 60 |
-| glass-3x2 | 36 | 60 |
+| curtain-wall | 18 | 60 |
+| glass-1x1 | 18 | 60 |
+| glass-2x1 | 18 | 60 |
+| glass-3x1 | 18 | 60 |
+| glass-1x2 | 18 | 60 |
+| glass-2x2 | 18 | 60 |
+| glass-3x2 | 18 | 60 |
 | exit-virtual | 46 | 60 |
-| road | 18 | 50 |
-| pillar-slim | 32 | 48 |
+| road | 10 | 50 |
+| pillar-slim | 16 | 48 |
 | stair-block | 34 | 48 |
-| billboard-wide | 16 | 40 |
-| billboard-standard | 16 | 40 |
-| billboard-large | 16 | 40 |
-| billboard-panorama | 16 | 40 |
-| billboard-portrait | 16 | 40 |
-| billboard-square | 16 | 40 |
-| linemap-stand | 20 | 40 |
-| hanger-roof | 16 | 36 |
-| hanger-post | 20 | 36 |
-| linemap-wall | 10 | 26 |
+| billboard-wide | 6 | 40 |
+| billboard-standard | 6 | 40 |
+| billboard-large | 6 | 40 |
+| billboard-panorama | 6 | 40 |
+| billboard-portrait | 6 | 40 |
+| billboard-square | 6 | 40 |
+| linemap-stand | 16 | 40 |
+| hanger-roof | 6 | 36 |
+| hanger-post | 14 | 36 |
+| linemap-wall | 4 | 26 |
 | exit-doorway-1 | 10 | 26 |
 | exit-doorway-2 | 10 | 26 |
 | exit-doorway-3 | 10 | 26 |
 | exit-doorway-4 | 10 | 26 |
 | roof-shell | 8 | 24 |
 | noise-barrier-railing | 16 | 24 |
-| light-rectangular | 12 | 24 |
+| light-rectangular | 6 | 24 |
 | roof | 4 | 12 |
 | psd-end-cover | 4 | 12 |
 | floor-mark-boarding | 2 | 2 |
@@ -325,6 +325,73 @@ the shared bridge builders also prepare these Low variants.
 | calligraphy-hei-v | 2 | 2 |
 | calligraphy-song-h | 2 | 2 |
 | calligraphy-song-v | 2 | 2 |
+
+#### Equipment minimum-shape exceptions
+
+Low targets strictly less than 10% of High. The user-approved exceptions below keep a minimum usable shape, including existing two-triangle artwork. Caps and reasons live in `tools/equipment-low-budgets.mjs` and are enforced by the inventory and regression suite; High geometry is unchanged. Counts describe model geometry; transparent two-sided materials can submit an additional GPU pass.
+
+| Equipment / decor model name | Low / High | Minimum-shape exception |
+|---|---:|---:|
+| bin | 26 / 196 | Two open hoppers, outer cabinet faces, dark wells and sorting label. |
+| vent | 32 / 168 | Frame, dark duct and three louver strips visible above and below. |
+| bench-seat-1 | 20 / 156 | Seat and back surfaces plus two supports. |
+| door-wood-1 | 20 / 144 | Four frame members and a two-sided leaf. |
+| psd-end | 30 / 114 | Shortened fixed glass, separate housing/trim faces and artwork. |
+| tv | 22 / 114 | Two suspension rods, bezel, live station board, video window and status light. |
+| noise-barrier | 46 / 108 | Posts and separate opaque/glazed bands, keeping all bay cutouts. |
+| noise-barrier-half | 46 / 108 | Posts and separate opaque/glazed bands, keeping all bay cutouts. |
+| traffic-light | 28 / 108 | Pole, base, closed housing and three separate lenses. |
+| bench-steel-1 | 16 / 84 | Two-sided seat pan plus two supports. |
+| sign-ceiling | 18 / 74 | Two suspension rods, backing and readable sign face. |
+| monitor-ceiling | 20 / 72 | Two rods, housing, printed camera view and status light. |
+| tactile-guide | 10 / 60 | Tile top and four continuous raised guide ribs. |
+| guidepost | 57 / 60 | Three independently printed sides, shaped logo collar and triangular column sections. |
+| curtain-wall | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-1x1 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-2x1 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-3x1 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-1x2 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-2x2 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| glass-3x2 | 18 / 60 | Four frame members and one double-sided glass surface. |
+| exit-virtual | 46 / 60 | Three printed sides and shaped metro-logo collar. |
+| road | 10 / 50 | Road surface plus four lane/edge markings. |
+| pillar-slim | 16 / 48 | Shaft and end collars, preserving height and support footprint. |
+| stair-block | 34 / 48 | All four solid treads, exposed risers and closed side silhouette. |
+| billboard-wide | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-standard | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-large | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-panorama | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-portrait | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-square | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| linemap-stand | 16 / 40 | Base, support and two separately oriented readable map faces. |
+| hanger-roof | 6 / 36 | Support bar visible from every direction. |
+| hanger-post | 14 / 36 | Bar, upright and base. |
+| linemap-wall | 4 / 26 | Frame surface and original cropped map face. |
+| exit-doorway-1 | 10 / 26 | Doorway framing and independently readable header faces. |
+| exit-doorway-2 | 10 / 26 | Doorway framing and independently readable header faces. |
+| exit-doorway-3 | 10 / 26 | Doorway framing and independently readable header faces. |
+| exit-doorway-4 | 10 / 26 | Doorway framing and independently readable header faces. |
+| roof-shell | 8 / 24 | Two pitched sheets visible from above and below. |
+| noise-barrier-railing | 16 / 24 | Open railing silhouette and supports. |
+| light-rectangular | 6 / 24 | Steel rim visible above/below and a two-sided luminous diffuser. |
+| roof | 4 / 12 | One sheet with both opposing faces. |
+| psd-end-cover | 4 / 12 | One sheet with both opposing faces. |
+| floor-mark-boarding | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| floor-mark-waiting | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| floor-mark-direction | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| sign-wall | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-kai-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-kai-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-xing-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-xing-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-li-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-li-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-wei-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-wei-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-hei-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-hei-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-song-h | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
+| calligraphy-song-v | 2 / 2 | A single printed quad is already the minimum usable rectangular surface. |
 
 ### Train models (车辆)
 

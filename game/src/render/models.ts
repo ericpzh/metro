@@ -9,7 +9,7 @@ import { TrafficLightModel } from './models/pieces/TrafficLightModel.ts'
 // Every other name this file used to define now lives in PieceBuilder.ts or a
 // piece file and is re-exported below, so existing import paths keep working.
 import type * as THREE from 'three'
-import { preparePrimitiveModelDetail } from './modelDetail.ts'
+import { compactEquipmentSheets, preparePrimitiveModelDetail } from './modelDetail.ts'
 import type { Module } from '../sim/types.ts'
 import type { ModuleContext } from './models/PieceBuilder.ts'
 import { RoadModel } from './models/pieces/RoadModel.ts'
@@ -66,6 +66,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
   const model = buildRawModule(mod, ctx)
   // These small palette families previously had identical High and Low geometry.
   if (model && primitiveDetailTypes.has(mod.type)) preparePrimitiveModelDetail(model)
+  if (model) compactEquipmentSheets(model)
   if (model) model.position.z += outdoorSurfaceLift(ctx.data.modules, mod)
   return model
 }
@@ -74,6 +75,7 @@ const primitiveDetailTypes = new Set<Module['type']>([
   'pillar', 'roof', 'tvm', 'busstop', 'door', 'light', 'monitor', 'bin', 'vent',
   'bench', 'psd-end', 'tv', 'traffic-light', 'sign', 'tactile', 'guidepost',
   'glass', 'road', 'billboard', 'linemap', 'hanger',
+  'stair', 'escalator', 'walkway', 'lift', 'exit', 'desk', 'checkout', 'vending', 'gate', 'extinguisher',
 ])
 
 function buildRawModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null {

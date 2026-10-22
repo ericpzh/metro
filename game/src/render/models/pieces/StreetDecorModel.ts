@@ -1,7 +1,7 @@
 import { drawModelText } from '../../modelLabels.ts'
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
-import { setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, surfaceModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab, plate, plateOf, placeLocal, ownedMaterial, canvasTexture, drawMetroMark } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { panelPosters } from '../../../sim/billboards.ts'
@@ -228,16 +228,19 @@ export class BusstopModel extends PieceBuilder {
   readonly kind = 'busstop'
   build(mod: Extract<Module, { type: 'busstop' }>): THREE.Group {
     const g = new THREE.Group(), ctx = this.ctx
-    const green = ownedMaterial(ctx, new THREE.MeshStandardMaterial({ color: 0x18574d, roughness: .65 }))
+    const green = ownedMaterial(ctx, new THREE.MeshStandardMaterial({ color: 0x18574d, roughness: .65, side: THREE.DoubleSide }))
     const cream = ownedMaterial(ctx, new THREE.MeshStandardMaterial({ color: 0xd8d9c5 }))
     const cx = (mod.w - 1) / 2, cy = .5, width = mod.w - .12
     // Canopy stays inside the reserved 4×2 / 8×2 footprint.
-    slab(g, green, cx, cy, 2.94, width, 1.88, .12)
+    const roof = slab(g, green, cx, cy, 2.94, width, 1.88, .12)
+    setModelDetail(roof, new THREE.PlaneGeometry(width, 1.88))
+    const keep = new Set<THREE.Mesh>([roof])
     slab(g, cream, cx, cy, 2.865, width - .12, 1.72, .03)
     slab(g, ctx.mats.orange, cx, -.425, 2.96, width, .025, .065)
     const posts = mod.cfg.variant === 'long' ? [0, 1.15, 4.4, mod.w - 1] : [0, 1.15, mod.w - 1]
     for (const x of posts) {
-      slab(g, green, x, 1.12, 1.45, .14, .14, 2.9)
+      const post = slab(g, green, x, 1.12, 1.45, .14, .14, 2.9)
+      if (x === posts[0] || x === posts[posts.length - 1]) { keep.add(post); tubeModelDetail(post) }
       slab(g, ctx.mats.darkSteel, x, 1.12, .035, .25, .25, .07)
       const brace = slab(g, green, x, .77, 2.62, .075, .8, .075)
       brace.rotation.x = -.4
@@ -270,7 +273,8 @@ export class BusstopModel extends PieceBuilder {
     const POSTER_OFFSET = FRAME_OFFSET + .02
     for (const [x, w] of panels) {
       slab(g, green, x, CABINET_Y, 1.53, w + .14, .18, 1.65)
-      slab(g, ctx.mats.steel, x, .35, .48, w * .8, .36, .065)
+      const seat = slab(g, ctx.mats.steel, x, .35, .48, w * .8, .36, .065)
+      keep.add(seat); surfaceModelDetail(seat, 'z', 1)
       for (const dx of [-w * .28, w * .28]) slab(g, green, x + dx, .35, .23, .1, .28, .46)
     }
     for (const [index, display] of displays.entries()) {
@@ -284,6 +288,7 @@ export class BusstopModel extends PieceBuilder {
         plate.userData.adPoster = ad.slug
       }
     }
+    for (const mesh of g.children) if (mesh instanceof THREE.Mesh && mesh.geometry instanceof THREE.BoxGeometry && !keep.has(mesh)) omitModelDetail(mesh)
     return placeLocal(g, mod)
   }
 }

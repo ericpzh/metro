@@ -50,11 +50,13 @@ export class DeskModel extends PieceBuilder {
     }
     for (const z of [0.5, 0.96]) slab(g, mats.rubber, 0, 0.445, z, 0.35, 0.03, 0.035)
     for (let i = 0; i < 10; i++) slab(g, mats.darkSteel, 0, 0.445, 0.535 + i * 0.04, 0.32, 0.012, 0.018).name = 'chair-mesh'
-    const keep = new Set(['desktop', 'desk-end-panel', 'modesty-panel', 'drawer-pedestal', 'monitor-housing', 'monitor-screen', 'monitor-stem', 'keyboard', 'chair-column', 'chair-spoke', 'chair-seat'])
+    const keep = new Set(['desktop', 'desk-end-panel', 'modesty-panel', 'monitor-housing', 'monitor-screen', 'monitor-stem', 'chair-column', 'chair-seat'])
     let back = false
     for (const mesh of g.children as THREE.Mesh[]) {
       if (mesh.name === 'chair-mesh' && !back) {
-        setModelDetail(mesh, new THREE.BoxGeometry(0.32, 0.012, 0.378).translate(0, 0, 0.18))
+        const low = new THREE.BoxGeometry(0.32, 0.012, 0.378).translate(0, 0, 0.18)
+        low.setIndex(Array.from(low.index!.array.slice(12, 24))); low.clearGroups()
+        setModelDetail(mesh, low)
         back = true
       } else if (!keep.has(mesh.name)) omitModelDetail(mesh)
       else if (mesh.name === 'keyboard') panelModelDetail(mesh, 'z')

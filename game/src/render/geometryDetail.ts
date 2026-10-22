@@ -53,10 +53,11 @@ export class GeometryDetail {
   private far = false
   private readonly sphere: THREE.Sphere
   private readonly point = new THREE.Vector3()
-  constructor(privateMesh: THREE.Mesh, size: number, switchGeometry: (far: boolean) => void, release: () => void = () => {}) {
+  constructor(privateMesh: THREE.Mesh, size: number, switchGeometry: (far: boolean) => void, release: () => void = () => {}, bounds?: THREE.Sphere) {
     this.mesh = privateMesh; this.size = size; this.switchGeometry = switchGeometry; this.release = release
     const instanced = privateMesh as THREE.InstancedMesh
-    if (instanced.isInstancedMesh || privateMesh instanceof THREE.BatchedMesh) {
+    if (bounds) this.sphere = bounds.clone()
+    else if (instanced.isInstancedMesh || privateMesh instanceof THREE.BatchedMesh) {
       instanced.computeBoundingSphere()
       this.sphere = instanced.boundingSphere!.clone()
     } else {

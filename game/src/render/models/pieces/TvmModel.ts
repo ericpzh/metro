@@ -3,6 +3,7 @@ import { getLanguage, t } from '../../../sim/i18n.ts'
 // Ticket vending machine (售票机) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { omitModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, canvasTexture, slab, plate, ownedMaterial, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
@@ -68,7 +69,7 @@ function buildTvm(ctx: ModuleContext): THREE.Group {
   g.add(console)
   const consoleHeight = Math.hypot(0.5, 0.16)
   slab(console, mats.steel, 0, -0.009, 0, 0.68, 0.018, consoleHeight)
-  slab(console, navy, 0, -0.021, 0, 0.64, 0.01, consoleHeight - 0.025)
+  slab(console, navy, 0, -0.021, 0, 0.64, 0.01, consoleHeight - 0.025).name = 'tvm-console'
   // Screen and payment hardware share one slope, including their bezels.
   slab(console, mats.black, -0.095, -0.038, 0.015, 0.39, 0.024, 0.35)
   slab(console, mats.steel, -0.095, -0.052, 0.015, 0.355, 0.007, 0.317)
@@ -82,7 +83,7 @@ function buildTvm(ctx: ModuleContext): THREE.Group {
   slab(console, mats.steel, 0.116, -0.045, 0.19, 0.032, 0.018, 0.025)
 
   // Instruction strip sits on the upright upper section above the console.
-  slab(g, navy, 0, -0.151, 1.475, 0.65, 0.018, 0.19)
+  slab(g, navy, 0, -0.151, 1.475, 0.65, 0.018, 0.19).name = 'tvm-instructions'
   for (let i = 0; i < 5; i++) {
     slab(g, mats.white, -0.25 + i * 0.125, -0.164, 1.47, 0.055, 0.007, 0.056)
     slab(g, mats.blue, -0.25 + i * 0.125, -0.169, 1.469, 0.025, 0.004, 0.024)
@@ -90,12 +91,17 @@ function buildTvm(ctx: ModuleContext): THREE.Group {
   slab(g, mats.darkSteel, 0, -0.151, 1.595, 0.65, 0.018, 0.055)
   // Ticket/change collection mouth, recessed into the lower service door.
   slab(g, navy, 0, -0.312, 0.64, 0.14, 0.022, 0.19)
-  slab(g, mats.black, 0, -0.327, 0.64, 0.104, 0.012, 0.147)
+  slab(g, mats.black, 0, -0.327, 0.64, 0.104, 0.012, 0.147).name = 'tvm-collection'
   slab(g, mats.steel, 0, -0.342, 0.582, 0.095, 0.038, 0.023)
   // Marquee is integrated into the cabinet's steel header.
   slab(g, mats.black, 0, -0.153, 1.731, 0.64, 0.024, 0.16)
   const sign = plate(g, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(256, 64, (c) => c.drawImage(signCanvas(), 0, 0)) })), 0.61, 0.145, 0, -0.167, 1.731, 0)
   sign.renderOrder = 1
+  g.traverse(mesh => {
+    if (!(mesh instanceof THREE.Mesh) || !(mesh.geometry instanceof THREE.BoxGeometry)) return
+    if (mesh.name.startsWith('tvm-')) surfaceModelDetail(mesh, 'y', -1)
+    else omitModelDetail(mesh)
+  })
   return g
 }
 

@@ -37,7 +37,8 @@ for (const width of [4, 8, 12]) for (const rot of [0, 1, 2, 3]) test(`canopy ${w
   detail.apply(root, true)
   posts.forEach((p, i) => {
     assert.equal(original[i].parameters.radialSegments, 24)
-    assert.equal(p.geometry.parameters.radialSegments, 8)
+    assert.equal(p.geometry.parameters.radialSegments, 3)
+    assert.equal(p.geometry.parameters.openEnded, true, 'Low posts use triangular tubes; picks retain the round source')
   })
   const lowBounds = new THREE.Box3().setFromObject(root)
   assert.ok(lowBounds.min.distanceTo(bounds.min) < 1e-6 && lowBounds.max.distanceTo(bounds.max) < 1e-6)

@@ -10,7 +10,7 @@ import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, ESCALATOR_FLAT_LENGTH, ESCALATOR
 import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorInclineRun, escalatorStepHeight } from '../../../sim/escalators.ts'
 import { RAMP_FOOT } from '../../../sim/openings.ts'
 import type { Module } from '../../../sim/types.ts'
-import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 
 /* --------------------------------------------------- ramp-adjacent blocks */
 
@@ -281,7 +281,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
       rail.position.set(endX, s * (railW / 2 + 0.03), rise / 2)
       if (endX === 0) rail.rotation.z = Math.PI // bulge the other way at the start
       g.add(rail)
-      setModelDetail(rail, new THREE.TorusGeometry(rise / 2, 0.045, 3, 4, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2))
+      setModelDetail(rail, new THREE.TorusGeometry(rise / 2, 0.045, 3, 2, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2))
     }
   }
   // Newel ends at both landings. The comb plates are separate: they are level
@@ -335,6 +335,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
     deck.rotation.z = yaw + (dir < 0 ? Math.PI : 0)
     band.add(deck)
     deck.name = 'landing-deck'
+    surfaceModelDetail(deck, 'z', 1)
   }
   const roll: EscalatorRoll = {
     parts: [steps, noseMesh],

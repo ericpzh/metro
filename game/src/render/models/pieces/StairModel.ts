@@ -10,7 +10,7 @@ import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
 import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import type { StairFlightSlide, StairLaneMate, StairLandingShape, StairLandingWalls, StairWallSides } from '../../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
-import { setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, surfaceModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 // Procedural module models — the art pass behind PLAN §3 item 6 ("modules are
 // ad-hoc boxes") and the reference photos in `docs/`. Every module the builder
@@ -203,9 +203,11 @@ function buildStairFlight(
   for (let i = 0; i < steps; i++) {
     // Tread: level, its top on the step line.
     const tread = finishSlab(g, surface, inner + i * going + going / 2, yMid, (i + 1) * stepRise - STAIR_TREAD_T / 2, going + 0.002, yWide, STAIR_TREAD_T)
+    tread.name = 'stair-tread'
     setModelDetail(tread, new THREE.PlaneGeometry(going + 0.002, yWide).translate(0, 0, STAIR_TREAD_T / 2))
     // Riser under the leading edge, from the tread below up to this one.
     const riser = finishSlab(g, surface, inner + i * going, yMid, i * stepRise + stepRise / 2, 0.05, yWide, stepRise)
+    riser.name = 'stair-riser'
     // Retain a vertical face; omit the five hidden sides of each thin slab.
     setModelDetail(riser, new THREE.PlaneGeometry(yWide, stepRise).rotateX(Math.PI / 2).rotateZ(-Math.PI / 2).translate(-0.025, 0, 0))
   }
@@ -240,15 +242,18 @@ function buildStairFlight(
     // the rail: no strip of exposed ground between the stair and its block edge.
     const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.11, STAIR_STRINGER_T)
     beam.rotation.y = -theta
+    surfaceModelDetail(beam, 'y')
     // A wall hugging this side is already the barrier: no handrail, no rail posts.
     if (wallSides.has(s)) continue
     // The rail keeps the full incline: it is in the air, so its square ends pass over the
     // landings harmlessly, and the end posts below it stay under the rail.
     const rail = slab(g, mats.handrail, midX, s * (half + 0.07), rise / 2 + 0.95, slopeLen, 0.07, 0.07)
     rail.rotation.y = -theta
+    tubeModelDetail(rail)
     for (let i = 0; i <= 2; i++) {
       const u = inner + (i / 2) * stairRun
-      slab(g, mats.steel, u, s * (half + 0.07), ((u - inner) / stairRun) * rise + 0.47, 0.05, 0.05, 0.94)
+      const post = slab(g, mats.steel, u, s * (half + 0.07), ((u - inner) / stairRun) * rise + 0.47, 0.05, 0.05, 0.94)
+      omitModelDetail(post)
     }
     // Vertical panel ends meet the uprights; the top and bottom follow the
     // incline, keeping glass above the treads and below the handrail (§5.1).
@@ -270,11 +275,13 @@ function buildStairFlight(
   const sHi = yHi + (joinSides.has(1) ? 0 : 0.03)
   const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, underside + STAIR_SOFFIT_T / 2, beamLen(STAIR_SOFFIT_T), sHi - sLo, STAIR_SOFFIT_T)
   soffit.rotation.y = -theta
+  surfaceModelDetail(soffit, 'z', -1)
   // The outer handrails level off at each landing and turn down into a newel
   // post on the floor, so a stair rail wraps round and reaches the ground instead
   // of stopping dead above the last tread — a walled side has no rail to return.
   // `o` is the outward direction along the run: the lower landing is −x, the
   // upper +x.
+  const returnStart = g.children.length
   for (const s of [1, -1]) {
     if (openSides.has(s) || wallSides.has(s)) continue
     const y = s * (half + 0.07)
@@ -292,7 +299,7 @@ function buildStairFlight(
       turn.position.set(xEnd + o * STAIR_LEAD, y, zEnd - STAIR_RETURN_R)
       if (o < 0) turn.rotation.z = Math.PI // bulge outward at both ends
       g.add(turn)
-      setModelDetail(turn, new THREE.TorusGeometry(STAIR_RETURN_R, 0.035, 3, 3, Math.PI / 2).rotateX(Math.PI / 2))
+      setModelDetail(turn, new THREE.TorusGeometry(STAIR_RETURN_R, 0.035, 3, 1, Math.PI / 2).rotateX(Math.PI / 2))
       const post = zEnd - STAIR_RETURN_R - floor
       slab(g, mats.steel, xEnd + o * (STAIR_LEAD + STAIR_RETURN_R), y, floor + post / 2, 0.07, 0.07, post)
       const panelEnd = STAIR_LEAD + STAIR_RETURN_R - 0.04
@@ -311,6 +318,9 @@ function buildStairFlight(
       stairGlass(g, mats.glass, y, points)
     }
   }
+  // The continuous incline rail and infill carry the Low silhouette. Its short
+  // landing returns, newels and round elbows are fine hardware at this scale.
+  for (const part of g.children.slice(returnStart)) omitModelDetail(part, true)
   return g
 }
 
@@ -329,6 +339,14 @@ function stairGlass(g: THREE.Group, material: THREE.Material, y: number, points:
   const pane = new THREE.Mesh(geo, material)
   pane.position.y = y + 0.0125
   g.add(pane)
+  const corners = points.length > 4 ? [points[0], points[1], points[2], points[points.length - 1]] : points
+  const low = new THREE.ExtrudeGeometry(new THREE.Shape(corners.map(([x, z]) => new THREE.Vector2(x, z))), { depth: .025, bevelEnabled: false, steps: 1 })
+  low.rotateX(Math.PI / 2)
+  const temporary = new THREE.Mesh(low, material)
+  surfaceModelDetail(temporary, 'y')
+  const detail = temporary.userData.lowDetailGeometry as THREE.BufferGeometry
+  // Transfer ownership to the full pane; the temporary source is no longer used.
+  setModelDetail(pane, detail.clone()); low.dispose()
 }
 
 /**
@@ -404,12 +422,12 @@ function buildStairLanding(
       const y = edge === 's' ? y0 + 0.04 : y1 - 0.04
       slab(g, mats.handrail, mid, y, top + RAIL, length, 0.06, 0.06)
       slab(g, mats.glass, mid, y, top + RAIL / 2, Math.max(0.01, length - 0.2), 0.025, RAIL - 0.16)
-      for (const px of [start + 0.07, end - 0.07]) slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL)
+      for (const px of [start + 0.07, end - 0.07]) omitModelDetail(slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL))
     } else {
       const x = edge === 'w' ? x0 + 0.04 : x1 - 0.04
       slab(g, mats.handrail, x, mid, top + RAIL, 0.06, length, 0.06)
       slab(g, mats.glass, x, mid, top + RAIL / 2, 0.025, Math.max(0.01, length - 0.2), RAIL - 0.16)
-      for (const py of [start + 0.07, end - 0.07]) slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL)
+      for (const py of [start + 0.07, end - 0.07]) omitModelDetail(slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL))
     }
   }
   const edges: Array<keyof StairLandingWalls> = ['s', 'n', 'w', 'e']

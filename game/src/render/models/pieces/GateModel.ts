@@ -50,13 +50,13 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
     const body = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.80, bevelEnabled: false, curveSegments: 8 }), mats.steel)
     body.position.z = GATE_PLINTH_H
     boxModelDetail(body)
-    g.add(body)
-    slab(g, mats.blue, cx, 0, 0.90, GATE_W, GATE_D - 0.02, 0.045)
+    body.name = 'gate-body'; g.add(body)
+    slab(g, mats.blue, cx, 0, 0.90, GATE_W, GATE_D - 0.02, 0.045).name = 'gate-belt'
     const hood = prism(g, mats.steel, GATE_W, -front + 0.02, front - 0.02, -0.13, 0.13, 0.923, 1.12)
     hood.position.x = cx
     const crown = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, GATE_W * 0.94, 24), mats.steel)
     crown.rotation.z = Math.PI / 2
-    setModelDetail(crown, new THREE.CylinderGeometry(0.13, 0.13, GATE_W * 0.94, 6))
+    setModelDetail(crown, new THREE.CylinderGeometry(0.13, 0.13, GATE_W * 0.94, 3))
     crown.position.set(cx, 0, 1.12)
     g.add(crown)
     for (const x of [cx - GATE_W / 2 + 0.004, cx + GATE_W / 2 - 0.004]) {
@@ -67,12 +67,13 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       g.add(end)
     }
   } else {
-    slab(g, mats.steel, cx, 0, (GATE_PLINTH_H + GATE_BODY_TOP) / 2, GATE_W, GATE_D, GATE_BODY_TOP - GATE_PLINTH_H)
-    slab(g, mats.gateNavy, cx, 0, (GATE_BODY_TOP + GATE_SHOULDER) / 2, GATE_W, GATE_D, GATE_SHOULDER - GATE_BODY_TOP)
+    slab(g, mats.steel, cx, 0, (GATE_PLINTH_H + GATE_BODY_TOP) / 2, GATE_W, GATE_D, GATE_BODY_TOP - GATE_PLINTH_H).name = 'gate-body'
+    slab(g, mats.gateNavy, cx, 0, (GATE_BODY_TOP + GATE_SHOULDER) / 2, GATE_W, GATE_D, GATE_SHOULDER - GATE_BODY_TOP).name = 'gate-belt'
     const head = prism(g, mats.gateNavy, GATE_W, -front, front, -headFront, headFront, GATE_SHOULDER, capBase)
     head.position.x = cx
     const cap = prism(g, mats.darkSteel, GATE_W * 0.94, -headFront * 0.94, headFront * 0.94, -topFront, topFront, capBase, GATE_H)
     cap.position.x = cx
+    omitModelDetail(cap)
   }
   for (const [fy, yaw] of [
     [-1, 0],
@@ -98,7 +99,7 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       plate(g, mats.trainGlass, 0.15, 0.055, cx, onSlope(0.93, 0.005), 0.93, yaw, GATE_SHOULDER_TILT)
       const sticker = plateOf(g, new THREE.CircleGeometry(0.038, 32), mats.white, cx, onSlope(0.845, 0.004), 0.845, yaw, GATE_SHOULDER_TILT)
       sticker.name = 'reader-sticker'
-      setModelDetail(sticker, new THREE.CircleGeometry(0.038, 6))
+      setModelDetail(sticker, new THREE.CircleGeometry(0.038, 4))
       for (const radius of [0.014, 0.023]) {
         omitModelDetail(plateOf(g, new THREE.RingGeometry(radius, radius + 0.002, 32), mats.gateNavy, cx, onSlope(0.845, 0.0045), 0.845, yaw, GATE_SHOULDER_TILT))
       }
@@ -115,6 +116,10 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
     const indicator = plate(g, allowed ? (fy === -1 ? mats.gatePanel : mats.gatePanelBack) : mats.gateCross, 0.13, 0.17, cx, at(0.022), 0.44, yaw)
     indicator.name = allowed ? 'entry-arrow' : 'no-entry-cross'
     indicator.renderOrder = 3
+  }
+  for (const mesh of g.children) if (mesh instanceof THREE.Mesh) {
+    if (mesh.geometry instanceof THREE.BoxGeometry && mesh.name !== 'gate-body' && mesh.name !== 'gate-belt') omitModelDetail(mesh, true)
+    if (mesh.geometry instanceof THREE.PlaneGeometry && mesh.geometry.parameters.width < .02 && mesh.geometry.parameters.height < .02) omitModelDetail(mesh)
   }
   if (lane) {
     const wings = new THREE.Group()
@@ -149,7 +154,8 @@ function buildGate(ctx: ModuleContext, mod: Extract<Module, { type: 'gate' }>): 
       wings.add(wing)
       wing.name = sign === 1 ? 'left-leaf' : 'right-leaf'
       wing.userData = { fullW, edgeX, sign }
-      const simple = new THREE.ShapeGeometry(flap, 2)
+      const outline = new THREE.Shape([new THREE.Vector2(0, -.215), new THREE.Vector2(w * .4, -.215), new THREE.Vector2(w, .15), new THREE.Vector2(0, .205)])
+      const simple = new THREE.ShapeGeometry(outline)
       const flat = simple.getAttribute('position')
       for (let i = 0; i < flat.count; i++) flat.setXYZ(i, sign * (flat.getX(i) - fullW / 2), 0, flat.getY(i))
       simple.computeVertexNormals()

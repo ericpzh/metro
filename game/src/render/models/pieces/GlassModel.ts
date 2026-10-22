@@ -2,6 +2,7 @@
 // here: see PieceBuilder.ts for the shared kit.
 
 import * as THREE from 'three'
+import { surfaceModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { GLASS_FRAME, glassModuleSpec, glassStandsOnFloor } from '../../../sim/glassPanels.ts'
@@ -133,6 +134,8 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
 export class GlassModel extends PieceBuilder {
   readonly kind = 'glass'
   build(mod: Extract<Module, { type: 'glass' }>): THREE.Group {
-    return buildGlass(this.ctx, mod)
+    const model = buildGlass(this.ctx, mod)
+    model.traverse(mesh => { if (mesh instanceof THREE.Mesh && mesh.geometry instanceof THREE.BoxGeometry) surfaceModelDetail(mesh, 'y') })
+    return model
   }
 }

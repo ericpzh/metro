@@ -6,7 +6,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { LIFT_STEP, liftLandingRows, liftLevels, liftServesSide, liftStops } from '../../../sim/lifts.ts'
 import { solidAt } from '../../../sim/ground.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
-import { omitModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 /** Wall centre-line, so the assembly reads as 2 m across. */
 const LIFT_OUTER = 0.94
@@ -385,6 +385,11 @@ export class LiftModel extends PieceBuilder {
     const model = mod.cfg.style === 'steel' ? buildLift(this.ctx, mod) : buildGlassLift(this.ctx, mod)
     model.traverse(object => {
       if (!(object instanceof THREE.Mesh)) return
+      if (object.name === 'landing-door-leaf' || object.name === 'cabin-door-leaf') {
+        for (const trim of object.children) omitModelDetail(trim, true)
+      }
+      if (object.name === 'lift-cap-bottom') { omitModelDetail(object); return }
+      if (object.name === 'shaft-post') { tubeModelDetail(object); return }
       const geometry = object.geometry as THREE.BufferGeometry
       geometry.computeBoundingBox()
       const size = geometry.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a)

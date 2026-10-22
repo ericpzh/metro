@@ -9,6 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import * as THREE from '../game/node_modules/three/build/three.module.js'
+import { equipmentLowBudget } from './equipment-low-budgets.mjs'
 import { createModelMaterials, buildModule, buildTrain, disposeObject, disposeModelMaterials } from '../game/src/render/models.ts'
 import { createModule } from '../game/src/build/model.ts'
 import { MODULE_OPTIONS } from '../game/src/app/store/catalog.ts'
@@ -55,11 +56,17 @@ for(const option of MODULE_OPTIONS){
 if(results.some(result=>result.reason))throw new Error(JSON.stringify(results.filter(result=>result.reason)))
 const missingLow=results.filter(result=>result.high>10 && !(result.low>0 && result.low<result.high))
 if(missingLow.length)throw new Error(`Palette models over ten triangles require reduced Low geometry: ${JSON.stringify(missingLow)}`)
+for(const row of results) {
+ const budget=equipmentLowBudget(row.id,row.high)
+ if(row.low>budget.limit)throw new Error(`${row.id}: ${row.low}/${row.high} triangles exceeds Low budget ${budget.limit}`)
+ row.lowBudget=budget.limit;row.lowException=budget.reason
+}
 results.sort((a,b)=>b.high-a.high)
 let out=output('model-triangles.json')
 mkdirSync(dirname(out),{recursive:true})
 writeFileSync(out,JSON.stringify({revision:THREE.REVISION,options:MODULE_OPTIONS.length,results},null,2))
 writeFileSync(out.replace(/\.json$/,'.md'),table(['Equipment / decor model name','Low triangles','High triangles'],results.map(r=>[r.id,r.low,r.high])))
+writeFileSync(output('equipment-lod-exceptions.md'),table(['Equipment / decor model name','Low / High','Minimum-shape exception'],results.filter(r=>r.low>=r.high*.1).map(r=>[r.id,`${r.low} / ${r.high}`,r.lowException])))
 console.log(results.length+' palette models: '+out)
 
 /* ------------------------------------------------------------------ trains */

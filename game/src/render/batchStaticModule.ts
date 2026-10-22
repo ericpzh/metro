@@ -31,13 +31,13 @@ export function batchStaticParts(root: THREE.Object3D, protectedObjects = new Se
       const material = child.material as THREE.Material | THREE.Material[]
       // Transparent parts need independent depth sorting. Tagged meshes may be
       // shared artwork or externally referenced; leave ownership untouched.
-      if (Array.isArray(material) || material.transparent || !child.visible || child.children.length || Object.keys(child.userData).some(key => key !== 'lowDetailGeometry')) continue
+      if (Array.isArray(material) || material.transparent || !child.visible || child.children.length || Object.keys(child.userData).some(key => key !== 'lowDetailGeometry' && key !== 'coherentModelDetail')) continue
       if (Object.keys(geometry.morphAttributes).length || geometry.drawRange.start !== 0 || geometry.drawRange.count !== Infinity) continue
       child.updateMatrix()
       if (child.matrix.determinant() === 0 || (!reflections && child.matrix.determinant() < 0)) continue
       const attributes = Object.entries(geometry.attributes).sort(([a], [b]) => a.localeCompare(b))
         .map(([name, attr]) => `${name}:${attr.itemSize}:${attr.normalized}:${attr.array.constructor.name}`).join('|')
-      const key = `${material.uuid}/${reflections ? false : !!geometry.index}/${attributes}/${child.renderOrder}/${child.castShadow}/${child.receiveShadow}/${child.layers.mask}/${child.frustumCulled}`
+      const key = `${material.uuid}/${reflections ? false : !!geometry.index}/${attributes}/${child.renderOrder}/${child.castShadow}/${child.receiveShadow}/${child.layers.mask}/${child.frustumCulled}/${child.userData.coherentModelDetail === true}`
       const bucket = buckets.get(key)
       if (bucket) bucket.push(child)
       else buckets.set(key, [child])
@@ -52,6 +52,7 @@ export function batchStaticParts(root: THREE.Object3D, protectedObjects = new Se
       geometry.computeBoundingSphere()
       const first = meshes[0]
       const merged = new THREE.Mesh(geometry, first.material)
+      if (first.userData.coherentModelDetail) merged.userData.coherentModelDetail = true
       if (meshes.some(mesh => mesh.userData.lowDetailGeometry)) {
         const reduced = meshes.map(mesh => bakedGeometry(mesh.userData.lowDetailGeometry ?? mesh.geometry, mesh.matrix))
         const detail = mergeGeometries(reduced)

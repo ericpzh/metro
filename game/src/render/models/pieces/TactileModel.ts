@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { Module } from '../../../sim/types.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { tactileArms } from '../../../sim/floorDecor.ts'
-import { omitModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 
 /** Thin 盲道 tiles in dark grey-green, with lengthwise ribs or a warning dot field (§9.5). */
 export class TactileModel extends PieceBuilder {
@@ -11,8 +11,8 @@ export class TactileModel extends PieceBuilder {
     const g = new THREE.Group()
     const tactile = this.ctx.mats.tactile ?? this.ctx.mats.psu
     if (mod.cfg.variant === 'guide') {
-      slab(g, tactile, 0, 0, 0.003, 1, 0.45, 0.006)
-      for (const y of [-0.15, -0.05, 0.05, 0.15]) slab(g, tactile, 0, y, 0.009, 0.9, 0.028, 0.006)
+      surfaceModelDetail(slab(g, tactile, 0, 0, 0.003, 1, 0.45, 0.006), 'z', 1)
+      for (const y of [-0.15, -0.05, 0.05, 0.15]) surfaceModelDetail(slab(g, tactile, 0, y, 0.009, 0.9, 0.028, 0.006), 'z', 1)
     } else {
       const arms = tactileArms(mod, this.ctx.data?.modules ?? [])
       slab(g, tactile, 0, 0, 0.003, 0.45, 0.45, 0.006)

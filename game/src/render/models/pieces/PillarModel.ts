@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { PieceBuilder, finishSlab, slab } from '../PieceBuilder.ts'
 import { pillarWidth, pillarOffset, pillarSupportsBridge, BRIDGE_DECK_DEPTH } from '../../../sim/structures.ts'
@@ -39,7 +39,11 @@ export class PillarModel extends PieceBuilder {
         }
         const geometry = makeGeometry(48)
         const mesh = new THREE.Mesh(geometry, material)
-        setModelDetail(mesh, makeGeometry(8))
+        // The round shaft keeps eight sides; its caps are buried in the collars.
+        // Four-sided collars retain their outer extent without dense cap fans.
+        const low = makeGeometry(finish ? 8 : 4)
+        if (finish) low.setIndex(Array.from(low.index!.array.slice(0, 8 * 6)))
+        low.clearGroups(); setModelDetail(mesh, low)
         mesh.position.set(offset.x, offset.y, z)
         g.add(mesh)
       }
@@ -61,8 +65,13 @@ export class PillarModel extends PieceBuilder {
       else slab(g, mat, offset.x, offset.y, (shaftStart + shaftEnd) / 2, shaftW, shaftW, shaftH)
     }
     // Steel collars make each five-metre extension legible without enlarging its footprint.
-    for (let z = 0; z <= h; z += 4) slab(g, this.ctx.mats.steel, offset.x, offset.y, Math.max(0.05, Math.min(h - 0.05, z)), w, w, 0.1)
-    if (bridge || h % 4 !== 0) slab(g, this.ctx.mats.steel, offset.x, offset.y, h - 0.05, w, w, 0.1)
+    const collar = (z: number) => {
+      const mesh = slab(g, this.ctx.mats.steel, offset.x, offset.y, z, w, w, .1)
+      if (z <= .1 || z >= h - .1) surfaceModelDetail(mesh, 'z')
+      else omitModelDetail(mesh)
+    }
+    for (let z = 0; z <= h; z += 4) collar(Math.max(.05, Math.min(h - .05, z)))
+    if (bridge || h % 4 !== 0) collar(h - .05)
     // Slim pillar `rot` selects one of nine in-cell positions; the offset above
     // already expresses that position, so applying it again as a model turn
     // would collapse several edge and corner choices onto the same locations.

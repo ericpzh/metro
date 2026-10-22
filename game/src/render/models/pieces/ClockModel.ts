@@ -221,7 +221,7 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
     hand(0.27, 0.02, rig.minute) // minute: 0.7 R
     // The centre boss, so the hands read as turning on a pivot rather than on a hole.
     const boss = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.02, 16), mats.black)
-    setModelDetail(boss, new THREE.CylinderGeometry(0.022, 0.022, 0.02, 6))
+    setModelDetail(boss, new THREE.CylinderGeometry(0.022, 0.022, 0.02, 3))
     boss.position.set(0, bossOut - 0.01, 0)
     dial.add(boss)
     return dial

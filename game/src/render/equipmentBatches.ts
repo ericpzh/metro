@@ -21,6 +21,21 @@ interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh> }
 
+/** A Low proxy can combine several fittings beyond its owner's Near surface. */
+function combinedDetailBounds(near: THREE.BufferGeometry, far: THREE.BufferGeometry): THREE.Sphere {
+  near.computeBoundingBox(); near.computeBoundingSphere()
+  if (far.getAttribute('position').count) {
+    far.computeBoundingBox(); far.computeBoundingSphere()
+    if (!near.getAttribute('position').count) {
+      near.boundingBox = far.boundingBox!.clone(); near.boundingSphere = far.boundingSphere!.clone()
+    } else {
+      near.boundingBox!.union(far.boundingBox!); near.boundingSphere!.union(far.boundingSphere!)
+    }
+  }
+  far.boundingBox = near.boundingBox!.clone(); far.boundingSphere = near.boundingSphere!.clone()
+  return near.boundingSphere!
+}
+
 /** Cross-module rendering; original surfaces and IDs remain the picking model.
  * Buckets are local to 16 m tiles. Unchanged buckets keep their GPU allocations. */
 export class EquipmentBatches {
@@ -145,7 +160,7 @@ export class EquipmentBatches {
         const material = region?.material ?? o.material
         const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
-        const key = `${Math.floor(p.x / 16)},${Math.floor(p.y / 16)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}`
+        const key = `${Math.floor(p.x / 16)},${Math.floor(p.y / 16)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
         const bucket = buckets.get(key) ?? { material, sources: [] as Source[] }
         bucket.sources.push({ mesh: o, root, matrix: o.matrixWorld.clone(), region, levels: root.userData.levelZs }); buckets.set(key, bucket)
       })
@@ -182,7 +197,8 @@ export class EquipmentBatches {
             instance.computeBoundingBox(); instance.computeBoundingSphere(); mesh = instance
             if (hasCoarse && coarse[0]) {
               const near = instance.geometry, far = coarse[0].clone()
-              detail = new GeometryDetail(instance, size, distant => { instance.geometry = distant ? far : near }, () => far.dispose())
+              combinedDetailBounds(near, far); instance.computeBoundingBox(); instance.computeBoundingSphere()
+              detail = new GeometryDetail(instance, size, distant => { instance.geometry = distant ? far : near }, () => far.dispose(), instance.boundingSphere!)
             }
           }
         } else {
@@ -202,9 +218,14 @@ export class EquipmentBatches {
               const batch = mesh as THREE.BatchedMesh
               const near = sources.map((_, i) => batch.getGeometryIdAt(i))
               const far = distant.map(g => batch.addGeometry(g))
+              batch.computeBoundingBox(); batch.computeBoundingSphere()
+              for (const geometry of distant) if (geometry.getAttribute('position').count) {
+                geometry.computeBoundingBox(); geometry.computeBoundingSphere()
+                batch.boundingBox!.union(geometry.boundingBox!); batch.boundingSphere!.union(geometry.boundingSphere!)
+              }
               detail = new GeometryDetail(batch, size, useFar => {
                 for (let i = 0; i < sources.length; i++) batch.setGeometryIdAt(i, (useFar ? far : near)[i])
-              })
+              }, undefined, batch.boundingSphere!)
             }
           }
           else {
@@ -213,9 +234,9 @@ export class EquipmentBatches {
             geometry.computeBoundingBox(); geometry.computeBoundingSphere(); mesh = new THREE.Mesh(geometry, material)
             if (hasCoarse) {
               const far = mergeGeometries(distant)!
-              far.boundingBox = geometry.boundingBox!.clone(); far.boundingSphere = geometry.boundingSphere!.clone()
+              const bounds = combinedDetailBounds(geometry, far)
               const drawn = mesh
-              detail = new GeometryDetail(drawn, size, useFar => { drawn.geometry = useFar ? far : geometry }, () => far.dispose())
+              detail = new GeometryDetail(drawn, size, useFar => { drawn.geometry = useFar ? far : geometry }, () => far.dispose(), bounds)
             }
           }
           distant.forEach(g => g.dispose())
@@ -258,8 +279,13 @@ export class EquipmentBatches {
       changed = entry.mesh.updateDetail(camera, height, this.equipmentDetailEnabled) || changed
     }
     for (const entry of this.entries.values()) {
+      // Composite proxies replace several source parts together. Independent
+      // distance transitions would erase treads/ink or overlap two roof profiles.
       const height = this.detailEnabled && this.equipmentDetailEnabled ? detailHeight(entry.sources[0].levels, this.activeZ, this.hideUI, this.graphicsQuality, viewportHeight) : Infinity
-      changed = entry.detail?.update(camera, height) || changed
+      // Explicit Low/view reductions still select the complete proxy. Otherwise
+      // retain every High member, even across separate spatial/material buckets.
+      const coherentHeight = entry.sources[0].mesh.userData.coherentModelDetail && height > 0 ? Infinity : height
+      changed = entry.detail?.update(camera, coherentHeight) || changed
     }
     return changed
   }

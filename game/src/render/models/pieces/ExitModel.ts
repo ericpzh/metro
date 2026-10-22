@@ -9,7 +9,7 @@ import { EXIT_BASE_HEIGHT } from './ExitLanding.ts'
 import { DoorwayExitModel } from './DoorwayExitModel.ts'
 import { GuidepostModel } from './StreetDecorModel.ts'
 import type { Module } from '../../../sim/types.ts'
-import { omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, panelModelDetail, setModelDetail, surfaceModelDetail, panelStripModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 /**
  * The exit portal header: the metro logo, station name and the exit's name.
@@ -86,9 +86,43 @@ function buildWavyRoof(
     const za = heightAt(i / n)
     const zb = heightAt((i + 1) / n)
     const seg = slab(g, mat, cx, ya + step / 2, (za + zb) / 2, w, Math.hypot(step, zb - za) + 0.03, 0.1)
+    seg.name = 'exit-canopy-segment'
+    seg.userData.coherentModelDetail = true
     // Tilt the segment so its long (y) axis follows the slope between crests.
     seg.rotation.x = Math.atan2(zb - za, step)
-    panelModelDetail(seg, 'z')
+    if (i === 0) {
+      const quads = [0, 1].map(j => {
+        const a = y0 + j * (y1 - y0) / 2, b = y0 + (j + 1) * (y1 - y0) / 2
+        return [new THREE.Vector3(cx - w / 2, a, heightAt(j / 2)), new THREE.Vector3(cx + w / 2, a, heightAt(j / 2)), new THREE.Vector3(cx + w / 2, b, heightAt((j + 1) / 2)), new THREE.Vector3(cx - w / 2, b, heightAt((j + 1) / 2))]
+      })
+      panelStripModelDetail(seg, quads)
+    } else omitModelDetail(seg)
+  }
+}
+
+/** Merge only touching, coplanar rectangular pad tops. Different widths and
+ * heights keep their own surfaces, so a stair/escalator wellway stays open.
+ */
+function coalesceExitFloorDetail(pads: readonly THREE.Mesh[]): void {
+  const rectangles = pads.map(mesh => {
+    mesh.updateMatrix(); mesh.geometry.computeBoundingBox()
+    return { mesh, box: mesh.geometry.boundingBox!.clone().applyMatrix4(mesh.matrix) }
+  })
+  const close = (a: number, b: number) => Math.abs(a - b) < 1e-6
+  for (let i = 0; i < rectangles.length; i++) for (let j = i + 1; j < rectangles.length; j++) {
+    const a = rectangles[i], b = rectangles[j]
+    if (a.mesh.material !== b.mesh.material || !close(a.box.max.z, b.box.max.z)) continue
+    const alongY = close(a.box.min.x, b.box.min.x) && close(a.box.max.x, b.box.max.x) && Math.min(a.box.max.y, b.box.max.y) >= Math.max(a.box.min.y, b.box.min.y) - 1e-6
+    const alongX = close(a.box.min.y, b.box.min.y) && close(a.box.max.y, b.box.max.y) && Math.min(a.box.max.x, b.box.max.x) >= Math.max(a.box.min.x, b.box.min.x) - 1e-6
+    if (!alongX && !alongY) continue
+    a.box.union(b.box)
+    const width = a.box.max.x - a.box.min.x, depth = a.box.max.y - a.box.min.y
+    const geometry = new THREE.PlaneGeometry(width, depth)
+    const uv = geometry.attributes.uv
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, uv.getX(k) * width, uv.getY(k) * depth)
+    geometry.translate((a.box.min.x + a.box.max.x) / 2 - a.mesh.position.x, (a.box.min.y + a.box.max.y) / 2 - a.mesh.position.y, a.box.max.z - a.mesh.position.z)
+    setModelDetail(a.mesh, geometry); omitModelDetail(b.mesh, true)
+    rectangles.splice(j, 1); j = i // rescan the expanded rectangle
   }
 }
 
@@ -140,9 +174,12 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const landingBack = exitLandingBack(runs, yHi - 0.3)
   const corridorBack = BACKY + 1 // the mouth-most cell stays floored under the rail
   const concrete = ctx.finish('floor.concrete')
+  const pads: THREE.Mesh[] = []
   const pad = (x: number, y: number, w: number, len: number, height = EXIT_BASE_HEIGHT): void => {
     const mesh = finishSlab(g, concrete, x, y, height / 2, w, len, height)
     mesh.name = 'exit-concrete-base'
+    pads.push(mesh)
+    surfaceModelDetail(mesh, 'z', 1)
   }
   // Two 125 mm risers fit inside the street-edge cell, like a stair block.
   const stepDepth = 0.3
@@ -176,6 +213,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
     if (!hasEscalator) pad(run.column, run.row, run.half * 2, 1)
   }
 
+  if (!covered) coalesceExitFloorDetail(pads)
   const house = new THREE.Group()
   house.position.z = EXIT_BASE_HEIGHT
   g.add(house)
@@ -197,10 +235,13 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   // bottom rail with a glass sheet between them and a post at each joint. Built
   // along a fixed local x (railZ) or y (railX), so it reads as the same fence
   // piece the player places by hand.
+  const lowPosts = new Set<string>()
   const post = (x: number, y: number, keep: boolean): void => {
     omitModelDetail(slab(house, mats.darkSteel, x, y, 0.02, 0.16, 0.16, 0.04))
     const upright = slab(house, mats.steel, x, y, 0.5, 0.08, 0.08, 1.0)
-    if (!keep) omitModelDetail(upright)
+    const key = `${x.toFixed(5)},${y.toFixed(5)}`
+    if (!keep || lowPosts.has(key)) omitModelDetail(upright)
+    else { lowPosts.add(key); tubeModelDetail(upright) }
   }
   const railZ = (cx: number, y0: number, y1: number): void => {
     const len = y1 - y0
@@ -245,9 +286,11 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
       for (const sx of [-1, 1]) {
         const upright = slab(house, mats.exitRed, xc + sx * frameX, fy, frameTop / 2, 0.16, 0.16, frameTop)
         if (fy === frameYs[1]) omitModelDetail(upright)
+        else tubeModelDetail(upright)
       }
       const beam = slab(house, mats.exitRed, xc, fy, frameTop - 0.08, frameX * 2 + 0.16, 0.16, 0.16)
       if (fy === frameYs[1]) omitModelDetail(beam)
+      else tubeModelDetail(beam)
     }
     // Base frame: side members along the run plus the far cross tie only — the
     // street doorway stays clear, so no red beam runs across the entrance floor.
@@ -277,8 +320,22 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
         const zmid = (za + zb) / 2
         const h = (zmid - FLOOR_TOP) / Math.cos(theta)
         const panel = slab(house, mats.glass, x, (ya + yb) / 2, (zmid + FLOOR_TOP) / 2, 0.04, Math.hypot(step, zb - za), h)
+        panel.name = 'exit-side-glass'
+        panel.userData.coherentModelDetail = true
         panel.rotation.x = theta
-        panelModelDetail(panel, 'x')
+        if (i === 0) {
+          const lowAt = (y: number) => {
+            const t = THREE.MathUtils.clamp((y - ry0) / (ry1 - ry0), 0, 1)
+            const start = t < .5 ? 0 : .5
+            return THREE.MathUtils.lerp(heightAt(start), heightAt(start + .5), (t - start) * 2)
+          }
+          const cuts = [EXIT_GLASS_Y0, (ry0 + ry1) / 2, EXIT_GLASS_Y1].filter((y, j) => j !== 1 || y > EXIT_GLASS_Y0 && y < EXIT_GLASS_Y1)
+          const quads = cuts.slice(1).map((b, j) => {
+            const a = cuts[j]
+            return [new THREE.Vector3(x, a, FLOOR_TOP), new THREE.Vector3(x, b, FLOOR_TOP), new THREE.Vector3(x, b, lowAt(b)), new THREE.Vector3(x, a, lowAt(a))]
+          })
+          panelStripModelDetail(panel, quads)
+        } else omitModelDetail(panel)
       }
     }
     for (const sx of [-1, 1]) sideGlass(xc + sx * side)

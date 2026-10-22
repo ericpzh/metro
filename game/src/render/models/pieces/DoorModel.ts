@@ -22,6 +22,7 @@
 // panels that caused it are gone.
 
 import * as THREE from 'three'
+import { omitModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { DOOR_FRAME, doorLeafHeight, doorLeafWidths, doorOpeningWidth, doorSpec } from '../../../sim/doors.ts'
@@ -83,6 +84,7 @@ export function buildDoor(
   opts: { span: number; panelH: number; leaves: number },
 ): THREE.Group {
   const { span, panelH, leaves } = opts
+  const start = g.children.length, keep = new Set<THREE.Object3D>()
   const { threshold, thresholdDepth, post, postDepth, head, leaf, leafSet, meetGap, kick, kickProud, studProud, handle } = DOOR_FRAME
   /** One member, placed by the local door frame and sized in metres. */
   const box = (mat: THREE.Material, x: number, z: number, y: number, w: number, h: number, d: number): THREE.Mesh =>
@@ -99,6 +101,7 @@ export function buildDoor(
   box(mats.frame, -postX, threshold + (headBottom - threshold) / 2, 0, post, headBottom - threshold, postDepth)
   box(mats.frame, postX, threshold + (headBottom - threshold) / 2, 0, post, headBottom - threshold, postDepth)
   box(mats.frame, 0, headBottom + head / 2, 0, w, head, postDepth)
+  for (const mesh of g.children.slice(start)) keep.add(mesh)
 
   // The leaves: one slab each, meeting in the middle on a 双开, hung on their own plane a
   // hair off the opening's centre so they clear the posts they swing in.
@@ -108,7 +111,7 @@ export function buildDoor(
   for (let i = 0; i < widths.length; i++) {
     const cx = centres[i]
     const lw = widths[i]
-    box(mats.leaf, cx, threshold + leafH / 2, leafSet, lw, leafH, leaf)
+    keep.add(box(mats.leaf, cx, threshold + leafH / 2, leafSet, lw, leafH, leaf))
     if (mats.stainless) {
       // Service doors have uninterrupted sheet-metal faces and upright pulls near
       // the meeting edge. The exposed hinge plates and barrels sit on the outer edge.
@@ -168,6 +171,10 @@ export function buildDoor(
       box(mats.handle, pullX + studX, 1.02, face + side * studProud, 0.03, 0.03, 0.04)
       box(mats.handle, pullX, 1.02, face + side * handle, pullW, 0.04, 0.05)
     }
+  }
+  for (const mesh of g.children.slice(start)) if (mesh instanceof THREE.Mesh) {
+    if (keep.has(mesh)) surfaceModelDetail(mesh, 'y')
+    else omitModelDetail(mesh)
   }
   return g
 }

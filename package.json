@@ -39,6 +39,7 @@
     "check:perf-tools": "node tools/check-perf-tools.mjs",
     "test:perf": "npm --prefix game run test:perf",
     "check:render-batching": "npm --prefix game run build && node tools/check-render-batching.mjs",
+    "check:equipment-lod": "node tools/check-equipment-lod.mjs",
     "profile:browser": "npm --prefix game run build && node tools/bench-demos.mjs browser --profile --gpu-timer --investigate",
     "bench:browser": "npm --prefix game run build && node tools/bench-demos.mjs browser",
     "bench:road": "npm --prefix game run build && node tools/bench-road-drag.mjs",

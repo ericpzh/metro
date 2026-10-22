@@ -1135,17 +1135,18 @@ export function ownedMaterial<T extends THREE.Material>(ctx: ModuleContext, mat:
 /* ----------------------------------------------------------------- fence */
 
 /** Round stainless tubes, as in the station railings (§5.2). */
-function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, number], to: [number, number, number], radius: number): void {
+function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, number], to: [number, number, number], radius: number): THREE.Mesh {
   const a = new THREE.Vector3(...from)
   const b = new THREE.Vector3(...to)
   const delta = b.clone().sub(a)
   const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, delta.length(), 12), mat)
-  setModelDetail(mesh, new THREE.CylinderGeometry(radius, radius, delta.length(), 4))
+  setModelDetail(mesh, new THREE.CylinderGeometry(radius, radius, delta.length(), 3, 1, true))
   mesh.position.copy(a.add(b).multiplyScalar(0.5))
   mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), delta.normalize())
   mesh.castShadow = true
   mesh.receiveShadow = true
   g.add(mesh)
+  return mesh
 }
 
 /** Floor shoe, upright and two glass clamps on a stainless fence post. */
@@ -1176,7 +1177,8 @@ export function drawFence(g: THREE.Group, mats: ModelMaterials, arms: FenceArms,
       const count = Math.max(1, Math.round(len / 0.125))
       for (let i = 0; i < count; i++) {
         const s = a + (i + 0.5) * len / count
-        fenceTube(g, mats.steel, at(s, 0.13), at(s, 0.945), 0.012)
+        const bar = fenceTube(g, mats.steel, at(s, 0.13), at(s, 0.945), 0.012)
+        if (i % 2) omitModelDetail(bar, true)
       }
     } else {
       const bottom = gate ? 0.2 : 0.11

@@ -1,5 +1,6 @@
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
+import { surfaceModelDetail } from '../../modelDetail.ts'
 import type { Module } from '../../../sim/types.ts'
 import { psdEndOffset, psdEndSpan } from '../../../sim/psdEnds.ts'
 import { PieceBuilder } from '../PieceBuilder.ts'
@@ -120,6 +121,7 @@ export class PsdEndModel extends PieceBuilder {
       child.geometry.computeBoundingSphere()
     }
     finishPsdHousing(group)
+    group.traverse(mesh => { if (mesh instanceof THREE.Mesh && mesh.geometry instanceof THREE.BoxGeometry) surfaceModelDetail(mesh, 'y') })
     return group
   }
 }

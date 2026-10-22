@@ -36,7 +36,7 @@ function buildExtinguisher(mats: ModelMaterials): THREE.Group {
   }
   slab(g, mats.darkSteel, 0, 0, legH + 0.025, w, d, 0.05)
   // The carcass, and the dark backing its two doors close over.
-  slab(g, mats.exitRed, 0, 0.01, 0.63, w, d - 0.02, 0.86)
+  const body = slab(g, mats.exitRed, 0, 0.01, 0.63, w, d - 0.02, 0.86)
   omitModelDetail(slab(g, mats.black, 0, -d / 2 + 0.011, 0.63, w - 0.06, 0.017, 0.84))
   // Two doors with a seam between them, then the overhanging lid.
   panelModelDetail(slab(g, mats.exitRed, 0, -d / 2 - 0.0125, 0.88, w - 0.05, 0.025, 0.32))
@@ -46,7 +46,12 @@ function buildExtinguisher(mats: ModelMaterials): THREE.Group {
   omitModelDetail(slab(g, mats.black, w / 2 + 0.0035, 0.05, 0.88, 0.009, 0.16, 0.07))
   omitModelDetail(slab(g, mats.steel, w / 2 + 0.0125, 0.05, 0.88, 0.02, 0.12, 0.02))
   // The lettering, printed on the doors' own red steel.
-  plate(g, mats.fireLabels, 0.64, 0.8, 0, -d / 2 - 0.027, 0.66, 0)
+  const label = plate(g, mats.fireLabels, 0.64, 0.8, 0, -d / 2 - 0.027, 0.66, 0)
+  // One closed red cabinet and its original printed front are the usable minimum.
+  for (const mesh of g.children) if (mesh !== body && mesh !== label) omitModelDetail(mesh, true)
+  const lowBody = new THREE.BoxGeometry(w + .04, d + .04, h).translate(0, -.01, h / 2 - .63)
+  lowBody.setIndex(Array.from(lowBody.index!.array.slice(0, 30))); lowBody.clearGroups() // bottom is buried in the floor
+  setModelDetail(body, lowBody)
   return g
 }
 

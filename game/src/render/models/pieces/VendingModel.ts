@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, capTop, placeLocalAtEdge } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
-import { omitModelDetail, panelModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, panelModelDetail, setModelDetail } from '../../modelDetail.ts'
 
 /* --------------------------------------------------------------- vending */
 
@@ -29,19 +29,22 @@ function buildVending(mats: ModelMaterials): THREE.Group {
   const shelfZ = [0.42, 0.68, 0.94, 1.2, 1.46]
   for (let s = 0; s < shelfZ.length; s++) {
     const z = shelfZ[s]
-    panelModelDetail(slab(g, mats.steel, -0.17, -0.326, z - 0.011, 0.4, 0.036, 0.022), 'z')
+    omitModelDetail(slab(g, mats.steel, -0.17, -0.326, z - 0.011, 0.4, 0.036, 0.022))
     for (let col = 0; col < 4; col++) {
       const x = -0.32 + col * 0.1
-      panelModelDetail(slab(g, drinks[(s * 4 + col) % drinks.length], x, -0.326, z + 0.095, 0.07, 0.036, 0.19))
+      const bottle = slab(g, drinks[(s * 4 + col) % drinks.length], x, -0.326, z + 0.095, 0.07, 0.036, 0.19)
+      bottle.userData.coherentModelDetail = true
+      if (col === 0) setModelDetail(bottle, new THREE.PlaneGeometry(.4, .19).rotateX(Math.PI / 2).translate(.15, -.018, 0))
+      else omitModelDetail(bottle)
       omitModelDetail(slab(g, mats.darkSteel, x, -0.326, z + 0.2, 0.045, 0.032, 0.022))
     }
   }
   // Glass door and its steel frame, with a handle at the opening edge.
   panelModelDetail(slab(g, mats.glass, -0.17, -0.354, 1.01, 0.42, 0.014, 1.4))
-  slab(g, mats.darkSteel, -0.385, -0.354, 1.01, 0.03, 0.04, 1.4)
-  slab(g, mats.darkSteel, 0.045, -0.354, 1.01, 0.03, 0.04, 1.4)
-  slab(g, mats.darkSteel, -0.17, -0.354, 0.305, 0.46, 0.04, 0.03)
-  slab(g, mats.darkSteel, -0.17, -0.354, 1.715, 0.46, 0.04, 0.03)
+  omitModelDetail(slab(g, mats.darkSteel, -0.385, -0.354, 1.01, 0.03, 0.04, 1.4))
+  omitModelDetail(slab(g, mats.darkSteel, 0.045, -0.354, 1.01, 0.03, 0.04, 1.4))
+  omitModelDetail(slab(g, mats.darkSteel, -0.17, -0.354, 0.305, 0.46, 0.04, 0.03))
+  omitModelDetail(slab(g, mats.darkSteel, -0.17, -0.354, 1.715, 0.46, 0.04, 0.03))
   omitModelDetail(slab(g, mats.darkSteel, 0.005, -0.366, 1.01, 0.025, 0.03, 0.5))
 
   // --- right control strip and the base hotline band ------------------------

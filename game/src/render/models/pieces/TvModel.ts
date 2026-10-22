@@ -1,6 +1,7 @@
 // Passenger-information screen (电视) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { omitModelDetail, setModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, ownedMaterial, slab, plate, plateOf, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { posterFor } from '../../../sim/billboards.ts'
@@ -116,8 +117,8 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // one set of ceiling plates for the object, not two overlapping sets.
   if (!paired || slot.hangs) {
     for (const x of [-0.42, 0.42]) {
-      slab(g, mats.steel, x, 0, (zc + sh / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + sh / 2) - 0.04)
-      slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+      tubeModelDetail(slab(g, mats.steel, x, 0, (zc + sh / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + sh / 2) - 0.04))
+      omitModelDetail(slab(g, mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04))
     }
   }
   // An open bezel frame around the screen, so the panel reads as a piece of
@@ -125,16 +126,21 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // in the same cell would be coplanar with this one on all six faces.
   if (!paired || slot.hangs) {
     const bw = 0.07
-    slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
-    slab(g, mats.darkSteel, 0, 0, zc - sh / 2 - bw / 2, sw + 2 * bw, depth, bw)
-    for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh)
+    const bezel = slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
+    bezel.userData.coherentModelDetail = true
+    const low = new THREE.BoxGeometry(sw + 2 * bw, depth, sh + 2 * bw).translate(0, 0, -sh / 2 - bw / 2)
+    low.setIndex(Array.from(low.index!.array.slice(12, 24))); low.clearGroups(); setModelDetail(bezel, low)
+    omitModelDetail(slab(g, mats.darkSteel, 0, 0, zc - sh / 2 - bw / 2, sw + 2 * bw, depth, bw))
+    for (const x of [-(sw + bw) / 2, (sw + bw) / 2]) omitModelDetail(slab(g, mats.darkSteel, x, 0, zc, bw, depth, sh))
+    for (const mesh of g.children) if (mesh instanceof THREE.Mesh && mesh.material === mats.darkSteel) mesh.userData.coherentModelDetail = true
   }
 
   // The video overlays the full station plate; shared fractions keep the footer clear.
   const winW = sw * TV_POSTER_RECT.w
   const winX = -sw / 2 + sw * (TV_POSTER_RECT.x + TV_POSTER_RECT.w / 2)
   // The station plate covers the screen behind the video, leaving its footer visible.
-  slab(g, mats.black, 0, -backingCentre, zc, sw, backingDepth, sh)
+  const backing = slab(g, mats.black, 0, -backingCentre, zc, sw, backingDepth, sh)
+  backing.userData.coherentModelDetail = true; omitModelDetail(backing)
   const plateTex = ctx.tvPlate(mod.id, mod.x + 0.5, mod.y + 0.5)
   plateTex.wrapS = THREE.ClampToEdgeWrapping
   plateTex.repeat.set(1, 1)

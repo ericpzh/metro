@@ -1,6 +1,7 @@
 // Wayfinding sign (指示牌) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { omitModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { mountedSignBoards, signBoardsOf, signBoardsPanel, signMountSpec } from '../../../sim/sign.ts'
@@ -97,12 +98,12 @@ function mountHangingSign(
   const ceiling = hangCeilingLocal(mod, ctx.data.cells, ctx.data.modules)
   const rodX = Math.max(0.22, W / 2 - 0.35)
   for (const x of [-rodX, rodX]) {
-    slab(g, ctx.mats.steel, x, 0, (zc + H / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + H / 2) - 0.04)
-    slab(g, ctx.mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04)
+    tubeModelDetail(slab(g, ctx.mats.steel, x, 0, (zc + H / 2 + ceiling) / 2, 0.05, 0.05, ceiling - (zc + H / 2) - 0.04))
+    omitModelDetail(slab(g, ctx.mats.darkSteel, x, 0, ceiling - 0.02, 0.16, 0.16, 0.04))
   }
   // Panel body: a dark steel frame around a black lightbox.
   slab(g, ctx.mats.darkSteel, 0, 0, zc, W, BOARD_T, H)
-  slab(g, ctx.mats.black, 0, 0, zc, W - 0.03, BOARD_T + 0.012, H - 0.03)
+  omitModelDetail(slab(g, ctx.mats.black, 0, 0, zc, W - 0.03, BOARD_T + 0.012, H - 0.03))
   // The lit faces, each drawn the right way up and carrying **its own** board: the
   // left face is 正面, the right is 背面, and the two yaws are what turn each plate
   // toward the passenger it serves.

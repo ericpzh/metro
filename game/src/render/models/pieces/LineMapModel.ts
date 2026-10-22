@@ -2,6 +2,7 @@
 // for the shared kit.
 
 import * as THREE from 'three'
+import { omitModelDetail, surfaceModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, plate, plateOf, slab } from '../PieceBuilder.ts'
 import type { ModuleContext, PrintedFace } from '../PieceBuilder.ts'
 import { lineMapSpec } from '../../../sim/linemaps.ts'
@@ -68,8 +69,8 @@ function buildLineMap(ctx: ModuleContext, mod: Extract<Module, { type: 'linemap'
     const base = zc - spec.panelH / 2
     // Plinth and post, standing on the floor in the middle of the run: the board is
     // carried, not propped, so the whole piece fits the cell column it reserves.
-    slab(g, ctx.mats.darkSteel, 0, 0, 0.035, 0.62, 0.62, 0.07)
-    slab(g, ctx.mats.steel, 0, 0, base / 2 + 0.035, 0.12, 0.12, Math.max(0.1, base - 0.035))
+    surfaceModelDetail(slab(g, ctx.mats.darkSteel, 0, 0, 0.035, 0.62, 0.62, 0.07), 'z', 1)
+    tubeModelDetail(slab(g, ctx.mats.steel, 0, 0, base / 2 + 0.035, 0.12, 0.12, Math.max(0.1, base - 0.035)))
     // The board's own body, two panels thick, with a face proud of each side.
     slab(g, ctx.mats.darkSteel, 0, 0, zc, panel.w + 0.06, 0.11, panel.h + 0.06)
     board(0, -0.06 - FACE_STAND_OFF, zc, 0).userData.lineMapFace = 'front'
@@ -85,8 +86,8 @@ function buildLineMap(ctx: ModuleContext, mod: Extract<Module, { type: 'linemap'
   const pz = spec.panelZ
   // Housing flat against the wall, with a steel edge frame around it — the same
   // construction a 广告牌 uses, in the map's own format.
-  slab(g, ctx.mats.darkSteel, 0, -BOARD_OFFSET, pz, panel.w + 0.08, FRAME_DEPTH, panel.h + 0.1)
-  slab(g, ctx.mats.steel, 0, -BOARD_OFFSET + FRAME_DEPTH / 2, pz, panel.w + 0.12, 0.04, panel.h + 0.14)
+  omitModelDetail(slab(g, ctx.mats.darkSteel, 0, -BOARD_OFFSET, pz, panel.w + 0.08, FRAME_DEPTH, panel.h + 0.1))
+  surfaceModelDetail(slab(g, ctx.mats.steel, 0, -BOARD_OFFSET + FRAME_DEPTH / 2, pz, panel.w + 0.12, 0.04, panel.h + 0.14), 'y', 1)
   board(0, -BOARD_OFFSET + FRAME_DEPTH / 2 + FACE_STAND_OFF, pz, Math.PI).userData.lineMapFace = 'front'
   return g
 }

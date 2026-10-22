@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { omitModelDetail, surfaceModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { HANGER_BAR_TOP, HANGER_BAR_DEPTH, HANGER_POST_BAR_TOP, HANGER_POST_WIDTH, HANGER_POST_OFFSET, hangerCells, hangerRoofZ } from '../../../sim/hangers.ts'
 import type { HangerModule } from '../../../sim/hangers.ts'
@@ -24,6 +25,11 @@ export class HangerModel extends PieceBuilder {
         if (height > 0) slab(group, steel, index, 0, barTop + height / 2, 0.08, 0.08, height).name = 'hanger-suspension'
         slab(group, steel, index, 0, barTop, 0.3, 0.3, 0.04).name = 'hanger-clamp'
       }
+    }
+    for (const mesh of group.children) if (mesh instanceof THREE.Mesh) {
+      if (mesh.name === 'hanger-clamp') omitModelDetail(mesh)
+      else if (mesh.name === 'hanger-base') surfaceModelDetail(mesh, 'z', 1)
+      else tubeModelDetail(mesh)
     }
     return this.placeLocal(group, mod)
   }

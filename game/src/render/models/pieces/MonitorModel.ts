@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { planarArtworkDetail } from '../../planarArtworkDetail.ts'
+import { omitModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, ownedMaterial, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
@@ -26,8 +28,8 @@ export class MonitorModel extends PieceBuilder {
     if (!wall) {
       for (const x of [-0.30, 0.30]) {
         const top = z + height / 2
-        slab(g, mats.steel, x, y, (top + ceiling) / 2, 0.035, 0.035, ceiling - top)
-        slab(g, mats.darkSteel, x, y, ceiling - 0.02, 0.12, 0.12, 0.04)
+        tubeModelDetail(slab(g, mats.steel, x, y, (top + ceiling) / 2, 0.035, 0.035, ceiling - top))
+        omitModelDetail(slab(g, mats.darkSteel, x, y, ceiling - 0.02, 0.12, 0.12, 0.04))
       }
     }
     const ink = (colour: number, depthWrite = false) => ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ color: colour, depthWrite }))
@@ -128,6 +130,8 @@ export class MonitorModel extends PieceBuilder {
       g.add(view)
     }
     plate(g, mats.ledGreen, 0.025, 0.015, width / 2 - 0.05, y + (wall ? 0.095 : -0.095), z - height / 2 + 0.04, wall ? Math.PI : 0)
+    const views = g.children.filter(child => child.name.startsWith('monitor-view-'))
+    planarArtworkDetail(g, views, width, height, y + (wall ? .107 : -.107), z, wall, mat => ownedMaterial(this.ctx, mat))
     placeLocal(g, mod)
     const [dx, dy] = rotateLocal(mod.rot, (mod.w - 1) / 2, 0)
     g.position.x += dx
