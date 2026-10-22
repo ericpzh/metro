@@ -15,6 +15,7 @@ import { StationGeometry } from '../src/app/stationGeometry.ts'
 import { PlateSystem } from '../src/render/scene/systems/PlateSystem.ts'
 import { signBoardsPanel } from '../src/sim/sign.ts'
 import { defaultLine } from '../src/build/rail.ts'
+import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 function station(modules) {
@@ -222,13 +223,27 @@ test('real ModuleSystem preserves remote geometry and owned material allocations
   }
 }))
 
-test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules }) => {
+test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules, ctx }) => {
   const benches = Array.from({ length: 3 }, (_, i) => createModule('bench', i * 2, 0, 0, `bench-${i}`))
   const upper = createModule('bench', 0, 0, 5, 'upper')
   const before = station([...benches, upper])
   modules.buildModules(before, new Set())
   const blob = z => modules.moduleMeshes.children.find(g => g.userData.contactBlobKey && g.userData.levelZs[0] === z)
   const lowerBlob = blob(0), upperBlob = blob(5)
+  assert.equal(lowerBlob.userData.ground, true)
+  assert.equal(upperBlob.userData.ground, false)
+  const level = new LevelSystem(ctx)
+  for (const mode of [{}, {hideUI:true}, {cutaway:true}]) {
+    Object.assign(ctx, {hideUI:false, cutaway:false, activeZ:5, ghost:true}, mode)
+    ctx.hideGround = true
+    level.applyGroupLevel(lowerBlob, 'module')
+    level.applyGroupLevel(upperBlob, 'module')
+    assert.equal(lowerBlob.visible, false, 'street shadows disappear in every view')
+    assert.equal(upperBlob.visible, true, 'station floor shadows remain')
+    ctx.hideGround = false
+    level.applyGroupLevel(lowerBlob, 'module')
+    assert.equal(lowerBlob.visible, true, 'street shadows return with the ground')
+  }
   let meshesReleased = 0, geometriesReleased = 0
   lowerBlob.addEventListener('dispose', () => meshesReleased++)
   lowerBlob.geometry.addEventListener('dispose', () => geometriesReleased++)

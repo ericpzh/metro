@@ -41,6 +41,7 @@ import type { ClockSystem } from './ClockSystem.ts'
 import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
 import { fenceConnectionIndex } from '../../../sim/fences.ts'
+import { GROUND_Z } from '../../../sim/ground.ts'
 
 export class ModuleSystem extends SceneSystem {
   presentationKeepIds(data: StationData): Set<string> | null {
@@ -354,6 +355,7 @@ export class ModuleSystem extends SceneSystem {
       inst.userData.levelZs = [levelZ]
       inst.userData.groundBand = ground
       inst.userData.contactBlobKey = key
+      inst.userData.ground = levelZ === GROUND_Z
       let changed = false
       for (let i = 0; i < blobs.length; i++) {
         const [x, y, z, r] = blobs[i]

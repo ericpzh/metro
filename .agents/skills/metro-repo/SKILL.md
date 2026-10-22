@@ -260,9 +260,13 @@ Route implementation to `metro-game`; pin graph/gesture behavior in
 
 The 视图 folder's 隐藏地面 hides the generated street mesh, placed sidewalk,
 lawn, tree, road and traffic-light modules, plus the ambient road-traffic draw.
+It also hides the contact shadows for objects placed on the street, while
+preserving shadows on station floors; toggle-off restores them. Contact-shadow
+groups carry their ground attribution from `ModuleSystem` into `LevelSystem`.
 Keep these visibility rules in `render/scene/systems/LevelSystem.ts` and
 `RoadTrafficSystem.ts`; pin hide/restore behavior in `ground-visibility` and
-ambient car visibility in `roads.test.mjs`.
+street-level shadows in `equipment-retention`; pin ambient car visibility in
+`roads.test.mjs`.
 
 Bridge placement can be aimed at any point on the connected platform: use the
 visible track/screen-door module hit when present (the dug bed can expose a
