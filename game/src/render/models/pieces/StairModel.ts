@@ -83,7 +83,7 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
     g.add(buildStairFlight(ctx.mats, surface, from, to, width, renderOuter, mates, walls, slide))
   }
   for (let i = 0; i + 1 < flights.length; i++) {
-    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i), mod.cfg.style?.endsWith('Forward') ? { width, incoming: slides[i], outgoing: slides[i + 1] } : undefined))
+    g.add(buildStairLanding(ctx.mats, surface, flights[i], flights[i + 1], stairLandingShape(mod, i), stairLandingWalls(ctx.data.cells, mod, i), { width, incoming: slides[i], outgoing: slides[i + 1] }))
   }
   return g
 }
@@ -233,6 +233,28 @@ function buildStairFlight(
   const underside = rise / 2 - STAIR_BODY_DROP
   /** The length that puts a beam's square-cut lower corner on the treads' edge. */
   const beamLen = (thickness: number): number => slopeLen - thickness * Math.tan(theta)
+  // Interior joints meet a vertical landing fascia. Extend the square-cut beam
+  // corners to that plane, preserving the sloping top and underside.
+  const fitLandingEnds = (mesh: THREE.Mesh): void => {
+    const positions = mesh.geometry.getAttribute('position')
+    const point = new THREE.Vector3()
+    for (let i = 0; i < positions.count; i++) {
+      point.fromBufferAttribute(positions, i)
+      const side = point.x < 0 ? -1 : 1
+      point.applyAxisAngle(new THREE.Vector3(0, 1, 0), -theta)
+      const end = side < 0 ? lower : upper
+      if (!outer.has(`${end.x},${end.y},${end.z}`)) {
+        const x = side * stairRun / 2
+        point.z += (x - point.x) * Math.tan(theta)
+        point.x = x
+      }
+      point.applyAxisAngle(new THREE.Vector3(0, 1, 0), theta)
+      positions.setXYZ(i, point.x, point.y, point.z)
+    }
+    mesh.geometry.computeVertexNormals()
+    mesh.geometry.computeBoundingBox()
+    mesh.geometry.computeBoundingSphere()
+  }
   for (const s of [1, -1]) {
     if (openSides.has(s)) continue
     // The stringer runs the incline on every side the flight keeps, a walled one
@@ -242,6 +264,8 @@ function buildStairFlight(
     // the rail: no strip of exposed ground between the stair and its block edge.
     const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.11, STAIR_STRINGER_T)
     beam.rotation.y = -theta
+    beam.name = 'stair-stringer'
+    fitLandingEnds(beam)
     surfaceModelDetail(beam, 'y')
     // A wall hugging this side is already the barrier: no handrail, no rail posts.
     if (wallSides.has(s)) continue
@@ -275,6 +299,8 @@ function buildStairFlight(
   const sHi = yHi + (joinSides.has(1) ? 0 : 0.03)
   const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, underside + STAIR_SOFFIT_T / 2, beamLen(STAIR_SOFFIT_T), sHi - sLo, STAIR_SOFFIT_T)
   soffit.rotation.y = -theta
+  soffit.name = 'stair-soffit'
+  fitLandingEnds(soffit)
   surfaceModelDetail(soffit, 'z', -1)
   // The outer handrails level off at each landing and turn down into a newel
   // post on the floor, so a stair rail wraps round and reaches the ground instead
@@ -396,7 +422,7 @@ function buildStairLanding(
   // frame, so the landing is part of the piece rather than a placed block.
   const surfaceTop = finishSlab(g, surface, cx, cy, top - STAIR_TREAD_T / 2, sx, sy, STAIR_TREAD_T)
   surfaceTop.name = 'stair-landing-surface'
-  const frame = slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - (STAIR_LANDING_T - STAIR_TREAD_T) / 2, sx - 0.18, sy - 0.18, STAIR_LANDING_T - STAIR_TREAD_T)
+  const frame = slab(g, mats.darkSteel, cx, cy, top - STAIR_TREAD_T - (STAIR_LANDING_T - STAIR_TREAD_T) / 2, sx, sy, STAIR_LANDING_T - STAIR_TREAD_T)
   frame.name = 'stair-landing-frame'
 
   // Which perimeter edges a flight attaches to: the side the flight body sits
@@ -412,19 +438,33 @@ function buildStairLanding(
   attachEdge(fout.from, fout.to) // the outgoing flight, beyond the landing
 
   const RAIL = 0.95
+  // Each platform axis may end at a tread edge or a whole landing-cell edge.
+  // Resolve its rail line from the adjoining flight rather than a fixed inset.
+  const railLine = (axis: 'x' | 'y', edge: number): number => {
+    const candidates: number[] = []
+    for (const [f, slide] of [[fin, forward?.incoming], [fout, forward?.outgoing]] as const) {
+      if (!forward || f.from[axis] !== f.to[axis]) continue
+      const centre = f.from[axis] + 0.5 + (axis === 'x' ? slide?.dx ?? 0 : slide?.dy ?? 0)
+      candidates.push(centre - forward.width / 2 - 0.07, centre + forward.width / 2 + 0.07)
+    }
+    const closest = candidates.sort((a, b) => Math.abs(a - edge) - Math.abs(b - edge))[0]
+    return closest !== undefined && Math.abs(closest - edge) < 0.22 ? closest : edge
+  }
+  const rx0 = railLine('x', x0), rx1 = railLine('x', x1)
+  const ry0 = railLine('y', y0), ry1 = railLine('y', y1)
   const rail = (edge: string, lo?: number, hi?: number): void => {
     const horizontal = edge === 's' || edge === 'n'
-    const start = lo ?? (horizontal ? x0 : y0)
-    const end = hi ?? (horizontal ? x1 : y1)
+    const start = lo ?? (horizontal ? rx0 : ry0)
+    const end = hi ?? (horizontal ? rx1 : ry1)
     const length = end - start
     const mid = (start + end) / 2
     if (edge === 's' || edge === 'n') {
-      const y = edge === 's' ? y0 + 0.04 : y1 - 0.04
+      const y = edge === 's' ? ry0 : ry1
       slab(g, mats.handrail, mid, y, top + RAIL, length, 0.06, 0.06)
       slab(g, mats.glass, mid, y, top + RAIL / 2, Math.max(0.01, length - 0.2), 0.025, RAIL - 0.16)
       for (const px of [start + 0.07, end - 0.07]) omitModelDetail(slab(g, mats.steel, px, y, top + RAIL / 2, 0.05, 0.05, RAIL))
     } else {
-      const x = edge === 'w' ? x0 + 0.04 : x1 - 0.04
+      const x = edge === 'w' ? rx0 : rx1
       slab(g, mats.handrail, x, mid, top + RAIL, 0.06, length, 0.06)
       slab(g, mats.glass, x, mid, top + RAIL / 2, 0.025, Math.max(0.01, length - 0.2), RAIL - 0.16)
       for (const py of [start + 0.07, end - 0.07]) omitModelDetail(slab(g, mats.steel, x, py, top + RAIL / 2, 0.05, 0.05, RAIL))
@@ -434,7 +474,8 @@ function buildStairLanding(
   for (const edge of edges) {
     if (walls[edge]) continue
     if (!attached.has(edge)) { rail(edge); continue }
-    if (!forward) continue
+    if (!forward || (fin.to.x - fin.from.x) * (fout.to.x - fout.from.x)
+      + (fin.to.y - fin.from.y) * (fout.to.y - fout.from.y) <= 0) continue
     // Forward offset flights attach to opposite halves; rail the exposed remainder.
     const horizontal = edge === 's' || edge === 'n'
     const incomingEdge = Math.abs(fin.from.x - a.x) >= Math.abs(fin.from.y - a.y)
@@ -446,8 +487,8 @@ function buildStairLanding(
     const hi = horizontal ? x1 : y1
     const openLo = centre - forward.width / 2
     const openHi = centre + forward.width / 2
-    if (openLo - lo > 0.1) rail(edge, lo, openLo)
-    if (hi - openHi > 0.1) rail(edge, openHi, hi)
+    if (openLo - lo > 0.1) rail(edge, horizontal ? rx0 : ry0, openLo - 0.07)
+    if (hi - openHi > 0.1) rail(edge, openHi + 0.07, horizontal ? rx1 : ry1)
   }
   return g
 }

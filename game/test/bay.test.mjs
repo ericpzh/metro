@@ -167,7 +167,11 @@ function meshBoxes(mod, modules, cells = [], handrailsOnly = false) {
     if (o.name.startsWith('ramp-join')) return // shared caps span the seam; each run itself still fits its tile
     if (handrailsOnly && o.material !== mats.handrail) return
     o.geometry.computeBoundingBox()
-    boxes.push(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld))
+    // Fitted stair supports are sheared at their landing ends; rotating their
+    // local AABB invents corners outside the actual mesh.
+    boxes.push(o.name === 'stair-stringer' || o.name === 'stair-soffit'
+      ? new THREE.Box3().setFromObject(o, true)
+      : o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld))
   })
   return boxes
 }
@@ -393,11 +397,11 @@ test('a 双跑楼梯 in a stairwell is railed only where it is open', () => {
   // platform's edge (`stairLandingShape`), the open end at the far side of the row.
   const levelRail = (boxes, axis, v) =>
     boxes.filter((b) => Math.abs((b.min[axis] + b.max[axis]) / 2 - v) < 0.06 && b.max.z - b.min.z < 0.1 && b.max[axis === 'x' ? 'y' : 'x'] - b.min[axis === 'x' ? 'y' : 'x'] > 0.9)
-  assert.equal(levelRail(open, 'x', 0.145).length, 1, 'the landing is not railed on its west side')
-  assert.equal(levelRail(open, 'x', 3.855).length, 1, 'the landing is not railed on its east side')
+  assert.equal(levelRail(open, 'x', 0.035).length, 1, 'the landing is not railed on its west side')
+  assert.equal(levelRail(open, 'x', 3.965).length, 1, 'the landing is not railed on its east side')
   assert.equal(levelRail(open, 'y', 3.96).length, 2, 'the two flush runs rail the open end of the half-landing')
-  assert.equal(levelRail(walled, 'x', 0.145).length, 0, 'a rail was left standing against the west wall')
-  assert.equal(levelRail(walled, 'x', 3.855).length, 0, 'a rail was left standing against the east wall')
+  assert.equal(levelRail(walled, 'x', 0.035).length, 0, 'a rail was left standing against the west wall')
+  assert.equal(levelRail(walled, 'x', 3.965).length, 0, 'a rail was left standing against the east wall')
   assert.equal(levelRail(walled, 'y', 3.96).length, 2, 'the two flush runs rail the open end of the half-landing')
   // Four newel returns in the open — both rails of both outer landings — and only the two
   // on the **seam** are left once a wall has replaced the outer two: those two rails face

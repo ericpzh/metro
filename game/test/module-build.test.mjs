@@ -466,8 +466,8 @@ const PIECES = [
   ['楼梯 单跑', palette('stair-straight'), 91, '1×8.25×6.327'],
   ['楼梯 左转 90°', palette('stair-left90'), 116, '4.625×4.625×6.322'],
   ['楼梯 右转 90°', palette('stair-right90'), 116, '4.625×4.625×6.322'],
-  ['楼梯 左双跑', palette('stair-left180'), 120, '2×4.625×6.322'],
-  ['楼梯 右双跑', palette('stair-right180'), 120, '2×4.625×6.322'],
+  ['楼梯 左双跑', palette('stair-left180'), 120, '2×4.655×6.322'],
+  ['楼梯 右双跑', palette('stair-right180'), 120, '2×4.655×6.322'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
@@ -726,6 +726,52 @@ test('left, centre and right forward stairs render both flights and the middle l
   }
 })
 
+test('extra-long stair landing rails meet flight tips and frames fill the landing', () => {
+  const previous = ctx.data
+  try {
+    for (const style of ['left90', 'right90', 'left180', 'right180', 'leftForward', 'centerForward', 'rightForward']) {
+      for (const width of [STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE]) {
+        for (let rot = 0; rot < 4; rot++) {
+          const mod = createModule(`stair-${style}`, 0, 0, 0, 'joint', rot, width, 'up', 'lane', [], undefined, { rampLength: 'ultra-long' })
+          ctx.data = { ...previous, cells: [], modules: [mod] }
+          const group = buildModule(mod, ctx)
+          group.updateMatrixWorld(true)
+          const landing = group.children[2]
+          const surface = box(landing.getObjectByName('stair-landing-surface'))
+          const frame = box(landing.getObjectByName('stair-landing-frame'))
+          for (const axis of ['x', 'y']) {
+            assert.ok(Math.abs(surface.min[axis] - frame.min[axis]) < 1e-6)
+            assert.ok(Math.abs(surface.max[axis] - frame.max[axis]) < 1e-6)
+          }
+          const rails = landing.children.filter(p => p.material === mats.handrail).map(box)
+          for (const [i, flight] of group.children.slice(0, 2).entries()) {
+            const f = stairFlights(mod)[i]
+            const run = Math.hypot(f.to.x - f.from.x, f.to.y - f.from.y)
+            for (const support of flight.children.filter(p => ['stair-stringer', 'stair-soffit'].includes(p.name))) {
+              const positions = support.geometry.getAttribute('position')
+              let atJoint = 0
+              for (let v = 0; v < positions.count; v++) {
+                const p = new THREE.Vector3().fromBufferAttribute(positions, v).applyMatrix4(support.matrix)
+                if (Math.abs(p.x - (i === 0 ? run - 0.5 : 0.5)) < 1e-5) atJoint++
+              }
+              assert.ok(atJoint >= 12, `${style}: all support end corners meet a vertical landing plane`)
+            }
+            const tips = flight.children.filter(p => p.material === mats.handrail && Math.abs(p.rotation.y) > 0.01)
+            assert.equal(tips.length, 2)
+            for (const rail of tips) {
+              const tip = new THREE.Vector3((i === 0 ? 1 : -1) * rail.geometry.parameters.width / 2, 0, 0)
+              rail.localToWorld(tip)
+              const other = group.children[1 - i].children.filter(p => p.material === mats.handrail).map(box)
+              assert.ok([...rails, ...other].some(b => b.distanceToPoint(tip) < 0.04), `${style}/${width}/${rot}: rail tip ${tip.toArray()} meets landing (distances ${[...rails, ...other].map(b => b.distanceToPoint(tip))})`)
+            }
+          }
+          disposeObject(group)
+        }
+      }
+    }
+  } finally { ctx.data = previous }
+})
+
 test('a 90° turn draws its quarter-landing as the square the sim lays', () => {
   // The drawn platform and the walkable floor are one rectangle, so the model must not invent
   // its own: it is the `lanes × lanes` **block square** the two perpendicular legs meet on
@@ -752,7 +798,7 @@ test('a 90° turn draws its quarter-landing as the square the sim lays', () => {
           const [alongLo, alongHi] = span((c) => (alongX ? c.x : c.y))
           const [acrossLo, acrossHi] = span((c) => (alongX ? c.y : c.x))
           const [lo, hi] = [acrossLo + STAIR_RAIL_PROUD, acrossHi - STAIR_RAIL_PROUD]
-          const drawn = box(group.children[2])
+          const drawn = box(group.children[2].getObjectByName('stair-landing-surface'))
           const got = alongX ? [drawn.min.x, drawn.max.x, drawn.min.y, drawn.max.y] : [drawn.min.y, drawn.max.y, drawn.min.x, drawn.max.x]
           const want = [alongLo, alongHi, lo, hi]
           for (const [i, axis] of ['near', 'far', 'band near', 'band far'].entries()) {

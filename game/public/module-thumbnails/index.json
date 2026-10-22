@@ -521,37 +521,37 @@
     {
       "id": "stair-centerForward",
       "file": "stair-centerForward.png",
-      "bytes": 5802
+      "bytes": 5942
     },
     {
       "id": "stair-left180",
       "file": "stair-left180.png",
-      "bytes": 7396
+      "bytes": 7462
     },
     {
       "id": "stair-left90",
       "file": "stair-left90.png",
-      "bytes": 6486
+      "bytes": 6790
     },
     {
       "id": "stair-leftForward",
       "file": "stair-leftForward.png",
-      "bytes": 5852
+      "bytes": 6046
     },
     {
       "id": "stair-right180",
       "file": "stair-right180.png",
-      "bytes": 6802
+      "bytes": 6944
     },
     {
       "id": "stair-right90",
       "file": "stair-right90.png",
-      "bytes": 4691
+      "bytes": 4885
     },
     {
       "id": "stair-rightForward",
       "file": "stair-rightForward.png",
-      "bytes": 5820
+      "bytes": 6026
     },
     {
       "id": "stair-straight",
