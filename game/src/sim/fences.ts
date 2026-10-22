@@ -10,7 +10,7 @@
 // the lane side is a doorway the run must end at. The caller resolves that — the
 // booleans here are just "this side holds something a panel may meet".
 
-import { stairFlights, stairLanes } from './stairs.ts'
+import { stairFlights, stairFlightSlides, stairTreadWidth } from './stairs.ts'
 import { escalatorLandings } from './escalators.ts'
 import { walkwayLandings } from './walkways.ts'
 import { gateSolidFaces } from './gates.ts'
@@ -21,7 +21,7 @@ export interface FenceConnectionIndex {
   fencesAt(x: number, y: number, z: number): readonly Fence[]
   hasRailLanding(x: number, y: number, z: number): boolean
   /** Direction from the neighbouring cell back to the fence being drawn. */
-  connects(x: number, y: number, z: number, dx: number, dy: number): boolean
+  connects(x: number, y: number, z: number, dx: number, dy: number, excludeId?: string): boolean
 }
 const connectionIndexes = new WeakMap<readonly Module[], FenceConnectionIndex>()
 
@@ -43,19 +43,42 @@ export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectio
       const at = gates.get(k) ?? []
       at.push(mod); gates.set(k, at)
     } else if (mod.type === 'stair' && !mod.cfg.block) {
-      const lanes = stairLanes(mod.cfg.width ?? 0.68)
-      for (const f of stairFlights(mod)) {
-        // A landing's graph node is the first lane only; its rail spans the full
-        // stair width. Derive the lane axis from each flight itself because a
-        // turning stair's final flight can be perpendicular to the module rot.
-        const dx = Math.sign(f.to.x - f.from.x)
-        const dy = Math.sign(f.to.y - f.from.y)
-        const rightX = dy
-        const rightY = -dx
-        for (let i = 0; i < lanes; i++) {
-          landings.add(key(f.from.x + rightX * i, f.from.y + rightY * i, f.from.z))
-          landings.add(key(f.to.x - rightX * i, f.to.y - rightY * i, f.to.z))
+      const width = stairTreadWidth(mod)
+      const flights = stairFlights(mod)
+      const slides = stairFlightSlides(mod)
+      // A landing's graph node is the first lane only; its rail spans the full
+      // stair width. Read the cells from the band the flight actually draws
+      // (`stairFlightSlides`) rather than stepping a fixed "right of the run":
+      // a straight stair's band is slid to its own right, while a turning
+      // stair's returning leg is slid the other way, so one signed step cannot
+      // cover both. The band's centre is the end cell centre plus its slide, and
+      // the cells it covers are the whole cells across its tread width.
+      const addBand = (p: { x: number; y: number; z: number }, slide: { dx: number; dy: number }, acrossX: boolean): void => {
+        if (acrossX) {
+          const centre = p.x + 0.5 + slide.dx
+          const lo = Math.floor(centre - width / 2 + 1e-9)
+          const hi = Math.ceil(centre + width / 2 - 1e-9) - 1
+          for (let x = lo; x <= hi; x++) landings.add(key(x, p.y, p.z))
+        } else {
+          const centre = p.y + 0.5 + slide.dy
+          const lo = Math.floor(centre - width / 2 + 1e-9)
+          const hi = Math.ceil(centre + width / 2 - 1e-9) - 1
+          for (let y = lo; y <= hi; y++) landings.add(key(p.x, y, p.z))
         }
+      }
+      for (const [i, f] of flights.entries()) {
+        const runDx = f.to.x - f.from.x
+        const runDy = f.to.y - f.from.y
+        if (runDx === 0 && runDy === 0) {
+          landings.add(key(f.from.x, f.from.y, f.from.z))
+          continue
+        }
+        const slide = slides[i] ?? { dx: 0, dy: 0 }
+        // The width runs across the flight, so its own run picks the axis: a
+        // flight along x spans cells in y, and one along y spans cells in x.
+        const acrossX = Math.abs(runDx) < Math.abs(runDy)
+        addBand(f.from, slide, acrossX)
+        addBand(f.to, slide, acrossX)
       }
     } else if (mod.type === 'escalator' || mod.type === 'walkway') {
       for (const p of mod.type === 'escalator' ? escalatorLandings(mod) : walkwayLandings(mod)) landings.add(key(p.x, p.y, p.z))
@@ -64,9 +87,13 @@ export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectio
   const index: FenceConnectionIndex = {
     fencesAt: (x, y, z) => fences.get(key(x, y, z)) ?? [],
     hasRailLanding: (x, y, z) => landings.has(key(x, y, z)),
-    connects: (x, y, z, dx, dy) => {
+    connects: (x, y, z, dx, dy, excludeId) => {
       const k = key(x, y, z)
-      return fences.has(k) || landings.has(k) || (gates.get(k)?.some(m => gateSolidFaces(m, dx, dy)) ?? false)
+      // `excludeId` is the caller's own piece (a hover being extended); unset means
+      // nothing is excluded, so an imported module with no id still joins a run.
+      const kept = (m: Module): boolean => excludeId === undefined || m.id !== excludeId
+      return (fences.get(k)?.some(kept) ?? false) || landings.has(k)
+        || (gates.get(k)?.some(m => kept(m) && gateSolidFaces(m, dx, dy)) ?? false)
     },
   }
   connectionIndexes.set(modules, index)

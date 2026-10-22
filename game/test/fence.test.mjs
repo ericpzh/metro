@@ -309,6 +309,22 @@ test('a wide turning stair rail connects fences beside every upper landing lane'
   assert.equal(index.connects(38, 36, 6, 1, 0), true, 'fence at x=39 joins the stair rail in its neighbouring cell')
 })
 
+test('a straight wide stair rail connects fences on the side its band is drawn', () => {
+  // Tanwei save: a 中 straight stair climbs east from (13,0,6) to (21,0,11).
+  // Its tread band is slid half a cell to the run's right, so the upper landing
+  // spans y=-1..0, not y=0..1. A fence at (21,-2,11) butts that landing's south
+  // edge; the index must see (21,-1,11) as a landing lane.
+  const stair = createModule('stair-straight', 13, 0, 6, 'straight-wide', 1, 1.36)
+  assert.ok(stair)
+  const modules = [stair]
+  assert.equal(railLandingAt(modules, 21, -1, 11), true, 'the near upper landing lane connects')
+  assert.equal(railLandingAt(modules, 21, 0, 11), true, 'the far upper landing lane connects')
+  assert.equal(railLandingAt(modules, 21, 1, 11), false, 'the cell beyond the landing is not a lane')
+  const index = fenceConnectionIndex(modules)
+  assert.equal(index.connects(21, -1, 11, 0, -1), true, 'the fence at (21,-2,11) joins the stair rail')
+  assert.equal(index.connects(21, 0, 11, 0, 1), true, 'a fence at (21,1,11) sees the landing at (21,0,11)')
+})
+
 test('a stair block is not a fence neighbour because it has no handrail', () => {
   const block = createModule('stair-block', 0, 0, 0, 'block')
   assert.ok(block?.type === 'stair' && block.cfg.block)

@@ -248,10 +248,13 @@ in `app/tools/deletionTarget.ts`; `delete-tool.test.mjs` pins Tanwei D's roof at
 `(33,45,9)` through hover and removal.
 
 Fence joints also meet ramp handrails at landing cells. `sim/fences.ts` indexes
-every lane of each stair flight's full-width landing, using the flight direction
-for turning stairs; keep that shared lookup aligned across placement, committed
-models and fence previews. `fence.test.mjs` pins the Tanwei upper landing at
-`(39,36,6)`.
+every lane of each stair flight's full-width landing from the **band the flight
+draws** (`stairFlightSlides` + `stairTreadWidth`), not from a fixed side of its
+run: a straight flight's band is slid to its right while a turning stair's
+returning leg is slid the other way. Keep that shared lookup aligned across
+placement, committed models and fence previews. `fence.test.mjs` pins the Tanwei
+turning upper landing at `(39,36,6)` and the straight stair's south landing lane
+at `(21,-1,11)`, which is the lane the fence at `(21,-2,11)` butts into.
 
 Street roads (`道路`) are placed as orthogonal node-to-node segments from the 站外
 palette. The document derives shared nodes from segment endpoints: intersections
