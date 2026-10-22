@@ -28,6 +28,20 @@ release contract. Block collision checks are indexed and cached against immutabl
 document arrays, and a refused block preview keeps a known blocked coordinate red
 until the footprint or geometry changes. See the drag and demo-collision notes in
 the performance guide and `game/PERFORMANCE.md` before changing these paths.
+Pointer tools must resolve scene picks once per event and reuse that result for
+block, module, surface, normal, bounds and roof queries. Keep the shared event
+snapshot in `render/scene/systems/CameraSystem.ts`, dispatched through
+`Viewport.tsx`; do not raycast inside document search predicates. Keep plane-only
+queries lazy so they avoid traversing scene geometry, and flush queued pointer
+movement before opening the release event's pick scope. Resolve fresh and carried
+module anchors through `app/tools/moduleAim.ts`, leaving placement support and
+refusal to the shared equipment validator. Use `app/tools/moduleTarget.ts` for
+selection, picking and deletion fallbacks: coarse bounds must not make a stair,
+escalator or walkway selectable through a nearer visible block. Preserve outdoor
+canopy and paving priority. Pin event reuse in `tool-picking.test.mjs` and ramp
+occlusion/deletion/undo behavior in `ramp-targeting.test.mjs`; reproduce the
+browser interaction with `tools/check-tool-picking.mjs` and record results in
+`game/PERFORMANCE.md`.
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local
@@ -64,6 +78,30 @@ storeys into the presentation view and disables storey-based LOD, but must not
 override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
 `CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
 `geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
+
+### Interactive preview work
+
+For any preview change, route implementation through `metro-game` and tests
+through `metro-game-test`. Audit every preview path affected by the interaction:
+palette hover, carried/move preview, placement drags, fences/roofs, block faces,
+and paint/zone overlays. Keep preview updates out of document commits and worker
+routing rebuilds; pointer handlers resolve the scene pick once and reuse it.
+Use the owning tool's existing placement, refusal and release contract when
+coalescing or deferring preview work.
+
+Equipment previews must use the same prepared model, spatial batching and LOD
+rules as placed equipment. Keep preview data as a candidate overlay on the
+immutable station document, and share neighbor indexes across model builders;
+do not copy the whole document or raycast inside a search predicate. Fresh and
+carried glass panels must share `moduleAim` so their anchor height, rendered
+envelope and placement verdict agree, including the top wall course.
+`game/test/preview-pipeline.test.mjs`, `preview-lod.test.mjs` and
+`roof-preview.test.mjs` pin these rules. Run `npm --prefix game run test:perf`,
+inspect changed-module coverage, and use `node tools/bench-preview-audit.mjs`
+plus `node tools/check-preview-lod.mjs` for production browser checks. Record
+first and warmed interactions in `game/PERFORMANCE.md` with reports under
+`.preview/perf/`; follow the shared [performance guide](references/performance.md)
+for controlled comparisons and remaining limitations.
 
 | Work | Skill |
 |---|---|
