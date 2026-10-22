@@ -498,14 +498,13 @@ the four rules most changes trip over.
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house
   plinth; the graph stays on the storey). A run comes in **length families**
   (`sim/rampLengths.ts`): one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m / 超长 6 m for the
-  扶梯 and every staircase, and the escalator's 双层 family is 超短 6 m / 短 7 m / 中 8 m /
-  长 9 m / 超长 10 m. A fresh piece defaults to 长 / 超长 on the five-metre grid
-  (`defaultRampLength`). Length is read off the endpoints (`escalatorLength` /
-  `stairLengthOf`); the one-floor **超长 6 m** is the sole exception, because it is the
-  same 30° run as 双层 超短 — the builder stamps `cfg.span: 'single'` on it and
-  `escalatorSpanOf` trusts that flag at that rise. The one-floor setting is shared with
-  every staircase so a bank is picked once, and the rail marks the rung the piece will
-  really build.
+  扶梯 and every staircase, and the escalator's 双层 family is 超短 7 m / 短 8 m / 中 9 m /
+  长 10 m / 超长 11 m. A fresh piece defaults to 长 5 m / 长 10 m on the five-metre grid
+  (`defaultRampLength`). Length and family are read off the endpoints (`escalatorLength` /
+  `stairLengthOf`, `escalatorSpanOf`): the one-floor family ends at 6 m and the double
+  family starts at 7 m, so a climb names its own family with no stored flag. The one-floor
+  setting is shared with every staircase so a bank is picked once, and the rail marks the
+  rung the piece will really build.
   The seam cap between two facing handrails forms only where the **endpoints** line up — the
   five-metre 30° escalator is a cell longer than the stair of the same length — and the exit-bay
   snap descends the piece's *own* length (`escalator-length.test.mjs`, `ramp-join.test.mjs`). A fence *on* a landing is read the same way as

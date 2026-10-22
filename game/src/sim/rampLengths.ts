@@ -6,23 +6,22 @@ import { STOREY_HEIGHT } from './constants.ts'
 // A run is fixed equipment: it climbs `rise` metres over `run` cells of
 // horizontal travel, and both ends land on the block grid. The **endpoints are
 // authoritative** (`escalatorModule` / `stairFlightsFor` write them), so a piece
-// loaded from an older save reads its length back from its endpoints. Only the
-// one ambiguous 6 m family needs a `cfg` flag, described below.
+// loaded from an older save reads its length back from its endpoints.
 //
 // The catalogue is measured in **metres of climb**, and comes in two families:
 //
 //   single floor (扶梯 and every 楼梯):  超短 2, 短 3, 中 4, 长 5, 超长 6 m
-//   double floor (扶梯 only):            超短 6, 短 7, 中 8, 长 9, 超长 10 m
+//   double floor (扶梯 only):            超短 7, 短 8, 中 9, 长 10, 超长 11 m
 //
 // The single-floor family fills the station's storey: a five-metre station's
 // one-storey run is 长 5 m, the default a fresh piece is built at. Both pieces
 // also climb 超长 6 m — one metre above 长 — for the uneven floors the 电梯
 // already spans (a six-metre mezzanine).
 //
-// A one-floor 超长 6 m and a 双层 超短 6 m are the **same 30° run**: the rise
-// cannot tell them apart, so the builder stamps `cfg.span` on the one-floor
-// piece it makes (`sim/escalators.ts`). Every other rise names its own family
-// from its endpoints.
+// The two families are **contiguous**: the 单层 tops out at 6 m and the 双层
+// starts at 7 m, so a climb names its own family. The 双层 family keeps the same
+// one-metre spacing, with 长 10 m — exactly two five-metre storeys — as its
+// default.
 //
 // `run` is the **stair's** catalogue run: the 2:3 slope the reference staircase
 // has always had (2 m over 3 m … 6 m over 9 m), rounded up to whole cells so
@@ -44,7 +43,7 @@ export type RampFamily = 'escalator' | 'stair'
 
 /**
  * The run sizes. `ultra-long` is the 超长 6 m rung on one floor and the 双层
- * 扶梯's 超长 10 m rung on two.
+ * 扶梯's 超长 11 m rung on two.
  */
 export type RampLength = 'ultra-short' | 'short' | 'medium' | 'long' | 'ultra-long'
 
@@ -70,13 +69,13 @@ export const RAMP_LENGTHS: readonly RampLengthSpec[] = [
 /** The stair's name for the same one-floor family. */
 export const STAIR_LENGTHS: readonly RampLengthSpec[] = RAMP_LENGTHS
 
-/** The two-floor family: 双层 扶梯 only, 6 m to 10 m of climb. */
+/** The two-floor family: 双层 扶梯 only, 7 m to 11 m of climb. */
 export const DOUBLE_RAMP_LENGTHS: readonly RampLengthSpec[] = [
-  { id: 'ultra-short', rise: 6, run: 9, label: 'ultra_short' },
-  { id: 'short', rise: 7, run: 11, label: 'short' },
-  { id: 'medium', rise: 8, run: 12, label: 'medium' },
-  { id: 'long', rise: 9, run: 14, label: 'long' },
-  { id: 'ultra-long', rise: 10, run: 15, label: 'ultra_long' },
+  { id: 'ultra-short', rise: 7, run: 11, label: 'ultra_short' },
+  { id: 'short', rise: 8, run: 12, label: 'short' },
+  { id: 'medium', rise: 9, run: 14, label: 'medium' },
+  { id: 'long', rise: 10, run: 15, label: 'long' },
+  { id: 'ultra-long', rise: 11, run: 17, label: 'ultra_long' },
 ]
 
 /**
@@ -88,8 +87,11 @@ export const RAMP_LENGTH_DEFAULT: RampLength = 'long'
 /** A fresh 楼梯 is built at the same 长 5 m the 扶梯 beside it uses. */
 export const STAIR_LENGTH_DEFAULT: RampLength = RAMP_LENGTH_DEFAULT
 
-/** The piece a fresh 双层 扶梯 is built at in a five-metre station: 超长, 10 m. */
-export const DOUBLE_RAMP_LENGTH_DEFAULT: RampLength = 'ultra-long'
+/**
+ * The piece a fresh 双层 扶梯 is built at in a five-metre station: 长, 10 m —
+ * exactly two storeys, even though the family now runs one metre further.
+ */
+export const DOUBLE_RAMP_LENGTH_DEFAULT: RampLength = 'long'
 
 /**
  * The family a span builds from, in catalogue order. `family` only matters on one
@@ -118,7 +120,7 @@ export function stairLengthSpec(id?: RampLength): RampLengthSpec {
 /**
  * The length a fresh piece of `span` and `family` is built at when the document
  * names one: the entry closest to the storey it climbs (or to two storeys, for
- * 双层). A new five-metre station arms 长 5 m / 超长 10 m.
+ * 双层). A new five-metre station arms 长 5 m / 长 10 m.
  */
 export function defaultRampLength(_storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single', family: RampFamily = 'escalator'): RampLength {
   if (span === 'double') return DOUBLE_RAMP_LENGTH_DEFAULT

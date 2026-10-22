@@ -402,11 +402,10 @@ modules standing on it, with a confirm if §9.3 confirmations are on.
 A **run** — an escalator or any staircase but the 1 × 1 楼梯块 — climbs one of the
 **one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m,
 **长** 5 m and **超长** 6 m (长 is the default for both). The 6 m rung sits one metre
-above 长 and serves the uneven floors the elevator already spans. It is also the one
-climb the endpoints cannot name: a **single-storey 超长** escalator and a **双层 超短**
-one are the same 30° run, so the placed piece carries its span and a picked or
-reloaded one returns to the family it was built from. The length is the piece's own
-endpoints, so a run is a fixed piece that a save carries with it. A
+above 长 and serves the uneven floors the elevator already spans. The one-floor
+family stops there; the 双层 family begins one metre later, at **超短** 7 m, so the
+climb itself names its family. The length is the piece's own endpoints, so a run is
+a fixed piece that a save carries with it. A
 **单跑楼梯** climbs it in one flight; a **turning staircase** splits it into two
 flights and puts its middle platform at half the rise (1 m for 超短, 3 m for
 超长). That platform is the stair's **own 0.5 m slab**, not a placed block: the
@@ -415,8 +414,8 @@ as the stair's virtual landing. Turning stairs take the length tile exactly as s
 ones do; only the 楼梯块, a single stepped building block, has no run.
 
 An **escalator** also comes in two spans, chosen on its own 单层 / 双层 tile. **单层** is the
-one-floor family above. **双层** climbs two floors: **超短** 6 m, **短** 7 m, **中** 8 m,
-**长** 9 m and **超长** 10 m (the default). A five-metre station lays every escalator at a
+one-floor family above. **双层** climbs two floors: **超短** 7 m, **短** 8 m, **中** 9 m,
+**长** 10 m (the default) and **超长** 11 m. A five-metre station lays every escalator at a
 strict 30° between level terminal tracks and whole-cell landings on the single
 five-metre station grid.
 

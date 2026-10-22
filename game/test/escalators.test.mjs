@@ -163,9 +163,9 @@ test('a 双层 escalator climbs two floors and the tool builds the family its sp
   try {
     const station = toState({ name: 'double', seed: 1, cells: [], modules: [], lines: [] })
     const tool = new EquipmentTool({})
-    useStore.setState({ station, escalatorSpan: 'double', doubleRampLength: 'ultra-long', escalatorDir: 'up', moduleRot: 0, escalatorWide: false })
+    useStore.setState({ station, escalatorSpan: 'double', doubleRampLength: 'long', escalatorDir: 'up', moduleRot: 0, escalatorWide: false })
     const two = tool.buildPlacementModules('escalator', [3, 5, 0], 'double')[0]
-    assert.equal(two.to.z - two.from.z, 10, '超长 spans two five-metre floors')
+    assert.equal(two.to.z - two.from.z, 10, '长 spans two five-metre floors')
     assert.equal(Math.hypot(two.to.x - two.from.x, two.to.y - two.from.y), 18)
     assert.equal(two.cfg.dir, 'up')
     // The single-floor family is untouched while the span is 双层.

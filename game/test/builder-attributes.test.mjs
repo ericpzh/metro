@@ -60,7 +60,7 @@ test('every staircase but the 楼梯块 carries the run length tile, and so does
   assert.equal(spanTile.label, '单层', 'a fresh escalator is single-storey')
   const double = moduleBuilderAttributes('escalator', stateWith({ escalatorSpan: 'double' }))
   assert.equal(double.find((a) => a.kind === 'span').label, '双层')
-  assert.equal(double.find((a) => a.kind === 'length').label, '超长', 'the double family defaults to 超长 10 m')
+  assert.equal(double.find((a) => a.kind === 'length').label, '长', 'the double family defaults to 长 10 m')
 
   // 电梯's floor interval is its first tile (Tab), the housing its second.
   const lift = moduleBuilderAttributes('lift', state)

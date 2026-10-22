@@ -1605,12 +1605,13 @@ floor supports, carved openings and picker width follow the same piece in every 
 travel direction. Older saves without a width retain the narrow model.
 
 **A run comes in two length families** (`sim/rampLengths.ts`). The **one-floor** family is shared by
-the 扶梯 and every staircase: **超短** 2 m, **短** 3 m, **中** 4 m and **长** 5 m, and a fresh piece
-defaults to 长 on the fixed five-metre grid (`defaultRampLength`). The **双层** family belongs to the escalator alone:
-**超短** 6 m, **短** 7 m, **中** 8 m, **长** 9 m and **超长** 10 m, defaulting to 超长 on a five-metre
-station. The 单层 / 双层 tile picks the family, and each family keeps its own armed length so
-switching back and forth loses neither. A piece's length is its **endpoints**, so an older save reads
-back from its span with no flag to migrate (`escalatorLength` / `stairLengthOf`). On a five-metre
+the 扶梯 and every staircase: **超短** 2 m, **短** 3 m, **中** 4 m, **长** 5 m and **超长** 6 m, and a
+fresh piece defaults to 长 on the fixed five-metre grid (`defaultRampLength`). The **双层** family
+belongs to the escalator alone: **超短** 7 m, **短** 8 m, **中** 9 m, **长** 10 m and **超长** 11 m,
+defaulting to 长 10 m — exactly two five-metre storeys. The 单层 / 双层 tile picks the family, and
+each family keeps its own armed length so switching back and forth loses neither. A piece's length is
+its **endpoints**, so an older save reads back from its climb with no flag to migrate
+(`escalatorLength` / `stairLengthOf`). On a five-metre
 station every escalator is laid at a strict **30°** inside whole-cell landings (the remainder becomes
 level terminal tracks), and a 双层 piece climbs two floors that way; the single 5 m profile uses
 strict 30° escalator inclines. Both pieces share **one** one-floor setting,
@@ -1638,7 +1639,8 @@ and a row of metal hemispheres follows its centreline, seated on the actual cap 
 armed: its base sits on the hovered floor cell, it climbs that length's rise and run along the placement
 rotation, and the finished run previews as a translucent ghost; **R** turns it, **Tab** cycles its
 窄 / 宽 width, **Shift+Tab** its length, its **单层 / 双层** tile flips one floor against two (the
-双层 family runs 6 m → 10 m), and its direction tile flips travel between up and down. The
+双层 family runs 7 m → 11 m, with 长 10 m as the two-storey default), and its direction tile flips
+travel between up and down. The
 placement ghost carries a bright arrow over the run pointing the
 way it will carry people. Direction only orders `from`/`to` — the single one-way edge the sim reads —
 so an up and a down piece share one footprint, and two runs may stand flush in adjacent tiles (the
@@ -2818,17 +2820,17 @@ approximated); neither needs WebGL.
   A bank of one type fills its seam at every one of the one-floor run lengths, and two pieces of **different**
   lengths — different landings, slopes and rail returns — never share one.
 * `escalator-length.test.mjs` — the run families: one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m /
-  超长 6 m for the 扶梯 and every staircase, and 双层 is 超短 6 m / 短 7 m / 中 8 m / 长 9 m / 超长 10 m
+  超长 6 m for the 扶梯 and every staircase, and 双层 is 超短 7 m / 短 8 m / 中 9 m / 长 10 m / 超长 11 m
   for the escalator alone. Each size in a family is its own ghost and its own name on the tile; both one-floor cycles
-  are 超短 → 短 → 中 → 长 → 超长 and the two-floor cycle adds 超长; a fresh piece defaults to the size
-  nearest its storey (长 / 超长 on the five-metre grid) and a five-metre station
-  lays every escalator at a strict 30° over whole-cell landings. Every length carves
+  are 超短 → 短 → 中 → 长 → 超长 and the two-floor cycle adds 超长; a fresh piece defaults to 长
+  (5 m on one floor, 10 m on two) and a five-metre station lays every escalator at a strict 30°
+  over whole-cell landings. Every length carves
   its own passage, keeps both landings on the crowd graph, snaps into exit bays (a 扶梯 at its own
   descent, a single-run stair its own rise below the bay it lands in), moves and survives saving, and
-  both drawn models span the run they were built at. A placed run's length is read back from its
-  endpoints (for an escalator, a rise above 5 m reads as 双层, except the one-floor 超长 6 m whose
-  cfg carries its span), so a size the catalogue cannot spell reads as its family default and a span
-  it never built arms the nearest tile. A turning stair takes the same five-rung length tile — its outer
+  both drawn models span the run they were built at. A placed run's length and family are read back
+  from its endpoints (for an escalator, a rise above the one-floor 超长 6 m reads as 双层), so a size
+  the catalogue cannot spell reads as its family default and a span it never built arms the nearest
+  tile. A turning stair takes the same five-rung length tile — its outer
   landings span the whole climb and its platform sits at half the rise — and the length redraws the
   **stair's** ghost as well as the 扶梯's. The one-floor tile is one store setting for both pieces, so
   switching from the 扶梯 to the stair that will stand beside it keeps the size on every rung; the two
@@ -3263,7 +3265,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   扶梯 and for every staircase but the 楼梯块 — the one-floor sizes named 超短 / 短 / 中 / 长 / 超长,
   cycled 超短 → 短 → 中 → 长 → 超长 on both pieces (Tab takes the stair's width, Shift+Tab its
   length) — and the 扶梯's
-  **单层 / 双层** tile sits beside it, naming 超长 for the two-floor family. The 电梯's first tile is
+  **单层 / 双层** tile sits beside it, naming 长 10 m for the two-floor family. The 电梯's first tile is
   its 层高 interval (中 by default), the housing the second; the tile names the rung, not its metres.
   `isStraightStairType` still answers for
   the palette ids the exit-bay snap arms exactly as for the module type each builds, while a 楼梯块
@@ -4092,7 +4094,7 @@ and that platform is the staircase's own 0.5 m slab: no document block is laid, 
 survives saving as part of the piece and supplies a virtual graph node instead of a
 fractional editable block. New escalators use an exact 30° incline between flat
 terminals and whole-cell endpoints; a 双层 escalator climbs two floors that way
-(6 m → 10 m). Elevator pieces span one 层高 interval (3 m → 7 m, 中 by default)
+(7 m → 11 m, defaulting to the 10 m two-storey piece). Elevator pieces span one 层高 interval (3 m → 7 m, 中 by default)
 and are stacked interval by interval, so one car can serve uneven floors.
 
 Ceiling-hung fittings hang from the block over their own cell, and a roof hanger

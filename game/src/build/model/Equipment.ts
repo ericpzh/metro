@@ -46,7 +46,7 @@ import type { StationState } from './State.ts';
 
 /**
  * A placed escalator is a fixed run, the same footprint as a straight stair: it
- * climbs its `length` — 超短 2 m … 长 5 m on one floor, or 超短 6 m … 超长 10 m for a
+ * climbs its `length` — 超短 2 m … 超长 6 m on one floor, or 超短 7 m … 超长 11 m for a
  * 双层 piece (`sim/rampLengths.ts`), the document's own default when omitted —
  * along the placement rotation. `dir` chooses whether it carries people up (from
  * the base to the top) or down (from the top to the base) — the run itself always
@@ -109,7 +109,7 @@ export interface ModuleBuildSettings {
   curtainHeight?: 2 | 3 | 4
   /**
    * A run's length: 超短 2 m … 超长 6 m on one floor for a 扶梯 and any 楼梯, and
-   * 超短 6 m … 超长 10 m when `escalatorSpan` is `double`. Omitted, it is the
+   * 超短 7 m … 超长 11 m when `escalatorSpan` is `double`. Omitted, it is the
    * document's own default (`defaultRampLength`): 长 on the fixed five-metre grid.
    */
   rampLength?: RampLength

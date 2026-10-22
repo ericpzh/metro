@@ -111,9 +111,9 @@ export interface ToolSlice {
   /** Whether a newly placed 扶梯 is 单层 (one floor) or 双层 (two floors). */
   escalatorSpan: RampSpan
   /**
-   * The length a newly placed **双层 扶梯** is built at: 超短 6 m, 短 7 m,
-   * 中 8 m, 长 9 m, 超长 10 m. Its own setting, so switching the span back and
-   * forth does not lose either choice.
+   * The length a newly placed **双层 扶梯** is built at: 超短 7 m, 短 8 m,
+   * 中 9 m, 长 10 m (the two-storey default), 超长 11 m. Its own setting, so
+   * switching the span back and forth does not lose either choice.
    */
   doubleRampLength: RampLength
   /**
