@@ -22,7 +22,6 @@ import { useLanguage } from '../../i18n.ts'
 // family is one row in that table, and moving one is one line in `RAIL_ORDER` â€” no edit
 // here, and none in a folder, a menu or the actions.
 
-import { useEffect, useState } from 'react'
 import {
   familiesIn,
   familyOptions,
@@ -32,8 +31,8 @@ import {
   type ModuleFolder,
   type DecorCategory,
 } from '../../store.ts'
+import { moduleThumbnail } from '../../moduleThumbnailAssets.ts'
 import { armedActionsAnchor } from '../helpers.ts'
-import { getModuleThumbnails } from '../../moduleThumbnails.ts'
 import { Block } from '../shared/Block.tsx'
 import { interleaveRows } from '../shared/InlinePanel.tsx'
 import { VariantMenu } from '../menus/VariantMenu.tsx'
@@ -58,18 +57,6 @@ export function TileGrid({
   const setTool = useStore((s) => s.setTool)
   const moduleType = useStore((s) => s.moduleType)
   const setModuleType = useStore((s) => s.setModuleType)
-  const [thumbs, setThumbs] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    let alive = true
-    void getModuleThumbnails().then((t) => {
-      if (alive) setThumbs(t)
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
-
   // The family the piece being placed belongs to, if any: its tile lights up (`active`),
   // its list is the one that may be open, and its tile is where the action row folds out.
   // One derivation, so the tile, the list and the row cannot answer differently.
@@ -99,7 +86,7 @@ export function TileGrid({
                 tile={tile.anchor}
                 // The parent's icon is its first variant's, so a closed list still shows
                 // what is behind it â€” the same rule for every family.
-                thumb={folder === 'rail' ? undefined : thumbs[familyOptions(tile.family)[0]?.id ?? '']}
+                thumb={folder === 'rail' ? undefined : moduleThumbnail(familyOptions(tile.family)[0]?.id ?? '')}
                 icon={folder === 'rail' ? tile.family.key : undefined}
                 active={pieceFamily === tile.family}
                 submenu={familyOpen(tile.family)}
@@ -123,7 +110,7 @@ export function TileGrid({
                 key={tile.anchor}
                 label={translate(tile.option.label)}
                 tile={tile.option.id}
-                thumb={folder === 'rail' ? undefined : thumbs[tile.option.id]}
+                thumb={folder === 'rail' ? undefined : moduleThumbnail(tile.option.id)}
                 icon={folder === 'rail' ? tile.option.id : undefined}
                 active={tool === 'module' && moduleType === tile.option.id}
                 onClick={() => {
@@ -137,7 +124,7 @@ export function TileGrid({
           const rows: React.ReactNode[] = []
           const tile = tiles.find((t) => t.anchor === anchor)
           if (tile?.kind === 'family') {
-            rows.push(<VariantMenu key={`${tile.family.key}-variants`} family={tile.family} open={familyOpen(tile.family)} thumbs={thumbs} />)
+            rows.push(<VariantMenu key={`${tile.family.key}-variants`} family={tile.family} open={familyOpen(tile.family)} />)
           }
           // The contextual action row for whichever piece spawned it; every other anchor
           // stays mounted but closed, so the old row folds away while the new one opens.

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "render:menu-thumbnails": "node ../tools/render-menu-thumbnails.mjs",
     "start": "npm run build && npm run preview",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",

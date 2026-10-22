@@ -9,15 +9,12 @@ initLanguage()
 const root = createRoot(document.getElementById('root') as HTMLElement)
 
 /**
- * `?capture-cards` and `?capture-blocks` are the art pipeline, not a way to play.
+ * Capture query routes serve the art pipeline, not the playable app.
  *
- * A concept sheet needs the game's **own** render of a piece — the pass the build
- * rail photographs, at the size one card needs — and that pass only ends in pixels
- * inside a browser. So this boots the capture pass and nothing else: no scene, no
- * simulation, no renderer for the station. It exposes the pass on `window` for
- * `tools/render-module-cards.mjs` / `tools/render-block-cards.mjs` to drive over the
- * debugging protocol. Without the flag the branch is never taken and the page
- * behaves exactly as it always has.
+ * The art sheets and the build-rail PNGs use the game's **own** renderer, and that
+ * pass only ends in pixels inside a browser. Capture routes boot the renderer and
+ * nothing else: no station scene or simulation. Without a capture flag, the page
+ * follows the normal game boot below.
  */
 async function boot() {
   const params = new URLSearchParams(location.search)
@@ -37,6 +34,12 @@ async function boot() {
     // A flag the driver waits on: the import is asynchronous, and a tool that
     // guessed at a delay would be racing the first parse of the three.js bundle.
     ;(window as unknown as { __moduleCardsReady?: boolean }).__moduleCardsReady = true
+    return
+  }
+  if (params.has('capture-menu-thumbnails')) {
+    const capture = await import('./app/moduleThumbnails.ts')
+    Object.assign(window, { __menuThumbnails: capture })
+    ;(window as unknown as { __menuThumbnailsReady?: boolean }).__menuThumbnailsReady = true
     return
   }
   if (params.has('capture-blocks')) {

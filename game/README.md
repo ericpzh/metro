@@ -3310,6 +3310,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   the 信息栏 is Alt+1 through Alt+4 over 信息 / 视图 / 出入口 / 线路, 视图 standing in **one** of the two tables;
   a folder stands on one key and a key on one folder **within its column**, with the two columns sharing
   numbers 1–4 under different modifiers; unused numbers fall through to the app's own switch.
+* `menu-thumbnails.test.mjs` — every palette option has one checked-in 132 px PNG, and the rail
 * `rail-families.test.mjs` — the rail's **variant families and decor folders** (`app/store/catalog.ts` `MODULE_FAMILIES`),
   the one table the parent tiles, the sub-menus, the rail's single open slot, the folder counts and the
   contextual action row all read. It pins the four halves against each other for every family and every

@@ -77,7 +77,7 @@ export function Block({ label, active, onClick, thumb, art, icon, tone, submenu,
         {/* Art is one of four, in that order of preference: the real model, the
             caller's own glyph, a blueprint line icon, or a colour field. */}
         {thumb ? (
-          <img src={thumb} alt="" draggable={false} />
+          <img src={thumb} alt="" draggable={false} loading="lazy" decoding="async" />
         ) : art ? (
           art
         ) : icon ? (

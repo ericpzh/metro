@@ -9,11 +9,17 @@ export default defineConfig({
   base: './',
   plugins: [react(), passengerAssets(), {
     name: 'english-game-assets',
-    // Production uses the Worker rewrite. Vite preview needs the same alias
-    // because the portable build references ./assets from the /en/ document.
+    // Production, development, and preview all need the same alias because
+    // the portable build is also served from the /en/ path.
+    configureServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        if (request.url?.startsWith('/en/assets/') || request.url?.startsWith('/en/module-thumbnails/')) request.url = request.url.slice(3)
+        next()
+      })
+    },
     configurePreviewServer(server) {
       server.middlewares.use((request, _response, next) => {
-        if (request.url?.startsWith('/en/assets/')) request.url = request.url.slice(3)
+        if (request.url?.startsWith('/en/assets/') || request.url?.startsWith('/en/module-thumbnails/')) request.url = request.url.slice(3)
         next()
       })
     },

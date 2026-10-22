@@ -18,11 +18,12 @@ import { useLanguage } from '../../i18n.ts'
 // from the same table.
 
 import { familyOptions, type ModuleFamily } from '../../store.ts'
+import { moduleThumbnail } from '../../moduleThumbnailAssets.ts'
 import { Block } from '../shared/Block.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
 import { useStore } from '../../store.ts'
 
-export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; open: boolean; thumbs: Record<string, string> }): React.ReactElement {
+export function VariantMenu({ family, open }: { family: ModuleFamily; open: boolean }): React.ReactElement {
   useLanguage()
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
@@ -35,7 +36,7 @@ export function VariantMenu({ family, open, thumbs }: { family: ModuleFamily; op
           key={m.id}
           label={translate(family.tileLabel ? family.tileLabel(m) : m.label)}
           tile={m.id}
-          thumb={family.folder === 'rail' ? undefined : thumbs[m.id]}
+          thumb={family.folder === 'rail' ? undefined : moduleThumbnail(m.id)}
           icon={family.folder === 'rail' ? m.id : undefined}
           active={tool === 'module' && moduleType === m.id}
           onClick={() => {

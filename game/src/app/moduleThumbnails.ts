@@ -1,11 +1,11 @@
 import { msg } from '../sim/i18n.ts'
-// Equipment thumbnails for the build rail.
+// Equipment thumbnails for the build rail's PNG asset generator and concept-art captures.
 //
 // The left rail shows the *actual* in-game equipment, not a stand-in glyph: this
 // module builds each placeable module with the same procedural kit the 3D scene
-// uses (`render/models.ts`) into an offscreen WebGL renderer and hands back a
-// data URL. Once generated the result is cached for the session, so the only
-// cost is one short render at startup, deferred off the first paint.
+// uses (`render/models.ts`) into an offscreen WebGL renderer and hands back PNGs.
+// `tools/render-menu-thumbnails.mjs` bakes the palette's fixed views ahead of time;
+// this renderer remains available to the concept-art capture tools as well.
 
 import * as THREE from 'three'
 import { addStationLights, applyStationRenderer } from '../render/scene/lightRig.ts'
@@ -830,7 +830,7 @@ async function cropToAlpha(dataUrl: string): Promise<{ png: string; rect: { x: n
 export async function renderModuleThumbnails(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
-  options: { hideSecondGateDoor?: boolean } = {},
+  options: { hideSecondGateDoor?: boolean; pixelRatio?: number } = {},
 ): Promise<Record<string, string>> {
   return (await renderModulePieces(size, elevations, options)).images
 }
@@ -847,14 +847,14 @@ export async function renderModuleThumbnails(
 export async function renderModulePieces(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
-  options: { hideSecondGateDoor?: boolean } = {},
+  options: { hideSecondGateDoor?: boolean; pixelRatio?: number } = {},
 ): Promise<PieceViewResult> {
   const frame = frameOf(size)
   const out: Record<string, string> = {}
   const layout: Record<string, PieceLayout> = {}
   const views = elevations?.views ?? null
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
-  renderer.setPixelRatio(elevations ? (elevations.scale ?? 2) : Math.min(2, window.devicePixelRatio || 1))
+  renderer.setPixelRatio(options.pixelRatio ?? (elevations ? (elevations.scale ?? 2) : Math.min(2, window.devicePixelRatio || 1)))
   renderer.setSize(frame.width, frame.height, false)
   // The station's own rig: the rail's icons are meant to look like the pieces they place.
   applyStationRenderer(renderer, { alpha: 0 })
@@ -1400,38 +1400,4 @@ export async function renderModulePieces(
     renderer.forceContextLoss()
   }
   return { images: out, layout }
-}
-
-/* --------------------------------------------------------------- session cache */
-
-let cache: Record<string, string> | null = null
-let pending: Promise<Record<string, string>> | null = null
-
-/** Thumbnails, generated once and shared by every caller. Empty on failure. */
-export function getModuleThumbnails(): Promise<Record<string, string>> {
-  if (cache) return Promise.resolve(cache)
-  if (!pending) {
-    pending = new Promise((resolve) => {
-      const run = (): void => {
-        // The pass awaits the ad artwork (see `renderModuleThumbnails`), so it
-        // resolves a promise rather than a record.
-        renderModuleThumbnails(132, null, { hideSecondGateDoor: true })
-          .then((rendered) => {
-            cache = rendered
-            resolve(rendered)
-          })
-          .catch(() => {
-            cache = {}
-            resolve(cache)
-          })
-      }
-      // Off the critical path: a short WebGL pass, so let the first paint land.
-      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-        ;(window as unknown as { requestIdleCallback: (cb: () => void, o?: { timeout: number }) => void }).requestIdleCallback(run, { timeout: 1200 })
-      } else {
-        setTimeout(run, 60)
-      }
-    })
-  }
-  return pending
 }

@@ -1,0 +1,607 @@
+{
+  "width": 132,
+  "height": 132,
+  "pixelRatio": 1,
+  "thumbnails": [
+    {
+      "id": "ac-unit",
+      "file": "ac-unit.png",
+      "bytes": 9144
+    },
+    {
+      "id": "bench-seat-1",
+      "file": "bench-seat-1.png",
+      "bytes": 3264
+    },
+    {
+      "id": "bench-steel-1",
+      "file": "bench-steel-1.png",
+      "bytes": 6112
+    },
+    {
+      "id": "billboard-large",
+      "file": "billboard-large.png",
+      "bytes": 11051
+    },
+    {
+      "id": "billboard-panorama",
+      "file": "billboard-panorama.png",
+      "bytes": 8197
+    },
+    {
+      "id": "billboard-portrait",
+      "file": "billboard-portrait.png",
+      "bytes": 10477
+    },
+    {
+      "id": "billboard-square",
+      "file": "billboard-square.png",
+      "bytes": 10858
+    },
+    {
+      "id": "billboard-standard",
+      "file": "billboard-standard.png",
+      "bytes": 10464
+    },
+    {
+      "id": "billboard-wide",
+      "file": "billboard-wide.png",
+      "bytes": 10637
+    },
+    {
+      "id": "bin",
+      "file": "bin.png",
+      "bytes": 8902
+    },
+    {
+      "id": "bridge",
+      "file": "bridge.png",
+      "bytes": 7483
+    },
+    {
+      "id": "busstop-long",
+      "file": "busstop-long.png",
+      "bytes": 5425
+    },
+    {
+      "id": "busstop-short",
+      "file": "busstop-short.png",
+      "bytes": 5851
+    },
+    {
+      "id": "calligraphy-hei-h",
+      "file": "calligraphy-hei-h.png",
+      "bytes": 5458
+    },
+    {
+      "id": "calligraphy-hei-v",
+      "file": "calligraphy-hei-v.png",
+      "bytes": 5206
+    },
+    {
+      "id": "calligraphy-kai-h",
+      "file": "calligraphy-kai-h.png",
+      "bytes": 4163
+    },
+    {
+      "id": "calligraphy-kai-v",
+      "file": "calligraphy-kai-v.png",
+      "bytes": 3873
+    },
+    {
+      "id": "calligraphy-li-h",
+      "file": "calligraphy-li-h.png",
+      "bytes": 4213
+    },
+    {
+      "id": "calligraphy-li-v",
+      "file": "calligraphy-li-v.png",
+      "bytes": 3994
+    },
+    {
+      "id": "calligraphy-song-h",
+      "file": "calligraphy-song-h.png",
+      "bytes": 4553
+    },
+    {
+      "id": "calligraphy-song-v",
+      "file": "calligraphy-song-v.png",
+      "bytes": 4248
+    },
+    {
+      "id": "calligraphy-wei-h",
+      "file": "calligraphy-wei-h.png",
+      "bytes": 4156
+    },
+    {
+      "id": "calligraphy-wei-v",
+      "file": "calligraphy-wei-v.png",
+      "bytes": 3826
+    },
+    {
+      "id": "calligraphy-xing-h",
+      "file": "calligraphy-xing-h.png",
+      "bytes": 4231
+    },
+    {
+      "id": "calligraphy-xing-v",
+      "file": "calligraphy-xing-v.png",
+      "bytes": 4038
+    },
+    {
+      "id": "cctv",
+      "file": "cctv.png",
+      "bytes": 4245
+    },
+    {
+      "id": "cctv-dome",
+      "file": "cctv-dome.png",
+      "bytes": 5147
+    },
+    {
+      "id": "cctv-post",
+      "file": "cctv-post.png",
+      "bytes": 2576
+    },
+    {
+      "id": "cctv-ptz",
+      "file": "cctv-ptz.png",
+      "bytes": 5662
+    },
+    {
+      "id": "checkout",
+      "file": "checkout.png",
+      "bytes": 5637
+    },
+    {
+      "id": "clock",
+      "file": "clock.png",
+      "bytes": 4709
+    },
+    {
+      "id": "cubicle",
+      "file": "cubicle.png",
+      "bytes": 2454
+    },
+    {
+      "id": "curtain-wall",
+      "file": "curtain-wall.png",
+      "bytes": 1808
+    },
+    {
+      "id": "desk",
+      "file": "desk.png",
+      "bytes": 6305
+    },
+    {
+      "id": "door-glass-1",
+      "file": "door-glass-1.png",
+      "bytes": 2662
+    },
+    {
+      "id": "door-steel-1",
+      "file": "door-steel-1.png",
+      "bytes": 4794
+    },
+    {
+      "id": "door-wood-1",
+      "file": "door-wood-1.png",
+      "bytes": 2376
+    },
+    {
+      "id": "electrical-cabinet",
+      "file": "electrical-cabinet.png",
+      "bytes": 9804
+    },
+    {
+      "id": "escalator",
+      "file": "escalator.png",
+      "bytes": 4355
+    },
+    {
+      "id": "exit",
+      "file": "exit.png",
+      "bytes": 9192
+    },
+    {
+      "id": "exit-covered-1",
+      "file": "exit-covered-1.png",
+      "bytes": 8984
+    },
+    {
+      "id": "exit-covered-3",
+      "file": "exit-covered-3.png",
+      "bytes": 9632
+    },
+    {
+      "id": "exit-doorway-1",
+      "file": "exit-doorway-1.png",
+      "bytes": 3466
+    },
+    {
+      "id": "exit-doorway-2",
+      "file": "exit-doorway-2.png",
+      "bytes": 2840
+    },
+    {
+      "id": "exit-doorway-3",
+      "file": "exit-doorway-3.png",
+      "bytes": 2651
+    },
+    {
+      "id": "exit-doorway-4",
+      "file": "exit-doorway-4.png",
+      "bytes": 2483
+    },
+    {
+      "id": "exit-uncovered-1",
+      "file": "exit-uncovered-1.png",
+      "bytes": 7813
+    },
+    {
+      "id": "exit-uncovered-2",
+      "file": "exit-uncovered-2.png",
+      "bytes": 8580
+    },
+    {
+      "id": "exit-uncovered-3",
+      "file": "exit-uncovered-3.png",
+      "bytes": 9096
+    },
+    {
+      "id": "exit-virtual",
+      "file": "exit-virtual.png",
+      "bytes": 1820
+    },
+    {
+      "id": "extinguisher",
+      "file": "extinguisher.png",
+      "bytes": 4779
+    },
+    {
+      "id": "extinguisher-compact",
+      "file": "extinguisher-compact.png",
+      "bytes": 4974
+    },
+    {
+      "id": "extinguisher-glass",
+      "file": "extinguisher-glass.png",
+      "bytes": 4728
+    },
+    {
+      "id": "fence",
+      "file": "fence.png",
+      "bytes": 5720
+    },
+    {
+      "id": "fence-gate",
+      "file": "fence-gate.png",
+      "bytes": 5490
+    },
+    {
+      "id": "fence-iron",
+      "file": "fence-iron.png",
+      "bytes": 7138
+    },
+    {
+      "id": "floor-mark-boarding",
+      "file": "floor-mark-boarding.png",
+      "bytes": 2498
+    },
+    {
+      "id": "floor-mark-direction",
+      "file": "floor-mark-direction.png",
+      "bytes": 3711
+    },
+    {
+      "id": "floor-mark-waiting",
+      "file": "floor-mark-waiting.png",
+      "bytes": 6085
+    },
+    {
+      "id": "gate",
+      "file": "gate.png",
+      "bytes": 4283
+    },
+    {
+      "id": "gate-new",
+      "file": "gate-new.png",
+      "bytes": 6920
+    },
+    {
+      "id": "glass-1x1",
+      "file": "glass-1x1.png",
+      "bytes": 3547
+    },
+    {
+      "id": "glass-1x2",
+      "file": "glass-1x2.png",
+      "bytes": 2832
+    },
+    {
+      "id": "glass-2x1",
+      "file": "glass-2x1.png",
+      "bytes": 2864
+    },
+    {
+      "id": "glass-2x2",
+      "file": "glass-2x2.png",
+      "bytes": 2654
+    },
+    {
+      "id": "glass-3x1",
+      "file": "glass-3x1.png",
+      "bytes": 2639
+    },
+    {
+      "id": "glass-3x2",
+      "file": "glass-3x2.png",
+      "bytes": 2469
+    },
+    {
+      "id": "guidepost",
+      "file": "guidepost.png",
+      "bytes": 1778
+    },
+    {
+      "id": "hanger-post",
+      "file": "hanger-post.png",
+      "bytes": 2122
+    },
+    {
+      "id": "hanger-roof",
+      "file": "hanger-roof.png",
+      "bytes": 2517
+    },
+    {
+      "id": "lawn",
+      "file": "lawn.png",
+      "bytes": 3226
+    },
+    {
+      "id": "lift",
+      "file": "lift.png",
+      "bytes": 8621
+    },
+    {
+      "id": "light-circular",
+      "file": "light-circular.png",
+      "bytes": 3248
+    },
+    {
+      "id": "light-rectangular",
+      "file": "light-rectangular.png",
+      "bytes": 2808
+    },
+    {
+      "id": "linemap-stand",
+      "file": "linemap-stand.png",
+      "bytes": 8198
+    },
+    {
+      "id": "linemap-wall",
+      "file": "linemap-wall.png",
+      "bytes": 10165
+    },
+    {
+      "id": "monitor-ceiling",
+      "file": "monitor-ceiling.png",
+      "bytes": 2839
+    },
+    {
+      "id": "monitor-wall",
+      "file": "monitor-wall.png",
+      "bytes": 6052
+    },
+    {
+      "id": "noise-barrier",
+      "file": "noise-barrier.png",
+      "bytes": 2273
+    },
+    {
+      "id": "noise-barrier-half",
+      "file": "noise-barrier-half.png",
+      "bytes": 3431
+    },
+    {
+      "id": "noise-barrier-railing",
+      "file": "noise-barrier-railing.png",
+      "bytes": 2751
+    },
+    {
+      "id": "pillar-slim",
+      "file": "pillar-slim.png",
+      "bytes": 1450
+    },
+    {
+      "id": "pillar-thick",
+      "file": "pillar-thick.png",
+      "bytes": 5454
+    },
+    {
+      "id": "psd-end",
+      "file": "psd-end.png",
+      "bytes": 4889
+    },
+    {
+      "id": "psd-end-cover",
+      "file": "psd-end-cover.png",
+      "bytes": 1539
+    },
+    {
+      "id": "rail-signal",
+      "file": "rail-signal.png",
+      "bytes": 3573
+    },
+    {
+      "id": "road",
+      "file": "road.png",
+      "bytes": 2299
+    },
+    {
+      "id": "roof",
+      "file": "roof.png",
+      "bytes": 11345
+    },
+    {
+      "id": "roof-canopy",
+      "file": "roof-canopy.png",
+      "bytes": 7322
+    },
+    {
+      "id": "roof-shell",
+      "file": "roof-shell.png",
+      "bytes": 7291
+    },
+    {
+      "id": "roof-tapered",
+      "file": "roof-tapered.png",
+      "bytes": 9124
+    },
+    {
+      "id": "roof-truss",
+      "file": "roof-truss.png",
+      "bytes": 9285
+    },
+    {
+      "id": "shelf-cooler",
+      "file": "shelf-cooler.png",
+      "bytes": 6689
+    },
+    {
+      "id": "shelf-cooler-dark",
+      "file": "shelf-cooler-dark.png",
+      "bytes": 6638
+    },
+    {
+      "id": "shelf-dark-tall",
+      "file": "shelf-dark-tall.png",
+      "bytes": 11054
+    },
+    {
+      "id": "shelf-white-short",
+      "file": "shelf-white-short.png",
+      "bytes": 9495
+    },
+    {
+      "id": "shelf-white-tall",
+      "file": "shelf-white-tall.png",
+      "bytes": 10121
+    },
+    {
+      "id": "shelf-wire",
+      "file": "shelf-wire.png",
+      "bytes": 10624
+    },
+    {
+      "id": "sidewalk",
+      "file": "sidewalk.png",
+      "bytes": 3152
+    },
+    {
+      "id": "sign-ceiling",
+      "file": "sign-ceiling.png",
+      "bytes": 4706
+    },
+    {
+      "id": "sign-wall",
+      "file": "sign-wall.png",
+      "bytes": 4300
+    },
+    {
+      "id": "sink",
+      "file": "sink.png",
+      "bytes": 5694
+    },
+    {
+      "id": "stair-block",
+      "file": "stair-block.png",
+      "bytes": 13674
+    },
+    {
+      "id": "stair-centerForward",
+      "file": "stair-centerForward.png",
+      "bytes": 5802
+    },
+    {
+      "id": "stair-left180",
+      "file": "stair-left180.png",
+      "bytes": 7396
+    },
+    {
+      "id": "stair-left90",
+      "file": "stair-left90.png",
+      "bytes": 6486
+    },
+    {
+      "id": "stair-leftForward",
+      "file": "stair-leftForward.png",
+      "bytes": 5852
+    },
+    {
+      "id": "stair-right180",
+      "file": "stair-right180.png",
+      "bytes": 6802
+    },
+    {
+      "id": "stair-right90",
+      "file": "stair-right90.png",
+      "bytes": 4691
+    },
+    {
+      "id": "stair-rightForward",
+      "file": "stair-rightForward.png",
+      "bytes": 5820
+    },
+    {
+      "id": "stair-straight",
+      "file": "stair-straight.png",
+      "bytes": 5948
+    },
+    {
+      "id": "tactile-guide",
+      "file": "tactile-guide.png",
+      "bytes": 2213
+    },
+    {
+      "id": "tactile-warning",
+      "file": "tactile-warning.png",
+      "bytes": 3280
+    },
+    {
+      "id": "traffic-light",
+      "file": "traffic-light.png",
+      "bytes": 2024
+    },
+    {
+      "id": "tree",
+      "file": "tree.png",
+      "bytes": 5376
+    },
+    {
+      "id": "tv",
+      "file": "tv.png",
+      "bytes": 8905
+    },
+    {
+      "id": "tvm",
+      "file": "tvm.png",
+      "bytes": 6494
+    },
+    {
+      "id": "vending",
+      "file": "vending.png",
+      "bytes": 6186
+    },
+    {
+      "id": "vent",
+      "file": "vent.png",
+      "bytes": 3564
+    },
+    {
+      "id": "walkway",
+      "file": "walkway.png",
+      "bytes": 4665
+    }
+  ]
+}

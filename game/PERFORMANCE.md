@@ -1355,3 +1355,25 @@ previews at 8 seconds and 14 tracked 300-DPI print exports. Reviewed layouts
 retain model details, collectors, door alignment and readable labels. Train-art
 pipeline tests passed 6/6; all 16 train playback samples and passenger gait
 playback checks passed. The web build synced the regenerated SVGs and passed.
+
+## Build-rail thumbnail cold open (2026-10-21)
+
+The rail used to create a WebGL renderer and photograph all 120 module options on the
+first Equipment open. `tools/bench-menu-thumbnails.mjs` starts a fresh Chrome profile,
+waits for the production app, opens Equipment, scrolls its first preview into view, and
+records the first ready PNG plus browser long tasks. The baseline cold open took
+**1,964 ms** before 52 data-URL thumbnails appeared; the corresponding long task was
+**1,946 ms**. After moving the same 132 px render to checked-in PNG assets, first-visible
+image time was **447–516 ms** across two cold runs; 34–35 of 151 menu images loaded with
+no failures. The measured open-to-image time fell about **76%**. A 397–420 ms long task
+remains during the React/menu expansion and image presentation; the thumbnail renderer
+itself is gone.
+
+The source PNGs total **648 KiB** for all 120 options. They are generated at 132 × 132,
+matching the 1× cold-capture viewport; the rail uses async decoding and native lazy
+loading. This measurement covers local production assets under SwiftShader at 1400 ×
+900, not WAN transfer or hardware GPU timing. App-ready time was 2,928 ms before and
+2,684 ms after in the single cold samples, so this change does not claim to speed the
+station's broader initial boot. Raw reports and Chrome profiles are in
+`.preview/perf/menu-thumbnails/`; regenerate with `npm --prefix game run build`,
+`npm --prefix game run render:menu-thumbnails`, then `npm --prefix game run build`.
