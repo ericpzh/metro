@@ -22,7 +22,7 @@ import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
 import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY, storeyBand } from '../../../sim/constants.ts'
 import { ZONE_PAINT_LIST } from '../../../sim/zones.ts'
-import { crowdVisible, levelSide } from '../../levelSlicing.ts'
+import { contactShadowVisible, crowdVisible, levelSide } from '../../levelSlicing.ts'
 import {
   ROUTE_MAX_POINTS,
   ROUTE_MAX_QUADS,
@@ -673,7 +673,7 @@ export class CrowdSystem extends SceneSystem {
       this.renderedKey = ''
       return
     }
-    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.levelBase}|${this.ctx.storeyHeight}|${this.agentsShown}|${this.followAgentId}|${this.detailPolicyKey()}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
+    const key = `${this.snapshotVersion}|${this.playing}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.levelBase}|${this.ctx.storeyHeight}|${this.agentsShown}|${this.followAgentId}|${this.detailPolicyKey()}|${camera?.matrixWorld.elements.join(',') ?? ''}|${camera?.projectionMatrix.elements.join(',') ?? ''}`
     if (!force && !this.playing && key === this.renderedKey) return
     this.renderedKey = key
     if (camera) this.frustum.setFromProjectionMatrix(this.projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse))
@@ -749,11 +749,14 @@ export class CrowdSystem extends SceneSystem {
         group.pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
         m.compose(pos, q, scale)
         group.mesh.setMatrixAt(slot, m)
-        // The flat ground shadow follows the same independent horizontal axes.
-        scale.z = 1
-        m.compose(pos, q, scale)
-        m.elements[14] += 0.03
-        this.blobs.setMatrixAt(blobCount++, m)
+        if (contactShadowVisible(pos.z, this.ctx.activeZ, this.ctx.hideUI || this.ctx.cutaway,
+          this.ctx.levelBase, this.ctx.storeyHeight)) {
+          // Pack only active-storey shadows, avoiding ghost-floor overdraw and uploads.
+          scale.z = 1
+          m.compose(pos, q, scale)
+          m.elements[14] += 0.03
+          this.blobs.setMatrixAt(blobCount++, m)
+        }
       }
       // The 选择 tool's ring sits on the body it belongs to, moved with it through
       // the same interpolation, so what is highlighted is the person on screen.

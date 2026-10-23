@@ -27,6 +27,10 @@ Chrome/GPU traces in separate runs. Keep train-model preparation in station open
 reuse the bounded prepared fleet on arrival, and retain only the latest train frame
 while the editor is suspended. Compare submitted-frame intervals as well as RAFs;
 see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+For Tanwei editor throughput, use the Low LOD / 1× target of 30 average and 15 1% low
+FPS. Keep Low equipment batch sizing and active-storey contact-shadow policy covered
+by deterministic regressions, and record matched captures and limitations in the
+[Tanwei performance notes](references/performance.md#tanwei-low-at-1).
 Chunk face culling must account for independently hidden geometry: a suspended
 ceiling never occludes an adjacent ordinary block face, including its side, top or
 bottom. Keep its side/cap/support votes aligned across chunk cache halos. Pin the

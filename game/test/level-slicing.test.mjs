@@ -7,8 +7,17 @@
 // disappeared.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { crowdVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
+import { contactShadowVisible, crowdVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
 import { storeyBand } from '../src/sim/constants.ts'
+
+test('contact shadows use actual floor bands, including shifted editing grids', () => {
+  for (const base of [0, 2]) for (const active of [-5 + base, base, 5 + base]) {
+    assert.equal(contactShadowVisible(active + 1, active, false, base), true)
+    assert.equal(contactShadowVisible(active - 4, active, false, base), false)
+    assert.equal(contactShadowVisible(active + 6, active, false, base), false)
+    assert.equal(contactShadowVisible(active - 4, active, true, base), true)
+  }
+})
 
 test('a piece is on the side of the storey it covers', () => {
   assert.equal(levelSide([0], 0), 'active')

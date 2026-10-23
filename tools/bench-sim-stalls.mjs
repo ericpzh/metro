@@ -10,11 +10,12 @@ const mode = process.env.BENCH_MODE ?? 'explode'
 const quality = process.env.BENCH_QUALITY ?? 'low'
 const seconds = Number(process.env.BENCH_SECONDS ?? 20)
 const speed = Number(process.env.BENCH_SPEED ?? 16)
+const pixelRatio = Number(process.env.BENCH_PIXEL_RATIO ?? 1)
 const profile = process.env.BENCH_PROFILE === '1'
 const trace = process.env.BENCH_TRACE === '1'
 const ablation = process.env.BENCH_ABLATE ?? ''
 if (!['zoo','tanwei'].includes(demo) || !['regular','explode'].includes(mode) || !['low','high'].includes(quality) ||
-    ![1,4,16,64].includes(speed) || !Number.isFinite(seconds) || seconds < 1) throw new Error('Invalid playback benchmark configuration')
+    ![1,4,16,64].includes(speed) || !Number.isFinite(seconds) || seconds < 1 || !Number.isFinite(pixelRatio) || pixelRatio <= 0 || pixelRatio > 2) throw new Error('Invalid playback benchmark configuration')
 if (profile && trace) throw new Error('Collect CPU profiles and traces in separate runs')
 const output = resolve(process.env.BENCH_OUTPUT ?? `.preview/perf/sim-stalls/${demo}-${mode}-${quality}.json`)
 mkdirSync(dirname(output), { recursive: true })
@@ -49,6 +50,12 @@ try {
     await waitFor(page.evaluate, 'document.querySelector(".explodedViewer")?.dataset.ready === "true"',
       { tries: 240, every: 250, what: 'exploded view' })
   }
+  if (pixelRatio !== 1) await page.evaluate(`(() => {
+    const scene = ${mode === 'explode' ? 'window.__explodedScene' : 'window.__scene'};
+    const renderer = scene.renderer;
+    renderer.setPixelRatio(${pixelRatio});
+    renderer.setSize(renderer.domElement.clientWidth, renderer.domElement.clientHeight, false);
+  })()`)
   if (profile) { await page.send('Profiler.enable'); await page.send('Profiler.setSamplingInterval', { interval: 1000 }); await page.send('Profiler.start') }
   if (trace) await page.send('Tracing.start', { categories: 'devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline.frame'+(process.env.BENCH_TRACE_GPU === '1' ? ',gpu,cc' : ''), transferMode:'ReturnAsStream' })
   const raw = await page.evaluate(`(async () => {
@@ -58,8 +65,10 @@ try {
     if (${JSON.stringify(ablation)} === 'crowd') {
       measuredScene.crowd.agents.removeFromParent(); measuredScene.crowd.agentsLow.removeFromParent(); measuredScene.crowd.blobs.removeFromParent();
     }
-    if (${JSON.stringify(ablation)} === 'station') {
+    if (${JSON.stringify(ablation)} === 'station' || ${JSON.stringify(ablation)} === 'chunks') {
       for (const mesh of measuredScene.chunks.chunkMeshes) mesh.removeFromParent();
+    }
+    if (${JSON.stringify(ablation)} === 'station' || ${JSON.stringify(ablation)} === 'modules') {
       measuredScene.modules.moduleMeshes.removeFromParent(); measuredScene.modules.batches.root.removeFromParent();
     }
     const start = performance.now();
@@ -122,12 +131,21 @@ try {
     unsubscribe(); observer.disconnect();
     const scene = ${mode === 'explode' ? 'window.__explodedScene' : 'window.__scene'};
     const gl = scene.renderer.getContext(), debug = gl.getExtension('WEBGL_debug_renderer_info');
+    const countObjects = (root, predicate) => {
+      let count = 0; root.traverseVisible(object => { if (predicate(object)) count++ }); return count;
+    };
     return { initial, final: metrics(), frames, rafFrames, events, snapshots, errors, preparation: window.__trainPreparation,
       environment: { browser: navigator.userAgent, gpu: debug ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
         cells: window.__metro.getState().station.cells.length, modules: window.__metro.getState().station.modules.length,
         seed: window.__metro.getState().station.seed },
       glError: gl.getError(),
       canvas: { width: scene.renderer.domElement.width, height: scene.renderer.domElement.height },
+      inventory: { chunks: scene.chunks.chunkMeshes.length, moduleRoots: scene.modules.moduleMeshes.children.length,
+        batchRoots: scene.modules.batches.root.children.length, visibleMeshes: countObjects(scene.ctx.scene, object => object.isMesh),
+        visibleObjects: countObjects(scene.ctx.scene, () => true), trainGroups: scene.trains.trainGroup.children.length,
+        contactShadows: scene.modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+          .map(root => ({ level: root.userData.levelZs[0], visible: root.visible, count: root.count })),
+        passengerShadows: scene.crowd.blobs.count },
       draws: scene.renderer.info.render.calls, triangles: scene.renderer.info.render.triangles };
   })()`)
   if (profile) {
@@ -152,7 +170,7 @@ try {
   const slowFrames = raw.frames.filter(frame => frame.interval >= tail.at(-1)).map(frame => ({ ...frame,
     work: raw.events.filter(event => event.kind !== 'longtask' && event.at < frame.at && event.at+event.duration > frame.at-frame.interval)
       .sort((a,b)=>b.duration-a.duration).slice(0,5) }))
-  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, profile, trace, ablation,
+  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, pixelRatio, profile, trace, ablation,
     cpu:cpus()[0]?.model, build:resolve(process.env.BENCH_DIST ?? 'game/dist'), stationOpeningMs, stats, slowFrames, ...raw }, null, 2))
   console.log(JSON.stringify({ output, stats, slowFrames }, null, 2))
   if (raw.errors.length || raw.glError) throw new Error('Playback captured a runtime or GL error')

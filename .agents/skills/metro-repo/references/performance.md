@@ -1209,11 +1209,71 @@ making a general throughput claim.
 Play at 16x, with tick/population snapshots and timed train, plate, crowd, road
 and renderer work. `BENCH_DEMO=zoo|tanwei`, `BENCH_MODE=regular|explode`,
 `BENCH_QUALITY=high|low`, `BENCH_SECONDS` and `BENCH_SPEED` select the scenario.
-Use `BENCH_PROFILE=1` for CPU samples or `BENCH_TRACE=1` for a separate Chrome
-timeline (`BENCH_TRACE_GPU=1` adds GPU/compositor events). Keep clean timing runs
-separate from both. RAF cadence is retained separately from submitted-frame cadence;
-neither is a compositor presentation timestamp. Reports live in
+`BENCH_PIXEL_RATIO` changes renderer scale for a diagnostic run. `BENCH_ABLATE=render|crowd|chunks|modules|station`
+removes only the named drawing path while simulation continues. Use `BENCH_PROFILE=1`
+for CPU samples or `BENCH_TRACE=1` for a separate Chrome timeline (`BENCH_TRACE_GPU=1`
+adds GPU/compositor events). Keep clean timing runs separate from both. RAF cadence
+is retained separately from submitted-frame cadence; neither is a compositor
+presentation timestamp. Reports live in
 `.preview/perf/sim-stalls/`.
+
+#### Tanwei Low at 1×
+
+The 1× target is 30 average / 15 1% low FPS in the regular editor. A matched
+40-second run of the shipped Tanwei fixture, seed 7654321, zero starting
+population, Low quality, 1400 × 900 browser and 852 × 715 canvas on Chrome 155,
+i7-14700KF and RTX 4080 SUPER measured 27.71 / 11.60 FPS before the change.
+Increasing Low quality cross-module equipment buckets from 16 m to 64 m reduced
+batch meshes from 1,583 to 986 and submitted draw work from 4,571 to 3,775 (17.4%).
+The paired run finishes at the same tick 40 and population 535, with the same
+861,374 triangles and no runtime or GL errors. Two Low/64 m runs measure
+32.72 / 12.51 and 32.19 / 11.35 average / 1% low FPS, with 153 / 150 ms worst
+submitted-frame gaps. Average clears 30 in both runs; the 15 FPS 1% low target
+does not. The baseline is one run, so the roughly 17% average increase is
+promising but still needs repeated confirmation.
+
+These are single browser runs and the 1% low is the mean of the slowest 1% of
+submitted-frame intervals, not a compositor presentation percentile. At 128 m,
+average rises to 33.19 but the 1% low falls to 12.09 and larger buckets reduce
+frustum-culling precision, so 64 m is the selected balance. A 0.75 pixel ratio
+did not improve throughput. The GPU trace shows main-thread waits for available
+WebGL command slots and ~41 ms GPU WebGL work during a stall. Drawing ablations
+isolate the equipment/module path: removing chunks keeps performance near
+33/13 FPS, while removing module drawing reaches the 60 FPS cap and 45 FPS 1%
+low. The next target is equipment submission/detail work; the 15 FPS tail goal
+still needs more improvement.
+
+Raw before/after, 32/64/128 m, scale, profile, GPU trace and ablation captures
+are under `.preview/perf/sim-stalls/`. Low quality uses the wider buckets while
+High retains 16 m locality. `draw-batching.test.mjs` pins both boundaries, source
+picking IDs and preservation of unaffected GPU batches.
+
+#### Contact shadows on the active storey
+
+Equipment and passenger contact shadows now draw only on the active editing
+storey. Ghosted floors retain their geometry and passengers without shadow blobs.
+Hide UI, cutaway and the standalone presentation restore shadows for their drawn
+floors. Equipment shadow batches keep their original buffers and instance values;
+passenger shadows pack and upload only the active-storey prefix. Floor membership
+uses `storeyBand`, including Tanwei's 1/6/11 m decks and shifted editing grids,
+rather than comparing the raw module altitude with the editing height.
+
+A fresh matched 40-second Tanwei Low/1× editor capture at the default -10 m layer,
+seed 7654321, 852 × 715 canvas, tick 40 / population 535, reduces visible equipment
+shadow batches from 21 to 2 and instances from 7,674 to 542. Submitted work falls
+from 3,775 to 3,756 draws and 861,374 to 775,790 triangles. The 136 passenger shadows
+in this capture already belong to the active floor. Average / 1% low FPS measures
+27.24 / 10.11 before and 24.68 / 9.94 after; this pair shows no FPS improvement,
+so only the work reduction and visibility fix are claimed. Both runs report zero
+runtime/GL errors. Raw captures are `tanwei-low-1x-shadows-{before,after}.json` under
+`.preview/perf/sim-stalls/`.
+
+Production browser checks cover -10/0/5/10 m Tanwei layers with other storeys shown,
+whole-station restoration, and zero GL errors; `active-shadow-check.json` and
+`tanwei-active10-shadows.png` retain the evidence in the same folder. Focused
+equipment retention, level slicing, view cache and batching lifecycle suites pass
+54 checks. Passenger shadow tests also pin High/Low, paused layer switches,
+cutaway transitions, active instance counts and unchanged GPU buffers.
 
 The large first-arrival freezes occur when a new consist appears, rather than on
 every simulation tick. Tanwei's first four services arrive at ticks 1/13/26/39

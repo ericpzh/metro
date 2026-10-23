@@ -51,9 +51,11 @@ target and delete those fittings.
 `delete-tool` pins Tanwei D's thin roof at `(33,45,9)`: a direct roof hit keeps
 hover/delete priority over the road terrain behind it, with one undoable removal.
 
-`equipment-retention` also checks that Hide Ground hides street contact shadows
-in editing, Hide UI and cutaway views, restores them on toggle-off, and preserves
-shadows on station floors.
+`equipment-retention` also checks that contact shadows draw only on the active
+floor band, that Hide UI/cutaway restore every floor's shadows, and that Hide Ground
+still hides street shadows. `level-slicing` pins shifted floor bands;
+`passenger-lod` pins active-only shadow packing, paused layer/cutaway changes and
+unchanged instance buffers in High and Low quality.
 
 The settings-rebuild audit extends `population-edit` to headways, opening hours,
 peak windows, demand curves and calendar settings. It pins normalized World
@@ -257,7 +259,9 @@ outer platform cells, both ends and all rotations, with matching preview/click.
 
 `batching-lifecycle` also pins move pickup/cancel retaining batch allocations and
 restoring neighbour rendering. `performance-policy` pins immutable collision-body
-cache invalidation; `draw-batching` checks repeated services reuse train geometry
+cache invalidation; `draw-batching` pins 16 m High / 64 m Low equipment batch
+boundaries, original source picking IDs and unaffected batch allocation retention,
+and checks repeated services reuse train geometry
 with an eight-dormant-consist bound and exact disposal on eviction. `passenger-library`
 checks the native base64 decoder and the compatibility path preserve every byte.
 

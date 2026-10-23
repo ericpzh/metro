@@ -699,25 +699,29 @@ function equipment(x, id, geometry, material, type = 'bench') {
   group.add(new THREE.Mesh(geometry, material)); return group
 }
 
-test('equipment batches retain original picking IDs and unaffected spatial GPU batches', () => {
+test('equipment batch size follows quality and keeps source picking and local allocations', () => {
   const modules = new THREE.Group(), material = new THREE.MeshBasicMaterial()
-  for (const [x, id] of [[0, 'a'], [3, 'b'], [32, 'c'], [35, 'd']]) modules.add(equipment(x, id, new THREE.BoxGeometry(), material))
+  for (const [x, id] of [[0, 'a'], [3, 'b'], [32, 'c'], [35, 'd'], [64, 'e'], [67, 'f']]) modules.add(equipment(x, id, new THREE.BoxGeometry(), material))
   const batches = new EquipmentBatches()
   try {
     batches.sync(modules)
-    assert.equal(batches.root.children.length, 2, 'two 16 m areas get independent draws')
+    assert.equal(batches.root.children.length, 3, 'High keeps separate 16 m buckets')
     assert.ok(batches.root.children.every(m => m.isInstancedMesh), 'identical models share their vertex buffer')
-    const far = batches.root.children.find(m => m.boundingBox.min.x > 30)
+    const far = batches.root.children.find(m => m.boundingBox.min.x > 60)
     const ray = new THREE.Raycaster(new THREE.Vector3(0, -5, 0), new THREE.Vector3(0, 1, 0)); ray.layers.enable(BATCH_SOURCE_LAYER)
     assert.equal(ray.intersectObjects(modules.children, true)[0].object.parent.userData.moduleId, 'a', 'picking still resolves the source module')
     modules.children[0].position.x = 1
     batches.sync(modules)
     assert.ok(batches.root.children.includes(far), 'editing a near bucket preserves the far allocation')
-    modules.children[2].visible = modules.children[3].visible = false
+    modules.children[4].visible = modules.children[5].visible = false
     batches.sync(modules)
-    assert.equal(batches.root.children.length, 1, 'hidden equipment submits no batch')
-    modules.children[2].visible = modules.children[3].visible = true
-    batches.sync(modules); assert.equal(batches.root.children.length, 2, 'showing a storey restores its equipment')
+    assert.equal(batches.root.children.length, 2, 'hidden equipment submits no batch')
+    modules.children[4].visible = modules.children[5].visible = true
+    batches.sync(modules); assert.equal(batches.root.children.length, 3, 'showing a storey restores its equipment')
+    batches.graphicsQuality = 'low'; batches.sync(modules)
+    assert.equal(batches.root.children.length, 2, 'Low joins adjacent 16 m regions inside a 64 m bucket')
+    batches.graphicsQuality = 'high'; batches.sync(modules)
+    assert.equal(batches.root.children.length, 3, 'returning to High restores finer buckets')
   } finally { batches.clear(); modules.traverse(o => { if (o.isMesh) o.geometry.dispose() }); material.dispose() }
 })
 

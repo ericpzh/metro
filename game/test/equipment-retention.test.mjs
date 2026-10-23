@@ -303,7 +303,7 @@ test('contact shadows retain buffers, upload only changed instances and dispose 
     assert.equal(upperBlob.visible, true, 'station floor shadows remain')
     ctx.hideGround = false
     level.applyGroupLevel(lowerBlob, 'module')
-    assert.equal(lowerBlob.visible, true, 'street shadows return with the ground')
+    assert.equal(lowerBlob.visible, !!(mode.hideUI || mode.cutaway), 'street shadows return only in whole-station views')
   }
   let meshesReleased = 0, geometriesReleased = 0
   lowerBlob.addEventListener('dispose', () => meshesReleased++)
@@ -339,6 +339,24 @@ test('contact shadows retain buffers, upload only changed instances and dispose 
   modules.clearModules()
   assert.equal(meshesReleased, 1, 'a previously evicted buffer is never disposed twice')
   assert.equal(geometriesReleased, 1)
+}))
+
+test('equipment contact shadows draw only on the active floor band and restore in presentation views', () => withDrawing(({ modules, ctx }) => {
+  modules.buildModules(station([1, 6, 11].map(z => createModule('bench', 0, 0, z, `bench-${z}`))), new Set())
+  const blobs = modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  const buffers = blobs.map(root => root.instanceMatrix)
+  const level = new LevelSystem(ctx)
+  for (const activeZ of [0, 5, 10]) for (const ghost of [false, true]) {
+    Object.assign(ctx, { activeZ, ghost, hideUI: false, cutaway: false, hideGround: false })
+    for (const root of blobs) level.applyGroupLevel(root, 'module')
+    assert.deepEqual(blobs.filter(root => root.visible).map(root => root.userData.levelZs[0]), [activeZ + 1])
+  }
+  for (const mode of [{ hideUI: true, cutaway: false }, { hideUI: false, cutaway: true }]) {
+    Object.assign(ctx, mode)
+    for (const root of blobs) level.applyGroupLevel(root, 'module')
+    assert.ok(blobs.every(root => root.visible), 'whole-station views restore every shadow batch')
+  }
+  assert.deepEqual(blobs.map(root => root.instanceMatrix), buffers, 'visibility changes preserve GPU allocations')
 }))
 
 function geometryOf(root) {

@@ -13,7 +13,7 @@
 
 import * as THREE from 'three'
 import { levelSteps, STOREY_HEIGHT } from '../../../sim/constants.ts'
-import { levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
+import { contactShadowVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
 import type { SliceOptions } from '../../levelSlicing.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -217,8 +217,8 @@ export class LevelSystem extends SceneSystem {
   /**
    * Show, ghost or hide one module or train group by the level(s) it occupies.
    * A ramp (escalator, stair, lift) belongs to every storey it spans;
-   * everything else to its cell. Forestanding furniture with no level tag
-   * (shadows, decals) always shows.
+   * everything else to its cell. Contact shadows use only the active floor band;
+   * unlabelled decals keep their existing visibility.
    */
   applyGroupLevel(root: THREE.Object3D, kind: 'module' | 'train'): void {
     const roof = kind === 'module' && root.userData.roof === true
@@ -241,6 +241,16 @@ export class LevelSystem extends SceneSystem {
     const zs = levels ?? (lz !== undefined ? [lz] : undefined)
     const side = levelSide(zs, this.ctx.activeZ)
     const straight = this.ctx.hideUI || this.ctx.cutaway
+    if (root.userData.contactBlobKey !== undefined) {
+      root.visible = contactShadowVisible(zs?.[0] ?? this.ctx.activeZ, this.ctx.activeZ, straight,
+        this.ctx.levelBase, this.ctx.storeyHeight)
+      if (root.visible) {
+        const mesh = root as THREE.Mesh
+        mesh.material = this.baseOf(mesh)
+        this.clipMesh(mesh, this.ctx.cutaway ? this.clip : null)
+      }
+      return
+    }
     // Ceiling-attached decor is **not** hidden just because it hangs from a
     // suspended ceiling: only the ceiling tiles themselves (pass 'c' meshes)
     // are hidden by 隐藏天花板. A fitting that hangs from the current room's

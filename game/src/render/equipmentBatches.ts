@@ -17,6 +17,9 @@ const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 
   'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass', 'sidewalk', 'lawn', 'tree'])
+// Low quality is also the game's performance mode. Larger buckets reduce draw
+// submission cost there; High retains finer culling and preview locality.
+const BATCH_TILE_SIZE: Record<GraphicsQuality, number> = { high: 16, low: 64 }
 interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; signature: string; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets: Buckets | null; roots: Map<THREE.Object3D, RootSources> }
@@ -39,7 +42,7 @@ function combinedDetailBounds(near: THREE.BufferGeometry, far: THREE.BufferGeome
 }
 
 /** Cross-module rendering; original surfaces and IDs remain the picking model.
- * Buckets are local to 16 m tiles. Unchanged buckets keep their GPU allocations. */
+ * Buckets are local to 16 m in High and 64 m in Low. Unchanged buckets keep their GPU allocations. */
 export class EquipmentBatches {
   enabled = true
   detailEnabled = true
@@ -179,6 +182,7 @@ export class EquipmentBatches {
   sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
     if (!this.enabled) { this.clear(); return }
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
+    const batchTileSize = BATCH_TILE_SIZE[this.graphicsQuality]
     this.restoreSourceTransforms()
     this.detailView = []
     this.setHiddenModule(null)
@@ -203,7 +207,7 @@ export class EquipmentBatches {
     const prepared = new Map<THREE.Object3D, RootSources>()
     for (const root of modules.children) {
       root.updateWorldMatrix(true, false)
-      const key = `${sourceView}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
+      const key = `${sourceView}|${batchTileSize}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
       const views = this.rootSources.get(root)
       let record = sourceView === undefined ? undefined : views?.get(key)
       if (!record || record.key !== key || !record.matrix.equals(root.matrixWorld)) {
@@ -277,7 +281,7 @@ export class EquipmentBatches {
         const material = region?.material ?? o.material
         const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
-        const key = `${Math.floor(p.x / 16)},${Math.floor(p.y / 16)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
+        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
         const bucket = local.get(key) ?? { material, sources: [] as Source[] }
         const matrix = o.matrixWorld.clone()
         bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}`, region, levels: root.userData.levelZs }); local.set(key, bucket)

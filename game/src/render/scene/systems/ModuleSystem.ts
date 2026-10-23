@@ -177,7 +177,7 @@ export class ModuleSystem extends SceneSystem {
     this.batches.graphicsQuality = this.ctx.graphicsQuality ?? 'high'
     // Immutable module builds replace affected roots; view changes dress them.
     // A cell-only edit with identical roots/slice need not walk or copy them again.
-    const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
+    const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality ?? 'high'}`
     const roots = this.moduleMeshes.children.filter(g => typeof g.userData.moduleId === 'string')
       .map(g => `${g.uuid}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
     const visibility = this.moduleMeshes.children.map(g => +g.visible).join('')

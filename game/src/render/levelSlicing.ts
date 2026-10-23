@@ -155,3 +155,8 @@ export function crowdVisible(z: number, activeZ: number, ghost: boolean, showEve
   const side = levelSide([storeyBand(z, base, height)], activeZ)
   return side === 'active' || (ghost && side === 'below')
 }
+
+/** Contact shadows ground the active storey; ghosted storeys draw without them. */
+export function contactShadowVisible(z: number, activeZ: number, showEveryStorey = false, base = 0, height = STOREY_HEIGHT): boolean {
+  return showEveryStorey || storeyBand(z, base, height) === activeZ
+}

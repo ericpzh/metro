@@ -270,7 +270,7 @@ test('picking, pause, follow and the shadow blobs do not depend on which draw a 
     const matrix = new THREE.Matrix4(), lowMatrix = new THREE.Matrix4()
     crowd.agentsLow.getMatrixAt(0, lowMatrix)
     crowd.blobs.getMatrixAt(0, matrix)
-    assert.equal(crowd.blobs.count, crowd.agents.count + crowd.agentsLow.count, 'the flat shadows cover both draws')
+    assert.equal(crowd.blobs.count, 2, 'ghost-floor passengers draw without contact shadows')
     assert.ok(Math.abs(matrix.elements[12] - lowMatrix.elements[12]) < 1e-6)
     // Pausing freezes the displayed pose of whichever draw each person is in.
     crowd.setPlaying(false, ctx.lastStateTime + 1200)
@@ -283,6 +283,33 @@ test('picking, pause, follow and the shadow blobs do not depend on which draw a 
     // the reduced draw is still selectable by identity.
     assert.equal(typeof crowd.pickAgent, 'function')
   } finally { cleanup(fixture) }
+})
+
+test('passenger shadows follow active-storey changes and whole-station views without reallocating', () => {
+  for (const quality of ['high', 'low']) {
+    const fixture = crowdFixture(quality, { ghost: true })
+    const { ctx, crowd } = fixture
+    try {
+      const buffer = crowd.blobs.instanceMatrix
+      crowd.setPlaying(false, ctx.lastStateTime + 500)
+      ctx.activeZ = -5
+      crowd.renderAgents(ctx.lastStateTime + 600)
+      assert.equal(crowd.blobs.count, 1)
+      ctx.activeZ = 0
+      crowd.renderAgents(ctx.lastStateTime + 600)
+      assert.equal(crowd.blobs.count, 2)
+      ctx.hideUI = true
+      crowd.renderAgents(ctx.lastStateTime + 600)
+      assert.equal(crowd.blobs.count, 3)
+      ctx.hideUI = false; ctx.cutaway = true
+      crowd.renderAgents(ctx.lastStateTime + 600)
+      assert.equal(crowd.blobs.count, 3)
+      ctx.cutaway = false
+      crowd.renderAgents(ctx.lastStateTime + 600)
+      assert.equal(crowd.blobs.count, 2, 'closing a cut refreshes the paused shadow prefix')
+      assert.equal(crowd.blobs.instanceMatrix, buffer)
+    } finally { cleanup(fixture) }
+  }
 })
 
 test('tearing the scene down releases the shared atlas exactly once', () => {
