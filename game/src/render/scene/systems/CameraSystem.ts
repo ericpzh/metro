@@ -72,6 +72,8 @@ export class CameraSystem extends SceneSystem {
   controls: OrbitControls
   private raycaster = new THREE.Raycaster()
   private pickables: THREE.Object3D[] = []
+  private pointerPicks: Map<string, ReturnType<CameraSystem['collectPointerPick']>> | null = null
+
   private orthoOn = false
   /** Orthographic zoom factor, driven by the wheel while a flat view is active. */
   private orthoZoom = 1
@@ -521,6 +523,70 @@ export class CameraSystem extends SceneSystem {
     this.controls.update()
   }
 
+  /** Every tool query during this dispatch reads the same visible scene and ray. */
+  withPointerPick<T>(action: () => T): T {
+    if (this.pointerPicks) return action()
+    const previous = this.pointerPicks
+    this.pointerPicks = new Map()
+    try { return action() } finally { this.pointerPicks = previous }
+  }
+
+  private collectPointerPick(clientX: number, clientY: number) {
+    const rect = this.canvas.getBoundingClientRect()
+    this.raycaster.setFromCamera(new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    ), this.activeCamera())
+    const blocks = new Set(this.pickables.filter(visibleThroughParents))
+    const groups = this.modules?.moduleMeshes.children.filter(visibleThroughParents) ?? []
+    const roots = new Set<THREE.Object3D>([...blocks, ...groups])
+    // A lift surface can be both a block target and a descendant of a module.
+    // Traverse overlapping roots once, then classify their shared intersections.
+    const independent = [...roots].filter(root => {
+      for (let parent = root.parent; parent; parent = parent.parent) if (roots.has(parent)) return false
+      return true
+    })
+    const ray = this.raycaster.ray.clone()
+    let intersections: {
+      blockHits: THREE.Intersection[]
+      moduleHits: Array<{ hit: THREE.Intersection; moduleId: string; moduleType: string }>
+    } | undefined
+    // Plane-only tools need the ray but no geometry traversal. Other queries
+    // lazily resolve the same intersections once for this sampled position.
+    const resolve = () => {
+      if (intersections) return intersections
+      this.raycaster.ray.copy(ray)
+      const mask = this.raycaster.layers.mask
+      this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
+      let hits: THREE.Intersection[]
+      try { hits = this.raycaster.intersectObjects(independent, true).filter(hit => visibleThroughParents(hit.object)) }
+      finally { this.raycaster.layers.mask = mask }
+      const blockHits: THREE.Intersection[] = []
+      const moduleHits: Array<{ hit: THREE.Intersection; moduleId: string; moduleType: string }> = []
+      for (const hit of hits) {
+        let block = false
+        let module: THREE.Object3D | null = null
+        for (let node: THREE.Object3D | null = hit.object; node; node = node.parent) {
+          if (blocks.has(node)) block = true
+          if (typeof node.userData.moduleId === 'string') module = node
+        }
+        if (block) blockHits.push(hit)
+        if (module) moduleHits.push({ hit, moduleId: module.userData.moduleId, moduleType: module.userData.moduleType })
+      }
+      return intersections = { blockHits, moduleHits }
+    }
+    return { ray, groups, get blockHits() { return resolve().blockHits }, get moduleHits() { return resolve().moduleHits } }
+  }
+
+  private pointerPick(clientX: number, clientY: number) {
+    const key = `${clientX},${clientY}`
+    const held = this.pointerPicks?.get(key)
+    if (held) return held
+    const picked = this.collectPointerPick(clientX, clientY)
+    this.pointerPicks?.set(key, picked)
+    return picked
+  }
+
   /**
    * The pointer's answer, in whole cells: the block hit and the block a placement
    * against it takes. The cell math is `pickCells` (pure, and pinned by
@@ -529,33 +595,28 @@ export class CameraSystem extends SceneSystem {
    * run's slope, and every exposed block edge is rounded, so a raw
    * `cell + face.normal` asks for a fractional block no tool can address again.
    */
-  pick(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {
-    const rect = this.canvas.getBoundingClientRect()
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
-    this.raycaster.setFromCamera(ndc, this.activeCamera())
-    // Blocks removed from the level above are not pickable: a click must not
-    // grab a slab that is no longer drawn.
-    const shown = this.pickables.filter(visibleThroughParents)
-    // A 电梯 keeps its own mesh surfaces in `pickables` so a hover can find the
-    // shaft and extend it (`LiftSystem.liftPickMeshes`). Equipment batching moves
-    // those static surfaces to `BATCH_SOURCE_LAYER` (only the cabin and door
-    // leaves stay on layer 0), so the one raycast has to see both layers or the
-    // upper shaft stops answering: the pointer falls through to the floor behind
-    // and the extension snap never fires. Restore the layer for the block picks.
-    this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
-    const hits = this.raycaster.intersectObjects(shown, false).filter((hit) => visibleThroughParents(hit.object))
-    this.raycaster.layers.disable(BATCH_SOURCE_LAYER)
-    if (hits.length > 0) {
-      const hit = hits[0]
+  pick(clientX: number, clientY: number, workPlaneZ: number, includeObjects = false): PickResult | null {
+    const { ray, blockHits, moduleHits } = this.pointerPick(clientX, clientY)
+    // Structural decks answer for every tool; construction can also target the
+    // nearest visible object. Both read this event's shared intersections.
+    // Support/collision legality belongs to placement validation.
+    const object = includeObjects ? moduleHits[0] : moduleHits.find(entry => entry.moduleType === 'track')
+    const deck = object?.hit
+    const hit = deck && (!blockHits[0] || deck.distance < blockHits[0].distance) ? deck : blockHits[0]
+    if (hit) {
       const p = hit.point
-      const n = hit.face ? hit.face.normal : new THREE.Vector3(0, 0, 1)
+      const n = hit.face
+        ? hit.face.normal.clone().applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize()
+        : new THREE.Vector3(0, 0, 1)
       const picked = pickCells([p.x, p.y, p.z], [n.x, n.y, n.z])
-      return { cell: picked.cell, solid: true, normal: picked.normal, place: picked.place, point: [p.x, p.y, p.z] }
+      return { cell: picked.cell, solid: true, normal: picked.normal, place: picked.place, point: [p.x, p.y, p.z],
+        ...(includeObjects && hit === deck && object ? { moduleId: object.moduleId } : {}),
+      }
     }
     // Work plane (§9.5): the floor plane of the active level, infinite.
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -(workPlaneZ + 1))
     const p = new THREE.Vector3()
-    if (this.raycaster.ray.intersectPlane(plane, p)) {
+    if (ray.intersectPlane(plane, p)) {
       const cell: [number, number, number] = [Math.floor(p.x), Math.floor(p.y), workPlaneZ]
       return { cell, solid: false, normal: [0, 0, 1], place: cell, point: [p.x, p.y, p.z] }
     }
@@ -564,11 +625,9 @@ export class CameraSystem extends SceneSystem {
 
   /** Pointer intersection at a fitting's height, independent of blocks beneath it. */
   pickHorizontalPlane(clientX: number, clientY: number, height: number, anchorZ: number): PickResult | null {
-    const rect = this.canvas.getBoundingClientRect()
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
-    this.raycaster.setFromCamera(ndc, this.activeCamera())
+    const { ray } = this.pointerPick(clientX, clientY)
     const point = new THREE.Vector3()
-    if (!this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -height), point)) return null
+    if (!ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), -height), point)) return null
     const cell: [number, number, number] = [Math.floor(point.x), Math.floor(point.y), anchorZ]
     return { cell, place: cell, solid: false, normal: [0, 0, 1], point: [point.x, point.y, point.z] }
   }
@@ -595,23 +654,25 @@ export class CameraSystem extends SceneSystem {
    * modules are considered, and a nearer station block still occludes them.
    */
   pickModuleInBounds(clientX: number, clientY: number, moduleIds: ReadonlySet<string>): string | null {
-    const rect = this.canvas.getBoundingClientRect()
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
-    const camera = this.activeCamera()
-    this.raycaster.setFromCamera(ndc, camera)
-    const blocks = this.pickables.filter(visibleThroughParents)
-    const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
+    const { ray, blockHits, moduleHits, groups } = this.pointerPick(clientX, clientY)
+    const surfaces = new Map<string, THREE.Intersection>()
+    for (const entry of moduleHits) if (!surfaces.has(entry.moduleId)) surfaces.set(entry.moduleId, entry.hit)
     const bounds = new THREE.Box3()
     const point = new THREE.Vector3()
     let nearest: { id: string; distance: number } | null = null
-    for (const group of this.modules.moduleMeshes.children) {
+    for (const group of groups) {
       const id = group.userData.moduleId
       if (typeof id !== 'string' || !moduleIds.has(id) || !visibleThroughParents(group)) continue
+      // A run's large bounds can start in front of a block even when its
+      // actual tread/rail surface is behind that block. Forgiving a mesh gap
+      // must not override an exact, occluded surface hit from the same ray.
+      const surface = surfaces.get(id)
+      if (surface && blockHits[0] && blockHits[0].distance + 1e-4 < surface.distance) continue
       group.updateWorldMatrix(true, true)
       bounds.setFromObject(group)
-      const hit = this.raycaster.ray.intersectBox(bounds, point)
+      const hit = ray.intersectBox(bounds, point)
       if (!hit) continue
-      const distance = this.raycaster.ray.origin.distanceTo(hit)
+      const distance = ray.origin.distanceTo(hit)
       if (blockHits.length > 0 && blockHits[0]!.distance + 1e-4 < distance) continue
       if (!nearest || distance < nearest.distance) nearest = { id, distance }
     }
@@ -626,25 +687,10 @@ export class CameraSystem extends SceneSystem {
 
   /** The visible module face and normal, used by the face-aware 材质 brush. */
   pickModuleSurfaceHit(clientX: number, clientY: number, psdCoverSupport = false): { moduleId: string; point: [number, number, number]; normal: [number, number, number] } | null {
-    const rect = this.canvas.getBoundingClientRect()
-    const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1)
-    this.raycaster.setFromCamera(ndc, this.activeCamera())
-    const shown = this.modules.moduleMeshes.children.filter(visibleThroughParents)
-    this.raycaster.layers.enable(BATCH_SOURCE_LAYER)
-    const hits = this.raycaster.intersectObjects(shown, true)
-    this.raycaster.layers.disable(BATCH_SOURCE_LAYER)
-    let modHit: THREE.Intersection | null = null
-    let moduleId: string | null = null
-    for (const hit of hits) {
-      if (!visibleThroughParents(hit.object)) continue
-      let o: THREE.Object3D | null = hit.object
-      while (o && typeof o.userData.moduleId !== 'string') o = o.parent
-      if (o) {
-        modHit = hit
-        moduleId = o.userData.moduleId as string
-        break
-      }
-    }
+    const { ray, blockHits, moduleHits, groups: shown } = this.pointerPick(clientX, clientY)
+    const first = moduleHits[0]
+    const modHit = first?.hit ?? null
+    const moduleId = first?.moduleId ?? null
     // Cover placement targets the end panel even through a glazing/frame seam.
     // Reuse this event's ray and keep the actual trimmed model bounds (§5.7).
     let supportHit: { moduleId: string; point: THREE.Vector3; distance: number } | null = null
@@ -655,16 +701,14 @@ export class CameraSystem extends SceneSystem {
         if (group.userData.moduleType !== 'psd-end' || typeof group.userData.moduleId !== 'string') continue
         group.updateWorldMatrix(true, true)
         bounds.setFromObject(group)
-        if (!this.raycaster.ray.intersectBox(bounds, point)) continue
-        const distance = this.raycaster.ray.origin.distanceTo(point)
+        if (!ray.intersectBox(bounds, point)) continue
+        const distance = ray.origin.distanceTo(point)
         if (modHit && distance >= modHit.distance) continue
         if (!supportHit || distance < supportHit.distance) supportHit = { moduleId: group.userData.moduleId, point: point.clone(), distance }
       }
     }
     if ((!modHit || !moduleId) && !supportHit) return null
     // A block nearer the camera occludes the module: never select through a wall.
-    const blocks = this.pickables.filter(visibleThroughParents)
-    const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
     if (supportHit) {
       if (blockHits.length > 0 && blockHits[0].distance < supportHit.distance) return null
       return { moduleId: supportHit.moduleId, point: [supportHit.point.x, supportHit.point.y, supportHit.point.z], normal: [0, 0, 1] }
@@ -691,11 +735,11 @@ export class CameraSystem extends SceneSystem {
     const sx = clientX - rect.left
     const sy = clientY - rect.top
     const camera = this.activeCamera()
-    const blocks = this.pickables.filter(visibleThroughParents)
+    const { ray, blockHits, groups } = this.pointerPick(clientX, clientY)
     let nearest: { moduleId: string; point: [number, number, number]; screenDistance: number } | null = null
     const bounds = new THREE.Box3()
     const projected = new THREE.Vector3()
-    for (const group of this.modules.moduleMeshes.children) {
+    for (const group of groups) {
       const moduleId = group.userData.moduleId
       if (typeof moduleId !== 'string' || !moduleIds.has(moduleId) || !group.visible) continue
       group.updateWorldMatrix(true, true)
@@ -719,13 +763,10 @@ export class CameraSystem extends SceneSystem {
       const screenDistance = Math.hypot(dx, dy)
       if (screenDistance > radiusPx || (nearest && screenDistance >= nearest.screenDistance)) continue
 
-      const rectNdc = new THREE.Vector2((sx / rect.width) * 2 - 1, -((sy / rect.height) * 2 - 1))
-      this.raycaster.setFromCamera(rectNdc, camera)
       const planePoint = new THREE.Vector3()
       const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bounds.max.z)
-      if (!this.raycaster.ray.intersectPlane(plane, planePoint)) continue
-      const planeDistance = this.raycaster.ray.origin.distanceTo(planePoint)
-      const blockHits = this.raycaster.intersectObjects(blocks, false).filter((hit) => visibleThroughParents(hit.object))
+      if (!ray.intersectPlane(plane, planePoint)) continue
+      const planeDistance = ray.origin.distanceTo(planePoint)
       if (blockHits.length > 0 && blockHits[0].distance + 1e-4 < planeDistance) continue
       nearest = { moduleId, point: [planePoint.x, planePoint.y, bounds.max.z], screenDistance }
     }

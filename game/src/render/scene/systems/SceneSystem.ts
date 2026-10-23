@@ -28,7 +28,9 @@ import type { CellShape, Face, FinishId, Module, StationData } from '../../../si
 
 /** Pointer-pick answer: the solid cell hit, or the void cell under the work plane. */
 export interface PickResult {
-  /** The solid cell that was hit, or the void cell under the work plane. */
+  /** Visible object surface used by placement, from the shared event pick. */
+  moduleId?: string
+  /** The enclosing cell of the hit surface, or the cell under the work plane. */
   cell: [number, number, number]
   solid: boolean
   /**

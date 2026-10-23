@@ -213,7 +213,7 @@ test('a hung fitting on a shifted editing base hangs from the block over its own
   const floor=[0,0,base]
   const aim=hungCeilingAim(floor,floor,base,cells,[],height)
   assert.deepEqual(aim,[0,0,base+height-1])
-  const settings={storeyHeight:height,levelBase:base}
+  const settings={storeyHeight:height,levelBase:base,ceilingAnchored:true}
   const light=createModule('light-circular',aim[0],aim[1],aim[2],'l',0,undefined,'up','lane',[],undefined,settings)
   const vent=createModule('vent',aim[0],aim[1],aim[2],'v',0,undefined,'up','lane',[],undefined,settings)
   assert.equal(lightCeilingZ(light),base+height,`the light hangs from its own block (base ${base}, ${height} m)`)
@@ -222,11 +222,12 @@ test('a hung fitting on a shifted editing base hangs from the block over its own
  }
 })
 
-test('the street plane ceilings only the storey whose own top it lands on',()=>{
+test('the actual street plane can ceiling rooms of any height',()=>{
  const light=make('light-circular',-5)
  assert.equal(ceilingMountMissing([],light,[]),false,'the top below-grade storey hangs from the street')
  assert.equal(ceilingMountHeight([],light,[]),4)
- assert.equal(ceilingMountMissing([],make('light-circular',-10),[]),true,'the street is not a ceiling two storeys down')
+ assert.equal(ceilingMountMissing([],make('light-circular',-10),[]),false,'support depends on real geometry, not room height')
+ assert.equal(ceilingMountHeight([],make('light-circular',-10),[]),9)
 })
 
 test('a roof hanger finds the slab one storey up, and reserves its own steel',()=>{
@@ -238,7 +239,7 @@ test('a roof hanger finds the slab one storey up, and reserves its own steel',()
  // from the block over its own cell, so its envelope is its bar and posts wherever
  // it stands — never the three-metre drop a ceiling-anchored fitting reserves.
  const built=createModule('hanger-roof',0,0,0,'built',0,2,undefined,'lane',[],undefined,{storeyHeight:5})
- assert.equal(built.ceilingAnchored,true)
+ assert.equal(built.ceilingAnchored,undefined,'the factory cannot infer support from station height')
  const box=moduleEnvelope(built)
  assert.equal(box.z1,5)
  assert.ok(box.z0>4,'the envelope is the bar under the roof, not a drop to the floor')

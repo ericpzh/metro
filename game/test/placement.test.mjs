@@ -4,7 +4,7 @@
 // collide with the one below.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { autofaceWallMount, boxesOverlap, equipmentReason, isCeilingHung, isTrackBed, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
+import { autofaceWallMount, boxesOverlap, equipmentReason, isCeilingHung, isTrackBed, isWallMounted, moduleAt, moduleBlockedCells, moduleEnvelope, placementBlocked, placementOnTrack, reservedOpening, wallMountMissing, wallMountStandCell, wallSide } from '../src/sim/placement.ts'
 import { addCells, addEquipment, addFloor, createModule, GROUND_Z, nextExitLetter, nextExitName, nextModuleId, randomAdSlug, removeModule, toData, toState } from '../src/build/model.ts'
 import { billboardSpec, postersFor } from '../src/sim/billboards.ts'
 import { referenceStation } from '../src/data/reference-station.ts'
@@ -436,8 +436,9 @@ test('the demo station’s platform stairs take a fence over the run and on the 
   // A slab takes the panel only while *nothing* stands in the cell — the demo's own
   // guard runs (fence-315 over the low treads of stair-straight-221, fence-316 over
   // stair-straight-211) and just as much the props the author hangs from the same
-  // slab (the 监控 at 100,3,−15). Any module owns its cell (§5), so the refusal is
-  // "this cell is taken", never "this cell is fenced". The two stairs between them
+  // slab (the 监控 at 100,3,−15). Any floor-standing module owns its cell (§5), so
+  // wall-mounted equipment can still share its anchor cell with floor equipment.
+  // The two stairs between them
   // exercise both answers — 211 keeps a free slab over its run, 221 has both of its
   // own taken — so the halves are counted over the pair rather than asked of every
   // stair, and a save that closes the last free slab (or frees every taken one)
@@ -471,7 +472,7 @@ test('the demo station’s platform stairs take a fence over the run and on the 
     assert.ok(tiles.some(({ x, y }) => !solid.has(`${x},${y},${top.z}`)), `${s.id}: the well is open at z = −15`)
     assert.ok(overRun.length > 0, `${s.id}: no floor at z = −15 over the run at all`)
     for (const { x, y } of overRun) {
-      const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z && !isCeilingHung(m))
+      const taken = st.modules.some((m) => m.x === x && m.y === y && m.z === top.z && !isCeilingHung(m) && !isWallMounted(m))
       const blocked = placementBlocked(st.modules, panel(x, y, top.z))
       if (taken) takenSlabs++
       else freeSlabs++

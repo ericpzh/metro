@@ -1,8 +1,8 @@
 // Suspended ceilings use ordinary editable blocks in the service metre.
 import type { StationState } from './State.ts'
 import { addCells, cellKey } from './Cells.ts'
-import { isCeilingHung } from '../../sim/placement.ts'
-import { storeyBand } from '../../sim/constants.ts'
+import { ceilingMountHeight, exposedFloorZ, isCeilingHung } from '../../sim/placement.ts'
+import { hangerSupports } from '../../sim/hangers.ts'
 export const SUSPENDED_CEILING = 'suspended-ceiling'
 
 /** The normal placement preview and release both lower existing hung decor to the new slab. */
@@ -15,9 +15,11 @@ export function prepareSuspendedCeiling(state: StationState, coordinates: Array<
     planes.set(key, levels)
   }
   const modules = state.modules.map(m => {
-    if (!isCeilingHung(m)) return m
-    const band = storeyBand(m.z,state.levelBase,state.storeyHeight)
-    const ceiling = planes.get(`${m.x},${m.y}`)?.find(z => storeyBand(z,state.levelBase,state.storeyHeight) === band)
+    if (!isCeilingHung(m) || m.type === 'hanger' || state.modules.some(h => hangerSupports(h,m))) return m
+    const oldCeiling = m.ceilingAnchored ? m.z + 1
+      : m.z + 1 + (ceilingMountHeight(state.cells,m,state.modules) ?? Infinity)
+    const floor = exposedFloorZ(state.cells,state.modules,m.x,m.y,m.z) ?? m.z
+    const ceiling = planes.get(`${m.x},${m.y}`)?.filter(z => z > floor + 1 && z <= oldCeiling).sort((a,b) => a-b)[0]
     if (ceiling === undefined) return m
     return { ...m, z: ceiling - 1, ceilingAnchored: true }
   })

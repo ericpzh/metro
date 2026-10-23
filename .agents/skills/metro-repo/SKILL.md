@@ -42,6 +42,13 @@ canopy and paving priority. Pin event reuse in `tool-picking.test.mjs` and ramp
 occlusion/deletion/undo behavior in `ramp-targeting.test.mjs`; reproduce the
 browser interaction with `tools/check-tool-picking.mjs` and record results in
 `game/PERFORMANCE.md`.
+Placement and move snapping follow actual scene geometry, never a nominal storey
+band or editing base. Prefer the nearest visible object surface over terrain behind
+it; map hanger hits to the hanger's real attachment anchor and leave support/refusal
+to the shared validator. Preserve erase and floor-paint policies. Pin geometry
+anchors in `geometry-snap.test.mjs`, low-angle targeting and occlusion in
+`placement-surface.test.mjs`, and reproduce the visible-object interaction with
+`tools/check-geometry-snapping.mjs`.
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local

@@ -934,43 +934,16 @@ export function wallSide(rot: number | undefined): [number, number] {
   return [dx === 0 ? 0 : dx, dy === 0 ? 0 : dy]
 }
 
-/**
- * The cell a wall-mounted piece stands in, from the pointer's hit (`cell`, the
- * block under it) and `place = cell + face normal` (`pickCells`, §9.5's "click the
- * host face").
- *
- *   * **A side face is a wall** — whatever tags the block carries. The piece
- *     stands in the `place` cell in front of that face, on the storey the face
- *     belongs to (`storeyBand`): a hover on an upper wall course anchors the
- *     panel to the floor below, not to a floating course height. The station wall
- *     across the track is the case the mount was built for (there is no walkable
- *     floor in front of it), and a wall raised with the 方块 brush is the same
- *     surface as one the 墙 tool tagged — a plain block is not a wall to
- *     `isWallBlock`, so without this the panel stood *inside* the block it was
- *     aimed at and could hug either of two neighbours.
- *   * **A top or bottom face is not a wall**: the piece is aimed at the hovered cell
- *     itself, the floor it stands on. A ground exit may still ask for the storey snap
- *     there (`snapToSolidBlock`), and a wall-tagged cell gets it; a plain block keeps
- *     the exact height it was hit at, so a raised slab is not dragged to the grid.
- *   * `levelBase` is the station's 基准高度: the 4 m editing grid is shifted by it,
- *     so the storey floor a course anchors to is asked with it — never the fixed
- *     0 / 4 / 8 lines.
- *   * `followCourse` is for a piece that is **cladding from its base** — the 玻璃板
- *     (`wallMountFollowsCourse`). Its body starts at its cell's floor top, so the
- *     cell one below the block that was hit puts the pane over exactly the course the
- *     pointer is on: aim at a wall's third course and the window covers the third
- *     course, aim at the first and the answer is the storey floor it has always been.
- *     Only a **wall course** counts (something solid over it): a floor slab's own edge
- *     is not a band of wall to cover, so that half keeps the storey reading.
- */
+/** Resolve a wall mount from its real backing column and adjacent exposed floor. Glass cladding follows the aimed course; other panels use the actual wall base. Legacy editing-base arguments never affect the result. */
 export function wallMountStandCell(
   cells: readonly Cell[],
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
   snapToSolidBlock = false,
-  levelBase = 0,
+  _levelBase = 0,
   followCourse = false,
-  storeyHeight = STOREY_HEIGHT,
+  _storeyHeight = STOREY_HEIGHT,
+  modules: readonly Module[] = [],
 ): [number, number, number] {
   const hit = cells.find((c) => c.x === cell[0] && c.y === cell[1] && c.z === cell[2])
   // 地面 exits attach to an ordinary block face too; they do not require the
@@ -980,13 +953,47 @@ export function wallMountStandCell(
   if (side) {
     // A **wall course** is a block with a block over it — the document's own cells,
     // which is what a wall column is; the street plane over a course below grade reads
-    // as uncovered, and only decides between the aimed course and the storey floor.
+    // as uncovered, and only decides between the aimed course and the actual floor.
     const coveredAbove = cells.some((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z === cell[2] + 1)
-    if (followCourse && coveredAbove) return [place[0], place[1], cell[2] - 1]
-    return [place[0], place[1], storeyBand(cell[2], levelBase, storeyHeight)]
+    const columnBelow = followCourse && hit?.fill === 'solid'
+      && cells.some((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z === cell[2] - 1)
+    // The top course of a wall is still an aimed course. Requiring a block
+    // above it made a held pane jump back down to the actual floor at the top.
+    if (followCourse && (onWall || coveredAbove || columnBelow)) return [place[0], place[1], cell[2] - 1]
+    return [place[0], place[1], wallAnchorZ(cells, modules, cell, place)]
   }
   if (!onWall) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2], levelBase, storeyHeight)]
+  return [cell[0], cell[1], exposedFloorZ(cells, modules, cell[0], cell[1], cell[2]) ?? wallBaseZ(cells, cell) ?? cell[2]]
+}
+
+/** Highest exposed support at/below the aim, including authored decks and street.
+ * No editing-storey arithmetic: changing the view base cannot move a support. */
+export function exposedFloorZ(cells: readonly Cell[], modules: readonly Module[], x: number, y: number, below: number): number | undefined {
+  let best: number | undefined
+  const accept = (z: number): void => {
+    if (z <= below && (best === undefined || z > best)
+      && !cells.some(c => c.fill === 'solid' && c.x === x && c.y === y && c.z === z + 1)) best = z
+  }
+  for (const c of cells) if (c.fill === 'solid' && c.x === x && c.y === y && !isWallBlock(c)) accept(c.z)
+  for (const m of modules) {
+    if ((m.type === 'track' && trackCellAt(m, x, y, m.z)) || (m.type === 'exit' && exitFloorAt([m], x, y, m.z))) accept(m.z)
+  }
+  if (virtualSolidAt(cells, modules, x, y, GROUND_Z)) accept(GROUND_Z)
+  return best
+}
+
+/** With no adjacent floor, use the bottom of the actual contiguous wall. */
+function wallBaseZ(cells: readonly Cell[], cell: readonly [number, number, number]): number | undefined {
+  const column = new Map(cells.filter(c => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1]).map(c => [c.z, c]))
+  if (!column.has(cell[2])) return undefined
+  let z = cell[2]
+  while (column.has(z - 1)) z--
+  return isWallBlock(column.get(z)!) || column.has(z + 1) ? z - 1 : z
+}
+
+function wallAnchorZ(cells: readonly Cell[], modules: readonly Module[], cell: readonly [number, number, number], place: readonly [number, number, number]): number {
+  const z = Math.max(exposedFloorZ(cells, modules, place[0], place[1], cell[2]) ?? -Infinity, wallBaseZ(cells, cell) ?? -Infinity)
+  return Number.isFinite(z) ? z : cell[2]
 }
 
 /**
@@ -999,7 +1006,7 @@ export function wallMountStandCell(
  *
  * The 广告牌, the 站名, the 线网图 and the wall 指示牌 are drawn at a `panelZ` of their own
  * instead, so following the pointer would float them a metre above it: those keep the
- * storey floor as their anchor, which is what puts a poster at eye height wherever on
+ * actual floor as their anchor, which is what puts a poster at eye height wherever on
  * the wall it is aimed. A **floor-standing** 玻璃幕墙 is not wall-mounted at all.
  *
  * Answers a **palette id** (`glass-2x2`) as readily as a placed module, because the tool
@@ -1019,42 +1026,22 @@ function stepSide(dx: number, dy: number): WallSide {
   return dy > 0 ? 'n' : 's'
 }
 
-/**
- * The floor cell a ceiling-hung piece (指示牌, 电视, 时钟, 监控) hangs over, from a
- * pointer hit anywhere on the storey: the floor, the ceiling slab overhead, or a
- * wall course between them. `place - cell` is the face normal (`pickCells`), so:
- *
- *   * bottom face (`dz === -1`) — the underside of the ceiling slab — anchors one
- *     storey down (the nearest exposed floor in that column, else the storey below
- *     the hit), the floor that slab is the ceiling of;
- *   * top face (`dz === +1`) — a floor top — anchors the hit cell itself;
- *   * side face — a wall course or a slab edge — anchors the face-adjacent cell,
- *     dropped to its own storey floor (`storeyBand`), the same floor a wall panel
- *     takes from the same hover (`wallMountStandCell`).
- *
- * On a bottom-face hit, the nearest exposed floor in that column wins, even when
- * the ceiling span is taller than one storey. Hovering void (the work plane)
- * already names the floor, so it passes through. The caller checks
- * `ceilingMountMissing` for the slab above the anchor.
- */
+/** Resolve a ceiling support to its exposed floor using actual cells, decks and street. A floor top or empty work plane keeps its exact height. With no floor beneath a slab, retain the aimed free cell instead of inventing a storey. */
 export function ceilingMountStandCell(
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
-  levelBase = 0,
+  _levelBase = 0,
   cells?: readonly Cell[],
-  storeyHeight = STOREY_HEIGHT,
+  _storeyHeight = STOREY_HEIGHT,
+  modules: readonly Module[] = [],
 ): [number, number, number] {
   const dz = place[2] - cell[2]
   if (dz === -1) {
-    const floorCells = cells ?? []
-    const floor = floorCells
-      .filter((c) => c.fill === 'solid' && c.x === cell[0] && c.y === cell[1] && c.z < cell[2] && !isWallBlock(c))
-      .filter((c) => !floorCells.some((above) => above.fill === 'solid' && above.x === c.x && above.y === c.y && above.z === c.z + 1))
-      .sort((a, b) => b.z - a.z)[0]
-    return [cell[0], cell[1], floor?.z ?? storeyBand(cell[2] - 1, levelBase, storeyHeight)]
+    return [cell[0], cell[1], exposedFloorZ(cells ?? [], modules, cell[0], cell[1], cell[2] - 1) ?? place[2]]
   }
   if (dz === 1) return [cell[0], cell[1], cell[2]]
-  return [place[0], place[1], storeyBand(place[2], levelBase, storeyHeight)]
+  if (place[0] === cell[0] && place[1] === cell[1]) return [...cell]
+  return [place[0], place[1], wallAnchorZ(cells ?? [], modules, cell, place)]
 }
 
 /**
@@ -1068,12 +1055,13 @@ export function isCeilingTrack(m: Module): boolean {
 }
 
 /**
- * The underside a ceiling track hangs a fitting from: the bed level itself,
- * except a bridge whose 1 m deck hangs below its anchor (`BRIDGE_DECK_DEPTH`).
+ * The underside a ceiling track hangs a fitting from. The platform bed fills
+ * the excavated course below its anchor; a bridge carries the same one-metre
+ * deck below its anchor (`BRIDGE_DECK_DEPTH`).
  */
 export function trackCeilingUnderside(m: Module): number | null {
   if (!isCeilingTrack(m)) return null
-  return m.z - ((m.cfg as { bridge?: boolean }).bridge ? BRIDGE_DECK_DEPTH : 0)
+  return m.z - BRIDGE_DECK_DEPTH
 }
 
 /** True when a ceiling track's bed covers `(x, y)` with its underside at `z`. */
@@ -1085,17 +1073,7 @@ function trackCeilingAt(modules: readonly Module[], x: number, y: number, z: num
   return false
 }
 
-/**
- * The cell a **hung** piece takes from the pointer's hit: the free cell directly under the **top
- * block** of that column — the block below the ceiling — which is where a hanging item always
- * lives, `top block - 1`, whether the pointer is on the floor, on a wall course between them or on
- * the slab's own underside. `place` names the column for a side face, so a board hangs in front of
- * the wall it was aimed at.
- *
- * Nothing solid over the pointer (an open hall, a doorway) leaves the storey's own floor, and
- * `ceilingMountMissing` decides the piece from there: a hung item with no ceiling is refused.
- */
-
+/** Aim one cell below the nearest actual exposed underside in the face-adjacent column. With no ceiling, retain the real floor or pointer height; support validation refuses unsupported pieces. */
 export function hungCeilingAim(
   cell: readonly [number, number, number],
   place: readonly [number, number, number],
@@ -1110,8 +1088,8 @@ export function hungCeilingAim(
   // Only a **slab's own underside** aimed at can be the ceiling itself; every other hit looks above
   // the block the pointer is on, so a wall's course and a floor slab are never mistaken for one.
   const from = !side && place[2] < cell[2] ? cell[2] : cell[2] + 1
-  const top = topBlockZ(cells, cell[0], cell[1], from, modules)
-  if (top === null) return [x, y, storeyBand(cell[2], levelBase, storeyHeight)]
+  const top = topBlockZ(cells, x, y, from, modules)
+  if (top === null) return ceilingMountStandCell(cell, place, levelBase, cells, storeyHeight, modules)
   return [x, y, top - 1]
 }
 
@@ -1141,6 +1119,8 @@ export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: nu
     if (cells.some((b) => b.fill === 'solid' && b.x === x && b.y === y && b.z === underside - 1)) continue
     top = underside
   }
+  if (GROUND_Z >= from && (top === null || GROUND_Z < top) && virtualSolidAt(cells, modules, x, y, GROUND_Z)
+    && !cells.some(c => c.fill === 'solid' && c.x === x && c.y === y && c.z === GROUND_Z - 1)) top = GROUND_Z
   return top
 }
 
@@ -1152,7 +1132,7 @@ export function topBlockZ(cells: readonly Cell[], x: number, y: number, from: nu
  */
 export function topBlockOver(cells: readonly Cell[], m: { x: number; y: number; z: number }, modules: readonly Module[] = []): boolean {
   if (cells.some((c) => c.fill === 'solid' && c.x === m.x && c.y === m.y && c.z === m.z + 1)) return true
-  return trackCeilingAt(modules, m.x, m.y, m.z + 1)
+  return virtualSolidAt(cells, modules, m.x, m.y, m.z + 1) || trackCeilingAt(modules, m.x, m.y, m.z + 1)
 }
 
 /**
@@ -1325,26 +1305,20 @@ export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, mo
   const footprint = baseCells(candidate)
   const [firstX, firstY] = footprint[0] ?? [candidate.x, candidate.y]
   const candidates = new Set(cells
-    // The first three courses above a floor are a wall, not a ceiling slab.
-    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z >= candidate.z + 4)
+    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z > candidate.z + 1
+      && !cells.some(b => b.fill === 'solid' && b.x === c.x && b.y === c.y && b.z === c.z - 1))
     .map((c) => c.z))
   // A rail deck is horizontal cladding, never a wall course: any underside with
-  // headroom counts, even at wall height. A bridge deck hangs a metre below its
-  // anchor, so its underside can sit one lower than a slab's and still ceiling
-  // the room.
+  // headroom counts, even at wall height. Both the platform bed and bridge deck
+  // extend one metre below their anchor.
   for (const m of modules) {
     const underside = trackCeilingUnderside(m)
     if (underside === null || underside < candidate.z + 2) continue
     if (m.type !== 'track' || !trackCellAt(m as Extract<Module, { type: 'track' }>, firstX, firstY, m.z)) continue
     candidates.add(underside)
   }
-  // The street plane can ceiling the storey immediately below grade, but it
-  // cannot stand in for a missing concourse slab several storeys underground: the
-  // plane is that storey's ceiling only when it lands on the storey's own top,
-  // `z + storeyHeight` — the top below-grade storey of a five-metre station is
-  // at -5, not -4.
-  if (virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z)
-    && GROUND_Z === candidate.z + (candidate.storeyHeight ?? STOREY_HEIGHT)) candidates.add(GROUND_Z)
+  // The real street underside is valid at any room height unless excavated.
+  if (GROUND_Z > candidate.z + 1 && virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z)) candidates.add(GROUND_Z)
   const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
     footprint.every(([x, y]) =>
       cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
@@ -1923,47 +1897,26 @@ function isTvPair(a: Module, b: Module): boolean {
   return a.type === 'tv' && b.type === 'tv' && tvBackToBack(a, b)
 }
 
-/**
- * The module standing on cell `(x, y, z)`, for right-click bulldozing. The test
- * volume is the **air of that cell's own storey** — from the block's top to the next
- * 5 m grid line — so a multi-cell module (an exit, a PSD run, a ramp) is found from
- * any of the cells it covers, and a wall-mounted panel is found from the floor cell
- * it hangs over even when its body is in the upper half of the room (a 广告牌 at
- * 1.4 m, a 站名 横排 at 2.5 m). A room's
- * envelope covers its whole floor, so furniture standing inside it is preferred:
- * the first pass skips walled rooms and booths, and only when nothing smaller
- * matches does the room itself answer.
- *
- * The one cell that can hold two pieces is a back-to-back 电视 pair, and there the
- * pair is one object seen from two sides: `facing` — the direction the caller is
- * looking from, in world space — picks the panel that is actually on screen, so a
- * click on either face bulldozes the 电视 the player is pointing at. Without a
- * direction (a caller that has no ray) the document's own order decides, as
- * everywhere else.
- */
+/** Find a module in the air cell or attached to this exact floor anchor. Same-floor elevated models remain addressable without extending the query to a nominal storey boundary. */
 export function moduleAt(
   modules: readonly Module[],
   x: number,
   y: number,
   z: number,
   facing?: readonly [number, number],
-  levelBase = 0,
-  storeyHeight = STOREY_HEIGHT,
+  _levelBase = 0,
+  _storeyHeight = STOREY_HEIGHT,
+  eligible?: (module: Module) => boolean,
 ): Module | undefined {
-  // The test volume is the **air of the cell's own storey**, not just the first
-  // metre above its block: a 广告牌 hangs from 1.36 m up, but a 站名 横排 is written
-  // at 2.5 m and a totem's board is above its plinth, and a piece whose body is
-  // entirely in the upper half of the storey has to be found from the cell it
-  // stands on like any other. The band stops at the next storey grid line
-  // (`LEVEL_STEPS`), so a piece one floor up is still not this cell's.
-  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
-  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
+  // Exact air-cell overlap; same-anchor models may extend above this cell.
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
   const hits = (skipRooms: boolean): Module | undefined => {
     for (const m of modules) {
+      if (eligible && !eligible(m)) continue
       if (skipRooms && (m.type === 'shop' || m.type === 'booth' || m.type === 'retail')) continue
       if (skipRooms && m.type === 'hanger') continue
       const e = moduleEnvelope(m)
-      if (e && boxesOverlap(e, cell)) return m
+      if (e && boxesOverlap(e, m.z === z ? { ...cell, z1: Math.max(cell.z1, e.z1) } : cell)) return m
     }
     return undefined
   }
@@ -1982,28 +1935,16 @@ export function moduleAt(
   return towards(theirs) > towards(mine) ? mate : found
 }
 
-/**
- * The 支柱 standing on `(x, y)` under the pointer's own storey band, if any.
- * Both the extension hover and the release ask this, so what the ghost grows is
- * what the click grows.
- *
- * A pillar's own shaft is thin, but a turning stair's `rampEnvelope` spans the
- * whole corner it turns through — so a generic `moduleAt` at the pillar's own
- * cell finds the stair first whenever the stair is earlier in the document, and
- * the extension snap never fires. The anchor cell is the pillar's own, so it
- * decides before the envelope overlap does; the band test is `moduleAt`'s own,
- * read off the pillar's drawn envelope.
- */
+/** Resolve the pillar at this horizontal anchor only when its physical shaft overlaps the pointed air cell. */
 export function pillarAt(
   modules: readonly Module[],
   x: number,
   y: number,
   z: number,
-  levelBase = 0,
-  storeyHeight = STOREY_HEIGHT,
+  _levelBase = 0,
+  _storeyHeight = STOREY_HEIGHT,
 ): Extract<Module, { type: 'pillar' }> | undefined {
-  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
-  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
   return modules.find(
     (m): m is Extract<Module, { type: 'pillar' }> => {
       if (m.type !== 'pillar' || m.x !== x || m.y !== y) return false
@@ -2013,30 +1954,16 @@ export function pillarAt(
   )
 }
 
-/**
- * The 电梯 shaft under the pointer, found from its own 2 × 2 column rather than
- * from the first module whose envelope overlaps the cell. The hover and the
- * release both ask this, so what the ghost grows is what the click grows.
- *
- * A generic `moduleAt` is order-dependent: a canopy roof reserves the sheltered
- * plan from its storey floor to above its plate, and a stair's `rampEnvelope`
- * spans the whole corner it turns through. Neither occupies the shaft, and
- * neither collides with a lift standing inside it, so a legal shaft can sit
- * under one — and whenever that piece is earlier in the document `moduleAt`
- * answers it and the extension snap never fires. The shaft's own column (all
- * four footprint cells) decides first; only then does the storey band say
- * whether the pointer is on this piece.
- */
+/** Resolve a lift footprint only when its physical shaft overlaps the pointed air cell. */
 export function liftAt(
   modules: readonly Module[],
   x: number,
   y: number,
   z: number,
-  levelBase = 0,
-  storeyHeight = STOREY_HEIGHT,
+  _levelBase = 0,
+  _storeyHeight = STOREY_HEIGHT,
 ): Extract<Module, { type: 'lift' }> | undefined {
-  const ceiling = storeyBand(z, levelBase, storeyHeight) + storeyHeight
-  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: ceiling }
+  const cell: ModuleBox = { x0: x, y0: y, z0: z + 1, x1: x + 1, y1: y + 1, z1: z + 2 }
   return modules.find(
     (m): m is Extract<Module, { type: 'lift' }> => {
       if (m.type !== 'lift') return false
@@ -2559,6 +2486,9 @@ export function moveCandidate(
   facing?: readonly [number, number],
 ): { module: Module; reason: string } {
   let moved = movedModule(mod, at, rot)
+  if (moved.type !== 'hanger' && isCeilingHung(moved)) moved = {
+    ...moved, ceilingAnchored: topBlockOver(cells, moved, modules) || undefined,
+  }
   if (moved.type === 'sign' && moved.cfg.mount === 'wall') {
     moved = snapSignToBooth(modules, moved, near ?? [at.x + 0.5, at.y + 0.5], at.z)
   }

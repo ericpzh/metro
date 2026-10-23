@@ -66,9 +66,10 @@ export class DeleteTool extends ToolController {
       ? scene.pickModuleHit(info.clientX, info.clientY)
       : null
     const pickedId = scene && 'pickModuleHit' in scene ? moduleHit?.moduleId ?? null : this.pickModuleAt(info)
-    const modules = useStore.getState().station.modules
+    const station = useStore.getState().station
+    const modules = station.modules
     return {
-      module: this.visibleModule(deletionTarget(modules, pickedId, hit.cell, this.facing())),
+      module: this.visibleModule(deletionTarget(modules, pickedId, hit.cell, this.facing(), station.levelBase, station.storeyHeight)),
       point: moduleHit?.point,
     }
   }

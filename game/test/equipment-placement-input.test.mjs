@@ -1,3 +1,4 @@
+import { equipmentReason } from '../src/sim/placement.ts'
 // Wall and ceiling mounts can be aimed from open air; floor equipment cannot.
 //
 // The same aim is what picks **which** wall a panel hangs on
@@ -201,7 +202,7 @@ test('a 玻璃板 aimed at a wall hangs on that course, where a poster keeps its
     // the storey floor as its anchor — the band a poster always hangs at.
     useStore.setState({ moduleType: 'billboard-wide' })
     tool.refreshHover()
-    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 6], 'the poster keeps its own band at the storey floor')
+    assert.deepEqual([ghost.x, ghost.y, ghost.z], [0, 0, 5], 'the poster anchors to the actual room floor')
   } finally {
     useStore.setState(before)
   }
@@ -228,14 +229,14 @@ test('an aimed 地面出入口 keeps the block face the pointer clicked, whateve
     // The eye is west of the piece, so the view looks east, at the rot-1 block.
     const tool = new EquipmentTool({ facing: () => [-1, 0], scene: () => null })
     const aimed = tool.wallMountPlacement([0, 1, 0], [0, 0, 0], 'e1', [0.5, 1])
-    assert.equal(aimed.noWall, false)
-    assert.equal(aimed.mod.rot, 2, 'the aimed block face, not the wall the camera faces')
-    assert.equal(aimed.mod.cfg.mountZ, 0, 'and the course its block is on')
+    assert.equal(equipmentReason(cells, [], aimed), '')
+    assert.equal(aimed.rot, 2, 'the aimed block face, not the wall the camera faces')
+    assert.equal(aimed.cfg.mountZ, 0, 'and the course its block is on')
     // A wall panel on the same hover takes the camera's wall instead — the search is
     // the camera's whenever the pointer did not aim at a named block.
     useStore.setState({ moduleType: 'glass-1x1' })
     const panel = tool.wallMountPlacement([0, 1, 0], [0, 0, 0], 'g1', [0.5, 1])
-    assert.equal(panel.mod.rot, 1, 'the east wall, which the camera is looking at')
+    assert.equal(panel.rot, 1, 'the east wall, which the camera is looking at')
   } finally {
     useStore.setState(before)
   }

@@ -5,6 +5,19 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+Placement and move snapping must follow actual geometry, never a nominal storey
+band or editing base. See [the snapping audit](../../../game/SNAPPING.md).
+`moduleAim` shares fresh/carried anchors; wall mounts resolve actual exposed floors
+and backing columns, ceiling props resolve actual slabs/decks/hanger supports, and
+shaft targets overlap the pointed air cell. Infer `ceilingAnchored` from a real
+support directly above the candidate, never from station settings. Keep the
+`geometry-snap` integration suite and `tools/check-geometry-snapping.mjs` aligned.
+Construction placement and moving must prioritize the nearest visible object surface
+over terrain behind it (`pickPlacement` / `placementSurface`). Translate a hit beam
+to its actual attachment anchor; keep support/refusal in the existing validator.
+Preserve erase/floor-paint contracts and one shared scene raycast per event.
+Pin low-angle beam targeting, occlusion and hidden objects in `placement-surface`.
+
 Every stock uses 0.8 m wheels, with bogies beneath inter-door window bays and sealed under-seat housings around the unchanged-height aisle. A/B/C/L passenger roofs and lower skirts derive from the cab rear cut in High and Low; C lamps sit in its coloured band and the floating white skirt blocks are removed. A/B/C/L cab face and lower colour are disjoint paint sections of the same shell, with flush fitted glazing, smooth circular headlights and wiper pivots fully below the glass. Passenger overhead fittings stop at the cab seam. A/B/C/L cabs have a ten-degree front rake that fades to zero at the rear body seam. A/B/L carry glazed crew doors on both sides; all five classes have surface-fitted windshield wipers. A/B/L use the same small centred emblem as C, whose narrower evacuation door clears it. The cabin ceiling stops at the cab seam; the aisle floor and passenger door centres keep their platform alignment. The A/B/C/L passenger leaves, seals and black lower panels follow the common skirt curve through opening travel. A/B/L crew doors stay upright and narrow, moved forward to clear fully opening passenger leaves by over 10 cm.
 
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
@@ -664,8 +677,8 @@ the four rules most changes trip over.
   solid block at its first course (`z + 1`), and a two-cell banner needs a wall behind
   every cell of its run (`billboardCells`). `wallMountStandCell` stands the panel on the
   hovered floor, or on the face-adjacent cell when the pointer is on a wall itself —
-  dropped to that wall's own storey floor (`storeyBand(z, levelBase)`, the station's
-  **基准高度**, never the unshifted 0 / 4 / 8 grid) — so an ad can bolt to the
+  anchored to the actual adjacent floor or bottom of the contiguous backing column,
+  independent of **基准高度** — so an ad can bolt to the
   station wall across the track where there is no floor in front of it. **A side face is a
   wall whatever the block is tagged** (§9.5 "side face = wall-mounted"): a wall raised with
   the 方块 brush carries no `wall` tag, and treating that hover as "not a wall" stood the
@@ -1026,7 +1039,7 @@ the four rules most changes trip over.
   exists so the copy at its origin is never the obstacle. A carried wall panel aims through
   `wallMountStandCell` and a hung fitting through `hungCeilingAim`
   (`MoveController.moveAnchorAt`, reading the placed module's own mount), with the station's
-  `levelBase` for the storey and — for a 玻璃板 / 广告牌 / 站名 — the **camera** for which wall it
+  actual support geometry and — for a 玻璃板 / 广告牌 / 站名 — the **camera** for which wall it
   hangs on (`moveCandidate`'s `facing`; a 地面出入口 whose turn came from the block under the
   pointer passes none). A doorway exit's `cfg.mountZ` is part of its aim: `MoveSlice.aimMove`
   must refresh when only that course changes, and confirmation must commit the candidate's
@@ -1153,7 +1166,12 @@ the four rules most changes trip over.
   is a 3 mm sheet; the pair is exempt from `placementColliders`. The booth model
   carries no baked banner (`BoothModel.ts`); the sign model draws ink only for
   booth mounts. `moveCandidate` takes the pointer point (`near`) so wall signs
-  re-snap while carried. Pin in `game/test/booth-sign.test.mjs`.
+  re-snap while carried. The snapped booth is the one the pointer **picked**
+  (`boothSignAim`, passed in as `snapSignToBooth`'s `boothId`), including a sign
+  already bolted to a header, so a grazing surface point cannot fall through to
+  the floor behind it. The header's width rule is separate (`boothHoldsSign` +
+  `boothSignFits`) and a correctly bolted board that overhangs its face is refused
+  as `booth-width`, not `wall`. Pin in `game/test/booth-sign.test.mjs`.
 * **Hanging signs are smaller** (`sim/sign.ts`): `PANEL_MIN_H` 0.4 m, nine-arrow
   capacity at 3.5 m, smaller arrow/line/text/icon geometry. Saved content is
   vertically centred on reprint; a rejected tenth arrow never enters the hover
@@ -1314,6 +1332,11 @@ including the depth prepass, for all six appearances.
   previews the booth and its benches through `setModulePreview`, and refreshes that 3D ghost when R
   changes the front. `booth-model.test.mjs`, `zonetool.test.mjs` and `tool-shortcuts.test.mjs` pin
   orientation, model bounds, opposite benches, live drag preview/release and the R affordance.
+  **A booth drag stands on the block under the pointer** (`facilityStandZ`), not on `activeZ`: a
+  room drawn on a raised slab or platform takes that block's level, a press on a wall course walks
+  down the wall's own column to the floor it was raised from, and only an open-air press keeps the
+  work plane's storey. `placeFacility` still demands a complete floor at whatever level the drag
+  names, so this changes where a room may stand, never whether it is supported.
   The **售票亭** (`buildBooth`) is hand-built geometry rather than voxels, and it must be a **closed box inside the module's own cells** — every side
   measures *inward from that side's outer face*, the west and east counter runs own the four
   corner squares while the north and south runs butt between them, and the four glass sheets
@@ -2148,8 +2171,9 @@ and outer endpoints remain integer-grid. Grid repair admits fractional internal
 landings without depending on module tags. The graph synthesizes their nodes.
 The block tool's Tab variant is 吊顶 (ordinary tagged blocks that can be placed
 anywhere like a standard block); Shift+Tab controls wall generation. Placing one
-triggers ceiling snapping for all ceiling decor to its underface, regardless of
-placement height. Ceiling decor uses the normal tools and `ceilingAnchored` below
+triggers ceiling snapping for decor in the actual room below its underface;
+other rooms and hanger-supported props remain attached to their own supports.
+Ceiling decor uses the normal tools and `ceilingAnchored` below
 these slabs. 隐藏天花板 hides the tagged ceiling tiles; mounted decor remains visible.
 Five-metre trains uniformly scale to 98%; shared stock door offsets, floor origin,
 rail hardware and compressed pantograph contact must agree. Full PSD glazing is

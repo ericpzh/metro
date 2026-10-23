@@ -38,6 +38,42 @@ function setup() {
   return { tool: new DeleteTool(ctx), drag: ctx.drag, previews, event, scene }
 }
 
+for (const type of ['cctv', 'cctv-ptz', 'cctv-dome', 'clock', 'light-rectangular', 'light-circular', 'vent', 'sign-ceiling', 'monitor-ceiling']) {
+  test(`floor triangle deletion does not snap to overhead ${type}; direct surface hits still delete it`, () => {
+    const before = useStore.getState()
+    try {
+      const fixture = setup()
+      const hung = createModule(type, 1, 1, -4, 'overhead')
+      assert.ok(hung)
+      const station = useStore.getState().station
+      const cells = station.cells.map(c => c.x === 1 && c.y === 1 ? { ...c, tags: ['tri-upper:w'] } : c)
+      useStore.setState({ station: { ...station, cells, modules: [hung] } })
+      fixture.scene.isModuleVisible = () => true
+      let preview
+      fixture.scene.setModulePreview = value => { preview = value }
+      fixture.scene.pickModuleHit = () => null
+      const event = fixture.event(1, 1)
+      fixture.tool.onMove(event)
+      assert.equal(preview, null, 'hover keeps the floor triangle targeted')
+      fixture.tool.onDown(event)
+      assert.equal(fixture.drag.current.modules, undefined)
+      fixture.tool.onUp(event)
+      assert.equal(useStore.getState().station.cells.some(c => c.x === 1 && c.y === 1), false)
+      assert.equal(useStore.getState().past.length, 1)
+      useStore.getState().undo()
+      assert.deepEqual(useStore.getState().station.cells.find(c => c.x === 1 && c.y === 1).tags, ['tri-upper:w'])
+      fixture.scene.pickModuleHit = () => ({ moduleId: hung.id, point: [1.5, 1.5, 0] })
+      fixture.tool.onMove(event)
+      assert.equal(preview.id, hung.id)
+      fixture.tool.onDown(event)
+      assert.deepEqual(fixture.drag.current.modules, [hung.id])
+      fixture.tool.onUp(event)
+      assert.equal(useStore.getState().station.modules.length, 0)
+      assert.ok(useStore.getState().station.cells.some(c => c.x === 1 && c.y === 1))
+    } finally { useStore.setState(before) }
+  })
+}
+
 test('block deletion previews and commits a rectangle, while Shift keeps the drag diagonal', () => {
   const before = useStore.getState()
   try {

@@ -12,9 +12,42 @@ import { parse, serialize } from '../src/persistence/save.ts'
 import { toState } from '../src/build/model.ts'
 import { useStore } from '../src/app/store.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { moduleAim } from '../src/app/tools/moduleAim.ts'
 
 const data = { name: '挂架', seed: 1, cells: [], modules: [], lines: [] }
 const variants = ['hanger-roof', 'hanger-post']
+
+test('Tanwei raised floor: fresh and carried props snap to the hanger anchor before the storey grid or slab', () => {
+  const before = useStore.getState()
+  try {
+    for (const mount of variants) for (const rot of [0, 1, 2, 3]) for (const slab of [false, true]) {
+      const hanger = createModule(mount, 14, 3, 11, 'beam', rot, 8)
+      const floor = hangerCells(hanger).map(([x, y]) => ({ x, y, z: 11, fill: 'solid' }))
+      const roof = { ...createModule('roof-truss', 14, 3, 11, 'roof'), x: 0, y: -20, w: 40, d: 40 }
+      const cells = slab ? [...floor, ...floor.map(c => ({ ...c, z: 16 }))] : floor
+      const station = { ...data, cells, modules: [roof, hanger], levelBase: 0, storeyHeight: 5 }
+      const [x, y] = hangerCells(hanger)[3]
+      const hit = { cell: [x, y, 11], place: [x, y, 12], solid: true }
+      for (const type of ['cctv', 'cctv-ptz', 'cctv-dome', 'tv', 'clock', 'sign-ceiling']) {
+        useStore.setState({ station: toState(station), past: [], future: [], moduleType: type, moduleRot: rot, moveDraft: null })
+        const tool = new EquipmentTool({})
+        assert.deepEqual(moduleAim(station, type, hit), [x, y, 11])
+        const preview = tool.ceilingPlacement(hit.cell, hit.place, 'preview')[0]
+        assert.equal(preview.z, 11)
+        assert.equal(equipmentReason(cells, station.modules, preview), '')
+        const carried = { ...preview, x: x + 100, z: 0 }
+        assert.deepEqual(moduleAim(station, carried, hit), [x, y, 11], 'moving shares the fresh placement anchor')
+        tool.placeModule(hit.cell, hit.place, true, type)
+        const placed = useStore.getState().station.modules.find(m => m.id !== roof.id && m.id !== hanger.id)
+        assert.ok(placed)
+        assert.equal(moduleGhostKey(placed), moduleGhostKey(preview))
+        useStore.getState().undo()
+        assert.equal(useStore.getState().station.modules.length, 2)
+      }
+      assert.deepEqual(moduleAim(station, 'cctv', { cell: [100, 100, 11], place: [100, 100, 12], solid: true }), [100, 100, 11], 'off-beam aim keeps the pointed height without inventing a grid support')
+    }
+  } finally { useStore.setState(before) }
+})
 
 test('the two hanger choices rotate, preview distinctly and survive saving', () => {
   assert.deepEqual(familyOptions(familyFor('hanger')).map((o) => o.id), variants)
@@ -121,7 +154,7 @@ test('equipment preview and click commit the same hanger and supported fitting, 
       const [x, y] = hangerCells(hanger)[1]
       useStore.setState({ moduleType: 'clock' })
       const fitting = tool.ceilingPlacement([x, y, 0], [x, y, 1], 'preview')
-      assert.equal(fitting.noCeiling, false)
+      assert.equal(equipmentReason([], useStore.getState().station.modules, fitting[0]), '')
       tool.placeModule([x, y, 0], [x, y, 1], true, 'clock')
       assert.ok(useStore.getState().station.modules.some((m) => m.type === 'clock'))
       useStore.getState().undo()

@@ -1,3 +1,4 @@
+import { moduleAim } from './moduleAim.ts'
 import { RoadTool } from './RoadTool.ts'
 import { msg } from '../../sim/i18n.ts'
 // The 设备 (equipment) tool: press to place the chosen module — fence runs drag
@@ -31,20 +32,15 @@ import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lif
 import {
   autofaceWallMount,
   blockerLabels,
-  ceilingMountMissing,
-  ceilingMountStandCell,
   equipmentReason,
   equipmentRefusalNotice,
-  hungCeilingAim,
   isCeilingHung,
   liftAt,
   pillarAt,
   placementColliders,
-  wallMountFollowsCourse,
-  wallMountMissing,
-  wallMountStandCell,
   glassCells,
   snapDoorToCurtain,
+  topBlockOver,
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import type { Module } from '../../sim/types.ts'
@@ -220,7 +216,7 @@ export class EquipmentTool extends ToolController {
       // tall equipment often sit above a void, wall, or rail cell, where the
       // grid cell alone can identify the wrong object (or none at all).
       if (isDecorType(st.moduleType)) {
-        const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing())
+        const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing(), st.station.levelBase, st.station.storeyHeight)
         if (pointed && pointed.type !== 'shop' && pointed.type !== 'booth' && pointed.type !== 'retail') {
           this.removePlacedModule(pointed)
           return
@@ -229,7 +225,7 @@ export class EquipmentTool extends ToolController {
         st.setNotice(room ? msg('remove_shelves_one_at_a_time_point_at_a_shelf_and_right_click') : msg('no_decoration_to_remove_here'))
         return
       }
-      const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing())
+      const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing(), st.station.levelBase, st.station.storeyHeight)
       if (pointed) {
         this.removePlacedModule(pointed)
         return
@@ -695,6 +691,9 @@ export class EquipmentTool extends ToolController {
         ? (nextExitLetter(st.station.modules) ?? msg('unnamed_exit'))
         : nextExitName(st.station.modules)
     }
+    if (mod && mod.type !== 'hanger' && isCeilingHung(mod)) mod = {
+      ...mod, ceilingAnchored: topBlockOver(st.station.cells, mod, st.station.modules) || undefined,
+    }
     return mod
   }
 
@@ -770,29 +769,21 @@ export class EquipmentTool extends ToolController {
    *
    * The panel is then **turned to face its wall** (`autofaceWallMount`): a poster
    * bolted flat to a wall has exactly one correct orientation, so the player never
-   * has to press R to match the wall before the tool agrees. `noWall` reports the
-   * separate, genuine failure — no wall within reach in any direction.
+   * has to press R to match the wall before the tool agrees. The shared placement
+   * validator decides whether that candidate has backing.
    */
   private wallMountPlacement(
     cell: [number, number, number],
     place: [number, number, number],
     id: string,
     near?: readonly [number, number],
-  ): { mod: Module | null; noWall: boolean } {
+  ): Module | null {
     const st = useStore.getState()
     const groundExit = st.moduleType.startsWith('exit-doorway-')
     // A 玻璃板 is cladding from its base, so it **hangs over the course the pointer is
     // on** rather than always at the storey floor (`wallMountFollowsCourse`): aim at a
     // wall's third course and the window covers the third course.
-    const at = wallMountStandCell(
-      st.station.cells,
-      cell,
-      place,
-      groundExit,
-      st.station.levelBase,
-      wallMountFollowsCourse({ type: st.moduleType }),
-      st.station.storeyHeight,
-    )
+    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true })
     const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
       && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
     const snappedRot = groundExit && hitBlock
@@ -815,7 +806,7 @@ export class EquipmentTool extends ToolController {
       st.station,
       st.currentBoards,
     )
-    if (!draft) return { mod: null, noWall: true }
+    if (!draft) return null
     if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
     if (draft.type === 'billboard' && draft.cfg.poster === undefined) {
       draft.cfg.poster = randomAdSlug(draft)
@@ -837,7 +828,7 @@ export class EquipmentTool extends ToolController {
       st.station.modules,
       snappedRot === null ? this.facing() : undefined,
     )
-    return { mod, noWall: wallMountMissing(st.station.cells, mod, st.station.modules) }
+    return mod
   }
 
   /**
@@ -850,24 +841,10 @@ export class EquipmentTool extends ToolController {
     cell: [number, number, number],
     place: [number, number, number],
     id: string,
-  ): { mods: Module[]; noCeiling: boolean } {
+  ): Module[] {
     const st = useStore.getState()
-    // A **hung** piece goes to the free cell directly under the **top block** of the column the
-    // pointer is on (`hungCeilingAim`) — the block below the ceiling — wherever on that column the
-    // pointer is: the floor, a wall course between them, or the slab's own underside. Its model
-    // then hangs it from that block, at the short drop its own design gives it.
-    const hung = isCeilingHung({ type: st.moduleType }) && !st.moduleType.startsWith('hanger')
-    const at = hung
-      ? hungCeilingAim(cell, place, st.station.levelBase, st.station.cells, st.station.modules, st.station.storeyHeight)
-      : ceilingMountStandCell(cell, place, st.station.levelBase, st.station.cells, st.station.storeyHeight)
-    const mods = this.buildPlacementModules(st.moduleType, at, id)
-    if (mods.length === 0) return { mods: [], noCeiling: true }
-    // The modules ride along, or the ghost reads a **hung** piece's ceiling off the
-    // document alone and reports "no ceiling" for a fitting that hangs from the
-    // implicit street slab (`sim/ground.ts`) — a verdict `equipmentReason`, which
-    // is handed the modules, does not share. Preview and commit must agree.
-    const noCeiling = mods.some((m) => ceilingMountMissing(st.station.cells, m, st.station.modules))
-    return { mods, noCeiling }
+    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true })
+    return this.buildPlacementModules(st.moduleType, at, id)
   }
 
   /**
@@ -932,7 +909,7 @@ export class EquipmentTool extends ToolController {
     // The panel lives **on the wall**: the ghost is the panel itself, so no floor
     // cell is highlighted with it.
     if (isWallMountedType(st.moduleType)) {
-      const { mod: billboard, noWall } = this.wallMountPlacement(
+      const billboard = this.wallMountPlacement(
         h.cell,
         h.place,
         nextModuleId(st.station.modules, st.moduleType),
@@ -940,7 +917,7 @@ export class EquipmentTool extends ToolController {
       )
       const check = billboard ? checkModulePlacements(st.station, [{ id: billboard.id, module: billboard }]) : null
       // No wall at all is a refusal of its own: a panel has nowhere to bolt.
-      const blocked = noWall || check === null || check.refused.size > 0
+      const blocked = check === null || check.refused.size > 0
       scene.setCursor(null)
       scene.setModulePreview(billboard, blocked)
       scene.setCollisionHighlight(check && check.colliderIds.length > 0 ? check.colliderIds : null)
@@ -950,12 +927,12 @@ export class EquipmentTool extends ToolController {
     // pointer may be on the floor below, the slab overhead or a wall course
     // between them, and the ghost is the fitting itself — never a floor cell.
     if (isCeilingHung({ type: st.moduleType })) {
-      const { mods: hung, noCeiling } = this.ceilingPlacement(h.cell, h.place, 'preview')
+      const hung = this.ceilingPlacement(h.cell, h.place, 'preview')
       const check = checkModulePlacements(
         st.station,
         hung.map((module) => ({ id: module.id, module, layer: true })),
       )
-      const blocked = hung.length === 0 || noCeiling || check.refused.size > 0
+      const blocked = hung.length === 0 || check.refused.size > 0
       scene.setCursor(null)
       scene.setModulePreview(hung.length > 0 ? hung : null, blocked)
       scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
@@ -1032,8 +1009,8 @@ export class EquipmentTool extends ToolController {
     if (isWallMountedType(type)) {
       // The panel turns itself to face whatever wall backs it, so the only
       // failure left is "there is no wall here at all".
-      const { mod, noWall } = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
-      if (!mod || noWall) {
+      const mod = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
+      if (!mod) {
         st.setNotice(type.startsWith('exit-doorway-')
           ? msg('ground_exits_need_a_solid_block_behind_their_wall_facing_side')
           : equipmentRefusalNotice('wall'))
@@ -1047,12 +1024,11 @@ export class EquipmentTool extends ToolController {
       st.commit(addEquipment(st.station, mod))
       return
     }
-    // A hung piece (指示牌 / 电视 / 时钟 / 监控) bolts to the slab overhead: it is
-    // aimed at the ceiling (`ceilingMountStandCell`), not at the ground rules, and
-    // the only failure outside the shared verdict is "no ceiling up there".
+    // Aim builds the candidate; the same shared verdict used by the hover
+    // decides whether its ceiling and occupied space permit the commit.
     if (isCeilingHung({ type })) {
-      const { mods, noCeiling } = this.ceilingPlacement(cell, place, nextModuleId(st.station.modules, type))
-      if (mods.length === 0 || noCeiling) {
+      const mods = this.ceilingPlacement(cell, place, nextModuleId(st.station.modules, type))
+      if (mods.length === 0) {
         st.setNotice(equipmentRefusalNotice('ceiling'))
         return
       }
@@ -1066,9 +1042,7 @@ export class EquipmentTool extends ToolController {
       st.commit(mods.reduce((state, mod) => addEquipment(state, mod), st.station))
       return
     }
-    // Exit-covered holes count as floor, like the hover ghost above.
-    const floorHere = solid || exitFloorAt(st.station.modules, cell[0], cell[1], cell[2])
-    const at = floorHere ? cell : ([place[0], place[1], place[2]] as [number, number, number])
+    const at = moduleAim(st.station, type, { cell, place, solid })
     const mods = this.buildPlacementModules(type, at, nextModuleId(st.station.modules, type), targetRamp)
     if (mods.length === 0) {
       st.setNotice(msg('cannot_place_equipment_here_choose_another_location'))

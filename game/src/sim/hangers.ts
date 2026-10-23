@@ -1,7 +1,6 @@
 import { msg } from './i18n.ts'
 // Steel hanging supports, GAME-SPEC §5.7–5.8. Shared placement/model dimensions.
 import { rotateLocal, trackCells } from './track.ts'
-import { STOREY_HEIGHT } from './constants.ts'
 import { CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, TRUSS_ROOF_EAVE, trussRoofRidge } from './structures.ts'
 import { signBoardsOf, signBoardsPanel } from './sign.ts'
 import type { Cell, Module } from './types.ts'
@@ -46,25 +45,21 @@ export function hangerBoxes(m: HangerModule) {
   return boxes
 }
 
-/**
- * Height of actual roof backing at a suspension point, including shell roofs.
- *
- * The slab asked for is the one course that tops this hanger's own storey
- * on the five-metre grid, not
- * a fixed four up — a five-metre station's roof sits at `z + 5`.
- */
+/** Nearest actual backing at or above the beam, evaluated independently at each suspension point. */
 export function hangerRoofZ(cells: readonly Cell[], modules: readonly Module[], m: HangerModule, x: number, y: number): number | undefined {
-  const slab = cells.find((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === m.z + (m.storeyHeight ?? STOREY_HEIGHT))
-  if (slab) return slab.z
+  const barTop = m.z + 1 + HANGER_BAR_TOP
+  let backing: number | undefined
+  for (const cell of cells) if (cell.fill === 'solid' && cell.x === x && cell.y === y && cell.z >= barTop
+    && (backing === undefined || cell.z < backing)) backing = cell.z
   for (const roof of modules) {
-    if (roof.type !== 'roof' || roof.z !== m.z || !trackCells(roof).some(([rx, ry]) => rx === x && ry === y)) continue
-    if (!roof.cfg.variant) return roof.z + 1 + TRUSS_ROOF_BASE
+    if (roof.type !== 'roof' || !trackCells(roof).some(([rx, ry]) => rx === x && ry === y)) continue
     const [, localY] = rotateLocal(-(roof.rot ?? 0), x - roof.x, y - roof.y)
     const ridge = trussRoofRidge(roof.d)
     const height = ridge - (ridge - TRUSS_ROOF_EAVE) * Math.abs(localY - (roof.d - 1) / 2) / (roof.d / 2)
-    return roof.z + 1 + height - (roof.cfg.variant === 'canopy' ? CANOPY_ROOF_DROP : 0)
+    const z = !roof.cfg.variant ? roof.z + 1 + TRUSS_ROOF_BASE : roof.z + 1 + height - (roof.cfg.variant === 'canopy' ? CANOPY_ROOF_DROP : 0)
+    if (z >= barTop && (backing === undefined || z < backing)) backing = z
   }
-  return undefined
+  return backing
 }
 
 export function hangerRoofMissing(cells: readonly Cell[], modules: readonly Module[], m: HangerModule): boolean {

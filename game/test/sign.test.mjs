@@ -140,7 +140,7 @@ test('a sign is created with the hover rotation, like any equipment', () => {
   assert.equal(mod?.y, 2)
 })
 
-test('a ceiling-hung piece needs a solid ceiling one storey up', () => {
+test('a ceiling-hung piece needs an actual exposed ceiling', () => {
   for (const hung of [sign(2, 3, 0), tv(2, 3, 0)]) {
     // Floor at z = 0 with no ceiling: refused.
     assert.equal(ceilingMountMissing([slab(2, 3, 0)], hung), true)
@@ -151,7 +151,8 @@ test('a ceiling-hung piece needs a solid ceiling one storey up', () => {
     // The next grid line is used, so a piece on the B1 platform (-8) hangs from
     // the concourse slab (-4).
     assert.equal(ceilingMountMissing([slab(2, 3, -8), slab(2, 3, -4)], sign(2, 3, -8)), false)
-    assert.equal(ceilingMountMissing([slab(2, 3, -8)], tv(2, 3, -8)), true)
+    assert.equal(ceilingMountMissing([slab(2, 3, -8)], tv(2, 3, -8)), false, 'the actual street is a ceiling for a tall room')
+    assert.equal(ceilingMountMissing([slab(2, 3, -8), { x: 2, y: 3, z: 0, fill: 'void' }], tv(2, 3, -8)), true, 'excavating that street removes the support')
   }
   // Wall-mounted and floor-standing modules are never refused by the rule.
   assert.equal(ceilingMountMissing([slab(2, 3, 0)], gate(2, 3, 0)), false)

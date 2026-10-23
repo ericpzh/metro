@@ -1,4 +1,5 @@
 import { TouchZoom } from './touchZoom.ts'
+import { placementSurface } from './tools/placementSurface.ts'
 import { populationEdit } from '../sim/populationEdit.ts'
 import { FrameTask } from './frameTask.ts'
 import { translate } from '../sim/i18n.ts'
@@ -789,6 +790,13 @@ export function Viewport(): React.ReactElement {
       if (hit) hit.cell = [Math.round(hit.point[0]), Math.round(hit.point[1]), st.activeZ]
       return hit
     }
+    if ((st.moveDraft || ['module', 'block', 'wall', 'rail', 'tunnel'].includes(st.tool))
+      && button !== 2 && dragRef.current?.mode !== 'remove') {
+      const surface = scene.pickPlacement(clientX, clientY, st.activeZ)
+      return st.moveDraft || st.tool === 'module'
+        ? placementSurface(st.station, st.moveDraft?.module ?? st.moduleType, surface)
+        : surface
+    }
     return scene.pick(clientX, clientY, st.activeZ)
   }
 
@@ -828,6 +836,11 @@ export function Viewport(): React.ReactElement {
   }
 
   const startPointerTool = (e: React.PointerEvent): void => {
+    const scene = sceneRef.current
+    if (scene) scene.withPointerPick(() => dispatchPointerDown(e))
+  }
+
+  const dispatchPointerDown = (e: React.PointerEvent): void => {
     if (useStore.getState().followAgentId !== null) return
     const scene = sceneRef.current
     if (!scene || e.button === 1) return
@@ -872,6 +885,11 @@ export function Viewport(): React.ReactElement {
   }
 
   const handlePointerMove = (e: React.PointerEvent): void => {
+    const scene = sceneRef.current
+    if (scene) scene.withPointerPick(() => dispatchPointerMove(e))
+  }
+
+  const dispatchPointerMove = (e: React.PointerEvent): void => {
     if (e.pointerType === 'touch') {
       e.preventDefault()
       const factor = touchZoom.current.move(e.pointerId, e.clientX, e.clientY)
@@ -996,6 +1014,11 @@ export function Viewport(): React.ReactElement {
 
   const onPointerUp = (e: React.PointerEvent): void => {
     pointerFrame.current.flush()
+    const scene = sceneRef.current
+    if (scene) scene.withPointerPick(() => dispatchPointerUp(e))
+  }
+
+  const dispatchPointerUp = (e: React.PointerEvent): void => {
     if (e.pointerType === 'touch') {
       e.preventDefault()
       const tap = touchZoom.current.up(e.pointerId)

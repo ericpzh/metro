@@ -55,8 +55,8 @@ test('a wall hover anchors to the storey of the 基准高度 grid, not the fixed
   )
   assert.deepEqual(
     wallMountStandCell(cells, [0, -1, 7], [0, 0, 7]),
-    [0, 0, 5],
-    'a caller that names no base still reads the unshifted grid',
+    [0, 0, 6],
+    'the actual floor is independent of the editing base',
   )
   // The panel really hangs there: the wall's own two courses back a 2 m panel.
   const panel = createModule('glass-1x2', 0, 0, 6, 'g', 0)
@@ -97,6 +97,7 @@ test('a 玻璃板 hangs over the course the pointer is on, and a poster keeps it
   assert.deepEqual(at(6, true), [0, 0, 5], 'the first course above the floor is the floor')
   assert.deepEqual(at(7, true), [0, 0, 6], 'the second course hangs the pane over the second course')
   assert.deepEqual(at(8, true), [0, 0, 7], 'and the third likewise')
+  assert.deepEqual(at(9, true), [0, 0, 8], 'the top course does not jump back to the storey floor')
   // The pane really hangs there: the block aimed at is its backing, one course up.
   const pane = createModule('glass-1x1', 0, 0, 6, 'g6', 0)
   assert.ok(pane)
@@ -104,7 +105,7 @@ test('a 玻璃板 hangs over the course the pointer is on, and a poster keeps it
   assert.equal(equipmentReason(cells, [], pane, true), '', 'and a pane hanging over a course is accepted')
   // A piece drawn at its own `panelZ` keeps the storey floor: that is what puts a
   // poster at eye height wherever on the wall it is aimed.
-  assert.deepEqual(at(8, false), [0, 0, 6], 'a poster aimed at the third course stays at the floor')
+  assert.deepEqual(at(8, false), [0, 0, 5], 'a poster aimed at the third course stays at the actual floor')
   // A **floor** block (nothing over it) is not a band of wall to cover: the pane still
   // stands on that floor level, so aiming at a slab's edge never sinks it into the slab.
   assert.deepEqual(wallMountStandCell([floor(0, 0, 6)], [0, 0, 6], [0, -1, 6], false, 1, true), [0, -1, 6], 'a floor edge keeps the storey reading')
@@ -147,12 +148,12 @@ test('a hung ceiling piece takes the free cell under the top block of its column
   assert.deepEqual(hungCeilingAim([2, 3, 5], [2, 3, 4], 0, cells), [2, 3, 4], 'a slab underside: the cell under that slab')
   assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 4], 0, cells), [2, 2, 4], 'and a floor slab’s own underside reads its storey')
   assert.deepEqual(hungCeilingAim([2, 2, 5], [2, 2, 5], 0, cells), [2, 2, 5], 'the work plane reads the same column')
-  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 7], 0, []), [6, 6, 5], 'nothing overhead: the storey floor stands in')
+  assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 7], 0, []), [6, 6, 6], 'nothing overhead: preserve the aim and refuse unsupported placement')
   assert.deepEqual(hungCeilingAim([6, 6, 6], [6, 6, 6], 1, []), [6, 6, 6], 'and it reads the 基准高度 grid')
   // The lookup itself: the first **underside** overhead, a wall's own courses skipped.
   assert.equal(topBlockZ(cells, 2, 2, 1), 5, 'the slab over the floor')
   assert.equal(topBlockZ(cells, 2, 3, 2), 5, 'and the slab over a wall run')
-  assert.equal(topBlockZ(cells, 2, 4, 0), null, 'a column with nothing in it')
+  assert.equal(topBlockZ(cells, 2, 4, 1), null, 'a column with nothing above the street')
   assert.equal(topBlockOver(cells, { x: 2, y: 3, z: 4 }), true, 'the block over the piece’s own cell')
   assert.equal(topBlockOver(cells, { x: 2, y: 2, z: 0 }), false)
 
@@ -160,6 +161,7 @@ test('a hung ceiling piece takes the free cell under the top block of its column
   // a floor still wants a ceiling over it — which is what kept a fixture out of an empty doorway.
   const under = createModule('light-circular', 2, 3, 4, 'l')
   assert.ok(under)
+  under.ceilingAnchored = true
   assert.equal(ceilingMountMissing(cells, under), false, 'the block over its cell is its ceiling')
   assert.equal(hangCeilingLocal(under, cells), 0, 'and the mount sits at the cell’s own top')
   // The reserved band of a flush fitting is still the storey's nominal line: `moduleEnvelope` reads
@@ -186,7 +188,7 @@ test('a ceiling hover resolves to the floor below, from any face', () => {
 test('a shifted floor snaps to its actual ceiling instead of a fixed 5 m grid line', () => {
   const cells = [floor(2, 2, 1), floor(2, 2, 5)]
   // The underside of the z=5 slab belongs to the z=1 storey when the level base is 1.
-  const at = ceilingMountStandCell([2, 2, 5], [2, 2, 4], 1)
+  const at = ceilingMountStandCell([2, 2, 5], [2, 2, 4], 1, cells)
   assert.deepEqual(at, [2, 2, 1])
   const sign = createModule('sign-ceiling', at[0], at[1], at[2], 'shifted-sign', 0)
   assert.ok(sign)

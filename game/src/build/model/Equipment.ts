@@ -32,7 +32,6 @@ import {
   glassCells,
   lineMapCells,
   moduleFootprint,
-  isCeilingHung,
   moveRebuilds,
 } from '../../sim/placement.ts';
 import { trackCells, trackOriginForCentre, edgeCells } from '../../sim/track.ts';
@@ -100,11 +99,11 @@ function stationNameOf(source: SignLineInput): string {
 export interface ModuleBuildSettings {
   storeyHeight?: number
   /**
-   * The station's editing base (`levelBase`). A hung fitting's nominal ceiling is
-   * a multiple of `levelBase + n × storeyHeight`, which the module cannot see, so
-   * the tool hands it over and `createModule` resolves it into `ceilingAnchored`.
+   * Editing base retained for caller compatibility; it never determines a mount.
    */
   levelBase?: number
+  /** Set only when the resolved support is the surface directly above the anchor. */
+  ceilingAnchored?: boolean
   /** 玻璃板 only: the storeys of curtain the board leaves (2 / 3 / 4). */
   curtainHeight?: 2 | 3 | 4
   /**
@@ -121,27 +120,12 @@ export interface ModuleBuildSettings {
   walkwayLength?: WalkwayLength
 }
 
-/**
- * Build a module and stamp the grid facts its own geometry cannot carry: the
- * storey height it was built at, and — for a ceiling-hung fitting — that it is
- * anchored under the block directly over its cell.
- *
- * A hung piece (灯 / 风口 / 指示牌 …) is aimed one cell under its top block
- * (`hungCeilingAim`), so that block *is* its ceiling. The older rule read the
- * nominal storey line back off the grid (`sim/lights.ts`), which only lands on the
- * same plane when the piece hangs from a slab at a 4 m storey line on the original
- * base. The five-metre grid and every shifted editing base move the storey lines
- * away from that arithmetic, and in both cases the piece still hangs from the
- * block the aim found — so the flag is stamped whenever the grid is not the
- * original 4 m base-0 one. `prepareSuspendedCeiling` sets the same flag when a
- * 吊顶 is later raised over an existing piece.
- */
+/** Build the authored piece. Support flags are explicit geometry results from the caller. */
 export function createModule(...args: Parameters<typeof createModuleRaw>): Module | null {
   const mod=createModuleRaw(...args)
   const height=args[11]?.storeyHeight
-  const base=args[11]?.levelBase
   if(mod && height!==undefined)mod.storeyHeight=height
-  if(mod && isCeilingHung(mod) && (height===5 || (base??0)!==0))mod.ceilingAnchored=true
+  if(mod && args[11]?.ceilingAnchored)mod.ceilingAnchored=true
   return mod
 }
 

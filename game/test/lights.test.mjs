@@ -41,7 +41,7 @@ test('each light touches its ceiling with no gap, with collision matching the dr
         close(bounds.min[axis], envelope[`${axis}0`])
         close(bounds.max[axis], envelope[`${axis}1`])
       }
-      assert.equal(envelope.z1, z < 0 ? 0 : z < 5 ? 5 : 10, 'housing top meets slab underside')
+      assert.equal(envelope.z1, z + 5, 'unsupported legacy preview keeps its authored offset without rounding to the editing grid')
     }
   }
 })
@@ -102,11 +102,11 @@ test('the tool hangs a piece in the free cell under the top block of the column'
     const tool = new EquipmentTool({ scene: () => null, hover: { current: null }, drag: { current: null } })
     const at = (mods) => [mods[0].x, mods[0].y, mods[0].z]
     const fromFloor = tool.ceilingPlacement([0, 1, 0], [0, 1, 1], 'l1')
-    assert.equal(fromFloor.noCeiling, false)
-    assert.deepEqual(at(fromFloor.mods), [0, 1, 3], 'the cell under the slab over the floor')
+    assert.equal(equipmentReason(cells, [], fromFloor[0]), '')
+    assert.deepEqual(at(fromFloor), [0, 1, 3], 'the cell under the slab over the floor')
     const fromSlab = tool.ceilingPlacement([0, 1, 4], [0, 1, 3], 'l2')
-    assert.equal(fromSlab.noCeiling, false)
-    assert.deepEqual(at(fromSlab.mods), [0, 1, 3], 'and the same cell aimed at the slab’s own underside')
+    assert.equal(equipmentReason(cells, [], fromSlab[0]), '')
+    assert.deepEqual(at(fromSlab), [0, 1, 3], 'and the same cell aimed at the slab’s own underside')
   } finally {
     useStore.setState(before)
   }

@@ -773,8 +773,16 @@ export class SceneRenderer {
 
   /* -------------------------------------------------------------- picking */
 
+  withPointerPick<T>(action: () => T): T {
+    return this.cameraSys.withPointerPick(action)
+  }
+
   pick(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {
     return this.cameraSys.pick(clientX, clientY, workPlaneZ)
+  }
+
+  pickPlacement(clientX: number, clientY: number, workPlaneZ: number): PickResult | null {
+    return this.cameraSys.pick(clientX, clientY, workPlaneZ, true)
   }
 
   pickHorizontalPlane(clientX: number, clientY: number, height: number, anchorZ: number): PickResult | null {
