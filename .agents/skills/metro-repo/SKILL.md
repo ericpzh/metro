@@ -114,6 +114,26 @@ override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
 `CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
 `geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
 
+The standalone 爆炸视图 is owned by `app/windows/ExplodedView.tsx` and the pure
+snapshot transform in `render/explodedView.ts`. Keep it presentation-only: do not
+mutate the saved station, worker document, routes or simulation buffers. Story
+boundaries come from actual exposed floor surfaces (Tanwei's main decks are at
+1/6/11 m), while packing follows the short station axis and may overlap up to 15%
+of adjacent floor area. Preserve stair-flight endpoints and lift shaft ownership
+when translating geometry. Filter physical grade, roof/tunnel caps, ceilings and
+near-side wall courses from the view without dropping usable floors, structural
+connections or exits. `render/explodedPassengers.ts` prepares retained-floor support
+once per view and filters only its presentation buffer; street/unsupported walkers
+are hidden and cross-storey passenger movement teleports in this view. Keep native
+game interpolation unchanged. The view has its own renderer and camera, shares the
+simulation controls, and suspends the editor renderer while open. Pin geometry,
+passenger support/transfer, live stream and toolbar contracts in the `exploded-*`,
+`line-edit`, `rail-folders` and `topbar-playback` regressions. Run
+`node tools/check-exploded-view.mjs` after the build for Zoo and Tanwei lifecycle,
+camera, playback and visual checks; record timings and screenshots under
+`.preview/perf/exploded-view/` and measured results in
+[`references/performance.md`](references/performance.md#hidden-street-passengers-and-tanwei-tunnel-caps).
+
 ### Interactive preview work
 
 For any preview change, route implementation through `metro-game` and tests

@@ -82,6 +82,7 @@ export class CameraSystem extends SceneSystem {
   private pointerX = 0
   private pointerY = 0
   private pointerInside = false
+  private edgeScrolling = true
   /** Buttons held on the last pointer event; the middle one orbits, so it wins. */
   private pointerButtons = 0
   private canvasW = 1
@@ -425,7 +426,7 @@ export class CameraSystem extends SceneSystem {
     if (this.ctx.keys.has('s')) forward -= 1
     if (this.ctx.keys.has('d')) strafe += 1
     if (this.ctx.keys.has('a')) strafe -= 1
-    if (this.pointerInside && (this.pointerButtons & 4) === 0) {
+    if (this.edgeScrolling && this.pointerInside && (this.pointerButtons & 4) === 0) {
       const ramp = (d: number): number => THREE.MathUtils.clamp((EDGE_PAN_PX - d) / EDGE_PAN_PX, 0, 1)
       const left = ramp(this.pointerX)
       const right = ramp(this.canvasW - this.pointerX)
@@ -437,6 +438,14 @@ export class CameraSystem extends SceneSystem {
     return {
       forward: THREE.MathUtils.clamp(forward, -1, 1),
       strafe: THREE.MathUtils.clamp(strafe, -1, 1),
+    }
+  }
+
+  setEdgeScrolling(on: boolean): void {
+    this.edgeScrolling = on
+    if (!on) {
+      this.pointerInside = false
+      this.pointerButtons = 0
     }
   }
 

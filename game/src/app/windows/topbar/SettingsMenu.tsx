@@ -10,6 +10,8 @@ export function SettingsMenu(): React.ReactElement {
   const language = useLanguage()
   const quality = useStore(s => s.graphicsQuality)
   const setQuality = useStore(s => s.setGraphicsQuality)
+  const edgeScrolling = useStore(s => s.edgeScrolling)
+  const setEdgeScrolling = useStore(s => s.setEdgeScrolling)
   const shareStats = useStore(s => s.shareStats)
   const setShareStats = useStore(s => s.setShareStats)
   const restartSim = useStore(s => s.restartSim)
@@ -39,6 +41,11 @@ export function SettingsMenu(): React.ReactElement {
       <div className="settingsQuality" role="group" aria-label={t('graphics_quality')}>
         <button type="button" aria-pressed={quality === 'low'} className={quality === 'low' ? 'on' : ''} onClick={() => setQuality('low')}>{t('graphics_low')}</button>
         <button type="button" aria-pressed={quality === 'high'} className={quality === 'high' ? 'on' : ''} onClick={() => setQuality('high')}>{t('graphics_high')}</button>
+      </div>
+      <div className="settingsQualityLabel">{t('edge_scrolling')}</div>
+      <div className="settingsQuality" role="group" aria-label={t('edge_scrolling')}>
+        <button type="button" aria-pressed={edgeScrolling} className={edgeScrolling ? 'on' : ''} onClick={() => setEdgeScrolling(true)}>{t('share_stats_on')}</button>
+        <button type="button" aria-pressed={!edgeScrolling} className={!edgeScrolling ? 'on' : ''} onClick={() => setEdgeScrolling(false)}>{t('share_stats_off')}</button>
       </div>
       <div className="settingsQualityLabel">{t('share_stats')}</div>
       <div className="settingsQuality" role="group" aria-label={t('share_stats')}>

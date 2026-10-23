@@ -11,10 +11,15 @@ import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
 import type { GraphicsQuality } from '../../../render/detailPolicy.ts'
 import { readGraphicsQuality, saveGraphicsQuality } from '../../graphicsQuality.ts'
+import { readEdgeScrolling, saveEdgeScrolling } from '../../edgeScrolling.ts'
 
 export interface ViewSlice {
+  explodedView: boolean
+  setExplodedView: (on: boolean) => void
   graphicsQuality: GraphicsQuality
   setGraphicsQuality: (quality: GraphicsQuality) => void
+  edgeScrolling: boolean
+  setEdgeScrolling: (on: boolean) => void
   followAgentId: number | null
   passengerViewBefore: Pick<ViewSlice, 'hideUI' | 'autoCeiling' | 'ortho' | 'cutaway' | 'overlayOn' | 'hideSectionSurface'> & { zoneOverlayOn: boolean } | null
   followPassenger: (id: number) => void
@@ -116,6 +121,8 @@ export interface ViewSlice {
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
   graphicsQuality: readGraphicsQuality(),
   setGraphicsQuality: (quality) => { saveGraphicsQuality(quality); set({ graphicsQuality: quality }) },
+  edgeScrolling: readEdgeScrolling(),
+  setEdgeScrolling: (on) => { saveEdgeScrolling(on); set({ edgeScrolling: on }) },
   followAgentId: null,
   passengerViewBefore: null,
   followPassenger: (id) => {
@@ -134,6 +141,8 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
     set({ ...saved, followAgentId: null, passengerViewBefore: null })
   },
   activeZ: 0,
+  explodedView: false,
+  setExplodedView: (on) => set({ explodedView: on }),
   ghostOtherLevels: true,
   autoCeiling: true,
   cutaway: false,

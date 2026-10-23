@@ -128,13 +128,13 @@ function viewTiles() {
   }
 }
 
-test('视图 draws nine tiles, with 隐藏屋顶 below 隐藏天花板', () => {
+test('视图 draws twelve tiles, with explosion, statistics and demand on the last row', () => {
   const { labels } = viewTiles()
   // Three rows of the 3-wide grid: the modes that decide how the station is drawn, the
   // surfaces taken away under them, and the overlays that paint the station.
   assert.deepEqual(
     labels,
-    ['显示其他层', '剖切', '隐藏UI', '隐藏天花板', '隐藏墙壁', '隐藏地面', '隐藏屋顶', '分区图', '热力图'],
+    ['显示其他层', '剖切', '隐藏UI', '隐藏天花板', '隐藏墙壁', '隐藏地面', '隐藏屋顶', '分区图', '热力图', '爆炸视图', '统计图', '客流'],
     'the 视图 folder’s tiles moved',
   )
   // The header's count is the tiles the folder can show — the one number that would

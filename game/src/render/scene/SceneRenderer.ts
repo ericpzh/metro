@@ -12,6 +12,7 @@ import * as THREE from 'three'
 import { populationEdit, hasPresentationEdit } from '../../sim/populationEdit.ts'
 import { STOREY_HEIGHT } from '../../sim/constants.ts'
 import { RenderDemand } from '../renderDemand.ts'
+import { EXPLODED_LIFT_ABSENT } from '../explodedView.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
 import type { GraphicsQuality } from '../detailPolicy.ts'
 import type { TrainService } from '../../sim/trainSchedule.ts'
@@ -75,6 +76,15 @@ export class SceneRenderer {
   private clocks: ClockSystem
   private sectionSys: SectionSystem
   private sky: SkySystem
+  private standalonePresentation = false
+  private suspended = false
+
+  setSuspended(on: boolean): void {
+    this.requestRender()
+    this.suspended = on
+    this.ctx.keys.clear()
+    this.lastFrame = 0
+  }
   private lastFrame = 0
   private frameCount = 0
   private fpsTime = 0
@@ -93,6 +103,47 @@ export class SceneRenderer {
   setContinuousRendering(on: boolean): void {
     this.requestRender()
     this.demand.continuous = on
+  }
+
+  /** Independent read-only viewer; its controls never dispatch editor picks. */
+  setStandalonePresentation(): void {
+    this.requestRender()
+    this.standalonePresentation = true
+    this.crowd.teleportBetweenStoreys = true
+    this.ctx.scene.background = new THREE.Color(0x192532)
+    this.ctx.scene.fog = null
+    const controls = this.cameraSys.controls
+    controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
+    controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.PAN }
+    controls.enablePan = true
+    controls.maxDistance = 1800
+    this.setPlaying(false)
+  }
+
+  frameStandalonePresentation(): void {
+    this.setPreset('iso')
+    this.setOrtho(true)
+    this.cameraSys.syncOrtho()
+    const camera = this.cameraSys.activeCamera()
+    camera.updateMatrixWorld()
+    const boxes = this.chunks.chunkMeshes.filter(mesh => mesh.visible)
+      .map(mesh => mesh.geometry.boundingBox).filter((box): box is THREE.Box3 => !!box)
+    for (const root of this.modules.moduleMeshes.children) {
+      if (root.visible) boxes.push(new THREE.Box3().setFromObject(root))
+    }
+    let extent = 0
+    for (const bounds of boxes) {
+      if (bounds.isEmpty()) continue
+      for (const x of [bounds.min.x, bounds.max.x])
+        for (const y of [bounds.min.y, bounds.max.y])
+          for (const z of [bounds.min.z, bounds.max.z]) {
+            const point = new THREE.Vector3(x, y, z).project(camera)
+            extent = Math.max(extent, Math.abs(point.x), Math.abs(point.y))
+          }
+    }
+    if (!extent) return
+    this.cameraSys.zoomBy(extent / 0.9)
+    this.requestRender()
   }
 
   setStaticDetail(on: boolean): void {
@@ -440,6 +491,9 @@ export class SceneRenderer {
   setLifts(buffer: Float32Array): void {
     this.requestRender()
     this.lifts.setLifts(buffer)
+    if (this.standalonePresentation) for (const rig of this.lifts.liftRigs) {
+      rig.cabin.visible = rig.have && (rig.side & EXPLODED_LIFT_ABSENT) === 0
+    }
   }
 
   /* ------------------------------------------------------------- levels */
@@ -696,6 +750,10 @@ export class SceneRenderer {
     this.cameraSys.setOrtho(on)
   }
 
+  setEdgeScrolling(on: boolean): void {
+    this.cameraSys.setEdgeScrolling(on)
+  }
+
   frame(): void {
     this.cameraSys.frame()
   }
@@ -844,6 +902,7 @@ export class SceneRenderer {
     // closing), re-creating GPU resources on a renderer that had just released them.
     if (this.ctx.disposed) return
     this.raf = requestAnimationFrame(this.animate)
+    if (this.suspended) return
     const now = performance.now()
     const dt = this.lastFrame > 0 ? Math.min(0.05, (now - this.lastFrame) / 1000) : 0
     this.lastFrame = now
@@ -870,7 +929,7 @@ export class SceneRenderer {
       this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
       this.cameraSys.syncOrtho()
       this.notifyCameraAim()
-      this.sky.update(this.ctx.hideUI)
+      if (!this.standalonePresentation) this.sky.update(this.ctx.hideUI)
       // Following a passenger may update or leave eye view during renderAgents.
       // Sort transparent instances and choose detail against that final camera.
       const drawCamera = this.cameraSys.activeCamera()

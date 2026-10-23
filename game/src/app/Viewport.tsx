@@ -250,6 +250,7 @@ export function Viewport(): React.ReactElement {
   const tunnelLength = useStore((s) => s.tunnelLength)
   const activeZ = useStore((s) => s.activeZ)
   const graphicsQuality = useStore((s) => s.graphicsQuality)
+  const edgeScrolling = useStore((s) => s.edgeScrolling)
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
@@ -258,6 +259,8 @@ export function Viewport(): React.ReactElement {
   const hideWalls = useStore((s) => s.hideWalls)
   const hideGround = useStore((s) => s.hideGround)
   const hideRoof = useStore((s) => s.hideRoof)
+  const exploded = useStore((s) => s.explodedView)
+  useEffect(() => { sceneRef.current?.setSuspended(exploded) }, [exploded])
   const followAgentId = useStore((s) => s.followAgentId)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
@@ -356,6 +359,10 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setGraphicsQuality(graphicsQuality)
   }, [graphicsQuality])
+
+  useEffect(() => {
+    sceneRef.current?.setEdgeScrolling(edgeScrolling)
+  }, [edgeScrolling])
 
   // 剖切 is the placed section surface plus the clip (`render/section.ts`): the
   // plane is written in place, so a slide costs two numbers and no rebuild. The

@@ -1,4 +1,4 @@
-import { translate, t } from '../../../sim/i18n.ts'
+import { t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — TopBar() plus its
 // private StationName() editor and SPEEDS group.
@@ -8,6 +8,7 @@ import { ExampleStationsButton } from './ExampleStationsButton.tsx'
 import { NewStationButton } from './NewStationButton.tsx'
 import { IoIosBookmarks } from 'react-icons/io'
 import { SettingsMenu } from './SettingsMenu.tsx'
+import { SimulationControls } from './SimulationControls.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -20,7 +21,6 @@ import { SettingsMenu } from './SettingsMenu.tsx'
 // own tick cost may not always meet in a busy station. The sim then simply runs at
 // whatever the machine manages; nothing is skipped and §7.6 determinism is untouched,
 // because the step size never changes.
-const SPEEDS = [1, 4, 16, 64]
 
 /** Edit both station names as one undoable document change. */
 function StationName(): React.ReactElement {
@@ -54,10 +54,6 @@ function StationName(): React.ReactElement {
 
 export function TopBar(): React.ReactElement {
   useLanguage()
-  const playing = useStore((s) => s.playing)
-  const speed = useStore((s) => s.speed)
-  const setPlaying = useStore((s) => s.setPlaying)
-  const setSpeed = useStore((s) => s.setSpeed)
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
   const undo = useStore((s) => s.undo)
@@ -72,10 +68,6 @@ export function TopBar(): React.ReactElement {
     window.addEventListener('metro:open', open)
     return () => window.removeEventListener('metro:open', open)
   }, [])
-  const playAt = (s: number): void => {
-    if (speed !== s) setSpeed(s)
-    if (!playing) setPlaying(true)
-  }
   return (
     <div className="topbar">
       <div className="brand">
@@ -149,38 +141,7 @@ export function TopBar(): React.ReactElement {
           <path d="M13.5 7.5H6a3.5 3.5 0 0 0 0 7h3" />
         </svg>
       </button>
-      <div className="seg" role="group" aria-label={t('playback_controls')}>
-        <button
-          className={!playing ? 'on' : ''}
-          onClick={() => {
-            setPlaying(!playing)
-          }}
-          aria-label={t('pause')}
-          aria-pressed={!playing}
-        >
-          {playing ? (
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <rect x="3.5" y="3" width="3" height="10" rx="0.6" />
-              <rect x="9.5" y="3" width="3" height="10" rx="0.6" />
-            </svg>
-          ) : (
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true">
-              <path d="M4.5 2.8v10.4L13.2 8z" />
-            </svg>
-          )}
-        </button>
-        {SPEEDS.map((s) => (
-          <button
-            key={s}
-            className={playing && speed === s ? 'on' : ''}
-            onClick={() => playAt(s)}
-            aria-label={t('value_speed', s)}
-            aria-pressed={playing && speed === s}
-          >
-            {translate(s)}×
-          </button>
-        ))}
-      </div>
+      <SimulationControls />
       <SettingsMenu />
     </div>
   )

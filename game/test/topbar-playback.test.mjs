@@ -12,7 +12,7 @@ import fs from 'node:fs'
 const source = (path) => fs.readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 
 test('the paused play button resumes like Space', () => {
-  const topBar = source('app/windows/topbar/TopBar.tsx')
+  const topBar = source('app/windows/topbar/SimulationControls.tsx')
   const shell = source('app/windows/AppShell.tsx')
 
   assert.match(shell, /st\.setPlaying\(!st\.playing\)/, 'Space toggles play/pause, keeping the last speed')
@@ -24,7 +24,7 @@ test('the paused play button resumes like Space', () => {
   )
   assert.match(
     topBar,
-    /if \(!playing\) setPlaying\(true\)/,
+    /if \(!state.playing\) state.setPlaying\(true\)/,
     'the speed tiles still resume at their own speed when paused',
   )
 })

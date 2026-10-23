@@ -3209,3 +3209,15 @@ input[type='range'] {
 .panel .lineEditor .headwayNum { flex: 0 0 42px; width: 42px; }
 .lineSchedule > .row:last-child { font-size: 11px; }
 .lineEditor > .field { margin: 0; padding: 7px; border: 1px solid var(--line); background: #10273b; }
+/* Standalone station presentation; native modal focus keeps building behind it inert. */
+.explodedViewer { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #192532; color: #edf1f5; }
+.explodedViewer[open] { display: flex; flex-direction: column; }
+.explodedViewer::backdrop { background: #192532; }
+.explodedToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; background: #202e3d; }
+.explodedToolbar strong { flex: 1; }
+.explodedToolbarControls { display: flex; align-items: center; gap: 12px; }
+.explodedBack { display: grid; place-items: center; padding: 8px; }
+.explodedBack svg { width: 20px; height: 20px; }
+.explodedViewer canvas { display: block; width: 100%; flex: 1; min-height: 0; touch-action: none; }
+.explodedLevels { display: flex; justify-content: space-around; padding: 10px 20px; color: #b7c5d1; font-size: 12px; }
+.explodedEmpty { position: absolute; top: 50%; width: 100%; text-align: center; pointer-events: none; }

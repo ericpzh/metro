@@ -24,7 +24,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useStore } from '../src/app/store.ts'
 import { refreshTrackForSelection } from '../src/app/windows/inspector/refreshPlatform.ts'
-import { initSim, selectSimAgent, setFrameHandler, setRouteHandler } from '../src/app/store/slices/SimSlice.ts'
+import { initSim, selectSimAgent, setFrameHandler, setRouteHandler, subscribeFrame } from '../src/app/store/slices/SimSlice.ts'
 import { defaultLine, makeTrack, placeRail, placeTunnel, trackPieceForLine } from '../src/build/rail.ts'
 import { toState, toStateRepairing, createModule } from '../src/build/model.ts'
 // The same module record `referenceStation()` clones, so damaging it for one test
@@ -866,6 +866,31 @@ test('the newest selection survives a stale frame, and clears itself when the pa
 })
 
 /* --------------------------------------------------------- the authored day */
+
+test('a secondary simulation view replays the latest frame, preserves the viewport and unsubscribes', () => {
+  initSim(st().station, 1)
+  const main = [], secondary = []
+  setFrameHandler((...args) => main.push(args))
+  const frame = {type:'state',count:0,agents:new Float32Array(0),density:new Float32Array(0),
+    trains:new Float32Array(0),lifts:new Float32Array(0),intervalMs:200,metrics:{simTime:100},
+    trainServices:[],history:new Float32Array(0),historyFrom:0,historyReset:false,historyStart:0,historyStep:60}
+  workerStub.onmessage({data:frame})
+  const stop = subscribeFrame((...args) => secondary.push(args))
+  assert.equal(main.length,1)
+  assert.equal(secondary.length,1,'paused opening immediately receives the latest state')
+  assert.equal(secondary[0][1],frame.agents,'subscription shares immutable input buffers')
+  workerStub.onmessage({data:frame})
+  assert.equal(main.length,2)
+  assert.equal(secondary.length,2)
+  stop()
+  workerStub.onmessage({data:frame})
+  assert.equal(main.length,3)
+  assert.equal(secondary.length,2,'closing releases the secondary callback')
+  initSim(st().station, 2)
+  const stopFresh = subscribeFrame(() => assert.fail('a new station must not replay the previous crowd'))
+  stopFresh()
+  setFrameHandler(null)
+})
 
 test('the 时刻 panel writes the day into the document, and a no-op keystroke writes nothing', () => {
   // The three day actions are the only way 营业时间 / 高峰时段 / 客流曲线 reach the

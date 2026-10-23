@@ -92,6 +92,17 @@ let frameCb:
     ) => void)
   | null = null
 
+export type FrameHandler = NonNullable<Parameters<typeof setFrameHandler>[0]>
+const frameListeners = new Set<FrameHandler>()
+let latestFrame: Parameters<FrameHandler> | null = null
+
+/** Additional views observe the same simulation without replacing the main viewport. */
+export function subscribeFrame(fn: FrameHandler): () => void {
+  frameListeners.add(fn)
+  if (latestFrame) fn(...latestFrame)
+  return () => { frameListeners.delete(fn) }
+}
+
 /**
  * The 选择 tool's route preview, as the worker sends it: xyz waypoints and the
  * passenger they belong to. It rides the frame callback rather than the store
@@ -172,6 +183,8 @@ function ensureClient(): Worker {
         useStore.getState().select(null)
       }
       frameCb?.(msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices)
+      latestFrame = [msg.count, msg.agents, msg.density, msg.trains, msg.lifts, msg.intervalMs, msg.metrics.simTime, msg.trainServices]
+      for (const listener of frameListeners) listener(...latestFrame)
       // After the frame: the route is drawn against the positions just posted. A
       // frame answering an *older* request is dropped rather than fed to the scene —
       // a click that moves the preview to another passenger must not flash the last
@@ -185,6 +198,7 @@ function ensureClient(): Worker {
 /** Boots the worker on the initial document. Called once from boot.tsx. The game opens
  * paused — the player presses play (or Space) to start the crowd. */
 export function initSim(data: StationData, seed: number, opts: { startSeconds?: number; warmup?: number } = {}): void {
+  latestFrame = null
   // A full reset drops every passenger, so the previewed one goes with them — the
   // world's own `selectedAgent` is cleared with the crowd it belonged to.
   agentSelected = -1
@@ -203,6 +217,7 @@ export function rebuildSim(data: StationData, previous?: StationData): void {
  * crowd walking the new document. Live edits use `rebuildSim`, which keeps it.
  */
 export function loadSim(data: StationData, opts: { startSeconds?: number; warmup?: number } = {}): void {
+  latestFrame = null
   const st = useStore.getState()
   // Same reset as `initSim`: the crowd starts over, so the previewed passenger is
   // not one of the new station's agents.

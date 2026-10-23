@@ -17,6 +17,7 @@ import { BottomBar } from './statusbar/BottomBar.tsx'
 import { TimePanel } from './time/TimePanel.tsx'
 import { ChartsPanel } from './charts/ChartsPanel.tsx'
 import { Tutorial } from './tutorial/Tutorial.tsx'
+import { ExplodedView } from './ExplodedView.tsx'
 
 export function App(): React.ReactElement {
   useLanguage()
@@ -35,6 +36,7 @@ export function App(): React.ReactElement {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       const st = useStore.getState()
+      if (st.explodedView) return
       if (isTypingTarget(e.target)) return
       // While the 指示牌 board editor is up it owns the keyboard: Space, R, Tab and
       // Delete all mean something to the board being composed, not to the station
@@ -298,6 +300,7 @@ export function App(): React.ReactElement {
           as the window will allow. */}
       <SignEditor />
       <Tutorial reveal={revealTutorial} />
+      <ExplodedView />
     </div>
   )
 }

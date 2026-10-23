@@ -1125,3 +1125,59 @@ equipment history; `cut-clipping` pins unchanged shader versions and actual clip
 transitions. `tools/bench-placement-latency.mjs` measures first/repeated real pointer
 placements on both demos, including generated-ground boundary changes; browser
 timings are evidence, never Node pass thresholds.
+
+`exploded-view.test.mjs` covers the independent presentation document in
+`render/explodedView.ts`: immutable source arrays, baseline-aware story bands,
+separated full equipment footprints, retained unfurnished floors, roof/outdoor and
+ceiling removal, open near perimeter with retained back/internal walls, ramp endpoint
+translation and per-story lift segments. `tools/check-exploded-view.mjs` separately
+checks both production demos, modal lifecycle, blocked editor shortcuts, unchanged
+station/version/history and first/repeated opening times. Browser results belong in
+`.agents/skills/metro-repo/references/performance.md`; no numeric V8 coverage was
+collected for the new helper.
+
+The exploded-view fixture regressions additionally verify every saved `cfg.flights`
+endpoint in Zoo and Tanwei (7 and 19 flights) translates with its parent staircase,
+including fractional half landings, with the original station unchanged. The
+irregular-tray test pins compact projected packing without empty bounding-box corners.
+
+Exploded-view live rendering adds pose-buffer immutability/reuse, train-origin
+rounding and segmented-cabin ownership (including the terminal stop) to
+`exploded-view.test.mjs`. `line-edit` pins secondary frame subscriptions alongside
+the main viewport, paused replay, unsubscribe and stale-frame clearing on station
+reset. `topbar-playback` now checks shared `SimulationControls`; both toolbars use
+it. The production exploded-view check also drives live playback, real WASD and
+left/middle drags while checking that the original editor camera and document stay
+unchanged. See the shared performance reference for measured run details.
+
+The current exploded layout regressions use solid floor boundaries and permit 15%
+overlap across the station's short axis, preserving its longitudinal alignment.
+They cover interlocking irregular plans, ignored remote props and direction-aware
+live streams. Exposed soil caps are removed while finished floors/supporting walls
+remain. `exploded-passengers.test.mjs` drives the real CrowdSystem to pin immediate
+storey transfers in the standalone view, smooth same-floor walking, and unchanged
+normal-game interpolation. The production check includes right-drag pan as well as
+middle drag, orbit and WASD. Current measurements and visual review are recorded in
+the shared performance reference.
+
+Exploded-view wall regressions now include a three-course near wall, its corner
+intersections and a column without a floor base, while preserving the back wall.
+Ground-decor coverage includes fences, guideposts, cameras, cabinets and benches,
+with retained exits and underground/elevated equipment. Real saved stair-flight
+fixtures also keep structural grade connections intact.
+
+Raised-floor exploded-view coverage selects broad exposed floor surfaces at their
+actual height within a story, rather than only cells at the nominal storey base.
+Synthetic sparse-base fixtures and real Tanwei exposed concrete tiles at 1, 6 and
+11 m pin footprint-based offsets and protection from the front-wall filter. Explicit
+opening/suspended ceilings remain excluded. See the shared performance reference
+for the production visual check and first/repeated opening measurements.
+
+`exploded-support.test.mjs` covers the prepared support index and presentation-only
+passenger compaction in `render/explodedPassengers.ts`: hidden street/removed-roof
+pedestrians, retained raised/underground floors and riders, authored ramps/lifts,
+identity/order retention, and Tanwei tunnel-cap removal with preserved raised decks.
+Ground-decor fixtures distinguish physical street anchors at 0 m from actual raised
+station fixtures at 1 m. The production browser check now compares visible versus
+total passengers and rejects non-riding pedestrians on the hidden street plane.
+Measurements and visual review are recorded in the shared performance reference.

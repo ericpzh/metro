@@ -437,6 +437,8 @@ export class CrowdSystem extends SceneSystem {
     this.playing = on
   }
 
+  teleportBetweenStoreys = false
+
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
     const floats = count * 6
     // Play/pause controls publish a copy of the latest sim state. The first
@@ -496,6 +498,13 @@ export class CrowdSystem extends SceneSystem {
         this.prev[p] = this.cur[q]
         this.prev[p + 1] = this.cur[q + 1]
         this.prev[p + 2] = this.cur[q + 2]
+        if (this.teleportBetweenStoreys &&
+          storeyBand(buffer[o + 2], this.ctx.levelBase, this.ctx.storeyHeight) !==
+          storeyBand(this.cur[q + 2], this.ctx.levelBase, this.ctx.storeyHeight)) {
+          this.prev[p] = buffer[o]
+          this.prev[p + 1] = buffer[o + 1]
+          this.prev[p + 2] = buffer[o + 2]
+        }
       } else {
         // New spawn: start it at its own position, not somewhere it came from.
         this.prev[p] = buffer[o]

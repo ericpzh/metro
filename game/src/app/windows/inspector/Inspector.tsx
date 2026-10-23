@@ -84,7 +84,7 @@ export function Inspector(): React.ReactElement {
   // too (`rail/helpers.ts` `toolsFolderTiles`), so the count does not change with the cut.
   const folders: Record<InspectorFolderKey, { count?: number; body: React.ReactNode }> = {
     info: { body: <InfoCard /> },
-    view: { count: 9, body: <ViewFolder /> },
+    view: { count: 12, body: <ViewFolder /> },
     exits: {
       count: exits.length,
       body: (

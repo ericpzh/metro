@@ -1,4 +1,7 @@
 import { t } from '../../../sim/i18n.ts'
+import { FaExplosion } from 'react-icons/fa6'
+import { ImStatsBars } from 'react-icons/im'
+import { TbCalendarStats } from 'react-icons/tb'
 import { useLanguage } from '../../i18n.ts'
 // The 视图 folder body (§8 view toggles) — the 信息栏's second row, folded by **Alt+W**
 // between 信息 and 出入口 (`windows/inspector/Inspector.tsx`), because these are controls
@@ -84,6 +87,9 @@ export function ViewFolder(): React.ReactElement {
       <Block label={t('hide_roofs')} icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
       <Block label={t('zone_map')} icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label={t('heatmap')} icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
+      <Block label={t('exploded_view')} art={<FaExplosion />} onClick={() => st().setExplodedView(true)} />
+      <Block label={t('statistics_charts')} art={<ImStatsBars />} onClick={() => st().setChartsPanel(true)} />
+      <Block label={t('demand')} art={<TbCalendarStats />} onClick={() => st().setTimePanel(true)} />
     </div>
   )
 }

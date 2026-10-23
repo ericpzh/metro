@@ -1957,3 +1957,229 @@ browser script: `tanwei-improvement-retention-check.json` and
 `tanwei-improvement-` prefix. `tanwei-improvement-baseline-profile.cpuprofile`
 contains the diagnostic CPU profile; its subsequent Chrome trace stream timed
 out, so that instrumented run is incomplete and is not the clean baseline.
+
+### Standalone exploded storeys (2026-10-23)
+
+The View panel's Exploded view opens a separate, read-only snapshot and renderer.
+`render/explodedView.ts` lays out occupied storey bands with horizontal separation
+using complete cell and equipment footprints. It removes generated ground, outdoor
+context, roof modules, tagged ceiling plates and legacy plain ceiling courses;
+the near perimeter opens while rear walls and internal partitions remain. Lift
+shafts are split per occupied story. The snapshot never enters editor history,
+autosave or worker routing. Main-scene RAF work is suspended until return; orbit,
+zoom and pan operate only on the presentation camera. Closing disposes its scene.
+
+`node tools/check-exploded-view.mjs` measures first and repeated openings in fresh
+hardware Chrome sessions at 1400 x 900 (canvas 1384 x 711), paused Zoo and Tanwei.
+Final sequential browser run, after build/tests finished: Zoo ready 4878 / 4561 ms;
+Tanwei 6915 / 6695 ms. Modal shell samples: Zoo 3916 / 55 ms, Tanwei 38 / 35 ms.
+The first Zoo shell sample includes startup/art contention; these are end-to-end
+observations, not isolated model-build timings or pass/fail thresholds. Large model
+preparation remains synchronous and takes seconds; a loading state is shown before
+preparation. Reopening rebuilds the disposable viewer rather than retaining another
+station's GPU allocations indefinitely. Reports/screenshots:
+`.preview/perf/exploded-view/`.
+
+The production check confirms both demos render without runtime errors, retain the
+original station reference/version/history, block editing shortcuts, and return on
+Escape. `exploded-view.test.mjs` deterministically pins source immutability, absent
+terrain/roof/ceilings, front/rear wall policy, unfurnished story retention, translated
+ramp endpoints, segmented lifts, baseline-aware bands and full-footprint separation.
+Focused architecture, view-menu and static-render checks pass; the production build
+passes. The broad run had 2334 passes and two new-control source-contract failures;
+both were fixed (View header/tile count and framebuffer invalidation) and their
+suites passed on the focused rerun. No numeric coverage percentage was collected.
+
+### Exploded-view stair alignment and tighter packing (2026-10-23)
+
+The reported floating stairs were authored `stair.cfg.flights` retaining world
+coordinates while only the module and outer endpoints received the tray offset.
+The presentation transform now clones and translates every flight endpoint by the
+same offset, preserving its height and half landing. The editor document is untouched.
+The deterministic fixture regression checks all 7 Zoo and 19 Tanwei authored flights,
+both endpoints, against the containing module's exact translation and verifies input
+immutability.
+
+Tray placement now projects occupied points onto the initial isometric screen-right
+axis (1.2x + y), including the cell footprint, instead of combining independent X/Y
+bounds that reserve empty corners. The former 16-unit extra gap is 2 units; integer
+translation rounding bounds the resulting projected gap to [2, 4.2). An irregular-plan
+regression pins this compact gap and prevents the old empty-corner reservation.
+
+Validation: 10 exploded-view checks pass; production build/typecheck passes.
+`node tools/check-exploded-view.mjs` ran sequentially after build/tests, using fresh
+hardware Chrome sessions at 1400 x 900. First/repeated ready samples: Zoo 5357 / 4464
+ms; Tanwei 7460 / 6927 ms. First/repeated modal-shell samples: Zoo 4452 / 41 ms;
+Tanwei 39 / 43 ms. Startup contention still affects the first Zoo shell sample;
+these observations are not a performance improvement claim. Both screenshots were
+captured; Zoo was visually inspected for attached stairs and reduced gaps. Both demos
+passed document/history retention, blocked shortcuts, Escape cleanup and runtime-error
+checks. Reports/screenshots replace the prior local captures under
+`.preview/perf/exploded-view/`. No document commits, routing changes or scene picking
+were added by these presentation fixes.
+
+### Live exploded-view simulation and controls (2026-10-23)
+
+The standalone viewer now observes the existing worker stream through an additive
+`subscribeFrame` subscription, with immediate replay for paused opening and cleanup
+on close. Loading another station drops the retained frame. The original viewport
+callback remains installed. Geometry is captured once; simulation frames translate
+passenger/train poses into the existing tray offsets, preserving IDs, heights and
+other stream fields. Pose buffers are reused at equal lengths. Lift state fans out
+to the segmented shafts, with a presentation-only flag hiding cabins outside their
+current tray. No simulation routing, document commits or picks were introduced.
+The main scene's rendering remains suspended while its normal stream stays current.
+
+The normal top bar and exploded toolbar share `SimulationControls` (pause/resume,
+1x/4x/16x/64x). Space toggles the same run. The viewer removes the instructional line,
+reset and zoom buttons; its icon-only back control uses IoArrowBackOutline. Left-drag
+orbits, middle-drag pans, WASD uses CameraSystem's existing pan path, wheel zooms and
+Escape returns. Key-up and window blur clear held movement keys. Keyboard capture
+blocks editor tools while the modal is open.
+
+Validation: 69 focused pose/lift, subscription/replay/unsubscribe, line-edit,
+playback, scene-wiring and retained-frame checks pass; build/typecheck passes.
+`node tools/check-exploded-view.mjs` ran after build/tests in fresh hardware Chrome
+sessions at 1400 x 900, canvas 1384 x 702. Final first/repeated ready samples:
+Zoo 4506 / 4242 ms; Tanwei 6813 / 6318 ms. Shell samples: Zoo 3696 / 26 ms,
+Tanwei 40 / 58 ms; initial Zoo remains affected by startup contention. Live 16x
+samples advanced 78 / 57 ticks (Zoo / Tanwei), with 390 / 670 passengers and 2 / 4
+train groups. Both demos passed resume/speed/pause, live frame delivery, unchanged
+document version/history, real W input, left-drag orbit, middle-drag pan, unchanged
+editor camera, blocked editing shortcuts and Escape cleanup, with no runtime errors.
+A preliminary fixed-duration key hold missed the next rendered frame; the final
+input check explicitly waits for animation frames. The toolbar screenshot was
+visually inspected. Captures and report: `.preview/perf/exploded-view/`.
+
+### Floor-footprint packing, earth caps and passenger transfers (2026-10-23)
+
+The approved exploded layout now retains the station's long-axis alignment and
+packs stories across its short axis using occupied solid floor tiles, allowing at
+most 15% overlap against the smaller adjacent floor area. Previously placed floor
+tiles remain in the overlap index, so later stories also avoid them. Irregular
+plans can interlock rather than reserve empty rectangular corners; remote props do
+not determine a floor-backed story's boundary. Equipment footprints are a fallback
+for equipment-only decks. The resulting axis is shared by cell/module/stair-flight
+transforms and live passenger, train and lift poses. The regression pins a 100 x 20
+floor to a 17 m shift, one-tile shifts for thin diagonal plans, preserved long-axis
+alignment, and immutable source data. Packing is performed once at viewer opening,
+never per simulation frame or input event.
+
+The remaining dark slabs in Zoo were exposed earth-topped authored caps
+(`finish.top: floor.soil`), including caps on a storey boundary. The presentation
+filter now removes those exposed soil surfaces using a prepared solid-coordinate
+index. Soil cells supporting a wall above and finished usable floors remain.
+This changes presentation geometry only. Right mouse now pans alongside middle
+mouse; left mouse still orbits. CrowdSystem's opt-in `teleportBetweenStoreys` is
+only enabled by the standalone viewer: when an existing passenger's storey band
+changes, its previous interpolation position starts at the new position. Same-floor
+walking and the base game's cross-storey interpolation are unchanged.
+
+Validation: 20 focused exploded geometry/live-pose, passenger-transfer and pause
+checks pass; build/typecheck passes. `exploded-passengers.test.mjs` drives the real
+CrowdSystem with both the standalone flag and its normal default. The production
+browser check ran sequentially after build/tests in fresh hardware Chrome sessions
+at 1400 x 900 (canvas 1384 x 702). Final first/repeated ready samples: Zoo 4311 / 4137
+ms, Tanwei 6435 / 6180 ms; shell 34 / 34 ms and 48 / 61 ms. Live 16x samples advanced
+77 / 57 ticks with 390 / 670 passengers and 2 / 4 train groups. Both passed left
+orbit, middle/right pan, WASD, live playback, original camera/document retention,
+shortcut blocking and Escape cleanup without runtime errors. Zoo's screenshot was
+visually inspected: the highlighted broad dark soil caps are gone and compact
+floor-based packing remains. Raw report/screenshots replace the local captures at
+`.preview/perf/exploded-view/`. These end-to-end timings are diagnostic, not a
+performance improvement claim or numeric test threshold.
+
+### Thick front walls and ground decor (2026-10-23)
+
+The previous front-wall filter tested the outermost floor-neighbour boundary, which
+left inner courses of thick walls and walls over missing floor bases visible.
+The exploded presentation now indexes open floor tiles per row/column (excluding
+wall bases and columns with solid cells above). Near-facing wall removal uses those
+open-floor limits across the full wall thickness; a corner fallback covers near
+wall intersections without floor on either scan line. Rear enclosure and internal
+partitions retain their existing treatment. All of this runs only during snapshot
+preparation, with indexed O(1) checks per wall cell, not during orbit or sim frames.
+
+Ground-level decor is omitted throughout the physical 0–4 m band, including fences,
+wayfinding poles, cameras and cabinets; exits remain. Structural connections/decks
+are retained so a staircase or rail service passing through grade is not deleted by
+a decor filter. Underground and elevated equipment stays. Source station arrays and
+routing are unchanged.
+
+Validation: 18 focused exploded-view/passenger checks and build/typecheck pass.
+Regressions include a three-course near wall with a missing-base column, retained
+back walls, and a mix of ground decor/exits/underground/elevated fixtures. The
+production check ran sequentially after build/tests in fresh hardware Chrome at
+1400 x 900 (canvas 1384 x 702). Ready first/repeated: Zoo 4030 / 3800 ms, Tanwei
+5272 / 4848 ms; modal shell 35 / 32 ms and 48 / 65 ms. Live 16x advanced 80 / 57
+ticks with 390 / 670 passengers and 2 / 4 train groups. Both passed controls,
+playback, document/history and original-camera retention and Escape cleanup with
+no runtime errors. Zoo's screenshot was visually reviewed: the long ground fence
+and poles are gone, and the obstructing thick front wall courses are removed.
+Raw captures/report: `.preview/perf/exploded-view/`. Timings are diagnostics, not
+an isolated performance improvement claim.
+
+### Tanwei raised floor boundaries (2026-10-23)
+
+Tanwei's main raised decks are authored at z = 1, 6 and 11 m, while the nominal
+storey bands start at 0, 5 and 10 m. Sampling only cells exactly at the band base
+missed those floor boundaries; the front-wall pass could also mistake raised floor
+edge cells for wall courses. Snapshot preparation now groups exposed non-wall,
+non-ceiling surfaces by their actual height within each story and uses the broadest
+surface as that story's floor footprint. It retains the existing storey ownership
+for static modules and live streams. Chosen floor cells are explicitly protected
+from front-wall trimming. Nominal floor cells remain the fallback when no exposed
+surface exists. No authored heights or simulation geometry are changed.
+
+The regression covers broad floors at 1/6/11 m with sparse 0/5/10 m bases, preserving
+all floor tiles and the expected compact 17 m packing step in that controlled case.
+A real Tanwei regression checks every exposed concrete floor tile at those heights
+(excluding explicitly tagged opening/suspended ceiling plates), and distinct offsets
+for their containing stories. Opening, soil-cap and wall filters remain in force.
+
+Validation: 20 focused exploded-view/passenger tests and production build/typecheck
+pass. The production browser run followed build/tests sequentially, fresh hardware
+Chrome at 1400 x 900, canvas 1384 x 702. First/repeated ready: Zoo 4182 / 3966 ms,
+Tanwei 5530 / 5004 ms; shell Zoo 3456 / 28 ms and Tanwei 49 / 48 ms. Initial Zoo
+shell retains startup contention. Live 16x samples advanced 82 / 55 ticks, with
+390 / 669 passengers and 2 / 4 train groups. Both demos passed live controls,
+keyboard/mouse camera input, original document/camera retention and Escape cleanup
+without runtime errors. Tanwei's resulting screenshot was visually inspected.
+Reports and screenshots: `.preview/perf/exploded-view/`. Timings are diagnostic,
+not a claim of isolated speed improvement.
+
+### Hidden street passengers and Tanwei tunnel caps (2026-10-23)
+
+The live stream previously drew all pedestrians after the ground was hidden. The
+viewer now prepares `explodedPassengers.ts` support keys once from retained cells,
+rail decks, ramp flights and lift shafts. Each frame compacts its owned presentation
+buffer using constant-time support lookups: non-riding pedestrians on physical
+street floor 0 or unsupported removed slabs are omitted; passengers on retained
+raised/underground floors, ramps, lifts and trains stay. IDs and order are preserved,
+and worker buffers, population, routes and simulation counts are untouched. The
+physical street is distinguished from Tanwei's real raised 1 m floor: ground decor
+filtering now targets anchors at exactly GROUND_Z, preserving the raised deck's
+furniture. Existing cross-story teleport policy remains.
+
+Authored exposed street plates are hidden as well as generated terrain. Legacy
+underground tunnel cap heights are derived from their track anchors and the shared
+storey height. Where there is no floor-use equipment at that height, exposed caps
+are removed while explicit auto-floors, paid/unpaid/platform floor zones and small
+ramp/lift landing areas remain. Tanwei's z=-5 plane falls from 2488 source solid
+cells to 368 retained cells; its raised 1/6/11 m decks remain. This is presentation
+filtering, not a document migration or simulation edit.
+
+Validation: 27 focused exploded geometry, support/visibility, native crowd transfer
+and layering checks pass; build/typecheck passes. Tests pin omitted ground/roof
+walkers, retained raised/underground pedestrians, rider identity, ramps/lifts,
+intermediate landings, and the actual Tanwei cap/deck split. Production checks ran
+sequentially after build/tests using fresh hardware Chrome at 1400 x 900 (canvas
+1384 x 702). First/repeated ready: Zoo 4710 / 4362 ms, Tanwei 6730 / 5995 ms;
+shell 36 / 30 ms and 55 / 59 ms. Live 16x samples advanced 90 / 53 ticks; Zoo drew
+391/391 passengers, Tanwei 637/668, with 2 / 4 train groups. The browser check
+explicitly rejects any remaining non-riding street pedestrian in the visible crowd.
+Both demos passed playback, camera controls, original document/history/camera
+retention and Escape cleanup without runtime errors. Tanwei's screenshot was
+visually reviewed for removed caps and retained decks. Raw captures/report remain
+at `.preview/perf/exploded-view/`. These are diagnostic timings, not an isolated
+performance improvement claim.

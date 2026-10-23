@@ -5,6 +5,7 @@ export const messages = {
   graphics_quality: { zh: '画质', en: 'Graphics quality' },
   graphics_low: { zh: '低画质', en: 'Low quality' },
   graphics_high: { zh: '高画质', en: 'High quality' },
+  edge_scrolling: { zh: '边缘滚动', en: 'Edge scrolling' },
   share_stats: { zh: '分享匿名统计', en: 'Share anonymous stats' },
   share_stats_on: { zh: '开启', en: 'On' },
   share_stats_off: { zh: '关闭', en: 'Off' },
@@ -754,6 +755,13 @@ export const messages = {
     "zh": "隐藏屋顶",
     "en": "Hide roofs"
   },
+  "exploded_view": { "zh": "爆炸视图", "en": "Exploded view" },
+  "statistics_charts": { "zh": "统计图", "en": "Statistics charts" },
+  "exploded_hint": { "zh": "拖动旋转 · 滚轮缩放 · 右键拖动平移 · Esc 返回", "en": "Drag to orbit · Scroll to zoom · Right-drag to pan · Esc to return" },
+  "exploded_empty": { "zh": "建造车站后即可查看楼层爆炸图", "en": "Build a station to see its exploded view" },
+  "exploded_loading": { "zh": "正在准备楼层爆炸图…", "en": "Preparing exploded view…" },
+  "zoom_in": { "zh": "放大", "en": "Zoom in" },
+  "zoom_out": { "zh": "缩小", "en": "Zoom out" },
   "zone_map": {
     "zh": "分区图",
     "en": "Zone map"
