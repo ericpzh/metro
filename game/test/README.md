@@ -51,7 +51,10 @@ target and delete those fittings.
 `delete-tool` pins Tanwei D's thin roof at `(33,45,9)`: a direct roof hit keeps
 hover/delete priority over the road terrain behind it, with one undoable removal.
 
-`equipment-retention` also checks that contact shadows draw only on the active
+`equipment-retention` also checks that ceiling-mounted fixtures allocate no contact
+shadow batches, while floor-mounted variants retain their shadows through edits.
+Fixed PSD infill and elevated cover panels also allocate no contact shadows.
+It checks that contact shadows draw only on the active
 floor band, that Hide UI/cutaway restore every floor's shadows, and that Hide Ground
 still hides street shadows. `level-slicing` pins shifted floor bands;
 `passenger-lod` pins active-only shadow packing, paused layer/cutaway changes and

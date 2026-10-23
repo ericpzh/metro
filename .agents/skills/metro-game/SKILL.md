@@ -23,6 +23,10 @@ Every stock uses 0.8 m wheels, with 1.44 m-wheelbase bogies centred 0.25 m inwar
 
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
 It covers cold interactions, work-count regressions, comparable measurements and GPU validation.
+Module contact blobs are for floor-standing equipment only: use `isCeilingHung` to
+exclude ceiling fixtures, and give fixed `psd-end` infill/covers the same no-blob
+policy as `platform-edge`. Keep the active-storey filter in `LevelSystem`; pin
+allocation, append/edit retention and presentation visibility in `equipment-retention`.
 
 Its own application: its own `package.json`, Vite config, tests and Cloudflare
 Worker (`metro-game`). It imports nothing from `web/` or `art/`.

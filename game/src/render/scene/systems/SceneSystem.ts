@@ -334,6 +334,7 @@ export function blobRadius(type: Module['type']): number {
     case 'roof': return 0
     case 'track':
     case 'platform-edge':
+    case 'psd-end': // Fixed infill and elevated covers belong to the PSD, without floor blobs.
     case 'escalator':
     case 'walkway':
     case 'stair':

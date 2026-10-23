@@ -222,6 +222,8 @@ per-platform letter, if §9.3's 高峰预警 needs one, must be derived from
   routing versus render-only chunk skipping, coupled dependency directions, structural
   family invalidation, combined module/cell edits, unknown types, local-vs-fresh geometry,
   real ModuleSystem allocation ownership, cached move removal and ordinary hover documents.
+  Contact-shadow cases keep ceiling fixtures and PSD infill/covers blob-free, retain
+  floor-mounted equipment shadows through edits, and pin active-storey/presentation visibility.
 - `fence-preview`: prepared fence index equivalence, 1,024 remote fences with no
   document scans or preview rebuilds, hover candidate joints, local equipment-bucket
   masking/restoration, adjacent-joint geometry matching a fresh build, storey/view/

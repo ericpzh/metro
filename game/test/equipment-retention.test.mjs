@@ -341,6 +341,30 @@ test('contact shadows retain buffers, upload only changed instances and dispose 
   assert.equal(geometriesReleased, 1)
 }))
 
+test('ceiling fixtures never allocate contact shadows while floor-mounted variants keep theirs', () => withDrawing(({ modules, ctx }) => {
+  modules.plates = new PlateSystem(ctx)
+  const hung = ['light-circular', 'light-rectangular', 'vent', 'clock', 'cctv', 'cctv-dome', 'cctv-ptz', 'sign-ceiling', 'monitor-ceiling', 'hanger-roof']
+    .map((type, i) => createModule(type, i * 4, 0, 0, `hung-${i}`))
+  const standing = ['bench', 'tvm', 'cctv-post', 'hanger-post']
+    .map((type, i) => createModule(type, i * 4, 8, 0, `standing-${i}`))
+  modules.buildModules(station(hung), new Set())
+  const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  assert.equal(blobs().length, 0, 'hanging fixtures create no shadow meshes or instance buffers')
+  modules.buildModules(station([...hung, ...standing]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), standing.length, 'only standing equipment contributes shadows after append')
+  modules.buildModules(station([...hung, ...standing.slice(0, 1)]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'rebuilding retained shadows keeps ceiling fixtures excluded')
+}))
+
+test('PSD infill and elevated cover panels never allocate contact shadows', () => withDrawing(({ modules }) => {
+  const panels = ['psd-end', 'psd-end-cover'].map((type, i) => createModule(type, i * 4, 0, i * 4, type))
+  modules.buildModules(station(panels), new Set())
+  const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  assert.equal(blobs().length, 0, 'PSD panels create no shadow meshes at floor or header height')
+  modules.buildModules(station([...panels, createModule('bench', 12, 0, 0, 'bench')]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'standing furniture retains its shadow')
+}))
+
 test('equipment contact shadows draw only on the active floor band and restore in presentation views', () => withDrawing(({ modules, ctx }) => {
   modules.buildModules(station([1, 6, 11].map(z => createModule('bench', 0, 0, z, `bench-${z}`))), new Set())
   const blobs = modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)

@@ -31,6 +31,9 @@ For Tanwei editor throughput, use the Low LOD / 1× target of 30 average and 15 
 FPS. Keep Low equipment batch sizing and active-storey contact-shadow policy covered
 by deterministic regressions, and record matched captures and limitations in the
 [Tanwei performance notes](references/performance.md#tanwei-low-at-1).
+Contact blobs belong to floor-standing equipment on the active storey; ceiling
+fixtures and fixed PSD infill/covers allocate none. Preserve the floor-mounted
+variants and visibility transitions in `equipment-retention.test.mjs`.
 Chunk face culling must account for independently hidden geometry: a suspended
 ceiling never occludes an adjacent ordinary block face, including its side, top or
 bottom. Keep its side/cap/support votes aligned across chunk cache halos. Pin the

@@ -28,7 +28,7 @@ import {
   disposeObject,
 } from '../../models.ts'
 import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
-import { trackBedKeys } from '../../../sim/placement.ts'
+import { isCeilingHung, trackBedKeys } from '../../../sim/placement.ts'
 import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
@@ -376,7 +376,7 @@ export class ModuleSystem extends SceneSystem {
           this.crowd.gateWings.push(gateWings.get(group) ?? { root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
         }
       }
-      const r = blobRadius(mod.type)
+      const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
       if (r > 0) {
         const blob: [number, number, number, number] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 - 0.42, r]
         const bk = `${mod.z}|${ground ?? 'x'}`

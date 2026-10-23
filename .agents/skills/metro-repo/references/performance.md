@@ -1275,6 +1275,26 @@ equipment retention, level slicing, view cache and batching lifecycle suites pas
 54 checks. Passenger shadow tests also pin High/Low, paused layer switches,
 cutaway transitions, active instance counts and unchanged GPU buffers.
 
+Ceiling-mounted equipment now contributes no contact blobs in any view. The
+module shadow builder uses the shared `isCeilingHung` classification, covering
+lights, vents, clocks, hanging CCTV, signs, monitors and roof-mounted hangers;
+floor-mounted CCTV and hanger posts retain their contact shadows. The production
+Tanwei Low check at -10 m now draws 384 equipment shadow instances instead of 542.
+Four-layer visibility and whole-station restoration checks pass with zero GL
+errors, alongside the production build and 31 equipment-retention/level-slicing
+checks. The fixture regression pins zero shadow allocations for ceiling props
+and preserved floor-equipment counts through additions and removals. This is a
+visibility and submitted-work reduction; no new FPS claim is made.
+
+The remaining repeated dark marks along the PSD header came from `psd-end`
+cover panels, which also inherited the generic equipment blob. Fixed PSD infill
+and cover panels now share the main `platform-edge` no-blob policy. Tanwei has
+144 covers at -6 m and eight infill panels at -10 m; removing their 152 blobs
+reduces active -10 m equipment shadows from 384 to 232 and removes the -6 m shadow
+batch entirely. The production four-layer/whole-station check passes with zero
+GL errors, the build passes, and 32 equipment-retention/level-slicing checks pass.
+The added regression checks both panel variants and a retained bench shadow.
+
 The large first-arrival freezes occur when a new consist appears, rather than on
 every simulation tick. Tanwei's first four services arrive at ticks 1/13/26/39
 (06:30:01/13/26/39). A first-Play Low/exploded capture showed 2.3–2.5 s frame gaps:
