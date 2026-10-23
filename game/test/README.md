@@ -392,7 +392,10 @@ glazed apertures. `pick-tool` checks copying cabinet variants.
 widths and unchanged landing plans. Its circulation check resolves platform door
 server IDs through `graph.servers[id].node`; a negative case substitutes an
 unreachable node to ensure the check still rejects a disconnected boarding point.
-`stairs` also pins size labels and Tab cycling for explicit fitted widths.
+It also pins the shipped files themselves as clean under the zone rule: no ceiling
+plate (吊顶 or shaft plate) carries a zone or room label, and the load path has
+nothing to clean in either demo. `stairs` also pins size labels and Tab cycling
+for explicit fitted widths.
 
 `psd-end` checks that screens, snapped corners and continuations fit below their
 overhead blocks, match their reserved height, and still refuse blocks inside extensions.
@@ -603,7 +606,11 @@ fare-zone values survive, and painting adds no room module or wall; it also chec
 rotated 3D drag preview and release, and that a counter anchors to the block under the pointer — a
 raised slab, or the foot of a wall course — rather than to the active storey, while an open-air
 press keeps the edited storey. `zones` pins room-color overlay regions without module-name
-labels. `facility` checks the
+labels, and that only real floor takes a zone: a ceiling plate — the 吊顶 brush's tile or
+the `opening-ceiling` plate a ramp carve leaves over its shaft — stays out of the brush and
+the overlay even where its own top face is the only exposed one, and the load path drops a
+zone or room label a save already carries there, because no overlay would draw it and the
+无分区 brush cannot reach it (`clearCeilingZoneLabels`). `facility` checks the
 staff benches remain opposite the selected front. `sign-render` covers the reusable
 customer-service pictogram.
 `booth-sign` checks wall signs snapping to either booth's header, all four faces,

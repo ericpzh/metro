@@ -13,6 +13,7 @@ import { assignAdPosters, ensureSignLayouts } from './Equipment.ts';
 import { ensureRoomFurniture } from './Facilities.ts';
 import { repairGrid } from './Grid.ts';
 import { syncBridgePillars } from './BridgePillars.ts';
+import { clearCeilingZoneLabels } from './Zones.ts';
 
 export interface StationState {
   name: string;
@@ -65,8 +66,10 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     storeyHeight,
     // Off-grid cells are dropped here, where every load path passes: they are
     // unreachable junk no tool can address, so a station that keeps them can never
-    // be cleaned from inside the game (`repairGrid`).
-    cells: repaired.cells.map(cloneCell),
+    // be cleaned from inside the game (`repairGrid`). A zone label sitting on a
+    // ceiling plate — dead paint no overlay draws, which the 分区 brush could not
+    // even reach to erase — goes the same way (§4.5, `clearCeilingZoneLabels`).
+    cells: clearCeilingZoneLabels(repaired.cells.map(cloneCell)),
     // A save written before ad screens carried a poster (or the demo) gets one
     // printed now, so a loaded station shows the same campaign on every frame
     // instead of re-rolling it at draw time.

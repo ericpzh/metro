@@ -96,11 +96,16 @@ function pressPlane(cell, clientX = 0, clientY = 0) {
  * The floor tiles wear a finish, which is what a laid pavement does and what keeps
  * a record in the document when its zone label comes off (a bare solid at grade is
  * the plane itself, and would go with the label — `eraseZoneCells`).
+ *
+ * (2, 0, 0) stands beside them as a **吊顶** tile: solid, exposed, walkable on top —
+ * and still not floor, because a ceiling belongs to the room under it, never to the
+ * brush (§4.5).
  */
 function station() {
   const cells = []
   for (let x = 0; x < 2; x++) for (let y = 0; y < 2; y++) cells.push({ x, y, z: 0, fill: 'solid', finish: { top: 'floor.granite' } })
   cells.push({ x: 1, y: 1, z: 1, fill: 'solid' })
+  cells.push({ x: 2, y: 0, z: 0, fill: 'solid', tags: ['suspended-ceiling'], finish: { top: 'ceil.baffle', bottom: 'ceil.baffle' } })
   useStore.setState({
     tool: 'zone',
     zoneBrush: 'paid',
@@ -131,6 +136,13 @@ test('a press on a tile that is not floor paints nothing, and says why', () => {
   // No label was written, so the cell keeps its reading — 无分区, because nobody
   // has said what an unpainted tile is (`zoneOf`).
   assert.equal(zoneAt(useStore.getState().station.cells, 1, 1, 0), 'none', 'a zone was written under the wall')
+  // A 吊顶's own top is exposed and walkable, so only the tag rule refuses it: the
+  // brush must say the same thing here as over a wall coping.
+  tool.onDown(press([2, 0, 0]))
+  assert.equal(zoneDrag.current, null, 'a press on the ceiling opened a drag')
+  assert.equal(useStore.getState().notice, '分区只能画在地板上')
+  tool.onUp(press([2, 0, 0]))
+  assert.equal(zoneAt(useStore.getState().station.cells, 2, 0, 0), 'none', 'a zone was written onto the 吊顶')
 })
 
 test('hovering a tile that is not floor draws no zone ghost', () => {
@@ -139,6 +151,9 @@ test('hovering a tile that is not floor draws no zone ghost', () => {
   tool.onMove(press([1, 1, 0]))
   assert.equal(faceGhosts.length, 0, 'the brush promised a zone on a tile it cannot paint')
   assert.ok(cleared() > 0, 'and left the previous ghost up')
+  // The 吊顶 is the same answer: no ghost over a ceiling.
+  tool.onMove(press([2, 0, 0]))
+  assert.equal(faceGhosts.length, 0, 'the brush promised a zone on a 吊顶')
   tool.onMove(press([0, 0, 0]))
   assert.equal(faceGhosts.length, 1, 'floor still previews its tint')
   assert.deepEqual(faceGhosts[0].cells, [[0, 0, 0]])

@@ -41,6 +41,7 @@ export {
   paintPillarSurface,
 } from './model/Paint.ts';
 export {
+  clearCeilingZoneLabels,
   eraseZoneCells,
   paintZone,
   paintZoneCells,

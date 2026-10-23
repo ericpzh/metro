@@ -33,7 +33,14 @@ The 方块 tool's 吊顶 variant follows the same `checkBlockCells` preview and 
 path as ordinary blocks. Keep the original station arrays intact during hover so
 the block index and verdict cache remain reusable; never prepare a copied module
 list or relocate existing hung fixtures. `addSuspendedCeiling` tags and finishes
-accepted cells after normal collision validation. Pin preview-cache reuse, fixture
+accepted cells after normal collision validation. A **ceiling plate** is never
+floor for the 分区 brush or the 分区 map, even where its own top face is the only
+exposed one — both the tagged 吊顶 and the `opening-ceiling` plate a ramp carve
+leaves over its shaft (`isCeilingPlate`/`isFloorCell`, `build/model/Zones.ts`).
+The load path drops a stored zone or room label from one (`clearCeilingZoneLabels`
+in `toStateFrom`), so a save written before the rule cannot keep dead paint; pin
+the rule in `zones`, the click in `zonetool`, and the shipped files in `demo` —
+never re-derive "floor" at a call site. Pin preview-cache reuse, fixture
 anchor retention and overlap refusal in `storey-height.test.mjs`, and compare cold
 and warm real pointer movement with `bench-drag-latency.mjs` when changing this path.
 Pointer tools must resolve scene picks once per event and reuse that result for

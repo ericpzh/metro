@@ -8,10 +8,31 @@ import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { zoneDisplayIndexOf, zoneOf, type ZonePaint } from '../../sim/zones.ts';
 import { DEFAULT_ZONE, type Cell, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
 import { trackCells } from '../../sim/track.ts';
+import { OPENING_CEILING } from '../../sim/openings.ts';
+import { SUSPENDED_CEILING } from './Ceilings.ts';
 import { cellKey, NEIGH4 } from './Cells.ts';
 import type { StationState } from './State.ts';
 
 /* ----------------------------------------------------------- zones (§4.5) */
+
+/**
+ * True for a **ceiling plate**: a hanging tile rather than ground you stand on.
+ *
+ * Two tags mean that, and both are ceilings the player can see:
+ *
+ * * `suspended-ceiling` — the 吊顶 brush's block. It hangs in the room below it
+ *   and the storey above stands on its own slab.
+ * * `opening-ceiling` — the lowest block a ramp carve left over a shaft. The
+ *   mesher tags it because it is "really the ceiling over the shaft", cut with
+ *   the storey it covers (`carveRampOpenings`, `sim/openings.ts`).
+ *
+ * Either way the plate's own top face is not floor. Painting one put a tint and a
+ * 无分区 tag on the ceiling — a plate floating over the room's head — which is
+ * what the demo stations were still carrying.
+ */
+function isCeilingPlate(cell: Pick<Cell, 'tags'>): boolean {
+  return cell.tags?.includes(SUSPENDED_CEILING) === true || cell.tags?.includes(OPENING_CEILING) === true;
+}
 
 /**
  * True when a cell is **floor**: a solid whose top face is exposed and walkable
@@ -21,13 +42,47 @@ import type { StationState } from './State.ts';
  * tint: a zone belongs to a floor cell (§4.5), never to a wall coping, a
  * ceiling, or the earth roof over a tunnel, where the paint would be a label
  * nothing on screen could show.
+ *
+ * A **吊顶** — and any other ceiling plate over a shaft — is the ceiling, not
+ * floor, even where its own top face is the only exposed one (`isCeilingPlate`).
  */
 function isFloorCell(cell: Cell, solid: ReadonlySet<string>): boolean {
   return (
     cell.fill === 'solid' &&
+    !isCeilingPlate(cell) &&
     !solid.has(cellKey(cell.x, cell.y, cell.z + 1)) &&
     (floorSpeed(cell) > 0 || (finishOf(cell, 'top') === 'floor.track' && !solid.has(cellKey(cell.x, cell.y, cell.z - 1))))
   );
+}
+
+/**
+ * Drop the zone (or room) label from every cell that is a **ceiling plate**.
+ *
+ * Saves written before the floor rule knew about ceilings can carry labels no
+ * overlay will ever draw — the shipped demos did, on the plates over their ramp
+ * shafts. The load path runs this once (`build/model/State.ts`), so a document
+ * that arrives with one is cleaned rather than keeping dead paint the player
+ * cannot even erase: the 无分区 brush only reaches floor.
+ *
+ * Returns the list it was given when nothing carried a label, so a clean
+ * document costs no allocation.
+ */
+export function clearCeilingZoneLabels(cells: readonly Cell[]): Cell[] {
+  let kept: Cell[] | null = null;
+  for (let i = 0; i < cells.length; i++) {
+    const c = cells[i];
+    if ((c.zone === undefined && c.room === undefined) || !isCeilingPlate(c)) {
+      if (kept) kept.push(c);
+      continue;
+    }
+    // First label found: keep the prefix as it is and start appending.
+    if (!kept) kept = cells.slice(0, i) as Cell[];
+    const without = { ...c };
+    delete without.zone;
+    delete without.room;
+    kept.push(without);
+  }
+  return kept ?? (cells as Cell[]);
 }
 
 /** The solid-cell keys the floor rule reads, built once for a whole cell list. */
@@ -274,7 +329,10 @@ export function eraseZoneCells(state: StationState, cells: Array<[number, number
  * A cell qualifies when its top face is exposed and walkable, or is a track bed
  * sitting at the foot of its column (the restricted zone). The earth roof over
  * a tunnel and the coping on top of a wall are structure — tinting those is what
- * used to put the zone map on the ceiling instead of the floor.
+ * used to put the zone map on the ceiling instead of the floor. A **ceiling
+ * plate** — a 吊顶 tile, or the plate a ramp carve left over its shaft — is the
+ * same mistake one piece to the side: its top face is not the storey's floor, so
+ * a tint there hangs over the room's head (`isFloorCell`).
  */
 export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[] = []): Cell[] {
   // Explicit cells only: the overlay tints the floor a player built. The

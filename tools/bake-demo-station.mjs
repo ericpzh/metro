@@ -52,6 +52,15 @@ console.log(`lines           ${baked.lines.length}`)
 const added = baked.modules.filter((m) => !rawStatic.modules.some((r) => r.id === m.id))
 console.log(`modules the loader materialised: ${added.length} ${JSON.stringify(added.map((m) => m.id))}`)
 
+// Zone labels the load path takes off ceiling plates (§4.5): a 吊顶 tile or the
+// plate a ramp carve left over its shaft is not floor, so a label there is paint
+// no overlay draws and the 无分区 brush cannot reach to erase.
+const isCeiling = (c) => c.tags?.includes('suspended-ceiling') || c.tags?.includes('opening-ceiling')
+const ceilingLabels = (list) => list.filter((c) => isCeiling(c) && (c.zone !== undefined || c.room !== undefined)).length
+const before = ceilingLabels(rawStatic.cells)
+const after = ceilingLabels(baked.cells)
+console.log(`zone labels cleared from ceiling plates: ${before - after}${before ? ` (${before} in the save)` : ''}`)
+
 // Idempotence: the demo must already be in the state the loader would produce,
 // because `referenceStation()` hands it out raw.
 const again = toData(toState(baked))

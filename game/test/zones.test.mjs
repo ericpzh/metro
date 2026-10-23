@@ -299,7 +299,8 @@ test('the zone map draws one storey, and the storey is the one being edited', ()
 
 /** One cell of each thing a drag can cross: real floor, the floor cell a wall
  *  stands in (its top is buried by the course above it), the earth roof over a
- *  tunnel, and a track bed with the coping above it. */
+ *  tunnel, a track bed with the coping above it, and a 吊顶 tile whose own top
+ *  face is the only exposed one. */
 function floorsAndNonFloors() {
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' }, //                                 the concourse floor
@@ -309,6 +310,9 @@ function floorsAndNonFloors() {
     { x: 3, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.track' } }, // a track bed
     { x: 3, y: 0, z: 1, fill: 'solid', finish: { top: 'floor.track' } }, // the coping above it
     { x: 4, y: 0, z: 0, fill: 'solid', finish: { top: 'floor.track' } }, // a bed at the foot of its column
+    // A 吊顶 hangs in the room below it and its top is the slab above: the top
+    // face is exposed *and* walkable, which is exactly why it needs the tag rule.
+    { x: 5, y: 0, z: 0, fill: 'solid', tags: ['suspended-ceiling'], finish: { top: 'ceil.baffle', bottom: 'ceil.baffle' } },
   ]
   return toState({ name: 't', seed: 11, cells, modules: [], lines: [] })
 }
@@ -325,6 +329,7 @@ test('the 分区 brush paints floor and nothing else', () => {
   assert.equal(keys.has('3,0,0'), false, 'the bed under the coping is buried')
   assert.equal(keys.has('3,0,1'), false, 'and the coping is not the foot of its column')
   assert.ok(keys.has('4,0,0'), 'a track bed at the foot of its column is floor')
+  assert.equal(keys.has('5,0,0'), false, 'a 吊顶 tile is ceiling, never floor — however exposed its top')
 
   // The point query the 信息 card asks answers the same thing, cell by cell.
   for (const [x, y, z, want] of [
@@ -335,6 +340,7 @@ test('the 分区 brush paints floor and nothing else', () => {
     [3, 0, 0, false],
     [3, 0, 1, false],
     [4, 0, 0, true],
+    [5, 0, 0, false],
   ]) {
     assert.equal(zoneFloorAt(state.cells, state.modules, x, y, z), want, `${x},${y},${z}`)
   }
@@ -351,6 +357,7 @@ test('the 分区 brush paints floor and nothing else', () => {
   assert.equal(zoneAt(painted.cells, 3, 0, 0), 'none', 'and one reached the buried bed')
   assert.equal(zoneAt(painted.cells, 3, 0, 1), 'none', 'and one reached the coping')
   assert.equal(zoneAt(painted.cells, 4, 0, 0), 'paid', 'the bed at the foot of its column takes the zone')
+  assert.equal(zoneAt(painted.cells, 5, 0, 0), 'none', 'and none reached the 吊顶 over the room')
   assert.equal(painted.cells.length, state.cells.length, 'a zone never adds a block')
 })
 
@@ -381,6 +388,77 @@ test('the 分区 map tints exactly the floor the 分区 brush accepts', () => {
     assert.ok(keys.has(`${c.x},${c.y},${c.z}`), `${c.x},${c.y},${c.z} is drawn but not paintable`)
   }
   for (const k of keys) assert.ok(drawnKeys.has(k), `${k} is paintable but never drawn`)
+})
+
+test('a ceiling plate carries no zone: not painted, not tinted, not labelled', () => {
+  // A room with a real floor and a ceiling across it — one hanging 吊顶 tile set and
+  // one plate a ramp carve left over its shaft (`opening-ceiling`). Both are
+  // ceilings the player can see, and both were still being painted.
+  const cells = []
+  for (let x = 0; x <= 2; x++) {
+    for (let y = 0; y <= 1; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  }
+  for (let x = 0; x <= 2; x++) {
+    for (let y = 0; y <= 1; y++) {
+      cells.push({
+        x, y, z: 4, fill: 'solid',
+        tags: [x === 0 ? 'suspended-ceiling' : 'opening-ceiling'],
+        finish: { top: 'ceil.baffle', bottom: 'ceil.baffle' },
+      })
+    }
+  }
+  const state = toState({ name: 't', seed: 7, cells, modules: [], lines: [] })
+
+  // The brush: a hovered or pressed ceiling plate is not floor, so a paint or an
+  // erase over the whole room writes the floor cells and drops the ceiling row.
+  const keys = zoneFloorKeys(state.cells)
+  for (let x = 0; x <= 2; x++) {
+    for (const y of [0, 1]) {
+      assert.equal(keys.has(`${x},${y},4`), false, `the ceiling plate at ${x},${y},4 took a zone`)
+      assert.equal(zoneFloorAt(state.cells, state.modules, x, y, 4), false)
+      assert.ok(keys.has(`${x},${y},0`), `the floor at ${x},${y},0 is still paint`)
+    }
+  }
+  const rect = []
+  for (let x = 0; x <= 2; x++) for (const y of [0, 1]) rect.push([x, y, 4])
+  const painted = paintZoneCells(state, rect, 'unpaid')
+  assert.equal(painted.cells.find((c) => c.z === 4 && c.x === 1).zone, undefined, 'a paint wrote a zone onto a ceiling')
+  // …and none is ever drawn: no tint, no area name.
+  const floors = zoneMapFloors(state.cells)
+  assert.deepEqual(floors.map((c) => `${c.x},${c.y},${c.z}`).sort(), [
+    '0,0,0', '0,1,0', '1,0,0', '1,1,0', '2,0,0', '2,1,0',
+  ])
+  const labels = zoneRegionLabels(floors, [])
+  assert.equal(labels.length, 1, 'the ceiling row never earns a 无分区 label of its own')
+  assert.equal(labels[0].z, 1.06, 'the one label sits on the room floor')
+})
+
+test('a stored label on a ceiling plate is dropped by the load path', () => {
+  // The shape a save written before the rule arrives in — and the shape both
+  // shipped demos were in: a zone on the plate over a ramp shaft, which no overlay
+  // would draw and which the 无分区 brush could not reach, because it is not floor.
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid', zone: 'paid' },
+    { x: 1, y: 0, z: 0, fill: 'solid', zone: 'platform' },
+    { x: 0, y: 0, z: 4, fill: 'solid', tags: ['suspended-ceiling'], zone: 'unpaid', finish: { top: 'ceil.baffle' } },
+    { x: 1, y: 0, z: 4, fill: 'solid', tags: ['opening-ceiling'], room: 'store', finish: { top: 'ceil.metal' } },
+    // A ceiling plate with no label at all is left exactly as it is.
+    { x: 2, y: 0, z: 4, fill: 'solid', tags: ['opening-ceiling'], finish: { top: 'ceil.metal' } },
+  ]
+  const state = toState({ name: 't', seed: 9, cells, modules: [], lines: [] })
+  const at = (z, x) => state.cells.find((c) => c.x === x && c.z === z)
+  assert.equal(at(0, 0).zone, 'paid', 'floor keeps its label')
+  assert.equal(at(0, 1).zone, 'platform', 'and so does the next floor tile')
+  assert.equal('zone' in at(4, 0), false, 'the 吊顶 kept a label nothing can draw')
+  assert.equal('room' in at(4, 1), false, 'the shaft plate kept a room label')
+  assert.equal(at(4, 2).zone, undefined, 'an unlabelled plate is untouched')
+  assert.equal(at(4, 2).finish.top, 'ceil.metal', 'and keeps its finish')
+  // The clean-up is not an edit: a clean document comes back as the same array.
+  const clean = cells.map((c) => ({ ...c }))
+  delete clean[2].zone
+  delete clean[3].room
+  const loaded = toState({ name: 't', seed: 9, cells: clean, modules: [], lines: [] })
+  assert.deepEqual(loaded.cells, clean)
 })
 
 /* ------------------------------------ the ground storey is 站外 by default (§4.5) */

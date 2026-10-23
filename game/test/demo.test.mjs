@@ -36,6 +36,22 @@ test('both authored demos load without dropping or moving cells and modules', ()
   }
 })
 
+test('no demo carries a zone label on a ceiling plate', () => {
+  // §4.5: a zone belongs to a floor cell, and a ceiling plate — a 吊顶 tile or the
+  // plate a ramp carve left over its shaft — is not floor. Both demos were shipped
+  // with labels on those plates (22 in 动物园, 43 in 坦尾), paint no overlay drew
+  // and the 无分区 brush could not reach. `referenceStation()` hands the file out
+  // raw, so the file itself has to be clean, not just the loaded copy.
+  const ceiling = (c) => c.tags?.includes('suspended-ceiling') || c.tags?.includes('opening-ceiling')
+  for (const id of ['zoo', 'tanwei']) {
+    const data = referenceStation(id)
+    const labelled = data.cells.filter((c) => ceiling(c) && (c.zone !== undefined || c.room !== undefined))
+    assert.deepEqual(labelled, [], `${id}: ${labelled.length} ceiling plates still carry a zone label`)
+    const loaded = toStateRepairing(data)
+    assert.deepEqual(loaded.state.cells, data.cells, `${id}: the load path had to clean the shipped file`)
+  }
+})
+
 test('the demo station is one connected circulation', () => {
   assertConnectedCirculation(buildGraph(referenceStation()))
 })
