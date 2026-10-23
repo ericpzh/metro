@@ -5,7 +5,8 @@
 //   * trains — one consist per stock class, batched through the real train path;
 //   * passengers — the baked crowd atlas's own per-variant records.
 // Canvas stubs affect printed artwork only. The JSON and Markdown go to ignored
-// `.preview/perf/`; update PERFORMANCE.md and the performance reference together.
+// `.preview/perf/`; update the performance reference after changing models or the
+// detail policy.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import * as THREE from '../game/node_modules/three/build/three.module.js'

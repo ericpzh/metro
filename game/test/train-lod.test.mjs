@@ -2,8 +2,8 @@
 // has an authored Low approximation prepared when the part is built, so a quality
 // or storey change swaps geometry references only: no rebuild, no upload, and the
 // exact sources stay in place for picking. This pins the per-consist Low budgets,
-// the untouched full counts from PERFORMANCE.md as asset integrity, the parts a
-// passenger would still recognize (door leaves, gangways, straps) and the
+// the untouched full counts in the performance reference as asset integrity, the
+// parts a passenger would still recognize (door leaves, gangways, straps) and the
 // door-bank / sorted-glass swaps.
 import test from 'node:test'
 import assert from 'node:assert/strict'
