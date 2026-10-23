@@ -9,7 +9,6 @@ import { msg } from '../../sim/i18n.ts'
 import {
   addCells,
   addSuspendedCeiling,
-  prepareSuspendedCeiling,
   addFloor,
   addWalls,
   plannedAutoWalls,
@@ -275,7 +274,7 @@ export class BlockTool extends ToolController {
     const scene = this.ctx.scene()
     if (!scene) return newPreview()
     const st = useStore.getState()
-    const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
+    const check = checkBlockCells(st.station, cells)
     scene.setGhost(check.acceptedCells, 'add', undefined, undefined, check.blockedCells)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
     return check
@@ -327,8 +326,7 @@ export class BlockTool extends ToolController {
       }
       this.multiPlace.setNotice(false)
       const cells = [...footprint.cells, ...footprint.autoWalls]
-      const station = st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station
-      const check = checkBlockCells(station, cells)
+      const check = checkBlockCells(st.station, cells)
       this.blockedPreview = check.blockedCells[0] ? {
         station: st.station, key, autoWalls: st.autoWalls, suspendedCeiling: st.suspendedCeiling,
         cell: check.blockedCells[0],
@@ -430,7 +428,7 @@ export class BlockTool extends ToolController {
         // The preview the release must agree with: `pendingCells` has already dropped
         // the cells that are not candidates (solid ground, a rail bed), and
         // `checkBlockCells` names the refused ones so the notice can say why.
-        const check = checkBlockCells(st.suspendedCeiling ? prepareSuspendedCeiling(st.station, cells) : st.station, cells)
+        const check = checkBlockCells(st.station, cells)
         if (st.suspendedCeiling) {
           const result = addSuspendedCeiling(st.station, cells)
           if (result.changed > 0) st.commit(result.state)

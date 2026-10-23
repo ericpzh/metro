@@ -119,8 +119,8 @@ it remains red while the rectangle covers that coordinate in the same snapshot.
 An unchanged preview key cannot reset it to cyan. Shrinking clear, changing the
 station/settings, cancel and release invalidate it. The shared preview scheduler
 also invalidates cached rendered keys when cells/modules identity changes:
-`stationEpoch` only tracks opening a station, so it cannot invalidate edits/undo. Shift lines and prepared
-suspended ceilings conservatively require the exact preview key before reuse.
+`stationEpoch` only tracks opening a station, so it cannot invalidate edits/undo. Shift lines
+conservatively require the exact preview key before reuse. Suspended ceilings reuse ordinary block collision previews without preparing a copied module document.
 Broad imported bounds use a bounded fallback in document order. Refusal priority,
 exact geometry, partially accepted patches and release rules are preserved.
 
@@ -1436,3 +1436,18 @@ The final complete game suite passed **2,169 / 2,169 tests** (zero failures); ra
 output is `.preview/perf/equipment-10pct-final-tests-clean.log`. The preliminary
 run exposed an index-only assumption in the new test itself; its corrected assertion
 handles indexed and non-indexed Low geometry and passed both focused and full runs.
+## Suspended-ceiling fixture relocation removed (2026-10-22)
+
+吊顶 validates hover, drag and release against the original station, exactly as ordinary blocks do. `prepareSuspendedCeiling` was removed: placing a ceiling no longer rewrites fixture anchors. `addSuspendedCeiling` retains the original modules array and only adds tagged and finished cells. Normal collision refusals remain in effect.
+
+Production `bench-drag-latency.mjs`, zoo demo (14,073 cells / 4,291 modules), block tool, suspended-ceiling mode, 10 x 10 drag, paused plan view, identical targets and assets. Reports and preview captures: `.preview/perf/ceiling-remove/{before,after}*`.
+
+| Measurement (ms) | Before first / repeated | After first / repeated |
+|---|---:|---:|
+| Hover event through two RAFs | 328.6 / 176.7 | 255.3 / 55.1 |
+| Drag preview callback CPU | 162.6 / 162.6 | 8.0 / 1.4 |
+| Drag movement through two RAFs | 286.3 / 290.9 | 192.4 / 210.6 |
+
+Both runs recorded zero preview commits and zero browser errors. These diagnostic timings are not thresholds: other test processes were running during the after capture, and the existing harness includes a 160 ms settle in drag samples. Cold hover still includes renderer initialization and frame latency; removing relocation does not eliminate that cost. The demo benchmark cancels both drags; deterministic tests cover refusal on release, unchanged fixture anchors, and reuse of the ordinary block preview cache.
+
+Validation: production build passed; full game suite passed 2,313 tests, zero failures/skips. Focused instrumented run passed 39 tests: Ceilings.ts 100% line/branch/function; BlockTool.ts 76.68% line, 73.00% branch, 70.59% function. The broad `test:perf` run was attempted and stopped after 417.6 seconds without producing test results, so it is incomplete. Raw reports are in `.preview/perf/ceiling-remove/`.

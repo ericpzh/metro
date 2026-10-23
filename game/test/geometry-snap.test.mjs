@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { createModule, toState } from '../src/build/model.ts'
-import { prepareSuspendedCeiling } from '../src/build/model/Ceilings.ts'
+import { addSuspendedCeiling } from '../src/build/model/Ceilings.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { moduleAim } from '../src/app/tools/moduleAim.ts'
 import { useStore } from '../src/app/store.ts'
@@ -99,13 +99,13 @@ test('hanger backing and extension targets follow physical heights across storey
   assert.equal(topBlockZ([], 20, 20, -8), 0, 'the actual street is a ceiling regardless of room height')
 })
 
-test('suspended ceilings reattach within the real room, including already ceiling-anchored fixtures', () => {
+test('suspended ceiling placement preserves existing fixture anchors across editing bases', () => {
   const lower = { ...createModule('light-circular', 0, 0, 18, 'lower'), ceilingAnchored: true }
   const upper = createModule('light-circular', 0, 0, 23, 'upper')
   for (const base of [0, 2, 4]) {
     const state = toState({ name: 'rooms', seed: 1, levelBase: base, cells: [solid(0, 0, 11), solid(0, 0, 19), solid(0, 0, 23), solid(0, 0, 32)], modules: [lower, upper], lines: [] })
-    const prepared = prepareSuspendedCeiling(state, [[0, 0, 17], [0, 0, 28]])
-    assert.deepEqual(prepared.modules.map(m => m.z), [16, 27])
-    assert.ok(prepared.modules.every(m => m.ceilingAnchored))
+    const result = addSuspendedCeiling(state, [[0, 0, 17], [0, 0, 28]])
+    assert.equal(result.state.modules, state.modules)
+    assert.deepEqual(result.state.modules.map(m => m.z), [18, 23])
   }
 })

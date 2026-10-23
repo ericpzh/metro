@@ -28,6 +28,13 @@ release contract. Block collision checks are indexed and cached against immutabl
 document arrays, and a refused block preview keeps a known blocked coordinate red
 until the footprint or geometry changes. See the drag and demo-collision notes in
 the performance guide and `game/PERFORMANCE.md` before changing these paths.
+The 方块 tool's 吊顶 variant follows the same `checkBlockCells` preview and release
+path as ordinary blocks. Keep the original station arrays intact during hover so
+the block index and verdict cache remain reusable; never prepare a copied module
+list or relocate existing hung fixtures. `addSuspendedCeiling` tags and finishes
+accepted cells after normal collision validation. Pin preview-cache reuse, fixture
+anchor retention and overlap refusal in `storey-height.test.mjs`, and compare cold
+and warm real pointer movement with `bench-drag-latency.mjs` when changing this path.
 Pointer tools must resolve scene picks once per event and reuse that result for
 block, module, surface, normal, bounds and roof queries. Keep the shared event
 snapshot in `render/scene/systems/CameraSystem.ts`, dispatched through

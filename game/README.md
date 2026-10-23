@@ -4110,7 +4110,7 @@ hung decor mounting and scaled rolling stock; `test/escalator-length.test.mjs` a
 The block tool's Tab variant is **吊顶**; Shift+Tab toggles generated walls.
 Suspended ceilings are ordinary one-metre blocks at the top service metre, with
 normal block editing and finish controls. Regular ceiling decor mounts underneath
-and existing hung fittings move down when the ceiling is inserted. 隐藏天花板 hides
+and existing fittings keep their anchors; overlapping blocks are refused. 隐藏天花板 hides
 these blocks, their outlines and attached fittings in every view mode.
 
 Five-metre rolling stock uses a uniform 98% model scale. Door cadence and track

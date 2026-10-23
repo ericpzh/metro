@@ -19,6 +19,8 @@ import { moduleLevels } from '../src/render/scene/systems/SceneSystem.ts'
 import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
+import { checkBlockCells } from '../src/build/validation.ts'
+import { blockIndex } from '../src/sim/blockIndex.ts'
 import { addSuspendedCeiling } from '../src/build/model/Ceilings.ts'
 import { useStore } from '../src/app/store.ts'
 import { readFileSync } from 'node:fs'
@@ -174,34 +176,42 @@ test('full PSD glazing fills below the top-mounted 0.6-metre information plate w
  } finally {if(old===undefined)delete globalThis.document;else globalThis.document=old}
 })
 
-test('inserting a suspended ceiling rehangs existing regular lights below it in the preview and commit',()=>{
+test('suspended ceilings keep fixtures and normal block preview caches unchanged',()=>{
  const light=createModule('light-rectangular',0,0,0,'light',0)
  const state={...toState(emptyStation()),cells:[{x:0,y:0,z:5,fill:'solid'}],modules:[{...light,storeyHeight:5}]}
- const result=addSuspendedCeiling(state,[[0,0,4]])
- assert.equal(result.blocked,0)
- assert.equal(result.changed,1)
- const hung=result.state.modules[0]
- assert.equal(hung.type,'light')
- assert.equal(hung.z,3)
- assert.equal(hung.ceilingAnchored,true)
- assert.equal(moduleEnvelope(hung).z1,4,'the light reserves the actual ceiling plane')
- const old=globalThis.document
- globalThis.document={createElement:()=>{const {g}=stubCanvas();return {width:0,height:0,getContext:()=>g}}}
- try {
-  const mats=new Proxy({}, {get:(t,k)=>t[k]??=new THREE.MeshStandardMaterial()})
-  const group=buildModule(hung,{data:toData(result.state),mats,trackCells:new Set(),owned:[]})
-  const box=new THREE.Box3().setFromObject(group)
-  assert.ok(box.max.z<=4.00001,'the rendered light sits under the suspended ceiling')
- } finally {if(old===undefined)delete globalThis.document;else globalThis.document=old}
+ const cells=[[0,0,4]]
+ const check=checkBlockCells(state,cells)
+ const occupied=blockIndex(state.cells,state.modules)
+ const result=addSuspendedCeiling(state,cells)
+ assert.equal(result.changed,check.acceptedCells.length)
+ assert.equal(result.blocked,check.blockedCells.length)
+ assert.equal(result.state.modules,state.modules,'placement never relocates fixtures or copies the module array')
+ assert.equal(state.modules[0].z,0)
+ assert.equal(blockIndex(state.cells,state.modules),occupied)
+ assert.equal(checkBlockCells(state,cells),check,'unchanged hover reuses the normal block verdict')
 })
 
-test('a ceiling batch on stacked floors snaps each ordinary light to its own storey',()=>{
- const a=make('light-circular',-10),b=make('light-circular',-5)
- const state={...toState(emptyStation()),modules:[{...a,id:'lower'},{...b,id:'upper'}]}
- const result=addSuspendedCeiling(state,[[0,0,-6],[0,0,-1]])
- assert.equal(result.changed,2)
- assert.deepEqual(result.state.modules.map(m=>m.z),[-7,-2])
- assert.ok(result.state.modules.every(m=>m.ceilingAnchored))
+test('suspended ceiling hover and release refuse a fixture collision without moving it',()=>{
+ const light={...make('light-circular',3),ceilingAnchored:true}
+ const station={...toState(emptyStation()),cells:[{x:0,y:0,z:4,fill:'solid'}],modules:[light]}
+ useStore.setState({station,past:[],future:[],tool:'block',suspendedCeiling:true,autoWalls:false,halfWall:false,triangles:false})
+ const ghosts=[]
+ const scene={setGhost(...args){ghosts.push(args)},setCursor(){},setCollisionHighlight(){},setModulePreview(){},setFencePreview(){}}
+ const ctx={scene:()=>scene,drag:{current:null},hover:{current:null},solids:()=>new Set(['0,0,4']),showMeasure(){},clearMeasure(){}}
+ const tool=new BlockTool(ctx)
+ const event={button:0,buttons:0,clientX:0,clientY:0,shiftKey:false,hit:{cell:[0,0,3],place:[0,0,3],point:[.5,.5,3],normal:[0,0,1],solid:false},preventDefault(){}}
+ const expected=checkBlockCells(station,[[0,0,3]])
+ assert.deepEqual(expected.blockedCells,[[0,0,3]])
+ tool.onMove(event)
+ tool.onMove(event)
+ assert.equal(ghosts.at(-1)[0],expected.acceptedCells,'hover uses the existing station collision cache')
+ assert.equal(ghosts.at(-1)[4],expected.blockedCells)
+ assert.equal(useStore.getState().past.length,0,'hover does not commit')
+ tool.onDown(event);tool.onUp(event)
+ assert.equal(useStore.getState().station,station,'refused release keeps the document intact')
+ assert.equal(useStore.getState().past.length,0)
+ assert.equal(addSuspendedCeiling(station,[[0,0,3]]).blocked,1)
+ useStore.setState({suspendedCeiling:false})
 })
 
 test('a hung fitting on a shifted editing base hangs from the block over its own cell',()=>{

@@ -3,7 +3,7 @@
 // Explicit lists (no `export *`): internal cross-file helpers such as
 // `cloneCell`, `assignAdPosters` and `NEIGH4` must not leak out as public API.
 
-export { addSuspendedCeiling, prepareSuspendedCeiling, SUSPENDED_CEILING } from './model/Ceilings.ts';
+export { addSuspendedCeiling, SUSPENDED_CEILING } from './model/Ceilings.ts';
 export { addCells, cellKey, GROUND_Z, isSolid, nearestLevel, removeCells, sameCells, storeyColumnsAt } from './model/Cells.ts';
 export { isGridCell, isGridModule, repairGrid } from './model/Grid.ts';
 export { cloneState, toData, toState, toStateRepairing, type StationState } from './model/State.ts';
