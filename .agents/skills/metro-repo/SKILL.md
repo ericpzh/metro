@@ -124,7 +124,22 @@ when translating geometry. Filter physical grade, roof/tunnel caps, ceilings and
 near-side wall courses from the view without dropping usable floors, structural
 connections or exits. `render/explodedPassengers.ts` prepares retained-floor support
 once per view and filters only its presentation buffer; street/unsupported walkers
-are hidden and cross-storey passenger movement teleports in this view. Keep native
+are hidden and cross-storey passenger movement teleports in this view. At 0 m,
+preserve authored rooms identified by room purpose, station fare zones (including
+restricted), or auto-floor tags, together with their fixtures and supported walkers;
+height alone must not hide them. Outdoor ground pillars have no blanket structural
+exemption. Include these retained room surfaces in the packed footprint even when
+the same story has a broader raised deck. Underground roof rings do not become
+usable mezzanines just because they carry another wall course: keep their enclosure
+and fixtures only around actual labelled floors and circulation landings.
+Above-ground presentation uses authored station floor/room labels and a small
+enclosure margin to bound retained geometry and fixtures per story. Connected
+bridge beams, foundations, rooftop plant and exterior-only access do not establish
+rooms, and a support must not borrow the floor of the story above it. Preserve
+unlabelled legacy documents' existing floor fallback. Keep only access connected
+to retained room plans; keep the main rail/platform presentation. Pin Tanwei's
+absence of roomless 15/20 m trays and detached virtual entrance in `exploded-support`.
+Keep native
 game interpolation unchanged. The view has its own renderer and camera, shares the
 simulation controls, and suspends the editor renderer while open. The persistent
 edge-scrolling preference lives in `app/edgeScrolling.ts` and gates only the mouse

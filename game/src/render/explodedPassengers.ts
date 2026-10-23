@@ -3,11 +3,11 @@ import type { StationData } from '../sim/types.ts'
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 import { stairFlights } from '../sim/stairs.ts'
 import { moduleFootprint } from '../sim/placement.ts'
-import { GROUND_Z } from '../sim/ground.ts'
 
 /** Prepared once from the geometry actually retained by the exploded view. */
 export function explodedPassengerSupport(data: StationData, offsets: ReadonlyMap<number,number>, direction: readonly [number,number]): Set<number> {
-  const support = new Set(data.cells.filter(c=>c.fill==='solid').map(c=>packKey(c.x,c.y,c.z)))
+  const solids = new Set(data.cells.filter(c=>c.fill==='solid').map(c=>packKey(c.x,c.y,c.z)))
+  const support = new Set(data.cells.filter(c=>c.fill==='solid'&&!solids.has(packKey(c.x,c.y,c.z+1))).map(c=>packKey(c.x,c.y,c.z)))
   const band = (z:number): number => storeyBand(z,data.levelBase??0,STOREY_HEIGHT)
   for(const m of data.modules) {
     if(m.type==='track') for(const [x,y] of moduleFootprint(m)) support.add(packKey(x,y,m.z))
@@ -38,7 +38,7 @@ export function filterExplodedPassengers(buffer: Float32Array,count:number,suppo
   for(let i=0;i<count;i++) {
     const at=i*6, floor=Math.floor(buffer[at+2]-1+1e-3)
     if(buffer[at+3]!==AgentState.Riding &&
-      (floor===GROUND_Z || !support.has(packKey(Math.floor(buffer[at]),Math.floor(buffer[at+1]),floor)))) continue
+      !support.has(packKey(Math.floor(buffer[at]),Math.floor(buffer[at+1]),floor))) continue
     if(shown!==i) buffer.copyWithin(shown*6,at,at+6)
     shown++
   }

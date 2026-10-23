@@ -40,10 +40,90 @@ test('a tunnel roof cap is omitted while its intermediate stair landing remains'
   assert.equal(result.data.cells.filter(c=>c.z===-10).length,400)
 })
 
+test('roof rings and their wall-mounted fittings do not survive as a false mezzanine',()=>{
+  const cells=Array.from({length:400},(_,i)=>({x:i%20,y:Math.floor(i/20),z:-5,fill:'solid'}))
+  for(let z=-4;z<=-2;z++) cells.push({x:15,y:15,z,fill:'solid',tags:['wall']})
+  const result=explodedView({cells,modules:[
+    {id:'rail',type:'track',x:0,y:10,z:-10,w:20,d:1,cfg:{tunnel:true}},
+    {id:'stairs',type:'stair',x:0,y:0,z:-5,from:{x:0,y:0,z:-5},to:{x:8,y:0,z:0},cfg:{}},
+    {id:'hanging',type:'cctv',x:15,y:15,z:-3,cfg:{}},
+  ],levelBase:0})
+  assert.ok(result.data.cells.length>0,'actual stair landing stays')
+  assert.ok(!result.data.cells.some(c=>c.x===15),'roof column outside the landing is removed, even with solid above')
+  assert.ok(!result.data.modules.some(m=>m.id==='hanging'),'fitting does not float after its roof ring disappears')
+})
+
 test('Tanwei tunnel cap cleanup preserves its usable raised decks',()=>{
   const source=JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json',import.meta.url)))
   const result=explodedView(source)
   const oldCap=source.cells.filter(c=>c.z===-5&&c.fill==='solid').length
   assert.ok(result.data.cells.filter(c=>c.z===-5).length<oldCap*.25,'broad tunnel cap is not presented as an empty floor')
-  for(const z of [1,6,11]) assert.ok(result.data.cells.filter(c=>c.z===z).length>1000,'usable raised deck remains')
+  const offset=result.offsets.get(-5),[dx,dy]=result.direction
+  assert.ok(!result.data.cells.some(c=>c.z===-5&&c.x===25+dx*offset&&c.y===-9+dy*offset),'covered roof ring outside the actual mezzanine disappears')
+  for(const x of [11,16,21]) assert.ok(!result.data.cells.some(c=>c.z===-5&&c.x===x+dx*offset&&c.y===-2+dy*offset),'front wall foundation does not survive as an overhead strip')
+  for(const z of [1,6,11]) assert.ok(result.data.cells.filter(c=>c.z===z).length>500,'usable raised deck remains without exterior foundations')
+})
+
+test('ground rooms retain floors, furnishings and passengers while outdoor pillars and paving disappear',()=>{
+  const source={cells:[
+    {x:0,y:0,z:0,fill:'solid'},
+    {x:10,y:0,z:0,fill:'solid',zone:'restricted'},
+    {x:11,y:0,z:0,fill:'solid',room:'toilet'},
+  ],modules:[
+    {id:'outdoor',type:'pillar',x:0,y:0,z:0,cfg:{height:11}},
+    {id:'indoor',type:'pillar',x:10,y:0,z:0,cfg:{height:3}},
+    {id:'sink',type:'sink',x:11,y:0,z:0,cfg:{}},
+    {id:'exit',type:'exit',x:2,y:0,z:0,cfg:{}},
+  ],levelBase:0}
+  const before=structuredClone(source), result=explodedView(source)
+  assert.deepEqual(source,before)
+  assert.deepEqual(result.data.cells.map(c=>c.x),[10,11])
+  assert.deepEqual(result.data.modules.map(m=>m.id),['indoor','sink','exit'])
+  const support=explodedPassengerSupport(result.data,result.offsets,result.direction)
+  const poses=new Float32Array([.5,.5,1,1,0,1,10.5,.5,1,1,0,2,11.5,.5,1,1,0,3])
+  assert.equal(filterExplodedPassengers(poses,3,support),2)
+  assert.deepEqual([poses[5],poses[11]],[2,3])
+})
+
+test('Tanwei retains authored ground rooms and fixtures without detached bridge piers',()=>{
+  const source=JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json',import.meta.url)))
+  const result=explodedView(source), offset=result.offsets.get(0),[dx,dy]=result.direction
+  const keys=new Set(result.data.cells.map(c=>`${c.x},${c.y},${c.z}`))
+  const rooms=source.cells.filter(c=>c.fill==='solid'&&c.z===0&&(c.room||c.zone==='restricted'))
+  assert.ok(rooms.length>500,'real room footprint is exercised')
+  for(const c of rooms) assert.ok(keys.has(`${c.x+dx*offset},${c.y+dy*offset},0`),'room floor or wall base survives')
+  const ids=new Set(result.data.modules.map(m=>m.id))
+  for(const m of source.modules.filter(m=>m.type==='pillar'&&m.z===0&&m.cfg.bridgeId)) assert.ok(!ids.has(m.id),'detached bridge pier disappears')
+  for(const type of ['cubicle','sink','desk','electrical-cabinet']) {
+    const fixtures=source.modules.filter(m=>m.z===0&&m.type===type)
+    assert.ok(fixtures.length>0)
+    for(const m of fixtures) assert.ok(ids.has(m.id),`${type} remains inside its room`)
+  }
+})
+
+test('above-ground room footprints exclude connected support beams, remote utility pads and their fittings',()=>{
+  const cells=Array.from({length:25},(_,i)=>({x:i%5,y:Math.floor(i/5),z:6,fill:'solid',zone:'unpaid'}))
+  for(let x=5;x<20;x++) cells.push({x,y:2,z:6,fill:'solid'})
+  cells.push({x:30,y:30,z:20,fill:'solid'})
+  const source={cells,modules:[
+    {id:'seat',type:'bench',x:2,y:2,z:6,cfg:{}},
+    {id:'remote-ac',type:'ac-unit',x:30,y:30,z:20,cfg:{}},
+    {id:'remote-stair',type:'stair',x:18,y:2,z:0,from:{x:18,y:2,z:0},to:{x:18,y:2,z:6},cfg:{}},
+    {id:'remote-exit',type:'exit',x:18,y:2,z:0,cfg:{}},
+  ],levelBase:0}
+  const before=structuredClone(source),result=explodedView(source)
+  assert.deepEqual(source,before)
+  assert.deepEqual(result.levels,[5],'no extra story for rooftop machinery')
+  assert.ok(result.data.cells.every(c=>c.x<=5),'support beam cannot make exterior foundations into a room')
+  assert.deepEqual(result.data.modules.map(m=>m.id),['seat'])
+  assert.equal(result.data.cells.filter(c=>c.zone==='unpaid').length,25)
+})
+
+test('Tanwei has no roomless upper stories or detached exterior access stair',()=>{
+  const source=JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json',import.meta.url)))
+  const result=explodedView(source),ids=new Set(result.data.modules.map(m=>m.id))
+  assert.deepEqual(result.levels,[-10,-5,0,5,10])
+  assert.ok(!ids.has('stair-straight-9711'))
+  assert.ok(!ids.has('exit-virtual-1108'))
+  assert.ok(result.data.cells.every(c=>c.z<15),'roof utility fragments do not get their own trays')
 })

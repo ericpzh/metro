@@ -751,6 +751,7 @@ export class SceneRenderer {
   }
 
   setEdgeScrolling(on: boolean): void {
+    this.requestRender()
     this.cameraSys.setEdgeScrolling(on)
   }
 

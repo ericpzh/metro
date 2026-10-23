@@ -47,10 +47,9 @@ try {
             if(!__metro.getState().playing||__metro.getState().speed!==16)throw Error('speed control did not resume');
             if(__metro.getState().metrics.tick<=tick)throw Error('simulation did not advance');
             if(scene.crowd.agentCount<=0||scene.crowd.agentCount>__scene.crowd.agentCount)throw Error('viewer did not receive visible live passengers');
-            for(let i=0;i<scene.crowd.agentCount;i++) {
-              const at=i*6;
-              if(scene.crowd.cur[at+3]!==6&&Math.floor(scene.crowd.cur[at+2]-1+.001)===0)throw Error('hidden street pedestrian remained visible');
-            }
+            const rooms=scene.ctx.stationData.cells.filter(c=>c.z===0&&(c.room||c.zone==='restricted'));
+            if(${JSON.stringify(id)}==='tanwei'&&rooms.length<500)throw Error('ground rooms were removed');
+            if(scene.ctx.stationData.modules.some(m=>m.type==='pillar'&&m.z===0&&m.cfg.bridgeId))throw Error('outdoor bridge pillar remains');
             const frames=scene.framesRendered;
             await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
             if(scene.framesRendered<=frames)throw Error('live viewer did not render');

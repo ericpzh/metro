@@ -1181,3 +1181,25 @@ Ground-decor fixtures distinguish physical street anchors at 0 m from actual rai
 station fixtures at 1 m. The production browser check now compares visible versus
 total passengers and rejects non-riding pedestrians on the hidden street plane.
 Measurements and visual review are recorded in the shared performance reference.
+
+Ground-height room regressions in `exploded-support` distinguish authored interior
+floor labels from outdoor paving. They pin retained room furnishings and pedestrians,
+removed outdoor pillars, immutable source data, and the real Tanwei restricted/toilet
+room cells and fixtures. Passenger support excludes covered solid cells and no longer
+rejects every walker solely for being at 0 m. The production check retains Tanwei's
+ground-room cells and rejects detached bridge pillars instead of banning all 0 m people.
+
+The roof-ring regression adds an upper wall course and hanging fixture outside an
+actual mezzanine landing, and checks the real Tanwei `(25,-9,-5)` roof-edge cell is
+removed. Focused coverage of `exploded-view` and `exploded-support` reports 100% lines
+for both helpers; `explodedView.ts` has 93.75% branches / 93.94% functions and
+`explodedPassengers.ts` has 81.25% branches / 100% functions. The broad coverage run
+was stopped after over eight minutes without a reported test result; it is incomplete.
+
+Above-ground room filtering is pinned with a labelled concourse connected to a
+bare support beam, a detached rooftop utility pad and exterior-only stair/exit.
+The real Tanwei regression expects only -10/-5/0/5/10 m trays, preserves labelled
+usable floors and omits its detached virtual entrance. Stair-flight translation
+checks apply to every retained flight; exterior-only connections are intentionally
+absent. Documents without authored above-ground floor labels retain their existing
+unfurnished-floor fallback.

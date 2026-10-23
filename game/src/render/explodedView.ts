@@ -5,7 +5,7 @@ import { moduleFootprint } from '../sim/placement.ts'
 import { GROUND_Z } from '../sim/ground.ts'
 
 const hiddenTypes = new Set(['roof', 'road', 'sidewalk', 'lawn', 'tree', 'traffic-light'])
-const structureTypes = new Set(['exit', 'stair', 'escalator', 'walkway', 'lift', 'track', 'platform-edge', 'pillar', 'shop', 'retail', 'booth'])
+const structureTypes = new Set(['exit', 'stair', 'escalator', 'walkway', 'lift', 'track', 'platform-edge', 'shop', 'retail', 'booth'])
 const ceiling = (c: Cell): boolean => !!c.tags?.some(t => t === 'suspended-ceiling' || t === 'opening-ceiling')
 
 /** A disposable presentation document. Never install this in the editor or worker. */
@@ -13,16 +13,36 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const base = data.levelBase ?? 0
   const band = (z: number): number => storeyBand(z, base, STOREY_HEIGHT)
   const solidKeys = new Set(data.cells.filter(c => c.fill === 'solid').map(c => packKey(c.x,c.y,c.z)))
+  // Authored station rooms can share the street's height. Their semantic floor
+  // labels distinguish usable interiors from outdoor paving and bridge piers.
+  const groundRooms = new Set(data.cells.filter(c => c.fill === 'solid' && c.z === GROUND_Z && !ceiling(c) &&
+    (c.room || ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || c.tags?.includes('auto-floor')))
+    .map(c => packKey(c.x,c.y,c.z)))
   const floorUse = new Set(data.modules.filter(m => ['gate','tvm','vending','booth','shop','retail','platform-edge','track','bench'].includes(m.type)).map(m => m.z))
   const tunnelCaps = new Set(data.modules.filter(m => m.type === 'track' && m.cfg.tunnel).map(m => m.z + STOREY_HEIGHT))
   const landings = new Set<number>()
   for (const m of data.modules) if (m.type === 'stair' || m.type === 'escalator' || m.type === 'walkway' || m.type === 'lift') {
     for (const end of [m.from,m.to]) for (let x=-2;x<=2;x++) for(let y=-2;y<=2;y++) landings.add(packKey(end.x+x,end.y+y,end.z))
   }
-  const solids = data.cells.filter(c => c.fill === 'solid' && !ceiling(c) &&
+  const capRooms = new Map<number, Set<number>>()
+  for (const z of tunnelCaps) if (z < GROUND_Z && !floorUse.has(z)) capRooms.set(z,new Set())
+  for (const c of data.cells) {
+    const room = capRooms.get(c.z)
+    if (!room || c.fill !== 'solid' || ceiling(c) || !(c.room || c.tags?.includes('auto-floor') ||
+      ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || landings.has(packKey(c.x,c.y,c.z)))) continue
+    // Keep a one-cell enclosure around actual mezzanine floors/landings, not
+    // the roof ring and its walls merely because another course sits above it.
+    for (let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) room.add(packKey(c.x+x,c.y+y,c.z))
+  }
+  const withinCapRoom = (x:number,y:number,z:number): boolean => {
+    const cap = band(z), room = capRooms.get(cap)
+    return !room || room.has(packKey(x,y,cap))
+  }
+  let solids = data.cells.filter(c => c.fill === 'solid' && !ceiling(c) &&
+    withinCapRoom(c.x,c.y,c.z) &&
     // The street, including authored street plates, is hidden. A raised deck
     // at 1 m remains a station floor, not ground-level context.
-    !(c.z === GROUND_Z && !solidKeys.has(packKey(c.x,c.y,c.z+1))) &&
+    !(c.z === GROUND_Z && !groundRooms.has(packKey(c.x,c.y,c.z)) && !solidKeys.has(packKey(c.x,c.y,c.z+1))) &&
     // Legacy tunnel caps share their plane with small intermediate landings.
     // Retain actual floor use/landings, rather than presenting the whole cap.
     !(c.z < GROUND_Z && tunnelCaps.has(c.z) && !floorUse.has(c.z) &&
@@ -33,8 +53,35 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     // Legacy stations also have ordinary, untagged ceiling courses immediately
     // below the next floor. Keep the vertical enclosure, remove the horizontal cap.
     !(c.z === band(c.z) + STOREY_HEIGHT - 1 && !isWallBlock(c)))
+  const labelledFloor = (c: Cell): boolean => !!(c.room || ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || c.tags?.includes('auto-floor'))
+  const roomPlans = new Map<number, Set<number>>()
+  // Authored floor labels distinguish rooms from bridge foundations and rooftop
+  // machinery, even when connected by a beam. A pier must not borrow a platform's
+  // floor from the story above it. Unlabelled legacy documents
+  // keep their existing presentation rather than losing unfurnished floors.
+  const classifyAboveGround = solids.some(c => c.z > GROUND_Z && labelledFloor(c))
+  if (classifyAboveGround) {
+    for (const c of solids) if(c.z >= GROUND_Z && labelledFloor(c)) {
+      const z=band(c.z), plan=roomPlans.get(z)??new Set<number>()
+      for(let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) plan.add(packKey(c.x+x,c.y+y,z))
+      roomPlans.set(z,plan)
+    }
+    solids = solids.filter(c => c.z < GROUND_Z || roomPlans.get(band(c.z))?.has(packKey(c.x,c.y,band(c.z))))
+  }
+  const atRoom = (x:number,y:number,z:number): boolean => !classifyAboveGround || z < GROUND_Z || !!roomPlans.get(band(z))?.has(packKey(x,y,band(z)))
+  const connectsRoom = (m: Module): boolean => {
+    if (m.type === 'stair' || m.type === 'escalator' || m.type === 'walkway' || m.type === 'lift') {
+      return [m.from,m.to].some(p => atRoom(p.x,p.y,p.z))
+    }
+    return moduleFootprint(m).some(([x,y]) => atRoom(x,y,m.z))
+  }
+  const retainedRamps = data.modules.filter(m => ['stair','escalator','walkway'].includes(m.type) && connectsRoom(m))
   const modules = data.modules.filter(m => !hiddenTypes.has(m.type) &&
-    (structureTypes.has(m.type) || m.z !== GROUND_Z))
+    (m.type === 'track' || m.type === 'platform-edge' || connectsRoom(m) ||
+      (m.type === 'exit' && retainedRamps.some(r => 'from' in r && [r.from,r.to].some(p => p.z===m.z && Math.abs(p.x-m.x)<=3 && Math.abs(p.y-m.y)<=3)))) &&
+    (structureTypes.has(m.type) || moduleFootprint(m).some(([x,y]) => withinCapRoom(x,y,m.z))) &&
+    (structureTypes.has(m.type) || m.z !== GROUND_Z ||
+      moduleFootprint(m).some(([x,y]) => groundRooms.has(packKey(x,y,GROUND_Z)))))
   const modulePoints = new Map<number, Array<{ x: number; y: number }>>()
   for (const m of modules) {
     const points = modulePoints.get(band(m.z)) ?? []
@@ -67,7 +114,8 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     }
     let floorCells: Cell[] = []
     for (const row of surfaces.values()) if(row.length > floorCells.length) floorCells = row
-    floorsByLevel.set(z, floorCells.length ? floorCells : own.filter(c => c.z === z))
+    const roomFloors = (surfaces.get(GROUND_Z) ?? []).filter(c => groundRooms.has(packKey(c.x,c.y,c.z)))
+    floorsByLevel.set(z, floorCells.length ? [...new Set([...floorCells,...roomFloors])] : own.filter(c => c.z === z))
   }
   const offsets = new Map<number, number>()
   // Retain the station's longitudinal alignment. Explode across its narrow
@@ -126,7 +174,10 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     for (const cell of own) {
       // The default isometric eye is +x/-y. Open those two perimeter sides,
       // retaining internal partitions and the far enclosure, including irregular plans.
-      if (cell.z > z && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
+      // A cap-band wall foundation is also overhead relative to the room below.
+      // Opening only its upper courses leaves a floating concrete perimeter strip.
+      const wallCourse = cell.z > z || (capRooms.has(z) && solidKeys.has(packKey(cell.x,cell.y,cell.z+1)))
+      if (wallCourse && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
         (frontX.has(cell.y) && cell.x > frontX.get(cell.y)!) ||
         (frontY.has(cell.x) && cell.y < frontY.get(cell.x)!) ||
         (frontX.size > 0 && !frontX.has(cell.y) && !frontY.has(cell.x) &&
