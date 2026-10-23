@@ -43,6 +43,7 @@
     "profile:browser": "npm --prefix game run build && node tools/bench-demos.mjs browser --profile --gpu-timer --investigate",
     "bench:browser": "npm --prefix game run build && node tools/bench-demos.mjs browser",
     "bench:explode": "npm --prefix game run build && node tools/bench-exploded-view.mjs",
+    "bench:sim-stalls": "npm --prefix game run build && node tools/bench-sim-stalls.mjs",
     "bench:usage-tour": "npm --prefix game run build && node tools/bench-usage-tour.mjs",
     "bench:placement": "npm --prefix game run build && node tools/bench-placement-latency.mjs",
     "bench:road": "npm --prefix game run build && node tools/bench-road-drag.mjs",

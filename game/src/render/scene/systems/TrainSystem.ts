@@ -10,6 +10,9 @@ import * as THREE from 'three'
 import { batchStaticParts } from '../../batchStaticModule.ts'
 import { batchTrainDoors, batchTrainTransparent } from '../../trainBatches.ts'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
+import type { TrainPose } from '../../models.ts'
+import type { StationData } from '../../../sim/types.ts'
+import { trainPreparationPoses } from '../../trainPreparation.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { STOCK, STOCK_CLASSES, trainOriginForScale, trainScaleForStorey } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
@@ -71,11 +74,58 @@ export class TrainSystem extends SceneSystem {
   private trainSlots = new Map<string, TrainEntry>()
   private drawBatching = true
   private lastBuffer = new Float32Array()
+  private preparationKey = ''
+
+  /** Prepare the bounded service fleet during station opening, before playback.
+   * Parked models carry no live service or pose until the worker reports one. */
+  prepareForStation(data: StationData): void {
+    const buffer = trainPreparationPoses(data, TRAIN_PARKED_LIMIT)
+    const key = Array.from(buffer).join(',')
+    if (key === this.preparationKey) return
+    this.preparationKey = key
+    const occurrences = new Map<string, number>(), wanted = new Set<string>()
+    const modelScale = trainScaleForStorey(this.ctx.storeyHeight)
+    for (let o = 0; o < buffer.length; o += 10) {
+      const [x,y,z,cars,stockIdx,,colour,dirSign,yaw,flags] = buffer.subarray(o,o+10)
+      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      const modelKey = `${modelScale}:${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      const occurrence = occurrences.get(modelKey) ?? 0
+      occurrences.set(modelKey, occurrence+1)
+      const sig = `${modelKey}:${occurrence}`
+      wanted.add(sig)
+      if (this.trainSlots.has(sig)) continue
+      const entry = this.createEntry(sig, shapeKey, {x,y,z,cars,stock:STOCK_CLASSES[stockIdx] ?? 'B',
+        colour:`#${colour.toString(16).padStart(6,'0')}`, dirSign,yaw,modelScale,doorsOpen:false,
+        power:(flags&4) !== 0 ? 'catenary' : 'third-rail'})
+      entry.active = false; entry.missed = 2
+      entry.group.userData.parked = true; entry.group.visible = false
+    }
+    const parked = [...this.trainSlots.values()].filter(entry => !entry.active)
+    for (const entry of parked.filter(entry => !wanted.has(entry.sig)).slice(0, Math.max(0, parked.length-TRAIN_PARKED_LIMIT))) {
+      this.dropConsist(entry.group); this.trainSlots.delete(entry.sig)
+    }
+    this.updateGeometryDetail()
+  }
+
+  private createEntry(sig: string, shapeKey: string, pose: TrainPose): TrainEntry {
+    const group = buildTrain(this.ctx.modelMats, pose)
+    group.userData.renderFamily = 'train'
+    group.userData.shapeKey = shapeKey
+    batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
+    if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
+    this.details.set(group, trainDetails(group))
+    group.userData.doorT = [0, 0]
+    this.trainGroup.add(group)
+    const entry = { group, sig, from: new THREE.Vector3(pose.x,pose.y,pose.z), to: new THREE.Vector3(pose.x,pose.y,pose.z), active:true, missed:0 }
+    this.trainSlots.set(sig, entry)
+    return entry
+  }
 
   /** Profiling ablation on the same scene/assets; does not change simulation. */
   setDrawBatching(enabled: boolean): void {
     if (this.drawBatching === enabled) return
     this.drawBatching = enabled
+    this.preparationKey = ''
     for (const entry of this.trainSlots.values()) this.dropConsist(entry.group)
     this.trainSlots.clear()
     this.setTrains(this.lastBuffer)
@@ -159,23 +209,20 @@ export class TrainSystem extends SceneSystem {
       }
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
-        const group = buildTrain(this.ctx.modelMats, { x, y, z, cars, stock, power, doorsOpen, modelScale, colour: `#${colour.toString(16).padStart(6, '0')}`, dirSign, yaw })
-        group.userData.renderFamily = 'train'
-        group.userData.shapeKey = shapeKey
-        batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
-        if (this.drawBatching) { batchTrainDoors(group); batchTrainTransparent(group) }
-        this.details.set(group, trainDetails(group))
-        group.userData.doorT = [0, 0]
-        this.trainGroup.add(group)
-        entry = { group, sig, from: new THREE.Vector3(x, y, z), to: new THREE.Vector3(x, y, z), active: true, missed: 0 }
-        this.trainSlots.set(sig, entry)
+        entry = this.createEntry(sig, shapeKey, { x,y,z,cars,stock,power,doorsOpen,modelScale,
+          colour:`#${colour.toString(16).padStart(6,'0')}`,dirSign,yaw })
       } else {
         // Continue from where this consist was last drawn. A consist that has
         // reappeared after an absent snapshot snaps to its approach start rather
         // than streaking back across the platform from its previous service.
-        if (this.resumeSnapshotPending) entry.from.copy(entry.group.position)
+        if (this.resumeSnapshotPending && !entry.group.userData.parked) entry.from.copy(entry.group.position)
         else if (entry.missed === 1) entry.from.copy(entry.group.position)
-        else entry.from.set(x, y, z)
+        else {
+          entry.from.set(x, y, z)
+          // Prepared/parked consists have no current live pose. A first paused
+          // snapshot must place them too, without waiting for interpolation.
+          entry.group.position.set(x, y, z)
+        }
         entry.to.set(x, y, z)
         entry.active = true
         entry.missed = 0

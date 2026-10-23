@@ -78,12 +78,18 @@ export class SceneRenderer {
   private sky: SkySystem
   private standalonePresentation = false
   private suspended = false
+  private deferredTrains: Float32Array | null = null
 
   setSuspended(on: boolean): void {
     this.requestRender()
     this.suspended = on
     this.ctx.keys.clear()
     this.lastFrame = 0
+    if (!on && this.deferredTrains) {
+      const latest = this.deferredTrains
+      this.deferredTrains = null
+      this.setTrains(latest)
+    }
   }
   private lastFrame = 0
   private frameCount = 0
@@ -378,6 +384,7 @@ export class SceneRenderer {
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
     this.modules.refreshHoverHighlight()
+    if (!this.suspended) this.trains.prepareForStation(data)
   }
 
   /** Nonstructural edits keep cache metadata current. Visible artwork repaints
@@ -485,6 +492,9 @@ export class SceneRenderer {
 
   setTrains(buffer: Float32Array): void {
     this.requestRender()
+    // The exploded viewer receives this same worker frame. Keep the editor's
+    // latest poses, but do not build a second invisible consist during playback.
+    if (this.suspended) { this.deferredTrains = buffer; return }
     this.trains.setTrains(buffer)
   }
 

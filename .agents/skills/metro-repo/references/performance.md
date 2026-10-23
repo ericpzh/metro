@@ -1200,8 +1200,99 @@ The principal bounded-work results are:
 Four constraints remain material: cold first interaction includes renderer initialization;
 placement exceeds the 100 ms response target; queued worker installation still performs a
 complete graph rebuild after its intentional coalescing window; and large document commits
-remain synchronous. There is no current paired-demo FPS result suitable for a throughput
-claim. Re-measure before making one.
+remain synchronous. Playback FPS samples are diagnostic; repeat equivalent runs before
+making a general throughput claim.
+
+### Simulation playback frame tails
+
+`npm run bench:sim-stalls` measures actual renderer submissions from the first
+Play at 16x, with tick/population snapshots and timed train, plate, crowd, road
+and renderer work. `BENCH_DEMO=zoo|tanwei`, `BENCH_MODE=regular|explode`,
+`BENCH_QUALITY=high|low`, `BENCH_SECONDS` and `BENCH_SPEED` select the scenario.
+Use `BENCH_PROFILE=1` for CPU samples or `BENCH_TRACE=1` for a separate Chrome
+timeline (`BENCH_TRACE_GPU=1` adds GPU/compositor events). Keep clean timing runs
+separate from both. RAF cadence is retained separately from submitted-frame cadence;
+neither is a compositor presentation timestamp. Reports live in
+`.preview/perf/sim-stalls/`.
+
+The large first-arrival freezes occur when a new consist appears, rather than on
+every simulation tick. Tanwei's first four services arrive at ticks 1/13/26/39
+(06:30:01/13/26/39). A first-Play Low/exploded capture showed 2.3–2.5 s frame gaps:
+the visible viewer and suspended editor each spent roughly 1.1–1.2 s building
+the same train. CPU samples identify repeated full-shell triangle raycasts while
+seating cab glass/trim as a major part of that build. Steady pose updates are
+sub-millisecond; reducing passenger triangles does not remove this construction.
+
+Matched first-Play captures use a 20 s window, speed 16x, Low graphics, zero initial
+population, seed 7654321, hardware Chrome 155 / ANGLE D3D11 on an i7-14700KF and
+RTX 4080 SUPER. Tanwei has 16,869 cells / 9,694 modules; the 1400 x 900 browser
+has an 852 x 715 editor canvas or 1384 x 702 exploded canvas. Each view's original
+and current implementation use the same authored fixture, camera and assets in
+separate fresh browser sessions, with no competing tests/builds from this task.
+
+| Tanwei view | Average FPS, original → current | 1% low FPS, original → current | Worst submitted-frame gap, original → current |
+|---|---:|---:|---:|
+| Regular | 12.07 → 16.09 | 0.74 → 2.94 | 1,445 → 396 ms |
+| Exploded | 14.73 → 31.12 | 0.40 → 3.76 | 2,656 → 303 ms |
+
+These are single runs, not stable percentiles or GPU presentation measurements.
+Regular runs finish at ticks 288/287 with 1,154 passengers in both; exploded runs
+finish at ticks 291/289 with 1,151/1,153 passengers. Final draw calls match exactly
+within each pair (4,571 regular / 3,919 exploded); small triangle differences follow
+the slightly different final population/poses. All captures report zero runtime/GL
+errors. `matched-{before,after}-{regular,explode}.json` holds the raw samples.
+`comparison.json` summarizes the pairs; `frame-tail-comparison.png`/`.svg` plots
+the full interval timeline and identifies the first four service-arrival stalls.
+
+The current path prepares up to eight parked service consists during station
+opening, keeps them invisible until the worker supplies their live poses, and
+reuses their exact geometry, door rigs and detail buffers on arrival. Model
+preparation is an opening cost, not eliminated work. Unknown configurations or
+fleets beyond the preparation bound can still require a first-use build. Cab
+fitting queries retain exact authored shell intersections using a prepared y/z
+triangle index instead of traversing the whole shell per vertex. The suspended
+editor retains only the latest train snapshot and applies it when shown, avoiding
+duplicate invisible builds during exploded playback. These changes do not step
+the simulation, dispatch services, change geometry detail, or commit a document.
+The matched exploded run constructs eight models during original playback (four
+per renderer), versus zero in the current path. Its slowest train snapshot update
+is 1.2 ms. Opening prepares Tanwei's four consists in about 2.1–2.2 s CPU per
+renderer; measured editor opening rises from 6.95–7.01 s to 8.87–9.21 s. Exploded
+preparation is additional viewer-opening work. Zoo's High/regular sanity run
+prepares two consists in 1.35 s, builds none during playback, and records 38.26
+average / 4.64 1% low FPS with a 225 ms worst gap. It is not a matched speedup.
+
+Smaller repeated frame gaps remain in the measured full station. A separate Chrome
+trace shows short main-thread snapshot/render work while the GPU process handles
+queued WebGL commands. Causal controls remove only drawing, leaving the worker and
+poses running: removing crowd drawing does not remove the gaps; removing static
+station drawing removes the repeated 100 ms+ gaps. These controls are diagnostics,
+not production rendering modes or speedup claims. A two-frame GPU queue cap did
+not improve the tail and is not part of the implementation. Further rendering work
+should target static station submission/batching, with full visibility, transparency,
+depth, picking and local-edit retention checks; lowering crowd detail alone misses
+the measured cause. Opening GPU work can also spill into an immediate first Play.
+
+`cab-front-surface` pins exact full-raycaster equivalence, source immutability and
+bounded local triangle work. `train-preparation` compares the prepared appearances
+with the real Zoo/Tanwei worker anchors, pins invisible preparation, first/repeated
+arrival model identity, the eight-parked-consist bound and configuration eviction.
+`check-exploded-view` verifies that the suspended editor does not rebuild trains
+and that returning applies the latest held poses. `BENCH_ASSERT_PREPARED=1` rejects
+any live train construction in the playback diagnostic.
+
+Validation: the full game suite passes all 2,365 tests and the production build
+passes. Focused coverage is 100% lines/functions for CabFrontSurface, CabSkin and
+trainPreparation (92% / 97.30% / 79.31% branches); TrainSystem is 88.38% lines,
+66.67% branches and 83.33% functions in that focused run. Existing full-suite
+train-LOD, pause, recolour and batching tests cover the other contracts. The broad
+instrumented `test:perf` run was stopped incomplete during atlas checks; do not
+claim broad coverage from the focused figures. Logs and browser evidence are under
+`.preview/perf/sim-stalls/`.
+Both demos pass the production playback/camera/Escape lifecycle check, including
+held editor train poses and latest-frame replay. Native and extension-free batching
+checks preserve train triangles, reduce draws and report zero GLSL/WebGL/runtime
+errors. CPU-profile and trace-stream tooling checks pass.
 
 ### Benchmark protocol
 
@@ -1234,6 +1325,7 @@ Raw JSON, screenshots, traces and CPU profiles belong in ignored `.preview/perf/
 | Palette preview locality and LOD | `node tools/bench-preview-audit.mjs`, `node tools/check-preview-lod.mjs` |
 | Exploded-view lifecycle and presentation | `node tools/check-exploded-view.mjs` |
 | Exploded-view regular/live FPS diagnostic | `npm run bench:explode` |
+| Simulation-play frame-tail attribution | `npm run bench:sim-stalls` |
 | Train, passenger and equipment triangle inventory | `node tools/model-triangle-inventory.mjs` |
 | Render batching and fallback path | `node tools/check-render-batching.mjs`, including `--no-multi-draw` |
 | Production browser tools | `npm run check:perf-tools` |
@@ -1261,7 +1353,7 @@ remain in ignored `.preview/perf/`. Low geometry is an authored quality variant 
 available; unsupported parts stay full detail. Scene totals and FPS depend on the fixture,
 view, graphics quality and batching path, so do not infer them from per-model counts.
 
-### Above-ground room filtering in exploded view (2026-10-23)
+### Above-ground room filtering in exploded view
 
 For documents with authored above-ground station floors, presentation geometry now
 follows room/fare-zone/auto-floor footprints with a one-cell enclosure margin per
@@ -1275,20 +1367,10 @@ fragments and detached virtual stair/exit are absent. The existing raised-floor
 regression now asserts every labelled usable floor, rather than every unlabelled
 concrete support slab. Every retained authored stair flight still translates intact.
 
-Validation: 41 focused geometry, support, crowd-transfer, static-rendering and
-layering checks pass, as does production build/typecheck. Helper coverage is 100%
-lines; explodedView has 94.91% branches / 95.35% functions and explodedPassengers
-81.25% branches / 100% functions. The earlier broad-suite/coverage limits still
-apply; neither broad run was repeated for this adjustment.
-
-Production Zoo/Tanwei checks ran sequentially after build and focused tests in
-fresh hardware Chrome sessions, 1400 x 900 window / 1384 x 702 canvas. First/repeat
-ready: Zoo 4340 / 3761 ms, Tanwei 5928 / 5430 ms; shell 41 / 35 and 67 / 58 ms.
-Live 16x samples advanced 81 / 56 ticks, with 390/390 and 641/670 visible/total
-passengers and 2 / 4 train groups. Playback, camera controls, unchanged editor
-document/history/camera, Escape cleanup and runtime-error checks pass. Tanwei's
-default screenshot was reviewed for absent detached supports, utility fragments
-and exterior access, with usable rooms/platforms retained. Reports/screenshots
-remain in `.preview/perf/exploded-view/`. These are diagnostic timings without
-host-isolation guarantees, not a controlled speed comparison.
+`exploded-view`, `exploded-support`, `exploded-passengers` and `layering` guard
+these presentation contracts. `tools/check-exploded-view.mjs` checks both demos'
+camera/playback controls, unchanged editor document/history/camera, live passenger
+support, suspended train updates and Escape cleanup. Raw reports/screenshots belong
+under `.preview/perf/exploded-view/`; current playback measurements and validation
+limits are recorded above.
 

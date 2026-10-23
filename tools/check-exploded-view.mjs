@@ -42,6 +42,8 @@ try {
           writeFileSync(resolve(output,`${id}.png`),Buffer.from(shot.data,'base64'))
           const live=await page.evaluate(`(async()=>{
             const scene=__explodedScene,version=__metro.getState().version,tick=__metro.getState().metrics.tick;
+            const editorTrains=__scene.trains.lastBuffer;
+            const editorModels=__scene.trains.trainGroup.children.slice();
             document.querySelectorAll('.explodedToolbar .seg button')[3].click();
             await new Promise(r=>setTimeout(r,1800));
             if(!__metro.getState().playing||__metro.getState().speed!==16)throw Error('speed control did not resume');
@@ -56,6 +58,8 @@ try {
             document.querySelector('.explodedToolbar .seg button').click();
             if(__metro.getState().playing)throw Error('pause did not apply');
             if(__metro.getState().version!==version)throw Error('playback edited station');
+            if(__scene.trains.lastBuffer!==editorTrains||editorModels.some((model,i)=>__scene.trains.trainGroup.children[i]!==model))throw Error('suspended editor rebuilt trains');
+            if(!__scene.deferredTrains)throw Error('suspended editor lost latest train snapshot');
             return {ticks:__metro.getState().metrics.tick-tick,agents:scene.crowd.agentCount,totalAgents:__scene.crowd.agentCount,trains:scene.trains.trainGroup.children.length};
           })()`)
           Object.assign(report,{live})
@@ -81,12 +85,15 @@ try {
           }
         }
         const tool=await page.evaluate('__metro.getState().tool')
+        const deferred=await page.evaluate('Array.from(__scene.deferredTrains??[])')
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'b',code:'KeyB',windowsVirtualKeyCode:66})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'b',code:'KeyB',windowsVirtualKeyCode:66})
         assert.equal(await page.evaluate('__metro.getState().tool'),tool)
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await waitFor(page.evaluate, '!document.querySelector(".explodedViewer")', {what:'return to editor'})
+        if(deferred.length) assert.deepEqual(await page.evaluate('Array.from(__scene.trains.lastBuffer)'),deferred,'returning applies the latest held train poses')
+        assert.equal(await page.evaluate('__scene.deferredTrains'),null)
         runs.push(report)
       }
       const errors=await page.evaluate('__explodeErrors')

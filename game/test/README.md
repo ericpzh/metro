@@ -14,6 +14,14 @@
 
 # `game/test` — how the game is tested
 
+`cab-front-surface` pins exact cab-skin intersections against the full raycaster
+across widths, detail levels, both ends, shoulders and bucket seams, with bounded
+triangle tests and no repeated shell reads. `train-preparation` matches the
+prepared fleet to the real Zoo/Tanwei worker anchors, preserves the dormant-model
+bound, reuses exact geometry/door rigs and correct paused/resume poses at first arrival, evicts changed configurations,
+and guards latest-only train snapshots while the editor is suspended. Production
+playback attribution lives in `tools/bench-sim-stalls.mjs`; FPS is diagnostic.
+
 `placement-surface` pins low-angle visible beam targeting ahead of distant ground,
 fresh preview/click/move/undo agreement for supported props, one shared raycast,
 nearer-block occlusion, hidden-source exclusion and unchanged unsupported-host

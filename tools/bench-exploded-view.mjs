@@ -89,12 +89,17 @@ async function measureMode(stationId, mode, quality) {
         const startPopulation = window.__metro.getState().metrics.population;
         const startRendererFrames = scene.framesRendered;
         const startTime = performance.now();
-        const intervals = [];
-        let previous = 0;
+        const intervals = [], rafIntervals = [];
+        let previous = 0, previousRaf = 0, submissions = scene.framesRendered;
         await new Promise(resolve => {
           const sample = now => {
-            if (previous) intervals.push(now - previous);
-            previous = now;
+            if (previousRaf) rafIntervals.push(now - previousRaf);
+            previousRaf = now;
+            if (scene.framesRendered !== submissions) {
+              if (previous) intervals.push(now - previous);
+              previous = now;
+              submissions = scene.framesRendered;
+            }
             if (now - startTime >= ${durationMs}) resolve();
             else requestAnimationFrame(sample);
           };
@@ -111,16 +116,20 @@ async function measureMode(stationId, mode, quality) {
           rendererFrames: scene.framesRendered - startRendererFrames,
           canvas: { width: scene.renderer.domElement.width, height: scene.renderer.domElement.height },
           frameIntervalsMs: intervals,
+          rafIntervalsMs: rafIntervals,
         };
         state.setPlaying(false);
         return result;
       })()`)
     const frameStats = summarizeFrameIntervals(raw.frameIntervalsMs)
+    const rafStats = summarizeFrameIntervals(raw.rafIntervalsMs)
     delete raw.frameIntervalsMs
+    delete raw.rafIntervalsMs
     const result = {
       mode,
       quality,
       ...frameStats,
+      rafStats,
       simulationTicks: raw.endTick - raw.startTick,
       simulationTicksPerSecond: (raw.endTick - raw.startTick) * 1000 / raw.elapsedMs,
       ...raw,
@@ -165,7 +174,7 @@ try {
       viewport: process.env.BENCH_SIZE ?? '1400,900',
       gpuBackend: 'hardware ANGLE backend selected by Chrome',
     },
-    config: { durationMs, warmupTicks, speed: 16, onePercentLow: 'mean FPS of the slowest 1% frame intervals' },
+    config: { durationMs, warmupTicks, speed: 16, onePercentLow: '1000 / mean(slowest 1% submitted-frame intervals)' },
     reports,
   }
   writeFileSync(output, JSON.stringify(report, null, 2))

@@ -2,6 +2,9 @@ import * as THREE from 'three'
 import { TessellateModifier } from 'three/addons/modifiers/TessellateModifier.js'
 import { setModelDetail } from '../../modelDetail.ts'
 import { cabShellGeometry } from './TrainShell.ts'
+import { CabFrontSurface } from './CabFrontSurface.ts'
+
+const frontSurfaces = new WeakMap<THREE.Mesh, CabFrontSurface>()
 
 type Vertex = { p: THREE.Vector3; n: THREE.Vector3 }
 
@@ -78,7 +81,10 @@ export function seatCabFront(mesh: THREE.Mesh, shell: THREE.Mesh, nose: number, 
   if (reduced) setModelDetail(mesh, reduced)
   mesh.updateMatrix(); shell.updateMatrixWorld(true)
   const inverse = mesh.matrix.clone().invert(), point = new THREE.Vector3()
-  const ray = new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(-outward,0,0))
+  let surface = frontSurfaces.get(shell)
+  if (!surface) { surface = new CabFrontSurface(shell.geometry); frontSurfaces.set(shell, surface) }
+  const inverseShell = shell.matrixWorld.clone().invert()
+  const ray = new THREE.Ray(), hit = new THREE.Vector3()
   const cache: Map<string,number> = shell.userData.frontSamples ??= new Map<string,number>()
   for (const geometry of [mesh.geometry, mesh.userData.lowDetailGeometry as THREE.BufferGeometry | undefined]) {
     if (!geometry) continue
@@ -88,8 +94,11 @@ export function seatCabFront(mesh: THREE.Mesh, shell: THREE.Mesh, nose: number, 
       const key = `${point.y.toFixed(6)},${point.z.toFixed(6)}`
       let x = cache.get(key)
       if (x === undefined) {
-        ray.ray.origin.set(nose+outward*4,point.y,point.z)
-        x = ray.intersectObject(shell,false)[0]!.point.x
+        ray.origin.set(nose+outward*4,point.y,point.z)
+        ray.direction.set(-outward,0,0)
+        ray.applyMatrix4(inverseShell)
+        if (!surface.intersect(ray, hit)) throw new Error('Cab fitting lies outside its shell')
+        x = hit.applyMatrix4(shell.matrixWorld).x
         cache.set(key,x)
       }
       point.x = x + outward * (lift + (outward*(point.x-nose)-reference)*thicknessScale)

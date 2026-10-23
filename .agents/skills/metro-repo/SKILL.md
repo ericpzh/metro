@@ -22,6 +22,11 @@ including catalogue previews, place/move/pick/delete, camera movement, view chan
 and line/exit/time edits. Use `npm run bench:placement` to profile placement from
 the first pointer-down through visible feedback; keep the 100 ms response budget
 and its measured gaps current in the performance guide.
+Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
+Chrome/GPU traces in separate runs. Keep train-model preparation in station opening,
+reuse the bounded prepared fleet on arrival, and retain only the latest train frame
+while the editor is suspended. Compare submitted-frame intervals as well as RAFs;
+see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
 Chunk face culling must account for independently hidden geometry: a suspended
 ceiling never occludes an adjacent ordinary block face, including its side, top or
 bottom. Keep its side/cap/support votes aligned across chunk cache halos. Pin the
@@ -152,7 +157,7 @@ passenger support/transfer, live stream and toolbar contracts in the `exploded-*
 `node tools/check-exploded-view.mjs` after the build for Zoo and Tanwei lifecycle,
 camera, playback and visual checks; record timings and screenshots under
 `.preview/perf/exploded-view/` and measured results in
-[`references/performance.md`](references/performance.md#hidden-street-passengers-and-tanwei-tunnel-caps).
+[`references/performance.md`](references/performance.md#simulation-playback-frame-tails).
 
 ### Interactive preview work
 
