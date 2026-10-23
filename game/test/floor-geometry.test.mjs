@@ -106,3 +106,57 @@ test('PSD base wins the platform block volume; no-screen restores it and invalid
   } finally {chunks.disposeChunks();material.dispose()}
  }
 })
+
+
+test('Tanwei wall sides survive hidden suspended ceilings and neighbour retagging across chunks', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { LevelSystem } = await import('../src/render/scene/systems/LevelSystem.ts')
+  const demo = JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json', import.meta.url), 'utf8'))
+  const material = new THREE.MeshBasicMaterial()
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  ctx.activeZ = -5
+  const chunks = new ChunkSystem(ctx), level = new LevelSystem(ctx)
+  level.chunks = chunks
+  level.modules = { moduleMeshes: new THREE.Group(), syncBatches() {}, restoreMovingModule() {} }
+  level.trains = { trainGroup: new THREE.Group() }
+  const wall = demo.cells.find(c => c.x === 16 && c.y === 6 && c.z === -1)
+  const ceilings = demo.cells.filter(c => c.x === 16 && [5, 7].includes(c.y) && c.z === -1)
+  assert.equal(ceilings.length, 2)
+  const sideHit = (x, y, dx, dy) => {
+    ctx.scene.updateMatrixWorld(true)
+    const ray = new THREE.Raycaster(new THREE.Vector3(x, y, -.5), new THREE.Vector3(dx, dy, 0), 0, .75)
+    return ray.intersectObjects(chunks.chunkMeshes.filter(m => m.visible && !m.userData.suspendedCeiling)).length > 0
+  }
+  const install = cells => { chunks.prepareStation({ ...demo, cells, modules: [] }); chunks.meshStation(); ctx.levelKey = ''; level.applyLevel() }
+  try {
+    install([wall, ...ceilings])
+    level.setAutoCeiling(true)
+    assert.ok(sideHit(16.5, 5.5, 0, 1), 'south wall face remains behind hidden Tanwei ceiling')
+    assert.ok(sideHit(16.5, 7.5, 0, -1), 'north wall face remains behind hidden Tanwei ceiling')
+    const geometry = chunks.chunkMeshes.map(m => m.geometry)
+    level.setAutoCeiling(false)
+    assert.ok(chunks.chunkMeshes.filter(m => m.userData.suspendedCeiling).every(m => m.visible))
+    level.setAutoCeiling(true)
+    assert.deepEqual(chunks.chunkMeshes.map(m => m.geometry), geometry, 'toggle never remeshes or allocates geometry')
+    // The second report points at the back of this stepped wall. Its exposed
+    // ledge at y=12 was missing its top beneath a hidden ceiling at z=-1.
+    const strip = demo.cells.filter(c => c.x === 18 && c.y >= 11 && c.y <= 14 && c.z >= -5 && c.z <= 0)
+    install(strip)
+    ctx.scene.updateMatrixWorld(true)
+    const ledge = new THREE.Raycaster(new THREE.Vector3(18.5, 12.5, -.5), new THREE.Vector3(0, 0, -1), 0, .75)
+    const ledgeHits = ledge.intersectObjects(chunks.chunkMeshes.filter(m => m.visible && !m.userData.suspendedCeiling))
+    assert.ok(ledgeHits.some(h => Math.abs(h.point.z + 1) < 1e-6), 'Tanwei ledge top beneath the hidden ceiling closes the wall volume')
+    const oblique = new THREE.Raycaster(new THREE.Vector3(18.5, 12.1, -.25), new THREE.Vector3(0, .4, -.75).normalize(), 0, 3)
+    assert.ok(oblique.intersectObjects(chunks.chunkMeshes.filter(m => m.visible && !m.userData.suspendedCeiling)).some(h => Math.abs(h.point.z + 1) < 1e-6), 'view from -y hits the ledge instead of seeing inside the wall')
+    // West neighbour is across the x=16 chunk boundary: only its tag changes.
+    const west = { x: 15, y: 6, z: -1, fill: 'solid' }
+    install([wall, west])
+    assert.equal(sideHit(15.5, 6.5, 1, 0), false, 'ordinary shared sides stay culled')
+    install([wall, { ...west, tags: ['suspended-ceiling'] }])
+    assert.ok(sideHit(15.5, 6.5, 1, 0), 'retagging invalidates the neighbouring cached wall chunk')
+    install([wall, west])
+    assert.equal(sideHit(15.5, 6.5, 1, 0), false, 'restoring a solid neighbour culls the side again')
+    install([wall, { ...west, x: 17, tags: ['suspended-ceiling'] }])
+    assert.ok(sideHit(17.5, 6.5, -1, 0), 'east wall side also survives a hidden ceiling')
+  } finally { chunks.disposeChunks(); material.dispose() }
+})

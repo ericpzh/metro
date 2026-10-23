@@ -271,6 +271,8 @@ export class ChunkSystem extends SceneSystem {
       const prev = this.ctx.groundOf.get(col)
       if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
     }
+    // Ceilings have an independently hideable pass. Keep every adjacent ordinary
+    // face (including the ledge below one) so hiding that pass never opens a block.
     const suspended = new Set(this.effectiveCells.filter(c => c.tags?.includes('suspended-ceiling')).map(c => packKey(c.x,c.y,c.z)))
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     // The street's own pass. It is a storey of its own in everything but name: at
@@ -381,8 +383,9 @@ export class ChunkSystem extends SceneSystem {
         // the plate and street passes read cover the chunk does not hold — so a
         // slab laid overhead must change their key, or the old cap is reused.
         if (pass !== 's') {
-          const covered =
-            this.ctx.solid.has(packKey(c.x, c.y, c.z + 1)) || this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
+          const above = packKey(c.x, c.y, c.z + 1)
+          const covered = !(pass !== 'c' && suspended.has(above)) &&
+            (this.ctx.solid.has(above) || this.ctx.slopeFills.has(above))
           h = Math.imul(h ^ (covered ? 11 : 3), 16777619)
         }
         n++
@@ -418,15 +421,15 @@ export class ChunkSystem extends SceneSystem {
           h = Math.imul(h ^ nb.y, 16777619)
           h = Math.imul(h ^ nb.z, 16777619)
           const vote =
-            sideSolid.has(hk) && !this.ctx.hiddenCells.has(hk) && !this.ctx.slopeFills.has(hk) ? 1 : 0
+            sideSolid.has(hk) && !(pass !== 'c' && suspended.has(hk)) && !this.ctx.hiddenCells.has(hk) && !this.ctx.slopeFills.has(hk) ? 1 : 0
           h = Math.imul(h ^ (vote + 2), 16777619)
-          const drawsHere = sideSolid.has(hk) || this.ctx.slopeFills.has(hk) ? 1 : 0
+          const drawsHere = !(pass !== 'c' && suspended.has(hk)) && (sideSolid.has(hk) || this.ctx.slopeFills.has(hk)) ? 1 : 0
           h = Math.imul(h ^ (drawsHere + 5), 16777619)
           if (cover !== undefined) {
-            const coveredHere = cover.has(hk) || this.ctx.slopeFills.has(hk) ? 1 : 0
+            const coveredHere = !(pass !== 'c' && suspended.has(hk)) && (cover.has(hk) || this.ctx.slopeFills.has(hk)) ? 1 : 0
             h = Math.imul(h ^ (coveredHere + 9), 16777619)
           } else {
-            h = Math.imul(h ^ (emit.has(hk) ? 14 : 7), 16777619)
+            h = Math.imul(h ^ (emit.has(hk) && !(pass !== 'c' && suspended.has(hk)) ? 14 : 7), 16777619)
           }
           const inset = this.platformInsets.get(hk)
           if (inset) for (const value of Object.values(inset)) h = Math.imul(h ^ Math.round(value * 1024), 16777619)

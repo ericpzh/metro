@@ -621,6 +621,8 @@ export function meshChunk(
   fill?: ReadonlySet<number>,
   cover?: ReadonlySet<number>,
   insets?: ReadonlyMap<number, BlockInset>,
+  /** Independently hidden ceilings must not remove adjacent block faces. */
+  nonOccluding?: ReadonlySet<number>,
 ): ChunkGeometry {
   const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now()
   // What a cell *voted* for its neighbours' exposure, and what it *draws*, are not the same
@@ -638,12 +640,14 @@ export function meshChunk(
   // to the sky — which is what `draws` and `standsOn` are for.
   const isSolid = (x: number, y: number, z: number): boolean => {
     const k = key(x, y, z)
+    if (nonOccluding?.has(k)) return false
     if (skip !== undefined && skip.has(k)) return false
     if (fill !== undefined && fill.has(k)) return false
     return solid.has(k)
   }
   /** Does the mesher draw anything in this cell at all — a block, or a run's filling? */
-  const draws = (x: number, y: number, z: number): boolean => solid.has(key(x, y, z)) || (fill !== undefined && fill.has(key(x, y, z)))
+  const draws = (x: number, y: number, z: number): boolean =>
+    !nonOccluding?.has(key(x, y, z)) && (solid.has(key(x, y, z)) || (fill !== undefined && fill.has(key(x, y, z))))
   /** Is there something under this cell to stand on — a block, or a run's filling? */
   const standsOn = (x: number, y: number, z: number): boolean => draws(x, y, z - 1)
 
@@ -709,10 +713,9 @@ export function meshChunk(
     // (`cover`), so it never draws a cap the storey pass culls. Only a real block
     // ever culls a face on a *side*.
     const above = key(x, y, z + 1)
-    let up =
-      cover !== undefined
-        ? !(cover.has(above) || (fill !== undefined && fill.has(above)))
-        : !(draws(x, y, z + 1) && (emit === undefined || emit.has(above)))
+    let up = nonOccluding?.has(above) === true || (cover !== undefined
+      ? !(cover.has(above) || (fill !== undefined && fill.has(above)))
+      : !(draws(x, y, z + 1) && (emit === undefined || emit.has(above))))
     let down = !standsOn(x, y, z)
     // A wedge's slope leaves the square above/below it half open: a block under
     // an 上 wedge's tip (or over a 下 one's) still shows its cap there. Only a

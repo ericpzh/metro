@@ -1733,3 +1733,61 @@ stalls, unchanged throughput and unrelated validation failures. Keep raw JSON,
 screenshots, CPU profiles and traces under ignored `.preview/perf/`. Never weaken an
 asset-integrity assertion or change generated provenance merely to make a
 performance change's test run green.
+
+
+## Tanwei hidden-ceiling block faces (2026-10-22)
+
+At `(16,6,-1)`, suspended ceilings at `(16,5,-1)` and `(16,7,-1)`
+were still side-occlusion votes after their independent render pass was hidden.
+The second report, `(18,14,-3)` viewed from -y, exposed a related missing top:
+the stepped wall's ledge at `(18,12,-2)` lost its top to a hidden ceiling at
+`(18,12,-1)`, exposing the block interior. Ordinary/ground/plate passes now
+retain every face beside suspended ceilings; ceiling-to-ceiling culling remains.
+The halo hash includes matching side, cap and support votes, including across
+the x=16 chunk boundary. No view-dependent remeshing, document commit or pointer
+picking is added.
+
+`node tools/check-ceiling-wall-faces.mjs` checks the production build with the
+full shipped Tanwei demo at activeZ=-5, other storeys off: both reported side
+faces exist with ceilings hidden, downward and oblique -y rays hit the restored
+ledge top at z=-1, and six hide/show toggles retain every chunk geometry. The
+saved production screenshot confirms the open black strip is filled. On this
+local software-GPU run first show took 33.8 ms, subsequent shows 18.0/18.4 ms,
+and hides 22.0/17.7/16.1 ms. These are synchronous setter timings, not frame
+latency or a controlled before/after performance comparison. Raw results,
+screenshot and validation logs: `.preview/perf/ceiling-wall-faces/`.
+
+The focused `floor-geometry` + `chunk-cache` + `storey-height` instrumented run
+passes 32 tests: `chunkMesher.ts` 71.54% lines / 81.40% branches / 61.54% functions;
+`ChunkSystem.ts` 96.12% / 92.38% / 86.67%. The regression checks all four wall
+sides, ledge closure from above and -y, ordinary shared-face culling, tag-only
+neighbour changes across chunks, and geometry identity across ceiling toggles.
+Production build passes. The initial full run had 2,320 passes and one unrelated
+existing sign-preview source-text assertion failure in `scene-wiring` against
+the concurrently modified `SceneRenderer.setStation` signature.
+
+Final full owning suite: **2,325 passing, zero failures/skips** (`tests-final.txt`);
+the initial unrelated assertion was resolved by concurrent work. The broad
+in-process `test:perf` attempt was stopped after approximately 13 minutes without
+a final summary; it is incomplete, not a pass. The completed focused coverage,
+full suite and production browser checks above are the validation for this fix.
+
+## Local equipment placement retention
+
+Keep `ModuleSystem`'s existing scene parents and registries on an immutable
+append when every previous model survives. `EquipmentBatches.invalidateViews(true)`
+may retain source discovery only after the equipment-content classifier proves
+the edit safe. Source records are bounded per root/view, transform changes refresh
+them, and append aggregation updates only buckets receiving new sources. Unknown
+callers retain conservative invalidation. Retired GPU entries leave the click
+path through bounded idle disposal; teardown cancels and drains that work.
+
+An equipment edit can extend virtual ground without changing authored chunks.
+Use the explicit ground-only preparation/meshing path only after the same
+classifier proves unchanged authored cells, openings and metadata. Preserve
+structural indexes and authored buffers; hash/remesh changed ground boundaries.
+Expansion and shrink must match a fresh full mesh. Keep the ordinary full path
+for structural edits. Never defer a refusal or make previews commit documents.
+
+See [the placement audit](../../../../game/PERFORMANCE.md) for current measurements,
+deterministic regressions, browser reproduction and the remaining 100 ms gap.

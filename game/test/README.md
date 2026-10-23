@@ -1110,3 +1110,5 @@ tread gap, but cannot ignore a nearer block when the exact run surface is behind
 it. All pointer cell fallbacks use `moduleTarget`, which requires a drawn-surface
 hit for stair/escalator/walkway runs. Geometry-free `moduleAt` callers retain their
 coordinate-query contract. This regression runs in `test:perf`.
+
+`floor-geometry` also pins Tanwei `(16,6,-1)` wall sides beside hidden suspended ceilings, the `(18,14,-3)` report’s stepped-wall ledge closure from above and -y, toggle geometry retention, ordinary shared-side culling and cross-chunk cache invalidation when a neighbour is retagged.
