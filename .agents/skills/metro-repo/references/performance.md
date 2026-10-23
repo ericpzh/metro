@@ -726,34 +726,12 @@ Overhead-wire counts include collectors and their roof mounts:
 | B-4 | 35,044 | 395,316 |
 | L-4 | 32,052 | 360,468 |
 
-2026-10-23 reference-aligned bogie refresh: each bogie is centred 0.25 m
-inward of the outer passenger-door centre, with the full 1.44 m axle spacing.
-This matches the user's circled wheel pairs around the outer door bays rather
-than putting the bogies beneath the cab tips. All wheel and suspension hardware
-clears the passenger sill vertically on the lowered track. Raised wheel housings
-and floor cut-outs are removed, leaving continuous floors and flat thresholds.
-`train-bogie` pins the reference positions, rail contact, vertical sill clearance
-and continuous passenger aisles. Raw geometry inventories are
-`.preview/perf/train-triangles{,-catenary}.json`.
-
-Sheet 05 previously reserved 196 px for a 227.3 px side capture (plus 28 px top
-inset), so later backgrounds hid all but the final stock row's wheels. Cards
-now derive their height from the largest front/side capture with 20 px bottom
-padding. `train-art-pipeline` pins every animated pose inside its own row.
-Static and 60 animated production captures verify the reference-aligned positions.
-Both locales of sheets 05/11 and their print PNGs are refreshed. Broader train-sheet
-regeneration is currently limited by missing ignored piece-elevation, hero-piece
-and passenger captures for sheets 01/02/12/13 in this checkout.
-Validation: all 2,337 game tests pass (`.preview/train-reference-tests.log`),
-including the six bogie and six artwork regressions. Game and web builds pass.
-Production SVG previews at 8 s are `.preview/sheets/05-trains-reference-{zh,en}.png`
-and `.preview/sheets/11-trains-reference-{zh,en}.png`.
-Focused coverage (`.preview/train-reference-coverage.log`): TrainBogie
-89.05% lines / 95% branches / 100% functions; TrainInterior 100% / 97.62% /
-100%; TrainModel 94.19% / 90.70% / 55.56%. The unused custom axle-span branch
-is outside this reference-placement run; the full suite retains its existing
-door-motion and model-lifecycle coverage.
-
+Train bogies are centred 0.25 m inward of the outer passenger-door centre, with
+1.44 m axle spacing. Wheel and suspension hardware clear the passenger sill, and
+continuous passenger floors have flat thresholds. `train-bogie` pins positions,
+rail contact, sill clearance and aisle continuity. Train sheet cards size to their
+largest front/side capture with bottom padding; `train-art-pipeline` pins animated
+poses to their own rows.
 The shared `TrainBogie.ts` wheelsets, sculpted frames, suspension and brakes are
 included in these counts; Low keeps profiled eight-sided tyre treads and flanges,
 six-sided wheel webs, and omits coils, bolts, pipes, dampers and fine
@@ -1128,1058 +1106,189 @@ Current inventory sizes:
 | Passenger variants | `.preview/perf/passenger-triangles.json` |
 | Road vehicles, including colour + depth pass | `.preview/road-vehicles/report.json` |
 
-## Current measurements
-
-These are production-browser samples on the stated fixtures. Each table's first
-value is the first invocation and the second is a warmed repetition unless noted;
-milliseconds, CPU readiness through two animation frames where stated. Browser
-timing is evidence, not a pass threshold. Re-measure after changing the path.
-
-### Fence drag preview
-
-`node tools/bench-fence-drag.mjs` drives production hover, press, a 220 ms long
-press, three drag movements, Escape/cancel and a repeated drag followed by release.
-The deterministic fixture has 256 glass fences (128 on each of z=0 and z=-5), 128
-floor cells, seed 12345, no crowd or lines, paused, High graphics, ground storey
-active and Show other levels off. Chrome 155 on Windows, 28 logical CPUs,
-RTX 4080 SUPER through ANGLE/D3D11; viewport 1424 × 905, top orthographic view.
-Both runs use the same fixture and event sequence, with builds and tests idle.
-
-| Phase | Preview CPU | Event through two RAFs |
-|---|---:|---:|
-| First press | 1.1 ms | 84.2 ms |
-| First drag movement | 1.4 ms | 38.9 ms |
-| Continued movement | 0.9–1.6 ms | 47.6–50.2 ms |
-| Cancel | 0.3 ms | 32.0 ms |
-| Repeated press | 0.5 ms | 34.4 ms |
-| Release/commit | 0.5 ms | 51.3 ms |
-
-The one-panel preview builds two groups (candidate plus its one adjacent joint); a
-four-panel run builds five. Pointer press, movement and cancel perform zero
-equipment batch synchronizations. The immutable fence/gate/landing index is
-prepared while building the station, and candidate connections overlay that index
-without copying or scanning the station document. Only neighbouring bucket draws
-are masked; original GPU allocations and all remote geometry remain in place.
-All 128 hidden lower-storey source roots stay hidden through cancel, cancel commits
-nothing, and release adds exactly four panels in one commit. Release still performs
-the normal functional station/routing edit.
-
-Run with `METRO_BROWSER_GPU=hardware`, choose distinct `BENCH_OUTPUT` paths, and
-set `BENCH_EXPECT_LOCAL=1` to check the local-work and visibility contracts.
-`BENCH_STATION` accepts a user save with a ground fence and five free cells to its
-east; `BENCH_PROFILE=1` writes a separate CPU profile.
-
-### Equipment placement and hover indexes
-
-`tools/bench-tree-placement.mjs` with
-`BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (or `PIECE=tvm`),
-seed 12345, 128 pre-existing ground fences, no stored floor cells, no crowd/lines,
-paused, one real hover/press/release per piece. The target lies inside the existing
-street window. Chrome/GPU/viewport as above.
-
-| Placement measurement | Current |
-|---|---:|
-| First hover, event through two RAFs | 208 ms |
-| First press, event through two RAFs | 199 ms |
-| First release, event through two RAFs | 45 ms |
-| First press `setStation` CPU | 5.4 ms |
-| Repeated press `setStation` CPU | 4.7 ms |
-| Repeated press, event through two RAFs | 156 ms |
-
-Both presses retain all prior equipment roots and build exactly one added model;
-the run records zero chunk preparation/remesh or station-wide plate repaint calls.
-It ends at 115 draws / 85,536 triangles with two commits and no captured runtime
-errors. Commit-to-worker-frame latency is 145.6 / 149.9 ms, including the
-intentional 100 ms coalescing window. Cold hover and software-GPU frame latency
-remain significant; the repeated end-to-end press is not a blanket responsiveness
-or FPS claim. `PIECE=psd-end` also commits twice through production input with no
-chunk remesh, retaining the 128/129 prior models; `setStation` CPU is 5.5 / 4.0 ms.
-Raw reports are under `.preview/perf/` (`placement-audit-*.json` and adjacent
-profiles). `equipment-retention.test.mjs` guards 1,024 unrelated models, functional
-routing, chunk classification, structural/coupled invalidation, geometry matching a
-fresh build, live materials, cached move removal and ordinary hovers without
-document scans.
-
-### Curtain-wall carried preview
-
-`node tools/bench-curtain-preview.mjs` uses the shipped Tanwei station, 9,572
-modules, paused simulation and hardware ANGLE/D3D11 on an RTX 4080 SUPER. Twelve
-real mouse movements include the first invocation; runs use the same camera and 22
-pick-verified targets.
-
-| Event through two RAFs | Current |
-|---|---:|
-| First hover | 263.8 ms |
-| Median of eleven subsequent movements | 83.1 ms |
-| Subsequent range | 58.9–134.2 ms |
-
-Preview model submission is about 1–3 ms. The run commits no document and calls no
-`setStation`. Glass/fence pairs bypass the nominal-envelope rejection because a
-joint can grow perpendicular fence arms; the full possible fence-arm tile is
-rejected first, then four local neighbour lookups use the immutable fence
-connection index, and the exact thin arm boxes still decide collision. Cold hover
-remains noticeable and general rendering throughput is not optimized. Two RAFs
-include frame scheduling, rendering and CDP overhead.
-
-`glass-panel` guards cold/repeated verdicts with 2,048 remote fences, bounded
-station iterations, exact turning-arm collision, curtain crossing permission and
-immutable neighbour-removal invalidation; it is included in `test:perf`.
-
-### Suspended-ceiling drag
-
-The 吊顶 tool validates hover, drag and release against the original station,
-exactly as ordinary blocks do. It prepares no copied module document and relocates
-no fixture anchors. `addSuspendedCeiling` retains the original modules array and
-only adds tagged/finished cells.
-
-Production `bench-drag-latency.mjs`, Zoo demo (14,073 cells / 4,291 modules), block
-tool, suspended-ceiling mode, 10 × 10 drag, paused plan view, identical targets and
-assets:
-
-| Measurement | Current first / repeated |
-|---|---:|
-| Hover event through two RAFs | 255.3 / 55.1 ms |
-| Drag preview callback CPU | 8.0 / 1.4 ms |
-| Drag movement through two RAFs | 192.4 / 210.6 ms |
-
-Both runs recorded zero preview commits and zero browser errors. The harness
-includes a 160 ms settle in drag samples. Cold hover still includes renderer
-initialization and frame latency.
-
-### Shared tool picking
-
-Pointer tools share one event-scoped ray and lazy scene intersection snapshot.
-Block, module, normal, bounds and roof queries reuse visible hits and misses;
-overlapping lift roots are traversed once. Plane-only queries do not traverse
-geometry. Each interpolated deletion sample keeps its own cached position. Queued
-movement is flushed before the release scope opens.
-
-`node tools/check-tool-picking.mjs` runs a ceiling sign placement at (3,1,3) and
-move to (4,1,3) below the platform underside at 4 m, stair and escalator deletion
-with undo/redo, and first/warm hovers of all eleven tools on Tanwei. Across 38
-dispatches the maximum is one scene raycast per dispatch, with no browser errors.
-Current event CPU: platform first hover/press 19.6/2.1 ms; carried-sign first
-hover/press 3.0/1.3 ms; first block hover beside stair/escalator 1.2/0.6 ms. These
-overlapped verification jobs; they are not isolated frame-present measurements.
-
-Deterministic regressions cover event sharing, cached misses, nested scopes,
-visibility refresh, layer restoration, duplicate lift roots and shared ceiling
-aiming. Ramp regressions cover 92 combinations of stair shape, width and rotation
-and escalator width/rotation using real rendered mesh intersections, deletion,
-selection, picking and undo.
-
-### Placement 100 ms budget
-
-`npm run bench:placement` builds the game and runs
-`tools/bench-placement-latency.mjs` against both demos with hardware rendering by
-default. It records browser-clock pointer handler duration, first renderer
-submission completion, event-through-two-RAF, nested subsystem times, retained
-models, scene raycasts and the next paused worker metrics frame. Result lookup and
-fixture discovery stay outside event timings. The initial five physical targets per
-demo are pinned in the script; a changed target sequence fails. Every click must
-add exactly one bench and each event must use at most one scene raycast.
-`BENCH_EDITS` selects 1–20 placements; the first five remain pinned.
-
-Controlled captures: Chrome 155 / ANGLE D3D11, RTX 4080 SUPER, High quality,
-1440 × 1000 window, 892 × 815 scene canvas, paused population 0, seed 7654321.
-Zoo: 14,073 cells / 4,291 modules. Tanwei: 16,437 cells / 9,694 modules. The
-authored editing storeys are −20 m / −10 m; the pinned targets hit visible virtual
-ground at 0 m.
-
-| Browser event measurement (ms) | Zoo | Tanwei |
-|---|---:|---:|
-| First click → renderer submission complete | 669 | 335 |
-| First click → two RAF | 706 | 382 |
-| Repeated click → renderer submission, range | 115–529 | 257–1,079 |
-| Repeated click → two RAF, range | 133–555 | 261–1,130 |
-| Worst click → two RAF, five samples | 706 | 1,130 |
-| Placements exceeding 100 ms, either proxy | 5 / 5 | 5 / 5 |
-
-These are individual samples, not a p95 estimate. Renderer submission and two RAFs
-are response proxies, not GPU fences or compositor presentation timestamps.
-Subsystem timers overlap and must not be summed. All ten placements succeeded;
-browser errors and GL error are zero, and each event uses one raycast.
-
-Use **100 ms from pointer-down to visible placement feedback, including the first
-click**, as the response budget. A proposed allocation is 20 ms for
-validation/document commit, 20 ms for the changed model, 15 ms for local batch
-updates, 30 ms for rendering and 15 ms reserve. These are engineering targets, not
-achieved figures. Track worker installation separately: the observed next
-metrics-frame delays are 270–1,079 ms, and routing already has a coalesced 100 ms
-scheduling window. Fast feedback must preserve the coherent applied
-document/routing pair and the tool's placement/refusal contract.
-
-The measured cost centres, in profile order:
-
-1. **Retaining the parent of retained module roots.** Re-adding a retained group to
-   `moduleMeshes` makes Three remove it from that same parent first, searching and
-   splicing the same large children array. The Tanwei CPU profile attributed 220 ms
-   to `Object3D.remove` across three placements. A disposable-browser
-   `--retain-parent` ablation skips the redundant additions: all original 9,694
-   roots survive and the new bench is added, while model-update CPU falls to
-   31–39 ms in the paired captures. Interior click-to-render still takes 200–252 ms,
-   so this alone does not meet the budget. Keep the parent guard pinned by
-   `equipment-retention`.
-2. **Patching affected spatial batches and module registrations.** Even when all
-   original models survive and document cells are the same array, a click can walk
-   or re-register the whole station and invalidate equipment views twice, in
-   `SceneRenderer.setStation` and `ModuleSystem.buildModules`. Interior Tanwei
-   samples spent 84–109 ms in module updates and 56–66 ms in batch sync. Keep
-   unaffected roots, rigs, buckets and buffers in place; update the new piece's
-   local bucket and retain other view data. The 16 m bucket layout is the useful
-   unit. `batching-lifecycle` pins reuse of retained source discovery and
-   invalidation on transform/view changes.
-3. **Updating ground edges without remeshing the whole station.** A bench placed on
-   already visible virtual ground can extend the content bounds and move the
-   generated ground window. Zoo's first target shifts x0 from −14 to −27; Tanwei's
-   fourth shifts y1 from 100 to 112. That changes no authored cell but can take the
-   full preparation/meshing path. Tanwei's edge click spent 236 ms in chunk meshing
-   and 357 ms in batch sync, reaching 1,079 ms to renderer submission. Preserve
-   authored chunks and rebuild only the affected boundary ground chunks, while
-   keeping the ground/routing contract; `floor-geometry` compares the local ground
-   pass with fresh meshing on expansion and shrink.
-4. **Retaining uploaded rendering resources and warming cold programs.** The Zoo
-   profile captured 145 ms in `getProgramInfoLog` during the three-click run, and
-   repeated scene traversal/matrix updates remain significant. Avoid turning local
-   placement into fresh station geometry/material/program work. Raycasting is
-   already one traversal per event and is not the principal cost.
-
-These paths carry deterministic regressions (`equipment-retention`,
-`batching-lifecycle`, `floor-geometry`). Re-run `npm run bench:placement` after
-changing them; the measured budget above is the acceptance target, not a claim
-about the latest edit.
-
-#### Follow-up placement audit (2026-10-22)
-
-The optimized implementation was measured again with five pinned visible-ground
-targets per demo in Chrome 155 / RTX 4080 SUPER through ANGLE/D3D11, High quality,
-892 × 815 scene canvas. The run checked pointer-handler and renderer-submission
-latency, two-RAF latency, subsystem work, retained model roots, worker frame delay,
-raycasts and authored cells. Each click added exactly one bench, used at most one
-scene raycast, preserved authored cells and reported zero browser/GL errors.
-
-| Demo | First submission, before → after | Median, before → after | Worst, before → after |
-|---|---:|---:|---:|
-| Zoo | 683 → 134 ms | 505 → 134 ms | 683 → 176 ms |
-| Tanwei | 366 → 118 ms | 276 → 110 ms | 1,075 → 241 ms |
-
-The optimized submission samples were Zoo **134, 62, 132, 176, 156 ms** and
-Tanwei **118, 110, 107, 241, 100 ms**. Corresponding two-RAF samples were Zoo
-159/81/163/201/178 ms and Tanwei 157/149/142/283/133 ms. Worst submission
-latency fell 74% on Zoo and 78% on Tanwei, but the 100 ms target remains unmet:
-street-window boundary edits are still the main outliers. The worst Tanwei click
-spent 72 ms meshing ground, 132 ms in `setStation`, and 191 ms in the pointer
-handler before rendering; these nested measurements overlap and must not be
-added together. Zoo boundary meshing cost 32–61 ms. Remaining profile costs
-include generated-ground boundary meshing and whole-scene rendering/matrix work.
-
-The completed usage tour also measured two-RAF times of 1,164 ms for enabling
-cutaway on Zoo, 1,378 ms on Tanwei, 718 ms for Tanwei's first line-colour change,
-649 ms for Zoo's first exit-open change, and 396 ms for Tanwei's time-panel/date
-action. These are tour timings, not matched before/after comparisons. Play/pause
-includes simulation startup and an intentional wait.
-
-Captures are under `.preview/perf/placement-100ms/`: `baseline-equivalent.json`,
-`optimized-final.json`, `comparison.json` and
-`profile-remaining-tanwei.cpuprofile`. Earlier `after-local-v6.json`, the
-original `baseline-matched.json`, and their overlapping validation runs are
-diagnostic only. The matched baseline was built from Git HEAD `b0ab3b3` with the
-same independent hidden-ceiling face correction. `--profile` captures remain
-separate from clean timing runs. Target discovery uses untimed raycasts before
-the first sample, so “first” means first placement after load, not first scene
-pick. The original audit's validation recorded 2,326 passing game tests,
-151 focused coverage tests, a successful production build and profiler export,
-passing native/fallback batching checks, and complete demo tours with fixture
-restoration and no browser errors. Its broad single-process `test:perf` attempt
-was stopped without a final summary and is incomplete.
-
-### Blocked block drags in the demos
-
-Empty-floor measurements miss the reported cascade. In the shipped Tanwei station
-(9,572 modules / 14,717 cells), a drag grows a 49 × 48 footprint with 107 refused
-cells alongside 2,243 accepted cells. Without the verdict cache, each refused cell
-would rebuild `moduleBlockedCells` and scan the entire module list for blockers;
-the cache reuses covered verdicts and checks only unseen coordinates.
-
-Production browser measurement, first / repeated movement, milliseconds. The real
-demo loader retains authored geometry and seed. Long-press gestures aimed around a
-booth cross existing geometry, then cancel (zero commits). Tanwei starts on a roof
-hit and holds the pressed height while expanding across roof/support geometry, as
-the real block tool does. Chrome 155 / SwiftShader, 1424 × 905, paused population.
-Projected endpoints agree within floating-point precision; hit cell/place
-coordinates agree exactly. Initial rendering settles before the first measured
-hover.
-
-| Fixture / phase | Current first / repeated |
-|---|---:|
-| Zoo: callback work | 8.3 / 3.4 ms |
-| Zoo: ghost CPU ready | 59.6 / 53.4 ms |
-| Zoo: event through two RAFs | 83.6 / 84.9 ms |
-| Tanwei: callback work | 47.0 / 22.8 ms |
-| Tanwei: ghost CPU ready | 91.7 / 73.3 ms |
-| Tanwei: event through two RAFs | 248.0 / 177.0 ms |
-
-Accepted/refused counts match: Zoo 492 / 35, Tanwei 2,243 / 107. Tanwei first
-hover through two RAFs takes 521.2 ms; software rendering and initialization remain
-expensive and variable. CPU readiness is not displayed-pixel latency; two RAFs are
-a presentation proxy, not a GPU timer. A 12-position final Tanwei gesture produced
-11 / 9 intermediate previews, with no runtime errors or edits.
-
-`block-collision-cache` pins deterministic work on a 1,201-module blocked fixture:
-growing a 400-cell refusal by 20 cells performs no new reads of unrelated module
-types. It checks witness reuse, shrink/grow, blocker removal, cell replacement,
-snapshot isolation, reason priority, retention bounds and broad imported geometry.
-Both demos' blocker IDs/order are compared against the original geometry scan at
-sampled booth, gate, stair, roof and support positions.
-
-Reproduce: `node tools/bench-drag-latency.mjs`, `BENCH_PIECE=block`,
-`BENCH_DEMO=zoo BENCH_SIDE=24` or `BENCH_DEMO=tanwei BENCH_SIDE=48`;
-`BENCH_PROFILE=1` captures CPU samples, `BENCH_CONTINUOUS=1` repeats movement.
-Reports/screenshots/profiles: `.preview/perf/demo-collision-*.json` and adjacent
-files. `BENCH_ASSERT_WITNESS=1` passes through production input on Tanwei: first
-and repeated unchanged blocked footprints keep a red cursor without another
-preview draw.
-
-### Shared 50 ms drag cadence
-
-Production input measurements below are pointer-to-preview **CPU readiness**, first
-invocation / repeated invocation, in ms. Same fixture, camera, seed 12345, paused
-empty population, Chrome 155, SwiftShader, 1424 × 905; each fixture has a solid
-square floor of the stated side. First hover/press, long press, movement,
-Escape/cancel and repeated drag/release are driven through CDP. Initial floor
-rendering settles before the first interaction.
-
-| Tool / footprint | Current first / repeated |
-|---|---:|
-| Block: 10,000 cells over 100 × 100 floor | 88.9 / 86.3 ms |
-| Wall: 150 courses over 30 × 30 floor | 55.1 / 51.3 ms |
-| Fence: 30 panels | 65.0 / 60.9 ms |
-| Tactile: 30 tiles | 72.3 / 63.3 ms |
-| Stair block: 30 pieces | 69.5 / 55.8 ms |
-| Sidewalk: 900 tiles | 69.3 / 55.0 ms |
-| Lawn: 900 tiles | 72.2 / 64.5 ms |
-| Road: one 30 m segment | 55.4 / 50.8 ms |
-
-Block event-through-two-RAF presentation proxy is 91.8 / 88.9 ms. This is not a
-displayed-pixel or GPU timer. The first block hover takes 142.3 ms through two
-frames; initialization and large release scene rebuilds remain separate costs.
-Additional block runs: 9,880 floor/auto-wall candidates over a 90 × 90 floor are
-ready in 90.2 / 82.3 ms, and a 10,000-cell suspended ceiling over a 100 × 100 floor
-in 88.2 / 87.6 ms.
-
-A 12-position continuous block gesture produces **6 / 6 previews while moving**.
-Other continuous runs produce: wall 5 / 5, fence 7 / 9, tactile 6 / 6, stair block
-6 / 5, sidewalk 6 / 6, lawn 5 / 5, road 6 / 6; roofs remain 12 / 12. Sparse
-block/wall ghosts pass their candidate cells to the chunk mesher instead of
-visiting every empty cell of a 16 × 16 course; a deterministic 32-candidate
-regression spans 32 chunks (32 visits instead of 8,192), compares exact indexed
-geometry with the original mesher, covers duplicate/negative coordinates and ramp
-filling above pending cells, and checks temporary occupancy restoration. Dense
-geometry is still the full mesher output. The shared fake-timer regression drives
-every deferred placement controller, asserts a single 50 ms timer across target
-changes, retains the previous draw, reuses unchanged snapped targets, keeps previews
-out of document commits, and cancels on release.
-
-Reproduce with `node tools/bench-drag-latency.mjs`: `BENCH_PIECE` selects the
-palette type (or `block` / `wall`), `BENCH_SIDE` the floor/camera span,
-`BENCH_CONTINUOUS=1` enables the 12-position gesture, and `BENCH_PROFILE=1`
-captures a CPU profile. `BENCH_AUTO_WALLS=1` and `BENCH_SUSPENDED_CEILING=1`
-select the block modes. A unique CDP port isolates each harness from other chats.
-
-### Roof drags
-
-Roof timing is measured separately from blocks. Roof previews build one exact model
-per homogeneous run and instance its geometry; all variants retain their full shape
-and rotation. The 10,000 cap and a frame scheduler remain.
-
-On a 100 × 100 floor and a 10,000-roof preview, pointer-to-ready is 19.0 ms cold /
-10.6 ms warm, including the frame queue and all preview validation. Ghost
-submission is 5.8 / 4.9 ms. Through two animation frames it is 34.8 / 33.7 ms:
-software rendering/presentation is variable. The cold first hover is 309.2 ms
-through two frames (warm 51.1 ms), a remaining initialization/rendering stall. A
-12-position continuous drag produces 12 previews before movement stops.
-
-For a 900-tile patch, preview submission is 0.8 / 0.7 ms and movement through two
-animation frames 163.3 / 150.6 ms; release is 73.5 ms (117.0 ms through two frames).
-A larger 9,801-roof run retains every tile in one preview mesh: cold/warm preview
-submission 7.5 / 5.4 ms, movement handlers 0.1 / 0.0 ms. Preview totals are 11 scene
-draw calls (10 without the preview). Release takes 394.3 ms (456.6 ms through two
-frames) to commit and build the placed models; the preview optimization does not
-make that large document edit asynchronous.
-
-`roof-preview` pins the exact model matrices for every roof variant and rotation,
-10,000 retained instances in one thin-roof draw, and instance buffer disposal.
-`roof-tool` pins one collision preparation and one undoable bulk placement.
-
-### Shared drag footprint
-
-A 99 × 99 real pointer drag (9,801 cells) with auto-walls off, empty station, active
-level 1, 1424 × 905 viewport, Headless Chrome 155 / SwiftShader: cold/warm
-first-move handlers 0.1 / 0.0 ms and settled ghost submissions 39.5 / 31.1 ms.
-Move event-to-two-frame readings are 200.3 / 180.6 ms including the 100 ms
-stable-preview delay. The warm release handler takes 256.4 ms and release
-event-to-two-frame 281.0 ms; the accepted 9,801-cell commit and its chunk rebuild
-remain synchronous. Report: `.preview/perf/block-drag.json`. Reproduce with
-`npm run bench:block-drag`.
-
-`multi-place-drag` pins shared ownership, the exact cap, timer replacement and
-cancellation. `blocktool` pins whole-footprint refusal (all cells red, no commit,
-notice raised during the drag), auto-wall inclusion and Shift/三角 counts;
-equipment suites pin their placement/release contracts.
-
-### Level switching
-
-Opening prepares the edited storey and both valid Q/E neighbours through
-`STOREY_HEIGHT` and `levelSteps(levelBase)`. The existing four-view cache limit,
-appearance/transform invalidation and eviction disposal are unchanged. The editing
-grid retains its geometry/material/buffer across storey changes and translates its
-group; horizontal bounds changes rebuild and dispose the previous resources.
-
-Production runs are sequential: Windows Chrome, RTX 4080 SUPER / ANGLE D3D11,
-native multi-draw, 852 × 715 backing viewport, paused population 0, same demo
-seeds/documents and eight real E/Q presses per fixture. Numbers are
-event-through-two-RAF latency, not GPU completion or a frame budget.
-
-| Fixture | Cells / modules | First E | Repeated mean | Opening prewarm |
-|---|---:|---:|---:|---:|
-| Zoo | 16,201 / 4,062 | 94.0 ms | 36.8 ms | 2,553.8 ms |
-| Tanwei | 14,717 / 9,572 | 276.9 ms | 65.0 ms | 2,555.3 ms |
-
-After switching, three views retain 1,579 / 1,885 owned batches. Rendering remains
-substantial (average 2,348 / 3,003 draw calls and about 591k / 977k triangles);
-first-switch presentation still stalls, especially on Tanwei. Prewarming trades
-opening work for removing the first interactive batch build; it does not improve
-warmed throughput. This change does not prewarm every storey, and visiting an
-unprepared or evicted storey can still build its view.
-
-`level-view-cache` pins actual neighbour selection, shifted bases, both level
-boundaries, restored active state, retained grid allocations and bounds disposal.
-Reports: `.preview/perf/levels-*.json`.
-
-### Settings, population and presentation edits
-
-`tools/bench-settings-audit.mjs` drives actual mounted headway number inputs,
-demand sliders and service/peak chart grips with keyboard input. Undo/Redo are
-driven through their store actions, independently of editor text undo. Each case
-records its first invocation, one repetition, one history/version update, and
-scene/chunk/module/batch work counts. `BENCH_ASSERT_FAST=1` requires zero scene
-rebuild calls.
-
-Fixture: Zoo, 14,073 cells, 4,291 modules, seed 7654321, paused at 06:30 on Monday
-5 January 2026, zero passengers, opening camera at −20 m, 1440 × 1000 Chrome 155
-window and hardware rendering enabled. Values are interaction-through-two-RAF
-proxies including React, browser and rendering overhead; not CPU or GPU times.
-
-| Settings flow | Current first / repeat | Scene rebuilds |
-|---|---:|---:|
-| Headway | 202 / 163 ms | 0 |
-| Demand curve | 127 / 127 ms | 0 |
-| Opening hours | 106 / 201 ms | 0 |
-| Peak window | 122 / 137 ms | 0 |
-| Settings Undo | 117 / 111 ms | 0 |
-| Settings Redo | 103 / 99 ms | 0 |
-
-Undo/Redo synchronous work is 0.2–0.4 ms; the remaining display delay is not a
-hidden station rebuild. No runtime errors occurred.
-
-Presentation interactions measured with the same Zoo fixture, hardware GPU, fresh
-profile, storey −20, 1440 × 1000. Names, terminus, exit policy and population use
-keyboard UI; colour, station name and restart use store actions. Values are
-milliseconds, first/repeat, through two animation frames.
-
-| Interaction | Current first / repeat |
-|---|---:|
-| Line name | 138 / 115 ms |
-| Terminus | 118 / 41 ms |
-| Line colour | 38 / 42 ms |
-| Station name | 37 / 35 ms |
-| Exit name | 182 / 185 ms |
-| Exit open/closed | 106 / 33 ms |
-| Population | 34 / 34 ms |
-| Restart | 77 / 123 ms |
-
-Every sample records zero `setStation`, chunk preparation/meshing, module builds
-and batch invalidations. Exit policy and population record zero `requestRender`
-calls. Existing render frames may still finish after a visible edit. Artwork
-captures in `.preview/perf/remaining-final2-psd.png` and
-`remaining-final2-exit.png` show station, exit, terminus and colour updates.
-
-Population-only production measurements: `node tools/bench-population-edit.mjs`
-drives real ArrowRight input on the mounted train-load and exit-demand ranges.
-Software-rendered comparison uses Zoo, 14,073 cells / 4,291 modules, paused, fresh
-profile per run, 1440 × 1000, default opening camera/storey and three +1-step inputs
-per control. Train load first/repeats: 255 / 239, 241 ms; exit demand 251 / 510,
-420 ms. Commit CPU is 8.0–14.2 ms and scene work is zero calls. A hardware run
-measured train 67.6 / 58.3, 33.1 ms and exit 107.5 / 115.4, 97.3 ms; synchronous
-commit CPU 6.5–7.1 ms. Both final runs had zero scene/geometry/batch work, one
-commit per input and no runtime errors. Hardware timings are additional evidence,
-not a controlled comparison with the software runs. Two RAFs include UI,
-browser and rendering overhead.
-
-`population-edit` rejects geometry, renaming, consist, headway, exit-open and
-unknown-field changes; preserves prepared tool geometry; and proves immutable
-patch application. `line-edit` checks compact payloads and Undo/Redo.
-`worker-preview` asserts retained graph/pool/queue identity, updated spawn inputs,
-no rebuild/tick/redundant frame, pending-build ordering and load cancellation.
-`scene-wiring` guards the viewport early return before rebuilding. The geometry and
-module caches accept the latest population metadata without rebuilding; a
-regression also checks that the next bench edit retains the local equipment path
-instead of rebuilding because of stale population fields.
-
-### Rendering and batching
-
-Chrome, software GPU, native multi-draw, 1400 × 900 browser window. The checker
-compares identical scene geometry with batching enabled and disabled.
-
-| Workload | Unbatched draws | Batched draws, native / fallback | Triangles, both modes |
-|---|---:|---:|---:|
-| Station fixture | 3,789 | 1,104 / 1,767 | 644,460 |
-| Closed train view | 779 | 29 / 594 | 419,228 |
-| Open train view | 779 | 29 / 594 | 419,228 |
-
-No captured GLSL/WebGL/runtime errors; GL error is zero. The train-view total
-includes the checker's visible scene and is separate from the per-consist
-inventory. These are submission counts, with no comparative FPS/GPU-time claim.
-Report: `.preview/perf/render-batching-check.json`. `check:render-batching` has a
-`--no-multi-draw` fallback; `check:perf-tools` covers the profiler export.
-
-Quality-switch scene totals with the prepared geometry retained:
-
-| Fixture | Low submitted triangles | High submitted triangles |
-|---|---:|---:|
-| Equipment/decor, shipped demo | 357,843 | 532,775 |
-| Passenger crowd, 232 paused passengers | 206,408 | 2,185,136 |
-| Road traffic + five train services | 749,766 | 5,622,354 |
-
-These are scene geometry counts; the passenger fixture reported first Low switch
-32.6 ms and repeats 22.3 / 26.9 ms through two RAFs, which is not evidence of lower
-switch latency or higher FPS. Both prepared geometries and instance buffers are
-retained, the paused tick/document version stays unchanged, and GL/shader error
-counts are zero.
-
-All three equipment batch paths retain conservative union bounds for Near and Low,
-so simplified geometry outside a source part's bounds remains visible and picked
-through the original source. Low stays reduced in Hide UI; other-storey and
-camera-distance rules also apply. Long roof runs use matching 16 m/storey buckets
-with shared geometry, so their far end can reduce independently.
-
-### Opening and build-rail thumbnails
-
-Chrome, software GPU, 1400 × 900, isolated browser profile and no competing test
-processes. Fixture: `test/fixtures/covered-rail-clearance.metro.json`. Load timing
-ends after worker readiness and two animation frames.
-
-| Measurement | Current |
-|---|---:|
-| Cold app ready | 5,351 ms |
-| First save opening | 332.8 ms |
-| Repeated save opening | 623.2 ms |
-
-Both loads preserve 870 cells / 6 modules, active altitude 2 m and train scale
-0.98, with no captured console errors. These two samples do not establish a
-warm-cache benefit or a speed improvement.
-
-The build rail's cold open: first-visible thumbnail image at **447–516 ms** across
-two cold runs; 34–35 of 151 menu images loaded with no failures. A **397–420 ms**
-long task remains during React/menu expansion and image presentation; the
-thumbnail renderer itself is gone. The 132 × 132 PNGs total 648 KiB for all 120
-options. App-ready time is 2,684 ms. This covers local production assets under
-SwiftShader at 1400 × 900, not WAN transfer or hardware GPU timing. Reports and
-Chrome profiles are in `.preview/perf/menu-thumbnails/`; `node
-tools/bench-menu-thumbnails.mjs` starts a fresh Chrome profile, waits for the
-production app, opens Equipment, scrolls its first preview into view, and records
-the first ready PNG plus browser long tasks.
-
-## Validation and remaining gaps
-
-### Current checks
-
-| Check | Current result |
+## Current performance state
+
+This section is a snapshot of the production paths and their known limits. It replaces
+chronological investigation notes. Keep only reproducible current behavior here;
+put raw captures and profiles under ignored `.preview/perf/`.
+
+### Interaction contracts
+
+- Resolve one scene pick per pointer event. Reuse its hit or miss for module, block,
+  surface, normal, bounds and roof queries. Plane-only queries stay lazy. Flush queued
+  movement before opening the release event's pick scope.
+- Keep preview work out of document commits, undo history and worker routing. Coalesce
+  replaceable movement, preserve path-dependent samples, and flush or cancel on release,
+  cancellation, tool change and unmount.
+- Shared multi-placement drags use a 50 ms latest-target scheduler. The latest snapped
+  target replaces pending work without restarting the timer. Keep the accepted preview
+  visible while work is pending; show over-budget or known-refused footprints as refused.
+  The 10,000-cell cap is checked before large allocations and includes generated walls.
+  Roofs use a one-callback frame scheduler.
+- Block collision verdicts are cached against immutable `cells` and `modules` arrays,
+  with bounded retention and local spatial indexes. A refused block coordinate may
+  remain a constant-time red-cursor witness while the current footprint covers it.
+  Invalidate it when geometry, settings, footprint, release or cancellation changes.
+- Snapping follows visible scene geometry, not nominal storey bands. Prefer a nearer
+  visible object over terrain; hanger hits use their actual attachment anchor. Shared
+  placement validation owns support and refusal decisions.
+- Local equipment edits retain unaffected model roots, batch buckets and GPU buffers.
+  Unknown builder dependencies keep conservative invalidation. Functional edits may
+  install asynchronously in a coalesced worker job; the applied document and routing
+  graph stay paired until installation, and simulation ticks continue on that pair.
+  Initial station loads remain immediate.
+- Settings and presentation edits (names, colours, termini, population, exit policy,
+  headways, opening hours, peak windows and demand curves) do not rebuild station
+  geometry or routing. Repaint only artwork with changed declared inputs. Invisible
+  population and exit-policy edits do not request a frame. Restart reuses static
+  connectivity and collision indexes while resetting dynamic simulation state.
+- Suspended ceilings use ordinary block validation without copying station arrays or
+  relocating hung fixtures. A ceiling plate is never a zone floor. Hidden ceiling
+  geometry must not cast culling votes against ordinary block faces, including across
+  chunk halos.
+- Graphics Low remains Low in every view, including Hide UI. The standalone exploded
+  view is presentation-only: it leaves the saved document, worker, routes and simulation
+  buffers untouched. Its prepared geometry retains usable raised/underground floors,
+  labelled ground rooms and circulation landings; removes outdoor ground decor, soil
+  caps, near-facing enclosure and unsupported street passengers; and translates static
+  geometry and live poses consistently. Story boundaries use actual exposed floor
+  surfaces. Live cross-storey passengers teleport only in this viewer.
+- Build-rail previews are checked-in 132 × 132 PNG assets generated by
+  `tools/render-menu-thumbnails.mjs`; startup WebGL thumbnail rendering is not used.
+
+Pin deterministic work counts and behavior in the existing focused suites. In
+particular: `tool-picking`, `geometry-snap`, `placement-surface`, `ramp-targeting`,
+`multi-place-drag`, `block-collision-cache`, `roof-preview`, `placement-invalidation`,
+`equipment-retention`, `worker-preview`, `nonstructural-updates`, `floor-geometry`,
+`exploded-view` and `exploded-passengers`. Keep the game test coverage map current.
+
+### Response budget and placement state
+
+The response budget is **100 ms from pointer-down to visible placement feedback**,
+including the first placement. This is an engineering target, not a test threshold.
+Renderer-submission completion and event-through-two-animation-frames are proxies, not
+GPU fences or compositor timestamps. Measure worker installation separately.
+
+A controlled production audit against the shipped Zoo and Tanwei demos recorded the
+following optimized pointer-to-renderer-submission samples (ms):
+
+| Demo | First | Repeated samples | Worst |
+|---|---:|---|---:|
+| Zoo | 134 | 62, 132, 176, 156 | 176 |
+| Tanwei | 118 | 110, 107, 241, 100 | 241 |
+
+All ten placements succeeded, each event used at most one scene raycast, authored
+cells were preserved, and browser/GL errors were zero. Two-frame samples were Zoo
+159/81/163/201/178 ms and Tanwei 157/149/142/283/133 ms. Every measured placement
+still exceeds 100 ms on at least one response proxy. These are five-sample diagnostics,
+not percentile estimates. The worst remaining paths are street-window boundary changes,
+local module/batch registration, ground-edge remeshing and scene traversal/program
+warmup. Profile timers can overlap and must not be added together.
+
+The principal bounded-work results are:
+
+| Path | Current behavior / observed limit |
 |---|---|
-| Full game suite, process isolation | **2,317 pass; zero failures/skips** (143.2 s) |
-| TypeScript typecheck | Pass |
-| Geometry inventory | 120 palette models, 10 third-rail and 10 overhead consists, 232 passengers |
-| Passenger atlas | 9,370 High / 841 Low stride; 1,308,230 High / 123,928 Low total |
+| Scene picking | Production tool check covers 38 dispatches, at most one raycast each; geometry snapping check covers 69 dispatches with the same limit. |
+| Multi-placement | Latest-target cadence is 50 ms; arithmetic footprint limit is 10,000 cells. A 10,000-cell block preview reaches CPU readiness in about 86–89 ms on the recorded SwiftShader fixture. |
+| Roof preview | A 10,000-roof preview reaches readiness in about 11–19 ms on the recorded fixture. Large synchronous releases still take hundreds of milliseconds. |
+| Block collision | The shipped Tanwei blocked drag reuses cached verdicts for 2,243 accepted / 107 refused cells; deterministic tests ensure growth does not rescan unrelated module types. |
+| Settings / presentation | Production audits show zero station, chunk, module or batch rebuild work for covered edits. Visible response time varies by flow and browser; it is not a CPU/GPU metric. |
+| Placement invalidation | The current dependency audit retains remote models on local equipment edits and keeps structural or unknown dependencies on the conservative path. |
+| Exploded view | Snapshot preparation is one-time per opening. Simulation frames reuse pose buffers where lengths match and filter passengers through prepared support indexes. Viewer startup takes several seconds on the measured demos; this is not a per-frame cost. |
 
-Production browser checks (`check:render-batching` including `--no-multi-draw`,
-`check:perf-tools`, `check:preview-lod`, `check:tool-picking`,
-`check:geometry-snapping`, `check:equipment-lod`, `check:passenger-lod`,
-`check:geometry-detail`) assert correctness, geometry preservation and work counts,
-not FPS. Run them before committing; their reports are evidence, not suite
-assertions. Focused source coverage is required for changed modules, with line,
-branch and function results inspected individually; imported files inflate totals
-and Node coverage does not prove GPU behaviour. Run `npm --prefix game run test:perf`,
-review changed-module coverage, then run the full suite and production build.
+Four constraints remain material: cold first interaction includes renderer initialization;
+placement exceeds the 100 ms response target; queued worker installation still performs a
+complete graph rebuild after its intentional coalescing window; and large document commits
+remain synchronous. There is no current paired-demo FPS result suitable for a throughput
+claim. Re-measure before making one.
 
-### Remaining gaps
+### Benchmark protocol
 
-- **Cold first interaction remains the largest stall.** Fence hover, curtain-wall
-  hover, roof hover and block hover all include renderer initialization and frame
-  latency; the Tanwei block first hover through two RAFs is 521.2 ms and the cold
-  roof hover 309.2 ms. CPU readiness is much lower than displayed-pixel latency.
-- **Placement does not meet the 100 ms response budget.** Every measured bench
-  placement on both demos exceeds it on at least one proxy (5 / 5 each). The four
-  cost centres above are the profile order.
-- **Worker installation is deferred by design.** Commit-to-worker-frame latency is
-  145.6–149.9 ms including the intentional 100 ms coalescing window; the queued job
-  still performs a complete graph rebuild.
-- **Large document edits remain synchronous.** The 9,801-roof release takes 394.3 ms
-  (456.6 ms through two frames) and a 9,801-cell block release 256.4 ms. The preview
-  scheduler does not make the commit asynchronous.
-- **No paired-demo FPS or simulation-throughput benchmark is current.** Re-measure
-  before making throughput claims; the available samples are diagnostic.
-- **Single-process instrumented `test:perf` can stall.** Prefer focused
-  changed-module coverage with process-isolated test files for the gate; browser
-  timing stays evidence, never a unit-test threshold.
-- **Software rendering and hardware rendering are not interchangeable.** SwiftShader
-  runs describe CPU readiness and presentation proxies; hardware runs are
-  additional evidence, not a controlled speedup comparison.
+Run comparable browser benchmarks sequentially, with no build, test or profiler competing
+for the host. Match fixture, seed, camera, population, viewport, hardware, browser and GPU
+backend. Record event work counts with timings: raycasts, model/graph rebuilds, allocations,
+uploads, cache hits, fixture dimensions and worker ticks. Separate CPU readiness, renderer
+submission, GPU timing and presentation delay. Keep clean timing runs separate from profile
+runs and use a distinct `BENCH_OUTPUT` for each capture.
 
-## Reproduce measurements
+Use the shipped demos without replacing their authored data. `BENCH_STATION` selects an
+external save; `BENCH_DEMO` selects Zoo or Tanwei where supported. Browser benchmarks use
+hardware rendering by default; `--software-gpu` or `METRO_BROWSER_GPU=software` selects
+SwiftShader. `METRO_BROWSER_GPU=hardware` opts out of software rendering where supported.
+Raw JSON, screenshots, traces and CPU profiles belong in ignored `.preview/perf/`.
 
-Run from the repository root with Node 24+ and installed game dependencies:
+### Current validation routes
 
-```powershell
-node tools/model-triangle-inventory.mjs
-npm --prefix game test
-npm --prefix game run build
-npm --prefix game run test:perf
-node tools/check-render-batching.mjs --software-gpu
-npm run check:perf-tools
-npm run bench:sim
-npm run bench:browser
-```
-
-Both benchmark commands run Zoo and Tanwei sequentially. `BENCH_STATION` selects an
-external save; `BENCH_OUTPUT` sets a distinct report path. Browser controls include
-`BENCH_SECONDS` (default 6), `BENCH_EDITS` (8), `BENCH_SIZE` (1400,900),
-`BENCH_PORT` (9348) and `CHROME_PATH`. Simulation uses `BENCH_TICKS` (600) and
-`BENCH_EDITS` (12).
-
-Interaction-specific harnesses:
-
-| Harness | What it measures |
+| Question | Command / regression |
 |---|---|
-| `tools/bench-drag-latency.mjs` | Block/wall/fence/tactile/stair/sidewalk/lawn/road pointer previews; demo blocked drags; continuous gestures |
-| `tools/bench-fence-drag.mjs` | Fence hover/press/move/cancel/release, groups and batch syncs |
-| `tools/bench-tree-placement.mjs` | First equipment placement against untouched fences |
-| `tools/bench-level-switch.mjs` | Q/E first and repeated presses, prewarm and retained views |
-| `tools/bench-population-edit.mjs` | Mounted train-load and exit-demand range inputs |
-| `tools/bench-settings-audit.mjs` | Headway, demand, service/peak, Undo/Redo and presentation flows |
-| `tools/bench-placement-latency.mjs` | Bench placement pointer-to-submission and subsystem timings |
-| `tools/bench-usage-tour.mjs` | Full demo workflow tour |
-| `tools/bench-curtain-preview.mjs` | Tanwei carried-curtain hover |
-| `tools/bench-menu-thumbnails.mjs` | Build-rail cold open and long tasks |
-| `tools/check-tool-picking.mjs` | Shared event picking, ramp occlusion, deletion and undo |
-| `tools/check-geometry-snapping.mjs` | Slab/hanger/wall anchors and low-angle object picks |
-| `tools/bench-preview-audit.mjs` | Palette preview sweep and cancellation |
-| `tools/check-preview-lod.mjs` | Real glass picks, Low/High topology and preview/commit height |
-| `tools/check-equipment-lod.mjs` | All equipment High/Low visible pixels and budgets |
+| Demo workflow, palette and common edits | `npm run bench:usage-tour` |
+| Pointer-to-visible placement budget | `npm run bench:placement` |
+| Drag previews and blocked demo footprints | `node tools/bench-drag-latency.mjs` |
+| Fence preview locality and cancellation | `node tools/bench-fence-drag.mjs` |
+| Equipment placement retention | `node tools/bench-tree-placement.mjs` |
+| One-pick event contract and ramp occlusion | `node tools/check-tool-picking.mjs` |
+| Geometry-based snapping | `node tools/check-geometry-snapping.mjs` |
+| Storey switch and view-cache behavior | `node tools/bench-level-switch.mjs` |
+| Mounted settings and presentation edits | `node tools/bench-settings-audit.mjs` |
+| Palette preview locality and LOD | `node tools/bench-preview-audit.mjs`, `node tools/check-preview-lod.mjs` |
+| Exploded-view lifecycle and presentation | `node tools/check-exploded-view.mjs` |
+| Exploded-view regular/live FPS diagnostic | `npm run bench:explode` |
+| Train, passenger and equipment triangle inventory | `node tools/model-triangle-inventory.mjs` |
+| Render batching and fallback path | `node tools/check-render-batching.mjs`, including `--no-multi-draw` |
+| Production browser tools | `npm run check:perf-tools` |
 
-Browser benchmarks use hardware rendering by default; add `--software-gpu` for
-SwiftShader. Match fixture, seed, camera, population, viewport, hardware and GPU
-backend between comparisons, and run without competing tests/builds.
-`profile:browser` and `profile:sim` collect diagnostic profiles; `--investigate`
-adds browser ablations. Keep raw reports under `.preview/perf/` and use separate
-output paths for profiled and clean runs. CPU render submission, asynchronous GPU
-time and frame presentation are distinct measurements; frame edits measured through
-two animation frames are not GPU fences.
+`npm run bench:placement` measures real pointer input against both demos. Its pinned
+targets must each add exactly one bench and use at most one scene raycast. The demo
+collision benchmark must include blocked footprints; empty-floor fixtures miss the
+expensive refusal path. `npm run bench:explode` samples regular and exploded views at
+High and Low quality, with warmup and worker tick counts; camera and canvas differ by
+view, so compare only matched scenarios.
 
-## Guard the cause and verify the result
+For implementation changes, run the owning focused regressions, inspect changed-module
+line/branch/function coverage, then run the full game suite and production build. Renderer
+or performance changes also require `npm --prefix game run test:perf` and the relevant
+production browser check. Browser times are evidence; deterministic work-count and
+lifecycle assertions are the gates. Never weaken asset-integrity checks or alter generated
+provenance to make a performance run pass.
 
-Prefer deterministic assertions about work and correctness: one scene pick per
-press, no preview commit, one release commit, retained allocation identity, cache
-invalidation, bounded dormant entries and exact disposal. Do not use FPS or
-wall-clock thresholds in Node tests. Retain placement, route and geometry checks so
-an apparent speedup cannot come from missing work or invisible content.
+### Model inventory upkeep
 
-Run focused regressions and `npm run test:perf` for source coverage. Inspect the
-changed files' line/function/branch results; imported files inflate totals, and
-Node coverage does not prove GPU behaviour. Run the full game suite and production
-build before committing implementation changes. For renderer changes, use
-`check:render-batching`, its `--no-multi-draw` fallback and `check:perf-tools` as
-appropriate; browser checks assert correctness rather than FPS.
+The triangle tables above are current authored per-model counts, not station totals.
+Regenerate them after changing model geometry or detail policy with
+`node tools/model-triangle-inventory.mjs`; generated JSON/Markdown and browser captures
+remain in ignored `.preview/perf/`. Low geometry is an authored quality variant where
+available; unsupported parts stay full detail. Scene totals and FPS depend on the fixture,
+view, graphics quality and batching path, so do not infer them from per-model counts.
 
-Record current results and limitations in this reference, including remaining cold
-stalls, unchanged throughput and unrelated validation failures. Keep raw JSON,
-screenshots, CPU profiles and traces under ignored `.preview/perf/`. Never weaken an
-asset-integrity assertion or change generated provenance merely to make a
-performance change's test run green.
+### Above-ground room filtering in exploded view (2026-10-23)
 
+For documents with authored above-ground station floors, presentation geometry now
+follows room/fare-zone/auto-floor footprints with a one-cell enclosure margin per
+storey. A connected bridge beam cannot turn remote foundations into rooms, and
+upper-story supports cannot borrow a floor from the story above. Fixtures and
+exterior-only stairs/exits outside retained room plans are omitted; rail/platform
+modules remain. Documents without authored above-ground floor labels retain the
+existing unfurnished-floor fallback. Ground rooms and underground landing rules
+remain intact. Tanwei now has only -10/-5/0/5/10 m trays: its roomless 15/20 m plant
+fragments and detached virtual stair/exit are absent. The existing raised-floor
+regression now asserts every labelled usable floor, rather than every unlabelled
+concrete support slab. Every retained authored stair flight still translates intact.
 
-## Tanwei hidden-ceiling block faces (2026-10-22)
+Validation: 41 focused geometry, support, crowd-transfer, static-rendering and
+layering checks pass, as does production build/typecheck. Helper coverage is 100%
+lines; explodedView has 94.91% branches / 95.35% functions and explodedPassengers
+81.25% branches / 100% functions. The earlier broad-suite/coverage limits still
+apply; neither broad run was repeated for this adjustment.
 
-At `(16,6,-1)`, suspended ceilings at `(16,5,-1)` and `(16,7,-1)`
-were still side-occlusion votes after their independent render pass was hidden.
-The second report, `(18,14,-3)` viewed from -y, exposed a related missing top:
-the stepped wall's ledge at `(18,12,-2)` lost its top to a hidden ceiling at
-`(18,12,-1)`, exposing the block interior. Ordinary/ground/plate passes now
-retain every face beside suspended ceilings; ceiling-to-ceiling culling remains.
-The halo hash includes matching side, cap and support votes, including across
-the x=16 chunk boundary. No view-dependent remeshing, document commit or pointer
-picking is added.
+Production Zoo/Tanwei checks ran sequentially after build and focused tests in
+fresh hardware Chrome sessions, 1400 x 900 window / 1384 x 702 canvas. First/repeat
+ready: Zoo 4340 / 3761 ms, Tanwei 5928 / 5430 ms; shell 41 / 35 and 67 / 58 ms.
+Live 16x samples advanced 81 / 56 ticks, with 390/390 and 641/670 visible/total
+passengers and 2 / 4 train groups. Playback, camera controls, unchanged editor
+document/history/camera, Escape cleanup and runtime-error checks pass. Tanwei's
+default screenshot was reviewed for absent detached supports, utility fragments
+and exterior access, with usable rooms/platforms retained. Reports/screenshots
+remain in `.preview/perf/exploded-view/`. These are diagnostic timings without
+host-isolation guarantees, not a controlled speed comparison.
 
-`node tools/check-ceiling-wall-faces.mjs` checks the production build with the
-full shipped Tanwei demo at activeZ=-5, other storeys off: both reported side
-faces exist with ceilings hidden, downward and oblique -y rays hit the restored
-ledge top at z=-1, and six hide/show toggles retain every chunk geometry. The
-saved production screenshot confirms the open black strip is filled. On this
-local software-GPU run first show took 33.8 ms, subsequent shows 18.0/18.4 ms,
-and hides 22.0/17.7/16.1 ms. These are synchronous setter timings, not frame
-latency or a controlled before/after performance comparison. Raw results,
-screenshot and validation logs: `.preview/perf/ceiling-wall-faces/`.
-
-The focused `floor-geometry` + `chunk-cache` + `storey-height` instrumented run
-passes 32 tests: `chunkMesher.ts` 71.54% lines / 81.40% branches / 61.54% functions;
-`ChunkSystem.ts` 96.12% / 92.38% / 86.67%. The regression checks all four wall
-sides, ledge closure from above and -y, ordinary shared-face culling, tag-only
-neighbour changes across chunks, and geometry identity across ceiling toggles.
-Production build passes. The initial full run had 2,320 passes and one unrelated
-existing sign-preview source-text assertion failure in `scene-wiring` against
-the concurrently modified `SceneRenderer.setStation` signature.
-
-Final full owning suite: **2,325 passing, zero failures/skips** (`tests-final.txt`);
-the initial unrelated assertion was resolved by concurrent work. The broad
-in-process `test:perf` attempt was stopped after approximately 13 minutes without
-a final summary; it is incomplete, not a pass. The completed focused coverage,
-full suite and production browser checks above are the validation for this fix.
-
-## Local equipment placement retention
-
-Keep `ModuleSystem`'s existing scene parents and registries on an immutable
-append when every previous model survives. `EquipmentBatches.invalidateViews(true)`
-may retain source discovery only after the model-dependency classifier proves
-the retained roots' inputs unchanged; rebuilt roots discover fresh sources and
-removed roots leave the aggregate. Source records are bounded per root/view, transform changes refresh
-them, and append aggregation updates only buckets receiving new sources. Unknown
-callers retain conservative invalidation. Retired GPU entries leave the click
-path through bounded idle disposal; teardown cancels and drains that work.
-
-An equipment edit can extend virtual ground without changing authored chunks.
-Use the explicit ground-only preparation/meshing path only after the same
-classifier proves unchanged authored cells, openings and metadata. Preserve
-structural indexes and authored buffers; hash/remesh changed ground boundaries.
-Expansion and shrink must match a fresh full mesh. Keep the ordinary full path
-for structural edits. On retained equipment, compare immutable module records
-before serialization, skip unchanged level styling, and advance clipping shader
-versions only when clipping changes. Never defer a refusal or make previews
-commit documents.
-
-This reference is the canonical home for placement measurements, reproduction
-and the remaining 100 ms gap; use [the placement budget and audit](#placement-100-ms-budget)
-alongside the local equipment placement retention notes here when changing that
-path.
-
-## Full demo benchmark rerun (2026-10-22)
-
-`npm run bench:sim` and `npm run bench:browser` completed on both shipped demos,
-Zoo then Tanwei. Simulation used Node 24.15.0 on Windows with an i7-14700KF,
-seed 7654321, 600 ticks per phase and 12 edit samples. Browser used Headless
-Chrome 155 at 1384 × 805 on an RTX 4080 SUPER / D3D11, with 6-second phases and
-8 edits. Browser build and TypeScript check passed; Vite emitted its existing
-large-chunk advisory. These are single-run measurements, not a controlled
-before/after comparison.
-
-| Demo | Cells / modules / nodes | Peak tick mean / p95 | Cold world mean | Live rebuild mean / p95 |
-|---|---:|---:|---:|---:|
-| Zoo | 14,073 / 4,291 / 15,120 | 5.26 / 10.18 ms | 205.31 ms | 79.05 / 108.60 ms |
-| Tanwei | 16,869 / 9,694 / 37,474 | 40.05 / 83.65 ms | 967.17 ms | 522.40 / 831.35 ms |
-
-| Demo | Paused FPS | 16× play FPS / passengers | Train first-arrival stall | Paint edit-to-frame mean | Block edit-to-frame mean |
-|---|---:|---:|---:|---:|---:|
-| Zoo | 59.6 | 48.6 / 615 | 940.7 ms | 200.5 ms | 490.9 ms |
-| Tanwei | 30.6 | 22.2 / 1,155 | 951.8 ms | 326.1 ms | 985.1 ms |
-
-The browser run also measured idle-paused at 60 FPS for both demos. Peak 16×
-render submission p95 was 17.9 ms for Zoo and 94.4 ms for Tanwei. Raw captures:
-`.preview/perf/sim-rerun-2026-10-22-zoo.json`,
-`.preview/perf/sim-rerun-2026-10-22-tanwei.json`,
-`.preview/perf/browser-rerun-2026-10-22-zoo.json` and
-`.preview/perf/browser-rerun-2026-10-22-tanwei.json`.
-
-## Tanwei structural edit and rendering follow-up (2026-10-22)
-
-The paired demo bench above exposed a 985 ms mean block edit-to-two-RAF time.
-The follow-up preserves batch-source discovery and level styling for each root
-whose declared model inputs and slice inputs survive a structural edit. A fully
-retained equipment set also keeps its animation registries. Rebuilt or removed
-roots still take their normal paths; changed ground bands and storey spans must
-refresh styling. Unknown model dependencies remain conservative.
-
-Batched static picking leaves retain their prepared local matrices instead of
-recomposing them on every frame. Resync and teardown restore the original
-`matrixAutoUpdate` flags, and parent world transforms still propagate. During a
-synchronous renderer call, fully batched source-only trees are hidden from scene
-projection and restored in `finally`. Moving rigs, masked buckets whose sources
-must draw, and cameras viewing the source layer keep their normal traversal.
-This never changes document state or visibility between input events.
-
-The final clean hardware run used the same Tanwei fixture (16,869 cells / 9,694
-modules), Chrome 155 / RTX 4080 SUPER, 1384 × 805 viewport, seed 7654321,
-6-second phases and 8 edits. These are single-run diagnostics, not timing gates.
-
-| Measurement | Original clean run | Final clean run |
-|---|---:|---:|
-| Block edit-to-two-RAF mean | 985.1 ms | 654.0 ms |
-| Block edit-to-two-RAF p95 | 1,060.3 ms | 778.3 ms |
-| Block scene update mean | 600.8 ms | 361.5 ms |
-| Block chunk meshing mean | 119.6 ms | 122.3 ms |
-| Block module build/registration mean | 112.9 ms | 141.1 ms |
-| Paused continuous-render FPS | 30.6 | 32.1 |
-| Paused renderer submission mean | 31.1 ms | 29.3 ms |
-
-Observed block response improved about 34%, but remains far above 100 ms. Block
-phases held 1,154 / 1,155 passengers and submitted the same 6,136,856 triangles;
-draw calls were 4,574 / 4,598. Both zero-population paused phases submitted exactly
-4,516 draws / 1,065,610 triangles. The intermediate optimized run reached 589.6 ms
-with fewer passengers and is not the final comparison. Live 16× rendering remains
-about 22 FPS; differing phase populations prevent a controlled throughput claim.
-Remaining edit costs include approximately 122 ms chunk meshing and 141 ms model
-build/registration. Rendering still submits 1,882 equipment batches, 894
-platform-edge draws and 384 lift draws in the paused fixture; dynamic equipment
-submission and GPU work need further investigation. Nested CPU timings overlap.
-
-Validation: 2,329 game tests pass with zero failures/skips (128.9 s); the focused
-instrumented run passes 71 tests. `equipmentBatches.ts` has 94.53% lines / 95.18%
-branches / 88.10% functions, and `ModuleSystem.ts` 80.98% / 89.60% / 64.71%.
-The production build, native/fallback render-batching checks, tool picking and
-profiler export smoke check pass. The Tanwei production retention check compares
-ordinary versus skipped-source rendering under default, moving-mask, Hide UI and
-hidden-other-storey views; draw/triangle counts and restored root visibility
-match. Its retained cell edit and a fresh rebuild also match exactly (4,518 draws,
-1,065,618 triangles), with GL error zero. Node coverage does not cover the actual
-WebGL rendering path; these browser checks supply that evidence.
-
-Final capture: `.preview/perf/tanwei-improvement-after-final.json`; intermediate
-capture: `tanwei-improvement-after-v2.json`; correctness capture and reproducible
-browser script: `tanwei-improvement-retention-check.json` and
-`check-tanwei-retention.mjs` in the same directory. Validation logs use the
-`tanwei-improvement-` prefix. `tanwei-improvement-baseline-profile.cpuprofile`
-contains the diagnostic CPU profile; its subsequent Chrome trace stream timed
-out, so that instrumented run is incomplete and is not the clean baseline.
-
-### Standalone exploded storeys (2026-10-23)
-
-The View panel's Exploded view opens a separate, read-only snapshot and renderer.
-`render/explodedView.ts` lays out occupied storey bands with horizontal separation
-using complete cell and equipment footprints. It removes generated ground, outdoor
-context, roof modules, tagged ceiling plates and legacy plain ceiling courses;
-the near perimeter opens while rear walls and internal partitions remain. Lift
-shafts are split per occupied story. The snapshot never enters editor history,
-autosave or worker routing. Main-scene RAF work is suspended until return; orbit,
-zoom and pan operate only on the presentation camera. Closing disposes its scene.
-
-`node tools/check-exploded-view.mjs` measures first and repeated openings in fresh
-hardware Chrome sessions at 1400 x 900 (canvas 1384 x 711), paused Zoo and Tanwei.
-Final sequential browser run, after build/tests finished: Zoo ready 4878 / 4561 ms;
-Tanwei 6915 / 6695 ms. Modal shell samples: Zoo 3916 / 55 ms, Tanwei 38 / 35 ms.
-The first Zoo shell sample includes startup/art contention; these are end-to-end
-observations, not isolated model-build timings or pass/fail thresholds. Large model
-preparation remains synchronous and takes seconds; a loading state is shown before
-preparation. Reopening rebuilds the disposable viewer rather than retaining another
-station's GPU allocations indefinitely. Reports/screenshots:
-`.preview/perf/exploded-view/`.
-
-The production check confirms both demos render without runtime errors, retain the
-original station reference/version/history, block editing shortcuts, and return on
-Escape. `exploded-view.test.mjs` deterministically pins source immutability, absent
-terrain/roof/ceilings, front/rear wall policy, unfurnished story retention, translated
-ramp endpoints, segmented lifts, baseline-aware bands and full-footprint separation.
-Focused architecture, view-menu and static-render checks pass; the production build
-passes. The broad run had 2334 passes and two new-control source-contract failures;
-both were fixed (View header/tile count and framebuffer invalidation) and their
-suites passed on the focused rerun. No numeric coverage percentage was collected.
-
-### Exploded-view stair alignment and tighter packing (2026-10-23)
-
-The reported floating stairs were authored `stair.cfg.flights` retaining world
-coordinates while only the module and outer endpoints received the tray offset.
-The presentation transform now clones and translates every flight endpoint by the
-same offset, preserving its height and half landing. The editor document is untouched.
-The deterministic fixture regression checks all 7 Zoo and 19 Tanwei authored flights,
-both endpoints, against the containing module's exact translation and verifies input
-immutability.
-
-Tray placement now projects occupied points onto the initial isometric screen-right
-axis (1.2x + y), including the cell footprint, instead of combining independent X/Y
-bounds that reserve empty corners. The former 16-unit extra gap is 2 units; integer
-translation rounding bounds the resulting projected gap to [2, 4.2). An irregular-plan
-regression pins this compact gap and prevents the old empty-corner reservation.
-
-Validation: 10 exploded-view checks pass; production build/typecheck passes.
-`node tools/check-exploded-view.mjs` ran sequentially after build/tests, using fresh
-hardware Chrome sessions at 1400 x 900. First/repeated ready samples: Zoo 5357 / 4464
-ms; Tanwei 7460 / 6927 ms. First/repeated modal-shell samples: Zoo 4452 / 41 ms;
-Tanwei 39 / 43 ms. Startup contention still affects the first Zoo shell sample;
-these observations are not a performance improvement claim. Both screenshots were
-captured; Zoo was visually inspected for attached stairs and reduced gaps. Both demos
-passed document/history retention, blocked shortcuts, Escape cleanup and runtime-error
-checks. Reports/screenshots replace the prior local captures under
-`.preview/perf/exploded-view/`. No document commits, routing changes or scene picking
-were added by these presentation fixes.
-
-### Live exploded-view simulation and controls (2026-10-23)
-
-The standalone viewer now observes the existing worker stream through an additive
-`subscribeFrame` subscription, with immediate replay for paused opening and cleanup
-on close. Loading another station drops the retained frame. The original viewport
-callback remains installed. Geometry is captured once; simulation frames translate
-passenger/train poses into the existing tray offsets, preserving IDs, heights and
-other stream fields. Pose buffers are reused at equal lengths. Lift state fans out
-to the segmented shafts, with a presentation-only flag hiding cabins outside their
-current tray. No simulation routing, document commits or picks were introduced.
-The main scene's rendering remains suspended while its normal stream stays current.
-
-The normal top bar and exploded toolbar share `SimulationControls` (pause/resume,
-1x/4x/16x/64x). Space toggles the same run. The viewer removes the instructional line,
-reset and zoom buttons; its icon-only back control uses IoArrowBackOutline. Left-drag
-orbits, middle-drag pans, WASD uses CameraSystem's existing pan path, wheel zooms and
-Escape returns. Key-up and window blur clear held movement keys. Keyboard capture
-blocks editor tools while the modal is open.
-
-Validation: 69 focused pose/lift, subscription/replay/unsubscribe, line-edit,
-playback, scene-wiring and retained-frame checks pass; build/typecheck passes.
-`node tools/check-exploded-view.mjs` ran after build/tests in fresh hardware Chrome
-sessions at 1400 x 900, canvas 1384 x 702. Final first/repeated ready samples:
-Zoo 4506 / 4242 ms; Tanwei 6813 / 6318 ms. Shell samples: Zoo 3696 / 26 ms,
-Tanwei 40 / 58 ms; initial Zoo remains affected by startup contention. Live 16x
-samples advanced 78 / 57 ticks (Zoo / Tanwei), with 390 / 670 passengers and 2 / 4
-train groups. Both demos passed resume/speed/pause, live frame delivery, unchanged
-document version/history, real W input, left-drag orbit, middle-drag pan, unchanged
-editor camera, blocked editing shortcuts and Escape cleanup, with no runtime errors.
-A preliminary fixed-duration key hold missed the next rendered frame; the final
-input check explicitly waits for animation frames. The toolbar screenshot was
-visually inspected. Captures and report: `.preview/perf/exploded-view/`.
-
-### Floor-footprint packing, earth caps and passenger transfers (2026-10-23)
-
-The approved exploded layout now retains the station's long-axis alignment and
-packs stories across its short axis using occupied solid floor tiles, allowing at
-most 15% overlap against the smaller adjacent floor area. Previously placed floor
-tiles remain in the overlap index, so later stories also avoid them. Irregular
-plans can interlock rather than reserve empty rectangular corners; remote props do
-not determine a floor-backed story's boundary. Equipment footprints are a fallback
-for equipment-only decks. The resulting axis is shared by cell/module/stair-flight
-transforms and live passenger, train and lift poses. The regression pins a 100 x 20
-floor to a 17 m shift, one-tile shifts for thin diagonal plans, preserved long-axis
-alignment, and immutable source data. Packing is performed once at viewer opening,
-never per simulation frame or input event.
-
-The remaining dark slabs in Zoo were exposed earth-topped authored caps
-(`finish.top: floor.soil`), including caps on a storey boundary. The presentation
-filter now removes those exposed soil surfaces using a prepared solid-coordinate
-index. Soil cells supporting a wall above and finished usable floors remain.
-This changes presentation geometry only. Right mouse now pans alongside middle
-mouse; left mouse still orbits. CrowdSystem's opt-in `teleportBetweenStoreys` is
-only enabled by the standalone viewer: when an existing passenger's storey band
-changes, its previous interpolation position starts at the new position. Same-floor
-walking and the base game's cross-storey interpolation are unchanged.
-
-Validation: 20 focused exploded geometry/live-pose, passenger-transfer and pause
-checks pass; build/typecheck passes. `exploded-passengers.test.mjs` drives the real
-CrowdSystem with both the standalone flag and its normal default. The production
-browser check ran sequentially after build/tests in fresh hardware Chrome sessions
-at 1400 x 900 (canvas 1384 x 702). Final first/repeated ready samples: Zoo 4311 / 4137
-ms, Tanwei 6435 / 6180 ms; shell 34 / 34 ms and 48 / 61 ms. Live 16x samples advanced
-77 / 57 ticks with 390 / 670 passengers and 2 / 4 train groups. Both passed left
-orbit, middle/right pan, WASD, live playback, original camera/document retention,
-shortcut blocking and Escape cleanup without runtime errors. Zoo's screenshot was
-visually inspected: the highlighted broad dark soil caps are gone and compact
-floor-based packing remains. Raw report/screenshots replace the local captures at
-`.preview/perf/exploded-view/`. These end-to-end timings are diagnostic, not a
-performance improvement claim or numeric test threshold.
-
-### Thick front walls and ground decor (2026-10-23)
-
-The previous front-wall filter tested the outermost floor-neighbour boundary, which
-left inner courses of thick walls and walls over missing floor bases visible.
-The exploded presentation now indexes open floor tiles per row/column (excluding
-wall bases and columns with solid cells above). Near-facing wall removal uses those
-open-floor limits across the full wall thickness; a corner fallback covers near
-wall intersections without floor on either scan line. Rear enclosure and internal
-partitions retain their existing treatment. All of this runs only during snapshot
-preparation, with indexed O(1) checks per wall cell, not during orbit or sim frames.
-
-Ground-level decor is omitted throughout the physical 0–4 m band, including fences,
-wayfinding poles, cameras and cabinets; exits remain. Structural connections/decks
-are retained so a staircase or rail service passing through grade is not deleted by
-a decor filter. Underground and elevated equipment stays. Source station arrays and
-routing are unchanged.
-
-Validation: 18 focused exploded-view/passenger checks and build/typecheck pass.
-Regressions include a three-course near wall with a missing-base column, retained
-back walls, and a mix of ground decor/exits/underground/elevated fixtures. The
-production check ran sequentially after build/tests in fresh hardware Chrome at
-1400 x 900 (canvas 1384 x 702). Ready first/repeated: Zoo 4030 / 3800 ms, Tanwei
-5272 / 4848 ms; modal shell 35 / 32 ms and 48 / 65 ms. Live 16x advanced 80 / 57
-ticks with 390 / 670 passengers and 2 / 4 train groups. Both passed controls,
-playback, document/history and original-camera retention and Escape cleanup with
-no runtime errors. Zoo's screenshot was visually reviewed: the long ground fence
-and poles are gone, and the obstructing thick front wall courses are removed.
-Raw captures/report: `.preview/perf/exploded-view/`. Timings are diagnostics, not
-an isolated performance improvement claim.
-
-### Tanwei raised floor boundaries (2026-10-23)
-
-Tanwei's main raised decks are authored at z = 1, 6 and 11 m, while the nominal
-storey bands start at 0, 5 and 10 m. Sampling only cells exactly at the band base
-missed those floor boundaries; the front-wall pass could also mistake raised floor
-edge cells for wall courses. Snapshot preparation now groups exposed non-wall,
-non-ceiling surfaces by their actual height within each story and uses the broadest
-surface as that story's floor footprint. It retains the existing storey ownership
-for static modules and live streams. Chosen floor cells are explicitly protected
-from front-wall trimming. Nominal floor cells remain the fallback when no exposed
-surface exists. No authored heights or simulation geometry are changed.
-
-The regression covers broad floors at 1/6/11 m with sparse 0/5/10 m bases, preserving
-all floor tiles and the expected compact 17 m packing step in that controlled case.
-A real Tanwei regression checks every exposed concrete floor tile at those heights
-(excluding explicitly tagged opening/suspended ceiling plates), and distinct offsets
-for their containing stories. Opening, soil-cap and wall filters remain in force.
-
-Validation: 20 focused exploded-view/passenger tests and production build/typecheck
-pass. The production browser run followed build/tests sequentially, fresh hardware
-Chrome at 1400 x 900, canvas 1384 x 702. First/repeated ready: Zoo 4182 / 3966 ms,
-Tanwei 5530 / 5004 ms; shell Zoo 3456 / 28 ms and Tanwei 49 / 48 ms. Initial Zoo
-shell retains startup contention. Live 16x samples advanced 82 / 55 ticks, with
-390 / 669 passengers and 2 / 4 train groups. Both demos passed live controls,
-keyboard/mouse camera input, original document/camera retention and Escape cleanup
-without runtime errors. Tanwei's resulting screenshot was visually inspected.
-Reports and screenshots: `.preview/perf/exploded-view/`. Timings are diagnostic,
-not a claim of isolated speed improvement.
-
-### Hidden street passengers and Tanwei tunnel caps (2026-10-23)
-
-The live stream previously drew all pedestrians after the ground was hidden. The
-viewer now prepares `explodedPassengers.ts` support keys once from retained cells,
-rail decks, ramp flights and lift shafts. Each frame compacts its owned presentation
-buffer using constant-time support lookups: non-riding pedestrians on physical
-street floor 0 or unsupported removed slabs are omitted; passengers on retained
-raised/underground floors, ramps, lifts and trains stay. IDs and order are preserved,
-and worker buffers, population, routes and simulation counts are untouched. The
-physical street is distinguished from Tanwei's real raised 1 m floor: ground decor
-filtering now targets anchors at exactly GROUND_Z, preserving the raised deck's
-furniture. Existing cross-story teleport policy remains.
-
-Authored exposed street plates are hidden as well as generated terrain. Legacy
-underground tunnel cap heights are derived from their track anchors and the shared
-storey height. Where there is no floor-use equipment at that height, exposed caps
-are removed while explicit auto-floors, paid/unpaid/platform floor zones and small
-ramp/lift landing areas remain. Tanwei's z=-5 plane falls from 2488 source solid
-cells to 368 retained cells; its raised 1/6/11 m decks remain. This is presentation
-filtering, not a document migration or simulation edit.
-
-Validation: 27 focused exploded geometry, support/visibility, native crowd transfer
-and layering checks pass; build/typecheck passes. Tests pin omitted ground/roof
-walkers, retained raised/underground pedestrians, rider identity, ramps/lifts,
-intermediate landings, and the actual Tanwei cap/deck split. Production checks ran
-sequentially after build/tests using fresh hardware Chrome at 1400 x 900 (canvas
-1384 x 702). First/repeated ready: Zoo 4710 / 4362 ms, Tanwei 6730 / 5995 ms;
-shell 36 / 30 ms and 55 / 59 ms. Live 16x samples advanced 90 / 53 ticks; Zoo drew
-391/391 passengers, Tanwei 637/668, with 2 / 4 train groups. The browser check
-explicitly rejects any remaining non-riding street pedestrian in the visible crowd.
-Both demos passed playback, camera controls, original document/history/camera
-retention and Escape cleanup without runtime errors. Tanwei's screenshot was
-visually reviewed for removed caps and retained decks. Raw captures/report remain
-at `.preview/perf/exploded-view/`. These are diagnostic timings, not an isolated
-performance improvement claim.
