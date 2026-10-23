@@ -126,7 +126,12 @@ connections or exits. `render/explodedPassengers.ts` prepares retained-floor sup
 once per view and filters only its presentation buffer; street/unsupported walkers
 are hidden and cross-storey passenger movement teleports in this view. Keep native
 game interpolation unchanged. The view has its own renderer and camera, shares the
-simulation controls, and suspends the editor renderer while open. Pin geometry,
+simulation controls, and suspends the editor renderer while open. The persistent
+edge-scrolling preference lives in `app/edgeScrolling.ts` and gates only the mouse
+edge-pan input in `render/scene/systems/CameraSystem.ts`; keep it applied to both
+the editor and exploded renderers while leaving keyboard panning available. Both
+views expose the shared `SettingsMenu`; in the exploded toolbar keep the back
+button, simulation time controls and gear in that order. Pin geometry,
 passenger support/transfer, live stream and toolbar contracts in the `exploded-*`,
 `line-edit`, `rail-folders` and `topbar-playback` regressions. Run
 `node tools/check-exploded-view.mjs` after the build for Zoo and Tanwei lifecycle,
