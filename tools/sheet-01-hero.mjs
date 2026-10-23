@@ -336,6 +336,6 @@ export function artHero() {
     ${S.out()}
   </g>${legendBg}${A.join('')}${lg}`
     + title(48, 62, '车站设计师',
-      'B1 站厅摘了顶板，顺着竖井往下，能看见 B2 站台。1 格 = 1 米。');
+      'B1 站厅摘了顶板，顺着竖井往下，能看见 B2 站台。');
   return sheet(1600, 1180, body, { glow: true });
 }

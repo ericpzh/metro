@@ -21,8 +21,8 @@ test('exploded floors are opaque owned footprints, separated horizontally withou
   assert.equal(upper.length, 25)
   assert.deepEqual(upper.map(c => c.x),lower.map(c => c.x),'longitudinal alignment remains fixed')
   const lowerTiles = new Set(lower.map(c=>`${c.x},${c.y}`))
-  assert.ok(upper.filter(c=>lowerTiles.has(`${c.x},${c.y}`)).length <= 25*.15)
-  assert.ok(upper[0].y-lower[0].y <= 5,'separation follows the short floor dimension')
+  assert.ok(upper.filter(c=>lowerTiles.has(`${c.x},${c.y}`)).length <= 0)
+  assert.ok(upper[0].y-lower[0].y <= 8,'separation follows the short floor dimension')
   assert.equal(data.cells.length, 50, 'unfurnished stories remain visible')
   assert.deepEqual(levels, [-10, -5])
 })
@@ -112,9 +112,9 @@ test('story spacing includes full equipment footprints, even without authored sl
   const {data} = explodedView(station([], shops))
   const lower = new Set(moduleFootprint(data.modules[0]).map(([x,y])=>`${x},${y}`))
   const upper = moduleFootprint(data.modules[1])
-  assert.ok(upper.filter(([x,y])=>lower.has(`${x},${y}`)).length<=upper.length*.15)
+  assert.ok(upper.filter(([x,y])=>lower.has(`${x},${y}`)).length<=0)
   assert.equal(data.modules[0].x,data.modules[1].x)
-  assert.ok(data.modules[1].y-data.modules[0].y<=3)
+  assert.ok(data.modules[1].y-data.modules[0].y<=6)
 })
 
 for (const fixture of ['demo-station', 'tanwei-station']) {
@@ -145,7 +145,7 @@ test('irregular floor boundaries interlock without reserving their empty boundin
   const {data,offsets} = explodedView(station(cells))
   assert.ok(offsets.get(-5)-offsets.get(-10)<=1,'one tile exposes this thin diagonal floor')
   const lower = new Set(data.cells.filter(c=>c.z===-10).map(c=>`${c.x},${c.y}`))
-  assert.ok(data.cells.filter(c=>c.z===-5&&lower.has(`${c.x},${c.y}`)).length<=40*.15)
+  assert.ok(data.cells.filter(c=>c.z===-5&&lower.has(`${c.x},${c.y}`)).length<=0)
 })
 
 test('floor boundaries ignore remote props and allow a small measurable overlap', () => {
@@ -153,9 +153,9 @@ test('floor boundaries ignore remote props and allow a small measurable overlap'
   const input = station([...wide(-10),...wide(-5)], [{id:'remote',type:'bench',x:400,y:400,z:-5,cfg:{}}])
   const result = explodedView(input)
   assert.deepEqual(result.direction,[0,1])
-  assert.equal(result.offsets.get(-5),17,'20-tile width minus 15% overlap')
+  assert.equal(result.offsets.get(-5),20,'20-tile width with no overlap')
   const lower = new Set(result.data.cells.filter(c=>c.z===-10).map(c=>`${c.x},${c.y}`))
-  assert.equal(result.data.cells.filter(c=>c.z===-5&&lower.has(`${c.x},${c.y}`)).length,300)
+  assert.equal(result.data.cells.filter(c=>c.z===-5&&lower.has(`${c.x},${c.y}`)).length,0)
 })
 
 test('raised Tanwei-style floors define the tray even when the nominal base has only a few blocks', () => {
@@ -165,8 +165,8 @@ test('raised Tanwei-style floors define the tray even when the nominal base has 
   ])
   const {data,offsets,direction}=explodedView(station(cells))
   assert.deepEqual(direction,[0,1])
-  assert.equal(offsets.get(5),17)
-  assert.equal(offsets.get(10),34)
+  assert.equal(offsets.get(5),20)
+  assert.equal(offsets.get(10),40)
   for(const z of [1,6,11]) assert.equal(data.cells.filter(c=>c.z===z).length,2000,'exposed floor edge tiles are retained')
 })
 

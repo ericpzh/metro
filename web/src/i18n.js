@@ -30,7 +30,7 @@ const zh = {
     line2: '看人群来来去去。',
     accent: '再想办法，别让它挤爆。',
     facts: [
-      ['建造', '从一米方块到多层换乘站'],
+      ['建造', '从方块到多层换乘站'],
       ['运行', '调节客流，观察排队与滞留'],
       ['观察', '转动、俯视、剖开车站'],
       ['模式', '自由沙盒，专注空间与客流'],
@@ -102,7 +102,7 @@ const en = {
     line2: 'Watch the crowds come and go.',
     accent: "Then keep it from bursting at the seams.",
     facts: [
-      ['Build', 'From one-metre blocks to multi-level interchanges'],
+      ['Build', 'From blocks to multi-level interchanges'],
       ['Run', 'Tune demand, watch queues and stranded passengers'],
       ['Look', 'Orbit, go top-down, cut through the station'],
       ['Mode', 'Free sandbox about space and flow'],

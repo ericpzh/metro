@@ -119,7 +119,7 @@ export class SceneRenderer {
     this.ctx.scene.background = new THREE.Color(0x192532)
     this.ctx.scene.fog = null
     const controls = this.cameraSys.controls
-    controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN }
+    controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN }
     controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.PAN }
     controls.enablePan = true
     controls.maxDistance = 1800

@@ -120,6 +120,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const offsets = new Map<number, number>()
   // Retain the station's longitudinal alignment. Explode across its narrow
   // axis, packing the actual floor tiles instead of their rectangular bounds.
+  // Adjacent stories touch but never overlap, keeping each flow visually separate.
   const solidFloors = [...floorsByLevel.values()].flat()
   const allPoints = solidFloors.length ? solidFloors : solids.length ? solids : [...modulePoints.values()].flat()
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
@@ -130,7 +131,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const direction: readonly [number, number] = x1 - x0 >= y1 - y0 ? [0, 1] : [1, 0]
   const [dx, dy] = direction
   const occupied = new Set<string>()
-  let previousOffset = 0, previousArea = 0, edge = -Infinity
+  let previousOffset = 0, edge = -Infinity
   const cells: Cell[] = []
   for (const z of levels) {
     const own = byLevel.get(z)!
@@ -152,16 +153,15 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     const footprint = [...new Map(points.map(p => [`${p.x},${p.y}`, p])).values()]
     let offset = previousOffset
     if (occupied.size && footprint.length) {
-      const allowedOverlap = Math.floor(Math.min(previousArea, footprint.length) * 0.15)
       let near = Infinity
       for (const point of footprint) near = Math.min(near, dx * point.x + dy * point.y)
       const stop = Math.max(offset, edge - near + 1)
       for (; offset <= stop; offset++) {
         let overlap = 0
         for (const point of footprint) {
-          if (occupied.has(`${point.x + dx * offset},${point.y + dy * offset}`) && ++overlap > allowedOverlap) break
+          if (occupied.has(`${point.x + dx * offset},${point.y + dy * offset}`)) overlap++
         }
-        if (overlap <= allowedOverlap) break
+        if (overlap <= 0) break
       }
     }
     offsets.set(z, offset)
@@ -170,7 +170,6 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
       edge = Math.max(edge, dx * point.x + dy * point.y + offset)
     }
     previousOffset = offset
-    previousArea = footprint.length
     for (const cell of own) {
       // The default isometric eye is +x/-y. Open those two perimeter sides,
       // retaining internal partitions and the far enclosure, including irregular plans.

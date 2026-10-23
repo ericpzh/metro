@@ -33,7 +33,7 @@ try {
           if(now.station!==station||now.version!==version||now.past!==past)throw Error('presentation edited document');
           if(dialog.textContent.includes('拖动旋转')||!dialog.querySelector('.explodedBack'))throw Error('old toolbar remains');
           if(dialog.querySelectorAll('header .seg button').length!==5)throw Error('speed bar missing');
-          if(__explodedScene.controls.mouseButtons.LEFT!==0||__explodedScene.controls.mouseButtons.MIDDLE!==2)throw Error('incorrect orbit/pan controls');
+          if(__explodedScene.controls.mouseButtons.LEFT!==0||__explodedScene.controls.mouseButtons.MIDDLE!==0)throw Error('incorrect orbit/pan controls');
           return {shellMs,openMs:performance.now()-start,levels:dialog.querySelector('footer').textContent,width:canvas.width,height:canvas.height};
         })()`)
         await page.evaluate('new Promise(r=>setTimeout(r,1500))')
@@ -81,7 +81,7 @@ try {
             await page.evaluate('new Promise(r=>setTimeout(r,120))')
             const moved=await page.evaluate(`({position:__explodedScene.controls.object.position.toArray(),target:__explodedScene.controls.target.toArray()})`)
             assert.notDeepEqual(moved.position,initial.position,`${button} drag moves the camera`)
-            if(button!=='left')assert.notDeepEqual(moved.target,initial.target,`${button} drag pans`)
+            if(button==='right')assert.notDeepEqual(moved.target,initial.target,`${button} drag pans`)
           }
         }
         const tool=await page.evaluate('__metro.getState().tool')

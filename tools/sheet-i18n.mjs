@@ -37,7 +37,7 @@ const EN = {
   '通风口': 'Vent',
   // 01 — isometric cutaway
   '车站设计师': 'Station Designer',
-  'B1 站厅 · B2 站台。逐层建造，1 格 = 1 米。': 'B1 concourse · B2 platforms. Build floor by floor; 1 cell = 1 m.',
+  'B1 站厅 · B2 站台。逐层建造，连接站厅与站台。': 'B1 concourse · B2 platforms. Build floor by floor, linking concourse and platforms.',
   '1  闸机：划出付费区，让人群有序进入': '1  Gates: fence the paid area for orderly entry',
   '2  扶梯与楼梯：连接站厅和站台': '2  Escalators & stairs: link concourse and platforms',
   '3  站台：等车、排队、上下车': '3  Platforms: waiting, queues, boarding',
@@ -74,7 +74,7 @@ const EN = {
   '乘客会走路、排队、刷卡和上车。': 'Passengers walk, queue, tap in and board.',
   '楼层越深，越需要照顾步行距离与换层队伍。': 'Deeper levels need kinder walks and transfer queues.',
   // 03 — block system
-  '用一米方块，搭出自己的车站': 'Build your station from one-metre blocks',
+  '用方块，搭出自己的车站': 'Build your station from blocks',
   '拼出地板、墙和天花板，再用半墙、斜块与材质调整空间。': 'Snap together floors, walls and ceilings, then shape space with half-walls, wedges and finishes.',
   '1  每个面，单独换材质': '1  Each face takes its own finish',
   '顶面是地板，侧面是墙，底面是天花板。': 'Top is floor, sides are walls, bottom is ceiling.',
@@ -216,6 +216,8 @@ const EN = {
   '打开外壳，看清车站内部。': 'Open the shell to see inside.',
   '楼层剖面': 'Floor section',
   '检查楼层与换层设施的连接。': 'Check how floors join the level changes.',
+  '楼层爆炸视图': 'Exploded floor view',
+  '拉开楼层，查看竖向交通。': 'Pull floors apart to see vertical links.',
   '平视': { t: 'Eye view', size: 10 },
   '站厅平视': 'Concourse eye view',
   '靠近乘客，看看空间的样子。': 'Get close to passengers and see the space.',

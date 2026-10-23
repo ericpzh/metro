@@ -66,11 +66,9 @@ const HEIGHT = 1000
  * floor and a cell whose longest clear run is worth looking down (`MOUNT_JS`) — and
  * stands there at head height.
  *
- * Every view is taken from the **same storey**, `depth` metres (`-12`, the hall the
- * demo's gates, ticket machines and calligraphy stand on): the station builds in
- * chunks and a chunk message re-anchors the edited storey behind the page's back, so
- * the depth is re-asserted once the page has settled. The widget's own capture then
- * shows that storey's dot on its 高度 rail.
+ * Editor views name their storey (`-12` for the concourse, `-15` for the plan) and
+ * set ghosting explicitly, so one panel cannot inherit the previous panel's mode.
+ * The standalone exploded view owns its camera and shows the station's retained floors.
  *
  * `aim` points the camera at the **active storey's contents** rather than at the
  * middle of the station's bounds, which a hundred and sixty metres of track drags off
@@ -89,8 +87,8 @@ const HEIGHT = 1000
  * own 45°.
  */
 const VIEWS = [
-  { id: 'iso', label: '等轴测建造视图', preset: 'iso', zoom: 3 },
-  { id: 'plan', label: '平面 / 俯视', preset: 'plan', zoom: 4 },
+  { id: 'iso', label: '等轴测建造视图', preset: 'iso', zoom: 1, aim: true, grid: false, ghost: false, depth: -15 },
+  { id: 'plan', label: '平面 / 俯视', preset: 'plan', zoom: 4, ghost: true, depth: -15 },
   // Both reference views look into the north half of the hall from its south side.
   // Use the north-facing cut explicitly, rather than inheriting the previous angle.
   //
@@ -99,12 +97,10 @@ const VIEWS = [
   // not lift ceilings, so the slab over each room is still there to be looked at — and
   // `zoom` closes on the concourse. Both section planes stay at the reference
   // composition instead of following whichever prop cluster is currently densest.
-  { id: 'section', label: '剖切 · 收起剖切面', preset: 'iso', cut: 0, surface: false, sectionAt: [52, 19, -12], aimAt: [52.5, 19.5, -11], tilt: 0.3, zoom: 4, pan: 12 },
-  // **The flat one**, and the only view that says how the storeys stack: the station cut
-  // through its length and photographed from the south, square on. `front` alone is a
-  // picture of the outside of the south wall — the cut is what makes it a section, and
-  // `bare` (隐藏UI) is what keeps every storey drawn as itself rather than ghosted.
-  { id: 'elevation', label: '正交 X-Z 剖面', preset: 'front', bare: true, cut: 0, surface: false, sectionAt: [52, 19, -12], zoom: 3 },
+  { id: 'section', label: '剖切 · 收起剖切面', preset: 'iso', cut: 0, surface: false, sectionAt: [62, 15, -12], aimAt: [62.5, 15.5, -11], tilt: 0.3, zoom: 4, pan: 12 },
+  // The exploded viewer is its own presentation renderer. Frame the whole station there,
+  // then zoom in by 30% so the floor separation and vertical links read in the tile.
+  { id: 'exploded', label: '楼层爆炸视图', preset: 'custom', exploded: true, zoomPct: 30 },
   { id: 'eye', label: '站厅 · 平视', preset: 'custom', bare: true, eye: true, fov: 74 },
   // The control itself, photographed from the page instead of redrawn on the sheet. It
   // comes last so its depth rail shows the storey the last view stood on, and it is
@@ -138,7 +134,10 @@ const MOUNT_JS = [
   '  s.setTimePanel(false)',
   '  s.setPlaying(false)',
   '  s.setSpeed(1)',
+  '  s.setExplodedView(false)',
   '  s.setHideUI(__BARE__)',
+  '  window.__scene.setGridVisible(__GRID__)',
+  '  s.setGhostOther(__GHOST__)',
   '  s.setCutaway(__CUT__)',
   '  // 隐藏地面: the street plane is a lid over a station that is mostly underground, so',
   '  // every view on this sheet takes it away.',
@@ -180,6 +179,10 @@ const MOUNT_JS = [
   '  // The platform is the deepest storey the demo builds, and the most interesting',
   '  // section of it.',
   '  s.setActiveZ(__DEPTH__)',
+  '  if (__EXPLODED__) {',
+  '    s.setExplodedView(true)',
+  '    return { exploded: true, activeZ: s.activeZ }',
+  '  }',
   '  // Optional automatic placement for views without an authored section plane.',
   '  let hotspot = null',
   '  if (__HOTSPOT__) {',
@@ -565,7 +568,7 @@ try {
    * own further down the sheet. So the chrome goes `visibility:hidden` — **not**
    * `display:none` — because the canvas must keep the box it was framed in.
    */
-  const setChrome = (hide) =>
+  const setChrome = (hide, canvasSelector = 'canvas') =>
     session.evaluate(`(() => {
       let style = document.getElementById('shot-chrome')
       if (!style) {
@@ -576,7 +579,7 @@ try {
       }
       for (const el of document.querySelectorAll('[data-shot-hidden]')) el.removeAttribute('data-shot-hidden')
       if (!${hide}) return 0
-      const canvas = document.querySelector('canvas')
+      const canvas = document.querySelector(${JSON.stringify(canvasSelector)})
       if (!canvas) return 0
       const keep = new Set()
       for (let el = canvas; el; el = el.parentElement) keep.add(el)
@@ -597,6 +600,8 @@ try {
     const st = await session.evaluate(
       MOUNT_JS
         .replace(/__BARE__/g, String(Boolean(view.bare)))
+        .replace(/__GRID__/g, String(view.grid ?? !view.bare))
+        .replace(/__GHOST__/g, String(Boolean(view.ghost)))
         .replace(/__CUT__/g, String(Boolean(view.cut !== undefined)))
         .replace(/__SURFACE__/g, String(view.surface !== false))
         .replace(/__WALLS__/g, String(Boolean(view.walls)))
@@ -613,9 +618,26 @@ try {
         .replace(/__CORNER__/g, view.corner ? JSON.stringify(view.corner) : 'null')
         .replace(/__AIM_AT__/g, view.aimAt ? JSON.stringify(view.aimAt) : 'null')
         .replace(/__EYE__/g, String(Boolean(view.eye)))
+        .replace(/__EXPLODED__/g, String(Boolean(view.exploded)))
         .replace(/__DEPTH__/g, String(view.depth ?? -12))
         .replace(/__FOV__/g, String(view.fov ?? 45)),
     )
+    if (view.exploded) {
+      await waitFor(session.evaluate, '!!document.querySelector(\'.explodedViewer[data-ready="true"] canvas\')', { what: 'the exploded station view' })
+      if (view.zoomPct) {
+        await session.evaluate(`(() => {
+          const canvas = document.querySelector('.explodedViewer canvas')
+          canvas.dispatchEvent(new WheelEvent('wheel', {
+            deltaY: -Math.log(1 + ${view.zoomPct} / 100) * 1000,
+            bubbles: true,
+            cancelable: true,
+          }))
+          return true
+        })()`)
+      }
+    } else {
+      await waitFor(session.evaluate, '!document.querySelector(\'.explodedViewer\')', { what: 'the editor view after closing exploded view' })
+    }
     // Two frames is a camera that has been installed and drawn; the extra beat is the
     // chunk mesher catching up with a storey the last view took away.
     await session.evaluate('new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 900))))')
@@ -623,7 +645,8 @@ try {
     // re-anchors the edited storey to the levels the worker reports (`SimSlice`), which
     // can land *after* the depth a view asked for and leave the first tile of a run shot
     // from somewhere else. Re-assert it once the page has settled, and give the slicing a
-    // beat of its own if it had actually moved — so all six tiles are one storey.
+    // beat of its own if it had actually moved — so each editor view lands on its
+    // authored storey.
     const depth = view.depth ?? -12
     const moved = await session.evaluate(`(() => {
       const s = window.__metro.getState()
@@ -634,7 +657,7 @@ try {
     if (moved) await session.evaluate('new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 900))))')
     // The chrome is off for a view and **on** for the widget's own tile, which is the one
     // card that is supposed to be a picture of the interface.
-    await setChrome(!view.ui)
+    await setChrome(!view.ui, view.exploded ? '.explodedViewer canvas' : 'canvas')
     await session.evaluate('new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 250))))')
     return { ...st, activeZ: await session.evaluate('window.__metro.getState().activeZ') }
   }
@@ -715,7 +738,7 @@ try {
     // catches a strip of the build rail down its left edge. Every panel is measured and
     // the shot is taken of what is left: the view, and nothing the chrome covers.
     const canvas = await session.evaluate(`(() => {
-      const el = document.querySelector('.stage') || document.querySelector('canvas')
+      const el = document.querySelector(${JSON.stringify(view.exploded ? '.explodedViewer canvas' : '.stage')}) || document.querySelector('canvas')
       if (!el) return null
       const r = el.getBoundingClientRect()
       return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }
@@ -748,7 +771,7 @@ try {
     )
     // The interior fills the camera frame. Its hidden side panels must not
     // narrow the photographed field of view and enlarge the nearest gates.
-    if (view.eye) Object.assign(viewport, canvas)
+    if (view.eye || view.exploded) Object.assign(viewport, canvas)
     // **Shoot the page, crop the pixels in the page.** `Page.captureScreenshot`'s clip
     // is a trap here: with a device-metrics override in force it comes back offset from
     // the rectangle asked for, which is how a strip of the build rail kept appearing
@@ -859,11 +882,14 @@ try {
       file: `${view.id}.png`,
       width,
       height,
-      ortho: mounted.ortho,
+      ...(mounted.exploded ? { exploded: true, zoomPct: view.zoomPct ?? 0 } : { ortho: mounted.ortho }),
     })
+    const viewCamera = mounted.exploded
+      ? `exploded  zoom +${view.zoomPct ?? 0}%`
+      : `${mounted.ortho ? 'ortho' : 'persp'}  zoom ${mounted.zoom}  dist ${mounted.dist}  fov ${mounted.fov}`
     console.log(
       `ok    ${view.id.padEnd(14)} ${String(width).padStart(4)}x${String(height).padStart(4)}  ` +
-        `${mounted.ortho ? 'ortho' : 'persp'}  zoom ${mounted.zoom}  dist ${mounted.dist}  fov ${mounted.fov}  ` +
+        `${viewCamera}  ` +
         `depth ${mounted.activeZ}m` +
         `${mounted.eye ? `  eye ${JSON.stringify(mounted.eye)}` : ''}  ${(png.length / 1024).toFixed(0)} KB`,
     )

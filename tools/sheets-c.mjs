@@ -26,15 +26,14 @@ const shotsDir = language => resolve(repo, process.env[language === 'en' ? 'VIEW
  * The view tiles, in reading order, followed by 视图控件 as the **sixth tile** — five
  * views and the control, two rows of three, which is what fills the top of the sheet.
  *
- * Each row is: the captured frame to show, the key that reaches it, its name, and what
+ * Each row is: the captured frame to show, its control or shortcut, its name, and what
  * a reader is meant to take from it. Every frame hides the street plane (隐藏地面),
  * because the station is mostly underground and the pavement is a lid over it; the
  * tiles shot closer than the preset framing say by how much.
  *
- * The five are five **different** views: the isometric, the plan, the cut seen at an
- * angle, the same cut seen square on from the south — the one view that shows the
- * storeys stacked and the circulation between them — and the hall at eye height. A
- * second isometric nearer in (a 站厅 · 贴近看) said nothing the first did not.
+ * The five are five **different** operations: build orbit, ghosted plan, angled cutaway,
+ * exploded floor stack and the hall at eye height. The sixth tile photographs the
+ * game's view controls themselves.
  *
  * The 平视 frame is the one the game has no key for: the capture finds a storey with
  * air over its floor and a cell with a clear run to stand in and looks down it, at head
@@ -44,7 +43,7 @@ const CARDS = [
   ['iso', '1', '建造视角', '转着看，安排设备与通路。'],
   ['plan', '2', '平面俯视', '从上往下看，检查布局。'],
   ['section', 'C', '剖切', '打开外壳，看清车站内部。'],
-  ['elevation', '4', '楼层剖面', '检查楼层与换层设施的连接。'],
+  ['exploded', '爆炸视图', '楼层爆炸视图', '拉开楼层，查看竖向交通。'],
   ['eye', '平视', '站厅平视', '靠近乘客，看看空间的样子。'],
 ]
 

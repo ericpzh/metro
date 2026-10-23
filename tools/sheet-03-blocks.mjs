@@ -93,7 +93,7 @@ export function artBlocks() {
     if (!p) throw new Error(`missing block capture: ${id}`)
     return p
   }
-  const g = [title(48, 62, '用一米方块，搭出自己的车站', '拼出地板、墙和天花板，再用半墙、斜块与材质调整空间。')]
+  const g = [title(48, 62, '用方块，搭出自己的车站', '拼出地板、墙和天花板，再用半墙、斜块与材质调整空间。')]
   const figures = [
     ['block', 48, '1  每个面，单独换材质', '顶面是地板，侧面是墙，底面是天花板。'],
     ['floor', 556, '2  连着铺，拼成整片地面', '相邻方块自动拼合，接缝处不会多出墙。'],
