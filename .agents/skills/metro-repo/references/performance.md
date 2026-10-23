@@ -1321,6 +1321,50 @@ These paths carry deterministic regressions (`equipment-retention`,
 changing them; the measured budget above is the acceptance target, not a claim
 about the latest edit.
 
+#### Follow-up placement audit (2026-10-22)
+
+The optimized implementation was measured again with five pinned visible-ground
+targets per demo in Chrome 155 / RTX 4080 SUPER through ANGLE/D3D11, High quality,
+892 × 815 scene canvas. The run checked pointer-handler and renderer-submission
+latency, two-RAF latency, subsystem work, retained model roots, worker frame delay,
+raycasts and authored cells. Each click added exactly one bench, used at most one
+scene raycast, preserved authored cells and reported zero browser/GL errors.
+
+| Demo | First submission, before → after | Median, before → after | Worst, before → after |
+|---|---:|---:|---:|
+| Zoo | 683 → 134 ms | 505 → 134 ms | 683 → 176 ms |
+| Tanwei | 366 → 118 ms | 276 → 110 ms | 1,075 → 241 ms |
+
+The optimized submission samples were Zoo **134, 62, 132, 176, 156 ms** and
+Tanwei **118, 110, 107, 241, 100 ms**. Corresponding two-RAF samples were Zoo
+159/81/163/201/178 ms and Tanwei 157/149/142/283/133 ms. Worst submission
+latency fell 74% on Zoo and 78% on Tanwei, but the 100 ms target remains unmet:
+street-window boundary edits are still the main outliers. The worst Tanwei click
+spent 72 ms meshing ground, 132 ms in `setStation`, and 191 ms in the pointer
+handler before rendering; these nested measurements overlap and must not be
+added together. Zoo boundary meshing cost 32–61 ms. Remaining profile costs
+include generated-ground boundary meshing and whole-scene rendering/matrix work.
+
+The completed usage tour also measured two-RAF times of 1,164 ms for enabling
+cutaway on Zoo, 1,378 ms on Tanwei, 718 ms for Tanwei's first line-colour change,
+649 ms for Zoo's first exit-open change, and 396 ms for Tanwei's time-panel/date
+action. These are tour timings, not matched before/after comparisons. Play/pause
+includes simulation startup and an intentional wait.
+
+Captures are under `.preview/perf/placement-100ms/`: `baseline-equivalent.json`,
+`optimized-final.json`, `comparison.json` and
+`profile-remaining-tanwei.cpuprofile`. Earlier `after-local-v6.json`, the
+original `baseline-matched.json`, and their overlapping validation runs are
+diagnostic only. The matched baseline was built from Git HEAD `b0ab3b3` with the
+same independent hidden-ceiling face correction. `--profile` captures remain
+separate from clean timing runs. Target discovery uses untimed raycasts before
+the first sample, so “first” means first placement after load, not first scene
+pick. The original audit's validation recorded 2,326 passing game tests,
+151 focused coverage tests, a successful production build and profiler export,
+passing native/fallback batching checks, and complete demo tours with fixture
+restoration and no browser errors. Its broad single-process `test:perf` attempt
+was stopped without a final summary and is incomplete.
+
 ### Blocked block drags in the demos
 
 Empty-floor measurements miss the reported cascade. In the shipped Tanwei station
@@ -1776,8 +1820,9 @@ full suite and production browser checks above are the validation for this fix.
 
 Keep `ModuleSystem`'s existing scene parents and registries on an immutable
 append when every previous model survives. `EquipmentBatches.invalidateViews(true)`
-may retain source discovery only after the equipment-content classifier proves
-the edit safe. Source records are bounded per root/view, transform changes refresh
+may retain source discovery only after the model-dependency classifier proves
+the retained roots' inputs unchanged; rebuilt roots discover fresh sources and
+removed roots leave the aggregate. Source records are bounded per root/view, transform changes refresh
 them, and append aggregation updates only buckets receiving new sources. Unknown
 callers retain conservative invalidation. Retired GPU entries leave the click
 path through bounded idle disposal; teardown cancels and drains that work.
@@ -1787,7 +1832,100 @@ Use the explicit ground-only preparation/meshing path only after the same
 classifier proves unchanged authored cells, openings and metadata. Preserve
 structural indexes and authored buffers; hash/remesh changed ground boundaries.
 Expansion and shrink must match a fresh full mesh. Keep the ordinary full path
-for structural edits. Never defer a refusal or make previews commit documents.
+for structural edits. On retained equipment, compare immutable module records
+before serialization, skip unchanged level styling, and advance clipping shader
+versions only when clipping changes. Never defer a refusal or make previews
+commit documents.
 
-See [the placement audit](../../../../game/PERFORMANCE.md) for current measurements,
-deterministic regressions, browser reproduction and the remaining 100 ms gap.
+This reference is the canonical home for placement measurements, reproduction
+and the remaining 100 ms gap; use [the placement budget and audit](#placement-100-ms-budget)
+alongside the local equipment placement retention notes here when changing that
+path.
+
+## Full demo benchmark rerun (2026-10-22)
+
+`npm run bench:sim` and `npm run bench:browser` completed on both shipped demos,
+Zoo then Tanwei. Simulation used Node 24.15.0 on Windows with an i7-14700KF,
+seed 7654321, 600 ticks per phase and 12 edit samples. Browser used Headless
+Chrome 155 at 1384 × 805 on an RTX 4080 SUPER / D3D11, with 6-second phases and
+8 edits. Browser build and TypeScript check passed; Vite emitted its existing
+large-chunk advisory. These are single-run measurements, not a controlled
+before/after comparison.
+
+| Demo | Cells / modules / nodes | Peak tick mean / p95 | Cold world mean | Live rebuild mean / p95 |
+|---|---:|---:|---:|---:|
+| Zoo | 14,073 / 4,291 / 15,120 | 5.26 / 10.18 ms | 205.31 ms | 79.05 / 108.60 ms |
+| Tanwei | 16,869 / 9,694 / 37,474 | 40.05 / 83.65 ms | 967.17 ms | 522.40 / 831.35 ms |
+
+| Demo | Paused FPS | 16× play FPS / passengers | Train first-arrival stall | Paint edit-to-frame mean | Block edit-to-frame mean |
+|---|---:|---:|---:|---:|---:|
+| Zoo | 59.6 | 48.6 / 615 | 940.7 ms | 200.5 ms | 490.9 ms |
+| Tanwei | 30.6 | 22.2 / 1,155 | 951.8 ms | 326.1 ms | 985.1 ms |
+
+The browser run also measured idle-paused at 60 FPS for both demos. Peak 16×
+render submission p95 was 17.9 ms for Zoo and 94.4 ms for Tanwei. Raw captures:
+`.preview/perf/sim-rerun-2026-10-22-zoo.json`,
+`.preview/perf/sim-rerun-2026-10-22-tanwei.json`,
+`.preview/perf/browser-rerun-2026-10-22-zoo.json` and
+`.preview/perf/browser-rerun-2026-10-22-tanwei.json`.
+
+## Tanwei structural edit and rendering follow-up (2026-10-22)
+
+The paired demo bench above exposed a 985 ms mean block edit-to-two-RAF time.
+The follow-up preserves batch-source discovery and level styling for each root
+whose declared model inputs and slice inputs survive a structural edit. A fully
+retained equipment set also keeps its animation registries. Rebuilt or removed
+roots still take their normal paths; changed ground bands and storey spans must
+refresh styling. Unknown model dependencies remain conservative.
+
+Batched static picking leaves retain their prepared local matrices instead of
+recomposing them on every frame. Resync and teardown restore the original
+`matrixAutoUpdate` flags, and parent world transforms still propagate. During a
+synchronous renderer call, fully batched source-only trees are hidden from scene
+projection and restored in `finally`. Moving rigs, masked buckets whose sources
+must draw, and cameras viewing the source layer keep their normal traversal.
+This never changes document state or visibility between input events.
+
+The final clean hardware run used the same Tanwei fixture (16,869 cells / 9,694
+modules), Chrome 155 / RTX 4080 SUPER, 1384 × 805 viewport, seed 7654321,
+6-second phases and 8 edits. These are single-run diagnostics, not timing gates.
+
+| Measurement | Original clean run | Final clean run |
+|---|---:|---:|
+| Block edit-to-two-RAF mean | 985.1 ms | 654.0 ms |
+| Block edit-to-two-RAF p95 | 1,060.3 ms | 778.3 ms |
+| Block scene update mean | 600.8 ms | 361.5 ms |
+| Block chunk meshing mean | 119.6 ms | 122.3 ms |
+| Block module build/registration mean | 112.9 ms | 141.1 ms |
+| Paused continuous-render FPS | 30.6 | 32.1 |
+| Paused renderer submission mean | 31.1 ms | 29.3 ms |
+
+Observed block response improved about 34%, but remains far above 100 ms. Block
+phases held 1,154 / 1,155 passengers and submitted the same 6,136,856 triangles;
+draw calls were 4,574 / 4,598. Both zero-population paused phases submitted exactly
+4,516 draws / 1,065,610 triangles. The intermediate optimized run reached 589.6 ms
+with fewer passengers and is not the final comparison. Live 16× rendering remains
+about 22 FPS; differing phase populations prevent a controlled throughput claim.
+Remaining edit costs include approximately 122 ms chunk meshing and 141 ms model
+build/registration. Rendering still submits 1,882 equipment batches, 894
+platform-edge draws and 384 lift draws in the paused fixture; dynamic equipment
+submission and GPU work need further investigation. Nested CPU timings overlap.
+
+Validation: 2,329 game tests pass with zero failures/skips (128.9 s); the focused
+instrumented run passes 71 tests. `equipmentBatches.ts` has 94.53% lines / 95.18%
+branches / 88.10% functions, and `ModuleSystem.ts` 80.98% / 89.60% / 64.71%.
+The production build, native/fallback render-batching checks, tool picking and
+profiler export smoke check pass. The Tanwei production retention check compares
+ordinary versus skipped-source rendering under default, moving-mask, Hide UI and
+hidden-other-storey views; draw/triangle counts and restored root visibility
+match. Its retained cell edit and a fresh rebuild also match exactly (4,518 draws,
+1,065,618 triangles), with GL error zero. Node coverage does not cover the actual
+WebGL rendering path; these browser checks supply that evidence.
+
+Final capture: `.preview/perf/tanwei-improvement-after-final.json`; intermediate
+capture: `tanwei-improvement-after-v2.json`; correctness capture and reproducible
+browser script: `tanwei-improvement-retention-check.json` and
+`check-tanwei-retention.mjs` in the same directory. Validation logs use the
+`tanwei-improvement-` prefix. `tanwei-improvement-baseline-profile.cpuprofile`
+contains the diagnostic CPU profile; its subsequent Chrome trace stream timed
+out, so that instrumented run is incomplete and is not the clean baseline.

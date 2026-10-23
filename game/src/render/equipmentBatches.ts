@@ -65,6 +65,13 @@ export class EquipmentBatches {
   private sourceRoots = new Map<THREE.Object3D, RootSources>()
   private retired = new Set<Entry>()
   private retirementJob: number | null = null
+  private sourceTransforms = new Map<THREE.Mesh, boolean>()
+  private sourceOnlyRoots = new Set<THREE.Object3D>()
+
+  private restoreSourceTransforms(): void {
+    for (const [mesh, automatic] of this.sourceTransforms) mesh.matrixAutoUpdate = automatic
+    this.sourceTransforms.clear()
+  }
 
   invalidateViews(retainSources = false): void {
     if (!retainSources) {
@@ -81,12 +88,30 @@ export class EquipmentBatches {
 
   /** Recent slices include the active one. Edits invalidate dormant GPU data. */
   private publish(revision: string | undefined, generation: string | undefined): void {
+    // These leaves are immutable picking surfaces; moving rigs are excluded by
+    // source discovery. Their local matrices were prepared by sync. Parent world
+    // transforms still propagate normally, and the next sync restores the flags
+    // before discovering any changed child transforms.
+    for (const mesh of this.sources) {
+      if (!this.sourceTransforms.has(mesh)) this.sourceTransforms.set(mesh, mesh.matrixAutoUpdate)
+      mesh.matrixAutoUpdate = false
+    }
     this.root.clear()
     this.entriesByRoot.clear()
     for (const entry of this.entries.values()) this.root.add(entry.mesh)
     for (const entry of this.entries.values()) for (const source of entry.sources) {
       const entries = this.entriesByRoot.get(source.root) ?? new Set<Entry>()
       entries.add(entry); this.entriesByRoot.set(source.root, entries)
+    }
+    this.sourceOnlyRoots.clear()
+    for (const root of this.entriesByRoot.keys()) {
+      let onlySources = true
+      root.traverse(object => {
+        if (object instanceof THREE.Mesh) {
+          if (!object.layers.isEnabled(BATCH_SOURCE_LAYER)) onlySources = false
+        } else if (!(object instanceof THREE.Group) && object.type !== 'Object3D') onlySources = false
+      })
+      if (onlySources) this.sourceOnlyRoots.add(root)
     }
     if (generation !== undefined && revision !== undefined) {
       this.views.delete(revision)
@@ -120,6 +145,19 @@ export class EquipmentBatches {
     this.setHiddenModules(root ? [root] : [])
   }
 
+  /** The renderer otherwise traverses every picking-only descendant, even when
+   * its layer cannot draw. Keep source visibility intact outside this synchronous
+   * render, and retain original drawing for animated or temporarily unbatched roots. */
+  withHiddenSources(camera: THREE.Camera, draw: () => void): void {
+    if (camera.layers.isEnabled(BATCH_SOURCE_LAYER)) { draw(); return }
+    const hidden: THREE.Object3D[] = []
+    for (const root of this.sourceOnlyRoots) {
+      if (!root.visible || [...this.entriesByRoot.get(root)!].some(entry => this.masked.has(entry))) continue
+      root.visible = false; hidden.push(root)
+    }
+    try { draw() } finally { for (const root of hidden) root.visible = true }
+  }
+
   /** Mask only the local buckets containing replaced preview pieces. Keep every
    * GPU allocation; other members of a masked bucket draw from retained sources. */
   setHiddenModules(roots: readonly THREE.Object3D[]): void {
@@ -141,6 +179,7 @@ export class EquipmentBatches {
   sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
     if (!this.enabled) { this.clear(); return }
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
+    this.restoreSourceTransforms()
     this.detailView = []
     this.setHiddenModule(null)
     if (generation === undefined || generation !== this.generation) this.views.clear()
@@ -375,6 +414,7 @@ export class EquipmentBatches {
   }
 
   clear(): void {
+    this.restoreSourceTransforms()
     if (this.retirementJob !== null) cancelIdleCallback(this.retirementJob)
     this.retirementJob = null
     for (const entry of this.retired) this.drop(entry)
@@ -391,6 +431,7 @@ export class EquipmentBatches {
     this.owned.clear()
     this.entries.clear()
     this.entriesByRoot.clear()
+    this.sourceOnlyRoots.clear()
     this.views.clear()
     this.generation = undefined
     this.atlas.dispose()

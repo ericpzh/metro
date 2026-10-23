@@ -15,6 +15,8 @@ the station either copes or it does not.
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.
+This is the repository's only performance document; keep placement audits and
+measurements here, and do not create `game/PERFORMANCE.md` or another parallel report.
 Use `npm run bench:usage-tour` for normal demo workflows across Zoo and Tanwei,
 including catalogue previews, place/move/pick/delete, camera movement, view changes
 and line/exit/time edits. Use `npm run bench:placement` to profile placement from

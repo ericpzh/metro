@@ -468,7 +468,7 @@ export class SceneRenderer {
         const camera = this.cameraSys.activeCamera()
         camera.updateMatrixWorld()
         this.modules.batches.updateDetail(camera, this.renderer.domElement.clientHeight)
-        this.renderer.render(this.ctx.scene, camera)
+        this.modules.batches.withHiddenSources(camera, () => this.renderer.render(this.ctx.scene, camera))
         this.framesRendered++
       })
     } finally {
@@ -877,7 +877,7 @@ export class SceneRenderer {
       drawCamera.updateMatrixWorld()
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
-      this.renderer.render(this.ctx.scene, drawCamera)
+      this.modules.batches.withHiddenSources(drawCamera, () => this.renderer.render(this.ctx.scene, drawCamera))
       this.framesRendered++
     }
     this.frameCount++

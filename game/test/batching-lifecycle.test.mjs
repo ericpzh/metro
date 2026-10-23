@@ -24,6 +24,55 @@ function root(meshes, id = 'a', type = 'bench') {
 }
 function cleanup(group) { disposeObject(group) }
 
+test('drawing skips only fully batched source trees and restores picks, masks and visibility after errors', () => {
+  const material = new THREE.MeshBasicMaterial(), group = new THREE.Group(), batches = new EquipmentBatches()
+  const make = id => root([new THREE.Mesh(new THREE.BoxGeometry(), material)], id)
+  const a = make('a'), b = make('b'), rig = make('rig')
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(), material)
+  rig.userData.wing = wing; rig.add(wing)
+  group.add(a, b, rig)
+  const camera = new THREE.PerspectiveCamera()
+  try {
+    batches.sync(group, 'first', 'generation')
+    assert.throws(() => batches.withHiddenSources(camera, () => {
+      assert.equal(a.visible, false); assert.equal(b.visible, false)
+      assert.equal(rig.visible, true, 'a moving rig must keep its ordinary render traversal')
+      throw new Error('draw failed')
+    }), /draw failed/)
+    assert.ok(a.visible && b.visible && rig.visible, 'picking and scene visibility must be restored on every exit')
+    batches.setHiddenModule(a)
+    batches.withHiddenSources(camera, () => {
+      assert.equal(b.visible, true, 'neighbour sources restored by a masked bucket must draw')
+    })
+    batches.setHiddenModule(null)
+    camera.layers.enable(BATCH_SOURCE_LAYER)
+    batches.withHiddenSources(camera, () => assert.ok(a.visible && b.visible, 'source debug cameras retain source traversal'))
+  } finally { batches.clear(); cleanup(group); material.dispose() }
+})
+
+test('batched static picking leaves skip local matrix composition and restore transform ownership', () => {
+  const material = new THREE.MeshBasicMaterial(), group = new THREE.Group(), batches = new EquipmentBatches()
+  const a = new THREE.Mesh(new THREE.BoxGeometry(), material), b = a.clone()
+  b.geometry = a.geometry.clone(); b.position.x = 2
+  const source = root([a, b]); group.add(source)
+  try {
+    batches.sync(group, 'first', 'generation')
+    assert.equal(a.matrixAutoUpdate, false)
+    let compositions = 0
+    const update = a.updateMatrix
+    a.updateMatrix = function () { compositions++; return update.call(this) }
+    group.updateMatrixWorld(true); group.updateMatrixWorld(true)
+    assert.equal(compositions, 0, 'rendering must not recompose an immutable picking leaf')
+    source.position.x = 5; group.updateMatrixWorld(true)
+    assert.equal(a.matrixWorld.elements[12], 5, 'parent world transforms continue propagating')
+    a.position.x = 3
+    batches.sync(group, 'changed', 'generation')
+    assert.equal(a.matrixWorld.elements[12], 8, 'resync observes edited local transforms')
+    batches.clear()
+    assert.equal(a.matrixAutoUpdate, true, 'teardown restores the source transform policy')
+  } finally { batches.clear(); cleanup(group); material.dispose() }
+})
+
 test('local batch edits reuse retained source discovery and invalidate it on transform/view changes', () => {
   const material=new THREE.MeshBasicMaterial(), group=new THREE.Group(), batches=new EquipmentBatches()
   const old=root([new THREE.Mesh(new THREE.BoxGeometry(),material),new THREE.Mesh(new THREE.BoxGeometry(),material)])

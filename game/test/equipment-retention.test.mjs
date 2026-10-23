@@ -37,6 +37,26 @@ function station(modules) {
   return { ...emptyStation(), modules, cells: [{ x: -30, y: -30, z: 0, fill: 'solid' }, { x: 100, y: 100, z: 0, fill: 'solid' }] }
 }
 
+test('remote cell edits retain equipment styling, registries and batch discovery; ground-band changes do not', () => withDrawing(({ modules, ctx }) => {
+  const before = station([createModule('bench', 0, 0, 0, 'bench'), createModule('gate', 4, 0, 0, 'gate')])
+  modules.buildModules(before, new Set())
+  const roots = modules.moduleMeshes.children.slice(), wings = modules.crowd.gateWings.slice()
+  let invalidations = 0
+  const invalidate = modules.batches.invalidateViews.bind(modules.batches)
+  modules.batches.invalidateViews = (...args) => { invalidations++; return invalidate(...args) }
+  const after = { ...before, cells: [...before.cells, { x: 200, y: 200, z: 0, fill: 'solid' }] }
+  modules.buildModules(after, new Set(), true)
+  assert.equal(invalidations, 0, 'remote cells cannot invalidate retained equipment batch views')
+  assert.deepEqual(modules.moduleMeshes.children, roots)
+  assert.ok(roots.every(root => modules.retainedLevelRoots.has(root)))
+  assert.deepEqual(modules.crowd.gateWings, wings)
+  ctx.groundOf.set('0,0', 5)
+  modules.buildModules({ ...after, cells: [...after.cells, { x: 0, y: 0, z: 5, fill: 'solid' }] }, new Set(), true)
+  assert.equal(invalidations, 1, 'changed support bands must refresh equipment visibility and contact shadows')
+  assert.equal(modules.retainedLevelRoots.has(roots.find(root => root.userData.moduleId === 'bench')), false)
+  assert.ok(modules.retainedLevelRoots.has(roots.find(root => root.userData.moduleId === 'gate')))
+}))
+
 test('append-only placement preserves animation and fence registries without duplicates', () => withDrawing(({ modules }) => {
   const before = station(['gate','clock','fence','escalator','walkway'].map((type,i)=>createModule(type,i*10,0,0,`rig-${i}`)))
   modules.buildModules(before,new Set())

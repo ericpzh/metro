@@ -242,12 +242,33 @@ export class ModuleSystem extends SceneSystem {
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
-    this.batches.invalidateViews(this.equipmentContentChanged(data))
     const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
       ? retainedModuleIds(this.builtData, data) : new Set<string>())
     const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
     this.retainedLevelRoots.clear()
-    if (this.equipmentContentChanged(data)) for (const root of kept.values()) this.retainedLevelRoots.add(root)
+    // A remote cell edit can leave every model and its slice inputs intact.
+    // Preserve the already dressed roots, animation registries and batch views;
+    // a changed ground band still takes the ordinary registration/style path.
+    if (this.builtData && sameModuleMetadata(this.builtData, data) &&
+      retained.size === data.modules.length && data.modules.every(mod => {
+        const root = kept.get(mod.id)
+        return !root || root.userData.groundBand === this.ctx.groundOf.get(`${mod.x},${mod.y}`)
+      })) {
+      for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
+      this.builtData = data
+      return
+    }
+    // Retention has proved these roots' model inputs unchanged. Cache discovery
+    // across cell edits too; rebuilt roots get fresh records and removed roots
+    // leave the aggregate on the next sync.
+    this.batches.invalidateViews(kept.size > 0)
+    for (const mod of data.modules) {
+      const root = kept.get(mod.id)
+      if (!root || root.userData.groundBand !== this.ctx.groundOf.get(`${mod.x},${mod.y}`)) continue
+      const levels = moduleLevels(mod, this.ctx.levelBase, this.ctx.storeyHeight)
+      if (levels.length === root.userData.levelZs?.length && levels.every((z, i) => z === root.userData.levelZs[i]))
+        this.retainedLevelRoots.add(root)
+    }
     const appendOnly = !!this.builtData && data.cells === this.builtData.cells &&
       this.equipmentContentChanged(data) && retained.size === this.builtData.modules.length &&
       data.modules.length > this.builtData.modules.length
