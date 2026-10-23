@@ -11,6 +11,34 @@ import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
 
+test('ground-window-only updates preserve authored chunks and match fresh meshing on expansion and shrink',async()=>{
+  const {emptyStation}=await import('../src/data/reference-station.ts')
+  const material=new THREE.MeshBasicMaterial()
+  const make=()=>new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const actual=make(),fresh=make()
+  const cells=[{x:0,y:0,z:-5,fill:'solid'},{x:32,y:32,z:-5,fill:'solid'}]
+  const before={...emptyStation(),cells,modules:[]},after={...before,modules:[{id:'edge',type:'bench',x:40,y:20,z:0,cfg:{}}]}
+  const snapshot=chunks=>chunks.chunkMeshes.map(m=>JSON.stringify({level:m.userData.levelZ,ground:!!m.userData.ground,
+    attributes:Object.fromEntries(Object.entries(m.geometry.attributes).map(([k,a])=>[k,Array.from(a.array)])),indices:Array.from(m.geometry.index.array)})).sort()
+  try{
+    actual.prepareStation(before);actual.meshStation()
+    const original=actual.chunkMeshes.filter(m=>!m.userData.ground),buffers=original.map(m=>m.geometry)
+    let disposed=0;buffers.forEach(g=>g.addEventListener('dispose',()=>disposed++))
+    for(const data of [after,before]){
+      const structural = [actual.ctx.thinSides,actual.ctx.hiddenCells,actual.ctx.trackCellSet,actual.ctx.slopeCuts]
+      actual.prepareStation(data,undefined,true);actual.meshStation(true)
+      fresh.prepareStation(data);fresh.meshStation()
+      assert.deepEqual(actual.ctx.solid,fresh.ctx.solid)
+      assert.deepEqual(actual.ctx.finishes,fresh.ctx.finishes)
+      assert.deepEqual([actual.ctx.thinSides,actual.ctx.hiddenCells,actual.ctx.trackCellSet,actual.ctx.slopeCuts],structural)
+      assert.deepEqual(snapshot(actual),snapshot(fresh),'local ground pass must match full geometry including edge halos')
+      assert.ok(original.every(m=>actual.chunkMeshes.includes(m)))
+      assert.equal(disposed,0,'authored geometry stays uploaded')
+      assert.ok(actual.chunkKeyCellVisits<fresh.chunkKeyCellVisits,'only boundary ground chunks are hashed')
+    }
+  }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
+
 test('unbatched moving equipment keeps mesh identity, exact picks and original disposal ownership',()=>{
   const root=new THREE.Group(),geometry=new THREE.SphereGeometry(1,48,24),material=new THREE.MeshStandardMaterial()
   const wing=new THREE.Mesh(geometry,material),hidden=wing.clone(),batched=wing.clone()

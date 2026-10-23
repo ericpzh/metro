@@ -60,7 +60,7 @@ try {
         for(let row=1;row<10&&out.length<40;row++)for(let col=1;col<10&&out.length<40;col++){
           const p={x:rect.left+rect.width*col/10,y:rect.top+rect.height*row/10};
           const hit=__scene.pick(p.x,p.y,__metro.getState().activeZ);
-          if(hit?.solid&&!out.some(q=>q.cell.x===hit.cell.x&&q.cell.y===hit.cell.y&&q.cell.z===hit.cell.z))out.push({...p,cell:hit.cell});
+          if(hit?.solid&&!out.some(q=>q.cell[0]===hit.cell[0]&&q.cell[1]===hit.cell[1]&&q.cell[2]===hit.cell[2]))out.push({...p,cell:hit.cell});
         }
         return out;
       })()`)
@@ -69,11 +69,13 @@ try {
       for (let i = 0; i < tools.length; i++) {
         const tool = tools[i], point = points[i % points.length]
         await page.evaluate(`__metro.getState().setTool(${JSON.stringify(tool)});__metro.setState({moduleType:'bench',zoneBrush:'paid'})`)
-        const start = performance.now()
-        await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y})
-        await page.evaluate(twoFrames)
-        const elapsedMs = performance.now() - start
-        await page.evaluate(`__tour.rows.push({action:'tool-hover',tool:${JSON.stringify(tool)},ms:${elapsedMs}})`)
+        for (let iteration=0;iteration<2;iteration++) {
+          const start = performance.now()
+          await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y})
+          await page.evaluate(twoFrames)
+          const elapsedMs = performance.now() - start
+          await page.evaluate(`__tour.rows.push({action:'tool-hover',tool:${JSON.stringify(tool)},iteration:${iteration},ms:${elapsedMs}})`)
+        }
       }
 
       // A complete single-piece round trip through real pointer input. Catalogue
@@ -88,21 +90,22 @@ try {
         }
         return out;
       })()`)
-      const usage = { placementAttempts: 0, placement: null, move: null, pick: null, deletion: null, undo: null }
+      const usage = { placementAttempts: 0, placement: null, move: null, pick: null, copy: null, copyDeletion: null, deletion: null, undo: null }
       const inputClick = async (point, button='left') => {
         await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:point.x,y:point.y})
         await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:point.x,y:point.y,button,buttons:button==='right'?2:1,clickCount:1})
         await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:point.x,y:point.y,button,buttons:0,clickCount:1})
         await page.evaluate(twoFrames)
       }
-      const initialModuleIds = await page.evaluate(`__metro.getState().station.modules.map(m=>m.id)`)
+      await page.evaluate(`__tour.initialModuleIds=new Set(__metro.getState().station.modules.map(m=>m.id))`)
       await page.evaluate(`__metro.getState().setTool('module');__metro.setState({moduleType:'bench'})`)
       for (const point of placementPoints) {
         const start=performance.now();usage.placementAttempts++
         await inputClick(point)
-        const placed=await page.evaluate(`__metro.getState().station.modules.find(m=>!${JSON.stringify(initialModuleIds)}.includes(m.id)&&m.type==='bench')?.id ?? null`)
+        const ms=performance.now()-start
+        const placed=await page.evaluate(`__metro.getState().station.modules.find(m=>m.type==='bench'&&!__tour.initialModuleIds.has(m.id))?.id ?? null`)
         if (placed) {
-          usage.placement={ms:performance.now()-start,cell:point.cell,id:placed}
+          usage.placement={ms,cell:point.cell,id:placed}
           break
         }
       }
@@ -137,18 +140,32 @@ try {
         await page.evaluate(`__metro.getState().setTool('pick')`)
         let start=performance.now();await inputClick(point)
         usage.pick={ms:performance.now()-start,armed:await page.evaluate(`!!__metro.getState().pickDraft`)}
+        let copyPoint=null
+        if(usage.pick.armed){
+          await page.evaluate(`__tour.copyIds=new Set(__metro.getState().station.modules.map(m=>m.id))`)
+          for(const target of placementPoints){
+            if(target.x===point.x&&target.y===point.y)continue
+            start=performance.now();await inputClick(target)
+            const ms=performance.now()-start
+            const copy=await page.evaluate(`__metro.getState().station.modules.find(m=>!__tour.copyIds.has(m.id))??null`)
+            if(copy){usage.copy={id:copy.id,ms,cell:{x:copy.x,y:copy.y,z:copy.z}};copyPoint=target;break}
+          }
+          if(!usage.copy)throw Error(demo+': picked bench could not be placed again')
+        }
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await page.evaluate(twoFrames)
         await page.evaluate(`__metro.getState().setTool('delete')`)
+        if(copyPoint){
+          start=performance.now();await inputClick(copyPoint)
+          usage.copyDeletion={ms:performance.now()-start,removed:await page.evaluate(`!__metro.getState().station.modules.some(m=>m.id===${JSON.stringify(usage.copy.id)})`)}
+          if(!usage.copyDeletion.removed)throw Error(demo+': copied bench was not deleted')
+        }
         start=performance.now();await inputClick(point)
         usage.deletion={ms:performance.now()-start,removed:await page.evaluate(`!__metro.getState().station.modules.some(m=>m.id===${JSON.stringify(usage.placement.id)})`)}
         if (usage.deletion.removed) {
           start=performance.now();await page.evaluate(`__metro.getState().undo();${twoFrames}`)
           usage.undo={ms:performance.now()-start,restored:await page.evaluate(`__metro.getState().station.modules.some(m=>m.id===${JSON.stringify(usage.placement.id)})`)}
-          const cleanupUndos=usage.move?.placed?2:1
-          for(let i=0;i<cleanupUndos;i++)await page.evaluate(`__metro.getState().undo();${twoFrames}`)
-          usage.stationRestored=await page.evaluate(`__metro.getState().station.modules.length===${await page.evaluate('__tour.fixture.modules')}&&!__metro.getState().station.modules.some(m=>m.id===${JSON.stringify(usage.placement.id)})`)
         }
       }
 
@@ -169,6 +186,7 @@ try {
       const key = async (key, code, windowsVirtualKeyCode, modifiers = 0) => {
         const start = performance.now()
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key,code,windowsVirtualKeyCode,modifiers})
+        await page.evaluate(twoFrames)
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key,code,windowsVirtualKeyCode,modifiers})
         await page.evaluate(twoFrames)
         camera.push({action:'key',key,ms:performance.now()-start})
@@ -183,11 +201,27 @@ try {
       }
       const canvas = await page.evaluate(`(()=>{const r=__scene.renderer.domElement.getBoundingClientRect();return{x:r.left+r.width*.5,y:r.top+r.height*.5}})()`)
       const orbitStart=performance.now()
-      await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:canvas.x,y:canvas.y,button:'left',buttons:1,clickCount:1})
-      await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:canvas.x+90,y:canvas.y+45,button:'left',buttons:1})
-      await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:canvas.x+90,y:canvas.y+45,button:'left',buttons:0,clickCount:1})
+      await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:canvas.x,y:canvas.y,button:'middle',buttons:4,clickCount:1})
+      await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:canvas.x+90,y:canvas.y+45,button:'middle',buttons:4})
+      await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:canvas.x+90,y:canvas.y+45,button:'middle',buttons:0,clickCount:1})
       await page.evaluate(twoFrames)
       camera.push({action:'orbit-drag',ms:performance.now()-orbitStart})
+
+      const views = await page.evaluate(`(async()=>{
+        const rows=[],frame=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+        for(const [field,action] of [['ghostOtherLevels','setGhostOther'],['autoCeiling','setAutoCeiling'],
+          ['hideWalls','setHideWalls'],['hideGround','setHideGround'],['hideRoof','setHideRoof'],
+          ['hideUI','setHideUI'],['ortho','setOrtho'],['overlayOn','setOverlay'],['cutaway','setCutaway'],
+          ['hideSectionSurface','setHideSectionSurface']]){
+          const original=__metro.getState()[field];
+          for(const value of [!original,original]){
+            const start=performance.now();__metro.getState()[action](value);await frame();
+            if(__metro.getState()[field]!==value)throw Error('View action did not apply: '+action);
+            rows.push({action,enabled:value,ms:performance.now()-start});
+          }
+        }
+        return rows;
+      })()`)
 
       // Exercise line, exit and clock edits through the same store actions the
       // mounted editor controls call; restore each value before moving on.
@@ -201,26 +235,34 @@ try {
         }
         const exit=s.station.modules.find(m=>m.type==='exit');
         if(exit){
-          const original=s.station;
           for(const open of [!exit.cfg.open,exit.cfg.open]){
-            const now=performance.now(),state=s;
+            const now=performance.now(),state=__metro.getState();
             const modules=state.station.modules.map(m=>m.id===exit.id?{...m,cfg:{...m.cfg,open}}:m);
             state.commit({...state.station,modules});await frame();
             rows.push({action:open===exit.cfg.open?'exit-open-restore':'exit-open',ms:performance.now()-now});
           }
         }
-        const old=s.metrics, time=performance.now();s.setTimePanel(true);s.seekToDate({year:2026,month:1,day:5});await frame();
+        const old=__metro.getState().metrics, time=performance.now();s.setTimePanel(true);s.seekToDate({year:2026,month:1,day:5});await frame();
         rows.push({action:'time-panel-and-date',ms:performance.now()-time});s.setTimePanel(false);
         const simStart=performance.now();s.setSpeed(2);s.setPlaying(true);await new Promise(r=>setTimeout(r,180));s.setPlaying(false);await frame();
-        rows.push({action:'time-play-pause',ms:performance.now()-simStart,tickDelta:s.metrics.tick-old.tick});
+        rows.push({action:'time-play-pause',ms:performance.now()-simStart,tickDelta:__metro.getState().metrics.tick-old.tick});
         return rows;
       })()`)
 
+      // Reload the same built-in fixture after timing so each demo starts from
+      // its authored document even if undo history differs between fixtures.
+      await loadExampleStation(page, demo)
+      const stationRestored = await page.evaluate(`__metro.getState().station.modules.length===__tour.fixture.modules&&__metro.getState().station.cells.length===__tour.fixture.cells`)
+      usage.stationRestored = stationRestored
+
       const errors = await page.evaluate(`__tour.errors`)
       const report = { demo, loadMs, fixture: await page.evaluate('__tour.fixture'),
+        environment: await page.evaluate(`(()=>({userAgent:navigator.userAgent,viewport:[innerWidth,innerHeight],devicePixelRatio,
+          gpu:__scene.renderer.getContext().getParameter(__scene.renderer.getContext().getExtension('WEBGL_debug_renderer_info')?.UNMASKED_RENDERER_WEBGL)||'unavailable'}))()`),
+        gpuBackend: process.env.METRO_BROWSER_GPU==='hardware'?'hardware':'swiftshader',
         catalogue: { options: options.length, samples: options, slowest: [...options].sort((a,b)=>b.coldMs-a.coldMs).slice(0,10) },
         toolHover: await page.evaluate(`__tour.rows.filter(r=>r.action==='tool-hover')`), usage, move,
-        camera, settings, errors }
+        camera, views, settings, errors }
       reports.push(report)
       writeFileSync(output, JSON.stringify({ generatedAt:new Date().toISOString(), browser:await page.evaluate('navigator.userAgent'), reports },null,2))
       if (errors.length) throw new Error(`${demo}: browser errors: ${errors.join(' | ')}`)

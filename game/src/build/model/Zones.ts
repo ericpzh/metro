@@ -130,8 +130,7 @@ export function zoneFloorAt(cells: readonly Cell[], modules: readonly Module[], 
  * list (`withGround`), because the street a zone may be painted onto is a plane
  * the document never stores.
  */
-export function zoneFloorKeys(cells: readonly Cell[]): Set<string> {
-  const solid = solidKeys(cells);
+export function zoneFloorKeys(cells: readonly Cell[], solid: ReadonlySet<string> = solidKeys(cells)): Set<string> {
   const out = new Set<string>();
   for (const c of cells) if (isFloorCell(c, solid)) out.add(cellKey(c.x, c.y, c.z));
   return out;

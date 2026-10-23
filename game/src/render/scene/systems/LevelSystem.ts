@@ -38,6 +38,7 @@ export class LevelSystem extends SceneSystem {
   private readonly slice: SliceOptions = { ghost: true, autoCeiling: true }
   /** The cut's plane while a cut is on, shared by every material this walk dresses. */
   private clip: THREE.Plane | null = null
+  private lastAppliedView = ''
 
   private mapMaterials(
     materials: THREE.Material | THREE.Material[],
@@ -120,6 +121,8 @@ export class LevelSystem extends SceneSystem {
     // assigns materials to.
     const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
     if (key === this.ctx.levelKey) return
+    const sameView = key === this.lastAppliedView
+    this.lastAppliedView = key
     this.modules.restoreMovingModule()
     this.ctx.levelKey = key
     // One record for the whole walk: what the view asks of the slice this frame.
@@ -202,7 +205,9 @@ export class LevelSystem extends SceneSystem {
     }
     // Fixtures follow the same rule: the storey above loses the pieces that hang
     // over the room below, and 显示其他层 decides whether the rest are drawn.
-    for (const child of this.modules.moduleMeshes.children) this.applyGroupLevel(child, 'module')
+    for (const child of this.modules.moduleMeshes.children) {
+      if (!sameView || !this.modules.retainedLevelRoots?.has(child)) this.applyGroupLevel(child, 'module')
+    }
     // Trains own their `visible` flag (`setTrains` parks them between services),
     // so the slicing is combined with the sim's own state rather than replacing it.
     for (const child of this.trains.trainGroup.children) this.applyGroupLevel(child, 'train')

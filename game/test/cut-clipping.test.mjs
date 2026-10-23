@@ -23,6 +23,30 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
+import { SectionSystem } from '../src/render/scene/systems/SectionSystem.ts'
+
+test('equipment commits keep unchanged clipping shader versions; toggles and new materials still update',()=>{
+  const ctx=new SceneContextData(new THREE.Scene(),{},{},{})
+  const section=new SectionSystem(ctx),material=new THREE.MeshBasicMaterial(),geometry=new THREE.BoxGeometry()
+  const mesh=new THREE.Mesh(geometry,material),group=new THREE.Group();group.add(mesh)
+  section.chunks={chunkMeshes:[mesh],outlineMeshes:[]}
+  section.crowd={clipMaterials:()=>[material]}
+  section.modules={moduleMeshes:group}
+  try{
+    const first=material.version
+    section.applyClip();assert.equal(material.version,first)
+    section.on=true;section.applyClip();assert.equal(material.version,first+1,'one update even for a shared material')
+    assert.equal(material.clippingPlanes[0],section.plane)
+    section.applyClip();assert.equal(material.version,first+1)
+    const added=material.clone();added.clippingPlanes=null
+    mesh.material=[material,added];section.applyClip()
+    assert.equal(added.clippingPlanes[0],section.plane)
+    assert.equal(material.version,first+1)
+    section.on=false;section.applyClip()
+    assert.equal(material.clippingPlanes,null);assert.equal(added.clippingPlanes,null)
+    assert.equal(material.version,first+2);added.dispose()
+  }finally{section.dispose();material.dispose();geometry.dispose()}
+})
 
 const B2 = -8
 const B1 = -4

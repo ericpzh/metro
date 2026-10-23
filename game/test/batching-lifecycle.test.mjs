@@ -24,6 +24,79 @@ function root(meshes, id = 'a', type = 'bench') {
 }
 function cleanup(group) { disposeObject(group) }
 
+test('local batch edits reuse retained source discovery and invalidate it on transform/view changes', () => {
+  const material=new THREE.MeshBasicMaterial(), group=new THREE.Group(), batches=new EquipmentBatches()
+  const old=root([new THREE.Mesh(new THREE.BoxGeometry(),material),new THREE.Mesh(new THREE.BoxGeometry(),material)])
+  old.children[1].position.x=2;group.add(old)
+  try {
+    batches.sync(group,'a','a','slice')
+    const buffer=batches.root.children[0].geometry
+    const originalGeometry=old.children[0].geometry
+    let geometryReads=0
+    Object.defineProperty(old.children[0],'geometry',{configurable:true,get(){geometryReads++;return originalGeometry}})
+    let walks=0;const traverse=old.traverseVisible
+    old.traverseVisible=function(...args){walks++;return traverse.apply(this,args)}
+    const extra=root([new THREE.Mesh(new THREE.BoxGeometry(),material)],'extra');extra.position.x=100;group.add(extra)
+    batches.invalidateViews(true);batches.sync(group,'b','b','slice')
+    assert.equal(walks,0,'an unrelated addition must not rediscover retained source geometry')
+    assert.equal(geometryReads,0,'an untouched bucket must not inspect geometry or rebuild its signature')
+    assert.ok(batches.root.children.some(mesh=>mesh.geometry===buffer),'untouched spatial bucket keeps its GPU buffer')
+    old.position.x=4;batches.invalidateViews(true);batches.sync(group,'c','c','slice')
+    assert.equal(walks,1,'moving a retained root refreshes its world-space sources')
+    batches.invalidateViews(true);batches.sync(group,'d','d','another-slice')
+    assert.equal(walks,2,'view/material policies refresh retained sources')
+    batches.invalidateViews();batches.sync(group,'e','e','another-slice')
+    assert.equal(walks,3,'conservative invalidation refreshes mutable source inputs')
+  } finally {batches.clear();cleanup(group);material.dispose()}
+})
+
+test('append-only bucket aggregation matches fresh rendering after local additions, deletion and view changes',()=>{
+  const material=new THREE.MeshBasicMaterial(),group=new THREE.Group(),batches=new EquipmentBatches()
+  const make=(id,x)=>{const r=root([new THREE.Mesh(new THREE.BoxGeometry(),material)],id);r.position.x=x;return r}
+  group.add(make('a',0),make('b',2))
+  const snapshot=b=>b.root.children.map(mesh=>JSON.stringify({type:mesh.type,count:mesh.count,
+    position:Array.from(mesh.geometry.attributes.position.array),index:mesh.geometry.index?Array.from(mesh.geometry.index.array):null,
+    instances:mesh.instanceMatrix?Array.from(mesh.instanceMatrix.array):null})).sort()
+  const freshMatches=()=>{
+    const fresh=new EquipmentBatches(),clone=group.clone(true);clone.traverse(o=>o.layers.set(0))
+    try{fresh.sync(clone);assert.deepEqual(snapshot(batches),snapshot(fresh))}finally{fresh.clear()}
+  }
+  try{
+    batches.sync(group,'a','a','slice');freshMatches()
+    group.add(make('c',4));batches.invalidateViews(true);batches.sync(group,'b','b','slice');freshMatches()
+    const removed=group.children[1];group.remove(removed)
+    batches.invalidateViews(true);batches.sync(group,'c','c','slice');freshMatches();removed.children[0].geometry.dispose()
+    batches.invalidateViews(true);batches.sync(group,'d','d','another-slice');freshMatches()
+  }finally{batches.clear();cleanup(group);material.dispose()}
+})
+
+test('retired view buffers leave the click path and teardown cancels and drains their idle job once',()=>{
+  const idle=globalThis.requestIdleCallback,cancel=globalThis.cancelIdleCallback
+  const jobs=new Map();let next=0
+  globalThis.requestIdleCallback=fn=>{jobs.set(++next,fn);return next}
+  globalThis.cancelIdleCallback=id=>jobs.delete(id)
+  const material=new THREE.MeshBasicMaterial(),group=new THREE.Group(),batches=new EquipmentBatches()
+  const source=root([new THREE.Mesh(new THREE.BoxGeometry(),material),new THREE.Mesh(new THREE.BoxGeometry(),material)])
+  source.children[1].position.x=2;group.add(source)
+  try {
+    batches.sync(group,'a','g');const first=batches.root.children[0].geometry
+    let disposed=0;first.addEventListener('dispose',()=>disposed++)
+    source.position.x=3;batches.sync(group,'b','g')
+    batches.invalidateViews()
+    assert.equal(disposed,0,'dormant view disposal is deferred from the edit')
+    assert.equal(jobs.size,1)
+    const [job,run]=jobs.entries().next().value;jobs.delete(job);run()
+    assert.equal(disposed,1,'idle work releases the retired allocation')
+    const second=batches.root.children[0].geometry
+    let secondDisposed=0;second.addEventListener('dispose',()=>secondDisposed++)
+    source.position.x=6;batches.sync(group,'c','g');batches.invalidateViews()
+    assert.equal(jobs.size,1)
+    batches.clear();assert.equal(disposed,1);assert.equal(jobs.size,0)
+    assert.equal(secondDisposed,1,'teardown drains the next retired allocation')
+    batches.clear();assert.equal(disposed,1)
+  }finally{batches.clear();cleanup(group);material.dispose();globalThis.requestIdleCallback=idle;globalThis.cancelIdleCallback=cancel}
+})
+
 test('lifting and cancelling a batched module retains geometry and restores neighbouring draws', () => {
   const ctx = { scene: new THREE.Scene(), activeZ: 0 }
   const modules = new ModuleSystem(ctx), material = new THREE.MeshBasicMaterial()

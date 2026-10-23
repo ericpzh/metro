@@ -1112,3 +1112,14 @@ hit for stair/escalator/walkway runs. Geometry-free `moduleAt` callers retain th
 coordinate-query contract. This regression runs in `test:perf`.
 
 `floor-geometry` also pins Tanwei `(16,6,-1)` wall sides beside hidden suspended ceilings, the `(18,14,-3)` report’s stepped-wall ledge closure from above and -y, toggle geometry retention, ordinary shared-side culling and cross-chunk cache invalidation when a neighbour is retagged.
+
+Placement latency regressions: `equipment-retention` pins scene-parent retention,
+append-only animation/fence registries without duplicates, and ground-window tool
+occupancy against fresh preparation. `batching-lifecycle` pins retained source
+discovery, conservative transform/view invalidation, idle disposal and teardown
+cancellation. `floor-geometry` compares expanding and shrinking ground-only updates
+with fresh meshing and preserves authored GPU geometry. `line-edit` pins immutable
+equipment history; `cut-clipping` pins unchanged shader versions and actual clip
+transitions. `tools/bench-placement-latency.mjs` measures first/repeated real pointer
+placements on both demos, including generated-ground boundary changes; browser
+timings are evidence, never Node pass thresholds.

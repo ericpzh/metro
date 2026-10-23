@@ -15,6 +15,11 @@ the station either copes or it does not.
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.
+Use `npm run bench:usage-tour` for normal demo workflows across Zoo and Tanwei,
+including catalogue previews, place/move/pick/delete, camera movement, view changes
+and line/exit/time edits. Use `npm run bench:placement` to profile placement from
+the first pointer-down through visible feedback; keep the 100 ms response budget
+and its measured gaps current in the performance guide.
 Chunk face culling must account for independently hidden geometry: a suspended
 ceiling never occludes an adjacent ordinary block face, including its side, top or
 bottom. Keep its side/cap/support votes aligned across chunk cache halos. Pin the

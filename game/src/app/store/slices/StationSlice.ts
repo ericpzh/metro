@@ -1,5 +1,6 @@
 import { msg } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
+import { isEquipmentContentEdit } from '../../../render/moduleDependencies.ts'
 // The station-document slice: the document itself, the undo stack, the
 // selection, the transient toast, and opening/saving/renaming/reference
 // stations. Every mutation goes through `commit` so the worker (`rebuildSim`)
@@ -207,10 +208,11 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const cur = get().station
     if (next === cur) return
     const settingsOnly = populationEdit(cur, next)
+    const shareHistory = settingsOnly || (cur.cells === next.cells && isEquipmentContentEdit(cur, next))
     if (!settingsOnly) next = syncBridgePillars(next)
     // Documents are immutable (the renderer and placement caches rely on this).
     // Retain their geometry identity for settings history as well as live edits.
-    set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, settingsOnly ? cur : cloneState(cur)), future: [] })
+    set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, shareHistory ? cur : cloneState(cur)), future: [] })
     rebuildSim(toData(next), toData(cur))
   },
   undo: () => {

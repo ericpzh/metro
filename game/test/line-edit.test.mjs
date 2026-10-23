@@ -26,7 +26,7 @@ import { useStore } from '../src/app/store.ts'
 import { refreshTrackForSelection } from '../src/app/windows/inspector/refreshPlatform.ts'
 import { initSim, selectSimAgent, setFrameHandler, setRouteHandler } from '../src/app/store/slices/SimSlice.ts'
 import { defaultLine, makeTrack, placeRail, placeTunnel, trackPieceForLine } from '../src/build/rail.ts'
-import { toState, toStateRepairing } from '../src/build/model.ts'
+import { toState, toStateRepairing, createModule } from '../src/build/model.ts'
 // The same module record `referenceStation()` clones, so damaging it for one test
 // damages the document 打开示例车站 really reads (and the fixture is put back after).
 import demoJson from '../src/data/demo-station.json' with { type: 'json' }
@@ -80,6 +80,20 @@ function load(data, rest = {}) {
 const line = (id) => st().station.lines.find((l) => l.id === id)
 const tracksOf = (id) => st().station.modules.filter((m) => m.type === 'track' && m.cfg.line === id)
 const edgesOf = (id) => st().station.modules.filter((m) => m.type === 'platform-edge' && m.cfg.line === id)
+
+test('equipment history retains the immutable document and restores it after later edits',()=>{
+  load({ ...referenceStation(), modules: [] })
+  const before=st().station
+  st().commit({...before,modules:[createModule('bench',0,0,0,'new')]})
+  assert.equal(st().past.at(-1),before,'equipment commits must not clone every authored cell')
+  const placed=st().station
+  st().commit({...placed,modules:placed.modules.map(m=>({...m,x:2}))})
+  assert.equal(before.modules.length,0)
+  assert.equal(placed.modules[0].x,0)
+  st().undo();assert.equal(st().station,placed)
+  st().undo();assert.equal(st().station,before)
+  st().redo();assert.equal(st().station.modules[0].x,0)
+})
 
 test('population controls send only numbers and preserve undo/redo', () => {
   const data = { name: 'demand', seed: 1, cells: [], lines: [defaultLine('1', 'up')],

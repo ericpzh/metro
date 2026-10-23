@@ -40,11 +40,15 @@ function changedModules(before: StationData, after: StationData): Module[] {
 }
 
 /** Chunk-only classification. Functional equipment must still reach the worker. */
-export function isEquipmentModelEdit(before: StationData, after: StationData): boolean {
+export function isEquipmentContentEdit(before: StationData, after: StationData): boolean {
   if (!sameStationFields(before, after) || !equal(before.cells, after.cells)) return false
   const changed = changedModules(before, after)
   if (!changed.length || changed.some(m => !isSimInertDecorModule(m) && !EQUIPMENT_ONLY.has(m.type))) return false
-  return equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
+  return true
+}
+
+export function isEquipmentModelEdit(before: StationData, after: StationData): boolean {
+  return isEquipmentContentEdit(before, after) && equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
 }
 
 // These builders read module/metadata only. Changes to either fail closed below.
@@ -194,8 +198,10 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
 }
 
 export function sameModuleMetadata(before: StationData, after: StationData): boolean {
-  const { cells: _a, ...a } = before, { cells: _b, ...b } = after
-  return JSON.stringify(a) === JSON.stringify(b)
+  // Local edits preserve all unchanged module records. Check those identities
+  // before serializing a whole demo's equipment on every placement.
+  return sameStationFields(before, after) && (before.modules === after.modules ||
+    (before.modules.length === after.modules.length && before.modules.every((mod, i) => equal(mod, after.modules[i]))))
 }
 
 /**

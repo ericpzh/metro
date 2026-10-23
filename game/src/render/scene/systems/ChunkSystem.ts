@@ -12,7 +12,7 @@ import { platformBlockInsets, type BlockInset } from '../../platformBlockInsets.
 import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { GROUND_Z, withGround } from '../../../sim/ground.ts'
+import { GROUND_Z, withGround, groundWindow } from '../../../sim/ground.ts'
 import { trackBedKeys } from '../../../sim/placement.ts'
 import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
@@ -94,6 +94,9 @@ export class ChunkSystem extends SceneSystem {
    * cache holds exactly the chunks the station currently has.
    */
   private chunkCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
+  private meshedGroundWindow: ReturnType<typeof groundWindow> | null = null
+  private groundTopology = 0
+  chunkKeyCellVisits = 0
   /**
    * The effective cell list of the last `prepareStation`: the document's own
    * cells plus the generated street window (`withGround`). `meshStation` meshes
@@ -139,7 +142,24 @@ export class ChunkSystem extends SceneSystem {
    * document (the viewport's live sets): reusing it saves a second window-wide
    * materialisation per commit. Omitted callers (tests, `/lab`) build it here.
    */
-  prepareStation(data: StationData, effective?: Cell[]): void {
+  prepareStation(data: StationData, effective?: Cell[], groundOnly = false): void {
+    if (groundOnly) {
+      // The caller proved unchanged authored cells, openings and structural
+      // modules. Only generated pavement membership changes; preserve the
+      // prepared structural indexes and wall-pick objects.
+      this.effectiveCells = effective ?? withGround(data.cells, data.modules)
+      const owned = new Set(data.cells.map(c => packKey(c.x, c.y, c.z)))
+      const nextGround = new Set<number>()
+      for (const c of this.effectiveCells) {
+        const key = packKey(c.x, c.y, c.z)
+        if (!owned.has(key)) nextGround.add(key)
+      }
+      for (const key of this.groundKeys) if (!nextGround.has(key)) this.ctx.solid.delete(key)
+      for (const key of nextGround) this.ctx.solid.add(key)
+      this.groundKeys = nextGround
+      this.ctx.stationData = data
+      return
+    }
     this.platformInsets = platformBlockInsets(data.modules)
     // The street is stored inverted (holes, not blocks), so the mesher works
     // from the **effective** cells: the document's own plus the window's
@@ -236,7 +256,17 @@ export class ChunkSystem extends SceneSystem {
    * Meshes the list `prepareStation` put in `effectiveCells` (document cells plus
    * the generated street window), so the drawn ground is exactly the walked one.
    */
-  meshStation(): void {
+  meshStation(groundOnly = false): void {
+    this.chunkKeyCellVisits = 0
+    const previousWindow = this.meshedGroundWindow
+    if (!groundOnly) this.groundTopology++
+    const nextWindow = this.ctx.stationData ? groundWindow(this.ctx.stationData.cells, this.ctx.stationData.modules) : null
+    const computedKeys = new Map<string, string>()
+    const groundKeys = new Map<string, string>()
+    if (groundOnly) for (const key of this.chunkCache.keys()) {
+      const [level, pass, xy] = key.split('|')
+      if (pass === 'g') groundKeys.set(`${level}|g|${xy}`, key)
+    }
     // **One release per rebuild, and it is the keep-aware one.** What the last
     // rebuild left is given back below, once `keep` is known (`releaseChunks` is
     // called a second time with `keepChunkGeometries` set). Releasing here as well
@@ -291,6 +321,10 @@ export class ChunkSystem extends SceneSystem {
         if (fill) groundCells.push({ x: c.x, y: c.y, z: c.z + 1 })
         continue
       }
+      // Equipment can change the virtual street bounds without touching any
+      // authored cell, opening or chunk shape. Their cached passes remain exact:
+      // the changing window edge is at least GROUND_MARGIN beyond those cells.
+      if (groundOnly) continue
       const band = bandOfCell.get(k) as number
       let entry = byBand.get(band)
       if (!entry) {
@@ -314,6 +348,7 @@ export class ChunkSystem extends SceneSystem {
     // and is cut with it rather than ghosted above the active level.
     const floating = new Set<number>()
     for (const c of this.effectiveCells) {
+      if (groundOnly) break
       if (c.fill !== 'solid') continue
       if (c.tags?.includes(OPENING_CEILING) || suspended.has(packKey(c.x,c.y,c.z))) continue
       if (bandOfCell.get(packKey(c.x, c.y, c.z)) === this.ctx.groundOf.get(`${c.x},${c.y}`)) floating.add(packKey(c.x, c.y, c.z))
@@ -341,6 +376,21 @@ export class ChunkSystem extends SceneSystem {
       sideSolid: ReadonlySet<number>,
       cover?: ReadonlySet<number>,
     ): string => {
+      const address = `${levelZ}|${pass}|${cx},${cy}`
+      const computed = computedKeys.get(address)
+      if (computed) return computed
+      const retainedGround = groundKeys.get(address)
+      if (groundOnly && pass === 'g' && previousWindow && nextWindow) {
+        // Only the rectangular window changed; authored holes, finishes,
+        // ramps and halo votes are fixed for this topology generation.
+        const clip = (w: typeof nextWindow) => `${Math.max(cx-1,w.x0)},${Math.min(cx+CHUNK,w.x1)},${Math.max(cy-1,w.y0)},${Math.min(cy+CHUNK,w.y1)}`
+        const clipped = clip(nextWindow)
+        const result = retainedGround && clip(previousWindow) === clipped ? retainedGround :
+          `${address}|ground:${this.groundTopology}:${clipped}`
+        computedKeys.set(address, result)
+        return result
+      }
+      this.chunkKeyCellVisits += cells.length
       let h = 2166136261
       let n = 0
       for (const c of cells) {
@@ -437,13 +487,18 @@ export class ChunkSystem extends SceneSystem {
           if (haloShape !== undefined) h = Math.imul(h ^ shapeKey(haloShape), 16777619)
         }
       }
-      return `${levelZ}|${pass}|${cx},${cy}|${n}:${h >>> 0}`
+      const result = `${address}|${n}:${h >>> 0}`
+      computedKeys.set(address, result)
+      return result
     }
     const reuse = new Map(this.chunkCache)
     // Which cached chunks this rebuild will keep, decided **before** anything is
     // released: a reused chunk's `BufferGeometry` must survive the sweep, because a
     // disposed geometry is not re-uploaded and its meshes would draw nothing.
     const keep = new Set<string>()
+    if (groundOnly) for (const [key, entry] of reuse) {
+      if (!entry.meshes[0]?.userData.ground) keep.add(key)
+    }
     {
       const groupByChunk = (list: Array<{ x: number; y: number; z: number }>): Map<string, Array<{ x: number; y: number; z: number }>> => {
         const perChunk = new Map<string, Array<{ x: number; y: number; z: number }>>()
@@ -497,11 +552,26 @@ export class ChunkSystem extends SceneSystem {
     // survive it, so re-adding the cached meshes below costs no re-upload and no
     // program recompile.
     this.keepChunkGeometries = keep
-    this.releaseChunks()
+    this.releaseChunks(groundOnly)
     this.ctx.scene.remove(...this.levelGroups.values())
     this.levelGroups.clear()
     this.keepChunkGeometries = null
     const nextCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
+    if (groundOnly) for (const [key, entry] of reuse) {
+      if (entry.meshes[0]?.userData.ground) continue
+      nextCache.set(key, entry)
+      for (const mesh of [...entry.meshes, ...entry.outlines]) {
+        const levelZ = mesh.userData.levelZ as number
+        let group = this.levelGroups.get(levelZ)
+        if (!group) {
+          group = new THREE.Group(); group.userData.levelZ = levelZ
+          this.levelGroups.set(levelZ, group); this.ctx.scene.add(group)
+        }
+        group.add(mesh)
+        if (entry.outlines.includes(mesh)) { this.outlineMeshes.push(mesh); this.outlineSet.add(mesh) }
+        else { this.chunkMeshes.push(mesh); if (mesh.geometry.boundingBox) box.union(mesh.geometry.boundingBox) }
+      }
+    }
     const meshBand = (group: THREE.Group, levelZ: number, cells: Array<{ x: number; y: number; z: number }>, solid: Set<number>, emit: Set<number>, pass: ChunkPass, cover?: ReadonlySet<number>): void => {
       // Chunks are grouped once and meshed from that chunk's own cells, rather than
       // walking the whole 16³ volume with an `emit` test per cell: the volume is
@@ -535,7 +605,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets)
+        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets, pass === 'c' ? undefined : suspended)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []
@@ -637,6 +707,7 @@ export class ChunkSystem extends SceneSystem {
       for (const g of stale.geometries) g.dispose()
     }
     this.chunkCache = nextCache
+    this.meshedGroundWindow = nextWindow
     this.ctx.bounds = box
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 8, 8))
     // The 剖切 plane is not this system's: `SectionSystem` owns it, and keeping
@@ -681,7 +752,7 @@ export class ChunkSystem extends SceneSystem {
    * geometry here is still wanted by the cache entries, which is why this is split
    * from the cache's own pruning (see the stale sweep in `meshStation`).
    */
-  releaseChunks(): void {
+  releaseChunks(preserveSliceMaterials = false): void {
     for (const [mesh, detail] of this.details) { mesh.geometry = detail.near; mesh.raycast = detail.raycast }
     this.details.clear()
     // Geometries are shared between a chunk mesh and its outline mesh, and the
@@ -716,10 +787,12 @@ export class ChunkSystem extends SceneSystem {
     // each entry pins a material (and, through `Material.clone`, its `map` texture)
     // that nothing else references any more. Dropping what is now unreachable is
     // all this needs: every live material is re-cached on the next `applyLevel`.
-    for (const m of this.ctx.dimMats.values()) m.dispose()
-    for (const m of this.ctx.clearMats.values()) m.dispose()
-    this.ctx.dimMats.clear()
-    this.ctx.clearMats.clear()
+    if (!preserveSliceMaterials) {
+      for (const m of this.ctx.dimMats.values()) m.dispose()
+      for (const m of this.ctx.clearMats.values()) m.dispose()
+      this.ctx.dimMats.clear()
+      this.ctx.clearMats.clear()
+    }
     this.chunkMeshes = []
     this.outlineMeshes = []
     this.outlineSet = new Set()

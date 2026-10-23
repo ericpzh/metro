@@ -17,7 +17,8 @@ import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
 import { detailHeight } from '../../detailPolicy.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
-import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentModelEdit } from '../../moduleDependencies.ts'
+import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentContentEdit } from '../../moduleDependencies.ts'
+import { groundWindow } from '../../../sim/ground.ts'
 import { getLanguage } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
 import { presentationKeepIds } from '../../presentationEdit.ts'
@@ -96,10 +97,31 @@ export class ModuleSystem extends SceneSystem {
    * Functional pieces still rebuild worker routing; this only retains drawing.
    */
   equipmentOnlyChanged(data: StationData): boolean {
-    if (!this.builtData || this.builtLanguage !== getLanguage()) return false
-    return isEquipmentModelEdit(this.builtData, data)
+    this.classifyEquipment(data)
+    return this.classifiedEquipment
+  }
+
+  equipmentContentChanged(data: StationData): boolean {
+    this.classifyEquipment(data)
+    return this.classifiedContent
+  }
+  private classifiedBefore: StationData | null = null
+  private classifiedAfter: StationData | null = null
+  private classifiedContent = false
+  private classifiedEquipment = false
+  private classifyEquipment(data: StationData): void {
+    if (!this.builtData || this.builtLanguage !== getLanguage()) {
+      this.classifiedBefore = this.classifiedAfter = null
+      this.classifiedContent = this.classifiedEquipment = false
+      return
+    }
+    if (this.classifiedBefore === this.builtData && this.classifiedAfter === data) return
+    this.classifiedBefore = this.builtData; this.classifiedAfter = data
+    this.classifiedContent = isEquipmentContentEdit(this.builtData, data)
+    this.classifiedEquipment = this.classifiedContent && JSON.stringify(groundWindow(this.builtData.cells, this.builtData.modules)) === JSON.stringify(groundWindow(data.cells, data.modules))
   }
   moduleMeshes: THREE.Group = new THREE.Group()
+  readonly retainedLevelRoots = new Set<THREE.Object3D>()
   readonly batches = new EquipmentBatches()
   private readonly sourceDetail = new SourceGeometryDetail()
   private movingModuleId: string | null = null
@@ -162,7 +184,7 @@ export class ModuleSystem extends SceneSystem {
     // Only pure storey changes may reuse prepared views. New roots, transforms,
     // global appearance toggles and clipping invalidate every dormant slice.
     const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
-    this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation)
+    this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation, view)
     for (const root of this.moduleMeshes.children) {
       const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
         this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
@@ -220,20 +242,26 @@ export class ModuleSystem extends SceneSystem {
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
-    this.batches.invalidateViews()
+    this.batches.invalidateViews(this.equipmentContentChanged(data))
     const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
       ? retainedModuleIds(this.builtData, data) : new Set<string>())
     const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
+    this.retainedLevelRoots.clear()
+    if (this.equipmentContentChanged(data)) for (const root of kept.values()) this.retainedLevelRoots.add(root)
+    const appendOnly = !!this.builtData && data.cells === this.builtData.cells &&
+      this.equipmentContentChanged(data) && retained.size === this.builtData.modules.length &&
+      data.modules.length > this.builtData.modules.length
     const liftRigs = new Map(this.lifts.liftRigs.map(r => [r.group, r]))
     const gateWings = new Map(this.crowd.gateWings.map(r => [r.root, r]))
     const tvScreens = new Map(this.plates.tvScreens.map(r => [r.moduleId, r]))
     const contactBlobs = new Map(this.moduleMeshes.children
       .filter(g => typeof g.userData.contactBlobKey === 'string')
       .map(g => [g.userData.contactBlobKey as string, g as THREE.InstancedMesh]))
-    this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]))
+    if (appendOnly) this.ghost.clearFencePreview()
+    else this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]))
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
-    const trackCells = trackBedKeys(data.cells, data.modules)
+    const trackCells = appendOnly ? this.ctx.trackCellSet : trackBedKeys(data.cells, data.modules)
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
       ads: this.ctx.ads,
@@ -248,9 +276,13 @@ export class ModuleSystem extends SceneSystem {
       owned: this.ctx.ownedMats,
     }
     const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
-    this.trains.psdGroups = []
-    this.plates.adScreens = []
+    if (appendOnly) for (const [key, inst] of contactBlobs) {
+      blobsByKey.set(key, { levelZ: inst.userData.levelZs[0], ground: inst.userData.groundBand,
+        blobs: [...inst.userData.contactBlobValues] })
+    }
+    else { this.trains.psdGroups = []; this.plates.adScreens = [] }
     for (const mod of data.modules) {
+      if (appendOnly && kept.has(mod.id)) continue
       const ownedStart = this.ctx.ownedMats.length
       const group = kept.get(mod.id) ?? buildModule(mod, ctx)
       if (!group) continue
@@ -268,7 +300,7 @@ export class ModuleSystem extends SceneSystem {
       group.userData.levelZs = moduleLevels(mod, this.ctx.levelBase, this.ctx.storeyHeight)
       const ground = this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       group.userData.groundBand = ground
-      this.moduleMeshes.add(group)
+      if (group.parent !== this.moduleMeshes) this.moduleMeshes.add(group)
       if (mod.type === 'fence') {
         this.fenceGroups.push(group)
         this.fenceGroupsById.set(mod.id, group)
@@ -369,7 +401,7 @@ export class ModuleSystem extends SceneSystem {
       if (changed) inst.instanceMatrix.needsUpdate = true
       inst.userData.contactBlobValues = blobs
       inst.count = blobs.length
-      this.moduleMeshes.add(inst)
+      if (inst.parent !== this.moduleMeshes) this.moduleMeshes.add(inst)
     }
     for (const inst of contactBlobs.values()) {
       disposeObject(inst)

@@ -17,9 +17,11 @@ const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 
   'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass', 'sidewalk', 'lawn', 'tree'])
-interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; region: AtlasRegion | null; levels?: number[] }
+interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; signature: string; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
-interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh> }
+interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets: Buckets | null; roots: Map<THREE.Object3D, RootSources> }
+type Buckets = Map<string, { material: THREE.Material; sources: Source[] }>
+interface RootSources { key: string; matrix: THREE.Matrix4; textures: Set<THREE.Texture>; buckets: Buckets | null }
 
 /** A Low proxy can combine several fittings beyond its owner's Near surface. */
 function combinedDetailBounds(near: THREE.BufferGeometry, far: THREE.BufferGeometry): THREE.Sphere {
@@ -58,8 +60,18 @@ export class EquipmentBatches {
   private detailView: number[] = []
   private detailHeight = NaN
   private detailPolicy = ''
+  private rootSources = new WeakMap<THREE.Object3D, Map<string, RootSources>>()
+  private sourceBuckets: Buckets | null = null
+  private sourceRoots = new Map<THREE.Object3D, RootSources>()
+  private retired = new Set<Entry>()
+  private retirementJob: number | null = null
 
-  invalidateViews(): void {
+  invalidateViews(retainSources = false): void {
+    if (!retainSources) {
+      this.rootSources = new WeakMap()
+      this.sourceBuckets = null
+      this.sourceRoots.clear()
+    }
     this.detailView = []
     this.views.clear()
     this.revision = undefined
@@ -78,14 +90,30 @@ export class EquipmentBatches {
     }
     if (generation !== undefined && revision !== undefined) {
       this.views.delete(revision)
-      this.views.set(revision, { entries: this.entries, sources: this.sources })
+      this.views.set(revision, { entries: this.entries, sources: this.sources, buckets: this.sourceBuckets, roots: this.sourceRoots })
       if (this.views.size > EQUIPMENT_VIEW_CACHE_SIZE) this.views.delete(this.views.keys().next().value!)
     }
     const retained = new Set(this.entries.values())
     for (const view of this.views.values()) for (const entry of view.entries.values()) retained.add(entry)
     for (const entry of this.owned) if (!retained.has(entry)) {
-      this.drop(entry); this.owned.delete(entry)
+      this.owned.delete(entry)
+      if (typeof requestIdleCallback === 'function') this.retired.add(entry)
+      else this.drop(entry)
     }
+    this.scheduleRetirement()
+  }
+
+  private scheduleRetirement(): void {
+    if (!this.retired.size || this.retirementJob !== null || typeof requestIdleCallback !== 'function') return
+    this.retirementJob = requestIdleCallback(() => {
+      this.retirementJob = null
+      const until = performance.now() + 4
+      for (const entry of this.retired) {
+        this.retired.delete(entry); this.drop(entry)
+        if (performance.now() >= until) break
+      }
+      this.scheduleRetirement()
+    }, { timeout: 1000 })
   }
 
   setHiddenModule(root: THREE.Object3D | null): void {
@@ -110,7 +138,7 @@ export class EquipmentBatches {
     this.masked = next
   }
 
-  sync(modules: THREE.Group, revision?: string, generation?: string): void {
+  sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
     if (!this.enabled) { this.clear(); return }
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
     this.detailView = []
@@ -118,30 +146,80 @@ export class EquipmentBatches {
     if (generation === undefined || generation !== this.generation) this.views.clear()
     this.generation = generation
     this.revision = revision
-    for (const mesh of this.sources) mesh.layers.set(0)
-    this.sources = new Set()
     const cached = revision === undefined ? undefined : this.views.get(revision)
     if (cached) {
+      for (const mesh of this.sources) mesh.layers.set(0)
       this.entries = cached.entries
       this.sources = cached.sources
+      this.sourceBuckets = cached.buckets
+      this.sourceRoots = cached.roots
       for (const mesh of this.sources) mesh.layers.set(BATCH_SOURCE_LAYER)
       this.publish(revision, generation)
       this.atlas.update()
       return
     }
     this.entries = new Map(this.entries)
-    modules.updateWorldMatrix(true, true)
+    modules.updateWorldMatrix(true, sourceView === undefined)
     const textures = new Set<THREE.Texture>()
-    modules.traverse(o => {
-      if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
-        const map = (o.material as THREE.MeshBasicMaterial).map
-        if (map) textures.add(map)
-      }
-    })
-    this.atlas.retain(textures)
-    const buckets = new Map<string, { material: THREE.Material; sources: Source[] }>()
+    const prepared = new Map<THREE.Object3D, RootSources>()
     for (const root of modules.children) {
+      root.updateWorldMatrix(true, false)
+      const key = `${sourceView}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
+      const views = this.rootSources.get(root)
+      let record = sourceView === undefined ? undefined : views?.get(key)
+      if (!record || record.key !== key || !record.matrix.equals(root.matrixWorld)) {
+        root.updateWorldMatrix(true, true)
+        record = { key, matrix: root.matrixWorld.clone(), textures: new Set(), buckets: null }
+        root.traverse(o => {
+          if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {
+            const map = (o.material as THREE.MeshBasicMaterial).map
+            if (map) record!.textures.add(map)
+          }
+        })
+        if (sourceView !== undefined) {
+          const retained = views ?? new Map<string, RootSources>()
+          retained.set(key, record)
+          if (retained.size > EQUIPMENT_VIEW_CACHE_SIZE) retained.delete(retained.keys().next().value!)
+          this.rootSources.set(root, retained)
+        }
+      }
+      prepared.set(root, record)
+      for (const texture of record.textures) textures.add(texture)
+    }
+    this.atlas.retain(textures)
+    // An immutable append leaves every existing root's source record and order
+    // intact. Only buckets receiving new sources need another signature/bake.
+    const previousRoots = [...this.sourceRoots.keys()]
+    const append = sourceView !== undefined && this.sourceBuckets !== null && previousRoots.length <= modules.children.length &&
+      previousRoots.every((root, i) => modules.children[i] === root && prepared.get(root) === this.sourceRoots.get(root))
+    if (append) this.sources = new Set(this.sources)
+    else {
+      for (const mesh of this.sources) mesh.layers.set(0)
+      this.sources = new Set()
+    }
+    const buckets: Buckets = append ? new Map(this.sourceBuckets!) : new Map()
+    const changed = new Set<string>()
+    const merge = (local: Buckets): void => {
+      for (const [key, bucket] of local) {
+        let existing = buckets.get(key)
+        if (append && existing && !changed.has(key)) {
+          existing = { material: existing.material, sources: [...existing.sources] }
+          buckets.set(key, existing)
+        }
+        if (existing) existing.sources.push(...bucket.sources)
+        else buckets.set(key, { material: bucket.material, sources: [...bucket.sources] })
+        changed.add(key)
+      }
+    }
+    for (const root of modules.children) {
+      if (append && this.sourceRoots.has(root)) continue
       if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible) continue
+      const record = prepared.get(root)!
+      if (record.buckets) {
+        merge(record.buckets)
+        continue
+      }
+      const local: Buckets = new Map()
       const screen = root.userData.adScreen
       const moving = new Set<THREE.Object3D>()
       root.traverse(o => {
@@ -161,16 +239,20 @@ export class EquipmentBatches {
         const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
         const key = `${Math.floor(p.x / 16)},${Math.floor(p.y / 16)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
-        const bucket = buckets.get(key) ?? { material, sources: [] as Source[] }
-        bucket.sources.push({ mesh: o, root, matrix: o.matrixWorld.clone(), region, levels: root.userData.levelZs }); buckets.set(key, bucket)
+        const bucket = local.get(key) ?? { material, sources: [] as Source[] }
+        const matrix = o.matrixWorld.clone()
+        bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
       })
+      record.buckets = local
+      merge(local)
     }
-    const alive = new Set<string>()
+    const alive = append ? new Set(this.entries.keys()) : new Set<string>()
     for (const [key, { material, sources }] of buckets) {
+      if (append && !changed.has(key)) continue
       const coarse = sources.map(s => modelDetailGeometry(s.mesh))
       if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) continue
       alive.add(key)
-      const signature = `${material.transparent}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => `${s.mesh.uuid}:${s.mesh.geometry.uuid}:${s.matrix.elements.join(',')}`).join('|')
+      const signature = `${material.transparent}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
       const old = this.entries.get(key)
       if (old?.signature !== signature) {
         if (old) this.entries.delete(key)
@@ -253,6 +335,8 @@ export class EquipmentBatches {
       for (const source of sources) { source.mesh.layers.set(BATCH_SOURCE_LAYER); this.sources.add(source.mesh) }
     }
     for (const key of this.entries.keys()) if (!alive.has(key)) this.entries.delete(key)
+    this.sourceBuckets = buckets
+    this.sourceRoots = prepared
     this.publish(revision, generation)
     this.atlas.update()
   }
@@ -291,6 +375,13 @@ export class EquipmentBatches {
   }
 
   clear(): void {
+    if (this.retirementJob !== null) cancelIdleCallback(this.retirementJob)
+    this.retirementJob = null
+    for (const entry of this.retired) this.drop(entry)
+    this.retired.clear()
+    this.rootSources = new WeakMap()
+    this.sourceBuckets = null
+    this.sourceRoots.clear()
     this.detailView = []
     this.setHiddenModule(null)
     this.revision = undefined

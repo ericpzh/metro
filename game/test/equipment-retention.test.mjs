@@ -19,9 +19,49 @@ import { defaultLine } from '../src/build/rail.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
+
+test('local equipment additions never detach retained module roots or contact shadows', () => withDrawing(({ modules }) => {
+  const before = station(Array.from({length:127},(_,i)=>createModule('bench',i%16,Math.floor(i/16),0,'old-'+i)))
+  modules.buildModules(before,new Set())
+  const retained=[...modules.moduleMeshes.children]
+  let detached=0
+  const onRemoved=()=>detached++
+  for(const root of retained)root.addEventListener('removed',onRemoved)
+  const after={...before,modules:[...before.modules,createModule('bench',20,20,0,'new')]}
+  modules.buildModules(after,new Set(),true)
+  assert.equal(detached,0,'retention must preserve scene parent membership, not just object identity')
+  assert.ok(retained.every(root=>root.parent===modules.moduleMeshes))
+  for(const root of retained)root.removeEventListener('removed',onRemoved)
+}))
 function station(modules) {
   return { ...emptyStation(), modules, cells: [{ x: -30, y: -30, z: 0, fill: 'solid' }, { x: 100, y: 100, z: 0, fill: 'solid' }] }
 }
+
+test('append-only placement preserves animation and fence registries without duplicates', () => withDrawing(({ modules }) => {
+  const before = station(['gate','clock','fence','escalator','walkway'].map((type,i)=>createModule(type,i*10,0,0,`rig-${i}`)))
+  modules.buildModules(before,new Set())
+  const registries=()=>[modules.crowd.gateWings,modules.clocks.clockRigs,modules.fenceGroups,
+    modules.lifts.escalatorRolls,modules.lifts.liftRigs,modules.lifts.liftPickMeshes,modules.trains.psdGroups]
+  const previous=registries().map(entries=>[...entries])
+  assert.ok(previous[0].length&&previous[1].length&&previous[2].length)
+  let data=before
+  for(let i=0;i<3;i++){
+    data={...data,modules:[...data.modules,createModule('bench',60+i*2,60,0,`new-${i}`)]}
+    modules.buildModules(data,new Set(),true)
+    registries().forEach((entries,i)=>assert.deepEqual(entries,previous[i]))
+  }
+}))
+
+test('ground-only tool occupancy refresh preserves thin indexes and matches a fresh preparation',()=>{
+  const cache=new StationGeometry(),before={...emptyStation(),cells:[{x:0,y:0,z:-5,fill:'solid'}],modules:[]}
+  const prepared=cache.resolve(before)
+  const after={...before,modules:[createModule('bench',24,20,0,'edge')]}
+  const expanded=cache.resolve(after),fresh=new StationGeometry().resolve(after)
+  assert.notEqual(expanded,prepared)
+  assert.equal(expanded.thins,prepared.thins)
+  assert.deepEqual(expanded,fresh)
+  assert.equal(cache.resolve(before).thins,prepared.thins)
+})
 
 test('every palette placement/deletion retains remote models of its own type', async () => {
   const { MODULE_OPTIONS } = await import('../src/app/store/catalog.ts')

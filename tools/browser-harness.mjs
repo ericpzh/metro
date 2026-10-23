@@ -13,8 +13,8 @@
 
 import { createServer } from 'node:http'
 import { spawn } from 'node:child_process'
-import { existsSync, openSync, readFileSync, rmSync } from 'node:fs'
-import { extname, join, normalize, resolve } from 'node:path'
+import { existsSync, mkdirSync, openSync, readFileSync, rmSync } from 'node:fs'
+import { dirname, extname, join, normalize, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
 const MIME = {
@@ -76,6 +76,9 @@ export function serveDir(root, port) {
 export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware' }) {
   const chromePath = findChrome()
   rmSync(profile, { recursive: true, force: true })
+  // The profile's parent is often a gitignored scratch directory (`.preview/`)
+  // that does not exist on a fresh clone; the log and the profile both live under it.
+  mkdirSync(dirname(profile), { recursive: true })
   const logPath = `${profile}.log`
   const logFd = openSync(logPath, 'w')
 

@@ -269,7 +269,6 @@ export class SceneRenderer {
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
     const previousData = this.ctx.stationData
-    this.modules.batches.invalidateViews()
     this.ctx.levelBase = data.levelBase ?? 0
     this.ctx.storeyHeight = data.storeyHeight ?? STOREY_HEIGHT
     // A sign-board preview changes no cell and no other module, so the chunks
@@ -282,8 +281,9 @@ export class SceneRenderer {
     // Anything else takes the full path below.
     const signOnly = this.modules.signBoardsOnlyChanged(data)
     const equipmentOnly = signOnly === null && this.modules.equipmentOnlyChanged(data)
+    const groundOnly = !equipmentOnly && signOnly === null && this.modules.equipmentContentChanged(data)
     if (signOnly !== null || equipmentOnly) this.ctx.stationData = data
-    else this.chunks.prepareStation(data, effective)
+    else this.chunks.prepareStation(data, effective, groundOnly)
     // A painted colour the document no longer holds can go: each finish material
     // wraps a 128² canvas texture, and the colour picker hands out a new id per
     // shade, so a long painting session used to keep every shade it ever tried.
@@ -299,7 +299,7 @@ export class SceneRenderer {
       this.plates.redrawDecorPlates(previousData ?? undefined)
     }
     if (signOnly === null && !equipmentOnly) {
-      this.chunks.meshStation()
+      this.chunks.meshStation(groundOnly)
     }
     if (!retainedModules) {
       this.modules.buildModules(

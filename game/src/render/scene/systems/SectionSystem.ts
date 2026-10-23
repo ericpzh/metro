@@ -274,16 +274,21 @@ export class SectionSystem extends SceneSystem {
    */
   applyClip(): void {
     const planes: THREE.Plane[] | null = this.on ? [this.plane] : null
-    for (const m of [...this.chunks.chunkMeshes, ...this.chunks.outlineMeshes]) {
-      const mat = m.material as THREE.Material
+    const apply = (mat: THREE.Material): void => {
+      const previous = mat.clippingPlanes
+      if ((previous?.length ?? 0) === (planes?.length ?? 0) &&
+          (!planes || previous?.[0] === this.plane)) return
       mat.clippingPlanes = planes
       mat.needsUpdate = true
+    }
+    for (const m of [...this.chunks.chunkMeshes, ...this.chunks.outlineMeshes]) {
+      const mat = m.material as THREE.Material
+      apply(mat)
     }
     // The street ground is real chunk cells now, so the loop above already clips
     // it with the station.
     for (const mat of this.crowd.clipMaterials()) {
-      mat.clippingPlanes = planes
-      mat.needsUpdate = true
+      apply(mat)
     }
     // Equipment is clipped too: a 闸机, a screen door and a train standing in
     // the half that is cut away must go with the slab, exactly as the crowd does.
@@ -293,14 +298,10 @@ export class SectionSystem extends SceneSystem {
         if (!mesh.isMesh) return
         const mat = mesh.material as THREE.Material
         if (Array.isArray(mat)) {
-          for (const one of mat) {
-            one.clippingPlanes = planes
-            one.needsUpdate = true
-          }
+          for (const one of mat) apply(one)
           return
         }
-        mat.clippingPlanes = planes
-        mat.needsUpdate = true
+        apply(mat)
       })
     }
     // **The slice walk clips the materials it derives, not only the ones it was
