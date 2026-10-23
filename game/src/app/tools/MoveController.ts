@@ -2,13 +2,13 @@
 // it on the next. An already-carried piece owns the pointer from either this tool
 // or the 信息 card flow (GAME-SPEC §9.5).
 
-import { exitFloorAt } from '../../sim/exits.ts'
-import { ceilingMountStandCell, hungCeilingAim, isCeilingHung, isWallMounted, moveCandidate, placementColliders, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
+import { isCeilingHung, isWallMounted, moveCandidate, placementColliders } from '../../sim/placement.ts'
 import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
 import { boothSignHit } from './boothSignHit.ts'
+import { moduleAim } from './moduleAim.ts'
 
 /**
  * The id a carried piece (移动) wears as a ghost. A translated piece must not mint
@@ -104,34 +104,7 @@ export class MoveController extends ToolController {
   private moveAnchorAt(h: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): Vec3i {
     const st = useStore.getState()
     const d = st.moveDraft
-    if (d && isWallMounted(d.module)) {
-      const groundExit = d.module.type === 'exit' && d.module.cfg.style === 'doorway'
-      // A carried 玻璃板 hangs where it is aimed, the same course the fresh placement
-      // takes (`wallMountFollowsCourse`): one hover, one cell, either way in.
-      const [x, y, z] = wallMountStandCell(
-        st.station.cells,
-        h.cell,
-        h.place,
-        groundExit,
-        st.station.levelBase,
-        wallMountFollowsCourse(d.module),
-        st.station.storeyHeight,
-      )
-      return { x, y, z }
-    }
-    if (d && isCeilingHung(d.module)) {
-      // A **hung** piece is re-aimed the way a fresh one is: it goes to the free cell under the
-      // **top block** of the column the pointer is on (`hungCeilingAim`), so a carried light or
-      // 电视 follows the mouse instead of keeping the height of the cell it came from. The 挂架
-      // keeps its storey anchor: it is a roof, not a fitting hung under a surface.
-      if (!d.module.type.startsWith('hanger')) {
-        const [x, y, z] = hungCeilingAim(h.cell, h.place, st.station.levelBase, st.station.cells, st.station.modules, st.station.storeyHeight)
-        return { x, y, z }
-      }
-      const [x, y, z] = ceilingMountStandCell(h.cell, h.place, st.station.levelBase, st.station.cells, st.station.storeyHeight)
-      return { x, y, z }
-    }
-    const [x, y, z] = h.solid || exitFloorAt(st.station.modules, h.cell[0], h.cell[1], h.cell[2]) ? h.cell : h.place
+    const [x, y, z] = d ? moduleAim(st.station, d.module, h) : h.cell
     return { x, y, z }
   }
 

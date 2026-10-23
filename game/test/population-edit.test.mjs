@@ -131,3 +131,15 @@ test('population metadata keeps the next equipment edit local without touching m
   modules.builtLanguage = getLanguage() === 'en' ? 'zh' : 'en'
   assert.equal(modules.updatePopulationData(before), false, 'translation still rebuilds')
 })
+
+test('secondary terminus edits retain geometry and travel in presentation patches', () => {
+  const before = fixture()
+  const labels = [{ id: '1', upTerminusEn: 'Wenchong', downTerminusEn: 'Jiaokou' }]
+  const after = applyPopulationEdit(before, { lines: [], exits: [], labels })
+  assert.deepEqual(populationEdit(before, after), { lines: [], exits: [], labels })
+  assert.equal(after.cells, before.cells)
+  assert.equal(after.modules[0], before.modules[0])
+  assert.equal(JSON.parse(JSON.stringify(after)).lines[0].upTerminusEn, 'Wenchong')
+  const cleared = applyPopulationEdit(after, { lines: [], exits: [], labels: [{ id: '1', upTerminusEn: '' }] })
+  assert.equal(cleared.lines[0].upTerminusEn, '')
+})

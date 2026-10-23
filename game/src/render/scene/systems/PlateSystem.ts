@@ -127,7 +127,7 @@ export class PlateSystem extends SceneSystem {
    */
   retainTvPlates(data: StationData): void {
     const stamp = `${getLanguage()}|${data.name}|${data.lines
-      .map((l) => `${l.id},${l.name},${l.colour},${l.direction},${l.upTerminus},${l.downTerminus},${l.headwayProfile.peak},${l.travelSign}`)
+      .map((l) => `${l.id},${l.name},${l.colour},${l.direction},${l.upTerminus},${l.downTerminus},${l.upTerminusEn},${l.downTerminusEn},${l.headwayProfile.peak},${l.travelSign}`)
       .join('|')}`
     if (stamp !== this.tvPlateStamp) {
       this.tvPlateStamp = stamp

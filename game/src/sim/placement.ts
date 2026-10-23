@@ -27,8 +27,7 @@ import { shelfSpec } from './shelves.ts'
 import { extinguisherCells, extinguisherSpec } from './extinguishers.ts'
 import { CHECKOUT_HEIGHT, DESK_HEIGHT } from './constants.ts'
 import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
-import { fenceArms, railLandingAt, type FenceNeighbours } from './fences.ts'
-import { gateSolidFaces } from './gates.ts'
+import { fenceArms, fenceConnectionIndex, type FenceNeighbours } from './fences.ts'
 import { isPsdCornerPair, isPsdEndCoverSupport, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd, snapPsdEndCover } from './psdEnds.ts'
 import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
@@ -46,8 +45,8 @@ import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from 
 import { escalatorLandings } from './escalators.ts'
 import { walkwayCoveredCells, walkwayLandings } from './walkways.ts'
 import { PANEL_MIN_H, mountedSignBoards, signBoardsOf, signBoardsPanel, signMountOf, signMountSpec, signWallCourses } from './sign.ts'
-import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
-import { PSD_FULL_HEIGHT, psdFullHeight, PSD_HALF_HEIGHT, storeyBand } from './constants.ts'
+import { BOOTH_SIGN_PANEL_Z, WALL_SIGN_STAND_OFF, boothHoldsSign, boothSignFits, boothSupportsSign, snapSignToBooth } from './boothSigns.ts'
+import { PSD_FULL_HEIGHT, psdFullHeight, PSD_HALF_HEIGHT } from './constants.ts'
 import { edgeCells, normRot, rotateLocal, trackCellAt, trackCells } from './track.ts'
 import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
@@ -1341,15 +1340,10 @@ export function boxesOverlap(a: ModuleBox, b: ModuleBox): boolean {
  * escalator landing whose handrail the run butts into (`railLandingAt`). Glass
  * never counts: it stands on the tile edge, not in the run.
  */
-function fenceNeighbourFlags(modules: readonly Module[], fence: Module): FenceNeighbours {
-  const joined = (x: number, y: number): boolean => {
-    for (const m of modules) {
-      if (m.z !== fence.z || m.id === fence.id || m.x !== x || m.y !== y) continue
-      if (m.type === 'fence') return true
-      if (m.type === 'gate' && gateSolidFaces(m, fence.x - x, fence.y - y)) return true
-    }
-    return railLandingAt(modules, x, y, fence.z)
-  }
+function fenceNeighbourFlags(modules: readonly Module[], fence: Module, excludeId?: string, proposed?: Module): FenceNeighbours {
+  const index = fenceConnectionIndex(modules)
+  const joined = (x: number, y: number): boolean => index.connects(x, y, fence.z, fence.x - x, fence.y - y, excludeId)
+    || (proposed?.type === 'fence' && proposed.x === x && proposed.y === y && proposed.z === fence.z)
   return { e: joined(fence.x + 1, fence.y), w: joined(fence.x - 1, fence.y), n: joined(fence.x, fence.y + 1), s: joined(fence.x, fence.y - 1) }
 }
 
@@ -1385,10 +1379,16 @@ function isFenceGlassPair(a: Module, b: Module): boolean {
  * `sources` is the neighbour list the fence reads: placed modules for a placed
  * fence, placed-minus-origin for a lifted or fresh candidate.
  */
-function fenceGlassBlocked(sources: readonly Module[], fence: Module, glass: Module): boolean {
+function fenceGlassBlocked(sources: readonly Module[], fence: Module, glass: Module, excludeId?: string, proposed?: Module): boolean {
   const g = moduleEnvelope(glass)
   if (!g) return false
-  const nb = fenceNeighbourFlags(sources, fence)
+  // Every possible arm stays inside its fence tile, even when a neighbour
+  // turns it away from the nominal envelope's axis (§5.2). Reject distant
+  // glass before asking for joints; a curtain hover must not resolve every
+  // fence's neighbours across the whole station.
+  if (!boxesOverlap(g, { x0: fence.x, x1: fence.x + 1, y0: fence.y, y1: fence.y + 1,
+    z0: fence.z + 1, z1: fence.z + 1 + FLAT_HEIGHT.fence })) return false
+  const nb = fenceNeighbourFlags(sources, fence, excludeId, proposed)
   return fenceArmBoxes(fence, nb).some((a) => boxesOverlap(a, g))
 }
 
@@ -1681,7 +1681,7 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
  * but returns the modules instead of a boolean so the builder can highlight
  * them alongside the red ghost (§9.5).
  */
-interface PlacedCollision { module: Module; boxes: ModuleBox[]; bounds: ModuleBox | null }
+interface PlacedCollision { module: Module; boxes: ModuleBox[]; bounds: ModuleBox | null; order: number }
 const collisionCache = new WeakMap<readonly Module[], PlacedCollision[]>()
 
 function collisionBounds(boxes: ModuleBox[]): ModuleBox | null {
@@ -1698,14 +1698,59 @@ function collisionBounds(boxes: ModuleBox[]): ModuleBox | null {
 function placedCollisionBoxes(modules: readonly Module[]): PlacedCollision[] {
   let entries = collisionCache.get(modules)
   if (!entries) {
-    entries = modules.map(module => {
+    entries = modules.map((module, order) => {
       const envelope = moduleEnvelope(module, modules)
       const boxes = envelope ? collisionBoxes(module, envelope) : []
-      return { module, boxes, bounds: collisionBounds(boxes) }
+      return { module, boxes, bounds: collisionBounds(boxes), order }
     })
     collisionCache.set(modules, entries)
   }
   return entries
+}
+
+/** Fence joints can leave the nominal rotated strip, but never their tile. */
+function collisionSearchBounds(module: Module, bounds: ModuleBox): ModuleBox {
+  if (module.type !== 'fence') return bounds
+  return { x0: Math.min(bounds.x0, module.x), x1: Math.max(bounds.x1, module.x + 1),
+    y0: Math.min(bounds.y0, module.y), y1: Math.max(bounds.y1, module.y + 1),
+    z0: Math.min(bounds.z0, module.z + 1), z1: Math.max(bounds.z1, module.z + 1 + FLAT_HEIGHT.fence) }
+}
+
+const collisionSpatialCache = new WeakMap<readonly Module[], {
+  buckets: Map<string, PlacedCollision[]>; broad: PlacedCollision[]; order: Map<Module, number>
+}>()
+
+/** All equipment previews and release checks share this immutable broad phase.
+ * Huge imported pieces use a bounded overflow list instead of huge bucket grids. */
+function collisionCandidates(modules: readonly Module[], bounds: ModuleBox): PlacedCollision[] {
+  let index = collisionSpatialCache.get(modules)
+  const entries = placedCollisionBoxes(modules)
+  if (!index) {
+    index = { buckets: new Map(), broad: [], order: new Map() }
+    for (const entry of entries) {
+      index.order.set(entry.module, entry.order)
+      if (!entry.bounds) continue
+      const box = collisionSearchBounds(entry.module, entry.bounds)
+      const x0 = Math.floor(box.x0 / BLOCK_BODY_BUCKET), x1 = Math.ceil(box.x1 / BLOCK_BODY_BUCKET) - 1
+      const y0 = Math.floor(box.y0 / BLOCK_BODY_BUCKET), y1 = Math.ceil(box.y1 / BLOCK_BODY_BUCKET) - 1
+      const count = (x1 - x0 + 1) * (y1 - y0 + 1)
+      if (!Number.isFinite(count) || count > BLOCK_BODY_BUCKET ** 2) { index.broad.push(entry); continue }
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const key = `${x},${y}`, bucket = index.buckets.get(key) ?? []
+        bucket.push(entry); index.buckets.set(key, bucket)
+      }
+    }
+    collisionSpatialCache.set(modules, index)
+  }
+  const x0 = Math.floor(bounds.x0 / BLOCK_BODY_BUCKET), x1 = Math.ceil(bounds.x1 / BLOCK_BODY_BUCKET) - 1
+  const y0 = Math.floor(bounds.y0 / BLOCK_BODY_BUCKET), y1 = Math.ceil(bounds.y1 / BLOCK_BODY_BUCKET) - 1
+  const count = (x1 - x0 + 1) * (y1 - y0 + 1)
+  if (!Number.isFinite(count) || count > Math.max(entries.length, 1)) return entries
+  const local = new Set(index.broad)
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+    for (const entry of index.buckets.get(`${x},${y}`) ?? []) local.add(entry)
+  }
+  return [...local].sort((a, b) => a.order - b.order)
 }
 
 export function placementColliders(modules: readonly Module[], candidate: Module): Module[] {
@@ -1715,7 +1760,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   const candidateBoxes = collisionBoxes(candidate, c)
   const bounds = collisionBounds(candidateBoxes)
   if (!bounds) return out
-  for (const { module: m, boxes, bounds: placedBounds } of placedCollisionBoxes(modules)) {
+  for (const { module: m, boxes, bounds: placedBounds } of collisionCandidates(modules, collisionSearchBounds(candidate, bounds))) {
     if ((isOutdoorSurface(m) && !isOutdoorSurface(candidate) && candidate.type !== 'road')
       || (isOutdoorSurface(candidate) && !isOutdoorSurface(m) && m.type !== 'road')) continue
     if (m.type === 'road' && candidate.type === 'road') continue
@@ -1760,8 +1805,7 @@ export function placementColliders(modules: readonly Module[], candidate: Module
       const glass = m.type === 'fence' ? candidate : m
       // On a shared curtain tile the crossing is the intended frame connection.
       if (fenceCurtainShareTile(fence, glass)) continue
-      const sources = fence === candidate ? modules.filter((s) => s.id !== fence.id) : modules
-      if (fenceGlassBlocked(sources, fence, glass)) out.push(m)
+      if (fenceGlassBlocked(modules, fence, glass, fence === candidate ? fence.id : undefined)) out.push(m)
       continue
     }
     let hit = false
@@ -1781,14 +1825,18 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   // the neighbours as they will be after the commit (the lifted origin excluded,
   // the candidate included) so both build orders answer alike.
   if (candidate.type === 'fence') {
-    const glasses = modules.filter((m) => m.type === 'glass' && m.id !== candidate.id)
-    if (glasses.length > 0) {
-      const after = [...modules.filter((m) => m.id !== candidate.id), candidate]
-      for (const m of modules) {
-        if (m.type !== 'fence' || m.id === candidate.id || out.includes(m)) continue
-        if (m.z !== candidate.z || Math.abs(m.x - candidate.x) + Math.abs(m.y - candidate.y) !== 1) continue
-        if (glasses.some((g) => fenceGlassBlocked(after, m, g))) out.push(m)
-      }
+    const connections = fenceConnectionIndex(modules), neighbours = new Set<Module>()
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      for (const fence of connections.fencesAt(candidate.x + dx, candidate.y + dy, candidate.z)) neighbours.add(fence)
+    }
+    const order = collisionSpatialCache.get(modules)!.order
+    for (const fence of [...neighbours].sort((a, b) => order.get(a)! - order.get(b)!)) {
+      if (fence.id === candidate.id || out.includes(fence)) continue
+      const box = moduleEnvelope(fence, modules)
+      if (!box) continue
+      const glasses = collisionCandidates(modules, collisionSearchBounds(fence, box))
+        .filter(entry => entry.module.type === 'glass' && entry.module.id !== candidate.id)
+      if (glasses.some(({ module }) => fenceGlassBlocked(modules, fence, module, candidate.id, candidate))) out.push(fence)
     }
   }
   return out
@@ -2178,6 +2226,7 @@ export type EquipmentRefusal =
   | 'track'
   | 'occupied'
   | 'wall'
+  | 'booth-width'
   | 'ceiling'
   | 'escalator-bases'
   | 'lift-footprint'
@@ -2282,7 +2331,16 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   // is resolved from its backing and never from the ground. A **线网图's totem** is
   // not: it stands on the floor like a 售票机, so it falls through to the rules below.
   if (isWallMounted(candidate)) {
-    if (wallMountMissing(cells, candidate, modules)) return 'wall'
+    if (wallMountMissing(cells, candidate, modules)) {
+      // A board bolted to the right booth face, at the right height, that this booth
+      // cannot hold is a **width** problem. Saying "no solid wall behind it" would
+      // send the player looking for a wall behind a header that already backs it.
+      const booth = candidate.type === 'sign' && candidate.cfg.boothId
+        ? modules.find((m) => m.type === 'booth' && m.id === candidate.cfg.boothId)
+        : undefined
+      if (booth && boothHoldsSign(booth, candidate) && !boothSignFits(booth, candidate)) return 'booth-width'
+      return 'wall'
+    }
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
   // A **hung** 装饰 — a 指示牌, 电视, 时钟 or 监控 — is the wall panel's twin one step
@@ -2337,6 +2395,8 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
         return msg('equipment_already_occupies_this_location')
       case 'wall':
         return msg('wall_decorations_need_a_solid_wall_behind_them')
+      case 'booth-width':
+        return msg('the_board_is_wider_than_the_booth_header_remove_some_content_or_build_a')
       case 'ceiling':
         return msg('hung_signs_tvs_clocks_and_cameras_need_a_slab_4_m_above_wall_sig')
       case 'escalator-bases':

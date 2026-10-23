@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import type { Module } from '../../../sim/types.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import { tactileArms } from '../../../sim/floorDecor.ts'
@@ -14,7 +15,7 @@ export class TactileModel extends PieceBuilder {
       surfaceModelDetail(slab(g, tactile, 0, 0, 0.003, 1, 0.45, 0.006), 'z', 1)
       for (const y of [-0.15, -0.05, 0.05, 0.15]) surfaceModelDetail(slab(g, tactile, 0, y, 0.009, 0.9, 0.028, 0.006), 'z', 1)
     } else {
-      const arms = tactileArms(mod, this.ctx.data?.modules ?? [])
+      const arms = tactileArms(mod, modelNeighbours(this.ctx, 'tactile'))
       slab(g, tactile, 0, 0, 0.003, 0.45, 0.45, 0.006)
       for (const [dx, dy] of arms) slab(g, tactile, dx * 0.3625, dy * 0.3625, 0.003, dx ? 0.275 : 0.45, dy ? 0.275 : 0.45, 0.006)
       const positions: Array<[number, number]> = []

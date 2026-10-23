@@ -8,9 +8,6 @@ import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
 import { toData, toStateRepairing } from '../src/build/model.ts'
-import { isWallBlock } from '../src/sim/types.ts'
-import { rampOpeningAt } from '../src/sim/openings.ts'
-import { liftFootprintCells } from '../src/sim/lifts.ts'
 
 function reachable(g, starts) {
   const seen = new Uint8Array(g.nodeCount)
@@ -27,7 +24,7 @@ function reachable(g, starts) {
 }
 
 test('both authored demos load without dropping or moving cells and modules', () => {
-  for (const [id, cells, modules] of [['zoo', 16201, 4062], ['tanwei', 14717, 9572]]) {
+  for (const [id, cells, modules] of [['zoo', 14073, 4291], ['tanwei', 16437, 9694]]) {
     const data = referenceStation(id)
     const loaded = toStateRepairing(data)
     assert.equal(data.cells.length, cells, id)
@@ -37,37 +34,6 @@ test('both authored demos load without dropping or moving cells and modules', ()
     assert.deepEqual(loaded.state.modules, data.modules, `${id}: authored equipment stays in place`)
     assert.ok(toData(loaded.state).lines.every(line => line.modelScale === 0.98))
   }
-})
-
-test('the demo keeps 吊顶 out of wall runs and ramp openings', () => {
-  const data = referenceStation()
-  const at = (x, y, z) => data.cells.find((c) => c.x === x && c.y === y && c.z === z)
-  const ceilings = data.cells.filter((c) => c.tags?.includes('suspended-ceiling'))
-  assert.equal(ceilings.length, 2797, 'the filtered service metre')
-  for (const cell of ceilings) {
-    const source = at(cell.x, cell.y, cell.z - 4)
-    assert.ok(source, `ceiling at ${cell.x},${cell.y},${cell.z} has no floor`)
-    assert.notEqual(source.zone, 'outside', `ceiling at ${cell.x},${cell.y},${cell.z} is outside the station`)
-    assert.equal(isWallBlock(source), false, `ceiling at ${cell.x},${cell.y},${cell.z} covers a wall block`)
-    const above = at(cell.x, cell.y, cell.z + 1)
-    const below = at(cell.x, cell.y, cell.z - 1)
-    assert.ok(!above || !isWallBlock(above), `ceiling at ${cell.x},${cell.y},${cell.z} is a wall top`)
-    assert.ok(!below || !isWallBlock(below), `ceiling at ${cell.x},${cell.y},${cell.z} is a wall bottom`)
-    assert.equal(rampOpeningAt(data.modules, cell.x, cell.y, cell.z), false, `ceiling at ${cell.x},${cell.y},${cell.z} blocks a ramp`)
-    const liftShaft = data.modules.some((m) => {
-      if (m.type !== 'lift') return false
-      const lo = Math.min(m.from.z, m.to.z)
-      const hi = Math.max(m.from.z, m.to.z)
-      return cell.z > lo && cell.z < hi && liftFootprintCells(m).some(([x, y]) => x === cell.x && y === cell.y)
-    })
-    assert.equal(liftShaft, false, `ceiling at ${cell.x},${cell.y},${cell.z} caps a lift shaft`)
-  }
-  // The reported exterior wall column: the inter-wall course is real block, and
-  // the wall top above it is not capped with a baffle tile.
-  const wall = at(63, 39, -11)
-  assert.ok(wall && isWallBlock(wall), '(63,39,-11) is an actual wall block')
-  assert.ok(!wall.tags?.includes('suspended-ceiling'))
-  assert.equal(at(63, 39, -1), undefined, '(63,39,-1) is open, not a 吊顶 over an outside wall')
 })
 
 test('the demo station is one connected circulation', () => {

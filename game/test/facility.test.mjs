@@ -17,6 +17,7 @@ import {
   facilityOpeningCells,
   facilityPlan,
   facilityRect,
+  facilityStandZ,
   facilityWallCells,
   boothBenchSpots,
   placeFacility,
@@ -440,4 +441,20 @@ test('the demo station ships one shop and one booth that stay connected', () => 
   // The booth stop is outside the desk and reachable from the street.
   const boothStop = g.stops.find((s) => s.id === 'booth-1').node
   assert.ok(pf.search(g.exits[1].node, boothStop, needs), 'the booth counter is unreachable')
+})
+
+test('a room reads its level from the block under the pointer, walking down a wall only', () => {
+  // floor at 0, a tagged wall course at 1 and 2, then a plain block laid on top.
+  const cells = [
+    { x: 2, y: 2, z: 0, fill: 'solid' },
+    { x: 2, y: 2, z: 1, fill: 'solid', tags: ['wall'] },
+    { x: 2, y: 2, z: 2, fill: 'solid', tags: ['auto-wall'] },
+    { x: 2, y: 2, z: 3, fill: 'solid' },
+  ]
+  const stand = (cell, solid = true) => facilityStandZ(cells, { cell, solid })
+  assert.equal(stand([2, 2, 3]), 3, 'a plain block is the block the room stands on, however high in the stack')
+  assert.equal(stand([2, 2, 2]), 0, 'a wall course names the floor it was raised from')
+  assert.equal(stand([2, 2, 1]), 0)
+  assert.equal(stand([2, 2, 5], false), 5, 'an open-air press keeps the work plane’s own level')
+  assert.equal(stand([7, 7, 4]), 4, 'a column with nothing in it names the pressed level')
 })

@@ -26,7 +26,7 @@ export function signLineInk(layout: SignLayout, lines: StationData['lines']): st
 export function presentationKeepIds(before: StationData, after: StationData, edit: PopulationEdit): Set<string> {
   const station = !!edit.station
   const shields = new Set(edit.labels?.filter(l=>l.name!==undefined || l.colour!==undefined).map(l=>l.id))
-  const psdLines = new Set(edit.labels?.filter(l=>l.colour!==undefined || l.upTerminus!==undefined || l.downTerminus!==undefined).map(l=>l.id))
+  const psdLines = new Set(edit.labels?.filter(l=>l.colour!==undefined || l.upTerminus!==undefined || l.downTerminus!==undefined || l.upTerminusEn!==undefined || l.downTerminusEn!==undefined).map(l=>l.id))
   const exitNames = new Set(edit.exits.filter(e => e.name !== undefined).map(e => e.id))
   const first = before.lines[0]?.id
   const keep = new Set<string>()

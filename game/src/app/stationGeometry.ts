@@ -1,4 +1,5 @@
 import { cellKey, thinWallSideMap, zoneFloorKeys } from '../build/model.ts'
+import { populationEdit } from '../sim/populationEdit.ts'
 import { withGround } from '../sim/ground.ts'
 import type { StationData } from '../sim/types.ts'
 import { isEquipmentModelEdit, signBoardsOnlyChange } from '../render/moduleDependencies.ts'
@@ -23,6 +24,7 @@ export class StationGeometry {
   resolve(data: StationData): ReturnType<typeof geometryOf> {
     if (!this.geometry || !this.data || (this.data !== data &&
       !(this.data.cells === data.cells && this.data.modules === data.modules) &&
+      !populationEdit(this.data, data) &&
       !isEquipmentModelEdit(this.data, data) && signBoardsOnlyChange(this.data, data) === null)) {
       this.geometry = geometryOf(data)
     }

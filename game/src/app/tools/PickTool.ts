@@ -30,7 +30,7 @@ import { stairLengthOf } from '../../sim/stairs.ts'
 import { cellKey, faceFinish, facePresent } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
 import { finishLabel } from '../../sim/finishes.ts'
-import { moduleAt } from '../../sim/placement.ts'
+import { moduleTarget } from './moduleTarget.ts'
 import { pillarSectionOf } from '../../sim/structures.ts'
 import { signBoardsOf, signMountSpec } from '../../sim/sign.ts'
 import type { Module } from '../../sim/types.ts'
@@ -207,7 +207,7 @@ export class PickTool extends ToolController {
     )
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
-    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2], undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
+    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleTarget(st.station.modules, null, hit.cell, undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
     if (mod) {
       const label = moduleLabel(mod)
       // A derived screen door has no placement of its own: select it, stay.

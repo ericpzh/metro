@@ -49,12 +49,11 @@ export function HeadwayInput({
   }
 
   return (
-    <div className="row">
+    <div className="row lineHeadway">
       <span className="muted small">{label}</span>
       <input
         type="number"
         className="lineNameInput headwayNum"
-        style={{ width: 52 }}
         min={0}
         max={20}
         step={1}
@@ -68,7 +67,6 @@ export function HeadwayInput({
       <input
         type="number"
         className="lineNameInput headwayNum"
-        style={{ width: 52 }}
         min={0}
         max={59}
         step={5}

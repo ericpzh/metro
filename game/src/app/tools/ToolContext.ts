@@ -129,7 +129,8 @@ export interface ZoneDragState {
 /**
  * One pointer event, decoupled from React so controllers stay testable and
  * free of DOM types. `hit` is the viewport's pick for this event, computed
- * once per event by `Viewport.tsx` — controllers must not re-pick for it.
+ * once per event by `Viewport.tsx`. Surface/id/bounds queries reuse that event's
+ * shared scene snapshot; controllers must not create their own scene raycasts.
  */
 export interface PointerInfo {
   clientX: number

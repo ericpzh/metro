@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { surfaceModelDetail } from '../../modelDetail.ts'
 import { batchStaticParts } from '../../batchStaticModule.ts'
 import { PieceBuilder, slab, ownedMaterial } from '../PieceBuilder.ts'
@@ -21,7 +22,7 @@ export class RoadModel extends PieceBuilder {
     g.add(surface)
     const { width, lanes, laneWidth, acrossX, length } = roadLayout(r)
     const ink = (across: number, dashed: boolean, material: THREE.Material) => {
-      for (const [a, b] of roadInkIntervals(r, this.ctx.data.modules, across, ROAD_CROSSWALK_DEPTH+1.5)) {
+      for (const [a, b] of roadInkIntervals(r, modelNeighbours(this.ctx, 'road'), across, ROAD_CROSSWALK_DEPTH+1.5)) {
         for (let from = dashed ? Math.floor(a / 6) * 6 : a; from < b; from += dashed ? 6 : length + 1) {
           const lo = Math.max(a, from), hi = Math.min(b, dashed ? from + 3 : b)
           if (hi <= lo) continue

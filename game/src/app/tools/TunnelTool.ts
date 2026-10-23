@@ -40,7 +40,8 @@ export class TunnelTool extends ToolController {
   onMove(info: PointerInfo): void {
     const scene = this.ctx.scene()
     const hit = info.hit
-    if (!scene || !hit) return
+    if (!scene) return
+    if (!hit) { this.clearHover(); return }
     // The extension hangs off the rail under the pointer; no rail, no ghost.
     const state = useStore.getState().station
     const src = railModuleAtPlatform(state, ...hit.cell) ?? railModuleAtPlatform(state, ...hit.place)
@@ -64,6 +65,7 @@ export class TunnelTool extends ToolController {
    * existing track bed and is refused where it would collide with another.
    */
   override refreshHover(): void {
+    if (useStore.getState().tool !== 'tunnel') return
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current
     if (!scene || !h) return

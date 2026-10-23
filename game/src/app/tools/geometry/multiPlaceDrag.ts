@@ -20,6 +20,7 @@ import { msg } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
 import { StablePreviewDelay } from './stablePreviewDelay.ts'
 import { FramePreview } from './framePreview.ts'
+import { clearToolPreview } from '../clearPreview.ts'
 
 /** A cell coordinate as the scene and drag tools spell it. */
 export type DragCell = [number, number, number]
@@ -107,10 +108,7 @@ export class MultiPlaceDrag {
 
   /** Clear every preview layer used by equipment, decor and block placement. */
   clearPreview(scene: SceneRenderer): void {
-    scene.setGhost?.([], 'add')
-    scene.setModulePreview?.(null)
-    scene.setFencePreview?.(null)
-    scene.setCollisionHighlight?.(null)
+    clearToolPreview(scene)
   }
 
   /**

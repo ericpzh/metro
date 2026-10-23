@@ -20,10 +20,10 @@ import { HALF_WALL_T, ROAD_NODE_HANDLE_CAPACITY } from '../../../sim/constants.t
 import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
-import type { CellShape, Face, Module } from '../../../sim/types.ts'
+import type { CellShape, Face, Module, StationData } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
 import { ModulePreviewDocument } from '../../modulePreviewDocument.ts'
-import { SceneSystem } from './SceneSystem.ts'
+import { SceneSystem, moduleLevels } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { PlateSystem } from './PlateSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
@@ -33,6 +33,9 @@ import { fenceConnectionIndex } from '../../../sim/fences.ts'
 import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
 import { instanceRoofPreview } from '../../roofPreview.ts'
 import { PreviewMaterialCache } from '../../previewMaterialCache.ts'
+import { modelNeighbours } from '../../modelNeighbours.ts'
+import { EquipmentPreview } from '../../equipmentPreview.ts'
+import { batchStaticModule } from '../../batchStaticModule.ts'
 
 /**
  * Starting pool size for the instanced ghost meshes. The box pool grows when a
@@ -71,6 +74,11 @@ export class GhostSystem extends SceneSystem {
     }
     points.sort((a,b)=>Number(b.selected)-Number(a.selected))
     const key=JSON.stringify(points)
+    if(points.length===0) {
+      this.roadNodeKey=key
+      if(this.roadNodes){this.roadNodes.visible=false;this.roadNodes.count=0}
+      return
+    }
     if(!this.roadNodes) {
       this.roadNodes=new THREE.InstancedMesh(new THREE.RingGeometry(.24,.4,16),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.95,depthTest:false}),ROAD_NODE_HANDLE_CAPACITY)
       this.roadNodes.frustumCulled=false;this.roadNodes.renderOrder=10
@@ -91,9 +99,13 @@ export class GhostSystem extends SceneSystem {
   movingModuleId: string | null = null
   /** Hover preview: a translucent copy of the module a click would place. */
   previewGroup: THREE.Group = new THREE.Group()
+  private readonly moduleDetail = new EquipmentPreview(this.previewGroup)
   private previewKey = ''
   private previewDocument = new ModulePreviewDocument()
-  private readonly roofPreviewMaterials = new PreviewMaterialCache()
+  private readonly modulePreviewMaterials = new PreviewMaterialCache(64)
+  private readonly fencePreviewMaterialsCache = new PreviewMaterialCache(64)
+  private previewStation: SceneContext['stationData'] = null
+  private fencePreviewStation: SceneContext['stationData'] = null
   /** Materials/geometries owned by the current preview, disposed on replacement. */
   private previewMats: THREE.Material[] = []
   private previewBases: THREE.Material[] = []
@@ -107,10 +119,12 @@ export class GhostSystem extends SceneSystem {
    * Live fence-drag preview: adjacent joints plus the new translucent panels.
    */
   fencePreviewGroup: THREE.Group = new THREE.Group()
+  private readonly fenceDetail = new EquipmentPreview(this.fencePreviewGroup)
   private fencePreviewKey = ''
   private fencePreviewMats: THREE.Material[] = []
   /** Module-local base materials the fence ghost cloned, released with its ghosts. */
   private fencePreviewBases: THREE.Material[] = []
+  private fencePreviewOwnedMats: THREE.Material[] = []
   /** Remove-drag preview: one red box per pending-delete block (§9.5). */
   private ghostMesh: THREE.InstancedMesh | null = null
   /** Instances the box pool currently holds; grows with a large refused preview. */
@@ -121,6 +135,7 @@ export class GhostSystem extends SceneSystem {
   private ghostMaterial: THREE.MeshStandardMaterial | null = null
   /** Paint-drag preview: one flat quad per face a drag would paint (§9.5). */
   private faceGhost: THREE.InstancedMesh | null = null
+  private faceGhostCapacity = GHOST_MAX
   /** Sibling systems; wired by the orchestrator. */
   plates!: PlateSystem
   modules!: ModuleSystem
@@ -132,7 +147,9 @@ export class GhostSystem extends SceneSystem {
     super(ctx)
     this.previewGroup.visible = false
     this.ctx.scene.add(this.previewGroup)
+    this.ctx.scene.add(this.moduleDetail.batches.root)
     this.ctx.scene.add(this.fencePreviewGroup)
+    this.ctx.scene.add(this.fenceDetail.batches.root)
     this.ctx.scene.add(this.ghostGroup)
   }
 
@@ -427,11 +444,19 @@ export class GhostSystem extends SceneSystem {
       if (this.faceGhost) this.faceGhost.visible = false
       return
     }
-    const n = Math.min(cells.length, GHOST_MAX)
+    const n = cells.length
+    if (this.faceGhost && n > this.faceGhostCapacity) {
+      this.faceGhost.removeFromParent()
+      this.faceGhost.geometry.dispose()
+      ;(this.faceGhost.material as THREE.Material).dispose()
+      this.faceGhost.dispose()
+      this.faceGhost = null
+    }
     if (!this.faceGhost) {
+      while (this.faceGhostCapacity < n) this.faceGhostCapacity *= 2
       const g = new THREE.PlaneGeometry(1, 1)
       const m = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, side: THREE.DoubleSide })
-      this.faceGhost = new THREE.InstancedMesh(g, m, GHOST_MAX)
+      this.faceGhost = new THREE.InstancedMesh(g, m, this.faceGhostCapacity)
       this.faceGhost.renderOrder = 4
       this.faceGhost.frustumCulled = false
       this.ctx.scene.add(this.faceGhost)
@@ -496,28 +521,17 @@ export class GhostSystem extends SceneSystem {
   setModulePreview(mod: Module | readonly Module[] | null, blocked = false, tintOverride?: number): void {
     const mods = mod ? (Array.isArray(mod) ? mod : [mod]) : []
     const key = mods.length === 0 ? '' : `${this.movingModuleId ?? ''}:${mods.map(moduleGhostKey).join('|')}:${blocked ? 'x' : '-'}:${tintOverride ?? ''}`
-    if (key === this.previewKey) return
+    if (key === this.previewKey && this.previewStation === this.ctx.stationData) return
     this.clearModulePreview()
     this.previewKey = key
+    this.previewStation = this.ctx.stationData
     if (mods.length === 0 || !this.ctx.stationData) return
+    this.modulePreviewMaterials.begin()
     // Coupled previews see their own candidates: wide stair lanes join their
     // steps exactly as they will once placed. Ordinary props reuse the station
     // document so support indexes survive movement to the next pointer cell.
     const data = this.previewDocument.resolve(this.ctx.stationData, mods, this.movingModuleId)
-    const ctx: ModuleContext = {
-      mats: this.ctx.modelMats,
-      ads: this.ctx.ads,
-      data,
-      trackCells: this.ctx.trackCellSet,
-      finish: (id) => this.ctx.mats.finish(id),
-      preview: true,
-      tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
-      tvPairSlot: (id) => tvPairSlot(id, data.modules),
-      signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
-      calligraphyFace: (id, spec) => this.plates.makeCalligraphyPlate(id, spec),
-      lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
-      owned: this.previewOwnedMats,
-    }
+    const ctx = this.modelContext(data, mods, true, this.previewOwnedMats)
     const tint = blocked ? MODULE_GHOST_BAD : tintOverride === undefined ? MODULE_GHOST_TINT : new THREE.Color(tintOverride)
     const first = mods[0]
     // Hover and a full run share the instanced shader, so the first movement
@@ -527,41 +541,73 @@ export class GhostSystem extends SceneSystem {
       && JSON.stringify(piece.cfg) === JSON.stringify(first.cfg))) {
       const source = buildModule(first, ctx)
       if (source) {
-        source.traverse(object => {
-          const mesh = object as THREE.Mesh
-          if (!mesh.isMesh) return
-          // Geometry is replaceable; the material stays alive so clearing the
-          // previous target does not delete and recompile its WebGL program.
-          mesh.material = this.roofPreviewMaterials.get(mesh.material as THREE.Material, tint, 0.72)
-          mesh.renderOrder = 5
-          mesh.frustumCulled = false
-        })
-        this.previewGroup.add(instanceRoofPreview(source, mods))
+        batchStaticModule(source, first.type)
+        this.tintModuleGhost(source, first, tint, 0.72, this.previewMats, this.previewBases,
+          (material) => this.sceneOwns(material), this.modulePreviewMaterials)
+        const root = instanceRoofPreview(source, mods)
+        root.userData.previewInstances = true
+        this.describePreview(root, first)
+        root.userData.levelZs = [...new Set(mods.flatMap(piece => moduleLevels(piece, this.ctx.levelBase, this.ctx.storeyHeight)))]
+        for (const mesh of root.children) mesh.userData.previewLevels = moduleLevels({ ...first, z: mesh.userData.previewModuleZ }, this.ctx.levelBase, this.ctx.storeyHeight)
+        this.previewGroup.add(root)
       }
       this.previewGroup.visible = true
+      this.moduleDetail.sync()
       return
     }
-    if (mods.some(m => m.type === 'fence')) {
-      const placed = fenceConnectionIndex(data.modules), added = fenceConnectionIndex(mods)
+    for (const piece of mods) {
+      const group = buildModule(piece, ctx)
+      if (!group) continue
+      batchStaticModule(group, piece.type)
+      this.describePreview(group, piece)
+      const rig = group.userData.clockRig as ClockRig | undefined
+      if (rig) this.clocks.previewRigs.push(rig)
+      this.tintModuleGhost(group, piece, tint, 0.72, this.previewMats, this.previewBases, (m) => this.sceneOwns(m), this.modulePreviewMaterials)
+      this.previewGroup.add(group)
+    }
+    this.previewGroup.visible = true
+    this.moduleDetail.sync()
+  }
+
+  private describePreview(root: THREE.Object3D, module: Module): void {
+    root.userData.moduleType = module.type
+    root.userData.levelZs = moduleLevels(module, this.ctx.levelBase, this.ctx.storeyHeight)
+    root.userData.groundBand = this.ctx.groundOf.get(`${module.x},${module.y}`)
+  }
+
+  /** Called against the final draw camera, just like placed equipment batches. */
+  updateDetail(camera: THREE.Camera, viewportHeight: number): void {
+    const equipment = this.modules?.batches?.equipmentDetailEnabled ?? true
+    this.moduleDetail.update(this.ctx, camera, viewportHeight, equipment)
+    this.fenceDetail.update(this.ctx, camera, viewportHeight, equipment)
+  }
+
+  /** Every model preview shares document, neighbour-overlay and plate ownership. */
+  private modelContext(data: StationData, candidates: readonly Module[], preview: boolean, owned: THREE.Material[]): ModuleContext {
+    const ctx: ModuleContext = {
+      mats: this.ctx.modelMats,
+      ads: this.ctx.ads,
+      data,
+      trackCells: this.ctx.trackCellSet,
+      finish: (id) => this.ctx.mats.finish(id),
+      preview,
+      previewCandidates: candidates,
+      tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
+      tvPairSlot: (id) => tvPairSlot(id, modelNeighbours({ data, previewCandidates: candidates }, 'tv')),
+      signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
+      calligraphyFace: (id, spec) => this.plates.makeCalligraphyPlate(id, spec),
+      lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
+      owned,
+    }
+    if (candidates.some(m => m.type === 'fence')) {
+      const placed = fenceConnectionIndex(data.modules), added = fenceConnectionIndex(candidates)
       ctx.fenceConnections = {
         fencesAt: placed.fencesAt,
         hasRailLanding: (...args) => placed.hasRailLanding(...args) || added.hasRailLanding(...args),
         connects: (...args) => placed.connects(...args) || added.connects(...args),
       }
     }
-    for (const piece of mods) {
-      const group = buildModule(piece, ctx)
-      if (!group) continue
-      // A 时钟's hands are turned by the clock system, the ghost's included: the preview is the
-      // piece a click would place, so it reads the time the sim is on rather than the 10:09 pose
-      // the model is built with. Its rigs go in their own list, which `clearModulePreview` empties
-      // with the ghost.
-      const rig = group.userData.clockRig as ClockRig | undefined
-      if (rig) this.clocks.previewRigs.push(rig)
-      this.tintModuleGhost(group, piece, tint, 0.72, this.previewMats, this.previewBases, (m) => this.sceneOwns(m))
-      this.previewGroup.add(group)
-    }
-    this.previewGroup.visible = true
+    return ctx
   }
 
   /**
@@ -615,15 +661,14 @@ export class GhostSystem extends SceneSystem {
     owned: THREE.Material[],
     bases: THREE.Material[],
     sceneOwns: (mat: THREE.Material) => boolean,
+    cache?: PreviewMaterialCache,
   ): Map<THREE.Material, THREE.Material> {
     const ghostOf = new Map<THREE.Material, THREE.Material>()
-    group.traverse((o) => {
-      const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
-      const base = mesh.material as THREE.Material
+    const tintedMaterial = (base: THREE.Material): THREE.Material => {
       let ghost = ghostOf.get(base)
       if (!ghost) {
-        ghost = base.clone()
+        const retained = cache && tint && sceneOwns(base)
+        ghost = retained ? cache.get(base, tint, opacity, mod.type === 'track' ? false : base.depthTest) : base.clone()
         const any = ghost as THREE.MeshStandardMaterial
         any.transparent = true
         any.opacity = opacity
@@ -632,14 +677,19 @@ export class GhostSystem extends SceneSystem {
         // A track bed lives *inside* the floor block until it is dug, so its ghost
         // must ignore depth or the block hides it entirely.
         if (mod.type === 'track') any.depthTest = false
-        if (tint && any.color) any.color = any.color.clone().lerp(tint, 0.72)
+        if (!retained && tint && any.color) any.color = any.color.clone().lerp(tint, 0.72)
         ghostOf.set(base, ghost)
-        owned.push(ghost)
+        if (!retained) owned.push(ghost)
         // A factory material may be shared scene-wide; a module-local one is the
         // caller's to dispose when the preview moves on.
         if (!sceneOwns(base)) bases.push(base)
       }
-      mesh.material = ghost
+      return ghost
+    }
+    group.traverse((o) => {
+      const mesh = o as THREE.Mesh
+      if (!mesh.isMesh) return
+      mesh.material = Array.isArray(mesh.material) ? mesh.material.map(tintedMaterial) : tintedMaterial(mesh.material)
       mesh.renderOrder = 5
       mesh.frustumCulled = false
     })
@@ -648,28 +698,33 @@ export class GhostSystem extends SceneSystem {
 
   /** Drop the hover preview's geometry and the materials/geometries it owns. */
   clearModulePreview(): void {
+    this.moduleDetail.clear()
     if(this.roadNodes)this.roadNodes.visible=false
     for (const child of [...this.previewGroup.children]) {
       disposeObject(child)
       this.previewGroup.remove(child)
     }
-    for (const m of this.previewMats) m.dispose()
-    for (const m of this.previewBases) m.dispose()
-    this.previewMats.length = 0
-    this.previewBases.length = 0
-    for (const m of this.previewOwnedMats) {
-      const map = (m as THREE.MeshBasicMaterial).map
-      // A plate is the scene's, not the ghost's: the lit face of a 电视 ghost wraps
-      // the same station plate the placed piece prints on (`PlateSystem.ownsTexture`).
-      if (map && !this.plates.ownsTexture(map)) map.dispose()
-      m.dispose()
-    }
-    this.previewOwnedMats = []
+    this.releaseMaterials(this.previewMats, this.previewBases, this.previewOwnedMats)
+    this.modulePreviewMaterials.release()
     this.previewGroup.visible = false
     this.previewKey = ''
+    this.previewStation = null
     // The hands that went with it: a rig is a pivot inside the group just dropped, so the clock
     // system must not keep turning one.
     this.clocks.previewRigs.length = 0
+  }
+
+  /** Builder-owned bases can also occur in the tint list. Release each resource
+   * exactly once; printed station textures keep their normal scene owner. */
+  private releaseMaterials(tinted: THREE.Material[], bases: THREE.Material[], built: THREE.Material[]): void {
+    const maps = new Set<THREE.Texture>()
+    for (const material of built) {
+      const map = (material as THREE.MeshBasicMaterial).map
+      if (map && !this.plates.ownsTexture(map)) maps.add(map)
+    }
+    for (const map of maps) map.dispose()
+    for (const material of new Set([...tinted, ...bases, ...built])) material.dispose()
+    tinted.length = 0; bases.length = 0; built.length = 0
   }
 
   /**
@@ -682,12 +737,13 @@ export class GhostSystem extends SceneSystem {
   setFencePreview(mods: Module[] | null, blocked = false): void {
     const list = mods ?? []
     const key = list.length === 0 ? '' : `${blocked ? 'x' : '-'}|${list.map(moduleGhostKey).join(';')}`
-    if (key === this.fencePreviewKey) return
+    if (key === this.fencePreviewKey && this.fencePreviewStation === this.ctx.stationData) return
     this.clearFencePreview()
     this.fencePreviewKey = key
+    this.fencePreviewStation = this.ctx.stationData
     if (list.length === 0 || !this.ctx.stationData) return
+    this.fencePreviewMaterialsCache.begin()
     const placed = fenceConnectionIndex(this.ctx.stationData.modules)
-    const added = fenceConnectionIndex(list)
     const neighbours = new Set<Extract<Module, { type: 'fence' }>>()
     for (const mod of list) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       for (const neighbour of placed.fencesAt(mod.x + dx, mod.y + dy, mod.z)) {
@@ -696,27 +752,15 @@ export class GhostSystem extends SceneSystem {
         if (!noiseBarrierVariant(neighbour)) neighbours.add(neighbour)
       }
     }
-    const ctx: ModuleContext = {
-      mats: this.ctx.modelMats,
-      ads: this.ctx.ads,
-      data: this.ctx.stationData,
-      fenceConnections: {
-        fencesAt: placed.fencesAt,
-        hasRailLanding: (...args) => placed.hasRailLanding(...args) || added.hasRailLanding(...args),
-        connects: (...args) => placed.connects(...args) || added.connects(...args),
-      },
-      trackCells: this.ctx.trackCellSet,
-      finish: (id) => this.ctx.mats.finish(id),
-      tvPlate: (id, x, y) => this.plates.makeTvPlate(id, x, y),
-      tvPairSlot: (id) => tvPairSlot(id, this.ctx.stationData!.modules),
-      signFace: (id, layout, face, panel) => this.plates.makeSignPlate(id, layout, face, panel),
-    }
+    const ctx = this.modelContext(this.ctx.stationData, list, false, this.fencePreviewOwnedMats)
     const hidden: THREE.Object3D[] = []
     for (const m of neighbours) {
       const original = this.modules.fenceGroupsById.get(m.id)
       if (!original) continue
       const group = buildModule(m, ctx)
       if (!group) continue
+      batchStaticModule(group, m.type)
+      this.describePreview(group, m)
       group.userData = { ...original.userData }
       this.fencePreviewGroup.add(group)
       hidden.push(original)
@@ -727,7 +771,9 @@ export class GhostSystem extends SceneSystem {
     for (const m of list) {
       const group = buildModule(m, previewCtx)
       if (!group) continue
-      this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, (mat) => this.sceneOwns(mat))
+      batchStaticModule(group, m.type)
+      this.describePreview(group, m)
+      this.tintModuleGhost(group, m, tint, 0.5, this.fencePreviewMats, this.fencePreviewBases, (mat) => this.sceneOwns(mat), this.fencePreviewMaterialsCache)
       this.fencePreviewGroup.add(group)
     }
     this.refreshFencePreviewLevels()
@@ -736,23 +782,25 @@ export class GhostSystem extends SceneSystem {
 
   /** Reuse normal storey/ghost/clipping rules for local replacement models. */
   refreshFencePreviewLevels(): void {
+    this.fenceDetail.clear()
     for (const group of this.fencePreviewGroup.children) {
       if (group.userData.moduleId !== undefined) this.level.applyGroupLevel(group, 'module')
     }
+    this.fenceDetail.sync()
   }
 
   /** Drop the fence-drag preview and bring the committed fences back. */
   clearFencePreview(): void {
+    this.fenceDetail.clear()
     if (this.fencePreviewKey !== '') this.modules.setPreviewModules([])
     for (const child of [...this.fencePreviewGroup.children]) {
       disposeObject(child)
       this.fencePreviewGroup.remove(child)
     }
-    for (const m of this.fencePreviewMats) m.dispose()
-    for (const m of this.fencePreviewBases) m.dispose()
-    this.fencePreviewMats.length = 0
-    this.fencePreviewBases.length = 0
+    this.releaseMaterials(this.fencePreviewMats, this.fencePreviewBases, this.fencePreviewOwnedMats)
     this.fencePreviewKey = ''
+    this.fencePreviewStation = null
+    this.fencePreviewMaterialsCache.release()
   }
 
   override dispose(): void {
@@ -761,8 +809,11 @@ export class GhostSystem extends SceneSystem {
     }
     this.clearShapeGhost()
     this.clearModulePreview()
-    this.roofPreviewMaterials.dispose()
+    this.modulePreviewMaterials.dispose()
+    this.fencePreviewMaterialsCache.dispose()
     this.clearFencePreview()
+    this.moduleDetail.dispose()
+    this.fenceDetail.dispose()
     this.ghostMaterial?.dispose()
     // The remove-drag pool is scene-lifetime, not per-drag: without this a
     // disposed scene keeps its instanced buffers and the scene reference.
@@ -781,5 +832,6 @@ export class GhostSystem extends SceneSystem {
       this.faceGhost.dispose()
       this.faceGhost = null
     }
+    this.faceGhostCapacity = GHOST_MAX
   }
 }

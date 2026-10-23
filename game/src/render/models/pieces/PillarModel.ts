@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { omitModelDetail, setModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
+import { modelNeighbours } from '../../modelNeighbours.ts'
+import { setModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { PieceBuilder, finishSlab, slab } from '../PieceBuilder.ts'
 import { pillarWidth, pillarOffset, pillarSupportsBridge, BRIDGE_DECK_DEPTH } from '../../../sim/structures.ts'
@@ -10,7 +11,7 @@ export class PillarModel extends PieceBuilder {
     const g = new THREE.Group()
     const w = pillarWidth(mod)
     const offset = pillarOffset(mod)
-    const bridge = this.ctx.data.modules.find((m) => pillarSupportsBridge(mod, m))
+    const bridge = modelNeighbours(this.ctx, 'track').find((m) => pillarSupportsBridge(mod, m))
     const h = bridge ? bridge.z - BRIDGE_DECK_DEPTH - mod.z - 1 : mod.cfg.height - (mod.cfg.bridgeId ? BRIDGE_DECK_DEPTH + 1 : 0)
     const mat = mod.cfg.finish ? this.ctx.finish(mod.cfg.finish) : mod.cfg.size === 'thick' ? this.ctx.finish(DEFAULT_MATERIAL) : this.ctx.mats.darkSteel
     if (mod.cfg.size === 'thick') {

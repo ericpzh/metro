@@ -2,6 +2,7 @@ import { t } from '../../../sim/i18n.ts'
 // Platform screen door builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { bindArtworkTexture } from '../../artwork.ts'
 import { PieceBuilder, canvasTexture, slab, finishSlab, plate, ownedMaterial, registerDoorLeaf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
@@ -89,7 +90,7 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   // run split by a wall). Anchoring on the rail is what keeps every opening on
   // the car door it exists to meet (§1.13); an edge that has lost its rail falls
   // back to assuming it is centred on the consist.
-  const rail = mod.cfg.from ? ctx.data.modules.find((m) => m.id === mod.cfg.from) : undefined
+  const rail = mod.cfg.from ? modelNeighbours(ctx, 'track').find((m) => m.id === mod.cfg.from) : undefined
   const bed = rail?.type === 'track' ? rail : undefined
   const bedW = bed?.w ?? len
   // The edge's own first cell, in rail-local metres along the run.

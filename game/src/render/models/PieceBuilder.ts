@@ -993,6 +993,8 @@ export interface PrintedFace {
 }
 
 export interface ModuleContext {
+  /** Proposed geometry neighbours, separate from the immutable station caches. */
+  previewCandidates?: readonly Module[]
   /** A fence preview overlays candidate connections without copying the document. */
   fenceConnections?: FenceConnectionIndex
   mats: ModelMaterials

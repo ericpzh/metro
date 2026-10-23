@@ -63,36 +63,44 @@ test('roof preview instances preserve every variant and rotation with one geomet
         source.traverse(o => { if (o.isMesh) meshes.push(o) })
         expected.traverse(o => { if (o.isMesh) expectedMeshes.push(o) })
         const instances = instanceRoofPreview(source, [first, second])
-        assert.equal(instances.children.length, meshes.length, type)
+        assert.equal(instances.children.length, meshes.length * 2, type)
         for (let i = 0; i < meshes.length; i++) {
-          const mesh = instances.children[i], matrix = new THREE.Matrix4()
-          assert.equal(mesh.count, 2)
+          const mesh = instances.children[i * 2 + 1], matrix = new THREE.Matrix4()
+          assert.equal(mesh.count, 1)
           assert.equal(mesh.geometry, meshes[i].geometry, 'geometry is transferred once, not cloned per tile')
-          mesh.getMatrixAt(1, matrix)
+          mesh.getMatrixAt(0, matrix)
           for (let j = 0; j < 16; j++) assert.ok(Math.abs(matrix.elements[j] - expectedMeshes[i].matrixWorld.elements[j]) < 1e-5, `${type}/${rot} matrix ${j}`)
         }
         let buffers = 0
         for (const mesh of instances.children) mesh.addEventListener('dispose', () => buffers++)
         disposeObject(instances)
-        assert.equal(buffers, meshes.length, 'instance buffers are disposed once')
+        assert.equal(buffers, meshes.length * 2, 'instance buffers are disposed once')
         disposeObject(expected)
       }
     }
   } finally { material.dispose() }
 })
 
-test('10,000 thin roof tiles use one preview draw with all tiles retained', () => {
+test('10,000 thin roof tiles use bounded spatial draws with all tiles retained', () => {
   const material = new THREE.MeshStandardMaterial()
   const first = createModule('roof', 0, 0, 0, 'roof')
   const source = new RoofModel({ finish: () => material }).build(first)
   const modules = Array.from({ length: 10_000 }, (_, i) => ({ ...first, id: `roof-${i}`, x: i % 100, y: Math.floor(i / 100) }))
   const preview = instanceRoofPreview(source, modules)
-  assert.equal(preview.children.length, 1)
-  assert.equal(preview.children[0].count, 10_000)
+  assert.ok(preview.children.length <= 64)
+  assert.equal(preview.children.reduce((sum, mesh) => sum + mesh.count, 0), 10_000)
+  assert.equal(new Set(preview.children.map(mesh => mesh.geometry)).size, 1)
   const matrix = new THREE.Matrix4()
-  preview.children[0].getMatrixAt(9_999, matrix)
+  const last = preview.children.at(-1)
+  last.getMatrixAt(last.count - 1, matrix)
   assert.ok(matrix.elements[12] > 98 && matrix.elements[13] > 98)
-  disposeObject(preview); material.dispose()
+  let geometryDisposals = 0, buffers = 0
+  preview.children[0].geometry.addEventListener('dispose', () => geometryDisposals++)
+  for (const mesh of preview.children) mesh.addEventListener('dispose', () => buffers++)
+  disposeObject(preview)
+  assert.equal(geometryDisposals, 1, 'spatial buckets share a single geometry owner')
+  assert.equal(buffers, preview.children.length, 'every spatial instance buffer is released')
+  material.dispose()
 })
 
 

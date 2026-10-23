@@ -125,6 +125,19 @@ export function snapBoardingMark(m: Extract<Module, { type: 'floor-mark' }>, mod
   return { ...m, rot: best.rot, cfg: { ...m.cfg, edgeId: best.edgeId, offset: { x: best.x - (m.x + 0.5) - dx, y: best.y - (m.y + 0.5) - dy } } }
 }
 
+const tactileIndexes = new WeakMap<readonly Module[], Map<string, Extract<Module, { type: 'tactile' }>[]>>()
+
 export function tactileAt(modules: readonly Module[], x: number, y: number, z: number, variant?: TactileVariant): Module | undefined {
-  return modules.find((m) => m.type === 'tactile' && m.x === x && m.y === y && m.z === z && (!variant || m.cfg.variant === variant))
+  let index = tactileIndexes.get(modules)
+  if (!index) {
+    index = new Map()
+    for (const module of modules) {
+      if (module.type !== 'tactile') continue
+      const key = `${module.x},${module.y},${module.z}`
+      const entries = index.get(key) ?? []
+      entries.push(module); index.set(key, entries)
+    }
+    tactileIndexes.set(modules, index)
+  }
+  return index.get(`${x},${y},${z}`)?.find(module => !variant || module.cfg.variant === variant)
 }

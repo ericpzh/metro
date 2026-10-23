@@ -2,6 +2,7 @@
 // here: see PieceBuilder.ts for the shared kit.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { surfaceModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
@@ -53,7 +54,7 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
   // trims its own intersecting post so it already shows the joined shape.
   const joinedEnds = new Set<'start' | 'end'>()
   if (glassStandsOnFloor(spec) && (ctx.preview || normRot(mod.rot) % 2 === 1)) {
-    for (const other of ctx.data.modules) {
+    for (const other of modelNeighbours(ctx, 'glass')) {
       if (other.type !== 'glass' || other.id === mod.id) continue
       for (const end of curtainCornerJoin(mod, other)) joinedEnds.add(end)
     }
@@ -68,7 +69,7 @@ function buildGlass(ctx: ModuleContext, mod: Extract<Module, { type: 'glass' }>)
   // that panel. Keep the upper glazing continuous, and retain lower glazing only
   // in the run cells the door does not occupy.
   const fittedDoors = glassStandsOnFloor(spec)
-    ? ctx.data.modules.filter((other): other is Extract<Module, { type: 'door' }> => other.type === 'door' && curtainDoorShare(mod, other))
+    ? modelNeighbours(ctx, 'door').filter((other): other is Extract<Module, { type: 'door' }> => other.type === 'door' && curtainDoorShare(mod, other))
     : []
   if (fittedDoors.length > 0) {
     const covered = new Set<number>()

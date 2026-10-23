@@ -1,14 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { WALL_SIGN_STAND_OFF, snapSignToBooth, boothSupportsSign } from '../src/sim/boothSigns.ts'
-import { equipmentReason, moduleEnvelope, moveCandidate, autofaceWallMount, placementColliders, wallMountMissing } from '../src/sim/placement.ts'
+import { WALL_SIGN_STAND_OFF, boothHoldsSign, snapSignToBooth, boothSupportsSign } from '../src/sim/boothSigns.ts'
+import { equipmentReason, equipmentRefusalNotice, moduleEnvelope, moveCandidate, autofaceWallMount, placementColliders, wallMountMissing } from '../src/sim/placement.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { buildModule } from '../src/render/models.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
-import { boothSignHit } from '../src/app/tools/boothSignHit.ts'
+import { boothSignAim, boothSignHit, boothSignHitOf } from '../src/app/tools/boothSignHit.ts'
 import { signModuleWithPreview, useStore } from '../src/app/store.ts'
 import { cameraRig } from './support/camera-rig.mjs'
 
@@ -123,16 +123,37 @@ test('the header refuses boards wider than its face, shifted anchors and wrong m
   const snapped = snapSignToBooth([b], wide, [b.x + b.w / 2, b.y], b.z)
   assert.equal(snapped.cfg.boothId, b.id, 'snapping centres first and measures later')
   assert.equal(boothSupportsSign(b, snapped), false, 'a 3.48 m board overhangs a 2 m header')
-  assert.notEqual(equipmentReason([], [b], snapped), '', 'an overhanging board keeps no backing')
+  // A board the header cannot hold is a **width** refusal, not a missing wall: the
+  // header is behind it, and telling the player to find a wall sends them nowhere.
+  assert.equal(equipmentReason([], [b], snapped), 'booth-width')
+  assert.notEqual(equipmentRefusalNotice('booth-width'), equipmentRefusalNotice('wall'))
+  assert.match(equipmentRefusalNotice('booth-width'), /顶梁/, 'the notice names what is too small')
+  // The anchor checks are separate from the width one: everything else still reads
+  // as "not bolted to this header".
   const good = snapSignToBooth([booth('ticket')], wallSign(), points(booth('ticket'))[0], 0)
   const shifted = { ...good, x: good.x + 1 }
-  assert.equal(boothSupportsSign(booth('ticket'), shifted), false, 'a board off its anchor hangs on nothing')
+  assert.equal(boothHoldsSign(booth('ticket'), shifted), false, 'a board off its anchor hangs on nothing')
+  assert.equal(boothSupportsSign(booth('ticket'), shifted), false)
   const badOffset = { ...good, cfg: { ...good.cfg, boothOffset: { x: 99, y: 0 } } }
   assert.equal(boothSupportsSign(booth('ticket'), badOffset), false, 'a forged offset is not the header')
   const ceiling = { ...good, cfg: { ...good.cfg, mount: 'ceiling' } }
   assert.equal(boothSupportsSign(booth('ticket'), ceiling), false, 'a hung board is never booth-backed')
   assert.equal(boothSupportsSign({ ...booth('ticket'), type: 'wall' }, good), false, 'only a booth backs a booth sign')
   assert.equal(snapSignToBooth([{ ...b, type: 'wall' }], wallSign(), [b.x + b.w / 2, b.y], b.z).cfg.boothId, undefined)
+})
+
+test('the booth the pointer picked holds the board even when the surface point falls past it', () => {
+  // A grazing hit (or a board on the header) can leave the ray's surface point
+  // outside the footprint; the point test alone then fails and the release says
+  // "no wall behind it". The pointer's own module pick names the booth instead.
+  const b = booth('ticket')
+  const sign = wallSign()
+  const past = [b.x + b.w + 5, b.y + 1]
+  assert.equal(snapSignToBooth([b], sign, past, b.z).cfg.boothId, undefined, 'the surface point alone misses the booth')
+  const snapped = snapSignToBooth([b], sign, past, b.z, b.id)
+  assert.equal(snapped.cfg.boothId, b.id)
+  assert.ok(boothSupportsSign(b, snapped))
+  assert.equal(equipmentReason([], [b], snapped), '', 'a board on a picked booth is accepted')
 })
 
 test('an attached sign never turns itself and never collides with its own booth', () => {
@@ -180,6 +201,40 @@ test('pointing at the visible booth uses its frame instead of the floor behind i
     useStore.getState().setSignBoards(placed.id, boards)
     const confirmed = useStore.getState().station.modules.find((m) => m.id === placed.id)
     assert.ok(boothSupportsSign(b, confirmed), 'confirming the editor keeps the attachment')
+  } finally {
+    useStore.setState(previous)
+  }
+})
+
+test('aiming at the board already on a booth names that booth, never a missing wall behind it', () => {
+  const previous = useStore.getState()
+  try {
+    const b = booth('ticket')
+    const first = snapSignToBooth([b], wallSign(), points(b)[0], b.z)
+    const state = toState({ name: 'test', cells: [], modules: [b, first], lines: [] })
+    useStore.setState({ station: state, tool: 'module', moduleType: 'sign-wall', currentBoards: undefined,
+      signPreview: null, signEditorOpen: false, past: [], future: [] })
+    // The ray lands on the board on the header, not on the booth behind it.
+    const pick = { moduleId: first.id, point: [first.x + 0.5, first.y - 0.5, b.z + 3.2] }
+    const aim = boothSignAim({ pickModuleHit: () => pick }, state.modules, 0, 0)
+    assert.equal(aim?.booth.id, b.id, 'a board bolted to a booth means the booth it is bolted to')
+    assert.equal(boothSignHitOf(aim).cell[2], b.z, 'and it hands back the booth floor cell')
+    let preview
+    let blocked
+    const scene = new Proxy({
+      pickModuleHit: () => pick,
+      setModulePreview: (mod, invalid) => { preview = mod; blocked = invalid },
+    }, { get: (obj, key) => obj[key] ?? (() => {}) })
+    const ctx = { scene: () => scene, hover: { current: null }, drag: { current: null }, facing: () => undefined }
+    const tool = new EquipmentTool(ctx)
+    // A floor far from the booth: the ray's own surface point does not name it.
+    const info = { clientX: 100, clientY: 200, button: 0, preventDefault: () => {},
+      hit: { cell: [20, 20, 0], place: [20, 20, 1], solid: true, normal: [0, 0, 1], point: [20.5, 20.5, 1] } }
+    tool.onMove(info)
+    assert.equal(blocked, true, 'the face the board is on is already taken')
+    assert.equal(preview.cfg.boothId, b.id, 'the ghost is bolted to the same booth, not floating over a far floor')
+    tool.onDown(info)
+    assert.match(useStore.getState().notice, /指示牌/, 'the refusal names the board in the way, not a wall')
   } finally {
     useStore.setState(previous)
   }

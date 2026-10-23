@@ -12,6 +12,7 @@ export function psdHeaderInfo(line: LineDef | undefined, mod: PlatformEdgeModule
   const destination = (down ? line?.downTerminus : line?.upTerminus)?.trim() ?? ''
   return {
     destination: destination || t(down ? 'down' : 'up'),
+    destinationEn: (down ? line?.downTerminusEn : line?.upTerminusEn)?.trim() ?? '',
     terminal: !!destination && destination === name.trim(),
     // The platform-facing plane reverses its local x on the left bank.
     arrow: (down ? -1 : 1) * (mod.cfg.side === 'right' ? 1 : -1),
@@ -65,6 +66,10 @@ export function drawPsdHeader(g: CanvasRenderingContext2D, kind: 'route' | 'stat
     g.fillStyle = '#20262a'
     g.textAlign = sign < 0 ? 'right' : 'left'
     g.font = '30px "Microsoft YaHei", sans-serif'
-    drawModelText(g, info.destination, x + sign * 38, y + 8, kind === 'station' ? 165 : 280)
+    drawModelText(g, info.destination, x + sign * 38, y + (info.destinationEn ? -4 : 8), kind === 'station' ? 165 : 280)
+    if (info.destinationEn) {
+      g.font = '18px sans-serif'
+      drawModelText(g, info.destinationEn, x + sign * 38, y + 22, kind === 'station' ? 165 : 280)
+    }
   }
 }

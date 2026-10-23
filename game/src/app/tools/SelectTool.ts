@@ -11,7 +11,7 @@ import { msg } from '../../sim/i18n.ts'
 
 import { cellKey } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
-import { moduleAt } from '../../sim/placement.ts'
+import { moduleTarget } from './moduleTarget.ts'
 import { moduleLabel, useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
@@ -64,7 +64,7 @@ export class SelectTool extends ToolController {
     // so the visible model is what a click should select.
     const pickedId = this.pickModuleAt(info)
     const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
-    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleAt(st.station.modules, hit.cell[0], hit.cell[1], hit.cell[2], undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
+    const mod = picked ?? rail ?? this.visibleModule(hit.solid ? moduleTarget(st.station.modules, null, hit.cell, undefined, st.station.levelBase, st.station.storeyHeight) : undefined)
     const label = mod ? moduleLabel(mod) : ''
     st.select(mod ? { kind: 'module', key: mod.id, label } : { kind: 'cell', key: cellKey(...hit.cell), label: `(${hit.cell.join(', ')})` })
     scene.setGhost([], 'add')

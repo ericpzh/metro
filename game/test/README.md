@@ -14,6 +14,73 @@
 
 # `game/test` — how the game is tested
 
+`placement-surface` pins low-angle visible beam targeting ahead of distant ground,
+fresh preview/click/move/undo agreement for supported props, one shared raycast,
+nearer-block occlusion, hidden-source exclusion and unchanged unsupported-host
+surface cells. `check-geometry-snapping.mjs` drives the same low-angle beam case
+with real production pointer events across three editing bases.
+The production check also verifies block, wall, rail and tunnel hover picks on the
+visible beam instead of distant ground.
+
+`geometry-snap` covers the [geometry snapping audit](../SNAPPING.md): real rendered
+ceiling contact and preview/commit/move/undo agreement across 360 slab cases,
+off-grid wall/floor anchors independent of editing base, actual hanger suspension,
+pillar/lift targeting across nominal boundaries and unchanged fixture anchors
+when inserting suspended ceilings. `storey-height` also pins ordinary block preview
+cache reuse, fixture collision refusal and preview/release agreement without relocation. Snap targets must never be inferred from storey bands.
+The audit records the completed 199-check and 56-check focused instrumented runs,
+per-module line/branch/function coverage, production browser checks and the
+incomplete broad in-process coverage attempt.
+
+`hanger` pins Tanwei's 11 m floor anchor for fresh and carried ceiling props,
+both hanger mounts and all rotations, with/without a slab overhead. Preview,
+click and undo agree while off-beam aiming keeps the general ceiling policy.
+
+`delete-tool` also pins floor-triangle hover, deletion and undo beneath ceiling
+cameras, clocks, lights, vents, signs and monitors, while direct model hits still
+target and delete those fittings.
+
+`delete-tool` pins Tanwei D's thin roof at `(33,45,9)`: a direct roof hit keeps
+hover/delete priority over the road terrain behind it, with one undoable removal.
+
+`equipment-retention` also checks that Hide Ground hides street contact shadows
+in editing, Hide UI and cutaway views, restores them on toggle-off, and preserves
+shadows on station floors.
+
+The settings-rebuild audit extends `population-edit` to headways, opening hours,
+peak windows, demand curves and calendar settings. It pins normalized World
+caches, dispatch-cadence adjustment without crowd/queue/RNG reset, immutable
+history reuse, no-op edits and pending-build ordering (`worker-preview` and
+`line-edit`). `tools/bench-settings-audit.mjs` drives production headway/curve
+controls and checks first/repeated updates plus Undo/Redo for zero scene work.
+
+`population-edit` guards the fail-closed population-only classifier, retained tool
+geometry and immutable patches. `line-edit` checks compact worker messages and
+Undo/Redo; `worker-preview` pins zero routing rebuilds, retained graph/crowd/queue
+identity, updated spawn inputs, pending-build ordering and load cancellation.
+`tools/bench-population-edit.mjs` drives first and repeated production slider edits.
+
+`glass-panel` pins cold and repeated curtain/wall-glass collision checks against
+2,048 remote fences with bounded document scans, exact turning-arm collisions,
+same-tile curtain sharing and neighbour-index invalidation. It runs in `test:perf`.
+`tools/bench-curtain-preview.mjs` measures first and repeated production pointer
+hovers on Tanwei (or `BENCH_DEMO=zoo`), with CPU profiles under `.preview/perf/`.
+
+`preview-pipeline` sweeps all 120 palette options for immutable preview documents
+and exact geometry versus a merged candidate document. It covers candidate-only
+TV/tactile/stair/glass/bridge neighbours, cached floor finishes, local ordered
+equipment collision queries and broad imported pieces, material retention and
+single disposal, multi-layer cancellation, 5,000-cell face previews, inactive-tool
+ownership, and paint/zone latest-target scheduling with one release commit.
+`preview-lod` compares all 120 tinted previews with placed-equipment batching at
+High/Low, near/far, other-storey and Hide UI settings, preserves instanced-roof Low
+geometry and exact High restoration, handles multi-material hover meshes, and
+pins preview/commit glass height and refusal across every rotation and shifted
+storey. Both run in `test:perf`.
+`tools/bench-preview-audit.mjs` drives production model/hover/drag/move paths;
+`tools/check-preview-lod.mjs` checks real wall picks, GPU-facing topology and
+preview-to-placement agreement, saving screenshots under `.preview/perf/preview-audit/`.
+
 Placement invalidation: `equipment-retention` sweeps all 120 palette options
 against the remote catalogue, pins prepared tool occupancy and shadow-buffer
 reuse/partial uploads/bounded capacity/exact disposal, and compares
@@ -101,7 +168,15 @@ It also covers unbatched moving equipment, hidden/batched-source exclusions and
 source-owned approximation disposal.
 `model-detail.test.mjs` sweeps every palette option: models above ten triangles
 must have a nonempty, smaller Low variant before and after batching, with restored
-source geometry. Primitive panels also pin UVs, exact edge picks, cached swaps and
+source geometry. Every option also meets a strict <10% target or its explicit
+minimum-shape cap in `tools/equipment-low-budgets.mjs`. Low retains every real stair
+tread and riser, their full extent and both end heights; folded exit glazing meets
+the Low canopy, and merged open-exit pads retain all floor/wellway samples in four
+rotations. Printed monitor artwork retains High vectors at any distance, switches
+coherently through global batches and Hide UI, and owns one bounded texture.
+`npm run check:equipment-lod` renders all 120 options at both qualities, checks actual
+GPU submissions/blank pixels and global monitor/open-exit batches, and saves contact sheets. Conservative Near/Low bounds are pinned for instanced, merged and transparent batches, including frustum visibility outside the original source bounds. Local batches preserve and isolate coherent detail metadata.
+Primitive panels also pin UVs, exact edge picks, cached swaps and
 single disposal. It covers authored Low triangle budgets for all shelf,
 restroom, CCTV, cabinet, AC, tactile, track, ramp, lift and stair models; exact
 instanced stock picks, retained motion/geometry, painted finishes, local/cross-model
@@ -140,7 +215,7 @@ contribute to the Node suite's V8 coverage figures.
 `roof-tool` pins stair-block previews without placement validation or document edits;
 release validates the run and commits only accepted tiles once.
 `roof-preview` pins exact instanced roof geometry/rotation for all roof variants,
-all 10,000 tiles in one thin-roof draw, and instance-buffer disposal. `roof-tool`
+all 10,000 tiles in bounded 16 m/storey buckets sharing one geometry, and exact geometry/instance-buffer disposal. `roof-tool`
 also guards bulk roof release against per-tile collision-cache preparation.
 `frame-preview` guards continuous latest-target previews without resetting the
 frame wait, cancellation and duplicate-target reuse; `solid-cell-index` guards
@@ -496,8 +571,9 @@ and that the rail uses lazy static image URLs rather than the runtime WebGL thum
 | `support/camera-rig.mjs` | A live `CameraSystem` with no canvas and no GL: a plain three.js camera plus a DOM-shaped stub for `OrbitControls` to attach to, for the widget's camera tests (`camera-vertical-pan`, `camera-fov`, `camera-orbit`), including screen-relative WASD at the plan-view pole. |
 
 `fence` also checks the glass/gate/iron variants, legacy saves, variant previews and drag placement,
-raised gate clearance, eight iron uprights, ground decals in either placement order, and deletion
-that leaves the ground decal intact.
+raised gate clearance, eight iron uprights, ground decals in either placement order, deletion that
+leaves the ground decal intact, and the far lane of the Tanwei right-turn stair's upper rail joining
+the fence at `(39,36,6)`.
 
 `fence-preview` covers 1,024 unrelated fences with no remote preview rebuilds,
 document scans or equipment-batch allocations; only orthogonal same-height joints
@@ -524,12 +600,17 @@ transfer openings, open overhead frames without built-in banners, editable sign 
 both booth types, footprint bounds and translation, plus the desktop facing each of four fronts.
 `zonetool` checks 商店 / 厕所 / 办公室 as ordinary room-color floor labels: their tile icons stay,
 fare-zone values survive, and painting adds no room module or wall; it also checks the booth's live
-rotated 3D drag preview and release. `zones` pins room-color overlay regions without module-name
+rotated 3D drag preview and release, and that a counter anchors to the block under the pointer — a
+raised slab, or the foot of a wall course — rather than to the active storey, while an open-air
+press keeps the edited storey. `zones` pins room-color overlay regions without module-name
 labels. `facility` checks the
 staff benches remain opposite the selected front. `sign-render` covers the reusable
 customer-service pictogram.
 `booth-sign` checks wall signs snapping to either booth's header, all four faces,
-centred geometry and collision bounds, saving, moving and missing support.
+centred geometry and collision bounds, saving, moving and missing support. The snapped
+booth is the one the pointer **picked** (so a grazing surface point, or the board already
+on the face, still means that booth), and a board wider than the header is refused as
+`booth-width` with its own notice rather than as a missing wall.
 Wall signs render only the printed sheet with 3 mm of surface clearance, including ordinary wall
 mounts in all rotations; booth signs keep the same thin sheet. The suite also drives the real camera
 ray, including its block-occlusion rule.
@@ -542,7 +623,7 @@ The suites, by the thing they are about. Each one's full description is in
 and 搪瓷板 picker colors, persistent 单块 / 整面 mode, Tab cycling, saved station color
 swatches, and the compact picker-tile UI source contracts.
 `render-regressions` pins model-label shrink-to-fit arithmetic, the round/recessed
-thick-pillar shaft and collars, periodic obsidian pixels, and material roughness.
+thick-pillar one continuous shaft with end-only collars, periodic obsidian pixels, and material roughness.
 
 | Area | Files |
 |---|---|
@@ -711,7 +792,7 @@ percentages.
 | `sim/trainSchedule.ts` (the timetable forecast) | — (new) | 100 % lines / 100 % branches | `station-display` (forecasts checked against the real dispatcher) |
 | `sim/headway.ts` (formation and train curve) | — (new) | 100 % lines / 82.5 % branches | `headway` (repair, dispatch count, readouts and the train curve) |
 | `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
-| `render/modelDetail.ts` | — (new) | 100 % lines / 92.45 % branches / 100 % functions (focused `model-detail` coverage) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
+| `render/modelDetail.ts` | — (new) | 100 % lines / 95.65 % branches / 100 % functions (focused `model-detail` coverage) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
 | `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
 | `render/moduleDependencies.ts` | — (new) | 99.6 % lines / 93.6 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` and `performance-policy` (per-model inputs, functional versus render-only and combined cell/module edits, fence/gate/tactile, glass/door, cubicle, TV, hanger, track/pillar, ramp/exit and PSD dependencies, structural invalidation, unknown types and the boards-only sign verdict) |
 | `render/modulePreviewDocument.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` (prepared-station hover reuse, cached move removal and coupled candidate merging) |
@@ -770,7 +851,7 @@ Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋�
 
 `hanger.test.mjs` covers 挂架: roof suspended and central post supports in 4/6/8m, roof attachments, sign/clock/TV mounting, rotated steel geometry, open walking space, post footing, preview identity and save/load.
 
-`wall-ceiling-snap.test.mjs` pins wall and ceiling aiming on a shifted `levelBase` (the wall snap asks the station's 基准高度 for its storey floor, never the fixed 0 / 5 / 10 lines) and accepts an actual overhead slab at a nonstandard height; it also pins that a **side face is a wall whatever the block is tagged**, so a plain 方块 wall mounts a panel in front of the face rather than inside the block, and that a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) — **hangs over the course the pointer is on**, keeping the storey floor for the wall's first course while a piece drawn at its own `panelZ` stays there. `equipment-placement-input.test.mjs` pins the tool's half of that (the 玻璃板 covers the clicked course, the 广告牌 beside it keeps its band) and `move.test.mjs` the carried piece's. The same file pins the **hung** piece's anchor: `hungCeilingAim` takes it to the free cell under the first **underside** above the pointer — `top block - 1` — from the floor, a wall course or a slab's own underside of one column alike (`topBlockZ` skipping a wall's own courses), with the storey floor and the station's `levelBase` standing in when nothing is overhead, `topBlockOver` for a cell with its top block over it, and the verdict passing a piece under that block while refusing one with no ceiling. `lights.test.mjs` and `vent.test.mjs` pin the tool's half and the drawn fixture (the real slab on a shifted base, and the top block when the piece's own cell is the one under it), `module-build.test.mjs` the drawn mount and pinned size of every hung piece, and `ceiling-decor.test.mjs` the 监控 stems against a tall slab. `sign-model.test.mjs` checks that the hanging sign's rods terminate at that slab.
+`wall-ceiling-snap.test.mjs` pins wall and ceiling aiming on a shifted `levelBase` (the wall snap asks the station's 基准高度 for its storey floor, never the fixed 0 / 5 / 10 lines) and accepts an actual overhead slab at a nonstandard height; it also pins that a **side face is a wall whatever the block is tagged**, so a plain 方块 wall mounts a panel in front of the face rather than inside the block, and that a **玻璃板** — cladding from its base, and the only wall piece that is (`wallMountFollowsCourse`) — **hangs over the course the pointer is on**, keeping the storey floor for the wall's first course while a piece drawn at its own `panelZ` stays there. `equipment-placement-input.test.mjs` pins the tool's half of that (the 玻璃板 covers the clicked course, the 广告牌 beside it keeps its band) and `move.test.mjs` the carried piece's. The same file pins the **hung** piece's anchor: `hungCeilingAim` takes it to the free cell under the first **underside** above the pointer — `top block - 1` — from the floor, a wall course or a slab's own underside of one column alike (`topBlockZ` skipping a wall's own courses), with the storey floor and the station's `levelBase` standing in when nothing is overhead, `topBlockOver` for a cell with its top block over it, and the verdict passing a piece under that block while refusing one with no ceiling. The same anchor path accepts a platform underside hit; `CameraSystem.pick` includes visible track surfaces in its single pointer raycast so the hover does not fall through to the floor behind the platform. `lights.test.mjs` and `vent.test.mjs` pin the tool's half and the drawn fixture (the real slab on a shifted base, and the top block when the piece's own cell is the one under it), `module-build.test.mjs` the drawn mount and pinned size of every hung piece, and `ceiling-decor.test.mjs` the 监控 stems against a tall slab. `sign-model.test.mjs` checks that the hanging sign's rods terminate at that slab.
 
 `door-panel` checks all six 单开 / 双开 × 不锈钢 / 木 / 玻璃 variants, palette and width selection, the translucent glass pane in its steel frame, satin stainless and timber finishes, exposed hinges, both-face handle clearance and mirrored double-door pulls, plus placement bounds. It also pins 1 cm of lintel clearance in two-block-high wall openings for every variant, rotation and tested storey, while permitting the overhead block and refusing a block through the leaf. `glass-panel` pins all four 玻璃幕墙 orientations on one tile, rejection of same-facing duplicates, and removal of one intersecting corner post with shortened rails, alongside door snapping to rotated curtain runs, fitted placement, crosswise refusal, and the lower-pane opening while retaining upper and uncovered glazing.
 
@@ -985,3 +1066,37 @@ production build, interior close-up and open/closed batching checks pass.
 Full log: `.preview/perf/train-raised-ceiling/full-tests-final.txt`.
 
 `builder-attributes` pins the shared selected-size artwork, centred width marks with start-aligned bridge/tunnel/module length marks, stacked single/double-storey planes, platform/module direction marks, and rotation marks.
+
+`nonstructural-updates` pins presentation patch classification/dependency retention,
+exit closure without rerouting existing journeys, and seeded fast-restart equivalence
+with full reconstruction (including dynamic server state and 24 subsequent ticks).
+`equipment-retention` checks original texture/geometry identity and unaffected-line
+uploads; `train-lod` pins live/parked recolouring and simultaneous services;
+`draw-batching` retains GPU eviction coverage with distinct orientations.
+`line-edit` and `scene-wiring` pin geometry revisions and overlay dependencies so
+metadata edits, undo and redo avoid structural redraw work.
+
+Secondary terminus names: population-edit pins presentation patches, clearing and retained document geometry; psd-header pins direction-specific secondary destination ink and legacy fallback.
+`module-build` also pins extra-long stair rail contact, full landing frames and vertical support joints for every turning/forward shape, width and rotation. Platform bounds are measured on the surface, excluding projecting rails.
+StairModel coverage from module-build: 98.20% lines, 85.61% branches, 100% functions. The bay suite uses precise support vertices for fitted landing ends and retains wall-side rail suppression checks.
+
+
+`tool-picking` pins one shared scene intersection for every tool query in a
+pointer dispatch (including nested touch dispatch), cached misses, fresh next-event
+visibility, layer restoration and overlapping lift/block roots. It also covers
+fresh/moved ceiling props sharing `moduleAim` and the equipment verdict beneath
+platform decks. Tool gestures retain their own document edits; support refusals
+come from the shared validator. `node tools/check-tool-picking.mjs` exercises actual
+production placement/movement beneath a platform and first/repeated hovers for
+all eleven tools, with dispatch CPU and raycast counts in `.preview/perf/tool-picking/`.
+
+
+`ramp-targeting` rays actual stair/escalator meshes in all four rotations, all
+seven stair shapes and three stair widths, plus both escalator widths. A block
+inside the run's coarse envelope but in front of its drawn surface must remain
+the hover/delete/inspection/eyedropper target; delete and undo preserve the run.
+An exposed tread remains directly deletable. The forgiving exit snap may span a
+tread gap, but cannot ignore a nearer block when the exact run surface is behind
+it. All pointer cell fallbacks use `moduleTarget`, which requires a drawn-surface
+hit for stair/escalator/walkway runs. Geometry-free `moduleAt` callers retain their
+coordinate-query contract. This regression runs in `test:perf`.

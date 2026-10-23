@@ -6,6 +6,7 @@ import { emptyStation } from '../src/data/reference-station.ts'
 import { isCosmeticStationEdit } from '../src/sim/cosmeticEdit.ts'
 import { retainedModuleIds, isEquipmentModelEdit } from '../src/render/moduleDependencies.ts'
 import { ModulePreviewDocument } from '../src/render/modulePreviewDocument.ts'
+import { modelNeighbours } from '../src/render/modelNeighbours.ts'
 import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
@@ -353,9 +354,11 @@ test('ordinary hovers keep document identity; moving removes its source once per
   const next = preview.resolve({ ...data, modules: [...list] }, [createModule('bench', 9, 0, 0, 'move-preview')], '0')
   assert.notEqual(next, first, 'an immutable document edit invalidates the carried-piece cache')
   const tv = createModule('tv', 0, 0, 0, 'preview')
-  assert.ok(preview.resolve(data, [tv], null).modules.includes(tv), 'TV pairing still sees the candidate')
+  assert.equal(preview.resolve(data, [tv], null), data, 'TV support shares the station document')
+  assert.ok(modelNeighbours({ data, previewCandidates: [tv] }, 'tv').includes(tv), 'TV pairing still sees the candidate overlay')
   const stairs = [createModule('stair-straight', 0, 0, 0, 'a'), createModule('stair-straight', 1, 0, 0, 'b')]
-  assert.deepEqual(preview.resolve(data, stairs, null).modules.slice(-2), stairs, 'wide stair lanes still see each other')
+  assert.equal(preview.resolve(data, stairs, null), data, 'wide stairs keep support caches')
+  assert.deepEqual(modelNeighbours({ data, previewCandidates: stairs }, 'stair'), stairs, 'wide stair lanes still see each other')
 })
 
 test('real ordinary hover previews do not rescan the prepared document on new pointer cells', () => withDrawing(({ mats, ctx }) => {

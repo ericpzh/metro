@@ -14,7 +14,7 @@ import { HeadwayInput } from './HeadwayInput.tsx'
 
 /**
  * Line name + colour. Edits commit on blur / Enter, not per keystroke: every
- * commit rebuilds the worker's station, so typing should not spam it.
+ * commit is one undo step; drafts remain local while typing.
  */
 function LineFields({ line }: { line: LineDef }): React.ReactElement {
   useLanguage()
@@ -23,13 +23,17 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const [name, setName] = useState(line.name)
   const [colour, setColour] = useState(line.colour)
   const [upTerminus, setUpTerminus] = useState(line.upTerminus ?? '')
+  const [upTerminusEn, setUpTerminusEn] = useState(line.upTerminusEn ?? '')
   const [downTerminus, setDownTerminus] = useState(line.downTerminus ?? '')
+  const [downTerminusEn, setDownTerminusEn] = useState(line.downTerminusEn ?? '')
   useEffect(() => {
     setName(line.name)
     setColour(line.colour)
     setUpTerminus(line.upTerminus ?? '')
+    setUpTerminusEn(line.upTerminusEn ?? '')
     setDownTerminus(line.downTerminus ?? '')
-  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus])
+    setDownTerminusEn(line.downTerminusEn ?? '')
+  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus, line.upTerminusEn, line.downTerminusEn])
 
   const commitName = (): void => {
     const t = name.trim()
@@ -44,13 +48,18 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const commitTermini = (): void => {
     const up = upTerminus.trim()
     const down = downTerminus.trim()
-    if (up !== (line.upTerminus ?? '') || down !== (line.downTerminus ?? '')) updateLine(line.id, { upTerminus: up, downTerminus: down })
+    const upEn = upTerminusEn.trim(), downEn = downTerminusEn.trim()
+    if (up !== (line.upTerminus ?? '') || down !== (line.downTerminus ?? '') || upEn !== (line.upTerminusEn ?? '') || downEn !== (line.downTerminusEn ?? '')) {
+      updateLine(line.id, { upTerminus: up, downTerminus: down, upTerminusEn: upEn, downTerminusEn: downEn })
+    }
   }
   const terminusKeys = (e: React.KeyboardEvent<HTMLInputElement>): void => {
     if (e.key === 'Enter') e.currentTarget.blur()
     else if (e.key === 'Escape') {
       setUpTerminus(line.upTerminus ?? '')
+      setUpTerminusEn(line.upTerminusEn ?? '')
       setDownTerminus(line.downTerminus ?? '')
+      setDownTerminusEn(line.downTerminusEn ?? '')
       e.currentTarget.blur()
     }
   }
@@ -93,28 +102,23 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
           </svg>
         </button>
       </div>
-      <label className="field">
-        <span>{t('up_terminus')}</span>
-        <input
-          className="lineNameInput"
-          value={upTerminus}
-          maxLength={12}
-          onChange={(e) => setUpTerminus(e.target.value)}
-          onBlur={commitTermini}
-          onKeyDown={terminusKeys}
-        />
-      </label>
-      <label className="field">
-        <span>{t('down_terminus')}</span>
-        <input
-          className="lineNameInput"
-          value={downTerminus}
-          maxLength={12}
-          onChange={(e) => setDownTerminus(e.target.value)}
-          onBlur={commitTermini}
-          onKeyDown={terminusKeys}
-        />
-      </label>
+      <div className="lineTermini">
+        {(['up', 'down'] as const).map((direction) => (
+          <div className="lineTile lineTerminus" key={direction}>
+            <span className="muted small">{t(direction === 'up' ? 'up_terminus' : 'down_terminus')}</span>
+            <input className="lineNameInput" value={direction === 'up' ? upTerminus : downTerminus}
+              maxLength={12} placeholder={t('primary_sign_text')}
+              aria-label={`${t(direction === 'up' ? 'up_terminus' : 'down_terminus')} · ${t('primary_sign_text')}`}
+              onChange={(e) => (direction === 'up' ? setUpTerminus : setDownTerminus)(e.target.value)}
+              onBlur={commitTermini} onKeyDown={terminusKeys} />
+            <input className="lineNameInput" value={direction === 'up' ? upTerminusEn : downTerminusEn}
+              maxLength={48} placeholder={t('secondary_sign_text')} lang="en"
+              aria-label={`${t(direction === 'up' ? 'up_terminus' : 'down_terminus')} · ${t('secondary_sign_text')}`}
+              onChange={(e) => (direction === 'up' ? setUpTerminusEn : setDownTerminusEn)(e.target.value)}
+              onBlur={commitTermini} onKeyDown={terminusKeys} />
+          </div>
+        ))}
+      </div>
     </>
   )
 }
@@ -132,7 +136,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
   return (
     <Disclosure
       key={line.id}
-      className="card"
+      className="card lineCard"
       tutorialId={`line-${line.id}`}
       head={
         <span className="kv">
@@ -143,21 +147,23 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       open={open}
       onToggle={onToggle}
     >
+      <div className="lineEditor">
       <LineFields line={line} />
-      <div className="row">
+      <div className="row lineTile lineOptions">
         <span className="muted small">{t('train_type')}</span>
         {STOCK_CLASSES.map((s) => (
           <button key={s} className={line.stock === s ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { stock: s })}>
             {s}</button>
         ))}
       </div>
-      <div className="row">
+      <div className="row lineTile lineOptions">
         <span className="muted small">{t('formation')}</span>
         {FORMATION_OPTIONS.map((n) => (
           <button key={n} className={line.cars === n ? 'chip on' : 'chip'} onClick={() => updateLine(line.id, { cars: n })}>
             {translate(n)}</button>
         ))}
       </div>
+      <div className="lineTile lineSchedule">
       <HeadwayInput
         label={t('peak_headway')}
         seconds={line.headwayProfile.peak}
@@ -166,6 +172,8 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       <div className="row">
         <span className="muted small">{translate(trainsPerHour(line.headwayProfile.peak))} {t('trains_h')} · {translate(peakServed.toLocaleString())} {t('people_h')}</span>
       </div>
+      </div>
+      <div className="lineTile lineSchedule">
       <HeadwayInput
         label={t('offpeak_headway')}
         seconds={line.headwayProfile.offpeak}
@@ -174,6 +182,8 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       <div className="row">
         <span className="muted small">{translate(trainsPerHour(line.headwayProfile.offpeak))} {t('trains_h')} · {translate(offpeakServed.toLocaleString())} {t('people_h')}</span>
       </div>
+      </div>
+      <div className="lineTile lineSchedule">
       <HeadwayInput
         label={t('late_headway')}
         seconds={line.headwayProfile.late}
@@ -182,7 +192,8 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       <div className="row">
         <span className="muted small">{translate(trainsPerHour(line.headwayProfile.late))} {t('trains_h')} · {translate(lateServed.toLocaleString())} {t('people_h')}</span>
       </div>
-      <div className="row">
+      </div>
+      <div className="row lineTile lineOptions">
         <span className="muted small">{t('power')}</span>
         {(['third-rail', 'catenary'] as const).map((p) => (
           <button
@@ -194,7 +205,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
           </button>
         ))}
       </div>
-      <div className="row">
+      <div className="row lineTile lineOptions">
         <span className="muted small">{t('screen_doors')}</span>
         {(['full', 'half', 'none'] as const).map((p) => (
           <button
@@ -219,6 +230,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
           onChange={(e) => updateLine(line.id, { alightPerTrain: Number(e.target.value) * line.cars })}
         />
       </label>
+      </div>
     </Disclosure>
   )
 }

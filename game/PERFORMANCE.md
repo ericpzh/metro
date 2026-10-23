@@ -5,6 +5,44 @@ storey profile and trains use uniform 0.98 scale. Measurements below describe
 the current geometry and the latest completed validation. Raw reports belong
 in ignored `.preview/perf/`.
 
+## Geometry snapping audit (2026-10-22)
+
+The [snap audit](SNAPPING.md) replaces storey-band anchors with actual floor,
+wall, ceiling, beam and shaft geometry. It does not change pointer-event pick
+ownership: each dispatched event still shares one scene snapshot.
+
+The production `tools/check-geometry-snapping.mjs` check passed six real mouse
+placement/move fixtures (slab and hanger supports across editing bases 0, 2 and 4),
+extended to nine fixtures with three wall-mount cases and low-angle object picks
+for construction tools: 69 dispatches, maximum one
+raycast per dispatch, no browser errors. The slab
+preview/commit/move anchor remained 17 m and the hanger anchor remained 11 m at
+every base. Raw report: `.preview/perf/geometry-snapping/browser.json`.
+
+`tools/check-tool-picking.mjs` also passed all 38 dispatches, including ramp
+occlusion, deletion and undo, with one raycast maximum and no browser errors.
+Its first placement hover took 18.3 ms and first carried hover 2.8 ms in this
+production run. These are dispatch durations on its small synthetic fixture,
+not frame latency or a before/after performance claim. Raw report:
+`.preview/perf/tool-picking/browser.json`.
+
+All 2,313 owning tests and the production build pass. The broad in-process
+`test:perf` coverage attempt was stopped after roughly seven minutes without test
+output; it is incomplete. Separate-process focused coverage completed with 199
+owning checks and a 56-check tool run. `moduleAim.ts` is 100% covered for lines,
+branches and functions; the other changed-module figures and limits are recorded
+in `SNAPPING.md`, with raw coverage logs under `.preview/perf/geometry-snapping/`.
+
+The visible-object follow-up adds a true low-angle beam fixture: the ordinary
+terrain pick lands beyond the beam, but fresh/carried placement uses the visible
+beam column. Block, wall, rail and tunnel hover picks are checked in the same
+production run. The completed 18-check focused coverage report is
+`.preview/perf/geometry-snapping/object-coverage.log` (`placementSurface.ts`: 100%
+lines/functions, 84.62% branches). A supplementary run of the complete configured
+`test:perf` list using separate test processes was stopped after roughly 7.5 minutes
+with batching and train LOD still running; `object-perf-tests.log` is incomplete,
+not a passing report. The full uninstrumented suite passed all 2,313 tests.
+
 ## Placement invalidation audit (2026-10-20)
 
 Audited all 119 equipment/structure/decor palette options, plus generated track
@@ -1436,9 +1474,193 @@ The final complete game suite passed **2,169 / 2,169 tests** (zero failures); ra
 output is `.preview/perf/equipment-10pct-final-tests-clean.log`. The preliminary
 run exposed an index-only assumption in the new test itself; its corrected assertion
 handles indexed and non-indexed Low geometry and passed both focused and full runs.
+## Curtain wall carried-preview collision stall (2026-10-21)
+
+The production Tanwei pointer-hover reproduction (`node tools/bench-curtain-preview.mjs`)
+uses the current shipped station, 9,572 modules, paused simulation and hardware
+ANGLE/D3D11 on an RTX 4080 SUPER. Twelve real mouse movements include the first
+invocation; before/after runs use the same camera and 22 pick-verified targets.
+Raw reports and V8 CPU profiles are `.preview/perf/curtain-preview/{before,after}.json`
+and the adjacent `.cpuprofile` files. These runs preceded the full-suite/coverage jobs.
+
+The dominant CPU stack was `EquipmentTool.refreshHover` → placement collision
+validation → `fenceGlassBlocked` → `fenceNeighbourFlags`. Glass/fence pairs bypass
+the nominal-envelope rejection because a joint can grow perpendicular fence arms.
+That made even remote fences perform four complete station scans per verdict.
+The twelve hovers accumulated about 3,209 ms of inclusive sampled refresh CPU.
+
+Keep that special geometry rule, but reject against the full possible fence-arm
+tile before resolving joints, then use the existing immutable fence connection
+index for four local neighbour lookups. The exact thin arm boxes still decide
+collision. No placement rule, preview document, mesh or material changed.
+
+| Event through two RAFs (ms) | Before | After |
+|---|---:|---:|
+| First hover | 510.4 | 143.8 |
+| Median of eleven subsequent movements | 307.8 | 67.6 |
+| Subsequent range | 238.6–610.6 | 58.6–148.5 |
+
+Inclusive sampled refresh CPU dropped to about 70 ms across the twelve movements.
+Preview model submission itself remained about 1–3 ms; neither run committed a
+document or called `setStation`. Two RAFs include frame scheduling, rendering and
+CDP overhead; these are latency diagnostics, not FPS or GPU elapsed-time claims.
+Cold hover remains noticeable and general rendering throughput was not optimized.
+
+`glass-panel` now guards cold/repeated verdicts with 2,048 remote fences, bounded
+station iterations, exact turning-arm collision, curtain crossing permission and
+immutable neighbour-removal invalidation. Existing panel tests preserve reverse
+placement order and new arms piercing already-placed glass. The suite is included
+in `test:perf`. Validation results are recorded below after the complete runs.
+
+
+## Shared tool picking and mount resolution — 2026-10-22
+
+Pointer tools share one event-scoped ray and lazy scene intersection snapshot.
+Block, module, normal, bounds and roof queries reuse visible hits and misses;
+overlapping lift roots are traversed once. Plane-only queries do not traverse
+geometry. Each interpolated deletion sample keeps its own cached position.
+Queued movement is flushed before the release scope opens.
+
+Track decks are structural targets for every tool. Platform ceiling supports use
+the rendered slab underside. Fresh and moved modules share `moduleAim.ts`, with
+support/refusal owned by the shared equipment validator. `moduleTarget.ts` also
+unifies selection, picking and deletion fallback: coarse stair/escalator/walkway
+envelopes cannot resurrect a run behind a visible block. Forgiving bounds queries
+reject runs whose actual surface lies behind that block.
+
+Production hardware Chrome reproduction: `node tools/check-tool-picking.mjs`.
+A ceiling sign places at (3,1,3) and moves to (4,1,3), below the platform underside
+at 4 m. Stair and escalator cases delete the visible block, preserve the run,
+undo/redo correctly, then delete the exposed run. Across 38 dispatches, including
+first/warm hovers of all eleven tools on Tanwei, the maximum is one scene raycast
+per dispatch. No browser errors occurred.
+
+Platform first hover/press CPU: 19.6/2.1 ms; carried-sign first hover/press:
+3.0/1.3 ms. First block hover beside stair/escalator: 1.2/0.6 ms. These diagnostic
+event CPU timings overlapped verification jobs and are not isolated before/after
+speedup or frame-present measurements. Raw report: `.preview/perf/tool-picking/browser-ramps.json`.
+
+Deterministic regressions cover event sharing, cached misses, nested scopes,
+visibility refresh, layer restoration, duplicate lift roots and shared ceiling
+aiming. Ramp regressions cover 92 combinations of stair shape, width and rotation
+and escalator width/rotation using real rendered mesh intersections, deletion,
+selection, picking and undo. Focused ramp validation passed 157 checks; focused
+coverage passed 147 checks, with moduleTarget 100% line/branch/function coverage
+and CameraSystem 71.83/79.51/50% (other camera controls outside the focused run).
+
+The broad single-process V8 instrumentation run was stopped after twelve minutes
+of overhead. The equivalent performance test list passed 597 checks with per-file
+isolation and no global instrumentation; changed modules retain focused coverage.
+Exact commands and raw reports are in `.preview/perf/tool-picking/`, including
+`perf-tests-isolated.log`, `ramp-coverage.log` and `ramps-focused-final.log`.
+
+Final current-checkout validation: TypeScript passes; the focused picking/ramp/move
+run passes 130 checks; the complete Node suite passes 2,297/2,297 tests (134.0 s).
+Logs: `final-typecheck.log`, `final-focused.log` and `final-full.log` in the same
+report directory. The production build used by the browser reproduction passed.
+
+
+## Unified interactive previews and matching LOD (2026-10-22)
+
+The audit covers all 120 palette choices, rail/tunnel/block/wall/paint/zone/pick/
+delete/select hovers, block/wall/fence/tactile/roof/stair-block/road/paint/zone/booth
+drag cancellation, and carried bench/glass/tactile/stair/TV/gate/exit previews.
+The production sweep recorded **542 samples**, zero browser errors and zero
+unnecessary station-document copies. Every carried family retained one prepared
+source-removal document across pointer cells. Raw reports and CPU profiles are
+`.preview/perf/preview-audit/{before-corrected,final}.json` and adjacent profiles.
+The corrected initial sweep identified **37 palette families** copying their
+module arrays. An intermediate drag audit also exposed the existing multi-material
+hover `.clone()` failure; it is fixed and guarded by a material-slot regression.
+
+One model context now owns station/plate references and small candidate-neighbour
+overlays. The source document stays immutable and stable for support caches;
+typed neighbour and floor-finish indexes prepare once per snapshot. Tactile runs
+use an anchor index instead of four complete module searches per tile. Equipment
+placement/release uses a local spatial broad phase with source-ordered blockers,
+bounded broad-piece overflow and exact body checks. Fence verdicts overlay the
+new joint and exclude a carried origin without copying the whole station. A
+seeded comparison with the previous collision implementation returned identical
+ordered blockers for **960 candidates across all 120 palette choices**; the raw
+oracle snapshot and report are under `.preview/perf/preview-audit/`.
+
+All module and fence ghosts share bounded material retention, current clipping
+and source colours, and deduplicated ownership of builder materials/textures.
+Preview keys invalidate when the document changes. Cross-tool cancellation uses
+`clearToolPreview`, including face ghosts and road handles; clearing an unused
+road layer allocates nothing. Paint/zone rectangles use the existing 50 ms latest-
+target scheduler, with queued work cancelled before release. Face pools grow
+past 4,096 instead of silently truncating the visible edit.
+
+`EquipmentPreview` shares the placed equipment's `EquipmentBatches`, authored Low
+geometry, `SourceGeometryDetail`, distance thresholds and `detailHeight` policy.
+The final draw camera updates both placed and carried pieces. Low stays reduced
+in Hide UI; other-storey and camera-distance rules also apply. Roof instances
+retain their authored Low link and restore exact High references before teardown.
+Previews also run the same local `batchStaticModule` preparation as placed
+pieces. Long roof runs use matching 16 m/storey buckets with shared geometry,
+so their far end can reduce independently; all 10,000 tiles remain visible.
+The deterministic catalogue sweep matches geometry triangle counts for every
+palette option under High/Low, near/far, five intermediate camera spans,
+other-storey and Hide UI policies. Long-roof coverage compares placed/preview
+totals across five perspective distances, both qualities and two edited storeys.
+
+Glass cladding now retains the aimed top wall course as well as interior courses.
+Fresh and carried panels share `moduleAim`; an isolated slab edge keeps its
+existing floor reading. Preview and commit use the same anchor, dimensions and
+support refusal. A pane reaching past the wall stays red at that height rather
+than jumping down to an accepted lower location. Deterministic coverage includes
+all rotations, 1/2 m panes, shifted/negative storeys, and supported/refused drops.
+Production `node tools/check-preview-lod.mjs` verifies real wall ray hits in six
+High/Low cases and a placement: the Low 1 m pane has **18 geometry triangles**
+both in preview and after placement; the High version has 60. Screenshots and the
+report are in `.preview/perf/preview-audit/lod/`.
+
+The Tanwei carried-curtain run before the final local-batching parity refinement
+uses the same 22 screen targets and hardware
+as the original run: first hover **215.2 ms**, median of eleven later movements
+**86.5 ms** (67.4–151.7 ms), measured through two RAFs. The earlier narrow collision
+fix's 143.8/67.6 ms figures above are not the final unified-renderer result. Cold
+initialization remains noticeable. Picking/aiming work changed concurrently in
+this shared checkout: screen coordinates match, but some resolved hit cells do
+not, so the final run is diagnostic evidence, not a controlled before/after FPS
+claim. The first narrow fix's before/after pair had identical hit targets. Final
+raw timing and profile: `.preview/perf/curtain-preview/final.json` and its adjacent
+profile. These browser measurements ran without the test/coverage jobs competing.
+
+Validation reports for the final implementation are recorded below.
+
+Production build/typecheck passed. The final full Node suite passed **2,297/2,297**
+tests (156.0 s); log: `.preview/perf/curtain-preview/final-batching-full-test.log`.
+Production catalogue audit: 542 samples, no runtime/console errors, no unnecessary
+document copies. The glass check passes on native multi-draw and fallback
+rendering. Renderer batching checks passed both paths (station 3,789 → 1,104
+draws native / 1,767 fallback; train 779 → 29 / 594), with no runtime/WebGL errors.
+
+Focused V8 coverage: 49 tests passed. Percentages below are line/branch/function:
+equipmentPreview 100/79.49/100, modelNeighbours 100/96.15/100,
+modulePreviewDocument 97.06/75/75, previewMaterialCache 100/80/88.89,
+roofPreview 100/100/100, GhostSystem 87.22/74.27/78.26,
+fences 100/98.53/100, floorDecor 62.24/74.47/77.78,
+placement 76.31/68.82/63.19. This is focused source coverage, not GPU coverage.
+The complete `test:perf` coverage command did not complete in the extended local
+run; a process-isolated retry was also stopped while train instrumentation
+remained very slow. Neither is claimed as passing. Raw partial logs, the exact
+retry command and focused coverage are retained under
+`.preview/perf/curtain-preview/` and `.preview/perf/preview-audit/`.
+
+Final local-batching interaction rerun (no competing test/coverage jobs): first
+hover **263.8 ms**, subsequent median **83.1 ms**, range **58.9–134.2 ms**.
+Its 22 screen targets and resolved hit cells match the earlier `final.json`
+diagnostic. No commits, `setStation` calls or browser errors occurred. Raw report,
+CPU profile and screenshot: `.preview/perf/curtain-preview/final-batched.json`
+and adjacent files. These are event-through-two-RAF timings, not steady FPS;
+the cold first-hover stall remains a limitation. The original baseline still
+has the picking-target comparability caveat described above.
+
 ## Suspended-ceiling fixture relocation removed (2026-10-22)
 
-吊顶 validates hover, drag and release against the original station, exactly as ordinary blocks do. `prepareSuspendedCeiling` was removed: placing a ceiling no longer rewrites fixture anchors. `addSuspendedCeiling` retains the original modules array and only adds tagged and finished cells. Normal collision refusals remain in effect.
+吊顶 now validates hover, drag and release against the original station, exactly as ordinary blocks do. Removed `prepareSuspendedCeiling`: placing a ceiling no longer rewrites fixture anchors. `addSuspendedCeiling` retains the original modules array and only adds tagged/finished cells. Normal collision refusals remain in effect.
 
 Production `bench-drag-latency.mjs`, zoo demo (14,073 cells / 4,291 modules), block tool, suspended-ceiling mode, 10 x 10 drag, paused plan view, identical targets and assets. Reports and preview captures: `.preview/perf/ceiling-remove/{before,after}*`.
 
@@ -1448,6 +1670,6 @@ Production `bench-drag-latency.mjs`, zoo demo (14,073 cells / 4,291 modules), bl
 | Drag preview callback CPU | 162.6 / 162.6 | 8.0 / 1.4 |
 | Drag movement through two RAFs | 286.3 / 290.9 | 192.4 / 210.6 |
 
-Both runs recorded zero preview commits and zero browser errors. These diagnostic timings are not thresholds: other test processes were running during the after capture, and the existing harness includes a 160 ms settle in drag samples. Cold hover still includes renderer initialization and frame latency; removing relocation does not eliminate that cost. The demo benchmark cancels both drags; deterministic tests cover refusal on release, unchanged fixture anchors, and reuse of the ordinary block preview cache.
+Both runs recorded zero preview commits and zero browser errors. These timings are diagnostic, not thresholds: other test processes were running during the after capture, and the existing harness includes a 160 ms settle in drag samples. Cold hover still includes renderer initialization and frame latency; removing relocation does not eliminate that cost. The demo benchmark cancels both drags; deterministic tool tests cover refusal on release, unchanged fixture anchors, and reuse of the ordinary block preview cache.
 
-Validation: production build passed; full game suite passed 2,313 tests, zero failures/skips. Focused instrumented run passed 39 tests: Ceilings.ts 100% line/branch/function; BlockTool.ts 76.68% line, 73.00% branch, 70.59% function. The broad `test:perf` run was attempted and stopped after 417.6 seconds without producing test results, so it is incomplete. Raw reports are in `.preview/perf/ceiling-remove/`.
+Validation: production build passed; full game suite passed 2,313 tests, zero failures/skips. Focused instrumented run passed 39 tests: Ceilings.ts 100% line/branch/function; BlockTool.ts 76.68% line, 73.00% branch, 70.59% function (remaining branches include cut modes and wall removal). Broad test:perf was attempted and stopped after 417.6 seconds without producing test results; it is not reported as passing. Logs are retained under .preview/perf/ceiling-remove/.

@@ -60,3 +60,15 @@ test('physical panels keep bilingual station/terminal ink and destination on the
   }
   setLanguage('zh-CN')
 })
+
+test('secondary terminus names print beneath the destination in either direction', () => {
+  const bilingual = { ...line, upTerminusEn: 'Wenchong', downTerminusEn: 'Jiaokou' }
+  for (const [dir, secondary] of [['up', 'Wenchong'], ['down', 'Jiaokou']]) {
+    const info = psdHeaderInfo(bilingual, edge(dir, 'right'), '动物园')
+    assert.equal(info.destinationEn, secondary)
+    const words = printed('station', info).words
+    assert.ok(words.some(w => w.text === secondary))
+    assert.ok(words.find(w => w.text === secondary).y > words.find(w => w.text === info.destination).y)
+  }
+  assert.equal(psdHeaderInfo(line, edge('up', 'left'), '').destinationEn, '')
+})

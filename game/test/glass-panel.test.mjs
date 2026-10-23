@@ -1,3 +1,4 @@
+import { equipmentReason } from '../src/sim/placement.ts'
 // Glass panels (装饰 玻璃板, §5.7): short sizes clad a wall; the 4 m sizes stand on a floor edge.
 //
 // Two things make the piece what it is, and both are mechanical rather than
@@ -30,6 +31,7 @@ import {
   moduleEnvelope,
   moduleFootprint,
   placementBlocked,
+  placementColliders,
   wallMountCourses,
   wallMountMissing,
   wallSide,
@@ -317,6 +319,27 @@ test('a panel shares the turning cell of a fence run on the sides no arm reaches
   assert.equal(placementBlocked([...straight, glass(2, 2, 0, 0, 'g', '1x1')], fence(2, 3, 0, 'c')), false, 'joining away from it stays legal')
 })
 
+test('first and repeated glass collision checks use bounded station scans with thousands of fences', () => {
+  let iterations = 0
+  const remote = Array.from({ length: 2048 }, (_, i) => createModule('fence', 100 + i, 100, 0, `remote-${i}`))
+  const local = [createModule('fence', 2, 2, 0, 'corner'), createModule('fence', 3, 2, 0, 'east'), createModule('fence', 2, 3, 0, 'north', 1)]
+  const modules = new Proxy([...remote, ...local], {
+    get(target, key, receiver) {
+      if (key === Symbol.iterator) iterations++
+      return Reflect.get(target, key, receiver)
+    },
+  })
+  for (let pass = 0; pass < 2; pass++) {
+    const before = iterations
+    assert.deepEqual(placementColliders(modules, curtain(2, 2)), [], 'floor curtain still joins crossing fences')
+    assert.deepEqual(placementColliders(modules, glass(2, 2, 0, 2)), [local[0]], 'north arm blocks wall glass even outside its nominal horizontal envelope')
+    assert.deepEqual(placementColliders(modules, glass(2, 2, 0, 0)), [], 'south of the turning fence stays clear')
+    assert.ok(iterations - before <= 8, 'cold and warm verdicts never scan the station per fence or per neighbour')
+  }
+  const changed = modules.filter(m => m.id !== 'north')
+  assert.deepEqual(placementColliders(changed, glass(2, 2, 0, 2)), [], 'removing the north neighbour invalidates the connection index')
+})
+
 test('a glass panel is found from its own cell, and the palette files it under 装饰', () => {
   assert.equal(moduleAt([glass(2, 2, 0, 0, 'g', '1x1')], 2, 2, 0)?.id, 'g')
   assert.equal(moduleAt([glass(2, 2, 0, 0, 'g', '2x1')], 3, 2, 0)?.id, 'g', 'found from the far cell of its run')
@@ -478,21 +501,18 @@ test('the 幕墙 height tile reaches the piece the tool builds', () => {
   }
 })
 
-test('aiming a wall panel at a plain wall mounts it in front of the face, on the 基准高度 grid', () => {
+test('aiming a wall panel at a plain wall retains the top course in preview and placement', () => {
   // The whole wire a 玻璃板 placement is: the pointer's hit cell and the face-adjacent
   // `place` cell in, the module the ghost and the release both use out. Two things
   // are the tool's own to get right, and neither shows up in the pure functions:
-  // the storey is asked with the station's **基准高度** (`levelBase`), and the wall it
-  // hangs on is the one the **camera** is looking at.
-  //
-  // The wall is a plain 方块 column (no wall tag), hit on its south face: the panel
-  // stands in front of it at (0, 0), on the storey floor 5 — not at the block's own
-  // cell, and not on the unshifted 0 / 4 / 8 line.
+  // the aimed top course survives the height resolver, and the wall it hangs on
+  // is the backed face the camera is looking at. A plain 方块 column also works.
   const cells = [
     { x: 0, y: 0, z: 6, fill: 'solid' },
     { x: 0, y: 1, z: 7, fill: 'solid' },
     { x: 0, y: 1, z: 8, fill: 'solid' },
     { x: 1, y: 0, z: 7, fill: 'solid' },
+    { x: 1, y: 0, z: 8, fill: 'solid' },
   ]
   const station = toState({ name: 'shifted', seed: 1, levelBase: 1, cells, modules: [], lines: [] })
   const before = useStore.getState()
@@ -501,15 +521,15 @@ test('aiming a wall panel at a plain wall mounts it in front of the face, on the
     useStore.setState({ station, moduleType: 'glass-1x1', moduleRot: 0 })
     const tool = new EquipmentTool({ facing: () => aim, scene: () => null })
     const north = tool.wallMountPlacement([0, 1, 8], [0, 0, 8], 'g1', [0.5, 1])
-    assert.equal(north.noWall, false)
-    assert.deepEqual([north.mod.x, north.mod.y, north.mod.z], [0, 0, 6], 'in front of the face, on the shifted storey floor')
-    assert.equal(north.mod.rot, 2, 'and hanging on the wall the camera is looking at')
+    assert.equal(equipmentReason(cells, [], north), '')
+    assert.deepEqual([north.x, north.y, north.z], [0, 0, 7], 'in front of the aimed top course')
+    assert.equal(north.rot, 2, 'and hanging on the wall the camera is looking at')
     // Orbiting to the other side of the tile takes the other backed wall — the same
     // hover, the same held turn, a different answer.
     aim = [-1, 0] // the eye west of the piece: the view looks east
     const east = tool.wallMountPlacement([0, 1, 8], [0, 0, 8], 'g2', [0.5, 1])
-    assert.equal(east.mod.rot, 1, 'the east wall, which the camera now faces')
-    assert.deepEqual([east.mod.x, east.mod.y, east.mod.z], [0, 0, 6], 'the stand cell does not move with the view')
+    assert.equal(east.rot, 1, 'the east wall, which the camera now faces')
+    assert.deepEqual([east.x, east.y, east.z], [0, 0, 7], 'the stand cell does not move with the view')
   } finally {
     useStore.setState(before)
   }

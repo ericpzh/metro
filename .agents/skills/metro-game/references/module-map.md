@@ -95,7 +95,9 @@ station-wide repaints while machines, barriers, stops and future types fail clos
 | `equipmentBatches.ts` | Cross-module material/16 m batches, exact geometry instancing versus merging/sorting, immutable revision/local allocation reuse, live rig exclusions and owned teardown. `setHiddenModules` masks only the local buckets containing replaceable roots; unreplaced members of a masked bucket keep drawing from their source meshes, and restoring returns every source to the batch layer without rebuilding allocations. |
 | `panelAtlas.ts` | Full-resolution canvas panel pages, UV remapping/gutters, live texture versions, recycled slots and rendering/clipping-plane identity boundaries. |
 | `moduleDependencies.ts` | Model retention by declared inputs, independent of simulation routing: station/cell guards, equipment-only chunk classification, local fence/gate/tactile/glass/door/cubicle/TV/hanger and structural family invalidation; unknown types fail closed. Also the one-sign printed-board-only keep-set verdict. |
-| `modulePreviewDocument.ts` | Hover preview document reuse: ordinary equipment reuses the prepared station document, a move caches its one source removal per immutable array, and coupled previews merge their candidates (stairs, rails, TV pairs). |
+| `modulePreviewDocument.ts` | Hover preview document reuse: ordinary equipment reuses the prepared station document, a move caches its one source removal per immutable array, and coupled previews read their small candidate overlay (`modelNeighbours`) instead of merging a whole station. Only unknown future kinds keep the conservative merged-document contract. |
+| `modelNeighbours.ts` | Immutable per-array typed module index plus a candidate overlay: `modelNeighbours(ctx, ...types)` returns the placed pieces in document order and appends proposed preview pieces without copying the station; `modelCellAt` shares the floor-finish lookup. Preview builders must use it rather than scanning `ctx.data.modules`. |
+| `equipmentPreview.ts` | `EquipmentPreview`: the carried piece's own `EquipmentBatches`, `SourceGeometryDetail` and authored Low geometry, using the same distance thresholds, other-storey rule, Hide UI slicing and `detailHeight` policy as placed equipment; the source root keeps ownership of High/Low geometry and is restored before disposal. |
 | `passengerEligibility.ts` | Explicit adult/child metadata with historical fallback for old atlases; explicit false wins. |
 | `passengerAtlas.ts` | Lossless zlib/base64 buffer decoding, with legacy raw-base64 compatibility. |
 | `passengerModel.ts` | Approved shared pose/outfit atlas, normalized age metadata and stable identity-based appearance; no per-agent skeleton. |
@@ -168,6 +170,10 @@ measures first/repeated real Q/E on both demos, including load/prewarm overhead.
 ## `app/` — React shell (panels only, no sim logic)
 
 `frameTask.ts` owns latest-per-RAF preview work, release flush and cancellation.
+`tools/clearPreview.ts` (`clearToolPreview`) is the one reset for tool changes,
+cancellation and over-budget refusals: ghosts, face ghosts, module/fence previews,
+collision highlight and road handles, with the cursor optional. Sources, selection
+and the station document stay owned by their normal systems.
 Viewport preserves every touch/deletion path sample and cancels queued previews on
 tool/capture/lifecycle changes. Node helpers plus source contracts cover this boundary;
 production browser checks cover GLSL/WebGL, not timing assertions in Node.
@@ -188,7 +194,7 @@ the **移动** lift (`moveDraft`: the piece in the air, its carried rotation, th
 | `autosave.ts` | Local `metro-game.autosave.v1` JSON persistence via the existing save envelope. Tracks committed `version` changes, immediately invalidates/replaces on `stationEpoch` changes, and retries failed writes. `autosave.test.mjs` owns regression coverage. |
 | `windows/tutorial/` | `Tutorial.tsx` owns the interactive spotlight/card and its per-visit practice activation; `steps.ts` owns bilingual message keys, target/folder/practice metadata and resilient local-storage preference helpers; `tutorial.css` owns dimming, keycaps, mouse graphics and card layout. UI regressions run through `npm run check:tutorial`; preference/startup behavior is covered by `test/tutorial.test.mjs`. |
 | `mobile.ts` / `MobileNotice.tsx` | The phone/tablet gate and its notice; keeps three.js out of a mobile download. |
-| `moduleThumbnails.ts` / `zoneThumbnails.ts` | `moduleThumbnails` renders the rail's module thumbnails from real models, shooting the 时钟 dial from below and the 监控 head from front-below, above the hung pieces' empty-storey centres. `zoneThumbnails` is a retained 3D zone-preview helper; the 分区 rail currently uses per-zone line icons in `rail/folders/ZoneFolder.tsx` instead. |
+| `moduleThumbnails.ts` / `zoneThumbnails.ts` | `moduleThumbnails` renders the rail's checked-in 132 px PNGs in the `?capture-menu-thumbnails` pass (`tools/render-menu-thumbnails.mjs`), shooting the 时钟 dial from below and the 监控 head from front-below, above the hung pieces' empty-storey centres; the game itself only resolves those files through `moduleThumbnailAssets.ts` as lazy `<img>` URLs. `zoneThumbnails` is a retained 3D zone-preview helper; the 分区 rail currently uses per-zone line icons in `rail/folders/ZoneFolder.tsx` instead. |
 | `captureBlocks.ts` / `captureTrains.ts` / `captureCards.ts` | The **browser capture entry points** the `tools/render-*` passes drive: `main.tsx` reads a query flag (`?capture-blocks` / `?capture-trains` / `?capture-cards`) and hands the whole module to `window`, so a headless-Chrome pass calls the game's own mesher, `buildTrain` or thumbnail pass and reads back PNGs (plus the layout: metres across, the frame, the origin). `?capture-pieces` exposes `moduleThumbnails.ts` the same way, for sheets 02 and 13's elevations and isometric piece views. Guarded, so a normal page is unaffected — this is why sheets 02–05, 11, 12 and 13 are photographs of the game rather than a second renderer that could drift. |
 
 ## Entry points outside `src/`

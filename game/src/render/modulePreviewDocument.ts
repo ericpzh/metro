@@ -2,13 +2,16 @@ import type { Module, StationData } from '../sim/types.ts'
 
 // These builders never need their own candidate in the station's module list.
 // Their support/curtain/hanger queries can reuse the prepared immutable document.
-// Coupled multi-piece/rail/TV previews retain the merged-document contract.
+// Coupled pieces read their small candidate overlay through modelNeighbours.
+// Unknown future kinds retain the conservative merged-document contract.
 const STATION_PREVIEWS = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'bin',
   'extinguisher', 'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'pillar', 'hanger',
   'gate', 'fence', 'light', 'vent', 'clock', 'cctv', 'monitor', 'sign', 'billboard',
   'door', 'calligraphy', 'linemap', 'floor-mark', 'guidepost', 'busstop', 'traffic-light',
   'rail-signal', 'sidewalk', 'lawn', 'tree', 'shop',
+  'glass', 'tactile', 'stair', 'escalator', 'walkway', 'lift', 'exit',
+  'psd-end', 'platform-edge', 'track', 'tv', 'road', 'retail',
 ])
 
 /** One bounded cache for the carried piece's removal, not one filtered station

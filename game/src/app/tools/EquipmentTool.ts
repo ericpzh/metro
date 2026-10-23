@@ -55,7 +55,7 @@ import type { PointerInfo } from './ToolContext.ts'
 import { deletionTarget } from './deletionTarget.ts'
 import { canPlaceWithoutFloorHit } from './placementInput.ts'
 import { snapSignToBooth } from '../../sim/boothSigns.ts'
-import { boothSignHit } from './boothSignHit.ts'
+import { boothSignAim, boothSignHitOf } from './boothSignHit.ts'
 
 /** Rotation whose local back points from the stand cell to the hit block. */
 function wallRotationForSide(dx: number, dy: number): number | null {
@@ -77,16 +77,29 @@ function isSnapRamp(mod: Module | undefined): mod is Extract<Module, { type: 'st
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
 
+  /**
+   * The booth this event's pointer picked, for the 墙面指示牌 snap. Resolved once per
+   * event beside the hit (`boothSignAim`), so the ghost and the click snap to the
+   * booth the player can see even when the ray's own surface point falls just past
+   * its footprint — and aiming at a board already bolted to a booth keeps meaning
+   * that booth. Null for every other piece.
+   */
+  private signBoothId: string | null = null
+
   onDown(info: PointerInfo): void {
     if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onDown(info); return }
     if (useStore.getState().moduleType.startsWith('tactile-')) { new TactileTool(this.ctx).onDown(info); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn')) { new TileEquipmentTool(this.ctx).onDown(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
+    const signAim = useStore.getState().moduleType === 'sign-wall'
+      ? boothSignAim(scene, useStore.getState().station.modules, info.clientX, info.clientY)
+      : undefined
+    this.signBoothId = signAim?.booth.id ?? null
     const hit = useStore.getState().moduleType === 'bridge'
       ? this.bridgePointerHit(info)
-      : useStore.getState().moduleType === 'sign-wall'
-      ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
+      : signAim
+      ? boothSignHitOf(signAim)
       : info.hit
     const st = useStore.getState()
     // Resolve the drawn target once for this press. A direct PSD pick applies a
@@ -259,10 +272,14 @@ export class EquipmentTool extends ToolController {
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn') || this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onMove(info); return }
     const scene = this.ctx.scene()
     if (!scene) return
+    const signAim = useStore.getState().moduleType === 'sign-wall'
+      ? boothSignAim(scene, useStore.getState().station.modules, info.clientX, info.clientY)
+      : undefined
+    this.signBoothId = signAim?.booth.id ?? null
     const hit = useStore.getState().moduleType === 'bridge'
       ? this.bridgePointerHit(info)
-      : useStore.getState().moduleType === 'sign-wall'
-      ? boothSignHit(scene, useStore.getState().station.modules, info.clientX, info.clientY, info.hit)
+      : signAim
+      ? boothSignHitOf(signAim)
       : info.hit
     const st = useStore.getState()
     const pickedCoverId = st.moduleType === 'psd-end-cover'
@@ -814,7 +831,7 @@ export class EquipmentTool extends ToolController {
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
     const printed = signModuleWithPreview(draft, st.signPreview)
     const snapped = printed.type === 'sign' && near
-      ? snapSignToBooth(st.station.modules, printed, near, cell[2])
+      ? snapSignToBooth(st.station.modules, printed, near, cell[2], this.signBoothId ?? undefined)
       : printed
     // The wall the panel hangs on is the one the camera is looking at
     // (`autofaceWallMount`) — except for a 地面出入口, which is a shallow sign on the

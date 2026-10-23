@@ -1,6 +1,6 @@
 // Build model: facilities — shop/toilet/office rooms, the booth, auto furniture (§5.7).
 
-import type { Cell, Module, RoomKind } from '../../sim/types.ts';
+import { isWallBlock, type Cell, type Module, type RoomKind } from '../../sim/types.ts';
 import { virtualSolidAt } from '../../sim/ground.ts';
 import { cellKey } from './Cells.ts';
 import { nextModuleId } from './Equipment.ts';
@@ -79,6 +79,46 @@ export function facilityRect(a: [number, number, number], b: [number, number, nu
 
 function isPerimeter(r: FacilityRect, x: number, y: number): boolean {
   return x === r.x0 || x === r.x1 || y === r.y0 || y === r.y1;
+}
+
+/**
+ * The level a facility drag stands on, read from the **block under the pointer**
+ * rather than from the storey the player happens to be editing.
+ *
+ * A room is a footprint laid on top of a floor: its module `z` is the cell whose
+ * top face is that floor, which is why `placeFacility` wants every rect cell solid
+ * at `z`. So a 售票亭 drawn on a raised slab, a platform or a block stack belongs
+ * to *that* block's level — the five-metre ladder is only where the storeys are,
+ * not where a room may stand (it used to anchor at `activeZ`, which put a counter
+ * drawn on a one-block-high slab down on the street cell underneath it, or refused
+ * a room on a mezzanine for a floor it was standing on).
+ *
+ * A **wall course** is not a floor. The pointer often lands on the room's own wall
+ * instead of the floor inside it, so the column is walked down through the
+ * contiguous wall to the course's foot — the floor cell the wall was raised from.
+ * A plain block is not walked through: the block the pointer names is the block the
+ * room stands on, however deep in a stack it is.
+ *
+ * A work-plane hit (the ray missed every block) already names the active storey's
+ * floor cell (`CameraSystem.pick`), so it passes through untouched: the rule must
+ * not drop to whatever happens to lie below open air.
+ */
+export function facilityStandZ(
+  cells: readonly Cell[],
+  hit: { cell: readonly [number, number, number]; solid: boolean },
+): number {
+  const [x, y, z] = hit.cell;
+  if (!hit.solid) return z;
+  // Only this column matters, and a station may hold tens of thousands of cells:
+  // collect the pressed column in one pass rather than keying the whole document.
+  const column = new Map<number, Cell>();
+  for (const c of cells) if (c.x === x && c.y === y) column.set(c.z, c);
+  let at = z;
+  for (;;) {
+    const cell = column.get(at);
+    if (!cell || cell.fill !== 'solid' || !isWallBlock(cell)) return at;
+    at--;
+  }
 }
 
 /**

@@ -1,6 +1,7 @@
 // Track bed builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { TRACK_BED_DROP } from '../../../sim/constants.ts'
 import { STOCK, TRAIN_ORIGIN_Z, trainOriginForScale, trainScaleForStorey } from '../../../sim/stock.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
@@ -147,11 +148,11 @@ export class TrackModel extends PieceBuilder {
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
     const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
     const data = this.ctx.data
-    const edges = data?.modules.filter((m): m is Extract<Module, { type: 'platform-edge' }> => m.type === 'platform-edge') ?? []
+    const edges = modelNeighbours(this.ctx, 'platform-edge').filter((m): m is Extract<Module, { type: 'platform-edge' }> => m.type === 'platform-edge')
     const line = data?.lines.find((l) => l.id === mod.cfg.line)
     const lineDir = line?.direction
     const side = thirdRailSide(mod, edges, lineDir)
-    const tracks = mod.cfg.bridge ? (data?.modules ?? []).flatMap(m => {
+    const tracks = mod.cfg.bridge ? modelNeighbours(this.ctx, 'track').flatMap(m => {
       if (m.type !== 'track') return []
       return [m]
     }) : []

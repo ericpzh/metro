@@ -1,5 +1,6 @@
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { surfaceModelDetail } from '../../modelDetail.ts'
 import type { Module } from '../../../sim/types.ts'
 import { psdEndOffset, psdEndSpan } from '../../../sim/psdEnds.ts'
@@ -24,13 +25,13 @@ export class PsdEndModel extends PieceBuilder {
       group.traverse((child) => { child.userData.wall = true })
       return group
     }
-    const span = psdEndSpan(mod, this.ctx.data.modules, this.ctx.data.lines)
+    const span = psdEndSpan(mod, modelNeighbours(this.ctx, 'track', 'platform-edge', 'psd-end'), this.ctx.data.lines)
     const group = buildPsd(this.ctx, { ...mod, type: 'platform-edge', w: 1,
       cfg: { name: t('screen_end_door'), dir: 'up', line: '', side: 'left', psd: mod.cfg.psd } }, span)
     const [ox, oy] = psdEndOffset(mod)
     // Glass meets the screen centreline, but the opaque return must stop at
     // its housing: otherwise perpendicular caps/fascias share top faces (§5.7).
-    const corner = this.ctx.data.modules.find((m) => m.id === mod.cfg.corner && m.type === 'platform-edge')
+    const corner = modelNeighbours(this.ctx, 'platform-edge').find((m) => m.id === mod.cfg.corner)
     const housing: THREE.Box3[] = []
     if (corner?.type === 'platform-edge') {
       // Use the same builder's actual end profile, without textures or glass.

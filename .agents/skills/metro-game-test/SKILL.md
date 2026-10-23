@@ -40,7 +40,9 @@ factories, ordinary 吊顶 gestures, visibility, contextual import validation an
 fractional internal stair landings; `covered-clearance` uses the reported save
 and actual mesh bounds for the 5 m envelope, full concrete blocks, current 98%
 train scale and glass vinyl. `catenary-model` pins the shallow covered/tunnel
-mounting; `psd-end` pins 2.35 m full glazing; `train-lod` checks that identical
+mounting; `psd-end` pins 2.35 m full glazing; `psd-header` pins the optional English
+second line under each platform destination and its legacy single-line fallback;
+`train-lod` checks that identical
 consists keep separate cached poses and reuse their existing models. Preserve
 the single 5 m profile and reject fractional editable cells/outer endpoints.
 Do not skip demo or scenario regressions to make a profile change pass. Update
@@ -97,9 +99,13 @@ work and allocation identity but do not exercise WebGL presentation.
 ### Performance regression coverage
 
 `test:perf` also includes `train-pantograph`, `storey-height`,
-`covered-clearance`, `lift-interval`, `equipment-retention` and `fence-preview`:
+`covered-clearance`, `lift-interval`, `equipment-retention`, `fence-preview`,
+`glass-panel`, `tool-picking`, `ramp-targeting`, `geometry-snap`,
+`placement-surface`, `preview-pipeline` and `preview-lod`:
 collector geometry, scale/rail alignment, ceiling gestures, mixed lift stops,
-equipment model retention and local fence previews must stay in the performance gate.
+equipment model retention, fence/curtain collision, one shared event raycast,
+ramp target/occlusion, geometry and low-angle beam snapping, and preview/placed LOD
+equivalence must stay in the performance gate.
 
 Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
 `performance-policy`, `worker-preview`, `render-performance`, `scene-wiring`,

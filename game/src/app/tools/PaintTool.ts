@@ -139,8 +139,12 @@ export class PaintTool extends ToolController {
     const p = this.ctx.paint.current
     if (p?.active) {
       // The rectangle runs to the cell under the pointer, on the anchor plane.
-      const cells = planeCells(p.anchor, hit.cell, p.face)
-      scene.setFaceGhost(faceTargets(cells, p.face, this.ctx.solids(), this.ctx.thins()), p.face, paintColour(p.button, st.paintFinish))
+      const key = [...p.anchor, ...hit.cell, p.face, p.button, st.paintFinish].join(':')
+      this.multiPlace.deferPreview(scene, key, () => {
+        if (this.ctx.paint.current !== p) return
+        const cells = planeCells(p.anchor, hit.cell, p.face)
+        scene.setFaceGhost(faceTargets(cells, p.face, this.ctx.solids(), this.ctx.thins()), p.face, paintColour(p.button, st.paintFinish))
+      })
     } else if (st.paintMode !== 'pick' && hit.solid) {
       const face = dominantFace(hit.normal)
       scene.setFaceGhost(faceTargets([hit.cell], face, this.ctx.solids(), this.ctx.thins()), face, paintColour(0, st.paintFinish))
@@ -151,6 +155,7 @@ export class PaintTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    this.cancelPreview()
     const p = this.ctx.paint.current
     this.ctx.paint.current = null
     if (p?.active) {

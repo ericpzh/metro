@@ -2913,6 +2913,10 @@ export const messages = {
     "zh": "墙面装饰（广告牌、玻璃板、站名、线网图、墙面指示牌、地面出入口）须贴墙安装：背后需有实心墙板",
     "en": "Wall decorations need a solid wall behind them"
   },
+  "the_board_is_wider_than_the_booth_header_remove_some_content_or_build_a": {
+    "zh": "指示牌比售票亭的顶梁宽，挂不上去：删掉一些内容，或建一个更大的房间",
+    "en": "The board is wider than the booth header — remove some content, or build a larger room"
+  },
   "hung_signs_tvs_clocks_and_cameras_need_a_slab_4_m_above_wall_sig": {
     "zh": "吊挂指示牌、电视、时钟和监控需安装在天花板下；墙面指示牌贴墙安装即可",
     "en": "Hung signs, TVs, clocks and cameras need a ceiling slab above; wall signs attach to a wall"

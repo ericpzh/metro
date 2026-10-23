@@ -87,6 +87,7 @@ export {
   facilityPlan,
   facilityRect,
   facilityRectOf,
+  facilityStandZ,
   facilityWallCells,
   isWalledRoomKind,
   officeDeskSpots,

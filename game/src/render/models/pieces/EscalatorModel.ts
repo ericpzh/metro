@@ -1,6 +1,7 @@
 // Escalator (扶梯) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
@@ -184,10 +185,10 @@ export function rollEscalator(roll: EscalatorRoll, simDt: number): void {
  */
 export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: 'escalator' | 'walkway' }>): THREE.Group {
   const mats = ctx.mats
-  const run = escalatorInclineRun(mod, exitLandingHeight(ctx.data.modules, mod.to) - exitLandingHeight(ctx.data.modules, mod.from))
+  const run = escalatorInclineRun(mod, exitLandingHeight(modelNeighbours(ctx, 'exit'), mod.to) - exitLandingHeight(modelNeighbours(ctx, 'exit'), mod.from))
   const flatLength = ESCALATOR_FLAT_LENGTH + run.inset
-  const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(ctx.data.modules, mod.from))
-  const b = new THREE.Vector3(run.to.x + 0.5, run.to.y + 0.5, run.to.z + 1 + exitLandingHeight(ctx.data.modules, mod.to))
+  const a = new THREE.Vector3(run.from.x + 0.5, run.from.y + 0.5, run.from.z + 1 + exitLandingHeight(modelNeighbours(ctx, 'exit'), mod.from))
+  const b = new THREE.Vector3(run.to.x + 0.5, run.to.y + 0.5, run.to.z + 1 + exitLandingHeight(modelNeighbours(ctx, 'exit'), mod.to))
   const len = a.distanceTo(b)
   const t = b.clone().sub(a).normalize()
   const up = new THREE.Vector3(0, 0, 1)

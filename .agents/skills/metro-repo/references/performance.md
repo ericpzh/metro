@@ -117,6 +117,33 @@ cascade; browser timing is supporting evidence, never a unit-test threshold.
 
 ## Collect comparable evidence
 
+### Shared interactive previews
+
+`GhostSystem` owns all module/fence preview contexts and resource release.
+`ModulePreviewDocument` keeps the immutable station (or one source-removal document
+per carried piece); proposed geometry neighbours go through `modelNeighbours`,
+never a copied station per pointer cell. Unknown future module kinds retain the
+conservative resolver until their dependencies are audited. Ordinary and carried
+equipment share `EquipmentPreview`, `EquipmentBatches`, `SourceGeometryDetail`
+and `detailHeight` with placed equipment: Low, camera distance, other-storey and
+Hide UI must select the same authored geometry. Instanced roofs retain their
+source Low link. Restore High references before disposal.
+
+Use `clearToolPreview` for cross-tool cancellation, including face ghosts and road
+handles; clearing an unused layer must not allocate it. Paint and zone rectangles
+share the existing 50 ms latest-target scheduler, while release computes its own
+final edit and cancels queued drawing. Face pools grow to cover the full edit.
+Equipment collision previews/release share immutable spatial buckets and the
+fence connection index; keep fence-arm tile bounds, hypothetical new joints,
+carried-origin exclusion, ordered blockers and broad-import fallback intact.
+
+Run `node tools/bench-preview-audit.mjs` for the full production palette plus
+hover/drag/carry cancellation; `node tools/check-preview-lod.mjs` checks real glass
+wall picks, Low/High topology and preview/commit height agreement. The `preview-pipeline`
+and `preview-lod` regressions run in `test:perf`. Keep their all-palette geometry
+equivalence, local work counts, single ownership and LOD restoration assertions.
+See `game/PERFORMANCE.md`'s unified-preview audit for timing limitations.
+
 Run benchmarks sequentially, without builds, tests or other profilers competing
 for the host. Use distinct `BENCH_OUTPUT` paths for baseline, final and profiled
 runs. Record fixture counts, population, seed, hardware, browser, viewport, storey,

@@ -31,6 +31,7 @@ import { parse, serialize } from '../src/persistence/save.ts'
 import { MODULE_OPTIONS, isDecorType, moduleLabel } from '../src/app/store.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
+import { pickCells } from '../src/render/pickCell.ts'
 import { buildModule, CLOCK_POSE_SECONDS, reposeClockHands } from '../src/render/models.ts'
 import { ClockSystem } from '../src/render/scene/systems/ClockSystem.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
@@ -207,7 +208,7 @@ test('a hung fitting hangs under a 站台 or 轨道桥 deck', () => {
   const platform = { id: 't1', type: 'track', x: 2, y: 2, z: 4, rot: 0, w: 1, d: 1, cfg: { line: '1', power: 'third-rail', dir: 'up' } }
   const bridge = { ...platform, id: 't2', cfg: { ...platform.cfg, bridge: true } }
   for (const [name, deck, height, anchor] of [
-    ['站台', platform, 3, [2, 2, 3]],
+    ['站台', platform, 2, [2, 2, 2]],
     ['轨道桥', bridge, 2, [2, 2, 2]],
   ]) {
     assert.equal(ceilingMountMissing(floor, clock(2, 2), [deck]), false, `${name} hangs the fitting`)
@@ -220,6 +221,14 @@ test('a hung fitting hangs under a 站台 or 轨道桥 deck', () => {
     assert.equal(hangCeilingLocal(hung, floor, [deck]), 0, `and the mount sits at the cell top`)
     assert.equal(equipmentReason(floor, [deck], hung, true), '', `the aimed piece under the ${name} hangs`)
   }
+  const undersideHit = pickCells([2.5, 2.5, 3], [0, 0, -1])
+  assert.deepEqual(undersideHit.cell, [2, 2, 3])
+  assert.deepEqual(undersideHit.place, [2, 2, 2])
+  assert.deepEqual(
+    hungCeilingAim(undersideHit.cell, undersideHit.place, 0, floor, [platform]),
+    [2, 2, 2],
+    'a pointer hit on the platform underside aims into the cell directly below its deck',
+  )
   // Standing on the bed itself is still refused as track, not hung from it.
   assert.equal(placementOnTrack(floor, clock(2, 2, 4), [platform]), true)
   assert.equal(equipmentReason(floor, [platform], clock(2, 2, 4), true), 'track')

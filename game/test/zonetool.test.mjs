@@ -59,11 +59,12 @@ function ctxFor() {
   }
 }
 
-function roomStation() {
+/** A 10 × 10 slab of floor at `z`, on the implicit street when `z > 0`. */
+function roomStation(z = 0, activeZ = 0) {
   const cells = []
-  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z: 0, fill: 'solid', finish: { top: 'floor.granite' } })
+  for (let x = 0; x < 10; x++) for (let y = 0; y < 10; y++) cells.push({ x, y, z, fill: 'solid', finish: { top: 'floor.granite' } })
   useStore.setState({
-    tool: 'zone', zoneBrush: 'ticket', facilityRot: 0, activeZ: 0, notice: null, past: [], future: [],
+    tool: 'zone', zoneBrush: 'ticket', facilityRot: 0, activeZ, notice: null, past: [], future: [],
     station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }),
   })
 }
@@ -78,6 +79,14 @@ function press(cell, clientX = 0, clientY = 0, button = 0) {
     shiftKey: false,
     hit: { cell, place: [cell[0], cell[1], cell[2] + 1], solid: true, point: [cell[0] + 0.5, cell[1] + 0.5] },
     preventDefault: () => {},
+  }
+}
+
+/** The same event with the ray missing every block and landing on the work plane. */
+function pressPlane(cell, clientX = 0, clientY = 0) {
+  return {
+    ...press(cell, clientX, clientY),
+    hit: { cell, place: cell, solid: false, point: [cell[0] + 0.5, cell[1] + 0.5] },
   }
 }
 
@@ -182,6 +191,7 @@ test('a booth drag previews its desktop front and opposite benches, then places 
   zoneDrag.current.downTime = performance.now() - 1000
   const target = press([5, 5, 0], 40, 40)
   tool.onMove(target)
+  tool.multiPlace.flushPreview()
   let preview = modulePreviews.at(-1).modules
   assert.equal(preview.find((m) => m.type === 'booth').cfg.front, 0)
   assert.deepEqual(preview.filter((m) => m.type === 'bench').map((m) => [m.x, m.y, m.rot]), [[3, 4, 2], [4, 4, 2]])
@@ -197,6 +207,60 @@ test('a booth drag previews its desktop front and opposite benches, then places 
   assert.equal(placed.find((m) => m.type === 'booth').cfg.front, 1, 'release places the previewed front')
   assert.deepEqual(placed.filter((m) => m.type === 'bench').map((m) => [m.x, m.y, m.rot]), [[2, 3, 3], [2, 4, 3]])
   assert.deepEqual(modulePreviews.at(-1).modules, [], 'release clears the 3D preview')
+})
+
+test('a counter stands on the block under the pointer, not on the active storey', () => {
+  // A slab one block above grade: the 售票亭 belongs on it, not on the street cell
+  // the storey ladder names (which is what the room tool used to place it on).
+  roomStation(1)
+  const { tool, zoneDrag, modulePreviews } = ctxFor()
+  tool.onDown(press([2, 2, 1], 0, 0))
+  zoneDrag.current.downTime = performance.now() - 1000
+  const target = press([5, 5, 1], 40, 40)
+  tool.onMove(target)
+  tool.multiPlace.flushPreview()
+  const preview = modulePreviews.at(-1).modules
+  assert.equal(preview.find((m) => m.type === 'booth').z, 1, 'the ghost follows the slab under the pointer')
+  tool.onUp(target)
+  const placed = useStore.getState().station.modules
+  const booth = placed.find((m) => m.type === 'booth')
+  assert.equal(booth.z, 1, 'the booth stands on the slab it was drawn on')
+  assert.deepEqual(placed.filter((m) => m.type === 'bench').map((m) => m.z), [1, 1], 'its staff benches stand on the same slab')
+})
+
+test('a drag started on a wall course stands on the floor that wall was raised from', () => {
+  // Aiming at the room's own wall rather than its floor is an ordinary press: the
+  // wall's foot is the block the counter stands on, so walking down the column
+  // keeps the room at the slab's level instead of lifting it onto the wall.
+  roomStation(1)
+  const st = useStore.getState().station
+  useStore.setState({
+    station: toState({ ...st, cells: [...st.cells, { x: 1, y: 1, z: 2, fill: 'solid', tags: ['wall'] }] }),
+  })
+  const { tool, zoneDrag } = ctxFor()
+  tool.onDown(press([1, 1, 2], 0, 0))
+  zoneDrag.current.downTime = performance.now() - 1000
+  const target = press([4, 4, 2], 40, 40)
+  tool.onMove(target)
+  tool.onUp(target)
+  const booth = useStore.getState().station.modules.find((m) => m.type === 'booth')
+  assert.equal(booth.z, 1, 'the wall course names the floor it was raised from')
+  assert.deepEqual([booth.x, booth.y], [1, 1], 'the pressed wall cell is still the rectangle corner')
+})
+
+test('a counter drawn from the open work plane keeps the storey being edited', () => {
+  // A ray that hits no block anchors to the work plane, which already names the
+  // active storey's floor cell — the block-under-the-pointer rule must not drop it
+  // to whatever happens to be below.
+  roomStation(5, 5)
+  const { tool, zoneDrag } = ctxFor()
+  tool.onDown(pressPlane([2, 2, 5], 0, 0))
+  zoneDrag.current.downTime = performance.now() - 1000
+  const target = press([5, 5, 5], 40, 40)
+  tool.onMove(target)
+  tool.onUp(target)
+  const booth = useStore.getState().station.modules.find((m) => m.type === 'booth')
+  assert.equal(booth.z, 5, 'the work plane still anchors the edited storey')
 })
 
 test('the 无分区 brush takes a label off, and says when there is none', () => {

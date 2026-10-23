@@ -6,7 +6,7 @@
     {
       "id": "ac-unit",
       "file": "ac-unit.png",
-      "bytes": 9144
+      "bytes": 8944
     },
     {
       "id": "bench-seat-1",
@@ -16,37 +16,37 @@
     {
       "id": "bench-steel-1",
       "file": "bench-steel-1.png",
-      "bytes": 6112
+      "bytes": 6101
     },
     {
       "id": "billboard-large",
       "file": "billboard-large.png",
-      "bytes": 11051
+      "bytes": 10871
     },
     {
       "id": "billboard-panorama",
       "file": "billboard-panorama.png",
-      "bytes": 8197
+      "bytes": 8144
     },
     {
       "id": "billboard-portrait",
       "file": "billboard-portrait.png",
-      "bytes": 10477
+      "bytes": 10224
     },
     {
       "id": "billboard-square",
       "file": "billboard-square.png",
-      "bytes": 10858
+      "bytes": 10503
     },
     {
       "id": "billboard-standard",
       "file": "billboard-standard.png",
-      "bytes": 10464
+      "bytes": 10283
     },
     {
       "id": "billboard-wide",
       "file": "billboard-wide.png",
-      "bytes": 10637
+      "bytes": 10264
     },
     {
       "id": "bin",
@@ -56,17 +56,17 @@
     {
       "id": "bridge",
       "file": "bridge.png",
-      "bytes": 7483
+      "bytes": 7647
     },
     {
       "id": "busstop-long",
       "file": "busstop-long.png",
-      "bytes": 5425
+      "bytes": 5507
     },
     {
       "id": "busstop-short",
       "file": "busstop-short.png",
-      "bytes": 5851
+      "bytes": 5965
     },
     {
       "id": "calligraphy-hei-h",
@@ -131,22 +131,22 @@
     {
       "id": "cctv",
       "file": "cctv.png",
-      "bytes": 4245
+      "bytes": 4215
     },
     {
       "id": "cctv-dome",
       "file": "cctv-dome.png",
-      "bytes": 5147
+      "bytes": 5169
     },
     {
       "id": "cctv-post",
       "file": "cctv-post.png",
-      "bytes": 2576
+      "bytes": 2598
     },
     {
       "id": "cctv-ptz",
       "file": "cctv-ptz.png",
-      "bytes": 5662
+      "bytes": 5666
     },
     {
       "id": "checkout",
@@ -156,17 +156,17 @@
     {
       "id": "clock",
       "file": "clock.png",
-      "bytes": 4709
+      "bytes": 4706
     },
     {
       "id": "cubicle",
       "file": "cubicle.png",
-      "bytes": 2454
+      "bytes": 2504
     },
     {
       "id": "curtain-wall",
       "file": "curtain-wall.png",
-      "bytes": 1808
+      "bytes": 1890
     },
     {
       "id": "desk",
@@ -176,7 +176,7 @@
     {
       "id": "door-glass-1",
       "file": "door-glass-1.png",
-      "bytes": 2662
+      "bytes": 2682
     },
     {
       "id": "door-steel-1",
@@ -186,32 +186,32 @@
     {
       "id": "door-wood-1",
       "file": "door-wood-1.png",
-      "bytes": 2376
+      "bytes": 2379
     },
     {
       "id": "electrical-cabinet",
       "file": "electrical-cabinet.png",
-      "bytes": 9804
+      "bytes": 9658
     },
     {
       "id": "escalator",
       "file": "escalator.png",
-      "bytes": 4355
+      "bytes": 4276
     },
     {
       "id": "exit",
       "file": "exit.png",
-      "bytes": 9192
+      "bytes": 9392
     },
     {
       "id": "exit-covered-1",
       "file": "exit-covered-1.png",
-      "bytes": 8984
+      "bytes": 9147
     },
     {
       "id": "exit-covered-3",
       "file": "exit-covered-3.png",
-      "bytes": 9632
+      "bytes": 9773
     },
     {
       "id": "exit-doorway-1",
@@ -236,17 +236,17 @@
     {
       "id": "exit-uncovered-1",
       "file": "exit-uncovered-1.png",
-      "bytes": 7813
+      "bytes": 7870
     },
     {
       "id": "exit-uncovered-2",
       "file": "exit-uncovered-2.png",
-      "bytes": 8580
+      "bytes": 8594
     },
     {
       "id": "exit-uncovered-3",
       "file": "exit-uncovered-3.png",
-      "bytes": 9096
+      "bytes": 9077
     },
     {
       "id": "exit-virtual",
@@ -256,32 +256,32 @@
     {
       "id": "extinguisher",
       "file": "extinguisher.png",
-      "bytes": 4779
+      "bytes": 4775
     },
     {
       "id": "extinguisher-compact",
       "file": "extinguisher-compact.png",
-      "bytes": 4974
+      "bytes": 4972
     },
     {
       "id": "extinguisher-glass",
       "file": "extinguisher-glass.png",
-      "bytes": 4728
+      "bytes": 4731
     },
     {
       "id": "fence",
       "file": "fence.png",
-      "bytes": 5720
+      "bytes": 5833
     },
     {
       "id": "fence-gate",
       "file": "fence-gate.png",
-      "bytes": 5490
+      "bytes": 5602
     },
     {
       "id": "fence-iron",
       "file": "fence-iron.png",
-      "bytes": 7138
+      "bytes": 7322
     },
     {
       "id": "floor-mark-boarding",
@@ -301,42 +301,42 @@
     {
       "id": "gate",
       "file": "gate.png",
-      "bytes": 4283
+      "bytes": 4322
     },
     {
       "id": "gate-new",
       "file": "gate-new.png",
-      "bytes": 6920
+      "bytes": 6842
     },
     {
       "id": "glass-1x1",
       "file": "glass-1x1.png",
-      "bytes": 3547
+      "bytes": 3653
     },
     {
       "id": "glass-1x2",
       "file": "glass-1x2.png",
-      "bytes": 2832
+      "bytes": 2816
     },
     {
       "id": "glass-2x1",
       "file": "glass-2x1.png",
-      "bytes": 2864
+      "bytes": 2866
     },
     {
       "id": "glass-2x2",
       "file": "glass-2x2.png",
-      "bytes": 2654
+      "bytes": 2659
     },
     {
       "id": "glass-3x1",
       "file": "glass-3x1.png",
-      "bytes": 2639
+      "bytes": 2648
     },
     {
       "id": "glass-3x2",
       "file": "glass-3x2.png",
-      "bytes": 2469
+      "bytes": 2512
     },
     {
       "id": "guidepost",
@@ -346,12 +346,12 @@
     {
       "id": "hanger-post",
       "file": "hanger-post.png",
-      "bytes": 2122
+      "bytes": 2199
     },
     {
       "id": "hanger-roof",
       "file": "hanger-roof.png",
-      "bytes": 2517
+      "bytes": 2404
     },
     {
       "id": "lawn",
@@ -361,67 +361,67 @@
     {
       "id": "lift",
       "file": "lift.png",
-      "bytes": 8621
+      "bytes": 8469
     },
     {
       "id": "light-circular",
       "file": "light-circular.png",
-      "bytes": 3248
+      "bytes": 3170
     },
     {
       "id": "light-rectangular",
       "file": "light-rectangular.png",
-      "bytes": 2808
+      "bytes": 2708
     },
     {
       "id": "linemap-stand",
       "file": "linemap-stand.png",
-      "bytes": 8198
+      "bytes": 8194
     },
     {
       "id": "linemap-wall",
       "file": "linemap-wall.png",
-      "bytes": 10165
+      "bytes": 9880
     },
     {
       "id": "monitor-ceiling",
       "file": "monitor-ceiling.png",
-      "bytes": 2839
+      "bytes": 2812
     },
     {
       "id": "monitor-wall",
       "file": "monitor-wall.png",
-      "bytes": 6052
+      "bytes": 5984
     },
     {
       "id": "noise-barrier",
       "file": "noise-barrier.png",
-      "bytes": 2273
+      "bytes": 2250
     },
     {
       "id": "noise-barrier-half",
       "file": "noise-barrier-half.png",
-      "bytes": 3431
+      "bytes": 3457
     },
     {
       "id": "noise-barrier-railing",
       "file": "noise-barrier-railing.png",
-      "bytes": 2751
+      "bytes": 2657
     },
     {
       "id": "pillar-slim",
       "file": "pillar-slim.png",
-      "bytes": 1450
+      "bytes": 1362
     },
     {
       "id": "pillar-thick",
       "file": "pillar-thick.png",
-      "bytes": 5454
+      "bytes": 5439
     },
     {
       "id": "psd-end",
       "file": "psd-end.png",
-      "bytes": 4889
+      "bytes": 4884
     },
     {
       "id": "psd-end-cover",
@@ -431,7 +431,7 @@
     {
       "id": "rail-signal",
       "file": "rail-signal.png",
-      "bytes": 3573
+      "bytes": 3557
     },
     {
       "id": "road",
@@ -441,42 +441,42 @@
     {
       "id": "roof",
       "file": "roof.png",
-      "bytes": 11345
+      "bytes": 11487
     },
     {
       "id": "roof-canopy",
       "file": "roof-canopy.png",
-      "bytes": 7322
+      "bytes": 7606
     },
     {
       "id": "roof-shell",
       "file": "roof-shell.png",
-      "bytes": 7291
+      "bytes": 7421
     },
     {
       "id": "roof-tapered",
       "file": "roof-tapered.png",
-      "bytes": 9124
+      "bytes": 9142
     },
     {
       "id": "roof-truss",
       "file": "roof-truss.png",
-      "bytes": 9285
+      "bytes": 9327
     },
     {
       "id": "shelf-cooler",
       "file": "shelf-cooler.png",
-      "bytes": 6689
+      "bytes": 6747
     },
     {
       "id": "shelf-cooler-dark",
       "file": "shelf-cooler-dark.png",
-      "bytes": 6638
+      "bytes": 6669
     },
     {
       "id": "shelf-dark-tall",
       "file": "shelf-dark-tall.png",
-      "bytes": 11054
+      "bytes": 10996
     },
     {
       "id": "shelf-white-short",
@@ -491,7 +491,7 @@
     {
       "id": "shelf-wire",
       "file": "shelf-wire.png",
-      "bytes": 10624
+      "bytes": 10669
     },
     {
       "id": "sidewalk",
@@ -501,7 +501,7 @@
     {
       "id": "sign-ceiling",
       "file": "sign-ceiling.png",
-      "bytes": 4706
+      "bytes": 4648
     },
     {
       "id": "sign-wall",
@@ -511,52 +511,52 @@
     {
       "id": "sink",
       "file": "sink.png",
-      "bytes": 5694
+      "bytes": 5657
     },
     {
       "id": "stair-block",
       "file": "stair-block.png",
-      "bytes": 13674
+      "bytes": 13613
     },
     {
       "id": "stair-centerForward",
       "file": "stair-centerForward.png",
-      "bytes": 5942
+      "bytes": 5851
     },
     {
       "id": "stair-left180",
       "file": "stair-left180.png",
-      "bytes": 7462
+      "bytes": 7343
     },
     {
       "id": "stair-left90",
       "file": "stair-left90.png",
-      "bytes": 6790
+      "bytes": 6677
     },
     {
       "id": "stair-leftForward",
       "file": "stair-leftForward.png",
-      "bytes": 6046
+      "bytes": 5950
     },
     {
       "id": "stair-right180",
       "file": "stair-right180.png",
-      "bytes": 6944
+      "bytes": 6782
     },
     {
       "id": "stair-right90",
       "file": "stair-right90.png",
-      "bytes": 4885
+      "bytes": 4859
     },
     {
       "id": "stair-rightForward",
       "file": "stair-rightForward.png",
-      "bytes": 6026
+      "bytes": 5994
     },
     {
       "id": "stair-straight",
       "file": "stair-straight.png",
-      "bytes": 5948
+      "bytes": 6135
     },
     {
       "id": "tactile-guide",
@@ -571,7 +571,7 @@
     {
       "id": "traffic-light",
       "file": "traffic-light.png",
-      "bytes": 2024
+      "bytes": 2031
     },
     {
       "id": "tree",
@@ -581,27 +581,27 @@
     {
       "id": "tv",
       "file": "tv.png",
-      "bytes": 8905
+      "bytes": 8882
     },
     {
       "id": "tvm",
       "file": "tvm.png",
-      "bytes": 6494
+      "bytes": 6474
     },
     {
       "id": "vending",
       "file": "vending.png",
-      "bytes": 6186
+      "bytes": 6188
     },
     {
       "id": "vent",
       "file": "vent.png",
-      "bytes": 3564
+      "bytes": 3563
     },
     {
       "id": "walkway",
       "file": "walkway.png",
-      "bytes": 4665
+      "bytes": 4605
     }
   ]
 }

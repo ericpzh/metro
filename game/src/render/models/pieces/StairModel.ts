@@ -1,6 +1,7 @@
 // Stair builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
 import { StairBlockModel } from './StairBlockModel.ts'
@@ -66,7 +67,7 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
   // turn landing carries the rail around the corner, so a return there would drop
   // a newel in the middle of the platform.
   const outer = new Set([mod.from, mod.to].map((p) => `${p.x},${p.y},${p.z}`))
-  const mates = stairLaneMates(ctx.data.modules, mod)
+  const mates = stairLaneMates(modelNeighbours(ctx, 'stair'), mod)
   // A switchback's return run is slid flush against the first (`stairFlightSlides`):
   // the treads, the rails and the landing platform follow the band, while the
   // flight's own landings stay on the cells the graph walks.
@@ -77,9 +78,9 @@ function buildStair(ctx: ModuleContext, mod: Extract<Module, { type: 'stair' }>)
     // Rendering, carving and collision share the same block-aligned band.
     const slide = slides[i] ?? NO_STAIR_SLIDE
     const walls = stairWallSides(ctx.data.cells, from, to, width, slide)
-    const renderOuter = new Set([from, to].filter((p) => outer.has(`${p.x},${p.y},${p.z}`)).map((p) => `${p.x},${p.y},${p.z + exitLandingHeight(ctx.data.modules, p)}`))
-    from.z += exitLandingHeight(ctx.data.modules, f.from)
-    to.z += exitLandingHeight(ctx.data.modules, f.to)
+    const renderOuter = new Set([from, to].filter((p) => outer.has(`${p.x},${p.y},${p.z}`)).map((p) => `${p.x},${p.y},${p.z + exitLandingHeight(modelNeighbours(ctx, 'exit'), p)}`))
+    from.z += exitLandingHeight(modelNeighbours(ctx, 'exit'), f.from)
+    to.z += exitLandingHeight(modelNeighbours(ctx, 'exit'), f.to)
     g.add(buildStairFlight(ctx.mats, surface, from, to, width, renderOuter, mates, walls, slide))
   }
   for (let i = 0; i + 1 < flights.length; i++) {

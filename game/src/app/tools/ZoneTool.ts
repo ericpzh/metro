@@ -13,6 +13,7 @@ import {
   facilityAt,
   facilityPlan,
   facilityRect,
+  facilityStandZ,
   boothBenchSpots,
   FACILITY_MIN,
   paintZoneCells,
@@ -81,7 +82,10 @@ export class ZoneTool extends ToolController {
       st.setNotice(isEraseBrush(brush) ? msg('zones_can_only_be_erased_on_floors') : msg('zones_can_only_be_painted_on_floors'))
       return
     }
-    const z = isFacilityBrush(brush) ? st.activeZ : hit.cell[2]
+    // §5.7: a room stands on the **block under the pointer**, not on the storey
+    // the player is editing — a counter drawn on a raised slab belongs to that
+    // slab, and one drawn on open ground still reads the work plane's own level.
+    const z = isFacilityBrush(brush) ? facilityStandZ(st.station.cells, hit) : hit.cell[2]
     const anchor: [number, number, number] = [hit.cell[0], hit.cell[1], z]
     this.ctx.zoneDrag.current = {
       active: true,
@@ -107,20 +111,26 @@ export class ZoneTool extends ToolController {
     if (zd?.active) {
       const target: [number, number, number] = [hit.cell[0], hit.cell[1], zd.z]
       zd.target = target
+      const key = [...zd.anchor, ...target, zd.brush, st.facilityRot].join(':')
       if (isFacilityBrush(zd.brush)) {
         // Live highlight of the area about to become a room: the rectangle
         // between the pressed cell and the pointer, merged with any same-type
         // room the drag extends. A different-type clash flags red.
-        this.showFacilityPreview(zd, target)
+        this.multiPlace.deferPreview(scene, key, () => {
+          if (this.ctx.zoneDrag.current === zd) this.showFacilityPreview(zd, target)
+        })
         return
       }
       // Tint exactly the floor the rectangle covers. The
       // brush's own floor set is the filter — a rectangle dragged across a wall
       // row tints the floor it crosses and drops the copings it also swept.
-      const cells = rectCells(zd.anchor, target, zd.z, false)
-      const floor = cells.filter(([x, y, z]) => this.ctx.floors().has(cellKey(x, y, z)))
-      scene.setGhost([], 'remove')
-      scene.setFaceGhost(floor, 'top', brushColour(zd.brush))
+      this.multiPlace.deferPreview(scene, key, () => {
+        if (this.ctx.zoneDrag.current !== zd) return
+        const cells = rectCells(zd.anchor, target, zd.z, false)
+        const floor = cells.filter(([x, y, z]) => this.ctx.floors().has(cellKey(x, y, z)))
+        scene.setGhost([], 'remove')
+        scene.setFaceGhost(floor, 'top', brushColour(zd.brush))
+      })
       scene.setCursor(target, true)
       return
     }
@@ -138,7 +148,10 @@ export class ZoneTool extends ToolController {
   /** Rebuild the room ghost when R changes its front during a held drag. */
   refreshFacilityPreview(): void {
     const zd = this.ctx.zoneDrag.current
-    if (zd?.active && isFacilityBrush(zd.brush)) this.showFacilityPreview(zd, zd.target)
+    if (zd?.active && isFacilityBrush(zd.brush)) {
+      this.cancelPreview()
+      this.showFacilityPreview(zd, zd.target)
+    }
   }
 
   private showFacilityPreview(zd: ZoneDragState, target: [number, number, number]): void {
@@ -166,6 +179,7 @@ export class ZoneTool extends ToolController {
   }
 
   onUp(info: PointerInfo): void {
+    this.cancelPreview()
     const zd = this.ctx.zoneDrag.current
     this.ctx.zoneDrag.current = null
     if (zd?.active) {

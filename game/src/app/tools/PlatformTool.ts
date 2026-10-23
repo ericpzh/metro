@@ -43,7 +43,7 @@ export class PlatformTool extends ToolController {
 
   onMove(info: PointerInfo): void {
     const hit = info.hit
-    if (!hit) return
+    if (!hit) { this.clearHover(); return }
     // The pre-rendered piece follows the pointer exactly as equipment does.
     this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid }
     this.refreshHover()
@@ -70,6 +70,7 @@ export class PlatformTool extends ToolController {
 
   /** Rebuild the rail hover ghost from the last hovered tile. */
   override refreshHover(): void {
+    if (useStore.getState().tool !== 'rail') return
     const scene = this.ctx.scene()
     const h = this.ctx.hover.current
     if (!scene || !h) return

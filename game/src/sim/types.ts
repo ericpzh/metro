@@ -812,6 +812,9 @@ export interface LineDef {
    */
   upTerminus: string
   downTerminus: string
+  /** Optional secondary names for bilingual destination signage. */
+  upTerminusEn?: string
+  downTerminusEn?: string
   /** Which way along +x a train runs: +1 approaches from −x, −1 from +x. */
   travelSign: 1 | -1
   stations: string[]

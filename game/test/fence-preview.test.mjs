@@ -8,6 +8,7 @@ import { gateSolidFaces } from '../src/sim/gates.ts'
 import { FenceModel } from '../src/render/models/pieces/FenceModel.ts'
 import { buildModule, disposeObject } from '../src/render/models.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
+import { batchStaticModule } from '../src/render/batchStaticModule.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
 import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
@@ -34,6 +35,7 @@ function fixture(mods, remoteCount = 0) {
   for (const mod of data.modules) {
     if (mod.type !== 'fence') continue
     const group = remote.includes(mod) ? new THREE.Group() : buildModule(mod, { mats: materials, data })
+    if (!remote.includes(mod)) batchStaticModule(group, mod.type)
     if (remote.includes(mod)) {
       group.add(new THREE.Mesh(new THREE.BoxGeometry(1, .05, 1), materials.steel))
       group.position.set(mod.x, mod.y, mod.z + 1)
@@ -111,6 +113,7 @@ test('1024 remote fences cause no preview models, document scans or batch rebuil
       assert.deepEqual(shape(remote), original)
       const built = f.ghost.fencePreviewGroup.children.find(g => g.userData.moduleId === 'end')
       const expected = new FenceModel({ mats: f.materials, data: { ...f.data, modules: [...f.data.modules, ...list] } }).build(f.data.modules[0])
+      batchStaticModule(expected, 'fence')
       assert.deepEqual(shape(built), shape(expected), 'the connected end matches a complete committed rebuild')
       disposeObject(expected)
       const children = [...f.ghost.fencePreviewGroup.children]
@@ -161,6 +164,7 @@ test('a fence hover joins the committed end without copying the station document
     f.ghost.setModulePreview(hover)
     const built = f.ghost.previewGroup.children[0]
     const expected = new FenceModel({ mats: f.materials, data: { ...f.data, modules: [...f.data.modules, hover] } }).build(hover)
+    batchStaticModule(expected, 'fence')
     try {
       assert.deepEqual(shape(built), shape(expected), 'the hover drops the committed end cap and joins its run')
     } finally { disposeObject(expected) }
@@ -220,8 +224,10 @@ test('only orthogonal same-height ordinary fences need a live joint replacement'
     assert.equal(f.root('west').visible, false, 'clearing a preview preserves a simultaneous move mask')
     f.modules.setMovingModule(null)
     assert.equal(f.root('west').visible, true, 'overlapping move/preview masks restore the original visibility')
-    assert.equal(releases, geometries.size + materials.size, 'cancel disposes every preview-owned resource once')
+    assert.equal(releases, geometries.size, 'cancel releases geometry and retains the shared preview shader owners')
     f.ghost.clearFencePreview()
+    assert.equal(releases, geometries.size, 'repeated cancellation does not release retained materials')
+    f.ghost.dispose()
     assert.equal(releases, geometries.size + materials.size)
     assert.ok(f.root('west').children.some(o => o.isMesh && o.layers.isEnabled(BATCH_SOURCE_LAYER)), 'the committed source returns to its batch')
   } finally { f.close() }

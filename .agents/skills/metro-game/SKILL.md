@@ -833,7 +833,13 @@ the four rules most changes trip over.
   controls (方向, 线路, 重置屏蔽门) show only while placing or editing a platform, not a
   tunnel. `LineDef.upTerminus` / `downTerminus` are the per-direction destinations, and
   every platform screen prints the bound line's terminus for its own `cfg.dir` (falling
-  back to 上行/下行). Each line also chooses its 屏蔽门 height (`cfg.psd`, 全高 by default):
+  back to 上行/下行). `upTerminusEn` / `downTerminusEn` are the optional secondary
+  names: `psdHeaderInfo` adds them as a smaller second line under the destination
+  (lifting the primary line to make room), a line without one keeps the single-line
+  header, and both fields stay optional in the save. The inspector's
+  上行终点 / 下行终点 tile pairs the primary and secondary inputs and commits them as
+  one label edit; `populationEdit` carries them through `labels`, so `presentationEdit`'s
+  PSD keep-set and the TV plate stamp reprint the headers. Each line also chooses its 屏蔽门 height (`cfg.psd`, 全高 by default):
   `full` rises 2.95 m above the platform, leaving 5 cm under the ceiling block, with a
   deep signage fascia sized from `PSD_FULL_HEIGHT`,
   openings 1.5× the car-door width (`PSD_FULL_DOOR_WIDTH_SCALE`), and sliding vinyl bands —
@@ -1774,7 +1780,12 @@ including the depth prepass, for all six appearances.
   and cuts alike (`rail/helpers.ts` `armedTiles` → `armedRailTile` / `armedActionsAnchor`).
   **No tile anywhere carries a tooltip** (`Block` has no `title` at all): `aria-label` — not
   `title` — is how an icon-only control is named. `app/LeftRail.tsx` is a barrel over
-  `app/rail/`; module thumbnails are rendered from the real models by `app/moduleThumbnails.ts`.
+  `app/rail/`; the rail's module thumbnails are checked-in 132 px PNGs under
+  `public/module-thumbnails/` (Vite rewrites the English path), resolved by
+  `app/moduleThumbnailAssets.ts` as lazy `<img>` URLs — `app/moduleThumbnails.ts` is
+  only the `?capture-menu-thumbnails` renderer driven by
+  `tools/render-menu-thumbnails.mjs`, never a runtime rail path. Regenerate the PNGs
+  and `index.json` together when a model's silhouette changes.
   **New module variant controls belong in `app/store/builderAttributes.ts`.** Declare each
   capability there with its shared kind (`width`, `length`, `height`, `direction`, `position`
   or `style`), current label and store action; do not add a model-specific tile in
@@ -1941,7 +1952,10 @@ including the depth prepass, for all six appearances.
   doors, hanger-supported fittings, platform edges/PSD ends, tracks and pillars,
   ramps/exits and guideposts. Functional machines and barriers still reach the worker;
   `isEquipmentModelEdit` is the narrower render-only chunk verdict (sim-inert decor or
-  equipment types, with identical cells/station fields and street window). Unknown
+  equipment types, with identical cells/station fields and street window). A pure
+  `populationEdit` (line names/colours/termini, headways, exits, demand settings) is
+  presentation-only: `StationGeometry` reuses the geometry, and the PSD/plate keep-set
+  decides which pixels reprint. Unknown
   module types, changed cells/fields and widened ground windows fail closed. The fence
   connection index is prepared during the document build (`sim/fences.ts`), and a
   fence drag replaces only adjacent joints, masking their local equipment buckets;

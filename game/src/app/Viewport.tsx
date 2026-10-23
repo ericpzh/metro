@@ -1,5 +1,6 @@
 import { TouchZoom } from './touchZoom.ts'
 import { placementSurface } from './tools/placementSurface.ts'
+import { clearToolPreview } from './tools/clearPreview.ts'
 import { populationEdit } from '../sim/populationEdit.ts'
 import { FrameTask } from './frameTask.ts'
 import { translate } from '../sim/i18n.ts'
@@ -412,12 +413,7 @@ export function Viewport(): React.ReactElement {
     paintRef.current = null
     zoneDragRef.current = null
     setBuildMeasure(null)
-    sceneRef.current?.setGhost([], 'add')
-    sceneRef.current?.setGhost([], 'remove')
-    sceneRef.current?.clearFaceGhost()
-    sceneRef.current?.setModulePreview(null)
-    sceneRef.current?.setFencePreview(null)
-    sceneRef.current?.setCollisionHighlight(null)
+    clearToolPreview(sceneRef.current)
     return true
   }
 
@@ -486,13 +482,7 @@ export function Viewport(): React.ReactElement {
     zoneDragRef.current = null
     setBuildMeasure(null)
     useStore.getState().cancelMove(false)
-    sceneRef.current?.setGhost([], 'add')
-    sceneRef.current?.setGhost([], 'remove')
-    sceneRef.current?.clearFaceGhost()
-    sceneRef.current?.setCursor(null)
-    sceneRef.current?.setModulePreview(null)
-    sceneRef.current?.setFencePreview(null)
-    sceneRef.current?.setCollisionHighlight(null)
+    clearToolPreview(sceneRef.current, true)
   }, [tool])
 
   // Rotating (R), switching the equipment, or cycling its width, direction,

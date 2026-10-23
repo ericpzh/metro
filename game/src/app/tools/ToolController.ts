@@ -8,11 +8,12 @@ import { msg } from '../../sim/i18n.ts'
 
 import { removeFacility, removeModule } from '../../build/model.ts'
 import { railModuleAt } from '../../build/rail.ts'
-import { moduleAt } from '../../sim/placement.ts'
+import { moduleTarget } from './moduleTarget.ts'
 import type { Module } from '../../sim/types.ts'
 import { moduleLabel, useStore, type Tool } from '../store.ts'
 import { MultiPlaceDrag, multiPlaceFor } from './geometry/multiPlaceDrag.ts'
 import type { PointerInfo, ToolContext } from './ToolContext.ts'
+import { clearToolPreview } from './clearPreview.ts'
 
 export abstract class ToolController {
   protected ctx: ToolContext
@@ -43,6 +44,11 @@ export abstract class ToolController {
    * without a settings-driven ghost keep this no-op.
    */
   refreshHover(): void {}
+
+  protected clearHover(): void {
+    this.ctx.hover.current = null
+    clearToolPreview(this.ctx.scene(), true)
+  }
 
   protected pickModuleAt(info: PointerInfo): string | null {
     return this.ctx.pickModule(info.clientX, info.clientY)
@@ -104,7 +110,7 @@ export abstract class ToolController {
       this.removePlacedModule(rail)
       return
     }
-    const mod = this.visibleModule(moduleAt(st.station.modules, cell[0], cell[1], cell[2], facing, st.station.levelBase, st.station.storeyHeight))
+    const mod = this.visibleModule(moduleTarget(st.station.modules, null, cell, facing, st.station.levelBase, st.station.storeyHeight))
     if (mod) this.removePlacedModule(mod)
     else st.setNotice(msg('nothing_to_remove_here'))
   }

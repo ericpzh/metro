@@ -1085,6 +1085,18 @@ the fare zone underneath for gate logic. 售票亭 and 问讯处 remain buildabl
 The labels use the same floor paint and overlay path as 站外 / 付费区; 无分区 keeps its eraser
 icon (`Icon`'s `zoneErase`).
 
+**A room stands on the block under the pointer, not on the storey ladder.** `facilityStandZ`
+gives a 售票亭 / 问讯处 drag the level of the block the press lands on, so a counter drawn on a
+raised slab, a platform or a block stack belongs to *that* block. Anchoring at `activeZ` used
+to pull the whole drag onto the edited storey's five-metre step: a counter drawn on a
+one-block-high deck landed on the street cell underneath it, and a room on a mezzanine was
+refused for a floor it was already standing on. A press that lands on the room's own wall is
+the common case (the room's perimeter *is* its wall line), so the wall's column is walked down
+to the course's foot — the floor cell the wall was raised from — rather than lifting the room
+onto whatever course the pointer crossed; a plain block is not walked through. A press on open air
+passes the work plane's own level through, because that already names the edited storey.
+`placeFacility` still demands a complete floor at whatever level the drag names.
+
 **The booth's counter is laid like a picture frame, not as two runs of whole cells.** `buildBooth`
 draws a run that closes a corner across its own 1 m cell and stops the run meeting it one
 counter-depth short, so the two butt against each other; the capping board is a separate, longer span
@@ -2366,6 +2378,19 @@ a board on a booth header, and a 地面出入口 whose own `cfg.mountZ` names th
 piece would be, `SceneRenderer.onCameraAim` hands the view's own aim to the viewport, which re-aims the
 equipment and 移动 ghosts already under the pointer — the pointer has not moved, so nothing else would.
 
+**A booth board snaps to the booth the pointer picked, and a board the header cannot hold says so.**
+`boothSignHit` found the booth from the ray's *surface point* alone, so aiming at the board already
+bolted to a header — the obvious place to aim when a booth is already signed — left the new board to
+whatever floor the ray found behind it, and the release refused it with
+`墙面装饰…须贴墙安装` although the header was right there. The pointer's module pick now names the
+booth (`boothSignAim`, which also follows a picked sign to the booth it is bolted to) and the snap
+takes that id (`snapSignToBooth`'s `boothId`), so a grazing hit, or a board already on the face,
+still snaps to the booth the player can see. The board's **printed width** is the one part of the
+header rule a snap cannot satisfy by construction: `boothHoldsSign` (anchor and centre offset) and
+`boothSignFits` (the `w − 0.36` / `h − 0.36` fascia band) are asked separately, and a correctly
+bolted board that overhangs its face is refused as `booth-width` — *指示牌比售票亭的顶梁宽…* — instead
+of sending the player to look for a wall behind a header that already backs it.
+
 **Which storey** was `storeyBand` on the fixed 0 / 4 / 8 grid, so a station built on a 基准高度 of 1
 bolted every wall panel one metre off its grid: the ceiling snap had been taught the base
 (`hangCeilingLocal`), the wall snap had not — and a hung piece reads the **real slab** over it now,
@@ -2568,7 +2593,9 @@ approximated); neither needs WebGL.
   same floor rule through the **click** (`app/tools/ZoneTool.ts`,
   `ToolContext.floors`): a tapped floor tile paints; a tapped coping paints nothing, opens no drag and
   says `分区只能画在地板上`; a hover on one draws no tint at all; and a drag across a patch tints the
-  floor it crosses while the tile under the wall course and the course itself stay untouched. Then the
+  floor it crosses while the tile under the wall course and the course itself stay untouched. A
+  booth drag anchors its level to the **block under the pointer** — a raised slab or the foot of a
+  wall course — and keeps the edited storey only over open air (the work plane). Then the
   无分区 brush: it drags like the brush it erases,
   takes a label off a zoned tile (which reads 无分区 again, with no record left behind), and says
   `这些格子上没有分区` — committing nothing — when the patch carries no label at all. Right-click
@@ -2908,6 +2935,9 @@ approximated); neither needs WebGL.
   geometry; these module cases do not describe the current 商店 / 厕所 / 办公室 分区 brushes.
   The current ordinary-label paint path is pinned in `zonetool.test.mjs` and `zones.test.mjs`.
   售票亭 / 问讯处 remain buildable counters with staff benches.
+  `facilityStandZ` is pinned here too: the block under the pointer names the room's level, a wall
+  course walks down its own column to the floor it was raised from, a plain block is not walked
+  through and an open-air press keeps the work plane's level.
 * `column-delete.test.mjs` — G right-click clears the four courses above the floor (+1..+4),
   including the ceiling, mixed wall/plain blocks and gaps. It checks negative heights,
   all height bases, drag deduplication, neighbouring storeys and preserved street floors,
@@ -2979,7 +3009,10 @@ approximated); neither needs WebGL.
   odd/even room sizes, preview collision bounds, duplicate rejection, save/load and moving
   between a booth and a normal wall. Booth signs need no ceiling slab or wall blocks.
   Snapped signs attach as a single printed sheet, 3 mm off the header, without a back housing.
-  Translation is checked on every mesh; its camera rig checks the actual module ray and block occlusion.
+  The **picked** booth holds the board even when the ray's surface point falls past its
+  footprint, aiming at the board already on a header still means that booth (never a
+  missing-wall refusal), and a board wider than the face is refused as `booth-width` with
+  its own notice. Translation is checked on every mesh; its camera rig checks the actual module ray and block occlusion.
 * `room-model.test.mjs` — the walled room's own model (`render/models.ts` `buildRoom`), the perimeter
   ring of 0.5 m panels that stands in for a room's wall voxels. What it pins is the square corner:
   three quarters of every corner cell are wall and the quarter the room keeps for furniture is empty
@@ -3318,6 +3351,7 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   a folder stands on one key and a key on one folder **within its column**, with the two columns sharing
   numbers 1–4 under different modifiers; unused numbers fall through to the app's own switch.
 * `menu-thumbnails.test.mjs` — every palette option has one checked-in 132 px PNG, and the rail
+  resolves those static files with lazy image loading instead of rendering thumbnails in WebGL.
 * `rail-families.test.mjs` — the rail's **variant families and decor folders** (`app/store/catalog.ts` `MODULE_FAMILIES`),
   the one table the parent tiles, the sub-menus, the rail's single open slot, the folder counts and the
   contextual action row all read. It pins the four halves against each other for every family and every
@@ -4057,6 +4091,15 @@ stock picking, unchanged full geometry and finishes, retained ramp/lift motion,
 batch allocation reuse, Hide UI restoration and single disposal. Generate the
 per-model triangle inventory with `node tools/model-triangle-inventory.mjs` from
 the repository root; reports and its Markdown table go to `.preview/perf/`.
+
+Equipment Low targets are strictly below 10% of High, with explicit minimum-shape
+exceptions for small models, printed quads and essential supports. The catalogue
+test and inventory share `tools/equipment-low-budgets.mjs`; the performance reference
+publishes every exception. `npm run check:equipment-lod` renders the full palette at
+High/Low, checks visible pixels and GPU geometry, and captures both contact sheets.
+Monitor artwork is printed once for Low; its original vector layers stay complete
+at High even at a distance. Stair/wellway/roof joins, exact picking, animation and
+restored buffer identities remain covered by `model-detail`.
 
 `static-rendering.test.mjs` pins retained 16 m outdoor tile/tree instance batches,
 original picking layers and move masking, transparent instance ordering with stable

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { modelCellAt } from '../../modelNeighbours.ts'
 import { DEFAULT_MATERIAL } from '../../../sim/finishes.ts'
 import { PieceBuilder, finishSlab } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
@@ -9,7 +10,7 @@ export class StairBlockModel extends PieceBuilder {
   readonly kind = 'stair'
   build(mod: Extract<Module, { type: 'stair' }>): THREE.Group {
     const g = new THREE.Group()
-    const floor = this.ctx.data.cells.find((c) => c.x === mod.x && c.y === mod.y && c.z === mod.z)
+    const floor = modelCellAt(this.ctx.data.cells, mod.x, mod.y, mod.z)
     const material = this.ctx.finish(mod.cfg.finish ?? floor?.finish?.top ?? DEFAULT_MATERIAL)
     const rise = mod.cfg.blockHeight ?? 1
     const steps = rise === 0.5 ? 2 : 4

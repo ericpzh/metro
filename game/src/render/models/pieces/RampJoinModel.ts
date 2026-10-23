@@ -1,6 +1,7 @@
 // The stainless infill between neighbouring ramp balustrades (§5.1).
 // Each seam belongs to one escalator, so a rebuild never draws it twice.
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
@@ -34,8 +35,8 @@ interface Run {
 function run(ctx: ModuleContext, mod: Module, from: Vec3i, to: Vec3i, dx = 0, dy = 0): Run | null {
   const low = from.z <= to.z ? from : to
   const high = from.z <= to.z ? to : from
-  const lower = new THREE.Vector3(low.x + 0.5 + dx, low.y + 0.5 + dy, low.z + 1 + exitLandingHeight(ctx.data.modules, low))
-  const upper = new THREE.Vector3(high.x + 0.5 + dx, high.y + 0.5 + dy, high.z + 1 + exitLandingHeight(ctx.data.modules, high))
+  const lower = new THREE.Vector3(low.x + 0.5 + dx, low.y + 0.5 + dy, low.z + 1 + exitLandingHeight(modelNeighbours(ctx, 'exit'), low))
+  const upper = new THREE.Vector3(high.x + 0.5 + dx, high.y + 0.5 + dy, high.z + 1 + exitLandingHeight(modelNeighbours(ctx, 'exit'), high))
   const axis = upper.clone().sub(lower).setZ(0)
   const length = axis.length()
   if (length < 0.1 || high.z <= low.z || (axis.x !== 0 && axis.y !== 0)) return null
@@ -75,7 +76,7 @@ function runs(ctx: ModuleContext, mod: Module): Run[] {
     const blocked = (side: number): boolean => {
       const walls = stairWallSides(ctx.data.cells, f.from, f.to, stairTreadWidth(mod), slide)
       if (side > 0 ? walls.left : walls.right) return true
-      return stairLaneMates(ctx.data.modules, mod).some((mate) => mate.sameFlight && Math.sign(mate.step[0] * r.across.x + mate.step[1] * r.across.y) === side)
+      return stairLaneMates(modelNeighbours(ctx, 'stair'), mod).some((mate) => mate.sameFlight && Math.sign(mate.step[0] * r.across.x + mate.step[1] * r.across.y) === side)
     }
     return [{ ...r, blocked }]
   })
@@ -239,7 +240,7 @@ export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Gro
   if (!own) return
   group.updateMatrixWorld(true)
   const inverse = group.matrixWorld.clone().invert()
-  for (const neighbour of ctx.data.modules) {
+  for (const neighbour of modelNeighbours(ctx, 'stair', 'escalator', 'walkway')) {
     if (neighbour.id === mod.id) continue
     if (neighbour.type === 'escalator' && !ctx.preview && mod.id > neighbour.id) continue
     for (const other of runs(ctx, neighbour)) {

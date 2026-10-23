@@ -2,6 +2,7 @@ import { t } from '../../../sim/i18n.ts'
 // Exit portal (出入口) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { PieceBuilder, finishSlab, canvasTexture, drawMetroMark, slab, plate, ownedMaterial, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_H, EXIT_L, EXIT_REACH, exitLandingBack, exitRunOpenings, exitSpan } from '../../../sim/exits.ts'
@@ -158,7 +159,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const covered = mod.cfg.covered !== false
   const side = hw - 0.06 // the glass line, just inside the frame
   const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
-  const runs = exitRunOpenings(ctx.data.modules, mod)
+  const runs = exitRunOpenings(modelNeighbours(ctx, 'stair', 'escalator', 'walkway'), mod)
 
   // Head-house floor: a raised concrete plinth over the whole plan the exit claims, so no
   // hollow cell shows between the railings. It runs from one full block before
@@ -206,7 +207,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   }
   strip((prev + padHi) / 2, padHi - prev)
   for (const run of runs) {
-    const hasEscalator = ctx.data.modules.some((m) => {
+    const hasEscalator = modelNeighbours(ctx, 'escalator').some((m) => {
       if (m.type !== 'escalator') return false
       return exitRunOpenings([m], mod).some((r) => r.column === run.column && r.row === run.row)
     })

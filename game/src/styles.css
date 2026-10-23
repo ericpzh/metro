@@ -3192,3 +3192,20 @@ input[type='range'] {
 @media (prefers-reduced-motion: reduce) {
   .main, .sideContent, .viewNavShell, .viewNavShell .viewNav { transition: none; }
 }
+
+/* Line inspector: compact tiles share the build rail's square controls. */
+.lineEditor { display: grid; gap: 6px; min-width: 0; }
+.lineTermini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.lineTile { padding: 7px; border: 1px solid var(--line); background: #10273b; min-width: 0; }
+.lineTerminus { display: grid; gap: 5px; }
+.panel .lineEditor .lineNameInput { width: 100%; box-sizing: border-box; min-width: 0; height: 26px; padding: 3px 6px; border-radius: 0; }
+.lineEditor > .row { flex-wrap: nowrap; }
+.lineEditor .lineOptions { gap: 4px; flex-wrap: wrap; }
+.lineOptions > .muted { flex: 0 0 48px; }
+.lineEditor .chip { min-width: 28px; padding: 5px 7px; border-radius: 0; }
+.lineSchedule { display: grid; gap: 4px; }
+.lineSchedule .row { margin: 0; gap: 5px; }
+.lineHeadway > span:first-child { flex: 1; }
+.panel .lineEditor .headwayNum { flex: 0 0 42px; width: 42px; }
+.lineSchedule > .row:last-child { font-size: 11px; }
+.lineEditor > .field { margin: 0; padding: 7px; border: 1px solid var(--line); background: #10273b; }
