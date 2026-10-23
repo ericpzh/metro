@@ -1,6 +1,6 @@
 `train-cab` additionally pins upright compact A/B/L crew doors and at least 10 cm clearance across full passenger-door opening travel at both ends and sides. It also checks that both A/B/C/L front lower cab strips use the consist's line colour. `train-cab` checks curved moving passenger doors, black lower panels against the shared body profile, at both sides and every rotation, open/closed and High/Low.
 
-`train-cab` also checks exact High/Low roof/skirt joins, C lamps inside the colour band and removal of floating skirt blocks. `train-bogie` also checks 0.8 m wheels beneath window bays, clear doorways, open under-seat housings and the uninterrupted platform-height aisle. `train-cab` also checks High/Low paint sections conserve the original shell surface without overlaps or protrusion, fully below-glass wiper pivots and smooth circular lenses. `train-cab` pins the mirrored A/B/C/L rake with unchanged rear seams, glazed A/B/L crew doors, small centred emblems, C evacuation-door clearance, windshield-fitted wipers on all five classes and High/Low geometry ownership.
+`train-cab` also checks exact High/Low roof/skirt joins, C lamps inside the colour band and removal of floating skirt blocks. `train-bogie` also checks 0.8 m wheels around the outer door bays, vertical wheel/suspension clearance below the door sills, no raised wheel housings and the uninterrupted platform-height floor. `train-cab` also checks High/Low paint sections conserve the original shell surface without overlaps or protrusion, fully below-glass wiper pivots and smooth circular lenses. `train-cab` pins the mirrored A/B/C/L rake with unchanged rear seams, glazed A/B/L crew doors, small centred emblems, C evacuation-door clearance, windshield-fitted wipers on all five classes and High/Low geometry ownership.
 
 `train-bogie` pins complete bogies on every A/B/C/D/L car, actual rail-crown contact in High/Low, inboard flanges, fixed cabin-floor clearance, suspension/brake details, authored Low budgets and geometry disposal. It runs in `test:perf`; `train-lod` pins the regenerated per-consist inventory.
 
@@ -130,6 +130,8 @@ barrier when that platform changes to a canopy.
 `train-art-pipeline` pins the bilingual train sheets: five classes in shared order,
 animated D door details, eight-car D figures and capture bounds inside each canvas,
 plus stock-default capture power across car, side, front and detail frames.
+Sheet 05 also keeps every animated front/side pose inside its own stock card,
+with bottom padding so later row backgrounds cannot cover the wheels.
 
 `psd-header` pins independent directional terminal matching, platform-facing arrows,
 bilingual station/terminal printing, schematic routes and the lower line-colour band.

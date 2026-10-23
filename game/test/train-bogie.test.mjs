@@ -79,7 +79,7 @@ test('every A/B/C/D/L car gets two complete bogies without changing the passenge
    assert.equal(named(root,'wheel-tyre').length,cars*8,stock)
    assert.equal(named(root,'axle').length,cars*4,stock)
    const expected=[]
-   for(let c=0;c<cars;c++){const centre=c*STOCK[stock].length+STOCK[stock].length/2-cars*STOCK[stock].length/2;const doors=doorCentres({stock,cars}).filter(x=>Math.abs(x-centre)<STOCK[stock].length/2);for(const bogie of carBogieCentres(doors))for(const axle of [-1,1])expected.push(bogie+axle*Math.min(.72,((doors[1]-doors[0])-STOCK[stock].doorWidth-.8)/2-.05))}
+   for(let c=0;c<cars;c++){const centre=c*STOCK[stock].length+STOCK[stock].length/2-cars*STOCK[stock].length/2;const doors=doorCentres({stock,cars}).filter(x=>Math.abs(x-centre)<STOCK[stock].length/2);for(const bogie of carBogieCentres(doors))for(const axle of [-1,1])expected.push(bogie+axle*.72)}
    assert.deepEqual(named(root,'axle').map(p=>+p.position.x.toFixed(6)).sort((a,b)=>a-b),expected.map(x=>+x.toFixed(6)).sort((a,b)=>a-b))
    for(const rot of [0,Math.PI/2,Math.PI,-Math.PI/2]) {
     root.rotation.z=rot;root.updateMatrixWorld(true)
@@ -87,14 +87,20 @@ test('every A/B/C/D/L car gets two complete bogies without changing the passenge
    }
    const floors=root.children.filter(p=>p.name==='cabin-floor')
    root.rotation.z=0;root.position.set(0,0,0);root.updateMatrixWorld(true)
+   for(const floor of floors) {
+    const box=bounds(floor), x=(box.min.x+box.max.x)/2
+    const aisle=new THREE.Raycaster(new THREE.Vector3(x,0,2),new THREE.Vector3(0,0,-1)).intersectObject(floor)[0]
+    assert.ok(aisle&&Math.abs(aisle.point.z-CABIN_FLOOR_Z)<1e-6,'each passenger floor keeps its continuous platform-height aisle')
+   }
    for(const axle of named(root,'axle')) {
     const hole=new THREE.Raycaster(new THREE.Vector3(axle.position.x,BOGIE_WHEEL_Y,2),new THREE.Vector3(0,0,-1)).intersectObjects(floors)
-    assert.equal(hole.length,0,'wheelsets have open floor apertures beneath window seats')
+    if (hole.length) assert.ok(Math.abs(hole[0].point.z-CABIN_FLOOR_Z)<1e-6,'floor stays intact over wheelsets')
     const aisle=new THREE.Raycaster(new THREE.Vector3(axle.position.x,0,2),new THREE.Vector3(0,0,-1)).intersectObjects(floors)[0]
-    assert.ok(aisle&&Math.abs(aisle.point.z-CABIN_FLOOR_Z)<1e-6,'aisle remains continuous at its original platform-aligned height')
-    assert.ok(doorCentres({stock,cars}).every(d=>Math.abs(d-axle.position.x)>STOCK[stock].doorWidth/2+BOGIE_WHEEL_RADIUS),'large wheels clear every passenger doorway')
+    if (aisle) assert.ok(Math.abs(aisle.point.z-CABIN_FLOOR_Z)<1e-6,'passenger aisle retains its platform-aligned height')
+    assert.ok(bounds(axle).max.z<DOOR_SILL_Z,'axles remain below passenger thresholds')
    }
-   assert.equal(root.children.filter(p=>p.name==='cabin-wheel-housing-top').length,cars*4)
+   assert.equal(root.children.filter(p=>p.name==='cabin-wheel-housing-top').length,0,'no raised housing obstructs a doorway')
+   for(const part of root.children.filter(p=>p.name.startsWith('bogie-')))assert.ok(bounds(part).max.z<DOOR_SILL_Z,'all wheel and suspension hardware clears the threshold vertically')
    for(const floor of root.children.filter(p=>p.name==='cabin-floor'))assert.ok(Math.abs(floor.position.z+.06-CABIN_FLOOR_Z)<1e-6)
   }finally{disposeObject(root)}
  }
@@ -109,6 +115,18 @@ test('bogie source and authored Low geometries release exactly once',()=>withKit
  disposeObject(root)
  for(const n of releases.values())assert.equal(n,1)
 }))
+
+test('bogies match the reference outer-door bays with balanced inward offsets',()=>{
+ for(const stock of STOCK_CLASSES) {
+  const doors=doorCentres({stock,cars:1}).sort((a,b)=>a-b)
+  const centres=carBogieCentres(doors)
+  assert.ok(centres[0]>=doors[0] && centres[0]<doors[0]+.5)
+  assert.ok(centres[1]<=doors.at(-1) && centres[1]>doors.at(-1)-.5)
+  assert.ok(centres[0]-.72-.4 > -STOCK[stock].length/2+1.5)
+  assert.ok(centres[1]+.72+.4 < STOCK[stock].length/2-1.5)
+  assert.ok(Math.abs(centres[0]+centres[1])<1e-6,'one-car support is mirrored about the car centre')
+ }
+})
 
 
 test('underfloor equipment fills the inter-bogie bay without moving the floor or roof',()=>withKit(mats=>{

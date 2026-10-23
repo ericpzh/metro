@@ -112,7 +112,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     // consist centre, the same frame the car centres use.
     const inCar = carDoors.filter((off) => off > carCentre - s.length / 2 && off < carCentre + s.length / 2).sort((a, b) => a - b)
     const bogieCentres = carBogieCentres(inCar)
-    const axleHalfSpan = Math.min(.72, ((inCar[1]-inCar[0])-s.doorWidth-.8)/2-.05)
+    const axleHalfSpan = .72
     // A car-side run that stops short of each doorway, so the body skin has a
     // real hole at every door.
     const sideRuns = (minX: number, maxX: number, pad: number): Array<[number, number]> => {
@@ -235,7 +235,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
 
     // Ceiling lighting down the cabin, so the interior reads as a lit room.
     buildTrainInterior(g, mats, s.cabLength ? shellStart : carCentre - halfLen, s.cabLength ? shellEnd : carCentre + halfLen,
-      sideRuns(shellStart + 0.1, shellEnd - 0.1, 0.25), inCar, floor, pose.stock === 'D', [shellStart, shellEnd], s.width, bogieCentres, axleHalfSpan+.48)
+      sideRuns(shellStart + 0.1, shellEnd - 0.1, 0.25), inCar, floor, pose.stock === 'D', [shellStart, shellEnd], s.width)
 
     // Sliding doors onto the cabin: two leaves per side part to reveal the
     // interior the platform is about to trade passengers with.

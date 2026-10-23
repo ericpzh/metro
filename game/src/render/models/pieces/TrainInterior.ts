@@ -57,7 +57,7 @@ function tubeDetail(mesh: THREE.Mesh): void {
 }
 
 /** Benches, seat-end guards, handrails and lighting from the metro cabin references (§1.13). */
-export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false, overheadSpan: [number, number] = [start, end], shellWidth?: number, wheelBays: readonly number[] = [], wheelBayHalfLength = 1.2): void {
+export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: number, end: number, bays: Array<[number, number]>, doors: number[], floor: THREE.Material, express = false, overheadSpan: [number, number] = [start, end], shellWidth?: number): void {
   const tube = (points: THREE.Vector3[], radius: number, mat: THREE.Material, name: string, closed = false): void => {
     const curve = new THREE.CatmullRomCurve3(points, closed, 'centripetal')
     const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 16, radius, 6, closed), mat)
@@ -68,12 +68,11 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
   const mid = (start + end) / 2
   const halfWidth = express ? dHalfWidth(CABIN_FLOOR_Z - 0.12) - 0.04 : CABIN_HALF_W
   const floorShape = new THREE.Shape()
-  const left = start-mid, right = end-mid, clear = .475
-  const wheelCuts = wheelBays.map(x=>[x-mid-wheelBayHalfLength,x-mid+wheelBayHalfLength]).sort((a,b)=>a[0]-b[0])
+  // The lowered rail leaves the full bogie below the sill, including at doors.
+  // Keep the passenger floor and thresholds continuous above the wheelsets.
+  const left = start-mid, right = end-mid
   floorShape.moveTo(left,-halfWidth)
-  for(const [a,b] of wheelCuts){floorShape.lineTo(a,-halfWidth);floorShape.lineTo(a,-clear);floorShape.lineTo(b,-clear);floorShape.lineTo(b,-halfWidth)}
   floorShape.lineTo(right,-halfWidth);floorShape.lineTo(right,halfWidth)
-  for(const [a,b] of [...wheelCuts].reverse()){floorShape.lineTo(b,halfWidth);floorShape.lineTo(b,clear);floorShape.lineTo(a,clear);floorShape.lineTo(a,halfWidth)}
   floorShape.lineTo(left,halfWidth);floorShape.closePath()
   const floorGeometry = new THREE.ExtrudeGeometry(floorShape,{depth:.02,bevelEnabled:false})
   floorGeometry.translate(0,0,.04)
@@ -86,14 +85,6 @@ export function buildTrainInterior(g: THREE.Group, mats: ModelMaterials, start: 
       p.setY(i,Math.sign(p.getY(i))*Math.min(Math.abs(p.getY(i)),limit))
     }
     floorGeometry.computeVertexNormals()
-  }
-  // Sealed wheel housings replace the side floor only beneath window benches.
-  // The 0.95 m aisle and every passenger threshold retain their original height.
-  for(const centre of wheelBays)for(const side of [-1,1]){
-    const outer=halfWidth-.01, y=side*(clear+outer)/2, depth=outer-clear
-    slab(g,mats.trainInterior,centre,y,1.01,wheelBayHalfLength*2,depth,.02).name='cabin-wheel-housing-top'
-    slab(g,mats.trainInterior,centre,side*clear,.81,wheelBayHalfLength*2,.025,.4).name='cabin-wheel-housing-wall'
-    for(const end of [-1,1])slab(g,mats.trainInterior,centre+end*wheelBayHalfLength,y,.81,.025,depth,.4).name='cabin-wheel-housing-end'
   }
   for (const side of [-1, 1]) {
     const y = side * (halfWidth - 0.25)

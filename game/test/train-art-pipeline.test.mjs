@@ -24,6 +24,19 @@ for (const language of ['zh','en']) for (const name of ['05-trains-and-track','1
     const labels = [...svg.matchAll(/<text\b[^>]*>(?:Type ([ABCDL])|([ABCDL]) 型)<\/text>/g)].map(m=>m[1]??m[2])
     assert.deepEqual(labels,[...STOCK_CLASSES],'all five class headings remain in shared stock order')
     for (const cls of STOCK_CLASSES) assert.ok(svg.includes(`data-stock="${cls}"`),`${cls} has captured model poses`)
+    if (name === '05-trains-and-track') {
+      const cards = [...svg.matchAll(/<rect data-stock-card="([ABCDL])"[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"/g)]
+      assert.equal(cards.length, STOCK_CLASSES.length)
+      for (const [index, card] of cards.entries()) {
+        const start = card.index + card[0].length
+        const end = cards[index + 1]?.index ?? svg.length
+        const bottom = Number(card[2]) + Number(card[3])
+        const images = [...svg.slice(start, end).matchAll(/<image\b[^>]*y="([\d.]+)"[^>]*height="([\d.]+)"/g)]
+        assert.ok(images.length > 0)
+        for (const image of images) assert.ok(Number(image[1]) >= Number(card[2]) && Number(image[1]) + Number(image[2]) <= bottom - 19,
+          `${card[1]}: every animated pose, including wheels, fits inside its card with bottom padding`)
+      }
+    }
     for (const image of svg.matchAll(/<image\b([^>]*)/g)) {
       const attrs=Object.fromEntries([...image[1].matchAll(/(x|y|width|height)="([-\d.]+)"/g)].map(m=>[m[1],Number(m[2])]))
       assert.ok(attrs.x>=0 && attrs.y>=0 && attrs.x+attrs.width<=width+0.1 && attrs.y+attrs.height<=height+0.1,'no train capture spills outside the canvas')

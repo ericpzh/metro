@@ -82,16 +82,16 @@ test('a live line recolour retains consist geometry, door banks, poses and detai
 // reference publishes. A changed full count means the inventory tool, that table
 // and this one must be regenerated together.
 const consists = [
-  ['D', 8, 1303424, .1],
-  ['D', 6, 1008052, .1],
-  ['A', 8, 730512, .1],
-  ['A', 6, 574244, .1],
-  ['B', 6, 513888, .1],
-  ['C', 6, 534888, .1],
-  ['L', 6, 464576, .1],
-  ['B', 4, 378236, .1],
-  ['C', 4, 395652, .1],
-  ['L', 4, 344492, .1],
+  ['D', 8, 1308000, .1],
+  ['D', 6, 1011484, .1],
+  ['A', 8, 735088, .1],
+  ['A', 6, 577676, .1],
+  ['B', 6, 518976, .1],
+  ['C', 6, 538320, .1],
+  ['L', 6, 468008, .1],
+  ['B', 4, 381628, .1],
+  ['C', 4, 397940, .1],
+  ['L', 4, 346780, .1],
 ]
 
 test('identical consists on separate five-metre floors retain distinct cached poses', () => withDocument(mats => {

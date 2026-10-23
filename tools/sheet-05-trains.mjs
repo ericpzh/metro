@@ -76,11 +76,22 @@ export function artTrains() {
       ?? `<image x="${x}" y="${y}" width="${w}" height="${h}" href="${piece.href}"/>`
   }
   const g = [title(48, 62, '选列车，也在选站台的规模', '五种车型按同一比例展示。编组越长，载客越多，也需要更长的站台。')]
+  // Keep the complete capture (including wheel flanges) inside its own card.
+  // The fixed 196 px cards let later backgrounds paint over earlier bogies.
+  const imageHeight = (id, width) => {
+    const { px } = pieces.get(id)
+    return width * px.height / px.width
+  }
+  const rowHeight = Math.ceil(Math.max(196, ...STOCK_CLASSES.flatMap(cls => [
+    26 + imageHeight(`front-${cls}`, 128) + 20,
+    28 + imageHeight(`side-${cls}`, 940) + 20,
+  ])))
+  const rowPitch = rowHeight + 16
   STOCK_CLASSES.forEach((cls, i) => {
-    const s = STOCK[cls], y = 152 + i * 212
+    const s = STOCK[cls], y = 152 + i * rowPitch
     const cars = Math.max(6, s.consist[0])
     const col = paint.get(cls)?.colour ?? G.accent
-    g.push(`<rect x="48" y="${y}" width="1504" height="196" rx="12" fill="#111926" stroke="#243040"/>`)
+    g.push(`<rect data-stock-card="${cls}" x="48" y="${y}" width="1504" height="${rowHeight}" rx="12" fill="#111926" stroke="#243040"/>`)
     g.push(T(72, y + 40, `${cls} 型`, { size: 27, weight: 800, fill: col }))
     g.push(MUL(72, y + 78, [
       s.consist[0] === s.consist[1] ? `编组 ${s.consist[0]} 节` : `编组 ${s.consist[0]}–${s.consist[1]} 节`,
@@ -90,7 +101,7 @@ export function artTrains() {
     g.push(image(pieces.get(`front-${cls}`), 388, y + 26, 128))
     g.push(image(pieces.get(`side-${cls}`), 580, y + 28, 940))
   })
-  const footerY = 152 + STOCK_CLASSES.length * 212 + 54
+  const footerY = 152 + STOCK_CLASSES.length * rowPitch + 54
   g.push(T(48, footerY, '装不下的乘客会留在站台。看「滞留」，再调整车型或编组。', { size: 22, weight: 700, fill: G.warn }))
   g.push(T(48, footerY + 40, '每条线路可单独设置供电、站台门、颜色和终点。', { size: 18, fill: G.muted }))
   return sheet(W, footerY + 86, g.join(''))

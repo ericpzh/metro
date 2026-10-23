@@ -700,31 +700,59 @@ Third-rail counts exclude pantographs:
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 78,144 | 1,303,424 |
-| D-6 | 61,196 | 1,008,052 |
-| A-8 | 71,016 | 730,512 |
-| A-6 | 54,612 | 574,244 |
-| C-6 | 50,516 | 534,888 |
-| B-6 | 48,480 | 513,888 |
-| L-6 | 44,272 | 464,576 |
-| C-4 | 35,616 | 395,652 |
-| B-4 | 34,028 | 378,236 |
-| L-4 | 31,132 | 344,492 |
+| D-8 | 76,672 | 1,308,000 |
+| D-6 | 60,092 | 1,011,484 |
+| A-8 | 69,544 | 735,088 |
+| A-6 | 53,508 | 577,676 |
+| C-6 | 49,412 | 538,320 |
+| B-6 | 47,520 | 518,976 |
+| L-6 | 43,168 | 468,008 |
+| C-4 | 34,880 | 397,940 |
+| B-4 | 33,388 | 381,628 |
+| L-4 | 30,396 | 346,780 |
 
 Overhead-wire counts include collectors and their roof mounts:
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 131,544 | 1,316,536 |
-| D-6 | 106,468 | 1,021,164 |
-| A-8 | 168,384 | 744,200 |
-| A-6 | 127,796 | 587,932 |
-| C-6 | 114,364 | 548,576 |
-| B-6 | 111,032 | 527,576 |
-| L-6 | 97,776 | 478,264 |
-| C-4 | 78,296 | 409,340 |
-| B-4 | 75,988 | 391,924 |
-| L-4 | 66,916 | 358,180 |
+| D-8 | 78,264 | 1,321,112 |
+| D-6 | 61,684 | 1,024,596 |
+| A-8 | 71,200 | 748,776 |
+| A-6 | 55,164 | 591,364 |
+| C-6 | 51,068 | 552,008 |
+| B-6 | 49,176 | 532,664 |
+| L-6 | 44,824 | 481,696 |
+| C-4 | 36,536 | 411,628 |
+| B-4 | 35,044 | 395,316 |
+| L-4 | 32,052 | 360,468 |
+
+2026-10-23 reference-aligned bogie refresh: each bogie is centred 0.25 m
+inward of the outer passenger-door centre, with the full 1.44 m axle spacing.
+This matches the user's circled wheel pairs around the outer door bays rather
+than putting the bogies beneath the cab tips. All wheel and suspension hardware
+clears the passenger sill vertically on the lowered track. Raised wheel housings
+and floor cut-outs are removed, leaving continuous floors and flat thresholds.
+`train-bogie` pins the reference positions, rail contact, vertical sill clearance
+and continuous passenger aisles. Raw geometry inventories are
+`.preview/perf/train-triangles{,-catenary}.json`.
+
+Sheet 05 previously reserved 196 px for a 227.3 px side capture (plus 28 px top
+inset), so later backgrounds hid all but the final stock row's wheels. Cards
+now derive their height from the largest front/side capture with 20 px bottom
+padding. `train-art-pipeline` pins every animated pose inside its own row.
+Static and 60 animated production captures verify the reference-aligned positions.
+Both locales of sheets 05/11 and their print PNGs are refreshed. Broader train-sheet
+regeneration is currently limited by missing ignored piece-elevation, hero-piece
+and passenger captures for sheets 01/02/12/13 in this checkout.
+Validation: all 2,337 game tests pass (`.preview/train-reference-tests.log`),
+including the six bogie and six artwork regressions. Game and web builds pass.
+Production SVG previews at 8 s are `.preview/sheets/05-trains-reference-{zh,en}.png`
+and `.preview/sheets/11-trains-reference-{zh,en}.png`.
+Focused coverage (`.preview/train-reference-coverage.log`): TrainBogie
+89.05% lines / 95% branches / 100% functions; TrainInterior 100% / 97.62% /
+100%; TrainModel 94.19% / 90.70% / 55.56%. The unused custom axle-span branch
+is outside this reference-placement run; the full suite retains its existing
+door-motion and model-lifecycle coverage.
 
 The shared `TrainBogie.ts` wheelsets, sculpted frames, suspension and brakes are
 included in these counts; Low keeps profiled eight-sided tyre treads and flanges,

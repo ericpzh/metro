@@ -16,13 +16,13 @@ export const BOGIE_WHEEL_Y = RAIL_CENTRE_OFFSET
 export const BOGIE_AXLE_HALF_SPAN = 0.72
 const BASE_AXLE_Z = AUTHORED_RAIL_Z + .165
 
-/** Bogies sit in the first and last inter-door window bays of each car. */
+/** Support the outer door bays, slightly inward from each outer door centre. */
 export function carBogieCentres(doors: readonly number[]): number[] {
-  return [(doors[0]+doors[1])/2,(doors.at(-2)!+doors.at(-1)!)/2]
+  return [doors[0] + .25, doors.at(-1)! - .25]
 }
 
 /** Shared full-size two-axle bogie for A/B/C/D/L (§1.12–1.13).
- * Full-size wheelsets rise into housings beneath the window seats. Central
+ * Full-size wheelsets stay beneath the continuous passenger floor. Central
  * axles, motor and crossmembers clear the thin, unchanged-height aisle floor.
  * Meshes remain siblings of the car so production batching can merge the
  * entire consist's static steel, rather than adding draws per bogie. */
