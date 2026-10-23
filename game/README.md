@@ -74,7 +74,7 @@ invalid data, storage failure and retries.
 Paused Q/E retains up to four prepared storey views. Opening prepares the deepest
 storey and the next one after artwork is ready; edits invalidate dormant views.
 Run `npm run bench:levels` at the repo root for both demos' first/repeated input
-measurements and see `PERFORMANCE.md` for loading/memory costs and remaining limits.
+measurements and see the [performance reference](../.agents/skills/metro-repo/references/performance.md) for loading/memory costs and remaining limits.
 
 Anonymous global totals are collected only where a stats Worker actually exists:
 the live site, or the local game + `dev:stats` pair. The game keeps a random client
@@ -167,7 +167,8 @@ and station-wide plate repaints. Unknown module types, changed cells and changed
 fields fail closed. Sim-inert decor also keeps skipping routing. Ordinary hover previews
 reuse the prepared station document; only coupled previews merge their candidates.
 A boards-only sign change rebuilds one sign's model and repaints its plates in place,
-skipping the chunk remesh and the station-wide repaints. See `PERFORMANCE.md` for
+skipping the chunk remesh and the station-wide repaints. See the
+[performance reference](../.agents/skills/metro-repo/references/performance.md) for
 benchmarks, CPU profiles, Chrome traces and GPU diagnostics.
 
 `passenger-library` also pins the 75% and 87.5% standard backpacks: all thirty-six
@@ -2959,7 +2960,7 @@ approximated); neither needs WebGL.
 * `fence-preview.test.mjs` — local fence-joint previews with 1,024 unrelated fences: no remote
   models, document scans or batch rebuilds, exact joints, current storey visibility on cancel,
   ghost/clipping changes during a drag and resource disposal. Production pointer measurements
-  are in `PERFORMANCE.md`; reproduce with `tools/bench-fence-drag.mjs` from the repo root.
+  are in the [performance reference](../.agents/skills/metro-repo/references/performance.md); reproduce with `tools/bench-fence-drag.mjs` from the repo root.
 * `fence.test.mjs` — 玻璃围栏 / 门 / 铁围栏 (§5.2): variant save/preview/pick identity, drag placement,
   raised gate geometry and decals underneath in either placement order, iron bars, deletion preserving
   ground decals; a 1 m high thin panel through the block middle (R turns a
@@ -3556,7 +3557,7 @@ and runs the actual React app and worker in a fresh headless Chrome profile. It 
 paused and 16× FPS/frame intervals, draw calls, triangles, long tasks, render submission,
 paint and structural block commits, scene rebuild stages and edit-to-frame delay.
 
-JSON reports go to `.preview/perf/`. See [the benchmark guide](PERFORMANCE.md) for
+JSON reports go to `.preview/perf/`. See [the benchmark guide](../.agents/skills/metro-repo/references/performance.md) for
 controls, measurement limitations, the baseline and remaining bottlenecks. These are
 diagnostics, not timing assertions in CI. `render-performance.test.mjs` pins the batching
 and paint-reuse correctness contracts without a GPU.
@@ -3997,8 +3998,8 @@ cell/module pair, no full cell scans in warmed road previews, original placement
 verdict equivalence, equipment allocation retention on road edits, road-ink
 invalidation/disposal, and continued pedestrian graph invalidation. `bench:road`
 drives cold and warm hover/press/drag/cancel/release through the production viewport;
-its raw reports and optional CPU profiles go under `.preview/perf/`. See
-`game/PERFORMANCE.md` for controlled before/after measurements.
+its raw reports and optional CPU profiles go under `.preview/perf/`. See the
+[performance reference](../.agents/skills/metro-repo/references/performance.md) for current measurements.
 
 `road-network.test.mjs` pins crossing/T/one-way/elevation topology, continuous turns,
 collinear road deduplication, cached topology with no per-frame document scans,
@@ -4071,7 +4072,7 @@ under `.preview/roads/node-*`.
 
 A tile carries **one** finish: dragging 草坪 over 人行道 (or the reverse) **replaces** it — the release deletes the finish under the candidate and lays the new one in the same commit, so one Ctrl+Z puts the old finish back. `equipmentReason` owns that rule (the other kind on the tile is the tile being replaced, not an obstacle), which is why the ghost is not red where the release accepts, while laying the *same* kind again stays the "already here" no-op. A cell the verdict refuses replaces nothing: `editOutdoorSurfaces` only drops a replaced finish for a candidate it accepted. Both directions and the refusal case are pinned in `outdoor-surfaces`, and the gesture in `roof-tool`. **Removal is that same teardown wherever it is asked for**: the 删除 (B) tool resolves the tile standing in the pointed cell and hands it to the tile tool, so a tap and a run drag remove exactly what the armed 人行道 / 草坪 tool's right-click removes — one commit, one undo (`delete-tool`).
 
-Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn/tree edits within the existing ground window — a 树木 is **planting, not structure**: `buildGraph` deliberately leaves its tile a walk node, so the crowd walks through it like every other street prop, and only its equipment collision remains. Re-fencing that tile would put one planting on the full path: 1,475 ms of production click-to-two-frames against 215 ms now (583 ms when the planting widens the drawn plane, which still needs its ground and graph), with the delete direction verified to redraw in the same two frames (`PERFORMANCE.md`). Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases, and `node tools/bench-tree-placement.mjs` measures the tree gesture end to end; reports belong under `.preview/perf/`.
+Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn/tree edits within the existing ground window — a 树木 is **planting, not structure**: `buildGraph` deliberately leaves its tile a walk node, so the crowd walks through it like every other street prop, and only its equipment collision remains. Production click-to-two-frames is 215 ms; a planting that widens the drawn plane still pays its ground and graph, 583 ms (see the [performance reference](../.agents/skills/metro-repo/references/performance.md)). Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases, and `node tools/bench-tree-placement.mjs` measures the tree gesture end to end; reports belong under `.preview/perf/`.
 
 `outdoor-surfaces` also pins Tanwei B exit protection: sidewalk/lawn refuse exit-owned floors and ramp openings, and existing saved tiles draw no cap when an exit or hole is created afterward. Hidden finishes do not lift the exit away from its stairs. Ground edits invalidate the affected finish so digging and restoring ground update its visibility.
 
@@ -4180,7 +4181,7 @@ are enabled: `bay` uses the actual unequal stair/escalator lower rows and shared
 upper landing, `facility` targets the current escalator landing, `openings` checks
 the five-metre gate floor, and `placement` checks the current platform levels.
 The performance gate includes pantographs, five-metre profiles, covered clearance
-and mixed lift intervals. See `PERFORMANCE.md` for current verification evidence.
+and mixed lift intervals. See the [performance reference](../.agents/skills/metro-repo/references/performance.md) for current verification evidence.
 
 Passenger models use the same uniform 0.98 visual scale as trains, including
 children, shadows, picking and the first-person eye height. Individual physique
@@ -4195,4 +4196,5 @@ and open/closed doors. `TrainInterior.ts` owns these fittings.
 Presentation edits (station/exit/line names, colours and termini) repaint dependent
 artwork in place. Population and exit-policy edits keep routing and scene geometry;
 restart reuses static connectivity while resetting dynamic simulation state.
-See PERFORMANCE.md, “Remaining settings rebuilds resolved (2026-10-21)”.
+See the performance reference's
+[settings and presentation edits](../.agents/skills/metro-repo/references/performance.md#settings-and-presentation-edits).

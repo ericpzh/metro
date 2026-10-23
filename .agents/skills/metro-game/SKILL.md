@@ -6,7 +6,8 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 # The game (`game/`)
 
 Placement and move snapping must follow actual geometry, never a nominal storey
-band or editing base. See [the snapping audit](../../../game/SNAPPING.md).
+band or editing base. The anchor matrix is under
+[Geometry snapping anchors](#geometry-snapping-anchors).
 `moduleAim` shares fresh/carried anchors; wall mounts resolve actual exposed floors
 and backing columns, ceiling props resolve actual slabs/decks/hanger supports, and
 shaft targets overlap the pointed air cell. Infer `ceilingAnchored` from a real
@@ -1921,7 +1922,8 @@ including the depth prepass, for all six appearances.
   looking like a document edit. In the sim the worker stays quiet while paused with nothing
   `dirty`, and `AgentPool` drops a dead agent's id entry as it recycles the object.
   The demo performance harnesses are `npm run bench:sim` and `npm run bench:browser`
-  from the repository root; `game/PERFORMANCE.md` records how to run and compare them.
+  from the repository root; the [performance reference](../metro-repo/references/performance.md)
+  records how to run and compare them.
   `BENCH_STATION` selects an external save for both harnesses. Move pickup/cancel
   uses `setMovingModule`, retaining the station and temporarily exposing original
   neighbour surfaces of affected equipment batches; a storey change restores the
@@ -2171,6 +2173,48 @@ The camera family includes `cctv-post`, a 4 m ground-mounted PTZ also listed in 
 
 The roof family includes `roof-canopy` / `cfg.variant: canopy` (有柱雨棚). Its truss shell is lowered 4 m onto two symmetric rows of round columns at every width, without lower chords or diagonal webs. Aim placement at the ground; use shared canopy post/body helpers for support, collisions and routing so the sheltered aisle stays open.
 
+
+## Geometry snapping anchors
+
+Placement and move anchors follow the pointed surface and actual supports. The
+editing base and storey grid do not supply a floor or ceiling. Changing `levelBase`
+without changing geometry must leave the snap result unchanged.
+
+Construction placement and carried pieces pick the nearest visible object surface
+before terrain behind it. `placementSurface` translates a directly hit hanger beam
+into its attachment anchor using the actual hit column. Other object hits keep
+their own surface cells; the existing validators decide whether that host can
+support the proposed piece. Erase and floor-paint picks retain their own contract.
+Both queries reuse the same per-event scene intersections.
+
+| Path | Anchor/support source |
+| --- | --- |
+| Floor equipment, tiles, walls, rails and roads | Picked cell/deck, exact surface height and the current empty-space work plane; existing drag anchors preserve the pressed height. |
+| Wall posters, signs, monitors, maps and lettering | Exposed adjacent floor or bottom of the actual contiguous backing column. |
+| Wall glass | The aimed wall course; a lone slab edge retains the slab height. |
+| Ceiling props | Nearest exposed slab or rail-deck underside in the aimed column, including the unexcavated street. No ceiling retains the pointed height and is refused by support validation. |
+| Hanger-mounted props | The actual supporting beam's floor anchor; rod alignment remains a placement requirement. Fresh and moved pieces share this resolver. |
+| Hanger suspension | Nearest real block/roof backing above the beam at each endpoint, including taller rooms and sloped roof geometry. |
+| Pillar/lift extension targeting | Actual shaft overlap with the pointed air cell; a nominal storey boundary cannot hide or extend the shaft. |
+| Module coordinate fallbacks | Exact air cell or matching floor anchor, followed by module bounds. Ramps and hung fittings require direct visible model hits in pointer tools. |
+| Suspended-ceiling reattachment | Actual floor and existing ceiling delimit the room. Choose the nearest new slab within it; retain beam-supported fittings and the hanger itself. |
+| Doors, booth signs, exits, ramp bays, PSD ends/covers and boarding marks | Authored curtain, booth, backing block, landing, screen-door or rail geometry, including its own rotation and dimensions. These paths already use their actual hosts. |
+
+The module factory no longer infers `ceilingAnchored` from storey height or editing
+base. Placement and moving set/reset that flag from the actual surface directly
+above the candidate. This also prevents a carried slab-mounted piece from retaining
+the slab flag when moved onto a hanger.
+
+Authored piece dimensions (ramp rise/run, pillar section length, wall height,
+screen-door height and roof shape) remain dimensions, not vertical snap targets.
+Level navigation, slicing, zone grouping and column-erase grouping retain their
+storey organization. Legacy unsupported preview models retain their authored local
+offset rather than rounding it onto a world-height grid; these offsets cannot
+provide support or make an unsupported placement valid.
+
+`geometry-snap` and `placement-surface` own the integration pins; `metro-game-test`
+records the audit and the [performance reference](../metro-repo/references/performance.md)
+the measurements.
 
 ## Storey spacing and suspended ceilings
 

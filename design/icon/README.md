@@ -1,7 +1,8 @@
 # Station Designer icon
 
 `station-designer-blue-bold.png` is the approved source artwork: white on the
-game's navy background. The other images are design iterations.
+game's navy background. Keep this as the single design source; prepare the
+browser assets from it rather than committing derived sizes here.
 
 Run `node tools/prepare-brand-icon.mjs` from the repository root to prepare:
 

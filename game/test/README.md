@@ -22,7 +22,7 @@ with real production pointer events across three editing bases.
 The production check also verifies block, wall, rail and tunnel hover picks on the
 visible beam instead of distant ground.
 
-`geometry-snap` covers the [geometry snapping audit](../SNAPPING.md): real rendered
+`geometry-snap` covers the geometry snapping audit: real rendered
 ceiling contact and preview/commit/move/undo agreement across 360 slab cases,
 off-grid wall/floor anchors independent of editing base, actual hanger suspension,
 pillar/lift targeting across nominal boundaries and unchanged fixture anchors
@@ -733,7 +733,8 @@ branches and 71.79% functions. Per-file coverage:
 | `render/models/pieces/TrackModel.ts` | 67.90% | 71.43% | 54.55% |
 
 `moduleDependencies.ts` was selected but not loaded by these three suites, so it
-has no measurement in this focused report. The earlier 72-failure report is superseded by the audit below. See `PERFORMANCE.md`
+has no measurement in this focused report. The earlier 72-failure report is superseded by the audit below. See the
+[performance reference](../../.agents/skills/metro-repo/references/performance.md)
 for current validation and inventory evidence.
 
 Measured over the whole suite (`--experimental-test-coverage`, one process): **1392 tests,
@@ -927,8 +928,9 @@ cell/module pair, no full cell scans in warmed road previews, original placement
 verdict equivalence, equipment allocation retention on road edits, road-ink
 invalidation/disposal, and continued pedestrian graph invalidation. `bench:road`
 drives cold and warm hover/press/drag/cancel/release through the production viewport;
-its raw reports and optional CPU profiles go under `.preview/perf/`. See
-`game/PERFORMANCE.md` for controlled before/after measurements.
+its raw reports and optional CPU profiles go under `.preview/perf/`. See the
+[performance reference](../../.agents/skills/metro-repo/references/performance.md)
+for current measurements.
 
 
 The production browser check `node tools/check-road-network.mjs` covers both locales,
@@ -937,7 +939,7 @@ its timings/screenshots live under ignored `.preview/perf/road-network/`.
 
 人行道 (Sidewalk) and 草坪 (Lawn) in 站外装饰 drag rectangular patches raised 0.1 m. Ground equipment follows the finish; 树木 (Tree) places individually on grass or bare ground. `outdoor-surfaces` pins height, ground-equipment compatibility, collisions, save/pick and support rebuilds; `roof-tool` pins immediate rectangular drag, erase and undo. One finish per tile: `outdoor-surfaces` pins the replacement verdict and that a refused cell replaces nothing, and `roof-tool` pins the gesture — the ghost is not red where the release accepts, and the replacement is one commit and one undo. Removal is one teardown, not two: the 删除 (B) tool hands a resolved tile to the tile tool exactly as it hands it a roof bay, so a press, a run drag and their undo steps match the armed 人行道 / 草坪 tool's right-click (`delete-tool`).
 
-Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn/tree edits within the existing ground window — a 树木 is **planting, not structure**: `buildGraph` deliberately leaves its tile a walk node (pinned by `outdoor-surfaces`' "a tree draws without walking"), so the crowd walks through it like every other street prop, and only its equipment collision remains (1,475 ms of production click-to-two-frames before against 215 ms now; a planting that widens the drawn plane still pays its ground and graph, 583 ms — `PERFORMANCE.md`). Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases, and `node tools/bench-tree-placement.mjs` measures the tree gesture end to end; reports belong under `.preview/perf/`.
+Outdoor surface performance: `outdoor-surfaces` now guards one snapshot for bulk placement/removal, bounded document reads, exact floor/track/road refusals, immutable support indexes, retained unaffected equipment and shared geometry disposal. `worker-preview` guards no routing rebuild or paused tick for sidewalk/lawn/tree edits within the existing ground window — a 树木 is **planting, not structure**: `buildGraph` deliberately leaves its tile a walk node (pinned by `outdoor-surfaces`' "a tree draws without walking"), so the crowd walks through it like every other street prop, and only its equipment collision remains (production click-to-two-frames is 215 ms; a planting that widens the drawn plane still pays its ground and graph, 583 ms — see the [performance reference](../../.agents/skills/metro-repo/references/performance.md)). Trees use the offline EZ-Tree ash bake (`node tools/bake-street-tree.mjs`), two shared meshes and a scene-owned leaf texture. `node tools/bench-outdoor-surfaces.mjs` measures cold and warm production pointer phases, and `node tools/bench-tree-placement.mjs` measures the tree gesture end to end; reports belong under `.preview/perf/`.
 
 `outdoor-surfaces` also pins Tanwei B exit protection: sidewalk/lawn refuse exit-owned floors and ramp openings, and existing saved tiles draw no cap when an exit or hole is created afterward. Hidden finishes do not lift the exit away from its stairs. Ground edits invalidate the affected finish so digging and restoring ground update its visibility.
 
@@ -1032,8 +1034,9 @@ The seven-contract coverage pass measures `build/model/Ceilings.ts` at
 `sim/track.ts` at 56.80 / 52.94 / 33.33% (lines / branches / functions).
 These focused results leave other functions unexercised; do not read them as
 whole-suite coverage. Full instrumented geometry coverage exceeded 11 minutes
-and was stopped without a completed result. `PERFORMANCE.md` records this
-limitation and the separate production-browser checks.
+and was stopped without a completed result. The
+[performance reference](../../.agents/skills/metro-repo/references/performance.md)
+records this limitation and the separate production-browser checks.
 
 The expanded same-process performance selection was also attempted without
 instrumentation and stopped after roughly four minutes without completion

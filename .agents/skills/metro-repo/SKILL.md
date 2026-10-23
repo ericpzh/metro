@@ -20,14 +20,15 @@ The left build rail's module previews are checked-in 132 × 132 PNGs generated b
 After changing the module catalogue or preview renderer, regenerate them with
 `npm --prefix game run build`, `npm --prefix game run render:menu-thumbnails`, then
 build again. Keep the catalog/asset regression in `menu-thumbnails.test.mjs` and
-record first-open timings in `game/PERFORMANCE.md` with raw captures under
+record first-open timings in the
+[performance reference](references/performance.md) with raw captures under
 `.preview/perf/menu-thumbnails/`.
 For placement drags, use the shared `MultiPlaceDrag` scheduler and its 50 ms
 latest-target policy where appropriate; preserve each tool's preview/refusal and
 release contract. Block collision checks are indexed and cached against immutable
 document arrays, and a refused block preview keeps a known blocked coordinate red
 until the footprint or geometry changes. See the drag and demo-collision notes in
-the performance guide and `game/PERFORMANCE.md` before changing these paths.
+the [performance reference](references/performance.md) before changing these paths.
 The 方块 tool's 吊顶 variant follows the same `checkBlockCells` preview and release
 path as ordinary blocks. Keep the original station arrays intact during hover so
 the block index and verdict cache remain reusable; never prepare a copied module
@@ -47,8 +48,8 @@ selection, picking and deletion fallbacks: coarse bounds must not make a stair,
 escalator or walkway selectable through a nearer visible block. Preserve outdoor
 canopy and paving priority. Pin event reuse in `tool-picking.test.mjs` and ramp
 occlusion/deletion/undo behavior in `ramp-targeting.test.mjs`; reproduce the
-browser interaction with `tools/check-tool-picking.mjs` and record results in
-`game/PERFORMANCE.md`.
+browser interaction with `tools/check-tool-picking.mjs` and record results in the
+[performance reference](references/performance.md).
 Placement and move snapping follow actual scene geometry, never a nominal storey
 band or editing base. Prefer the nearest visible object surface over terrain behind
 it; map hanger hits to the hanger's real attachment anchor and leave support/refusal
@@ -65,8 +66,8 @@ shadow batches and buffers alive across local edits. Functional worker builds ca
 install the latest document asynchronously in a coalesced job, but keep the old
 document and routing graph coherent until installation, let ticks continue on
 that pair, and cancel pending edits when loading another station. Initial station
-loads remain immediate. Read the
-[placement invalidation audit](../../../game/PERFORMANCE.md#placement-invalidation-audit-2026-10-20)
+loads remain immediate. Read
+[placement invalidation and model retention](references/performance.md#placement-invalidation-and-model-retention)
 for its deterministic work counts, production measurements and validation limits.
 
 Settings and presentation edits have a separate fast path. Line/station/exit labels,
@@ -82,8 +83,8 @@ dependencies keep the conservative rebuild path. Invisible population and exit-p
 edits must not request a frame. Restart should reuse the static graph and collision
 indexes while resetting dynamic simulation state. `nonstructural-updates`,
 `equipment-retention`, `train-lod`, `line-edit` and `scene-wiring` pin these contracts.
-See the measured
-[settings rebuild audit](../../../game/PERFORMANCE.md#remaining-settings-rebuilds-resolved-2026-10-21)
+See
+[settings and presentation edits](references/performance.md#settings-and-presentation-edits)
 for first-use browser timings and current coverage limits.
 
 Graphics quality applies in every view, including Hide UI: Low keeps reduced model
@@ -113,9 +114,9 @@ envelope and placement verdict agree, including the top wall course.
 `roof-preview.test.mjs` pin these rules. Run `npm --prefix game run test:perf`,
 inspect changed-module coverage, and use `node tools/bench-preview-audit.mjs`
 plus `node tools/check-preview-lod.mjs` for production browser checks. Record
-first and warmed interactions in `game/PERFORMANCE.md` with reports under
-`.preview/perf/`; follow the shared [performance guide](references/performance.md)
-for controlled comparisons and remaining limitations.
+first and warmed interactions in the
+[performance reference](references/performance.md) with reports under
+`.preview/perf/`; follow it for controlled comparisons and remaining limitations.
 
 | Work | Skill |
 |---|---|
@@ -570,7 +571,7 @@ commands.
 | `demand-animation.mjs` | Builds sheet 06's demand-curve preview from the game's demand and calendar rules. In an embedded SVG document, its time-boundary handles can be dragged or adjusted with arrow keys. |
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
-| `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on both shipped examples, Zoo and Tanwei, sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see `game/PERFORMANCE.md` for controls and interpretation. These are local diagnostics, not CI thresholds. |
+| `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on both shipped examples, Zoo and Tanwei, sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see the [performance reference](references/performance.md) for controls and interpretation. These are local diagnostics, not CI thresholds. |
 | `bench-level-switch.mjs` | Real paused Q/E input on both demos: first/repeated latency, slice/batch/model/save work, exact cached GPU allocation reuse and initial prewarming cost. `--uncached` compares the same code without retained level views; `--no-multi-draw` checks fallback rendering. |
 | `bench-fence-drag.mjs` | Production fence hover/press/move/cancel/release preview timings, event-through-frame latency, group counts, equipment rebatch calls and hidden-source leaks. `BENCH_CLOSE=1` captures the close view. |
 | `bench-tree-placement.mjs` | Production first hover/press/release of a placed model or equipment piece. `BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (or `PIECE=tvm`) measures retention against 128 untouched fences; other pieces use the demo station. |

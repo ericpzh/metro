@@ -41,6 +41,10 @@ npm-debug.log*
 .preview/
 slope-cut-preview/
 
+# Captured command output (npm test, tsc) accidentally saved to the repo root
+/testout*.txt
+/tscout.txt
+
 # One machine's own caches and one-off probes
 game/.rolldown-locked/
 tools/_probe-sweep.mjs

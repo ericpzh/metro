@@ -87,7 +87,8 @@ It also guards the station changes that must invalidate floor-paint module reuse
 The renderer/GPU is not exercised by Node tests; use the root `npm run bench:browser`
 for local frame-rate, draw-call and edit-latency measurements, and `npm run bench:sim`
 for simulation tick and build-helper timings. These diagnostics are hardware-dependent
-and are not test assertions or CI thresholds; see `game/PERFORMANCE.md`.
+and are not test assertions or CI thresholds; see the
+[performance reference](../metro-repo/references/performance.md).
 
 `level-view-cache.test.mjs` pins prepared Q/E view reuse and disposal, actual
 five-metre neighbour selection from a shifted `levelBase`, the top/bottom level
@@ -107,6 +108,38 @@ equipment model retention, fence/curtain collision, one shared event raycast,
 ramp target/occlusion, geometry and low-angle beam snapping, and preview/placed LOD
 equivalence must stay in the performance gate.
 
+### Geometry snapping audit (2026-10-22)
+
+The snapping change follows actual geometry rather than storey bands; `metro-game`
+owns the anchor matrix. `geometry-snap` pins real rendered ceiling contact,
+preview/commit/move/undo agreement over 360 slab cases, off-grid wall columns,
+multiple editing bases, hanger backing heights, shaft boundary picks and
+suspended-ceiling rooms. `placement-surface` pins low-angle beam targeting ahead
+of distant terrain, fresh preview/click/move/undo agreement, one shared raycast,
+nearer-block occlusion, hidden-source exclusion and unchanged unsupported-host
+surface cells. `hanger`, `wall-ceiling-snap`, `equipment-placement-input`, `move`,
+`lights`, `storey-height`, `sign`, `ceiling-deck`, `psd-end`, `booth-sign` and
+`delete-tool` cover the owning contracts, including floor-triangle deletion.
+
+Validation for the change: all 2,313 owning tests and the production build pass.
+`tools/check-geometry-snapping.mjs` passes nine real pointer placement/move
+fixtures for slabs, hangers and wall mounts across editing bases 0, 2 and 4
+(69 dispatches, including low-angle block/wall/rail/tunnel hover picks), and
+`tools/check-tool-picking.mjs` passes its 38 picking/occlusion/delete/undo
+dispatches; both keep one scene raycast maximum per dispatch and report no browser
+errors. Raw reports are under ignored `.preview/perf/geometry-snapping/` and
+`.preview/perf/tool-picking/`. The visible-object follow-up adds the 18-check
+`placement-surface` focused run: `placementSurface.ts` 100% lines/functions and
+84.62% branches; `CameraSystem.ts` 71.08% lines, 80.34% branches and 50% functions
+(other camera operations are outside that focused run).
+
+The broad `test:perf` in-process coverage attempt emitted no test results after
+roughly seven minutes and was stopped; a supplementary separate-process run of the
+complete list was stopped after roughly 7.5 minutes with `draw-batching` and
+`train-lod` still running. Both are incomplete, not passes. Focused instrumented
+runs passed 199 owning checks plus a 56-check tool run; per-module figures are in
+the [performance reference](../metro-repo/references/performance.md).
+
 Root `npm run test:perf` runs `batching-lifecycle`, `draw-batching`,
 `performance-policy`, `worker-preview`, `render-performance`, `scene-wiring`,
 `roof-tool`, `equipment-placement-input`, `passenger-assets` and `passenger-library`
@@ -124,8 +157,9 @@ the per-tool commit/refusal contract. Roofs keep their frame scheduler.
 `refused-ghost` pins the red-box pool growing past its 4,096 starting capacity.
 `StablePreviewDelay` timing is driven with fake timers, never sleeps. Measure real
 pointer sequences with `node tools/bench-drag-latency.mjs` (or the focused
-`npm run bench:block-drag` harness); report cold and warm timings in
-`game/PERFORMANCE.md` as evidence, not thresholds.
+`npm run bench:block-drag` harness); report cold and warm timings in the
+[performance reference](../metro-repo/references/performance.md) as evidence, not
+thresholds.
 
 `block-collision-cache.test.mjs` guards the demo-station collision cascade: exact
 verdict and blocker-order equivalence, bounded per-snapshot retention, cached

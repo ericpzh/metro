@@ -8,11 +8,15 @@ station either copes or it does not.
 
 | | |
 |---|---|
-| **Platform** | React 19 + Vite + TypeScript, three.js via react-three-fiber, Web Worker simulation |
+| **Platform** | React 19 + Vite + TypeScript, plain three.js, Web Worker simulation, Cloudflare Workers static hosting |
 | **Mode** | Sandbox / puzzle-sim. Single player. |
-| **View** | 2:1 isometric 3D, cutaway, per-level slicing, full orbit |
-| **Status** | Specification (draft 10). Concept sheets in [`art/`](art/), generator in [`tools/`](tools/) |
+| **View** | Free 360° orbit with an isometric build preset, cutaway, storey slicing, flat orthographic elevations |
+| **Status** | As-built specification, draft 11 (2026-10-22). Describes the build shipped at `stationdesigner.com/game/`; anything not in the build is marked **Planned** |
 | **One-liner** | Overcrowd's readable doll-house dioramas, Mini Metro's flow pressure, real Chinese metro rolling stock |
+
+Draft 11 is the as-built pass. It replaces the original named levels, settings page, dynamic
+snapshot save, queue lanes, air-quality model, line tool, platform entity and per-exit out-rate
+with the shipped versions, and marks every unbuilt system **Planned**.
 
 ---
 
@@ -21,49 +25,52 @@ station either copes or it does not.
 All sheets are vector, generated from [`tools/gen-art.mjs`](tools/gen-art.mjs) (`node tools/gen-art.mjs`).
 They are drawn in a **true isometric** projection (equal foreshortening on all three axes,
 1 block = 1 m), so they double as an art-direction target rather than loose mood boards and a
-rendered piece stands in a drawing undistorted. Every sheet is drawn in
-the shipping language, **Simplified Chinese**; only identifiers and units stay in Latin script
-(§9.2). Sheet 12 is animated (SMIL, self-contained).
+rendered piece stands in a drawing undistorted. Each sheet is drawn in **Simplified Chinese**
+with an `*-en.svg` English sidecar; only identifiers and units stay in Latin script (§9.2).
+Sheet 12 is animated (SMIL, self-contained).
 
 ### 1.1 The station you are building — isometric cutaway
 
 ![Concept 01 — isometric cutaway](art/01-isometric-cutaway.svg)
 
-A B1 concourse in doll-house view with the roof cut off, and the B2 platform visible through the
-escalator void. Nine readable zones: fare gates, ticket machines, retail, platform, circulation,
-surface entrance, advertising, floor guidance, lift. Everything here is a placeable module from
-the catalogue, and every person is a simulated agent with a destination.
+An underground concourse in doll-house view with the roof cut off, and the platform storey
+visible through the escalator void. Nine readable zones: fare gates, ticket machines, retail,
+platform, circulation, surface entrance, advertising, floor guidance and lift. Everything here is
+a placeable module from the catalogue, and every person is a simulated agent with a destination.
 
 ### 1.2 Depth is not decoration — vertical section
 
 ![Concept 02 — vertical section](art/02-vertical-section.svg)
 
-One station, four levels: an over-ground viaduct (Line 1, catenary), the surface plaza with the
-entrance pavilion, a B1 concourse, a B2 platform behind screen doors and a B3 platform. Every
-level change is a walk, a queue and a capacity limit. This is the drawing that drives the whole
+One station, four storeys: an over-ground viaduct (Line 1, catenary), the surface plaza with the
+entrance pavilion, a concourse, and two stacked platform storeys behind screen doors. Every
+storey change is a walk, a queue and a capacity limit. This is the drawing that drives the whole
 simulation design.
 
 ### 1.3 The block system
 
 ![Concept 03 — block system](art/03-block-system.svg)
 
-One block = one cell with six faces. Faces carry surfaces (floor, ceiling, walls per side), and the
-8-neighbour autotile mask decides which of them are drawn: a side a solid neighbour shares draws
-nothing, so a run of blocks is one flat surface. A block itself is a hard cube.
+One block = one cell with six faces. Faces carry finishes (floor, ceiling, walls per side), and
+the 8-neighbour exposure mask decides which of them are drawn: a side a solid neighbour shares
+draws nothing, so a run of blocks is one flat surface. A block is a hard cube by default; the
+方块 tool's 半墙 and 三角 cut modes lay a half-thickness or wedge course in the same grid (§4.2).
 
 ### 1.4 What you can place
 
 ![Concept 04 — placeable modules](art/04-module-catalogue.svg)
 
-Fifteen of the placeable modules with their real footprints and the throughput numbers the
-simulation actually consumes.
+Twenty-five module families (the palette holds over a hundred option rows) with their real
+footprints and the throughput numbers the simulation actually consumes. The catalogue itself
+is `game/src/app/store/catalog.ts`; §5 maps what the build offers.
 
 ### 1.5 Rolling stock
 
 ![Concept 05 — rolling stock](art/05-trains-and-track.svg)
 
-A / B / C type cars following the Chinese metro classification: car width sets the platform edge,
-door count sets the boarding rate, power pickup decides tunnel or viaduct.
+A / B / C / D / L type cars following the Chinese metro classification: car width sets the
+platform edge, door count sets the boarding rate, power pickup decides tunnel or viaduct. D is
+the 3.3 m Guangzhou 18/22 class; L is the linear-motor car (§6.1).
 
 ### 1.6 Crowd demand
 
@@ -76,7 +83,8 @@ controls that shape all of it.
 
 ![Concept 07 — interface](art/07-interface.svg)
 
-Build rail on the left, inspector on the right, line manager and minimap along the bottom. The
+Build rail on the left, inspector on the right (line editor included), and the live status bar
+along the bottom. The
 camera is the level selector. The mock is drawn in the shipping language, Simplified Chinese (§9.2).
 
 ### 1.8 Camera and views
@@ -87,10 +95,12 @@ Full 360° orbit like a CAD viewport, plus true orthographic elevations. The sam
 six ways of looking at it — and the flat X-Z elevation is the view that tells you whether the
 vertical circulation actually works.
 
-### 1.9 Queue management
+### 1.9 Queue management — Planned
 
 A crowd that arrives as a blob blocks everything; the same crowd in single-file lanes is orderly,
-predictable, and fits in a quarter of the floor. This is the cheapest capacity in the game.
+predictable, and fits in a quarter of the floor. This would be the cheapest capacity in the game,
+but the placeable lane is **not in the build** (§5.5); only the server queues at gates, TVMs,
+lifts and platform doors exist today.
 
 ### 1.10 Where the look comes from
 
@@ -119,7 +129,7 @@ motifs are reinterpreted in `tools/iso.mjs`.
 
 ![Concept 11 — rolling stock in 3D](art/11-rolling-stock-3d.svg)
 
-The same A / B / C cars as §1.5, drawn the way the game builds them: a rounded-roof cross-section
+The same stock classes as §1.5, drawn the way the game builds them: a rounded-roof cross-section
 extruded along the run, carrying the window band, the door leaves, the livery band, the bogies, the
 roof equipment and a cab at **each** end. Both cabs are the same body — the dark face mask with its
 windscreen, crew-door windows and 广州地铁 mark, the twin lamp clusters and corner marker bars, the cream
@@ -132,7 +142,7 @@ the screen doors and the third rail, and the power-pickup panel sets catenary ag
 ![Concept 12 — platform doors and flow](art/12-platform-doors-flow.svg)
 
 The car-door cadence is authoritative. One function returns the door centres, and the PSD openings,
-the queue lanes and the boarding and alighting paths are all placed from that same list, so the
+the door servers and the boarding and alighting paths are all placed from that same list, so the
 screen doors can never drift from the doors they are meant to meet. Inside a car the doors sit on
 one uniform pitch, held clear of both car ends (`DOOR_END_INSET`, the cab or gangway the end keeps —
 about 2.8 m, as on the real cars), so a three-door L car spreads its outer doors to the ends rather
@@ -144,8 +154,8 @@ animated: a 20 s enter / dock / open / board / close / leave loop.
 ![Concept 13 — two lines, two depths](art/13-two-line-interchange.svg)
 
 Concept 02 as a volume. One line runs over the street on a viaduct, one runs under it in a box, and
-the whole transfer stack sits between them — B2 platform, B1 concourse, the street, the viaduct
-platform. The near quarter is cut away, which is also how the game's cutaway camera works.
+the whole transfer stack sits between them — platform, concourse, street and viaduct platform.
+The near quarter is cut away, which is also how the game's cutaway camera works.
 
 ---
 
@@ -178,7 +188,7 @@ your station breaks, in real time, as a heat map, a queue and a wave of little p
 - Construction cost, ticket revenue, budgets, loans.
 - Failure/ bankruptcy states, timers, scripted scenarios (the calendar can *offer* an event day, but
   it never fails you).
-- Multiplayer, mods SDK (planned for M6).
+- Multiplayer and a mods SDK (Planned, later than the items in §12).
 
 ---
 
@@ -188,7 +198,7 @@ The game plays as a 9-stage loop. Stages 2–8 repeat; the station is never fini
 less broken:
 
 ```
-1  起点      2×2 ground block at (0,0,0), infinite canvas
+1  起点      empty station on the implicit street plane, infinite canvas
 2  毛坯      extrude the rough station volume (under / at-grade / viaduct)
 3  饰面      walls / floors / ceilings / track beds + textures
 4  设备      place and remove modules on top of the blueprint
@@ -199,40 +209,47 @@ less broken:
 9  迭代      repeat 2–8
 ```
 
-1. **Start (起点).** A new station is a flat 2×2 block on the surface at world origin
-   `(0, 0, 0)` (§4.1). The canvas is unbounded: blocks may be placed at any integer
+1. **Start (起点).** A new station is an **empty document** on an implicit street plane at
+   `z = 0` (§4.1). The canvas is unbounded: blocks may be placed at any integer
    coordinate, attached or detached. There is no plot edge and no scrolling cost —
-   the camera frames whatever exists.
+   the camera frames whatever exists. The ground is not a seeded slab but a generated
+   plane stored inverted (only holes are recorded), so the whole street is walkable
+   until the player digs.
 2. **Massing (毛坯).** The player extrudes the rough shape with the base-block tool:
    drag / box-drag solid vs empty cells on any level, below ground (underground box),
    on the ground (at-grade hall), or above it (viaduct deck + piers). No surfaces, no
    modules yet — just the cavity and the solid that surrounds it.
 3. **Surfaces (饰面).** Walls, floors, ceilings and track beds are painted onto the
-   massing (§4.3): whole-surface fill for speed plus per-block texture override for
-   detail. This pass is cosmetic *and* structural — a floor finish decides walk speed,
-   a ceiling decides cover, a wall decides blockage.
-4. **Modules (设备).** Doors, gates, TVMs, exits, stairs, escalators, 自动步道, lifts, PSDs and
-   queue furniture are placed onto / into the blueprint and can be removed freely
+   massing (§4.3): whole-surface fill for speed plus per-block override for detail.
+   A floor finish decides walk speed and a track bed is unwalkable; a **wall is a cell**
+   and blocks movement; a ceiling finish is cosmetic (its cover flag is not simulated).
+4. **Modules (设备).** Gates, TVMs, vending machines, exits, stairs, escalators,
+   自动步道, lifts, rooms and decor are placed onto / into the station and removed freely
    (§5). Modules snap to cells but sit *on top of* the block model, so deleting a
-   module never deletes the block under it.
-5. **Trains (列车).** Each platform edge is assigned a line: stock type (A/B/C), cars
-   (length), headway (frequency), dwell policy, route (ordered stops), line colour
-   (§6.3). The game derives and displays per-line passenger throughput
-   (capacity/hour = cars × rated/car × 3600/headway) next to the editor.
-6. **Exits (出入口).** Each surface exit gets a name (e.g. `A口`, `C口`) and settable
-   in/out rates per hour (§5.6). The game shows configured vs actual throughput live.
-   An exit set to 0 in is a closure — the crowd re-routes.
-7. **Run (运行).** The clock runs: street trickles and train-borne waves spawn agents,
-   they buy, queue, walk, ride, alight and leave (§7). Passenger counts and wait times
-   are recorded per exit / gate / line / platform and drawn as time-series charts and
-   histograms (§8.1), not just as 3D heat.
-8. **Snapshot (存档).** Any paused moment can be downloaded as a `*.metro.json`
-   snapshot — all static blocks plus all movement — and reloaded later (§9.4, §10.5).
+   module never deletes the block under it. PSDs are not placed: they are derived from a
+   track and the line's screen-door setting.
+5. **Trains (列车).** Each track is assigned a line: stock type (A/B/C/D/L), cars
+   (formation), headway (frequency), pickup, screen-door height and line colour (§6.3).
+   The editor shows the derived unload rate (`alightPerTrain × 3600/headway`), not a rated
+   capacity, and there is no route/stop or dwell control.
+6. **Exits (出入口).** Each surface exit gets a name (e.g. `A口`, `C口`) and a settable
+   **entering** rate per hour (§5.6). Outflow is unlimited: an exit is a pure opening.
+   Closing an exit is a closure — street demand re-routes to the open exits.
+7. **Run (运行).** The clock runs: street arrivals and train-borne waves spawn agents,
+   they buy, queue, walk, ride, alight and leave (§7). Once a simulated minute, the
+   worker records the status bar's own counters — population, crowd letter, the four
+   queues and the boarding/exiting/left-behind totals — and the 数据 window draws them
+   as three charts (§8.1), not just as 3D heat.
+8. **Snapshot (存档).** The station can be saved as a `*.metro.json` document — the
+   static blocks, modules and line definitions plus the authored day — and reloaded
+   later (§9.4, §10.5). Movement state is **not** saved; loading builds a fresh crowd
+   from the station's seed. An autosave slot in `localStorage` restores the last
+   committed document on the next page load.
 9. **Iterate (迭代).** Read the charts, find the pinch point, go back to stage 2:
    move a wall, add a gate, split a flow, retime a headway. Determinism (§7.6) makes
    every re-run a true A/B.
 
-A design session is 20–60 minutes: a station that starts as a 2×2 slab ends as a machine
+A design session is 20–60 minutes: a station that starts as an empty street ends as a machine
 for moving people, and the last 10% of capacity always comes from moving a wall.
 
 ---
@@ -242,38 +259,43 @@ for moving people, and the last 10% of capacity always comes from moving a wall.
 ### 4.1 The cell
 
 One block is one cubic metre. World coordinates are unbounded integers `(x, y, z)` with
-`+z` up; the level id (`B3`…`B1`, `G`, `L1`) is a named band of `z`, not a separate axis
-(§4.4). A new station seeds a flat 2×2 at-grade slab at the origin:
+`+z` up. There are **no named levels**: a station stands on one fixed five-metre storey
+grid (`STOREY_HEIGHT = 5`, §4.4), and the storey an object belongs to is derived from its
+`z` by `storeyBand()`. A new station is an empty document; the street itself is implicit.
 
 ```
-seed = { x: 0..1, y: 0..1, z: 0 }   // labelled (0, 0, 0) in the HUD status line
+start = { name, seed, cells: [], modules: [], lines: [], service, peaks, demand, calendar }
 ```
 
 * **Infinite canvas.** Builds may grow to any `(x, y, z)`; nothing must touch existing
-  geometry. Detached blocks (a second entrance pavilion 200 m away, a depot siding) are
-  legal — the camera (`F` frames selection, minimap tracks extents) follows, and the
-  station graph simply has no walk edge between disconnected parts until the player
-  connects them.
+  geometry. Detached blocks (a second entrance pavilion 200 m away) are legal — the
+  camera (`F` frames selection) follows, and the station graph simply has no walk edge
+  between disconnected parts until the player connects them.
 * **Sparse storage.** Only non-default cells exist in memory and in saves; untouched void
   costs nothing, so a far-flung but tiny station stays tiny (§10.5).
+* **The street is implicit.** `z = 0` is an infinite generated ground plane, stored
+  inverted as **holes** (`sim/ground.ts`), so an empty document already stands on walkable
+  street and the ~1.6 MB demo saves are mostly authored cells, not ground. There is no
+  2 × 2 seed to grow from.
 
-A cell owns six faces and nothing else:
+A cell is a small record:
 
 ```
 cell = {
-  x, y, z,                  // integer world coords; level derived from z
-  fill,                  // solid | empty | water-like (unused in v1)
-  faces: {
-    top:     { material, floorFinish, decals[] },   // walking surface above
-    bottom:  { material, ceilingFinish },           // ceiling below
-    n, e, s, w: { material, wallSide, door?, window? },
-  },
-  tags: [],              // e.g. "paid-zone", "platform-edge", "no-roof"
+  x, y, z,                     // integer world coords; storey derived from z
+  fill: 'solid' | 'void',
+  finish?: { top?, bottom?, n?, e?, s?, w? },   // ASCII finish ids; absent = family default
+  zone?: 'outside' | 'unpaid' | 'paid' | 'platform' | 'restricted',
+  room?: 'store' | 'toilet' | 'office',         // purpose tint, not a fare zone
+  tags?: string[],             // e.g. 'half-wall:n', 'tri-upper:ne'
 }
 ```
 
-Everything the game shows — walkability, cover, signage, whether rain reaches the platform — is
-derived from these six faces. That keeps the build model small and makes save files tiny.
+A cell does **not** carry doors, windows or decals as face records: a wall is its own cell
+(or a tagged half-wall/wedge), a door is a module, and decals/tactile strips/signage are
+separate quads drawn over the floor. Everything the game shows — walkability, cover, zone,
+what stands on a face — is derived from `fill`, `finish`, `zone`, `room` and `tags`, which
+keeps the build model small and the save files sparse.
 
 ### 4.2 Autotiling: which faces are drawn
 
@@ -286,13 +308,17 @@ derived from these six faces. That keeps the build model small and makes save fi
   building, so the two blocks' top faces are one plane and the cell boundary between them is not
   drawn. A run of blocks is therefore one flat surface with no seam down it and no pit at a
   four-block corner.
-* **Merging.** Blocks are merged per 16×16×16 chunk into a single `BufferGeometry`. Floor decals,
-  tactile strips, signage and arrows are separate transparent quads drawn on top so they never
-  break a merge.
+* **Merging.** Blocks are merged per 16×16×16 chunk into batched geometry, split into one
+  part per finish so a chunk can still draw several materials. Floor decals, tactile strips,
+  signage and arrows are separate transparent quads drawn on top so they never break a merge.
 * **Why cubes.** A hard, axis-aligned edge is what the 1 m grid actually is, and it is what keeps
   the renderer's one hard case — a corner where two open sides meet — from needing geometry of its
   own. The softened look of a station comes from its finishes, its modules and its light instead.
   See sheet 03.
+* **Cut cells are still one grid.** The 方块 tool's two cut modes lay a **半墙** (half-thickness
+  wall, tagged `half-wall:<side>`) or a **三角** (45° wedge, tagged `tri-upper:<corner>` /
+  `tri-lower:<corner>`). They are courses with a cut, not a second mesh family: the renderer
+  draws the cut, collision reads the cell, and the placement contract is the 方块 tool's own.
 * **A cut top.** A block a 楼梯 / 扶梯 takes its volume out of — the ground under a run, which its
   truss or soffit hangs into — is not a full cube. Its top is the run's own **underside**, a plane
   sloping along the run, so the block reads as the filling under the slope and the run's truss sits
@@ -302,102 +328,117 @@ derived from these six faces. That keeps the build model small and makes save fi
 
 ### 4.3 Surfaces and what they do
 
-Four paintable surface families cover the six faces. The *family* decides behaviour; the
-*texture* inside the family is a visual + minor-stat choice from `data/materials.json`:
+Every material in the 材质 folder is a `FinishDef` in `sim/finishes.ts` (there is no
+`data/materials.json`). A finish has a **family** that gives it its look and its one
+gameplay number, and — deliberately — **any finish can be painted on any face**:
+`finishesForFace()` returns the whole catalogue for all six faces, so a player can paint a
+floor finish on a wall or a steel ceiling under an escalator.
 
-| Family (中文) | Faces | Gameplay effect |
+| Family (中文) | Typical face | Gameplay effect |
 |---|---|---|
-| 地面 Floor finish | top face | walk speed multiplier, noise, spawn of decals |
-| 天花 Ceiling finish | bottom face | light level, rain cover, ornament |
-| 墙面 Wall finish | n/e/s/w, inner/outer side | blocks movement and sight, hosts signage, doors, windows; side finish gives direction cues (tile vs painted) |
-| 轨道 Track bed | top face variant on track cells | ballast / slab look; required under rails, derates walk speed to ~0 (no walking on track) |
+| 地面 Floor finish | top | walk-speed multiplier (`speed`); 覆土 and 轨道 bed are `speed: 0` |
+| 轨道 Track bed | top over a track | ballast/slab look; not walkable |
+| 天花 Ceiling finish | bottom | look and cover flag; cover is **cosmetic** today |
+| 墙面 Wall finish | n/e/s/w | look only; a wall **cell** is what blocks movement |
 
-The structural block body itself (`solid | empty`) blocks movement and defines the cavity;
-decals (guide stickers, tactile strips, adverts, wayfinding) are a transparent quad layer on
-top of any family and never break a merge.
+The structural block body (`solid`/`void`) blocks movement and defines the cavity. A wall,
+half-wall or wedge is a cell; decals (tactile strips, floor markings, adverts, wayfinding)
+are separate quads over the floor and never break a chunk merge.
 
-**Paint tools (left rail: `N` 单块, `M` 整面):**
+**Paint tools (left rail → 材质, `N`):**
 
-* **单个块 (single block, `N`)** — click one cell face to override just that block's texture
-  within its family. Per-block overrides win over the fill and render as a tint badge in
-  the inspector (`已自定义`).
-* **整个表面 (fill surface, `M`)** — click one face to flood-fill its connected same-family
-  region on that plane (same level, same orientation) with the chosen texture. The fast
-  pass for stage 3 of the loop: paint a whole concourse floor or an entire wall run.
-* `左键` paints, `右键` erases (reverts to family default) in both tools — see §9.5 for the
-  full mouse table. `吸取` (`P`, the 工具 folder's eyedropper) picks the clicked surface as the
-  active brush — and a placed 设备 / 装饰 piece instead arms that piece's placement (see §9.5).
-  Both tools preview as ghosts, are undoable, and mark the save dirty.
-* The `N`/`M` choice **sticks**. It is a setting of the 材质 folder, not of a texture: choosing a
-  finish (or a fresh 搪瓷板 colour) never changes it, so it is still there when the player comes back
-  from another folder on the left rail.
+* **单个块 (single block)** — click one cell face to override just that cell's finish on
+  that face. It is the mode `N` opens with.
+* **整个表面 (fill surface)** — press `Tab` (or the action tile) to switch to it: click one
+  face to flood-fill the connected same-family region on that plane with the chosen finish.
+  The fast pass for stage 3 of the loop.
+* `左键` paints, `右键` erases (reverts to the family default) in both modes — see §9.5 for
+  the full mouse table. `P` 吸取 picks the clicked surface as the active brush, or arms a
+  placed 设备 / 装饰 piece for placement. Both modes preview as ghosts and are undoable, and
+  the autosave picks the committed document up five minutes later.
+* The 单块/整面 choice **sticks**: it belongs to the 材质 folder, not to a finish, so a new
+  colour or material never changes it.
 
 ### 4.4 Levels and depth
 
-Levels are named slices with a depth in metres, not free-floating floors:
+There is one storey model, and it is five metres:
 
 ```
-level = { id: "B1", z: -5.5, kind: "underground" | "at-grade" | "viaduct", height: 4.5 }
+STOREY_HEIGHT = 5                      // the sole numeric definition, sim/constants.ts
+levelBase     = 0..4                   // where within a storey a station's grid starts
+storey(z)     = floor((z - levelBase) / STOREY_HEIGHT)
 ```
 
-* `underground` — carved into soil, enclosed, no rain, third-rail-friendly.
-* `at-grade` — ground level, the default entrance storey.
-* `viaduct` — elevated deck with piers; the space below is open air and can host other buildings.
-
-Rules that fall out of this:
-
-* Vertical distance between levels is a cost in the agent pathfinding graph.
-* Rain only affects `at-grade`/`viaduct` platform exposure (comfort, no mechanical failure).
-* Only `underground` cavities require ventilation logic for the (cosmetic) ceiling.
-* Track on a viaduct requires catenary clearance; track in a tunnel forces third rail. See §6.
+* **No named levels.** The old `B1` / `G` / `L1` list with per-level heights is gone; a
+  station stands on the fixed grid and the editor's depth rail lists fifteen stops from
+  −40 m to +30 m (relative to `levelBase`). `Q`/`E` step one storey.
+* **No level kind.** Underground, at-grade and viaduct are consequences of where the
+  blocks are (a cover above, open sky, a bridge deck), not a per-level field. There is no
+  `kind`, no per-level height, and no rain/ventilation switch on a level.
+* `levelBase` persists in the save so opening a file keeps the station's own grid offset;
+  `normalizeLevelBase` clamps it to `0..4`.
+* **Vertical distance is a cost.** Stairs, escalators, walkways and lifts are real graph
+  edges, so depth is paid in walking/queue time rather than special-cased.
+* **Track clearance is measured in storeys**, not volts: a covered run needs three
+  courses of headroom (15 m) and open catenary four (20 m); tunnels are exempt and may
+  carry either pickup (§6.2).
 
 ### 4.5 Zones
 
-Fare zones are an explicit model, not an implied one. Every floor cell belongs to exactly one zone:
+Fare zones are **labels**, and today they are not enforcement. A floor cell may carry one
+of six values; `none` is the default and is read as the unpaid side:
 
 | Zone | Meaning |
 |---|---|
+| `none` | unpainted (default); read as `unpaid` by `isUnpaidZone` |
 | `outside` | beyond the station footprint: street, plaza, other buildings |
 | `unpaid` | concourse before the fare line: TVMs, retail, customer service |
 | `paid` | concourse and passages after the fare line |
-| `platform` | platform areas; reachable only from `paid` |
+| `platform` | platform areas |
 | `restricted` | plant rooms, staff areas, depots |
 
-Rules:
+Rules **as shipped**:
 
-* A **gate** is the only legal crossing between `unpaid` and `paid`. Without a gate, the station
-  graph has no edge, so agents physically cannot walk through — no special-casing in the sim.
-* **Ticket machines must sit in `unpaid`.** Retail and vending may sit in either, and that is a real
-  design choice: unpaid retail catches people on the way in, paid retail catches people waiting for
-  a train.
-* **Interchange passages can be `paid` → `paid`** (a true inside-the-barrier transfer) or require
-  re-gating through `unpaid`. Both are legal; the second costs every transferring passenger a gate
-  queue, and the transfer-time report shows it immediately.
-* Painting zones is a bucket tool, but the game infers the obvious case: a room fully enclosed by
-  gates and platform edges is proposed as `paid` and shown as a dashed tint until confirmed.
+* **Zone paint does not block movement.** `ZONE_LINES_BLOCK = false` (`sim/constants.ts`):
+  a painted `paid`/`unpaid` boundary is not a barrier, and there is no gate-only crossing.
+  The rule is implemented and covered by `zones.test.mjs` / `gates.test.mjs` behind the
+  flag (and per-station in `buildGraph`), but it is off in the shipped game because the
+  demo station's unfinished paint would wall off real circulation.
+* **What does block is geometry.** A 围栏 run, a wall course or a fence is a barrier cell;
+  a 闸机 is a queue server the crowd walks through. A player builds the fare line
+  physically, not by painting alone.
+* **No placement legality and no inference.** A TVM may stand in `paid` or `restricted`;
+  an enclosed room is not proposed as `paid`; there is no dashed proposal. Zone paint is a
+  bucket tool and the 分区图 overlay.
+* **No transfer-time report** exists, so the paid→paid vs re-gate trade is a routing
+  outcome rather than a measured chart.
 
-Zones give the overlays something real to colour, and they give the builder the single most
-consequential decision in a station: where the fare line goes.
+Zones still give the overlay and the room-purpose tint something to colour, and the fare
+line remains the single most consequential decision in a station — it is just built with
+fences and gates, not painted into existence.
 
 ---
 
 ## 5. Modules
 
-Every module is a footprint (`a × b` blocks), a rotation, and a set of simulation properties. This
-is the whole build palette for v1. Stage 4 of the loop: modules are **placed onto and removed
-from the blueprint** — they snap to cells and ride on faces, but they are not blocks. Deleting
-a module restores the block underneath; deleting a block underneath deletes (refunds) the
-modules standing on it, with a confirm if §9.3 confirmations are on.
+A module is a footprint, a rotation, and a set of simulation properties. The shipped palette
+(`app/store/catalog.ts`) is **not** a fixed short list: it has around a hundred option rows in
+twenty-five families, and a family's variants share one placed module type. Stage 4 of the
+loop: modules are **placed onto and removed from** the station — they snap to cells and ride
+on faces, but they are not blocks. Deleting a module leaves the block underneath; deleting a
+block underneath takes its hosted modules with it in the same undo step.
 
 ### 5.1 Circulation
 
 | Module | Footprint | Capacity / rate | Notes |
 |---|---|---|---|
-| Staircase | 3 × 6 (per 3.5 m rise) | 25 pax/min per metre up, 33 down | width scales with footprint; queuing happens at the foot; handrails are modelled so the run is walkable |
-| Escalator | 1 × 8 | 75 pax/min, one direction | theoretical 150/min at 0.5 m/s; observed flows under crowding land at 60–80, so 75 is the design value |
-| 自动步道 (moving walkway) | 1 × 30 / 60 / 90 | ~138 pax/min, one direction, step-free | the escalator's level twin: the same body laid flat, ridden at the walking speed + 0.5 m/s (1.84 m/s); the 宽 tile doubles it |
-| Elevator / lift | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; agents that need it will wait rather than climb |
-| Ramp | 2 × n | 30 pax/min per metre | accessible, slow |
+| 楼梯 (straight stair) | 1 lane × 9 cells for the default 长 5 m climb | 25 pax/min per metre up, 33 down | 窄/中/宽 = one/two/three 0.7 m lanes, each in its own cell; turning, switchback and 楼梯块 variants |
+| 扶梯 (escalator) | 1 × 10 cells for the default 长 5 m climb | 75 pax/min, one direction | 30°; 单层 2–6 m and 双层 7–11 m of climb |
+| 自动步道 (moving walkway) | 1 × 30 / 60 / 90 | ~138 pax/min, one direction, step-free | the escalator's level twin, ridden at walking speed + 0.5 m/s (1.84 m/s); 宽 doubles it |
+| 电梯 (lift) | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; intervals of 3–7 m stack for uneven floors |
+
+There is **no ramp module**: the accessible sloped run the early drafts listed as “Ramp” was
+never built. Step-free vertical travel is the lift and the 自动步道.
 
 A **run** — an escalator or any staircase but the 1 × 1 楼梯块 — climbs one of the
 **one-floor lengths**, chosen on its action tile: **超短** 2 m, **短** 3 m, **中** 4 m,
@@ -527,261 +568,249 @@ floor it owns, the opening it carves and the turn it makes all travel with the p
 
 ### 5.2 Fare control and service
 
+The pieces below are the fare-control and service family. Of this family, only 闸机,
+售票机 and 自动售货机 actually change the crowd today. The rest of the 设备 and 装饰 folders
+are geometry and props:
+they are placeable and saveable, but **sim-inert** (`sim/decorInert.ts`) — a billboard, a clock,
+a CCTV camera or a tactile strip changes the look, not the flow.
+
 | Module | Footprint | Capacity / rate | Notes |
 |---|---|---|---|
-| Turnstile gate | 1 × 2 | 25 in / 25 out per min | bidirectional configurable; queue anchor side selectable; a 1250 mm machine — 957 mm shoulder, a head tapering at 115° so its top is shorter than its base — whose piece cycles with `Tab`: **lane** (default) is the working turnstile, machine body on one half of the block with the lane and its leaf on the other, so a 围栏 run butts the body's solid side and ends at the doorway on the lane side, and **fence** keeps that body with fence on the other half, closing a run rather than passing anyone. Which hand the lane is on is not a setting — `R` turns the piece |
-| Accessible gate | 2 × 2 | 18 pax/min | luggage, wheelchairs, strollers; slower because the users are |
-| Ticket machine (TVM) | 1 × 1 | **1.5 tickets/min**, 4 queuing | a real transaction is 30–60 s. This is the queue that catches new players out |
-| Add-value machine | 1 × 1 | 1.8 pax/min | faster than a TVM: no ticket issue |
-| Ticket office window | 2 × 2 | 8 pax/min | unmanned in sandbox; a slow service point |
-| Vending machine | 1 × 1 | +6 s dwell, +comfort | no throughput, all lure |
-| Retail unit / store (商店) | ≥2×2, any size (§5.7) | area-scaled: `shoppers/min ≈ 0.2 × area`, dwell 4–10 min | draws and releases agents, can seed a platform crowd; bigger floor = more flow |
-| Convenience kiosk / cafe (便利店/咖啡) | ≥2×2, any size (§5.7) | area-scaled: `shoppers/min ≈ 0.3 × area`, dwell ~3 min | smaller, faster, noisier; same scaling rule |
-| Bench | 1 × 4 | seats 6 | comfort, lets agents wait out a headway |
-| Info pillar (totem, 问讯柱) | 1 × 1 | wayfinding radius 8 m | cuts decision time; custom text §5.8 |
-| Guide sticker / floor map (地贴/导览) | 2 × 2 | −15 s search per agent | cheapest fix in the game; custom text §5.8 |
-| Ad billboard (广告牌) | 4 × 1 | +browse chance, +dwell | wall-mounted; custom text §5.8 |
-| Digital ad tower (广告柱) | 1 × 1 | same, smaller | floor-standing; custom text §5.8 |
-| Wall TV (壁挂电视) | 2 × 1 wall (§5.8) | next-train / info / ads | wall-mounted screen; mode + custom text |
-| Hanging TV (吊挂电视) | 1 × 1 ceiling (§5.8) | same | double-sided; concourse + platform |
-| Standing display (立式广告机) | 1 × 1 floor (§5.8) | same | floor totem screen |
-| Restrooms (卫生间) | ≥2×2, any size (§5.7) | area-scaled stalls, +dwell 90 s, comfort | stalls = `floor(area/4)`; queue forms outside when full |
-| Vent shaft / light well | 2 × 2 | +1 air-quality step on its level | see §7.7; the design answer to deep, sealed concourses |
+| 闸机 turnstile | 1 × 1 | 25 pax/min per direction | one cell holding the body plus the lane; `Tab` cycles **lane** (working) and **fence** (closes a run), `R` turns which hand the lane is on; two variants (old/new) |
+| 售票机 TVM | 1 × 1 | **1.5 tickets/min** | the queue that catches new players out; a stop in trip sampling |
+| 自动售货机 vending | 1 × 1 | dwell + comfort | browse stop, no throughput |
+| 商店 / 卫生间 / 办公室 | rectangle ≥ 3 × 3 | **no area-scaled flow yet** | a walled room with a purpose (`store` / `toilet` / `office`); see §5.7 |
+| 售票亭 / 问讯处 booth | rectangle ≥ 3 × 3 | stop; no service rate | two booth kinds (`ticket` / `info`) built by the same room brush |
+| 座椅 bench | 1–2 m | comfort | lets an agent wait out a headway; no seat count, and the trip sampler does not choose it as a stop yet |
+| 导向柱 guidepost | 1 × 1 | signage | exit-linked street prop |
+| 公交站 busstop | 4 or 8 m | street prop | outside decor |
+
+**Not in the build** (they remain design intent, not shipped modules): accessible/wheelchair
+gate, add-value machine, ticket-office service rate, info totem with an 8 m wayfinding bonus,
+guide sticker with −15 s search, digital ad tower, floor-standing ad screen, wide barrier,
+emergency exit and a vent shaft that changes air quality. `GATE_ACCESSIBLE_RATE` exists in the
+constants but no module consumes it.
+
+The 装饰 folder adds the visual fit-out: ceiling 灯具 / 通风口 / 时钟 / 监控, wall 广告牌 /
+玻璃板 / 门 / 站名 / 线网图 / 指示牌, floor 垃圾桶 / 灭火器 / 货架 / 办公桌 / 收银台,
+bathroom 隔间 / 洗手盆, and the outside 人行道 / 草坪 / 树木 / 道路 / 交通灯 / 空调风机 /
+设备柜.
 
 ### 5.3 Platform edge and access
 
-| Module | Footprint | Capacity / rate | Notes |
+| Piece | Size | Behaviour | Notes |
 |---|---|---|---|
-| Platform screen doors (full) | 2 × 1 per pair | 24 doors/min/car, +2 s per boarding | glass, blocks the platform from track; header display auto (§5.8) |
-| Half-height PSD | 2 × 1 per pair | same, cheaper | open above, allows smoke clearance; header display auto (§5.8) |
-| Platform edge + tactile strip | per-edge decal | — | required for a legal boarding zone |
-| Swing door | 1 × 1 | 1.2 pax/s when open | can be locked (closed = wall) |
-| Wide barrier | 2 × 1 | 40 pax/min | staffed gates, luggage |
-| Station exit (surface) | 2 × 6 | **settable in / out per hour** | see §5.6; the primary demand control |
-| Emergency exit | 2 × 4 | 0 until triggered | counted for evacuation analysis only |
+| 屏蔽门 screen doors | derived per platform edge | boarding only where a screen meets a car door | **full / half / none is a line property**, not a module choice (`LineDef.psd`); full is 3 m, half 1.45 m, 5 cm below the slab above |
+| 站台门 end pieces (`psd-end`, `psd-end-cover`) | 1 × 1 | infill at the ends of a screen run | two decor variants; not a selectable height |
+| 地面出入口 exit | 1–4 bays (+2 blocks across) | street demand control | §5.6; covered, uncovered, doorway-panel and virtual variants |
+| 盲道 tactile strip | 1 × 1 decal | none | not required for boarding; it is a floor prop |
+| 门 freestanding door | 1 × 1 | none | a decor doorway in a room, not a fare or evacuation device |
+
+There is **no PSD throughput rate**, no “+2 s boarding” penalty and no **wide barrier**,
+**emergency exit** or **swing door module**. Boarding is governed by the train's own door
+servers (§6.4), and the screen's job is to decide which door banks may open.
 
 ### 5.6 Exits — names and throughput (出入口)
 
 Stage 6 of the loop. Each surface-exit instance carries its own config, edited in the right
-inspector (`出入口` tab) and stored in the save's `static.modules[].cfg` + `config.demand`:
+inspector's `出入口` card and stored in `static.modules[].cfg`:
 
 ```
 exit = {
-  name: "C口",              // player-set, shown on signage, minimap and charts
-  inRate: 600,              // pax/hour entering the station (0 = closed for entry)
-  outRate: 600,             // pax/hour leaving the station (0 = closed for exit)
-  open: true,               // quick toggle; closed = both rates forced 0 but remembered
+  name: "C口",              // player-set; signage, the exit list and the charts
+  inRate: 900,              // pax/hour entering the station (0 = closed for entry)
+  open: true,               // closure; street demand re-routes to the open exits
+  headHouse?: true,         // a covered head-house is solid; false is a bare portal
+  covered?: true,           // covered portal vs open railing round the pit
+  bays?: 2,                 // 1–4 run columns (单向/双向/三向/四向)
+  style?: 'doorway' | 'virtual',
 }
 ```
 
-* Defaults: a new exit is named for the next free letter `A口`–`Z口` (the placeholder
-  `未命名口` returns once all 26 are taken), 600/600 pax/h. Rates clamp to 0–6000/h in steps of 10.
-* **Throughput readout.** The inspector shows configured (`设定`) vs actual (`实际`, rolling
-  5-min mean from the sim) in/out side by side; the §8.1 exit chart plots both series per
-  exit, so an exit that cannot discharge its demand is visible as a gap between the lines.
-* Closing an exit (either rate → 0, or `open: false`) re-routes agents through the graph —
-  no teleporting. The transfer/wait charts move immediately, which is the point.
+* **Outflow is unlimited.** There is no `outRate`: an exit is a pure opening and passes as
+  many people as the corridors deliver. The inspector shows one **进站** slider (0–6000,
+  step 10) and the open toggle, **not** a configured-vs-actual pair.
+* **Defaults:** a new exit is named for the next free letter `A口`–`Z口` (placeholder
+  `未命名口` when all 26 are taken) and starts at **900 pax/h**, not 600.
+* Closing an exit (`open: false`) removes it from the street sampling pool; agents already
+  inside keep their trip and route to another open exit. There is no exit-throughput chart.
 
-**Geometry.** A surface exit is a head-house over runs that stand **side by side**: one run column
-per bay, with one full block of floor at each end — so a 单向 / 双向 / 三向 head-house is 3 / 4 / 5
-blocks across. Each run owns the block it lands in (its wellway opens exactly that block, wider only
-for a piece wider than a block), which keeps the floor pad whole beside it. The runs are entered at
-the street doorway and descend one storey to the hall below; a run dropped inside the head-house
-snaps to the column under the pointer, so they cannot end up a bay apart.
+**Geometry.** A surface exit is a head-house over runs that stand **side by side**: one run
+column per bay, with one full block of floor at each end — so bays + 2 blocks across. The
+`covered`/`uncovered` families offer 1–3 bays; the 地面 doorway-panel family offers 1–4. Each
+run owns the block it lands in, which keeps the floor pad whole beside it. The runs are
+entered at the street doorway and descend one storey to the hall below; a run dropped inside
+the head-house snaps to the column under the pointer, so they cannot end up a bay apart.
+A virtual exit is a pure opening in a wall with no head-house.
 
-### 5.7 Variable-area shops / cafes / buildings (可变面积)
+### 5.7 Rooms and variable-area fit-out (可变面积)
 
-Retail, cafe/kiosk and restrooms are **not fixed footprints**. Each declares only a
-minimum; the player drags any rectangle at or above it, and flow scales with floor area.
-Large shops generate more flow — exactly proportional, no hidden tiers.
+A room is a `shop` module with a `w × h` footprint and a **purpose**: `store` (商店),
+`toilet` (卫生间) or `office` (办公室). The player drags a rectangle of at least
+**3 × 3 blocks** (`FACILITY_MIN`); the room grows with it, and its walls/floor are part of
+the piece. A same-type drag extends an existing room. There is no separate cafe/kiosk type;
+the two `booth` kinds (售票亭 and 问讯处) are built by the same facility brush and are the
+two other service stops.
 
 ```
-place: J tool → pick type → 左键 drag rectangle (≥ min) → release to confirm
-resize: V select → drag corner handles (snaps to 1 m); R swaps w/h for square mins
+place: 房间 folder → pick purpose → 左键 drag rectangle → release
+extend: drag the same room type beside it; delete removes the room piece
 ```
 
-| Type | Min | Area rule (flow) | Capacity rule |
-|---|---|---|---|
-| 商店 retail | 2×2 | `shoppers/min = 0.2 × area` (24 m² → ~5/min, matches old 4×6) | `maxInside = floor(area / 2)`; overflow queues outside |
-| 便利店/咖啡 cafe | 2×2 | `shoppers/min = 0.3 × area`, dwell ~3 min | `maxInside = floor(area / 1.5)` |
-| 卫生间 restroom | 2×2 | `users/min = 0.15 × area` | `stalls = floor(area / 4)` (min 1); full → outside queue, +90 s dwell each |
+What the room does today: it is a walkable interior with a remembered purpose tint. What it
+does **not** do:
 
-Rules:
+* no `shoppers/min = 0.2 × area` (or 0.3 / 0.15) flow rule;
+* no `maxInside`, stall count, outside overflow queue, or +90 s restroom dwell;
+* no attraction weight in trip sampling — shops and restrooms are never chosen as a stop
+  or destination (§7.4a), so a bigger shop does not draw more people;
+* no occupancy eviction when a room shrinks, and no V corner handles or `R` w/h swap.
 
-* Area = `w × h` blocks = m². Ghost preview shows `宽×深 = 面积` plus predicted
-  `人/分` so the size→flow trade is visible before confirming.
-* Attraction weight in trip sampling (§7.4a) uses the same rate: a 48 m² store draws
-  ~2× the stops and destinations of a 24 m² one. Doubling floor space doubles flow
-  draw, but also doubles rent-free floor agents must walk around — the corridor cost.
-* Shrinking below occupancy (e.g. 10 inside a resized-to-6 shop) pushes extras out as
-  `leaving` agents; growing never evicts. Both mark save dirty.
-* Saved per instance as `w, h` alongside `x, y, z, rot` (§10.5). Fixed modules omit them.
+Those rules remain **Planned**; the area → flow trade is not yet in the build. A room's
+`w`/`h` are saved with the instance (§10.5); fixed modules omit them.
 
-### 5.8 Custom text signage + displays (标识/屏幕)
+### 5.8 Signage and displays (标识/屏幕)
 
-Ads, maps, pillars and signs all take player text. Screens add live train info on top.
-All labels Simplified Chinese; text fields accept Chinese + digits + the ASCII ids from
-§9.2 (line numbers, `A口`, `2号线`).
+The **指示牌** is the one composed, player-written piece. Ads are chosen from a poster
+library; the other props in the early draft (info pillar, guide sticker, ad tower, hanging
+sign) are **not in the build**. Text is cosmetic: it never changes routing, only readability.
 
-**Custom-text modules (static文案, player-typed):**
+A **指示牌** is composed on its own board (the 自定义 action): arrows, line shields,
+labels and pictograms are dragged on, and the board grows with what it carries — the panel
+tops out at 3.5 m and fits nine arrows, not the ten marks the draft quoted. It comes in
+**two mounts**, and the mount is the piece's own (`cfg.mount`): **吊挂指示牌** hangs by rods
+from the storey ceiling and prints both faces; **墙面指示牌** is bolted flat to a wall at
+reading height and prints one face. A wall board therefore wants solid backing on the one
+course its panel crosses and nothing overhead; a hung one wants the reverse. Its marks
+include the red 禁止 roundel, the green 出/EXIT plate, and the white/blank divider rules.
 
-| Module | Lines × chars | Editing | Gameplay note |
-|---|---|---|---|
-| 问讯柱 info pillar | 2 × 12 | inspector `文案` tab, textarea | cosmetic; 8 m wayfinding bonus (§5.2) applies regardless of text |
-| 地贴/导览 guide sticker | 2 × 12 + auto mini-map | same | −15 s search applies regardless; mini-map corner auto-draws station extents |
-| 广告牌 billboard | 3 × 16 | same; swatch for bg colour | browse/dwell bonus unchanged in v1 |
-| 广告柱 ad tower | 2 × 10 | same | same |
-| 吊牌 hanging sign | 2 × 8, double-sided | `J` ceiling-face + `文案` tab | pure wayfinding, no bonus; the cheap overhead label |
-| 指示牌 sign (吊挂 / 墙面) | a board of up to 10 marks | its own board editor (the 自定义 action) | two mounts, one board: 吊挂 hangs by rods from the ceiling and prints both faces, 墙面 is bolted flat to a wall at reading height and prints 正面 alone |
-
-Rules: select module → right panel `文案` tab → type → live 3D preview on the quad.
-Over-long input hard-clamps with a counter (`12/12`); empty text renders the module
-default (`问讯处`, `本站导览`, …). Text is cosmetic in v1 — it never changes routing,
-only readability. Saved as `cfg.text[]` (§10.5).
-
-A **指示牌** is composed in its own editor rather than typed into a box: arrows, line
-shields, labels and pictograms are dragged onto the board, which grows with what it
-carries. It comes in **two mounts**, and the mount is the piece's own (`cfg.mount`):
-**吊挂指示牌** hangs from the storey ceiling and is read from both faces, **墙面指示牌**
-is a panel bolted flat to a wall at reading height and read from one — the wall is
-behind it, so 背面 is not mounted. A wall board therefore wants solid backing on the one
-course its 0.7 m panel crosses and nothing overhead, and a hung one the reverse. Its
-marks include the red 禁止 roundel (a ring with a level strip across its diameter), the green
-出/EXIT plate, the white divider line and the blank divider, the drawn marks the renderer paints rather than loading as pictogram art.
+The board's two typed fields (primary and secondary text) are **24 characters each**, not
+the per-module line × char table the draft listed. The rest of the palette's text is
+authored art or data: the 站名 inscription is a chosen calligraphy hand, the 线网图 draws
+the station's lines, and an 广告牌 takes one of the poster formats.
 
 **PSD header display (屏蔽门上方, automatic, not typed):**
 
-Every PSD pair carries a header strip driven by the sim, not by the player. Content per
-platform edge, from the assigned line (§6.3) + live timetable:
+Every platform edge with a screen carries a header strip driven by the sim, not by the
+player. Content comes from the assigned line plus the live timetable:
 
 ```
 [ line colour band ]  2号线 · 往市中心 · 下趟 2:30 · 再下趟 5:00
 states: 候车 (countdown) → 上车 (doors open, flashes destination) → 关门 (red 3 s) → 发车
 ```
 
-Line name/colour/destination come from the line editor; ETAs come from headway + live
-delay (late trains show `晚点 1:20` in amber). No text field — editing the line *is*
-editing the header.
+Line name/colour/destination come from the line editor; ETAs come from the headway and the
+live schedule (a late train shows `晚点`). No text field — editing the line *is* editing
+the header. `PsdHeader.ts` owns the drawing.
 
-**Station TVs (电视, mixed auto + custom):** three mounts, one behaviour. Place with `J`
-on the matching face (wall / ceiling / floor); each TV picks a mode in `文案` tab:
+**Screens (电视 / 广告机):** the build has **two** mounts, a ceiling-hung `monitor` and a
+wall `monitor`, plus the `tv` prop. A screen carries a poster (`cfg.poster`), not a mode:
+there is no 到站 / 换乘 / 广告 dropdown, no `tvLines[]`, no carousel seconds and no footer.
+The automatic next-train content lives on the PSD header, not on the TV.
 
-| Mode (模式) | Shows | Source |
-|---|---|---|
-| 到站 next-train | next 2 trains per calling line + crowd warning (`站台较拥挤` at LOS E/F) | auto from timetable + sim |
-| 换乘 transfer | line colours, interchange arrows, exit names | auto from lines + exits (§5.6) |
-| 广告/通知 ads | player lines looped as carousel | `cfg.tvLines[]` + `cfg.carouselS` (default 8 s) |
+### 5.9 Platforms (站台) — derived edges
 
-TV inspector: `模式` dropdown + (ads mode) 1–4 lines × 16 chars + `轮播秒数 4–30 s`.
-A TV in 到站/换乘 mode ignores custom lines except a one-line footer (e.g. `小心站台间隙`).
-Render: emissive quad, readable at 20 m, dimmed 50% when its level is ghosted (`X`).
-Saved as `cfg.tvMode / tvLines / carouselS / footer`.
-
-### 5.9 Platforms (站台) — build, label, serve
-
-A **platform** is a named `platform`-zoned area (§4.5) plus one or more **platform edges**
-bound to tracks. The player builds the floor, labels it once, then binds each edge to a
-line/direction/side. Trains stop at edges; agents queue at doors.
+There is **no platform object**. A **platform edge** is derived: each contiguous track
+run with walkable floor beside it yields an edge, one per side, carrying the line's id and
+direction; its screen height is the line's own. There is no platform naming, no edge list,
+no binding tab and no `下车比`; assigning a track to a line is the whole binding.
 
 ```
-platform = {
-  name: "1站台",              // player-set; signage, PSD headers, charts, TVs
-  edges: [edgeId],            // 1..n edges on this floor (island = 2, shared transfer = 2+)
-}
 edge = {
-  track: trackId, line: "2", dir: "eastbound",   // which trains call here
-  side: "left" | "right",                        // which side of the train opens
-  doors: [doorIdx],          // derived from stock door centres (§1.13) × cars; ~20–40 per edge
+  id,                         // the track's own module id
+  name,                       // the track's name, for readouts
+  line: "5", dir: "up" | "down",
+  side: "left" | "right",     // which side of the car opens
+  doors: [doorServer],        // one server per car door
+  cells: [platformNode],      // the platform floor beside the run
 }
 ```
-
-**Build flow (`J` + zone bucket):** paint `platform` zone → floor cells adjacent to
-track auto-propose an edge (dashed, `未绑定`) → click edge → bind line/dir/side in the
-right `站台` tab → name the platform. Edge requires the tactile-strip decal (§5.3);
-without a bound edge the floor is just a room agents will not board from.
 
 **Door crowd distribution (50 doors problem).** Each boarding agent commits to one door
 when it enters the platform (or re-rolls on arrival), then queues there:
 
 ```
 doorChoice ~ 1 / (walkCost(entry → door) + k × queueLen(door) + crowdPenalty(door))
-k ≈ 8 s/pax; re-pick cheapest door when waitQ(door) > patience (§7.2)
+k ≈ 8 s/pax; re-pick the cheapest door when waitQ(door) > patience (§7.2)
 ```
 
 Walk-close doors fill first, then spill down the platform — the ends stay emptier until
-the middle clogs, exactly like §7.8's reference peak. Alighting is fixed: onboard agents
-exit through their car's doors, split across the platform width. Per-door queues are real
-(§6.4): a door that cannot clear in dwell leaves its queue behind, shown per-door in the
-Boarding overlay (§8).
+the middle clogs. Alighting is fixed: onboard agents exit through their car's doors, split
+across the platform width. Per-door queues are real (§6.4): a door that cannot clear in
+dwell leaves its queue behind, and the status bar's 站台门排队 is that total. There is no
+per-door Boarding overlay to inspect them individually.
 
-**Two platforms, one train (Spanish solution).** Build an edge on *both* sides of the
-same track stop, bind both to the same line/dir with `side: left/right`. The train opens
-both sides; alighting splits by side preference (default 70% exit-side / 30% far-side,
-editable per edge `下车比`), boarding draws from both platforms' queues in parallel.
-Dwell uses the slower side's total (§6.4). Label two platforms (`1A站台`, `1B站台`) or one
-island — the sim only sees two edges at one stop.
+**Two edges, one train (Spanish solution).** A track with walkable floor on both sides
+derives two edges. Both sides' doors may open; boarding and alighting are served from
+each side's own door servers. There is no 70/30 side-preference setting and no per-edge
+split — the crowd's own door choice produces the split.
 
-**Same-platform transfer.** Bind two edges of *different* lines to one platform floor
-(island: line 2 east one face, line 5 west the other; or side-by-side). A
-`train(A) → line(B)` trip (§7.5) then costs one walk leg across the floor — no stairs,
-no gates — and the transfer-time chart shows it near zero. The platform inspector lists
-all bound lines with colours so the shared state is visible; deleting one edge's line
-reverts its would-be transfers to cross-level routing.
+**Same-platform transfer.** Put two tracks of *different* lines on one floor and the walk
+graph does the rest: a `train(A) → line(B)` trip is one walk leg across the floor, with no
+stairs or gates. There is no platform inspector listing the shared lines and no
+transfer-time chart; the transfer is visible only as the agent's route and the destination
+line it boards.
 
 ### 5.4 Track kit
 
-| Module | Footprint | Notes |
+Track is one module type, drawn as a straight run on the five-metre grid:
+
+| Piece | Size | Notes |
 |---|---|---|
-| Straight track | 1 × 1 per metre | direction locked to a line |
-| Curved track | n × n quarter arcs | min radius by stock type (R150 for B, R110 for C) |
-| Switch / crossover | 4 × 8 | joins two tracks, allows reversing |
-| Buffer stop | 1 × 2 | terminus |
-| Third rail segment | 1 × 1 per metre | 750 V DC, forces tunnel or covered box |
-| Catenary segment | 1 × 1 per metre + masts | 1500 V DC / 25 kV AC, viaduct or open cut |
-| Platform edge for trains | per placed platform | must be within 75 mm of the car floor (auto-snap) |
-| Depot / stabling siding | n × m | where consists park between services |
+| 轨道 track | `w` cells long × a car-width bed | `w` is one of the 4 / 16 / 32 / 64 / 128 m presets; `cfg` carries the line, power, direction and optional tunnel/bridge |
+| 隧道 tunnel | preset run | a generated shell round the track; keeps the station's headroom contract |
+| 轨道桥 railway bridge | preset run | deck, piers and railings; catenary canopy or gantry, PSD-aligned |
+| 信号 rail signal | 1 × 1 | trackside prop |
+| 屏蔽门 screen doors | derived per edge | not a placed module; the line's `psd` draws the screen (§5.3) |
 
-### 5.5 Queue management
+**Power is a property of the track**, not a separate segment: `third-rail` or `catenary`.
+A tunnel keeps its own shell; a bridge draws the matching gantry/canopy. Third rail is
+laid automatically on the travel side in a tunnel or on a bridge and off the platform side
+at a station.
 
-The cheapest capacity in the game is not a bigger hall. It is telling people where to stand.
+**Not in the build:** curved track, switches/crossovers, buffer stops, depot/stabling
+sidings, a minimum-radius validator, and the line tool that would route an alignment
+between platform edges. Track is laid run by run with `L`; junctions between two lines are
+not expressible.
 
-| Module | Footprint | Behaviour |
+### 5.5 Queue management — Planned
+
+Queue lanes are **not in the build**. There is no queue rail, belt barrier, single-file or
+two-abreast lane, or switchback queue module. `LANE_SLOT`, `LANE_SPEED` and `LANE_RATE`
+exist in `sim/constants.ts` but no module or graph edge consumes them; the decorative
+`排队等候线` floor marking is sim-inert.
+
+What the build has instead is **server queues**: the agent joins a gate, TVM, lift or
+platform-door server and waits in its ordered member list (`World.joinServer`). That gives
+the per-server wait the HUD and charts read, but it does not give the player a lane as a
+placeable object, nor the throughput-for-order trade the earlier draft described. Treat the
+lane design as future work, not as a current mechanic.
+
+### 5.10 Street and traffic (站外)
+
+The surface is part of the station, not a backdrop:
+
+| Piece | Size | Notes |
 |---|---|---|
-| Queue rail | 1 × 1 per metre | physical channel. Blocks sideways movement, so a lane cannot be jumped |
-| Belt barrier (stanchion) | 1 × 1 | retractable belt; toggle open/closed at runtime to re-route a flow |
-| Queue lane, single file | 1 × 1 per metre | painted lane. Agents join at the back and cannot overtake |
-| Queue lane, two abreast | 2 × 1 per metre | double the rate, half the order |
-| Switchback queue | 2 × 4 per fold | folded queue: 40 pax in 8 m² of floor |
+| 人行道 sidewalk / 草坪 lawn / 树木 tree | 1 × 1 | ground finishes and planting; `隐藏地面` hides them |
+| 道路 road | node-to-node segments | orthogonal; the segment's width is part of the piece |
+| 交通灯 traffic light | 1 × 1 | street prop, not a signal the crowd obeys |
+| 公交站 busstop | 4 or 8 m | street prop |
+| 导向柱 guidepost | 1 × 1 | exit-linked wayfinding post |
+| 空调风机 / 设备柜 | 3 × 2 / 3 × 1 | outdoor equipment |
 
-A lane is a **server with storage**: slots at the back, one head at the front.
+**Roads are a derived node graph, not a list of rectangles.** A road is placed as an
+orthogonal segment between nodes; the document derives shared nodes from the segments'
+endpoints, splits a segment at an intersection or branch, snaps an extension to an existing
+node, and leaves the nodes in place when a segment is deleted while incident segments remain.
+A legacy rectangle road adapts when edited. The graph feeds the road lane movements, the
+road network/traffic systems and the rendered intersections and lights — the nodes are not
+saved as independent objects.
 
-```
-capacity = floor(L / 0.80) + 1      // 12 m lane -> 16 people
-rate     ≈ 45 pax/min               // 0.6 m/s shuffling, single file
-wait     = queue length / rate
-```
-
-The trade is deliberate. A free-for-all crowd through the same 1 m width moves ~60 pax/min, but its
-front is chaotic, it spills sideways into whatever flow it is next to, and the wait is
-unpredictable. A single-file lane is roughly 25% slower and completely legible — and because it is
-a declared object with a length, the game can show you its wait time *before* the crowd arrives.
-
-Why it matters more than it sounds:
-
-* **Lanes stop a queue blocking a corridor.** A blob in front of three gates occupies the walkway
-  beside them; a lane does not.
-* **Switchbacks fit crowds into small rooms.** 40 people standing loose need ~48 m². Folded into a
-  2 × 8 m switchback they need 16 m², and they are out of everyone's way.
-* **They make the platform-door pattern possible.** Two lanes per door converging on the door with
-  the alighting path down the middle is how Chinese metro platforms actually work (sheet 10, panel
-  D). Two lanes at 45/min feed a door that takes 72/min, so the door stays the bottleneck — which
-  is the honest answer, and the reason dwell time is a design variable.
-* **They are the counterweight to escalators.** An escalator is capacity; a lane is order. A station
-  with plenty of both survives a peak.
-
-One caveat, and the game models it: a lane commits everyone in it to a single head. If the ticket
-machine at the front is slow, the whole lane waits, and re-routing is expensive because agents
-cannot leave a lane sideways.
+**Ambient traffic** is seeded, not agent-simulated: six vehicle appearances (two buses, an
+SUV, a sedan, a moped and a step-through bicycle) at 50% of the original slot density, with
+multi-lane spawns staggered across lanes. It respects the road graph, shares the passenger
+material opacity, and is hidden with the street when `隐藏地面` is on.
 
 ---
 
@@ -789,123 +818,143 @@ cannot leave a lane sideways.
 
 ### 6.1 Stock types
 
-Numbers follow the Chinese metro car classification (A/B/C/L); treat them as the tuning baseline and
-verify against GB 50157 before shipping.
+Numbers follow the Chinese metro car classification (A/B/C/D/L) and are the shipped tuning
+baseline (`sim/stock.ts`), not aspirational figures.
 
-| | Type A | Type B | Type C | Type L |
-|---|---|---|---|---|
-| Width | 3.0 m | 2.8 m | 2.6 m | 2.8 m |
-| Length / car | 22.0 m | 19.5 m | 19.0 m | 16.8 m |
-| Height | 3.8 m | 3.8 m | 3.6 m | 3.6 m |
-| Doors / side | 5 × 1.4 m | 4 × 1.3 m | 4 × 1.2 m | 3 × 1.4 m |
-| Crush / car | 310 | 240 | 200 | 215 |
-| Rated / car | 250 | 200 | 170 | 170 |
-| Consist | 6–8 cars | 4–6 cars | 4–6 cars | 4–6 cars |
-| Power | catenary 1500 V DC / 25 kV AC | third rail 750 V DC | third rail 750 V DC (linear-motor variants exist) | third rail 1500 V DC, linear motor |
-| Typical use | trunk lines, viaducts and open cuts | the workhorse tunnel line | lighter branches, automated lines | linear-motor lines (Guangzhou 4/5/6) |
+| | Type A | Type B | Type C | Type D | Type L |
+|---|---|---|---|---|---|
+| Width | 3.0 m | 2.8 m | 2.6 m | 3.3 m | 2.8 m |
+| Length / car | 22.0 m | 19.5 m | 19.0 m | 20.1 m | 16.8 m |
+| Height | 3.8 m | 3.8 m | 3.6 m | 3.8 m | 3.6 m |
+| Doors / side | 5 × 1.4 m | 4 × 1.3 m | 4 × 1.2 m | 4 × 1.4 m | 3 × 1.4 m |
+| Crush / car | 310 | 240 | 200 | 325 | 215 |
+| Rated / car | 250 | 200 | 170 | 219.75 | 170 |
+| Reference consist | 6–8 cars | 4–6 cars | 4–6 cars | 8 cars | 4–6 cars |
+| Power | catenary | third rail | third rail | catenary | third rail |
+| Typical use | trunk lines, viaducts and open cuts | the workhorse tunnel line | lighter branches, automated lines | Guangzhou 18/22, 160 km/h | linear-motor lines (Guangzhou 4/5/6) |
+
+The **line editor's formation menu is 2 / 3 / 4 / 6 / 8 cars for every class** — the
+per-class reference ranges above are data, not a hard restriction. D's eight-car formation
+totals 1,758 rated passengers; its cab cars have three double doors and one single door
+nearest the cab, while middle cars keep four double doors.
 
 ### 6.2 Power pickup is a design constraint
 
-* **Third rail** requires an enclosed or covered track bed. Place track with third rail on an
-  over-ground level with no roof and the game flags it as invalid; you can still build it, but the
-  level is marked "unsafe: live rail exposed".
-* **Catenary** requires vertical clearance above the train (5 m to the wire), so it cannot go under
-  a low concourse slab. It is the natural choice for viaducts.
-* PSDs only make sense with a tunnel/covered box, which is exactly why underground lines get them.
+Pickup is a **track property** (`cfg.power`), and the game enforces headroom, not voltage:
+
+* **Catenary** needs **three storeys of headroom (15 m)** over a covered run and **four
+  (20 m)** in the open; a **tunnel is exempt**, so catenary can run underground in its own
+  shell. There is no “5 m to the wire” rule and no voltage/linear-motor distinction.
+* **Third rail** is drawn as a guarded conductor beside the running rails — on the travel
+  left in a tunnel or bridge, and off the platform side at a station. There is **no
+  “unsafe: live rail exposed” flag** and no invalidation for an open third-rail run.
+* **PSDs are not gated on a covered box.** The line's `psd` setting draws a full, half or no
+  screen wherever an edge exists; a screen in the open is allowed.
 
 ### 6.3 A line
 
-Stage 5 of the loop. The line is the unit the player edits in the bottom-rail line manager
-(`线路` tab): you don't drive trains, you set a timetable, and the simulation holds it.
+Stage 5 of the loop. A line is edited in the right inspector's `线路` card (and listed in the
+bottom rail): you don't drive trains, you set a timetable, and the simulation holds it.
 
 ```
 line = {
-  id: "2",                  // route number, shown on signage + PSD header
-  name: "2号线",             // player-set display name
-  colour: "#2f7ef2",        // line colour: enamel panels, PSD band, charts
-  stock: "B",               // A | B | C | L (§6.1)
-  cars: 6,                  // consist length in cars; train length = cars × carLength
+  id: "5",                  // route number, shown on signage + PSD header
+  name: "5号线",             // player-set display name
+  colour: "#f2a02f",        // enamel panels, PSD band, charts
+  stock: "L",               // A | B | C | D | L (§6.1)
+  cars: 6,                  // 2 | 3 | 4 | 6 | 8 in the editor
   power: "third-rail",
-  headwayProfile: { peak: 150, offpeak: 240, late: 480 },  // s between trains per period (§6.5)
-  direction: "eastbound",
-  dwellBase: 25,            // seconds
-  dwellPerPax: 0.35,        // extra dwell per boarding/alighting passenger
-  terminus: "reverse" | "through",
-  stations: [ ... ]      // ordered platform edges this line calls at = route
+  psd?: "full" | "half" | "none",   // screen-door height, per line
+  headwayProfile: { peak: 150, offpeak: 240, late: 480 },  // s; 60–1200
+  alightPerTrain: 200,      // agents synthesised at each stop (the demo slider)
+  terminus: "through",      // stored; the dispatcher does not read it
+  direction: "up" | "down",
+  upTerminus, downTerminus, upTerminusEn?, downTerminusEn?,  // signage only
+  travelSign: 1 | -1,
+  stations: [],             // stored route; not read by dispatch or the editor
 }
 ```
 
-Editor fields map 1:1 to the requested train info: **type** (`stock`), **frequency**
-(`headwayProfile`, shown as `高峰 2分30秒 · 平峰 4分 · 夜间 8分` + `24/15/7班/小时`),
-**length** (`cars`, shown as `6节 · 117米`), **route** (`stations` ordered list,
-click-to-rename stops), **colour** (`colour` swatch, applied to walls/PSD/charts).
-Which hours count as 高峰/平峰/夜间 comes from the station peak windows (§9.6C) —
-one clock shared by all lines.
+Editor fields: **name**, **colour**, **type**, **formation** (`2/3/4/6/8 节`, shown with
+the train's metre length), the **three headways** (高峰 / 平峰 / 夜间, each with its
+trains/hour and people/hour readout), **power**, **screen doors**, **下车/列** (the
+alight-per-train slider) and the two **terminus** names with optional English secondary
+names. There is **no route/stop editor**, no click-to-rename stop list, and no dwell or
+turnaround control. Which hours count as 高峰/平峰/夜间 comes from the station's authored
+day (§9.6C) — one clock shared by all lines.
 
-**Throughput readout (载客量).** Next to the editor the game always shows the derived
-capacity, so frequency vs length is a visible trade, not mental maths:
+**Throughput readout (载客量).** The card's live figures are the **unloaded passengers**
+the line will deliver, not its rated capacity:
 
 ```
-capacityPerTrain = cars × ratedPerCar(stock)     // e.g. 6 × 200 = 1200 pax (B)
-trainsPerHour    = 3600 / headwayActive(t)       // headwayActive picks peak/offpeak/late by clock
-lineCapacityHour = capacityPerTrain × trainsPerHour
-actualHour       = measured boardings in the last sim-hour (§8.1)
+servedPerHour = alightPerTrain × 3600 / headwayActive(t)
 ```
 
-If `actualHour` approaches `lineCapacityHour` and the platform population ratchets up
-train over train, the line — not the stairs — is the bottleneck (§7.8).
+That is what the crowd actually receives at a stop. `lineCapacityPerHour()` (cars ×
+rated/car × 3600/headway) still exists in `sim/stock.ts` for reference, but **nothing calls
+it** and the editor never shows a `lineCapacityHour` or a measured `actualHour`. Rated
+capacity is also not enforced on boarding (§6.4), so a train can carry more than its table
+figure.
 
-The alignment itself is authored with the line tool rather than block by block — see
-§13.1 — with free hand-placement reserved for junctions, crossovers and depot throats.
+The alignment is laid by hand with the 轨道 tool, run by run; there is **no line tool**, no
+junctions, crossovers or depot throats (§5.4, §13.1).
 
 ### 6.4 Boarding model
 
 ```
-board(pax) = doors × doorRate(doorWidth) × ∝(crowding) × (1 − alightPenalty)
-dwell = dwellBase + dwellPerPax × (boarding + alighting), clamped to [20 s, 90 s]
-dwellDualSide = max(dwell(leftEdge), dwell(rightEdge))   // Spanish solution (§5.9)
+door service  = DOOR_RATE = 1.2 pax/s per open door, regardless of stock or width
+timeline      = approach → doors open (2 s) → dwell (TRAIN_DWELL = 30 s) → close (2 s) → depart
+onboard       = no rated-capacity check (a car can be over its table figure)
 ```
 
+* There is **no dwell formula**: dwell is the fixed 30 s phase, with no `dwellBase +
+  dwellPerPax × pax` and no 20–90 s clamp. Door width, crowding and alighting do not scale
+  the rate.
 * Boarding only starts after the last passenger of a preceding wave has cleared the door zone.
-* **A door only opens where a screen door meets it.** The consist's two door banks open
-  independently, and only a bank whose berth carries a `platform-edge` run with screen doors (§5.3,
-  §5.9) is commanded open — the tunnel-wall side stays shut however long the train stands, and a
-  rail with no platform beside it opens nothing. The drawn leaves follow the same rule, so what the
-  player sees is exactly what the graph serves.
-* A train that cannot finish boarding inside the clamp leaves people behind. That is the core
-  "pressure" readout of the game: a platform that slowly fills over the morning peak.
+* **A door bank only opens where a platform edge exists.** The consist's two sides open
+  independently; a bank whose berth has no `platform-edge` (the tunnel-wall side, or a track
+  with no platform beside it) stays shut however long the train stands. The drawn leaves follow
+  the same rule, so what the player sees is what the graph serves.
+* A door that cannot finish boarding inside the 30 s dwell **leaves people behind**, counted
+  in the status bar's 滞留 and summed into 站台门排队. That is the pressure readout: a platform
+  that slowly fills over the morning peak.
 * Agents decide to board when a train for their line is at the platform *and* the door they are
   queued for will accept them; the queue per door is real, not an abstraction.
 
 ### 6.5 Schedule simulation (发车模拟) — peak / off-peak timetable
 
-No hand-placed trains. Each line runs a deterministic dispatcher in the worker (5 Hz tick);
-the player sets frequencies, the sim holds them and reports delays.
+No hand-placed trains. Each line runs a deterministic dispatcher in the worker, checked once
+per simulated second (the sim's 1 Hz tick); the player sets frequencies and the sim holds them.
 
 ```
-period(t) = peak    if t in peakWindows (default 07:30–09:00, 17:30–19:00, §9.6C)
-            late    if t outside serviceWindow early/late tails (05:30–06:30, 22:30–24:00)
+period(t) = peak    if t in the station's two peak windows (default 07:30–09:00, 17:30–19:00)
+            late    if t outside the service window or in its tails
             offpeak otherwise
-headwayActive(t) = line.headwayProfile[period(t)]
+service   = 06:30–23:30 by default (§9.6C)
+headwayActive(t) = line.headwayProfile[period(t)]        // 60–1200 s
 
-dispatch(line):
-  every headwayActive(t) seconds: spawn train at route start (or depot siding if built)
-  run ordered stations[] at line speed; dwell per §6.4 (clamped 20–90 s)
-  dwell overrun → train departs late with onboard kept; next dispatch still on
-    headway grid → gap compresses behind a late train (bunching emerges, not scripted)
-  terminus reverse: consist turns (dwell +30 s); through: consist exits, fresh one enters
+dispatch(track):
+  when headwayActive has elapsed and the track is free:
+    spawn one consist → approach → open → 30 s dwell → close → depart → despawn
 ```
 
-* **Peak vs off-peak is one station clock.** Peak windows are edited once (§9.6C) and apply
-  to every line; each line answers with its own three headways. Scrubbing the timeline
-  across 09:00 visibly stretches the gap on every platform at once.
-* **Alighting share** (default 45% at peak, §9.6C) decides how many onboard agents become
-  platform arrivals per stop — the train-borne wave (§7.4). A short headway with long
-  consists is smooth; a long headway with short consists is bursty.
-* **Live outputs** per line: next-train ETA (drives PSD headers + TVs, §5.8), trains late
-  count + max lateness (HUD), `actualHour` vs `lineCapacityHour` (§6.3). Suspend a line by
-  setting all three headways to max (600 s) or emptying its `stations[]` — boarders
-  re-weight to other lines/exits (§7.4a).
+* **One consist per track.** There is no ordered-stations run: a train is dispatched on the
+  track's own line, runs the track's length and disappears at the end. `stations[]` is never
+  read, there is no terminus reversal or through-replacement, and a second train cannot enter
+  a track another consist still occupies (the practical headway floor is the ~53 s cycle).
+* **Peak vs off-peak is one station clock.** The two peak windows are edited once (§9.6C)
+  and apply to every line; each line answers with its own three headways. Scrubbing the clock
+  across 09:00 stretches the gap on every platform at once.
+* **The train-borne wave is `alightPerTrain`, not an alighting share.** At each stop the line
+  synthesises `alightPerTrain` brand-new agents at the doors (default **200**), regardless of
+  how many cars or how full the train is. 55% of them head for an exit and 45% for another
+  line. A short headway with long consists is smooth; a long headway with short consists is
+  bursty.
+* **Live outputs** per line: the next-train ETA drives the PSD headers. There is **no
+  late-train count or max lateness** in the HUD, and `metrics.trainsLate` is just the number
+  of active consists. A line cannot be suspended through the UI — a 1200 s headway still
+  dispatches, and emptying `stations[]` does nothing; the practical way to starve a line is
+  to close its exits and let the demand re-weight.
 
 ---
 
@@ -913,87 +962,84 @@ dispatch(line):
 
 ### 7.1 Agents
 
-Every visible passenger is an agent. Target: **3,000 concurrent agents at 60 fps**, instanced.
-A trip is an ordered waypoint list — origin, zero or more intermediate stops at any
-building/location in the station, destination. Endpoints are never restricted to
-entries/exits.
+Every visible passenger is an agent. The demo runs well over **3,000 concurrent agents**
+in one instanced crowd. A trip is an origin, zero or more intermediate stops, and a
+destination.
 
 ```
 agent = {
   id, seed,
   trip: {
-    origin: nodeId,         // entryId | trainId | moduleId (e.g. retail back-room spawn)
-    stops: [nodeId],        // 0..n intermediate: TVM, retail, vending, restroom, bench, info pillar…
-    dest: nodeId,           // exitId | lineId (train boarding) | moduleId (e.g. retail staff staying)
+    origin: '',              // '' for a street arrival; 'train:<line>' for an alighting cohort
+    stops: [moduleId],       // 0..1 today: an optional TVM / vending stop
+    dest: 'exit:<id>' | 'line:<id>',
   },
-  legIdx: 0,                // which trip leg is active: origin→stops[0]→…→dest
-  state: "arriving" | "buying" | "queuing" | "walking" | "riding" | "alighting" | "waiting" | "leaving" | "browsing",
-  speed: 1.34,            // m/s free flow, derated by density and stairs
-  patience: 0.0..1.0,     // how long before they re-route
-  group: 1,               // travelling companions stay loosely together
+  legs: [{ node, kind: 'stop'|'exit'|'line', ref }],
+  legIdx,                    // which trip leg is active
+  state: Arriving | Walking | Queuing | Buying | Browsing | Waiting | Riding | Alighting | Leaving,
+  speed: 1.34,               // m/s free flow, derated by density and stairs
+  patience: 60..180,         // seconds before re-routing (not a 0..1 score)
+  group: 1,                  // travelling companions are not implemented
   needs: { stepFree: bool, luggage: bool },
-  path: [nodeIds], pathIdx, // current leg's graph path (§7.2); rebuilt per leg
+  path: Int32Array, pathIdx, // current leg's graph path (§7.2); rebuilt per leg
   comfort: 0..1,
 }
 ```
 
-* `od` in older drafts is `trip.origin → trip.dest`; `trip.stops` is new. A commuter is
-  `entry → [] → line`; a tourist is `entry → [TVM, retail, restroom] → exit`; a transfer
-  is `train(A) → [] → line(B)` (§7.5).
-* Agents dwell at each stop (queue + service time from §5), then advance `legIdx` and
-  re-path. Skipping is allowed: if a stop's queue wait exceeds `patience`, the agent drops
-  that stop and re-paths to the next waypoint — visible as walk-aways in the wait chart.
+* A commuter is `street → [] → line`; a shopper is `street → [TVM or vending] → exit`;
+  a transfer is `train(A) → [] → line(B)` (§7.5). There are no module destinations: an
+  agent leaving the station always targets an exit, and a rider always targets a line.
+* Agents dwell at a stop (queue + service time from §5), then advance `legIdx` and re-path.
+  A stop whose queue wait exceeds `patience` is dropped and the agent re-paths; there is no
+  wait chart to show the walk-away.
+* Needs are drawn at spawn: a small share are **step-free** (they refuse stairs and
+  escalators and must use a lift or walkway) and a small share carry **luggage** (they
+  prefer the accessible gate, though no accessible-gate module exists). Groups are not
+  modelled — `group` is always 1.
 
 ### 7.2 The station graph
 
-Built incrementally as you build, and rebuilt in a worker. Every placeable thing is an
-addressable endpoint — pathfinding and OD sampling share the same node table, so any
-building/location can be an origin, a stop, or a destination.
+Built incrementally as you build, and rebuilt in the worker. Pathfinding and trip sampling
+share the same node table.
 
 * **Nodes** — every walkable cell cluster, plus one node per module instance: gates,
-  platforms (named areas, §5.9), platform edges (bound line/dir/side), train doors
-  (per car-door, derived from stock centres), exits, escalator/stair/ramp landings, lifts,
-  TVMs, add-value machines, ticket windows, vending machines, retail units, kiosks,
-  benches, info pillars, restrooms, billboards (browse points). Deleting a module deletes
-  its node; trips referencing it re-route to the next waypoint.
-* **Edges** — walk (cost = distance / local speed), stair, escalator (capacity-limited, direction
-  locked), lift (batch, cyclic), gate (queue), door (queue), train (schedule), **queue lane**
-  (single-file, N slots, no overtaking).
-* **Vertical edges** carry a `levelDelta`, so the path cost of a B3 → viaduct transfer is
-  structurally larger — no special-casing needed.
+  platform edges (derived line/dir/side), train doors (one server per door, derived from
+  the stock's door centres), exits, stair / escalator / walkway / lift landings, TVMs,
+  vending machines, ticket booths, shops, restrooms, benches and gates as queue points.
+  Billboard, CCTV and other decor add no node.
+* **Edges** — walk (cost = distance / local speed), stair, escalator (direction-locked,
+  capacity-limited), walkway, lift (batch, cyclic), gate queue, door queue, train
+  (schedule). There is **no queue-lane edge** (§5.5).
+* **Vertical edges** are the runs and lifts themselves, so depth is paid in travel and
+  queue time rather than a synthetic level penalty.
 
 **How a leg is pathed (coarse → fine):**
 
 ```
 request(legFrom, legTo, agentNeeds)
   1. coarse: A* over the station graph.
-     cost(e) = dist / speed(e, agent) + waitQ(e, now) + levelPenalty(e) + accessPenalty(e, needs)
+     cost(e) = dist / speed(e, agent) + waitQ(e, now) + accessPenalty(e, needs)
      // waitQ = live queue wait at gates/escalators/lifts/doors; accessPenalty = ∞ for
-     // stairs/escalators when needs.stepFree, forcing the lift path.
-  2. fine: flow-field + steering along the coarse corridor for separation, lane
-     formation and clumping. Agents hold continuous x,y,z, not cell locks (§7.3 LOS
-     densities apply: several agents may share one 1 m block).
-  3. cache: path per (from, to, needsClass) shared across agents; invalidated only when
-     the graph changes or waitQ shifts a leg past patience.
+     // stairs/escalators when needs.stepFree, forcing the lift or walkway path.
+  2. fine: steering and crowd separation along the coarse corridor. Agents hold
+     continuous x, y, z, not cell locks (§7.3: several agents may share one 1 m block).
 ```
 
-* Re-path triggers: leg advance (reached a stop), graph edit, `waitQ > patience`
-  (drop the stop or pick the next-cheapest edge), train arrival (boarding leg unlocks).
-* Agents re-path only on these events — never every tick — which is what keeps 3,000
-  agents inside the §10.4 sim-tick budget.
+* There is **no shared path cache**: an agent re-plans its own leg. Re-path triggers are
+  leg advance, a graph/queue change on its corridor, `waitQ > patience` (drop the stop or
+  pick another gate), and train arrival (the boarding leg unlocks). Re-planning is rationed
+  per tick (`CROWD_REPLAN_PER_TICK`) so 3,000 agents stay inside the tick budget.
+* **Fare-zone crossing is not checked** while pathing: zones are labels today (§4.5), and
+  a fence/gate row is what physically channels the crowd.
 
 ### 7.3 Capacity and LOS
 
-Everything that can be entered is a *server with a queue*. Gates, escalators, lifts, doors, stairs
-and platform edges each declare a rate. Agents take the cheapest path whose expected wait is
-acceptable, and re-route when a queue's wait exceeds their patience.
+Everything that can be entered is a *server with a queue*. Gates, escalators, lifts, platform
+doors and stairs each declare a rate. Agents take the cheapest path whose expected wait is
+acceptable, and re-route when a queue's wait exceeds their patience. There is no placeable
+queue lane (§5.5); the queue is the server's own ordered member list.
 
-Queue lanes are a special case of the same idea: a lane is a server whose "storage" is its own
-length, so its wait time is knowable in advance. Agents in a lane move in single file at slot
-spacing, cannot overtake, and cannot leave sideways — which is exactly why a lane gives order but
-costs throughput (§5.5).
-
-Density uses the Fruin level-of-service letters, which the overlays map straight onto colour:
+Density uses the Fruin level-of-service letters, which the heat-map overlay maps onto colour:
 
 | LOS | Density (m²/pax) | Reads as |
 |---|---|---|
@@ -1011,157 +1057,132 @@ whole window, so counting pavement would drown the reading and nothing would eve
 and nobody aboard a consist is standing on the floor under its car. A station average cannot point
 at the one escalator mouth that is failing, which is exactly what §8's per-cell overlay is for.
 
-### 7.4 Demand: waves from time, date and events
+### 7.4 Demand: waves from time and date
 
-Arrivals are a non-homogeneous Poisson process: a per-exit rate λ(t) shaped by three multipliers.
+Arrivals are a non-homogeneous Poisson process: a per-exit rate λ(t) shaped by the station's
+one demand curve and its calendar.
 
 ```
-λ_exit(t) = base_exit × curve(timeOfDay) × calendar(dayOfYear) × event(t) × exitControl(exit, t)
+λ_exit(t) = inRate(exit) × demandShape(hour, period, dayType, knobs) × open(exit)
 ```
 
-* **Time of day** — a weekday double peak (≈08:00 and ≈18:00), a Saturday leisure curve, a Sunday
-  curve. Editable per station as a shape (volume, sharpness/σ, peak times).
-* **Calendar** — weekday 1.0 baseline, weekend ≈0.25–0.45, public holidays with a different shape
-  (later peak, longer tail, platform crush at tourist stations), event days at nearby venues.
-* **Waves** — two different things, and both matter. Street entries are a smooth Poisson trickle
-  (≈22 pax/min at the reference peak). The waves you actually feel are **train-borne**: a 6-car
-  B-type train at 45% alighting dumps ~520 people onto one platform in about 40 seconds, every
-  150 seconds. That is 3.5 pax/second arriving at the platform exit against 3.5 pax/second of
-  escalator+stair capacity. Any slip and the next train arrives before the last one has cleared.
-  The HUD shows the next train and the platform's current population so you can watch it coming.
-* **Exit control** — every exit has independent in/out rates. Setting Exit 2 to 0 in is how you
-  model a closure; the crowd simply re-routes, and you watch the queue form.
+* **Time of day** — one station-wide continuous curve, not a per-exit 24-point table. The
+  `客流` window edits the 工作日 and 非工作日 knobs: 早高峰量, 晚高峰量 and 波形陡峭度
+  (the peak width). The period (高峰 / 平峰 / 夜间) multiplies the shape (1.0 / 0.6 / 0.25).
+* **Calendar** — the date decides one of **two** day types, 工作日 or 非工作日, from the
+  shipped 2026 国办发明电〔2025〕7号 holiday/调休 list; each type has its own knobs, so a
+  Saturday and a public holiday share the off-day curve. There are no separate weekend or
+  holiday multipliers, no editable 日期类型 dropdown and **no event-day row**.
+* **Waves** — street arrivals are a smooth Poisson trickle; the wave you feel is
+  **train-borne**. Each stop synthesises `alightPerTrain` agents at the doors (default 200)
+  regardless of cars or load. At a 150 s headway that is ~1.3 pax/second at one platform,
+  a burst against the escalator/stair capacity. The status bar shows the platform-door queue
+  and the next train's ETA on the PSD header, so the wave is visible.
+* **Exit control** — each exit has one **entering** rate and an open toggle. Closing an exit
+  or setting its rate to 0 removes it from the sampling pool; outflow is unlimited, so there
+  is no separate exit-side control.
 
 ### 7.4a Where A and B come from (origins, stops, destinations)
 
 Every spawn draws one full `trip` from the seeded RNG, so runs are reproducible (§7.6).
-Sampling is weighted, in order — origin, then stops, then destination — and every weight
-is a live station property, not a constant:
+Sampling is much simpler than the first draft:
 
 ```
-origin ~  inRate(exit, t) × curve × calendar        // street entries (§5.6)
-          + alightShare(train) × onboard             // train-borne arrivals
-          + spawnWeight(module)                      // e.g. retail staff / arrivals from depot
-dest   ~  outRate(exit, t)                           // leave the station
-          + boardShare(line, t)                      // board a line (headway + platform crowding)
-          + attract(module)                          // end at retail / restroom / bench (dwell then despawn)
-stops  ~  sequential draws over co-located modules on the trip corridor
+origin  = ''                                     // street arrival, weighted by inRate/open
+          | 'train:<line>'                        // an alighting cohort at the doors
+dest    = 'exit:<id>' (55%) | 'line:<id>' (45%)   // hard-coded shares
+stops   = [] (75%) | [one TVM or vending near the route] (25%)
 ```
 
-* **Origins.** Street entries share ∝ their `inRate`; each alighting train injects its own
-  cohort at its doors (`from = trainId`, positions = door cells). At least one origin must
-  have weight > 0 or no agents spawn — an empty timetable + closed exits is a valid,
-  empty station.
-* **Destinations.** Entering agents pick `exit` vs `line` by the boarding-share table
-  (default 55% board / 45% exit at peak, editable per day type); alighting agents pick
-  `exit` vs `transfer line` the same way. A destination with zero weight (closed exit,
-  suspended line) is never drawn; weights re-normalise live.
-* **Intermediate stops — any building/location.** After origin/dest are drawn, each agent
-  rolls 0..3 stops from modules near its corridor. Each module declares an attraction:
-
-| Module | Stop weight | Dwell / effect |
-|---|---|---|
-| TVM / add-value / ticket window | 30% of unpaid entries (need-a-ticket agents) | queue + 30–60 s `buying` |
-| Retail / cafe (§5.7) | area-scaled: `0.2–0.3 × area` shoppers/min, 3–10 min `browsing` | dwell then resume trip; bigger floor = more stops + destinations; overflow queues outside |
-| Vending / ad tower / billboard | small browse % while passing | +6 s dwell, +comfort |
-| Restrooms | area-scaled: `0.15 × area` users/min (§5.7) | +90 s dwell, stalls queue outside when full |
-| Bench / info pillar | if headway > 5 min or decision point | sit / −15 s search |
-| Gate / escalator / lift / lane | never a *stop* — traversal only | queue wait enters path cost |
-
-  Stops must be reachable in the paid/unpaid zone the agent is already in (no
-  fare-line crossing except through a gate node, §4.5). Unreachable draws are dropped
-  silently; an agent whose *all* stops drop is still a valid origin→dest trip.
-* **Needs bias.** `needs.stepFree` forces lift-compatible legs (stairs/escalators cost ∞);
-  `luggage` biases to accessible gates and wide barriers. Groups (`group > 1`) share one
-  trip draw and walk the same legs loosely together.
+* **Origins.** Street arrivals weight each open exit by its `inRate` (the demand curve
+  already multiplied in). A train injects its `alightPerTrain` cohort at its door cells.
+  With every exit closed and no trains, the station is validly empty.
+* **Destinations.** 55% of street arrivals board the **first line** and 45% leave; an
+  alighting cohort inverts that (55% exit, 45% transfer) and a transfer picks the **first
+  other line**. The shares are constants, not editable per day type. A closed exit is
+  skipped; a line cannot be suspended from the UI.
+* **Intermediate stops.** Only a **TVM or a vending machine** can be chosen, as a single
+  optional stop. Retail/cafe, restroom, bench, info pillar and billboard are **not**
+  sampled, so their area and placement do not change demand. A chosen stop that is
+  unreachable is dropped and the trip proceeds origin → destination.
+* **Needs.** A small share are randomly `stepFree` (they refuse stairs/escalators and must
+  use a lift or the walkway) and a small share carry `luggage`; `group` is always 1, so
+  companions do not exist. There is no fare-zone reachability test (§4.5).
 
 ### 7.5 Transfers between lines and depths
 
 A transfer passenger is not teleported. They are an agent whose `trip.dest` is *another
-line* (`origin = train(A)`, `dest = line(B)`, `stops` optional — e.g. a kiosk on the
-concourse):
+line* (`origin = 'train:<A>'`, `dest = 'line:<B>'`):
 
-1. Alight from train A, walk to the platform edge exit zone.
-2. Climb the level change (stair/escalator/lift) — capacity-limited, queued.
-3. Cross the concourse (possibly through the paid zone or a re-gate, your layout decides).
+1. Alight from train A, walk to the platform edge's exit.
+2. Climb the level change (stair/escalator/walkway/lift) — capacity-limited, queued.
+3. Cross the concourse; zones do not block, so a fence/gate layout is what channels them.
 4. Queue at the destination platform, respecting the door they will board through.
 
-The game reports **transfer time** as a distribution: median, p90, and worst. That single number is
-the clearest signal of whether your interchange works — and the reason an over-ground line feeding
-a deep one is a very different problem from two platforms side by side.
+The destination is always the **first other line in the document**, not a chosen interchange
+partner. There is **no transfer-time distribution** (median, p90, worst) and no OD matrix:
+the transfer is visible only as the agent's own route and the line it eventually boards.
+That measurement remains Planned, and it is the missing number that would tell a player
+whether an interchange actually works.
 
 ### 7.6 Determinism
 
 `seed + tick → identical crowd`. This is a hard requirement, not a nicety:
 
 * reproducible runs make A/B-ing a layout change meaningful;
-* fast-forward runs headless ticks with no rendering;
-* bug reports can ship a seed and a save.
+* a restart replays the same station and day from the same seed;
+* fast-forward multiplies ticks per real second (to 64×) without changing the step size;
+* the seed travels in the save, so a bug report can quote it — the **RNG cursor does not**,
+  because movement state is not serialised (§10.5).
 
-### 7.7 Air, depth and enclosure
+### 7.7 Air, depth and enclosure — Planned
 
-Deep, sealed concourses get stale, and that is a design pressure without being a failure state.
+**There is no air-quality model in the build.** No `airQuality(level)`, no openings / shafts /
+depth / occupancy terms, no comfort or walking effect, no haze overlay and no “stale air”
+badge. The 通风口 in the 装饰 folder is a 1 × 1 ceiling grille and nothing else, and depth is
+expressed only through the real cost of the runs and lifts that cross it.
 
-```
-airQuality(level) = openings(level) + shafts(level) - depthPenalty(z) - occupancyPenalty(density)
-```
-
-* `openings` counts entrances, viaduct edges, at-grade sides and no-roof flags.
-* `shafts` counts vent-shaft / light-well modules (§5.2).
-* `depthPenalty` grows with depth below grade; `occupancyPenalty` grows with people per m³.
-
-Effects are soft and legible: at low air quality agents walk faster, browse less, and comfort
-drops. Retail takings fall, the platform feels worse, and a haze overlay plus a "stale air" badge
-appear on the level. Nobody dies, nothing fails. The fix is always architectural — add an opening,
-add a shaft, make the concourse shallower, or stop stuffing 3,000 people into it.
+The design intent stands — a deep, sealed concourse should feel worse without ever failing
+the player — but it is future work, not a current pressure.
 
 ### 7.8 The reference station, and where the bottleneck actually is
 
-Everything in this spec is tuned against one reference station so the numbers can be checked:
+The shipped reference is **动物园 (Zoo)**, a real five-level Guangzhou Line 5 station hand-built
+in the game; **坦尾 (Tanwei)** is the interchange example. The old “Wusi Square” rig survives only
+as a deterministic test fixture (`game/test/support/scenario-station.ts`).
 
-**"Wusi Square"** — a mid-size underground station.
+| | Zoo | Tanwei |
+|---|---|---|
+| Cells / modules | 14,073 / 4,291 | 16,437 / 9,694 |
+| Exits | 2 (B口, C口), 900 pax/h each | 7 |
+| Lines | one L-stock 6-car line, 150 / 240 / 480 s | two lines, elevated interchange |
+| Alighting per train | 200 agents | 200 agents |
+| Peak street arrivals | roughly 30/min at 08:00 | — |
 
-| | |
-|---|---|
-| Entries per weekday | ≈ 17,000 |
-| AM peak hour | ≈ 1,200 entries (7% of the day in one hour) |
-| Peak 5-minute window | ≈ 110 entries |
-| Exits | 3 (two street, one interchange passage) |
-| Lines | 2 (B-type 6-car at 150 s headway, C-type 4-car at 180 s) |
-| Alighting share at the peak | 45% |
-
-The capacity ladder — checked at the AM peak, worst 5 minutes:
-
-| Stage | Demand | Capacity built | Headroom | Verdict |
-|---|---|---|---|---|
-| Street → concourse (gates) | 22/min | 3 in-gates = 75/min | 3.4× | never the problem if you build 4+ |
-| Concourse → platform (escalators) | 20/min entering | 2 × 75/min | 7.5× | fine on the way in |
-| **Platform → concourse (exit)** | **≈ 3.5/s in bursts** | 2 escalators + 1 stair ≈ 3.5/s | **1.0×** | **the bottleneck** |
-| Platform edge → train (doors) | 520 alighting per train | 24 doors × 1.2/s | 1.8× | fine until dwell slips |
-| Concourse → street (exit gates) | 22/min | 3 out-gates = 75/min | 3.4× | fine |
-
-The conclusion is the whole point of the simulation: **for a normal station the platform exit is
-the binding constraint, and it is bursty.** That is why the game makes escalator capacity and
-platform population visible at all times, and why a train-borne wave is the dramatic beat of a
-morning peak rather than the smooth street trickle.
-
-At a large interchange the ladder shifts: the doors become binding first (dwell stretches, headway
-breaks), and the transfer passages become the second constraint. Same model, different answer —
-which is exactly what the player is there to discover.
+The **capacity ladder is not encoded** as a fixture and none of the old 17,000/day, 1,200/hour or
+110-per-5-minute figures are pinned. The design lesson still holds and is worth tuning toward:
+for a normal station, the **platform exit** is the binding constraint and it is bursty; at a
+large interchange the doors bind first and the transfer passages second. That is an intention
+for the numbers, not a measured result the build asserts.
 
 ### 7.9 Time: author it, scrub it, replay it
 
 The clock is a tool, not a treadmill.
 
-* **Day types** are authored: a service window (default 05:30–24:00), a 24-point demand curve per
-  exit, and a headway profile per line (peak / off-peak / late).
-* **Scrub anywhere.** Drag the timeline to 07:50, press play, watch the peak land. Jump to 13:00 to
-  check the off-peak retail draw.
-* **Replay exactly.** Because the sim is deterministic, re-running 07:00–09:00 after a layout change
-  is a true A/B, not a vibe check.
-* **Fast-forward** runs headless worker ticks with no rendering — a full day in a few seconds.
-* **Day report** summarises each hour: throughput, worst LOS, longest queue, transfer percentiles,
-  people left behind, retail draw.
+* **Day types are authored by date.** The 客流 window carries the service window (default
+  **06:30–23:30**), the two peak windows, the demand knobs for 工作日/非工作日, and the 2026
+  calendar. A date becomes 第 1 天 of the run. There is no editable 日期类型 dropdown and no
+  event-day row.
+* **Scrub anywhere.** Press the clock card to open 客流/时刻, move the day, and press play. The
+  timeline also seeks the simulation clock; the history record restarts rather than splicing two
+  days together.
+* **Replay exactly.** The sim is deterministic from its seed and start time, so re-running
+  07:00–09:00 after a layout change is a true A/B.
+* **Fast-forward to 64×.** One tick is still one simulated second; 64× only shortens the real
+  interval between ticks, so a 24 h day is ~22 real minutes and the crowd still draws. It is
+  *not* a headless batch.
+* **No day report.** There is no hourly summary, transfer percentile, retail draw or CSV export.
+  The 数据 window's three charts (§8.1) are the whole record.
 
 Not an unstoppable 24-hour loop (tedious), and not a timeless sandbox (it loses the drama). Time is
 a resource you point at a problem.
@@ -1172,21 +1193,23 @@ a resource you point at a problem.
 
 ## 8. Analytics and overlays
 
-The simulation is only interesting if you can see it. Overlays are toggles on the same 3D scene.
+The simulation is only interesting if you can see it. The 视图 folder has **two** overlays on the
+same 3D scene:
 
 | Overlay | Shows |
 |---|---|
-| Crowd density | per-cell heat (LOS A→F) |
-| Flow | particle arrows of actual walked paths, weighted by volume |
-| Queues | per-asset queue length and wait time |
-| Level of service | per-asset LOS letter, worst-first list |
-| Boarding | per-door boarding/alighting counts, left-behind counts |
-| Throughput | per-exit and per-gate actual vs configured rate |
-| Transfer | OD matrix between any nodes (lines, exits, modules), transfer time percentiles |
-| Dead weight | cells nobody walks through (the design smell) |
+| 热力图 heat map | per-cell crowd density as LOS A→F |
+| 分区图 zone map | fare-zone and room-purpose tints |
 
-Plus a running HUD: passengers in the station, the station-wide crowd level (§7.3), total wait, trains late, people left
-behind today. And a "day report" you can scrub hour by hour.
+The other six overlays from the early draft are **not built**: Flow particle arrows, per-asset
+Queues, a worst-first Level-of-service list, per-door Boarding counts, per-exit Throughput
+curves, the Transfer OD matrix and Dead weight.
+
+Plus a running status bar: 站内人数, 平均拥挤等级 (§7.3), the four queue lengths (闸机 / 扶梯 /
+电梯 / 站台门), 已上车 / 已出站 / 滞留, the clock, FPS and block count. There is **no total wait,
+no trains-late readout and no day report**.
+
+The 数据 window's three charts are the historical record; everything else is a live reading.
 
 ### 8.1 Charts — counts and waits (客流 / 等待)
 
@@ -1195,7 +1218,7 @@ numbers are the button: pressing the left half of the bottom rail opens a floati
 over the station, and what it draws is the run the HUD under it is reading.
 
 The sim records the counters **once a sim minute** (`sim/history.ts`), in the worker, where the
-clock is the only thing that decides — so the grain is a minute at 1× and at 16× alike, and a
+clock is the only thing that decides — so the grain is a minute at 1× and at 64× alike, and a
 `seek` or a restart starts the record over rather than splicing two days into one line. A sample
 is the whole rail's reading — 站内人数, the crowd letter, the four queue lengths and the three
 climbing totals — plus **the per-minute change** in each of those three, because a total is
@@ -1214,35 +1237,40 @@ is set by the lines it is actually showing, so hiding a tall line rescales the r
 are the same counters the HUD and the overlays read — one source of truth, three views (3D, HUD,
 chart).
 
-Still to build: 等待时间 (mean / p90 wait per gate, escalator and platform-door group), per-exit
-configured-vs-actual entry curves, hovering a spike to frame the contributing asset (`F`), and CSV
-export from the day report.
+Still to build: the six overlays above, 等待时间 (mean / p90 wait per gate, escalator and
+platform-door group), per-exit configured-vs-actual entry curves, hovering a spike to frame the
+contributing asset (`F`), a day report and CSV export.
 
 ---
 
 ## 9. Interface
 
-* **Camera** = the level selector, and a full CAD-style viewport. See §9.1.
-* **Left rail** = build categories (base block `B`, paint: 单个块 `N` / 整面 `M`, modules `J`,
-  walls, floors, ceilings, track beds, fare gates, retail, machines, stairs, escalators, lifts,
-  tracks, signage, exits) with click, drag, box-drag and line-drag. Full mouse table in §9.5.
-* **Right panel** = inspector for the current selection: mode, throughput, queue anchor, access
-  zone, tags, live LOS, exit name + in/out rates (§5.6), line timetable (§6.3),
-  and what it is connected to.
-* **Bottom rail** = line manager (per line: name, colour, stock, cars, headway, route, terminus),
-  exit list, minimap, clock and speed (`pause / 1× / 4× / 16×`), timeline scrubber, and the
-  `数据` window (§8.1) — whose button is the status bar's own numbers.
-* **Ghost preview** with validity, snap, autotile, blueprint copy/paste, and an undo stack of
-  build commands.
-* **Controls** — one work-plane rule plus per-tool mouse/keys. See §9.5 for the full table
-  (select / place adjacent / place detached / paint single / paint surface / place modules /
-  camera).
-* **Simulation inputs (客流输入)** — exit rates, line timetables, day/curve/calendar.
-  See §9.6 for the exact panels, widgets, ranges and defaults.
-* **Settings page (设置)** = global app settings, separate from the station file. See §9.3.
-* **Save / load (存档 / 读档)** = local file download + reload, snapshot of static blocks and
-  all movement state. See §9.4 and §10.5.
-* **Language** = Simplified Chinese only, with no English mode. See §9.2.
+* **Camera** = the storey selector, and a full CAD-style viewport. See §9.1.
+* **Left rail** = ten folders: 工具, 结构, 设备, 天花板装饰, 墙面装饰, 地面装饰, 站外装饰,
+  材质, 房间, 分区. Each folder's tiles place a block, a run, a piece or a paint. Full
+  mouse/key table in §9.5.
+* **Right panel** = `信息` / `视图` / `出入口` / `线路`: the selected piece's card (mode, speed,
+  queue, tags, live readings), display toggles, exit name + 进站 rate (§5.6), line editor
+  (§6.3), and the selected agent's remaining route.
+* **Top bar** = station name (Chinese + English), save / open, examples, tutorial, gear menu,
+  play/pause and the speed group (`暂停 / 1× / 4× / 16× / 64×`).
+* **Status bar** = the station's live counters and the button that opens the `数据` window
+  (§8.1). There is no minimap and no timeline scrubber in the bar; the clock card opens the
+  客流/时刻 window instead.
+* **Ghost preview** with validity, snap and autotile, and an undo stack of committed build
+  commands. There is no blueprint copy/paste.
+* **Controls** — per-tool mouse/keys. See §9.5 for the table (select / place / paint / modules /
+  move / delete / camera).
+* **Simulation inputs (客流输入)** — exit entering rate, line timetable, headways, station
+  hours and demand curve, and the calendar. See §9.6.
+* **Settings (设置)** = a gear menu of global preferences, separate from the station file.
+  See §9.3.
+* **Save / load (存档 / 读档)** = local `*.metro.json` download + reload of the **static**
+  station and its authored day; movement restarts. See §9.4 and §10.5.
+* **Language** = bilingual: Simplified Chinese (default) and English at `/game/en/`, with a
+  toggle in the gear menu. See §9.2.
+* **Onboarding / demos / stats** — an 18-step interactive tutorial, two shipped example
+  stations (`/game/zoo`, `/game/tanwei`), and the anonymous global-stats submission (§10.6).
 
 ### 9.1 Camera and views
 
@@ -1252,10 +1280,12 @@ The camera is a first-class tool, because the same station has to be read two wa
 **Free 360° orbit.** Middle-mouse drag yaws and tilts without limits, from straight down to a
 grazing horizon. Nothing snaps unless you ask it to. Wheel dollies; `Shift` + drag pans.
 
-**A nav cube, like a CAD package.** A small cube in the corner carries `TOP`, `FRONT` and `RIGHT`
-labels; drag any face, edge or corner to snap the camera to that orientation. Presets on keys:
-`1` isometric, `2` plan, `3` last custom angle, `4` flat X-Z elevation, `5` flat Y-Z elevation.
-`O` toggles orthographic ↔ perspective, `F` frames the selection, `C` cuts away the near quarter.
+**A nav cube, like a CAD package.** A small unlabelled cube in the corner snaps to a face, edge
+or corner when you drag it; the depth rail beside it lists the fifteen storey stops. Presets on
+keys: `1` isometric, `2` plan, `3` last custom angle, `4` flat X-Z elevation, `5` flat Y-Z
+elevation. `O` toggles orthographic ↔ perspective, `F` frames the selection, `C` cuts away the
+near quarter, `Ctrl+H` (or the cube's ⌂) returns to the home view. The slider under the cube is
+the **lens**: 30° telephoto to 120° wide, perspective only.
 
 **The level slice, and it means one thing at every angle.** `X` (显示其他层, on by default) is the
 level slice.
@@ -1283,132 +1313,126 @@ uses.
 
 ### 9.2 Language
 
-The interface ships in **Simplified Chinese only**. This is not a localisation toggle: station names,
-exit numbers, line numbering, unit strings and the level-of-service vocabulary are authored in
-Chinese, and **every concept sheet is drawn in Chinese** for that reason — the art is the spec's
-rendering target, so it has to read the way the game will. A few things stay ASCII on purpose,
-because they are identifiers rather than prose:
+The interface is **bilingual**. Simplified Chinese is the default; English is served at
+`/game/en/` (the game Worker's language route) and the gear menu's language action switches
+in place. Each route remembers its own choice (`metro-game.language.<route>`), so a first
+visit to `/game/en/` always opens English. Station names may carry an English secondary name
+(`nameEn`), printed under the Chinese name on the top bar and exit banners.
 
-* module ids, tag keys and the save-file schema (`gate.turnstile`, `zone.paid`),
-* level codes `B4`…`B1`, `G`, `L1`,
-* stock classes `A` / `B` / `C` and the `1× / 4× / 16×` speed labels,
-* numerals and units inside the Chinese strings (`25 人 / 分`, `间隔 2 分`).
+All built-in player copy lives in `game/src/sim/i18n/messages.ts`. A few things stay ASCII on
+purpose, because they are identifiers rather than prose:
 
-Everything a player reads as a sentence — tool names, inspector field names, connection lists,
-line-manager behaviour, minimap counters, warnings — is Chinese, and the concept sheets follow the
-same rule. The generator sources in `tools/` keep English comments and identifiers; only the
-rendered strings are Chinese.
+* module ids, tag keys and the save-file schema (`gate`, `shop`, `zone`),
+* stock classes `A` / `B` / `C` / `D` / `L` and the `1× / 4× / 16× / 64×` speed labels,
+* numerals and units inside the translated strings.
 
-### 9.3 Settings page (设置)
+Concept sheets are drawn in Chinese with `*-en.svg` English sidecars, so the art reads in
+either language. The generator sources in `tools/` keep English comments and identifiers;
+only the rendered strings are translated. Run `npm run audit:i18n` after copy changes.
 
-A single full-screen page, opened from the gear button in the top bar (`设置`, key `,`). It never
-blocks the sim: opening it auto-pauses, closing it resumes the previous speed. All labels are
-Simplified Chinese. Settings are **global** (per browser, not per station) and persist in
-`localStorage["metro.settings.v1"]`. Loading a save file never overwrites them.
+### 9.3 Settings (设置)
 
-| Group | Setting (Chinese label) | Options / range | Default | Notes |
-|---|---|---|---|---|
-| 显示 | 画质 | 流畅 / 标准 / 精细 | 标准 | controls shadows, contact blobs, decal density |
-| 显示 | 人群数量上限 | 1000 / 2000 / 3000 | 3000 | cap for crowd sprites; sim still tracks all agents, extras are hidden worst-first |
-| 显示 | 非编辑层显示 | 幽灵 / 隐藏 | 幽灵 | what `X` toggles between: 隐藏 draws the edited storey alone at every angle; 幽灵 adds the other storeys at 35% + desaturate, where they do not block it |
-| 显示 | 自动隐藏天花板 | 开 / 关 | 开 | what `H` toggles: a storey above the edited one keeps only the plates with nothing under them, so a room never wears its own ceiling |
-| 显示 | 色盲安全配色 | 开 / 关 | 关 | swaps LOS heat palette to blue-orange; crowd hues never match line colours either way |
-| 镜头 | 视角 | 透视 / 正交 | 透视 | same as `O`; flat presets force orthographic while active |
-| 镜头 | 环绕灵敏度 | 0.5–2.0 | 1.0 | orbit + pan speed multiplier |
-| 镜头 | 反转缩放 | 开 / 关 | 关 | wheel direction |
-| 操作 | 自动保存间隔 | 关 / 5 / 10 / 30 分钟 | 10 分钟 | writes an autosave slot to IndexedDB, never a download |
-| 操作 | 操作确认 | 开 / 关 | 开 | confirm before bulk delete, clear level, overwrite on load |
-| 模拟 | 默认速度 | 暂停 / 1× / 4× / 16× | 1× | speed applied on new station and after load |
-| 模拟 | 建造时暂停 | 开 / 关 | 开 | auto-pause while drag-building a selection larger than 5×5 |
-| 模拟 | 高峰预警 | 开 / 关 | 开 | toast + badge when any platform hits LOS E/F or a train leaves >20 behind |
-| 语言 | 界面语言 | 简体中文 | 简体中文 | fixed. No English mode (§9.2); the row exists so players stop looking for one |
+There is **no settings page**. The gear button in the top bar opens a small dropdown that never
+pauses the sim and contains:
 
-Rules:
+| Item | Options | Default | Notes |
+|---|---|---|---|
+| 画质 graphics quality | **低画质 / 高画质** | 高画质 | two levels, not three; saved in `localStorage["metro-game.graphics-quality"]` |
+| 分享匿名统计 | 开 / 关 | 开 | anonymous station/passenger counts (§10.6); turning it off clears the queue |
+| 重启仿真 (restart simulation) | — | — | `Ctrl+R`; keeps the geometry, resets the crowd |
+| 反馈问题 | — | — | opens the GitHub issue tracker |
+| 语言 | 中文 / English | route default | switches in place; saved per route in `metro-game.language.<route>` |
 
-* Every setting applies immediately, no save button. A `恢复默认` button resets all groups.
-* Settings page shows the save-format version and game version at the bottom
-  (`存档格式 v1 · 游戏版本 x.y.z`) so bug reports can quote them with the seed (§7.6).
-* Keyboard shortcuts are listed on the page but not remappable in v1
-  (`V/B/N/M/J` tools, `1–5` views, `Q/E` levels with `Ctrl+Q/E` for camera height, `X` level slice, `H` ceiling hiding, `C` cutaway,
-  `O` ortho, `F` frame,
-  `R` rotate, `G` work-plane, `Del` delete, `,` settings). Full table in §9.5.
+Everything else the early draft put on a settings page is either a **视图 folder** toggle
+(显示其他层 `X`, 隐藏天花板 `H`, 隐藏墙壁, 隐藏地面, 剖切 `C`, 隐藏UI `U`, 热力图, 分区图), a
+camera control (`O`, `1–5`, lens slider, `Ctrl+H`), or not in the build at all: a crowd-cap
+setting (the engine's own `MAX_AGENTS = 6000` is fixed), colour-blind palette, orbit sensitivity,
+inverted zoom, autosave interval, operation confirms, default speed, build-pause and peak
+warnings.
 
-### 9.4 Save / load (存档 / 读档) — local file snapshot
+Preferences are global per browser and never written into a station file. The autosave interval is
+fixed at **five minutes**; there is no slot list and no `恢复默认` button. The game version is
+`GAME_VERSION` in `persistence/save.ts` (currently 0.2.0), and it is stored in the save, not shown
+on a settings page.
 
-There is no server and no cloud in v1. The station file is the save system: a versioned JSON
-document downloaded as a file and reloaded from disk. A save is a **full snapshot** — every
-static block plus every movement — so loading restores the exact visible moment, paused.
+### 9.4 Save / load (存档 / 读档) — local file, static station
+
+The station file is the save system: a versioned JSON document downloaded as a file and
+reloaded from disk. A save is the **static station and its authored day**, not a movement
+snapshot — loading restarts the crowd at the service opening from the station's seed, keeping
+the current play state. The only network feature is the opt-out anonymous stats submission
+(§10.6), which sends counts, never the station.
 
 **Where it lives in the UI:**
 
-* Top bar, always visible: `保存` (downloads the file), `读取` (opens a file picker), plus the
-  station name field (used as the download filename stem).
-* `读取` also accepts drag-and-drop of a `*.metro.json` file anywhere on the canvas.
-* Bottom rail clock area shows `已保存 HH:MM` / `未保存更改 ●` dirty state.
-* Autosave (if enabled in §9.3) writes to IndexedDB slots (`自动存档 1–3`, rotating) and to
-  `localStorage["metro.autosave.meta"]`; it never triggers a download. The settings page lists
-  the slots with timestamp + tick and a `恢复` button.
+* Top bar: 保存 (downloads the file), 打开 (file picker), plus the station name editor
+  (Chinese + English) whose Chinese name is the download stem.
+* There is **no drag-and-drop load**, no `已保存` / `未保存更改 ●` dirty indicator and no
+  timestamp in the filename.
+* Autosave is always on: it writes to `localStorage["metro-game.autosave.v1"]` on a
+  **five-minute** interval and flushes when the page is hidden or unloaded. A station
+  replacement (new, open, demo) invalidates the old slot first, so a failed write cannot
+  restore a different station.
 
 **Save flow:**
 
-1. Player hits `保存` (or `Ctrl+S`). The sim pauses at the next 5 Hz tick boundary.
-2. The worker posts its authoritative dynamic state (§10.5); the main thread serialises
-   static + dynamic into one JSON document.
-3. The browser downloads it as `<station-name>-<YYYYMMDD-HHmm>.metro.json` via Blob URL.
-   No dialog on success beyond the dirty dot clearing and a `已保存` toast.
+1. `保存` or `Ctrl+S` serialises the current document immediately — no pause, no worker round
+   trip, because there is no dynamic state to collect.
+2. The browser downloads `<station-name>.metro.json` via a Blob URL; a `已保存` toast follows.
 
 **Load flow:**
 
-1. Player hits `读取` (or `Ctrl+O`), picks a `*.metro.json` file, or drops it on the canvas.
-2. The game validates the envelope (§10.5): magic, `formatVersion`, JSON shape. Newer
-   `formatVersion` than the game understands → hard error (`存档版本过新，请更新游戏`).
-   Same/older → migrate forward if a migrator exists, otherwise error.
-3. On success the current station is replaced, the station graph is rebuilt in the worker,
-   the clock/RNG/agents/trains are restored verbatim, and the game stays **paused** at the
-   saved tick. The player presses play to continue.
-4. On failure nothing is replaced: the current station stays open and an error toast states
-   the reason (`文件损坏`, `缺少车站数据`, `版本过新`) with the offending field.
+1. `打开` or `Ctrl+L` opens a file picker (the draft's `Ctrl+O` is not bound).
+2. The game validates the envelope (§10.5): magic, `formatVersion`, `static.cells`. A newer
+   `formatVersion` is refused (`存档版本过新，请更新游戏`); malformed JSON, wrong magic or
+   missing station data are refused with their own message. Off-grid cells/modules are
+   **repaired by dropping them**, and the toast says how many were removed.
+3. On success the current station is replaced and the worker is re-initialised from the static
+   document: a **fresh crowd and clock at the service opening**. The current play/pause state and
+   speed are kept; the saved clock is not restored (there is none).
+4. On failure nothing is replaced and the current station stays open.
 
-**Scope contract (what "snapshot" means):**
+**Scope contract:**
 
-* **Static (static blocks):** levels, every non-default cell (fill + six faces + tags),
-  zone paint per floor cell, all module instances (type, position, rotation, config such as
-  gate direction / exit rates / queue anchors), track alignment inputs + hand-placed
-  junctions, line definitions (stock, cars, headway profile, dwell policy, terminus).
-* **Movement (dynamic):** clock (day type, sim time, speed paused), RNG state, every agent
-  (full §7.1 struct + position + path index + queue slot), every train (line, consist,
-  position `s`, speed, door/dwell timer, onboard list), per-server queue contents
-  (gates, escalators, lifts, lanes, platform doors), next-spawn state per exit.
-* **Derived, never saved:** station graph, flow fields, merged chunk geometry, autotile
-  masks, heat-map accumulators, day-report aggregates (recomputed or rebuilt on load).
-* **Never saved:** global settings (§9.3), camera pose (restored to the build view on load).
+* **Saved — static:** `name` / `nameEn`, `seed`, `levelBase`, `storeyHeight`, the authored day
+  (`service`, `peaks`, `demand`, `calendar`), every non-default cell (`fill`, per-face
+  `finish`, `zone`, `room`, `tags`), every module (type, position, rotation, footprint, `cfg`)
+  and every line definition.
+* **Derived, never saved:** station graph, flow fields, merged chunk geometry, autotile masks,
+  heat-map accumulators and the chart history — all rebuilt on load.
+* **Never saved:** movement state (clock, agents, trains, queues, RNG cursor), global
+  preferences (§9.3) and camera pose.
 
-Dirty tracking: any `BuildCommand`, line-manager edit, demand-curve edit, or sim tick past
-the saved tick sets `未保存更改 ●`. Undo/redo back to the saved tick does not clear it
-(the file on disk is still older); only saving or loading clears it.
+Because movement is not saved, a loaded station does **not** resume mid-peak; it restarts at
+the service opening. That is the largest gap between this save format and the “exact paused
+moment” the early draft promised, and a dynamic `formatVersion` 2 remains Planned.
 
 ### 9.5 Controls — mouse + keys (操作)
 
-One rule makes void clicks work: the **work plane (工作平面)**. It is the horizontal floor
-plane of the active level, infinite, always raycastable. Every pointer position resolves to
-exactly one target: a real block face if the ray hits one, otherwise the work-plane cell
-under the cursor. A diamond marker + `(x, y, z)` readout in the status line shows the
-work-plane cell, so building in empty space is aimed, not guessed. `G` toggles the plane
-visible as a faint grid; `Q`/`E` move it between levels with the slicer.
+Every pointer position resolves to exactly one target: a real solid face or module if the ray
+hits one, otherwise the cell on the active storey's plane under the cursor. A marker and an
+`(x, y, z)` readout in the status line show that cell, so building in empty space is aimed, not
+guessed. The plane follows the storey (`Q`/`E`); there is **no visible-grid toggle and no
+work-plane key** — `G` is the 墙 tool.
 
-Tools (left rail). `左键` always applies, `右键` always removes — in every tool. (One transient
-exception: while a piece is in the air with 移动 — which is not a tool but the `信息` card's action on
-the selected piece — the right button puts that piece back.)
+Tools (left rail and their keys). `左键` always applies, `右键` always removes. (One transient
+exception: while a piece is in the air with 移动, the right button puts it back.)
 
 | # | Task | Tool + action |
 |---|---|---|
-| 1 | **Select / delete a block, including in void** | `V` 选择: `左键` click a block to select (inspector opens) — and a placed 设备 / 装饰 piece selected this way offers `移动` in the `信息` card (see below). `左键` click void (work plane) clears selection and pins the coordinate — nothing to select, but the `(x,y,z)` pin is shown and can be framed with `F`. Box-select: `左键` drag in `V` selects all blocks in the rectangle on the active level. `Del` / `Backspace` deletes the selection (blocks and/or modules); `Ctrl+Z` / `Ctrl+Y` undo/redo; `Esc` clears selection. |
-| 2 | **Place 1 or N blocks next to a block** | `B` 砌块: `左键` click a block *face* places 1 block attached to that face (ghost preview first). `左键` drag across faces paints a run; release over empty face-boxes fills each once. `Shift+左键` drag constrains to a straight line; plain box-drag on a face fills the rectangle (e.g. a 6×4 slab). `右键` click / `右键` drag erases blocks (restores void; hosted modules are refunded with confirm per §9.3). Wheel switches brush size 1–5 when the cursor is over a face. |
-| 3 | **Place a block NOT next to any block** | `B` 砌块 + work plane: `左键` click the work-plane marker places a block floating on the active level at that cell — no neighbour required. `Alt+左键` forces work-plane placement even when the ray also hits a block (aiming past geometry). Box-drag on the visible grid (`G`) fills detached rectangles the same way as attached ones. This is how the second pavilion 200 m away gets started. |
-| 4 | **Paint / erase one block face** | `N` 单块: `左键` paints the clicked face with the active texture of its family (地面/天花/墙面/轨道, §4.3). `右键` reverts that face to the family default. `P` 吸取 (the 工具 folder's eyedropper) picks the clicked surface into the brush — a 半墙's inner face and a 三角's slope are surfaces of their own — or, on a placed 设备 / 装饰 piece, arms that piece's placement instead (see row 6). Works on block faces only — clicking void just moves the pin. |
-| 5 | **Paint / erase a continuous surface** | `M` 整面: `左键` flood-fills the connected same-family region on that plane (same level + orientation) with the active texture. `右键` reverts the whole connected region to default. `Shift+左键` fills only the box-dragged sub-rectangle instead of the full flood — the bounded variant for one room out of a large floor. |
-| 6 | **Place a module on top of / on wall / on ceiling** | `J` 设备: pick the module in the catalogue, then `左键` click the host face — top face = floor-standing (gate, TVM, escalator foot), side face = wall-mounted (signage, billboard, swing door), bottom face = ceiling-mounted (light well, hanging sign). Fixed modules place on click; **variable-area shops/cafes/restrooms (§5.7) place on `左键` drag** — rectangle ≥ min, ghost shows `宽×深·面积·人/分`. Ghost shows footprint + validity (red = blocked / no cover / wrong zone). `R` rotates 90°, `右键` click a module deletes it (block underneath stays). Drag places repeats along a line (queue rails, PSD runs). |
-| 7 | **Camera: orbit / zoom / snap** | Orbit: `中键` drag (or `右键` drag while in `V`? no — camera never steals `右键` from tools; use `中键`). Pan: `Shift+左键` drag in any tool, or `中键+Shift`. Zoom: wheel to cursor (direction per §9.3 反转缩放); `F` frames selection / work-plane pin. Snap: nav-cube faces + keys `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z正立面 / `5` Y-Z侧立面; `O` toggles 透视/正交 (flat presets force ortho while active); `X` slices to the edited level; `C` cutaway near quarter; `Q`/`E` level step; `Ctrl+E` / `Ctrl+Q` raise and lower the view along Z — camera and aim move together, so the angle is unchanged (held, Shift = faster); the slider under the cube is 视场角, the camera's lens in its own degrees — the vertical field of view, 30° (a telephoto that fills the frame with one platform) to 120° (most of the station at once, the fisheye end), with the game's 45° building view inside the track; perspective only, the flat ortho views zoom on the wheel — and `Ctrl+H` / ⌂ returns to the home view (iso perspective, lens back to 45°). |
+| 1 | **Select / inspect** | `V` or `Z` 选择: click a block, a placed 设备 / 装饰 / 出入口 piece, or a passenger. The `信息` card opens; a piece offers `移动`, a passenger draws their remaining route. `F` frames the selection, `Esc` clears it. There is no box-select. |
+| 2 | **Place / erase blocks** | `F` 方块: click a face to attach one block, or click the ground/plane to place one at that cell. Long-press and drag paints a rectangle on the pressed plane; `Shift` constrains a straight line. `右键` erases; right-press on a wall lifts the whole column. `Tab` toggles the 吊顶 variant, `Shift+Tab` toggles 生成墙壁. The 半墙 / 三角 tiles are cut modes of the same tool. |
+| 3 | **Wall runs** | `G` 墙: click/drag to lay a wall course; `R` chooses which face of a corner cell the column takes; right-drag removes the column. |
+| 4 | **Paint / erase a face** | `N` 材质: click paints the active finish; `右键` reverts it. `Tab` switches 单块 ↔ 整面; in 整面 the click flood-fills the connected region. `P` 吸取 picks the surface into the brush — or arms a placed piece. |
+| 5 | **Place equipment / decor** | `J` 设备 (or a 装饰 / 房间 tile): pick the piece, then click the host face — top = floor-standing, side = wall-mounted, bottom = ceiling-hung. `R` rotates, `Tab` cycles the family/variant, `右键` deletes. A room is a rectangle drag; an exit snaps to a head-house bay. |
+| 6 | **Move a piece** | `M`, or the `信息` card's `移动`. The piece rides the pointer with its id and `cfg` intact; `左键`/`确认`/`Enter` drops it as one commit, `Esc`/right-press/`取消` puts it back. `R` turns it in the air. Stairs and escalators are torn down and rebuilt; 电梯, rooms, track and 站台门 are refused. |
+| 7 | **Delete** | `B` 删除: removes the block or whole piece under the pointer; a drag sweeps same-type pieces in one commit. `Esc` cancels. See below. |
+| 8 | **Camera** | Orbit `中键` drag; pan `Shift+左键` drag; wheel zooms to the cursor; `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z / `5` Y-Z; `O` ortho; `X` other storeys; `C` cutaway; `Q`/`E` storey step; `Ctrl+Q`/`Ctrl+E` move the camera along Z; `Ctrl+H` or the cube's ⌂ returns home; `F` frames. |
+
+Global keys: `Ctrl+Z` / `Ctrl+Y` undo/redo, `Ctrl+S` save, `Ctrl+L` open, `Ctrl+R` restart,
+`Space` play/pause, `Del`/`Backspace` delete, `,` is **not** bound (there is no settings page).
+`U` hides the UI, `H` toggles auto-ceiling, `Y` hides the cut surface, `T` opens 分区, `L` the
+rail tool, `B` the delete tool.
 
 **拆除 (`B` 删除).** One press removes the block or the whole piece under the pointer; holding the
 button and dragging keeps collecting. Across bare floor the drag draws the line of blocks the
@@ -1418,13 +1442,15 @@ is sampled, so a fast drag does not skip one) and the release bulldozes the whol
 commit, so a single `Ctrl+Z` puts it all back. The type must match exactly: a 2 m 座椅 does not
 take the 1 m ones and an 闸机 does not take the 售票机 at the end of its row, but rotation and
 `自动` origin are irrelevant — a gate line facing both ways is one row. A 围栏 keeps its own
-straight-run drag, and rooms, rails, 出入口, 楼梯 / 扶梯 / 电梯 and 站台门 are never swept: each is
-one piece with its own teardown. `Esc` cancels the sweep (and a right-press during a left drag
-cancels it too) without deleting anything.
+straight-run drag, and rooms, rails, 出入口, 楼梯 and 站台门 are never swept: each is one structure
+with its own teardown. A **扶梯** and an **电梯** are the deliberate exception — a bank of either
+sweeps, each strictly within its own family — so a row of escalators is one `Ctrl+Z`. `Esc` cancels
+the sweep (and a right-press during a left drag cancels it too) without deleting anything.
 
-**移动 (信息栏 · the selected piece).** There is no move tool and no second panel: the piece is
-already selected, so `移动` sits in the right inspector's `信息` card beside what the piece is, and
-that same card becomes the move's whole control surface the moment the piece is in the air — `确认`
+**移动 (`M`, or the 信息栏 card).** The 移动 tile is `M`; the same action also sits in the right
+inspector's `信息` card beside what the piece is, so a selected piece never has to leave the
+inspector. That card becomes the move's whole control surface the moment the piece is in the air —
+`确认`
 and `取消` appear exactly where `移动` was, over a readout of the cell the drop would use and, when
 that cell refuses it, the rule it broke. Press `移动` and the selected 设备 / 装饰 / 出入口 piece comes up — it
 stops being drawn where it stood and rides the pointer as the same translucent ghost a fresh placement
@@ -1444,78 +1470,84 @@ staircase may still carry the half-landing block an older build laid, and both o
 climb through, so the piece
 leaves through `removeModule` and returns through `addEquipment` at the cell it is dropped on, still as
 **one** commit. What it carved where it stood stays open, exactly as it does when a run is deleted, and the
-方块 tool may fill it again. Structural
-pieces — 电梯, rooms, 轨道 / 站台门 — are refused by the same rule that keeps 拆除
-from sweeping one: each is one piece whose carved openings, derived screen doors and room walls a
-translation would strand — and a 电梯 shaft is stacked one interval at a time without ever asking for floor, so no
-single verdict can say where a moved one lands — so it is torn down and built again, and
-the card's button says so rather than
-hiding. Switching tools mid-lift puts the piece back, because a lift is not a mode to be lost in.
+方块 tool may fill it again. Structural pieces — 电梯, rooms, 轨道 / 站台门 — are **refused** by
+the same rule that keeps 拆除 from sweeping one: each is a piece whose carved openings, derived
+screen doors or room walls a translation would strand, and a 电梯 shaft is stacked one interval at
+a time without ever asking for floor, so no single verdict can say where a moved one lands. The
+card's button says why rather than hiding. Switching tools mid-lift puts the piece back, because a
+lift is not a mode to be lost in.
 
 Conflict rules: camera never uses `左键` alone (that belongs to tools) and tools never use
 `中键` or wheel-click. `Esc` cancels the current drag first, then the selection. Every action
-above previews a ghost and is undoable; every placement marks the save dirty (§9.4).
+above previews a ghost and is one undo step; the autosave (§9.4) picks it up five minutes later.
 
 ### 9.6 Crowd inputs UI (客流输入) — what the user types to get flow
 
-Five inputs, four panels. Everything below feeds `λ_exit(t)` (§7.4) and trip sampling
-(§7.4a); nothing else is required to start the sim. All labels Simplified Chinese.
+Three panels (the early draft's fourth, a platform panel, does not exist). Everything below
+feeds `λ_exit(t)` (§7.4) and trip sampling (§7.4a).
 
-**A. Exit panel — right inspector, `出入口` tab (per exit, §5.6).** Shown when an exit
-module is selected; the bottom-rail exit list jumps here on click.
-
-| Widget (中文) | Range / step | Default | Sim effect |
-|---|---|---|---|
-| 名称 | 1–8 chars | next free `A口`–`Z口` (`未命名口` when all 26 taken) | signage, minimap, charts |
-| 进站 `人/小时` slider + number | 0–6000, step 10 | 600 | `inRate` in `λ_exit(t)`; 0 = entry closed |
-| 出站 `人/小时` slider + number | 0–6000, step 10 | 600 | `outRate`, destination weight; 0 = exit closed |
-| 开关 | 开 / 关 | 开 | closed forces both rates 0 but remembers values |
-| 实际 vs 设定 readout | rolling 5-min mean | — | read-only; gap = saturated exit (§8.1) |
-
-**B. Line panel — bottom rail, `线路` tab (per line, §6.3).** One row per line + `+线路`.
+**A. Exit card — right inspector, `出入口` (per exit, §5.6).**
 
 | Widget (中文) | Range / step | Default | Sim effect |
 |---|---|---|---|
-| 线路名 / 编号 / 颜色 | text + swatch | 2号线 / `#2f7ef2` | signage, PSD band, charts |
-| 车型 | A / B / C / L | B | capacity/car + door rate (§6.1) |
-| 编组 `节` stepper | A 6–8, B/C/L 4–6 | 6 | train length, `capacityPerTrain` |
-| 间隔 `分:秒` ×3 (高峰/平峰/夜间) | 60–600 s each | 150 / 240 / 480 | per-period headway (§6.5); which hours are 高峰 comes from 时刻 panel |
-| 终点 `折返/通过` | reverse / through | through | turnaround dwell +30 s vs exit-and-replace |
-| 停站 `秒` + `秒/人` | 20–90 clamp | 25 + 0.35 | dwell; overrun leaves people behind |
-| 经由路线 stop list | ordered platform edges | — | route; trains + transfers follow it |
-| 载客量 readout | read-only | — | `capacityHour` vs `actualHour` (§6.3) |
+| 名称 | text | next free `A口`–`Z口` (`未命名口` when all 26 taken) | signage, exit card |
+| 进站 `人/小时` slider + number | 0–6000, step 10 | 900 | `inRate` in `λ_exit(t)`; 0 = no street arrivals |
+| 开关 | 开 / 关 | 开 | closed removes the exit from sampling |
 
-**C. Time panel — bottom rail, `时刻` tab (per station, §7.9).**
+There is **no 出站 rate, no configured-vs-actual readout and no exit list** in the bottom
+rail; the card is reached by selecting the exit.
 
-> Deviation from the draft above: 营业时间 ships **06:30–23:30**, not 05:30–24:00. A day is
-> sampled in whole minutes and `24:00` is not a time of day, so the latest close a slider
-> can name is 23:59; the shipped window is also exactly the span the old fixed
-> `SERVICE_OPEN`/`SERVICE_CLOSE` + shoulder rule already ran, so adding the widget changed
-> no crowd (pinned by `demand.test.mjs`, which shows an all-day window runs the same day).
+**B. Line card — right inspector, `线路` (per line).**
+
+| Widget (中文) | Range / step | Default | Sim effect |
+|---|---|---|---|
+| 线路名 / 颜色 | text + swatch | `2号线` / `#2f7ef2` | signage, PSD band, charts |
+| 车型 | A / B / C / D / L | B | car dimensions, doors and capacity (§6.1) |
+| 编组 `节` | 2 / 3 / 4 / 6 / 8 | 6 | train length |
+| 间隔 `分:秒` ×3 (高峰/平峰/夜间) | 60–1200 s each | 150 / 240 / 480 | per-period headway (§6.5) |
+| 供电 | 第三轨 / 接触网 | third rail | catenary or conductor rail |
+| 屏蔽门 | 全高 / 半高 / 无 | 全高 | line `psd`; draws the screens |
+| 下车/列 | slider | 200 | `alightPerTrain` — the train-borne wave |
+| 终点名 + 英文副名 | text | blank | signage only; direction is 上行/下行 |
+
+There is **no route/stop editor, no stop-dwell control, no terminus reverse/through control,
+no capacity readout and no platform panel**. The card shows the derived 班/小时 and 人/小时
+for each headway.
+
+**C. 客流 / 时刻 window — opened by pressing the clock card (per station, §7.9).**
 
 | Widget (中文) | Control | Default |
 |---|---|---|
-| 日期类型 | 工作日 / 周六 / 周日 / 节假日 dropdown | 工作日 |
-| 营业时间 | 06:30–23:30 dual slider (whole minutes) | as shown |
-| 高峰时段 | two window sliders (早高峰/晚高峰) | 07:30–09:00, 17:30–19:00 | shared clock: picks peak headway on every line (§6.5); tails auto = 夜间 |
-| 客流曲线 | 24-point spline editor (volume, peak time, σ presets: 早高峰/晚高峰/平坦) | weekday double peak 08:00 + 18:00 |
-| 日历系数 | weekday 1.0, weekend 0.25–0.45, holiday shape | per day type |
-| 活动日 | date + multiplier row, add/remove | none |
-| 上车/下车比例 | two sliders (entries board %, alighting transfer %) | 55% board / 45% exit |
+| 营业时间 | two grips on the curve (whole minutes) | **06:30–23:30** |
+| 高峰时段 | two window grips (早高峰 ends no later than 晚高峰 begins) | 07:30–09:00, 17:30–19:00 |
+| 客流曲线 | 早高峰量, 晚高峰量, 波形陡峭度 for 工作日 and 非工作日 | 1.0 / 0.78 / 1.0; 0.35 / 0.4 / 1.5 |
+| 日期类型 | a month calendar; pressing a date makes it 第 1 天 | 2026-01-01 and the shipped 2026 holidays |
 
-**D. Platform panel — right inspector, `站台` tab (per platform, §5.9).** Shown when a
-platform zone or edge is selected.
+There is **no 日期类型 dropdown, no activity-day row, no 24-point spline, no per-exit curve
+and no boarding/alighting share slider** (the 55/45 split is hard-coded, §7.4a). The six span
+boundaries are dragged directly on the drawn curve; a drag writes a draft and commits once on
+release. `营业时间` is one span of one day, so a window crossing midnight is not expressible.
 
-| Widget (中文) | Control | Sim effect |
-|---|---|---|
-| 站台名 | 1–8 chars (default `1站台`) | signage, headers, TVs, charts |
-| 边缘绑定 | per edge: 线路 dropdown + 方向 + 左/右侧 dropdown + 下车比 slider | which trains call; dual-side split; same-platform transfer pairing |
-| 门数 readout | read-only (`24门 · B型6节`) | derived from stock + cars |
+Rules: every widget applies on change (no apply button) and is repaired into range rather
+than refused. Zero-config is valid — the defaults alone produce street arrivals plus train
+waves, so pressing play always does something.
 
-Rules: every widget applies on change (no apply button), marks save dirty, and clamps
-with a toast on out-of-range typing. Zero-config is valid — defaults alone produce the
-§7.8 reference peak (~22 pax/min street trickle + train waves) so pressing play always
-does something.
+### 9.7 Tutorial and example stations
+
+A new player gets an **18-step interactive tutorial** from the top bar (camera, storey,
+inspector, palette, placing/deleting a block, the rail tool, equipment, paint, save, play,
+examples). It highlights the real controls, asks for a practice block/delete/rail gesture,
+and can be dismissed; the step and hidden flag persist in `localStorage["metro-game.tutorial.v1"]`.
+It never blocks the simulation and has no failure state.
+
+Two authored stations ship as examples:
+
+* **动物园 (Zoo)** at `/game/zoo` (English `/game/en/zoo`), a five-level Line 5 station;
+* **坦尾 (Tanwei)** at `/game/tanwei` (English `/game/en/tanwei`), an elevated 5/6 interchange.
+
+Opening a demo loads it, then rewrites the address to the plain game path so a refresh does
+not re-load the example. A plain `/game/` load restores the local autosave, or starts empty if
+there is none. New station / examples live in the top bar (`Ctrl+Shift+N` opens the picker).
 
 ---
 
@@ -1525,137 +1557,153 @@ does something.
 
 | Layer | Choice | Why |
 |---|---|---|
-| UI | React 19 + Vite + TypeScript | panels, inspector, line manager; Simplified Chinese only (§9.2) |
-| State | zustand + immer | small store, patch-based undo |
-| Scene | three.js + @react-three/fiber + drei | orbit camera, cutaways, gizmos |
-| Voxel meshes | custom chunk mesher | merged geometry per 16³ chunk, greedy faces |
-| Agents | `InstancedMesh` | 3,000 agents in one draw call |
-| Simulation | Web Worker (Comlink) | 5 Hz tick off the main thread |
-| Pathfinding | hierarchical: station graph + flow fields | cheap at 3,000 agents |
-| Persistence | versioned JSON snapshot (`*.metro.json`), local file download + reload | full static + movement state, exact paused moment (§10.5) |
-| Assets | GLB per module, generated voxel meshes | swappable, mod-friendly |
+| UI | React 19 + Vite + TypeScript | panels, inspector, line editor; bilingual (§9.2) |
+| State | zustand + immer | small store, immutable document snapshots for undo |
+| Scene | **plain three.js**, no react-three-fiber/drei | the scene is a `SceneRenderer` driven by a React `Viewport`; avoids a reconciler between the store and the chunk mesher |
+| Voxel meshes | custom chunk mesher | merged geometry per 16³ chunk, split by finish |
+| Agents | `InstancedMesh` | the whole crowd in one draw |
+| Simulation | Web Worker, raw `postMessage` transferables (**no Comlink**) | 1 Hz tick off the main thread |
+| Pathfinding | A* over the station graph, then steering/separation | cheap at the measured agent count |
+| Persistence | versioned JSON (`*.metro.json`) file + one `localStorage` autosave | static station only; movement restarts (§10.5) |
+| Assets | procedural three.js builders, a baked passenger atlas, WebP posters | no GLB-per-module pipeline |
+| Hosting | Cloudflare Workers static assets | the game Worker, plus the separate stats Worker |
 
 ### 10.2 Frame and tick
 
 ```
 main thread  : rAF @60fps -> interpolate agents between ticks -> render
-worker       : 5 Hz tick  -> agents, queues, trains, metrics
+worker       : 1 Hz tick  -> 1 simulated second of agents, queues, trains, metrics
 worker -> main: transferable Float32Array [id, x, y, z, state, phase]
-main -> worker: BuildCommand[] on build, control messages on play/pause/speed
+main -> worker: the station document on commit, control messages on play/pause/speed
 ```
 
-* The UI reads metrics at 2 Hz, never per frame.
-* Fast-forward runs worker ticks with no draw calls.
-* Time-of-day = 24 sim-hours in ~12 real minutes at 1× (tunable).
+* The UI reads metrics at about 2 Hz, never per frame.
+* **1× is real time**: one tick per real second, so the crowd walks at true speed.
+* Faster speeds multiply ticks per real second (`4×`, `16×`, `64×`); the step size never
+  changes, so determinism and the crowd's motion are preserved.
+* A full day at 1× is 24 real hours; at 64× it is about 22.5 real minutes. Fast-forward is
+  **not** a headless render-skipping mode.
 
-### 10.3 Sim constants (initial tuning)
+### 10.3 Sim constants (shipped tuning)
+
+Every number lives in `sim/constants.ts` or `sim/stock.ts`.
 
 | Constant | Value |
 |---|---|
-| Free walk speed | 1.34 m/s (1.0 on stairs, +8% on escalator) |
-| Density speed derate | `factor = clamp(0.35 + 0.65 × (m²perPax − 0.2) / 1.0, 0.35, 1.0)` — matches the LOS bands: 1.0 at ≥1.2 m²/pax, ~0.35 at crush |
-| Gate rate | 25 pax/min (18 accessible) |
-| TVM | 1.5 tickets/min, 4-person queue space |
-| Escalator rate | 75 pax/min per unit, direction-locked |
-| Queue lane | slot spacing 0.80 m, shuffle speed 0.6 m/s, ≈45 pax/min single file |
+| Free walk speed | 1.34 m/s; 1.0 m/s on stairs; walkway rides at walking speed + 0.5 m/s |
+| Density speed derate | `clamp(0.35 + 0.65 × (m²perPax − 0.2), 0.35, 1.0)` — 1.0 at ≥1.2 m²/pax, ~0.35 at crush |
+| Gate rate | 25 pax/min; `GATE_ACCESSIBLE_RATE = 18/min` is defined but has no module |
+| TVM | 1.5 tickets/min |
+| Escalator rate | 75 pax/min (0.5 m/s ÷ 0.4 m pitch), direction-locked |
 | Stair rate | 25 up / 33 down per min per metre width |
 | Lift | 15 pax, 40 s cycle |
-| Train door rate | 1.2 pax/s at 1.4 m door, derated with crowding |
-| Dwell | 25 s + 0.35 s/pax, clamp 20–90 s |
-| Boarding cutoff | 3 s before departure |
+| Train door rate | **1.2 pax/s flat**, per open door; no width/crowding factor |
+| Dwell | **fixed 30 s** (`TRAIN_DWELL`); no per-passenger term and no clamp |
+| Door opening/closing | 2 s travel each way |
 | Agent patience before re-route | 60–180 s, varies per agent |
-| Retailing dwell | 3–10 min |
-| Sim tick | 200 ms |
-| Day length at 1× | 12 real minutes |
-| Reference station | ≈17,000 entries/weekday, ≈1,200 AM peak hour (§7.8) |
+| Browsing dwell | random 45–180 s |
+| Sim tick | **1000 ms** (one simulated second) at 1× |
+| Day length at 1× | 24 real hours (22.5 real minutes at 64×) |
+| Reference station | 动物园 (Zoo), §7.8 |
 
 ### 10.4 Performance budget
 
-| Item | Budget |
+| Item | Budget / measured |
 |---|---|
 | Frame | 16.6 ms |
-| Voxel chunk rebuild | < 4 ms, chunk-local |
-| Agents (3,000, instanced) | 1 draw call, < 3 ms update on the main thread |
+| Voxel chunk rebuild | < 4 ms, chunk-local (1.9–2.7 ms typical; a fully solid 16×16×8 block can exceed it) |
+| Agents (3,000+, instanced) | 1 draw call; measured p99 worker tick 2.2 ms at 3,257 agents |
 | Sim tick | < 8 ms in the worker |
 | Panels | React re-render only on selection/metrics change |
-| Save file | < 2 MB for a 60×60 station |
-| Save serialise | < 250 ms pause at tick boundary; load + graph rebuild < 2 s for reference station |
+| Save file | no hard cap; the shipped demos are ~1.6 MB (Zoo) and ~2.2 MB (Tanwei) |
+| Save serialise | synchronous JSON of the static document; load + graph rebuild < 2 s for the demo |
+| Worker asset | every emitted file < 25 MiB |
 
-### 10.5 Save format — snapshot (`*.metro.json`)
+### 10.5 Save format (`*.metro.json`)
 
-One save is one UTF-8 JSON document. Plain JSON in v1 (no compression, no binary) so saves stay
-debuggable and diffable; sizes stay under the §10.4 budget via sparse cells and quantisation.
-MIME `application/json`, extension `*.metro.json`.
+One save is one UTF-8 JSON document. Plain JSON in v1 (no compression, no binary), sparse
+cells, MIME `application/json`, extension `*.metro.json`.
 
 ```jsonc
 {
-  "format": "metro-save",   // magic, must match
-  "formatVersion": 1,       // integer, reject-if-newer
-  "gameVersion": "1.0.0",
-  "savedAt": "2026-09-30T09:00:00Z",  // ISO wall time, display only
-  "name": "嘉禾望岗",                  // station name, filename stem
-  "seed": 1234567,          // §7.6 determinism root
-  "tick": 87400,            // 5 Hz tick index; simTime = tick * 0.2 s
-  "dayType": "weekday",
-  "config": {
-    "levels": [{ "id": "B1", "z": -5.5, "kind": "underground", "height": 4.5 }],
-    "demand": { "curves": {}, "calendar": {}, "exitControls": {},
-                "peakWindows": [["07:30","09:00"],["17:30","19:00"]] },
-    "lines": [{ "id": "2", "colour": "#2f7ef2", "stock": "B", "cars": 6,
-                "power": "third-rail",
-                "headwayProfile": { "peak": 150, "offpeak": 240, "late": 480 },
-                "dwellBase": 25, "dwellPerPax": 0.35, "terminus": "through" }]
-  },
+  "format": "metro-save",       // magic, must match
+  "formatVersion": 1,           // integer, reject-if-newer
+  "gameVersion": "0.2.0",
+  "savedAt": "2026-10-23T02:34:00.000Z",  // ISO wall time, display only
+  "name": "动物园",                       // filename stem
+  "nameEn": "Zoo",              // optional English secondary name
+  "seed": 7654321,              // §7.6 determinism root
+  "levelBase": 0,               // 0..4 offset of the five-metre grid
+  "storeyHeight": 5,            // the one supported grid
+  "service": { "from": 23400, "to": 84600 },          // 06:30–23:30, seconds since midnight
+  "peaks": [ { "from": 27000, "to": 32400 },          // 07:30–09:00
+             { "from": 63000, "to": 68400 } ],        // 17:30–19:00
+  "demand": { "workday": { "amPeak": 1, "pmPeak": 0.78, "sharpness": 1 },
+              "offday":  { "amPeak": 0.35, "pmPeak": 0.4, "sharpness": 1.5 } },
+  "calendar": { "epoch": { "year": 2026, "month": 1, "day": 1 },
+                "holidays": ["2026-01-01", "2026-02-15" /* … */] },
   "static": {
-    "cells": [{ "x": 12, "y": 30, "z": -1, "fill": "empty", "faces": {}, "tags": ["paid"] }],
-    "modules": [{ "type": "gate.turnstile", "x": 10, "y": 20, "z": -1, "rot": 0,
-                  "cfg": { "dir": "both", "queueAnchor": "north" } },
-                { "type": "shop.retail", "x": 4, "y": 8, "z": -1, "rot": 0, "w": 6, "h": 4,
-                  "cfg": {} }],
-    "track": { "alignments": [], "junctions": [] }
-  },
-  "dynamic": {
-    "rng": "...opaque worker RNG state...",
-    "agents": [{ "id": 42, "seed": 99, "x": 12.34, "y": 1.0, "z": 30.56,
-                 "state": "queuing", "speed": 1.34,
-                 "trip": { "origin": "exit:1", "stops": ["tvm:3", "retail:7"], "dest": "line:2" },
-                 "legIdx": 1, "path": [11, 27], "pathIdx": 1 }],
-    "trains": [{ "line": "2", "s": 1234.5, "v": 0.0, "doors": "open", "dwellT": 12.0,
-                 "onboard": [42] }],
-    "queues": [{ "at": "gate:10,20", "members": [42], "waitS": 35.0 }],
-    "spawns": { "exit:1": { "nextT": 3.2 } }
+    "cells": [
+      { "x": 12, "y": 30, "z": -1, "fill": "solid",
+        "finish": { "top": "floor.granite", "n": "wall.enamel" },
+        "zone": "paid", "room": "store", "tags": [] }
+    ],
+    "modules": [
+      { "id": "…", "type": "gate", "x": 10, "y": 20, "z": -1, "rot": 0,
+        "cfg": { "dir": "both", "door": "lane" } },
+      { "id": "…", "type": "shop", "x": 4, "y": 8, "z": -1, "rot": 0, "w": 6, "h": 4,
+        "cfg": { "kind": "store" } },
+      { "id": "…", "type": "track", "x": 0, "y": 0, "z": -20,
+        "w": 64, "cfg": { "line": "5", "power": "third-rail", "dir": "up" } }
+    ],
+    "lines": [
+      { "id": "5", "name": "5号线", "colour": "#f2a02f", "stock": "L", "cars": 6,
+        "power": "third-rail", "psd": "full",
+        "headwayProfile": { "peak": 150, "offpeak": 240, "late": 480 },
+        "alightPerTrain": 200, "terminus": "through", "direction": "up",
+        "upTerminus": "文冲", "downTerminus": "滘口",
+        "travelSign": 1, "stations": [] }
+    ]
   }
 }
 ```
 
 Rules:
 
-* **Static is sparse.** Only non-default cells are listed (`fill`, face materials/finishes,
-  `tags`); default soil/solid cells are omitted. Face enums and module `type` ids stay ASCII
-  (`gate.turnstile`, `shop.retail`, `zone.paid`) per §9.2 even though the UI is Chinese.
-  Variable-area buildings (§5.7) add `w, h`; signage/displays (§5.8) add
-  `cfg.text[] / tvMode / tvLines / carouselS / footer`; fixed modules omit them.
-* **Dynamic is complete movement state.** `agents[]` carries the full §7.1 struct
-  (incl. `trip { origin, stops[], dest }` + `legIdx`) plus quantised position (cm) and
-  `pathIdx` / queue slot so every visible person resumes mid-stride, including mid-stop
-  (e.g. half-way through `retail:7` browsing); `trains[]` carries position, speed,
-  door/dwell timers and onboard agent ids;
-  `queues[]` carries ordered member lists; `rng` carries the opaque worker RNG cursor so
-  `seed + tick → identical crowd` (§7.6) continues seamlessly after load.
+* **There is no `dynamic` block.** No tick, clock, RNG cursor, agents, trains, queues or
+  spawn state are written. Loading restarts the crowd and clock at the service opening.
+* **Static is sparse.** Only authored cells are listed; `fill` is `solid` or `void`, and the
+  implicit street plane is not stored. Finishes are per-face ASCII ids; walls/doors are cells or
+  modules, not face records. Module `type` ids are the bare ASCII types (`gate`, `shop`,
+  `track`, `exit`), and a room adds `w`/`h`.
+* **Lines live in `static.lines`**, not a separate `config.lines`. There is no `levels`,
+  `track.alignments`, `track.junctions`, `dwellBase` or `dwellPerPax`.
 * **Graph and meshes are never serialised.** The station graph, flow fields, chunk meshes,
-  autotile masks and overlay accumulators are rebuilt from `static` on load. If rebuild
-  fails (e.g. a module id unknown to this game version), load aborts with `缺少车站数据`
-  and the current station is kept.
-* **Snapshot is tick-aligned.** Save captures `dynamic` at a 5 Hz tick boundary with the sim
-  paused; load restores paused at `tick`. Scrubbing before that tick after load is a re-sim
-  from the snapshot, not stored history.
-* **Versioning.** `formatVersion` increments on any breaking schema change. The game ships
-  forward migrators (`v0 → v1`, …); a save with `formatVersion` newer than supported is
-  rejected, never partially loaded.
-* **Limits (v1).** Single station per file, no scenarios, no workshop metadata. Max tested
-  size 60×60×5 levels / 3,000 agents → < 2 MB. Corrupt JSON, wrong magic, or missing
-  `static`/`dynamic` sections fail validation with a named error (§9.4) and leave the open
-  station untouched.
+  autotile masks, heat map and chart history are rebuilt on load.
+* **The load is repaired, not tick-aligned.** Off-grid cells and modules are dropped and the
+  count is reported; the current station stays open on a hard envelope failure.
+* **Versioning.** `formatVersion` increments on a breaking schema change. v1 is the oldest
+  shipped format, so `migrate()` is a pass-through today; a newer version is rejected, never
+  partially loaded. A dynamic snapshot would be v2 and is **Planned**.
+* **Limits.** Single station per file, no scenarios or workshop metadata. The shipped demos
+  are ~1.6–2.2 MB. The live crowd is hard-capped at **`MAX_AGENTS = 6000`**; there is no
+  60×60 station clamp. Corrupt JSON, wrong magic and missing `static.cells` fail with a
+  named message (§9.4).
+
+### 10.6 Anonymous global stats
+
+The game is the writer for the separate `metro-stats` Worker + D1 database (`stats/`). It keeps
+a stable random client id in `localStorage`, a retry queue whose `submitId` makes retries
+idempotent, and sends **aggregate counts only** — solid cells, modules, lines, tracks and
+cumulative passenger totals/deltas — never the station document, names or positions.
+
+* The **分享匿名统计** toggle in the gear menu defaults **on**; turning it off clears the queue
+  and sends nothing from the opted-out span.
+* A production build submits every five minutes (five seconds on localhost), plus a
+  `pagehide` beacon. Local development sends the current station once on load so
+  `dev:stats` is not empty.
+* The endpoint is origin-gated and idempotent per `(clientId, submitId)`; the stats page and
+  `GET` reads are public.
 
 ---
 
@@ -1666,8 +1714,10 @@ real Guangzhou Metro station. Flat, saturated, high-contrast colours; chunky sil
 outlines; a bright interior against a dark world. The art must never be so detailed that a crowd of
 3,000 stops reading as a crowd.
 
-* **Projection** — 2:1 dimetric isometric for the build view (a stylised ratio, not true isometric),
-  with free 360° orbit and true orthographic elevations for reading the section. See §9.1.
+* **Projection** — an isometric **perspective** build preset (the camera looks from
+  `(1, −1.2, 0.85)`), with free 360° orbit and true orthographic elevations for reading the
+  section. The concept sheets use a true isometric drawing; the game's build view is the
+  stylised perspective preset, not a 2:1 dimetric projection. See §9.1.
 * **Silhouette** — blocky 1 m voxels with hard, square edges; the grid is the grid, and a block's
   own silhouette gives it away. Placed modules
   are rounded-corner boxes: ticket machines, gates, totems, benches, lift shafts and columns
@@ -1692,8 +1742,9 @@ outlines; a bright interior against a dark world. The art must never be so detai
   distance.
 * **Lighting** — one key light plus strong ambient plus a soft contact-shadow blob under every
   object. Warm strip lights in ceilings, cool daylight from entrance pavilions and light wells.
-* **Signage** — every sign is a readable quad: player-typed文案 on pillars, maps, billboards,
-  hanging signs (§5.8), auto ETAs on PSD headers and TVs. Signage is gameplay, not decoration.
+* **Signage** — every sign is a readable quad: the composed 指示牌 board, the chosen
+  billboard poster, the 站名 inscription, the 线网图, and the automatic PSD header with its
+  next-train ETA (§5.8). Signage is gameplay, not decoration.
 * **Readability rules** — no texture detail below 0.25 m; crowd sprites stay under ~40 px tall; the
   level you are not editing dims to 35% and desaturates; the crowd keeps a fixed hue palette that
   never matches a line colour.
@@ -1703,89 +1754,117 @@ listed in §1.10.
 
 ---
 
-## 12. Roadmap
+## 12. Build status
 
-Each milestone is shippable and playable on its own.
+**Shipped and playable** at `stationdesigner.com/game/`:
 
-| # | Milestone | Contents | Done when |
-|---|---|---|---|
-| **M0** | Grid in the browser | 2×2 seed at (0,0,0), infinite sparse canvas (detached allowed), 360° orbit + nav cube + flat ortho views, level slices, base-block extrude, place/erase single blocks, undo | you can grow the seed into a detached underground box, orbit it, and look at it edge-on |
-| **M1** | Surfaces, zones and modules | whole-surface fill + per-block texture paint (地面/天花/墙面/轨道), autotile edge culling, rounded-corner modules incl. named exits (§5.6), fare zones, module catalogue, settings page, file save/load snapshot | you can build the sheet-01 concourse by hand, paint it, zone it, name its exits, set options, download a `*.metro.json` snapshot and reload it paused |
-| **M2** | Track and trains | line tool + free junctions, third rail vs catenary validation, line manager (name/colour/type/cars/headway/route + capacity readout), A/B/C stock, PSDs | a train arrives, dwells and leaves on a headway |
-| **M3** | Agents | worker sim, station graph, walk/queue/gate, queue lanes + rails, platform boarding, LOS overlay | 500 agents enter through an exit, line up, board a train and leave |
-| **M4** | Waves, control and time | demand curves, calendar, per-exit rates, train-borne waves, transfers, timeline scrub + charts (§8.1) + day report | an AM peak breaks your station and you can see exactly where |
-| **M5** | Multi-line and analytics | 3+ lines, depth transfers, density/flow/queue overlays, layout A/B by seed | a full interchange runs for a sim-day and reports transfer percentiles |
-| **M6** | Polish and mods | air-quality model, data-driven modules, Steam wrapper (Electron/Tauri), workshop format, performance pass | a stranger can build a station, share it, and break it |
+* the five-metre grid, fifteen storey stops, blocks/walls/half-walls/wedges/roofs, paint,
+  zones, rooms, undo/redo;
+* the whole equipment and decor catalogue, circulation (stairs, escalators, walkways, lifts),
+  exits, PSDs, tunnels, bridges, roads and street props;
+* A/B/C/D/L stock, line editor, per-period headways, train dispatch, PSD headers;
+* the worker crowd (station graph, A* + steering, queues, boarding, left-behind), the
+  authored day/calendar/demand curve, LOS heat map;
+* the three-chart 数据 window, bilingual UI, tutorial, two example stations, two demo routes;
+* static `*.metro.json` save/load and the five-minute local autosave, plus the anonymous
+  stats Worker.
+
+**Planned, in rough priority order:**
+
+1. **Dynamic save** (`formatVersion` 2): tick, clock, agents, trains, queues and the RNG
+   cursor, so a save resumes the exact paused moment.
+2. **Queue lanes and switchbacks** as placeable servers (§5.5), restoring the order vs
+   throughput trade.
+3. **Transfer and wait analytics**: transfer-time percentiles, OD matrix, per-asset wait,
+   a day report and CSV export (§7.5, §8).
+4. **Platform identity**: named platforms, an edge-binding card and a 下车比 per edge (§5.9).
+5. **Track authoring**: curved track, switches/crossovers, buffer stops, depots, and a line
+   tool that routes between platform edges (§5.4, §13.1).
+6. **Room economics**: area-scaled shop/restroom flow, capacity and overflow queues (§5.7).
+7. **Air quality** as a comfort model (§7.7), and the remaining overlays.
+8. **Accessibility and service pieces**: accessible gate, add-value machine, info pillar,
+   guide sticker, wide barrier, emergency exit.
+9. **Longer-term**: mod/workshop format, Steam wrapper, multiplayer.
 
 ---
 
 ## 13. Design decisions
 
-The four open questions from the first draft are now decided, plus settings / save ( §13.5).
-Everything above assumes these.
+These are the decisions the shipped build actually makes, including the places where it chose
+differently from the early design notes. Everything above assumes them.
 
-### 13.1 Track is authored with a line tool, not block by block
+### 13.1 Track is laid run by run, not with a line tool
 
-**Decision:** you draw a *line* as an ordered list of platform edges, and the alignment is generated
-along it. Manual geometry is reserved for junctions.
+**Decision as built:** the player lays straight track runs with the 轨道 tool, choosing one of
+the 4 / 16 / 32 / 64 / 128 m lengths, and wraps them in the tunnel or bridge tools. There is no
+line tool, no automatic alignment between platform edges, and no junction/crossover geometry.
 
-* **Draw mode** — click platform edges in order. The tool routes a smooth alignment between them and
-  shows waypoints you can drag.
-* **Validation while drawing** — minimum curve radius by stock (A/B/C), maximum grade (4% absolute,
-  2–3% preferred), clearance envelope, and a hard error if you put third rail somewhere uncovered.
-* **Free mode** — switches, crossovers, depot throats and reversing sidings are hand-placed, because
-  that is the part of track layout people actually enjoy fiddling with.
-* **Why not pure free laying** — a full station is 120–160 m of track at 1 m resolution. Block-by-
-  block would be thousands of clicks for geometry nobody wants to hand-place, and it would leave the
-  line model (headway, terminus behaviour, service pattern) with nothing to attach to.
-* Track is still *made of* blocks, so the art and the collision model stay consistent.
+* **Why run by run** — the track module is already the simulation's unit (a line's train
+  dispatches on a track and despawns at its end), so a run is both the visual and the routing
+  object.
+* **What that costs** — a long station is many clicks, and two lines cannot physically join.
+  Curves, switches, buffer stops, depots and the routing line tool remain Planned (§12).
+* **Validation that does exist** — headroom in whole storeys for catenary; the tunnel shell
+  and bridge structure are generated round the run rather than hand-built.
 
-### 13.2 Fare zones are explicit
+### 13.2 Fare zones are labels; geometry is the barrier
 
-**Decision:** yes — `outside / unpaid / paid / platform / restricted`, per §4.5. Gates are the only
-legal crossing. This drives ticket-machine placement, retail placement, and whether a transfer is
-inside the barrier or costs a re-gate. It is the most consequential single decision a player makes.
+**Decision as built:** zones are `none` / `outside` / `unpaid` / `paid` / `platform` /
+`restricted`, the 分区图 overlay paints them, and the fare line is built **physically** out of
+围栏 and 闸机. Zone paint itself does not block movement (`ZONE_LINES_BLOCK = false`), and
+placement is not restricted by zone.
+
+This is a deliberate retreat from the early “a gate is the only crossing” rule: enforcing it
+on the shipped Zoo save walled off real circulation because 7,199 of its cells are unpainted.
+The rule is implemented and tested behind the flag, so re-enabling it is a one-line change once
+zone paint is complete — and that is the intended direction.
 
 ### 13.3 Time is authored, scrubbed and replayed
 
-**Decision:** a scrubbable timeline with authored day types, not an unstoppable 24-hour loop and not
-a timeless sandbox. Per §7.9: set the curve, jump to 07:50, watch the peak, get a day report, then
-re-run the same window after a layout change because the sim is deterministic.
+**Decision:** a scrubbable clock with an authored day, not an unstoppable 24-hour loop and not a
+timeless sandbox. The 客流 window sets the service window, two peak windows, the demand knobs
+and the calendar; the player can jump to 07:50 and re-run a window after a layout change because
+the sim is deterministic. Fast-forward runs to 64× but still draws the crowd; there is no
+headless day and no day report yet.
 
-### 13.4 Ventilation is a comfort model, not a failure model
+### 13.4 Ventilation is a comfort model — Planned
 
-**Decision:** depth and enclosure affect air quality, and air quality affects agent comfort, walking
-speed and browsing — never survival, never a fail state. Per §7.7. The fix is architectural: an
-opening, a vent shaft, a shallower concourse, or fewer people.
+**Design intent:** depth and enclosure would affect air quality, and air quality would affect
+comfort, walking and browsing — never survival, never a fail state. The fix would be
+architectural: an opening, a vent shaft, a shallower concourse, or fewer people.
 
-### 13.5 Settings are global, saves are local snapshot files
+**As built:** none of this exists (§7.7). The 通风口 is decor. Do not tune against it.
 
-**Decision:** one settings page for the whole app plus one file format for the whole station,
-and the two never mix.
+### 13.5 Preferences are global, saves are static station files
 
-* Settings (§9.3) are per browser in `localStorage`, apply instantly, and are never written
-  into the station file — so sharing a `*.metro.json` never leaks someone's key bindings or
-  quality level.
-* Saves (§9.4, §10.5) are local `*.metro.json` downloads containing a full snapshot: all
-  static blocks plus all movement (agents, trains, queues, RNG, clock). No server, no cloud,
-  no command-log replay in v1 — loading restores the exact paused tick and the graph is
-  rebuilt from static.
-* Why snapshot over command log: the old "seed + command log" idea gives tiny files but
-  fragile replays (one version skew breaks everything) and cannot restore a mid-peak moment
-  to share or debug. A sparse snapshot stays < 2 MB (§10.4) and makes "download this exact
-  crush and fix it" the core sharing loop ahead of M6 workshop support.
+**Decision:** one gear menu for the whole app, one file format for the whole station, and the
+two never mix.
+
+* Preferences (§9.3) are per browser in `localStorage`, apply instantly, and are never written
+  into the station file — so sharing a `*.metro.json` never leaks quality, language or the
+  stats opt-out.
+* Saves (§9.4, §10.5) are local `*.metro.json` downloads containing the **static** station and
+  its authored day. Movement is not included: loading restarts the crowd and clock from the
+  seed. A dynamic v2 save is Planned.
+* **Why static over a command log:** a command log gives tiny files but fragile replays, and
+  it cannot ship an authored station to another player. The static document does, and it keeps
+  the format small and debuggable. The cost is that “download this exact crush and fix it” is
+  not yet supported.
+* The only network feature is the opt-out aggregate stats submission (§10.6), which never
+  carries the station document.
 
 ### 13.6 Residual risks
 
 | Risk | Mitigation |
 |---|---|
-| 3,000 agents × a station of 50k cells is a lot of pathfinding | hierarchical graph + flow fields; agents re-path only on state change |
-| Cutaway levels are confusing to build in | one-level-at-a-time editing is the default; the level slider is the primary tool, and the flat views show the whole stack |
-| Queue simulation is where the fun hides *or* where it gets boring | expose the queue as a visible object early (M3) and tune before adding features |
-| Real-world numbers may not be fun (a correct escalator is too efficient) | all constants live in one data file and are meant to be tuned; §7.8 is the calibration target |
-| A full station is 120–160 m long, which is a huge grid | the line tool, blueprints and copy/paste must make long repetitive geometry cheap |
-| Rolling stock and pedestrian-flow figures need verification | cross-check GB 50157-2013 / GB 50490 and a pedestrian-flow handbook before shipping the numbers |
-| Free 360° orbit can disorient players | nav cube, five presets, and a "return to build view" key; the build grid is always world-aligned |
+| 3,000+ agents on a 14k-cell station is a lot of pathfinding | A* over the station graph plus steering; re-planning is rationed per tick; measured p99 tick ~2.2 ms at 3,257 agents |
+| Cutaway storeys are confusing to build in | one-storey editing is the default; the depth rail and `Q`/`E` are the primary controls, and the flat views show the whole stack |
+| Queue simulation is where the fun hides *or* where it gets boring | queues are server member lists with real waits and left-behind counts; tuning lives in one constants file |
+| Real-world numbers may not be fun (a correct escalator is too efficient) | every rate is in `sim/constants.ts`; §7.8 is the calibration target |
+| A full station is 120–160 m at 1 m resolution | no line tool or copy/paste yet — this is a genuine authoring cost, not a solved one |
+| Rolling-stock and pedestrian-flow figures need verification | cross-check GB 50157 / GB 50490 and a pedestrian-flow handbook before treating the table as authoritative |
+| Free 360° orbit can disorient players | nav cube, five presets and `Ctrl+H` home; the grid is always world-aligned |
+| Zone paint does not enforce the fare line | physical fences and gates do; `ZONE_LINES_BLOCK` is the documented switch for when paint is complete |
 
 ---
 
@@ -1796,45 +1875,32 @@ and the two never mix.
 ```
 metro/
   GAME-SPEC.md            <- this document
-  art/                    <- concept sheets (SVG, generated)
-    01-isometric-cutaway.svg
-    02-vertical-section.svg
-    03-block-system.svg
-    04-module-catalogue.svg
-    05-trains-and-track.svg
-    06-crowd-demand.svg
-    07-interface.svg
-    09-camera-and-views.svg
-    11-rolling-stock-3d.svg
-    12-platform-doors-flow.svg
-    13-two-line-interchange.svg
+  game/                   <- the game (React 19 + three.js + worker)
+    src/
+      app/                <- React shell, rails, inspector, tools, store slices
+      build/              <- document model, placement, validation, mesher inputs
+      data/               <- the two demo saves, line colours, reference station
+      persistence/        <- save.ts (serialise / parse / migrate)
+      render/             <- SceneRenderer, chunk mesher, systems, models/pieces
+      sim/                <- worker, graph, agents, trains, demand, constants
+    test/                 <- node --test suite (coverage map in test/README.md)
+    worker/               <- the game's Cloudflare Worker entry
+    package.json, wrangler.jsonc
+  web/                    <- the concept-art site (React + Vite)
+  model/                  <- character viewer and GLB library (port 5175)
+  stats/                  <- metro-stats Worker + D1 schema and page
+  worker/                 <- the site Worker entry
+  art/                    <- 11 generated concept sheets (01–07, 09, 11–13)
+                             plus a *-en.svg sidecar for each; 08 and 10 are retired
+  design/icon/            <- approved brand icon source
   tools/
-    iso.mjs               <- shared isometric library: palette, projection, rounded boxes, stock, sprites
-    train-iso.mjs         <- rolling stock in 3D: rounded-roof car section extruded along the run
-    sheets-a.mjs          <- sheet 02 (vertical section)
-    sheet-01-hero.mjs     <- sheet 01, the isometric cutaway
-    sheet-05-trains.mjs   <- sheet 05, the stock's parameters: elevations off buildTrain
-    sheet-03-blocks.mjs   <- sheet 03, the block system, from the game's own mesher
-    sheet-04-modules.mjs  <- sheet 04, the catalogue, from the game's own rail thumbnails
-    sheet-06-demand.mjs   <- sheet 06, the demand window, photographed + sim/demand.ts read directly
-    sheet-07-interface.mjs<- sheet 07, the interface, photographed off the running game
-    sheets-c.mjs          <- sheet 09, includes a tiny orthographic box renderer
-    sheets-e.mjs          <- sheet 12, animated platform doors and passenger flow (trains off buildTrain)
-    sheet-11-trains3d.mjs <- sheet 11, the consist buildTrain builds, photographed
-    sheet-13-two-line.mjs <- sheet 13, two lines at two depths
-    gen-art.mjs           <- node tools/gen-art.mjs  -> writes art/
-    zoom.mjs              <- dev helper: crop a sheet for inspection
-    serve.mjs             <- dev helper: static server for viewing art
-
-  (planned)
-  src/
-    ui/                   <- panels, inspector, line manager, timeline, settings page, save/load dialogs
-    build/                <- tools, commands, undo, validation, zones
-    sim/                  <- worker: graph, agents, trains, waves, metrics
-    scene/                <- voxel mesher, agents, camera rig, nav cube, overlays
-    data/                 <- modules.json, materials.json, stock.json, curves.json
-    state/                <- zustand slices (incl. settings slice, save/load slice)
-    persistence/          <- save schema, serialise / parse / migrate / validate `*.metro.json`
+    gen-art.mjs           <- writes art/ (all sheets, or named ones; --en for sidecars)
+    iso.mjs, train-iso.mjs<- shared isometric drawing kit and rolling-stock helper
+    sheet-*.mjs, sheets-*.mjs <- one module per sheet
+    render-*.mjs          <- headless-Chrome captures (trains, modules, UI, passengers, views)
+    bench-*.mjs, check-*.mjs, profile-*.mjs <- performance/browser diagnostics
+    bake-*.mjs, prep-*.mjs<- data and asset bakes (demo, passengers, icons, sign art)
+  package.json, wrangler.jsonc
 ```
 
 ### 14.2 Glossary
@@ -1842,19 +1908,25 @@ metro/
 * **PSD** — platform screen doors; glass doors between platform and track.
 * **TVM** — ticket vending machine.
 * **LOS** — level of service; a density letter grade (A free → F crush).
-* **OD** — origin/destination; shorthand for `trip.origin → trip.dest`, with optional
-  `trip.stops[]` at any module in between (§7.1, §7.4a).
+* **OD** — origin/destination; here `trip.origin → trip.dest` with 0..1 `trip.stops[]`
+  (§7.1, §7.4a). There is no OD matrix yet.
 * **Third rail** — a live rail at track level, the usual choice in Chinese tunnels.
 * **Catenary** — overhead wire, the usual choice on viaducts and open cuts.
-* **Headway** — time between trains on a line at a platform.
-* **Dwell** — how long a train stands at a platform with doors open.
-* **Queue lane** — a single-file channel (painted or railed) that agents join at the back and cannot
-  overtake; a server whose storage is its own length (§5.5).
-* **Switchback / serpentine** — a queue folded into parallel runs to store more people in less floor.
-* **Snapshot save** — a `*.metro.json` file holding static blocks + full movement state at one
-  tick (§9.4, §10.5). Loading restores the exact paused moment.
-* **Settings page (设置)** — global per-browser options (display, camera, sim, autosave),
-  separate from the station file (§9.3).
+* **Headway** — time between trains on a line at a platform; 60–1200 s here.
+* **Dwell** — how long a train stands with doors open; fixed at 30 s.
+* **Storey** — one five-metre band of the fixed grid (`STOREY_HEIGHT`); there are no named levels.
+* **levelBase** — the 0–4 m offset of a station's grid within a storey, saved with the station.
+* **alightPerTrain** — the number of agents a line synthesises at each stop (`下车/列`),
+  default 200; it is the train-borne wave, not an alighting share.
+* **Queue lane** — *Planned*: a placeable single-file channel with its own storage. Not in the
+  build; queues are server member lists today (§5.5).
+* **Switchback / serpentine** — *Planned*: a queue folded into parallel runs to store more
+  people in less floor.
+* **Static save** — a `*.metro.json` holding the blocks, modules, lines and authored day
+  (§9.4, §10.5). Loading restarts the crowd at the service opening; movement is not saved.
+* **Gear menu (设置)** — global per-browser preferences (quality, stats opt-out, language,
+  restart, issue link), separate from the station file (§9.3).
+* **Planned** — designed here but **not implemented**; do not cite it as current behaviour.
 
 ### 14.3 References
 
@@ -1864,3 +1936,8 @@ metro/
 * Fruin, *Pedestrian Planning and Design* — the LOS density bands used in §7.3.
 * Guangzhou Metro station photographs, Wikimedia Commons, CC BY-SA 4.0 — the specific files are
   listed in §1.10. Used as visual reference only; nothing is redistributed.
+* `game/README.md` — the long-form as-built notes, the time base and the deliberate divergences
+  from this document. Read it before changing simulation behaviour.
+* `.agents/skills/metro-repo/references/performance.md` and `game/test/README.md` — measured
+  performance and the test coverage map; both are updated with the behaviour they
+  describe.
