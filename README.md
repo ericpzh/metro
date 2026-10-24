@@ -492,3 +492,10 @@ stays where it is.
 
 The model-art command uses dedicated `.preview/model-art/` captures and free
 browser ports, so it can coexist with other local previews.
+
+Stats writes now require six-minute single-use leases; D1 stores SHA-256 digests.
+Apply the updated schema before shipping the Worker and game together. Minting
+is address-rate-limited with Retry-After. Do not use Cloudflare Access or browser
+service tokens for anonymous writes; configure WAF rules for both lease and submit.
+Workers.dev and preview URLs are disabled. Turnstile, relational validation and
+historical retention remain follow-up work; see [the runbook](stats/README.md).

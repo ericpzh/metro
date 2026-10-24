@@ -125,7 +125,7 @@ function fakeTimers() {
   }
 }
 
-function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl, submitInitial = false, beacon } = {}) {
+function collectorFixture({ stationState = station(), metricsValue = metrics(), storage = memoryStorage(), fetchImpl, leaseImpl, submitInitial = false, beacon, now } = {}) {
   const store = fakeStore({
     metrics: metricsValue,
     station: stationState,
@@ -134,17 +134,41 @@ function collectorFixture({ stationState = station(), metricsValue = metrics(), 
     shareStats: true,
   })
   const calls = []
+  const leaseCalls = []
   const beacons = []
   const timers = fakeTimers()
+  let leased = 0
+  const defaultLease = async () => {
+    leased += 1
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        ok: true,
+        token: 'a'.repeat(60) + String(leased).padStart(4, '0'),
+        expiresAt: new Date((now ?? Date.now)() + 6 * 60_000).toISOString(),
+      }),
+    }
+  }
   const fetchCalls = async (url, init) => {
     calls.push({ url, init, body: JSON.parse(init.body) })
     return { ok: true, status: 200 }
+  }
+  // The collector now mints a lease before every submit. Tests that inject a
+  // `fetchImpl` are describing the submit endpoint only; leases are routed
+  // around it unless `leaseImpl` overrides them.
+  const routedFetch = async (url, init) => {
+    if (url.endsWith('/v1/lease')) {
+      leaseCalls.push({ url, body: JSON.parse(init.body) })
+      return (leaseImpl ?? defaultLease)(url, init)
+    }
+    return (fetchImpl ?? fetchCalls)(url, init)
   }
   const collector = createGlobalStats({
     store,
     apiUrl: 'http://stats.test/api',
     storage,
-    fetchImpl: fetchImpl ?? fetchCalls,
+    fetchImpl: routedFetch,
     beacon: beacon === undefined
       ? (url, body) => {
           beacons.push({ url, body: JSON.parse(body) })
@@ -156,9 +180,10 @@ function collectorFixture({ stationState = station(), metricsValue = metrics(), 
     submitInitial,
     addPageHide: () => {},
     removePageHide: () => {},
+    now,
   })
   collector.start()
-  return { store, collector, calls, beacons, timers, storage }
+  return { store, collector, calls, leaseCalls, beacons, timers, storage }
 }
 
 test('station counts, deltas and reset arithmetic are pure and deterministic', () => {
@@ -215,6 +240,8 @@ test('a built station submits counts and deltas in one idempotent body', async (
   assert.match(body.clientId, /^00000000-/)
   assert.match(body.submitId, /^00000000-/)
   assert.match(body.sessionId, /^00000000-/)
+  assert.match(body.lease, /^[0-9a-f]{64}$/, 'the submit carries a single-use lease')
+  assert.equal(f.leaseCalls.length >= 1, true, 'the collector mints the lease first')
   assert.equal(body.station.name, 'Test')
   assert.deepEqual(
     { cells: body.station.cells, modules: body.station.modules, lines: body.station.lines, platforms: body.station.platforms, tracks: body.station.tracks },
@@ -266,7 +293,7 @@ test('an empty station is never sent', async () => {
 
 test('dev start sends the already-built station once, before the worker reports', async () => {
   const f = collectorFixture({ metricsValue: null, submitInitial: true })
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await f.collector.ready()
   assert.equal(f.calls.length, 1)
   assert.equal(f.calls[0].body.station.name, 'Test')
   assert.equal(f.calls[0].body.station.cells, 2)
@@ -281,7 +308,8 @@ test('a failed submission retries with the same submit id and is not re-counted'
     calls.push({ url, body: JSON.parse(init.body) })
     return responses.shift()
   }
-  const f = collectorFixture({ storage, fetchImpl })
+  let clock = Date.now()
+  const f = collectorFixture({ storage, fetchImpl, now: () => clock })
   f.store.setState({ version: 2, metrics: metrics({ tick: 120, boarded: 3 }) })
   await f.collector.tick()
   assert.equal(calls.length, 1)
@@ -289,6 +317,9 @@ test('a failed submission retries with the same submit id and is not re-counted'
   const submitId = f.collector.pending()[0].submitId
   assert.equal(storage.values.has(STATS_QUEUE_KEY), true, 'the failed payload is queued')
 
+  await f.collector.tick()
+  assert.equal(calls.length, 1, 'backoff suppresses immediate retry')
+  clock += 3000
   await f.collector.tick()
   assert.equal(calls.length, 2)
   assert.equal(f.collector.pending().length, 0)
@@ -298,6 +329,62 @@ test('a failed submission retries with the same submit id and is not re-counted'
   assert.equal(calls[1].body.delta.boarded, 3, 'the retry does not grow or repeat the delta')
 })
 
+test('a lease failure keeps the payload and sends no submit', async () => {
+  const f = collectorFixture({ leaseImpl: async () => ({ ok: false, status: 429 }) })
+  f.store.setState({ version: 2, metrics: metrics({ tick: 30, boarded: 2 }) })
+  await f.collector.tick()
+  assert.equal(f.calls.length, 0, 'no lease means no submit')
+  assert.equal(f.collector.pending().length, 1)
+  assert.equal(f.collector.lease(), null)
+})
+
+test('a 401 spends one fresh lease and retries the same payload once', async () => {
+  const calls = []
+  const responses = [{ ok: false, status: 401 }, { ok: true, status: 200 }]
+  const f = collectorFixture({
+    fetchImpl: async (url, init) => {
+      calls.push(JSON.parse(init.body))
+      return responses.shift()
+    },
+  })
+  await f.collector.ready()
+  f.store.setState({ version: 2, metrics: metrics({ tick: 20, boarded: 1 }) })
+  await f.collector.tick()
+
+  assert.equal(calls.length, 2, 'the stale lease is replaced once')
+  assert.equal(calls[0].submitId, calls[1].submitId, 'the retry keeps its idempotency key')
+  assert.match(calls[0].lease, /^[0-9a-f]{64}$/)
+  assert.notEqual(calls[0].lease, calls[1].lease, 'the second attempt uses a different token')
+  assert.equal(f.collector.pending().length, 0)
+  const stored = JSON.stringify([...f.storage.values.values()])
+  assert.equal(stored.includes(calls[0].lease), false, 'the lease never reaches storage')
+})
+
+test('the collector renews a standby lease each tick so pagehide can carry one', async () => {
+  const f = collectorFixture()
+  await f.collector.ready()
+  const first = f.collector.lease()
+  assert.ok(first)
+  f.store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
+  await f.collector.tick()
+  const second = f.collector.lease()
+  assert.ok(second)
+  assert.notEqual(second.token, first.token, 'the standby is refreshed')
+  assert.equal(f.leaseCalls.length >= 2, true)
+})
+
+test('an expired standby is not beaconed, and the payload waits for the next visit', async () => {
+  let clock = 1_000_000
+  const f = collectorFixture({ now: () => clock })
+  await f.collector.ready()
+  assert.ok(f.collector.lease())
+  clock += 20 * 60_000
+  f.store.setState({ version: 2, metrics: metrics({ tick: 60, boarded: 1 }) })
+  f.collector.pagehide()
+  assert.equal(f.beacons.length, 0, 'no valid lease, no beacon')
+  assert.equal(f.collector.pending().length, 1)
+})
+
 test('a server rejection is dropped, while a 429 retries the same payload', async () => {
   const calls = []
   const responses = [{ ok: false, status: 400 }, { ok: false, status: 429 }, { ok: true, status: 200 }]
@@ -305,7 +392,8 @@ test('a server rejection is dropped, while a 429 retries the same payload', asyn
     calls.push(JSON.parse(init.body))
     return responses.shift()
   }
-  const f = collectorFixture({ fetchImpl })
+  let clock = Date.now()
+  const f = collectorFixture({ fetchImpl, now: () => clock })
   f.store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
   await f.collector.tick()
   assert.equal(f.collector.pending().length, 0, 'a 400 is not retried forever')
@@ -314,6 +402,7 @@ test('a server rejection is dropped, while a 429 retries the same payload', asyn
   await f.collector.tick()
   assert.equal(f.collector.pending().length, 1, 'a 429 keeps the payload')
   const submitId = f.collector.pending()[0].submitId
+  clock += 3000
   await f.collector.tick()
   assert.equal(f.collector.pending().length, 0)
   assert.equal(calls.at(-1).submitId, submitId)
@@ -421,16 +510,18 @@ test('the collector falls back to browser localStorage when none is injected', (
 test('pagehide beacons pending work and the next page retries the same payload', async () => {
   const storage = memoryStorage()
   const first = collectorFixture({ storage })
+  await first.collector.ready()
   first.store.setState({ version: 2, metrics: metrics({ tick: 90, boarded: 2 }) })
   first.collector.pagehide()
   assert.equal(first.beacons.length, 1)
   assert.equal(first.beacons[0].url, 'http://stats.test/api/v1/submit')
+  assert.match(first.beacons[0].body.lease, /^[0-9a-f]{64}$/, 'the beacon carries the held lease')
   assert.equal(first.collector.pending().length, 1)
   const submitId = first.beacons[0].body.submitId
   first.collector.stop()
 
   const second = collectorFixture({ storage })
-  await new Promise(resolve => setTimeout(resolve, 0))
+  await second.collector.ready()
   await second.collector.flush()
   assert.equal(second.calls.length, 1)
   assert.equal(second.calls[0].body.submitId, submitId)
@@ -463,7 +554,9 @@ test('opting out clears the queue and stops every later submission', async () =>
 test('the stats API only exists on the real site or an explicit override', () => {
   assert.equal(resolveStatsApiUrl({ dev: true, hostname: 'localhost' }), 'http://127.0.0.1:5176/stats/api')
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'stationdesigner.com' }), '/stats/api')
-  assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'www.stationdesigner.com' }), '/stats/api')
+  // The Worker's origin allowlist names the apex only, so a subdomain must not
+  // silently POST to a host the server will refuse.
+  assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'www.stationdesigner.com' }), null)
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: '127.0.0.1' }), null)
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'preview.workers.dev' }), null)
   assert.equal(resolveStatsApiUrl({ dev: false, hostname: 'preview.workers.dev', configured: 'https://stats.example/api/' }), 'https://stats.example/api')
@@ -537,10 +630,21 @@ test('the default beacon sends a JSON blob and the default pagehide hook is iner
       store,
       apiUrl: 'http://stats.test/api',
       storage: memoryStorage(),
+      fetchImpl: async url => url.endsWith('/v1/lease')
+        ? {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              token: 'b'.repeat(64),
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          }
+        : { ok: true, status: 200 },
       timers: fakeTimers().timers,
       randomUUID: ids(),
     })
     collector.start()
+    await collector.ready()
     store.setState({ version: 2, metrics: metrics({ tick: 10, boarded: 1 }) })
     collector.pagehide()
     assert.equal(sent.length, 1)
@@ -588,4 +692,31 @@ test('boot starts the collector and the settings menu owns the opt-out', () => {
     assert.match(messages, new RegExp(`"${key}"|${key}:`), `the catalogue names ${key}`)
   }
   assert.match(css, /\.settingsNote \{/)
+})
+
+test('403 preserves data and 429 Retry-After delays lease issuance', async () => {
+  for (const status of [403, 429]) {
+    let clock = Date.now()
+    let submits = 0
+    const f = collectorFixture({ now: () => clock, fetchImpl: async () => {
+      submits++
+      return submits === 1
+        ? { ok: false, status, headers: { get: () => '60' } }
+        : { ok: true, status: 200 }
+    } })
+    await f.collector.ready()
+    f.store.setState({ version: 2, metrics: metrics({ tick: 30, boarded: 2 }) })
+    await f.collector.tick()
+    const id = f.collector.pending()[0].submitId
+    const leases = f.leaseCalls.length
+    clock += 59_000
+    await f.collector.tick()
+    assert.equal(submits, 1)
+    assert.equal(f.leaseCalls.length, leases)
+    clock += 1001
+    await f.collector.tick()
+    assert.equal(submits, 2)
+    assert.equal(f.collector.pending().length, 0)
+    assert.ok(id)
+  }
 })

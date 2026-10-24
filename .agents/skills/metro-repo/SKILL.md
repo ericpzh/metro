@@ -708,13 +708,34 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   `wrangler dev --env dev`; `npm run deploy:stats` applies `stats/schema.sql` to
   the remote database, deploys the top level and verifies the live health/totals
   endpoints. The page and API are the same Worker; there is no stats build.
-  Only `/stats/api/v1/submit` is origin-gated — the game's own origin (and
-  localhost for the dev flow), or a same-origin fetch with no `Origin`; every
-  other caller gets 403 before the database is touched. The page and the `GET`
-  reads stay public, so the totals page and the game keep working unchanged.
-  Workers Builds must use `npm run deploy:stats:ci` (the auto build token has no
-  D1 permission) and `npm run version:stats`; `npm run dev:stats` is a
-  long-running server, never a version/preview command.
+  Both `/stats/api/v1/lease` and `/stats/api/v1/submit` are origin-gated.
+  The game automatically enables stats only on the apex production hostname;
+  keep client host resolution and Worker CORS/write allowlists aligned.
+  Each submit needs a six-minute single-use lease, held only in browser memory;
+  D1 stores its SHA-256 digest. Issuance has an address-hash fixed-window limit,
+  fails closed on limiter errors, and returns 429 with Retry-After. Unattributed
+  callers share a fallback bucket. Preserve stable submit ids across new leases,
+  client backoff, temporary 403 failures and pagehide retries.
+  In the write transaction, gate station metadata on the delta insert's
+  `changes() = 1`; an advisory duplicate lookup alone cannot prevent races.
+  Keep Content-Length rejection plus byte-bounded streaming for unknown lengths.
+  Stats workers.dev and preview URLs are disabled to prevent custom-domain rule
+  bypasses. Do not use Access/service tokens for anonymous writes; edge WAF rules
+  should cover both write paths. Turnstile and relational simulation validation
+  are not implemented: leases bound writes but cannot make totals trustworthy.
+  For changes run `npm run test:stats`, the game global-stats suite and typecheck;
+  retain the real SQLite duplicate-metadata regression. Read `stats/README.md`
+  for the runbook and remaining retention/trust gaps. Apply the schema before
+  deploying the Worker and matching game client. `deploy:stats:ci` skips schema
+  application; use `npm run deploy:stats` for schema releases.
+  If D1 file import returns authentication error 10000 but `d1 execute
+  --command` works, apply the same schema through the command endpoint before
+  deploying. Remove SQL line comments and pass one `--command=<sql>` argument
+  through a process argument array; a leading `--` SQL comment can be parsed as
+  a CLI flag. Check the schema step's exit code before starting deployment.
+  Verify live health reports `lease: required`, `rateLimit: enabled` and
+  `ipHash: enabled`; check lease issuance and unknown-token 401/foreign-origin
+  403 without inserting synthetic station rows.
   Abuse handling: each submit also stores
   `HMAC-SHA256(CF-Connecting-IP, IP_HASH_SECRET)` in `submit_ips` — never the raw
   IP — and a matching `blocked_ips` row refuses it with 403 before any write

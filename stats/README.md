@@ -158,7 +158,7 @@ Requests are capped at 8 KiB.
 
 ### `GET /stats/api`
 
-A small index: `{ ok, environment, endpoints: { global, submit, health } }`.
+A small index: `{ ok, environment, endpoints: { global, lease, submit, health } }`.
 
 ### `GET /stats/api/v1/global`
 
@@ -185,6 +185,7 @@ before the first submission.
   "clientId": "uuid",
   "submitId": "uuid",
   "sessionId": "uuid (optional)",
+  "lease": "64 hex characters from /v1/lease",
   "station": {
     "name": "动物园",
     "cells": 18450,
@@ -221,13 +222,33 @@ script or `curl` — is refused with `403 { "ok": false, "error": "forbidden" }`
 before it touches the database. The page and the `GET` endpoints stay public, so
 the totals page and the game keep working unchanged.
 
-This is defence in depth, not identity: `Origin` and `Sec-Fetch-Site` are
-browser-set headers that any non-browser client can forge, so the gate stops the
-casual caller rather than a determined one. The authoritative block is a
-Cloudflare Access policy scoped to `/stats/api/v1/submit` (a policy on all of
-`/stats/api/*` would also gate the totals the public page fetches). Once that
-policy exists, the Worker gate is the layer that keeps working for callers
-reaching the `workers.dev` host directly, which Access does not cover.
+Origin headers are defence in depth and can be forged by scripts. Do not put
+Cloudflare Access on anonymous writes: SSO blocks the game and browser service
+tokens are public. Configure WAF/rate rules on both write paths. Turnstile with
+server-side Siteverify is a further option, **not implemented** here.
+Workers.dev and version preview URLs are disabled to prevent host bypasses.
+The game automatically enables only the apex production host, matching CORS.
+
+### `POST /stats/api/v1/lease`
+
+Send `{ "clientId": "uuid" }`. The response is
+`{ ok, token, expiresAt, environment }`. The token has 32 random bytes, expires
+in six minutes and is bound to the client id. Only its SHA-256 enters D1; the
+browser holds the raw token in memory. Send `lease` in the submit JSON or use
+`X-Stats-Lease`. An atomic delete consumes it. Missing/expired/spent tokens
+return 401. Mint a new token after a lost response and keep the same submitId.
+
+Issuance is limited to 60 mints per address hash per fixed 60-second window.
+Without a secret or connection address, all callers share a fallback bucket.
+Limiter failures refuse issuance. 429 includes Retry-After seconds. Successful
+issuance sweeps expired leases and rate buckets older than two windows.
+The client preserves 403/408/429 and server failures, uses backoff and honors
+Retry-After. Pagehide uses a standby lease; tokens never enter local storage.
+
+Leases bound writes but do not prove a simulation ran. Rotating client ids/names
+still inflates station totals, and absolute delta caps still permit fabricated
+passenger/time values. Relational validation, Turnstile, client bans and historical
+delta/IP retention remain follow-up work. Existing bad rows are not repaired.
 
 ### `GET /stats/api/v1/health`
 
@@ -243,10 +264,12 @@ Returns `503` with `schema: "missing"` until `schema.sql` has been applied, and
 
 ## Storage
 
-[`schema.sql`](schema.sql) creates six tables:
+[`schema.sql`](schema.sql) creates eight tables:
 
 | Table | Holds |
 |---|---|
+| `submit_leases` | token digest, client id, address hash and expiry |
+| `rate_limits` | fixed-window issuance counters |
 | `clients` | anonymous client id, first/last seen |
 | `stations` | one row per `(client_id, station_name)` with the latest counts and submission count |
 | `passenger_deltas` | one row per accepted `submit_id` |
@@ -258,18 +281,15 @@ Returns `503` with `schema: "missing"` until `schema.sql` has been applied, and
 this file is re-applied by every deploy and preview, and D1 has no
 `ADD COLUMN IF NOT EXISTS`; a new table keeps the file idempotent.
 
-Idempotency is enforced in two places:
-
-* `passenger_deltas` has `UNIQUE (client_id, submit_id)`, and the Worker inserts
-  with `INSERT OR IGNORE`, so retrying the same submission never double-counts
-  passengers.
-* `stations` is upserted on `(client_id, station_name)`. Its insert trigger only
-  bumps the station total on the first sighting; later submissions update the
-  counts and `submissions`.
-
-The submit is one D1 batch (transaction): client upsert, station upsert,
-passenger-delta insert, `submit_ips` insert. Triggers keep `global_counters`
-consistent under concurrent writers.
+A known `(client_id, submit_id)` retry returns success without changing metadata.
+The D1 batch conditionally upserts the client, inserts the delta with
+`INSERT OR IGNORE`, then upserts the station only if that insert changed a row
+(`changes() = 1`). This also gates concurrent retries; station submissions are
+derived from accepted deltas. The IP insert is `INSERT OR IGNORE`.
+Lease consumption is separate: a failed write requires a fresh lease on retry.
+Station reads still use `COUNT(*)`; the legacy stations counter remains.
+Bodies are checked against Content-Length first, then read with an 8 KiB
+byte-counted stream bound even for missing or inaccurate lengths.
 
 ## Abuse handling
 

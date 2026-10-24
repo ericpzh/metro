@@ -1225,3 +1225,8 @@ usable floors and omits its detached virtual entrance. Stair-flight translation
 checks apply to every retained flight; exterior-only connections are intentionally
 absent. Documents without authored above-ground floor labels retain their existing
 unfurnished-floor fallback.
+
+The global-stats suite also covers memory-only lease acquisition/renewal,
+expired-token retries, stable submission ids, 403 preservation, and Retry-After
+with an injected clock. Worker tests in `stats/test` separately use real SQLite
+to verify transactional duplicate suppression and station metadata preservation.

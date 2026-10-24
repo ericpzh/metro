@@ -6,6 +6,7 @@
  *   https://stationdesigner.com/stats/                 the public totals page
  *   https://stationdesigner.com/stats/en/              the English totals page
  *   https://stationdesigner.com/stats/api/v1/global    read the totals
+ *   https://stationdesigner.com/stats/api/v1/lease     mint one single-use write lease
  *   https://stationdesigner.com/stats/api/v1/submit    record one anonymous delta
  *   https://stationdesigner.com/stats/api/v1/health    deployment/schema check
  *
@@ -17,15 +18,19 @@
  *
  * Requires a D1 binding named STATS_DB. Without it every endpoint returns 503.
  *
- * Only `/v1/submit` is gated: it accepts a POST from our own origin (or a
- * same-origin fetch that omits `Origin`), and refuses everything else with 403.
- * The page and the reads stay public. See `submitAllowed` below.
+ * Only the write paths are gated. `submit` accepts a POST from our own origin
+ * (or a same-origin fetch that omits `Origin`), and refuses everything else
+ * with 403. It also needs a lease minted by `/v1/lease`: the Worker stores only
+ * the lease's SHA-256, and a submit deletes that row before writing, so a token
+ * works once and a replayed payload fails. The page and the reads stay public.
+ * See `submitAllowed`, `consumeLease` and `takeRateLimit` below.
  *
  * Abuse handling: on submit the Worker stores `HMAC-SHA256(CF-Connecting-IP,
  * IP_HASH_SECRET)` in `submit_ips` so bad rows can be traced and a repeat
  * offender blocked via `blocked_ips`. The raw address is never stored, and the
  * hash is not reversible without the secret. With no secret configured the hash
- * is NULL and no ban can be enforced (health reports this).
+ * is NULL and no ban can be enforced (health reports this). Lease issuance is
+ * rate-limited per address, so accepting a submit costs a minted lease.
  *
  * Collected totals:
  *   - stations            distinct (client_id, station_name)
@@ -37,8 +42,14 @@
  *   - train_arrivals      total trains that reached a platform berth
  */
 import { renderPage } from './page.js'
+import {
+  LEASE_RATE_LIMIT,
+  LEASE_RATE_WINDOW_S,
+  LEASE_TOKEN_HEX,
+  LEASE_TTL_MS,
+  MAX_BODY,
+} from './limits.js'
 
-const MAX_BODY = 8 * 1024
 const STATS_PREFIX = '/stats'
 const ALLOWED_ORIGINS = new Set(['https://stationdesigner.com'])
 const LOCAL_ORIGIN = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?$/
@@ -58,6 +69,12 @@ function ipHashSecret(env) {
 
 const textEncoder = new TextEncoder()
 
+function toHex(bytes) {
+  let hex = ''
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+  return hex
+}
+
 /**
  * Pseudonymous abuse key: HMAC-SHA256 of the connection address under a Worker
  * secret, hex-encoded. A plain hash would be pointless — the IPv4 space is small
@@ -73,9 +90,77 @@ async function clientIpHash(request, env) {
     'raw', textEncoder.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
   )
   const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, textEncoder.encode(ip)))
-  let hex = ''
-  for (const byte of mac) hex += byte.toString(16).padStart(2, '0')
-  return hex
+  return toHex(mac)
+}
+
+/** The only copy of a lease that reaches storage: SHA-256 of the token. */
+async function tokenHash(token) {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', textEncoder.encode(token)))
+  return toHex(digest)
+}
+
+/** 32 random bytes, hex-encoded. Never logged and never stored in the clear. */
+function mintToken() {
+  const bytes = new Uint8Array(LEASE_TOKEN_HEX / 2)
+  crypto.getRandomValues(bytes)
+  return toHex(bytes)
+}
+
+function isLeaseToken(value) {
+  return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
+}
+
+/**
+ * A single-use capability: delete the row and report whether this call removed
+ * it. SQLite serialises the delete, so two concurrent submits carrying the same
+ * token cannot both succeed — one gets `changes: 0` and a 401.
+ */
+async function consumeLease(db, clientId, token) {
+  const hash = await tokenHash(token)
+  try {
+    const result = await db.prepare(
+      `DELETE FROM submit_leases
+        WHERE token_hash = ? AND client_id = ? AND expires_at > ?`
+    ).bind(hash, clientId, now()).run()
+    return Number(result?.meta?.changes ?? 0) === 1
+  } catch (error) {
+    console.error('stats lease check failed', error)
+    return false
+  }
+}
+
+/** The lease travels in the JSON body so a `sendBeacon` pagehide can carry it. */
+function leaseOf(request, body) {
+  const fromBody = typeof body?.lease === 'string' ? body.lease.trim() : ''
+  if (fromBody) return fromBody
+  return (request.headers.get('X-Stats-Lease') || '').trim()
+}
+
+/**
+ * Fixed-window counter. Returns `{ ok, retryAfter }`; fails closed on a store
+ * error: an unavailable limiter must never grant unlimited leases. The key includes the address hash; unidentifiable callers share a
+ * fallback bucket so rotating client ids cannot evade the limit.
+ */
+async function takeRateLimit(db, key, limit, windowSeconds) {
+  const windowMs = windowSeconds * 1000
+  const windowStart = Math.floor(Date.now() / windowMs) * windowMs
+  const bucket = `${key}:${windowStart}`
+  const retryAfter = Math.max(1, Math.ceil((windowStart + windowMs - Date.now()) / 1000))
+  try {
+    const [, read] = await db.batch([
+      db.prepare(
+        `INSERT INTO rate_limits (bucket, count, updated_at) VALUES (?, 1, ?)
+         ON CONFLICT(bucket) DO UPDATE SET count = count + 1, updated_at = excluded.updated_at`
+      ).bind(bucket, now()),
+      db.prepare(`SELECT count FROM rate_limits WHERE bucket = ?`).bind(bucket),
+    ])
+    const count = Number(read?.results?.[0]?.count)
+    if (!Number.isFinite(count)) throw new Error('missing rate counter')
+    return { ok: count <= limit, retryAfter }
+  } catch (error) {
+    console.error('stats rate limit failed', error)
+    throw error
+  }
 }
 
 /**
@@ -102,7 +187,8 @@ function corsHeaders(request) {
   const allowed = origin && (ALLOWED_ORIGINS.has(origin) || LOCAL_ORIGIN.test(origin))
   const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Stats-Lease',
+    'Access-Control-Expose-Headers': 'Retry-After',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   }
@@ -111,7 +197,7 @@ function corsHeaders(request) {
 }
 
 /**
- * The write gate for `/v1/submit`: only our own pages may POST a delta.
+ * The write gate for `/v1/lease` and `/v1/submit`: only our own pages may POST.
  *
  * Browsers set `Origin` on a POST and a page cannot forge it, so a foreign site
  * and a bare script (which sends no `Origin` and no fetch metadata) are both
@@ -119,8 +205,10 @@ function corsHeaders(request) {
  * `Sec-Fetch-Site: same-origin` is the accepted fallback.
  *
  * This is defence in depth, not identity: a non-browser client can send either
- * header by hand. It blocks the casual caller; the authoritative block is a
- * Cloudflare Access policy on the write path. The page and the reads stay public.
+ * header by hand. The controls that cost an attacker something are the
+ * single-use lease, the per-address mint limit and the ban list; Cloudflare
+ * Access is not usable here because the only writer is an anonymous browser.
+ * The page and the reads stay public.
  */
 function submitAllowed(request) {
   const origin = request.headers.get('Origin')
@@ -137,6 +225,51 @@ function json(data, init = {}) {
       ...(init.headers || {}),
     },
   })
+}
+
+/**
+ * Read and parse a write body without buffering an oversized one.
+ *
+ * `request.text()` pulls the whole body into Worker memory before the length is
+ * known, so the declared `Content-Length` is refused first. A byte-counted stream reader
+ * also bounds requests with missing or inaccurate lengths.
+ */
+async function readPayload(request, cors) {
+  const declared = request.headers.get('Content-Length')
+  if (declared !== null) {
+    const bytes = Number(declared)
+    if (!Number.isFinite(bytes) || bytes < 0 || bytes > MAX_BODY) {
+      return { response: json({ ok: false, error: 'payload too large' }, { status: 413, headers: cors }) }
+    }
+  }
+  const reader = request.body?.getReader()
+  const chunks = []
+  let size = 0
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        size += value.byteLength
+        if (size > MAX_BODY) {
+          await reader.cancel()
+          return { response: json({ ok: false, error: 'payload too large' }, { status: 413, headers: cors }) }
+        }
+        chunks.push(value)
+      }
+    } finally { reader.releaseLock() }
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+  const text = new TextDecoder().decode(bytes)
+  try {
+    const body = JSON.parse(text)
+    if (!body || typeof body !== 'object') throw new Error('not an object')
+    return { body }
+  } catch {
+    return { response: json({ ok: false, error: 'invalid json' }, { status: 400, headers: cors }) }
+  }
 }
 
 /**
@@ -273,6 +406,7 @@ export default {
           environment,
           endpoints: {
             global: '/stats/api/v1/global',
+            lease: '/stats/api/v1/lease',
             submit: '/stats/api/v1/submit',
             health: '/stats/api/v1/health',
           },
@@ -284,9 +418,11 @@ export default {
           return json({ ok: false, error: 'method not allowed' }, { status: 405, headers: { Allow: 'GET', ...cors } })
         }
         const table = await db.prepare(
-          `SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'stations'`
+          `SELECT COUNT(*) AS n FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('stations', 'submit_leases', 'rate_limits')`
         ).first()
-        if (!table) {
+        if (Number(table?.n ?? 0) < 3) {
           return json(
             { ok: false, environment, database: 'bound', schema: 'missing' },
             { status: 503, headers: cors }
@@ -297,6 +433,10 @@ export default {
           environment,
           database: 'bound',
           schema: 'ready',
+          // A lease is required to write, and issuance is rate-limited. The
+          // address hash is what both the ban list and the limiter key on.
+          lease: 'required',
+          rateLimit: 'enabled',
           // `unconfigured` means `IP_HASH_SECRET` is unset: submissions still
           // work, but no address hash is stored and no ban can be enforced.
           ipHash: ipHashSecret(env) ? 'enabled' : 'unconfigured',
@@ -312,6 +452,57 @@ export default {
         return json(global, { headers: cors })
       }
 
+      if (route === '/v1/lease') {
+        if (request.method !== 'POST') {
+          return json({ ok: false, error: 'method not allowed' }, { status: 405, headers: { Allow: 'POST', ...cors } })
+        }
+        if (!submitAllowed(request)) {
+          return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
+        }
+
+        const payload = await readPayload(request, cors)
+        if (payload.response) return payload.response
+        const { clientId } = payload.body
+        if (!isUuid(clientId)) {
+          return json({ ok: false, error: 'clientId must be uuid-like' }, { status: 400, headers: cors })
+        }
+
+        const ipHash = await clientIpHash(request, env)
+        if (await isBlocked(db, ipHash)) {
+          return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
+        }
+
+        // Issuance is the write budget: every accepted submit needs one lease,
+        // so limiting mints limits the write path. Key on the address when it
+        // is available, otherwise on the client id.
+        const limitKey = ipHash ? `ip:${ipHash}` : 'unattributed'
+        const limit = await takeRateLimit(db, `lease:${limitKey}`, LEASE_RATE_LIMIT, LEASE_RATE_WINDOW_S)
+        if (!limit.ok) {
+          return json(
+            { ok: false, error: 'rate limited' },
+            { status: 429, headers: { 'Retry-After': String(limit.retryAfter), ...cors } }
+          )
+        }
+
+        const token = mintToken()
+        const hash = await tokenHash(token)
+        const t = now()
+        const expiresAt = new Date(Date.now() + LEASE_TTL_MS).toISOString()
+        await db.batch([
+          db.prepare(`DELETE FROM rate_limits WHERE updated_at < ?`).bind(new Date(Date.now() - 2 * LEASE_RATE_WINDOW_S * 1000).toISOString()),
+          // Piggyback the sweep on the only path that creates rows, so an
+          // unused or expired lease never accumulates.
+          db.prepare(`DELETE FROM submit_leases WHERE expires_at < ?`).bind(t),
+          db.prepare(
+            `INSERT INTO submit_leases (token_hash, client_id, ip_hash, issued_at, expires_at)
+             VALUES (?, ?, ?, ?, ?)`
+          ).bind(hash, clientId, ipHash, t, expiresAt),
+        ])
+
+        // The raw token is returned once and never logged or stored.
+        return json({ ok: true, token, expiresAt, environment }, { headers: cors })
+      }
+
       if (route === '/v1/submit') {
         if (request.method !== 'POST') {
           return json({ ok: false, error: 'method not allowed' }, { status: 405, headers: { Allow: 'POST', ...cors } })
@@ -320,19 +511,9 @@ export default {
           return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
         }
 
-        const text = await request.text()
-        if (text.length > MAX_BODY) {
-          return json({ ok: false, error: 'payload too large' }, { status: 413, headers: cors })
-        }
-        let body
-        try {
-          body = JSON.parse(text)
-        } catch {
-          return json({ ok: false, error: 'invalid json' }, { status: 400, headers: cors })
-        }
-        if (!body || typeof body !== 'object') {
-          return json({ ok: false, error: 'invalid json' }, { status: 400, headers: cors })
-        }
+        const payload = await readPayload(request, cors)
+        if (payload.response) return payload.response
+        const body = payload.body
 
         const { clientId, submitId, sessionId, station, delta } = body
         if (!isUuid(clientId) || !isUuid(submitId)) {
@@ -361,9 +542,6 @@ export default {
           return json({ ok: false, error: 'invalid passenger delta' }, { status: 400, headers: cors })
         }
 
-        const t = now()
-        const sid = isUuid(sessionId) ? sessionId : crypto.randomUUID()
-
         // The abuse key is derived here, never sent by the client, and checked
         // against the ban list before any row is written.
         const ipHash = await clientIpHash(request, env)
@@ -371,21 +549,56 @@ export default {
           return json({ ok: false, error: 'forbidden' }, { status: 403, headers: cors })
         }
 
-        // One batched transaction. The station upsert only fires the insert
-        // trigger the first time a (client, station) pair is seen, and the
-        // delta insert is idempotent on (client_id, submit_id), so a retry
-        // cannot double-count either a station or its passengers. The
-        // submit_ips row is idempotent on the same key.
+        // Single-use capability. It is consumed before the duplicate check so
+        // every accepted request costs one mint, and a captured payload cannot
+        // use a repeated response as a free oracle.
+        const leaseToken = leaseOf(request, body)
+        if (!isLeaseToken(leaseToken)) {
+          return json({ ok: false, error: 'lease required' }, { status: 401, headers: cors })
+        }
+        if (!(await consumeLease(db, clientId, leaseToken))) {
+          return json({ ok: false, error: 'lease expired or already used' }, { status: 401, headers: cors })
+        }
+
+        // A retried payload keeps its submit id. The delta insert ignores a
+        // duplicate, but the station row must not count the retry either, so
+        // a known submit id returns the totals without writing anything.
+        const duplicate = await db.prepare(
+          `SELECT 1 AS seen FROM passenger_deltas WHERE client_id = ? AND submit_id = ?`
+        ).bind(clientId, submitId).first()
+        if (duplicate) {
+          return json(
+            { ok: true, submitId, duplicate: true, environment, global: await readGlobal(db) },
+            { headers: cors }
+          )
+        }
+
+        const t = now()
+        const sid = isUuid(sessionId) ? sessionId : crypto.randomUUID()
+
+        // One batched transaction. The delta insert comes **before** the station
+        // upsert so the station's submission count can be derived from the
+        // accepted deltas rather than incremented; a retry therefore changes
+        // nothing, and `global_counters.stations` still fires only once.
         await db.batch([
           db.prepare(
             `INSERT INTO clients (client_id, first_seen, last_seen)
-             VALUES (?, ?, ?)
+             SELECT ?, ?, ? WHERE NOT EXISTS (
+               SELECT 1 FROM passenger_deltas WHERE client_id = ? AND submit_id = ?)
              ON CONFLICT(client_id) DO UPDATE SET last_seen = excluded.last_seen`
-          ).bind(clientId, t, t),
+          ).bind(clientId, t, t, clientId, submitId),
+          db.prepare(
+            `INSERT OR IGNORE INTO passenger_deltas
+               (client_id, session_id, submit_id, station_name, boarded, alighted, exited,
+                left_behind, sim_seconds, train_arrivals, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          ).bind(clientId, sid, submitId, name, boarded, alighted, exited, leftBehind, simSeconds, trainArrivals, t),
           db.prepare(
             `INSERT INTO stations
                (client_id, station_name, cells, modules, lines, platforms, tracks, first_seen, last_seen, submissions)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?,
+               (SELECT COUNT(*) FROM passenger_deltas WHERE client_id = ? AND station_name = ?)
+             WHERE changes() = 1
              ON CONFLICT(client_id, station_name) DO UPDATE SET
                cells = excluded.cells,
                modules = excluded.modules,
@@ -393,14 +606,9 @@ export default {
                platforms = excluded.platforms,
                tracks = excluded.tracks,
                last_seen = excluded.last_seen,
-               submissions = submissions + 1`
-          ).bind(clientId, name, cells, modules, lines, platforms, tracks, t, t),
-          db.prepare(
-            `INSERT OR IGNORE INTO passenger_deltas
-               (client_id, session_id, submit_id, station_name, boarded, alighted, exited,
-                left_behind, sim_seconds, train_arrivals, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).bind(clientId, sid, submitId, name, boarded, alighted, exited, leftBehind, simSeconds, trainArrivals, t),
+               submissions = (SELECT COUNT(*) FROM passenger_deltas
+                               WHERE client_id = excluded.client_id AND station_name = excluded.station_name)`
+          ).bind(clientId, name, cells, modules, lines, platforms, tracks, t, t, clientId, name),
           db.prepare(
             `INSERT OR IGNORE INTO submit_ips (client_id, submit_id, ip_hash, created_at)
              VALUES (?, ?, ?, ?)`

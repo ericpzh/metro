@@ -19,6 +19,8 @@
   "name": "metro-stats",
   "compatibility_date": "2026-10-17",
   "main": "./worker.js",
+  "workers_dev": false,
+  "preview_urls": false,
 
   "routes": [
     { "pattern": "stationdesigner.com/stats", "zone_name": "stationdesigner.com" },

@@ -71,6 +71,29 @@ CREATE TABLE IF NOT EXISTS blocked_ips (
   expires_at TEXT
 );
 
+-- Short-lived, single-use write leases. The Worker mints a random token and
+-- stores **only its SHA-256**, so a database dump cannot be replayed. A submit
+-- deletes its row (`token_hash + client_id + expires_at`) before writing, which
+-- makes a replayed payload fail with 401 even if it carries a fresh `submit_id`.
+--
+-- No foreign key to `clients`: a lease is issued before the first submit, and a
+-- client row is only written when a submission is actually accepted.
+CREATE TABLE IF NOT EXISTS submit_leases (
+  token_hash TEXT PRIMARY KEY,
+  client_id  TEXT NOT NULL,
+  ip_hash    TEXT,
+  issued_at  TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+
+-- Fixed-window counters for the lease endpoint. The lease is the submit budget:
+-- every accepted submit needs one, so limiting issuance limits the write path.
+CREATE TABLE IF NOT EXISTS rate_limits (
+  bucket     TEXT PRIMARY KEY,
+  count      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS global_counters (
   key   TEXT PRIMARY KEY,
   value REAL NOT NULL DEFAULT 0
@@ -109,3 +132,6 @@ CREATE INDEX IF NOT EXISTS idx_deltas_client ON passenger_deltas (client_id);
 CREATE INDEX IF NOT EXISTS idx_deltas_created ON passenger_deltas (created_at);
 CREATE INDEX IF NOT EXISTS idx_submit_ips_hash ON submit_ips (ip_hash);
 CREATE INDEX IF NOT EXISTS idx_submit_ips_client ON submit_ips (client_id);
+CREATE INDEX IF NOT EXISTS idx_leases_expiry ON submit_leases (expires_at);
+CREATE INDEX IF NOT EXISTS idx_leases_client ON submit_leases (client_id);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_updated ON rate_limits (updated_at);
