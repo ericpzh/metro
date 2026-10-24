@@ -58,16 +58,36 @@ test('platform waiting uses connected floor rather than one doorway point', () =
   door.rate = 0
   const spots = platformWaitingNodes(g, door.node)
   assert.ok(spots.length >= 8, 'the doorway has a usable waiting area')
+  const inward = door.platformInward
+  const safeSpots = platformWaitingNodes(g, door.node, inward)
+  assert.ok(safeSpots.length >= 8)
+  const lineSlot = n => ({
+    depth: (g.nodeX[n] - g.nodeX[door.node]) * inward[0] + (g.nodeY[n] - g.nodeY[door.node]) * inward[1],
+    side: (g.nodeX[n] - g.nodeX[door.node]) * inward[1] - (g.nodeY[n] - g.nodeY[door.node]) * inward[0],
+  })
+  for (let i = 0; i < 8; i++) {
+    const slot = lineSlot(safeSpots[i])
+    assert.equal(slot.depth, 1 + Math.floor(i / 2), 'both fronts fill before the next row')
+    assert.equal(Math.abs(slot.side), 1, 'the centre aisle stays open')
+    if (i % 2) assert.equal(slot.side, -lineSlot(safeSpots[i - 1]).side)
+  }
+  for (const n of safeSpots) assert.ok((g.nodeX[n] - g.nodeX[door.node]) * inward[0] + (g.nodeY[n] - g.nodeY[door.node]) * inward[1] >= 1, 'waiting cells stay behind the PSD row')
   const agents = []
   for (let i = 0; i < 16; i++) {
     const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, g.nodeX[door.node], g.nodeY[door.node], g.nodeZ[door.node], 0)
     w.joinServer(a, door.id)
     agents.push(a)
   }
+  for (let i = 0; i < 8; i++) assert.equal(agents[i].platformWaitNode, safeSpots[i], 'queue rank assigns successive paired line slots')
   for (let i = 0; i < 20; i++) for (const a of agents) w.stepQueue(a)
   assert.ok(new Set(agents.map(a => `${Math.floor(a.x)},${Math.floor(a.y)}`)).size >= 8, 'waiting passengers occupy at least eight floor cells')
   assert.ok(agents.some(a => Math.hypot(a.x - g.nodeX[door.node], a.y - g.nodeY[door.node]) > 2), 'the queue uses platform depth')
   for (const a of agents) assert.ok(clearWalkSegment(g, g.nodeX[door.node], g.nodeY[door.node], a.x, a.y, a.z), 'each waiting place has a legal doorway approach')
+  for (const a of agents) assert.ok((a.x - g.nodeX[door.node]) * inward[0] + (a.y - g.nodeY[door.node]) * inward[1] > 0, 'closed-door passengers walk inward')
+  agents[0].x = g.nodeX[door.node]
+  agents[0].y = g.nodeY[door.node]
+  w.holdPlatformQueuesClear()
+  assert.ok((agents[0].x - g.nodeX[door.node]) * inward[0] + (agents[0].y - g.nodeY[door.node]) * inward[1] >= 0.9, 'collision pressure cannot leave a queued body in the PSD')
   const far = [...spots].find(n => Math.hypot(g.nodeX[n] - g.nodeX[door.node], g.nodeY[n] - g.nodeY[door.node]) > 2)
   agents[0].x = g.nodeX[far]
   agents[0].y = g.nodeY[far]

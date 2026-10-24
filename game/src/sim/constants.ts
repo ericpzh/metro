@@ -330,8 +330,8 @@ export const WALK_LANE_REACH = 8
 export const WALK_LANE_EDGE_INSET = 0.2
 export const WALK_SEGMENT_SAMPLE = 0.25
 export const WALK_LANE_FAN_SLOPE = 0.5
-/** Waiting fans out on usable platform floor beside each door (§5.9). */
-export const PLATFORM_WAIT_RADIUS = 4
+/** Two boarding lines may reach into the platform while the doorway stays clear (§5.9). */
+export const PLATFORM_WAIT_RADIUS = 6.5
 export const PLATFORM_DOOR_WALK_WEIGHT = 0.25
 export const PLATFORM_DOOR_COMMIT_WEIGHT = 8
 export const PLATFORM_BOARD_APPROACH = 1.5

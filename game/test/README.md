@@ -575,8 +575,9 @@ the cooldown, the initial wave's search budget and deterministic replay.
 
 `walking-space.test.mjs` covers stable lanes across corridor width, real passenger
 progress and occupied rows, single-width access, whole-segment hole/fare clearance,
-platform waiting cells and depth, walking to an open door, and counting approaching
-passengers when balancing door choices.
+platform waiting cells and depth, paired PSD queue slots with a clear alighting aisle,
+PSD collision recovery, walking to an open door, and counting approaching passengers
+when balancing door choices.
 
 `history.test.mjs` covers the run's minute-by-minute record (§8.1, the 数据 window): one
 sample a sim minute rather than one a tick, the letter stored as its LOS order, the first

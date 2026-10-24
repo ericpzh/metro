@@ -75,13 +75,16 @@ export function walkingLaneNode(g: StationGraph, route: Int32Array, index: numbe
 }
 
 /** Connected waiting floor local to a doorway; never cross a wall, fare line or ramp. */
-export function platformWaitingNodes(g: StationGraph, door: number): Int32Array {
+export function platformWaitingNodes(g: StationGraph, door: number, inward?: readonly [number, number]): Int32Array {
   const queue = [door], seen = new Set(queue)
   for (let i = 0; i < queue.length; i++) {
     const from = queue[i]
     for (let e = g.adjStart[from]; e < g.adjStart[from + 1]; e++) {
       const to = g.adjTo[e]
       if (seen.has(to) || g.serverForNode.has(to) || !floorEdge(g, from, to)) continue
+      // The PSD occupies the doorway cell. Other cells along that same row
+      // are legal floor nodes, but they put bodies directly into its glass.
+      if (inward && (g.nodeX[to] - g.nodeX[door]) * inward[0] + (g.nodeY[to] - g.nodeY[door]) * inward[1] < 1) continue
       if (Math.hypot(g.nodeX[to] - g.nodeX[door], g.nodeY[to] - g.nodeY[door]) > PLATFORM_WAIT_RADIUS) continue
       // A waiting passenger must be able to walk directly to the doorway.
       if (!clearWalkSegment(g, g.nodeX[door], g.nodeY[door], g.nodeX[to], g.nodeY[to], g.nodeZ[door])) continue
@@ -89,8 +92,12 @@ export function platformWaitingNodes(g: StationGraph, door: number): Int32Array 
       queue.push(to)
     }
   }
-  // Keep the entrance clear; waiting positions occupy the connected floor behind it.
-  return Int32Array.from(queue.slice(1).sort((a, b) =>
+  // Two lines flank the doorway, with the centre kept free for alighting.
+  // Fill both front positions before extending either line into the platform.
+  const candidates = queue.slice(1).filter((n) => !inward ||
+    Math.abs((g.nodeX[n] - g.nodeX[door]) * inward[1] - (g.nodeY[n] - g.nodeY[door]) * inward[0]) === 1)
+  const places = candidates.length ? candidates : queue.slice(1)
+  return Int32Array.from(places.sort((a, b) =>
     Math.hypot(g.nodeX[a] - g.nodeX[door], g.nodeY[a] - g.nodeY[door]) -
     Math.hypot(g.nodeX[b] - g.nodeX[door], g.nodeY[b] - g.nodeY[door]) || a - b))
 }

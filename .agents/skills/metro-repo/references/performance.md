@@ -1820,3 +1820,15 @@ support, suspended train updates and Escape cleanup. Raw reports/screenshots bel
 under `.preview/perf/exploded-view/`; current playback measurements and validation
 limits are recorded above.
 
+
+### Platform screen queue placement — 2026-10-24
+
+Platform door servers carry the platform inward normal. Waiting slots alternate
+between two lines, one metre to each side of the opening, ordered by inward row;
+the centre stays open for alighting and only the queue head approaches when the
+door opens. The post-collision guard holds queued passengers clear of the PSD.
+
+Validation: the focused walking-space regression passes 5/5, covering paired
+slots, aisle clearance and collision recovery. The full game suite passes 2,410/2,410
+in 138.18 s, and the production build passes. The reported image has no matched
+browser recapture yet.

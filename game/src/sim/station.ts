@@ -59,6 +59,8 @@ export interface ServerDef {
   rate: number
   /** Where the queue forms (a graph node). */
   node: number
+  /** Unit normal from the PSD toward the usable platform floor. */
+  platformInward?: [number, number]
   /** For vertical modules: the node the agent arrives at. -1 for in-place servers. */
   exitNode: number
   /** Ride time, seconds (vertical modules only). */
@@ -884,6 +886,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             label: msg('platform_doors'),
             rate: 0,
             node: n,
+            platformInward: rotateLocal(m.rot, 0, m.cfg.side === 'right' ? -1 : 1),
             exitNode: -1,
             ride: 0,
             batch: 1,

@@ -1901,7 +1901,8 @@ export class World {
   private waitingFloor(server: number): Int32Array {
     let nodes = this.doorWaiting.get(server)
     if (!nodes) {
-      nodes = platformWaitingNodes(this.graph, this.graph.servers[server].node)
+      const s = this.graph.servers[server]
+      nodes = platformWaitingNodes(this.graph, s.node, s.platformInward)
       this.doorWaiting.set(server, nodes)
     }
     return nodes
@@ -1975,9 +1976,9 @@ export class World {
       }
     }
     if (s.kind === 'door' && a.platformWaitNode >= 0) {
-      // The first few passengers approach an open doorway; everyone else keeps
-      // their waiting spot instead of all pressing against the screen/wall.
-      const approaching = s.rate > 0 && (s.queue[0] === a.id || s.queue[1] === a.id || s.queue[2] === a.id)
+      // Only the head leaves its line when boarding begins. The other line
+      // stays clear of the centre path used by alighting passengers.
+      const approaching = s.rate > 0 && s.queue[0] === a.id
       const wait = approaching ? s.node : a.platformWaitNode
       if (clearWalkSegment(g, g.nodeX[s.node], g.nodeY[s.node], g.nodeX[wait], g.nodeY[wait], g.nodeZ[s.node])) {
         tx = g.nodeX[wait]
@@ -2168,6 +2169,7 @@ export class World {
     // One collision pass over the whole crowd, after everyone has moved.
     this.buildCollisionGrid(live)
     this.resolveCollisions()
+    this.holdPlatformQueuesClear()
     // The collision press can shove a gate queue into the turnstile itself; a
     // final pass holds it clear of the footprint.
     this.holdGateQueuesClear()
@@ -2203,6 +2205,23 @@ export class World {
         }
         const k = GATE_CLEAR_RADIUS / d
         this.tryMove(a, gx + dx * k, gy + dy * k)
+      }
+    }
+  }
+
+  /** Keep closed-door queues behind the screen after crowd separation. */
+  private holdPlatformQueuesClear(): void {
+    const g = this.graph
+    for (const s of g.servers) {
+      if (s.kind !== 'door' || !s.platformInward) continue
+      const [ix, iy] = s.platformInward
+      const x = g.nodeX[s.node], y = g.nodeY[s.node]
+      for (const id of s.queue) {
+        const a = this.pool.all().get(id)
+        if (!a || a.dead) continue
+        if (s.rate > 0 && s.queue[0] === id) continue
+        const depth = (a.x - x) * ix + (a.y - y) * iy
+        if (depth < 0.9) this.tryMove(a, a.x + ix * (0.9 - depth), a.y + iy * (0.9 - depth))
       }
     }
   }

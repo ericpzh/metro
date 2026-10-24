@@ -359,6 +359,13 @@ detection must use support/shape rather than x/y/z alone. Keep the corner cover 
 against the PSD housing and verify preview, release and collision validation agree.
 Update both suites and this coverage map whenever those contracts move.
 
+Passengers waiting at a platform screen door form two paired lines on the platform
+side, one metre to either side of the opening, with the centre approach clear for
+alighting. Order slots by inward row and alternate sides; only the front passenger
+may approach an open door. Carry the platform inward normal on each door server and
+keep collision-separated queues clear of the PSD. Pin slot ordering, both line sides,
+the centre aisle, boarding approach and collision recovery in `walking-space.test.mjs`.
+
 ## What lives where
 
 `model/` is the third app: a Vite + three.js character viewer at port 5175.
