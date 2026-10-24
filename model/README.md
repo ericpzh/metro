@@ -51,6 +51,21 @@ Build both pages without regenerating character assets with
 `node model/node_modules/vite/bin/vite.js build model`, then run
 `node tools/check-sound-preview.mjs` for browser audio/mute/lifecycle checks.
 Focused logic checks: `node --test model/test/sound-*.test.mjs`.
+The ambience speed lab has 1×/4×/16×/64× simulation controls and a persisted
+per-sound, per-speed tactic table. Compare natural playback, a 2× cap, full-rate
+playback, original-pitch sample skipping, and mute; solo a layer or replay the
+train pass. Presets apply to the selected speed. The train crosses the scene
+over 48 simulated seconds with a 16-second gap. Skipping uses 120 ms slices
+with 15 ms crossfades and bounded scheduling, so it can sound choppy at high
+speeds; it is an audition candidate, not a full time-stretch algorithm.
+`sound-ambient.test.mjs` pins tactic defaults, rates, train presence, bounded
+grain scheduling and stop cleanup. The browser checker also exercises all four
+speeds, live sample rates, solo, the approved game mix and saved choices.
+Defaults match the selected policy: passengers always 1×; traffic uses full
+rate at 1×/4× and sample skipping at 16×/64×; trains skip above 1×. The studio
+imports the game-owned `app/ambientPlayback.ts` player, so audition and runtime
+use the same slice/crossfade scheduling. Older audition settings are reset once
+for this selected mix; later experiments remain local to the studio.
 The preview offers one chosen cue per interaction. `src/sound-preview/effects.js`
 owns the mappings, pitch changes and cached softening. The original procedural
 WAV archive can be regenerated with `python model/scripts/make-soft-sounds.py`;

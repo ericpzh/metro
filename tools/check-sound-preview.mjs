@@ -35,6 +35,24 @@ try {
  report.muted=await page.evaluate(`new Promise(resolve=>setTimeout(()=>{const a=diag.contexts[0].analyser,buf=new Float32Array(a.fftSize);a.getFloatTimeDomainData(buf);resolve(Math.max(...buf.map(Math.abs)));},500))`);
  await gesture(`document.querySelector('[data-enable="master"]').click()`);
  report.camera=await page.evaluate(`(()=>{document.getElementById('motion').checked=false;const before=document.getElementById('distance-crowd').textContent;document.getElementById('height').value=45;document.getElementById('height').dispatchEvent(new Event('input'));return {before,after:document.getElementById('distance-crowd').textContent};})()`);
+ report.speedTrials=[];
+ for(const speed of [1,4,16,64]){
+  const switchMs=await gesture(`(()=>{const start=performance.now();document.querySelector('[data-speed="${speed}"]').click();document.querySelector('[data-preset="rate"]').click();return performance.now()-start;})()`);
+  await new Promise(r=>setTimeout(r,100));
+  const trial=await page.evaluate(`({speed:${speed},rates:[...diag.active].filter(n=>n.loop).map(n=>n.playbackRate.value),selects:document.querySelectorAll('[data-tactic]').length})`);
+  if(trial.rates.length!==3||trial.rates.some(rate=>rate!==speed)||trial.selects!==12)throw Error('Ambient full-speed tactic did not reach every layer');
+  report.speedTrials.push({...trial,switchMs});
+ }
+ await gesture(`document.querySelector('[data-preset="game"]').click()`);
+ await waitFor(page.evaluate,`[...diag.active].filter(n=>n.loop).length>=5 && [...diag.active].every(n=>n.playbackRate.value===1)`);
+ report.approvedFastMix=await page.evaluate(`({loops:[...diag.active].filter(n=>n.loop).length,rates:[...diag.active].filter(n=>n.loop).map(n=>n.playbackRate.value)})`);
+ await gesture(`document.querySelector('[data-preset="skip"]').click();document.querySelector('[data-solo="train"]').click()`);
+ await new Promise(r=>setTimeout(r,350));
+ report.skipping=await page.evaluate(`({loops:[...diag.active].filter(n=>n.loop).length,rates:[...diag.active].filter(n=>n.loop).map(n=>n.playbackRate.value),solo:document.querySelector('[data-solo="train"]').getAttribute('aria-pressed')})`);
+ if(report.skipping.loops<5||report.skipping.loops>7||report.skipping.rates.some(rate=>rate!==1)||report.skipping.solo!=='true')throw Error('Pitch-preserving slices or solo control failed');
+ report.trainPassMs=await gesture(`new Promise((resolve,reject)=>{document.getElementById('motion').checked=true;document.getElementById('motion').dispatchEvent(new Event('change'));document.getElementById('replay-pass').click();const start=performance.now();function check(){const elapsed=performance.now()-start;if(document.getElementById('pass-status').textContent.includes('Between trains'))resolve(elapsed);else if(elapsed>2000)reject(Error('Accelerated train did not leave'));else requestAnimationFrame(check);}requestAnimationFrame(check);})`);
+ if(report.trainPassMs<600||report.trainPassMs>1100)throw Error('64× train pass did not follow simulation time');
+ await gesture(`document.querySelector('[data-speed="1"]').click();document.querySelector('[data-preset="game"]').click();document.querySelector('[data-solo="train"]').click()`);
  for(let i=0;i<4;i++){await gesture(`document.querySelector('[data-scene="${i}"]').click()`);}
  await gesture(`document.getElementById('stop').click()`);
  await waitFor(page.evaluate,`diag.active.size===0`);
@@ -64,6 +82,8 @@ try {
  await page.send('Page.reload');
  await waitFor(page.evaluate,`document.querySelector('[data-volume="effects"]')?.value==='23' && window.diag?.contexts.length===0`);
  report.persisted=await page.evaluate(`document.querySelector('[data-volume="effects"]').value`);
+ report.persistedTactic=await page.evaluate(`document.querySelector('[data-tactic="train"][data-at-speed="64"]').value`);
+ if(report.persistedTactic!=='skip')throw Error('Per-speed sound tactics were not restored');
  report.errors.push(...await page.evaluate('window.errors'));
  writeFileSync('.preview/sound-research/browser-report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
  if(report.errors.length||report.initial.contexts!==0||report.scene.loops!==3||report.signal<=0||report.muted>0.001||report.cancel!==0||report.mobile.overflow||report.allFiles.some(f=>f.peak<=0))throw Error('Sound preview checks failed');

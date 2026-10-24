@@ -11,6 +11,9 @@ native Z-up distance/pan, finite radius and the 256-passenger sample bound. Its
 fake AudioContext drives the actual service's eight-one-shot / three-bed limits,
 mute release, hidden-tab suspension and pending-decode cancellation. Preserve the
 six approved asset/provenance checks and four settings sliders.
+The speed-policy regression pins passengers at 1×, traffic at full rate through
+4× then skips, and trains skipping above 1×. The studio's `sound-ambient` suite
+exercises the same game-owned player for bounded grains and cleanup.
 After a production build, `node tools/check-game-audio.mjs` separately drives
 actual pointer actions and bilingual sliders, checks one pick and one cue per
 action, reload persistence, zero-output mute and camera-relative ambient sources.

@@ -15,9 +15,20 @@ the station either copes or it does not.
 Audio work spans the model sound studio and the game. Use `metro-model` for
 `model/sounds.html`, candidate shaping and source collection; use `metro-game`
 for playback, camera-aware sources and settings, plus `metro-game-test` for
-regressions. `tools/prepare-game-audio.mjs` bakes the selected studio cues into
-`game/public/audio/`; the game must not import the model app at runtime. Keep
-source/license manifests with both collections. Approved background music is
+regressions. The approved ambient playback policy is shared through the
+game-owned `game/src/app/ambientPlayback.ts`: passengers stay at 1×; traffic
+uses full rate at 1×/4× and pitch-preserving sample skips at 16×/64×; trains
+use normal playback at 1× and sample skips at 4×/16×/64×. The sound studio
+imports this focused player and exposes per-sound/per-speed audition choices;
+game runtime must not import the model app. Sample skips use 120 ms slices,
+15 ms crossfades, and at most three scheduled grains per sound bus. Keep the
+per-speed audition regressions in `model/test/sound-ambient.test.mjs`, game
+policy/source regressions in `game/test/audio.test.mjs`, and the browser checks
+`tools/check-sound-preview.mjs` and `tools/check-game-audio.mjs` aligned. Record
+audio measurements in the shared performance reference.
+`tools/prepare-game-audio.mjs` bakes the selected interaction cues into
+`game/public/audio/`. Keep source/license manifests with both collections.
+Approved background music is
 collected as full, size-bounded MP3s by `tools/collect-game-music.py` into
 `game/public/audio/music/`; keep its source/license/hash manifest alongside the
 tracks and its ordered rotation in `game/src/app/musicTracks.ts`. `GameMusic`

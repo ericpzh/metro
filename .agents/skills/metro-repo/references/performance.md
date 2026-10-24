@@ -173,6 +173,35 @@ unchanged.
 
 ## Game audio integration — 2026-10-23
 
+2026-10-24 approved speed mix supersedes the rate/mute trials below: passengers
+always use an uninterrupted 1× loop. Traffic uses full rate at 1×/4× and sample
+skipping at 16×/64×. Trains use a 1× loop at normal speed and sample skipping
+at 4×/16×/64×, with their gain still following live interpolated train presence
+and camera distance. `game/src/app/ambientPlayback.ts` now owns both the approved
+policy and the player used by game and studio; the game imports no model code.
+The preview's versioned tactic preferences reset earlier experiments once to
+these defaults, then preserve later local choices.
+
+Skipping retains the auditioned 120 ms slices / 15 ms crossfades / 105 ms hop,
+with at most three scheduled grains per bus and no backlog after a slow frame.
+At maximum speed this bounds ambient sources to seven (one crowd and up to
+three each for train/traffic), independently of the eight effect voices. Muting,
+hiding or unmounting stops every grain. Camera projection retains its existing
+256 passenger / 64 vehicle bounds and adds no scene picks or document work.
+
+Production game browser validation observed source rates by recording at all
+four speeds: 1× = crowd [1], train [1], traffic [1]; 4× = crowd [1], train [1,1],
+traffic [4]; 16× and 64× = crowd [1], train [1,1], traffic [1,1]. Those pairs are
+overlapping normal-pitch slices, not doubled playback rates. The studio browser
+observed five active normal-rate sources in the approved 64× mix, zero sources
+after stop/cancel, no desktop/mobile overflow and no browser errors. The train
+preview entered its silent gap after 711.6 ms at 64× (expected 750 ms, within a
+render frame). Both builds, 17 focused game/studio sound tests and both audio
+browser checks passed. The full game suite passed all 2,413 tests in 122.8 s;
+raw captures remain in `.preview/perf/game-audio/` and
+`.preview/sound-research/`. Browser game poses are seeded fixtures, not a whole
+service-day listening approval.
+
 2026-10-24 speed follow-up: the reported interaction was train ambience lagging
 the visible consist at non-1× playback. The renderer now samples the final
 camera and live train at 33 ms at accelerated speeds (100 ms at 1×); the train
@@ -244,6 +273,28 @@ muting, hidden-tab suspension and cancellation of late decodes. The existing
 renderer ownership. This feature adds no document or simulation fields.
 
 ## Sound audition preview — 2026-10-23
+
+2026-10-24 speed lab: `/sounds.html` now auditions 1×/4×/16×/64× with a
+persisted tactic for each of the three layers at each speed. Natural, 2× cap,
+full rate, pitch-preserving sample skips and mute are independent choices;
+presets affect the selected speed and Solo isolates a layer. The preview train
+crosses in 48 simulated seconds, followed by a 16-second gap; replay also resets
+its recording. The game continues to mute trains above 1×.
+
+Skipping plays 120 ms normal-rate grains every 105 ms with 15 ms crossfades,
+advancing the source offset at simulation speed. Each RAF schedules at most
+three grains within a 120 ms horizon; a late frame drops backlog. Nine focused
+sound tests and the two-entry model build passed. The production browser check
+at 1440 × 1150 confirmed all four full-speed rates, 12 persisted selectors,
+the current-game two-loop fast-forward mix, and a 64× skipping mix with four
+active source nodes (rates 2/1/1/1). Stop/cancel left zero sources; master mute
+produced zero sampled output; both desktop and 390 px mobile had no overflow
+or browser errors. The 64× train entered its silent gap after 724.3 ms, within
+one frame of the expected 750 ms pass. Speed + preset handler measurements were
+1.0/25.2/24.9/27.8 ms at 1×/4×/16×/64× under audio instrumentation that scans
+every started buffer; these are not clean UI latency benchmarks. Reports and
+captures remain in `.preview/sound-research/`. Sample skipping is an audition
+candidate and can sound choppy; no subjective listening approval is claimed.
 
 Listening-balance revision: Place is raised about 5 dB (20 ms RMS 0.205),
 Select about 6 dB (0.230), and Delete is replaced with a louder damped wooden /

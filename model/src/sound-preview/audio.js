@@ -1,5 +1,6 @@
 import {DEFAULT_MIX} from './spatial.js';
 import {TUNING,shapeEffect} from './effects.js';
+import {AmbientVoice} from './ambient.js';
 export class SoundEngine {
  constructor() { this.epoch=0; this.buffers=new Map(); this.pending=new Map(); this.voices=new Set(); this.loops=new Map(); }
  async enable(mix) {
@@ -49,7 +50,14 @@ export class SoundEngine {
  }
  stop() {
   this.epoch=(this.epoch??0)+1;
+  for(const voice of this.loops.values())voice.stop();
   for(const voice of this.voices) voice.source.stop();
   this.voices.clear();this.loops.clear();
+ }
+ async ambient(file,bus,policy){
+  const epoch=this.epoch,buffer=await this.load(file);
+  if(epoch!==this.epoch)return null;
+  const voice=new AmbientVoice(this.context,buffer,this.buses[bus],policy);
+  this.loops.get(bus)?.stop();this.loops.set(bus,voice);return voice;
  }
 }

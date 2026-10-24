@@ -40,6 +40,11 @@ The renderer sends at most 10 audio snapshots/second at 1× and about 30/second 
 including camera height and orientation. Use at most 256 passenger position
 samples, 64 already rendered vehicle positions and retained live train poses;
 parked train models are silent. Three ambient beds cover crowd, train and traffic.
+`app/ambientPlayback.ts` is the shared game/studio sample player and approved
+policy: passengers remain at 1×; traffic uses full rate at 1×/4× then sample
+skipping at 16×/64×; trains skip samples above 1×. Skipping uses normal-pitch
+120 ms grains, 15 ms crossfades and bounded lookahead; release every scheduled
+grain on mute/hide/unmount. Keep game runtime independent of model imports.
 Muted ambience detaches its callback. The suspended editor contributes no frame
 while the exploded viewer uses its own camera and transformed positions. Hidden
 tabs stop voices, cancel late starts and suspend audio until a new gesture.

@@ -32,9 +32,11 @@ voices and suspend audio until another gesture.
 Passenger-area, live-train and road-traffic beds follow the active camera's world
 position/orientation in both editor and exploded views. Ambient selection runs
 at 10 Hz at 1× and about 30 Hz at faster speeds, samples at most 256 passengers
-and 64 rendered vehicles, and uses three retained beds. Crowd sound caps at 2×,
-train sound is muted above 1×, and traffic stays at 1×. Train sound
-is silent while simulation playback is paused.
+and 64 rendered vehicles, and uses three retained spatial buses. Passengers
+always play at 1×. Traffic plays at full rate at 1×/4×, then skips samples at
+16×/64×. Trains play normally at 1× and skip samples at 4×/16×/64×; they are
+silent while simulation playback is paused. Skipping keeps the original pitch
+using 120 ms slices and 15 ms crossfades, with at most three grains per bus.
 Field recordings are the reviewed audition material, with recorded background
 sound and whole-file loop seams; there is no wall occlusion or reverb simulation.
 

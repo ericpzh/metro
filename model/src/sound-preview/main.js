@@ -3,6 +3,7 @@ import {SoundEngine} from './audio.js';
 import {EFFECTS as effects} from './effects.js';
 import {sanitizeMix, spatialMix} from './spatial.js';
 import {setupMusic} from './music.js';
+import {SPEEDS,TACTICS,sanitizeTactics,defaultTactics,ambientPolicy,trainPass} from './ambient.js';
 const $=id=>document.getElementById(id);
 const audio=new SoundEngine();
 const music=setupMusic({ready,engine:audio});
@@ -21,6 +22,27 @@ const scenarios=[
  {name:'Street entrance',detail:'Traffic at the surface, with the station sounding farther below.',weights:[.3,.3,1],camera:[12,3,-25]},
 ];
 let scene=1,playing=false,starting=false,run=0,sequenceRun=0;
+let speed=1,solo=null,travel=0,tactics=defaultTactics();
+try{tactics=sanitizeTactics(JSON.parse(localStorage.getItem('metro-sound-tactics-v2')));}catch{}
+function saveTactics(){try{localStorage.setItem('metro-sound-tactics-v2',JSON.stringify(tactics));}catch{}}
+function policy(id){return ambientPolicy(tactics[id][speed],speed);}
+function applyTactics(){for(const s of sources)audio.loops.get(s.id)?.setPolicy(policy(s.id));updateSpatial();}
+function drawTactics(){
+ $('speeds').innerHTML=SPEEDS.map(value=>`<button data-speed="${value}" aria-pressed="${value===speed}">${value}×</button>`).join('');
+ $('speeds').querySelectorAll('button').forEach(button=>button.onclick=()=>{speed=Number(button.dataset.speed);drawTactics();applyTactics();});
+ $('tactics').innerHTML=sources.map(s=>`<tr><th scope="row">${s.label}<button class="solo" data-solo="${s.id}" aria-pressed="${solo===s.id}" aria-label="Solo ${s.label}">Solo</button></th>${SPEEDS.map(value=>`<td class="${value===speed?'active-speed':''}"><select data-tactic="${s.id}" data-at-speed="${value}" aria-label="${s.label} tactic at ${value}×">${TACTICS.map(t=>`<option value="${t.id}" ${tactics[s.id][value]===t.id?'selected':''}>${t.label}</option>`).join('')}</select></td>`).join('')}</tr>`).join('');
+ $('tactics').querySelectorAll('select').forEach(select=>select.onchange=()=>{tactics[select.dataset.tactic][select.dataset.atSpeed]=select.value;saveTactics();drawTactics();applyTactics();});
+ $('tactics').querySelectorAll('[data-solo]').forEach(button=>button.onclick=()=>{solo=solo===button.dataset.solo?null:button.dataset.solo;drawTactics();updateSpatial();});
+ $('tactic-details').innerHTML=sources.map(s=>{const tactic=TACTICS.find(t=>t.id===tactics[s.id][speed]);return `<p><strong>${s.label} · ${speed}×</strong><span>${tactic.detail}</span></p>`;}).join('');
+}
+document.querySelectorAll('[data-preset]').forEach(button=>button.onclick=()=>{
+ const preset=button.dataset.preset,defaults=defaultTactics();
+ for(const s of sources)tactics[s.id][speed]=preset==='game'?defaults[s.id][speed]:preset==='skip'?(s.id==='train'?'skip':defaults[s.id][speed]):preset;
+ saveTactics();drawTactics();applyTactics();
+});
+function replayPass(){travel=0;audio.loops.get('train')?.replay();updateSpatial();}
+$('replay-pass').onclick=replayPass;
+$('replay-pass').before($('ambience'));
 function status(text){$('status').textContent=text;}
 function fail(error){status(`Audio unavailable: ${error.message}. Try Enable audio again.`);console.error(error);}
 async function ready(){await audio.enable(mix);$('enable').textContent='✓ Audio enabled';}
@@ -61,7 +83,8 @@ $('ambience').onclick=async()=>{
   await ready();if(token!==run)return;
   // Install only after every buffer is ready; cancellation cannot leak a late loop.
   await Promise.all(sources.map(s=>audio.load(s.file)));if(token!==run)return;
-  for(const s of sources){const voice=await audio.play(s.file,s.id,{loop:true,gain:0});if(token!==run){if(voice)voice.source.stop();return;}audio.loops.set(s.id,voice);}
+  for(const s of sources){const voice=await audio.ambient(s.file,s.id,policy(s.id));if(token!==run){voice?.stop();return;}}
+  travel=0;
   playing=true;starting=false;$('ambience').textContent='■ Stop scene';updateSpatial();status('Scene playing. Move the camera to change what you hear.');
  }catch(error){if(token===run){stop();fail(error);}}
 };
@@ -73,14 +96,16 @@ sources.forEach(s=>{
 });
 $('sources').innerHTML=sources.map(s=>`<div><span class="dot" style="background:${s.color}"></span><strong>${s.label}</strong><span id="distance-${s.id}"></span><meter id="level-${s.id}" min="0" max="1" value="0" aria-label="${s.label} distance gain"></meter></div>`).join('');
 function updateSpatial(){
+ const pass=trainPass(travel,$('motion').checked);sources[1].x=pass.x;
+ $('pass-status').textContent=`${speed}× simulation · ${pass.phase} · ${travel.toFixed(1)} simulated seconds${solo?' · Solo '+sources.find(s=>s.id===solo).label:''}`;
  const px=x=>380+x*7.6,pz=z=>175+z*3.5;
  $('listener').setAttribute('transform',`translate(${px(listener.x)} ${pz(listener.z)})`);
  $('heading').setAttribute('transform',`rotate(${-listener.bearing*180/Math.PI})`);
  $('height-value').textContent=`${listener.y} m`;$('bearing-value').textContent=`${Math.round(listener.bearing*180/Math.PI)}°`;
  sources.forEach((s,i)=>{
-  const spatial=spatialMix(listener,s,s),gain=spatial.gain*scenarios[scene].weights[i];
+  const spatial=spatialMix(listener,s,s),gain=spatial.gain*scenarios[scene].weights[i]*(s.id==='train'?pass.gain:1)*(solo&&solo!==s.id?0:1)*(policy(s.id).mode==='mute'?0:1);
   const voice=audio.loops.get(s.id);
-  if(voice){const t=audio.context.currentTime;voice.level.gain.setTargetAtTime(gain*.65,t,.08);voice.pan.pan.setTargetAtTime(spatial.pan,t,.08);}
+  if(voice){const t=audio.context.currentTime;voice.tick();voice.level.gain.setTargetAtTime(gain*.65,t,s.id==='train'?.015:.08);voice.pan.pan.setTargetAtTime(spatial.pan,t,.025);}
   $('marker-'+s.id).setAttribute('transform',`translate(${px(s.x)} ${pz(s.z)})`);
   $('distance-'+s.id).textContent=`${spatial.distance.toFixed(1)} m · ${Math.round(gain*100)}%`;
   $('level-'+s.id).value=gain;
@@ -88,15 +113,16 @@ function updateSpatial(){
 }
 $('height').oninput=()=>{listener.y=Number($('height').value);updateSpatial();};
 $('bearing').oninput=()=>{listener.bearing=Number($('bearing').value)*Math.PI/180;updateSpatial();};
+$('motion').onchange=updateSpatial;
 function move(event){const rect=$('map').getBoundingClientRect();listener.x=Math.max(-50,Math.min(50,((event.clientX-rect.left)/rect.width*760-380)/7.6));listener.z=Math.max(-50,Math.min(50,((event.clientY-rect.top)/rect.height*350-175)/3.5));updateSpatial();}
 $('map').onpointerdown=event=>{if(event.button!==0)return;$('map').setPointerCapture(event.pointerId);move(event);};
 $('map').onpointermove=event=>{if($('map').hasPointerCapture(event.pointerId))move(event);};
 // Keyboard alternative to map drag; the visible controls cover height and bearing.
 $('map').setAttribute('tabindex','0');$('map').setAttribute('aria-label','Camera sound map. Drag or use arrow keys to move the camera by two metres.');
 $('map').onkeydown=event=>{const d={ArrowLeft:[-2,0],ArrowRight:[2,0],ArrowUp:[0,-2],ArrowDown:[0,2]}[event.key];if(d){event.preventDefault();listener.x=Math.max(-50,Math.min(50,listener.x+d[0]));listener.z=Math.max(-50,Math.min(50,listener.z+d[1]));updateSpatial();}};
-let last=0,travel=0;
-function frame(now){const dt=Math.min((now-last)/1000,.1);last=now;if(playing&&$('motion').checked){travel+=dt;sources[1].x=Math.sin(travel*.16)*43;updateSpatial();}requestAnimationFrame(frame);}
-requestAnimationFrame(frame);updateSpatial();
+let last=0;
+function frame(now){const dt=Math.min((now-last)/1000,.25);last=now;if(playing){if($('motion').checked)travel+=dt*speed;updateSpatial();}requestAnimationFrame(frame);}
+drawTactics();requestAnimationFrame(frame);updateSpatial();
 const recordingInfo=[
  ['crowd','Station crowd','mrrap4food','619010','A recorded station bed; voices and transport can overlap. Use as a crowd-area source, not individual passengers.'],
  ['train','Subway / underground','Syphon64','135209','A Glasgow subway recording. For this preview it loops; a final arrival/departure should use edited one-shot regions.'],

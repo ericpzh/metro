@@ -1,7 +1,8 @@
 `audio` pins the six approved assets, four bilingual volume sliders, master scaling,
 local preference validation/persistence, outcome-only interaction cues, repeated
 refusal attempts, finite-radius Z-up distance/pan, bounded crowd sampling,
-eight one-shots / three ambient beds, mute release and hidden-tab/late-decode
+eight one-shots / three ambient buses, the approved per-layer speed policies,
+passenger-loop retention, sample offsets/pitch, mute release and hidden-tab/late-decode
 cancellation. `tools/check-game-audio.mjs` separately exercises production browser
 pointer actions, source/file routing, event pick counts, sliders and ambient frames.
 

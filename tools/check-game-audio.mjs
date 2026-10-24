@@ -80,6 +80,18 @@ try{
  assert.ok(report.camera[1].position[2]>report.camera[0].position[2]+90)
  report.distanceGains=report.camera.map(frame=>{const source=frame.sources.find(s=>s.kind==='traffic');assert.ok(source);return sourceMix(frame.position,frame.right,source).gain})
  assert.ok(report.distanceGains[1]<report.distanceGains[0]*.5,'camera altitude reduces the same source gain')
+ report.speedPolicies=[]
+ for(const speed of [1,4,16,64]){
+  await page.evaluate(`__metro.getState().setSpeed(${speed});__scene.setPlaying(true)`)
+  await new Promise(resolve=>setTimeout(resolve,250))
+  const policies=await page.evaluate(`Object.fromEntries(['crowd','train','traffic'].map(kind=>[kind,[...audit.active].filter(source=>source.loop&&source.buffer.audioFile?.endsWith('/'+kind+'.mp3')).map(source=>source.playbackRate.value)]))`)
+  assert.deepEqual(policies.crowd,[1],'passengers always keep the original rate')
+  assert.ok(policies.train.length>=(speed===1?1:2)&&policies.train.length<=(speed===1?1:3))
+  assert.ok(policies.train.every(rate=>rate===1),'train grains preserve pitch')
+  assert.ok(policies.traffic.length>=(speed<16?1:2)&&policies.traffic.length<=(speed<16?1:3))
+  assert.ok(policies.traffic.every(rate=>rate===(speed<16?speed:1)),'traffic switches from full rate to natural-pitch skips')
+  report.speedPolicies.push({speed,...policies})
+ }
  await page.evaluate('clearInterval(window.audioFixtureTimer)')
  await click(settings);if(!await page.evaluate('document.querySelector(".settingsMenu").open'))await click(settings)
  await range(2,'Home');await new Promise(r=>setTimeout(r,100))

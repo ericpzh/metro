@@ -2,6 +2,7 @@ import { getAudioVolumes, subscribeAudioVolumes, audioAssetBase } from './audioS
 import { sourceMix } from '../render/audioScene.ts'
 import type { AudioSceneFrame, AmbientKind } from '../render/audioScene.ts'
 import type { ToolSound } from './audioActions.ts'
+import {AmbientVoice,gameAmbientPolicy} from './ambientPlayback.ts'
 
 interface Voice {source:AudioBufferSourceNode;gain:GainNode;pan:StereoPannerNode}
 export class GameAudio {
@@ -10,7 +11,7 @@ export class GameAudio {
   private ambient:GainNode|null=null
   private cache=new Map<string,Promise<AudioBuffer>>()
   private voices=new Set<Voice>()
-  private beds=new Map<AmbientKind,Voice>()
+  private beds=new Map<AmbientKind,AmbientVoice>()
   private loading=new Set<AmbientKind>()
   private frame:AudioSceneFrame|null=null
   private lastEffect=-Infinity
@@ -82,7 +83,7 @@ export class GameAudio {
     this.lastEffect=now
     const epoch=this.epoch
     void this.load(`${kind}.wav`).then(buffer=>{
-      if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().effects || this.voices.size-this.beds.size>=8)return
+      if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().effects || this.voices.size>=8)return
       this.voice(buffer,this.effects!,false)
     }).catch(()=>{})
   }
@@ -91,15 +92,11 @@ export class GameAudio {
     if(!this.context || this.context.state!=='running' || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
     const epoch=this.epoch
     for(const kind of ['crowd','train','traffic'] as const){
-      if(kind==='train' && (frame.speed??1)>1){
-        this.beds.get(kind)?.source.stop();this.beds.delete(kind)
-        continue
-      }
       const source=frame.sources.find(s=>s.kind===kind),mix=source?sourceMix(frame.position,frame.right,source):{gain:0,pan:0}
       const voice=this.beds.get(kind)
       if(voice){
-        voice.source.playbackRate.setTargetAtTime(kind==='crowd'?Math.min(2,frame.speed??1):1,this.context.currentTime,.02)
-        voice.gain.gain.setTargetAtTime(mix.gain,this.context.currentTime,kind==='train'?.025:.15)
+        voice.setPolicy(gameAmbientPolicy(kind,frame.speed));voice.tick()
+        voice.level.gain.setTargetAtTime(mix.gain,this.context.currentTime,kind==='train'?.025:.15)
         voice.pan.pan.setTargetAtTime(mix.pan,this.context.currentTime,.08)
       }
       else if(mix.gain>.005 && !this.loading.has(kind)){
@@ -107,16 +104,15 @@ export class GameAudio {
         void this.load(`${kind}.mp3`).then(buffer=>{
           if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
           const latest=this.frame,source=latest?.sources.find(s=>s.kind===kind)
-          if(kind==='train' && (latest?.speed??1)>1)return
           if(!latest || !source || sourceMix(latest.position,latest.right,source).gain<=.005)return
-          const voice=this.voice(buffer,this.ambient!,true)
-          voice.source.playbackRate.value=kind==='crowd'?Math.min(2,latest.speed??1):1
+          const voice=new AmbientVoice(this.context!,buffer,this.ambient!,gameAmbientPolicy(kind,latest.speed))
+          voice.level.gain.value=sourceMix(latest.position,latest.right,source).gain
           this.beds.set(kind,voice)
         }).catch(()=>{}).finally(()=>{this.loading.delete(kind)})
       }
     }
   }
-  private stopBeds():void{this.epoch++;for(const voice of this.beds.values())voice.source.stop();this.beds.clear()}
-  stop():void{this.epoch++;for(const voice of this.voices)voice.source.stop();this.voices.clear();this.beds.clear()}
+  private stopBeds():void{this.epoch++;for(const voice of this.beds.values())voice.stop();this.beds.clear()}
+  stop():void{this.stopBeds();for(const voice of this.voices)voice.source.stop();this.voices.clear()}
 }
 export const gameAudio=new GameAudio()
