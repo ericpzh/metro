@@ -233,6 +233,10 @@ placement and the worker's `ready` message must not reset the view to grade.
 The `/game/benchmark` route auto-hides the tutorial while the benchmark mounts the
 game shell, without overwriting the player's saved tutorial preference; pin the
 route decision in `game/test/tutorial.test.mjs`.
+The benchmark's selected graphics quality is the source of truth for its run:
+apply it to the store before mounting the renderer, without calling the persistent
+graphics-quality action or changing the player's saved preference. Pin this in
+`game/test/benchmark-route.test.mjs`.
 
 The straight-down plan view keeps WASD aligned with the visible screen axes,
 including at the vertical-camera singularity; pin this in

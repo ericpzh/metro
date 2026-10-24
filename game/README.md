@@ -139,6 +139,8 @@ live keyboard/mouse input, per-visit tool activation, line/folder expansion,
 keycap grouping and reload/opt-out/reopen behavior. Reports and screenshots live
 in ignored `.preview/tutorial/`. Demo-dependent browser checks use the shared
 `loadExampleStation` harness helper so they keep their authored fixture.
+`test/benchmark-route.test.mjs` pins the benchmark's selected graphics quality as
+the renderer's source of truth without persisting it over the regular game's preference.
 
 Local editing retains equipment whose model inputs did not change, including its
 owned materials and live gate/lift/TV rigs. Train shells batch stationary opaque

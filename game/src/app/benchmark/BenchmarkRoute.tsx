@@ -143,6 +143,8 @@ export function BenchmarkRoute(): React.ReactElement {
     setLoadingProgress(4)
     setLoadingStep(copy.booting)
     document.body.dataset.metroBenchmarkLocked = 'true'
+    // The benchmark choice owns this run; apply it without changing the player's saved preference.
+    useStore.setState({ graphicsQuality: quality })
     window.__scene?.keys.clear()
     window.__benchmarkScene?.keys.clear()
     // Paint the loading screen before mounting the game. Mounting its renderer
@@ -154,7 +156,6 @@ export function BenchmarkRoute(): React.ReactElement {
     const store = useStore.getState()
     store.setPlaying(false)
     store.setSpeed(SPEED)
-    store.setGraphicsQuality(quality)
     store.setExplodedView(view === 'explode')
     store.setHideUI(view === 'regular' && stationId === 'tanwei')
     store.setHideGround(view === 'regular' && stationId === 'zoo')
