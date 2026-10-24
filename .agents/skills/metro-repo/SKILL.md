@@ -244,6 +244,17 @@ The benchmark's selected graphics quality is the source of truth for its run:
 apply it to the store before mounting the renderer, without calling the persistent
 graphics-quality action or changing the player's saved preference. Pin this in
 `game/test/benchmark-route.test.mjs`.
+FSR 1 upscaling follows the same isolated-run rule. Settings, the exploded viewer
+and `/benchmark` expose one compact row of five mutually exclusive buttons:
+超高 / Ultra, 质量 / Quality, 平衡 / Balanced, 性能 / Performance, and
+关闭 / Off. Keep the labels short, fit them on one row with minimal horizontal
+padding, and do not add percentages, a dropdown or a separate enable switch. Off
+is native resolution and the default. The benchmark applies its selected mode to
+the temporary store before renderer mount, records it with the run and restores
+the player's saved FSR preference afterward. Pin preference persistence, both
+viewer connections and the benchmark handoff in `game/test/upscaling.test.mjs`;
+the implementation and measured validation are in the
+[FSR performance record](references/performance.md#fsr-1-spatial-upscaling--2026-10-24).
 
 The straight-down plan view keeps WASD aligned with the visible screen axes,
 including at the vertical-camera singularity; pin this in
