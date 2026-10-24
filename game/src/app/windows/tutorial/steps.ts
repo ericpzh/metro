@@ -37,6 +37,11 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
 export const TUTORIAL_STORAGE_KEY = 'metro-game.tutorial.v1'
 export interface TutorialPreference { step: number; hidden: boolean }
 
+export function tutorialAutoDisabled(pathname: string): boolean {
+  const path = pathname.replace(/\/+$/, '')
+  return path.endsWith('/benchmark') || path.endsWith('/benchmark/en')
+}
+
 export function readTutorialPreference(storage: Pick<Storage, 'getItem'>): TutorialPreference {
   try {
     const value = JSON.parse(storage.getItem(TUTORIAL_STORAGE_KEY) ?? 'null')

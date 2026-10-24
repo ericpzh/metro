@@ -230,6 +230,9 @@ their fixture explicitly. Autosave ownership and replacement rules live in
 save must keep the station's basis floor (`levelBase`) or the lowest level with
 user placement as the edited storey; the infinite 0 m ground plane is not a
 placement and the worker's `ready` message must not reset the view to grade.
+The `/game/benchmark` route auto-hides the tutorial while the benchmark mounts the
+game shell, without overwriting the player's saved tutorial preference; pin the
+route decision in `game/test/tutorial.test.mjs`.
 
 The straight-down plan view keeps WASD aligned with the visible screen axes,
 including at the vertical-camera singularity; pin this in

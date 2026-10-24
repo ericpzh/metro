@@ -4,12 +4,15 @@ import { t } from '../../../sim/i18n.ts'
 import { setLanguage, useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
 import { isTypingTarget } from '../../Viewport.tsx'
-import { readTutorialPreference, TUTORIAL_STEPS, writeTutorialPreference } from './steps.ts'
+import { readTutorialPreference, TUTORIAL_STEPS, tutorialAutoDisabled, writeTutorialPreference } from './steps.ts'
 import './tutorial.css'
 
 interface Box { x: number; y: number; width: number; height: number }
 function initialPreference() {
-  try { return readTutorialPreference(window.localStorage) } catch { return { step: 0, hidden: false } }
+  const preference = (() => {
+    try { return readTutorialPreference(window.localStorage) } catch { return { step: 0, hidden: false } }
+  })()
+  return tutorialAutoDisabled(window.location.pathname) ? { ...preference, hidden: true } : preference
 }
 
 export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement | null {
@@ -58,6 +61,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
   }, [open, step])
 
   useEffect(() => {
+    if (tutorialAutoDisabled(window.location.pathname)) return
     try { writeTutorialPreference(window.localStorage, preference) } catch { /* Private browsing. */ }
   }, [preference])
 

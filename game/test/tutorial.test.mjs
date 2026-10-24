@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readTutorialPreference, writeTutorialPreference, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS } from '../src/app/windows/tutorial/steps.ts'
+import { readTutorialPreference, writeTutorialPreference, TUTORIAL_STORAGE_KEY, TUTORIAL_STEPS, tutorialAutoDisabled } from '../src/app/windows/tutorial/steps.ts'
 import { messages } from '../src/sim/i18n/messages.ts'
 import { useStore } from '../src/app/store.ts'
 import { createStationSlice } from '../src/app/store/slices/StationSlice.ts'
@@ -42,6 +42,15 @@ test('corrupt, stale or blocked storage does not prevent onboarding', () => {
   assert.deepEqual(readTutorialPreference(blocked), { step: 0, hidden: false })
   assert.doesNotThrow(() => writeTutorialPreference(blocked, { step: 3, hidden: true }))
   assert.equal(TUTORIAL_STORAGE_KEY, 'metro-game.tutorial.v1')
+})
+
+test('benchmark routes auto-disable the tutorial, including trailing slashes and English', () => {
+  for (const path of ['/game/benchmark', '/game/benchmark/', '/game/benchmark/en', '/benchmark']) {
+    assert.equal(tutorialAutoDisabled(path), true, path)
+  }
+  for (const path of ['/game/', '/game/en/', '/game/benchmark-results', '/game/lab']) {
+    assert.equal(tutorialAutoDisabled(path), false, path)
+  }
 })
 
 test('every tutorial step has both languages and a spotlight target', () => {
