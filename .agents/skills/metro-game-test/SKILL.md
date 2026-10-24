@@ -6,11 +6,11 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 # The game's test suite (`game/test/`)
 
 `audio.test.mjs` covers outcome routing, repeated refusal notices, cancellation
-and no-op silence, two local volume preferences, language/deployment asset paths,
+and no-op silence, four local volume preferences with master scaling, language/deployment asset paths,
 native Z-up distance/pan, finite radius and the 256-passenger sample bound. Its
 fake AudioContext drives the actual service's eight-one-shot / three-bed limits,
 mute release, hidden-tab suspension and pending-decode cancellation. Preserve the
-six approved asset/provenance checks and exactly two settings sliders.
+six approved asset/provenance checks and four settings sliders.
 After a production build, `node tools/check-game-audio.mjs` separately drives
 actual pointer actions and bilingual sliders, checks one pick and one cue per
 action, reload persistence, zero-output mute and camera-relative ambient sources.

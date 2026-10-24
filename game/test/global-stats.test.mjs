@@ -686,12 +686,13 @@ test('boot starts the collector and the settings menu owns the opt-out', () => {
   assert.match(menu, /shareStats = useStore\(s => s\.shareStats\)/)
   assert.match(menu, /setShareStats = useStore\(s => s\.setShareStats\)/)
   assert.match(menu, /aria-pressed=\{shareStats\}/)
-  assert.match(menu, /aria-pressed=\{!shareStats\}/)
+  assert.match(menu, /onClick=\{\(\) => setShareStats\(!shareStats\)\}/)
+  assert.match(menu, /aria-describedby=\{statsNoteId\}/)
   assert.match(menu, /t\('share_stats_note'\)/)
   for (const key of ['share_stats', 'share_stats_on', 'share_stats_off', 'share_stats_note']) {
     assert.match(messages, new RegExp(`"${key}"|${key}:`), `the catalogue names ${key}`)
   }
-  assert.match(css, /\.settingsNote \{/)
+  assert.match(css, /\.settingsStatsTile:hover > \.settingsStatsTooltip/)
 })
 
 test('403 preserves data and 429 Retry-After delays lease issuance', async () => {

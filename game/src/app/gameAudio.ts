@@ -39,10 +39,10 @@ export class GameAudio {
   private apply():void {
     if(!this.context)return
     const values=getAudioVolumes(),now=this.context.currentTime
-    this.effects?.gain.setTargetAtTime(values.effects,now,.025)
-    this.ambient?.gain.setTargetAtTime(values.ambient,now,.05)
-    if(values.ambient===0)this.stopBeds()
-    if(values.effects===0)for(const voice of [...this.voices])if(!voice.source.loop)voice.source.stop()
+    this.effects?.gain.setTargetAtTime(values.master*values.effects,now,.025)
+    this.ambient?.gain.setTargetAtTime(values.master*values.ambient,now,.05)
+    if(values.master===0||values.ambient===0)this.stopBeds()
+    if(values.master===0||values.effects===0)for(const voice of [...this.voices])if(!voice.source.loop)voice.source.stop()
   }
   mount():()=>void {
     if(++this.mounted===1){
@@ -76,19 +76,19 @@ export class GameAudio {
     source.start();return voice
   }
   play(kind:ToolSound):void{
-    if(!this.context || document.hidden || !getAudioVolumes().effects)return
+    if(!this.context || document.hidden || !getAudioVolumes().master || !getAudioVolumes().effects)return
     const now=performance.now()
     if(now-this.lastEffect<65)return
     this.lastEffect=now
     const epoch=this.epoch
     void this.load(`${kind}.wav`).then(buffer=>{
-      if(epoch!==this.epoch || document.hidden || !getAudioVolumes().effects || this.voices.size-this.beds.size>=8)return
+      if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().effects || this.voices.size-this.beds.size>=8)return
       this.voice(buffer,this.effects!,false)
     }).catch(()=>{})
   }
   updateScene(frame:AudioSceneFrame):void{
     this.frame=frame
-    if(!this.context || this.context.state!=='running' || document.hidden || !getAudioVolumes().ambient)return
+    if(!this.context || this.context.state!=='running' || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
     const epoch=this.epoch
     for(const kind of ['crowd','train','traffic'] as const){
       const source=frame.sources.find(s=>s.kind===kind),mix=source?sourceMix(frame.position,frame.right,source):{gain:0,pan:0}
@@ -97,7 +97,7 @@ export class GameAudio {
       else if(mix.gain>.005 && !this.loading.has(kind)){
         this.loading.add(kind)
         void this.load(`${kind}.mp3`).then(buffer=>{
-          if(epoch!==this.epoch || document.hidden || !getAudioVolumes().ambient)return
+          if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
           const latest=this.frame,source=latest?.sources.find(s=>s.kind===kind)
           if(!latest || !source || sourceMix(latest.position,latest.right,source).gain<=.005)return
           this.beds.set(kind,this.voice(buffer,this.ambient!,true))

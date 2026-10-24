@@ -3,6 +3,8 @@ import {MUSIC_TRACKS} from './musicTracks.ts'
 
 interface MusicState { paused: boolean; track: number; unavailable: boolean }
 const KEY='metro-game.music-paused'
+// The old 50% slider output is now the maximum music playback level (-6 dB).
+const MUSIC_OUTPUT_SCALE=.5
 function savedPause():boolean {try{return localStorage.getItem(KEY)==='true'}catch{return false}}
 /** One streamed recording at a time; no full-track decode or station state. */
 export class GameMusic {
@@ -19,11 +21,11 @@ export class GameMusic {
   private gesture=():void=>{if(!document.hidden){this.unlocked=true;this.apply()}}
   private visibility=():void=>{if(document.hidden){this.unlocked=false;this.generation++;this.player?.pause()}}
   private apply=():void=>{
-    if(this.player)this.player.volume=getAudioVolumes().music
-    if(this.state.paused||getAudioVolumes().music===0||document.hidden||!this.unlocked||!this.mounted){this.generation++;this.player?.pause();return}
+    if(this.player)this.player.volume=getAudioVolumes().master*getAudioVolumes().music*MUSIC_OUTPUT_SCALE
+    if(this.state.paused||getAudioVolumes().master===0||getAudioVolumes().music===0||document.hidden||!this.unlocked||!this.mounted){this.generation++;this.player?.pause();return}
     if(!this.player){
       this.player=new Audio();this.player.preload='none'
-      this.player.volume=getAudioVolumes().music
+      this.player.volume=getAudioVolumes().master*getAudioVolumes().music*MUSIC_OUTPUT_SCALE
       this.player.onended=()=>{this.update({track:(this.state.track+1)%MUSIC_TRACKS.length});this.setSource();this.apply()}
       this.player.onerror=()=>{this.generation++;this.player?.pause();this.update({unavailable:true})}
       this.setSource()
@@ -31,7 +33,7 @@ export class GameMusic {
     if(!this.player.paused)return
     const generation=++this.generation,player=this.player
     void player.play().then(()=>{
-      if(generation!==this.generation&&(this.state.paused||document.hidden||!this.mounted||!getAudioVolumes().music))player.pause()
+      if(generation!==this.generation&&(this.state.paused||document.hidden||!this.mounted||!getAudioVolumes().master||!getAudioVolumes().music))player.pause()
       else if(this.state.unavailable)this.update({unavailable:false})
     }).catch(()=>{if(generation===this.generation)this.update({unavailable:true})})
   }

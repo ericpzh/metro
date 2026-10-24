@@ -15,6 +15,8 @@ import { RenderDemand } from '../renderDemand.ts'
 import { EXPLODED_LIFT_ABSENT } from '../explodedView.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
 import type { GraphicsQuality } from '../detailPolicy.ts'
+import type { UpscalingMode } from '../upscaling.ts'
+import { FsrUpscaler } from './FsrUpscaler.ts'
 import type { TrainService } from '../../sim/trainSchedule.ts'
 import { createMaterials, finishesInUse } from '../materials.ts'
 import type { MaterialSet } from '../materials.ts'
@@ -54,6 +56,7 @@ export class SceneRenderer {
   onAudioFrame: ((frame:AudioSceneFrame)=>void)|null = null
   private lastAudioTime = 0
   renderer: THREE.WebGLRenderer
+  private readonly upscaler: FsrUpscaler
   onStats: ((s: SceneStats) => void) | null = null
   /**
    * The camera's own horizontal aim, notified when it changes: a wall-mounted
@@ -180,12 +183,17 @@ export class SceneRenderer {
     this.crowd.applyDetail()
     this.ctx.levelKey = ''; this.level.applyLevel()
   }
+  setUpscalingMode(mode: UpscalingMode): void {
+    this.requestRender()
+    this.upscaler.setMode(mode)
+  }
   /** The live animation-frame handle, so `dispose` can stop the loop it started. */
   private raf = 0
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false })
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2))
+    this.upscaler = new FsrUpscaler(this.renderer)
     applyStationRenderer(this.renderer)
     this.renderer.shadowMap.enabled = false
     canvas.addEventListener('webglcontextrestored', this.restoreFrame)
@@ -953,7 +961,7 @@ export class SceneRenderer {
       drawCamera.updateMatrixWorld()
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
-      this.modules.batches.withHiddenSources(drawCamera, () => this.renderer.render(this.ctx.scene, drawCamera))
+      this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
       this.framesRendered++
     }
     if(this.onAudioFrame && now-this.lastAudioTime>=100){
@@ -1035,6 +1043,7 @@ export class SceneRenderer {
     this.roads.dispose()
     this.trains.dispose()
     this.crowd.dispose()
+    this.upscaler.dispose()
     this.renderer.dispose()
     void this.ctx.disposed
   }

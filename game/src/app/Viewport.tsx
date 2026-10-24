@@ -254,6 +254,7 @@ export function Viewport(): React.ReactElement {
   const tunnelLength = useStore((s) => s.tunnelLength)
   const activeZ = useStore((s) => s.activeZ)
   const graphicsQuality = useStore((s) => s.graphicsQuality)
+  const upscalingMode = useStore((s) => s.upscalingMode)
   const edgeScrolling = useStore((s) => s.edgeScrolling)
   const ghostOther = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
@@ -363,6 +364,10 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setGraphicsQuality(graphicsQuality)
   }, [graphicsQuality])
+
+  useEffect(() => {
+    sceneRef.current?.setUpscalingMode(upscalingMode)
+  }, [upscalingMode])
 
   useEffect(() => {
     sceneRef.current?.setEdgeScrolling(edgeScrolling)
@@ -522,10 +527,11 @@ export function Viewport(): React.ReactElement {
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
     scene.setGraphicsQuality(useStore.getState().graphicsQuality)
+    scene.setUpscalingMode(useStore.getState().upscalingMode)
     sceneRef.current = scene
     const unmountAudio=gameAudio.mount()
     const unmountMusic=gameMusic.mount()
-    const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
+    const updateAudio=():void=>{const volumes=getAudioVolumes();scene.onAudioFrame=volumes.master>0&&volumes.ambient>0?frame=>gameAudio.updateScene(frame):null}
     updateAudio()
     const unsubscribeAudio=subscribeAudioVolumes(updateAudio)
     scene.setPlaying(useStore.getState().playing)

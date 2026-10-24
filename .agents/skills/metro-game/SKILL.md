@@ -8,13 +8,15 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 ## Audio
 
 `app/gameAudio.ts` owns the browser AudioContext, cached buffers and bounded
-voices. `app/audioSettings.ts` stores local preferences outside the station,
-worker and undo history. The gear menu exposes Sound effects / 音效, Ambient sound / 环境音 and
-Music / 音乐; zero mutes the category. `app/gameMusic.ts` streams the approved
+voices. `app/audioSettings.ts` stores local master, effects, ambience and music
+preferences outside the station, worker and undo history. Master scales all three
+channels while preserving their individual settings; zero mutes all audio.
+The gear menu exposes all four sliders. `app/gameMusic.ts` streams the approved
 full recordings through one retained media element, independently of simulation
-pause. `MusicSetting.tsx` places its label above the shared volume slider and
-pause/play row; hovering reveals credits for the current track. Keep pause and
-volume local; do not commit station edits. Keep
+pause. Music output is half its former level, so 100% now equals the former 50%.
+`MusicSetting.tsx` places its label above the shared volume slider and pause/play
+row; hover shows track credits, pointer leave and clicking play/pause close them.
+Keep pause and volume local; do not commit station edits. Keep
 labels bilingual and shared with the exploded viewer's settings.
 
 The approved cues are place / soft impact, select / felt tap, pick / digital
@@ -140,11 +142,15 @@ the replaced station. Pin the prompt and shortcut wiring in
 `game/test/new-station-confirmation.test.mjs` (React views are tested as source
 contracts because the Node suite does not mount them).
 
-The top bar's `SettingsMenu` gear dropdown links the issue tracker beside restart: a `FaBug`
-(`react-icons/fa`) anchor to `https://github.com/ericpzh/metro/issues`, opening in
-a new tab with `rel="noreferrer"`, named by the bilingual `report_issue` catalogue
-key and wearing the dropdown's `ghost settingsAction` chrome (with the matching `a.ghost`
-styling in `src/styles.css`). Pin it in `game/test/topbar-report-issue.test.mjs`.
+The top bar `SettingsMenu` follows the square tile style. It has four audio sliders
+(master, effects, ambience, music), four setting tiles (quality, cycling FSR, edge
+scrolling, stats sharing), and four action tiles (restart, issue, language, benchmark).
+Master scales all audio channels; music playback is capped at half its former output.
+The stats explanation is hover-only, and the music credits tooltip closes on pointer
+leave and when play/pause is clicked. The issue tracker and language-aware benchmark
+open in new tabs. Pin structure and behavior in `audio.test.mjs`, `music.test.mjs`,
+`global-stats.test.mjs`, and `topbar-report-issue.test.mjs`; validate live audio
+behavior with `node tools/check-game-audio.mjs` after a build.
 
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.

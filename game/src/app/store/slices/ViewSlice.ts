@@ -10,7 +10,9 @@ import { DEFAULT_SECTION_AZIMUTH, nextAzimuth } from '../../../render/section.ts
 import type { Section, Vec3 } from '../../../render/section.ts'
 import type { AppState } from '../Store.ts'
 import type { GraphicsQuality } from '../../../render/detailPolicy.ts'
+import type { UpscalingMode } from '../../../render/upscaling.ts'
 import { readGraphicsQuality, saveGraphicsQuality } from '../../graphicsQuality.ts'
+import { readUpscalingMode, saveUpscalingMode } from '../../upscaling.ts'
 import { readEdgeScrolling, saveEdgeScrolling } from '../../edgeScrolling.ts'
 
 export interface ViewSlice {
@@ -18,6 +20,8 @@ export interface ViewSlice {
   setExplodedView: (on: boolean) => void
   graphicsQuality: GraphicsQuality
   setGraphicsQuality: (quality: GraphicsQuality) => void
+  upscalingMode: UpscalingMode
+  setUpscalingMode: (mode: UpscalingMode) => void
   edgeScrolling: boolean
   setEdgeScrolling: (on: boolean) => void
   followAgentId: number | null
@@ -121,6 +125,8 @@ export interface ViewSlice {
 export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, get) => ({
   graphicsQuality: readGraphicsQuality(),
   setGraphicsQuality: (quality) => { saveGraphicsQuality(quality); set({ graphicsQuality: quality }) },
+  upscalingMode: readUpscalingMode(),
+  setUpscalingMode: (mode) => { saveUpscalingMode(mode); set({ upscalingMode: mode }) },
   edgeScrolling: readEdgeScrolling(),
   setEdgeScrolling: (on) => { saveEdgeScrolling(on); set({ edgeScrolling: on }) },
   followAgentId: null,

@@ -27,8 +27,10 @@ function Viewer(): React.ReactElement {
   const [ready, setReady] = useState(false)
   const playing = useStore(s => s.playing)
   const edgeScrolling = useStore(s => s.edgeScrolling)
+  const upscalingMode = useStore(s => s.upscalingMode)
   useEffect(() => { renderer.current?.setPlaying(playing) }, [playing])
   useEffect(() => { renderer.current?.setEdgeScrolling(edgeScrolling) }, [edgeScrolling])
+  useEffect(() => { renderer.current?.setUpscalingMode(upscalingMode) }, [upscalingMode])
   // Capture once on opening: simulation ticks and UI state cannot remesh it.
   const [snapshot] = useState(() => explodedView(toData(useStore.getState().station)))
   const close = (): void => useStore.getState().setExplodedView(false)
@@ -78,11 +80,12 @@ function Viewer(): React.ReactElement {
       const scene = new SceneRenderer(canvas.current!)
       renderer.current = scene
       window.__benchmarkScene = scene
-      const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
+      const updateAudio=():void=>{const volumes=getAudioVolumes();scene.onAudioFrame=volumes.master>0&&volumes.ambient>0?frame=>gameAudio.updateScene(frame):null}
       updateAudio()
       unsubscribeAudio=subscribeAudioVolumes(updateAudio)
       scene.setStandalonePresentation()
       scene.setGraphicsQuality(useStore.getState().graphicsQuality)
+      scene.setUpscalingMode(useStore.getState().upscalingMode)
       scene.setEdgeScrolling(useStore.getState().edgeScrolling)
       scene.setHideUI(true)
       scene.setHideGround(true)

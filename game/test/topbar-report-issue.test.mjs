@@ -4,8 +4,9 @@ import fs from 'node:fs'
 
 const source = (path) => fs.readFileSync(new URL('../src/' + path, import.meta.url), 'utf8')
 
-test('the top-bar settings links the issue tracker beside restart', () => {
+test('settings uses matching square tiles for controls and outbound actions', () => {
   const topBar = source('app/windows/topbar/SettingsMenu.tsx')
+  const music = source('app/windows/topbar/MusicSetting.tsx')
   assert.match(source('app/windows/topbar/TopBar.tsx'), /<SettingsMenu \/>/)
   const messages = source('sim/i18n/messages.ts')
   const css = source('styles.css')
@@ -17,12 +18,20 @@ test('the top-bar settings links the issue tracker beside restart', () => {
   assert.match(topBar, /rel="noreferrer"/, 'the outbound link carries no opener')
   assert.match(topBar, /title=\{t\('report_issue'\)\}/, 'the hover text reads the bilingual catalogue key')
   assert.match(topBar, /aria-label=\{t\('report_issue'\)\}/, 'the accessible name reads the bilingual catalogue key, not hardcoded English')
-  assert.match(
-    topBar,
-    /aria-label=\{t\('restart'\)\}[\s\S]*metro\/issues[\s\S]*setLanguage/,
-    'the tracker link sits between the restart button and the language switch',
-  )
-  assert.match(topBar, /<a[\s\S]*?className="ghost settingsAction"[\s\S]*?metro\/issues/, 'the link wears the settings row chrome')
+  assert.match(topBar, /className="settingsToggleGrid"/)
+  assert.match(topBar, /className="settingsActionGrid"/)
+  for (const icon of ['PiHighDefinition', 'PiGraphicsCard', 'CgScrollV', 'TbWorldUpload', 'SiSpeedtest']) {
+    assert.match(topBar, new RegExp(`<${icon} aria-hidden="true"\\s*\/>`), `${icon} decorates its labelled tile`)
+  }
+  assert.match(topBar, /href=\{`\$\{location\.pathname\.startsWith\('\/game'\) \? '\/game' : ''\}\/benchmark/)
+  assert.match(topBar, /\/benchmark\$\{language === 'en' \? '\/en' : ''\}`\} target="_blank"/)
+  assert.match(topBar, /graphics_high_short/)
+  assert.match(css, /\.settingsToggleGrid \{ display: grid; grid-template-columns: repeat\(4/)
+  assert.match(css, /\.settingsActionGrid \{ display: grid; grid-template-columns: repeat\(4/)
+  assert.match(music, /setCreditsDismissed\(true\);gameMusic\.toggle\(\)/, 'play or pause dismisses music credits')
+  assert.match(css, /\.settingsMusic:hover>\.musicCreditsPanel\{display:block\}/)
+  assert.doesNotMatch(css, /\.settingsMusic:focus-within>\.musicCreditsPanel/)
+  assert.match(css, /\.settingsMusic\.creditsDismissed>\.musicCreditsPanel\{display:none\}/)
   assert.match(css, /a\.ghost \{/, 'the transparent button styling applies to anchors, or the link renders as default blue text')
   assert.match(messages, /"report_issue": \{\s*"zh": "报告问题",\s*"en": "Report issue"\s*\}/, 'both locales name the tracker action')
 })

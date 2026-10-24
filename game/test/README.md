@@ -1,4 +1,4 @@
-`audio` pins the six approved assets, exactly two bilingual volume sliders,
+`audio` pins the six approved assets, four bilingual volume sliders, master scaling,
 local preference validation/persistence, outcome-only interaction cues, repeated
 refusal attempts, finite-radius Z-up distance/pan, bounded crowd sampling,
 eight one-shots / three ambient beds, mute release and hidden-tab/late-decode
@@ -1236,3 +1236,5 @@ The global-stats suite also covers memory-only lease acquisition/renewal,
 expired-token retries, stable submission ids, 403 preservation, and Retry-After
 with an injected clock. Worker tests in `stats/test` separately use real SQLite
 to verify transactional duplicate suppression and station metadata preservation.
+
+Music: `music.test.mjs` covers full-track licenses/hashes/asset limits, streaming rotation, pause persistence, mute, visibility, retry and late-start cancellation.

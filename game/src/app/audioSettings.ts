@@ -1,4 +1,4 @@
-export interface AudioVolumes { effects: number; ambient: number; music: number }
+export interface AudioVolumes { master: number; effects: number; ambient: number; music: number }
 /** Preserve the deployed /game prefix while keeping language/demo routes out of asset paths. */
 export function audioAssetBase(pathname:string):string {
   const segments=pathname.split('/').filter(Boolean)
@@ -7,11 +7,11 @@ export function audioAssetBase(pathname:string):string {
   return `/${segments.length?segments.join('/')+'/':''}audio/`
 }
 const KEY = 'metro-game.audio'
-const defaults: AudioVolumes = { effects: .65, ambient: .45, music: .25 }
+const defaults: AudioVolumes = { master: 1, effects: .65, ambient: .45, music: .25 }
 export function sanitizeAudioVolumes(value: unknown): AudioVolumes {
   const v = value as Partial<AudioVolumes> | null
   const volume = (n: unknown, fallback: number): number => typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback
-  return { effects: volume(v?.effects, defaults.effects), ambient: volume(v?.ambient, defaults.ambient), music: volume(v?.music, defaults.music) }
+  return { master: volume(v?.master, defaults.master), effects: volume(v?.effects, defaults.effects), ambient: volume(v?.ambient, defaults.ambient), music: volume(v?.music, defaults.music) }
 }
 export function readAudioVolumes(): AudioVolumes {
   try { return sanitizeAudioVolumes(JSON.parse(localStorage.getItem(KEY) ?? 'null')) } catch { return { ...defaults } }

@@ -4246,8 +4246,10 @@ See the performance reference's
 [settings and presentation edits](../.agents/skills/metro-repo/references/performance.md#settings-and-presentation-edits).
 
 Music streams all eight approved full recordings in a repeating rotation, starting
-at 25% after the first gesture. Its Settings row combines volume and pause/play.
-Hovering the music row reveals credits for the current track.
+at 25% after the first gesture. Its Settings tile combines volume and pause/play.
+Hovering the music row reveals credits for the current track; leaving the row or
+clicking play/pause hides them. Master volume scales music, ambience and effects.
+Music output is half its previous level, so 100% now equals the former 50% output.
 Volume and explicit pause persist locally; pause preserves position. Muting pauses
 the stream, and hidden tabs wait for a fresh gesture before resuming. Simulation
 pause and station edits do not restart music. `public/audio/music/manifest.json`

@@ -32,17 +32,22 @@ test('music streams one element, retains pause position, rotates, mutes, and can
  try{
   Object.assign(globalThis,{Audio:Media,document:Object.assign(new EventTarget(),{hidden:false}),window:new EventTarget(),location:{pathname:'/game/en/tanwei',origin:'https://example.test'},localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)}})
   setAudioVolume('music',.25)
+  setAudioVolume('master',1)
   const music=new GameMusic(),unmount=music.mount()
   assert.equal(elements.length,0,'no audio fetch before a real gesture')
   window.dispatchEvent(new Event('pointerdown'))
-  const player=elements[0];assert.equal(elements.length,1);assert.equal(player.volume,.25)
+  const player=elements[0];assert.equal(elements.length,1);assert.equal(player.volume,.125)
   assert.equal(player.src,'https://example.test/game/audio/music/dream-culture.mp3')
   player.currentTime=42;music.toggle();finish();await Promise.resolve()
   assert.equal(player.paused,true);assert.equal(storage.get('metro-game.music-paused'),'true')
   window.dispatchEvent(new Event('keydown'));assert.equal(player.paused,true,'unrelated gestures do not undo explicit pause')
   music.toggle();finish();await Promise.resolve();assert.equal(player.currentTime,42)
   setAudioVolume('music',0);assert.equal(player.paused,true)
-  setAudioVolume('music',.4);assert.equal(player.volume,.4);assert.equal(player.paused,false)
+  setAudioVolume('music',.4);assert.equal(player.volume,.2);assert.equal(player.paused,false)
+  setAudioVolume('master',.5);assert.equal(player.volume,.1)
+  setAudioVolume('master',0);assert.equal(player.paused,true)
+  setAudioVolume('master',1);assert.equal(player.volume,.2);assert.equal(player.paused,false)
+  setAudioVolume('music',1);assert.equal(player.volume,.5,'100% music matches the former 50% playback level')
   for(let i=0;i<8;i++)player.onended()
   assert.equal(music.getSnapshot().track,0);assert.equal(elements.length,1)
   document.hidden=true;document.dispatchEvent(new Event('visibilitychange'));finish();await Promise.resolve();assert.equal(player.paused,true)
@@ -53,6 +58,6 @@ test('music streams one element, retains pause position, rotates, mutes, and can
   music.toggle();assert.equal(player.paused,true,'unmounted service cannot start')
  }finally{
   for(const key of keys){const descriptor=original.get(key);if(descriptor)Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key]}
-  setAudioVolume('music',.25)
+  setAudioVolume('master',1);setAudioVolume('music',.25)
  }
 })

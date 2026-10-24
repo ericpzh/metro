@@ -38,6 +38,8 @@
   cursor: pointer;
 }
 .benchmarkChoices button[aria-pressed="true"] { border-color: #087c91; color: #075b6b; background: #e6f5f7; box-shadow: inset 0 0 0 1px #087c91; }
+.benchmarkFsrModes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.benchmarkFsrModes button { min-width: 0; padding: 4px 2px; font-size: 12px; overflow-wrap: anywhere; }
 .benchmarkStart { width: 100%; margin: 16px 0 12px; padding: 13px 16px; border: 0; border-radius: 8px; color: white; background: #087c91; font: inherit; font-weight: 700; cursor: pointer; }
 .benchmarkSetup small { display: block; color: #667581; line-height: 1.45; }
 .benchmarkHud {

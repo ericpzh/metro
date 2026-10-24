@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import * as THREE from 'three'
+import type { UpscalingMode } from '../../render/upscaling.ts'
 import { App } from '../App.tsx'
 import { useStore } from '../store.ts'
 import { useLanguage } from '../i18n.ts'
@@ -18,6 +19,7 @@ interface Result {
   stationId: ExampleStationId
   activeLevel: number
   quality: Quality
+  upscalingMode: UpscalingMode
   view: View
   frames: FrameSample[]
   arrivals: ArrivalSample[]
@@ -107,6 +109,8 @@ export function BenchmarkRoute(): React.ReactElement {
   const copy = benchmarkCopy(language)
   const [stationId, setStationId] = useState<ExampleStationId>('tanwei')
   const [quality, setQuality] = useState<Quality>('low')
+  const [upscalingMode, setUpscalingMode] = useState<UpscalingMode>('native')
+  const fsrLabels: Record<UpscalingMode, string> = { native: copy.fsrOff, ultra: copy.fsrUltra, quality: copy.fsrQuality, balanced: copy.fsrBalanced, performance: copy.fsrPerformance }
   const [view, setView] = useState<View>('regular')
   const [phase, setPhase] = useState<Phase>('setup')
   const [remaining, setRemaining] = useState(30)
@@ -135,6 +139,7 @@ export function BenchmarkRoute(): React.ReactElement {
   }, [controlsLocked])
 
   const begin = async (): Promise<void> => {
+    const savedUpscalingMode = useStore.getState().upscalingMode
     setError('')
     setResult(null)
     setRemaining(30)
@@ -144,7 +149,7 @@ export function BenchmarkRoute(): React.ReactElement {
     setLoadingStep(copy.booting)
     document.body.dataset.metroBenchmarkLocked = 'true'
     // The benchmark choice owns this run; apply it without changing the player's saved preference.
-    useStore.setState({ graphicsQuality: quality })
+    useStore.setState({ graphicsQuality: quality, upscalingMode })
     window.__scene?.keys.clear()
     window.__benchmarkScene?.keys.clear()
     // Paint the loading screen before mounting the game. Mounting its renderer
@@ -236,7 +241,7 @@ export function BenchmarkRoute(): React.ReactElement {
       const gpu = debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER))
       const canvas = scene.renderer.domElement
       const current = storeApi.getState()
-      setResult({ station: current.station.name, stationId, activeLevel: current.activeZ, quality, view, frames, arrivals, stats,
+      setResult({ station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, stats,
         browser: navigator.userAgent, gpu, cpuCores: navigator.hardwareConcurrency || null,
         memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
         viewport: `${canvas.clientWidth} × ${canvas.clientHeight}`, pixelRatio: window.devicePixelRatio,
@@ -246,6 +251,8 @@ export function BenchmarkRoute(): React.ReactElement {
       useStore.getState().setPlaying(false)
       setError(cause instanceof Error ? cause.message : String(cause))
       setPhase('error')
+    } finally {
+      useStore.setState({ upscalingMode: savedUpscalingMode })
     }
   }
 
@@ -272,6 +279,11 @@ export function BenchmarkRoute(): React.ReactElement {
         <button type="button" aria-pressed={quality === 'low'} onClick={() => setQuality('low')}>{copy.low}</button>
         <button type="button" aria-pressed={quality === 'high'} onClick={() => setQuality('high')}>{copy.high}</button>
       </div></fieldset>
+      <fieldset><legend>{copy.fsr}</legend>
+        <div className="benchmarkChoices benchmarkFsrModes" role="group" aria-label={copy.fsr}>
+          {(['ultra', 'quality', 'balanced', 'performance', 'native'] as const).map(mode => <button key={mode} type="button" aria-pressed={upscalingMode === mode} onClick={() => setUpscalingMode(mode)}>{fsrLabels[mode]}</button>)}
+        </div>
+      </fieldset>
       <fieldset><legend>{copy.view}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={view === 'regular'} onClick={() => setView('regular')}>{copy.normal}</button>
         <button type="button" aria-pressed={view === 'explode'} onClick={() => setView('explode')}>{copy.explode}</button>
@@ -290,17 +302,17 @@ export function BenchmarkRoute(): React.ReactElement {
         <div className="benchmarkLoadingMeta"><span>{loadingProgress}%</span><span>{copy.controlsLocked}</span></div>
       </div>
     </section>}
-    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${stationId === 'zoo' ? copy.zoo : copy.tanwei} · ${quality === 'low' ? copy.low : copy.high} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
+    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${stationId === 'zoo' ? copy.zoo : copy.tanwei} · ${quality === 'low' ? copy.low : copy.high} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
     {(phase === 'error' || phase === 'result') && <main className="benchmarkPage benchmarkResultsPage">
       {phase === 'error' ? <section className="benchmarkSetup"><h1>{copy.couldNotFinish}</h1><p role="alert">{error}</p><button type="button" className="benchmarkStart" onClick={retry}>{copy.back}</button></section> : result && <article className="benchmarkResult">
-        <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.quality === 'low' ? copy.low : copy.high} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
+        <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
         <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{result.view === 'explode' ? copy.explode : copy.normal}</strong></div></div>
         <BenchmarkChart result={result} copy={copy}/>
         <section className="benchmarkHardware"><h2>{copy.hardware}</h2><dl>
           <div><dt>{copy.browser}</dt><dd>{result.browser}</dd></div><div><dt>{copy.gpu}</dt><dd>{result.gpu}</dd></div>
           <div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div><div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div>
           <div><dt>{copy.viewport}</dt><dd>{result.viewport} {copy.dpr} {result.pixelRatio.toFixed(2)}</dd></div><div><dt>{copy.geometry}</dt><dd>{result.cells.toLocaleString()} {copy.cells} · {result.modules.toLocaleString()} {copy.modules}</dd></div>
-          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {result.quality === 'low' ? copy.low : copy.high} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort}</dd></div>
+          <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort}</dd></div>
           <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}</dd></div>
         </dl><p>{copy.intervalInfo}</p></section>
       </article>}

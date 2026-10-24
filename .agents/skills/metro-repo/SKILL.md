@@ -21,9 +21,12 @@ source/license manifests with both collections. Approved background music is
 collected as full, size-bounded MP3s by `tools/collect-game-music.py` into
 `game/public/audio/music/`; keep its source/license/hash manifest alongside the
 tracks and its ordered rotation in `game/src/app/musicTracks.ts`. `GameMusic`
-streams one track at a time; the Settings label sits above its shared volume
-slider and pause/play row, and hovering the control reveals current-track credits.
-Keep pause/volume outside station state and update `metro-game`/`metro-game-test`
+streams one track at a time; Settings has master, effects, ambience and music
+sliders, with master scaling every channel while retaining each local level.
+Music output is capped at half its former level: 100% now equals the former 50%.
+The music row's hover tooltip shows current-track credits and closes on pointer
+leave or immediately after play/pause is clicked. Keep pause/volume outside station
+state and update `metro-game`/`metro-game-test`
 when changing this contract. Audio measurements belong in
 the existing [performance reference](references/performance.md#game-audio-integration--2026-10-23).
 
@@ -150,6 +153,19 @@ Range controls share `app/Slider.tsx` and the compact square tile treatment in
 Keep the track thin and the handle compact. After pointer release, cancellation or
 capture loss, blur the slider so WASD immediately resumes camera movement rather
 than stepping its value. Preserve each control's existing draft/commit callbacks.
+
+The top-bar Settings dropdown is part of the same tile system. Keep master, effects,
+ambience and music volume as four bilingual sliders in a two-column grid; master
+scales each channel without changing its saved per-channel level. Music playback is
+half the previous output level at the same slider percentage (100% now equals the old
+50% output). Keep the quality, FSR, edge-scroll and stats controls as four equal
+square tiles, with FSR cycling through Native/Off, Ultra, Quality, Balanced and
+Performance. The restart, issue, language and benchmark actions use a matching four
+column square tile row; benchmark opens the language-aware `/benchmark` route in a
+new tab. Retain the requested setting icons and the stats explanation as a hover-only
+tooltip that dismisses on pointer leave and immediately after toggling music. Pin the
+menu structure and CSS behavior in `topbar-report-issue`, `global-stats`, `audio` and
+`music`; run `node tools/check-game-audio.mjs` after building to validate the live menu.
 
 Graphics quality applies in every view, including Hide UI: Low keeps reduced model
 geometry for equipment, trains, passengers and station chunks. Hide UI puts all
