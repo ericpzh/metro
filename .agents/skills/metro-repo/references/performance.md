@@ -1,5 +1,80 @@
 # Performance work in metro
 
+## Model passenger activity previews — 2026-10-23
+
+The model viewer now previews thirteen passenger activities against the existing
+equipment builders. This path owns no station document or worker and performs
+no scene picking. Selecting an activity constructs its fixture once; paused
+frames and timeline changes retain that fixture. Queue skeletons are prepared
+when the selected character loads and are visible only in the queue study.
+
+`node tools/check-model-interactions.mjs` captures all thirteen production
+scenes and checks five timeline samples each for finite bone matrices and GPU
+shader errors. The first scripted selections in one 1440 × 1000 headless Chrome
+run took 1.3–10.1 ms including fixture construction and first pose evaluation.
+These are synchronous scripted-selection timings, not pointer-to-present
+latency or a matched performance comparison. Raw results and captures are in
+`.preview/model-interactions/report.json` and the adjacent PNGs. The deterministic
+`model/test/interactions.test.mjs` guards limb lengths, reachable contact,
+unreachable-target clamping, arbitrary timeline order and loop repetition on
+both reviewed skeletons. Full catalogue contact/garment approval and production
+crowd atlas integration remain outside this preview validation.
+The model build and all 16 model tests passed. The browser activity check also
+pins fixture retention while scrubbing, paused time, activity URL state, door
+hinge movement, gate retraction and recovery of the original walk transform.
+The existing preview-options and model-service browser checks also passed.
+
+The contact-cleanup pass removes all handheld preview objects and uses closed,
+simple activity sleeves/hands while retaining the original source for walks and
+downloads. Its focused tests include the original stretched coat as a negative
+control, source-geometry restoration, seat-top clearance, planted soles and bent
+knees on both reviewed rigs. Escalator targets come from the actual model basis;
+six production samples (including the next loop) keep the wrist within 2 mm of
+its target and the empty palm within −8/+12 mm of the rail's top plane. Actual
+recorded wrist error is below 1e−15 m and the sampled palm clearance is below
+1e−8 m. `rail-contact.json` and side/close-up PNGs live beside the main report.
+The revised thirteen scripted selections took 0.9–10.3 ms in the final captured run;
+this remains a functional check, not a matched latency benchmark. The sink's
+faucet is now across the basin from the passenger; sitting uses the actual
+bench/toilet seat heights rather than the previous pelvis/ankle estimates.
+The cleanup build, all 18 model tests, the production interaction browser check,
+and the existing preview-options/model-service browser checks passed. The final
+focused seat check additionally pins upright toilet shins; it passed after the
+last foot-position adjustment.
+The subsequent escalator reach correction keeps rail contact ahead of the
+shoulder, rather than accepting a physically touching but backward arm pose.
+The production regression now requires at least 8 cm of forward reach; all six
+ride/loop samples measure 12.8 cm while retaining the palm-plane contact bounds.
+The build, side-view inspection and interaction browser regression passed.
+The follow-up overhead check caught the cuff/upper sleeve crossing the rail
+despite correct palm contact. The passenger now stands at the step centre,
+the elbow bends inboard, and the wrist stays 9 cm inside the rail centreline;
+the hand reaches sideways onto the inner top edge. The browser regression
+samples sleeve vertices, triangle centres and edge midpoints against the solid
+rail cross-section at six ride/loop times, requiring zero penetrations. Palm
+clearance is checked only for hand points within the rail's actual width.
+Side and overhead captures are retained under `.preview/model-interactions/`.
+The build, four focused model tests and the updated production browser check
+passed after this correction, including zero sleeve penetrations at all six
+sampled ride/loop times and palm contact within the actual belt width.
+The final bend-direction correction removes the overly inward elbow pole that
+folded the forearm across the chest. The contact point sits farther ahead and
+the elbow pole points mostly downward, allowing the elbow to stay outside the
+shoulder while the forearm continues forward. The regression additionally
+requires over 1 cm outward elbow offset and over 3 cm forward wrist offset from
+the elbow, alongside the unchanged rail-clearance/contact checks. A straight
+overhead `escalator-top.png` capture now complements the oblique overhead view.
+The build, focused model tests and production browser check passed.
+The wrist correction removes the explicit hand-orientation override: the hand
+now inherits the forearm orientation without a sideways twist. The activity
+cuff tapers to a 34 mm radius, with a recessed skin wrist overlapping the cuff
+by more than 15 mm. The rail wrist target is 8 cm inboard and 15 mm above the
+belt's top plane, preserving sleeve clearance with the neutral wrist. The
+browser regression requires an unchanged local hand quaternion and measurable
+cuff/hand overlap, in addition to the forward elbow, belt-width palm contact
+and sleeve clearance checks. Source walking and downloadable geometry remain
+unchanged.
+
 ## Game audio integration — 2026-10-23
 
 Final validation: `npm --prefix game run build` passed, the production browser

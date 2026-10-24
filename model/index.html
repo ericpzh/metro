@@ -7,6 +7,9 @@
  <p><a href="./sounds.html">Sound studio — interaction effects & ambient listening ↗</a></p>
  <section class="workspace">
   <aside>
+   <label id="action-label" for="action">Passenger activity</label><select id="action"></select>
+   <label id="timeline-label" for="timeline">Activity timeline</label><input id="timeline" type="range" min="0" max="10" step="0.01" value="0"><output id="activity-phase" aria-live="off"></output><p class="hint" id="interaction-note"></p><div class="playback"><button id="play"></button><button id="stand" data-i18n="stand"></button></div>
+
    <label for="age" data-i18n="age"></label><select id="age"><option value="adult" data-i18n="adult"></option><option value="child" data-i18n="child"></option></select>
    <label for="character" data-i18n="character"></label><select id="character"><option value="female" data-i18n="female"></option><option value="male" data-i18n="male"></option></select>
    <label for="hair" data-i18n="hair"></label><select id="hair"><option value="bob" data-i18n="bob"></option><option value="shoulder" data-i18n="shoulder"></option><option value="long" data-i18n="long"></option></select>
@@ -23,7 +26,6 @@
    </fieldset>
    <button id="randomize" data-i18n="randomize"></button><p class="hint" data-i18n="randomHint"></p>
    <label for="profile" data-i18n="profile"></label><select id="profile"><option value="0" data-i18n="slow"></option><option value="1" data-i18n="medium"></option><option value="2" data-i18n="fast"></option></select>
-   <div class="playback"><button id="play"></button><button id="stand" data-i18n="stand"></button></div>
    <a id="download" class="download" download data-i18n="download"></a>
    <figure><img id="reference"><figcaption data-i18n="reference"></figcaption></figure>
   </aside>

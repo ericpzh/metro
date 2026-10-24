@@ -1,5 +1,46 @@
 # Model library
 
+## Passenger activity previews
+
+Open `http://127.0.0.1:5175/?action=ticket&bag=0` and use **Passenger activity**
+at the top of the sidebar. Thirteen looping previews cover sitting, shelf
+browsing, ticket and drink purchases, QR/card gates, escalators, elevator floor
+selection, toilets, hand washing, doors, waiting and PSD queues. Play/pause and
+the timeline inspect transitions; the activity persists in the URL. Labels
+support English and Chinese. Appearance controls and the existing walk viewer
+remain available.
+
+`src/animation/interactions.js` owns deterministic poses and limb contact;
+`src/interaction-equipment.js` adapts the existing game equipment builders into
+the viewer's Y-up coordinates. Toilet and elevator scenes use cutaways; the
+floor-selection panel is a preview accessory. Activities use empty hands, with
+no phones, cards, tickets, drinks or picked-up shop products. Waiting uses
+relaxed arms and looking around.
+The queue reuses the selected passenger as three additional skeleton instances.
+Activity changes rebuild only the preview fixture, while scrubbing reuses it.
+
+`src/animation/interaction-arms.js` supplies closed sleeves and simple empty
+hands for the activity studies, matching the selected source garment/skin
+colours. It replaces the reconstructed torso-to-forearm web during reaches;
+standing, walking and GLB downloads restore the original reviewed geometry.
+Seated poses keep the trouser support surface above the actual seat top and
+preserve planted soles. Escalator foot and palm targets follow the real builder's
+incline and handrail rather than an estimated slope. The sink faces the
+passenger with the faucet on the far side of the bowl.
+
+These are animation studies for review. They do not change simulation behaviour,
+the crowd atlas, or downloadable GLB clips. Contact fitting, carried bags and
+seated skirt draping still need review across the complete appearance catalogue
+before baking production animations. There is no purchase, fare or elevator
+simulation behind the preview.
+
+Build without regenerating unchanged character exports:
+`node model/node_modules/vite/bin/vite.js build model`.
+Run `node --test model/test/interactions.test.mjs` and
+`node tools/check-model-interactions.mjs`; screenshots and activity-selection
+timings go to `.preview/model-interactions/`. The checker includes side and
+close-up captures and a `rail-contact.json` report across the ride and loop.
+
 The standalone [sound studio](http://127.0.0.1:5175/sounds.html) auditions local
 CC0 interaction sounds and camera-distance ambient scenarios, with persistent
 volume switches. Start the normal model dev service and open `/sounds.html`.

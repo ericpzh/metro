@@ -115,6 +115,21 @@ Work from the metro root. Read `model/README.md` and
 - `model/src/animation/` owns accepted foot-targeted slow/medium/fast walks;
   `game/src/sim/constants.ts` owns speeds/cadence. Keep planted stance soles,
   knee/arm motion and ground contact for every variant.
+- `model/src/animation/interactions.js` owns deterministic, preview-only passenger
+  activity poses. `interaction-equipment.js` adapts the existing game equipment
+  builders into the model viewer; keep this isolated from station documents,
+  game simulation and the approved crowd atlas. Activities use simplified empty
+  hands and must not imply a held phone, ticket, drink or product. Fit contact to
+  real seats, basins, gates, doors and escalator rails; check the whole arm and
+  hand from side and overhead views for gaps, reversed direction, awkward wrist
+  turns and geometry penetration. `interaction-arms.js` is a viewer-only overlay:
+  restore the reviewed source geometry for walking and GLB downloads. Pin IK
+  lengths, seat/foot support, deterministic scrubbing and escalator rail contact
+  in `model/test/interactions.test.mjs`; run
+  `node tools/check-model-interactions.mjs` for production scenes, timeline
+  samples, rail clearance and visual captures. Keep measurements and validation
+  limits in the single repo [performance reference](../metro-repo/references/performance.md#model-passenger-activity-previews),
+  with captures under ignored `.preview/model-interactions/`.
 - `model/scripts/prepare-assets.mjs` generates ignored `model/public/models/` GLBs.
   Root prototype tools delegate to model code. Keep the original TRELLIS source;
   these locally reconstructed/authored models are not Quaternius CC0.
