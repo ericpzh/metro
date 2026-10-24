@@ -24,9 +24,9 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // reachability through door servers.
 //
 // 坦尾 (Tanwei) ships beside it as the second example, baked the same way from the
-// author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-10-23 04:56Z):
+// author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-10-24 23:14Z):
 // an elevated 5号线 / 6号线 interchange on the five-metre storey grid (`levelBase`
-// 0) with 16,869 cells and 9,694 modules — sixty-nine 楼梯, eight 扶梯, two lifts
+// 0) with 16,725 cells and 9,694 modules — sixty-nine 楼梯, eight 扶梯, two lifts
 // and seven exits, over the author's own street pass of 6,252 人行道, 686 草坪,
 // 68 树木, seven 道路 and a 公交站. `demo.test.mjs` pins its authored counts and
 // that opening it repairs nothing.
