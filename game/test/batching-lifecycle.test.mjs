@@ -403,7 +403,7 @@ test('real module/level systems retain cell-local batches and apply hide/ghost/c
     modules = new ModuleSystem(ctx)
     modules.ghost = { clearFencePreview() {} }
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
-    modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }; modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }; modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
     level.modules = modules; level.chunks = { levelGroups: new Map(), outlineSet: new Set() }; level.trains = { trainGroup: new THREE.Group() }
     const station = { name: 'test', seed: 1, lines: [], modules: [createModule('bench', 0, 0, 0, 'a'), createModule('bench', 3, 0, 0, 'b')], cells: [] }
     const apply = data => { modules.buildModules(data, new Set(), true); ctx.levelKey = ''; level.applyLevel() }

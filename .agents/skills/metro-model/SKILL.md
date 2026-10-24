@@ -117,8 +117,10 @@ Work from the metro root. Read `model/README.md` and
   knee/arm motion and ground contact for every variant.
 - `model/src/animation/interactions.js` owns deterministic, preview-only passenger
   activity poses. `interaction-equipment.js` adapts the existing game equipment
-  builders into the model viewer; keep this isolated from station documents,
-  game simulation and the approved crowd atlas. Activities use simplified empty
+  builders into the model viewer; keep the preview isolated from station
+  documents. `tools/bake-passenger-activities.mjs` consumes these poses offline
+  for the game's shared bind geometry/bone palettes; runtime integration belongs
+  to `metro-game` and must not import the model app. Activities use simplified empty
   hands and must not imply a held phone, ticket, drink or product. Fit contact to
   real seats, basins, gates, doors and escalator rails; check the whole arm and
   hand from side and overhead views for gaps, reversed direction, awkward wrist
@@ -130,6 +132,15 @@ Work from the metro root. Read `model/README.md` and
   samples, rail clearance and visual captures. Keep measurements and validation
   limits in the single repo [performance reference](../metro-repo/references/performance.md#model-passenger-activity-previews),
   with captures under ignored `.preview/model-interactions/`.
+  Solve limb contact in the rig frame before applying independent appearance
+  dimensions: world quaternion decomposition under nonuniform scale introduces
+  shear and misses the wrist. Retain seated front clearance during settle/release.
+  `npm run bake:passengers` regenerates walking and activity assets together.
+  For rig-only iterations `node tools/bake-passenger-activities.mjs --poses-only`
+  verifies every current export hash, preserves activity geometry and updates
+  the small height-fitted palettes. Full geometry/catalogue changes need the full
+  bake. Keep original GLB walks intact; game skirts use the authored seated drape
+  and all detail modes share the same activity rig data.
 - `model/scripts/prepare-assets.mjs` generates ignored `model/public/models/` GLBs.
   Root prototype tools delegate to model code. Keep the original TRELLIS source;
   these locally reconstructed/authored models are not Quaternius CC0.

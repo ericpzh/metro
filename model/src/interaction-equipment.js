@@ -49,6 +49,7 @@ export function createInteractionEquipment(scene){
   }
   if(id==='door'){
    const object=build(DoorModel,'door',{variant:'wood-1'},[0,0,.85]);
+   if(object.userData.swingDoors?.length){door=object.userData.swingDoors[0].pivot;door.name='interaction-door-hinge';doorRest=door.rotation.z;}
    // Put moving fittings on the same hinge as the broad leaf.
    const meshes=object.children.filter(n=>n.isMesh),leaf=meshes.find(n=>n.geometry.parameters?.depth>1&&n.geometry.parameters?.width>.5);
    if(leaf){door=new THREE.Group();door.name='interaction-door-hinge';door.position.set(-.42,leaf.position.y,0);object.add(door);object.updateMatrixWorld(true);for(const n of meshes)if(n===leaf||(n.geometry.parameters?.depth<.5&&n.geometry.parameters?.width<.9&&n.position.z>=.15&&Math.abs(n.position.y-leaf.position.y)<.12))door.attach(n);doorRest=door.rotation.z;}

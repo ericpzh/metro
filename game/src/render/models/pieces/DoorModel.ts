@@ -109,8 +109,25 @@ export function buildDoor(
   const widths = doorLeafWidths(doorOpeningWidth(w), leaves)
   const centres = widths.length > 1 ? [-widths[0] / 2 - meetGap / 2, widths[1] / 2 + meetGap / 2] : [0]
   for (let i = 0; i < widths.length; i++) {
+    const movingStart = g.children.length
     const cx = centres[i]
     const lw = widths[i]
+    const finishLeaf = (): void => {
+      const pivot = new THREE.Group()
+      pivot.name = 'passenger-swing-door'
+      pivot.position.set(...at(cx - (i === 0 ? 1 : -1) * lw / 2, 0, leafSet))
+      const pieces = g.children.slice(movingStart)
+      g.add(pivot); g.updateWorldMatrix(true,true)
+      for (const part of pieces) {
+        if (part instanceof THREE.Mesh) {
+          if (keep.has(part)) surfaceModelDetail(part,'y'); else omitModelDetail(part)
+        }
+        pivot.attach(part)
+      }
+      const rigs = (g.userData.swingDoors ??= []) as Array<{ pivot: THREE.Group; sign: number }>
+      rigs.push({pivot,sign:i === 0 ? -1 : 1})
+      ;(g.userData.doors ??= []).push(pivot)
+    }
     keep.add(box(mats.leaf, cx, threshold + leafH / 2, leafSet, lw, leafH, leaf))
     if (mats.stainless) {
       // Service doors have uninterrupted sheet-metal faces and upright pulls near
@@ -139,6 +156,7 @@ export function buildDoor(
         box(mats.handle, pullX - 0.009, 0.72, front + 0.024, 0.008, 0.036, 0.008)
         box(mats.handle, pullX + 0.009, 0.72, front + 0.024, 0.008, 0.036, 0.008)
       }
+      finishLeaf()
       continue
     }
     // The kick plate along the foot of the leaf, in steel on the wooden door too. It is a
@@ -171,6 +189,7 @@ export function buildDoor(
       box(mats.handle, pullX + studX, 1.02, face + side * studProud, 0.03, 0.03, 0.04)
       box(mats.handle, pullX, 1.02, face + side * handle, pullW, 0.04, 0.05)
     }
+    finishLeaf()
   }
   for (const mesh of g.children.slice(start)) if (mesh instanceof THREE.Mesh) {
     if (keep.has(mesh)) surfaceModelDetail(mesh, 'y')

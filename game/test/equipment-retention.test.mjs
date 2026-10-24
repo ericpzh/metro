@@ -211,7 +211,7 @@ function withDrawing(run) {
   modules.ghost = { clearFencePreview() {} }
   modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
   modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-  modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+  modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
   try { run({ mats, ctx, modules }) }
   finally { modules.clearModules(); modules.batches.clear(); disposeModelMaterials(mats); blob.dispose(); globalThis.document = previous }
 }

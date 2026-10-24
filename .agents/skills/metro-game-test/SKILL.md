@@ -288,6 +288,18 @@ unprofiled benchmarks for speed evidence, keeping hardware/fixture/assets fixed.
 
 ## Coverage completion gate
 
+Passenger service and animation integration has two owning suites:
+`passenger-activities.test.mjs` drives real journeys, service occupancy, physical
+front access, multiple seats, cross-storey errands, unreachable/deleted stops,
+walking taps, selective lift gestures and deterministic Float32 packing.
+`passenger-activity-assets.test.mjs` reads the actual generated asset and reviewed
+exports: catalogue hashes, weights, palette faces, topology budgets and fitted
+up/down/narrow/wide rail wrists, elbows and neutral hand orientation. Source
+matrices alone do not compile GLSL: build and run
+`node tools/check-game-passenger-activities.mjs` for High/Low, adult/child, clothing,
+pause, doors, running sinks and actual seated skirt silhouettes. The focused model
+interaction suite additionally guards source geometry restoration and IK.
+
 Coverage means the changed behaviour has a deterministic regression for each affected
 contract, the `game/test/README.md` map names the owning suite, and the **full** game
 suite completes. A focused file, V8 percentage, build, or browser check cannot stand

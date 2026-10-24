@@ -15,9 +15,11 @@
 // `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
-import { passengerMesh, passengerFrames, passengerAppearance, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
+import { passengerMesh, passengerFrames, passengerAppearance, passengerDisplayedActivity, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
 import type { PassengerAppearance } from '../../passengerModel.ts'
 import { passengerWalkProfile } from '../../../sim/walking.ts'
+import { unpackActivity, packActivity, activityEndTime, ACTIVITY_DURATION } from '../../../sim/activities.ts'
+import { passengerActivityOffset, PASSENGER_ACTIVITY_GARMENTS } from '../../passengerActivities.ts'
 import { setGateWing } from '../../models.ts'
 import { AgentState } from '../../../sim/types.ts'
 import { PASSENGER_CULL_HEIGHT_FRACTION, PASSENGER_CULL_RADIUS_SCALE, PASSENGER_INSTANCE_CAPACITY, storeyBand } from '../../../sim/constants.ts'
@@ -86,6 +88,8 @@ function losColor(i: number): number {
 interface CrowdDraw {
   mesh: THREE.InstancedMesh
   pose: THREE.InstancedBufferAttribute
+  activity: THREE.InstancedBufferAttribute
+  garment: THREE.InstancedBufferAttribute
   outfit: THREE.InstancedBufferAttribute
   level: THREE.InstancedBufferAttribute
   ids: Float64Array
@@ -127,6 +131,8 @@ export class CrowdSystem extends SceneSystem {
   agentCount = 0
   /** Turnstile leaves, slid open as the crowd passes through their lanes. */
   gateWings: GateWing[] = []
+  swingDoors: Array<{ pivot: THREE.Group; sign: number; x: number; y: number; z: number; open: number; target: number; occupied: boolean; cubicleX?: number; cubicleY?: number }> = []
+  activitySinks: Array<{stream: THREE.Object3D; x: number; y: number; z: number}> = []
   /** The 选择 tool's route line, its own scratch buffer, and the two rings. */
   private route: THREE.Mesh
   private routePos: Float32Array
@@ -145,7 +151,12 @@ export class CrowdSystem extends SceneSystem {
   private pickTop = new THREE.Vector3()
   private playing = true
   private resumeSnapshotPending = false
-  private frozen = new Map<number, { position: THREE.Vector3; yaw: number; pose: [number, number, number, number] }>()
+  private frozen = new Map<number, { position: THREE.Vector3; yaw: number; pose: [number, number, number, number]; activity: [number, number, number, number] }>()
+  private previousActivities = new Float32Array(0)
+  private renderedActivities = new Float32Array(PASSENGER_INSTANCE_CAPACITY * 4)
+  private activityScratch = [0, 0, 0]
+  private previousActivityScratch = [0, 0, 0]
+  private activityOffsetScratch = [0,0,0]
   private yaws = new Float32Array(0)
   private gaitPhases = new Float32Array(0)
   private gaitWeights = new Float32Array(0)
@@ -215,6 +226,8 @@ export class CrowdSystem extends SceneSystem {
     return {
       mesh,
       pose: mesh.geometry.getAttribute('passengerPose') as THREE.InstancedBufferAttribute,
+      activity: mesh.geometry.getAttribute('passengerActivity') as THREE.InstancedBufferAttribute,
+      garment: mesh.geometry.getAttribute('passengerGarment') as THREE.InstancedBufferAttribute,
       outfit: mesh.geometry.getAttribute('passengerOutfit') as THREE.InstancedBufferAttribute,
       level: mesh.geometry.getAttribute('passengerLevel') as THREE.InstancedBufferAttribute,
       ids: new Float64Array(PASSENGER_INSTANCE_CAPACITY).fill(-1),
@@ -366,9 +379,13 @@ export class CrowdSystem extends SceneSystem {
       const y = frozen?.position.y ?? this.prev[p + 1] + (this.cur[o + 1] - this.prev[p + 1]) * alpha
       const z = frozen?.position.z ?? this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha
       if (!this.agentLevelVisible(z)) continue
-      const height = passengerAppearance(id, this.appearanceScratch)[1]
+      const appearance = passengerAppearance(id, this.appearanceScratch), height=appearance[1]
+      const offset=passengerActivityOffset(this.renderedActivities[i*4],this.renderedActivities[i*4+1],height,this.activityOffsetScratch)
+      const yaw=frozen?.yaw ?? this.yaws[i]
+      const ox=offset[2]*appearance[2]*Math.cos(yaw)-offset[0]*appearance[3]*Math.sin(yaw)
+      const oy=offset[2]*appearance[2]*Math.sin(yaw)+offset[0]*appearance[3]*Math.cos(yaw)
       this.pickVec.set(x, y, z + 0.12 * height).applyMatrix4(this.pickView)
-      this.pickTop.set(x, y, z + 1.7 * height).applyMatrix4(this.pickView)
+      this.pickTop.set(x+ox, y+oy, z + (1.7+offset[1]) * height).applyMatrix4(this.pickView)
       // View space looks down -z, so anything at or behind the lens has no screen
       // position at all — projecting it would mirror it back into the picture.
       const bottomDepth = -this.pickVec.z, topDepth = -this.pickTop.z
@@ -417,6 +434,7 @@ export class CrowdSystem extends SceneSystem {
             this.prev[p + 1] + (this.cur[o + 1] - this.prev[p + 1]) * alpha,
             this.prev[p + 2] + (this.cur[o + 2] - this.prev[p + 2]) * alpha),
           yaw: this.yaws[i], pose: [pose[i * 4], pose[i * 4 + 1], pose[i * 4 + 2], pose[i * 4 + 3]],
+          activity: Array.from(this.renderedActivities.subarray(i * 4, i * 4 + 4)) as [number, number, number, number],
         })
       }
     } else {
@@ -428,6 +446,7 @@ export class CrowdSystem extends SceneSystem {
         const firstFrame = PASSENGER_WALK_PROFILES[passengerWalkProfile(this.cur[i * 6 + 5])].firstFrame
         this.gaitPhases[i] = (frozen.pose[0] - firstFrame + frozen.pose[2]) / PASSENGER_WALK_FRAMES
         this.gaitWeights[i] = frozen.pose[3]
+        this.previousActivities[i] = packActivity(frozen.activity[0],frozen.activity[1],frozen.yaw)
       }
       this.ctx.lastStateTime = now
       this.frozen.clear()
@@ -455,6 +474,7 @@ export class CrowdSystem extends SceneSystem {
       this.cur = grown
     }
     if (this.prev.length < count * 3) this.prev = new Float32Array(Math.max(count * 3, 4096))
+    if (this.previousActivities.length < count) this.previousActivities = new Float32Array(Math.max(count, 1024))
     if (this.yaws.length < count) {
       const capacity = Math.max(count, 1024)
       for (const key of ['yaws', 'gaitPhases', 'gaitWeights'] as const) {
@@ -493,6 +513,7 @@ export class CrowdSystem extends SceneSystem {
       if (old !== undefined) {
         this.yaws[i] = oldYaws[old]
         const q = old * 6
+        this.previousActivities[i] = this.cur[q + 4]
         this.gaitPhases[i] = oldPhases[old]
         this.gaitWeights[i] = oldWeights[old]
         this.prev[p] = this.cur[q]
@@ -511,6 +532,7 @@ export class CrowdSystem extends SceneSystem {
         this.prev[p + 1] = buffer[o + 1]
         this.prev[p + 2] = buffer[o + 2]
         this.yaws[i] = 0
+        this.previousActivities[i] = buffer[o + 4]
         this.gaitPhases[i] = (buffer[o + 5] * 0.61803398875) % 1
         this.gaitWeights[i] = 0
       }
@@ -710,6 +732,22 @@ export class CrowdSystem extends SceneSystem {
       const dx = cx - px
       const dy = cy - py
       if (dx * dx + dy * dy > 1e-6) this.yaws[i] = Math.atan2(dy, dx)
+      const activity = unpackActivity(this.cur[o + 4], this.activityScratch)
+      const priorActivity = unpackActivity(this.previousActivities[i], this.previousActivityScratch)
+      let activityKind = activity[0], activityTime = activity[1]
+      if (activityKind && priorActivity[0] === activityKind) {
+        // Idle loops wrap; service timelines keep their authored transitions.
+        const before = priorActivity[1]
+        const wraps = (activityKind === 12 || activityKind === 13) && activityTime < before
+        activityTime = before + (activityTime - before + (wraps ? ACTIVITY_DURATION[activityKind] : 0)) * alpha
+        if (wraps) activityTime %= ACTIVITY_DURATION[activityKind]
+      } else if (!activityKind && priorActivity[0] && alpha < 1) {
+        activityKind = priorActivity[0]
+        activityTime = priorActivity[1] + (activityEndTime(activityKind,priorActivity[1]) - priorActivity[1]) * alpha
+        activity[2] = priorActivity[2]
+      }
+      activityKind=passengerDisplayedActivity(activityKind,appearance[0])
+      if (activityKind && activityKind !== 5 && activityKind !== 6 && activityKind !== 11) this.yaws[i] = activity[2]
       q.setFromAxisAngle(axis, this.yaws[i])
       const travelled = this.cur[o + 3] !== AgentState.Riding ? Math.hypot(dx, dy) : 0
       const moving = travelled > 1e-5 ? 1 : 0
@@ -725,6 +763,13 @@ export class CrowdSystem extends SceneSystem {
       }
       const shown = frozen?.pose ?? frames
       this.renderedPoses.set(shown, i * 4)
+      const activityPhase = ((frames[0] - PASSENGER_WALK_PROFILES[passengerWalkProfile(id)].firstFrame) + frames[2]) / PASSENGER_WALK_FRAMES
+      const drawnActivity = frozen?.activity
+      const at = i * 4
+      this.renderedActivities[at] = drawnActivity?.[0] ?? activityKind
+      this.renderedActivities[at+1] = drawnActivity?.[1] ?? activityTime
+      this.renderedActivities[at+2] = drawnActivity?.[2] ?? activityPhase
+      this.renderedActivities[at+3] = drawnActivity?.[3] ?? passengerWalkProfile(id)
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.
@@ -742,11 +787,15 @@ export class CrowdSystem extends SceneSystem {
           group.ids[slot] = id
           group.appearance = true
           group.outfit.setX(slot, appearance[0])
+          const garment=PASSENGER_ACTIVITY_GARMENTS[appearance[0]]
+          group.garment.setXY(slot,garment[0],garment[1])
           this.passengerColor.setRGB(appearance[4], appearance[4], appearance[4])
           group.mesh.setColorAt(slot, this.passengerColor)
         }
         group.level.setX(slot, level)
         group.pose.setXYZW(slot, shown[0], shown[1], shown[2], shown[3])
+        const ap = this.renderedActivities
+        group.activity.setXYZW(slot, ap[i * 4], ap[i * 4 + 1], ap[i * 4 + 2], ap[i * 4 + 3])
         m.compose(pos, q, scale)
         group.mesh.setMatrixAt(slot, m)
         if (contactShadowVisible(pos.z, this.ctx.activeZ, this.ctx.hideUI || this.ctx.cutaway,
@@ -766,16 +815,19 @@ export class CrowdSystem extends SceneSystem {
       }
       if (id === this.followAgentId) {
         followed = true
-        this.onEyePose?.(pos.x, pos.y, pos.z + PASSENGER_EYE_HEIGHT * appearance[1], this.yaws[i])
+        const offset=passengerActivityOffset(this.renderedActivities[i*4],this.renderedActivities[i*4+1],appearance[1],this.activityOffsetScratch)
+        const yaw=this.yaws[i],ox=offset[2]*appearance[2]*Math.cos(yaw)-offset[0]*appearance[3]*Math.sin(yaw),oy=offset[2]*appearance[2]*Math.sin(yaw)+offset[0]*appearance[3]*Math.cos(yaw)
+        this.onEyePose?.(pos.x+ox, pos.y+oy, pos.z + (PASSENGER_EYE_HEIGHT+offset[1]) * appearance[1], yaw)
       }
 
     }
     for (const group of [full, low]) {
       group.mesh.count = group.count
       if (!group.count) continue
-      const attributes = [group.pose, group.mesh.instanceMatrix, group.level]
+      const attributes = [group.pose, group.activity, group.mesh.instanceMatrix, group.level]
       if (group.appearance) {
         attributes.push(group.outfit)
+        attributes.push(group.garment)
         if (group.mesh.instanceColor) attributes.push(group.mesh.instanceColor)
       }
       for (const attr of attributes) {
@@ -834,6 +886,26 @@ export class CrowdSystem extends SceneSystem {
    */
   private detectGateCrossings(): void {
     const n = this.agentCount
+    for (const sink of this.activitySinks) {
+      sink.stream.visible=false
+      for (let i=0;i<n;i++) {
+        const o=i*6,value=this.cur[o+4]
+        if (Math.floor(value/1048576)!==10 || Math.abs(this.cur[o+2]-sink.z)>.5 || Math.hypot(this.cur[o]-sink.x,this.cur[o+1]-sink.y)>.8) continue
+        const time=unpackActivity(value,this.activityScratch)[1]
+        if(time>2&&time<8){sink.stream.visible=true;break}
+      }
+    }
+    for (const door of this.swingDoors) {
+      door.target = 0; door.occupied = false
+      for (let i=0;i<n;i++) {
+        const o=i*6
+        if (Math.abs(this.cur[o+2]-door.z)>.5 || Math.hypot(this.cur[o]-door.x,this.cur[o+1]-door.y)>1.25) continue
+        const kind=Math.floor(this.cur[o+4]/1048576)
+        if (kind===9 && door.cubicleX !== undefined && Math.hypot(this.cur[o]-door.cubicleX,this.cur[o+1]-door.cubicleY!)<.35) door.occupied=true
+        else if (this.cur[o+3]===AgentState.Walking || this.cur[o+3]===AgentState.Arriving) door.target=1
+      }
+      if (door.occupied) door.target=0
+    }
     if (n === 0 || this.gateWings.length === 0) return
     for (let i = 0; i < n; i++) {
       const o = i * 6
@@ -876,6 +948,10 @@ export class CrowdSystem extends SceneSystem {
   updateGates(simDt: number): void {
     if (!this.playing) return
     for (const g of this.gateWings) this.stepGateWing(g, simDt)
+    for (const door of this.swingDoors) {
+      door.open += Math.sign(door.target-door.open)*Math.min(Math.abs(door.target-door.open),simDt*1.5)
+      door.pivot.rotation.z=door.sign*door.open*Math.PI*.45
+    }
   }
 
   /** Run one gate's open/hold/close cycle, starting the next only once shut. */

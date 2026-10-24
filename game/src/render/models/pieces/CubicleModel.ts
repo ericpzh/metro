@@ -41,6 +41,7 @@ export class CubicleModel extends PieceBuilder {
       }
     }
     for (const x of [-0.445, 0.445]) slab(g, partition, x, -0.48, 1.05, 0.07, 0.04, 1.8).name = 'cubicle-jamb'
+    const movingStart = g.children.length
     const door = slab(g, partition, 0, -0.48, 1.075, 0.802, 0.035, 1.75)
     door.name = 'cubicle-door'
     slab(g, mats.steel, 0, -0.48, 1.955, 1, 0.055, 0.045).name = 'cubicle-header'
@@ -48,6 +49,12 @@ export class CubicleModel extends PieceBuilder {
     roundedFixture(g, mats.steel, 0.31, -0.509, 1.08, 0.075, 0.025, 0.12, 0.012)
     slab(g, mats.darkSteel, 0.30, -0.532, 1.055, 0.06, 0.025, 0.018)
     slab(g, mats.green, 0.31, -0.524, 1.11, 0.024, 0.006, 0.014)
+    const movingParts = g.children.slice(movingStart).filter(p => p.name !== 'cubicle-header')
+    const pivot = new THREE.Group(); pivot.name = 'passenger-swing-door'; pivot.position.set(-.401,-.48,0)
+    g.add(pivot); g.updateWorldMatrix(true,true)
+    for (const part of movingParts) pivot.attach(part)
+    g.userData.swingDoors = [{pivot,sign:-1}]
+    g.userData.doors = [pivot]
     // Hollow ceramic bowl, pedestal, oval seat and rounded cistern.
     turnedFixture(g, porcelain, [[0.14, 0.015], [0.15, 0.05], [0.105, 0.19], [0.13, 0.30]], 0, 0.015, 1, 1.25)
     turnedFixture(g, porcelain, [[0.13, 0.25], [0.18, 0.29], [0.205, 0.36], [0.215, 0.405], [0.19, 0.415], [0.16, 0.37], [0.10, 0.30], [0.065, 0.285]], 0, -0.08, 1, 1.38)

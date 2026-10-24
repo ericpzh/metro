@@ -26,6 +26,14 @@ export interface Agent {
   speed: number
   /** Dwell/service countdown, seconds. */
   timer: number
+  /** Presentation follows a real service/ride; randomness is identity based. */
+  activity: number
+  activityStart: number
+  activityTotal: number
+  activityYaw: number
+  activityVariant: number
+  activeStop: string
+  stopQueueRank: number
   /** Total seconds waited in the current queue; never reset by a failed re-route. */
   wait: number
   /** Seconds since the last patience check, separate from measured wait. */
@@ -144,6 +152,13 @@ export class AgentPool {
     a.state = AgentState.Arriving
     a.speed = passengerWalkSpeed(a.id)
     a.timer = 0
+    a.activity = 0
+    a.activityStart = tick
+    a.activityTotal = 0
+    a.activityYaw = 0
+    a.activityVariant = 0
+    a.activeStop = ''
+    a.stopQueueRank = 0
     a.wait = 0
     a.patienceWait = 0
     a.patience = this.rng.range(PATIENCE_MIN, PATIENCE_MAX)

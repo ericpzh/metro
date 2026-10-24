@@ -29,17 +29,24 @@ export function interactionFrame(id,time){
 // space, so hand contact stays on equipment when passenger dimensions change.
 export function solveLimb(root,mid,end,target,bend){
  root.updateWorldMatrix(true,true);
- const a=root.getWorldPosition(new THREE.Vector3()),b=mid.getWorldPosition(new THREE.Vector3()),c=end.getWorldPosition(new THREE.Vector3());
- const l1=a.distanceTo(b),l2=b.distanceTo(c),delta=target.clone().sub(a);
+ // Solve in the rig's frame. Decomposing world quaternions under independently
+ // scaled height/width/depth introduces shear and misses the wrist target.
+ let frame=root;while(frame.isBone&&frame.parent)frame=frame.parent;
+ const inverse=frame.isBone?new THREE.Matrix4():frame.matrixWorld.clone().invert();
+ const point=bone=>bone.getWorldPosition(new THREE.Vector3()).applyMatrix4(inverse);
+ const rotation=bone=>{const q=new THREE.Quaternion();new THREE.Matrix4().multiplyMatrices(inverse,bone.matrixWorld).decompose(new THREE.Vector3(),q,new THREE.Vector3());return q};
+ const a=point(root),b=point(mid),c=point(end);
+ const l1=a.distanceTo(b),l2=b.distanceTo(c),delta=target.clone().applyMatrix4(inverse).sub(a);
  const d=THREE.MathUtils.clamp(delta.length(),Math.abs(l1-l2)+.0001,l1+l2-.0001),axis=delta.normalize();
  const along=(l1*l1-l2*l2+d*d)/(2*d);
- const normal=bend.clone().addScaledVector(axis,-bend.dot(axis)).normalize();
+ const pole=bend.clone().transformDirection(inverse);
+ const normal=pole.clone().addScaledVector(axis,-pole.dot(axis)).normalize();
  const elbow=a.clone().addScaledVector(axis,along).addScaledVector(normal,Math.sqrt(Math.max(0,l1*l1-along*along)));
  function aim(bone,child,to){
-  const from=bone.getWorldPosition(new THREE.Vector3()),old=child.getWorldPosition(new THREE.Vector3()).sub(from).normalize();
-  const q=bone.getWorldQuaternion(new THREE.Quaternion());
+  const from=point(bone),old=point(child).sub(from).normalize();
+  const q=rotation(bone);
   q.premultiply(new THREE.Quaternion().setFromUnitVectors(old,to.clone().sub(from).normalize()));
-  bone.quaternion.copy(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(q));bone.updateWorldMatrix(true,true);
+  bone.quaternion.copy(rotation(bone.parent).invert().multiply(q));bone.updateWorldMatrix(true,true);
  }
  aim(root,mid,elbow);aim(mid,end,a.clone().addScaledVector(axis,d));
 }
@@ -56,7 +63,7 @@ export function createInteractionPoser(scene){
   applyPassengerCarryPose(scene);
   const seated=id==='sit'||id==='toilet';
   if(seated){
-   bones.Hips.position.y=THREE.MathUtils.lerp(hips.y,(id==='toilet'?.633:.666)/scene.scale.y,e);bones.Hips.position.z-=(id==='toilet'?.08:.15)*e;
+   bones.Hips.position.y=THREE.MathUtils.lerp(hips.y,(id==='toilet'?.633:.666)/scene.scale.y,e);bones.Hips.position.z+=(id==='toilet'?.38:.30)*(1-e)-(id==='toilet'?.08:.15)*e;
    for(const side of ['Left','Right']){bones[side+'Thigh'].rotation.x=-1.48*e;bones[side+'Shin'].rotation.x=1.48*e;}
    bones.Spine.rotation.x=.16*Math.sin(Math.PI*e);
   }

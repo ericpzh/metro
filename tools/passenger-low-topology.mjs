@@ -9,8 +9,8 @@ export const PASSENGER_LOW_RATIO=.1;
  * a head must not join a hand, nor may the two legs collapse into one cluster.
  * No full-detail positions, normals, palette values or walk samples are edited.
  */
-export function passengerLowTopology({indices,poses,vertices,regions,garmentShape,positionScale=4096}){
- const budget=Math.floor(indices.length/3*PASSENGER_LOW_RATIO);
+export function passengerLowTopology({indices,poses,vertices,regions,garmentShape,positionScale=4096,maxTriangles=Infinity}){
+ const budget=Math.min(maxTriangles,Math.floor(indices.length/3*PASSENGER_LOW_RATIO));
  if(budget<1)throw Error('Passenger Low topology needs at least ten source triangles');
  const positions=Float32Array.from(poses.subarray(0,vertices*3),v=>v/positionScale);
  const used=[...new Set(indices)],locked=new Set();

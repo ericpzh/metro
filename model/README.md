@@ -28,11 +28,11 @@ preserve planted soles. Escalator foot and palm targets follow the real builder'
 incline and handrail rather than an estimated slope. The sink faces the
 passenger with the faucet on the far side of the bowl.
 
-These are animation studies for review. They do not change simulation behaviour,
-the crowd atlas, or downloadable GLB clips. Contact fitting, carried bags and
-seated skirt draping still need review across the complete appearance catalogue
-before baking production animations. There is no purchase, fare or elevator
-simulation behind the preview.
+These isolated studies are also the source for the game's shared activity rig
+bake. Game service queues, route stops and optional gestures determine when each
+activity runs; the viewer keeps its own looping timeline. Downloadable GLBs still
+contain the three reviewed walks. The viewer itself owns no purchase, fare or
+elevator simulation.
 
 Build without regenerating unchanged character exports:
 `node model/node_modules/vite/bin/vite.js build model`.

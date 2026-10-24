@@ -80,7 +80,7 @@ test('ModuleSystem keeps actual equipment geometry during a road edit and dispos
     modules=new ModuleSystem(ctx)
     modules.ghost={clearFencePreview(){}}
     modules.plates={retainTvPlates(){},retainSignPlates(){},retainDecorPlates(){},clearTvPlates(){},clearSignPlates(){},clearDecorPlates(){},ownsTexture:()=>false,adScreens:[],tvScreens:[]}
-    modules.trains={psdGroups:[]};modules.lifts={escalatorRolls:[],liftRigs:[],liftPickMeshes:[]};modules.clocks={clockRigs:[]};modules.crowd={gateWings:[]}
+    modules.trains={psdGroups:[]};modules.lifts={escalatorRolls:[],liftRigs:[],liftPickMeshes:[]};modules.clocks={clockRigs:[]};modules.crowd={gateWings:[],swingDoors:[],activitySinks:[]}
     const bench=createModule('bench',0,0,0,'bench'),before={...emptyStation(),modules:[bench,road]}
     modules.buildModules(before,new Set())
     const benchGroup=modules.moduleMeshes.children.find(g=>g.userData.moduleId==='bench')

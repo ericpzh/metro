@@ -1,5 +1,75 @@
 # Performance work in metro
 
+## In-game passenger activities — 2026-10-24
+
+Passenger service now owns the complete activity dwell. TVM/vending customers
+approach the real front; cabinets block walking, and benches/sinks/cubicles have
+front-only terminal access. Bench seats are independent servers. Errands can be
+on a concourse below a street entrance, use the existing budgeted route requests,
+and skip missing/unreachable stops. Nearby sinks follow toilets. Service queues
+retain connected floor and one active customer per slot; queue ranks update once
+per server/tick rather than searching the queue for every body. Gate gestures
+continue walking and use the reader-facing hand in either crossing direction.
+Lift gestures are selective, while handrail use varies by identity and free hand.
+These updates perform no scene pick, station document commit or routing rebuild.
+
+The crowd retains its prepared High/Low instanced draws. A generated activity
+asset shares 113,584 bind vertices and two rigs, fitted at eight heights with
+24 samples per clip. Its actual padded topology is 9,286 High / 822 Low triangles,
+within the existing 9,370 / 841 draw strides; each entry's Low table stays within
+10% of its High topology. Pose-only bakes verify every current GLB hash before
+updating palettes. The additional packed binary delivery is 10,108,859 bytes;
+the largest activity file is the 6,389,615-byte index table, within the 25 MiB
+asset limit. Padded activity GPU storage is 16,646,144 bytes for Low alone or
+42,500,096 bytes after both detail tables have been used. Bind/index data inflate
+on demand, with temporary decoded index buffers released after texture creation.
+The walking atlas and all three reviewed GLB walks remain unchanged.
+
+Waiting looks keep the walking atlas, so queues still walk when advancing.
+Carrying poses can suppress a large hand gesture; walking skirts retain their
+reviewed cloth animation. Seated skirts have an authored lap/knee/shin drape;
+the production side-view check measures 61 pixels of seated garment depth against
+40 pixels standing for the reviewed long-skirt fixture. Seated picking/eye height
+read the same pelvis palette as the shader. Pause and resume retain the displayed
+activity, and hold-loop/release interpolation never crosses into another hand
+or rail variant. Rail reach/release first lifts inside the belt, then moves onto
+its top; the actual-asset regression checks sleeve clearance through intermediate
+samples, wrist contact, forward elbows and neutral hands across adult heights,
+both sides, directions and lane widths. Source IK solves in the rig frame to
+avoid shear from independent appearance dimensions.
+
+`tools/check-game-passenger-activities.mjs` exercises 56 combinations of activity,
+adult/child and High/Low detail, including ordinary bodies, backpacks, side bags,
+purses, skirts and trousers. Its six-fixture production scene pins pause,
+running water, opening doors and closing an occupied cubicle. Isolated captures
+retain one crowd draw and report zero shader failures. Raw JSON and screenshots
+are under `.preview/game-passenger-activities/`; the model studies retain their
+separate `.preview/model-interactions/` checks. These are functional/GPU checks,
+not a matched FPS or input-latency comparison.
+
+Final verification: the production build, all 18 model tests and the passenger
+regressions pass. The full game run reports 2,407/2,410 passing; its three failures
+are Settings-menu source assertions in concurrent audio/upscaling work, outside
+this activity change (`.preview/passenger-activities-suite-complete.log`).
+
+The seeded `tools/bench-passenger-activities.mjs` run uses seed 99, 08:00 and
+1,200 one-second ticks per authored demo. Raw results are in
+`.preview/perf/passenger-activities/report.json`:
+
+| Station | Maximum crowd | Mean tick | p95 tick | p99 tick | Started service visits | Slot conflicts |
+|---|---:|---:|---:|---:|---|---:|
+| Zoo | 760 | 5.37 ms | 10.86 ms | 16.11 ms | 42 bench, 29 vending, 10 TVM, 7 shelf, 2 toilet, 1 sink | 0 |
+| Tanwei | 2,002 | 34.75 ms | 76.28 ms | 94.39 ms | 61 bench, 82 vending, 30 TVM, 8 toilet, 7 sink | 0 |
+
+These local diagnostics include changed journeys and service timing, so they
+are not a controlled speedup comparison or a certification of real-time 64×
+playback. The sampled demos also report 69/55 unroutable trip endings; this work
+does not establish that every authored route is reachable. Normal circulation,
+optional-stop abandonment and finite poses are covered separately by deterministic
+tests. Dynamic swing rigs retain their fittings and stay outside static equipment
+batches. The sink's hidden stream leaves its static inventory at 4,972 High / 224
+Low triangles; the lift's new cabin panel brings its inventory to 1,776 / 144.
+
 ## Model passenger activity previews — 2026-10-23
 
 The model viewer now previews thirteen passenger activities against the existing
@@ -657,7 +727,7 @@ geometry. A 100% share means that default model has no reduction.
 | 时钟 | `clock` | 1,940 | 188 | 9.7% |
 | 单跑楼梯 | `stair-straight` | 1,940 | 150 | 7.7% |
 | 枪机 | `cctv` | 1,888 | 124 | 6.6% |
-| 电梯 | `lift` | 1,740 | 140 | 8.0% |
+| 电梯 | `lift` | 1,776 | 144 | 8.1% |
 | 设备柜 | `electrical-cabinet` | 1,224 | 36 | 2.9% |
 | 大 | `extinguisher-glass` | 918 | 86 | 9.4% |
 | 有盖 单向 | `exit-covered-1` | 902 | 68 | 7.5% |

@@ -971,7 +971,7 @@ agent = {
   id, seed,
   trip: {
     origin: '',              // '' for a street arrival; 'train:<line>' for an alighting cohort
-    stops: [moduleId],       // 0..1 today: an optional TVM / vending stop
+      stops: [moduleId],       // optional errand; a toilet can be followed by a sink
     dest: 'exit:<id>' | 'line:<id>',
   },
   legs: [{ node, kind: 'stop'|'exit'|'line', ref }],
@@ -1091,7 +1091,7 @@ Sampling is much simpler than the first draft:
 origin  = ''                                     // street arrival, weighted by inRate/open
           | 'train:<line>'                        // an alighting cohort at the doors
 dest    = 'exit:<id>' (55%) | 'line:<id>' (45%)   // hard-coded shares
-stops   = [] (75%) | [one TVM or vending near the route] (25%)
+stops   = [] | [optional machine, shelf, seat or restroom stop; optional sink after toilet]
 ```
 
 * **Origins.** Street arrivals weight each open exit by its `inRate` (the demand curve
@@ -1101,10 +1101,23 @@ stops   = [] (75%) | [one TVM or vending near the route] (25%)
   alighting cohort inverts that (55% exit, 45% transfer) and a transfer picks the **first
   other line**. The shares are constants, not editable per day type. A closed exit is
   skipped; a line cannot be suspended from the UI.
-* **Intermediate stops.** Only a **TVM or a vending machine** can be chosen, as a single
-  optional stop. Retail/cafe, restroom, bench, info pillar and billboard are **not**
-  sampled, so their area and placement do not change demand. A chosen stop that is
-  unreachable is dropped and the trip proceeds origin → destination.
+* **Intermediate stops.** Entry intent draws 25% machine, 5% shop/shelf, 4% seat and
+  3% restroom opportunities; unavailable choices become a direct trip. Only boarding
+  passengers select TVMs. Train arrivals draw 8% vending, 4% shop/shelf, 3% seat and
+  2% restroom opportunities. Candidates stay on the appropriate fare side, within
+  24 m in plan and 20 m vertically; proximity and live service waits order the
+  shortlist. A free bench seat is preferred. An available nearby sink follows a
+  toilet visit. Budgeted path requests route every leg, and an unreachable optional
+  stop is dropped. Seats and restroom furniture have front-only access; cabinets
+  block through walking. Each service slot stays occupied for its entire dwell.
+* **Visible activity.** Gestures follow those stops and existing circulation.
+  Gate taps can run during walking. Roughly 62% of adults use the nearer escalator
+  handrail, with lane/direction/height fitting and a raise/release transition.
+  The first adult boarding an empty lift can press its requested floor; following
+  riders need no repeat gesture. Doors open near walkers; occupied cubicles close,
+  and washing activates the sink stream. Waiting passengers look around without
+  phone props. Carrying poses can suppress a large gesture, and walking skirts keep
+  their reviewed cloth motion. Pause freezes the displayed pose.
 * **Needs.** A small share are randomly `stepFree` (they refuse stairs/escalators and must
   use a lift or the walkway) and a small share carry `luggage`; `group` is always 1, so
   companions do not exist. There is no fare-zone reachability test (§4.5).

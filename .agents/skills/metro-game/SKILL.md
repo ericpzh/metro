@@ -367,6 +367,29 @@ never be dug again.
 
 ## The sim
 
+Passenger activities span `sim/activities.ts`, `activityStops.ts`, `world/World.ts`,
+`render/passengerActivities.ts` and `CrowdSystem`. Preserve the six-float worker
+stride: its former cosmetic phase stores an exact Float32 integer with activity,
+heading and timeline bits. Real service owns the full dwell; one machine/cubicle
+customer or one occupant per bench seat, with bounded connected-floor approaches.
+Never turn a cabinet or fixture interior into a route shortcut. Optional errands
+may be on a concourse below the entrance; keep them on the appropriate fare side,
+use budgeted path requests and skip missing/unreachable stops. Walking gate taps
+add no dwell. Handrail use is identity based and optional; match lane, direction
+and adult height, keep the elbow forward and the wrist neutral. Only an eligible
+first lift rider needs a selection gesture. Queues still walk when advancing.
+
+The activity bake is shared with the model poses; game runtime never imports
+`model/`, creates per-agent skeletons or adds crowd draws. High/Low use the existing
+prepared strides, shared textures and disposal. Preserve idle/walking geometry,
+pause, compaction, seated eye/picking offsets and authored skirt drape. Doors and
+water are independent retained rigs excluded from equipment batching. Pin these
+contracts in `passenger-activities`, `passenger-activity-assets`, `passenger-view`
+and the equipment lifecycle suites. Run `tools/check-game-passenger-activities.mjs`
+after building for actual GLSL, body variants, service fixtures and pause checks;
+measure demo service/ticks with `tools/bench-passenger-activities.mjs` and record
+the results in the shared performance reference.
+
 Start points: the street plane, the graph, the fare line and the edge cost are
 the four rules most changes trip over.
 

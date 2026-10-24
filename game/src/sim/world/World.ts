@@ -6,6 +6,7 @@
 // iteration order, so `seed + tick -> identical crowd` (§7.6).
 
 import { AgentPool, type Agent } from '../agents.ts'
+import { activityChoice, dwellTimeline, packActivity, railTimeline } from '../activities.ts'
 import { applyPopulationEdit, type PopulationEdit } from '../populationEdit.ts'
 import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
 import {
@@ -61,6 +62,7 @@ import { clearWalkSegment, walkingLaneNode, platformWaitingNodes } from '../walk
 import { gateLaneAllows } from '../gates.ts'
 import { GateTraffic } from '../gateTraffic.ts'
 import { roadMoveClear, roadContainsPoint, type Road } from '../roads.ts'
+import { passengerIsChild } from '../walking.ts'
 import { rampMoveClear } from '../rampCollision.ts'
 import { buildGraph, cellKey, EDGE_KIND, PathFinder, type ServerDef, type StationGraph } from '../station.ts'
 import { liftDoorDir, liftDoorSideMask, liftLandingSide } from '../lifts.ts'
@@ -253,6 +255,7 @@ export class World {
   private rerouteReplans = 0
   private crowdReplans = 0
   private doorWaiting = new Map<number, Int32Array>()
+  private doorGestures = new Map<number, number>()
   private doorLoads = new Int32Array(0)
   private nextTrainId = 1
   /** Scratch pose for `trainAt`, so pinning a cabin needs no allocation. */
@@ -406,6 +409,7 @@ export class World {
 
   rebuild(reuseGraph = false): void {
     this.doorWaiting.clear()
+    this.doorGestures.clear()
     this.roads = this.data.modules.filter((m): m is Road => m.type === 'road')
     // The authored day is document data: re-read and re-normalize it on every rebuild,
     // which is the same path a live edit takes (`build` → `rebuild`).
@@ -455,6 +459,14 @@ export class World {
       this.nodePop.fill(0)
       this.doorLoads.fill(0)
     }
+    for (const mod of this.data.modules) if (mod.type === 'door') {
+      const [fx,fy] = rotateLocal(mod.rot,0,1)
+      for (const offset of [0,-1]) for (let i=0;i<mod.w;i++) {
+        const [rx,ry] = rotateLocal(mod.rot,i,offset)
+        const node = this.graph.nodeIndex.get(cellKey(mod.x+rx,mod.y+ry,mod.z))
+        if (node !== undefined) this.doorGestures.set(node,Math.atan2(fy,fx))
+      }
+    }
     // Search queues, congestion and forecasts are dynamic even when topology is
     // retained. Their fresh state must match a full restart, including lifts.
     this.path = new PathFinder(this.graph)
@@ -470,6 +482,7 @@ export class World {
       s.waitAccum = 0
       s.waitCount = 0
       s.lane = 0
+      s.activeCustomer = undefined
       if (s.ramp) {
         s.ramp.next = 0
         if (s.ramp.traffic) { s.ramp.traffic.direction = -1; s.ramp.traffic.until = 0 }
@@ -520,11 +533,16 @@ export class World {
         else { a.x = this.graph.nodeX[nearest]; a.y = this.graph.nodeY[nearest]; a.vx = 0; a.vy = 0 }
       }
       a.path = EMPTY_PATH
+      for (const leg of a.legs) leg.node = -1
+      a.awaitingPath = false
+      a.servedFor = -1
       a.pathIdx = 0
       a.fromNode = -1
       a.destNode = -1
       a.server = -1
       a.rampApproach = undefined
+      a.activity = 0
+      a.activeStop = ''
       a.wait = 0
       a.patienceWait = 0
       a.state = STATE_ARRIVING
@@ -613,7 +631,7 @@ export class World {
   }
 
   /**
-   * Write a render buffer: [x, y, z, state, phase, id] per live agent. The id
+   * Write a render buffer: [x, y, z, state, packed activity, id] per live agent. The id
    * is what lets the renderer interpolate the same agent across frames; slots
    * move around as agents die because `pool.compact()` shifts the live list.
    */
@@ -627,11 +645,29 @@ export class World {
       out[o + 1] = a.y
       out[o + 2] = a.z
       out[o + 3] = a.state
-      out[o + 4] = (a.pathIdx & 7) + (a.id % 5) * 0.1
+      out[o + 4] = this.activityTransfer(a)
       out[o + 5] = a.id
       n++
     }
     return n
+  }
+
+  private activityTransfer(a: Agent): number {
+    const elapsed = (this.tick - a.activityStart) * SIM_DT
+    if (a.activity && elapsed >= 0 && (a.activeStop || elapsed < a.activityTotal)) {
+      const time = a.activeStop ? dwellTimeline(elapsed, a.activityTotal, a.activity)
+        : a.activity === 5 || a.activity === 6 ? a.activityVariant * 4 + elapsed * 2
+        : a.activity === 11 ? 2.5 + elapsed * 2
+        : a.activity === 7 || a.activity === 14 ? railTimeline(a.rideTotal-a.rideT,a.rideTotal,a.activityVariant)
+        : dwellTimeline(elapsed,a.activityTotal,a.activity)
+      return packActivity(a.activity, time, a.activityYaw)
+    }
+    if (a.state === STATE_QUEUING || a.state === STATE_WAITING) {
+      const s = this.graph.servers[a.server]
+      const yaw = s ? Math.atan2(this.graph.nodeY[s.node] - a.y, this.graph.nodeX[s.node] - a.x) : a.activityYaw
+      return packActivity(s?.kind === 'door' ? 13 : 12, (this.tick * SIM_DT + a.id * .71) % 12, yaw)
+    }
+    return 0
   }
 
   snapshot(): DynamicSnapshot {
@@ -679,31 +715,46 @@ export class World {
       const n = this.rng.poissonHour(cfg.inRate * curve, SIM_DT)
       for (let k = 0; k < n; k++) {
         if (this.pool.count >= MAX_AGENTS) return
-        this.spawnAtNode(e.node, 'exit:' + e.id, this.sampleTripFromStreet())
+        this.spawnAtNode(e.node, 'exit:' + e.id, this.sampleTripFromStreet(e.node))
       }
     }
   }
 
-  private sampleTripFromStreet(): Trip {
-    // Optional stop at a ticket / vending machine: §7.4a, a quarter of unpaid
-    // entries. Both machine types are stops on the **unpaid side** of the fare
-    // line — 非付费区 or 站外, the side an entering passenger is already on — which
-    // is why this asks `isUnpaidZone` rather than "labelled unpaid": a machine on
-    // the street outside the entrance carries no label at all, and reads 站外.
-    const stops: string[] = []
-    if (this.rng.chance(0.25)) {
-      const machines = this.graph.stops.filter(
-        (s) => (s.kind === 'tvm' || s.kind === 'vending') && isUnpaidZone(ZONES[this.graph.nodeZone[s.node]]),
-      )
-      if (machines.length > 0) {
-        const pick = machines[this.rng.int(machines.length)]
-        stops.push('stop:' + pick.id)
-      }
-    }
+  private sampleTripFromStreet(origin = -1): Trip {
     const lineIds = this.data.lines.map((l) => l.id)
     const board = lineIds.length > 0 && this.rng.chance(0.55)
     const dest = board ? 'line:' + lineIds[0] : 'exit:' + this.pickExitId()
+    const stops = this.sampleErrands(origin, true, board)
     return { origin: '', stops, dest }
+  }
+
+  private sampleErrands(origin: number, entry: boolean, boarding = true): string[] {
+    const stops: string[] = []
+    const choice = this.rng.next()
+    const kinds = entry
+      ? choice < .25 ? boarding ? ['tvm', 'vending'] : ['vending'] : choice < .30 ? ['shelf', 'shop', 'retail'] : choice < .34 ? ['bench'] : choice < .37 ? ['cubicle'] : []
+      : choice < .08 ? ['vending'] : choice < .12 ? ['shelf', 'shop', 'retail'] : choice < .15 ? ['bench'] : choice < .17 ? ['cubicle'] : []
+    const g = this.graph
+    // Local errands only: never send somebody across the station or a fare
+    // boundary for a discretionary drink. Unreachable optional legs are skipped.
+    const candidates = g.stops.filter(s => kinds.includes(s.kind) && s.publicShop!==false &&
+      (s.kind !== 'bench' || s.server === undefined || (g.servers[s.server].activeCustomer === undefined && g.servers[s.server].queue.length === 0)) &&
+      (entry ? isUnpaidZone(ZONES[g.nodeZone[s.node]]) : origin >= 0 && crossingDir(ZONES[g.nodeZone[origin]],ZONES[g.nodeZone[s.node]]) === 0) &&
+      (origin < 0 || (Math.abs(g.nodeZ[s.node] - g.nodeZ[origin]) <= 20 && Math.hypot(g.nodeX[s.node] - g.nodeX[origin], g.nodeY[s.node] - g.nodeY[origin]) < 24)))
+    candidates.sort((a,b) => {
+      const score = (s: typeof a) => (origin < 0 ? 0 : Math.hypot(g.nodeX[s.node]-g.nodeX[origin],g.nodeY[s.node]-g.nodeY[origin]) + Math.abs(g.nodeZ[s.node]-g.nodeZ[origin])*2) + (s.server === undefined ? 0 : g.servers[s.server].queue.length * (s.duration ?? 20) + g.servers[s.server].cooldown)
+      return score(a)-score(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+    })
+    const pick = candidates.length ? candidates[this.rng.int(Math.min(3,candidates.length))] : undefined
+    if (pick) {
+      stops.push('stop:' + pick.id)
+      if (pick.kind === 'cubicle') {
+        const sinks = g.stops.filter(s => s.kind === 'sink' && Math.abs(g.nodeZ[s.node]-g.nodeZ[pick.node]) < .1 && crossingDir(ZONES[g.nodeZone[s.node]],ZONES[g.nodeZone[pick.node]]) === 0 && Math.hypot(g.nodeX[s.node]-g.nodeX[pick.node],g.nodeY[s.node]-g.nodeY[pick.node]) < 12)
+        sinks.sort((a,b) => Math.hypot(g.nodeX[a.node]-g.nodeX[pick.node],g.nodeY[a.node]-g.nodeY[pick.node])-Math.hypot(g.nodeX[b.node]-g.nodeX[pick.node],g.nodeY[b.node]-g.nodeY[pick.node]))
+        if (sinks[0]) stops.push('stop:' + sinks[0].id)
+      }
+    }
+    return stops
   }
 
   private pickExitId(): string {
@@ -717,13 +768,14 @@ export class World {
     return exits[this.rng.int(exits.length)].id
   }
 
-  private sampleTripFromTrain(exitShare: number, arrivingLine: string): Trip {
-    if (this.rng.chance(exitShare)) return { origin: '', stops: [], dest: 'exit:' + this.pickExitId() }
+  private sampleTripFromTrain(exitShare: number, arrivingLine: string, origin = -1): Trip {
+    const stops = origin >= 0 ? this.sampleErrands(origin, false) : []
+    if (this.rng.chance(exitShare)) return { origin: '', stops, dest: 'exit:' + this.pickExitId() }
     // Only a *different* line can be a transfer destination (§7.5). With one
     // line in the demo every alighting passenger is exiting.
     const other = this.data.lines.map((l) => l.id).filter((id) => id !== arrivingLine)
-    if (other.length > 0) return { origin: '', stops: [], dest: 'line:' + other[0] }
-    return { origin: '', stops: [], dest: 'exit:' + this.pickExitId() }
+    if (other.length > 0) return { origin: '', stops, dest: 'line:' + other[0] }
+    return { origin: '', stops, dest: 'exit:' + this.pickExitId() }
   }
 
   private spawnAtNode(node: number, origin: string, trip: Trip): Agent | null {
@@ -956,7 +1008,7 @@ export class World {
     }
     const slot = this.cabinWorldPos(train, door, file, row)
     if (!slot) return false
-    const trip = this.sampleTripFromTrain(0.55, train.line)
+    const trip = this.sampleTripFromTrain(0.55, train.line, this.graph.servers[train.doors[door]]?.node ?? -1)
     if (!trip.dest) return false
     const a = this.pool.spawn({ origin: 'train:' + train.line, stops: trip.stops, dest: trip.dest }, slot[0], slot[1], slot[2], this.tick)
     if (!a) return false
@@ -1436,6 +1488,26 @@ export class World {
         this.stepGate(s, dt)
         continue
       }
+      if (s.kind === 'stop' && s.stop) {
+        for (let q=0;q<s.queue.length;q++) {
+          const person=this.pool.all().get(s.queue[q])
+          if (person) person.stopQueueRank=q+(s.activeCustomer === undefined ? 0 : 1)
+        }
+        const customer = s.activeCustomer === undefined ? undefined : this.pool.all().get(s.activeCustomer)
+        if (customer && !customer.dead && customer.activeStop === s.stop.id) {
+          s.cooldown = customer.timer
+          continue
+        }
+        s.activeCustomer = undefined
+        s.cooldown = 0
+        while (s.queue.length && !this.pool.all().has(s.queue[0])) s.queue.shift()
+        const head = this.pool.all().get(s.queue[0])
+        if (head && Math.hypot(head.x-s.stop.x!,head.y-s.stop.y!) < .22) {
+          s.queue.shift()
+          this.serve(head,s)
+        }
+        continue
+      }
       // The server owns the whole tick's worth of service capacity: at 75/min
       // and a 1 s step that is 1-2 people, but the loop is what makes the rate
       // correct at any step size.
@@ -1661,7 +1733,15 @@ export class World {
         continue
       }
       s.queue.splice(i, 1)
+      // The first boarding rider for a new destination selects it; following
+      // riders to that floor simply board. One press does not delay the car.
+      const selects = !car.riders.some(id => pool.get(id)?.liftDest === a.liftDest)
       car.riders.push(a.id)
+      if (selects && filled === 0 && !passengerIsChild(a.id)) {
+        a.activity = 8; a.activityStart = this.tick + LIFT_BOARD_S; a.activityTotal = 5
+        const [fx,fy] = liftDoorDir(car.rot)
+        a.activityYaw = Math.atan2(fy,fx)
+      }
       a.liftServer = s.id
       a.liftPhase = 0
       a.liftT = 0
@@ -1685,7 +1765,8 @@ export class World {
       a.liftServer = -1
       return
     }
-    const [sx, sy] = liftSlotOffset(a.liftSlot)
+    const [slotX, slotY] = liftSlotOffset(a.liftSlot)
+    const [sx, sy] = rotateLocal(car.rot,slotX,slotY)
     // The 1.5 m carriage is centred in the 2 × 2 m assembly.
     const cabinX = car.x + 1 + sx
     const cabinY = car.y + 1 + sy
@@ -1766,6 +1847,12 @@ export class World {
         a.x = a.rideFromX
         a.y = a.rideFromY
         a.z = a.rideFromZ
+        if (s.kind === 'escalator' && !passengerIsChild(a.id) && activityChoice(a.id, 0x62a3) < .62) {
+          a.activity = column > 0 ? 14 : 7
+          a.activityVariant = (s.ramp.columns === 2 ? 1 : 0) + (a.rideToZ < a.rideFromZ ? 2 : 0)
+          a.activityStart = this.tick; a.activityTotal = a.rideTotal
+          a.activityYaw = Math.atan2(a.rideToY-a.rideFromY,a.rideToX-a.rideFromX)
+        }
       }
     } else if (s.kind === 'door') {
       // Boarded: the passenger steps into the car and rides (§1.13), drawn in
@@ -1773,10 +1860,24 @@ export class World {
       this.metrics.boarded++
       this.boardRider(a, s)
     } else if (s.kind === 'stop') {
-      a.state = STATE_BUYING
-      a.timer = this.rng.range(30, 60)
+      a.state = s.stop && s.stop.kind!=='tvm' && s.stop.kind!=='vending' ? STATE_BROWSING : STATE_BUYING
+      a.timer = (s.stop?.duration ?? 30) * (.8 + activityChoice(a.id, 0x3461) * .4)
+      if (s.stop) {
+        s.activeCustomer = a.id
+        a.activeStop = s.stop.id
+        a.x = s.stop.x!; a.y = s.stop.y!
+        a.activity = s.stop.activity ?? 2; a.activityStart = this.tick
+        a.activityTotal = a.timer; a.activityYaw = s.stop.yaw ?? 0
+      }
     } else {
       a.state = STATE_WALKING
+      if (s.kind === 'gate') {
+        a.activity = activityChoice(a.id,0x23ad) < .4 ? 5 : 6
+        a.activityStart = this.tick; a.activityTotal = 2
+        const next = a.path[Math.min(a.pathIdx+1,a.path.length-1)]
+        a.activityYaw = next === undefined ? Math.atan2(a.vy,a.vx) : Math.atan2(this.graph.nodeY[next]-a.y,this.graph.nodeX[next]-a.x)
+        a.activityVariant = s.gateReader && (-Math.sin(a.activityYaw)*s.gateReader.x+Math.cos(a.activityYaw)*s.gateReader.y)<0 ? 1 : 0
+      }
     }
   }
 
@@ -1789,6 +1890,7 @@ export class World {
     a.server = serverId
     a.state = STATE_QUEUING
     a.timer = 0
+    a.stopQueueRank = s.queue.length + (s.activeCustomer === undefined ? 0 : 1)
     s.queue.push(a.id)
     if (s.kind === 'door') {
       const nodes = this.waitingFloor(serverId)
@@ -1858,6 +1960,20 @@ export class World {
     // the crowd visibly walks in when the car opens.
     let tx = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitX : g.nodeX[node]
     let ty = s.kind === 'lift' && a.liftBoard >= 0 ? a.liftWaitY : g.nodeY[node]
+    if (s.stop) {
+      const rank = a.stopQueueRank
+      const yaw = s.stop.yaw ?? 0
+      // Follow connected walk cells behind the customer. A wall ends the line;
+      // it never projects a queue through walls or off the platform.
+      const sign = s.stop.kind === 'bench' || s.stop.kind === 'cubicle' ? 1 : -1
+      const desiredX = s.stop.x! + sign * Math.cos(yaw) * rank * .75
+      const desiredY = s.stop.y! + sign * Math.sin(yaw) * rank * .75
+      if (clearWalkSegment(g,a.x,a.y,desiredX,desiredY,a.z)) { tx = desiredX; ty = desiredY }
+      else {
+        const places=this.waitingFloor(s.id),place=rank>0&&places.length?places[(rank-1)%places.length]:node
+        tx=g.nodeX[place];ty=g.nodeY[place]
+      }
+    }
     if (s.kind === 'door' && a.platformWaitNode >= 0) {
       // The first few passengers approach an open doorway; everyone else keeps
       // their waiting spot instead of all pressing against the screen/wall.
@@ -1884,7 +2000,7 @@ export class World {
       a.rampApproach = undefined
     }
     const dist = Math.hypot(tx - a.x, ty - a.y)
-    const standoff = detouring ? 0 : PERSONAL_SPACE * 0.3
+    const standoff = detouring ? 0 : s.stop ? .04 : PERSONAL_SPACE * 0.3
     if (dist > standoff) {
       const n = this.localDensity(a)
       const m2PerPax = n > 0 ? 12.57 / (n + 1) : 12.57
@@ -1913,7 +2029,7 @@ export class World {
       const a = live[i]
       // A rider is inside a train, not standing on the floor: it neither pushes
       // the crowd nor is pushed by it (its consist holds it in place).
-      if (a.dead || a.state === STATE_RIDING || a.train >= 0) continue
+      if (a.dead || a.state === STATE_RIDING || a.train >= 0 || a.activeStop) continue
       const ax = a.x
       const ay = a.y
       const gx = Math.floor((ax - this.cGridMinX) / COLLISION_CELL)
@@ -2200,6 +2316,7 @@ export class World {
     a.y = a.rideFromY + (a.rideToY - a.rideFromY) * k
     a.z = a.rideFromZ + (a.rideToZ - a.rideFromZ) * k
     if (a.rideT <= 0) {
+      if (a.activity === 7 || a.activity === 14) a.activity = 0
       a.state = STATE_WALKING
       this.onArrive(a)
     }
@@ -2649,6 +2766,11 @@ export class World {
   }
 
   private resumeLeg(a: Agent): void {
+    if (a.activeStop) {
+      const stop = this.graph.stops.find(s => s.id === a.activeStop)
+      if (stop?.server !== undefined) this.graph.servers[stop.server].activeCustomer = undefined
+    }
+    a.activeStop = ''; a.activity = 0
     a.legIdx++
     a.path = EMPTY_PATH
     a.pathIdx = 0
@@ -2662,6 +2784,16 @@ export class World {
     const g = this.graph
     const cur = a.path[a.pathIdx]
     if (cur === undefined) return true
+    const doorYaw = this.doorGestures.get(cur)
+    if (doorYaw !== undefined && this.tick-a.activityStart > 2) {
+      const next = a.path[Math.min(a.pathIdx+1,a.path.length-1)]
+      if (next !== undefined) {
+        const dx = g.nodeX[next]-a.x,dy=g.nodeY[next]-a.y
+        if (Math.abs(Math.cos(doorYaw)*dx+Math.sin(doorYaw)*dy) > .2) {
+          a.activity=11;a.activityStart=this.tick;a.activityTotal=2;a.activityYaw=Math.atan2(dy,dx)
+        }
+      }
+    }
     const gate = g.serverForNode.get(cur)
     if (gate !== undefined && a.servedFor !== gate && g.servers[gate].kind === 'gate') {
       a.servedFor = gate
@@ -2737,7 +2869,9 @@ export class World {
     }
     // A stop: queue at a service point, or just dwell.
     const g = this.graph
-    const srv = g.serverForNode.get(leg.node)
+    const stop = g.stops.find(s => 'stop:'+s.id === leg.ref)
+    if (!stop) { this.advanceLeg(a); return }
+    const srv = stop?.server ?? g.serverForNode.get(leg.node)
     if (srv !== undefined && g.servers[srv].kind === 'stop') {
       a.servedFor = srv
       this.joinServer(a, srv)
@@ -2763,8 +2897,8 @@ export class World {
       } else {
         // No route exists: the agent cannot complete this trip.
         a.awaitingPath = false
-        a.dead = true
-        this.metrics.stuck++
+        if (a.legs[a.legIdx]?.kind === 'stop') this.advanceLeg(a)
+        else { a.dead = true; this.metrics.stuck++ }
       }
     }
   }
@@ -2970,6 +3104,7 @@ const EMPTY_PATH = new Int32Array(0)
  * exact same point, which the renderer would draw as one body.
  */
 function liftSlotOffset(slot: number): [number, number] {
+  if (slot === 0) return [.245,0]
   const cols = [-0.45, 0, 0.45]
   const row = Math.floor(slot / cols.length) % 4
   const col = cols[slot % cols.length]

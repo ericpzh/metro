@@ -1,5 +1,28 @@
 # Station Designer — the game
 
+Passenger activities now follow real journeys and equipment service. Some
+passengers stop for tickets, drinks, shelves, seats or a restroom visit; toilets
+are followed by a nearby sink when one is available. Machines retain one customer
+for the full dwell, benches have independent seats, and queues approach from
+connected floor. Cabinets block walking and seats/restroom fixtures are reached
+from their front. Missing or unreachable optional stops are skipped.
+
+Gate gestures play while walking. About 62% of adults use an escalator handrail,
+with the nearer hand, lane width, travel direction and body height accounted for.
+The first adult entering an empty lift can select its floor; other riders board
+normally. Swing doors move with nearby walkers, occupied cubicles close, sinks
+run during washing, and waiting passengers look around with empty hands. Queue
+advances retain the ordinary walk. Activity poses freeze with pause and share the
+existing instanced crowd draws in the editor and exploded view.
+
+`passenger-activities` pins service ownership, front access, optional routes,
+walking taps, selective lift gestures and determinism. `passenger-activity-assets`
+checks the actual complete catalogue, export hashes, weights, palette boundaries,
+triangle limits and fitted rail wrists. After the build, use
+`node tools/check-game-passenger-activities.mjs` for production GPU/pose/pause
+captures and `node tools/bench-passenger-activities.mjs` for seeded demo service
+and tick measurements. Results belong in the shared performance reference.
+
 Audio uses the approved interaction set from the model sound studio. Settings
 exposes **Sound effects / 音效**, **Ambient sound / 环境音**, and **Music / 音乐** controls;
 0 mutes each category. Preferences stay in local browser storage, outside saves

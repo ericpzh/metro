@@ -216,7 +216,7 @@ test('rebuilding one sign keeps every other group and its owned materials', () =
     modules.ghost = { clearFencePreview() {} }
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [], makeSignPlate: () => new THREE.MeshBasicMaterial() }
     modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
     const mark = id => ({ id, kind: 'icon', icon: 'exit', x: 0, y: 0.35, scale: 1, side: 'both' })
     const withFront = (mod, front) => ({ ...mod, cfg: { ...mod.cfg, front, back: [] } })
     const benchMod = createModule('bench', 0, 0, 0, 'bench')
@@ -365,7 +365,7 @@ test('retained equipment keeps geometry and owned materials until invalidation o
     modules.ghost = { clearFencePreview() {} }
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
     modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
     const station = { name: 'test', seed: 1, lines: [], modules: [createModule('bench', 0, 0, 0, 'bench'), createModule('light-circular', 4, 0, 0, 'light')], cells: [] }
     modules.buildModules(station, new Set())
     const light = modules.moduleMeshes.children.find(g => g.userData.moduleId === station.modules[1].id)
@@ -393,7 +393,7 @@ test('adding stair blocks builds their models and keeps existing ModuleSystem gr
     modules.ghost = { clearFencePreview() {} }
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
     modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
     const bench = createModule('bench', 0, 0, 0, 'bench')
     const before = { name: 'test', seed: 1, lines: [], modules: [bench], cells: [] }
     modules.buildModules(before, new Set())
@@ -419,7 +419,7 @@ test('deleting inert decor removes its group while retaining neighbours', () => 
     modules.ghost = { clearFencePreview() {} }
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
     modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
     const shelfA = createModule('shelf-dark-tall', 0, 0, 0, 'shelf-a')
     const shelfB = createModule('shelf-dark-tall', 4, 0, 0, 'shelf-b')
     assert.ok(shelfA && shelfB, 'the shelf variants under test exist')

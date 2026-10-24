@@ -52,7 +52,7 @@
     "bench:levels": "npm --prefix game run build && node tools/bench-level-switch.mjs",
     "check:geometry-detail": "npm --prefix game run build && node tools/check-geometry-detail.mjs",
     "audit:i18n": "node tools/audit-i18n.mjs",
-    "bake:passengers": "node model/scripts/prepare-assets.mjs && node tools/bake-approved-passenger.mjs",
+    "bake:passengers": "node model/scripts/prepare-assets.mjs && node tools/bake-approved-passenger.mjs && node tools/bake-passenger-activities.mjs",
     "check:passenger-lod": "npm --prefix game run build && node tools/check-passenger-lod.mjs",
     "art:models": "node tools/refresh-model-art.mjs"
   },

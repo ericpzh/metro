@@ -32,6 +32,9 @@ export class SinkModel extends PieceBuilder {
       slab(g, mats.steel, x, -0.30, 0.65, 0.035, 0.04, 0.22)
       slab(g, mats.steel, x, -0.21, 0.74, 0.035, 0.20, 0.025)
     }
+    const water = ownedMaterial(this.ctx,new THREE.MeshBasicMaterial({color:0x6ebcd2,transparent:true,opacity:.7}))
+    const stream=slab(g,water,0,-.09,.88,.009,.009,.20)
+    stream.name='sink-water';stream.visible=false;g.userData.activityWater=stream
     // Keep the hollow bowl and pedestal profile with eight radial segments.
     for (const [index, part] of g.children.entries()) {
       const mesh = part as THREE.Mesh

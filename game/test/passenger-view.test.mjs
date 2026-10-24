@@ -3,11 +3,60 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { cameraRig, look } from './support/camera-rig.mjs'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
-import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
+import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, passengerDisplayedActivity, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
 import { passengerIsChild, passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
 import { useStore } from '../src/app/store.ts'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
 import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
+import { packActivity } from '../src/sim/activities.ts'
+
+test('service hold loops do not pass through release poses, and activity pause/resume preserves the displayed moment',()=>{
+ const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
+ const crowd=new CrowdSystem(ctx),id=127
+ const frame=time=>new Float32Array([0,0,1,3,packActivity(2,time,0),id])
+ crowd.setAgents(frame(6.4),1,1000);crowd.renderAgents(ctx.lastStateTime+1000,undefined,true)
+ crowd.setAgents(frame(3.1),1,1000);const now=ctx.lastStateTime+500
+ crowd.renderAgents(now,undefined,true)
+ const time=crowd.renderedActivities[1]
+ assert.ok(time>3&&time<6.5,'a short hold-loop rewind stays within the contact pose')
+ crowd.setPlaying(false,now);crowd.renderAgents(now+5000,undefined,true)
+ assert.equal(crowd.renderedActivities[1],time)
+ crowd.setPlaying(true,now+6000);crowd.renderAgents(now+6000,undefined,true)
+ assert.ok(Math.abs(crowd.renderedActivities[1]-time)<.004,'resume starts at the frozen activity, including a hold-loop boundary')
+ crowd.dispose();ctx.mats.blob.dispose()
+})
+
+test('walking skirts and occupied carrying hands retain their reviewed motion while service still proceeds',()=>{
+ const skirt=human.library.findIndex(m=>m.garmentShape&&m.garmentShape!=='trousers')
+ assert.equal(passengerDisplayedActivity(6,skirt),0)
+ assert.equal(passengerDisplayedActivity(1,skirt),1,'seated skirts use the authored lap drape')
+ const purse=human.library.findIndex(m=>m.bagType==='purse'&&m.bagSide==='right')
+ assert.equal(passengerDisplayedActivity(7,purse),12,'the occupied rail hand remains carrying')
+ assert.equal(passengerDisplayedActivity(14,purse),14,'the free hand can hold its nearer rail')
+ assert.equal(passengerDisplayedActivity(3,purse),12)
+})
+
+test('the followed eye lowers with the seated body and recovers when the passenger stands',()=>{
+ let id=1;while(passengerIsChild(id)||Math.abs(passengerAppearance(id)[1]-1)>.05)id++
+ const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
+ const c=new CrowdSystem(ctx);let eye=0;c.followAgentId=id;c.onEyePose=(_x,_y,z)=>{eye=z}
+ const show=(kind,time)=>{c.setAgents(new Float32Array([0,0,1,3,packActivity(kind,time,0),id]),1,1000);c.renderAgents(ctx.lastStateTime+1000,undefined,true);return eye}
+ const standing=show(0,0),seated=show(1,4)
+ assert.ok(standing-seated>.1&&standing-seated<.4,'the eye follows the reviewed rig pelvis rather than retaining standing height')
+ const recovered=show(0,0);assert.ok(Math.abs(recovered-standing)<1e-5)
+ c.dispose();ctx.mats.blob.dispose()
+})
+
+test('gate and rail release interpolation never crosses into the opposite hand or another lane',()=>{
+ const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
+ const c=new CrowdSystem(ctx),id=127
+ for(const [kind,time,limit] of [[6,2,4],[7,1.1,2.3]]){
+  c.setAgents(new Float32Array([0,0,1,1,packActivity(kind,time,0),id]),1,1000);c.renderAgents(ctx.lastStateTime+1000,undefined,true)
+  c.setAgents(new Float32Array([0,0,1,1,0,id]),1,1000);c.renderAgents(ctx.lastStateTime+500,undefined,true)
+  assert.ok(c.renderedActivities[1]<limit,'the retiring gesture stays inside its own release interval')
+ }
+ c.dispose();ctx.mats.blob.dispose()
+})
 
 for (const preset of ['iso', 'plan']) {
   test(`passenger eye view restores the ${preset} camera, lens and projection`, () => {

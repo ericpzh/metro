@@ -14,19 +14,21 @@ export function passengerAssets(): Plugin {
     enforce: 'pre',
     resolveId(id) {
       if (id.endsWith('/passenger-approved.json')) return atlasId
+      if (id.endsWith('/passenger-activities.json')) return atlasId + '-activities'
     },
     load(id) {
-      if (id !== atlasId) return
-      const path = new URL('../src/assets/passenger-approved.json', import.meta.url)
+      if (id !== atlasId && id !== atlasId + '-activities') return
+      const activity = id.endsWith('-activities')
+      const path = new URL(activity ? '../src/assets/passenger-activities.json' : '../src/assets/passenger-approved.json', import.meta.url)
       this.addWatchFile(fileURLToPath(path))
       const human = JSON.parse(readFileSync(path, 'utf8'))
       const urls: string[] = []
       const fields: string[] = []
-      for (const key of ['positions', 'normals', 'indices', 'lowIndices', 'regions']) {
+      for (const key of activity ? ['data', 'matrices', 'indices', 'lowIndices'] : ['positions', 'normals', 'indices', 'lowIndices', 'regions']) {
         const value = Buffer.from(human[key], 'base64')
         const names: string[] = []
         for (let offset = 0; offset < value.length; offset += partSize) {
-          const asset = this.emitFile({ type: 'asset', name: `passenger-${key}-${offset / partSize}.bin`, source: value.subarray(offset, offset + partSize) })
+          const asset = this.emitFile({ type: 'asset', name: `passenger-${activity ? 'activities-' : ''}${key}-${offset / partSize}.bin`, source: value.subarray(offset, offset + partSize) })
           names.push(`chunks[${urls.length}]`)
           urls.push(`import.meta.ROLLUP_FILE_URL_${asset}`)
         }

@@ -376,6 +376,18 @@ export class ModuleSystem extends SceneSystem {
           this.crowd.gateWings.push(gateWings.get(group) ?? { root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
         }
       }
+      group.updateWorldMatrix(true,true)
+      group.traverse(object => {
+        if (object.userData.activityWater) {
+          const at=object.getWorldPosition(new THREE.Vector3())
+          this.crowd.activitySinks.push({stream:object.userData.activityWater,x:at.x,y:at.y,z:at.z})
+        }
+        for (const rig of object.userData.swingDoors ?? []) {
+          const at = rig.pivot.getWorldPosition(new THREE.Vector3())
+          this.crowd.swingDoors.push({pivot:rig.pivot,sign:rig.sign,x:at.x,y:at.y,z:at.z,open:0,target:0,occupied:false,
+            ...(mod.type==='cubicle'?{cubicleX:mod.x+.5,cubicleY:mod.y+.5}:{})})
+        }
+      })
       const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
       if (r > 0) {
         const blob: [number, number, number, number] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 - 0.42, r]
@@ -490,6 +502,8 @@ export class ModuleSystem extends SceneSystem {
     this.lifts.liftPickMeshes.length = 0
     this.clocks.clockRigs.length = 0
     this.crowd.gateWings.length = 0
+    this.crowd.swingDoors.length = 0
+    this.crowd.activitySinks.length = 0
     this.plates.adScreens.length = 0
     this.plates.tvScreens.length = 0
   }

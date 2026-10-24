@@ -946,7 +946,7 @@ test('the scene hands a built 时钟 to the clock system, and takes it back with
   const clocks = new ClockSystem(ctx)
   modules.trains = { psdGroups: [] }
   modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
-  modules.crowd = { gateWings: [] }
+  modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
   modules.clocks = clocks
   modules.ghost = { clearFencePreview() {} }
   modules.plates = {

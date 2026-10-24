@@ -399,7 +399,7 @@ const PIECES = [
   ['办公桌', palette('desk'), 56, '0.98×0.965×1.22'],
   ['收银台', palette('checkout'), 35, '0.98×0.878×1.393'],
   ['厕所隔间', palette('cubicle'), 31, '1.07×1.064×1.978'],
-  ['洗手池', palette('sink'), 15, '0.689×0.585×1.042'],
+  ['洗手池', palette('sink'), 16, '0.689×0.585×1.042'],
   ['垃圾桶', palette('bin'), 28, '0.88×0.42×0.95'],
   ['灭火器', palette('extinguisher'), 13, '0.743×0.487×1.1'],
   ['时钟', palette('clock'), 131, '0.8×0.236×1.05'],
@@ -451,7 +451,7 @@ const PIECES = [
   ['出入口 地面 四向', palette('exit-doorway-4'), 3, '6×0.072×0.78'],
   ['出入口 虚拟', palette('exit-virtual'), 17, '0.16×0.589×4'],
   ['扶梯', palette('escalator'), 33, '1×10.325×6.585'],
-  ['电梯', palette('lift'), 145, '2.04×2.04×5'],
+  ['电梯', palette('lift'), 148, '2.04×2.04×5'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
   // (`stairWallSides` / `stairLandingWalls`). In the open, a 90° turn draws 90 meshes and a
@@ -951,7 +951,7 @@ test('glass lifts expose their frame and moving car; steel keeps its solid enclo
     setDoors(group, 0)
     assert.equal(sizeOf(group), '2.04×2.04×5', `rot ${rot}`)
     const old = build({ ...mod, cfg: { style: 'steel' } })
-    assert.equal(old.meshes, 34)
+    assert.equal(old.meshes, 37, 'the moving cabin includes its floor selector')
     // The steel front wall makes the plan a centimetre asymmetric, so a quarter
     // turn swaps the two horizontal numbers.
     assert.ok(['2.04×2.05×5', '2.05×2.04×5'].includes(old.size), `steel rot ${rot}: ${old.size}`)

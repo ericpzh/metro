@@ -5,6 +5,7 @@ import { trainScaleForStorey } from '../sim/stock.ts'
 import { PASSENGER_OPACITY, PASSENGER_LOW_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
 import { decodePassengerBytes, restorePassengerFrames } from './passengerAtlas.ts'
+import { activityShader, disposePassengerActivities } from './passengerActivities.ts'
 
 /** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
 export const PASSENGER_EYE_HEIGHT = 1.57
@@ -20,6 +21,18 @@ export const PASSENGER_HAIRSTYLES = human.hairstyles
 export const PASSENGER_CHILD_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'child') ? [index] : [])
 export const PASSENGER_ADULT_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'adult') ? [index] : [])
 export type PassengerAppearance = [outfit: number, height: number, depth: number, width: number, tone: number]
+
+/** A gesture is optional when the reviewed carrying/cloth pose needs the hand. */
+export function passengerDisplayedActivity(kind: number, outfit: number): number {
+  const model=PASSENGER_LIBRARY[outfit]
+  if (model.garmentShape && model.garmentShape!=='trousers' && (kind===5||kind===6||kind===11)) return 0
+  if (model.bagType==='purse') {
+    const right=model.bagSide==='right'
+    if ((kind===7&&right)||(kind===14&&!right)||kind===10) return 12
+    if (right && ((kind>=2&&kind<=8&&kind!==7)||kind===11)) return kind===5||kind===6||kind===11?0:12
+  }
+  return kind
+}
 
 /** Which prepared crowd topology a draw reads (§9.3). Both animate the same atlas. */
 export type PassengerDetail = 'full' | 'low'
@@ -145,6 +158,7 @@ function passengerAtlases(): PassengerAtlases {
       this.normals.dispose()
       this.regions.dispose()
       for (const entry of this.indices.values()) entry.texture.dispose()
+      disposePassengerActivities()
       this.indices.clear()
       if (shared === this) shared = null
     },
@@ -175,6 +189,8 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
   const indices = indexTable(detail)
   const atlases = passengerAtlases()
   material.onBeforeCompile = (shader) => {
+    const activity = activityShader(detail)
+    Object.assign(shader.uniforms, activity.uniforms)
     shader.uniforms.passengerPositions = { value: atlases.positions }
     shader.uniforms.passengerNormals = { value: atlases.normals }
     shader.uniforms.passengerIndices = { value: indices.texture }
@@ -210,16 +226,25 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
           passengerSample(data, passengerPose.y, divisor), passengerPose.z);
         return mix(idle, walk, passengerPose.w);
       }
-    ` + shader.vertexShader
+    ` + activity.source + shader.vertexShader
     shader.vertexShader = shader.vertexShader
       .replace('#include <begin_vertex>', `
-        vec3 transformed = passengerAnimated(passengerPositions, ${human.positionScale.toFixed(1)});
-        vec3 objectNormal = normalize(passengerAnimated(passengerNormals, ${human.normalScale.toFixed(1)}));
+        vec3 transformed = passengerUsesActivityRig() ? activityPosition(false) : passengerAnimated(passengerPositions, ${human.positionScale.toFixed(1)});
+        vec3 objectNormal = normalize(passengerUsesActivityRig() ? activityPosition(true) : passengerAnimated(passengerNormals, ${human.normalScale.toFixed(1)}));
+        if (passengerActivity.x==12.0 || passengerActivity.x==13.0) {
+          float head=smoothstep(1.30,1.46,transformed.z);
+          float turn=.16*sin(passengerActivity.y*.55)*head;
+          mat2 look=mat2(cos(turn),sin(turn),-sin(turn),cos(turn));
+          transformed.xy=look*transformed.xy;
+          objectNormal.xy=look*objectNormal.xy;
+          transformed.y+=.009*sin(passengerActivity.y)*smoothstep(.15,.8,transformed.z);
+        }
         #include <defaultnormal_vertex>
         passengerNormal = normalize(transformedNormal);
         float vertex = passengerIndex();
         passengerRegion = texture2D(passengerRegions, vec2((mod(vertex, 1024.0) + 0.5) / 1024.0,
           (floor(vertex / 1024.0) + 0.5) / ${Math.ceil(human.vertices / 1024).toFixed(1)})).r;
+        if(passengerUsesActivityRig()) passengerRegion = activityRegion();
         passengerInk = ${human.palette.map((grey, i) => `${i < human.palette.length - 1 ? `passengerRegion < ${(i + .5).toFixed(1)} ? ` : ''}vec3(${new THREE.Color().setRGB(grey, grey, grey, THREE.SRGBColorSpace).r.toFixed(6)})`).join(' : ')};
       `)
       .replace('#include <project_vertex>', '#include <project_vertex>\npassengerView = -mvPosition.xyz;')
@@ -235,7 +260,7 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
     `)
   }
   // The two topologies sample different tables and strides: separate programs.
-  material.customProgramCacheKey = () => `passenger-approved-library-v3-${detail}`
+  material.customProgramCacheKey = () => `passenger-approved-activities-v1-${detail}`
   return material
 }
 
@@ -249,6 +274,10 @@ export function passengerMesh(capacity: number, detail: PassengerDetail = 'full'
   const pose = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
   pose.setUsage(THREE.DynamicDrawUsage)
   geometry.setAttribute('passengerPose', pose)
+  const activity = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
+  activity.setUsage(THREE.DynamicDrawUsage)
+  geometry.setAttribute('passengerActivity', activity)
+  geometry.setAttribute('passengerGarment',new THREE.InstancedBufferAttribute(new Float32Array(capacity*2),2))
   geometry.setAttribute('passengerOutfit', new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1))
   // The storey each packed instance stands on (`storeyBand` metres), the value the
   // renderer classifies for detail and the one a shader would read if the split

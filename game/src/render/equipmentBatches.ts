@@ -268,7 +268,7 @@ export class EquipmentBatches {
       root.traverse(o => {
         for (const leaf of (o.userData.doors ?? []) as THREE.Object3D[]) moving.add(leaf)
         for (const pivot of [...(o.userData.clockRig?.hour ?? []), ...(o.userData.clockRig?.minute ?? [])]) moving.add(pivot)
-        for (const key of ['wing', 'liftCabin']) if (o.userData[key] instanceof THREE.Object3D) moving.add(o.userData[key])
+        for (const key of ['wing', 'liftCabin', 'activityWater']) if (o.userData[key] instanceof THREE.Object3D) moving.add(o.userData[key])
       })
       root.traverseVisible(o => {
         if (!(o instanceof THREE.Mesh) || o instanceof THREE.InstancedMesh || o instanceof THREE.SkinnedMesh || o instanceof THREE.BatchedMesh || Array.isArray(o.material) || o === screen) return

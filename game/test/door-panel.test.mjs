@@ -257,8 +257,21 @@ function build(mod) {
   // The module sits at (0, 0, 0): take the cell centre and the block top back off, so
   // every measurement below is in the door's own frame (0 = the floor top, ±0.5 the cell).
   const box = new THREE.Box3().setFromObject(group).translate(new THREE.Vector3(-0.5, -0.5, -1))
-  return { mats, meshes, box }
+  return { mats, meshes, box, group }
 }
+
+test('swinging leaves carry their pulls on retained hinges and restore the closed geometry',()=>{
+ const b=build(door(0,0,0,0,'swing','wood-2')),rigs=b.group.userData.swingDoors
+ assert.equal(rigs.length,2);assert.deepEqual(b.group.userData.doors,rigs.map(r=>r.pivot))
+ const pulls=b.meshes.filter(m=>m.material===b.mats.woodDark&&m.geometry.parameters.width===.3)
+ const before=pulls.map(p=>p.getWorldPosition(new THREE.Vector3()))
+ for(const rig of rigs)rig.pivot.rotation.z=rig.sign*.9
+ b.group.updateMatrixWorld(true)
+ pulls.forEach((p,i)=>assert.ok(p.getWorldPosition(new THREE.Vector3()).distanceTo(before[i])>.2,'the pull travels with its leaf'))
+ for(const rig of rigs)rig.pivot.rotation.z=0
+ b.group.updateMatrixWorld(true)
+ pulls.forEach((p,i)=>assert.ok(p.getWorldPosition(new THREE.Vector3()).distanceTo(before[i])<1e-8))
+})
 
 test('stainless doors use stainless throughout, with exposed hinges and upright pulls', () => {
   for (const variant of ['steel-1', 'steel-2']) {
@@ -350,6 +363,7 @@ test('a 双开 pair carries its two pulls at the meeting line, mirrored', () => 
   // close together at the centre of the doorway.
   const pair = build(door(0, 0, 0, 0, 'd', 'steel-2'))
   const pulls = pair.meshes.filter((m) => m.geometry.parameters.depth === 0.32)
+    .map(m=>({position:pair.group.worldToLocal(m.getWorldPosition(new THREE.Vector3()))}))
   assert.equal(pulls.length, 4, 'each of two leaves draws a pull on both faces')
   const byFace = [-1, 1].map((side) => pulls.filter((m) => Math.sign(m.position.y) === side))
   for (const face of byFace) {

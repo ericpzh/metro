@@ -10,6 +10,15 @@ import { omitModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 /** Wall centre-line, so the assembly reads as 2 m across. */
 const LIFT_OUTER = 0.94
+
+/** A reachable floor selector inside the moving cabin, beside its front door. */
+function cabinPanel(cabin: THREE.Group, mats: ModuleContext['mats'], levels: number): void {
+  slab(cabin,mats.darkSteel,.697,-.38,1.12,.026,.19,.42).name='lift-floor-panel'
+  slab(cabin,mats.screen,.680,-.38,1.27,.009,.14,.07)
+  for (let i=0;i<Math.min(6,levels);i++) {
+    slab(cabin,mats.steel,.678,-.38,1.18-i*.045,.012,.055,.025)
+  }
+}
 /** The end caps' thickness, metres: a closed plate at each end of the shaft. */
 const LIFT_CAP = 0.14
 /** Keep the roof cap inside the two-metre module boundary to clear adjacent blocks. */
@@ -247,6 +256,7 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   const cabin = new THREE.Group()
   g.add(cabin)
   g.userData.liftCabin = cabin
+  cabinPanel(cabin,mats,levels.length)
   slab(cabin, mats.steel, 0, 0, 0.05, 1.5, 1.5, 0.1)
   slab(cabin, mats.darkSteel, 0, 0, 2.42, 1.54, 1.54, 0.12)
   slab(cabin, mats.steel, -LIFT_INNER, 0, 1.24, 0.06, 1.44, 2.32)
@@ -356,6 +366,7 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   const cabin = new THREE.Group()
   g.add(cabin)
   g.userData.liftCabin = cabin
+  cabinPanel(cabin,mats,levels.length)
   const cabinDoors: THREE.Mesh[] = []
   g.userData.doors = cabinDoors
   slab(cabin, steel, 0, 0, 0.05, 1.5, 1.5, 0.1)

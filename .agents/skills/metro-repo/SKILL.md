@@ -1,6 +1,6 @@
 ---
 name: metro-repo
-description: Entry point for the ericpzh/metro repo — a React 19 + three.js metro-station building sandbox in game/ plus the concept-art site in web/. Use for repo-wide work (what lives where, root commands, conventions, Cloudflare deploy, the tools/ scripts) and to reach the subskills — metro-game (game/src), metro-game-test (game/test), metro-web (web/ and art/).
+description: Entry point for the ericpzh/metro repo — a React 19 + three.js metro-station building sandbox in game/ plus the concept-art site in web/. Use for repo-wide work (what lives where, root commands, conventions, Cloudflare deploy, the tools/ scripts) and to reach the subskills — metro-game (game/src and simulation), metro-game-test (game/test), metro-model (passenger assets and activity poses), metro-web (web/ and art/).
 ---
 
 # Station Designer — repo entry point
@@ -602,6 +602,21 @@ The historical `game/src/assets/passenger-human.json` is baked, not authored —
 `game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
 `tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
 
+Passenger activities are shared across the model preview and live crowd. The
+`metro-model` skill owns reviewed interaction poses and the offline activity
+bake; `metro-game` owns stop selection, routing, dwell and rendered animation;
+`metro-game-test` owns deterministic simulation and actual-asset regressions.
+The root `npm run bake:passengers` validates the reviewed walking sources, bakes
+the crowd atlas, then writes `game/src/assets/passenger-activities.json`. Never
+import the model viewer into game runtime or hand-edit either generated asset.
+Optional shops, vending/ticket machines, seats, toilets and sinks use real
+front-facing fixture stops; queue and service dwell must not interrupt normal
+trip routing. Gate taps happen during walking, while elevator presses and
+escalator handrails remain selective. Preserve empty hands and use the sampled
+activity transfer within the existing crowd draw. See
+[`performance.md`](references/performance.md#in-game-passenger-activities--2026-10-24)
+for packed asset size, GPU memory, visual coverage and seeded route measurements.
+
 The shipped demo's stairs must remain complete current-catalogue pieces with
 explicit block-fitted tread widths (0.79 m for its three straight stairs,
 1.79 m per run for its two medium switchbacks). When refreshing
@@ -677,6 +692,8 @@ commands.
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
+| `bake-passenger-activities.mjs` | Bakes reviewed activity poses and shared rig data after validating all current GLB source hashes; `npm run bake:passengers` runs it after the walk atlas. See `metro-model` and `metro-game`. |
+| `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test` and record measurements in the performance reference. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |

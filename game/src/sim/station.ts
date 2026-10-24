@@ -46,6 +46,8 @@ import { liftFootprintCells, liftLandingRows, liftLevels, type LiftDoorConfig } 
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
+import { activityStopPlaces, type ActivityStop } from './activityStops.ts'
+import { benchSpec } from './benches.ts'
 
 export type ServerKind = 'gate' | 'escalator' | 'walkway' | 'stair' | 'lift' | 'door' | 'stop'
 
@@ -68,6 +70,9 @@ export interface ServerDef {
   /** Live queue of agent ids, front = being served. */
   queue: number[]
   cooldown: number
+  /** Exclusive customer, held until its entire dwell and release finish. */
+  activeCustomer?: number
+  stop?: ActivityStop
   /** Centre shift and passenger columns on a ramp (§5.1); narrow runs are single-file. */
   ramp?: { dx: number; dy: number; columns: number; next: number; traffic?: { direction: number; until: number } }
   served: number
@@ -75,6 +80,7 @@ export interface ServerDef {
   waitCount: number
   /** Gate policy and the direction a two-way lane is currently committed to. */
   gateMode?: GateMode
+  gateReader?: { x: number; y: number }
   lane?: GateDir
   /** A lift's single moving car; absent for every other server. */
   lift?: LiftCar
@@ -159,7 +165,7 @@ export interface StationGraph {
   /** The same ramp barriers used by routing and continuous crowd movement. */
   rampWalls: RampWall[]
   exits: Array<{ id: string; node: number; name: string }>
-  stops: Array<{ id: string; node: number; kind: 'tvm' | 'vending' | 'bench' | 'retail' | 'shop' | 'booth' }>
+  stops: ActivityStop[]
   /** Node grid bounds, for density overlays. */
   minX: number
   minY: number
@@ -235,6 +241,16 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // the crowd is served from outside the counter. Excluding the footprint keeps
   // the graph honest without a solid voxel base (the desk is a thin model).
   const boothCells = new Set<string>()
+  // Furniture interiors are terminal destinations, never shortcuts through a
+  // seat, basin or cubicle wall. Their front floor remains the only access.
+  const fixtureAccess = new Map<string,string>()
+  for (const m of data.modules) if (m.type==='bench'||m.type==='cubicle'||m.type==='sink') {
+    const slots=m.type==='bench'?benchSpec(m.cfg.variant).w:1
+    for(let slot=0;slot<slots;slot++) {
+      const [dx,dy]=rotateLocal(m.rot,slot,0),[fx,fy]=rotateLocal(m.rot,0,m.type==='cubicle'?-1:1)
+      fixtureAccess.set(cellKey(m.x+dx,m.y+dy,m.z),cellKey(m.x+dx+fx,m.y+dy+fy,m.z))
+    }
+  }
   for (const m of data.modules) {
     if (m.type !== 'booth') continue
     const w = (m as { w?: number }).w ?? 1
@@ -247,6 +263,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // plugs into divides the floor into areas the crowd can only cross at a gate.
   const fenceCells = new Set<string>()
   for (const m of data.modules) {
+    if (m.type === 'tvm' || m.type === 'vending' || m.type === 'shelf') fenceCells.add(cellKey(m.x, m.y, m.z))
     if (m.type === 'road') {
       for (let x = m.x; x < m.x + m.w; x++) for (let y = m.y; y < m.y + m.d; y++) fenceCells.add(cellKey(x, y, m.z))
     }
@@ -362,7 +379,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   const edges: EdgeDraft[] = []
   const platforms: PlatformEdge[] = []
   const exits: Array<{ id: string; node: number; name: string }> = []
-  const stops: Array<{ id: string; node: number; kind: 'tvm' | 'vending' | 'bench' | 'retail' | 'shop' | 'booth' }> = []
+  const stops: ActivityStop[] = []
 
   const addServer = (s: Omit<ServerDef, 'id' | 'queue' | 'cooldown' | 'served' | 'waitAccum' | 'waitCount'>): number => {
     const id = servers.length
@@ -515,6 +532,8 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     for (const [nx, ny] of nb) {
       const j = nodeIndex.get(cellKey(nx, ny, z))
       if (j === undefined) continue
+      const here=cellKey(x,y,z),there=cellKey(nx,ny,z)
+      if ((fixtureAccess.has(here)&&fixtureAccess.get(here)!==there)||(fixtureAccess.has(there)&&fixtureAccess.get(there)!==here)) continue
       // §4.5: a zone boundary is a movement barrier — when the station enforces
       // the fare line. The only crossing then is a cell that hosts a gate, and
       // only if that gate actually passes this direction, so an ungated line
@@ -599,25 +618,28 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             batch: 1,
             cycle: 0,
             gateMode: m.cfg.dir,
+            gateReader: (()=>{const [x,y]=rotateLocal(m.rot,-.3,0);return {x,y}})(),
           })
           serverForNode.set(n, id)
         }
         break
       }
       case 'tvm':
-      case 'vending': {
-        const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
-        if (n !== undefined) {
-          const label = m.type === 'vending' ? msg('vending_machine') : msg('ticket_machine')
-          const id = addServer({ kind: 'stop', label, rate: TVM_RATE, node: n, exitNode: -1, ride: 0, batch: 1, cycle: 0 })
-          stops.push({ id: m.id, node: n, kind: m.type })
-          serverForNode.set(n, id)
+      case 'vending':
+      case 'bench':
+      case 'shelf':
+      case 'cubicle':
+      case 'sink': {
+        for (const place of activityStopPlaces(m, data.modules)) {
+          const n = nodeIndex.get(cellKey(Math.floor(place.x!), Math.floor(place.y!), m.z))
+          // A fixture facing a wall/hole has no usable approach. Do not fall
+          // back to its back or across a storey just to show an animation.
+          if (n === undefined) continue
+          const stop: ActivityStop = { ...place, node: n }
+          const label = msg(m.type === 'tvm' ? 'ticket_machine' : m.type === 'vending' ? 'vending_machine' : m.type === 'cubicle' ? 'toilet_cubicle' : m.type)
+          stop.server = addServer({ kind: 'stop', label, rate: TVM_RATE, node: n, exitNode: -1, ride: 0, batch: 1, cycle: 0, stop })
+          stops.push(stop)
         }
-        break
-      }
-      case 'bench': {
-        const n = nodeIndex.get(cellKey(m.x, m.y, m.z))
-        if (n !== undefined) stops.push({ id: m.id, node: n, kind: 'bench' })
         break
       }
       case 'retail':
@@ -648,7 +670,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             }
           }
         }
-        if (n !== undefined) stops.push({ id: m.id, node: n, kind: m.type as 'retail' | 'shop' })
+        if (n !== undefined) stops.push({ id: m.id, node: n, kind: m.type as 'retail' | 'shop', publicShop: m.type==='retail'||(m.cfg.kind!=='office'&&m.cfg.kind!=='toilet') })
         break
       }
       case 'booth': {
