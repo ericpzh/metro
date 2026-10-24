@@ -10,9 +10,11 @@ import { toData } from '../build/model.ts'
 import { AUTOSAVE_INTERVAL_MS, readAutosave, watchAutosave } from './autosave.ts'
 import { demoStationForPath, gamePathFor } from './demoRoute.ts'
 import { startGlobalStats } from './globalStats.ts'
+import { BenchmarkRoute } from './benchmark/BenchmarkRoute.tsx'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
+const isBenchmark = path.endsWith('/benchmark') || path.endsWith('/benchmark/en')
 
 /**
  * The store on `window`, for driving the game from a console or a browser-driven
@@ -29,6 +31,7 @@ declare global {
      * photograph what the game actually draws.
      */
     __scene?: import('../render/scene.ts').SceneRenderer
+    __benchmarkScene?: import('../render/scene.ts').SceneRenderer
   }
 }
 
@@ -37,7 +40,7 @@ export function renderGame(root: Root): void {
   // station whether or not this browser holds an autosave. The link is a start,
   // not a location — the URL becomes the plain game path, so a reload restores
   // what the player was building rather than throwing their edits away.
-  const demo = isLab ? null : demoStationForPath(location.pathname)
+  const demo = isLab || isBenchmark ? null : demoStationForPath(location.pathname)
   if (demo) {
     useStore.getState().loadReference(demo)
     const url = new URL(location.href)
@@ -45,7 +48,7 @@ export function renderGame(root: Root): void {
     window.history.replaceState(null, '', url)
   }
 
-  if (!isLab) {
+  if (!isLab && !isBenchmark) {
     try {
       const storage = window.localStorage
       if (!demo) {
@@ -65,7 +68,7 @@ export function renderGame(root: Root): void {
       })
     } catch { /* Storage access may be disabled; the game still opens normally. */ }
   }
-  root.render(isLab ? <Lab /> : <App />)
+  root.render(isLab ? <Lab /> : isBenchmark ? <BenchmarkRoute /> : <App />)
   window.__metro = useStore
 
   // A demo link loaded its station (and its worker) above; a second `init` would
@@ -78,5 +81,5 @@ export function renderGame(root: Root): void {
   // Anonymous totals: one five-minute collector and a pagehide beacon. It
   // resolves the stats Worker for this host, so the lab, a local production
   // preview and a preview deployment without a stats API stay silent.
-  if (!isLab) startGlobalStats()
+  if (!isLab && !isBenchmark) startGlobalStats()
 }

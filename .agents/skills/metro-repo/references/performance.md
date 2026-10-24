@@ -1408,6 +1408,17 @@ is retained separately from submitted-frame cadence; neither is a compositor
 presentation timestamp. Reports live in
 `.preview/perf/sim-stalls/`.
 
+For regular playback runs, `tools/browser-harness.mjs` exports
+`configureBenchmarkView(page, stationId, mode)` to match the player's `/benchmark`
+presets after loading a demo. Tanwei keeps its authored default opening level and
+enables Hide UI; Zoo hides the ground, selects −15 m and looks from the TOP/N/W
+view-cube corner. Both regular views use the route's 2/3 camera-distance factor
+(50% closer). Exploded runs keep the standalone viewer's own camera. Both
+`bench:sim-stalls` and `bench:explode` call this helper so station-specific setup
+does not drift between diagnostics and the in-game route. Each JSON run records
+the selected setup and, for regular view, the renderer's applied level/visibility
+state plus camera position and target.
+
 #### Tanwei Low at 1×
 
 The 1× target is 30 average / 15 1% low FPS in the regular editor. A matched
@@ -1579,6 +1590,22 @@ external save; `BENCH_DEMO` selects Zoo or Tanwei where supported. Browser bench
 hardware rendering by default; `--software-gpu` or `METRO_BROWSER_GPU=software` selects
 SwiftShader. `METRO_BROWSER_GPU=hardware` opts out of software rendering where supported.
 Raw JSON, screenshots, traces and CPU profiles belong in ignored `.preview/perf/`.
+
+The in-game `/benchmark` route gives players the same first-30-seconds playback sample
+in their own browser (`/benchmark/en` selects English; `/benchmark` uses Chinese).
+Select Zoo or Tanwei, Low or High graphics detail, and normal or exploded view; the
+route runs at 16× and charts submitted-frame FPS with the average, slowest-1%-interval
+FPS and worst gap. Its result includes the browser-visible GPU,
+logical-core/memory hints where exposed, viewport and fixture size. Browser access to
+hardware details is limited, so unavailable values are shown as such. This route is a
+local machine diagnostic, not a matched before/after performance claim; controlled
+comparisons still follow the protocol above. In normal view, Tanwei uses Hide UI at
+its authored default opening level and retains the default isometric direction; Zoo
+hides the ground, opens at −15 m and uses the TOP/N/W view-cube corner. Both use the
+same 2/3 camera-distance factor (50% closer). Exploded view uses its standalone
+viewer camera. Game input is blocked for preparation and throughout the 30-second
+sample. Results report the active level so the selected view can be compared with
+the capture.
 
 ### Current validation routes
 

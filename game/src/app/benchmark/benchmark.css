@@ -1,0 +1,125 @@
+.benchmarkPage {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  overflow: auto;
+  color: #17212b;
+  background: #f3f6f8;
+  font-family: var(--font);
+}
+.benchmarkLocale { position: fixed; z-index: 1201; top: 18px; right: 22px; }
+.benchmarkLocale a { padding: 8px 11px; border: 1px solid #c9d2d9; border-radius: 8px; color: #38515f; background: #fff; text-decoration: none; font-size: 13px; }
+.benchmarkLocale a:hover { border-color: #087c91; color: #075b6b; }
+.benchmarkSetup {
+  box-sizing: border-box;
+  width: min(560px, calc(100vw - 32px));
+  margin: min(10vh, 100px) auto;
+  padding: 36px;
+  border: 1px solid #d7dee4;
+  border-radius: 16px;
+  background: white;
+  box-shadow: 0 18px 60px #253c501c;
+}
+.benchmarkEyebrow { color: #557186; font-size: 12px; font-weight: 750; letter-spacing: .11em; }
+.benchmarkSetup h1, .benchmarkResult h1 { margin: 9px 0; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; }
+.benchmarkSetup p { color: #53616d; line-height: 1.55; }
+.benchmarkSetup label { display: grid; gap: 8px; margin: 25px 0 18px; font-weight: 650; }
+.benchmarkSetup select { width: 100%; padding: 11px 12px; border: 1px solid #c7d0d8; border-radius: 8px; background: white; color: inherit; font: inherit; }
+.benchmarkSetup fieldset { margin: 17px 0; padding: 0; border: 0; }
+.benchmarkSetup legend { margin-bottom: 8px; font-weight: 650; }
+.benchmarkChoices { display: flex; gap: 9px; }
+.benchmarkChoices button, .benchmarkResultHeader button {
+  padding: 9px 13px;
+  border: 1px solid #c9d2d9;
+  border-radius: 8px;
+  color: #2d3b46;
+  background: white;
+  font: inherit;
+  cursor: pointer;
+}
+.benchmarkChoices button[aria-pressed="true"] { border-color: #087c91; color: #075b6b; background: #e6f5f7; box-shadow: inset 0 0 0 1px #087c91; }
+.benchmarkStart { width: 100%; margin: 16px 0 12px; padding: 13px 16px; border: 0; border-radius: 8px; color: white; background: #087c91; font: inherit; font-weight: 700; cursor: pointer; }
+.benchmarkSetup small { display: block; color: #667581; line-height: 1.45; }
+.benchmarkHud {
+  position: fixed;
+  z-index: 1100;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 11px 16px;
+  border: 1px solid #ffffff4a;
+  border-radius: 11px;
+  color: #f4f8fa;
+  background: #182936e8;
+  box-shadow: 0 6px 22px #07121c4d;
+  pointer-events: none;
+}
+.benchmarkHud div { display: flex; gap: 14px; align-items: baseline; white-space: nowrap; }
+.benchmarkHud span { color: #c6d1d8; font-size: 13px; }
+.benchmarkLoadingScreen {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #17212b;
+  background: #101b24eF;
+  font-family: var(--font);
+}
+.benchmarkLoadingCard {
+  box-sizing: border-box;
+  width: min(460px, 100%);
+  padding: 30px;
+  border: 1px solid #d9e0e5;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 22px 70px #0006;
+}
+.benchmarkLoadingCard h1 { margin: 10px 0 5px; font-size: 28px; }
+.benchmarkLoadingCard p { min-height: 24px; margin: 0 0 22px; color: #53616d; }
+.benchmarkProgressTrack { height: 10px; overflow: hidden; border-radius: 999px; background: #e5ecef; }
+.benchmarkProgressTrack span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #087c91, #26a4ad);
+  transition: width 450ms ease;
+}
+.benchmarkLoadingMeta { display: flex; justify-content: space-between; margin-top: 9px; color: #667581; font-size: 12px; }
+.benchmarkResultsPage { padding: 42px max(24px, calc((100vw - 1180px) / 2)); }
+.benchmarkResult { max-width: 1180px; margin: 0 auto; }
+.benchmarkResultHeader { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.benchmarkResultHeader p { margin: 8px 0 0; color: #53616d; font-size: 16px; }
+.benchmarkMetricRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 28px 0 22px; }
+.benchmarkMetricRow > div { display: grid; gap: 7px; padding: 16px 18px; border: 1px solid #d9e0e5; border-radius: 10px; background: white; }
+.benchmarkMetricRow span { color: #63717d; font-size: 13px; }
+.benchmarkMetricRow strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.benchmarkMetricRow strong small { font-size: 14px; font-weight: 500; }
+.benchmarkChartWrap { padding: 32px 30px 18px 48px; border: 1px solid #d9e0e5; border-radius: 12px; background: white; }
+.benchmarkChart { display: block; width: 100%; height: auto; overflow: visible; }
+.benchmarkGrid { stroke: #dbe2e7; stroke-width: 1; }
+.benchmarkAxis { fill: #596772; font-size: 13px; }
+.benchmarkAxisTitle { fill: #35444f; font-size: 14px; font-weight: 600; }
+.benchmarkLine { fill: none; stroke: #0c8fa0; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.benchmarkArrival { stroke: #c55a17; stroke-width: 1; stroke-dasharray: 3 5; opacity: .65; }
+.benchmarkArrivalLabel { fill: #a94a10; font-size: 12px; font-weight: 650; }
+.benchmarkChartNote { margin: 9px 0 0; color: #65727c; font-size: 12px; }
+.benchmarkHardware { margin: 26px 0 50px; padding: 22px 24px; border: 1px solid #d9e0e5; border-radius: 12px; background: white; }
+.benchmarkHardware h2 { margin: 0 0 15px; font-size: 20px; }
+.benchmarkHardware dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; margin: 0; }
+.benchmarkHardware dl > div { display: grid; grid-template-columns: 145px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid #edf0f2; }
+.benchmarkHardware dt { color: #677580; font-size: 13px; }
+.benchmarkHardware dd { margin: 0; overflow-wrap: anywhere; font-size: 13px; }
+.benchmarkHardware > p { color: #687680; font-size: 12px; line-height: 1.5; }
+@media (max-width: 700px) {
+  .benchmarkSetup { padding: 25px; }
+  .benchmarkMetricRow { grid-template-columns: repeat(2, 1fr); }
+  .benchmarkResultsPage { padding: 24px 14px; }
+  .benchmarkResultHeader { align-items: flex-start; flex-direction: column; }
+  .benchmarkChartWrap { padding: 28px 10px 16px 30px; overflow: hidden; }
+  .benchmarkHardware dl { grid-template-columns: 1fr; }
+  .benchmarkHud { top: 6px; max-width: calc(100vw - 24px); }
+  .benchmarkHud div { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .benchmarkLocale { top: 8px; right: 8px; }
+}

@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { cpus } from 'node:os'
 import { dirname, resolve } from 'node:path'
-import { loadExampleStation, serveDir, withPage, waitFor } from './browser-harness.mjs'
+import { configureBenchmarkView, loadExampleStation, serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const durationMs = Number(process.env.BENCH_SECONDS ?? 8) * 1000
 const warmupTicks = Number(process.env.BENCH_WARMUP_TICKS ?? 30)
@@ -52,6 +52,7 @@ async function measureMode(stationId, mode, quality) {
       state.setGraphicsQuality('${quality}');
     })()`)
     await loadExampleStation(page, stationId)
+    const viewSetup = await configureBenchmarkView(page, stationId, mode)
     await page.evaluate(`(() => {
       const state = window.__metro.getState();
       const proto = window.__scene.constructor.prototype;
@@ -128,6 +129,7 @@ async function measureMode(stationId, mode, quality) {
     const result = {
       mode,
       quality,
+      viewSetup,
       ...frameStats,
       rafStats,
       simulationTicks: raw.endTick - raw.startTick,

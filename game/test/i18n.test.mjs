@@ -58,8 +58,8 @@ test('switching translates existing errors and catalogues while canonical data s
 })
 
 test('English routes work under /game and at the workers.dev root', async () => {
-  for (const path of ['/', '/game/', '/game/lab', '/gameplay/']) assert.equal(languageForPath(path), 'zh-CN')
-  for (const path of ['/en', '/en/', '/game/en', '/game/en/', '/game/en/lab']) assert.equal(languageForPath(path), 'en')
+  for (const path of ['/', '/game/', '/game/lab', '/gameplay/', '/benchmark']) assert.equal(languageForPath(path), 'zh-CN')
+  for (const path of ['/en', '/en/', '/game/en', '/game/en/', '/game/en/lab', '/benchmark/en']) assert.equal(languageForPath(path), 'en')
   assert.equal(languageForPath('/engineering'), 'zh-CN')
   // The deployed host claims /game; the Worker's own workers.dev root has none.
   for (const { host, prefix } of [
@@ -83,5 +83,10 @@ test('English routes work under /game and at the workers.dev root', async () => 
     assert.equal((await worker.fetch(new Request(`${base}/en/assets/missing.js`), env)).status, 404)
     assert.equal((await worker.fetch(new Request(`${base}/en/lab`), env)).status, 200)
     assert.equal(fetched.at(-1), '/')
+    assert.equal((await worker.fetch(new Request(`${base}/benchmark/en`), env)).status, 200)
+    assert.equal(fetched.at(-1), '/', 'the benchmark language suffix falls back to the game shell')
+    assert.equal((await worker.fetch(new Request(`${base}/benchmark/assets/game.js`), env)).status, 200)
+    assert.equal(fetched.at(-1), '/assets/game.js', 'benchmark-relative bundles reach root assets')
+    assert.equal((await worker.fetch(new Request(`${base}/benchmark/assets/missing.js`), env)).status, 404)
   }
 })

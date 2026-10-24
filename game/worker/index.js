@@ -43,6 +43,13 @@ export default {
       return Response.redirect(url.toString(), 308)
     }
 
+    // `/benchmark/en` is a client route in the portable static build. Since its
+    // English pin follows the route name, relative bundle URLs resolve under
+    // `/benchmark/assets`; alias those resources back to the root asset folder.
+    if (rest.startsWith('/benchmark/assets/') || rest.startsWith('/benchmark/module-thumbnails/')) {
+      rest = rest.slice('/benchmark'.length)
+    }
+
     url.pathname = rest
     const res = await env.ASSETS.fetch(new Request(url, request))
 

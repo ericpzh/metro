@@ -3,7 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { cpus } from 'node:os'
-import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
+import { configureBenchmarkView, serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 
 const demo = process.env.BENCH_DEMO ?? 'tanwei'
 const mode = process.env.BENCH_MODE ?? 'explode'
@@ -44,6 +44,7 @@ try {
     window.__fixtureOpeningStart = performance.now();
   })()`)
   await loadExampleStation(page, demo)
+  const viewSetup = await configureBenchmarkView(page, demo, mode)
   const stationOpeningMs = await page.evaluate('performance.now()-window.__fixtureOpeningStart')
   if (mode === 'explode') {
     await page.evaluate('window.__metro.getState().setExplodedView(true)')
@@ -170,7 +171,7 @@ try {
   const slowFrames = raw.frames.filter(frame => frame.interval >= tail.at(-1)).map(frame => ({ ...frame,
     work: raw.events.filter(event => event.kind !== 'longtask' && event.at < frame.at && event.at+event.duration > frame.at-frame.interval)
       .sort((a,b)=>b.duration-a.duration).slice(0,5) }))
-  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, pixelRatio, profile, trace, ablation,
+  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, pixelRatio, profile, trace, ablation, viewSetup,
     cpu:cpus()[0]?.model, build:resolve(process.env.BENCH_DIST ?? 'game/dist'), stationOpeningMs, stats, slowFrames, ...raw }, null, 2))
   console.log(JSON.stringify({ output, stats, slowFrames }, null, 2))
   if (raw.errors.length || raw.glError) throw new Error('Playback captured a runtime or GL error')

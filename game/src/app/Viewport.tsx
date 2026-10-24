@@ -717,6 +717,10 @@ export function Viewport(): React.ReactElement {
     // would materialise the same window again per commit, the second
     // window-wide pass of this edit (the walk graph builds the third, in the
     // worker).
+    // Apply view modes before installing geometry so a mode selected before
+    // the first renderer mount (for example the benchmark's Hide UI preset)
+    // participates in the initial level walk instead of waiting for a toggle.
+    scene.setHideUI(st.hideUI)
     scene.setStation(toData({ ...station, modules }), undefined, ground)
     scene.setAutoCeiling(st.autoCeiling)
     scene.setHideGround(st.hideGround)

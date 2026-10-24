@@ -221,3 +221,56 @@ export async function loadExampleStation(page, id = 'zoo') {
     resolve();
   })))`)
 }
+
+/** Apply the same per-demo view presets as the in-game /benchmark route. */
+export async function configureBenchmarkView(page, stationId, mode = 'regular') {
+  if (!['zoo', 'tanwei'].includes(stationId) || !['regular', 'explode'].includes(mode)) {
+    throw new Error(`Invalid benchmark view: ${stationId}/${mode}`)
+  }
+  await page.evaluate(`(() => {
+    const state = window.__metro.getState();
+    const regular = ${JSON.stringify(mode === 'regular')};
+    const station = ${JSON.stringify(stationId)};
+    state.setHideUI(regular && station === 'tanwei');
+    state.setHideGround(regular && station === 'zoo');
+    state.setGhostOther(true);
+    if (regular && station === 'zoo') state.setActiveZ(-15);
+  })()`)
+  if (mode !== 'regular') {
+    return page.evaluate(`(() => {
+      const state = window.__metro.getState();
+      return { stationId: ${JSON.stringify(stationId)}, mode: ${JSON.stringify(mode)}, activeZ: state.activeZ,
+        hideUI: state.hideUI, hideGround: state.hideGround, ghostOtherLevels: state.ghostOtherLevels,
+        camera: 'standalone exploded viewer' };
+    })()`)
+  }
+
+  await waitFor(page.evaluate, `(() => {
+    const scene = window.__scene;
+    const state = window.__metro.getState();
+    const station = state.station;
+    const ctx = scene?.ctx;
+    return !!scene && scene.framesRendered > 1 && !!station &&
+      ctx.stationData?.cells?.length === station.cells.length && ctx.activeZ === state.activeZ &&
+      ctx.hideUI === state.hideUI && ctx.hideGround === state.hideGround &&
+      ctx.ghost === state.ghostOtherLevels;
+  })()`, { tries: 240, every: 250, what: `${stationId} benchmark renderer` })
+  await page.evaluate(`new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const scene = window.__scene;
+    if (${JSON.stringify(stationId)} === 'zoo') {
+      scene.setViewDirection(scene.camera.position.clone().set(-1, 1, 1), false);
+    }
+    scene.zoomBy(2 / 3);
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  })))`)
+  return page.evaluate(`(() => {
+    const state = window.__metro.getState(), scene = window.__scene;
+    return { stationId: ${JSON.stringify(stationId)}, mode: ${JSON.stringify(mode)}, activeZ: state.activeZ,
+      hideUI: state.hideUI, hideGround: state.hideGround, ghostOtherLevels: state.ghostOtherLevels,
+      rendererState: { activeZ: scene.ctx.activeZ, hideUI: scene.ctx.hideUI,
+        hideGround: scene.ctx.hideGround, ghostOtherLevels: scene.ctx.ghost },
+      camera: ${JSON.stringify(stationId === 'zoo' ? 'TOP/N/W corner' : 'default isometric')},
+      zoomFactor: 2 / 3,
+      cameraPosition: scene.camera.position.toArray(), cameraTarget: scene.controls.target.toArray() };
+  })()`)
+}

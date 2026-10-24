@@ -35,6 +35,10 @@ export function App(): React.ReactElement {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      if (document.body.dataset.metroBenchmarkLocked === 'true') {
+        e.preventDefault()
+        return
+      }
       const st = useStore.getState()
       if (st.explodedView) return
       if (isTypingTarget(e.target)) return

@@ -47,3 +47,10 @@ test('settings dropdown owns labelled actions, native opposite language, gear ic
   const viewport=readFileSync(new URL('../src/app/Viewport.tsx',import.meta.url),'utf8')
   assert.match(viewport,/new SceneRenderer\(canvas\)\s*scene.setGraphicsQuality\(useStore.getState\(\).graphicsQuality\)/,'persisted quality applies before the first scene build')
 })
+
+test('Hide UI selected before renderer startup is applied before the first station level walk',()=>{
+  const viewport=readFileSync(new URL('../src/app/Viewport.tsx',import.meta.url),'utf8')
+  const stationEffect=viewport.slice(viewport.indexOf('const renderedStationRef'),viewport.indexOf('// A lifted piece'))
+  assert.ok(stationEffect.indexOf('scene.setHideUI(st.hideUI)')<stationEffect.indexOf('scene.setStation('),
+    'the initial scene applies the selected view mode before installing meshes')
+})

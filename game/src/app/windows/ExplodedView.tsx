@@ -37,6 +37,11 @@ function Viewer(): React.ReactElement {
     const previous = document.activeElement as HTMLElement | null
     modal.showModal()
     const onKey = (event: KeyboardEvent): void => {
+      if (document.body.dataset.metroBenchmarkLocked === 'true') {
+        event.preventDefault()
+        event.stopImmediatePropagation()
+        return
+      }
       if (event.key === 'Escape') {
         event.preventDefault()
         useStore.getState().setExplodedView(false)
@@ -72,6 +77,7 @@ function Viewer(): React.ReactElement {
       if (snapshot.levels.length === 0) { setReady(true); return }
       const scene = new SceneRenderer(canvas.current!)
       renderer.current = scene
+      window.__benchmarkScene = scene
       const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
       updateAudio()
       unsubscribeAudio=subscribeAudioVolumes(updateAudio)
@@ -117,6 +123,7 @@ function Viewer(): React.ReactElement {
       observer?.disconnect()
       renderer.current?.dispose()
       renderer.current = null
+      window.__benchmarkScene = undefined
       modal.close()
       previous?.focus()
     }

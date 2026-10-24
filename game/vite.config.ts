@@ -9,17 +9,19 @@ export default defineConfig({
   base: './',
   plugins: [react(), passengerAssets(), {
     name: 'english-game-assets',
-    // Production, development, and preview all need the same alias because
-    // the portable build is also served from the /en/ path.
+    // Production, development, and preview need aliases because the portable
+    // build uses relative assets on the /en/ and /benchmark/en routes.
     configureServer(server) {
       server.middlewares.use((request, _response, next) => {
         if (request.url?.startsWith('/en/assets/') || request.url?.startsWith('/en/module-thumbnails/')) request.url = request.url.slice(3)
+        if (request.url?.startsWith('/benchmark/assets/') || request.url?.startsWith('/benchmark/module-thumbnails/')) request.url = request.url.slice('/benchmark'.length)
         next()
       })
     },
     configurePreviewServer(server) {
       server.middlewares.use((request, _response, next) => {
         if (request.url?.startsWith('/en/assets/') || request.url?.startsWith('/en/module-thumbnails/')) request.url = request.url.slice(3)
+        if (request.url?.startsWith('/benchmark/assets/') || request.url?.startsWith('/benchmark/module-thumbnails/')) request.url = request.url.slice('/benchmark'.length)
         next()
       })
     },

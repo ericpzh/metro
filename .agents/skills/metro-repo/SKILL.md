@@ -31,10 +31,14 @@ and line/exit/time edits. Use `npm run bench:placement` to profile placement fro
 the first pointer-down through visible feedback; keep the 100 ms response budget
 and its measured gaps current in the performance guide.
 Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
-Chrome/GPU traces in separate runs. Keep train-model preparation in station opening,
-reuse the bounded prepared fleet on arrival, and retain only the latest train frame
-while the editor is suspended. Compare submitted-frame intervals as well as RAFs;
-see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+Chrome/GPU traces in separate runs. The playback scripts share
+`configureBenchmarkView`: regular Tanwei uses Hide UI at its default level and
+regular Zoo hides the ground at −15 m from the TOP/N/W corner; both use the same
+50%-closer distance as `/benchmark`. Exploded runs keep their standalone camera.
+Keep train-model preparation in station opening, reuse the bounded prepared fleet
+on arrival, and retain only the latest train frame while the editor is suspended.
+Compare submitted-frame intervals as well as RAFs; see
+[simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
 For Tanwei editor throughput, use the Low LOD / 1× target of 30 average and 15 1% low
 FPS. Keep Low equipment batch sizing and active-storey contact-shadow policy covered
 by deterministic regressions, and record matched captures and limitations in the
