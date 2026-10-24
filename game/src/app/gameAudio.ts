@@ -91,16 +91,27 @@ export class GameAudio {
     if(!this.context || this.context.state!=='running' || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
     const epoch=this.epoch
     for(const kind of ['crowd','train','traffic'] as const){
+      if(kind==='train' && (frame.speed??1)>1){
+        this.beds.get(kind)?.source.stop();this.beds.delete(kind)
+        continue
+      }
       const source=frame.sources.find(s=>s.kind===kind),mix=source?sourceMix(frame.position,frame.right,source):{gain:0,pan:0}
       const voice=this.beds.get(kind)
-      if(voice){voice.gain.gain.setTargetAtTime(mix.gain,this.context.currentTime,.15);voice.pan.pan.setTargetAtTime(mix.pan,this.context.currentTime,.08)}
+      if(voice){
+        voice.source.playbackRate.setTargetAtTime(kind==='crowd'?Math.min(2,frame.speed??1):1,this.context.currentTime,.02)
+        voice.gain.gain.setTargetAtTime(mix.gain,this.context.currentTime,kind==='train'?.025:.15)
+        voice.pan.pan.setTargetAtTime(mix.pan,this.context.currentTime,.08)
+      }
       else if(mix.gain>.005 && !this.loading.has(kind)){
         this.loading.add(kind)
         void this.load(`${kind}.mp3`).then(buffer=>{
           if(epoch!==this.epoch || document.hidden || !getAudioVolumes().master || !getAudioVolumes().ambient)return
           const latest=this.frame,source=latest?.sources.find(s=>s.kind===kind)
+          if(kind==='train' && (latest?.speed??1)>1)return
           if(!latest || !source || sourceMix(latest.position,latest.right,source).gain<=.005)return
-          this.beds.set(kind,this.voice(buffer,this.ambient!,true))
+          const voice=this.voice(buffer,this.ambient!,true)
+          voice.source.playbackRate.value=kind==='crowd'?Math.min(2,latest.speed??1):1
+          this.beds.set(kind,voice)
         }).catch(()=>{}).finally(()=>{this.loading.delete(kind)})
       }
     }

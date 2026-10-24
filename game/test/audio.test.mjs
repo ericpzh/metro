@@ -64,7 +64,7 @@ test('approved assets have exactly six effect files and source/license records; 
  assert.equal((menu.match(/<Slider /g)??[]).length,3)
  assert.match(menu,/<MusicSetting\/>/)
  const frame=readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
- assert.match(frame,/now-this.lastAudioTime>=100/)
+ assert.match(frame,/this\.audioSpeed>1\?33:100/)
  assert.match(frame,/if\(this\.onAudioFrame/)
 })
 
@@ -72,7 +72,7 @@ test('audio service bounds voices, releases muted beds, cancels late decodes and
  const keys=['AudioContext','document','window','location','fetch'],original=new Map(keys.map(k=>[k,Object.getOwnPropertyDescriptor(globalThis,k)]))
  const requests=[],nodes=[];let clock=0,finishDecode=null
  const param=()=>({value:0,setTargetAtTime(value){this.value=value}})
- const node=()=>({gain:param(),pan:param(),threshold:param(),ratio:param(),loop:false,
+ const node=()=>({gain:param(),pan:param(),playbackRate:param(),threshold:param(),ratio:param(),loop:false,
   connect(){return this},disconnect(){},start(){},stop(){this.onended?.()}})
  class Context {
   state='suspended';currentTime=0;destination={}
@@ -106,8 +106,24 @@ test('audio service bounds voices, releases muted beds, cancels late decodes and
   await settle();audio.updateScene(frame)
   assert.equal(audio.beds.size,3);assert.equal(requests.filter(url=>url.endsWith('.mp3')).length,3)
   assert.ok([...audio.beds.values()].every(v=>v.gain.gain.value>0))
+  audio.updateScene({...frame,speed:16})
+  assert.equal(audio.beds.get('crowd').source.playbackRate.value,2)
+  assert.equal(audio.beds.has('train'),false,'fast-forward stops the train voice')
+  assert.equal(audio.beds.get('traffic').source.playbackRate.value,1)
+  audio.updateScene({...frame,speed:4})
+  assert.equal(audio.beds.has('train'),false,'train remains muted at 4×')
+  audio.updateScene({...frame,speed:1})
+  await settle();audio.updateScene({...frame,speed:1})
+  assert.equal(audio.beds.get('train').source.playbackRate.value,1,'normal speed restores the original train recording')
+  audio.updateScene({...frame,speed:64,sources:frame.sources.filter(source=>source.kind!=='train')})
+  assert.equal(audio.beds.has('train'),false,'train remains muted at 64×')
   setAudioVolume('ambient',0);assert.equal(audio.beds.size,0);assert.equal(audio.voices.size,0)
   setAudioVolume('ambient',.45)
+  audio.cache.delete('train.mp3');finishDecode=true
+  audio.updateScene({...frame,speed:1,sources:[frame.sources[1]]});await settle()
+  audio.updateScene({...frame,speed:16,sources:[frame.sources[1]]})
+  finishDecode({});await settle()
+  assert.equal(audio.beds.has('train'),false,'a late decode cannot start train noise during fast-forward')
   audio.cache.delete('crowd.mp3');finishDecode=true
   audio.updateScene({...frame,sources:[frame.sources[0]]});await settle()
   document.hidden=true;document.dispatchEvent(new Event('visibilitychange'))

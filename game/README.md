@@ -31,8 +31,10 @@ voices and suspend audio until another gesture.
 
 Passenger-area, live-train and road-traffic beds follow the active camera's world
 position/orientation in both editor and exploded views. Ambient selection runs
-at 10 Hz, samples at most 256 passengers and 64 rendered vehicles, and uses three
-retained beds. Train sound is silent while simulation playback is paused.
+at 10 Hz at 1× and about 30 Hz at faster speeds, samples at most 256 passengers
+and 64 rendered vehicles, and uses three retained beds. Crowd sound caps at 2×,
+train sound is muted above 1×, and traffic stays at 1×. Train sound
+is silent while simulation playback is paused.
 Field recordings are the reviewed audition material, with recorded background
 sound and whole-file loop seams; there is no wall occlusion or reverb simulation.
 

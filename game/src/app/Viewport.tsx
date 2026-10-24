@@ -531,13 +531,15 @@ export function Viewport(): React.ReactElement {
     sceneRef.current = scene
     const unmountAudio=gameAudio.mount()
     const unmountMusic=gameMusic.mount()
-    const updateAudio=():void=>{const volumes=getAudioVolumes();scene.onAudioFrame=volumes.master>0&&volumes.ambient>0?frame=>gameAudio.updateScene(frame):null}
+    const updateAudio=():void=>{const volumes=getAudioVolumes();scene.onAudioFrame=volumes.master>0&&volumes.ambient>0?frame=>gameAudio.updateScene({...frame,speed:useStore.getState().speed}):null}
     updateAudio()
     const unsubscribeAudio=subscribeAudioVolumes(updateAudio)
     scene.setPlaying(useStore.getState().playing)
+    scene.audioSpeed=useStore.getState().speed
     let pendingMoveCommit=false
     const unsubscribePlaying = useStore.subscribe((state, previous) => {
       if (state.playing !== previous.playing) scene.setPlaying(state.playing)
+      if (state.speed !== previous.speed) scene.audioSpeed=state.speed
       if (state.stationEpoch !== previous.stationEpoch) gameAudio.stop()
       if(previous.moveDraft && !state.moveDraft){pendingMoveCommit=true;queueMicrotask(()=>{pendingMoveCommit=false})}
       if(pendingMoveCommit && state.version!==previous.version){pendingMoveCommit=false;gameAudio.play('move')}

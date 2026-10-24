@@ -147,6 +147,29 @@ unchanged.
 
 ## Game audio integration — 2026-10-23
 
+2026-10-24 speed follow-up: the reported interaction was train ambience lagging
+the visible consist at non-1× playback. The renderer now samples the final
+camera and live train at 33 ms at accelerated speeds (100 ms at 1×); the train
+bed fades with a 25 ms time constant and its sample rate follows simulation
+speed up to 16×. Crowd playback caps at 2×, while traffic stays at 1×. The
+deterministic audio regression pins the three rates and silence after the live
+train source disappears. The production audio browser check passed with no
+errors; its first place gesture measured 1.7 ms handler and 18.3 ms from
+dispatch to source scheduling, with one ray. This check does not measure a full
+accelerated train pass or subjective pitch, so those remain listening limits.
+
+Listening revision: after the variable train rate sounded strange, fast-forward
+now uses a fixed 16× train recording rate (including 4× simulation), returning
+to 1× at normal simulation speed. Live-position gain and the 25 ms train fade
+remain in place. The audio regression pins 4× → 16× and 1× → 1×; this is an
+audition change, not evidence of subjective listening approval.
+
+Final listening policy: train ambience is muted above 1×. Entering fast-forward
+stops and releases the train voice; a pending decode cannot start it at the
+faster speed. Returning to 1× restores the normal-rate recording when a live
+train is audible. The deterministic regression checks mute at 4×/16×/64× and
+restoration at 1×. This supersedes the accelerated train-rate trials above.
+
 Final validation: `npm --prefix game run build` passed, the production browser
 audio check passed, and the final `npm --prefix game test` run passed all 2,381
 tests (132.3 s). The local Vite service serves the game and all baked audio files
@@ -1575,26 +1598,28 @@ the same train. CPU samples identify repeated full-shell triangle raycasts while
 seating cab glass/trim as a major part of that build. Steady pose updates are
 sub-millisecond; reducing passenger triangles does not remove this construction.
 
-Matched first-Play captures use a 20 s window, speed 16x, Low graphics, zero initial
-population, seed 7654321, hardware Chrome 155 / ANGLE D3D11 on an i7-14700KF and
-RTX 4080 SUPER. Tanwei has 16,869 cells / 9,694 modules; the 1400 x 900 browser
-has an 852 x 715 editor canvas or 1384 x 702 exploded canvas. Each view's original
-and current implementation use the same authored fixture, camera and assets in
-separate fresh browser sessions, with no competing tests/builds from this task.
+Matched first-Play captures were rerun on 2026-10-23 from baseline commit `128cb6d`
+(before train preparation in `53aa944`) and current commit `1950b68`, using the same
+`configureBenchmarkView` setup in separate fresh browser sessions. Runs use a 20 s
+window, speed 16x, Low graphics, zero initial population and seed 7654321 on Chrome
+155 / ANGLE D3D11, i7-14700KF and RTX 4080 SUPER. Tanwei has 16,869 cells / 9,694
+modules; the 1400 x 900 browser has an 852 x 715 editor canvas or 1384 x 702 exploded
+canvas. Regular view is Hide UI at -10 m, default isometric direction and 2/3 camera
+distance; exploded view uses its standalone camera. No tests or builds competed with
+the timed captures.
 
 | Tanwei view | Average FPS, original → current | 1% low FPS, original → current | Worst submitted-frame gap, original → current |
 |---|---:|---:|---:|
-| Regular | 12.07 → 16.09 | 0.74 → 2.94 | 1,445 → 396 ms |
-| Exploded | 14.73 → 31.12 | 0.40 → 3.76 | 2,656 → 303 ms |
+| Regular | 18.64 → 29.01 | 0.95 → 3.17 | 1,079 → 396 ms |
+| Exploded | 21.04 → 47.98 | 0.61 → 4.16 | 2,102 → 382 ms |
 
 These are single runs, not stable percentiles or GPU presentation measurements.
-Regular runs finish at ticks 288/287 with 1,154 passengers in both; exploded runs
-finish at ticks 291/289 with 1,151/1,153 passengers. Final draw calls match exactly
-within each pair (4,571 regular / 3,919 exploded); small triangle differences follow
-the slightly different final population/poses. All captures report zero runtime/GL
-errors. `matched-{before,after}-{regular,explode}.json` holds the raw samples.
-`comparison.json` summarizes the pairs; `frame-tail-comparison.png`/`.svg` plots
-the full interval timeline and identifies the first four service-arrival stalls.
+Regular runs finish at ticks 308/311 with 1,063/1,061 passengers; exploded runs
+finish at ticks 316/317 with 1,057/1,054 passengers. All four captures report zero
+runtime/GL errors. The raw samples are
+`tanwei-{regular,explode}-low-preset-{original,}-2026-10-23.json` under
+`.preview/perf/sim-stalls/`. The 1% low remains the mean of the slowest 1% of
+submitted-frame intervals, and the worst gap remains sensitive to arrival timing.
 
 The current path prepares up to eight parked service consists during station
 opening, keeps them invisible until the worker supplies their live poses, and
@@ -1820,15 +1845,87 @@ support, suspended train updates and Escape cleanup. Raw reports/screenshots bel
 under `.preview/perf/exploded-view/`; current playback measurements and validation
 limits are recorded above.
 
+### FSR 1 spatial upscaling — 2026-10-24
 
-### Platform screen queue placement — 2026-10-24
+The WebGL renderer now offers four FSR choices and Off in one compact Settings
+row: Ultra, Quality, Balanced, Performance, and Off (Native). FSR 1
+renders the station to a multisampled reduced-size target, then runs EASU and
+RCAS at canvas resolution. The same setting applies to the editor and exploded
+viewer; native rendering remains the default. The benchmark route exposes the
+same five choices, records the selected mode in results and restores the player's
+preference after its run. The renderer's frame statistics include both post passes.
 
-Platform door servers carry the platform inward normal. Waiting slots alternate
-between two lines, one metre to each side of the opening, ordered by inward row;
-the centre stays open for alighting and only the queue head approaches when the
-door opens. The post-collision guard holds queued passengers clear of the PSD.
+Production build browser check, Zoo paused in Hide UI, 852 × 715 drawing buffer,
+Chrome/SwiftShader: Off had no intermediate target; Ultra used 655 × 550,
+Quality 568 × 477, Balanced 501 × 421, and Performance 426 × 358.
+The Zoo Quality screenshot is at
+`.preview/perf/fsr/quality.png`; both shaders compiled and the WebGL error was 0.
+The `/benchmark/en` production preview showed the same five choices in one row;
+selecting Performance before Start applied `performance` to the run's store.
+Its screenshot and selection record are `.preview/perf/fsr/benchmark.png` and
+`.preview/perf/fsr/benchmark.json`.
+This software GPU check verifies pixels and scale selection, not a useful FPS
+comparison to a real GPU. A measured hardware performance win remains unverified.
+`game/test/upscaling.test.mjs` pins preset ratios, preference persistence and both
+viewer connections; the browser report is `.preview/perf/fsr/results.json`.
+The production build and focused renderer/benchmark tests passed. The full game
+suite passed 2,394 of 2,400 tests; its six failures were in audio slider source
+expectations, passenger capture, door pulls, sink/lift mesh counts and a passenger
+activity wrist asset, all in concurrently edited paths outside FSR. The broad
+instrumented `test:perf` run was stopped after more than ten minutes without a
+final result; no broad coverage claim is made from it.
 
-Validation: the focused walking-space regression passes 5/5, covering paired
-slots, aisle clearance and collision recovery. The full game suite passes 2,410/2,410
-in 138.18 s, and the production build passes. The reported image has no matched
-browser recapture yet.
+
+
+### Sound studio music auditions — 2026-10-24
+
+Added eight on-demand local 90-second MP3 excerpts (11,529,792 bytes total),
+with source/license/credit/edit/hash records in `model/public/sounds/music/manifest.json`.
+The music element uses `preload=none`; page opening creates no AudioContext.
+A single retained media element/source connects to the existing master bus.
+No station document commits or game runtime changes occur.
+
+Validation: model Vite build, five focused sound tests, and production-browser
+`node tools/check-sound-preview.mjs` pass. All eight excerpts reached playable
+state with 90-second durations; Next wrapped to Dream Culture, natural end at
+16x playback advanced to Skyline, and Stop all paused music. Existing cold/warm
+interaction onset measured 58.6/0.3 ms in this run (not a music latency benchmark).
+No browser errors or horizontal overflow at desktop 1424px / mobile 390px.
+Reports and desktop/mobile captures: `.preview/sound-research/`.
+The static browser harness lacks range responses, so natural accelerated playback
+checks end advancement rather than seeking to the end. Listening approval and
+full-track game integration remain separate from these audition previews.
+
+
+### In-game music rotation and settings — 2026-10-24
+
+All eight approved audition candidates now have full 80 kbps MP3 recordings in
+`game/public/audio/music/` (44,898,515 bytes total; largest 18,267,474 bytes,
+strictly below the 25 MiB per-asset limit). Sources, license links, attribution,
+conversion notes and SHA-256 hashes accompany them. `tools/collect-game-music.py`
+recreates the recordings. No model runtime dependency is introduced.
+
+`app/gameMusic.ts` retains one streamed HTMLAudioElement, with no track-wide
+AudioBuffer decode, polling, scene pick or station commit. First gesture starts
+music at 25%; mute and explicit pause preserve position, hidden tabs wait for a
+fresh gesture, and natural completion advances through the repeating rotation.
+Pause and music volume persist outside saves/undo. The same-row settings control
+uses the shared Slider and one pause/play button. Hover/focus on that row shows
+only the current recording's artist/source/license credits; there is no info
+button or conversion copy in the UI.
+
+Validation: production build and nine focused audio/music tests pass. The browser
+music audit plays the full 214.36-second Dream Culture stream, checks pause/resume,
+0/100% volume, actual end-to-Skyline advance, two credit links for the current track,
+absence of the info button/conversion label, bilingual labels and a 390px layout
+without overflow. `.preview/perf/game-music/` holds the report and captures.
+The production game audio checker also passes after waiting for the editor station
+rather than simulation metrics (editing/audio does not require simulation playback).
+Its real tool gestures still use at most one scene pick each and volume changes
+commit no station edits; report/captures remain in `.preview/perf/game-audio/`.
+
+The full suite completed with 2,398 passes and four failures in concurrently edited
+passenger gait capture, double-door pulls, sink mesh count and glass-lift mesh count.
+These are outside music; raw output is `.preview/music-game-tests-final.log`.
+No crossfade or loudness matching between recordings is implemented; listening
+review remains authoritative for relative musical levels.

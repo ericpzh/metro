@@ -280,3 +280,19 @@ Lineups, gait captures and orbit sheets go into `.preview/model-outfits/`.
 Add `--child` to audit all twenty at child proportions (captures go into
 `.preview/model-outfits/children/`), including age switching and child hair rules.
 `--size=short-wide` and `--size=tall-narrow` exercise the child size limits.
+
+### Background music auditions
+
+The sound studio includes eight local 90-second music excerpts with a three-second
+fade out: Dream Culture, Skyline, Sunset Plains, Vanilla Sky, Blue Lagoon, caller,
+monoliths and booya-b. Play individual tracks or cycle the collection with Next
+and automatic advance. The native player controls music volume/pause/seek; Master
+volume applies to music too. Stop all and hiding the page stop music playback.
+Music can play over ambient scenes. Nothing is added to the game's soundtrack.
+
+`python model/scripts/collect-music.py` regenerates excerpts using FFmpeg. Source
+pages, artist credit, license links, download identifiers, modifications and
+SHA-256 hashes are in `public/sounds/music/manifest.json`. CC BY 4.0 excerpts
+require attribution; the other excerpts use their CC0 option. Full recordings
+remain linked on each card. The browser sound checker plays all eight files and
+checks Next, end-of-track advance, Stop all, duration and responsive layout.

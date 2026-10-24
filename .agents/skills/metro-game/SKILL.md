@@ -36,7 +36,7 @@ eight-one-shot cap. Move lift/confirmation also works through the inspector and
 keyboard; preserve cancellation silence and avoid duplicate pointer cues.
 
 `render/audioScene.ts` owns native Z-up distance/pan and bounded crowd sampling.
-The renderer sends at most 10 audio snapshots/second from its final active camera,
+The renderer sends at most 10 audio snapshots/second at 1× and about 30/second at accelerated speeds from its final active camera,
 including camera height and orientation. Use at most 256 passenger position
 samples, 64 already rendered vehicle positions and retained live train poses;
 parked train models are silent. Three ambient beds cover crowd, train and traffic.

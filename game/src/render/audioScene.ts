@@ -2,7 +2,7 @@
 export type AudioPoint = readonly [number, number, number]
 export type AmbientKind = 'crowd' | 'train' | 'traffic'
 export interface AmbientSource { kind: AmbientKind; position: AudioPoint; level: number }
-export interface AudioSceneFrame { position: AudioPoint; right: AudioPoint; sources: AmbientSource[] }
+export interface AudioSceneFrame { position: AudioPoint; right: AudioPoint; sources: AmbientSource[]; speed?: number }
 export function sourceMix(position: AudioPoint, right: AudioPoint, source: AmbientSource): {gain:number; pan:number} {
   const dx=source.position[0]-position[0],dy=source.position[1]-position[1],dz=source.position[2]-position[2]
   const distance=Math.hypot(dx,dy,dz),reference=source.kind==='crowd'?18:28,radius=source.kind==='crowd'?160:240

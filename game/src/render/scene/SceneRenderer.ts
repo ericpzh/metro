@@ -54,6 +54,7 @@ export type { PickResult, SceneStats }
 
 export class SceneRenderer {
   onAudioFrame: ((frame:AudioSceneFrame)=>void)|null = null
+  audioSpeed = 1
   private lastAudioTime = 0
   renderer: THREE.WebGLRenderer
   private readonly upscaler: FsrUpscaler
@@ -964,7 +965,7 @@ export class SceneRenderer {
       this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
       this.framesRendered++
     }
-    if(this.onAudioFrame && now-this.lastAudioTime>=100){
+    if(this.onAudioFrame && now-this.lastAudioTime>=(this.audioSpeed>1?33:100)){
       this.lastAudioTime=now
       const camera=this.cameraSys.activeCamera(),m=camera.matrixWorld.elements
       const position:AudioPoint=[m[12],m[13],m[14]],right:AudioPoint=[m[0],m[1],m[2]]
