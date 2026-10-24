@@ -290,6 +290,14 @@ viewer connections and the benchmark handoff in `game/test/upscaling.test.mjs`;
 the implementation and measured validation are in the
 [FSR performance record](references/performance.md#fsr-1-spatial-upscaling--2026-10-24).
 
+The benchmark result page also plots one-second CPU, GPU and RAM readings from
+the measured run. Browser APIs do not expose whole-machine utilization: CPU is
+renderer-submission time as a share of each second, GPU is asynchronous WebGL
+timer-query time when supported, and RAM is the exposed JavaScript heap size.
+Leave unsupported readings blank and keep these scopes explicit in the chart
+labels; `navigator.deviceMemory` is only a hardware capacity hint, not usage.
+Keep the result chart bilingual and preserve the regular FPS chart independently.
+
 The straight-down plan view keeps WASD aligned with the visible screen axes,
 including at the vertical-camera singularity; pin this in
 `game/test/camera-orbit.test.mjs` when changing camera pan behavior.

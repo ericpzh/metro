@@ -107,6 +107,18 @@
 .benchmarkArrival { stroke: #c55a17; stroke-width: 1; stroke-dasharray: 3 5; opacity: .65; }
 .benchmarkArrivalLabel { fill: #a94a10; font-size: 12px; font-weight: 650; }
 .benchmarkChartNote { margin: 9px 0 0; color: #65727c; font-size: 12px; }
+.benchmarkResourceSection { margin-top: 26px; }
+.benchmarkResourceSection h2 { margin: 0 0 12px; font-size: 20px; }
+.benchmarkResourceChartWrap { padding-right: 24px; }
+.benchmarkResourceLine { fill: none; stroke-width: 2.5; vector-effect: non-scaling-stroke; }
+.benchmarkCpuLine { stroke: #087c91; }
+.benchmarkGpuLine { stroke: #c55a17; }
+.benchmarkRamLine { stroke: #7b55a1; }
+.benchmarkResourceLegend { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 7px; color: #455560; font-size: 13px; }
+.benchmarkResourceLegend span::before { display: inline-block; width: 17px; height: 3px; margin: 0 7px 3px 0; content: ''; background: currentColor; }
+.benchmarkCpuKey { color: #087c91; }
+.benchmarkGpuKey { color: #c55a17; }
+.benchmarkRamKey { color: #7b55a1; }
 .benchmarkHardware { margin: 26px 0 50px; padding: 22px 24px; border: 1px solid #d9e0e5; border-radius: 12px; background: white; }
 .benchmarkHardware h2 { margin: 0 0 15px; font-size: 20px; }
 .benchmarkHardware dl { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; margin: 0; }

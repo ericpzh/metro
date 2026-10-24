@@ -14,6 +14,7 @@ type View = 'regular' | 'explode'
 type Phase = 'setup' | 'preparing' | 'running' | 'result' | 'error'
 interface FrameSample { at: number; interval: number; tick: number }
 interface ArrivalSample { at: number; tick: number }
+interface ResourceSample { at: number; cpu: number | null; gpu: number | null; ram: number | null }
 interface Result {
   station: string
   stationId: ExampleStationId
@@ -23,6 +24,7 @@ interface Result {
   view: View
   frames: FrameSample[]
   arrivals: ArrivalSample[]
+  resources: ResourceSample[]
   stats: NonNullable<ReturnType<typeof summarizeFrameIntervals>>
   browser: string
   gpu: string
@@ -54,7 +56,7 @@ function browserLabel(userAgent: string): string {
   return 'Browser'
 }
 
-function sceneFor(view: View): { framesRendered: number; zoomBy: (factor: number) => void; setViewDirection: (direction: THREE.Vector3, useOrtho: boolean) => void; renderer: { domElement: HTMLCanvasElement; getContext: () => WebGLRenderingContext | WebGL2RenderingContext } } | null {
+function sceneFor(view: View): { framesRendered: number; zoomBy: (factor: number) => void; setViewDirection: (direction: THREE.Vector3, useOrtho: boolean) => void; renderer: { domElement: HTMLCanvasElement; getContext: () => WebGLRenderingContext | WebGL2RenderingContext; render: (scene: THREE.Scene, camera: THREE.Camera) => void } } | null {
   const host = window as typeof window & { __benchmarkScene?: typeof window.__scene }
   return (view === 'explode' ? host.__benchmarkScene : window.__scene) ?? null
 }
@@ -80,6 +82,47 @@ function graphPath(frames: FrameSample[], width: number, height: number): string
     const y = height - fps / maxFps * height
     return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
+}
+
+function resourcePath(samples: ResourceSample[], metric: 'cpu' | 'gpu' | 'ram', width: number, height: number, max: number): string {
+  let hasPoint = false
+  return samples.flatMap(sample => {
+    const value = sample[metric]
+    if (value === null) return []
+    const x = Math.min(width, Math.max(0, sample.at / DURATION_MS * width))
+    const y = height - Math.min(max, Math.max(0, value)) / max * height
+    const command = hasPoint ? 'L' : 'M'
+    hasPoint = true
+    return [`${command}${x.toFixed(1)},${y.toFixed(1)}`]
+  }).join(' ')
+}
+
+function ResourceChart({ result, copy }: { result: Result; copy: ReturnType<typeof benchmarkCopy> }): React.ReactElement {
+  const width = 1000, height = 240, viewHeight = 320
+  const ramValues = result.resources.flatMap(sample => sample.ram === null ? [] : [sample.ram])
+  const maxRam = Math.max(256, Math.ceil(Math.max(0, ...ramValues) / 256) * 256)
+  const paths = {
+    cpu: resourcePath(result.resources, 'cpu', width, height, 100),
+    gpu: resourcePath(result.resources, 'gpu', width, height, 100),
+    ram: resourcePath(result.resources, 'ram', width, height, maxRam),
+  }
+  return <div className="benchmarkChartWrap benchmarkResourceChartWrap">
+    <svg className="benchmarkChart" viewBox={`0 0 ${width + 75} ${viewHeight}`} role="img" aria-label={copy.resourceChart}>
+      {[0, 25, 50, 75, 100].map(value => {
+        const y = height - value / 100 * height
+        return <g key={value}><line x1="0" x2={width} y1={y} y2={y} className="benchmarkGrid"/><text x="-12" y={y + 4} className="benchmarkAxis" textAnchor="end">{value}%</text><text x={width + 12} y={y + 4} className="benchmarkAxis">{Math.round(maxRam * value / 100)} MB</text></g>
+      })}
+      {[0, 5, 10, 15, 20, 25, 30].map(seconds => <text key={seconds} x={seconds / 30 * width} y={height + 25} className="benchmarkAxis" textAnchor={seconds === 0 ? 'start' : seconds === 30 ? 'end' : 'middle'}>{seconds}{copy.secShort}</text>)}
+      {paths.cpu && <path d={paths.cpu} className="benchmarkResourceLine benchmarkCpuLine"/>}
+      {paths.gpu && <path d={paths.gpu} className="benchmarkResourceLine benchmarkGpuLine"/>}
+      {paths.ram && <path d={paths.ram} className="benchmarkResourceLine benchmarkRamLine"/>}
+      <text x="0" y="-12" className="benchmarkAxisTitle">{copy.resourcePercent}</text>
+      <text x={width} y="-12" className="benchmarkAxisTitle" textAnchor="end">{copy.ramMb}</text>
+      <text x={width / 2} y={height + 65} className="benchmarkAxisTitle" textAnchor="middle">{copy.secondsWall}</text>
+    </svg>
+    <div className="benchmarkResourceLegend"><span className="benchmarkCpuKey">{copy.cpuUsage}</span><span className="benchmarkGpuKey">{copy.gpuUsage}</span><span className="benchmarkRamKey">{copy.ramUsage}</span></div>
+    <div className="benchmarkChartNote">{copy.resourceNote}</div>
+  </div>
 }
 
 function BenchmarkChart({ result, copy }: { result: Result; copy: ReturnType<typeof benchmarkCopy> }): React.ReactElement {
@@ -202,6 +245,36 @@ export function BenchmarkRoute(): React.ReactElement {
       setPhase('running')
       const frames: FrameSample[] = []
       const arrivals: ArrivalSample[] = []
+      const resources: ResourceSample[] = []
+      const gl = scene.renderer.getContext() as WebGL2RenderingContext
+      const timerExt = gl.getExtension('EXT_disjoint_timer_query_webgl2')
+      const pendingGpu: WebGLQuery[] = []
+      let gpuMs = 0
+      let cpuMs = 0
+      const originalRender = scene.renderer.render
+      scene.renderer.render = function (...args: Parameters<typeof originalRender>): ReturnType<typeof originalRender> {
+        const query = timerExt && pendingGpu.length < 16 ? gl.createQuery() : null
+        const startedRender = performance.now()
+        if (query) gl.beginQuery(timerExt.TIME_ELAPSED_EXT, query)
+        try { return originalRender.apply(this, args) }
+        finally {
+          cpuMs += performance.now() - startedRender
+          if (query) { gl.endQuery(timerExt!.TIME_ELAPSED_EXT); pendingGpu.push(query) }
+        }
+      }
+      const pollGpu = (): void => {
+        if (!timerExt) return
+        const disjoint = gl.getParameter(timerExt.GPU_DISJOINT_EXT) as boolean
+        for (let i = pendingGpu.length - 1; i >= 0; i--) {
+          const query = pendingGpu[i]
+          if (disjoint || gl.getQueryParameter(query, gl.QUERY_RESULT_AVAILABLE)) {
+            if (!disjoint) gpuMs += Number(gl.getQueryParameter(query, gl.QUERY_RESULT)) / 1e6
+            gl.deleteQuery(query)
+            pendingGpu.splice(i, 1)
+          }
+        }
+      }
+      const memoryApi = performance as Performance & { memory?: { usedJSHeapSize?: number } }
       let lastSubmitted = performance.now()
       let submittedCount = scene.framesRendered
       let lastArrivals = window.__metro!.getState().metrics?.trainArrivals ?? 0
@@ -212,6 +285,7 @@ export function BenchmarkRoute(): React.ReactElement {
       await new Promise<void>((resolve) => {
         const sample = (): void => {
           const now = performance.now()
+          pollGpu()
           const metrics = storeApi.getState().metrics
           if (scene.framesRendered !== submittedCount) {
             frames.push({ at: now - started, interval: now - lastSubmitted, tick: metrics?.tick ?? 0 })
@@ -222,6 +296,12 @@ export function BenchmarkRoute(): React.ReactElement {
           if (count > lastArrivals) arrivals.push({ at: now - started, tick: metrics?.tick ?? 0 })
           lastArrivals = count
           const elapsed = now - started
+          if (elapsed >= resources.length * 1000 + 1000 || resources.length === 0 && elapsed >= 1000) {
+            const intervalMs = Math.min(1000, elapsed - (resources.length * 1000))
+            resources.push({ at: elapsed, cpu: Math.min(100, cpuMs / Math.max(1, intervalMs) * 100), gpu: timerExt ? Math.min(100, gpuMs / Math.max(1, intervalMs) * 100) : null, ram: Number.isFinite(memoryApi.memory?.usedJSHeapSize) ? memoryApi.memory!.usedJSHeapSize! / (1024 * 1024) : null })
+            cpuMs = 0
+            gpuMs = 0
+          }
           const nextSecond = Math.max(0, Math.ceil((DURATION_MS - elapsed) / 1000))
           if (nextSecond !== displayedSecond) {
             displayedSecond = nextSecond
@@ -233,15 +313,22 @@ export function BenchmarkRoute(): React.ReactElement {
         requestAnimationFrame(sample)
       })
       storeApi.getState().setPlaying(false)
+      // Let completed asynchronous timer queries return before restoring the renderer.
+      const drainStarted = performance.now()
+      while (pendingGpu.length && performance.now() - drainStarted < 250) {
+        pollGpu()
+        if (pendingGpu.length) await new Promise(resolve => window.setTimeout(resolve, 10))
+      }
+      scene.renderer.render = originalRender
+      pendingGpu.forEach(query => gl.deleteQuery(query))
       const intervals = frames.slice(1).map((frame) => frame.interval)
       const stats = summarizeFrameIntervals(intervals)
       if (!stats) throw new Error(copy.noFramesError)
-      const gl = scene.renderer.getContext()
       const debug = gl.getExtension('WEBGL_debug_renderer_info') as { UNMASKED_RENDERER_WEBGL: number } | null
       const gpu = debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER))
       const canvas = scene.renderer.domElement
       const current = storeApi.getState()
-      setResult({ station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, stats,
+      setResult({ station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, resources, stats,
         browser: navigator.userAgent, gpu, cpuCores: navigator.hardwareConcurrency || null,
         memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
         viewport: `${canvas.clientWidth} × ${canvas.clientHeight}`, pixelRatio: window.devicePixelRatio,
@@ -308,6 +395,7 @@ export function BenchmarkRoute(): React.ReactElement {
         <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>
         <div className="benchmarkMetricRow"><div><span>{copy.average}</span><strong>{result.stats.averageFps.toFixed(2)}</strong></div><div><span>{copy.low1}</span><strong>{result.stats.onePercentLowFps.toFixed(2)}</strong></div><div><span>{copy.worst}</span><strong>{result.stats.worstFrameMs.toFixed(0)} <small>ms</small></strong></div><div><span>{copy.view}</span><strong>{result.view === 'explode' ? copy.explode : copy.normal}</strong></div></div>
         <BenchmarkChart result={result} copy={copy}/>
+        <section className="benchmarkResourceSection"><h2>{copy.resourceUsage}</h2><ResourceChart result={result} copy={copy}/></section>
         <section className="benchmarkHardware"><h2>{copy.hardware}</h2><dl>
           <div><dt>{copy.browser}</dt><dd>{result.browser}</dd></div><div><dt>{copy.gpu}</dt><dd>{result.gpu}</dd></div>
           <div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div><div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div>
