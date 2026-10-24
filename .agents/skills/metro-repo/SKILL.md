@@ -12,6 +12,14 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+Audio work spans the model sound studio and the game. Use `metro-model` for
+`model/sounds.html`, candidate shaping and source collection; use `metro-game`
+for playback, camera-aware sources and settings, plus `metro-game-test` for
+regressions. `tools/prepare-game-audio.mjs` bakes the selected studio cues into
+`game/public/audio/`; the game must not import the model app at runtime. Keep
+source/license manifests with both collections. Audio measurements belong in
+the existing [performance reference](references/performance.md#game-audio-integration--2026-10-23).
+
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.

@@ -10,6 +10,8 @@ import { SceneSystem } from './SceneSystem.ts'
 const CAPACITY = ROAD_TRAFFIC_CAPACITY
 /** Ambient traffic uses the simulation clock, with bounded instance buffers and no document edits. */
 export class RoadTrafficSystem extends SceneSystem {
+  readonly audioPositions = new Float32Array(64 * 3)
+  audioCount = 0
   private root = new THREE.Group()
   private meshes = new Map<RoadVehicleVariant, Record<RoadVehicleDetail, THREE.InstancedMesh[]>>()
   private from = 0
@@ -33,7 +35,7 @@ export class RoadTrafficSystem extends SceneSystem {
     if (!data) return
     const network=getRoadNetwork(data.modules)
     if(!this.traffic || this.traffic.network!==network || this.traffic.seed!==data.seed) this.traffic=new RoadTraffic(network,data.seed)
-    if (!network.roads.length) { this.root.visible = false; return }
+    if (!network.roads.length) { this.audioCount=0; this.root.visible = false; return }
     this.root.visible = !this.ctx.hideGround
     if (!this.meshes.size) for (const kind of ROAD_VEHICLE_VARIANTS) {
       const details = {} as Record<RoadVehicleDetail, THREE.InstancedMesh[]>
@@ -75,6 +77,7 @@ export class RoadTrafficSystem extends SceneSystem {
       const phase=roadSignal(signal.junction,signal.axis,time),active=phase==='red'?0:phase==='amber'?1:2
       signal.lenses.forEach((lens:THREE.Mesh,i:number)=>{lens.material=i===active?this.signalMats[i]:this.unlit})
     }
+    this.audioCount=0
     for(const c of this.traffic.cars) {
       const fraction=Math.min(1,Math.max(0,(time-this.traffic.time)/ROAD_STEP))
       const previous=network.edges[c.previousEdge]
@@ -91,6 +94,7 @@ export class RoadTrafficSystem extends SceneSystem {
       const dx=e.control?2*((1-t)*(e.control[0]-e.start[0])+t*(e.end[0]-e.control[0])):e.end[0]-e.start[0]
       const dy=e.control?2*((1-t)*(e.control[1]-e.start[1])+t*(e.end[1]-e.control[1])):e.end[1]-e.start[1]
       this.pose.position.set(x,y,e.road.z+1.05)
+      if(this.audioCount<64){const o=this.audioCount++*3;this.audioPositions[o]=x;this.audioPositions[o+1]=y;this.audioPositions[o+2]=e.road.z+1.05}
       this.pose.rotation.set(0,0,Math.atan2(-dx,dy));this.pose.updateMatrix()
       const variant = roadVehicleVariant(c.kind, c.id, data.seed)
       const index=counts.get(variant)??0

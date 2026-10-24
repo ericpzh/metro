@@ -3221,3 +3221,5 @@ input[type='range'] {
 .explodedViewer canvas { display: block; width: 100%; flex: 1; min-height: 0; touch-action: none; }
 .explodedLevels { display: flex; justify-content: space-around; padding: 10px 20px; color: #b7c5d1; font-size: 12px; }
 .explodedEmpty { position: absolute; top: 50%; width: 100%; text-align: center; pointer-events: none; }
+
+.settingsAudio{display:block;margin:8px 0 14px;font-size:12px}.settingsAudio>span{display:flex;justify-content:space-between;gap:20px}.settingsAudio output{color:var(--muted);font-variant-numeric:tabular-nums}.settingsAudio input{display:block;width:100%;margin:8px 0 0;accent-color:var(--accent)}

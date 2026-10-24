@@ -43,12 +43,16 @@ import { ClockSystem } from './systems/ClockSystem.ts'
 import { SectionSystem } from './systems/SectionSystem.ts'
 import { SkySystem } from './systems/SkySystem.ts'
 import type { PickResult } from './systems/SceneSystem.ts'
+import { crowdSound } from '../audioScene.ts'
+import type { AudioSceneFrame, AudioPoint, AmbientSource } from '../audioScene.ts'
 import { DEFAULT_SECTION_AZIMUTH, sectionNormal } from '../section.ts'
 import type { Section, Vec3 } from '../section.ts'
 
 export type { PickResult, SceneStats }
 
 export class SceneRenderer {
+  onAudioFrame: ((frame:AudioSceneFrame)=>void)|null = null
+  private lastAudioTime = 0
   renderer: THREE.WebGLRenderer
   onStats: ((s: SceneStats) => void) | null = null
   /**
@@ -83,6 +87,7 @@ export class SceneRenderer {
   setSuspended(on: boolean): void {
     this.requestRender()
     this.suspended = on
+    if(on)this.onAudioFrame?.({position:[0,0,0],right:[1,0,0],sources:[]})
     this.ctx.keys.clear()
     this.lastFrame = 0
     if (!on && this.deferredTrains) {
@@ -949,6 +954,23 @@ export class SceneRenderer {
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.modules.batches.withHiddenSources(drawCamera, () => this.renderer.render(this.ctx.scene, drawCamera))
       this.framesRendered++
+    }
+    if(this.onAudioFrame && now-this.lastAudioTime>=100){
+      this.lastAudioTime=now
+      const camera=this.cameraSys.activeCamera(),m=camera.matrixWorld.elements
+      const position:AudioPoint=[m[12],m[13],m[14]],right:AudioPoint=[m[0],m[1],m[2]]
+      const sources:AmbientSource[]=[]
+      const crowd=crowdSound(this.crowd.cur,this.crowd.agentCount,position)
+      if(crowd)sources.push(crowd)
+      const train=this.playing?this.trains.nearestSoundPosition(...position):null
+      if(train)sources.push({kind:'train',position:train,level:.65})
+      let road:AudioPoint|null=null,distance=Infinity
+      for(let i=0;i<this.roads.audioCount;i++){
+        const o=i*3,b=this.roads.audioPositions,d=(b[o]-position[0])**2+(b[o+1]-position[1])**2+(b[o+2]-position[2])**2
+        if(d<distance){road=[b[o],b[o+1],b[o+2]];distance=d}
+      }
+      if(road)sources.push({kind:'traffic',position:road,level:.4})
+      this.onAudioFrame({position,right,sources})
     }
     this.frameCount++
     if (now - this.fpsTime > 500) {

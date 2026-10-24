@@ -5,6 +5,46 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+## Audio
+
+`app/gameAudio.ts` owns the browser AudioContext, cached buffers and bounded
+voices. `app/audioSettings.ts` stores local preferences outside the station,
+worker and undo history. The gear menu exposes exactly two audio sliders:
+Sound effects / 音效 and Ambient sound / 环境音; zero mutes the category. Keep
+labels bilingual and shared with the exploded viewer's settings.
+
+The approved cues are place / soft impact, select / felt tap, pick / digital
+pick, delete / soft wooden brush, move / lowered set down and refused / lowered
+switch click. `model/src/sound-preview/effects.js` owns audition shaping and
+levels. After an approved change, run `node tools/prepare-game-audio.mjs` from
+the root and retain its WAVs and provenance under `game/public/audio/`. This
+bakes shaping and pitch offline; do not import `model/` into game runtime.
+Listening feedback takes priority over matching raw RMS between unlike sounds.
+
+`app/audioActions.ts` observes accepted tool outcomes inside existing pointer
+dispatches. Keep hover and cancelled/no-op gestures silent, successful multi-cell
+placement to one cue, and repeated refusal attempts audible even when hover
+already showed the same notice. Reuse the event's existing pick; audio adds no
+raycast, document copy, commit or worker request. Retain the 65 ms cooldown and
+eight-one-shot cap. Move lift/confirmation also works through the inspector and
+keyboard; preserve cancellation silence and avoid duplicate pointer cues.
+
+`render/audioScene.ts` owns native Z-up distance/pan and bounded crowd sampling.
+The renderer sends at most 10 audio snapshots/second from its final active camera,
+including camera height and orientation. Use at most 256 passenger position
+samples, 64 already rendered vehicle positions and retained live train poses;
+parked train models are silent. Three ambient beds cover crowd, train and traffic.
+Muted ambience detaches its callback. The suspended editor contributes no frame
+while the exploded viewer uses its own camera and transformed positions. Hidden
+tabs stop voices, cancel late starts and suspend audio until a new gesture.
+
+Run `npm --prefix game run build`, `node tools/check-game-audio.mjs` and the game
+suite when changing this integration. The browser check verifies real pointer
+cues, one scene intersection/event, bilingual sliders, mute/persistence and
+camera-distance gain. See `audio.test.mjs` and the shared performance record for
+deterministic bounds and measured limitations (whole-recording loop seams, no
+occlusion/reverb).
+
 Placement and move snapping must follow actual geometry, never a nominal storey
 band or editing base. The anchor matrix is under
 [Geometry snapping anchors](#geometry-snapping-anchors).

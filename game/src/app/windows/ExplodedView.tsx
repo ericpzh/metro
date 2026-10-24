@@ -1,3 +1,5 @@
+import {gameAudio} from '../gameAudio.ts'
+import {getAudioVolumes,subscribeAudioVolumes} from '../audioSettings.ts'
 import { useEffect, useRef, useState } from 'react'
 import { toData } from '../../build/model.ts'
 import { explodedView, explodedPoses, explodedLiftPoses } from '../../render/explodedView.ts'
@@ -62,6 +64,7 @@ function Viewer(): React.ReactElement {
     window.addEventListener('keyup', onKey, true)
     let observer: ResizeObserver | undefined
     let unsubscribe: (() => void) | undefined
+    let unsubscribeAudio: (() => void) | undefined
     const onBlur = (): void => { renderer.current?.keys.clear() }
     window.addEventListener('blur', onBlur)
     // Let the modal and loading state paint before preparing a large station.
@@ -69,6 +72,9 @@ function Viewer(): React.ReactElement {
       if (snapshot.levels.length === 0) { setReady(true); return }
       const scene = new SceneRenderer(canvas.current!)
       renderer.current = scene
+      const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
+      updateAudio()
+      unsubscribeAudio=subscribeAudioVolumes(updateAudio)
       scene.setStandalonePresentation()
       scene.setGraphicsQuality(useStore.getState().graphicsQuality)
       scene.setEdgeScrolling(useStore.getState().edgeScrolling)
@@ -106,6 +112,8 @@ function Viewer(): React.ReactElement {
       window.clearTimeout(timer)
       window.removeEventListener('blur', onBlur)
       unsubscribe?.()
+      unsubscribeAudio?.()
+      gameAudio.stop()
       observer?.disconnect()
       renderer.current?.dispose()
       renderer.current = null

@@ -2,6 +2,8 @@
 export const messages = {
   suspended_ceiling: { zh: '吊顶', en: 'Suspended ceiling' },
   settings: { zh: '设置', en: 'Settings' },
+  sound_effects: { zh: '音效', en: 'Sound effects' },
+  ambient_sound: { zh: '环境音', en: 'Ambient sound' },
   graphics_quality: { zh: '画质', en: 'Graphics quality' },
   graphics_low: { zh: '低画质', en: 'Low quality' },
   graphics_high: { zh: '高画质', en: 'High quality' },

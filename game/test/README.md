@@ -1,3 +1,10 @@
+`audio` pins the six approved assets, exactly two bilingual volume sliders,
+local preference validation/persistence, outcome-only interaction cues, repeated
+refusal attempts, finite-radius Z-up distance/pan, bounded crowd sampling,
+eight one-shots / three ambient beds, mute release and hidden-tab/late-decode
+cancellation. `tools/check-game-audio.mjs` separately exercises production browser
+pointer actions, source/file routing, event pick counts, sliders and ambient frames.
+
 `train-cab` additionally pins upright compact A/B/L crew doors and at least 10 cm clearance across full passenger-door opening travel at both ends and sides. It also checks that both A/B/C/L front lower cab strips use the consist's line colour. `train-cab` checks curved moving passenger doors, black lower panels against the shared body profile, at both sides and every rotation, open/closed and High/Low.
 
 `train-cab` also checks exact High/Low roof/skirt joins, C lamps inside the colour band and removal of floating skirt blocks. `train-bogie` also checks 0.8 m wheels around the outer door bays, vertical wheel/suspension clearance below the door sills, no raised wheel housings and the uninterrupted platform-height floor. `train-cab` also checks High/Low paint sections conserve the original shell surface without overlaps or protrusion, fully below-glass wiper pivots and smooth circular lenses. `train-cab` pins the mirrored A/B/C/L rake with unchanged rear seams, glazed A/B/L crew doors, small centred emblems, C evacuation-door clearance, windshield-fitted wipers on all five classes and High/Low geometry ownership.

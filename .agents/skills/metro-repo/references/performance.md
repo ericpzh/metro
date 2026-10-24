@@ -1,5 +1,121 @@
 # Performance work in metro
 
+## Game audio integration — 2026-10-23
+
+Final validation: `npm --prefix game run build` passed, the production browser
+audio check passed, and the final `npm --prefix game test` run passed all 2,381
+tests (132.3 s). The local Vite service serves the game and all baked audio files
+at port 5174. No deployment was performed.
+
+The approved sound-studio cues are baked once into `game/public/audio/` by
+`tools/prepare-game-audio.mjs`, including pitch and level shaping. Runtime audio
+never imports model assets or performs DSP inside pointer handlers. Settings
+contains exactly two local volume sliders (Sound effects / Ambient sound, also
+translated to Chinese); zero mutes its group without station commits or history.
+
+`node tools/check-game-audio.mjs` serves the production build in a fresh headless
+Chrome at 1440 × 1000 and drives actual pointer place/select/delete/pick/move/refusal
+operations. Each produced exactly one correct cue and one scene intersection.
+Handler / source-scheduling delay in ms: place 1.3/17.9; select 1.0/5.7; delete 1.0/19.5; pick 1.7/9.3; move 1.5/9.6; refused 0.8/6.2. These
+are first actual actions in that browser run (source scheduling, not speaker-output
+latency); the longer driver round-trip times include frame waits and are not UI
+latency. Raw report, log and settings capture are under
+`.preview/perf/game-audio/`; the run followed the build and tests sequentially.
+
+The browser seeded production renderer passenger/train poses and a long road
+fixture to keep all source families present while their buffers decoded. Exactly
+three ambient loops started with one fetch each. Raising the actual camera 100 m
+reduced the same traffic source's computed gain from 0.3818 to
+0.0938. Both bilingual labels, zero-output mute, ambient voice
+release, reload persistence and unchanged document version during slider edits
+passed, with no browser errors. The fixture is integration evidence, not a full
+simulated passenger-day or a subjective listening approval.
+
+Ambient snapshots run at most 10 Hz from the final active render camera, with no
+raycast or worker request: at most 256 passenger position samples, up to 64 already
+rendered road positions, and the retained live train pool. One crowd bed, nearest
+active train and nearby road vehicle bed feed three reusable ambient voices;
+there are at most eight overlapping one-shots plus a 65 ms interaction cooldown.
+Muted ambience detaches its render callback, and hidden tabs stop voices and
+suspend their AudioContext. The exploded viewer uses its own active camera and
+snapshot coordinates while the suspended editor contributes no sound frame.
+
+`game/test/audio.test.mjs` guards accepted/refused/cancelled outcomes (including
+a refusal notice already visible from hover), no-op silence, local preference
+repair and persistence, deployed/English asset paths, Z-up distance/pan and finite
+radius, 256-sample work bound, source licensing and exactly two sliders. A fake
+AudioContext drives the actual audio service's eight-voice cap, three-bed pool,
+muting, hidden-tab suspension and cancellation of late decodes. The existing
+`tool-picking` and `scene-wiring` tests continue to protect one event pick and
+renderer ownership. This feature adds no document or simulation fields.
+
+## Sound audition preview — 2026-10-23
+
+Listening-balance revision: Place is raised about 5 dB (20 ms RMS 0.205),
+Select about 6 dB (0.230), and Delete is replaced with a louder damped wooden /
+brushed-noise cue (0.200), removing the mechanical switch and pitch glide.
+Pick/Move/Refused stay at 0.115. The browser check guards the individual targets,
+all six remain below the 0.5 sample-peak ceiling, and mute/lifecycle/layout checks
+pass. Cold/warm scheduling: 55.3/0.1 ms.
+Equal RMS did not match the user's perceived loudness; these deliberate offsets
+supersede the previous uniform-level targets. Raw evidence is in the same folder.
+
+Level-balance follow-up: Move now runs eight semitones below the original
+(rate 0.62996); Delete has an 1800 Hz low-pass and an 8 ms rounded attack.
+Cached shaping matches all other selected cues to 0.115 maximum 20 ms RMS,
+with Delete at 0.050 and a common 0.5 sample-peak ceiling. The production browser
+check measures each played buffer's stereo-window RMS and guards these levels
+within 0.001, along with the selected rates and peak ceiling. All six passed;
+master mute, three ambient loops, stop/cancel, persistence and both layouts still
+pass. Cold / warm Place source scheduling: 66.2 / 0.3 ms.
+This is signal-level balance for audition, not a perceptual loudness guarantee.
+
+Selected-set follow-up: the interaction panel now contains six fixed cues and
+no candidate selectors. A production browser check plays each actual action,
+verifies softened impact/pick buffer peaks (0.121 / 0.296), and verifies move and
+refusal playback rates (0.79370 / 0.74915, four/five semitones lower). Buffer
+shaping runs once after decode and uses the existing cache; the warm Place
+scheduling check remained 0.2 ms (cold 54.3 ms). Existing source-budget and
+pending-decode regressions still pass; the browser guard checks the selected
+tuning reaches playback and that menus remain absent. Three ambient loops,
+mute/stop/cancel, persistence and desktop/mobile checks also pass. This supersedes
+the earlier all-procedural default; Felt tap alone remains selected from that set.
+
+Soft-cue follow-up: six project-authored mono WAVs are now the default, with
+18 ms attacks and measured decoded peaks of 0.105–0.172 (original interaction
+candidates measured 0.629–0.877). The original files remain selectable. The
+updated browser check decodes all 22 files; the repeated sequential production
+run recorded 58.7 ms cold / 0.2 ms warm source scheduling, three ambient loops,
+silent master mute, zero remaining voices after stop/cancel, retained mixer
+settings, and no overflow/browser errors. Raw results replace the previous
+capture under `.preview/sound-research/`. Listening preference remains subjective.
+
+The isolated model-app `/sounds.html` is a research preview, with no game scene,
+document, simulation or picker changes. `node model/node_modules/vite/bin/vite.js
+build model` builds both model entries; `node tools/check-sound-preview.mjs`
+serves that production build and drives a fresh headless Chrome session.
+Raw results and desktop/mobile captures are in `.preview/sound-research/`.
+
+The final run was sequential after builds and model tests finished, at 1424 px
+desktop and 390 px mobile. The first actual Place button activation took 51 ms
+from click to AudioBufferSourceNode.start (including AudioContext resume, fetch
+and decode); the repeated activation took 0.2 ms with one cached decode. These
+are source scheduling times, not measured speaker-output or hardware latency.
+All 16 local files decoded to nonzero signals. Scene playback retained exactly
+three ambient loops, output peak was 0.02285 in the sampled window, master mute
+reached zero, and Stop All/startup cancellation left zero active sources. Increasing
+camera height from 8 to 45 m changed crowd distance from 23.8 to 54.5 m and its
+distance gain from 50% to 22%. Settings survived reload, neither viewport overflowed,
+and no browser errors were recorded. This is functional audition evidence, not
+a game FPS measurement or a listening approval.
+
+`model/test/sound-spatial.test.mjs` pins full-height distance, monotonic falloff,
+finite radius, bearing reversal and persisted-setting validation.
+`model/test/sound-engine.test.mjs` pins the eight-one-shot budget, node release
+and cancellation of a pending decode. The preview keeps three ambient voices and
+decoded-buffer reuse; game integration must preserve bounded sources and reuse
+the existing event pick without additional scene queries or document commits.
+
 This is the repo's single performance reference: the contracts that keep the game
 interactive, the current model inventory, and the measured state of the production
 paths. Raw profiles, reports and screenshots belong in ignored `.preview/perf/`.

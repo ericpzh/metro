@@ -1,0 +1,68 @@
+[
+  {
+    "file": "soft-place.wav",
+    "bytes": 21212,
+    "sha256": "bc4b521a447fcdb1ac1788fc6ad09d5a5bf50e0eedd438309b66370dee97a59f",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.24,
+    "description": "Rounded sine cue with 18 ms attack and soft release"
+  },
+  {
+    "file": "soft-pick.wav",
+    "bytes": 22094,
+    "sha256": "e91f436df1c1bd23f1e4d88197c2d71cb2e23583b944d9107b3d1a1bb50825e6",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.25,
+    "description": "Rounded sine cue with 18 ms attack and soft release"
+  },
+  {
+    "file": "soft-move.wav",
+    "bytes": 24740,
+    "sha256": "1b8868673198574a4dcc992cbcc83c8cf28553d93ce523c0342a9266c9301f03",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.28,
+    "description": "Rounded sine cue with 18 ms attack and soft release"
+  },
+  {
+    "file": "soft-select.wav",
+    "bytes": 14156,
+    "sha256": "b0ce0ec9abb1a7cdb8d6aa864e96d28b8003f5ce1af798b621d1eeb7edbf1dfc",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.16,
+    "description": "Rounded sine cue with 18 ms attack and soft release"
+  },
+  {
+    "file": "soft-delete.wav",
+    "bytes": 22976,
+    "sha256": "feedaba1b150d9d85ad5f261d35736f6d0e1ae5fd44160799fef2ce9a7886538",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.26,
+    "description": "Damped wooden touch and brushed noise, no pitch glide"
+  },
+  {
+    "file": "soft-refused.wav",
+    "bytes": 26504,
+    "sha256": "c0a449de741fe5681bcf64fc52ca0079192150532c09f08668a69ea7c1aeba28",
+    "author": "Station Designer",
+    "kind": "effect",
+    "source": "model/scripts/make-soft-sounds.py",
+    "license": "Project-authored procedural audio; no third-party samples",
+    "duration": 0.3,
+    "description": "Rounded sine cue with 18 ms attack and soft release"
+  }
+]

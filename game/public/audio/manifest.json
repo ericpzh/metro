@@ -1,0 +1,176 @@
+[
+  {
+    "file": "place.wav",
+    "label": "Soft impact",
+    "source": {
+      "file": "impactGeneric_light_000.ogg",
+      "bytes": 5827,
+      "sha256": "f0e982611e97512fee5f777986b67e8b435434b601f94992ec044f7e89fb5acb",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/impact-sounds",
+      "download": "https://kenney.nl/media/pages/assets/impact-sounds/87b4ddecda-1677589768/kenney_impact-sounds.zip",
+      "original": "Audio/impactGeneric_light_000.ogg",
+      "kind": "effect"
+    },
+    "tuning": {
+      "gain": 0.5,
+      "lowpass": 1600,
+      "highpass": 160,
+      "attack": 0.012,
+      "release": 0.025,
+      "targetRms": 0.205
+    },
+    "sha256": "c0f80c6e750bdb3c228d3a9af9efb01aec9550f1c6b35e6727c9be42b306deab"
+  },
+  {
+    "file": "pick.wav",
+    "label": "Digital pick",
+    "source": {
+      "file": "select_002.ogg",
+      "bytes": 5463,
+      "sha256": "4cc6ac5341b9b2c86fef80c347de028e9ab9f2e037586ac7d9fa59a403a1c012",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "download": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+      "original": "Audio/select_002.ogg",
+      "kind": "effect"
+    },
+    "tuning": {
+      "gain": 0.5,
+      "lowpass": 2400,
+      "attack": 0.004,
+      "release": 0.008,
+      "targetRms": 0.115
+    },
+    "sha256": "8ae8d1109d823ec1015460bfd8dde16e9d32d5086a12d05c33eb837de49f096d"
+  },
+  {
+    "file": "move.wav",
+    "label": "Set down",
+    "source": {
+      "file": "drop_001.ogg",
+      "bytes": 5859,
+      "sha256": "692ee3a6f1821402ca649ff735bee9591dc4846c8098fc7d6a90fd15fa57c1af",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "download": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+      "original": "Audio/drop_001.ogg",
+      "kind": "effect"
+    },
+    "tuning": {
+      "rate": 0.6299605249474366,
+      "targetRms": 0.115
+    },
+    "sha256": "42c8383e25a2239d456f39ad32c0164b3b8bc3ca60e390d2b4f61d222dcc2183"
+  },
+  {
+    "file": "select.wav",
+    "label": "Felt tap",
+    "source": {
+      "file": "soft-select.wav",
+      "bytes": 14156,
+      "sha256": "b0ce0ec9abb1a7cdb8d6aa864e96d28b8003f5ce1af798b621d1eeb7edbf1dfc",
+      "author": "Station Designer",
+      "kind": "effect",
+      "source": "model/scripts/make-soft-sounds.py",
+      "license": "Project-authored procedural audio; no third-party samples",
+      "duration": 0.16,
+      "description": "Rounded sine cue with 18 ms attack and soft release"
+    },
+    "tuning": {
+      "targetRms": 0.23
+    },
+    "sha256": "1e58491006896e7ae9b90a4996985b2a368f16a4d5546ba06a889031946d494d"
+  },
+  {
+    "file": "delete.wav",
+    "label": "Soft brush",
+    "source": {
+      "file": "soft-delete.wav",
+      "bytes": 22976,
+      "sha256": "feedaba1b150d9d85ad5f261d35736f6d0e1ae5fd44160799fef2ce9a7886538",
+      "author": "Station Designer",
+      "kind": "effect",
+      "source": "model/scripts/make-soft-sounds.py",
+      "license": "Project-authored procedural audio; no third-party samples",
+      "duration": 0.26,
+      "description": "Damped wooden touch and brushed noise, no pitch glide"
+    },
+    "tuning": {
+      "targetRms": 0.2
+    },
+    "sha256": "bb036d48bc29bbc62ef8751163046914f985c002e99f6b8a65d0eba63a717832"
+  },
+  {
+    "file": "refused.wav",
+    "label": "Switch click",
+    "source": {
+      "file": "switch_001.ogg",
+      "bytes": 6753,
+      "sha256": "3b74efad87f1e69dbd1d05c5ad952ab90859b5a3d11da6ec5bd79b4f03b42afa",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Kenney",
+      "source": "https://kenney.nl/assets/interface-sounds",
+      "download": "https://kenney.nl/media/pages/assets/interface-sounds/fa43c1dd4d-1677589452/kenney_interface-sounds.zip",
+      "original": "Audio/switch_001.ogg",
+      "kind": "effect"
+    },
+    "tuning": {
+      "rate": 0.7491535384383408,
+      "targetRms": 0.115
+    },
+    "sha256": "4dd7e83249ad52666b2f9d9ee656c9d102d7b9623da9cc6293888b4c3502fc0d"
+  },
+  {
+    "file": "crowd.mp3",
+    "source": {
+      "file": "crowd.mp3",
+      "bytes": 2439648,
+      "sha256": "37741afb796220c66afe254e4130b5c2dae6dc31dde761b6d066a89c8d795593",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "mrrap4food",
+      "source": "https://freesound.org/people/mrrap4food/sounds/619010/",
+      "download": "https://cdn.freesound.org/previews/619/619010_781461-hq.mp3",
+      "original": "Freesound high-quality MP3 preview (not original WAV)",
+      "kind": "ambience"
+    }
+  },
+  {
+    "file": "train.mp3",
+    "source": {
+      "file": "train.mp3",
+      "bytes": 1880460,
+      "sha256": "bffe52c9d84b8c9d8ab4293198129ab4ef35a0161369e99283ac7d043631096d",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "Syphon64",
+      "source": "https://freesound.org/people/Syphon64/sounds/135209/",
+      "download": "https://cdn.freesound.org/previews/135/135209_2461495-hq.mp3",
+      "original": "Freesound high-quality MP3 preview (not original WAV)",
+      "kind": "ambience"
+    }
+  },
+  {
+    "file": "traffic.mp3",
+    "source": {
+      "file": "traffic.mp3",
+      "bytes": 1395648,
+      "sha256": "27c39b014f8cbd19162a316f9088048c0f76bfd9f14d5f0e2ef0ee354f7ec71d",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "author": "ViaTorci",
+      "source": "https://freesound.org/people/ViaTorci/sounds/66794/",
+      "download": "https://cdn.freesound.org/previews/66/66794_935297-hq.mp3",
+      "original": "Freesound high-quality MP3 preview (not original WAV)",
+      "kind": "ambience"
+    }
+  }
+]

@@ -5,6 +5,30 @@ description: Work on the metro repository model/ character library, reviewed hai
 
 # Metro model library
 
+## Sound studio
+
+This skill also owns the isolated `/sounds.html` audition page at model port
+5175: `src/sound-preview/`, `scripts/collect-sounds.py` and
+`scripts/make-soft-sounds.py`. Source/author/license/download records and hashes
+live in `public/sounds/manifest.json`; original procedural cues have a separate
+`soft-manifest.json`. Preserve provenance when collecting or deriving sounds.
+
+`src/sound-preview/effects.js` contains the selected six cues and their tuning;
+the user removed candidate menus after selection. Keep the page focused on that
+set unless new alternatives are requested. Place and felt selection have deliberate
+level boosts, and delete uses a wooden/brush texture instead of the old mechanical
+step-back click. Listening feedback supersedes uniform RMS targets. The studio's
+full mixer is for audition; the game exposes only Sound effects and Ambient sound.
+
+For sound-only changes, build both model entries without re-exporting characters:
+`node model/node_modules/vite/bin/vite.js build model`. Run focused
+`node --test model/test/sound-*.test.mjs` and `node tools/check-sound-preview.mjs`.
+The browser check measures actual shaped-buffer levels, pitch, playback/mute,
+cancellation, persistence and responsive layout. After approval, use
+`node tools/prepare-game-audio.mjs` to bake the selected set for the game; route
+game runtime edits through `metro-game`. This workflow does not require character
+exports, passenger atlas regeneration or a model-art refresh.
+
 Work from the metro root. Read `model/README.md` and
 `game/src/assets/PASSENGERS.md`. For a new character reconstruction also use
 `stylized-3d-character`. This skill owns the existing reviewed character pipeline.

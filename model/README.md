@@ -1,5 +1,20 @@
 # Model library
 
+The standalone [sound studio](http://127.0.0.1:5175/sounds.html) auditions local
+CC0 interaction sounds and camera-distance ambient scenarios, with persistent
+volume switches. Start the normal model dev service and open `/sounds.html`.
+Source/license records and the game integration proposal live in
+`public/sounds/RESEARCH.md`; refresh samples with
+`python model/scripts/collect-sounds.py`. This preview does not change game audio.
+Build both pages without regenerating character assets with
+`node model/node_modules/vite/bin/vite.js build model`, then run
+`node tools/check-sound-preview.mjs` for browser audio/mute/lifecycle checks.
+Focused logic checks: `node --test model/test/sound-*.test.mjs`.
+The preview offers one chosen cue per interaction. `src/sound-preview/effects.js`
+owns the mappings, pitch changes and cached softening. The original procedural
+WAV archive can be regenerated with `python model/scripts/make-soft-sounds.py`;
+only its felt tap is currently selected.
+
 The third app beside `web/` and `game/`: a standalone Vite + three.js character
 viewer. Choose the approved male commuter or female variants, inspect front/side/
 back/oblique views, stand or walk at three profiles, and download the selected GLB.

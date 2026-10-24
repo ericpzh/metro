@@ -1,5 +1,26 @@
 # Station Designer — the game
 
+Audio uses the approved interaction set from the model sound studio. Settings
+exposes only **Sound effects / 音效** and **Ambient sound / 环境音** sliders;
+0 mutes each category. Preferences stay in local browser storage, outside saves
+and undo history. The first pointer/key gesture unlocks audio. Hidden tabs stop
+voices and suspend audio until another gesture.
+
+Passenger-area, live-train and road-traffic beds follow the active camera's world
+position/orientation in both editor and exploded views. Ambient selection runs
+at 10 Hz, samples at most 256 passengers and 64 rendered vehicles, and uses three
+retained beds. Train sound is silent while simulation playback is paused.
+Field recordings are the reviewed audition material, with recorded background
+sound and whole-file loop seams; there is no wall occlusion or reverb simulation.
+
+Game-ready cues live in `public/audio/`, with licenses and a provenance manifest.
+`node tools/prepare-game-audio.mjs` (from the repository root) rebakes the approved
+preview shaping/pitch into WAVs without a runtime dependency on `model/`.
+After `npm --prefix game run build`, run `node tools/check-game-audio.mjs` for
+real pointer cues, two bilingual sliders, mute/persistence, source budgets and
+camera-distance checks. `test/audio.test.mjs` covers outcomes, preferences,
+voice budgets, late-load cancellation, visibility and bounded crowd work.
+
 Moving a ground-exit header keeps the exact wall course shown by its preview,
 including moves within one storey. `move` pins the Tanwei D exit's west-facing
 drop at the `(33,37,4)` backing block, current exit settings and undo/redo.
@@ -21,7 +42,7 @@ and independent door-bank motion in both directions.
 Type B keeps the rounded train body with a single broad cab windshield and three
 inset, rubber-framed side windows between its four passenger doorways per car.
 
-The top-right gear opens settings: 低画质 / 高画质, 分享匿名统计, restart,
+The top-right gear opens settings: 音效 / 环境音, 低画质 / 高画质, 分享匿名统计, restart,
 report issue and the opposite language. Quality is saved locally, separately
 from the station. Sharing is also a local preference, in its own slice; it never
 dirties the station or its undo history. High quality uses distance detail on the

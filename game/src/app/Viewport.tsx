@@ -1,3 +1,6 @@
+import {gameAudio} from './gameAudio.ts'
+import {actionSound} from './audioActions.ts'
+import {getAudioVolumes,subscribeAudioVolumes} from './audioSettings.ts'
 import { TouchZoom } from './touchZoom.ts'
 import { placementSurface } from './tools/placementSurface.ts'
 import { clearToolPreview } from './tools/clearPreview.ts'
@@ -519,9 +522,18 @@ export function Viewport(): React.ReactElement {
     const scene = new SceneRenderer(canvas)
     scene.setGraphicsQuality(useStore.getState().graphicsQuality)
     sceneRef.current = scene
+    const unmountAudio=gameAudio.mount()
+    const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
+    updateAudio()
+    const unsubscribeAudio=subscribeAudioVolumes(updateAudio)
     scene.setPlaying(useStore.getState().playing)
+    let pendingMoveCommit=false
     const unsubscribePlaying = useStore.subscribe((state, previous) => {
       if (state.playing !== previous.playing) scene.setPlaying(state.playing)
+      if (state.stationEpoch !== previous.stationEpoch) gameAudio.stop()
+      if(previous.moveDraft && !state.moveDraft){pendingMoveCommit=true;queueMicrotask(()=>{pendingMoveCommit=false})}
+      if(pendingMoveCommit && state.version!==previous.version){pendingMoveCommit=false;gameAudio.play('move')}
+      if (!previous.moveDraft && state.moveDraft) gameAudio.play('pick')
     })
     // A fresh scene owns no overlay, so the fingerprint of the last one means
     // nothing to it: the next build has to mint the map again.
@@ -579,6 +591,7 @@ export function Viewport(): React.ReactElement {
       // auto-wall block is just removed.
       const next = removeFloor(st.station, [[x, y, z]])
       st.commit(next)
+      if(useStore.getState().version!==st.version)gameAudio.play('delete')
       st.select(null)
     }
     // WASD pan (Shift = faster). Q/E layer stepping stays in the app. A text
@@ -642,6 +655,8 @@ export function Viewport(): React.ReactElement {
     window.addEventListener('metro:delete', onDelete)
     return () => {
       unsubscribePlaying()
+      unsubscribeAudio()
+      unmountAudio()
       setFrameHandler(null)
       setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)
@@ -832,9 +847,21 @@ export function Viewport(): React.ReactElement {
     startPointerTool(e)
   }
 
+  const withToolSound = (event: React.PointerEvent, action:()=>void):void => {
+    const before=useStore.getState()
+    const removal=dragRef.current?.mode==='remove' || paintRef.current?.button===2 || zoneDragRef.current?.button===2
+    // A refusal can repeat the notice already shown during hover. Listen only
+    // while the click/release executes; hover itself never emits an audio cue.
+    let announcedNotice=false
+    const unsubscribe=useStore.subscribe(state=>{if(state.notice)announcedNotice=true})
+    try{action()}finally{unsubscribe()}
+    const sound=actionSound(before,useStore.getState(),event.button,removal,announcedNotice)
+    if(sound)gameAudio.play(sound)
+  }
+
   const startPointerTool = (e: React.PointerEvent): void => {
     const scene = sceneRef.current
-    if (scene) scene.withPointerPick(() => dispatchPointerDown(e))
+    if (scene) scene.withPointerPick(() => withToolSound(e, () => dispatchPointerDown(e)))
   }
 
   const dispatchPointerDown = (e: React.PointerEvent): void => {
@@ -1012,7 +1039,7 @@ export function Viewport(): React.ReactElement {
   const onPointerUp = (e: React.PointerEvent): void => {
     pointerFrame.current.flush()
     const scene = sceneRef.current
-    if (scene) scene.withPointerPick(() => dispatchPointerUp(e))
+    if (scene) scene.withPointerPick(() => withToolSound(e, () => dispatchPointerUp(e)))
   }
 
   const dispatchPointerUp = (e: React.PointerEvent): void => {

@@ -53,6 +53,15 @@ const DOOR_TRAVEL_S = 2
 const TRAIN_PARKED_LIMIT = 8
 
 export class TrainSystem extends SceneSystem {
+  /** Reuse live interpolated consists; parked fleet models are never audible. */
+  nearestSoundPosition(x:number,y:number,z:number):[number,number,number]|null {
+    let best:THREE.Vector3|null=null,distance=Infinity
+    for(const entry of this.trainSlots.values())if(entry.active){
+      const p=entry.group.position,d=(p.x-x)**2+(p.y-y)**2+(p.z-z)**2
+      if(d<distance){best=p;distance=d}
+    }
+    return best?[best.x,best.y,best.z]:null
+  }
   /**
    * One swap per drawn piece of a consist. `near`/`far` are geometry references the
    * source owns (or, for a door bank's cloned approximation, the batch owns), so a
