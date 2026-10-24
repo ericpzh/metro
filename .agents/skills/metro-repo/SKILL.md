@@ -366,6 +366,16 @@ may approach an open door. Carry the platform inward normal on each door server 
 keep collision-separated queues clear of the PSD. Pin slot ordering, both line sides,
 the centre aisle, boarding approach and collision recovery in `walking-space.test.mjs`.
 
+The platform-edge graph nodes cover the full floor tile, including the track-facing
+part beyond the PSD's 0.34 m screen offset. Enforce the platform-side boundary in the
+shared `World.tryMove` path so unqueued walkers, alighters and crowd-separation pushes
+cannot cross into that part; preserve movement along the screen and train-controlled
+boarding/alighting. Prepare the node-to-inward-normal index with the graph and refresh
+it on structural rebuilds. Keep both the Tanwei sustained-pressure regression and the
+four-rotation/both-side rebuild checks in `walking-space.test.mjs`; use
+`node tools/check-platform-floor.mjs` for the 555-tick 06:39:15 replay, and record
+measurements in the existing [performance reference](references/performance.md).
+
 ## What lives where
 
 `model/` is the third app: a Vite + three.js character viewer at port 5175.

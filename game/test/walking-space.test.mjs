@@ -4,6 +4,8 @@ import { buildGraph } from '../src/sim/station.ts'
 import { clearWalkSegment, walkingLaneNode, platformWaitingNodes } from '../src/sim/walkingSpace.ts'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
+import { referenceStation } from '../src/data/reference-station.ts'
+import { rotateLocal } from '../src/sim/track.ts'
 
 function corridor(width = 9) {
   const cells = []
@@ -11,6 +13,52 @@ function corridor(width = 9) {
   return { name: 'walking width', seed: 1, cells, modules: [], lines: [] }
 }
 function route(g) { return Int32Array.from({ length: 46 }, (_, x) => g.nodeIndex.get(`${x},0,4`)) }
+
+test('Tanwei edge floor contains unqueued walkers under sustained crowd pressure', () => {
+  const w = new World(referenceStation('tanwei')), g = w.graph
+  let checked = 0
+  for (const p of g.platforms) {
+    const edge = w.data.modules.find(m => m.id === p.id)
+    const [ix, iy] = rotateLocal(edge.rot, 0, edge.cfg.side === 'right' ? -1 : 1)
+    // The reported failures occupy the outer half of this still-walkable tile.
+    const node = p.cells[Math.floor(p.cells.length / 2)]
+    const x = g.nodeX[node], y = g.nodeY[node], z = g.nodeZ[node]
+    const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, x, y, z, 0)
+    a.state = 1; a.server = -1
+    const pressure = w.pool.spawn({ origin: '', stops: [], dest: '' }, x + ix * .2, y + iy * .2, z, 0)
+    for (let i = 0; i < 30; i++) {
+      pressure.x = a.x + ix * .2; pressure.y = a.y + iy * .2
+      w.buildCollisionGrid(w.pool.live)
+      w.resolveCollisions()
+      assert.ok((a.x - x) * ix + (a.y - y) * iy >= -1e-9, `${p.id}: an unqueued walker stays inland of the screen`)
+    }
+    w.tryMove(a, x - ix * .48, y - iy * .48)
+    assert.ok((a.x - x) * ix + (a.y - y) * iy >= -1e-9, 'ordinary movement also respects the edge')
+    w.tryMove(a, x + iy * .25, y - ix * .25)
+    assert.ok(Math.abs((a.x - x) * iy - (a.y - y) * ix - .25) < 1e-9, 'walkers can slide along the platform edge')
+    a.dead = true; pressure.dead = true
+    checked++
+  }
+  assert.ok(checked >= 4, 'both levels and both platform banks are exercised')
+})
+
+test('platform floor constraints follow both sides at every rotation and refresh on rebuild', () => {
+  for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
+    const data = corridor(9)
+    data.modules = [{ id: 'edge', type: 'platform-edge', x: 20, y: 4, z: 4, w: 3, rot, cfg: { line: '', side } }]
+    const w = new World(data), g = w.graph, node = g.platforms[0].cells[0]
+    const [ix, iy] = rotateLocal(rot, 0, side === 'right' ? -1 : 1)
+    const x = g.nodeX[node], y = g.nodeY[node]
+    const a = w.pool.spawn({ origin: '', stops: [], dest: '' }, x, y, 5, 0)
+    w.tryMove(a, x - ix * .48, y - iy * .48)
+    assert.ok(Math.abs((a.x - x) * ix + (a.y - y) * iy) < 1e-9, `${rot}/${side}: track-facing part of the tile is excluded`)
+    w.data.modules = []
+    w.rebuild()
+    const b = w.pool.spawn({ origin: '', stops: [], dest: '' }, x, y, 5, 0)
+    w.tryMove(b, x - ix * .48, y - iy * .48)
+    assert.ok((b.x - x) * ix + (b.y - y) * iy < -.47, 'removing the platform removes the constraint')
+  }
+})
 
 test('shared shortest wall paths offer stable lanes across the clear corridor width', () => {
   const g = buildGraph(corridor()), path = route(g), counts = new Map()

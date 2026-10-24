@@ -2318,7 +2318,9 @@ The first three passengers approach an open doorway; service waits until the hea
 is within 1.5 m instead of boarding from a distant waiting spot.
 `walking-space.test.mjs` pins five interior walking lanes, actual crowd width and
 forward progress, narrow passages, holes and fare boundaries, platform waiting
-depth, doorway approach and door balancing before queues form.
+depth, doorway approach and door balancing before queues form. Ordinary movement
+and crowd separation keep all walkers on the platform side of the PSD, including
+alighting passengers and walkers who have not joined a door queue.
 
 Walking passengers also reconsider the next 8 m when at least three bodies crowd their
 committed corridor. At a reached waypoint, at most once per 8 simulated seconds, they

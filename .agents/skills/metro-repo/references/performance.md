@@ -1,5 +1,31 @@
 # Performance work in metro
 
+## Tanwei passengers beyond platform screens — 2026-10-24
+
+Replayed the reported 16× / 06:39:15 interaction using the production `World`,
+the shipped Tanwei station, seed 1234567 and 555 one-second ticks from 06:30.
+Before the fix, the first ordinary passenger crossed the screen at 06:30:10;
+31 were beyond it at 06:39:15 (1,313 live agents), with a maximum of 59 during
+the replay. Walkers and arrivals were pushed to roughly 0.50 m outside the
+edge-node centre, past the screen's 0.34 m offset. The old final queue correction
+only covered passengers already assigned to door queues.
+
+`World.tryMove` now confines edge-tile targets to their platform-side half,
+retaining tangential movement. An index prepared with the graph covers every
+platform cell, so movement does one node lookup and one indexed constraint
+lookup, without scanning screen doors per passenger. Train-controlled threshold
+crossings retain their existing path. Graph reuse retains the index; structural
+rebuilds replace it. No preview, scene pick or document commit is introduced.
+
+The matched replay after the fix found zero crossings in all 555 ticks and
+1,296 live agents at 06:39:15. Run `node tools/check-platform-floor.mjs` for the
+deterministic replay and `.preview/psd/replay.json` report. `walking-space` pins
+the measured cause with sustained unqueued crowd pressure on the real Tanwei
+banks, tangential sliding, both sides at every rotation and index invalidation.
+This is simulation-position validation; it makes no browser FPS or GPU claim.
+Validation: all 2,412 game tests passed; the focused seven walking-space checks,
+555-tick replay (338 boarded / 2,004 alighted), and production build passed.
+
 ## In-game passenger activities — 2026-10-24
 
 Passenger service now owns the complete activity dwell. TVM/vending customers

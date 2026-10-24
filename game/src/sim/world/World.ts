@@ -406,6 +406,8 @@ export class World {
 
   /** Rebuild the graph from static data and reset derived state. */
   private roads: Road[] = []
+  /** Platform-side half of edge cells; prepared once with the routing graph. */
+  private platformFloor = new Map<number, readonly [number, number]>()
 
   rebuild(reuseGraph = false): void {
     this.doorWaiting.clear()
@@ -416,6 +418,13 @@ export class World {
     this.refreshDay()
     if (!reuseGraph) {
       this.graph = buildGraph(this.data, this.zoneBarriers)
+      this.platformFloor.clear()
+      for (const p of this.graph.platforms) {
+        const edge = this.data.modules.find(m => m.id === p.id)
+        if (edge?.type !== 'platform-edge') continue
+        const inward = rotateLocal(edge.rot, 0, edge.cfg.side === 'right' ? -1 : 1)
+        for (const node of p.cells) this.platformFloor.set(node, inward)
+      }
       // A tail is a list of node ids, so every one of them is stale the moment the
       // graph is re-cut — dropped here rather than left to the identity check in
       // `routeTail`, which only fires on the next preview.
@@ -2080,6 +2089,16 @@ export class World {
   private tryMove(a: Agent, nx: number, ny: number, preserveApproach = false): void {
     const g = this.graph
     const floorZ = Math.round(a.z) - 1
+    const node = g.nodeIndex.get(cellKey(Math.floor(nx), Math.floor(ny), floorZ))
+    const inward = node === undefined ? undefined : this.platformFloor.get(node)
+    if (inward && node !== undefined) {
+      // A walkable edge tile includes floor beyond the rendered screen (0.34 m
+      // from its centre). Keep ordinary bodies at the centre or further inland,
+      // leaving that clearance for their shoulders. Train riders use their own
+      // controlled threshold crossing, never this crowd movement path.
+      const depth = (nx - g.nodeX[node]) * inward[0] + (ny - g.nodeY[node]) * inward[1]
+      if (depth < 0) { nx -= depth * inward[0]; ny -= depth * inward[1] }
+    }
     const target = a.server >= 0 && (g.servers[a.server].kind === 'escalator' || g.servers[a.server].kind === 'walkway' || g.servers[a.server].kind === 'stair')
       ? g.servers[a.server].node : a.state === STATE_WALKING ? a.path[a.pathIdx] : undefined
     const holdApproach = preserveApproach && target !== undefined &&
