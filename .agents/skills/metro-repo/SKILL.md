@@ -127,6 +127,12 @@ See
 [settings and presentation edits](references/performance.md#settings-and-presentation-edits)
 for first-use browser timings and current coverage limits.
 
+Range controls share `app/Slider.tsx` and the compact square tile treatment in
+`styles.css`; use it for game sliders instead of browser-default rounded controls.
+Keep the track thin and the handle compact. After pointer release, cancellation or
+capture loss, blur the slider so WASD immediately resumes camera movement rather
+than stepping its value. Preserve each control's existing draft/commit callbacks.
+
 Graphics quality applies in every view, including Hide UI: Low keeps reduced model
 geometry for equipment, trains, passengers and station chunks. Hide UI puts all
 storeys into the presentation view and disables storey-based LOD, but must not

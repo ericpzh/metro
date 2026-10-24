@@ -1,3 +1,4 @@
+import { Slider } from '../../Slider.tsx'
 import { msg, translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — one card per line
@@ -220,8 +221,7 @@ export function LineCard({ line, open, onToggle }: { line: LineDef; open: boolea
       <label className="field">
         <span>
           {translate(line.alightPerTrain)} {' '}{t('people_train')}</span>
-        <input
-          type="range"
+        <Slider
           min={0}
           max={400}
           step={10}

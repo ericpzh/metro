@@ -1,3 +1,4 @@
+import { Slider } from '../../Slider.tsx'
 import { translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // Lane A split (Phase 1): moved verbatim from app/App.tsx — one card per exit
@@ -74,9 +75,8 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
         </button>
       </div>
       <span className="exitRateReadout">{t('entering')}{' '}{translate(mod.cfg.inRate)} {' '}{t('people_h')}</span>
-      <input
+      <Slider
         className="exitRateSlider"
-        type="range"
         min={0}
         max={6000}
         step={10}

@@ -1,3 +1,4 @@
+import { Slider } from '../../Slider.tsx'
 import { translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 // The floating **时刻** window (§9.6C 时刻 / 客流输入, sheet 06's panels A, B and D): what the
@@ -71,8 +72,7 @@ function Knob({
         <span className="knobLabel">{translate(label)}</span>
         <b className="knobValue">{translate(Math.round(value * 100))}%</b>
       </span>
-      <input
-        type="range"
+      <Slider
         min={min}
         max={max}
         step={0.01}
