@@ -173,11 +173,11 @@ export interface ModelMaterials {
   glow: THREE.MeshBasicMaterial
 }
 
-export function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, srgb = true): THREE.CanvasTexture {
+export function canvasTexture(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, srgb = true, readFrequently = false): THREE.CanvasTexture {
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
-  const g = c.getContext('2d') as CanvasRenderingContext2D
+  const g = c.getContext('2d', { willReadFrequently: readFrequently }) as CanvasRenderingContext2D
   draw(g)
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace

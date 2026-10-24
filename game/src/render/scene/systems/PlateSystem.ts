@@ -476,9 +476,12 @@ export class PlateSystem extends SceneSystem {
     if (existing) return existing
     const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
     const status = this.tvStatus(x, y, mod?.z ?? 0)
+    // Live atlas patches read these pixels on the CPU; keep the source there too
+    // so a clock change never waits for a GPU-backed canvas readback.
     const t = canvasTexture(STATION_PLATE.width, STATION_PLATE.height, (g) => {
       drawStationDisplay(g, status, this.ctx.stationData?.name ?? '', this.ctx.clockText, this.dateText)
-    })
+    }, true, true)
+    t.userData.livePanel = true
     this.mintedTextures.add(t)
     this.tvPlates.set(id, t)
     return t

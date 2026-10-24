@@ -771,6 +771,81 @@ test('panel atlas retains full resolution, correct UV orientation and live scree
   } finally { atlas.dispose(); textures.forEach(t => t.dispose()); materials.forEach(m => m.dispose()); globalThis.document = previous }
 })
 
+test('live panel repaints upload one guttered rectangle and retain complete context-restore pixels', () => {
+  const previous = globalThis.document
+  let ink = 20
+  globalThis.document = { createElement: () => {
+    const c = canvas(), g = c.getContext('2d')
+    g.getImageData = (x, y, w, h) => {
+      const data = new Uint8ClampedArray(w * h * 4)
+      for (let row = 0; row < h; row++) for (let col = 0; col < w; col++) {
+        const i = (row * w + col) * 4
+        data.set([ink, y + row, x + col, 255], i)
+      }
+      return { data }
+    }
+    return c
+  } }
+  const atlas = new PanelAtlas(128), textures = [], materials = [], copies = []
+  const panel = live => {
+    const c = canvas(); c.width = 32; c.height = 16
+    const t = new THREE.CanvasTexture(c); t.userData.livePanel = live; textures.push(t)
+    const m = new THREE.MeshBasicMaterial({ map: t }); materials.push(m)
+    return atlas.resolve(m)
+  }
+  const renderer = { initTexture() {}, copyTextureToTexture(src, dst, region, position) {
+    copies.push({ width: src.image.width, height: src.image.height, pixels: src.image.data.slice(), dst, position: position.clone() })
+  } }
+  try {
+    const live = panel(true), fixed = panel(false), page = live.material.map
+    assert.ok(page.isDataTexture)
+    assert.ok(fixed.material.map.isCanvasTexture, 'static labels keep their canvas pages')
+    assert.notEqual(page, fixed.material.map, 'live panels never invalidate a static page')
+    assert.equal(page.flipY, false)
+    const x = live.u * 128 - 2, y = live.v * 128 - 2, width = 36, height = 20
+    const version = page.version, fixedVersion = fixed.material.map.version
+    atlas.update(renderer); assert.equal(copies.length, 0)
+    ink = 70; textures[0].needsUpdate = true; atlas.update(renderer)
+    assert.equal(copies.length, 1)
+    const copy = copies[0]
+    assert.deepEqual([copy.width, copy.height], [width, height])
+    assert.deepEqual(copy.position.toArray(), [x, y], 'destination uses bottom-left WebGL coordinates')
+    assert.equal(copy.pixels.length, width * height * 4, 'upload is bounded by the panel, not the atlas area')
+    for (let row = 0; row < height; row++) {
+      const offset = ((y + row) * 128 + x) * 4
+      assert.deepEqual(page.image.data.slice(offset, offset + width * 4), copy.pixels.slice(row * width * 4, (row + 1) * width * 4))
+    }
+    assert.deepEqual(Array.from(copy.pixels.slice(0, 4)), [70, 19, 0, 255], 'canvas bottom row becomes the first GPU row')
+    assert.equal(page.version, version, 'live update never schedules a full-page upload')
+    assert.equal(fixed.material.map.version, fixedVersion)
+    atlas.update(renderer); assert.equal(copies.length, 1, 'unchanged display uploads nothing')
+    atlas.retain(new Set([textures[1]])); textures[0].needsUpdate = true; atlas.update(renderer)
+    assert.equal(copies.length, 1, 'removed panels stop updating')
+    const replacement = panel(true)
+    assert.equal(replacement.u, live.u); assert.equal(replacement.v, live.v)
+    ink = 90; textures[2].needsUpdate = true; atlas.update()
+    assert.ok(page.version > version, 'headless/structural fallback retains a complete upload')
+    const other = panel(true)
+    textures[2].needsUpdate = true; textures[3].needsUpdate = true
+    const start = copies.length
+    atlas.update(renderer)
+    assert.equal(copies.length, start + 1, 'simultaneous screen changes upload one panel per frame')
+    assert.equal(atlas.pendingUpdates, true, 'paused renderer can request another frame')
+    textures[2].needsUpdate = true; textures[3].needsUpdate = true; ink = 110
+    atlas.update(renderer)
+    assert.equal(copies.length, start + 2)
+    assert.equal(copies.at(-1).position.x, other.u * 128 - 2, 'a repeatedly changing first panel cannot starve its neighbour')
+    assert.equal(copies.at(-1).pixels[0], 110, 'queued work reads the newest pixels')
+    atlas.update(renderer)
+    assert.equal(atlas.pendingUpdates, false)
+    textures[2].needsUpdate = true; textures[3].needsUpdate = true; atlas.update(renderer)
+    atlas.retain(new Set([textures[2]]))
+    assert.equal(atlas.pendingUpdates, false, 'removal cancels queued updates')
+  } finally {
+    atlas.dispose(); textures.forEach(t => t.dispose()); materials.forEach(m => m.dispose()); globalThis.document = previous
+  }
+})
+
 test('equipment batching leaves door, wing, clock and cabin descendants live', () => {
   const modules = new THREE.Group(), material = new THREE.MeshBasicMaterial(), batches = new EquipmentBatches()
   const root = equipment(0, 'gate', new THREE.BoxGeometry(), material, 'gate')

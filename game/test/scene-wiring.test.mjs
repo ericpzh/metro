@@ -21,6 +21,11 @@ const SRC = new URL('../src/', import.meta.url)
 const SYSTEMS = 'render/scene/systems/'
 const ORCHESTRATOR = 'render/scene/SceneRenderer.ts'
 
+test('paused rendering drains live panel uploads through demand frames', () => {
+  const source = fs.readFileSync(new URL(ORCHESTRATOR, SRC), 'utf8')
+  assert.match(source, /this\.modules\.batches\.atlas\.update\(this\.renderer\)\s+if \(this\.modules\.batches\.atlas\.pendingUpdates\) this\.requestRender\(\)/)
+})
+
 test('population edits return before scene invalidation and tool geometry preparation', () => {
   const viewport = fs.readFileSync(new URL('app/Viewport.tsx', SRC), 'utf8')
   assert.match(viewport,/\[zoneOverlayOn, geometryVersion, activeZ\]/)

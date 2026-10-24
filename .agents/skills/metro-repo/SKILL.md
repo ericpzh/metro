@@ -39,6 +39,13 @@ Keep train-model preparation in station opening, reuse the bounded prepared flee
 on arrival, and retain only the latest train frame while the editor is suspended.
 Compare submitted-frame intervals as well as RAFs; see
 [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+For both demos at Low / normal view / 16×, target at least 15 FPS 1% low over
+the first 30 seconds. Match canvas size and pixel ratio as well as the view;
+`BENCH_CANVAS_SIZE` and `BENCH_PIXEL_RATIO` reproduce the reported workload.
+Arrival-correlated stalls can come from TV service-card uploads; periodic stalls
+also follow simulated-minute clock repaints. Use the `plates` and `atlas`
+ablations before attributing them to train construction. Preserve the bounded
+live-panel path; see [live TV atlas uploads](references/performance.md#live-tv-atlas-uploads-and-1-lows--2026-10-23).
 For Tanwei editor throughput, use the Low LOD / 1× target of 30 average and 15 1% low
 FPS. Keep Low equipment batch sizing and active-storey contact-shadow policy covered
 by deterministic regressions, and record matched captures and limitations in the

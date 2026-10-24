@@ -11,6 +11,8 @@ const quality = process.env.BENCH_QUALITY ?? 'low'
 const seconds = Number(process.env.BENCH_SECONDS ?? 20)
 const speed = Number(process.env.BENCH_SPEED ?? 16)
 const pixelRatio = Number(process.env.BENCH_PIXEL_RATIO ?? 1)
+const canvasSize = process.env.BENCH_CANVAS_SIZE?.split(',').map(Number)
+if (canvasSize && (canvasSize.length !== 2 || canvasSize.some(value => !Number.isFinite(value) || value < 1))) throw new Error('Invalid canvas size')
 const profile = process.env.BENCH_PROFILE === '1'
 const trace = process.env.BENCH_TRACE === '1'
 const ablation = process.env.BENCH_ABLATE ?? ''
@@ -57,11 +59,17 @@ try {
     renderer.setPixelRatio(${pixelRatio});
     renderer.setSize(renderer.domElement.clientWidth, renderer.domElement.clientHeight, false);
   })()`)
+  if (canvasSize) await page.evaluate(`(() => {
+    const scene = ${mode === 'explode' ? 'window.__explodedScene' : 'window.__scene'};
+    scene.resize(${canvasSize[0]}, ${canvasSize[1]});
+  })()`)
   if (profile) { await page.send('Profiler.enable'); await page.send('Profiler.setSamplingInterval', { interval: 1000 }); await page.send('Profiler.start') }
   if (trace) await page.send('Tracing.start', { categories: 'devtools.timeline,blink.user_timing,disabled-by-default-devtools.timeline.frame'+(process.env.BENCH_TRACE_GPU === '1' ? ',gpu,cc' : ''), transferMode:'ReturnAsStream' })
   const raw = await page.evaluate(`(async () => {
     const events = [], frames = [], rafFrames = [], snapshots = [], errors = [];
     const measuredScene = ${mode === 'explode' ? 'window.__explodedScene' : 'window.__scene'};
+    if (${JSON.stringify(ablation)} === 'plates') measuredScene.plates.setSimClock = () => {};
+    if (${JSON.stringify(ablation)} === 'atlas') measuredScene.modules.batches.atlas.update = () => {};
     if (${JSON.stringify(ablation)} === 'render') measuredScene.renderer.render = () => {};
     if (${JSON.stringify(ablation)} === 'crowd') {
       measuredScene.crowd.agents.removeFromParent(); measuredScene.crowd.agentsLow.removeFromParent(); measuredScene.crowd.blobs.removeFromParent();
@@ -81,10 +89,13 @@ try {
       const original = object[key];
       object[key] = function (...args) {
         const at = performance.now(), groups = this.trainGroup?.children.length;
+        const versions = key === 'setSimClock' ? new Map([...this.tvPlates].map(([id, texture]) => [id, texture.version])) : null;
         try { return original.apply(this, args); }
         finally { const duration = performance.now()-at;
-          if (duration >= 2 || key === 'setTrains' || key === 'createEntry') record(name, at, duration,
-            key === 'setTrains' ? { groupsBefore: groups, groupsAfter: this.trainGroup?.children.length, poses: args[0].length/10 } : {});
+          const repainted = versions ? [...this.tvPlates].filter(([id, texture]) => texture.version !== versions.get(id)).length : 0;
+          if (duration >= 2 || repainted || key === 'setTrains' || key === 'createEntry') record(name, at, duration,
+            key === 'setTrains' ? { groupsBefore: groups, groupsAfter: this.trainGroup?.children.length, poses: args[0].length/10 } :
+            versions ? { repainted, clock: this.ctx.clockText } : {});
         }
       };
     };
@@ -111,7 +122,7 @@ try {
     const unsubscribe = window.__metro.subscribe(state => {
       const m = state.metrics;
       if (!m || m.tick === lastTick) return;
-      lastTick = m.tick; snapshots.push({ at: performance.now()-start, tick: m.tick, simTime: m.simTime, population: m.population, tickMs: m.tickMs });
+      lastTick = m.tick; snapshots.push({ at: performance.now()-start, tick: m.tick, simTime: m.simTime, population: m.population, tickMs: m.tickMs, trainArrivals: m.trainArrivals });
     });
     const initial = { ...metrics() };
     window.__metro.getState().setPlaying(true);
@@ -171,7 +182,7 @@ try {
   const slowFrames = raw.frames.filter(frame => frame.interval >= tail.at(-1)).map(frame => ({ ...frame,
     work: raw.events.filter(event => event.kind !== 'longtask' && event.at < frame.at && event.at+event.duration > frame.at-frame.interval)
       .sort((a,b)=>b.duration-a.duration).slice(0,5) }))
-  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, pixelRatio, profile, trace, ablation, viewSetup,
+  writeFileSync(output, JSON.stringify({ demo, mode, quality, speed, seconds, pixelRatio, canvasSize, profile, trace, ablation, viewSetup,
     cpu:cpus()[0]?.model, build:resolve(process.env.BENCH_DIST ?? 'game/dist'), stationOpeningMs, stats, slowFrames, ...raw }, null, 2))
   console.log(JSON.stringify({ output, stats, slowFrames }, null, 2))
   if (raw.errors.length || raw.glError) throw new Error('Playback captured a runtime or GL error')

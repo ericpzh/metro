@@ -63,6 +63,16 @@ Every stock uses 0.8 m wheels, with 1.44 m-wheelbase bogies centred 0.25 m inwar
 
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
 It covers cold interactions, work-count regressions, comparable measurements and GPU validation.
+Live TV plates opt into CPU-backed source canvases and separate live atlas pages.
+Keep their full resolution and gutters, upload at most one changed panel per
+render frame, and coalesce pending work fairly to the newest source pixels.
+Retain complete CPU page pixels for context restoration; remove queued slots on
+deletion and request demand frames until the queue drains after pause. Static
+labels keep their existing atlas path. Avoid full-page CanvasTexture uploads for
+live countdowns/clocks: short CPU timings can conceal GPU transfer stalls.
+See the performance reference's live-TV section for matched captures and the
+refresh-delay/memory tradeoff. `check-panel-atlas.mjs` verifies real GPU pixels;
+batching checks accept `BENCH_DIST` for an isolated production build.
 Module contact blobs are for floor-standing equipment only: use `isCeilingHung` to
 exclude ceiling fixtures, and give fixed `psd-end` infill/covers the same no-blob
 policy as `platform-edge`. Keep the active-storey filter in `LevelSystem`; pin

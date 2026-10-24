@@ -20,6 +20,12 @@ with conclusions only in the existing shared performance reference.
 
 For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
 Guard work counts and ownership invariants; use browser measurements for latency.
+Live-panel regressions belong in `draw-batching`: pin one guttered rectangle per
+frame, fair latest-pixel queueing, unchanged static pages/UVs, deletion/reuse and
+complete CPU restoration pixels. `scene-wiring` guards demand frames after pause.
+Use `node tools/check-panel-atlas.mjs` for actual GPU colour, row orientation,
+gutters and reallocation; mocks cannot establish those pixel contracts. Keep
+first-Play FPS captures separate from tests and report existing failures honestly.
 
 **`game/test/README.md` is the authority** — the seven rules a test here follows,
 the `test/support/` harnesses, what is deliberately untested and the coverage

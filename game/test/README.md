@@ -307,6 +307,11 @@ disposal.
 transforms, buffer disposal, equipment instance/merge/sort paths, original module
 picking IDs, local allocation reuse and visibility, live atlas UVs/repaints, rig
 exclusions and legacy/explicit passenger age metadata compatibility.
+Live-panel cases pin one guttered upload per frame, fair latest-pixel refresh,
+stable UVs, removal/reuse, CPU restore pixels and no static-page invalidation.
+`scene-wiring` pins demand frames that finish the queue after pause.
+`node tools/check-panel-atlas.mjs` separately checks actual GPU pixels, colour,
+orientation, gutters and reallocation against the retained CPU image.
 
 `batching-lifecycle` covers atlas-backed equipment without source UV mutation,
 revision reuse/disable/re-enable, exact geometry/buffer/texture ownership, material

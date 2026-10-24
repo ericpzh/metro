@@ -59,6 +59,8 @@ export function stubCanvas(width = 512, height = 256) {
     resetTransform: noop,
     clip: noop,
     clearRect: noop,
+    // This recorder does not rasterise; GPU/pixel checks use a real browser.
+    getImageData: (_x, _y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h }),
     // A path fill and a rectangle fill are the same thing to a reader of the plate.
     fill: () => {
       ops.fills++

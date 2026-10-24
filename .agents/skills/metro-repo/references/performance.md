@@ -1576,6 +1576,84 @@ held editor train poses and latest-frame replay. Native and extension-free batch
 checks preserve train triangles, reduce draws and report zero GLSL/WebGL/runtime
 errors. CPU-profile and trace-stream tooling checks pass.
 
+#### Live TV atlas uploads and 1% lows — 2026-10-23
+
+The remaining train-correlated and periodic stalls were live TV information
+textures. Arrival/approach/countdown changes repaint service cards; every simulated
+minute repaints all 28 clocks. At 16× the latter repeats roughly every 3.75 wall
+seconds. The old atlas marks an entire 2048² CanvasTexture page dirty for each
+changed slot. CPU repaint/atlas timings stay below 2 ms while subsequent GPU
+canvas transfers stall frame delivery. Train pose updates remain sub-millisecond.
+
+Causal controls keep the simulation, trains, crowd and static station running:
+at the original 852 × 715 canvas, freezing only TV information plates changes
+Tanwei from 30.32 average / 3.22 1% low FPS, 421 ms worst and 47 gaps over 100 ms
+to 39.61 / 23.88 FPS, 49 ms worst and zero such gaps. Freezing atlas refresh alone
+also eliminates 100 ms gaps (20-second diagnostic, 17.40 1% low). These freezes
+are diagnostic ablations, not shipped rendering modes.
+
+Live plates now opt into CPU-backed source canvases and separate CPU-backed atlas
+pages; static panels retain their existing canvas pages. A changed plate copies
+one full-resolution guttered rectangle into its retained GPU page using a typed
+pixel buffer, rather than transferring the full canvas page. Each render frame
+refreshes at most one live panel. The fair queue coalesces to the newest source
+pixels and schedules demand frames after pause; deletion cancels queued slots.
+Full CPU pages stay current for context restoration and structural edits. The
+960 × 540 TV plus gutters uploads 2,097,664 bytes instead of a 16,777,216-byte page.
+This trades immediate wall-wide refresh for up to 28 rendered frames of spread
+at a minute change, and adds retained CPU pixel backing for the live atlas pages.
+It changes no station document, train schedule, simulation step or panel resolution.
+
+Matched first-Play captures use Low, normal benchmark presets, 16×, 30 seconds,
+seed 7654321, zero initial population, Chrome 155 / ANGLE D3D11 on i7-14700KF /
+RTX 4080 SUPER. `BENCH_CANVAS_SIZE=1352,787 BENCH_PIXEL_RATIO=1.5` produces
+2028 × 1180 pixels, within one pixel of the supplied screenshots. Baseline and
+patched builds use the same committed simulation; an ignored isolated source
+snapshot excludes concurrently arriving passenger-activity changes. Captures run
+sequentially without tests/builds/profilers competing on this task.
+
+| Station | Baseline average / 1% low FPS | Patched average / 1% low FPS (two fresh runs) | Worst gap, baseline → patched |
+|---|---:|---:|---:|
+| Tanwei | 28.37 / 3.17 | 35.96 / 22.70; 37.64 / 23.29 | 398 → 51 / 55 ms |
+| Zoo | 34.88 / 2.72 | 58.36 / 34.45; 58.94 / 33.75 | 435 → 36 / 38 ms |
+
+Tanwei/Zoo baselines have 43/20 gaps over 100 ms; all four patched runs have zero.
+Both stations clear the 15 FPS 1% low goal in both fresh runs. Tanwei ends at
+ticks 465 baseline / 471 and 474 patched, populations 880 / 876 and 874; Zoo ends
+at ticks 485 / 484 and 484, populations 309 / 310 and 310. All captures report
+zero runtime/GL errors. Tick differences reflect wall-clock playback scheduling.
+These are
+submitted-frame intervals, not compositor presentation timestamps. Headless
+hardware results do not guarantee the same rates on every machine. Raw captures,
+ablations and intermediate unsuccessful canvas/typed-only variants are under
+`.preview/perf/sim-stalls/*tail*.json`; `*-tail-target-*` are the matched large
+viewport captures. Intermediate unbounded patches improved tails but did not meet
+15 FPS, and are not the selected implementation.
+
+`draw-batching` pins bounded upload area, stable UVs, row orientation, CPU restore
+pixels, unchanged static pages, fair latest-only queueing, removal/reuse and the
+headless full-upload fallback. `scene-wiring` pins paused queue draining.
+`node tools/check-panel-atlas.mjs` compiles the real atlas and verifies actual GPU
+colour/orientation/gutter pixels before and after repaint and GPU reallocation;
+its report is `.preview/perf/panel-atlas/report.json`. The pixel check passes with
+zero GL errors and one 2,880-byte patch for its 32 × 16 fixture.
+
+Validation: the isolated production build and current workspace typecheck pass.
+The focused draw-batching run passes 16 checks; the final queue/pause subset
+passes three checks. Production batching checks pass with native multi-draw and
+with the extension disabled, preserving open/closed train triangles and reporting
+zero GLSL/WebGL/runtime errors. Native station draws are 3,789 → 1,105 with
+batching; fallback is 3,789 → 1,768. These are functional batching controls, not
+playback FPS measurements.
+The broad isolated suite records 2,364 passes / 10 failures: nine failures were
+missing cross-repository fixture/import paths and all affected suites pass a
+28-check rerun once those paths are restored. The remaining audio assertion at
+`game/test/audio.test.mjs:64` expects two native `type="range"` strings in
+SettingsMenu, which now uses the shared Slider component; it also fails in the
+main workspace without this atlas change. No full-suite pass is claimed. Logs
+are `tail-full-tests.log`, `tail-fixture-recheck.log`, `tail-unrelated-checks.log`
+and `tail-batching-{native,fallback}.log` under `.preview/perf/sim-stalls/`.
+
 ### Benchmark protocol
 
 Run comparable browser benchmarks sequentially, with no build, test or profiler competing

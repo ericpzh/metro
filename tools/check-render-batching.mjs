@@ -7,7 +7,7 @@ const noMultiDraw = process.argv.includes('--no-multi-draw')
 // Real production GLSL/multi-draw check. Geometry/calls are assertions; FPS is
 // deliberately not a hardware-dependent CI threshold. Build game/dist first.
 mkdirSync('.preview/perf', { recursive: true })
-const server = await serveDir(resolve('game/dist'), 0)
+const server = await serveDir(resolve(process.env.BENCH_DIST ?? 'game/dist'), 0)
 let page
 try {
   page = await withPage({ url: `http://127.0.0.1:${server.address().port}/`,
