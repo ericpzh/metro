@@ -1,3 +1,4 @@
+import {gameMusic} from './gameMusic.ts'
 import {gameAudio} from './gameAudio.ts'
 import {actionSound} from './audioActions.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from './audioSettings.ts'
@@ -523,6 +524,7 @@ export function Viewport(): React.ReactElement {
     scene.setGraphicsQuality(useStore.getState().graphicsQuality)
     sceneRef.current = scene
     const unmountAudio=gameAudio.mount()
+    const unmountMusic=gameMusic.mount()
     const updateAudio=():void=>{scene.onAudioFrame=getAudioVolumes().ambient>0?frame=>gameAudio.updateScene(frame):null}
     updateAudio()
     const unsubscribeAudio=subscribeAudioVolumes(updateAudio)
@@ -657,6 +659,7 @@ export function Viewport(): React.ReactElement {
       unsubscribePlaying()
       unsubscribeAudio()
       unmountAudio()
+      unmountMusic()
       setFrameHandler(null)
       setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)

@@ -11,7 +11,7 @@ try{
  await page.send('Page.enable')
  await page.send('Page.addScriptToEvaluateOnNewDocument',{source:`window.audit={contexts:[],active:new Set(),events:[],errors:[],requests:[],bytes:new WeakMap(),gains:[]};addEventListener('error',e=>audit.errors.push(e.message));addEventListener('unhandledrejection',e=>audit.errors.push(String(e.reason)));const originalFetch=fetch;window.fetch=async(...args)=>{const response=await originalFetch(...args);if(String(args[0]).includes('/audio/')){audit.requests.push(String(args[0]));const read=response.arrayBuffer.bind(response);response.arrayBuffer=async()=>{const bytes=await read();audit.bytes.set(bytes,String(args[0]));return bytes;};}return response;};const AC=AudioContext;window.AudioContext=class extends AC{constructor(...args){super(...args);audit.contexts.push(this);this.analyser=this.createAnalyser();this.analyser.fftSize=2048;}createGain(){const node=super.createGain();audit.gains.push(node);return node;}createDynamicsCompressor(){const node=super.createDynamicsCompressor();node.connect(this.analyser);return node;}async decodeAudioData(bytes){const buffer=await super.decodeAudioData(bytes);buffer.audioFile=audit.bytes.get(bytes);return buffer;}createBufferSource(){const source=super.createBufferSource(),start=source.start.bind(source);source.start=(...args)=>{audit.active.add(source);audit.events.push({file:source.buffer.audioFile,loop:source.loop,time:performance.now(),dispatch:audit.lastDispatch});source.addEventListener('ended',()=>audit.active.delete(source));return start(...args);};return source;}};`})
  await page.send('Page.reload')
- await waitFor(page.evaluate,'!!window.audit && !!window.__scene && !!window.__metro?.getState().metrics')
+ await waitFor(page.evaluate,'!!window.audit && !!window.__scene && !!window.__metro?.getState().station')
  await page.evaluate(`(()=>{const scene=__scene,camera=scene.cameraSys,intersect=camera.raycaster.intersectObjects;let rays=0;camera.raycaster.intersectObjects=function(...args){rays++;return intersect.apply(this,args)};const dispatch=scene.withPointerPick;scene.withPointerPick=function(action){const record={start:performance.now(),rays:0,handlerMs:0},before=rays;audit.lastDispatch=record;try{return dispatch.call(this,action)}finally{record.rays=rays-before;record.handlerMs=performance.now()-record.start;}};})()`)
  const report={initial:await page.evaluate('({contexts:audit.contexts.length,voices:audit.active.size})')}
  await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
@@ -48,6 +48,8 @@ try{
  // Open settings using an actual pointer gesture; native range Home/End drives React.
  const settings=await page.evaluate(`(()=>{const r=document.querySelector('.settingsMenu summary').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`)
  await click(settings)
+ assert.ok(await page.evaluate(`!!document.querySelector('.settingsMusic input')`))
+ assert.equal(await page.evaluate(`document.querySelectorAll('.musicCreditsPanel a').length`),2)
  report.labels=await page.evaluate(`Array.from(document.querySelectorAll('.settingsAudio input')).map(e=>e.getAttribute('aria-label'))`)
  assert.ok(JSON.stringify(report.labels)===JSON.stringify(['Sound effects','Ambient sound'])||JSON.stringify(report.labels)===JSON.stringify(['音效','环境音']))
  await page.evaluate(`document.querySelector('.settingsDropdown > button:last-child').click()`);await settle()
@@ -87,6 +89,6 @@ try{
  await page.send('Page.captureScreenshot',{format:'png'}).then(r=>writeFileSync(resolve(output,'settings.png'),Buffer.from(r.data,'base64')))
  await page.send('Page.reload');await waitFor(page.evaluate,'!!window.__metro && !!window.__scene')
  report.persisted=await page.evaluate(`JSON.parse(localStorage.getItem('metro-game.audio'))`)
- assert.deepEqual(report.persisted,{effects:0,ambient:0})
+ assert.deepEqual(report.persisted,{effects:0,ambient:0,music:.25})
  writeFileSync(resolve(output,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2))
 }finally{await page?.close();server.close()}

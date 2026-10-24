@@ -2,8 +2,10 @@ import './style.css';
 import {SoundEngine} from './audio.js';
 import {EFFECTS as effects} from './effects.js';
 import {sanitizeMix, spatialMix} from './spatial.js';
+import {setupMusic} from './music.js';
 const $=id=>document.getElementById(id);
 const audio=new SoundEngine();
+const music=setupMusic({ready,engine:audio});
 let mix=sanitizeMix(null);
 try {mix=sanitizeMix(JSON.parse(localStorage.getItem('metro-sound-study')));}catch{}
 const listener={x:0,y:8,z:12,bearing:0};
@@ -39,7 +41,7 @@ async function effect(i){
 }
 $('effects').querySelectorAll('button').forEach(button=>button.onclick=()=>effect(Number(button.dataset.effect)).catch(fail));
 $('sequence').onclick=async()=>{const token=++sequenceRun;try{await ready();for(const i of [0,3,1,2,4,5]){if(token!==sequenceRun)return;await effect(i);await new Promise(r=>setTimeout(r,450));}}catch(error){fail(error);}};
-function stop(){++run;++sequenceRun;playing=false;starting=false;audio.stop();$('ambience').textContent='▶ Play scene';status('All sounds stopped.');}
+function stop(){++run;++sequenceRun;playing=false;starting=false;music.stop();audio.stop();$('ambience').textContent='▶ Play scene';status('All sounds stopped.');}
 $('stop').onclick=stop;
 $('scenarios').innerHTML=scenarios.map((s,i)=>`<button data-scene="${i}" aria-pressed="${i===scene}">${s.name}</button>`).join('');
 $('scenarios').querySelectorAll('button').forEach(button=>button.onclick=()=>{

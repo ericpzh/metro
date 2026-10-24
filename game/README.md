@@ -1,7 +1,7 @@
 # Station Designer — the game
 
 Audio uses the approved interaction set from the model sound studio. Settings
-exposes only **Sound effects / 音效** and **Ambient sound / 环境音** sliders;
+exposes **Sound effects / 音效**, **Ambient sound / 环境音**, and **Music / 音乐** controls;
 0 mutes each category. Preferences stay in local browser storage, outside saves
 and undo history. The first pointer/key gesture unlocks audio. Hidden tabs stop
 voices and suspend audio until another gesture.
@@ -17,7 +17,7 @@ Game-ready cues live in `public/audio/`, with licenses and a provenance manifest
 `node tools/prepare-game-audio.mjs` (from the repository root) rebakes the approved
 preview shaping/pitch into WAVs without a runtime dependency on `model/`.
 After `npm --prefix game run build`, run `node tools/check-game-audio.mjs` for
-real pointer cues, two bilingual sliders, mute/persistence, source budgets and
+real pointer cues, bilingual audio controls, mute/persistence, source budgets and
 camera-distance checks. `test/audio.test.mjs` covers outcomes, preferences,
 voice budgets, late-load cancellation, visibility and bounded crowd work.
 
@@ -4221,3 +4221,14 @@ artwork in place. Population and exit-policy edits keep routing and scene geomet
 restart reuses static connectivity while resetting dynamic simulation state.
 See the performance reference's
 [settings and presentation edits](../.agents/skills/metro-repo/references/performance.md#settings-and-presentation-edits).
+
+Music streams all eight approved full recordings in a repeating rotation, starting
+at 25% after the first gesture. Its Settings row combines volume and pause/play.
+Hovering the music row reveals credits for the current track.
+Volume and explicit pause persist locally; pause preserves position. Muting pauses
+the stream, and hidden tabs wait for a fresh gesture before resuming. Simulation
+pause and station edits do not restart music. `public/audio/music/manifest.json`
+records sources, licenses, full-recording MP3 conversion and SHA-256 hashes.
+Regenerate with `python tools/collect-game-music.py` (FFmpeg required).
+`test/music.test.mjs` pins asset provenance/budgets, one streamed element, rotation,
+pause persistence, mute, visibility, retry and late-play cancellation.

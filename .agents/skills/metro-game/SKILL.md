@@ -9,8 +9,12 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 `app/gameAudio.ts` owns the browser AudioContext, cached buffers and bounded
 voices. `app/audioSettings.ts` stores local preferences outside the station,
-worker and undo history. The gear menu exposes exactly two audio sliders:
-Sound effects / 音效 and Ambient sound / 环境音; zero mutes the category. Keep
+worker and undo history. The gear menu exposes Sound effects / 音效, Ambient sound / 环境音 and
+Music / 音乐; zero mutes the category. `app/gameMusic.ts` streams the approved
+full recordings through one retained media element, independently of simulation
+pause. `MusicSetting.tsx` places its label above the shared volume slider and
+pause/play row; hovering reveals credits for the current track. Keep pause and
+volume local; do not commit station edits. Keep
 labels bilingual and shared with the exploded viewer's settings.
 
 The approved cues are place / soft impact, select / felt tap, pick / digital

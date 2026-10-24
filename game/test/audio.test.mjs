@@ -26,19 +26,19 @@ test('accepted gestures produce one outcome; hover, cancellation and no-op remai
  const selected={...state,selected:{kind:'cell',key:'a'}}
  assert.equal(actionSound(selected,{...selected,selected:{kind:'cell',key:'a'}},0,false),null)
 })
-test('two local volume preferences clamp, persist, tolerate corrupt/unavailable storage',()=>{
+test('three local volume preferences clamp, persist, tolerate corrupt/unavailable storage',()=>{
  const original=globalThis.localStorage
  let stored=null
  try{
   globalThis.localStorage={getItem:()=>stored,setItem:(_key,value)=>{stored=value}}
-  assert.deepEqual(sanitizeAudioVolumes({effects:2,ambient:-1}),{effects:1,ambient:0})
-  assert.deepEqual(sanitizeAudioVolumes({effects:NaN}),{effects:.65,ambient:.45})
+  assert.deepEqual(sanitizeAudioVolumes({effects:2,ambient:-1}),{effects:1,ambient:0,music:.25})
+  assert.deepEqual(sanitizeAudioVolumes({effects:NaN}),{effects:.65,ambient:.45,music:.25})
   setAudioVolume('effects',.23);setAudioVolume('ambient',0)
-  assert.deepEqual(readAudioVolumes(),{effects:.23,ambient:0})
-  stored='bad JSON';assert.deepEqual(readAudioVolumes(),{effects:.65,ambient:.45})
+  assert.deepEqual(readAudioVolumes(),{effects:.23,ambient:0,music:.25})
+  stored='bad JSON';assert.deepEqual(readAudioVolumes(),{effects:.65,ambient:.45,music:.25})
   globalThis.localStorage={getItem(){throw Error('denied')},setItem(){throw Error('quota')}}
   setAudioVolume('effects',.4);assert.equal(getAudioVolumes().effects,.4)
-  assert.deepEqual(readAudioVolumes(),{effects:.65,ambient:.45})
+  assert.deepEqual(readAudioVolumes(),{effects:.65,ambient:.45,music:.25})
  }finally{globalThis.localStorage=original;setAudioVolume('effects',.65);setAudioVolume('ambient',.45)}
 })
 test('native Z-up camera distance and orientation control gain/pan, including finite-radius silence',()=>{
@@ -55,13 +55,14 @@ test('large populations require at most 256 position samples and one crowd sourc
  assert.equal(source.kind,'crowd');assert.ok(reads<=256*3);assert.ok(source.level<=.65)
  assert.equal(crowdSound(new Float32Array(),0,[0,0,0]),null)
 })
-test('approved assets have exactly six effect files and source/license records; settings expose two sliders',()=>{
+test('approved assets have exactly six effect files and source/license records; settings retain effects and ambience sliders alongside music',()=>{
  const manifest=JSON.parse(readFileSync(new URL('../public/audio/manifest.json',import.meta.url)))
  assert.deepEqual(manifest.filter(s=>s.file.endsWith('.wav')).map(s=>s.file).sort(),['delete.wav','move.wav','pick.wav','place.wav','refused.wav','select.wav'])
  assert.equal(manifest.length,9)
  for(const asset of manifest){assert.ok(asset.source.license);assert.ok(asset.source.source)}
  const menu=readFileSync(new URL('../src/app/windows/topbar/SettingsMenu.tsx',import.meta.url),'utf8')
- assert.equal((menu.match(/type="range"/g)??[]).length,2)
+ assert.equal((menu.match(/<Slider /g)??[]).length,2)
+ assert.match(menu,/<MusicSetting\/>/)
  const frame=readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
  assert.match(frame,/now-this.lastAudioTime>=100/)
  assert.match(frame,/if\(this\.onAudioFrame/)

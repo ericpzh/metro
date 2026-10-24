@@ -41,6 +41,20 @@ try {
  report.stop=await page.evaluate(`diag.active.size`);
  await gesture(`document.getElementById('ambience').click();document.getElementById('stop').click()`);
  await new Promise(r=>setTimeout(r,350));report.cancel=await page.evaluate(`diag.active.size`);
+ await waitFor(page.evaluate,`document.querySelectorAll('#music-tracks button').length===8`);
+ report.music=[];
+ for(let i=0;i<8;i++){
+  await gesture(`document.querySelectorAll('#music-tracks button')[${i}].click()`);
+  await waitFor(page.evaluate,`!document.getElementById('music-player').paused && document.getElementById('music-player').readyState>=2`);
+  report.music.push(await page.evaluate(`({title:document.getElementById('music-now').textContent,duration:document.getElementById('music-player').duration})`));
+ }
+ await gesture(`document.getElementById('music-next').click()`);
+ await waitFor(page.evaluate,`document.getElementById('music-now').textContent.startsWith('Dream Culture') && !document.getElementById('music-player').paused`);
+ await gesture(`document.getElementById('music-player').playbackRate=16`);
+ await waitFor(page.evaluate,`document.getElementById('music-now').textContent.startsWith('Skyline') && !document.getElementById('music-player').paused`);
+ await gesture(`document.getElementById('music-player').playbackRate=1;document.getElementById('stop').click()`);
+ if(!await page.evaluate(`document.getElementById('music-player').paused`))throw Error('Stop all did not pause music');
+ if(report.music.some(t=>Math.abs(t.duration-90)>.2))throw Error('Music excerpt duration mismatch');
  await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true}).then(r=>writeFileSync('.preview/sound-research/desktop.png',Buffer.from(r.data,'base64')));
  await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
  report.mobile=await page.evaluate(`({width:innerWidth,scroll:document.documentElement.scrollWidth,overflow:document.documentElement.scrollWidth>innerWidth})`);

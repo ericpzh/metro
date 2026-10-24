@@ -1,3 +1,4 @@
+import {MusicSetting} from './MusicSetting.tsx'
 import { Slider } from '../../Slider.tsx'
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import {getAudioVolumes, subscribeAudioVolumes, setAudioVolume} from '../../audioSettings.ts'
@@ -42,6 +43,7 @@ export function SettingsMenu(): React.ReactElement {
     <div className="settingsDropdown" role="group" aria-label={t('settings')}>
       <label className="settingsAudio"><span>{t('sound_effects')}<output>{Math.round(volumes.effects*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.effects*100)} aria-label={t('sound_effects')} onChange={event=>setAudioVolume('effects',Number(event.target.value)/100)}/></label>
       <label className="settingsAudio"><span>{t('ambient_sound')}<output>{Math.round(volumes.ambient*100)}%</output></span><Slider min={0} max={100} step="1" value={Math.round(volumes.ambient*100)} aria-label={t('ambient_sound')} onChange={event=>setAudioVolume('ambient',Number(event.target.value)/100)}/></label>
+      <MusicSetting/>
       <div className="settingsQualityLabel">{t('graphics_quality')}</div>
       <div className="settingsQuality" role="group" aria-label={t('graphics_quality')}>
         <button type="button" aria-pressed={quality === 'low'} className={quality === 'low' ? 'on' : ''} onClick={() => setQuality('low')}>{t('graphics_low')}</button>

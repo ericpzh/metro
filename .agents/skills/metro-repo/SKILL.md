@@ -17,7 +17,14 @@ Audio work spans the model sound studio and the game. Use `metro-model` for
 for playback, camera-aware sources and settings, plus `metro-game-test` for
 regressions. `tools/prepare-game-audio.mjs` bakes the selected studio cues into
 `game/public/audio/`; the game must not import the model app at runtime. Keep
-source/license manifests with both collections. Audio measurements belong in
+source/license manifests with both collections. Approved background music is
+collected as full, size-bounded MP3s by `tools/collect-game-music.py` into
+`game/public/audio/music/`; keep its source/license/hash manifest alongside the
+tracks and its ordered rotation in `game/src/app/musicTracks.ts`. `GameMusic`
+streams one track at a time; the Settings label sits above its shared volume
+slider and pause/play row, and hovering the control reveals current-track credits.
+Keep pause/volume outside station state and update `metro-game`/`metro-game-test`
+when changing this contract. Audio measurements belong in
 the existing [performance reference](references/performance.md#game-audio-integration--2026-10-23).
 
 For performance investigations or changes, read
