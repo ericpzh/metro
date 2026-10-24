@@ -28,6 +28,9 @@ export const gameRoot = (() => {
 /** Href of the game in a language: `/game/` for Chinese, `/game/en/` for English. */
 export const gameHref = (lang) => `${gameRoot}${lang === 'en' ? 'en/' : ''}`
 
+/** Href of the browser benchmark: `/game/benchmark` or `/game/benchmark/en`. */
+export const benchmarkHref = (lang) => `${gameRoot}benchmark${lang === 'en' ? '/en' : ''}`
+
 /**
  * The stats page is its own Worker at https://stationdesigner.com/stats/ with an
  * English route at /stats/en/. Development runs `npm run dev:stats` on 5176, so

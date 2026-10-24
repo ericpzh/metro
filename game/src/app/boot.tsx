@@ -79,7 +79,7 @@ export function renderGame(root: Root): void {
   }
 
   // Anonymous totals: one five-minute collector and a pagehide beacon. It
-  // resolves the stats Worker for this host, so the lab, a local production
-  // preview and a preview deployment without a stats API stay silent.
+  // resolves the stats Worker for this host, so the lab, benchmark, a local
+  // production preview and a preview deployment without a stats API stay silent.
   if (!isLab && !isBenchmark) startGlobalStats()
 }

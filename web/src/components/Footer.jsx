@@ -1,4 +1,4 @@
-import { artUrl, repoUrl, specUrl, statsHref } from '../site.js'
+import { artUrl, benchmarkHref, repoUrl, specUrl, statsHref } from '../site.js'
 
 export default function Footer({ t, lang }) {
   return (
@@ -26,6 +26,11 @@ export default function Footer({ t, lang }) {
             <li>
               <a href={repoUrl} target="_blank" rel="noreferrer">
                 {t.footer.repo} <span>{t.footer.repoSub}</span>
+              </a>
+            </li>
+            <li>
+              <a href={benchmarkHref(lang)}>
+                {t.footer.benchmark} <span>{t.footer.benchmarkSub}</span>
               </a>
             </li>
             <li>
