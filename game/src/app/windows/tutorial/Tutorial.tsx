@@ -1,8 +1,10 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
+import { IoIosMusicalNote } from 'react-icons/io'
 import { t } from '../../../sim/i18n.ts'
 import { setLanguage, useLanguage } from '../../i18n.ts'
 import { useStore } from '../../store.ts'
+import { gameMusic } from '../../gameMusic.ts'
 import { isTypingTarget } from '../../Viewport.tsx'
 import { readTutorialPreference, TUTORIAL_STEPS, tutorialAutoDisabled, writeTutorialPreference } from './steps.ts'
 import './tutorial.css'
@@ -22,6 +24,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
   const [boxes, setBoxes] = useState<Box[]>([])
   const [position, setPosition] = useState({ left: 24, top: 90 })
   const [practiceSelected, setPracticeSelected] = useState(false)
+  const music = useSyncExternalStore(gameMusic.subscribe, gameMusic.getSnapshot)
   const card = useRef<HTMLElement>(null)
   const next = useRef<HTMLButtonElement>(null)
   const step = TUTORIAL_STEPS[preference.step]
@@ -195,9 +198,17 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       </svg>
       <section ref={card} className="tutorialCard" style={position} role="dialog" aria-labelledby="tutorialTitle" aria-describedby="tutorialBody">
         <div className="tutorialEyebrow">{t('tutorial_title')}<span>{t('tutorial_progress', preference.step + 1, TUTORIAL_STEPS.length)}</span></div>
-        {preference.step === 0 && <div className="tutorialLanguage" role="group" aria-label={t('switch_language')}>
-          <button type="button" aria-pressed={language === 'zh-CN'} onClick={() => setLanguage('zh-CN')}>{t('language_native_chinese')}</button>
-          <button type="button" aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>{t('language_native_english')}</button>
+        {preference.step === 0 && <div className="tutorialFirstControls">
+          <div className="tutorialLanguage" role="group" aria-label={t('switch_language')}>
+            <button type="button" aria-pressed={language === 'zh-CN'} onClick={() => setLanguage('zh-CN')}>{t('language_native_chinese')}</button>
+            <button type="button" aria-pressed={language === 'en'} onClick={() => setLanguage('en')}>{t('language_native_english')}</button>
+          </div>
+          <div className="tutorialMusic" role="group" aria-label={t('music')}>
+            <button type="button" className="tutorialMusicSwitch" role="switch" aria-checked={!music.paused && !music.unavailable}
+              aria-label={t(music.paused || music.unavailable ? 'music_play' : 'music_pause')} onClick={() => gameMusic.toggle()}>
+              <IoIosMusicalNote aria-hidden="true" /> {t(music.paused || music.unavailable ? 'tutorial_bgm_off' : 'tutorial_bgm_on')}
+            </button>
+          </div>
         </div>}
         <div aria-live="polite" aria-atomic="true">
           <h2 id="tutorialTitle">{t(step.title)}</h2>

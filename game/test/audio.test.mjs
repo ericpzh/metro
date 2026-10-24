@@ -39,14 +39,14 @@ test('four local volume preferences clamp, persist, tolerate corrupt/unavailable
  let stored=null
  try{
   globalThis.localStorage={getItem:()=>stored,setItem:(_key,value)=>{stored=value}}
-  assert.deepEqual(sanitizeAudioVolumes({master:2,effects:2,ambient:-1}),{master:1,effects:1,ambient:0,music:.25})
-  assert.deepEqual(sanitizeAudioVolumes({master:NaN,effects:NaN}),{master:1,effects:.65,ambient:.45,music:.25})
+  assert.deepEqual(sanitizeAudioVolumes({master:2,effects:2,ambient:-1}),{master:1,effects:1,ambient:0,music:.1})
+  assert.deepEqual(sanitizeAudioVolumes({master:NaN,effects:NaN}),{master:1,effects:.65,ambient:.45,music:.1})
   setAudioVolume('master',.5);setAudioVolume('effects',.23);setAudioVolume('ambient',0)
-  assert.deepEqual(readAudioVolumes(),{master:.5,effects:.23,ambient:0,music:.25})
-  stored='bad JSON';assert.deepEqual(readAudioVolumes(),{master:1,effects:.65,ambient:.45,music:.25})
+  assert.deepEqual(readAudioVolumes(),{master:.5,effects:.23,ambient:0,music:.1})
+  stored='bad JSON';assert.deepEqual(readAudioVolumes(),{master:1,effects:.65,ambient:.45,music:.1})
   globalThis.localStorage={getItem(){throw Error('denied')},setItem(){throw Error('quota')}}
   setAudioVolume('effects',.4);assert.equal(getAudioVolumes().effects,.4)
-  assert.deepEqual(readAudioVolumes(),{master:1,effects:.65,ambient:.45,music:.25})
+  assert.deepEqual(readAudioVolumes(),{master:1,effects:.65,ambient:.45,music:.1})
  }finally{globalThis.localStorage=original;setAudioVolume('master',1);setAudioVolume('effects',.65);setAudioVolume('ambient',.45)}
 })
 test('native Z-up camera distance and orientation control gain/pan, including finite-radius silence',()=>{

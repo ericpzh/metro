@@ -358,6 +358,14 @@ changed modules' line, branch and function coverage, and use their real producti
 browser check. Preserve deterministic work-count/lifecycle assertions; browser timing
 is evidence, not a pass threshold.
 
+Before committing, audit the complete `git diff` and map every behavior-changing
+part to a regression in its owning test suite or production-browser check. Add coverage
+for any changed default, persisted preference, user-visible state or interaction that
+the existing checks do not exercise; keep the relevant coverage notes current. Run the
+owning suite and the specific browser check for changed UI, then review `git diff --check`
+and the staged diff before committing. Do not use aggregate coverage alone as
+evidence that each changed behavior is covered.
+
 PSD cover placement is regression-sensitive across picking, snapping and collision.
 `psd-end.test.mjs` must pin whole-run clicks, one-tile ground clicks, direct end-door
 clicks, floorless hover/click agreement, same-footprint level selection, upward stacking,

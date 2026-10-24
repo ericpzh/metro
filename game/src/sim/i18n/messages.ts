@@ -49,6 +49,8 @@ export const messages = {
 
   "language_native_chinese": { "zh": "中文", "en": "中文" },
   "language_native_english": { "zh": "English", "en": "English" },
+  "tutorial_bgm_on": { "zh": "音乐：开", "en": "Music: On" },
+  "tutorial_bgm_off": { "zh": "音乐：关", "en": "Music: Off" },
   "tutorial_title": { "zh": "新手教程", "en": "Getting started" },
   "tutorial_progress": { "zh": "{0} / {1}", "en": "{0} / {1}" },
   "tutorial_dont_show": { "zh": "不再自动显示教程", "en": "Don't show automatically" },

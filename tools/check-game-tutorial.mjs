@@ -129,15 +129,41 @@ try {
       await checkCard(language, index)
       if (index === 0) {
         assert.equal(await evaluate(`document.querySelectorAll('.tutorialLanguage button').length`), 2)
+        const musicSwitch = '.tutorialMusicSwitch'
+        assert.equal(await evaluate(`document.querySelector(${JSON.stringify(musicSwitch)}).getAttribute('role')`), 'switch')
+        const musicControl = await evaluate(`(() => {
+          const row=document.querySelector('.tutorialFirstControls').getBoundingClientRect();
+          const language=document.querySelector('.tutorialLanguage').getBoundingClientRect();
+          const button=document.querySelector(${JSON.stringify(musicSwitch)}),r=button.getBoundingClientRect();
+          const style=getComputedStyle(button);
+          return {text:button.textContent.trim(),rowTop:row.top,rowBottom:row.bottom,buttonCenter:r.top+r.height/2,
+            languageCenter:language.top+language.height/2,icon:!!button.querySelector('svg'),justify:style.justifyContent,align:style.alignItems};
+        })()`)
+        assert.equal(musicControl.text, tForLanguage(language, 'tutorial_bgm_on'))
+        assert.equal(musicControl.icon, true)
+        assert.ok(musicControl.buttonCenter >= musicControl.rowTop && musicControl.buttonCenter <= musicControl.rowBottom)
+        assert.ok(Math.abs(musicControl.buttonCenter - musicControl.languageCenter) < 1, 'Music button aligns with language buttons')
+        assert.equal(musicControl.justify, 'center')
+        assert.equal(musicControl.align, 'center')
+        await click(musicSwitch)
+        assert.equal(await evaluate(`document.querySelector(${JSON.stringify(musicSwitch)}).getAttribute('aria-checked')`), 'false')
+        assert.equal(await evaluate(`document.querySelector(${JSON.stringify(musicSwitch)}).textContent.trim()`), tForLanguage(language, 'tutorial_bgm_off'))
+        assert.equal(await evaluate(`localStorage.getItem('metro-game.music-paused')`), 'true')
+        await click(musicSwitch)
+        assert.equal(await evaluate(`document.querySelector(${JSON.stringify(musicSwitch)}).getAttribute('aria-checked')`), 'true')
+        assert.equal(await evaluate(`document.querySelector(${JSON.stringify(musicSwitch)}).textContent.trim()`), tForLanguage(language, 'tutorial_bgm_on'))
         const before = await evaluate(`__scene.camera.position.toArray()`)
         await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'w' })
         await sleep(240)
         await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'w' })
         assert.notDeepEqual(await evaluate(`__scene.camera.position.toArray()`), before)
-      } else assert.equal(await evaluate(`!!document.querySelector('.tutorialLanguage')`), false)
+      } else {
+        assert.equal(await evaluate(`!!document.querySelector('.tutorialLanguage')`), false)
+        assert.equal(await evaluate(`!!document.querySelector('.tutorialMusicSwitch')`), false)
+      }
       if (index === 1) {
         await key('q')
-        assert.equal(await evaluate(`__metro.getState().activeZ`), -4)
+        assert.equal(await evaluate(`__metro.getState().activeZ`), -5)
         await key('e')
         assert.equal(await evaluate(`__metro.getState().activeZ`), 0)
       }

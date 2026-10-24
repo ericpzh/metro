@@ -2,9 +2,11 @@
 .tutorialShade { position: absolute; inset: 0; pointer-events: none; }
 .tutorialCard { position: absolute; pointer-events: auto; box-sizing: border-box; width: min(352px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow-y: auto; padding: 22px; color: #edf4f2; background: #18282e; border: 1px solid #5b867f; border-radius: 14px; box-shadow: 0 16px 64px #0008; font-size: 14px; }
 .tutorialEyebrow { display: flex; justify-content: space-between; gap: 12px; color: #acd3ca; font-size: 12px; letter-spacing: .04em; }
-.tutorialLanguage { display: flex; gap: 6px; margin-top: 14px; }
+.tutorialFirstControls { display: flex; align-items: center; gap: 6px; margin-top: 14px; }
+.tutorialLanguage { display: flex; gap: 6px; }
 .tutorialLanguage button { border: 1px solid #68847e; border-radius: 6px; padding: 6px 12px; color: #e0eee9; background: transparent; cursor: pointer; }
-.tutorialLanguage button[aria-pressed="true"] { color: #132b26; background: #a6ddcb; border-color: #a6ddcb; }
+.tutorialLanguage button[aria-pressed="true"], .tutorialMusicSwitch[aria-checked="true"] { color: #132b26; background: #a6ddcb; border-color: #a6ddcb; }
+.tutorialMusicSwitch { display: inline-flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #68847e; border-radius: 6px; padding: 6px 10px; color: #e0eee9; background: transparent; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .tutorialCard h2 { margin: 12px 0; font-size: 21px; line-height: 1.3; color: inherit; }
 .tutorialCard p { line-height: 1.7; margin: 14px 0 20px; }
 .tutorialKeys { display: flex; column-gap: 20px; row-gap: 12px; flex-wrap: wrap; }

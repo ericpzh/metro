@@ -7,7 +7,7 @@ export function audioAssetBase(pathname:string):string {
   return `/${segments.length?segments.join('/')+'/':''}audio/`
 }
 const KEY = 'metro-game.audio'
-const defaults: AudioVolumes = { master: 1, effects: .65, ambient: .45, music: .25 }
+const defaults: AudioVolumes = { master: 1, effects: .65, ambient: .45, music: .1 }
 export function sanitizeAudioVolumes(value: unknown): AudioVolumes {
   const v = value as Partial<AudioVolumes> | null
   const volume = (n: unknown, fallback: number): number => typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : fallback

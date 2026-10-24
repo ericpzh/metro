@@ -1,5 +1,5 @@
-`audio` pins the six approved assets, four bilingual volume sliders, master scaling,
-local preference validation/persistence, outcome-only interaction cues, repeated
+`audio` pins the six approved assets, four bilingual volume sliders, the 10% default
+music level, master scaling, local preference validation/persistence, outcome-only interaction cues, repeated
 refusal attempts, finite-radius Z-up distance/pan, bounded crowd sampling,
 eight one-shots / three ambient buses, the approved per-layer speed policies,
 passenger-loop retention, sample offsets/pitch, mute release and hidden-tab/late-decode
@@ -228,7 +228,8 @@ suite does not exercise WebGL, check scene integration in a browser when changin
 `tutorial.test.mjs` covers empty, paused startup at ground level and the tutorial's
 local-storage progress/opt-out, including corrupted, stale and blocked storage.
 Run `npm run check:tutorial` from the repo root for the separate production-browser
-regression: bilingual layout, first-card language switching, separate shortcut
+regression: bilingual layout, first-card language switching and localized Music
+pause/resume control with its icon, row alignment and persisted shared pause state, separate shortcut
 keycaps, live keyboard/mouse controls, tool-only activation before revealing the
 construction area, new-line expansion, whole-folder highlighting/scrolling, and
 reload/skip/completion/opt-out/reopening. It uses Chrome or Edge and saves its
