@@ -1,0 +1,124 @@
+{
+  "generator": "MPFB / MakeHuman",
+  "blender": "5.2.3 LTS",
+  "revision": "6ff1eb358f6c1959ced77e79e6dd2406d9a71f49",
+  "license": "CC0-1.0",
+  "source": "https://github.com/makehumancommunity/mpfb2",
+  "assets": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+  "assetsSha256": "b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107",
+  "note": "Generated child age and Asian phenotype targets; fitted CC0 hair, clothes, shoes and game-engine rig. Two girls and two boys at different age/body settings. Direct PBR skin and dark hair materials preserve glTF compatibility. Shape keys/masks baked, textures bounded to 1024px. Visual candidates, not reviewed game assets.",
+  "characters": [
+    {
+      "id": "girl-01",
+      "gender": 0.0,
+      "age": 0.13,
+      "weight": 0.42,
+      "proportions": 0.45,
+      "hair": "bob02",
+      "clothes": "female_casualsuit01",
+      "macro": {
+        "gender": 0.0,
+        "age": 0.13,
+        "muscle": 0.5,
+        "weight": 0.42,
+        "proportions": 0.45,
+        "height": 0.5,
+        "cupsize": 0.0,
+        "firmness": 0.5,
+        "race": {
+          "asian": 1.0,
+          "african": 0.0,
+          "caucasian": 0.0
+        }
+      },
+      "file": "girl-01.glb",
+      "bytes": 5010192,
+      "sha256": "822876e29b24ca299c5d363a7244d6ba51246bad89db0abb029197a670884b28",
+      "bones": 53
+    },
+    {
+      "id": "girl-02",
+      "gender": 0.0,
+      "age": 0.24,
+      "weight": 0.51,
+      "proportions": 0.52,
+      "hair": "ponytail01",
+      "clothes": "female_casualsuit02",
+      "macro": {
+        "gender": 0.0,
+        "age": 0.24,
+        "muscle": 0.5,
+        "weight": 0.51,
+        "proportions": 0.52,
+        "height": 0.5,
+        "cupsize": 0.0,
+        "firmness": 0.5,
+        "race": {
+          "asian": 1.0,
+          "african": 0.0,
+          "caucasian": 0.0
+        }
+      },
+      "file": "girl-02.glb",
+      "bytes": 5304588,
+      "sha256": "91f3ba62552aec619b33c9b4a90c4c459c93c3757c93db9ce616e27e1809a03f",
+      "bones": 53
+    },
+    {
+      "id": "boy-01",
+      "gender": 1.0,
+      "age": 0.15,
+      "weight": 0.48,
+      "proportions": 0.44,
+      "hair": "short02",
+      "clothes": "male_casualsuit06",
+      "macro": {
+        "gender": 1.0,
+        "age": 0.15,
+        "muscle": 0.5,
+        "weight": 0.48,
+        "proportions": 0.44,
+        "height": 0.5,
+        "cupsize": 0.0,
+        "firmness": 0.5,
+        "race": {
+          "asian": 1.0,
+          "african": 0.0,
+          "caucasian": 0.0
+        }
+      },
+      "file": "boy-01.glb",
+      "bytes": 4801780,
+      "sha256": "d9d0a70f0c6f8bf072354dd5d1b8a5adfd379f3e3d0a22e646e52a3411d4ad42",
+      "bones": 53
+    },
+    {
+      "id": "boy-02",
+      "gender": 1.0,
+      "age": 0.25,
+      "weight": 0.55,
+      "proportions": 0.55,
+      "hair": "short04",
+      "clothes": "male_casualsuit05",
+      "macro": {
+        "gender": 1.0,
+        "age": 0.25,
+        "muscle": 0.5,
+        "weight": 0.55,
+        "proportions": 0.55,
+        "height": 0.5,
+        "cupsize": 0.0,
+        "firmness": 0.5,
+        "race": {
+          "asian": 1.0,
+          "african": 0.0,
+          "caucasian": 0.0
+        }
+      },
+      "file": "boy-02.glb",
+      "bytes": 5123900,
+      "sha256": "e07e50f1e21c75e075441dd3bbb4d941117721a9ff637c7aed419eb624df8e02",
+      "bones": 53
+    }
+  ]
+}

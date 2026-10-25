@@ -1,5 +1,47 @@
 # Model library
 
+## Clothed human candidates
+
+Open `/candidates.html` from the model viewer's **Human candidates** link.
+The focused East Asian candidate set has ten adult bases (six VALID casual
+characters and four Rocketbox visual selections) plus four generated MPFB children
+(two girls and two boys). The six VALID characters are different bases, not six
+outfits of one person. Rocketbox picks are visual selections; that source does not
+provide ethnicity labels. Previous nonmatching candidates are excluded.
+
+`src/candidate-catalog.js` owns the selection and bilingual labels. Switch between
+original and smooth textured grey materials, orbit or use the fixed camera views,
+and keep a shortlist in browser local storage. Candidate/style/language live in
+the URL; picks remain local. Grey mode preserves authored normals, clothing detail
+and alpha cutouts. The page has scoped viewport layout in `src/candidates.css`.
+
+Adults use a 1.75 m comparison height; generated children span 1.18–1.46 m and use
+actual child age/Asian phenotype targets, not adult meshes scaled smaller. The
+children differ in age/body parameters, hair and fitted clothes. Sources retain
+rigs but these are static appearance candidates; animation and game integration
+remain pending. Nothing here changes the game crowd atlas.
+
+Source notices, pinned revisions and hashes live in
+`public/human-candidates/manifest.json` and each collection's `source.json`.
+Rocketbox and VALID are MIT; generated MakeHuman core assets/output are CC0.
+Preserve each collection's license file. Source textures are bounded to 1024px.
+
+Reproduction tools:
+- `python tools/collect-valid-candidates.py`: six pinned compressed GLBs.
+- `python tools/generate-child-candidates.py`: four MPFB GLBs, rigged/fitted,
+  shape/mask baking and export-compatible PBR skin/dark hair. Requires the isolated
+  bpy 5.2.3 runtime, pinned MPFB source and CC0 system pack under
+  `.preview/human-tools/`; the output source record contains revisions and hashes.
+- `python tools/collect-human-candidates.py`: four Rocketbox picks plus combined
+  manifest refresh after generating/downloading the other collections.
+
+Build without regenerating game passenger exports using
+`node model/node_modules/vite/bin/vite.js build model`, then run
+`node tools/check-human-candidates.mjs`. This checks all fourteen candidates in
+both styles, retained rigs, actual grey desaturation, preserved normals/maps/alpha,
+shortlist persistence, Chinese labels, compact layout and shaders. Visual captures
+are ignored under `.preview/human-candidates/`.
+
 ## Passenger activity previews
 
 Open `http://127.0.0.1:5175/?action=ticket&bag=0` and use **Passenger activity**

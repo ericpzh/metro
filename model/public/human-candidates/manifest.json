@@ -1,0 +1,273 @@
+{
+  "license": "MIT and CC0-1.0; see source records",
+  "sources": [
+    {
+      "author": "Microsoft / Rocketbox",
+      "url": "https://github.com/microsoft/Microsoft-Rocketbox",
+      "revision": "0943055db6ec570bcef9f2c8b41c9e5467c808f9",
+      "license": "MIT",
+      "avatars": [
+        "Female_Adult_03",
+        "Female_Adult_11",
+        "Male_Adult_09",
+        "Business_Male_02"
+      ],
+      "note": "Four Rocketbox adult visual selections for East Asian appearance. Original FBX unchanged. TGA textures converted to PNG at at most 1024 px per side. Original paths: Assets/Avatars/<Adults|Children|Professions>/<avatar>/Textures/. See rocketbox/LICENSE.md."
+    },
+    {
+      "author": "VALID / University of Central Florida and Google; GLB conversion c-frame",
+      "source": "https://github.com/google/valid-avatar-library",
+      "conversion": "https://github.com/c-frame/valid-avatars-glb",
+      "revision": "c4719df7a2b60a96cc7f56d67e247674b68c4ea7",
+      "license": "MIT",
+      "note": "Six distinct East Asian adult bases, one casual outfit each. No children."
+    },
+    {
+      "generator": "MPFB / MakeHuman",
+      "blender": "5.2.3 LTS",
+      "revision": "6ff1eb358f6c1959ced77e79e6dd2406d9a71f49",
+      "license": "CC0-1.0",
+      "source": "https://github.com/makehumancommunity/mpfb2",
+      "assets": "https://files2.makehumancommunity.org/asset_packs/makehuman_system_assets/makehuman_system_assets_cc0.zip",
+      "assetsSha256": "b542127a8e25547c7c29c19f2d1d2adb9a664c80396ecd694095dbc8028a0107",
+      "note": "Generated child age and Asian phenotype targets; fitted CC0 hair, clothes, shoes and game-engine rig. Two girls and two boys at different age/body settings. Direct PBR skin and dark hair materials preserve glTF compatibility. Shape keys/masks baked, textures bounded to 1024px. Visual candidates, not reviewed game assets."
+    }
+  ],
+  "files": [
+    {
+      "path": "generated/boy-01.glb",
+      "bytes": 4801780,
+      "sha256": "d9d0a70f0c6f8bf072354dd5d1b8a5adfd379f3e3d0a22e646e52a3411d4ad42"
+    },
+    {
+      "path": "generated/boy-02.glb",
+      "bytes": 5123900,
+      "sha256": "e07e50f1e21c75e075441dd3bbb4d941117721a9ff637c7aed419eb624df8e02"
+    },
+    {
+      "path": "generated/girl-01.glb",
+      "bytes": 5010192,
+      "sha256": "822876e29b24ca299c5d363a7244d6ba51246bad89db0abb029197a670884b28"
+    },
+    {
+      "path": "generated/girl-02.glb",
+      "bytes": 5304588,
+      "sha256": "91f3ba62552aec619b33c9b4a90c4c459c93c3757c93db9ce616e27e1809a03f"
+    },
+    {
+      "path": "generated/LICENSE.txt",
+      "bytes": 7003,
+      "sha256": "5f3ab0cf6f7ebe92efe4b83213131c617d308d164eeefd5da230373640b0c226"
+    },
+    {
+      "path": "generated/source.json",
+      "bytes": 3559,
+      "sha256": "062c83bd9bef3af31f3e60c12e3d4bb70eddaa5c4e9d8863adadb663467fe45f"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/Business_Male_02.fbx",
+      "bytes": 521088,
+      "sha256": "8f00396b5038034bfa69d2f48b33d473ac2a99c915c9e265cb34f4e1ecea3374"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_body_color.png",
+      "bytes": 1044472,
+      "sha256": "8fdc38043edd0367d509283ca0f467193031ec00417698ebc444a03db166a751"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_body_normal.png",
+      "bytes": 1110607,
+      "sha256": "a6e89e3b372c9ae5c98ae6499211e6aa252f84717bec8c036d85c779e9a4f018"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_body_specular.png",
+      "bytes": 227405,
+      "sha256": "b8ca3acdc6455fa3c32f103a0ac735c95674b7c53c849bd5d5617a605e7229e8"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_head_color.png",
+      "bytes": 1035475,
+      "sha256": "bcc6b8a0aa5dbc6e4b77664b8489b527b81f793c5f848ca2a8584b52a24d00ba"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_head_normal.png",
+      "bytes": 1066811,
+      "sha256": "604f950ba19385444d71964ebfa012222eefcb62c775cd521356aa6fa52b74e8"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_head_specular.png",
+      "bytes": 435808,
+      "sha256": "719778b2db53fdebb0bb6a5966726dc47be0e8b645b1949ab08e5993e2bd3a09"
+    },
+    {
+      "path": "rocketbox/Business_Male_02/m008_opacity_color.png",
+      "bytes": 847889,
+      "sha256": "964d1e8760cd56b7bf5c55f01790cbd1105129ee26897e04bd624dc48b636d16"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_body_color.png",
+      "bytes": 1175324,
+      "sha256": "d84174d34cc583c8cb020a7969243447bd32695917a8939cb2d3deb13b6e005c"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_body_normal.png",
+      "bytes": 1008710,
+      "sha256": "4846304b35fa7310d9dcbca46b2011c1618585eb48d60fcf5e06e006ec57bf7e"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_body_specular.png",
+      "bytes": 308619,
+      "sha256": "d08e0cf5294dc53f04308606079c5ee4600585be33750ef28a0ac18ec0b01a7e"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_head_color.png",
+      "bytes": 1293803,
+      "sha256": "641b233bd5e1109674f790946c0987638d59ea52dc9792fe3e2c3015b8dd3a2c"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_head_normal.png",
+      "bytes": 1313146,
+      "sha256": "bd33bf113d04b40e3a8fafa9e9652b57b9bdee99d4f8cd9693fdb3e9f56bd262"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_head_specular.png",
+      "bytes": 502137,
+      "sha256": "d15c7a6c0a3f2a73d846d3cc969e4148b4bb40bac20dfc718003e86092247e10"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/f003_opacity_color.png",
+      "bytes": 1226462,
+      "sha256": "ad673db411b1ac04bf3975500ccf952e0843e929ff07d9c0dafb329366106ad7"
+    },
+    {
+      "path": "rocketbox/Female_Adult_03/Female_Adult_03.fbx",
+      "bytes": 791312,
+      "sha256": "d8930ca41e72166310622c9ffacd752d93459518ca5e59c84a32b07a10acaebd"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_body_color.png",
+      "bytes": 1324636,
+      "sha256": "75ae0b18e97159492cb977672ff2f802835d5aa7e6aeffeda18cf54d9fda0896"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_body_normal.png",
+      "bytes": 1323089,
+      "sha256": "125deaf325568a84a4be366e22548a0413e4ac5e9f783a9c2cd74f010e2f6238"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_body_specular.png",
+      "bytes": 465893,
+      "sha256": "a798820dad320f07e1f2dc10956a99af75543882b71601c0cbb6b3376d2917a6"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_head_color.png",
+      "bytes": 1442085,
+      "sha256": "347fd0f26666ea772bb75d551f88e9d20bbd1647551d58784c804a320768deda"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_head_normal.png",
+      "bytes": 1314619,
+      "sha256": "167234db37851d8c13b86f4a52cc52a4db1027c5c0f4702e0f0986afcb08d283"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_head_specular.png",
+      "bytes": 518222,
+      "sha256": "4c2edbc0053877f30754297328d1d6629b3c083d76cfbe0466af1c2826d5e607"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/f011_opacity_color.png",
+      "bytes": 823515,
+      "sha256": "e5e9bef1f01c393c351bcd4b611cda5aa93074f3ccd7264656f9cb2deec46c3a"
+    },
+    {
+      "path": "rocketbox/Female_Adult_11/Female_Adult_11.fbx",
+      "bytes": 612192,
+      "sha256": "713d79f1bf21e20e9c1e9ec4ed4d421c84c0466dfdeebf59d47af81b71b8ca88"
+    },
+    {
+      "path": "rocketbox/LICENSE.md",
+      "bytes": 1066,
+      "sha256": "17474e386e0b9e1a700cc3d06b2b0882a2c376d9c6b49c7f8274409b8f8d2352"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_body_color.png",
+      "bytes": 1221790,
+      "sha256": "f8156c2a90bbe919bfaefcbaa72d0f99af0d7442a89683bc550436c93709098a"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_body_normal.png",
+      "bytes": 1087053,
+      "sha256": "d3023d10ea8cfdfbadc963f669e39a190ed76f839b48a063624b96a66e245dc9"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_body_specular.png",
+      "bytes": 378358,
+      "sha256": "7ef7814f69fa2eb849d877992e816682378da472211b7251f13ce3d0130a18cb"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_head_color.png",
+      "bytes": 1296691,
+      "sha256": "2f26516ec2d3436a7ef1906ddd90dd2b7f56125c566d03400ff040619279b838"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_head_normal.png",
+      "bytes": 1186106,
+      "sha256": "836490d5a7cb7c700b575bdb9549043fcb837d3d27977b8ac02ff6140c0c4da4"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_head_specular.png",
+      "bytes": 661455,
+      "sha256": "73956ec0426b8bfb503d074de6bfe97495a5a5f207ca0f9c456ce8b7ef354835"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/m017_opacity_color.png",
+      "bytes": 524075,
+      "sha256": "2653a8b8047a37e4c2d7f8895e199887d26c1de6719d13a81b4d3e6e624eb336"
+    },
+    {
+      "path": "rocketbox/Male_Adult_09/Male_Adult_09.fbx",
+      "bytes": 522176,
+      "sha256": "ebb89800dbad28b4352369c7149314e010806268a28d7f5bb954a4393bba3d00"
+    },
+    {
+      "path": "valid/Asian_F_1_Casual.glb",
+      "bytes": 1751532,
+      "sha256": "30f9ed4545f59686ab70bfab644724bfa6c64f226c48a8a5c063617a71147051"
+    },
+    {
+      "path": "valid/Asian_F_2_Casual.glb",
+      "bytes": 2474804,
+      "sha256": "c3d2942b6ef733198c78540b16a94f8b5d515837c32726448dcf32edb1a587a1"
+    },
+    {
+      "path": "valid/Asian_F_3_Casual.glb",
+      "bytes": 2259252,
+      "sha256": "0fd60418fbaed50186c2f4d71044742e7119545c16718fa204e670080b044bde"
+    },
+    {
+      "path": "valid/Asian_M_1_Casual.glb",
+      "bytes": 1834296,
+      "sha256": "92e8f1289382042ea8977a113682b9e8f86604e0ec696d63de634581059ee1a2"
+    },
+    {
+      "path": "valid/Asian_M_2_Casual.glb",
+      "bytes": 1899396,
+      "sha256": "6b39a950c0d227d72c71fb980fa7996161c1f4f264dbfd2e5b2f5f18dca01d7c"
+    },
+    {
+      "path": "valid/Asian_M_3_Casual.glb",
+      "bytes": 1915968,
+      "sha256": "3a3306c15969cd4f5e1bd861d63285587a9fd7a69621ecf8dbf686441458a2e6"
+    },
+    {
+      "path": "valid/LICENSE",
+      "bytes": 1067,
+      "sha256": "df3fe1ee3def750c6e8512421dc8f61288783ef95bf99fa4229824a373f03fea"
+    },
+    {
+      "path": "valid/source.json",
+      "bytes": 1421,
+      "sha256": "cb337e82222784a69bf96edd09cae4abc5f7f25742c208213ce8f7e3c599f5cf"
+    }
+  ]
+}

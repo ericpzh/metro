@@ -1,0 +1,14 @@
+/* Keep candidate inspection in one viewport without changing the main viewer. */
+.candidate-page main{max-width:none;height:100dvh;margin:0;padding:0;display:grid;grid-template-rows:auto auto minmax(0,1fr) auto}
+.candidate-page header{max-width:none;width:100%;padding:18px 26px;margin:0;gap:20px}
+.candidate-page h1{font-size:28px;letter-spacing:-.7px}
+.candidate-page .eyebrow{margin-bottom:5px}
+.candidate-page #intro{padding:0 26px;font-size:13px;line-height:1.5}
+.candidate-page .workspace{grid-template-columns:280px minmax(0,1fr);gap:0;align-items:stretch;min-height:0;margin:0}
+.candidate-page aside{padding:16px 22px;overflow:auto;border-right:1px solid var(--line);min-width:0;grid-row:auto}
+.candidate-page select{max-width:100%;width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:#fafbf6}
+.candidate-page nav select{width:auto}
+.candidate-page #view{height:100%;min-height:0}
+.candidate-page footer{max-width:none;width:100%;margin:0;padding:12px 26px;gap:12px;letter-spacing:0}
+.candidate-page button:disabled{opacity:.45;cursor:default}
+@media(max-width:720px){.candidate-page header{padding:14px 16px}.candidate-page h1{font-size:23px}.candidate-page #intro{padding:0 16px}.candidate-page .workspace{grid-template-columns:190px minmax(0,1fr)}.candidate-page aside{padding:12px}.candidate-page footer{padding:10px 14px;flex-wrap:wrap}.candidate-page footer p{font-size:10px}}
