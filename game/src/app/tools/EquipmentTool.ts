@@ -605,6 +605,7 @@ export class EquipmentTool extends ToolController {
     const st = useStore.getState()
     const placementType = type.startsWith('door-')
       ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
+      : type === 'tv-double' ? 'tv'
       : type
     let mod: Module | null
     if (type === 'walkway') {
@@ -752,6 +753,15 @@ export class EquipmentTool extends ToolController {
 
   /** Preview and commit both place one complete module at every stair width. */
   private buildPlacementModules(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module[] {
+    if (type === 'tv-double') {
+      const first = this.buildPlacementModule('tv-double', cell, id, targetRamp)
+      if (first?.type !== 'tv') return []
+      const secondId = nextModuleId([...useStore.getState().station.modules, first], 'tv-double')
+      const second = this.buildPlacementModule('tv-double', cell, secondId, targetRamp)
+      if (second?.type !== 'tv') return []
+      second.rot = ((first.rot ?? 0) + 2) % 4
+      return [first, second]
+    }
     const one = this.buildPlacementModule(type, cell, id, targetRamp)
     return one ? [one] : []
   }

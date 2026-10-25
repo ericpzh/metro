@@ -584,6 +584,11 @@
       "bytes": 8882
     },
     {
+      "id": "tv-double",
+      "file": "tv-double.png",
+      "bytes": 8873
+    },
+    {
       "id": "tvm",
       "file": "tvm.png",
       "bytes": 6474

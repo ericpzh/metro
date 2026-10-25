@@ -23,7 +23,7 @@ export type DecorCategory = 'ceiling' | 'wall' | 'floor' | 'outside'
 /** Palette ids grouped by where the player mounts or places the decor. */
 const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
   ceiling: new Set([
-    'hanger-roof', 'monitor-ceiling', 'tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome',
+    'hanger-roof', 'monitor-ceiling', 'tv', 'tv-double', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome',
     'light-circular', 'light-rectangular', 'vent', 'sign-ceiling',
   ]),
   wall: new Set([
@@ -126,7 +126,8 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'monitor-wall', label: msg('monitor_wall'), type: 'monitor', w: 3, h: 1 },
   { id: 'traffic-light', label: msg('traffic_light'), type: 'traffic-light', w: 1, h: 1 },
   { id: 'rail-signal', label: msg('rail_signal'), type: 'rail-signal', w: 1, h: 1 },
-  { id: 'tv', label: msg('tv'), type: 'tv', w: 1, h: 1 },
+  { id: 'tv', label: msg('single_sided'), type: 'tv', w: 1, h: 1 },
+  { id: 'tv-double', label: msg('double_sided'), type: 'tv', w: 1, h: 1 },
   // The 指示牌's two mounts (§5.8): the overhead board hung from the ceiling and read
   // from both sides, and the same board bolted flat to a wall. Two tiles, one piece —
   // the 线网图's wall/stand pair read the other way round (`sim/sign.ts`) — and the tiles
@@ -272,7 +273,7 @@ export function isDecorType(type: string): boolean {
     isDoorType(type) ||
     isCalligraphyType(type) ||
     isLineMapType(type) ||
-    type === 'tv' || type === 'monitor' || type.startsWith('monitor-') || type === 'rail-signal'
+    type === 'tv' || type === 'tv-double' || type === 'monitor' || type.startsWith('monitor-') || type === 'rail-signal'
   )
 }
 
@@ -418,7 +419,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end'
+export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -445,6 +446,7 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'tv', owns: (id) => id === 'tv' || id === 'tv-double' },
   { key: 'monitor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'extinguisher', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'gate', owns: isGateType },
@@ -477,6 +479,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'tv', label: msg('tv'), folder: 'decor', owns: (id) => id === 'tv' || id === 'tv-double' },
   { key: 'monitor', label: msg('monitor'), folder: 'decor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
   { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isStandardFenceType },
@@ -610,7 +613,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     familyAnchor('calligraphy'),
     familyAnchor('tactile'), familyAnchor('floor-mark'),
     familyAnchor('linemap'),
-    'tv',
+    familyAnchor('tv'),
     familyAnchor('monitor'),
     'rail-signal',
     familyAnchor('psd-end'),

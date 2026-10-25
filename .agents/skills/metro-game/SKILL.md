@@ -1534,7 +1534,9 @@ including the depth prepass, for all six appearances.
   only artwork cut for a landscape panel is eligible (cropping is not stretching).
   `render/stationDisplay.ts` owns the board's derivation and pixels, and
   `stationDisplayLayout` keeps its geometry testable without a canvas. **Two 电视 may share
-  one tile back to back** (`sim/tvs.ts`, `test/tv-pair.test.mjs`): turned exactly 180° apart
+  one tile back to back** (`sim/tvs.ts`, `test/tv-pair.test.mjs`): the palette offers 单面
+  and 双面, and 双面 places the two modules together in one undoable action
+  (`test/tv-double.test.mjs`). They are turned exactly 180° apart
   the pair is one object — a housing **two panels thick** (0.2 m through, `TV_HALF_DEPTH`
   either side of centre, *not* a cell-filling box), one bezel, one suspension, a lit face each
   side — and it is the one `placementColliders` exemption that is not a pair of *different*

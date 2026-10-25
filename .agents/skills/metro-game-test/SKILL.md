@@ -34,6 +34,11 @@ first-Play FPS captures separate from tests and report existing failures honestl
 the `test/support/` harnesses, what is deliberately untested and the coverage
 table. Read it before adding a suite. This skill is the short version.
 
+`tv-pair.test.mjs` owns the geometry and shared-cell contract for TVs facing back
+to back. `tv-double.test.mjs` covers the 单面/双面 palette choices and confirms
+that the 双面 option previews and commits the two opposite-facing modules as one
+undoable placement.
+
 ```powershell
 cd game
 npm test                 # node --test "test/**/*.test.mjs"

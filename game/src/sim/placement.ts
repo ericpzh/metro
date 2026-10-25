@@ -914,6 +914,7 @@ export function wallMountCourses(m: Module): number[] {
  * board itself — answers no.
  */
 export function isCeilingHung(m: { type: string; cfg?: object }): boolean {
+  if (m.type === 'tv-double') return true
   if (m.type === 'cctv-post' || (m.type === 'cctv' && (m.cfg as { variant?: string } | undefined)?.variant === 'post')) return false
   if (m.type === 'monitor-ceiling' || m.type === 'monitor') return (m.cfg as { mount?: string } | undefined)?.mount !== 'wall'
   if (m.type === 'hanger-roof' || m.type.startsWith('hanger-roof-')) return true

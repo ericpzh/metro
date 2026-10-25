@@ -1054,6 +1054,14 @@ export const messages = {
     "zh": "电视",
     "en": "TV"
   },
+  "single_sided": {
+    "zh": "单面",
+    "en": "Single-sided"
+  },
+  "double_sided": {
+    "zh": "双面",
+    "en": "Double-sided"
+  },
   "curtain_wall": {
     "zh": "玻璃幕墙",
     "en": "Curtain wall"

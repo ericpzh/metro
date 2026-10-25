@@ -22,6 +22,10 @@ pointer actions, source/file routing, event pick counts, sliders and ambient fra
 
 # `game/test` — how the game is tested
 
+`tv-pair` pins the legal opposite-facing shared-cell rule, one shared housing and
+two readable faces. `tv-double` checks the TV palette's 单面/双面 choices and
+that 双面 previews and commits both opposite-facing screens as one undoable action.
+
 `cab-front-surface` pins exact cab-skin intersections against the full raycaster
 across widths, detail levels, both ends, shoulders and bucket seams, with bounded
 triangle tests and no repeated shell reads. `train-preparation` matches the
@@ -87,13 +91,13 @@ same-tile curtain sharing and neighbour-index invalidation. It runs in `test:per
 `tools/bench-curtain-preview.mjs` measures first and repeated production pointer
 hovers on Tanwei (or `BENCH_DEMO=zoo`), with CPU profiles under `.preview/perf/`.
 
-`preview-pipeline` sweeps all 120 palette options for immutable preview documents
+`preview-pipeline` sweeps all 121 palette options for immutable preview documents
 and exact geometry versus a merged candidate document. It covers candidate-only
 TV/tactile/stair/glass/bridge neighbours, cached floor finishes, local ordered
 equipment collision queries and broad imported pieces, material retention and
 single disposal, multi-layer cancellation, 5,000-cell face previews, inactive-tool
 ownership, and paint/zone latest-target scheduling with one release commit.
-`preview-lod` compares all 120 tinted previews with placed-equipment batching at
+`preview-lod` compares all 121 tinted previews with placed-equipment batching at
 High/Low, near/far, other-storey and Hide UI settings, preserves instanced-roof Low
 geometry and exact High restoration, handles multi-material hover meshes, and
 pins preview/commit glass height and refusal across every rotation and shifted
@@ -102,7 +106,7 @@ storey. Both run in `test:perf`.
 `tools/check-preview-lod.mjs` checks real wall picks, GPU-facing topology and
 preview-to-placement agreement, saving screenshots under `.preview/perf/preview-audit/`.
 
-Placement invalidation: `equipment-retention` sweeps all 120 palette options
+Placement invalidation: `equipment-retention` sweeps all 121 palette options
 against the remote catalogue, pins prepared tool occupancy and shadow-buffer
 reuse/partial uploads/bounded capacity/exact disposal, and compares
 incremental road/bridge/pillar/hanger geometry with fresh builds in both edit
@@ -197,7 +201,7 @@ tread and riser, their full extent and both end heights; folded exit glazing mee
 the Low canopy, and merged open-exit pads retain all floor/wellway samples in four
 rotations. Printed monitor artwork retains High vectors at any distance, switches
 coherently through global batches and Hide UI, and owns one bounded texture.
-`npm run check:equipment-lod` renders all 120 options at both qualities, checks actual
+`npm run check:equipment-lod` renders all 121 options at both qualities, checks actual
 GPU submissions/blank pixels and global monitor/open-exit batches, and saves contact sheets. Conservative Near/Low bounds are pinned for instanced, merged and transparent batches, including frustum visibility outside the original source bounds. Local batches preserve and isolate coherent detail metadata.
 Primitive panels also pin UVs, exact edge picks, cached swaps and
 single disposal. It covers authored Low triangle budgets for all shelf,

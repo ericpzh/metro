@@ -25,6 +25,7 @@ import { createLineMapArt } from '../render/lineMapArt.ts'
 import { calligraphyPlate, drawCalligraphyPanel } from '../render/calligraphyFace.ts'
 import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../render/lineMapFace.ts'
 import { drawStationDisplay, STATION_PLATE, tvLineStatus } from '../render/stationDisplay.ts'
+import { tvPairSlot } from '../sim/tvs.ts'
 import { drawSignPanel } from '../render/signFace.ts'
 import { loadPictograms } from '../render/pictograms.ts'
 import { DEFAULT_SIGN_MOUNT, makeSignBoards, signMountSpec, signPlate, type SignMount } from '../sim/sign.ts'
@@ -386,6 +387,7 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'rail-signal':
       return createModule(id, 0, 0, 0, id)
     case 'tv':
+    case 'tv-double':
       return { id, type: 'tv', x: 0, y: 0, z: 0, rot: 0, cfg: { poster: SILHOUETTE_POSTER.landscape.slug } }
     case 'curtain-wall':
       return createModule('curtain-wall', 0, 0, 0, id)
@@ -909,6 +911,7 @@ export async function renderModulePieces(
     mats,
     ads,
     data: station,
+    tvPairSlot: (id) => tvPairSlot(id, station.modules),
     trackCells: new Set(['0,-1,0']),
     finish: (id) => finishes.finish(id),
     tvPlate: (id) => {
@@ -1213,7 +1216,19 @@ export async function renderModulePieces(
       if ((opt.id === 'lift' || opt.id === 'lift-shaft') && (elevations?.liftStoreys ?? 1) > 1 && mod.type === 'lift') {
         for (let i = 1; i < (elevations as PieceElevations).liftStoreys!; i++) mod = liftExtendedUp(mod)
       }
-      let group = buildModule(mod, ctx)
+      let group: THREE.Object3D | null
+      if (opt.id === 'tv-double' && mod.type === 'tv') {
+        const mate: Extract<Module, { type: 'tv' }> = { ...mod, id: `${mod.id}-back`, rot: 2 }
+        station.modules = [mod, mate]
+        group = new THREE.Group()
+        const front = buildModule(mod, ctx)
+        const back = buildModule(mate, ctx)
+        if (front) group.add(front)
+        if (back) group.add(back)
+        station.modules = []
+      } else {
+        group = buildModule(mod, ctx)
+      }
       if (!group) continue
       // A lone palette/catalogue gate has no neighbouring cabinet to receive
       // its far leaf. Hide that leaf in these previews only; the placed model

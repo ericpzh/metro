@@ -25,7 +25,7 @@ export function moduleAim(
     // A beam uses the actual floor anchor, which may sit between storey grid
     // lines. Resolve it before the general slab/empty-column ceiling aim;
     // equipmentReason still checks rod alignment and support at this anchor.
-    const hangerProp = ['tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'sign', 'sign-ceiling'].includes(type)
+    const hangerProp = ['tv', 'tv-double', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'sign', 'sign-ceiling'].includes(type)
     if (hangerProp && station.modules.some(m => m.type === 'hanger' && m.z === stand[2]
       && hangerCells(m).some(([x, y]) => x === stand[0] && y === stand[1]))) return stand
     return type.startsWith('hanger')
