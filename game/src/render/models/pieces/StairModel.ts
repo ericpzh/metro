@@ -7,7 +7,7 @@ import { exitLandingHeight } from './ExitLanding.ts'
 import { StairBlockModel } from './StairBlockModel.ts'
 import { PieceBuilder, slab, finishSlab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
-import { STAIR_BODY_DROP } from '../../../sim/openings.ts'
+import { STAIR_BODY_DROP } from '../../../sim/rampSurface.ts'
 import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairLandingShape, stairLandingWalls, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
 import type { StairFlightSlide, StairLaneMate, StairLandingShape, StairLandingWalls, StairWallSides } from '../../../sim/stairs.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
@@ -263,7 +263,7 @@ function buildStairFlight(
     // the wall.
     // Its outer face meets the rail's outer face, including when a wall replaces
     // the rail: no strip of exposed ground between the stair and its block edge.
-    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / 2, beamLen(STAIR_STRINGER_T), 0.11, STAIR_STRINGER_T)
+    const beam = slab(g, mats.darkSteel, midX, s * (half + 0.05), underside + STAIR_STRINGER_T / (2 * Math.cos(theta)), beamLen(STAIR_STRINGER_T), 0.11, STAIR_STRINGER_T)
     beam.rotation.y = -theta
     beam.name = 'stair-stringer'
     fitLandingEnds(beam)
@@ -298,7 +298,7 @@ function buildStairFlight(
   // carries on. Its own underside is the body line the ground is cut to.
   const sLo = yLo - (joinSides.has(-1) ? 0 : 0.03)
   const sHi = yHi + (joinSides.has(1) ? 0 : 0.03)
-  const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, underside + STAIR_SOFFIT_T / 2, beamLen(STAIR_SOFFIT_T), sHi - sLo, STAIR_SOFFIT_T)
+  const soffit = slab(g, mats.darkSteel, midX, (sLo + sHi) / 2, underside + STAIR_SOFFIT_T / (2 * Math.cos(theta)), beamLen(STAIR_SOFFIT_T), sHi - sLo, STAIR_SOFFIT_T)
   soffit.rotation.y = -theta
   soffit.name = 'stair-soffit'
   fitLandingEnds(soffit)

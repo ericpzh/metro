@@ -5,7 +5,7 @@
 // §7.8: an escalator is single-direction, one passenger per step.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
+import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampLaneHalf, rampOpeningAt, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'
 import { STAIR_WIDTHS, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairFlightSlides, stairFlights, stairLanes, stairTurnCells } from '../src/sim/stairs.ts'
@@ -29,7 +29,8 @@ test('a ramp carves the slab it climbs through, but keeps its landings', () => {
   const removed = carveRampOpenings(cells, [ramp])
   assert.ok(removed > 0, 'the slab the ramp passes through is carved')
   assert.ok(cells.some((c) => c.x === 1 && c.y === 0 && c.z === 0), 'the landing cell is kept')
-  assert.ok(!cells.some((c) => c.x === 1 && c.y === 1 && c.z === 0), 'the cell beside the landing is open')
+  assert.ok(cells.some((c) => c.x === 1 && c.y === 1 && c.z === 0), 'the underside wedge beside the landing is retained')
+  assert.ok(!cells.some((c) => c.x === 1 && c.y === 2 && c.z === 0), 'the cell entirely above the underside is open')
 })
 
 test('only the run body is carved; a block the handrail grazes is kept', () => {
@@ -228,13 +229,44 @@ test('a wide stair keeps its side floor cells and marks them as half blocks', ()
   assert.ok(stair)
   carveRampOpenings(cells, [stair])
   const has = (x, y) => cells.some((c) => c.x === x && c.y === y && c.z === 0)
-  assert.ok(!has(0, 7), 'the run cell at the top is carved')
+  assert.ok(has(0, 7), 'the run retains its slope-cut wedge at the top')
+  assert.ok(!has(0, 6), 'the passage entirely above the underside is carved')
   assert.ok(has(-1, 7) && has(1, 7), 'the side floor cells survive the carve')
   const thins = rampThinCells(cells, [stair])
   const side = thins.find((t) => t.x === 1 && t.y === 7)
   assert.ok(side, 'the side floor is marked for a half block')
   assert.equal(side.side, 'e')
 })
+
+test('a 3-lane stair opens the slab across all three lanes and leaves the floor beside it whole', () => {
+  // A catalogue 宽 stair fills three blocks (`rampLaneHalf` 1.5). Its body crosses
+  // the slab as three lanes, so the opening must be three cells wide too: the old
+  // centreline core opened only the middle lane, leaving the outer two hanging over
+  // a hole they did not cover. The blocks just outside the band are neither carved
+  // nor thinned — the piece's treads and rails end exactly on their edge.
+  const stair = createModule('stair-straight', 0, 0, -4, 'wide', 0, STAIR_WIDTH_TRIPLE)
+  assert.ok(stair)
+  assert.equal(rampLaneHalf(stair), 1.5, 'a 宽 stair fills three lanes')
+  // Half-way up, the walking line is clearly below the z = 0 slab.
+  for (const x of [0, 1, 2]) assert.equal(rampOpeningAt([stair], x, 4, 0), true, `lane x=${x} is not open`)
+  assert.equal(rampOpeningAt([stair], -1, 4, 0), false, 'the floor beside the band reads as an opening')
+  assert.equal(rampOpeningAt([stair], 3, 4, 0), false, 'the floor beside the band reads as an opening')
+
+  const cells = []
+  // A mid-flight slab at z = 0 and the floor the stair climbs from at z = -5.
+  for (let x = -2; x <= 5; x++) {
+    for (let y = 0; y <= 9; y++) {
+      cells.push({ x, y, z: 0, fill: 'solid', tags: ['auto-floor'] })
+      cells.push({ x, y, z: -5, fill: 'solid', tags: ['auto-floor'] })
+    }
+  }
+  carveRampOpenings(cells, [stair])
+  const has = (x, y) => cells.some((c) => c.x === x && c.y === y && c.z === 0)
+  for (const x of [0, 1, 2]) assert.ok(!has(x, 4), `lane x=${x} was not carved`)
+  assert.ok(has(-1, 4) && has(3, 4), 'the floor beside the band was carved')
+  assert.deepEqual(rampThinCells(cells, [stair]), [], 'an on-grid wide stair thins the floor beside its lanes')
+})
+
 
 test('a run that lands on a floor does not carve the slab above it', () => {
   // The old 3.2 m escalator headroom reached the roof over the landing and

@@ -17,8 +17,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
-import { RAMP_FOOT, STAIR_BODY_DROP, carveRampOpenings, rampBodyBoxes, rampFillKeys, rampSlopeCuts } from '../src/sim/openings.ts'
-import { stairTreadTrim, STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
+import { RAMP_FOOT, STAIR_BODY_DROP, carveRampOpenings, rampBodyBoxes, rampFillKeys, rampLaneHalf, rampSlopeCuts } from '../src/sim/openings.ts'
+import { stairTreadTrim, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_TRIPLE } from '../src/sim/stairs.ts'
 import { ESCALATOR_BALUSTRADE } from '../src/sim/constants.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { addCells } from '../src/build/model/Cells.ts'
@@ -231,7 +231,8 @@ function topOver(verts, x, y) {
 test('a block under a run is floor: the brush lays it and the carve leaves it', () => {
   const esc = escalator()
   // The run's own cell — its walking line passes through it — is the opening.
-  assert.equal(reservedOpening([esc], 4, 0, 2), true, "the run's own cell is not buildable")
+  assert.equal(reservedOpening([esc], 4, 0, 2), false, 'the cut leaves a buildable wedge in the walking-line cell')
+  assert.equal(reservedOpening([esc], 4, 0, 3), true, 'the cell fully above the underside remains reserved')
   // The cell directly below it is *not*: the truss hangs into its top, and that is
   // exactly what the 方块 tool is for.
   assert.equal(reservedOpening([esc], 4, 0, 1), false, 'the cell under the run must be buildable')
@@ -247,7 +248,7 @@ test('a block under a run is floor: the brush lays it and the carve leaves it', 
   for (let z = -1; z <= 2; z++) cells.push({ x: 4, y: 0, z, fill: 'solid' })
   carveRampOpenings(cells, [esc])
   const left = cells.filter((c) => c.x === 4 && c.y === 0).map((c) => c.z).sort((a, b) => a - b)
-  assert.deepEqual(left, [-1, 0, 1], 'the carve opens the run through the slab but keeps the blocks under it')
+  assert.deepEqual(left, [-1, 0, 1, 2], 'the carve opens the run through the slab but keeps the blocks under it')
 })
 
 /* ------------------------------------------------------------- the volume */
@@ -392,10 +393,9 @@ test('the ground under a painted stair is painted with it', () => {
   assert.ok(flanks !== undefined, 'the block’s own sides lost the ground’s finish')
   const cut = cuts.get(k)
   assert.notEqual(cut, undefined)
-  const along = cut.axis === 'x' ? (p) => p[0] - cell.x : (p) => p[1] - cell.y
   for (let i = 0; i < cap.positions.length; i += 3) {
     const p = [cap.positions[i], cap.positions[i + 1], cap.positions[i + 2]]
-    const plane = cell.z + cut.lo + (cut.hi - cut.lo) * along(p)
+    const plane = Math.min(cell.z + 1, Math.max(Math.min(painted.from.z, painted.to.z) + 1, bodyLine(painted, p[0], p[1]) - STAIR_BODY_DROP))
     assert.ok(Math.abs(p[2] - plane) < 1e-6, `a cap vertex at ${p} is not on the cut plane ${plane}`)
   }
   // A top face the player painted themselves always wins over the piece's own finish.
@@ -466,6 +466,62 @@ test('a slid flight cuts every block its band covers, not only the one its line 
     )
   }
 })
+
+test('a 3-lane stair cuts every lane on the same plane, not only the middle one', () => {
+  // A catalogue 宽 stair fills three whole blocks (`rampLaneHalf` is 1.5). Its
+  // band is centred one block off its own walking line (`stairFlightSlides`), so
+  // the old single-column cut was the middle lane: the two outer lanes
+  // stayed full cubes that stepped along the run and rose through the treads they
+  // stood beside. The cut now follows the lane span, and the treads are level
+  // across the run, so every lane of a row is cut on the same plane.
+  const st = { name: 't', seed: 1, cells: [], modules: [], lines: [] }
+  const m = createModule('stair-straight', 0, 0, -4, 'wide', 0, STAIR_WIDTH_TRIPLE, 'up', 'lane', st)
+  assert.ok(m && m.type === 'stair')
+  assert.equal(rampLaneHalf(m), 1.5, 'a 宽 stair fills three lanes')
+  const cuts = rampSlopeCuts([m])
+  assert.ok(cuts.size > 0, 'the wide stair cuts nothing')
+  const rows = new Map()
+  for (const [k, cut] of cuts) {
+    const [x, y] = unpack(k)
+    assert.ok(x >= 0 && x <= 2, `a cut outside the stair's three lanes at x=${x}`)
+    if (!rows.has(y)) rows.set(y, new Map())
+    rows.get(y).set(x, cut)
+  }
+  assert.ok(rows.size > 0, 'no row of the flight was cut')
+  for (const [y, lanes] of rows) {
+    assert.deepEqual([...lanes.keys()].sort(), [0, 1, 2], `row y=${y} is not cut across all three lanes`)
+    const planes = new Set([...lanes.values()].map((c) => `${c.lo},${c.hi}`))
+    assert.equal(planes.size, 1, `row y=${y} cuts its lanes on different planes: ${[...planes].join(' / ')}`)
+  }
+})
+
+test('a 3-lane switchback cuts both runs across all of their lanes', () => {
+  // The same rule on a turning piece: its two runs stand flush and each fills three
+  // blocks, so the pair covers six whole blocks across. Before the lane span was
+  // read, only one block of each run was cut and the other four stepped up through
+  // the treads.
+  const st = { name: 't', seed: 1, cells: [], modules: [], lines: [] }
+  const m = createModule('stair-right180', 0, 0, -4, 'wide', 0, STAIR_WIDTH_TRIPLE, 'up', 'lane', st)
+  assert.ok(m && m.type === 'stair')
+  assert.equal(rampLaneHalf(m), 1.5, 'the runs of a 宽 双跑楼梯 fill three lanes each')
+  const cuts = rampSlopeCuts([m])
+  const columns = new Set()
+  for (const k of cuts.keys()) {
+    const [x, y] = unpack(k)
+    columns.add(`${x},${y}`)
+  }
+  for (const x of [0, 1, 2, 3, 4, 5]) {
+    assert.ok(
+      [...columns].some((c) => c.startsWith(`${x},`)),
+      `the pair's block x=${x} was never cut (columns: ${[...columns].sort().join(' ')})`,
+    )
+  }
+  for (const c of columns) {
+    const x = Number(c.split(',')[0])
+    assert.ok(x >= 0 && x <= 5, `a cut outside the pair's six lanes at x=${x}`)
+  }
+})
+
 
 test('a run’s collision body hangs as deep as the body it draws, not one shared depth', () => {
   // `rampBodyBoxes` is what keeps flat equipment out of a run's space (`placement.ts`

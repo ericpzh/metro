@@ -450,19 +450,19 @@ export type Module =
   | (ModuleBase & { type: 'gate'; cfg: { dir: GateMode; door?: GateDoor; variant?: 'old' | 'new' } })
   | (ModuleBase & { type: 'psd-end'; cfg: { psd: 'half' | 'full'; variant?: 'cover'; width?: number; depth?: number; offset?: [number, number]; corner?: string; support?: string; side?: 'left' | 'right' } })
   | (ModuleBase & { type: 'fence'; cfg: { variant?: 'glass' | 'gate' | 'iron' | 'bridge-railing' | 'sound-barrier-half' | 'sound-barrier' } })
-  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { incline?: 30 | 35; dir: 'up' | 'down'; width?: 1 | 2 } })
+  | (ModuleBase & { type: 'escalator'; from: Vec3i; to: Vec3i; cfg: { incline?: 30 | 35; dir: 'up' | 'down'; width?: 1 | 2 | 3 } })
   | (ModuleBase & {
       /**
        * A 自动步道 (`sim/walkways.ts`): the level member of the ramp family, an
        * escalator with no climb. The two landings are the `from`/`to` endpoints on
        * one storey; `dir` orders them (the one-way travel the sim reads), and
-       * `width` is 1 or 2 blocks (窄 / 宽). Its moving band is carried along the
+       * `width` is 1, 2 or 3 blocks (窄 / 宽 / 超宽). Its moving band is carried along the
        * run exactly as an escalator's is.
        */
       type: 'walkway'
       from: Vec3i
       to: Vec3i
-      cfg: { dir: 'up' | 'down'; width?: 1 | 2 }
+      cfg: { dir: 'up' | 'down'; width?: 1 | 2 | 3 }
     })
   | (ModuleBase & {
       type: 'stair'

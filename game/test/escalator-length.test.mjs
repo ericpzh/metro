@@ -229,7 +229,7 @@ test('every length snaps into an exit bay, and the setting redraws previews and 
     const station = toState({ name: 'exit', seed: 1, cells: [], modules: [exit], lines: [] })
     const tool = new EquipmentTool({})
     for (const spec of RAMP_LENGTHS) {
-      useStore.setState({ station, rampLength: spec.id, escalatorSpan: 'single', escalatorWide: true, escalatorDir: 'down' })
+      useStore.setState({ station, rampLength: spec.id, escalatorSpan: 'single', escalatorWidth: 2, escalatorDir: 'down' })
       const m = tool.buildPlacementModules('escalator', [0, 0, 0], `snap-${spec.id}`)[0]
       assert.equal(m.from.z, 0, 'snapped upper landing stays in the exit')
       assert.equal(m.to.z, -spec.rise, 'lower landing reaches the piece\u2019s own rise below')
@@ -279,7 +279,8 @@ test('a 超长 stair climbs 6 m over 9 cells, opens the slab above and keeps its
   assert.deepEqual([stair.from, stair.to], [{ x: 0, y: 0, z: 0 }, { x: 0, y: 9, z: 6 }])
   const state = addEquipment(toState({ name: 'ultra', seed: 1, cells, modules: [], lines: [] }), stair)
   assert.ok(state.cells.length < cells.length, 'the flight opens the slab it climbs through')
-  assert.ok(!state.cells.some((c) => c.x === 0 && c.y === 7 && c.z === 5 && c.fill === 'solid'), 'the storey ceiling over the flight is carved')
+  assert.ok(!state.cells.some((c) => c.x === 0 && c.y === 5 && c.z === 5 && c.fill === 'solid'), 'the storey ceiling entirely above the underside is carved')
+  assert.ok(state.cells.some(c => c.x === 0 && c.y === 7 && c.z === 5), 'the underside wedge remains below the upper flight')
   assert.ok(state.cells.some((c) => c.x === 0 && c.y === 9 && c.z === 6 && c.fill === 'solid'), 'the top landing stays solid')
   const g = buildGraph({ name: 'ultra', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
   const bottom = g.nodeIndex.get('0,0,0')
@@ -354,7 +355,7 @@ test('one armed length drives both pieces, 超长 included', () => {
     const station = toState({ name: 'bank', seed: 1, cells: [], modules: [], lines: [] })
     const tool = new EquipmentTool({})
     for (const spec of RAMP_LENGTHS) {
-      useStore.setState({ station, moduleType: 'escalator', rampLength: spec.id, escalatorSpan: 'single', moduleRot: 0, escalatorWide: false })
+      useStore.setState({ station, moduleType: 'escalator', rampLength: spec.id, escalatorSpan: 'single', moduleRot: 0, escalatorWidth: 1 })
       // The length belongs to the **player**, not to the piece: switching to the
       // 楼梯 that will stand beside it keeps the size.
       useStore.getState().setModuleType('stair-straight')

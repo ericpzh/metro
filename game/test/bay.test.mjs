@@ -1,3 +1,4 @@
+import { stairTreadTrim } from '../src/sim/stairs.ts'
 // Flush runs and the one-tile rule (GAME-SPEC §5.1). An escalator and a narrow
 // stair are built to fit inside one 1 m cell — body and handrails both — so each
 // keeps its own balustrade, two runs may stand in adjacent cells without
@@ -429,7 +430,10 @@ test('a stair hangs its soffit on the line the ground under it is cut to', () =>
   // A slab rotated about the width axis has its box centre on its own centre line.
   const centre = (soffit[0].min.z + soffit[0].max.z) / 2
   const underside = flight.from.z + 1 + (flight.to.z - flight.from.z) / 2 - STAIR_BODY_DROP
-  assert.ok(Math.abs(centre - (underside + 0.03)) < 1e-9, `the soffit's centre is ${centre}, not on the body line ${underside + 0.03}`)
+  const run = Math.hypot(flight.to.x - flight.from.x, flight.to.y - flight.from.y)
+  const inclineRun = run - 2 * stairTreadTrim(run)
+  const cosine = inclineRun / Math.hypot(inclineRun, flight.to.z - flight.from.z)
+  assert.ok(Math.abs(centre - (underside + 0.03 / cosine)) < 1e-9, `the soffit's centre is ${centre}, not on the body line ${underside + 0.03 / cosine}`)
 })
 
 test('a flight’s beams end at the treads, never inside a landing’s block', () => {

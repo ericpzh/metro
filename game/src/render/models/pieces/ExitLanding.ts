@@ -1,9 +1,2 @@
-// Render-only height of a head-house landing; graph nodes remain on their storey.
-import { exitCoversCell } from '../../../sim/exits.ts'
-import type { Module, Vec3i } from '../../../sim/types.ts'
-
-export const EXIT_BASE_HEIGHT = 0.25
-
-export function exitLandingHeight(modules: readonly Module[], p: Vec3i): number {
-  return modules.some((m) => m.type === 'exit' && m.cfg.style !== 'doorway' && m.cfg.style !== 'virtual' && exitCoversCell(m, p.x, p.y, p.z)) ? EXIT_BASE_HEIGHT : 0
-}
+// Compatibility export for the piece builders; geometry is owned by sim.
+export { EXIT_BASE_HEIGHT, exitLandingHeight } from '../../../sim/exitLanding.ts'

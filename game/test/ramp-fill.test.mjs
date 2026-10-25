@@ -237,16 +237,15 @@ test('a stair shaves the courses above its base plane, and never the floor it st
   // cell along at (4, 0). That neighbour shares this cell's x = 5 plane and its shaved top corner
   // sits exactly on it, so the base column is measured off that plane (the header's rule).
   const data = station(ground(5, 0, [0, 1]).concat(ground(4, 0, [1])))
-  const { chunks } = render(data)
+  const { chunks, ctx } = render(data)
   const base = body(6)
   // The base course: its cap is the plane the stair stands on, and nothing of it is over that.
-  for (const z of vertsOffSharedFace(chunks, 5, 0, false)) {
-    assert.ok(z <= base + 1e-6, `the base block was cut over the plane the stair stands on: ${z}`)
-  }
-  assert.ok(
-    vertsOffSharedFace(chunks, 5, 0, false).some((z) => Math.abs(z - base) < 1e-6),
-    'the course the base plane lands in was not held at it',
-  )
+  const baseMesh = meshChunk(ctx.solid, ctx.finishes, 0, 0, 0, 0, new Set([packKey(5, 0, 0)]), undefined, undefined, undefined, ctx.slopeCuts)
+  const baseVertices = baseMesh.parts.flatMap(p => Array.from(p.positions).filter((_, i) => i % 3 === 2))
+  assert.ok(baseVertices.length > 0)
+  for (const z of baseVertices) assert.ok(z <= base + 1e-6, `base block rises above its floor: ${z}`)
+  assert.ok(baseVertices.some(z => Math.abs(z - base) < 1e-6))
+  assert.ok(data.cells.some(c => c.x === 5 && c.y === 0 && c.z === 1), 'the new upper-course wedge was carved away')
   // The course the flight has climbed clear of is a shave of the same body, not a ceiling: a
   // vertex sits on the body line, half a cell above the base plane.
   const shaved = body(5) - STAIR_BODY_DROP

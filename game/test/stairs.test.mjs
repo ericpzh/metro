@@ -1002,7 +1002,7 @@ test('a turning stair draws its middle platform as the piece’s own 0.5 m slab 
 
 test('carving a turning stair keeps its landings and opens the slab it climbs through', () => {
   const cells = []
-  for (let x = -2; x <= 3; x++) for (let y = 0; y <= 4; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  for (let x = -2; x <= 3; x++) for (let y = 0; y <= 4; y++) for (const z of [0, 1]) cells.push({ x, y, z, fill: 'solid' })
   // The half-landing at the turn, between the two flights.
   for (const x of [0, 1, 2]) cells.push({ x, y: 2, z: -2.5, fill: 'solid' })
   const m = {

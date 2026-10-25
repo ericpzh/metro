@@ -1536,3 +1536,55 @@ Regenerate them after changing model geometry or detail policy with
 remain in ignored `.preview/perf/`. Low geometry is an authored quality variant where
 available; unsupported parts stay full detail. Scene totals and FPS depend on the fixture,
 view, graphics quality and batching path, so do not infer them from per-model counts.
+
+### Exact ramp terrain cuts — 2026-10-25
+
+`node tools/check-ramp-fit.mjs` runs the production build in HeadlessChrome
+156 on Windows, with an 852 × 715 render canvas. The fixture has a three-lane
+escalator and three-lane straight stair over 339 solid blocks (75 derived slope
+cells). It alternates deleting/restoring the stair through the production store,
+then waits two RAFs for feedback. The isolated run recorded synchronous commit
+costs of 0.3–0.5 ms and feedback times of 196.0 / 74.4 / 102.7 / 109.2 / 94.5 /
+89.6 ms (delete/restore, alternating). Cold deletion and two later actions exceed
+100 ms. These are diagnostic API-to-frame timings, not a real-pointer placement
+budget pass; there is no matched pre-change timing, GPU-completion guarantee or
+large-demo throughput claim. Pointer picking is unchanged. Raw fixture, browser
+metadata, hashes and the contact screenshot are under `.preview/ramp-fit/`.
+Fixture SHA-256: `b78f73aa6913391ff4b8a3a5f9ca098a2169ac6222b12790e941a337bd1face3`;
+build index SHA-256: `d125d3f2626e47f6ab46a76193b51ebe79a07dac765ba42aa52f9f5a873ab8f7`.
+
+Cut generation is derived during station geometry preparation, never a document
+mutation or a new per-pointer scene pick. The uncut mesher retains its ordinary
+profile path. `ramp-surface` pins actual model/terrain contact, planar cap
+triangles, partial/crossing footprints, adjacent wall exposure and footprint-only
+invalidation across a chunk seam. The complete suite passed 2475 tests; the
+additional seam regression passed in its six-test focused suite.
+
+### Tianhe underside block placement — 2026-10-25
+
+The reported save `天河公园.metro (10).json` (SHA-256
+`60baa1aabe0f040400a3caea588f3460c72e8ed8ad1a9868d6e85f155d3955a7`)
+refused `(77,-100,-16)` as an opening despite its stair underside retaining a
+wedge with local heights 0.73090909 / 0.04909091 m. `rampList` now prepares
+per-run retained cell keys from the exact underside patches once per immutable
+module array. Direct/indexed block checks, preview, release and carving share
+that allowance; retained core wedges bypass side-panel thinning. A cut from
+another run cannot excuse blocking a passenger passage. Pointer picking is unchanged.
+
+Reproduce with `node tools/check-ramp-block-placement.mjs <save.json>` after a
+production build. A real pointer placed the target block in the imported save;
+the source save was untouched. On HeadlessChrome 156 / Windows / SwiftShader,
+852 × 715 canvas, the recorded move/down/up sequence used three scene
+intersections total. Handler times were 0.2 / 4.0 / 66.3 ms; submitted-render
+feedback was 470.7 / 11.9 / 73.4 ms. Move picking is queued, so its scene ray
+occurs after the synchronous handler. The complete protocol-driven sequence was
+1312.3 ms. The cold hover exceeds the 100 ms budget; these single-run values
+were collected with concurrent test/benchmark activity, have no matched baseline
+and establish neither an overall latency improvement nor GPU completion.
+Raw metadata and a placement screenshot are under `.preview/ramp-block-placement/`.
+
+`ramp-block-placement.test.mjs` keeps the minimal reported run and guards
+preview-cache reuse, direct/indexed agreement, post-placement survival, every
+stair/escalator rotation and direction, zero-volume and overlapping-run refusals.
+Existing carve tests now distinguish retained wedges from fully removed passage
+cells. Full suite: 2485 passed; typecheck and production build passed.

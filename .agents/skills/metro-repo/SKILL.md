@@ -106,6 +106,20 @@ release contract. Block collision checks are indexed and cached against immutabl
 document arrays, and a refused block preview keeps a known blocked coordinate red
 until the footprint or geometry changes. See the drag and demo-collision notes in
 the [performance reference](references/performance.md) before changing these paths.
+Stair/escalator underside fit is derived from their exact sloped surface, not a
+per-cell stair-step approximation. `sim/rampSurface.ts` owns the shared surface
+math; `sim/openings.ts` prepares per-run cut patches and retained ground wedges,
+and the chunk mesher uses those same patches to split block faces at the true
+plane. Block preview, placement and carve must consult the retained-volume
+allowance for the specific ramp run: a ground wedge under a ramp can accept a
+block, while an overlapping passage from another ramp must still refuse it.
+Keep patch inputs in render/cache invalidation, leave the document unchanged
+during geometry preparation, and keep placement's existing one-scene-pick-per-
+event rule. Pin exact contact, cuts and placement refusal in `ramp-surface.test.mjs`
+and `ramp-block-placement.test.mjs`; reproduce fit and real pointer placement
+with `tools/check-ramp-fit.mjs` and `tools/check-ramp-block-placement.mjs`.
+Route implementation to `metro-game`, regressions to `metro-game-test`, and keep
+the measured browser timings and limits in the [performance reference](references/performance.md).
 The 方块 tool's 吊顶 variant follows the same `checkBlockCells` preview and release
 path as ordinary blocks. Keep the original station arrays intact during hover so
 the block index and verdict cache remain reusable; never prepare a copied module

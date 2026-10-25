@@ -13,7 +13,7 @@ import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { GROUND_Z, withGround, groundWindow } from '../../../sim/ground.ts'
-import { trackBedKeys } from '../../../sim/placement.ts'
+import { trackBedKeys, moduleEnvelope } from '../../../sim/placement.ts'
 import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftLevels } from '../../../sim/lifts.ts'
@@ -24,6 +24,7 @@ import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import { coarseGeometry } from '../../geometryDetail.ts'
 import { ceilingCells } from '../../ceilingCells.ts'
+import { localCellEdit } from '../../localCellEdit.ts'
 
 /**
  * A small order-stable number for one cut shape, for the chunk content hash: the
@@ -44,6 +45,11 @@ function shapeKey(shape: CellShape): number {
  * 隐藏地面 takes away whole (`LevelSystem.applyLevel`).
  */
 type ChunkPass = 's' | 'f' | 'g' | 'c'
+const chunkColumn = (x: number,y: number): number => packKey(Math.floor(x/CHUNK)*CHUNK,Math.floor(y/CHUNK)*CHUNK,0)
+const columnHalo = [-1,0,1].flatMap(dx=>[-1,0,1].map(dy=>[dx,dy]))
+// Ceiling classification reads the next column; face/AO emission then reads
+// that classification from its neighbour. The composed dependency is two cells.
+const classificationHalo = [-2,-1,0,1,2].flatMap(dx=>[-2,-1,0,1,2].map(dy=>[dx,dy]))
 
 export class ChunkSystem extends SceneSystem {
   private platformInsets = new Map<number, BlockInset>()
@@ -97,7 +103,24 @@ export class ChunkSystem extends SceneSystem {
   private chunkCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
   private meshedGroundWindow: ReturnType<typeof groundWindow> | null = null
   private groundTopology = 0
+  private localChunks: Set<number> | null = null
+  private localLevels: Set<number> | null = null
+  private cellsByChunk = new Map<number, Map<number, Cell>>()
+  private chunkOrigins = new Map<number, [number,number]>()
+  private indexEffectiveCells(): void {
+    this.cellsByChunk.clear()
+    this.chunkOrigins.clear()
+    for(const c of this.effectiveCells){
+      const column=chunkColumn(c.x,c.y)
+      this.chunkOrigins.set(column,[Math.floor(c.x/CHUNK)*CHUNK,Math.floor(c.y/CHUNK)*CHUNK])
+      let bucket=this.cellsByChunk.get(column)
+      if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
+      bucket.set(packKey(c.x,c.y,c.z),c)
+    }
+  }
   chunkKeyCellVisits = 0
+  meshedCellVisits = 0
+  private localMeshGeneration = 0
   /**
    * The effective cell list of the last `prepareStation`: the document's own
    * cells plus the generated street window (`withGround`). `meshStation` meshes
@@ -144,11 +167,57 @@ export class ChunkSystem extends SceneSystem {
    * materialisation per commit. Omitted callers (tests, `/lab`) build it here.
    */
   prepareStation(data: StationData, effective?: Cell[], groundOnly = false): void {
+    this.localChunks = null
+    this.localLevels = null
+    const previous=this.ctx.stationData
+    const edit=previous && effective && localCellEdit(previous,data)
+    // A local block edit cannot alter cuts/hidden walls away from structural
+    // modules. Those edits still take the complete preparation path.
+    if(edit && ![...edit.removed,...edit.added].some(c=>c.finish?.top==='floor.track'||data.modules.some(m=>{
+      if(m.type!=='shop')return false
+      const box=moduleEnvelope(m)
+      return !box || c.z>=box.z0-1&&c.z<=box.z1+1&&c.x>=box.x0-3&&c.x<=box.x1+3&&c.y>=box.y0-3&&c.y<=box.y1+3
+    }))){
+      this.localChunks=new Set()
+      this.localLevels=new Set()
+      for(const c of [...edit.removed,...edit.added])for(const [dx,dy]of classificationHalo)
+      {
+        const x=Math.floor((c.x+dx)/CHUNK)*CHUNK,y=Math.floor((c.y+dy)/CHUNK)*CHUNK
+        this.localChunks.add(chunkColumn(x,y));this.chunkOrigins.set(chunkColumn(x,y),[x,y])
+      }
+      for(const c of [...edit.removed,...edit.added])for(let dz=-2;dz<=1;dz++)this.localLevels.add(storeyBand(c.z+dz,this.ctx.levelBase,this.ctx.storeyHeight))
+      for(const c of edit.removed){const k=packKey(c.x,c.y,c.z);this.ctx.solid.delete(k);this.ctx.finishes.delete(k)}
+      // meshStation compares the old column floor with the new one. Keep the
+      // old value until then: clearing it here would widen every deletion to
+      // all vertical bands even when its supporting floor stays unchanged.
+      for(const c of edit.added)if(c.fill==='solid')this.ctx.solid.add(packKey(c.x,c.y,c.z))
+      for(const [k,v]of finishMapOf(edit.added))this.ctx.finishes.set(k,v)
+      for(const c of edit.removed)this.cellsByChunk.get(chunkColumn(c.x,c.y))?.delete(packKey(c.x,c.y,c.z))
+      for(const c of edit.added){
+        const column=chunkColumn(c.x,c.y)
+        let bucket=this.cellsByChunk.get(column)
+        if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
+        bucket.set(packKey(c.x,c.y,c.z),c)
+      }
+      for(const c of edit.removed)this.ctx.thinSides.delete(packKey(c.x,c.y,c.z))
+      for(const c of thinWallCells(edit.added,data.modules))this.ctx.thinSides.set(packKey(c.x,c.y,c.z),c.shape)
+      this.ctx.slopeFills=rampFillKeys(this.ctx.solid,this.ctx.slopeCuts)
+      // Turn landings and lift holes derive membership from the edited solids.
+      // Shop wall proxies stay untouched (nearby shop edits take the full path).
+      for(const m of data.modules){
+        const points=m.type==='stair'?stairTurnCells(m):m.type==='lift'?liftLevels(m).filter(z=>z>Math.min(m.from.z,m.to.z)).flatMap(z=>liftFootprintCells(m).map(([x,y])=>({x,y,z}))):[]
+        for(const c of points){if(!Number.isInteger(c.z))continue;const k=packKey(c.x,c.y,c.z);if(this.ctx.solid.has(k))this.ctx.hiddenCells.add(k);else this.ctx.hiddenCells.delete(k)}
+      }
+      this.effectiveCells=effective!
+      this.ctx.stationData=data
+      return
+    }
     if (groundOnly) {
       // The caller proved unchanged authored cells, openings and structural
       // modules. Only generated pavement membership changes; preserve the
       // prepared structural indexes and wall-pick objects.
       this.effectiveCells = effective ?? withGround(data.cells, data.modules)
+      this.indexEffectiveCells()
       const owned = new Set(data.cells.map(c => packKey(c.x, c.y, c.z)))
       const nextGround = new Set<number>()
       for (const c of this.effectiveCells) {
@@ -167,6 +236,7 @@ export class ChunkSystem extends SceneSystem {
     // generated ground. The two consumers that walk every cell — this and the
     // walk graph — read the same list, so what is drawn is what is walked.
     this.effectiveCells = effective ?? withGround(data.cells, data.modules)
+    this.indexEffectiveCells()
     // Which of them are the **street** and which are the document's: everything
     // `withGround` added. `meshStation` meshes that set on its own pass, so the
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
@@ -258,6 +328,25 @@ export class ChunkSystem extends SceneSystem {
    * the generated street window), so the drawn ground is exactly the walked one.
    */
   meshStation(groundOnly = false): void {
+    const local=this.localChunks
+    if(local)this.localMeshGeneration++
+    this.meshedCellVisits=0
+    const allCells=this.effectiveCells
+    if(local){
+      // The halo supplies ceiling classification and unsupported-plate votes;
+      // only the affected chunks below emit geometry.
+      const buckets=new Set<number>()
+      for(const key of local){
+        // Numeric chunk keys use the same packed coordinate representation.
+        const [x,y]=this.chunkOrigins.get(key)!
+        for(const [dx,dy]of columnHalo)buckets.add(chunkColumn(x+dx*CHUNK,y+dy*CHUNK))
+      }
+      this.effectiveCells=[...buckets].flatMap(k=>[...(this.cellsByChunk.get(k)?.values()??[])]).filter(c=>{
+        for(const [dx,dy]of classificationHalo)
+          if(local.has(chunkColumn(c.x+dx,c.y+dy)))return true
+        return false
+      })
+    }
     this.chunkKeyCellVisits = 0
     const previousWindow = this.meshedGroundWindow
     if (!groundOnly) this.groundTopology++
@@ -293,7 +382,9 @@ export class ChunkSystem extends SceneSystem {
     // nothing under it, so it is a plate hanging in space: it must stay on screen
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
-    this.ctx.groundOf.clear()
+    const previousGround=local?new Map(this.effectiveCells.map(c=>[`${c.x},${c.y}`,this.ctx.groundOf.get(`${c.x},${c.y}`)])):null
+    if(!local)this.ctx.groundOf.clear()
+    else for(const c of this.effectiveCells)this.ctx.groundOf.delete(`${c.x},${c.y}`)
     const cellByKey = new Map(this.effectiveCells.filter(c => c.fill === 'solid').map(c => [packKey(c.x, c.y, c.z), c]))
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
@@ -316,6 +407,10 @@ export class ChunkSystem extends SceneSystem {
       const prev = this.ctx.groundOf.get(col)
       if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
     }
+    if(local&&previousGround)for(const c of this.effectiveCells)if(previousGround.get(`${c.x},${c.y}`)!==this.ctx.groundOf.get(`${c.x},${c.y}`)){
+      this.localLevels=null
+      break
+    }
     // Ceilings have an independently hideable pass. Keep every adjacent ordinary
     // face (including the ledge below one) so hiding that pass never opens a block.
     const suspended = ceilingCells(this.effectiveCells, this.ctx.levelBase, this.ctx.storeyHeight)
@@ -330,6 +425,8 @@ export class ChunkSystem extends SceneSystem {
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
       const k = packKey(c.x, c.y, c.z)
+      if(local&&!local.has(chunkColumn(c.x,c.y)))continue
+      if(local&&this.localLevels&&!this.localLevels.has(bandOfCell.get(k)!))continue
       const fill = this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
       if (this.groundKeys.has(k)) {
         groundCells.push({ x: c.x, y: c.y, z: c.z })
@@ -394,6 +491,14 @@ export class ChunkSystem extends SceneSystem {
       const address = `${levelZ}|${pass}|${cx},${cy}`
       const computed = computedKeys.get(address)
       if (computed) return computed
+      if(local){
+        // The bounded edit already proved exactly which chunks can change.
+        // They rebuild below, so hashing their cells/halos cannot retain more
+        // geometry. Remote chunks keep their original keys and allocations.
+        const result=`${address}|edit:${this.localMeshGeneration}`
+        computedKeys.set(address,result)
+        return result
+      }
       const retainedGround = groundKeys.get(address)
       if (groundOnly && pass === 'g' && previousWindow && nextWindow) {
         // Only the rectangular window changed; authored holes, finishes,
@@ -426,6 +531,8 @@ export class ChunkSystem extends SceneSystem {
         // makes a chunk's mesh, or the ground under the run would keep the old shape.
         const cut = this.ctx.slopeCuts.get(k)
         if (cut !== undefined) {
+          // Include every footprint and plane: shape changes need fresh chunks/ghosts.
+          for (const char of JSON.stringify([cut.base, cut.patches, cut.finish, cut.noFill, cut.ownBody])) h = Math.imul(h ^ char.charCodeAt(0), 16777619)
           h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
           h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
           h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)
@@ -500,6 +607,8 @@ export class ChunkSystem extends SceneSystem {
           }
           const inset = this.platformInsets.get(hk)
           if (inset) for (const value of Object.values(inset)) h = Math.imul(h ^ Math.round(value * 1024), 16777619)
+          const haloCut = this.ctx.slopeCuts.get(hk)
+          if (haloCut) for (const char of JSON.stringify(haloCut)) h = Math.imul(h ^ char.charCodeAt(0), 16777619)
           const haloShape = this.ctx.thinSides.get(hk)
           if (haloShape !== undefined) h = Math.imul(h ^ shapeKey(haloShape), 16777619)
         }
@@ -513,6 +622,8 @@ export class ChunkSystem extends SceneSystem {
     // released: a reused chunk's `BufferGeometry` must survive the sweep, because a
     // disposed geometry is not re-uploaded and its meshes would draw nothing.
     const keep = new Set<string>()
+    const remote=(key:string):boolean=>{const [level,,xy]=key.split('|'),[x,y]=xy.split(',').map(Number);return !!local&&(!local.has(chunkColumn(x,y))||!!this.localLevels&&!this.localLevels.has(Number(level)))}
+    if(local)for(const key of reuse.keys())if(remote(key))keep.add(key)
     if (groundOnly) for (const [key, entry] of reuse) {
       if (!entry.meshes[0]?.userData.ground) keep.add(key)
     }
@@ -568,14 +679,15 @@ export class ChunkSystem extends SceneSystem {
     // about to reuse. A kept chunk's geometry and its per-chunk outline material
     // survive it, so re-adding the cached meshes below costs no re-upload and no
     // program recompile.
+    if(local)for(const key of keep)if(!remote(key))keep.delete(key)
     this.keepChunkGeometries = keep
-    this.releaseChunks(groundOnly)
+    this.releaseChunks(groundOnly || !!local)
     this.ctx.scene.remove(...this.levelGroups.values())
     this.levelGroups.clear()
     this.keepChunkGeometries = null
     const nextCache = new Map<string, { key: string; meshes: THREE.Mesh[]; outlines: THREE.Mesh[]; geometries: THREE.BufferGeometry[] }>()
-    if (groundOnly) for (const [key, entry] of reuse) {
-      if (entry.meshes[0]?.userData.ground) continue
+    if (groundOnly || local) for (const [key, entry] of reuse) {
+      if (local ? !remote(key) : entry.meshes[0]?.userData.ground) continue
       nextCache.set(key, entry)
       for (const mesh of [...entry.meshes, ...entry.outlines]) {
         const levelZ = mesh.userData.levelZ as number
@@ -622,6 +734,7 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
+        this.meshedCellVisits+=chunkCells.length
         const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets, pass === 'c' ? undefined : suspended)
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
@@ -718,6 +831,7 @@ export class ChunkSystem extends SceneSystem {
     // again here releases the same GPU allocation twice.
     this.chunkCache = nextCache
     this.meshedGroundWindow = nextWindow
+    this.effectiveCells=allCells
     this.ctx.bounds = box
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(0, 0, 0), new THREE.Vector3(8, 8, 8))
     // The 剖切 plane is not this system's: `SectionSystem` owns it, and keeping
@@ -751,6 +865,11 @@ export class ChunkSystem extends SceneSystem {
     // `dispose()` is the end of the road, so the cache's own references go too — the
     // geometry itself was already released by `releaseChunks` above.
     this.chunkCache.clear()
+    this.cellsByChunk.clear()
+    this.chunkOrigins.clear()
+    this.localChunks=null
+    this.localLevels=null
+    this.effectiveCells=[]
   }
 
   /**

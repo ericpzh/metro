@@ -319,6 +319,8 @@ export class GhostSystem extends SceneSystem {
   /** Fold every drawn field of one cut into a running hash (see `ghostKeyOf`). */
   private mixCut(h: number, cut: SlopeCut | undefined): number {
     if (cut === undefined) return h
+    // Include every footprint and plane: shape changes need fresh chunks/ghosts.
+    for (const char of JSON.stringify([cut.base, cut.patches, cut.finish, cut.noFill, cut.ownBody])) h = Math.imul(h ^ char.charCodeAt(0), 16777619)
     h = Math.imul(h ^ cut.axis.charCodeAt(0), 16777619)
     h = Math.imul(h ^ Math.round(cut.lo * 1024), 16777619)
     h = Math.imul(h ^ Math.round(cut.hi * 1024), 16777619)

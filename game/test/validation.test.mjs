@@ -65,7 +65,8 @@ test('a run owns its corridor, and the ground under its slope is floor', () => {
   // through — while the ground the slope passes over is exactly what the brush is for.
   const stair = createModule('stair-straight', 2, 2, 0, 's1', 0)
   const st = flatStation([], [stair])
-  const corridor = blockReason(st.cells, st.modules, 2, 3, 1)
+  assert.equal(blockReason(st.cells, st.modules, 2, 3, 1).ok, true, 'the first partial course fits under the underside')
+  const corridor = blockReason(st.cells, st.modules, 2, 3, 2)
   assert.equal(corridor.ok, false, 'the run’s own corridor is not free ground')
   assert.equal(corridor.reason, 'opening', 'the carve owns it, not the block rule')
   // The ground under the slope is floor, and so is a cell beside the run.

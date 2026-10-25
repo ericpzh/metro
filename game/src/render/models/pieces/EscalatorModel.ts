@@ -9,7 +9,7 @@ import { addRampJoins } from './RampJoinModel.ts'
 import { addEscalatorIndicators } from './EscalatorIndicatorModel.ts'
 import { ESCALATOR_SPEED, ESCALATOR_STEP_PITCH, ESCALATOR_FLAT_LENGTH, ESCALATOR_SURFACE_CLEARANCE, ESCALATOR_BASE_BURY } from '../../../sim/constants.ts'
 import { escalatorBalustradeWidth, escalatorBodyWidth, escalatorBandWidth, escalatorInclineRun, escalatorStepHeight } from '../../../sim/escalators.ts'
-import { RAMP_FOOT } from '../../../sim/openings.ts'
+import { RAMP_FOOT, ESCALATOR_TRUSS_DEPTH, escalatorTrussOffset } from '../../../sim/rampSurface.ts'
 import type { Module } from '../../../sim/types.ts'
 import { omitModelDetail, setModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
 
@@ -25,12 +25,12 @@ import { omitModelDetail, setModelDetail, surfaceModelDetail } from '../../model
 /* ----------------------------------------------------------------- the body */
 
 /**
- * The truss box: `TRUSS_DROP` below the walking line to the middle of the ribbon, and
- * `TRUSS_DEPTH` thick. It is the piece's own shell — the solid under it is cut to the ground's
+ * The truss box: a rotated box whose normal offset is calculated from the vertical
+ * underside depth in sim/rampSurface.ts. It is the piece's own shell — the solid under it is cut to the ground's
  * surface instead (`undercroftSolid`), which lands inside this box.
  */
-const TRUSS_DROP = 0.3
-const TRUSS_DEPTH = 0.34
+
+
 /**
  * The **course** the ground under a run always stops short of, in metres. The 方块 brush may not
  * lay that last course — its top face would sit above the walking line, where the crowd's own
@@ -52,7 +52,7 @@ const UNDERCROFT_COURSE = 1
  * line, `rampSlopeCuts` in `sim/openings.ts`), inset by `ESCALATOR_SURFACE_CLEARANCE`. Its flanks
  * have the same inset from the truss and its base sits `ESCALATOR_BASE_BURY` below the floor.
  * These hidden joins avoid coplanar floor, terrain-cap and casing faces without exposing a gap:
- * the truss's underside hangs lower still, so the lid remains buried inside its box.
+ * the lid meets the shared underside plane with a small hidden inset.
  * The lid follows that plane **to the body's very
  * end** rather than flattening off at the course line, so the end face meets the truss's own
  * underside instead of stopping a hand's width short of it and leaving a slit to see through.
@@ -79,7 +79,7 @@ function undercroftSolid(climb: THREE.Vector3, len: number, width: number, mat: 
   const courseEnd = (RAMP_FOOT + UNDERCROFT_COURSE) / slope
   const end = Math.min(flat, rise <= UNDERCROFT_COURSE ? flat : 0.5 + Math.ceil(courseEnd - 0.5))
   // Its lid is the shaved plane **to its very end**, never flattened at the course line: the truss
-  // box's underside hangs 6.5 cm lower the whole way, so a flat cap would leave the body's last
+  // box follows the same underside plane, so a flat cap would leave the body's last
   // stretch — and the end face itself — standing in a slit under the truss instead of meeting it.
   const top = end * slope - RAMP_FOOT
   if (top < 0.05 || end < foot + 0.05) return null
@@ -89,8 +89,8 @@ function undercroftSolid(climb: THREE.Vector3, len: number, width: number, mat: 
   // the floor cap or the truss side plane causes depth-buffer flicker (§5.1).
   section.moveTo(foot, -ESCALATOR_BASE_BURY)
   section.lineTo(end, -ESCALATOR_BASE_BURY)
-  section.lineTo(end, top - ESCALATOR_SURFACE_CLEARANCE)
-  section.lineTo(foot, -ESCALATOR_SURFACE_CLEARANCE)
+  section.lineTo(end, top + ESCALATOR_SURFACE_CLEARANCE)
+  section.lineTo(foot, ESCALATOR_SURFACE_CLEARANCE)
   section.closePath()
   const insetWidth = width - 2 * ESCALATOR_SURFACE_CLEARANCE
   const geo = new THREE.ExtrudeGeometry(section, { depth: insetWidth, bevelEnabled: false })
@@ -204,7 +204,7 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
   // One continuous band with rails on its outer edges (§5.1). Narrow occupies
   // one block; wide adds a block to the band, truss and plates together, so no
   // centre balustrade divides it into two escalators. Both fit their own cells.
-  const truss = slab(g, mats.darkSteel, len / 2, 0, -TRUSS_DROP, len, W, TRUSS_DEPTH)
+  const truss = slab(g, mats.darkSteel, len / 2, 0, -escalatorTrussOffset(Math.hypot(t.x, t.y)), len, W, ESCALATOR_TRUSS_DEPTH)
   truss.name = 'truss'
   const stepW = escalatorBandWidth(mod)
   const skirtW = (W - stepW) / 2 + 0.03
@@ -313,8 +313,8 @@ export function buildRampBand(ctx: ModuleContext, mod: Extract<Module, { type: '
     const comb = slab(band, mats.orange, end.x + out.x, end.y + out.y, end.z + 0.045, plateLen, stepW, 0.05)
     comb.rotation.z = yaw
     comb.name = 'comb-plate'
-    // Cover the outer half of the landing block cut beneath the flat track.
-    const halfW = mod.cfg.width === 2 ? 1 : 0.5
+    // Cover the outer half of each landing block cut beneath the flat track.
+    const halfW = (mod.cfg.width ?? 1) / 2
     const inner = flatLength - plateLen
     // A U-shaped deck leaves the moving flat treads exposed right up to the
     // comb teeth. Its shoulders replace the cut block beside the step band.

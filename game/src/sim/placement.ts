@@ -1517,7 +1517,7 @@ export interface BlockCheck {
  * the release applies, in the order it applies them:
  *
  *   1. `opening`   — a reserved opening: the corridor a 楼梯 / 扶梯 / 电梯 carves from
- *      its walking line up, or the floor an 出入口 head-house lays. A block there
+ *      its underside up, except cells retaining a calculated wedge, or the floor an 出入口 head-house lays. A block there
  *      would seal a run the player can see through.
  *   2. `equipment` — a piece already stands in the cell (`moduleBlockedCells`): the
  *      column a 闸机 / 售票机 / 座椅 fills, a 房间's plan, a hung 指示牌's own column.

@@ -195,7 +195,7 @@ function build(mod, preview = false) {
 const palette = (id, rot = 0, dir = 'up', door = 'lane', at = [4, 4, 0]) => createModule(id, at[0], at[1], at[2], 'm-' + id, rot, undefined, dir, door, [LINE])
 
 test('escalator newel lights show entry arrows and exit bars facing their landings', () => {
-  for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+  for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
     const { group } = build(createModule('escalator', 4, 4, 0, 'lights', rot, width, dir))
     group.updateMatrixWorld(true)
     const lights = []
@@ -225,32 +225,56 @@ test('escalator newel lights show entry arrows and exit bars facing their landin
   }
 })
 
-test('a two-block escalator has one continuous moving band and only two outer balustrades', () => {
+test('a wider escalator has one continuous moving band and only two outer balustrades', () => {
   for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
     const narrow = build(createModule('escalator', 4, 4, 0, 'narrow', rot, 1, dir))
-    const wide = build(createModule('escalator', 4, 4, 0, 'wide', rot, 2, dir))
-    assert.equal(wide.meshes, narrow.meshes, 'widening adds no second escalator or centre rails')
+    for (const width of [2, 3]) {
+      const wide = build(createModule('escalator', 4, 4, 0, 'wide', rot, width, dir))
+      assert.equal(wide.meshes, narrow.meshes, 'widening adds no second escalator or centre rails')
+      let bands = 0
+      let glass = 0
+      wide.group.traverse((o) => {
+        if (o.userData.escalator) bands++
+        if (o.isMesh && o.material === mats.glass) glass++
+      })
+      assert.equal(bands, 1)
+      assert.equal(glass, 2, 'glass only at the outer edges')
+      const part = wide.group.userData.escalator.parts[0]
+      part.geometry.computeBoundingBox()
+      assert.equal(round(part.geometry.boundingBox.max.y - part.geometry.boundingBox.min.y), 0.52 + (width - 1), 'the broader shoulders narrow the moving band by 8 cm per side')
+      const bounds = box(wide.group)
+      const size = bounds.getSize(new THREE.Vector3())
+      assert.equal(round(rot % 2 === 0 ? size.x : size.y), width, 'landing aprons fit exactly inside the plan blocks')
+      rollEscalator(wide.group.userData.escalator, 2)
+      assert.ok(wide.group.userData.escalator.phase > 0)
+    }
+  }
+})
+
+test('double- and triple-storey escalators draw every plan width', () => {
+  for (const span of ['double', 'triple']) for (const width of [2, 3]) {
+    const mod = createModule('escalator', 4, 4, 0, `${span}-${width}`, 0, width, 'up', 'lane', [], undefined, {
+      escalatorSpan: span, doubleRampLength: 'long', tripleRampLength: 'long',
+    })
+    const { group } = build(mod)
+    const size = box(group).getSize(new THREE.Vector3())
+    assert.equal(round(size.x), width, `${span} width ${width} draws its block span`)
     let bands = 0
     let glass = 0
-    wide.group.traverse((o) => {
+    group.traverse((o) => {
       if (o.userData.escalator) bands++
       if (o.isMesh && o.material === mats.glass) glass++
     })
-    assert.equal(bands, 1)
-    assert.equal(glass, 2, 'glass only at the outer edges')
-    const part = wide.group.userData.escalator.parts[0]
+    assert.equal(bands, 1, `${span} width ${width} keeps one moving band`)
+    assert.equal(glass, 2, `${span} width ${width} keeps two outer balustrades`)
+    const part = group.userData.escalator.parts[0]
     part.geometry.computeBoundingBox()
-    assert.equal(round(part.geometry.boundingBox.max.y - part.geometry.boundingBox.min.y), 1.52, 'the broader shoulders narrow the moving band by 8 cm per side')
-    const bounds = box(wide.group)
-    const size = bounds.getSize(new THREE.Vector3())
-    assert.equal(round(rot % 2 === 0 ? size.x : size.y), 2, 'landing aprons fit exactly inside two blocks')
-    rollEscalator(wide.group.userData.escalator, 2)
-    assert.ok(wide.group.userData.escalator.phase > 0)
+    assert.equal(round(part.geometry.boundingBox.max.y - part.geometry.boundingBox.min.y), 0.52 + (width - 1))
   }
 })
 
 test('escalator glass fills the rounded handrail returns at both ends', () => {
-  for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+  for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
     const mod = createModule('escalator', 4, 4, 0, 'glass-ends', rot, width, dir)
     const { group } = build(mod)
     const panes = group.children.filter((o) => o.material === mats.glass)
@@ -280,7 +304,7 @@ test('escalator glass fills the rounded handrail returns at both ends', () => {
 })
 
 test('escalator steps flatten smoothly at both combs and wrap while hidden', () => {
-  for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+  for (const width of [1, 2, 3]) for (const dir of ['up', 'down']) {
     const { group } = build(createModule('escalator', 4, 4, 0, 'terminal', 0, width, dir))
     const roll = group.userData.escalator
     const matrix = new THREE.Matrix4()
@@ -321,7 +345,7 @@ test('escalator steps flatten smoothly at both combs and wrap while hidden', () 
 })
 
 test('escalator landing aprons sit above floor caps, with no coplanar top faces', () => {
-  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2, 3]) for (const dir of ['up', 'down']) {
     const mod = createModule('escalator', 4, 4, 0, 'clearance', rot, width, dir)
     const { group } = build(mod)
     const tops = []
@@ -450,7 +474,7 @@ const PIECES = [
   ['出入口 地面 三向', palette('exit-doorway-3'), 3, '5×0.072×0.78'],
   ['出入口 地面 四向', palette('exit-doorway-4'), 3, '6×0.072×0.78'],
   ['出入口 虚拟', palette('exit-virtual'), 17, '0.16×0.589×4'],
-  ['扶梯', palette('escalator'), 33, '1×10.325×6.585'],
+  ['扶梯', palette('escalator'), 33, '1×10.325×6.552'],
   ['电梯', palette('lift'), 148, '2.04×2.04×5'],
   // The 楼梯 pieces stand in the corner of the fixture's walled room, so the wall columns
   // around them are read: a flight or half-landing a wall hugs loses that side's balustrade
@@ -463,11 +487,11 @@ const PIECES = [
   // beams are trimmed by `thickness · tan θ` so they end on the treads' own edge, inside the
   // cell the cut shaves. An overhang put the piece's lowest point 0.36 m deep in the landing's
   // block, which is deliberately never cut — the flight's foot sank into the floor it stands on.
-  ['楼梯 单跑', palette('stair-straight'), 91, '1×8.25×6.327'],
-  ['楼梯 左转 90°', palette('stair-left90'), 116, '4.625×4.625×6.322'],
-  ['楼梯 右转 90°', palette('stair-right90'), 116, '4.625×4.625×6.322'],
-  ['楼梯 左双跑', palette('stair-left180'), 120, '2×4.655×6.322'],
-  ['楼梯 右双跑', palette('stair-right180'), 120, '2×4.655×6.322'],
+  ['楼梯 单跑', palette('stair-straight'), 91, '1×8.25×6.32'],
+  ['楼梯 左转 90°', palette('stair-left90'), 116, '4.625×4.625×6.313'],
+  ['楼梯 右转 90°', palette('stair-right90'), 116, '4.625×4.625×6.313'],
+  ['楼梯 左双跑', palette('stair-left180'), 120, '2×4.655×6.313'],
+  ['楼梯 右双跑', palette('stair-right180'), 120, '2×4.655×6.313'],
   ['售票亭', { id: 'booth-1', type: 'booth', x: 4, y: 4, z: 0, w: 3, h: 3, rot: 0, cfg: { kind: 'ticket' } }, 33, '3×3×2.4'],
   ['商店房间', room('shop', 'store'), 18, '5×4×3'],
   // 厕所 / 办公室 close their doorway with the shared 门 builder
@@ -1965,7 +1989,7 @@ test('raised concrete exits meet connected runs without covering escalator termi
   for (let rot = 0; rot < 4; rot++) for (const covered of [true, false]) {
     const exit = { id: 'raised-exit', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { bays: 3, covered } }
     const snap = exitRunSnap([exit], 0, 0, 0)
-    for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+    for (const width of [1, 2, 3]) for (const dir of ['up', 'down']) {
       const run = createModule('escalator', snap.base.x, snap.base.y, snap.base.z, 'run', snap.rot, width, dir)
       ctx.data = { ...data, modules: [exit, run] }
       const original = JSON.stringify(run)

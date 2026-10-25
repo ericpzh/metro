@@ -25,6 +25,7 @@ import type { Module, Vec3i } from './types.ts'
 import { defaultRampLength, rampLengthOf, rampLengthSpec, type RampLength, type RampSpan } from './rampLengths.ts'
 import { STAIR_RISE, stairFacing } from './stairs.ts'
 import { ESCALATOR_BAND, ESCALATOR_BALUSTRADE, ESCALATOR_SKIRT_INSET, ESCALATOR_TRANSITION_LENGTH, STOREY_HEIGHT } from './constants.ts'
+import { msg } from './i18n.ts'
 
 type Escalator = Extract<Module, { type: 'escalator' }>
 
@@ -37,6 +38,25 @@ type Escalator = Extract<Module, { type: 'escalator' }>
  */
 type RampPiece = Escalator | Extract<Module, { type: 'walkway' }>
 
+/** The 扶梯 / 自动步道 plan widths the width tile cycles, in blocks. */
+export type EscalatorWidth = 1 | 2 | 3
+export const ESCALATOR_WIDTHS: readonly EscalatorWidth[] = [1, 2, 3]
+
+/** The width a placed piece carries; an older save without one is the 窄 piece. */
+export function escalatorWidthOf(m: Pick<RampPiece, 'cfg'>): EscalatorWidth {
+  return m.cfg.width === 3 ? 3 : m.cfg.width === 2 ? 2 : 1
+}
+
+/** The next width the tile cycles to (窄 1 → 宽 2 → 超宽 3 → 窄). */
+export function nextEscalatorWidth(width: EscalatorWidth): EscalatorWidth {
+  return ESCALATOR_WIDTHS[(ESCALATOR_WIDTHS.indexOf(width) + 1) % ESCALATOR_WIDTHS.length]
+}
+
+/** The name the width tile wears for one of the three plan widths. */
+export function escalatorWidthLabel(width: EscalatorWidth): string {
+  return msg(width === 3 ? 'extra_wide' : width === 2 ? 'wide' : 'narrow')
+}
+
 /** Level treads follow a smooth bend into each flat landing (§5.1), then return under the comb. */
 export function escalatorStepHeight(along: number, len: number, risePerM: number, horizontalPerM: number): number {
   const bend = Math.min(ESCALATOR_TRANSITION_LENGTH / horizontalPerM, len / 4)
@@ -44,9 +64,9 @@ export function escalatorStepHeight(along: number, len: number, risePerM: number
   return along <= len / 2 ? bottom(along) : len * risePerM - bottom(len - along)
 }
 
-/** Clear moving band and glass spacing; the wide piece adds one whole block (§5.1). */
+/** Clear moving band and glass spacing; each extra block widens the band by one. */
 export function escalatorBandWidth(m: RampPiece): number {
-  return ESCALATOR_BAND + (m.cfg.width === 2 ? 1 : 0) - 2 * ESCALATOR_SKIRT_INSET
+  return ESCALATOR_BAND + (escalatorWidthOf(m) - 1) - 2 * ESCALATOR_SKIRT_INSET
 }
 
 export function escalatorBalustradeWidth(m: RampPiece): number {
@@ -55,11 +75,11 @@ export function escalatorBalustradeWidth(m: RampPiece): number {
 
 /** The metal casing retains the original envelope while the glass moves inward. */
 export function escalatorBodyWidth(m: RampPiece): number {
-  return ESCALATOR_BALUSTRADE + (m.cfg.width === 2 ? 1 : 0)
+  return ESCALATOR_BALUSTRADE + (escalatorWidthOf(m) - 1)
 }
 
 /**
- * The body is centred between its two cells; graph endpoints stay on integer cells.
+ * The body is centred across its plan blocks; graph endpoints stay on integer cells.
  *
  * The centring shift is derived from the run's **low → high** order, which is the
  * climb direction for a ramp. A **level** run (a walkway) has no `z` to order by,
@@ -76,7 +96,7 @@ export function escalatorRun(m: RampPiece): { from: Vec3i; to: Vec3i } {
   const lower = lowerFirst ? m.from : m.to
   const upper = lowerFirst ? m.to : m.from
   const len = Math.hypot(upper.x - lower.x, upper.y - lower.y)
-  const half = m.cfg.width === 2 && len > 0 ? 0.5 / len : 0
+  const half = len > 0 ? (escalatorWidthOf(m) - 1) * 0.5 / len : 0
   const dx = (upper.y - lower.y) * half
   const dy = -(upper.x - lower.x) * half
   const shift = (p: Vec3i): Vec3i => ({ x: p.x + dx, y: p.y + dy, z: p.z })
@@ -117,13 +137,21 @@ export function escalatorSpanOf(m: Pick<Escalator, 'from' | 'to'>): RampSpan {
   return Math.abs(m.to.z - m.from.z) > 11 ? 'triple' : Math.abs(m.to.z - m.from.z) > 6 ? 'double' : 'single'
 }
 
-/** All floor cells supporting the two ends of this single piece. */
+/** Every floor cell supporting the two ends of this single piece, one pair per plan lane. */
 export function escalatorLandings(m: RampPiece): Vec3i[] {
-  if (m.cfg.width !== 2) return [m.from, m.to]
+  const width = escalatorWidthOf(m)
+  if (width === 1) return [m.from, m.to]
   const run = escalatorRun(m)
-  const dx = 2 * (run.from.x - m.from.x)
-  const dy = 2 * (run.from.y - m.from.y)
-  return [m.from, m.to, ...[m.from, m.to].map((p) => ({ x: p.x + dx, y: p.y + dy, z: p.z }))]
+  const dx = 2 * (run.from.x - m.from.x) / (width - 1)
+  const dy = 2 * (run.from.y - m.from.y) / (width - 1)
+  const out = [m.from, m.to]
+  for (let lane = 1; lane < width; lane++) {
+    out.push(
+      { x: m.from.x + dx * lane, y: m.from.y + dy * lane, z: m.from.z },
+      { x: m.to.x + dx * lane, y: m.to.y + dy * lane, z: m.to.z },
+    )
+  }
+  return out
 }
 
 /** Cells of horizontal run for the default five-metre piece. */
@@ -149,9 +177,9 @@ export function nextEscalatorDir(dir: EscalatorDir): EscalatorDir {
  * An omitted length is the document's own default (`defaultRampLength`): 长 5 m
  * on one floor, 长 10 m on two. `dir` orders `from`/`to`
  * (up: base → top, down: top → base) without moving the run, so up and down
- * share one footprint.
+ * share one footprint. `width` is the plan width: 窄 1, 宽 2 or 超宽 3 blocks.
  */
-export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: 1 | 2 = 1, length?: RampLength, storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single'): Module {
+export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id: string, width: EscalatorWidth = 1, length?: RampLength, storeyHeight = STOREY_HEIGHT, span: RampSpan = 'single'): Module {
   const [dx, dy] = stairFacing(rot)
   const size = length ?? defaultRampLength(storeyHeight, span)
   const { run, rise } = escalatorLengthSpec(size, storeyHeight, span)
@@ -172,6 +200,6 @@ export function escalatorModule(base: Vec3i, rot: number, dir: EscalatorDir, id:
     rot,
     from: up ? lower : upper,
     to: up ? upper : lower,
-    cfg: { incline: 30 as const, dir: up ? 'up' : 'down', ...(width === 2 ? { width } : {}) },
+    cfg: { incline: 30 as const, dir: up ? 'up' : 'down', ...(width > 1 ? { width } : {}) },
   }
 }
