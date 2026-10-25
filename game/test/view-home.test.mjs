@@ -132,6 +132,11 @@ test('a station switch returns to the home view against the fresh bounds', () =>
   const viewport = src('app/Viewport.tsx')
   assert.match(viewport, /stationEpoch !== homeEpochRef\.current/, 'the rebuild tells a switch from an edit by the epoch')
   assert.match(viewport, /goHomeView\(scene\)/, 'and a switch runs the one home action, after setStation')
+  assert.match(
+    viewport,
+    /goHomeView\(scene\)[\s\S]*?scene\.zoomBy\(2 \/ 3\)/,
+    'the initial station and each loaded station open at the 50%-closer distance',
+  )
 })
 
 test('Ctrl+H, the ⌂ button and the metro:home hand-over are one action', () => {

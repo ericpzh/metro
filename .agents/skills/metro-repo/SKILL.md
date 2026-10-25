@@ -41,6 +41,11 @@ state and update `metro-game`/`metro-game-test`
 when changing this contract. Audio measurements belong in
 the existing [performance reference](references/performance.md#game-audio-integration--2026-10-23).
 
+The editor's initial and station-switch home view opens 50% closer after the new
+station bounds are installed (`Viewport.tsx`, `zoomBy(2 / 3)`). Ordinary edits do
+not reframe the camera. Keep the load/home wiring regression in
+`game/test/view-home.test.mjs` aligned with this default.
+
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.

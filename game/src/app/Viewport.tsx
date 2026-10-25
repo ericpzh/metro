@@ -756,6 +756,9 @@ export function Viewport(): React.ReactElement {
       framedRef.current = true
       homeEpochRef.current = stationEpoch
       goHomeView(scene)
+      // Open stations at the same 50%-closer distance used by the regular
+      // benchmark view. `zoomBy` uses a 2/3 distance factor for that framing.
+      scene.zoomBy(2 / 3)
       scene.prepareBuildViews()
     }
   }, [version, station, stationEpoch, signPreviewId, signVersion, language])
