@@ -501,6 +501,10 @@ for narrow/wide/extra-wide escalators in every rotation and travel direction; th
 inside the rail curve and makes one pane per side. The wider metal shoulders, flattening
 risers and covered step return are checked too;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
+`ramp-block-placement` pins the reported Tianhe stair wedges, including a multi-storey
+中直跑楼梯's interior landing: the ground beside a mid-storey platform follows the
+flight's sloped soffit, while the flight standing on the stair's outer lower landing
+keeps the base-plane clamp that holds the floor block level.
 `module-build` also checks floor/apron clearance and the body's inset, buried joins.
 It pins train roof/body paint and non-overlapping cab seams, plus half-height screen-door caps
 that slide clear with their leaves. `train-cabin` pins spawning at the stopped berth

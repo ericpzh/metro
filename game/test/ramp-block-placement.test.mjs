@@ -37,6 +37,33 @@ test('Tianhe (77,-100,-16): preview, placement and carving retain the calculated
   assert.deepEqual(rampThinCells(placed.cells, modules), [], 'retained wide-stair lanes must not become side panels')
 })
 
+test('Tianhe (79,-100,-17): a multi-storey forward stair follows its soffit at an interior landing', () => {
+  // The reported notch under a 中直跑楼梯's second storey: an interior landing is the
+  // stair's own platform, not a placed floor, so the ground beside the flight has to
+  // follow the sloped soffit down to the platform's fascia. It must not be held at the
+  // platform's walking surface — that left a level shelf poking through the stair body
+  // at the joint. The outer lower landing still carries the base plane (`SlopeCut.base`).
+  const flights = [
+    { from: { x: 84, y: -102, z: -20 }, to: { x: 80, y: -102, z: -17.5 } },
+    { from: { x: 80, y: -102, z: -17.5 }, to: { x: 72, y: -102, z: -12.5 } },
+    { from: { x: 72, y: -102, z: -12.5 }, to: { x: 64, y: -102, z: -7.5 } },
+    { from: { x: 64, y: -102, z: -7.5 }, to: { x: 60, y: -102, z: -5 } },
+  ]
+  const forward = { id: 'forward', type: 'stair', x: 84, y: -102, z: -20, rot: 3, from: flights[0].from, to: flights.at(-1).to, cfg: { width: 2.79, style: 'centerForward', flights }, storeyHeight: 5 }
+  const cuts = rampSlopeCuts([forward])
+  const besideLanding = cuts.get(packKey(79, -100, -17))
+  assert.ok(besideLanding, 'the block under the flight beside the interior landing is not cut')
+  assert.equal(besideLanding.base, undefined, 'an interior landing held the ground at its own surface')
+  // The plane at the landing-side edge (x=80) is the soffit, 0.86 m below the cell's
+  // ceiling and below the landing surface (local 0.5) — no shelf at the joint.
+  assert.ok(Math.abs(besideLanding.hi - 0.14) < 1e-9)
+  assert.ok(besideLanding.hi < 0.5)
+  assert.ok(besideLanding.lo > besideLanding.hi, 'the flight climbs away from the landing')
+  // The flight standing on the stair's own bottom landing keeps the floor-level clamp.
+  const base = cuts.get(packKey(83, -102, -20))
+  assert.ok(base && base.base === 1, 'the outer base block is no longer held at the floor it continues')
+})
+
 test('each stair and escalator rotation allows underside wedges and refuses its empty passage', () => {
   for (const type of ['stair-straight', 'stair-right90', 'stair-right180', 'escalator']) {
     for (let rot = 0; rot < 4; rot++) for (const dir of type === 'escalator' ? ['up', 'down'] : ['up']) {

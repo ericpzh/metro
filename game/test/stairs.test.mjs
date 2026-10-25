@@ -18,6 +18,7 @@ import { useStore } from '../src/app/store.ts'
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD } from '../src/sim/constants.ts'
 import { STAIR_FLIGHT_RISE, STAIR_RISE, STAIR_RUN, STAIR_WIDTH_DOUBLE, STAIR_WIDTH_LABELS, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, STAIR_WIDTHS, nextStairWidth, planStairLanes, stairBuildWidth, stairFacing, stairFlightSlides, stairFlights, stairFlightsFor, stairLaneBases, stairLaneMates, stairLandingShape, stairLandingWalls, stairLandings, stairLanes, stairLevels, stairOnBlockGrid, stairQuarterTurnOffset, stairRight, stairRotFor, stairRunBlocks, stairSwitchbackGap, stairSwitchbackOffset, stairSwitchbackRunWidth, stairTurnCells, stairWallSides, stairWidthLabel } from '../src/sim/stairs.ts'
 import { addEquipment, createModule, removeModule, toData, toState, wallRun } from '../src/build/model.ts'
+import { rampLengthsFor } from '../src/sim/rampLengths.ts'
 
 test('saved straight stair sizes reserve their full block band and detect walls at its edges', () => {
   for (let rot = 0; rot < 4; rot++) {
@@ -562,9 +563,9 @@ test('all eight fixed stair buttons build their one-storey flight plans', () => 
  * bottom landing to the top one is the stair itself. `addEquipment` lays the
  * turn landing and carves the slab the flights pass through.
  */
-function stairwell(mod) {
+function stairwell(mod, baseZ = -5) {
   const cells = []
-  for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: -5, fill: 'solid' })
+  for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: baseZ, fill: 'solid' })
   for (let x = -8; x <= 8; x++) for (let y = -8; y <= 8; y++) cells.push({ x, y, z: 0, fill: 'solid' })
   const state = addEquipment(toState({ name: 'well', seed: 1, cells, modules: [], lines: [] }), mod)
   return buildGraph({ name: 'well', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
@@ -1053,6 +1054,92 @@ test('forward stairs continue after a block-fitted middle landing in every size 
       assert.ok(reachable(g, bottom, top), `${style}/${rot}/${width} connects uphill`)
       assert.ok(reachable(g, top, bottom), `${style}/${rot}/${width} connects downhill`)
       assert.ok(reachableWithin(g, g.nodeIndex.get(key(first.to)), g.nodeIndex.get(key(second.from)), row), 'flights connect across their own landing')
+    }
+  }
+})
+
+test('a 中直跑楼梯 puts one platform in the middle of every storey it climbs', () => {
+  // The report this fixes: the aligned forward stair split every span into the same
+  // two flights, so a 双层 piece put its only platform at 5 m and a 三层 one at 7.5 m
+  // — neither a place per storey nor a storey's middle. It now lays one flight per
+  // storey, with a platform between each pair at the middle of that storey's slice,
+  // on the half-metre landing grid the crowd walks.
+  for (const [span, stories] of [['single', 1], ['double', 2], ['triple', 3]]) {
+    for (const width of STAIR_WIDTHS) for (let rot = 0; rot < 4; rot++) {
+      for (const spec of rampLengthsFor(span, 'stair')) {
+        const base = { x: 1, y: 2, z: -spec.rise }
+        const m = createModule('stair-centerForward', base.x, base.y, base.z, 'forward', rot, width, 'up', 'lane', [], undefined, { rampLength: spec.id, escalatorSpan: span })
+        assert.ok(m && m.type === 'stair')
+        const where = `${span}/${spec.id}/${width}/rot ${rot}`
+        const flights = stairFlights(m)
+        assert.equal(flights.length, stories + 1, `${where}: one flight per storey plus the last`)
+        assert.deepEqual(m.from, base, `${where}: the climb still starts on the placed cell`)
+        assert.equal(m.to.z, 0, `${where}: the climb still reaches exactly one span up`)
+        const blocks = stairRunBlocks(m.cfg.width)
+        const storey = spec.rise / stories
+        for (let k = 1; k <= stories; k++) {
+          const middle = -spec.rise + Math.round((k - 0.5) * storey * 2) / 2
+          assert.equal(flights[k - 1].to.z, middle, `${where}: platform ${k} is not in the middle of storey ${k}`)
+          assert.equal(flights[k].from.z, middle, `${where}: a flight does not leave platform ${k}`)
+          assert.ok(stairLandings(m).some((p) => p.z === middle && p.x === flights[k - 1].to.x && p.y === flights[k - 1].to.y), `${where}: platform ${k} is not a landing`)
+        }
+        let climb = 0
+        for (const f of flights) {
+          const [fx, fy] = stairFacing(rot)
+          const dx = f.to.x - f.from.x
+          const dy = f.to.y - f.from.y
+          assert.ok(Math.hypot(dx, dy) >= 1, `${where}: a flight has less than a whole cell of run`)
+          assert.ok(dx * fy - dy * fx === 0, `${where}: a flight does not carry straight on along the facing`)
+          assert.ok(f.to.z > f.from.z, `${where}: a flight does not climb`)
+          climb += f.to.z - f.from.z
+        }
+        assert.ok(Math.abs(climb - spec.rise) < 1e-9, `${where}: the flights do not add up to the span`)
+        // One landing row per storey, `blocks` cells wide — the same square the
+        // piece stands on — and every band stays on the block grid so its treads
+        // and balustrades end on cell edges.
+        const cells = stairTurnCells(m)
+        assert.equal(cells.length, stories * blocks, `${where}: ${cells.length} landing cells for ${stories} storeys`)
+        const [rx, ry] = stairRight(rot)
+        const grid = (blocks - 1) / 2
+        for (const slide of stairFlightSlides(m)) {
+          assert.deepEqual(slide, { dx: rx * grid || 0, dy: ry * grid || 0 }, `${where}: a band is off the block grid`)
+        }
+      }
+    }
+  }
+})
+
+test('a multi-storey 中直跑楼梯 draws and walks its platform on every storey', () => {
+  const mats = new Proxy({}, { get: (o, k) => (o[k] ??= new THREE.MeshStandardMaterial()) })
+  const finish = () => new THREE.MeshStandardMaterial()
+  for (const [span, stories] of [['double', 2], ['triple', 3]]) {
+    const spec = rampLengthsFor(span, 'stair').find((s) => s.id === 'long')
+    for (const width of STAIR_WIDTHS) {
+      const stair = createModule('stair-centerForward', 0, 0, -spec.rise, 'forward', 0, width, 'up', 'lane', [], undefined, { rampLength: spec.id, escalatorSpan: span })
+      const where = `${span}/${spec.id}/${width}`
+      const flights = stairFlights(stair)
+      const group = new StairModel({ mats, finish, data: { cells: [], modules: [stair] }, preview: false }).build(stair)
+      group.updateMatrixWorld(true)
+      const landings = group.children.filter((c) => c.name === 'stair-landing')
+      assert.equal(landings.length, stories, `${where}: one drawn platform per storey`)
+      for (const [i, landing] of landings.entries()) {
+        const box = new THREE.Box3()
+        landing.traverse((o) => { if (o.name === 'stair-landing-surface' || o.name === 'stair-landing-frame') box.expandByObject(o) })
+        assert.ok(Math.abs(box.max.z - box.min.z - 0.5) < 1e-6, `${where}: platform ${i} is not a 0.5 m slab`)
+        assert.ok(Math.abs(box.max.z - (flights[i].to.z + 1)) < 1e-6, `${where}: platform ${i} does not sit on its landing`)
+      }
+      // The crowd walks the whole climb one flight at a time, in either direction.
+      const g = stairwell(stair, -spec.rise)
+      const bottom = g.nodeIndex.get(key(stair.from))
+      const top = g.nodeIndex.get(key(stair.to))
+      assert.notEqual(bottom, undefined)
+      assert.notEqual(top, undefined)
+      assert.ok(reachable(g, bottom, top), `${where}: does not connect uphill`)
+      assert.ok(reachable(g, top, bottom), `${where}: does not connect downhill`)
+      for (const f of flights) {
+        assert.notEqual(g.nodeIndex.get(key(f.from)), undefined, `${where}: a flight starts off the walk graph`)
+        assert.notEqual(g.nodeIndex.get(key(f.to)), undefined, `${where}: a flight ends off the walk graph`)
+      }
     }
   }
 })

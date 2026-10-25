@@ -242,14 +242,21 @@ export interface SlopeCut {
    * the run's own **base plane**, the surface of the landing it climbs from (world
    * `from.z + 1`).
    *
-   * A **stair** sets it, and the reader clamps the cut up to it, because below that plane
-   * there is no ground to take: the base landing is the floor the piece stands on, and the
-   * ground under it is the floor the player walks across. A stair's body is steeper than
-   * its run — the treads stop `stairTreadTrim` short of each landing but still carry the
-   * whole rise — so near the foot its soffit hangs *below* the plane the piece stands on.
+   * A **stair** sets it on the flight that stands on its **outer lower landing** —
+   * the floor the piece is founded on — and the reader clamps the cut up to it,
+   * because below that plane there is no ground to take: the base landing is the
+   * floor the piece stands on, and the ground under it is the floor the player walks
+   * across. A stair's body is steeper than its run — the treads stop
+   * `stairTreadTrim` short of each landing but still carry the whole rise — so near
+   * the foot its soffit hangs *below* the plane the piece stands on.
    * Cut without this and the block under the base comes out a tilted wedge that dips under
    * the floor beside it (`the block below the base of stair is not flat`): the base block
    * is a floor block, not a batten, and it has to stay level with the floor it continues.
+   *
+   * An **interior** landing instead is the stair's own 0.5 m platform, not a placed
+   * floor: there the ground follows the flight's soffit all the way down to the
+   * platform's fascia, or it would leave a level shelf poking through the stair body
+   * at the joint.
    *
    * A cut that reaches this plane over a whole cell leaves that block **whole** — trim to
    * the plane and a level top is exactly what the cell already is.
@@ -387,6 +394,13 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
       ? [{ ...escalatorInclineRun(m, exitLandingHeight(modules, m.to) - exitLandingHeight(modules, m.from)), bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m), coreHalf: rampLaneHalf(m) }]
       : rampSegments(m)
     if (!segs) continue
+    // A stair's **outer lower landing** is the floor the piece stands on: the block
+    // under it is a floor block and must stay level with the floor beside it
+    // (`SlopeCut.base`). An **interior** landing is different — it is the stair's
+    // own 0.5 m platform, not a placed floor — so the ground under the flights that
+    // meet it follows their soffit, which dips below the platform at the joint.
+    const outerLow = m.type === 'stair' && m.from.z !== m.to.z ? (m.from.z < m.to.z ? m.from : m.to) : undefined
+    const standsOnOuterBase = segs.map((s) => !!outerLow && [s.from, s.to].some((p) => p.x === outerLow.x && p.y === outerLow.y && p.z === outerLow.z))
     for (const s of segs) {
       s.from = { ...s.from, z: s.from.z + exitLandingHeight(modules, m.type === 'escalator' ? m.from : s.from) }
       s.to = { ...s.to, z: s.to.z + exitLandingHeight(modules, m.type === 'escalator' ? m.to : s.to) }
@@ -396,7 +410,7 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
     // stair's stringers and soffit. The ground is cut to *that*, or the filling stops
     // in mid-air below the steps it is supposed to carry.
     const foot = m.type === 'stair' ? STAIR_BODY_DROP : RAMP_FOOT
-    for (const s of segs) {
+    for (const [flightIndex, s] of segs.entries()) {
       const tiles = flightTiles(s, trimLandings)
       if (!tiles) continue
       /**
@@ -408,11 +422,17 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
        * the cut to the plane the piece stands on keeps the block under the base a floor
        * block: level, at the level of the landing it continues (`SlopeCut.base`).
        *
+       * Only the flight standing on the stair's **outer lower landing** carries it. An
+       * interior landing is the piece's own platform, not a floor: holding the ground at
+       * its surface there leaves a level shelf poking through the sloped soffit at the
+       * joint (the reported notch under a 中直跑楼梯's mid-storey landings), so those
+       * flights' cuts follow their body all the way down to the platform's fascia.
+       *
        * `FlightTile.a`/`b` are the line's own output at the tile's edges, so this needs
        * nothing applied to them: the lowest point of the treads' line *is* the surface the
        * piece stands on.
        */
-      const base = trimLandings ? Math.min(s.from.z, s.to.z) + 1 : undefined
+      const base = trimLandings && standsOnOuterBase[flightIndex] ? Math.min(s.from.z, s.to.z) + 1 : undefined
       for (const t of tiles) {
         const axis: 'x' | 'y' = t.alongX ? 'x' : 'y'
         // Which way round `a`/`b` sit only decides which end of the block is the

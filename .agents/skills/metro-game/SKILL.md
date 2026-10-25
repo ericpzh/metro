@@ -190,7 +190,7 @@ Inspector controls that edit placed equipment should call a store action and com
 one station edit, so the worker, undo history and selected document stay in sync.
 The right-side inspector does not expose per-cell zone controls; paint and erase zones
 through the 分区 build-rail tool (`ZoneTool`).
-Ramp families are endpoint-derived and shared by 扶梯 and 楼梯: single is 2–6 m, double is 7–11 m, triple is 12–16 m (the prior family plus 1–5 m), with 長 defaults of 5 / 10 / 15 m. Both straight and turning stairs expose the same span and length choices. Keep placement and exit-bay snap using the same selected span, preserve all three length settings while cycling, and make picking a placed ramp restore its family and length. The span tile always draws three floor planes and highlights exactly the selected plane. `three-storey-ramps.test.mjs` pins catalogue, endpoint, straight-stair placement/snap, all stair shapes, selector cycle and tile contract.
+Ramp families are endpoint-derived and shared by 扶梯 and 楼梯: single is 2–6 m, double is 7–11 m, triple is 12–16 m (the prior family plus 1–5 m), with 長 defaults of 5 / 10 / 15 m. Both straight and turning stairs expose the same span and length choices. A 中直跑楼梯 spanning multiple storeys climbs one flight per storey and puts a platform in the middle of each — 双层 has two platforms, 三层 three — while 左/右直跑楼梯 keep their single middle landing; platform tops stay on the half-metre landing grid the crowd walks. Keep placement and exit-bay snap using the same selected span, preserve all three length settings while cycling, and make picking a placed ramp restore its family and length. The span tile always draws three floor planes and highlights exactly the selected plane. `three-storey-ramps.test.mjs` pins catalogue, endpoint, straight-stair placement/snap, all stair shapes, selector cycle and tile contract; `stairs.test.mjs` pins the per-storey forward platforms.
 
 For escalators, travel direction is encoded by both `cfg.dir` and ordered `from`/`to`
 endpoints; reverse both together. The inspector's selected-run reverse is
@@ -2404,3 +2404,27 @@ fittings follow the raised lining. Keep exterior crown, shoulders and collector
 wells unchanged; `openRoofUnderside` removes only downward closure faces so
 the higher interior remains visible. `train-interior` pins full-length/width
 headroom under collectors and unchanged exterior High/Low ray hits.
+
+
+### Exact ramp underside surfaces
+
+`sim/rampSurface.ts` owns vertical stair/escalator underside depths. Rotated boxes
+must compensate their normal offset for slope; keep actual model ray-hit tests in
+`ramp-surface.test.mjs`. `sim/exitLanding.ts` supplies the same visual landing offsets
+to cuts and piece builders. `SlopeCut.patches` retains each footprint and plane;
+never discard an intersecting plane by comparing only its minimum endpoint.
+`SlopeCut.base` (the level floor the stair is founded on) belongs to the flight
+standing on the stair's **outer lower landing** only: an interior landing is the
+piece's own platform, not a placed floor, so the ground beside it follows the sloped
+soffit to the platform's fascia rather than leaving a level shelf through the stair.
+`render/rampSurfaceMesh.ts` partitions at footprint edges, floor/ceiling/base clamps
+and plane intersections before triangulation. Keep adjacent wall exposure and the
+chunk halo/ghost cut hashes aligned. Derived cuts do not edit the station document.
+
+Block allowance and carving must respect the same underside patches. `rampList`
+caches per-run retained cell keys against the immutable module array;
+`rampSurfaceRetainsVolume` excludes zero-area/zero-height remnants and handles
+partial footprints and intersecting planes. A retained core cell is slope-cut,
+never converted into a side half-panel. Preserve other runs' corridor refusals.
+The Tianhe `(77,-100,-16)` reproduction is in `ramp-block-placement.test.mjs`;
+`tools/check-ramp-block-placement.mjs <save.json>` drives a real pointer on that save.

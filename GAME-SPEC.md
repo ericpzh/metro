@@ -323,8 +323,11 @@ keeps the build model small and the save files sparse.
   truss or soffit hangs into — is not a full cube. Its top is the run's own **underside**, a plane
   sloping along the run, so the block reads as the filling under the slope and the run's truss sits
   on it instead of disappearing into it. It is a *cut*, not a chamfer, so the block keeps its sharp
-  edge there. Nothing is stored: the cut is derived from the run (`rampSlopeCuts`), so there is no
-  filling-block piece in the document to keep in step with the run that made it.
+  edge there. The plane follows the drawn body all the way to an interior landing's fascia; at the
+  stair's **outer** lower landing the ground stays level with the floor the piece stands on, so the
+  cut never dips below that floor. Nothing is stored: the cut is derived from the run
+  (`rampSlopeCuts`), so there is no filling-block piece in the document to keep in step with the
+  run that made it.
 
 ### 4.3 Surfaces and what they do
 
@@ -449,7 +452,10 @@ climb itself names its family. The length is the piece's own endpoints, so a run
 a fixed piece that a save carries with it. A
 **单跑楼梯** climbs it in one flight; a **turning staircase** splits it into two
 flights and puts its middle platform at half the rise (1 m for 超短, 3 m for
-超长). That platform is the stair's **own 0.5 m slab**, not a placed block: the
+超长). A **中直跑楼梯** climbs a two- or three-storey span in one flight per
+storey, with a platform between each pair at that storey's middle — two
+platforms for a 双层 piece, three for a 三层 — because its flights carry straight
+on. That platform is the stair's **own 0.5 m slab**, not a placed block: the
 piece stands alone like an escalator, the model draws the platform, and the crowd walks it
 as the stair's virtual landing. Turning stairs take the length tile exactly as straight
 ones do; only the 楼梯块, a single stepped building block, has no run.

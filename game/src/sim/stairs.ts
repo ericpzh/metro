@@ -469,13 +469,66 @@ export function stairWallSides(
 }
 
 /**
+ * How many storeys a stair's **climb** spans: 1, 2 or 3
+ * (`sim/rampLengths.ts`'s 单层 / 双层 / 三层 families). The rise names the family —
+ * 2–6 m is one storey, 7–11 m two and 12–16 m three — so a saved piece answers
+ * this from its own outer landings, exactly as `stairLengthOf` reads it.
+ */
+function stairStories(rise: number): number {
+  const span = rampSpanOf(rise)
+  return span === 'triple' ? 3 : span === 'double' ? 2 : 1
+}
+
+/**
+ * The flights of a **中直跑楼梯** (the aligned forward stair, `centerForward`): the
+ * only shape that can put a platform in the middle of **every storey** it climbs,
+ * because each flight carries straight on from the one below it.
+ *
+ * A 单层 piece has one platform, at half its rise; a 双层 has two, in the middle
+ * of each of its two equal storey slices; a 三层 has three. So the count is the
+ * storey count — 1 / 2 / 3 — exactly the way a turning stair's one platform
+ * already sits in the middle of its one-storey climb. The platform heights are
+ * snapped to the **half-metre landing grid** the crowd walks (`World.onFloor`),
+ * which a centred middle already is; an odd rise's slice midpoints (a 7 m climb's
+ * 1.75 m, say) round to the nearest half metre rather than inventing an
+ * unsupported floor.
+ *
+ * Every flight keeps the catalogue's slope: it takes the share of the run that
+ * matches its share of the rise, rounded **up** to whole cells — the same rule the
+ * one-storey pair already used (`ceil(run / 2)` each), so the single-storey piece
+ * is bit-for-bit what it was.
+ */
+function alignedForwardFlights(base: Vec3i, rot: number, run: number, rise: number): StairFlight[] {
+  const stories = stairStories(rise)
+  // Whole half-metres: the platform tops, then the base and the top landing.
+  const halfUnits = Math.round(rise * 2)
+  const levels = [0]
+  for (let k = 1; k <= stories; k++) levels.push(Math.round(halfUnits * (2 * k - 1) / (2 * stories)))
+  levels.push(halfUnits)
+  const [fx, fy] = stairFacing(rot)
+  const flights: StairFlight[] = []
+  let along = 0
+  for (let i = 0; i < stories + 1; i++) {
+    const climb = (levels[i + 1] - levels[i]) / 2
+    const cells = Math.max(1, Math.ceil(climb / rise * run))
+    flights.push({
+      from: { x: base.x + fx * along, y: base.y + fy * along, z: base.z + levels[i] / 2 },
+      to: { x: base.x + fx * (along + cells), y: base.y + fy * (along + cells), z: base.z + levels[i + 1] / 2 },
+    })
+    along += cells
+  }
+  return flights
+}
+
+/**
  * The fixed flights a placed stair of `style` runs from `base`, turned by the
  * placement rotation. Every flight climbs at the same slope; a `90` turns one
  * way or the other at the quarter-landing — its second leg laid `stairQuarterTurnOffset`
  * cells in, on the far edge of the square the two meet on — and the `180`s are
  * switchbacks whose two flights are parallel with the landing between them, the return
  * flight laid `stairSwitchbackOffset(width)` cells across, so no empty column is left
- * between the runs.
+ * between the runs. The aligned forward shape climbs one flight per storey it spans,
+ * with a platform between each pair (`alignedForwardFlights`).
  *
  * `width` is read by a switchback (its two flights are side by side, so the stair's own
  * width is what separates them) and by a 90° turn (its landing is a square one block of
@@ -534,6 +587,9 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
     case 'leftForward':
     case 'centerForward':
     case 'rightForward': {
+      // The aligned forward stair is the shape that can put a platform in every
+      // storey of a multi-storey climb: its flights need no offset to carry on.
+      if (style === 'centerForward') return alignedForwardFlights(base, rot, run, rise)
       const across = style === 'leftForward' ? -span : style === 'rightForward' ? span : 0
       return [
         { from: base, to: at(flightRun, 0, flightRise) },
@@ -722,6 +778,25 @@ const NO_SLIDE: StairFlightSlide = { dx: 0, dy: 0 }
 export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
   const flights = stairFlights(m)
   const out: StairFlightSlide[] = flights.map(() => NO_SLIDE)
+  // Normalise −0 to 0, so callers (and their tests) see plain numbers.
+  const z = (v: number): number => (v === 0 ? 0 : v)
+  // A 中直跑楼梯 spanning more than one storey climbs in **more than two** flights,
+  // all carrying straight on (`alignedForwardFlights`). Each band is laid on the
+  // block grid exactly as a single-run stair's is: centred across the blocks it
+  // fills, so its treads and balustrades end on cell edges a wall can meet.
+  if (flights.length > 2) {
+    const width = m.cfg.width ?? STAIR_WIDTH_NARROW
+    const grid = stairOnBlockGrid(width) ? (stairRunBlocks(width) - 1) / 2 : 0
+    if (grid === 0) return out
+    for (const [i, f] of flights.entries()) {
+      const dx = f.to.x - f.from.x
+      const dy = f.to.y - f.from.y
+      const run = Math.hypot(dx, dy)
+      if (run < 1e-6) continue
+      out[i] = { dx: z(dy / run * grid), dy: z(-dx / run * grid) }
+    }
+    return out
+  }
   if (flights.length === 1) {
     const width = stairTreadWidth(m)
     const shift = stairOnBlockGrid(width) ? (stairRunBlocks(width) - 1) / 2 : 0
@@ -748,8 +823,6 @@ export function stairFlightSlides(m: StairModule): StairFlightSlide[] {
   // Half a block across at two lanes: the step that centres each run on the blocks it
   // fills. The runs' *right* is `(uy, -ux)` — the side `stairRight` calls +1.
   const grid = stairOnBlockGrid(width) ? (stairRunBlocks(width) - 1) / 2 : 0
-  // Normalise −0 to 0, so callers (and their tests) see plain numbers.
-  const z = (v: number): number => (v === 0 ? 0 : v)
   const d2x = second.to.x - second.from.x
   const d2y = second.to.y - second.from.y
   // A **90° turn**: the two legs are perpendicular, so one across-vector cannot place

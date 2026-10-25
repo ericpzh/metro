@@ -3981,7 +3981,7 @@ support these edges. Gates keep cardinal approaches, and exit/ramp wall checks
 also apply to the direct diagonal segment. This expands open-floor walking
 without changing the capacity-limited stair, escalator, lift or gate rules.
 
-左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
+左 / 中 / 右直跑楼梯 continue forward across a middle landing, with the upper run shifted across the landing for the left and right variants. A 中直跑楼梯 spanning two or three storeys climbs one flight per storey, with a platform in the middle of each — a 双层 piece has two, a 三层 three — while the 左 / 右 variants keep their single middle landing. `stairs.test.mjs` checks flight plans and passenger routes in both directions across all sizes, spans and rotations; `module-build.test.mjs` checks their rendered treads, railing glass and landing.
 
 
 Approved library integration: `npm run bake:passengers` regenerates reviewed GLBs and bakes `passenger-approved.json`. `passenger-library.test.mjs` pins all 232 variants with ten hairstyles per sex, equal selection within adult/child pools independent of size/speed, every walk on every model, pack presence/absence, padded topology, one instanced draw and atlas disposal. `passenger-view` and `agent-route` retain ground contact, flat greys, identity, picking and eye view; `sim-pause` freezes gait during pause.
