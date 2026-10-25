@@ -3,7 +3,7 @@
 import { msg } from '../../sim/i18n.ts'
 import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { walkwayLengthLabel } from '../../sim/walkways.ts'
-import { liftIntervalLabel } from '../../sim/lifts.ts'
+import { liftIntervalLabel, liftSizeLabel } from '../../sim/lifts.ts'
 import { stairWidthLabel } from '../../sim/stairs.ts'
 import { pillarLengthLabel, roofWidthLabel } from '../../sim/structures.ts'
 import { trackRunLengthLabel } from '../../sim/track.ts'
@@ -16,7 +16,7 @@ import {
   isStairType,
 } from './catalog.ts'
 
-export type BuilderAttributeKind = 'rotation' | 'position' | 'width' | 'length' | 'height' | 'direction' | 'span' | 'style'
+export type BuilderAttributeKind = 'rotation' | 'position' | 'width' | 'size' | 'length' | 'height' | 'direction' | 'span' | 'style'
 export interface BuilderAttribute {
   kind: BuilderAttributeKind
   label: string
@@ -30,6 +30,7 @@ export interface BuilderAttribute {
 // common priority used for row order and for Tab / Shift+Tab assignment.
 const ATTRIBUTE_PRIORITY: Record<Exclude<BuilderAttributeKind, 'rotation'>, number> = {
   width: 10,
+  size: 15,
   length: 20,
   span: 25,
   height: 30,
@@ -97,6 +98,10 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })
   if (type === 'lift') {
+    // 大 / 小 is the plan footprint, not the rise: the 小 lift is the 2 × 2 shaft
+    // the game has always built, the 大 one spans 3 × 3. It leads the row, then
+    // the shaft's 层高 and its finish.
+    attrs.push(variant('size', liftSizeLabel(s.liftSize), s.cycleLiftSize))
     // The interval is named 超短 / 短 / 中 / 长 / 超长 only: the exact metres a
     // piece spans belong to the mark, not a suffix the player has to parse.
     attrs.push(variant('length', liftIntervalLabel(s.liftInterval), s.cycleLiftInterval))

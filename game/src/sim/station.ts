@@ -42,7 +42,7 @@ import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
-import { liftFootprintCells, liftLandingRows, liftLevels, type LiftDoorConfig } from './lifts.ts'
+import { liftFootprintCells, liftLandingRows, liftLevels, liftSizeOf, type LiftDoorConfig } from './lifts.ts'
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
 import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
@@ -101,6 +101,8 @@ export interface LiftCar {
   y: number
   fromZ: number
   toZ: number
+  /** The plan footprint the car serves: 2 = 小 2 × 2, 3 = 大 3 × 3. */
+  size: 2 | 3
   /** Placement quarter-turn; the cabin doors face local −y turned by it. */
   rot: number
   /** The piece's per-level door choice, so a `both` level opens both faces. */
@@ -288,10 +290,10 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
     fenceCells.add(cellKey(m.x, m.y, m.z))
   }
 
-  // A lift is a 2 × 2 m shaft: every footprint cell is cabin interior and is
-  // not walkable. The only boarding cells are the floor tiles in front of the
-  // door opening (`liftLandingCells`), so the crowd enters and leaves through the
-  // door the model draws — never through a side or back wall.
+  // A lift is a shaft: every footprint cell (2 × 2 小, 3 × 3 大) is cabin interior
+  // and is not walkable. The only boarding cells are the floor tiles in front of
+  // the door opening (`liftLandingCells`), so the crowd enters and leaves through
+  // the door the model draws — never through a side or back wall.
   const liftCells = new Set<string>()
   for (const m of data.modules) {
     if (m.type !== 'lift') continue
@@ -819,6 +821,7 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
             y: m.y,
             fromZ: m.from.z,
             toZ: m.to.z,
+            size: liftSizeOf(m),
             rot: m.rot ?? 0,
             doors: m.cfg?.doors,
             stops,

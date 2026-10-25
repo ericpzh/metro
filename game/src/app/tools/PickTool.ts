@@ -1,7 +1,7 @@
 import { msg } from '../../sim/i18n.ts'
 import { escalatorLength, escalatorSpanOf } from '../../sim/escalators.ts'
 import { walkwayLengthOf } from '../../sim/walkways.ts'
-import { LIFT_INTERVALS, liftRises } from '../../sim/lifts.ts'
+import { LIFT_INTERVALS, liftRises, liftSizeOf } from '../../sim/lifts.ts'
 import { stairLengthOf } from '../../sim/stairs.ts'
 // The 吸取 (picker) tool (工具栏, `P`): click anything built and take it into
 // the brush — the generalised form of the old 材质 folder's 取色 (`I`), which
@@ -303,6 +303,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
       if (mod.type === 'lift') {
         st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')
+        st.setLiftSize(liftSizeOf(mod))
         // The floor interval comes with the shaft: a picked piece arms the interval
         // of its lowest segment, which is where a fresh stack starts.
         const first = liftRises(mod)[0]

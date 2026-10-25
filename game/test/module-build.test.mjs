@@ -953,8 +953,35 @@ test('glass lifts expose their frame and moving car; steel keeps its solid enclo
     const old = build({ ...mod, cfg: { style: 'steel' } })
     assert.equal(old.meshes, 37, 'the moving cabin includes its floor selector')
     // The steel front wall makes the plan a centimetre asymmetric, so a quarter
-    // turn swaps the two horizontal numbers.
-    assert.ok(['2.04×2.05×5', '2.05×2.04×5'].includes(old.size), `steel rot ${rot}: ${old.size}`)
+    // turn swaps the two horizontal numbers. The foot ring is fitted inside the
+    // 2 × 2 plan, so its 2.02 m bar is the short side now.
+    assert.ok(['2.02×2.04×5', '2.04×2.02×5'].includes(old.size), `steel rot ${rot}: ${old.size}`)
+  }
+})
+
+test('the 大 lift scales its shaft, car and landing portals to the 3 × 3 plan', () => {
+  for (const style of ['glass', 'steel']) {
+    const mod = liftModule({ x: 4, y: 4, z: 0 }, 0, `big-${style}`, LIFT_STEP, 3)
+    mod.cfg.style = style
+    const cells = liftLandingRows(mod, 0).flat().map(([x, y]) => ({ x, y, z: 0, fill: 'solid' }))
+    const before = data
+    data = { ...data, cells }
+    const { group } = build(mod)
+    try {
+      assert.equal(group.position.x, 5.5, `${style}: the shaft is centred on the 3 m plan`)
+      assert.equal(group.position.y, 5.5)
+      const shaft = box(group).getSize(new THREE.Vector3())
+      assert.ok(shaft.x > 2.9 && shaft.x < 3.1, `${style}: the drawn shaft spans the 3 × 3 plan (${shaft.x})`)
+      assert.ok(shaft.y > 2.9 && shaft.y < 3.1)
+      const cabin = box(group.userData.liftCabin).getSize(new THREE.Vector3())
+      assert.ok(cabin.x > 2.2 && cabin.x < 2.4, `${style}: the car grows with the shaft (${cabin.x})`)
+      const landings = group.userData.liftLandings
+      assert.equal(landings.length, 1)
+      assert.equal(landings[0].userData.doors.length, 4, 'one landing still carries a telescoping pair per half')
+    } finally {
+      data = before
+      ctx.data = before
+    }
   }
 })
 

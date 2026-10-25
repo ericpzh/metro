@@ -7,7 +7,7 @@ import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { RAMP_LENGTH_DEFAULT, DOUBLE_RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength, type RampSpan } from '../../../sim/rampLengths.ts'
-import { LIFT_INTERVAL_DEFAULT, nextLiftInterval, type LiftInterval } from '../../../sim/lifts.ts'
+import { LIFT_INTERVAL_DEFAULT, LIFT_SIZE, nextLiftInterval, nextLiftSize, type LiftInterval, type LiftSize } from '../../../sim/lifts.ts'
 import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '../../../sim/walkways.ts'
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
@@ -125,6 +125,12 @@ export interface ToolSlice {
    */
   liftInterval: LiftInterval
   /**
+   * The plan footprint a newly placed **电梯** gets: 小 is the 2 × 2 shaft the game
+   * has always built, 大 is the 3 × 3 one. Only the large size is stored on the
+   * piece, so a 小 lift's save looks exactly as it did before the 大/小 tile.
+   */
+  liftSize: LiftSize
+  /**
    * The length a newly placed **自动步道** is built at — 短 30 m, 中 60 m, 长 90 m
    * (`sim/walkways.ts`). Its own cycle, because the walkway's three level sizes
    * are not the escalator's climb sizes; its width and direction reuse the
@@ -235,6 +241,10 @@ export interface ToolSlice {
   cycleLiftInterval: () => void
   /** Point the 电梯 floor interval at an absolute value (the 吸取 tool copies a picked shaft's own). */
   setLiftInterval: (interval: LiftInterval) => void
+  /** Flip a 电梯 between the 2 × 2 小 and 3 × 3 大 plan. */
+  cycleLiftSize: () => void
+  /** Point the 电梯 plan at an absolute 小 / 大 (the 吸取 tool copies a picked shaft's own). */
+  setLiftSize: (size: LiftSize) => void
   /** Step the 自动步道 length on to the next size (短 → 中 → 长). */
   cycleWalkwayLength: () => void
   /** Toggle the 闸机 between a working lane and the doorless fence machine (Tab). */
@@ -295,6 +305,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   doubleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
   tripleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
   liftInterval: LIFT_INTERVAL_DEFAULT,
+  liftSize: LIFT_SIZE,
   walkwayLength: WALKWAY_LENGTH_DEFAULT,
   bridgeLength: 32,
   bridgeRailing: 'railing',
@@ -376,6 +387,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setTripleRampLength: (tripleRampLength) => set({ tripleRampLength }),
   cycleLiftInterval: () => set((s) => ({ liftInterval: nextLiftInterval(s.liftInterval) })),
   setLiftInterval: (liftInterval) => set({ liftInterval }),
+  cycleLiftSize: () => set((s) => ({ liftSize: nextLiftSize(s.liftSize) })),
+  setLiftSize: (liftSize) => set({ liftSize }),
   cycleWalkwayLength: () => set((s) => ({ walkwayLength: nextWalkwayLength(s.walkwayLength) })),
   cycleLiftStyle: () => set((s) => ({ liftStyle: s.liftStyle === 'glass' ? 'steel' : 'glass' })),
   setLiftStyle: (style) => set({ liftStyle: style }),

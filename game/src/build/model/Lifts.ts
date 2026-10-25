@@ -1,12 +1,16 @@
 // Build model: lifts — the elevator shaft column and its growth (§5).
 
-import { liftExtendedDown, liftExtendedUp, liftRises, type LiftInterval } from '../../sim/lifts.ts';
+import { liftExtendedDown, liftExtendedUp, liftRises, liftSizeOf, type LiftInterval } from '../../sim/lifts.ts';
 import type { Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
 
-/** The elevator shaft standing in a column, if any. */
+/** The elevator shaft standing in a plan cell, if any — the 小 or 大 footprint. */
 export function liftInColumn(modules: readonly Module[], x: number, y: number): Extract<Module, { type: 'lift' }> | undefined {
-  for (const m of modules) if (m.type === 'lift' && m.x === x && m.y === y) return m;
+  for (const m of modules) {
+    if (m.type !== 'lift') continue;
+    const size = liftSizeOf(m);
+    if (x >= m.x && x < m.x + size && y >= m.y && y < m.y + size) return m;
+  }
   return undefined;
 }
 

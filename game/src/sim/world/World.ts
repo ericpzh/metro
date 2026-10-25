@@ -1774,11 +1774,12 @@ export class World {
       a.liftServer = -1
       return
     }
-    const [slotX, slotY] = liftSlotOffset(a.liftSlot)
+    const [slotX, slotY] = liftSlotOffset(a.liftSlot, car.size)
     const [sx, sy] = rotateLocal(car.rot,slotX,slotY)
-    // The 1.5 m carriage is centred in the 2 × 2 m assembly.
-    const cabinX = car.x + 1 + sx
-    const cabinY = car.y + 1 + sy
+    // The carriage is centred in its own plan footprint: 1.5 m inside the
+    // 2 × 2 小 assembly, 2.25 m inside the 3 × 3 大 one.
+    const cabinX = car.x + car.size / 2 + sx
+    const cabinY = car.y + car.size / 2 + sy
     if (a.liftPhase === 0) {
       // Stepping in: from where the queue left the passenger to its cabin slot.
       a.liftT += SIM_DT
@@ -3141,12 +3142,13 @@ const EMPTY_PATH = new Int32Array(0)
  * piling on the centre; the offset is small but keeps them from occupying the
  * exact same point, which the renderer would draw as one body.
  */
-function liftSlotOffset(slot: number): [number, number] {
-  if (slot === 0) return [.245,0]
+function liftSlotOffset(slot: number, size: 2 | 3 = 2): [number, number] {
+  const k = size / 2
+  if (slot === 0) return [.245 * k, 0]
   const cols = [-0.45, 0, 0.45]
   const row = Math.floor(slot / cols.length) % 4
-  const col = cols[slot % cols.length]
-  const rowY = -0.45 + row * 0.3
+  const col = cols[slot % cols.length] * k
+  const rowY = (-0.45 + row * 0.3) * k
   return [col, rowY]
 }
 

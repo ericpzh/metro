@@ -327,7 +327,7 @@ test('a 电梯 is refused for its bay, in its own words', () => {
   const bay = createModule('lift', 5, 5, 5, 'l1', 0)
   assert.deepEqual(moduleFootprint(bay).sort(), [[5, 5], [5, 6], [6, 5], [6, 6]].sort(), 'the footprint is the whole bay')
   assert.equal(equipmentReason(st.cells, st.modules, bay), 'lift-footprint', 'with no floor the lift names its bay, not the generic rule')
-  assert.match(equipmentRefusalNotice('lift-footprint'), /2×2/, 'in the words the notice bar uses')
+  assert.match(equipmentRefusalNotice('lift-footprint'), /整个占地/, 'the notice names the full footprint for either supported lift size')
   assert.equal(moveDropReason(st.cells, st.modules, bay), equipmentRefusalNotice('lift-footprint'), 'the notice reads the same verdict a drop would')
   // The whole bay on floor, and the shaft stands.
   const whole = createModule('lift', 1, 1, 0, 'l2', 0)

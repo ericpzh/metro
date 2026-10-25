@@ -435,7 +435,7 @@ block underneath takes its hosted modules with it in the same undo step.
 | 楼梯 (straight stair) | 1 lane × 9 cells for the default 长 5 m climb | 25 pax/min per metre up, 33 down | 窄/中/宽 = one/two/three 0.7 m lanes, each in its own cell; turning, switchback and 楼梯块 variants |
 | 扶梯 (escalator) | 1 × 10 cells for the default 长 5 m climb | 75 pax/min, one direction | 30°; 单层 2–6 m and 双层 7–11 m of climb |
 | 自动步道 (moving walkway) | 1 × 30 / 60 / 90 | ~138 pax/min, one direction, step-free | the escalator's level twin, ridden at walking speed + 0.5 m/s (1.84 m/s); 宽 doubles it |
-| 电梯 (lift) | 2 × 2 | 15 pax/trip, ~40 s cycle | the only step-free path; intervals of 3–7 m stack for uneven floors |
+| 电梯 (lift) | 2 × 2 小 or 3 × 3 大 | 15 pax/trip, ~40 s cycle | the only step-free path; floors of 3–7 m stack for uneven floors; 大/小 chooses the plan |
 
 There is **no ramp module**: the accessible sloped run the early drafts listed as “Ramp” was
 never built. Step-free vertical travel is the lift and the 自动步道.
@@ -465,7 +465,12 @@ An **elevator** spans one **floor interval**, chosen on its 层高 tile: **超�
 interval; hovering its upper or lower half stacks another interval at the currently armed
 size, so one car can serve uneven floors — a five-metre storey with a three-metre mezzanine
 above it, or a seven-metre-deep platform below — and the piece records each segment rise
-so its stops stay exact.
+so its stops stay exact. An elevator also comes in two plans, chosen on its **大/小**
+tile: **小** is the 2 × 2 m assembly the game has always built (a 1.5 m carriage), **大**
+is a 3 × 3 m assembly (a 2.25 m carriage). A fresh piece must stand on every floor cell
+of its plan — four or nine — and every storey opens a landing row of two or three cells
+on the face its doors serve. Only the 大 plan is stored, so an older 小 shaft saves
+exactly as it did.
 
 A **自动步道** (moving walkway) is the escalator's **level** twin. It reuses the escalator's body,
 glass balustrades and one-way ride, laid flat: it rises nothing and travels its whole length

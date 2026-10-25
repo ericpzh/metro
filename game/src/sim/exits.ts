@@ -8,7 +8,7 @@
 import type { ExitBays, Module, Vec3i } from './types.ts'
 import { ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { escalatorBodyWidth, escalatorRun } from './escalators.ts'
-import { LIFT_SIZE } from './lifts.ts'
+import { liftSizeOf } from './lifts.ts'
 import { STAIR_RISE, STAIR_RUN, stairTreadWidth, stairRotFor, stairFlightSlides } from './stairs.ts'
 
 /**
@@ -104,8 +104,8 @@ export function exitCentre(bays: ExitBays): number {
 /**
  * The half-width of wellway one run needs in the head-house floor: its own
  * block, or its swept width if the run is wider than a block (a 1.6 m stair, a
- * 2 × 2 lift). A narrow stair and an escalator both reach under 0.5 m, so the
- * floor keeps a full block beside them.
+ * 2 × 2 or 3 × 3 lift). A narrow stair and an escalator both reach under 0.5 m, so
+ * the floor keeps a full block beside them.
  */
 export function exitRunHalf(run: Module): number {
   const swept =
@@ -114,7 +114,7 @@ export function exitRunHalf(run: Module): number {
       : run.type === 'stair'
         ? stairTreadWidth(run) / 2 + STAIR_RAIL_PROUD
         : run.type === 'lift'
-          ? LIFT_SIZE / 2
+          ? liftSizeOf(run) / 2
           : 0
   return Math.max(EXIT_BAY_HALF, swept)
 }

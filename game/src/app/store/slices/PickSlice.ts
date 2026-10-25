@@ -13,7 +13,7 @@ import { msg } from '../../../sim/i18n.ts'
 import type { StateCreator } from 'zustand'
 import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
 import type { RampLength, RampSpan } from '../../../sim/rampLengths.ts'
-import type { LiftInterval } from '../../../sim/lifts.ts'
+import type { LiftInterval, LiftSize } from '../../../sim/lifts.ts'
 import type { PillarLength } from '../../../sim/structures.ts'
 import type { WalkwayLength } from '../../../sim/walkways.ts'
 import type { SignBoards } from '../../../sim/sign.ts'
@@ -55,6 +55,7 @@ export interface PickDraft {
   doubleRampLength: RampLength
   tripleRampLength: RampLength
   liftInterval: LiftInterval
+  liftSize: LiftSize
   walkwayLength: WalkwayLength
   liftStyle: 'glass' | 'steel'
   hangerLength: 4 | 6 | 8
@@ -115,6 +116,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         doubleRampLength: s.doubleRampLength,
         tripleRampLength: s.tripleRampLength,
         liftInterval: s.liftInterval,
+        liftSize: s.liftSize,
         walkwayLength: s.walkwayLength,
         liftStyle: s.liftStyle,
         hangerLength: s.hangerLength,
@@ -154,6 +156,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       doubleRampLength: d.doubleRampLength,
       tripleRampLength: d.tripleRampLength,
       liftInterval: d.liftInterval,
+      liftSize: d.liftSize,
       walkwayLength: d.walkwayLength,
       liftStyle: d.liftStyle,
       hangerLength: d.hangerLength,

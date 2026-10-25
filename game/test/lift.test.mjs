@@ -73,7 +73,7 @@ test('extending a lift grows it one storey up or down, same column and id', () =
   const grown = extendLift(state, 'lift-1', true)
   assert.equal(grown.modules[0].to.z, LIFT_RISE + LIFT_EXTEND)
   assert.equal(liftInColumn(grown.modules, 2, 2)?.id, 'lift-1')
-  assert.equal(liftInColumn(grown.modules, 3, 2), undefined)
+  assert.equal(liftInColumn(grown.modules, 4, 2), undefined)
 })
 
 test('the graph joins the shaft’s levels with one lift car, both ways', () => {

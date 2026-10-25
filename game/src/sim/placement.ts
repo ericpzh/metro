@@ -39,7 +39,7 @@ import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallC
 import { doorSpec } from './doors.ts'
 import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
-import { LIFT_SIZE, liftFootprintCells } from './lifts.ts'
+import { liftFootprintCells, liftSizeOf } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
 import { escalatorBasesSolid, rampBodyBoxes, rampEnvelope, rampOpeningAt } from './openings.ts'
 import { escalatorLandings } from './escalators.ts'
@@ -644,11 +644,12 @@ function rawModuleEnvelope(m: Module): ModuleBox | null {
   return rampEnvelope(m) ?? flatEnvelope(m)
 }
 
-/** The 2 × 2 m shaft box of a lift, from its lower landing to above its top. */
+/** The shaft box of a lift — the whole 2 × 2 小 or 3 × 3 大 plan — from its lower landing to above its top. */
 function liftEnvelope(m: Extract<Module, { type: 'lift' }>): ModuleBox {
   const lo = Math.min(m.from.z, m.to.z)
   const hi = Math.max(m.from.z, m.to.z)
-  return { x0: m.x, y0: m.y, z0: lo + 0.5, x1: m.x + LIFT_SIZE, y1: m.y + LIFT_SIZE, z1: hi + 1 + 0.6 }
+  const size = liftSizeOf(m)
+  return { x0: m.x, y0: m.y, z0: lo + 0.5, x1: m.x + size, y1: m.y + size, z1: hi + 1 + 0.6 }
 }
 
 /**
@@ -693,7 +694,7 @@ export function isTrackCell(cells: readonly Cell[], modules: readonly Module[], 
 
 /**
  * The floor cells a module stands on, at its own level — the **public** footprint.
- * A room covers its whole `w × h`; a 2 × 2 电梯 its four cells; a rail its bed, a
+ * A room covers its whole `w × h`; a 电梯 its 2 × 2 小 or 3 × 3 大 cells; a rail its bed, a
  * 站台门 its screened strip, a 座椅 and a 广告牌 the run of cells they span; a
  * **run** its two **landings**, which is the floor a 楼梯 or 扶梯 really stands on
  * (its corridor between them is `reservedOpening`'s business, and the ground under
@@ -2016,9 +2017,10 @@ export function liftAt(
   return modules.find(
     (m): m is Extract<Module, { type: 'lift' }> => {
       if (m.type !== 'lift') return false
-      // The anchor cell owns the whole 2 × 2 assembly: the pointer may be on any
-      // of its four columns and on any storey the shaft reaches.
-      if (x < m.x || x >= m.x + LIFT_SIZE || y < m.y || y >= m.y + LIFT_SIZE) return false
+      // The anchor cell owns the whole assembly: the pointer may be on any of
+      // its 2 × 2 or 3 × 3 columns and on any storey the shaft reaches.
+      const size = liftSizeOf(m)
+      if (x < m.x || x >= m.x + size || y < m.y || y >= m.y + size) return false
       const e = moduleEnvelope(m)
       return !!e && boxesOverlap(e, cell)
     },
@@ -2403,7 +2405,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
       case 'escalator-bases':
         return msg('the_escalator_bottom_needs_a_solid_floor')
       case 'lift-footprint':
-        return msg('a_lift_needs_a_floor_in_all_four_cells_of_its_2_2_m_footprint')
+        return msg('a_lift_needs_a_floor_under_its_whole_footprint')
       default:
         return ''
     }

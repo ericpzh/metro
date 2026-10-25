@@ -620,6 +620,14 @@ export const messages = {
     "zh": "宽",
     "en": "Wide"
   },
+  "small": {
+    "zh": "小",
+    "en": "Small"
+  },
+  "large": {
+    "zh": "大",
+    "en": "Large"
+  },
   "glass": {
     "zh": "玻璃",
     "en": "Glass"
@@ -2962,9 +2970,13 @@ export const messages = {
     "zh": "扶梯底端需有实心地板",
     "en": "The escalator bottom needs a solid floor"
   },
-  "a_lift_needs_a_floor_in_all_four_cells_of_its_2_2_m_footprint": {
-    "zh": "电梯占地 2×2 米：四个格子均需有地板",
-    "en": "A lift needs a floor in all four cells of its 2×2 m footprint"
+  "a_lift_needs_a_floor_under_its_whole_footprint": {
+    "zh": "电梯的整个占地都需要地板",
+    "en": "A lift needs a floor under every cell of its footprint"
+  },
+  "lift_footprint_cells": {
+    "zh": "2 × 2 或 3 × 3 格",
+    "en": "2 × 2 or 3 × 3 cells"
   },
   "value_and_value_items": {
     "zh": "{0}等{1}件",

@@ -32,3 +32,28 @@ export function StoreyArt({ span }: { span: 'single' | 'double' | 'triple' }): R
     ))}
   </svg>
 }
+
+/**
+ * The 电梯's plan footprint, 小 2 × 2 or 大 3 × 3: a shaft outline with its
+ * footprint grid, and the car standing in it with a recessed doorway on the
+ * front. The 大 car fills more of the tile, and its grid has one more course each
+ * way, so 大/小 reads at tile size even before the label.
+ */
+export function LiftSizeArt({ size }: { size: 2 | 3 }): React.ReactElement {
+  const inset = 1.6
+  const span = 20 - inset * 2
+  const car = size === 3 ? 3.6 : 4.6
+  const top = car - 0.8
+  const far = 20 - car
+  const notch = size === 3 ? 3.2 : 2.6
+  const mid = 10
+  const carPath = `M${car} ${far}V${top}H${20 - car}V${far}H${mid + notch}V${far - 1.2}H${mid - notch}V${far}Z`
+  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round">
+    <rect x={inset} y={inset} width={span} height={span} rx="1.2" opacity="0.7" />
+    {Array.from({ length: size - 1 }, (_, i) => inset + (span / size) * (i + 1)).map((at) => (
+      <path key={at} d={`M${at} ${inset}V${20 - inset}M${inset} ${at}H${20 - inset}`} strokeWidth="0.6" opacity="0.32" />
+    ))}
+    <path d={carPath} fill="currentColor" strokeWidth="0.9" opacity="0.22" />
+    <path d={carPath} fill="none" strokeWidth="0.9" opacity="0.95" />
+  </svg>
+}

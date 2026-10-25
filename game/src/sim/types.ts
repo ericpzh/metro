@@ -503,7 +503,7 @@ export type Module =
         finish?: FinishId
       }
     })
-  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel'; doors?: Record<string, LiftDoorSide>; rises?: number[] } })
+  | (ModuleBase & { type: 'lift'; from: Vec3i; to: Vec3i; cfg: { style?: 'glass' | 'steel'; doors?: Record<string, LiftDoorSide>; rises?: number[]; size?: 2 | 3 } })
   | (ModuleBase & { type: 'tvm'; cfg: Record<string, never> })
   /**
    * A drinks vending machine (自动售货机): the same 1 × 1 m equipment footprint

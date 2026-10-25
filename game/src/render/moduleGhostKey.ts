@@ -42,7 +42,7 @@ function modelGhostKey(mod: Module): string {
       : mod.type === 'escalator' || mod.type === 'walkway'
         ? `:${mod.from.x},${mod.from.y},${mod.from.z}>${mod.to.x},${mod.to.y},${mod.to.z}:${mod.cfg.dir}:${mod.cfg.width ?? 1}`
         : mod.type === 'lift'
-          ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}:${(mod.cfg.rises ?? []).join('.')}`
+          ? `:${mod.from.z}>${mod.to.z}:${mod.rot ?? 0}:${mod.cfg.style ?? 'glass'}:${mod.cfg.size ?? 2}:${(mod.cfg.rises ?? []).join('.')}`
           : mod.type === 'track'
             ? `:${mod.w}x${mod.d ?? 1}:${mod.cfg.line}:${mod.cfg.dir ?? ''}:${mod.cfg.power}:${mod.cfg.bridge ? `b:${mod.cfg.bridgeRailing ?? 'railing'}:${mod.cfg.bridgeFinish ?? ''}` : mod.cfg.tunnel ? `t:${JSON.stringify(mod.cfg.surfaceFinishes ?? {})}` : `p:${mod.cfg.catenaryStyle ?? 'canopy'}:${JSON.stringify(mod.cfg.surfaceFinishes ?? {})}`}`
             : mod.type === 'billboard'

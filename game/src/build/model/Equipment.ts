@@ -21,7 +21,7 @@ import { exitFloorAt, exitFootprintCells } from '../../sim/exits.ts';
 import { DEFAULT_GLASS_VARIANT, glassSpec } from '../../sim/glassPanels.ts';
 import { DEFAULT_DOOR_VARIANT, doorSpec } from '../../sim/doors.ts';
 import { DEFAULT_LINE_MAP_VARIANT, lineMapSpec } from '../../sim/linemaps.ts';
-import { liftModule, liftFootprintCells, liftLevels, defaultLiftInterval, type LiftInterval } from '../../sim/lifts.ts';
+import { liftModule, liftFootprintCells, liftLevels, defaultLiftInterval, LIFT_SIZE, type LiftInterval, type LiftSize } from '../../sim/lifts.ts';
 import { carveRampOpenings } from '../../sim/openings.ts'
 import { rotateLocal } from '../../sim/track.ts'
 import {
@@ -116,6 +116,8 @@ export interface ModuleBuildSettings {
   escalatorSpan?: RampSpan
   /** 电梯 only: the rise of the segment being placed or stacked (3–7 m, 5 m default). */
   liftInterval?: LiftInterval
+  /** 电梯 only: the 大/小 plan footprint — 3 × 3 when `3`, the 2 × 2 小 shaft by default. */
+  liftSize?: LiftSize
   /** A 自动步道: which of the three level lengths (30 / 60 / 90 m) it is built at. */
   walkwayLength?: WalkwayLength
 }
@@ -450,8 +452,9 @@ function createModuleRaw(
       // An elevator spans one 层高 interval up from the dropped cell (5 m by
       // default). The player stacks further intervals on top or below
       // (`extendLift`), each at the currently armed interval, so a shaft can
-      // serve uneven floors.
-      return liftModule({ x, y, z }, rot, id, settings.liftInterval ?? defaultLiftInterval());
+      // serve uneven floors. `liftSize` is the 大/小 plan: the 2 × 2 小 shaft or
+      // the 3 × 3 大 one.
+      return liftModule({ x, y, z }, rot, id, settings.liftInterval ?? defaultLiftInterval(), settings.liftSize ?? LIFT_SIZE);
     case 'stair-block': {
       const [dx, dy] = rotateLocal(rot, 1, 0);
       const blockHeight = width === 0.5 ? 0.5 : 1;
@@ -537,7 +540,7 @@ export function footprintCellsOf(type: string, variant?: number, storeyHeight = 
   const mod =
     type === 'escalator' ? escalatorModule(anchor, 0, 'up', id, 1, undefined, storeyHeight)
     : type === 'walkway' ? walkwayModule(anchor, 0, 'up', id)
-    : type === 'lift' ? liftModule(anchor, 0, id, defaultLiftInterval())
+    : type === 'lift' ? liftModule(anchor, 0, id, defaultLiftInterval(), variant === 3 ? 3 : 2)
     : createModule(type, 0, 0, 0, id, 0, variant, 'up', 'lane', [], undefined, { storeyHeight });
   if (!mod) return [[0, 0]];
   switch (mod.type) {

@@ -80,7 +80,7 @@ export function isCardCapture(): boolean {
  * piece covers**, read from its own builder rather than from the palette row. A
  * straight 楼梯 and an 扶梯 are a whole run's landings and one wide — nine and ten
  * cells on the five-metre grid (`footprintCellsOf` reads the default);
- * an 电梯 is a 2 × 2 shaft; a
+ * an 电梯 is a 2 × 2 小 shaft or the 3 × 3 大 one, so its card names both; a
  * 有盖单向 出入口 lays a 3 × 8 head-house. A palette row's `w`/`h` is a tile's size on
  * the rail — every one of those four reads 1 × 1 there, which is why the cards
  * used to say the same.
@@ -89,6 +89,7 @@ export function isCardCapture(): boolean {
  * stands on, and the reader wants the plan it occupies, not the shape of it.
  */
 function footprintOf(id: string): string {
+  if (id === 'lift') return msg('lift_footprint_cells')
   const cells = footprintCellsOf(id)
   const xs = cells.map(([x]) => x)
   const ys = cells.map(([, y]) => y)

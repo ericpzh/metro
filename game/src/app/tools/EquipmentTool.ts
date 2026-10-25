@@ -662,6 +662,7 @@ export class EquipmentTool extends ToolController {
           rampLength: this.rampLengthFor(type),
           escalatorSpan: st.escalatorSpan,
           liftInterval: st.liftInterval,
+          liftSize: st.liftSize,
         },
       )
     }

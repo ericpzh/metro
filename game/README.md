@@ -1827,19 +1827,24 @@ demo save carries the same carved openings, so it no longer shows escalators pun
 concourse floor. An escalator is single-direction and carries **one passenger per step**
 at 0.5 m/s over a 0.4 m pitch — 75/min, and exactly one rider per step on the run.
 
-**Elevators are a 2 × 2 m shaft with one car.** The default **玻璃** model has
-transparent side/rear panels in a stainless beam frame, panel clamps, exposed guide
-rails, glazed cabin walls, handrails and framed sliding doors. **Tab** (or the
-style action tile) switches to **钢板**, the previous enclosed model. The choice
-follows placement, hover previews, picking and saves; extending a shaft keeps its
-style. Older lifts without a style field use the glass model.
+**Elevators are a 2 × 2 小 or 3 × 3 大 shaft with one car.** The **大/小**
+action tile picks the plan — the 小 shaft is the 2 × 2 m assembly the game has
+always built, the 大 one spans 3 × 3 m with a 2.25 m carriage — and only the
+large size is stored on the piece, so a 小 lift's save is unchanged. The default
+**玻璃** model has transparent side/rear panels in a stainless beam frame, panel
+clamps, exposed guide rails, glazed cabin walls, handrails and framed sliding
+doors. **Shift+Tab** (or the style action tile) switches to **钢板**, the
+previous enclosed model. The choice follows placement, hover previews, picking
+and saves; extending a shaft keeps its style and its plan. Older lifts without a
+style field use the glass model, and without a size field read as 小.
 The **电梯** button drops a base
-module on the hovered floor: a 2 × 2 m assembly with a 1.5 × 1.5 m carriage
-inside its walls (`sim/lifts.ts`) and **one story** — the 层高 tile's 超短 3 m /
-短 4 m / 中 5 m / 长 6 m / 超长 7 m, 中 by default — standing on all four of its
-floor cells. A story serves the **level at its base**; that level's landing door
-and the cabin's headroom live in the story above, so the top of the last story is
-a cap, not a landing. A fresh 5 m piece is one level (the floor it was dropped
+module on the hovered floor: a 2 × 2 m 小 assembly (or a 3 × 3 m 大 one) with a
+1.5 × 1.5 m 小 carriage (2.25 × 2.25 m 大) inside its walls (`sim/lifts.ts`) and
+**one story** — the 层高 tile's 超短 3 m / 短 4 m / 中 5 m / 长 6 m / 超长 7 m, 中
+by default — standing on every floor cell of its plan (four 小, nine 大). A story
+serves the **level at its base**; that level's landing door and the cabin's
+headroom live in the story above, so the top of the last story is a cap, not a
+landing. A fresh 5 m piece is one level (the floor it was dropped
 on); stacking a 3 m story on top adds the level at 5 m and moves the cap to 8 m.
 The shaft is **exactly the stacked intervals** — a 5 m piece is 5 m from the base
 floor's surface to the cap, no more — and a cap closes each end; extending removes
@@ -1861,13 +1866,14 @@ shaft is **one car**: `buildGraph` makes the walkable landing tile in front of
 the door at every level a stop and gives the single lift server an edge between
 every ordered pair, so a passenger rides straight to their floor (a step-free
 passenger is forced onto it because stairs and escalators cost ∞).
-The whole 2 × 2 footprint is cabin interior and is never walkable; only the two
-floor tiles in front of the door opening (`liftLandingCells`, turned by the
-piece's rotation) can board, so the crowd enters and leaves through the door the
-model draws and never through a side or back wall. The car is a real state
+The whole 2 × 2 小 / 3 × 3 大 footprint is cabin interior and is never walkable;
+only the floor tiles in front of the door opening (`liftLandingCells`, turned by
+the piece's rotation) can board — two on the 小 lift, three on the 大 one — so the
+crowd enters and leaves through the door the model draws and never through a side
+or back wall. The car is a real state
 machine (`World.stepLift`): park, open the doors, let the crowd walk in and out,
 shut, then travel — riders are `STATE_RIDING` and pinned inside the cabin by
-`stepLiftRide`, so they visibly move with it instead of teleporting. `models.ts`
+`stepLiftRide`, centred on whichever plan the shaft has. `models.ts`
 builds the shaft, its **top and bottom caps**, and a cabin whose two leaves are
 registered doors, with a threshold sill and a green call panel at each level
 (never at a floorless level), glazing on the door side above every doorway so an
@@ -2926,7 +2932,7 @@ approximated); neither needs WebGL.
   carved in all rotations and directions; its hover key includes the width. The 双层 tile builds the
   two-floor family at its own rise and run, leaves the one-floor family armed while it is on, and
   redraws the ghost when it flips.
-* `lift.test.mjs` — the 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
+* `lift.test.mjs` — the 小 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that
   serves the floor one storey up; extending grows it a storey up or down in the
   same column and keeps its id; the graph joins every floor in the shaft with one car,
   both ways, skips a floorless level, and boards only at the door landing (the whole
@@ -2934,6 +2940,13 @@ approximated); neither needs WebGL.
   two lifts may not share space but a 2 m gap is free; and a passenger rides —
   walks in, is pinned to the 1.5 m cabin while it moves, and steps out on the
   floor above. The car pose is deterministic and its door fraction stays in 0..1.
+* `lift-size.test.mjs` — the 电梯's **大/小** plan (§5.1): the 小 piece is the old
+  2 × 2 shaft with no size stored, the 大 piece is a 3 × 3 shaft that stores
+  `cfg.size: 3`, all nine cells need floor and reserve space against another
+  shaft, a storey opens a three-cell landing row, the nine cabin cells stay out of
+  the walk graph, a rider is pinned inside the 2.25 m car centred on the plan, the
+  size survives saving while an older save reads back as 小, and the size action
+  tile exposes both plans.
 * `lift-interval.test.mjs` — the 电梯's **层高** tile (§5.1): 超短 3 m / 短 4 m / 中 5 m /
   长 6 m / 超长 7 m, cycled with the default following the document's storey; a fresh
   piece is exactly one interval and records its rise; stacking keeps every stop exact
@@ -2943,19 +2956,19 @@ approximated); neither needs WebGL.
   stacked intervals (a 5 m piece is 5 m) with landing doors on every real floor below
   its capped top. The action tile names the rung (中), never the metres.
 * `lift-extension.test.mjs` — the 电梯's **extension snap** (§5.1): `liftAt` reads the
-  shaft's own 2 × 2 column, so a canopy roof or a run envelope that covers the cell
-  without occupying the shaft cannot shadow it in either document order; a hover and
-  its release grow the same shaft; and a batched lift still answers
+  shaft's own plan (2 × 2 小, 3 × 3 大), so a canopy roof or a run envelope that
+  covers the cell without occupying the shaft cannot shadow it in either document
+  order; a hover and its release grow the same shaft; and a batched lift still answers
   `CameraSystem.pick` above its cabin and doors, where the equipment batch retains
   the shaft's surfaces on the picking layer.
 * `lift-doors.test.mjs` — per-storey front/back/both/none door choices, landing
   rows, passenger graph stops and rides, rendered face state, save/load and a
   sealed intermediate storey.
 * `lift-style.test.mjs` — the 电梯's two housings (§5.1): glass is the default, steel keeps
-  the old enclosed shaft; Tab now cycles the floor interval and Shift+Tab the style, both with a
-  live ghost refresh, picking adopts them and Esc restores the armed ones, the ghost key names
-  both, and both styles survive extending
-  and the save round trip.
+  the old enclosed shaft; the action tile still switches the style with a live ghost refresh,
+  picking adopts it and Esc restores the armed one, the ghost key names it, and both styles
+  survive extending and the save round trip. (Tab now cycles the 大/小 plan and Shift+Tab the
+  floor interval; style is the click-only tile.)
 * `psd-decals.test.mjs` — the printed safety vinyl on the platform face (§5.9): the fixed-pane
   band prints mind-the-gap bilingual in red over yellow, the door band the same warning on
   yellow, the warning placard the door-safety lines over yellow with white caution eyes, and

@@ -1,13 +1,14 @@
 // Elevators (无障碍电梯) — GAME-SPEC §5.1 / §7.4a.
 //
-// A lift is a vertical shaft, not a ramp: it spans the same `(x, y)` column and
-// climbs floor intervals. One piece is a 2 × 2 m assembly (a 1.5 × 1.5 m
-// carriage inside its walls) and **one story** — 超短 3 m, 短 4 m, 中 5 m (the
-// default), 长 6 m or 超长 7 m (`LIFT_INTERVALS`). A story serves the **level at
-// its base**: that level's landing door and the cabin's headroom live in the
-// story above it, so the top of the last story is a cap, not a landing. A fresh
-// 5 m piece is therefore one level (the floor it was dropped on), and stacking a
-// 3 m story on top adds the level at 5 m with the cap moving to 8 m.
+// A lift is a vertical shaft, not a ramp: it spans the same `(x, y)` plan and
+// climbs floor intervals. One piece is a **2 × 2 小** or **3 × 3 大** assembly —
+// the 大/小 tile chooses it, and only the large size is stored — with a carriage
+// inside its walls and **one story** — 超短 3 m, 短 4 m, 中 5 m (the default),
+// 长 6 m or 超长 7 m (`LIFT_INTERVALS`). A story serves the **level at its base**:
+// that level's landing door and the cabin's headroom live in the story above it,
+// so the top of the last story is a cap, not a landing. A fresh 5 m piece is
+// therefore one level (the floor it was dropped on), and stacking a 3 m story on
+// top adds the level at 5 m with the cap moving to 8 m.
 //
 // The shaft is **exactly the stacked intervals**, from the base floor's surface
 // to the top cap's surface — a 5 m piece is 5 m, no more. A cap closes each end;
@@ -35,8 +36,34 @@ export const LIFT_STEP = 5
 export const LIFT_RISE = 5
 /** Default height added by a hover extension. */
 export const LIFT_EXTEND = 5
-/** The assembly's plan footprint, metres: 2 × 2, with the 1.5 m carriage inside. */
+/** The default (small) assembly's plan footprint, metres: 2 × 2. */
 export const LIFT_SIZE = 2
+/** The large assembly's plan footprint, metres: 3 × 3. */
+export const LIFT_SIZE_LARGE = 3
+/** A lift's plan footprint, metres — the 小 2 × 2 shaft or the 大 3 × 3 one. */
+export type LiftSize = 2 | 3
+/** The sizes the 大/小 tile cycles, small first (the default). */
+export const LIFT_SIZES: readonly LiftSize[] = [LIFT_SIZE, LIFT_SIZE_LARGE]
+
+/**
+ * The plan size a placed lift carries. A piece from an older save has no
+ * `cfg.size`; that is the 2 × 2 电梯 the game has always built, so it reads back
+ * as 小. The large piece stores `3` and only `3` — a small lift keeps its config
+ * exactly as it was.
+ */
+export function liftSizeOf(m: { cfg?: { size?: number }; size?: number }): LiftSize {
+  return (m.cfg?.size ?? m.size) === LIFT_SIZE_LARGE ? LIFT_SIZE_LARGE : LIFT_SIZE
+}
+
+/** The next size the 大/小 tile cycles to (小 → 大 → 小). */
+export function nextLiftSize(size: LiftSize): LiftSize {
+  return size === LIFT_SIZE_LARGE ? LIFT_SIZE : LIFT_SIZE_LARGE
+}
+
+/** The label the 大/小 tile wears. */
+export function liftSizeLabel(size: LiftSize): string {
+  return msg(size === LIFT_SIZE_LARGE ? 'large' : 'small')
+}
 
 /**
  * The floor intervals an elevator piece can span, in metres — the 层高 tile.
@@ -92,7 +119,9 @@ export interface LiftLandingSpec {
   x: number
   y: number
   rot?: number
-  cfg?: LiftDoorConfig
+  cfg?: LiftDoorConfig & { size?: LiftSize }
+  /** A live car carries the same size outside its cfg (`LiftCar`). */
+  size?: LiftSize
 }
 
 /** The door side stored for the storey at `z`; front is the default (§5.1). */
@@ -134,15 +163,17 @@ export function liftWithDoorSide(m: LiftModule, z: number, side: LiftDoorSide): 
 /**
  * The one lift piece. `base` is the floor cell at the assembly's lower-left
  * corner (the lower stop); it serves the floor one **interval** up — 3/4/5/6/7 m
- * from the 层高 tile, 5 m by default. `rot` only turns the cabin doors, which
- * face local −y like the rest of the equipment.
+ * from the 层高 tile, 5 m by default. `size` is the plan footprint the 大/小 tile
+ * armed: the 2 × 2 小 shaft of old, or the 3 × 3 大 one; only the large size is
+ * stored, so a small lift's config is unchanged. `rot` only turns the cabin
+ * doors, which face local −y like the rest of the equipment.
  *
  * The piece records its own segment rise (`cfg.rises`, one entry per stacked
  * interval), because a shaft may now mix them: a 5 m piece with a 3 m one stacked
  * on top has stops 5 m and 8 m apart. A single entry is the whole span, so the
  * stops always come from the piece rather than from a guessed grid.
  */
-export function liftModule(base: Vec3i, rot: number, id: string, interval?: LiftInterval): LiftModule {
+export function liftModule(base: Vec3i, rot: number, id: string, interval?: LiftInterval, size: LiftSize = LIFT_SIZE): LiftModule {
   const floor = interval ?? defaultLiftInterval()
   return {
     id,
@@ -154,7 +185,7 @@ export function liftModule(base: Vec3i, rot: number, id: string, interval?: Lift
     rot,
     from: { x: base.x, y: base.y, z: base.z },
     to: { x: base.x, y: base.y, z: base.z + floor },
-    cfg: { rises: [floor] },
+    cfg: { rises: [floor], ...(size === LIFT_SIZE_LARGE ? { size } : {}) },
   }
 }
 
@@ -232,14 +263,12 @@ export function liftExtendedDown(m: LiftModule, interval?: LiftInterval): LiftMo
   return { ...m, from: { x: m.from.x, y: m.from.y, z: m.from.z - rise }, cfg: { ...m.cfg, rises: [rise, ...liftRises(m)] } }
 }
 
-/** The four floor cells the 2 × 2 assembly stands on, at its own level. */
-export function liftFootprintCells(m: { x: number; y: number }): Array<[number, number]> {
-  return [
-    [m.x, m.y],
-    [m.x + 1, m.y],
-    [m.x, m.y + 1],
-    [m.x + 1, m.y + 1],
-  ]
+/** Every floor cell the 2 × 2 or 3 × 3 assembly stands on, at its own level. */
+export function liftFootprintCells(m: { x: number; y: number; cfg?: { size?: number } }): Array<[number, number]> {
+  const size = liftSizeOf(m)
+  const out: Array<[number, number]> = []
+  for (let x = 0; x < size; x++) for (let y = 0; y < size; y++) out.push([m.x + x, m.y + y])
+  return out
 }
 
 /**
@@ -265,19 +294,23 @@ export function liftDoorDir(rot: number | undefined): [number, number] {
  * config, so the crowd's wait spot and the renderer's open doors agree with
  * whichever side a stop node actually sits on.
  */
-export function liftLandingSide(m: { x: number; y: number; rot?: number }, x: number, y: number): 1 | 2 {
+export function liftLandingSide(m: { x: number; y: number; rot?: number; cfg?: { size?: number }; size?: number }, x: number, y: number): 1 | 2 {
   const [fx, fy] = liftDoorDir(m.rot)
-  const proj = (x - (m.x + LIFT_SIZE / 2)) * fx + (y - (m.y + LIFT_SIZE / 2)) * fy
+  const half = liftSizeOf(m) / 2
+  const proj = (x - (m.x + half)) * fx + (y - (m.y + half)) * fy
   return proj >= 0 ? 1 : 2
 }
 
-/** One landing row — the two cells along a face — for a `back`/front door. */
+/** One landing row — one cell per plan column along a face — for a `back`/front door. */
 function landingRow(m: LiftLandingSpec, back: boolean): Array<[number, number]> {
-  const cx = m.x + LIFT_SIZE / 2
-  const cy = m.y + LIFT_SIZE / 2
-  // Local j of the landing row: one cell beyond the face at j = ∓(SIZE − 0.5).
-  const front = back ? LIFT_SIZE - 0.5 : -LIFT_SIZE + 0.5
-  return [-0.5, 0.5].map((i) => {
+  const size = liftSizeOf(m)
+  const half = size / 2
+  const cx = m.x + half
+  const cy = m.y + half
+  // Local j of the landing row: one cell beyond the face. The face is at
+  // ±half, so the cell centre outside it is at ±(half + 0.5).
+  const front = back ? half + 0.5 : -(half + 0.5)
+  return Array.from({ length: size }, (_, i) => i - (size - 1) / 2).map((i) => {
     const [ox, oy] = rotateLocal(m.rot, i, front)
     return [Math.round(cx + ox - 0.5), Math.round(cy + oy - 0.5)] as [number, number]
   })
@@ -300,13 +333,14 @@ export function liftLandingRows(m: LiftLandingSpec, z?: number): Array<Array<[nu
 
 /**
  * The floor cells directly in front of a storey's cabin doors — the only cells a
- * passenger may board or alight through. The opening is the whole local face (2 m
- * across), so both cells along it are doorways; the graph picks the first that is
- * walkable floor. The front row is the default; a storey configured `back` or
- * `both` adds the back row. Every one of the 2 × 2 footprint cells is cabin
- * interior and is never a landing, so the crowd cannot walk in through a wall.
- * Without this a rotated lift kept boarding at its lower-left corner, which can
- * sit against the back or a side wall, and passengers strolled in through it.
+ * passenger may board or alight through. The opening is the whole local face
+ * (2 m across on the 小 lift, 3 m on the 大 one), so every cell along it is a
+ * doorway; the graph picks the first that is walkable floor. The front row is the
+ * default; a storey configured `back` or `both` adds the back row. Every cell of
+ * the 2 × 2 or 3 × 3 footprint is cabin interior and is never a landing, so the
+ * crowd cannot walk in through a wall. Without this a rotated lift kept boarding
+ * at its lower-left corner, which can sit against the back or a side wall, and
+ * passengers strolled in through it.
  */
 export function liftLandingCells(m: LiftLandingSpec, z?: number): Array<[number, number]> {
   return liftLandingRows(m, z).flat()
