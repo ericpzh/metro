@@ -282,11 +282,12 @@ authored variants. `panelModelDetail` retains both broad faces of thin panels;
 keep gate leaf rig metadata and direction artwork when reducing its shape.
 Approximation bounds must contain both the source and replacement geometry,
 including combined feet and chair backs that span several original fittings.
-Rail signals order yellow/red/green bottom-to-top. Their red/green lenses animate
-from the nearest platform service: red during approach and between trains, green
-from berth through departure. Keep mutable lenses out of static batches, and pin
-nearest-track phase selection and the full service lifecycle in `monitor-signal`
-and `station-display`.
+Rail signals order yellow/green/red top-to-bottom (+z to −z). Their bottom red
+and middle green lenses animate from the nearest platform service: red during
+approach and between trains, green from berth through departure; the upper yellow
+lens remains unlit. Keep mutable lenses out of static batches, and pin physical
+aspect order, nearest-track phase selection and the full service lifecycle in
+`monitor-signal` and `station-display`.
 Shared bridge noise-barrier/railing builders prepare thin Low panels without changing
 post locations, gantry cutouts or glazing clearance; cover long runs and rotations.
 Use `beamModelDetail` for top bars that must retain thickness: omit the two end

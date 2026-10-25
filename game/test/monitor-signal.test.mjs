@@ -68,7 +68,7 @@ test('small hanging monitor fits one tile and suspension reaches a taller slab',
   assert.ok(Math.abs(box.max.z - 6) < 1e-6, 'rods touch the actual ceiling underside')
 })
 
-test('rail signal has three unobstructed vertically aligned lamps with red in the middle', () => {
+test('rail signal has yellow, green and red lamps from top to bottom', () => {
   const mod = createModule('rail-signal', 0, 0, 0, 'signal')
   const ctx = context()
   const model = buildModule(mod, ctx)
@@ -90,9 +90,11 @@ test('rail signal has three unobstructed vertically aligned lamps with red in th
     const ray = new THREE.Raycaster(at.clone().add(new THREE.Vector3(0, -1, 0)), new THREE.Vector3(0, 1, 0))
     assert.equal(ray.intersectObject(model, true)[0]?.object, lamp)
   })
-  assert.equal(lamps[1].material, ctx.mats.ledRed)
-  assert.notEqual(lamps[0].material, ctx.mats.ledRed)
-  assert.deepEqual(lamps.map(lamp => lamp.userData.signalAspect), ['yellow', 'red', 'green'])
+  const topToBottom = [...lamps].sort((a, b) => b.position.z - a.position.z)
+  assert.equal(lamps[0].material, ctx.mats.ledRed)
+  assert.notEqual(lamps[2].material, ctx.mats.ledRed)
+  assert.deepEqual(topToBottom.map(lamp => lamp.userData.signalAspect), ['yellow', 'green', 'red'])
+  assert.equal(topToBottom[2].material, ctx.mats.ledRed, 'red is physically on the bottom lamp')
   assert.equal(equipmentReason([], [], mod), '', 'signal stands beside the rails on solid ground')
   assert.equal(equipmentReason([{ x: 0, y: 0, z: 1, fill: 'solid' }], [], mod), 'occupied', 'signal cannot be placed inside a solid block')
   assert.equal(equipmentReason([{ x: 0, y: 0, z: 2, fill: 'solid' }], [], mod), '', 'blocks above the one-metre signal are clear')
@@ -129,7 +131,7 @@ test('signals select the same nearest rotated platform as TVs and switch live ou
   const plates = new PlateSystem({ modelMats: ctx.mats, stationData: { lines: [{ id: '5' }] } })
   plates.railSignals.push({ group, at: [4, 50, -8] })
   const base = { lineId: '5', x: 0, y: 0, z: -8, fx: 0, fy: 1, halfLength: 60, arrivals: [] }
-  const red = group.getObjectByName('signal-lamp-1'), green = group.getObjectByName('signal-lamp-2')
+  const red = group.getObjectByName('signal-lamp-0'), green = group.getObjectByName('signal-lamp-1')
   for (const state of [undefined, 'approach', 'berth', 'opening', 'dwell', 'closing', 'hold', 'depart', undefined]) {
     plates.setSimClock(0, [{ ...base, trainState: 'dwell' }, { ...base, x: 5, trainState: state }, { ...base, x: 4, z: 0, trainState: 'dwell' }])
     const isGreen = state !== undefined && state !== 'approach'
