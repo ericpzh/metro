@@ -35,7 +35,7 @@ test('ceiling inference retains wall tops, low ledges, shaped blocks and unsuppo
   assert.equal(ceilingCells([block(0, 0, -11, { tags: ['suspended-ceiling'] })], 0, 5).has(key), true)
 })
 
-test('Tianhe reported ceiling courses beneath the next storey floor hide independently', () => {
+test('untagged stacked upper floors remain structural rather than suspended ceilings', () => {
   for (const [cx, cy] of [[-10, -90], [8, -102]]) {
     const cells = []
     for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) {
@@ -43,8 +43,8 @@ test('Tianhe reported ceiling courses beneath the next storey floor hide indepen
     }
     const before = JSON.stringify(cells)
     const result = ceilingCells(cells, 0, 5)
-    assert.equal(result.size, 9)
-    assert.ok(result.has(packKey(cx, cy, -11)))
+    assert.equal(result.size, 0)
+    assert.equal(result.has(packKey(cx, cy, -11)), false)
     for (const z of [-15, -10, -5]) assert.equal(result.has(packKey(cx, cy, z)), false)
     assert.equal(JSON.stringify(cells), before)
   }
@@ -61,4 +61,3 @@ test('Tianhe -5 floor and ramp-carved upper floor remain outside the always-hidd
     assert.equal(result.has(packKey(97, -100, -5)), false)
   }
 })
-

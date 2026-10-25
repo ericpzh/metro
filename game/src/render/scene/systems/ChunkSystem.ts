@@ -18,7 +18,7 @@ import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftLevels } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
-import { packKey } from '../../../sim/types.ts'
+import { packKey, shapeOf } from '../../../sim/types.ts'
 import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -294,9 +294,23 @@ export class ChunkSystem extends SceneSystem {
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
     this.ctx.groundOf.clear()
+    const cellByKey = new Map(this.effectiveCells.filter(c => c.fill === 'solid').map(c => [packKey(c.x, c.y, c.z), c]))
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      const band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
+      let band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
+      // The bottom course of a stacked upper floor belongs to that floor's
+      // slice, not the room below. Keep explicit ceilings and wall columns in
+      // their authored band. This also prevents stair openings exposing an
+      // upper slab's edge while other storeys are hidden.
+      const upperAbove = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+        const upper = cellByKey.get(packKey(c.x + dx, c.y + dy, c.z + 1))
+        return !!upper && !shapeOf(upper) &&
+          !upper.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === OPENING_CEILING)
+      })
+      if (c.z + 1 === band + this.ctx.storeyHeight && upperAbove &&
+          !shapeOf(c) &&
+          !c.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === OPENING_CEILING) &&
+          !cellByKey.has(packKey(c.x, c.y, c.z - 1))) band += this.ctx.storeyHeight
       bandOfCell.set(packKey(c.x, c.y, c.z), band)
       const col = `${c.x},${c.y}`
       const prev = this.ctx.groundOf.get(col)
@@ -449,21 +463,23 @@ export class ChunkSystem extends SceneSystem {
       // plate pass and the pass's emit otherwise, plus the neighbour's shape.
       // Halo coordinates hash in sorted order so the key is stable.
       {
-        const own = new Set<number>()
-        for (const c of cells) own.add(packKey(c.x, c.y, c.z))
         const halo = new Map<number, { x: number; y: number; z: number }>()
         const addHalo = (x: number, y: number, z: number): void => {
           const hk = packKey(x, y, z)
-          if (own.has(hk) || halo.has(hk)) return
+          if (halo.has(hk)) return
           halo.set(hk, { x, y, z })
         }
         for (const c of cells) {
-          addHalo(c.x + 1, c.y, c.z)
-          addHalo(c.x - 1, c.y, c.z)
-          addHalo(c.x, c.y + 1, c.z)
-          addHalo(c.x, c.y - 1, c.z)
-          addHalo(c.x, c.y, c.z + 1)
-          addHalo(c.x, c.y, c.z - 1)
+          // Ambient occlusion reads the cells above and below this course.
+          for (const dz of [-1, 1, 2]) addHalo(c.x, c.y, c.z + dz)
+          // At a chunk edge, side/corner ambient occlusion also reads diagonals
+          // across the boundary. Hash only those external votes; local cells are
+          // already covered by this chunk's own input and keep edits bounded.
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+            if (Math.floor((c.x + dx) / CHUNK) * CHUNK === cx &&
+                Math.floor((c.y + dy) / CHUNK) * CHUNK === cy) continue
+            for (const dz of [-1, 0, 1, 2]) addHalo(c.x + dx, c.y + dy, c.z + dz)
+          }
         }
         const sorted = [...halo.values()].sort((a, b) => packKey(a.x, a.y, a.z) - packKey(b.x, b.y, b.z))
         for (const nb of sorted) {
@@ -698,15 +714,8 @@ export class ChunkSystem extends SceneSystem {
       }
       meshBand(group, groundBand, groundCells, this.ctx.solid, groundEmit, 'g')
     }
-    // Whatever the rebuild did not claim is a chunk that no longer exists (or that
-    // changed): release its geometry and its per-chunk outline material, or the
-    // cache becomes the leak it was meant to avoid. A kept chunk was skipped by
-    // `releaseChunks` above and is already back in `nextCache`.
-    for (const [key, stale] of reuse) {
-      if (nextCache.has(key)) continue
-      for (const m of stale.outlines) (m.material as THREE.Material).dispose()
-      for (const g of stale.geometries) g.dispose()
-    }
+    // releaseChunks already disposed the entries outside keep. Disposing them
+    // again here releases the same GPU allocation twice.
     this.chunkCache = nextCache
     this.meshedGroundWindow = nextWindow
     this.ctx.bounds = box

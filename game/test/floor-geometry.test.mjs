@@ -263,3 +263,29 @@ test('Tanwei wall sides survive hidden suspended ceilings and neighbour retaggin
     assert.ok(sideHit(17.5, 6.5, -1, 0), 'east wall side also survives a hidden ceiling')
   } finally { chunks.disposeChunks(); material.dispose() }
 })
+
+test('stair opening upper-floor lining follows the -10 storey across edits at a chunk seam', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const material = new THREE.MeshBasicMaterial({side: THREE.DoubleSide})
+  const ctx = new SceneContextData(new THREE.Scene(), {finish:()=>material, outline:material}, {}, {})
+  ctx.detailEnabled=false
+  const chunks=new ChunkSystem(ctx), level=new LevelSystem(ctx)
+  level.chunks=chunks
+  level.modules={restoreMovingModule(){},moduleMeshes:new THREE.Group(),syncBatches(){}}
+  level.trains={trainGroup:new THREE.Group()}
+  const cells=[]
+  for(const x of [79,80])for(const z of [-15,-11,-10])cells.push({x,y:-101,z,fill:'solid'})
+  const ray=new THREE.Raycaster(new THREE.Vector3(80.5,-100.5,-9),new THREE.Vector3(0,0,-1))
+  const upperRay=new THREE.Raycaster(new THREE.Vector3(79.5,-100.5,-9),new THREE.Vector3(0,0,-1))
+  try {
+    for(const next of [cells,cells.filter(c=>!(c.x===80&&c.z===-10)),cells]) {
+      chunks.prepareStation({...emptyStation(),cells:next});chunks.meshStation();ctx.scene.updateMatrixWorld(true)
+      level.setLevel(-15,false);level.setAutoCeiling(false)
+      const hits=ray.intersectObjects(chunks.chunkMeshes.filter(m=>m.visible))
+      assert.ok(hits.length)
+      assert.ok(hits.every(h=>h.point.z<=-14),'upper floor and its lining cannot obstruct the lower editing floor')
+      level.setLevel(-10,false)
+      assert.ok(upperRay.intersectObjects(chunks.chunkMeshes.filter(m=>m.visible)).some(h=>h.point.z===-9),'upper floor remains available on its own storey')
+    }
+  }finally{chunks.disposeChunks();material.dispose()}
+})

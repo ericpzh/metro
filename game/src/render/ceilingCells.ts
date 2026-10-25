@@ -1,6 +1,17 @@
 import { storeyBand } from '../sim/constants.ts'
 import { packKey, shapeOf, type Cell } from '../sim/types.ts'
 
+const courseNeighbours: ReadonlyArray<readonly [number, number]> = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]
+
+function hasPlainUpperCourse(solid: ReadonlyMap<number, Cell>, x: number, y: number, z: number): boolean {
+  for (const [dx, dy] of courseNeighbours) {
+    const cell = solid.get(packKey(x + dx, y + dy, z))
+    if (cell && !shapeOf(cell) &&
+        !cell.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === 'opening-ceiling')) return true
+  }
+  return false
+}
+
 /** Explicit plates and untagged, single-course slabs over usable room space.
  * Classification is view-only: never retag the document or change walkability.
  */
@@ -28,14 +39,16 @@ export function ceilingCells(cells: readonly Cell[], base: number, height: numbe
       result.add(key)
       continue
     }
-    // A ceiling may line the underside of the next storey's floor. Keep other
-    // stacked solids ordinary, including wall columns through the room below.
+    // The course directly below an upper floor remains that floor's lining
+    // across stair/opening cells where the block above was removed.
+    if (c.z + 1 === floorZ + height && hasPlainUpperCourse(solid, c.x, c.y, c.z + 1)) continue
+    // An untagged lining beneath an upper floor is still structural blockwork.
+    // Promoting it to the ceiling pass exposes upper-floor edges in the active
+    // storey after stair edits. Only explicit plates may override stacking.
     const above = solid.get(packKey(c.x, c.y, c.z + 1))
-    const underUpperFloor = c.z + 1 === floorZ + height && above && !shapeOf(above) &&
-      !above.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === 'opening-ceiling')
     // Keep editing-grid floors, wall tops and shaped blocks.
     if (shapeOf(c) || c.tags?.includes('wall') || solid.has(packKey(c.x, c.y, c.z - 1)) ||
-        (above && !underUpperFloor)) continue
+        above) continue
     const floor = solid.get(packKey(c.x, c.y, floorZ))
     if (!floor || shapeOf(floor) || floor.tags?.some(t => t === 'suspended-ceiling' || t === 'opening-ceiling')) continue
     let clear = true

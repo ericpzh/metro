@@ -1266,3 +1266,5 @@ to verify transactional duplicate suppression and station metadata preservation.
 Music: `music.test.mjs` covers full-track licenses/hashes/asset limits, streaming rotation, pause persistence, mute, visibility, retry and late-start cancellation.
 
 `three-storey-ramps` pins the contiguous 12–16 m range, 15 m default, endpoint-derived span/length and all rotations for both escalator directions and straight/turning stairs.
+
+The ceiling-cells and floor-geometry suites pin untagged upper-floor linings at (79,-101,-11), upper-storey slicing, seam edit restoration, and diagonal ambient-occlusion cache votes.

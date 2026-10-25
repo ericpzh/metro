@@ -4266,3 +4266,5 @@ records sources, licenses, full-recording MP3 conversion and SHA-256 hashes.
 Regenerate with `python tools/collect-game-music.py` (FFmpeg required).
 `test/music.test.mjs` pins asset provenance/budgets, one streamed element, rotation,
 pause persistence, mute, visibility, retry and late-play cancellation.
+
+Stair opening rendering: untagged stacked upper-floor linings follow the upper storey; ceiling-cells and floor-geometry pin classification, seam edits and visibility.
