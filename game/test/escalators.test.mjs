@@ -55,23 +55,56 @@ test('a wide escalator is one two-block piece in every rotation and direction', 
   }
 })
 
-test('the wide escalator tool previews one piece, including downward travel', () => {
+test('the wide escalator tool previews one piece at each plan width, including downward travel', () => {
   const before = useStore.getState()
   try {
     const station = toState({ name: 'wide tool', seed: 1, cells: [], modules: [], lines: [] })
     const tool = new EquipmentTool({})
     for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
-      useStore.setState({ station, moduleRot: rot, escalatorWide: true, escalatorDir: dir })
-      const pieces = tool.buildPlacementModules('escalator', [3, 5, -4], 'wide')
-      assert.equal(pieces.length, 1, 'wide never creates a second escalator')
-      assert.equal(pieces[0].cfg.width, 2)
-      assert.equal(pieces[0].cfg.dir, dir)
-      assert.deepEqual([pieces[0].x, pieces[0].y, pieces[0].z], [3, 5, -4], 'direction never changes the placement anchor')
-      useStore.setState({ escalatorWide: false })
+      for (const width of [2, 3]) {
+        useStore.setState({ station, moduleRot: rot, escalatorWidth: width, escalatorDir: dir })
+        const pieces = tool.buildPlacementModules('escalator', [3, 5, -4], 'wide')
+        assert.equal(pieces.length, 1, 'a wide piece never creates a second escalator')
+        assert.equal(pieces[0].cfg.width, width)
+        assert.equal(pieces[0].cfg.dir, dir)
+        assert.deepEqual([pieces[0].x, pieces[0].y, pieces[0].z], [3, 5, -4], 'direction never changes the placement anchor')
+      }
+      useStore.setState({ escalatorWidth: 1 })
       assert.equal(tool.buildPlacementModules('escalator', [3, 5, -4], 'narrow')[0].cfg.width ?? 1, 1)
     }
   } finally {
     useStore.setState(before)
+  }
+})
+
+test('an extra-wide escalator spans three blocks in every rotation and direction', () => {
+  for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const wide = createModule('escalator', 0, 0, -5, 'extra-wide', rot, 3, dir)
+    assert.ok(wide && wide.type === 'escalator')
+    assert.equal(wide.cfg.width, 3)
+    const [dx, dy] = stairFacing(rot)
+    const e = moduleEnvelope(wide)
+    assert.equal(dx === 0 ? e.x1 - e.x0 : e.y1 - e.y0, 3, 'reserves exactly three blocks across')
+    assert.equal(escalatorLandings(wide).length, 6, 'three landing columns, one pair each')
+    for (const offset of [0, 1, 2]) {
+      assert.equal(rampOpeningAt([wide], 6 * dx + offset * dy, 6 * dy - offset * dx, 0), true, 'opens every lane')
+    }
+  }
+})
+
+test('every escalator span keeps all three plan widths', () => {
+  for (const span of ['single', 'double', 'triple']) for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const m = createModule('escalator', 0, 0, -5, `${span}-${width}`, rot, width, dir, 'lane', [], undefined, {
+      escalatorSpan: span, doubleRampLength: 'long', tripleRampLength: 'long',
+    })
+    assert.ok(m && m.type === 'escalator')
+    assert.equal(m.cfg.width ?? 1, width, `${span} width ${width}`)
+    const [dx, dy] = stairFacing(rot)
+    const e = moduleEnvelope(m)
+    assert.equal(dx === 0 ? e.x1 - e.x0 : e.y1 - e.y0, width, `${span} width ${width} reserves its plan blocks`)
+    const landings = escalatorLandings(m)
+    assert.equal(landings.length, width * 2, `${span} width ${width} lands on every plan lane`)
+    assert.equal(landings.filter((p) => p.z === Math.min(m.from.z, m.to.z)).length, width)
   }
 })
 
@@ -163,7 +196,7 @@ test('a 双层 escalator climbs two floors and the tool builds the family its sp
   try {
     const station = toState({ name: 'double', seed: 1, cells: [], modules: [], lines: [] })
     const tool = new EquipmentTool({})
-    useStore.setState({ station, escalatorSpan: 'double', doubleRampLength: 'long', escalatorDir: 'up', moduleRot: 0, escalatorWide: false })
+    useStore.setState({ station, escalatorSpan: 'double', doubleRampLength: 'long', escalatorDir: 'up', moduleRot: 0, escalatorWidth: 1 })
     const two = tool.buildPlacementModules('escalator', [3, 5, 0], 'double')[0]
     assert.equal(two.to.z - two.from.z, 10, '长 spans two five-metre floors')
     assert.equal(Math.hypot(two.to.x - two.from.x, two.to.y - two.from.y), 18)
@@ -178,6 +211,37 @@ test('a 双层 escalator climbs two floors and the tool builds the family its sp
     const key = moduleGhostKey(tool.buildPlacementModules('escalator', [3, 5, 0], 'k')[0])
     useStore.setState({ escalatorSpan: 'double' })
     assert.notEqual(moduleGhostKey(tool.buildPlacementModules('escalator', [3, 5, 0], 'k')[0]), key)
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('the tool builds every span at all three plan widths', () => {
+  const before = useStore.getState()
+  try {
+    const station = toState({ name: 'span widths', seed: 1, cells: [], modules: [], lines: [] })
+    const tool = new EquipmentTool({})
+    for (const span of ['single', 'double', 'triple']) for (const width of [1, 2, 3]) {
+      useStore.setState({ station, escalatorSpan: span, escalatorWidth: width, escalatorDir: 'up', moduleRot: 0, rampLength: 'long', doubleRampLength: 'long', tripleRampLength: 'long' })
+      const m = tool.buildPlacementModules('escalator', [3, 5, 0], `${span}-${width}`)[0]
+      assert.equal(m.cfg.width ?? 1, width, `${span} width ${width} reaches the piece`)
+      assert.equal(escalatorSpanOf(m), span, `${span} width ${width} keeps its span`)
+      assert.equal(moduleEnvelope(m).x1 - moduleEnvelope(m).x0, width, `${span} width ${width} reserves its plan`)
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
+test('the width tile cycles all three plan widths on a multi-storey piece', () => {
+  const before = useStore.getState()
+  try {
+    useStore.setState({ escalatorSpan: 'double', escalatorWidth: 1 })
+    for (const expected of [2, 3, 1]) {
+      useStore.getState().cycleEscalatorWidth()
+      assert.equal(useStore.getState().escalatorWidth, expected)
+      assert.equal(useStore.getState().escalatorSpan, 'double', 'the width cycle never changes the span')
+    }
   } finally {
     useStore.setState(before)
   }

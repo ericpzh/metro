@@ -1,6 +1,7 @@
 // Shared builder capabilities for module transforms and variants. The rail and
 // keyboard read this same ordered list, so controls, icons and shortcuts agree.
 import { msg } from '../../sim/i18n.ts'
+import { escalatorWidthLabel } from '../../sim/escalators.ts'
 import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { walkwayLengthLabel } from '../../sim/walkways.ts'
 import { liftIntervalLabel, liftSizeLabel } from '../../sim/lifts.ts'
@@ -65,15 +66,15 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     attrs.push(variant('height', msg(s.curtainHeight === 2 ? 'short' : s.curtainHeight === 3 ? 'medium' : 'long'), s.cycleCurtainHeight))
   }
   if (type === 'escalator') {
-    attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
+    attrs.push(variant('width', escalatorWidthLabel(s.escalatorWidth), s.cycleEscalatorWidth))
     attrs.push(variant('length', rampLengthLabel(s.escalatorSpan === 'triple' ? s.tripleRampLength : s.escalatorSpan === 'double' ? s.doubleRampLength : s.rampLength, s.escalatorSpan), s.cycleRampLength))
     attrs.push(variant('span', msg(s.escalatorSpan === 'triple' ? 'triple_storey' : s.escalatorSpan === 'double' ? 'double_storey' : 'single_storey'), s.cycleEscalatorSpan))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
-  // The 自动步道 is the escalator's level twin: it shares the 窄/宽 width and the
-  // up/down direction tabs, and carries its own three-length cycle beside them.
+  // The 自动步道 is the escalator's level twin: it shares the 窄/宽/超宽 width and
+  // the up/down direction tabs, and carries its own three-length cycle beside them.
   if (type === 'walkway') {
-    attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
+    attrs.push(variant('width', escalatorWidthLabel(s.escalatorWidth), s.cycleEscalatorWidth))
     attrs.push(variant('length', walkwayLengthLabel(s.walkwayLength), s.cycleWalkwayLength))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }

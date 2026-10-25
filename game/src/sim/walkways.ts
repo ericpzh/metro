@@ -23,7 +23,7 @@
 import type { Module, Vec3i } from './types.ts'
 import { msg } from './i18n.ts'
 import type { MessageKey } from './i18n.ts'
-import { escalatorLandings, escalatorRun } from './escalators.ts'
+import { escalatorLandings, type EscalatorWidth } from './escalators.ts'
 import { stairFacing } from './stairs.ts'
 
 export type Walkway = Extract<Module, { type: 'walkway' }>
@@ -88,7 +88,7 @@ export function walkwayModule(
   rot: number,
   dir: WalkwayDir,
   id: string,
-  width: 1 | 2 = 1,
+  width: EscalatorWidth = 1,
   length: WalkwayLength = WALKWAY_LENGTH_DEFAULT,
 ): Module {
   const [dx, dy] = stairFacing(rot)
@@ -105,7 +105,7 @@ export function walkwayModule(
     rot,
     from: up ? near : far,
     to: up ? far : near,
-    cfg: { dir: up ? 'up' : 'down', ...(width === 2 ? { width } : {}) },
+    cfg: { dir: up ? 'up' : 'down', ...(width > 1 ? { width } : {}) },
   }
 }
 
@@ -134,17 +134,15 @@ export function walkwayLandings(m: Walkway): Vec3i[] {
 }
 
 /**
- * The two columns of the run's plan, one pair of landings each: the near/far
- * ends, plus (for a wide piece) the lane one cell across, taken from the run's
- * own centring shift so the pair matches what `escalatorLandings` reports.
+ * The columns of the run's plan, one landing pair each: the near/far ends plus
+ * one pair per extra plan lane, taken from the run's own centring shift so the
+ * pairs match what `escalatorLandings` reports.
  */
 function walkwayColumns(m: Walkway): Array<[Vec3i, Vec3i]> {
-  if (m.cfg.width !== 2) return [[m.from, m.to]]
-  const run = escalatorRun(m)
-  const qx = 2 * (run.from.x - m.from.x)
-  const qy = 2 * (run.from.y - m.from.y)
-  const across = (p: Vec3i): Vec3i => ({ x: p.x + qx, y: p.y + qy, z: p.z })
-  return [[m.from, m.to], [across(m.from), across(m.to)]]
+  const landings = escalatorLandings(m)
+  const out: Array<[Vec3i, Vec3i]> = []
+  for (let i = 0; i < landings.length; i += 2) out.push([landings[i], landings[i + 1]])
+  return out
 }
 
 /**

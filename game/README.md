@@ -291,9 +291,10 @@ It also pins the run: a consist is drawn in from beyond the entrance end of its
 轨道桥 grown off it — and leaves only once its tail clears the far end, so it
 runs right through a built tunnel or bridge instead of vanishing beside the platform.
 
-Stairs and escalators carry passengers single-file on narrow runs and in two
-spaced columns on wide runs. Wide escalators serve twice the narrow rate.
-Boarding times within a tick keep successive escalator riders on separate steps;
+Stairs and escalators carry passengers single-file on narrow runs and in
+spaced columns on wider runs — one column per plan block. A 宽 escalator serves
+twice the narrow rate and a 超宽 one three times it. Boarding times within a tick
+keep successive escalator riders on separate steps;
 narrow stair flights let the current direction clear before admitting opposing
 traffic. `test/ramp-passengers.test.mjs` pins spacing, rotated/reversed escalators,
 wide throughput, opposing stair traffic, collision clearance, waypoint recovery,
@@ -1664,10 +1665,11 @@ wide — because its body genuinely fills more than one cell, so it needs a bay 
 collides. A run in the same column one
 storey down still stacks and is still refused.
 
-**扶梯 窄 / 宽** places one escalator spanning one or two blocks. The wide piece has a single
-continuous moving step band and balustrades only at the outer edges. Its two-block footprint,
-floor supports, carved openings and picker width follow the same piece in every rotation and
-travel direction. Older saves without a width retain the narrow model.
+**扶梯 窄 / 宽 / 超宽** places one escalator spanning one, two or three blocks — in every
+单层 / 双层 / 三层 span. Every width has a single continuous moving step band and balustrades only
+at the outer edges. Its block footprint, floor supports, carved openings, passenger columns, rate
+and picker width follow the same piece in every rotation and travel direction. Older saves without
+a width retain the narrow model.
 
 **A run comes in two length families** (`sim/rampLengths.ts`). The **one-floor** family is shared by
 the 扶梯 and every staircase: **超短** 2 m, **短** 3 m, **中** 4 m, **长** 5 m and **超长** 6 m, and a
@@ -1681,10 +1683,11 @@ station every escalator is laid at a strict **30°** inside whole-cell landings 
 level terminal tracks), and a 双层 piece climbs two floors that way; the single 5 m profile uses
 strict 30° escalator inclines. Both pieces share **one** one-floor setting,
 so a player picks a bank's size once; the seam cap between two facing handrails forms exactly when
-their **endpoints** line up — two escalators of one length, two stairs, or a 扶梯 / 楼梯 pair on the
-legacy 2:3 grid (`addRampJoins`). On the five-metre grid the 30° escalator is a cell longer than the
-stair of the same length, so a mixed pair's landings do not meet. A run shorter than the storey lands
-**inside** it, on a half-level slab a player lays block by block; the 方块 tool builds at any height
+their **endpoints** line up — two escalators of one length (flush, or with one empty block between
+them), two stairs, or a 扶梯 / 楼梯 pair on the legacy 2:3 grid (`addRampJoins`). On the five-metre
+grid the 30° escalator is a cell longer than the stair of the same length, so a mixed pair's landings
+do not meet. A run shorter than the storey lands **inside** it, on a half-level slab a player lays
+block by block; the 方块 tool builds at any height
 (`hit.place`), and the carve, the collision body and the drawn model all follow the endpoints, so a
 half-level run walks and draws exactly as the storey-high ones do.
 
@@ -1694,16 +1697,20 @@ wraps beneath the comb plates. The upper landing block is recessed beneath that 
 with a metal apron replacing its exposed top while the floor cell remains a graph support.
 The lower body is buried 2 cm into its supporting floor, with its lid and sides inset 5 mm
 from adjoining surfaces; landing aprons clear the floor by 5 mm to prevent depth-buffer flicker.
-Flush, parallel escalators also share a steel cap between their facing handrails, as does a
-stair beside an escalator. Both handrails remain; one escalator owns each cap so rebuilding
-or deleting a neighbour updates the seam without duplicate surfaces.
-The infill wraps around both rounded rail returns to seal the ends down to the landings,
-and a row of metal hemispheres follows its centreline, seated on the actual cap slope.
+Parallel escalators also share a steel cap between their facing handrails — flush, or with one empty
+block between them, where the cap widens to bridge the gap — as does a stair standing flush beside
+an escalator. Both handrails remain; one escalator owns each cap so rebuilding or deleting a
+neighbour updates the seam without duplicate surfaces. A cap never spans across a run standing
+between its two ends: the intervening run must cross the cap's own along-run stretch, so a run that
+merely shares the lane beyond a landing does not suppress it. The infill wraps around both rounded
+rail returns to seal the ends down to the landings, and metal hemispheres follow it, seated on the
+actual cap slope. A flush cap keeps a single centreline row at 65 mm radius; a widened cap spreads
+**two** evenly spaced rows across its 1.32 m, each dome at double that size (130 mm).
 
 **Escalators are placed the same way.** The **扶梯** button drops a fixed run at the length the player has
 armed: its base sits on the hovered floor cell, it climbs that length's rise and run along the placement
 rotation, and the finished run previews as a translucent ghost; **R** turns it, **Tab** cycles its
-窄 / 宽 width, **Shift+Tab** its length, its **单层 / 双层** tile flips one floor against two (the
+窄 / 宽 / 超宽 width, **Shift+Tab** its length, its **单层 / 双层** tile flips one floor against two (the
 双层 family runs 7 m → 11 m, with 长 10 m as the two-storey default), and its direction tile flips
 travel between up and down. The
 placement ghost carries a bright arrow over the run pointing the
@@ -2662,7 +2669,7 @@ approximated); neither needs WebGL.
   `这些格子上没有分区` — committing nothing — when the patch carries no label at all. Right-click
   uses the same eraser for taps and drags without switching the selected brush or demolishing floor;
   booth counters remain removable.
-* `ramp-passengers.test.mjs` — narrow/wide passenger columns and same-tick boarding; swept body
+* `ramp-passengers.test.mjs` — narrow/wide/extra-wide passenger columns and same-tick boarding; swept body
   clearance under crowd pressure; routes that respect rail clearance; recovery around escalator ends
   for walkers and queues without losing queue order; opposing traffic on narrow stairs; and actual
   access across each turning-stair half-landing in every rotation.
@@ -2902,11 +2909,14 @@ approximated); neither needs WebGL.
   only be dropped side by side; and 无盖 keeps the same barrier planes as 有盖. The 虚拟 exit is
   the exception to the house: a 1×1 surface pillar drawn by the 导向柱 model, whose street node is
   its own cell, with no walls, no laid floor and no run snap.
-* `ramp-join.test.mjs` — shared metal caps between flush escalators and stair-escalator pairs:
+* `ramp-join.test.mjs` — shared metal caps between escalators and stair-escalator pairs:
   rotations, travel directions, wide pieces, unique seam ownership and neighbour removal;
-  closed rounded end shells and true hemispheres seated along the sloping centreline.
+  closed rounded end shells, the flush cap's single centreline dome row and the widened cap's two
+  evenly spaced columns of double-size hemispheres, all seated on the sloping panel.
   A bank of one type fills its seam at every one of the one-floor run lengths, and two pieces of **different**
-  lengths — different landings, slopes and rail returns — never share one.
+  lengths — different landings, slopes and rail returns — never share one. Parallel escalators with
+  one empty block between them share a cap widened across it, while a run standing in the gap, a
+  second empty block and a non-flush stair grow none.
 * `escalator-length.test.mjs` — the run families: one floor is 超短 2 m / 短 3 m / 中 4 m / 长 5 m /
   超长 6 m for the 扶梯 and every staircase, and 双层 is 超短 7 m / 短 8 m / 中 9 m / 长 10 m / 超长 11 m
   for the escalator alone. Each size in a family is its own ghost and its own name on the tile; both one-floor cycles
@@ -2928,8 +2938,8 @@ approximated); neither needs WebGL.
   the dropped cell to the storey above, a down run keeps the same footprint entered from the top,
   the direction cycle flips up ↔ down, two runs may not share a footprint but the next bay over is
   free, placing one carves its slab, and the scenario rig's pre-placed runs are that same piece at the
-  same dimensions. Wide places one two-block module with both landing columns supported and
-  carved in all rotations and directions; its hover key includes the width. The 双层 tile builds the
+  same dimensions. 宽 and 超宽 place one two- or three-block module with every landing column
+  supported and carved in all rotations and directions; the hover key includes the width. The 双层 tile builds the
   two-floor family at its own rise and run, leaves the one-floor family armed while it is on, and
   redraws the ghost when it flips.
 * `lift.test.mjs` — the 小 电梯 (§5.1): a fresh piece is a 2 × 2 m assembly that

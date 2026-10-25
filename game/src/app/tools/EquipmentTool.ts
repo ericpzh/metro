@@ -618,11 +618,11 @@ export class EquipmentTool extends ToolController {
         st.moduleRot,
         st.escalatorDir,
         id,
-        st.escalatorWide ? 2 : 1,
+        st.escalatorWidth,
         st.walkwayLength,
       )
     } else if (this.isStraightRamp(type)) {
-      const width = type === 'escalator' ? (st.escalatorWide ? 2 : 1) : st.stairWidth
+      const width = type === 'escalator' ? st.escalatorWidth : st.stairWidth
       // The piece's own length decides both the bay snap's descent and the run
       // that is built, so a 超短 / 短 / 中 / 长 / 超长 piece snaps to the floor its
       // own rise reaches instead of always to the storey below. Both a 楼梯 and a
@@ -631,7 +631,7 @@ export class EquipmentTool extends ToolController {
       const spec = this.rampSnapSpec(type)
       const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], spec.run, spec.rise)
       mod = type === 'escalator'
-        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWide ? 2 : 1, length, st.station.storeyHeight, st.escalatorSpan)
+        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWidth, length, st.station.storeyHeight, st.escalatorSpan)
         : snap
           ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
           : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })

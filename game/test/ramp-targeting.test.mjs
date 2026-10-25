@@ -12,7 +12,14 @@ import { PickTool } from '../src/app/tools/PickTool.ts'
 import { useStore } from '../src/app/store.ts'
 
 const stairs = ['stair-straight', 'stair-leftForward', 'stair-rightForward', 'stair-left90', 'stair-right90', 'stair-left180', 'stair-right180']
-const cases = [...stairs.flatMap(type => [0.68, 1.36, 2.04].map(width => [type, width])), ['escalator', 1], ['escalator', 2]]
+const cases = [...stairs.flatMap(type => [0.68, 1.36, 2.04].map(width => [type, width])), ['escalator', 1], ['escalator', 2], ['escalator', 3]]
+test('a visible block beside platform glazing does not resurrect a screen door through its coarse envelope',()=>{
+  const screen={id:'screen',type:'platform-edge',x:219,y:-92,z:-20,w:173,rot:2,cfg:{from:'track',side:'right',psd:'full',line:'13'}}
+  const cell=[60,-92,-19]
+  assert.ok(moduleAt([screen],...cell),'the screen clearance reaches the pointed block')
+  assert.equal(moduleTarget([screen],null,cell),undefined)
+  assert.equal(moduleTarget([screen],screen.id,cell),screen,'an actual drawn glazing surface remains selectable')
+})
 for (const [type, width] of cases) {
   for (const rot of [0, 1, 2, 3]) test(`${type} width ${width} rotation ${rot}: a visible block occludes the run for hover, delete and undo`, () => {
     const previous = useStore.getState()

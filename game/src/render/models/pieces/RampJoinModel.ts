@@ -46,7 +46,7 @@ function run(ctx: ModuleContext, mod: Module, from: Vec3i, to: Vec3i, dx = 0, dy
   const normal = new THREE.Vector3(-axis.x * climb.z, -axis.y * climb.z, Math.hypot(climb.x, climb.y))
   if (mod.type === 'escalator') return {
     mod, lower, upper, axis, across, length, normal,
-    planHalf: mod.cfg.width === 2 ? 1 : 0.5,
+    planHalf: (mod.cfg.width ?? 1) / 2,
     railHalf: escalatorBalustradeWidth(mod) / 2 + 0.03,
     trim: 0, railHeight: 1, blocked: () => false,
   }
@@ -80,6 +80,45 @@ function runs(ctx: ModuleContext, mod: Module): Run[] {
     }
     return [{ ...r, blocked }]
   })
+}
+
+/**
+ * The widest empty span a seam may bridge, in blocks. Two parallel escalators
+ * keep their shared steel infill when one empty block stands between them — the
+ * cap widens across it — as well as when they are flush. Other pairs (a stair
+ * beside a run) only meet when their footprints touch.
+ */
+const SPANNED_GAP = 1
+
+/**
+ * A widened cap carries **two** evenly spread columns of domes across its
+ * 1.32 m width, at a quarter and three quarters. Each dome is twice the flush
+ * cap's size; the flush 0.32 m cap keeps its single centreline row.
+ */
+const WIDE_DOME_COLUMNS = [0.25, 0.75] as const
+const WIDE_DOME_SCALE = 2
+
+/**
+ * Whether another run stands in the widened span — laterally between `own` and
+ * the run at `distance`, and along the cap's own `start`…`end` stretch. Without
+ * this, the outer escalators of a flush bank would grow a second cap through the
+ * piece between them; a run beyond one landing (same lane, clear of the cap) must
+ * not suppress it.
+ */
+function nearerRun(ctx: ModuleContext, own: Run, side: number, distance: number, start: number, end: number): boolean {
+  for (const neighbour of modelNeighbours(ctx, 'stair', 'escalator', 'walkway')) {
+    if (neighbour.id === own.mod.id) continue
+    for (const between of runs(ctx, neighbour)) {
+      if (own.axis.dot(between.axis) < 0.999) continue
+      if (Math.abs(own.lower.z - between.lower.z) > 0.001 || Math.abs(own.upper.z - between.upper.z) > 0.001) continue
+      const offset = between.lower.clone().sub(own.lower).dot(own.across)
+      if (Math.sign(offset) !== side || Math.abs(offset) >= distance - 0.001) continue
+      const from = Math.min(between.lower.dot(own.axis), between.upper.dot(own.axis))
+      const to = Math.max(between.lower.dot(own.axis), between.upper.dot(own.axis))
+      if (to > start + 0.001 && from < end - 0.001) return true
+    }
+  }
+  return false
 }
 
 /** The actual inclined black rail's endpoints, before its rounded returns. */
@@ -233,7 +272,11 @@ function board(rows: Row[], mat: THREE.Material, verticalThickness = false): THR
   return mesh
 }
 
-/** Add infill only where two full runs stand flush, with real facing handrails. */
+/**
+ * Add infill where two full runs share a seam, with real facing handrails:
+ * flush footprints, or two escalators with one empty block between them, whose
+ * cap widens across the gap. A run standing in that gap stops the span.
+ */
 export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Group): void {
   if (!ctx.data) return
   const own = runs(ctx, mod)[0]
@@ -248,7 +291,12 @@ export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Gro
       const delta = other.lower.clone().sub(own.lower)
       if (Math.abs(delta.dot(own.axis)) > 0.001 || Math.abs(own.length - other.length) > 0.001) continue
       const distance = delta.dot(own.across)
-      if (Math.abs(Math.abs(distance) - own.planHalf - other.planHalf) > 0.001) continue
+      const separation = Math.abs(distance)
+      const spacing = separation - own.planHalf - other.planHalf
+      // Only escalator-to-escalator seams may bridge an empty block; every other
+      // pair, and any wider void, needs the two footprints to touch.
+      const span = mod.type === 'escalator' && neighbour.type === 'escalator' ? SPANNED_GAP : 0
+      if (spacing < -0.001 || spacing > span + 0.001) continue
       const side = Math.sign(distance)
       if (other.blocked(-side)) continue
       const first = rail(own, side)
@@ -256,8 +304,10 @@ export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Gro
       const start = Math.max(first[0].dot(own.axis), second[0].dot(own.axis))
       const end = Math.min(first[1].dot(own.axis), second[1].dot(own.axis))
       if (end - start < 0.1) continue
-      const gap = Math.abs(distance) - own.railHalf - other.railHalf
+      const gap = separation - own.railHalf - other.railHalf
       if (gap <= 0.03) continue
+      // A widened cap spans the empty block: never reach across a run standing in it.
+      if (spacing > 0.001 && nearerRun(ctx, own, side, separation, start, end)) continue
       const near = (u: number): THREE.Vector3 => at(first, own.axis, u).addScaledVector(own.across, -side * RAMP_JOIN_RAIL_OVERLAP).add(new THREE.Vector3(0, 0, -0.04 - ESCALATOR_SURFACE_CLEARANCE))
       const far = (u: number): THREE.Vector3 => at(second, own.axis, u).addScaledVector(own.across, side * RAMP_JOIN_RAIL_OVERLAP).add(new THREE.Vector3(0, 0, -0.04 - ESCALATOR_SURFACE_CLEARANCE))
       const row = (a: THREE.Vector3, b: THREE.Vector3): Row => side > 0 ? [a,b] : [b,a]
@@ -298,24 +348,31 @@ export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Gro
       const centreStart = firstRow[0].clone().add(firstRow[1]).multiplyScalar(0.5)
       const centreEnd = lastRow[0].clone().add(lastRow[1]).multiplyScalar(0.5)
       const count = Math.max(1, Math.floor(centreStart.distanceTo(centreEnd) / RAMP_JOIN_DOME_SPACING))
+      const twoColumn = spacing > 0.001 && !mixed
+      const columns: readonly number[] = twoColumn ? WIDE_DOME_COLUMNS : [0.5]
+      const radius = RAMP_JOIN_DOME_RADIUS * (twoColumn ? WIDE_DOME_SCALE : 1)
       for (let i = 0; i < count; i++) {
         const t = (i + 0.5) / count
-        // Seat each hemisphere on the actual triangle under the centreline,
+        // Seat each hemisphere on the actual triangle under its station,
         // including a mixed pair's tilted cap, rather than floating above it.
         const [a,b] = firstRow, [c,d] = lastRow
-        const centre = t >= 0.5
-          ? a.clone().multiplyScalar(1-t).addScaledVector(c, t-0.5).addScaledVector(d, 0.5)
-          : a.clone().multiplyScalar(0.5).addScaledVector(d,t).addScaledVector(b,0.5-t)
         const normal = t >= 0.5 ? c.clone().sub(a).cross(d.clone().sub(a)).normalize() : d.clone().sub(a).cross(b.clone().sub(a)).normalize()
-        const geometry = new THREE.SphereGeometry(RAMP_JOIN_DOME_RADIUS, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2)
-        geometry.rotateX(Math.PI / 2) // three's hemisphere is +y; the panel uses +z
-        const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), normal)
-        geometry.applyMatrix4(new THREE.Matrix4().compose(centre,rotation,new THREE.Vector3(1,1,1)))
-        geometry.applyMatrix4(inverse)
-        const dome = new THREE.Mesh(geometry, ctx.mats.steel)
-        dome.name = 'ramp-join-dome'
-        dome.userData.neighbourId = neighbour.id
-        group.add(dome)
+        for (const across of columns) {
+          const centre = twoColumn
+            ? a.clone().lerp(c, t).lerp(b.clone().lerp(d, t), across)
+            : t >= 0.5
+              ? a.clone().multiplyScalar(1-t).addScaledVector(c, t-0.5).addScaledVector(d, 0.5)
+              : a.clone().multiplyScalar(0.5).addScaledVector(d,t).addScaledVector(b,0.5-t)
+          const geometry = new THREE.SphereGeometry(radius, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2)
+          geometry.rotateX(Math.PI / 2) // three's hemisphere is +y; the panel uses +z
+          const rotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), normal)
+          geometry.applyMatrix4(new THREE.Matrix4().compose(centre,rotation,new THREE.Vector3(1,1,1)))
+          geometry.applyMatrix4(inverse)
+          const dome = new THREE.Mesh(geometry, ctx.mats.steel)
+          dome.name = 'ramp-join-dome'
+          dome.userData.neighbourId = neighbour.id
+          group.add(dome)
+        }
       }
     }
   }

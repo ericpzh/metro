@@ -1839,7 +1839,7 @@ export class World {
         const length = Math.hypot(dx, dy)
         const column = s.ramp.columns === 1 ? 0
           : s.kind === 'stair' ? RAMP_PASSENGER_COLUMN_SPACING / 2
-          : ((s.ramp.next++ % 2) - 0.5) * RAMP_PASSENGER_COLUMN_SPACING
+          : (s.ramp.next++ % s.ramp.columns - (s.ramp.columns - 1) / 2) * RAMP_PASSENGER_COLUMN_SPACING
         const ox = s.ramp.dx + (length > 0 ? dy / length * column : 0)
         const oy = s.ramp.dy - (length > 0 ? dx / length * column : 0)
         a.rideFromX = g.nodeX[s.node] + ox
@@ -1859,7 +1859,7 @@ export class World {
         a.z = a.rideFromZ
         if (s.kind === 'escalator' && !passengerIsChild(a.id) && activityChoice(a.id, 0x62a3) < .62) {
           a.activity = column > 0 ? 14 : 7
-          a.activityVariant = (s.ramp.columns === 2 ? 1 : 0) + (a.rideToZ < a.rideFromZ ? 2 : 0)
+          a.activityVariant = (s.ramp.columns > 1 ? 1 : 0) + (a.rideToZ < a.rideFromZ ? 2 : 0)
           a.activityStart = this.tick; a.activityTotal = a.rideTotal
           a.activityYaw = Math.atan2(a.rideToY-a.rideFromY,a.rideToX-a.rideFromX)
         }

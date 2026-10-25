@@ -442,12 +442,12 @@ function createModuleRaw(
       // `dir` only orders from/to, which is what the sim reads as the one-way
       // travel and the label. `rampLength` is the player's length choice and
       // `escalatorSpan` the 单层 / 双层 family it belongs to.
-      return escalatorModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, rampLength, storeyHeight, span);
+      return escalatorModule({ x, y, z }, rot, dir, id, width === 3 ? 3 : width === 2 ? 2 : 1, rampLength, storeyHeight, span);
     case 'walkway':
       // The level twin of the escalator (`sim/walkways.ts`): 短 30 m / 中 60 m /
       // 长 90 m of belt along the placement rotation. `dir` orders from/to (the
       // one-way travel) and `width` is 窄 / 宽, exactly as the escalator's are.
-      return walkwayModule({ x, y, z }, rot, dir, id, width === 2 ? 2 : 1, settings.walkwayLength ?? WALKWAY_LENGTH_DEFAULT);
+      return walkwayModule({ x, y, z }, rot, dir, id, width === 3 ? 3 : width === 2 ? 2 : 1, settings.walkwayLength ?? WALKWAY_LENGTH_DEFAULT);
     case 'lift':
       // An elevator spans one 层高 interval up from the dropped cell (5 m by
       // default). The player stacks further intervals on top or below

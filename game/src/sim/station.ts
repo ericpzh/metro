@@ -34,7 +34,7 @@ import {
 import { floorDecorCells } from './floorDecor.ts'
 import { hangerPostCells } from './hangers.ts'
 import { floorSpeed } from './finishes.ts'
-import { escalatorRun, escalatorBalustradeWidth } from './escalators.ts'
+import { escalatorRun, escalatorBalustradeWidth, escalatorWidthOf } from './escalators.ts'
 import { walkwayCoveredCells } from './walkways.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
 import { withGround } from './ground.ts'
@@ -724,8 +724,8 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
           const id = addServer({
             kind: walkway ? 'walkway' : 'escalator',
             label: walkway ? msg('walkway') : m.cfg.dir === 'up' ? msg('up_escalator') : msg('down_escalator'),
-            rate: (walkway ? WALKWAY_RATE : ESCALATOR_RATE) * (m.cfg.width === 2 ? 2 : 1),
-            ramp: { dx: escalatorRun(m).from.x - m.from.x, dy: escalatorRun(m).from.y - m.from.y, columns: m.cfg.width === 2 ? 2 : 1, next: 0 },
+            rate: (walkway ? WALKWAY_RATE : ESCALATOR_RATE) * escalatorWidthOf(m),
+            ramp: { dx: escalatorRun(m).from.x - m.from.x, dy: escalatorRun(m).from.y - m.from.y, columns: escalatorWidthOf(m), next: 0 },
             node: a,
             exitNode: b,
             ride,

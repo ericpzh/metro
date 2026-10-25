@@ -1,5 +1,5 @@
 import { msg } from '../../sim/i18n.ts'
-import { escalatorLength, escalatorSpanOf } from '../../sim/escalators.ts'
+import { escalatorLength, escalatorSpanOf, escalatorWidthOf } from '../../sim/escalators.ts'
 import { walkwayLengthOf } from '../../sim/walkways.ts'
 import { LIFT_INTERVALS, liftRises, liftSizeOf } from '../../sim/lifts.ts'
 import { stairLengthOf } from '../../sim/stairs.ts'
@@ -273,7 +273,7 @@ export class PickTool extends ToolController {
       if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
       if (mod.type === 'escalator') {
         st.setEscalatorDir(mod.cfg.dir)
-        if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
+        st.setEscalatorWidth(escalatorWidthOf(mod))
         // The span comes with the piece: a picked 双层 run arms the 双层 family at
         // its own length, so the next click rebuilds the same two-floor run.
         const span = escalatorSpanOf(mod)
@@ -282,11 +282,11 @@ export class PickTool extends ToolController {
         else if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
         else st.setRampLength(escalatorLength(mod))
       }
-      // A 自动步道 is picked at its own level length, and copies the shared 窄/宽
-      // width and up/down direction the way the escalator does.
+      // A 自动步道 is picked at its own level length, and copies the shared
+      // plan width and up/down direction the way the escalator does.
       if (mod.type === 'walkway') {
         st.setEscalatorDir(mod.cfg.dir)
-        if (st.escalatorWide !== (mod.cfg.width === 2)) st.toggleEscalatorWidth()
+        st.setEscalatorWidth(escalatorWidthOf(mod))
         st.setWalkwayLength(walkwayLengthOf(mod))
       }
       // A 楼梯 is picked at its own length too, so the next click rebuilds the run

@@ -6,6 +6,7 @@ import { EscalatorModel } from '../src/render/models/pieces/EscalatorModel.ts'
 import { createModule } from '../src/build/model.ts'
 import { stairFacing, stairFlights } from '../src/sim/stairs.ts'
 import { RAMP_LENGTHS, rampLengthSpec } from '../src/sim/rampLengths.ts'
+import { RAMP_JOIN_DOME_RADIUS } from '../src/sim/constants.ts'
 
 const mats = new Proxy({}, { get: (o, k) => o[k] ??= new THREE.MeshStandardMaterial() })
 function joins(modules, cells = []) {
@@ -58,7 +59,7 @@ function escalatorPairedWithStair(x, id, rot, dir, y, z, length, stairX = x + 1,
 }
 
 test('one metal cap fills every shared escalator seam, in all rotations and travel directions', () => {
-  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2]) for (const dir of ['up', 'down']) {
+  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2, 3]) for (const dir of ['up', 'down']) {
     const [dx, dy] = stairFacing(rot)
     const a = escalator(0, 'a', rot, width, dir)
     const b = escalator(width * dy, 'b', rot, 1, dir === 'up' ? 'down' : 'up', -width * dx)
@@ -75,12 +76,70 @@ test('one metal cap fills every shared escalator seam, in all rotations and trav
 })
 
 test('a bank of three escalators has two caps, with none along its outer edges', () => {
-  assert.equal(joins([escalator(0, 'a'), escalator(1, 'b'), escalator(2, 'c')]).length, 2)
+  const caps = joins([escalator(0, 'a'), escalator(1, 'b'), escalator(2, 'c')])
+  assert.equal(caps.length, 2)
+  // The outer pair stands one empty block apart only through the middle run;
+  // the widened span must stop at the nearest escalator instead of crossing it.
+  for (const { bounds } of caps) assert.ok(Math.abs(bounds.getSize(new THREE.Vector3()).x - 0.32) < 1e-5)
+})
+
+test('parallel escalators one empty block apart share a widened cap', () => {
+  for (let rot = 0; rot < 4; rot++) for (const width of [1, 2, 3]) for (const otherWidth of [1, 2, 3]) for (const dir of ['up', 'down']) {
+    const [dx, dy] = stairFacing(rot)
+    const a = escalator(0, 'a', rot, width, dir)
+    const b = escalator((width + 1) * dy, 'b', rot, otherWidth, dir === 'up' ? 'down' : 'up', -(width + 1) * dx)
+    const caps = joins([a, b])
+    assert.equal(caps.length, 1, 'the empty block is bridged by one cap')
+    assert.equal(caps[0].owner, 'a')
+    assert.equal(caps[0].mesh.material, mats.steel)
+    const size = caps[0].bounds.getSize(new THREE.Vector3())
+    assert.ok((dx === 0 ? size.y : size.x) > 5, 'cap follows the full incline')
+    assert.ok(Math.abs((dx === 0 ? size.x : size.y) - 1.32) < 1e-5, 'spans the block plus the rail gap and overlaps')
+    assert.equal(joins([b, a]).length, 1, 'document order does not duplicate or remove the seam')
+    assert.equal(joins([a]).length, 0, 'removing the neighbour removes the connector')
+  }
+  // Clearance of two blocks is past the span.
+  assert.equal(joins([escalator(0, 'a'), escalator(3, 'b', 0, 1, 'down')]).length, 0)
+  // A stair between the two runs stops the span just as a third escalator does.
+  const [near, stair] = escalatorPairedWithStair(0, 'a', 0, 'up', 0, 0, 'long', 1)
+  const far = escalator(2, 'b', 0, 1, 'down')
+  assert.equal(joins([near, stair, far]).filter((cap) => cap.mesh.userData.neighbourId === 'b').length, 0, 'a stair in the gap is not spanned')
+  // Stairs only share a seam flush against the escalator.
+  const [e, s] = escalatorPairedWithStair(0, 'e', 0, 'up', 0, 0, 'long', 2)
+  assert.equal(joins([e, s]).length, 0, 'a stair one block away is not bridged')
+})
+
+test('a run that ends beyond one landing does not suppress a widened seam', () => {
+  // Saved 天河公园 geometry: two 2-block 三层 escalators at y = -104 and -101,
+  // with a stair on the same lane but four cells past their lower landing. The
+  // stair is between them across the plan, yet clear of the cap along the run.
+  const a = {
+    id: 'escalator-137', type: 'escalator', storeyHeight: 5, x: 164, y: -104, z: -20, rot: 3,
+    from: { x: 164, y: -104, z: -20 }, to: { x: 138, y: -104, z: -5 },
+    cfg: { incline: 30, dir: 'up', width: 2 },
+  }
+  const b = {
+    id: 'escalator-138', type: 'escalator', storeyHeight: 5, x: 164, y: -101, z: -20, rot: 3,
+    from: { x: 138, y: -101, z: -5 }, to: { x: 164, y: -101, z: -20 },
+    cfg: { incline: 30, dir: 'down', width: 2 },
+  }
+  const stair = {
+    id: 'stair-straight-138', type: 'stair', storeyHeight: 5, x: 191, y: -102, z: -20, rot: 3,
+    from: { x: 191, y: -102, z: -20 }, to: { x: 168, y: -102, z: -5 },
+    cfg: { width: 2.04, style: 'straight', flights: [{ from: { x: 191, y: -102, z: -20 }, to: { x: 168, y: -102, z: -5 } }] },
+  }
+  const caps = joins([a, b, stair])
+  assert.equal(caps.length, 1, 'the two escalators share their widened cap')
+  const size = caps[0].bounds.getSize(new THREE.Vector3())
+  assert.ok(Math.abs(size.y - 1.32) < 1e-5, 'the cap spans the one empty block')
+  // The same stair moved onto the seam does suppress it.
+  const onSeam = { ...stair, x: 171, from: { x: 171, y: -102, z: -20 }, to: { x: 148, y: -102, z: -5 }, cfg: { ...stair.cfg, flights: [{ from: { x: 171, y: -102, z: -20 }, to: { x: 148, y: -102, z: -5 } }] } }
+  assert.equal(joins([a, b, onSeam]).length, 0, 'a stair overlapping the seam stops the span')
 })
 
 test('shared infill seals both rounded ends with closed metal surfaces', () => {
   const mixedPair = escalatorPairedWithStair(0, 'a', 0, 'up', 0, 0, 'long')
-  for (const pair of [[escalator(0, 'a'), escalator(1, 'b', 0, 1, 'down')], mixedPair]) {
+  for (const pair of [[escalator(0, 'a'), escalator(1, 'b', 0, 1, 'down')], [escalator(0, 'a'), escalator(2, 'b', 0, 1, 'down')], [escalator(0, 'a', 0, 3, 'up'), escalator(3, 'b', 0, 3, 'down')], mixedPair]) {
     const [own, other] = pair
     const { mesh, bounds } = joins([own, other])[0]
     assert.ok(bounds.min.z < 1, 'lower end closes below the supporting floor')
@@ -116,14 +175,28 @@ test('shared infill seals both rounded ends with closed metal surfaces', () => {
   }
 })
 
-test('centreline bumps are hemispheres seated on the sloping metal panel', () => {
-    const { domes, mesh } = joins([escalator(0,'a'),escalator(1,'b')])[0]
-  assert.ok(domes.length >= 3, 'a row of bumps follows the incline')
-  const normal = new THREE.Vector3(0, -5, 9).normalize()
-  for (const dome of domes) {
-    const bounds = new THREE.Box3().setFromObject(dome)
-    assert.ok(Math.abs((bounds.min.x + bounds.max.x) / 2 - 1) < 1e-5, 'bump is centred between the two rails')
-    assert.ok(Math.abs(assertDomeSeated(dome, mesh, normal) - 0.065) < 1e-4, 'a 65 mm hemisphere rises above the cap')
+test('dome columns are hemispheres seated on the sloping metal panel', () => {
+  // A flush 0.32 m cap keeps one centreline row at the original size. A widened
+  // 1.32 m cap spreads two evenly spaced rows of twice-size domes.
+  for (const [pair, centres, radius] of [
+    [[escalator(0, 'a'), escalator(1, 'b')], [1], RAMP_JOIN_DOME_RADIUS],
+    [[escalator(0, 'a'), escalator(2, 'b')], [1.17, 1.83], RAMP_JOIN_DOME_RADIUS * 2],
+    [[escalator(0, 'a'), escalator(-2, 'b')], [-0.83, -0.17], RAMP_JOIN_DOME_RADIUS * 2],
+    [[escalator(0, 'a', 0, 3), escalator(3, 'b', 0, 3)], [3], RAMP_JOIN_DOME_RADIUS],
+  ]) {
+    const { domes, mesh } = joins(pair)[0]
+    assert.ok(domes.length >= 3 * centres.length, 'every column follows the incline')
+    const normal = new THREE.Vector3(0, -5, 9).normalize()
+    const hit = new Set()
+    for (const dome of domes) {
+      const bounds = new THREE.Box3().setFromObject(dome)
+      const x = (bounds.min.x + bounds.max.x) / 2
+      const column = centres.findIndex((centre) => Math.abs(centre - x) < 1e-5)
+      assert.ok(column >= 0, `bump is centred in one of the cap's columns (${x})`)
+      hit.add(column)
+      assert.ok(Math.abs(assertDomeSeated(dome, mesh, normal) - radius) < 1e-4, 'the hemisphere rises above the cap at its own size')
+    }
+    assert.equal(hit.size, centres.length, 'both widened columns are populated')
   }
 })
 
@@ -206,10 +279,10 @@ test('a bank fills its seam at every run length, and only between pieces of one 
   }
 })
 
-test('separated, staggered, crossing and differently elevated runs do not grow caps', () => {
+test('staggered, crossing, too-far and differently elevated runs do not grow caps', () => {
   const e = escalator(0, 'e')
-  for (const other of [escalator(2, 'far'), escalator(1, 'stagger', 0, 1, 'up', 1), escalator(1, 'cross', 1), escalator(1, 'high', 0, 1, 'up', 0, 4)]) {
-    assert.equal(joins([e, other]).length, 0, `${other.id} is not a flush adjoining run`)
+  for (const other of [escalator(1, 'stagger', 0, 1, 'up', 1), escalator(1, 'cross', 1), escalator(3, 'far'), escalator(1, 'high', 0, 1, 'up', 0, 4)]) {
+    assert.equal(joins([e, other]).length, 0, `${other.id} is not a bridged parallel run`)
   }
   const block = createModule('stair-block', 1, 0, 0, 'block')
   assert.equal(joins([e, block]).length, 0, 'stair blocks have no matching balustrade')

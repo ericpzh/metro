@@ -13,6 +13,8 @@ test('module attributes use the shared priority and first two variant shortcuts'
   const escalator = moduleBuilderAttributes('escalator', state)
   assert.deepEqual(escalator.map(({ kind }) => kind), ['rotation', 'width', 'length', 'span', 'direction'])
   assert.deepEqual(escalator.map(({ shortcut }) => shortcut), ['R', 'Tab', 'Shift+Tab', undefined, undefined])
+  const widthTile = (width) => moduleBuilderAttributes('escalator', stateWith({ escalatorWidth: width })).find((a) => a.kind === 'width').label
+  assert.deepEqual([1, 2, 3].map(widthTile), ['窄', '宽', '超宽'], 'the width tile names all three plan widths')
 
   const curtain = moduleBuilderAttributes('curtain-wall', state)
   assert.deepEqual(curtain.map(({ kind }) => kind), ['rotation', 'width', 'height'])
@@ -31,7 +33,7 @@ test('the 自动步道 carries the escalator’s two shared tabs and its own lev
 
   const calls = []
   const cycles = stateWith({
-    toggleEscalatorWidth: () => calls.push('width'),
+    cycleEscalatorWidth: () => calls.push('width'),
     cycleWalkwayLength: () => calls.push('length'),
     cycleEscalatorDir: () => calls.push('direction'),
     rotateModule: () => calls.push('rotation'),
@@ -113,7 +115,7 @@ test('the one-floor length tile names the five sizes and cycles through them', (
 test('Tab, Shift+Tab and R dispatch through the module capability list', () => {
   const calls = []
   const state = stateWith({
-    toggleEscalatorWidth: () => calls.push('width'),
+    cycleEscalatorWidth: () => calls.push('width'),
     cycleRampLength: () => calls.push('length'),
     rotateModule: () => calls.push('rotation'),
   })
@@ -196,6 +198,8 @@ test('all width action tiles use the shared width glyph and the shell delegates 
   const { dimensionSelection } = await import('../src/app/rail/shared/dimensionSelection.ts')
   for (const [type, kind, key, values] of [
     ['road', 'width', 'roadWidth', [6,12,18,24]],
+    ['escalator', 'width', 'escalatorWidth', [1,2,3]],
+    ['walkway', 'width', 'escalatorWidth', [1,2,3]],
     ['curtain-wall', 'height', 'curtainHeight', [2,3,4]],
     ['pillar', 'length', 'pillarLength', [2,3,4,5,6]],
     ['walkway', 'length', 'walkwayLength', ['short','medium','long']],

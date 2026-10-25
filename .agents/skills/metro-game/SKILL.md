@@ -635,17 +635,22 @@ the four rules most changes trip over.
   demo guards each of its platform stairs — while two runs still meet on the full
   envelope and can never share a landing. A **narrow** escalator is the exception: its truss,
   step band and balustrades run landing centre to landing centre, so every tile of its
-  run, landings included, is its own. A **wide** escalator (`cfg.width: 2`, the 宽 tile)
-  is one continuous two-block band with rails on its outer edges only — no centre rail —
-  and reserves exactly two blocks across (`escalators.test.mjs` pins the envelope in all
-  rotations and directions). Its step band runs the incline plus a flat at each end
+  run, landings included, is its own. A **wide / extra-wide** escalator (`cfg.width: 2 | 3`,
+  the 宽 / 超宽 tile) is one continuous two- or three-block band with rails on its outer edges
+  only — no centre rail — and reserves exactly two or three blocks across
+  (`escalators.test.mjs` pins the envelope at every width and span, in all rotations and
+  directions; `module-build.test.mjs` pins the drawn band and rails). Its step band
+  runs the incline plus a flat at each end
   (`ESCALATOR_FLAT_LENGTH`, comb plates and a landing deck of its own), its steps level
   through `escalatorStepHeight` while risers collapse on the flats (`rollEscalator`), its
   two glass balustrades each form one continuous pane: their rounded end caps fill the
   half-round gaps beneath the handrail returns (`module-build.test.mjs` checks both ends,
   widths, rotations and directions). Its four newels carry entry-arrow / stop-bar lights
   (`EscalatorIndicatorModel`), and flush
-  neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). The
+  neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). Two parallel
+  escalators with one empty block between them also share one, widened across the gap; a cap never
+  spans across another run that overlaps its along-run stretch (one merely sharing the lane beyond
+  a landing does not block it), and a stair only shares one flush. The
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house

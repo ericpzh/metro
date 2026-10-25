@@ -479,10 +479,11 @@ with no view attached.
 lower section stays free, same-storey treads still collide, and vertically adjacent runs do not
 reserve an entire shared shaft. `placement` also pins that escalator support is required only at its lower landing, not across the incline's full projected footprint. `escalators` also pins the inspector's selected-run direction switch and its undo: travel reverses
 by swapping `from`/`to` together with `cfg.dir`. `escalators` and `module-build` also pin the
-single two-block-wide escalator: its continuous
-moving band, outer rails, rotated footprint, landing support and two-column opening.
+two- and three-block-wide escalators: their continuous
+moving band, outer rails, rotated footprint, landing support and per-column openings, at every
+single/double/triple span as well as every rotation and direction.
 They also check seamless glass filling both rounded handrail returns at either end,
-for narrow/wide escalators in every rotation and travel direction; the glass stays
+for narrow/wide/extra-wide escalators in every rotation and travel direction; the glass stays
 inside the rail curve and makes one pane per side. The wider metal shoulders, flattening
 risers and covered step return are checked too;
 `slope-cut` checks the recessed upper landing beneath the terminal deck.
@@ -502,24 +503,27 @@ It pins the 地面 X向 exit header's full-width red fill and unchanged font siz
 `three-storey-ramps` checks every 12–16 m triple-family size across escalators and all stair shapes/rotations, the 15 m default, endpoint-derived span/length, straight-stair placement and exit-bay snap in all three families, the stair span cycle, and the tile's three planes with exactly one highlighted. Focused coverage with `escalator-length`, `escalators` and `stairs` passes 66 tests; it measures `sim/rampLengths.ts` at 100 % lines / 96.88 % branches.
 `escalator-length` checks the run families — the one-floor 超短 2 m / 短 3 m / 中 4 m / 长 5 m /
 超长 6 m for the 扶梯 and every staircase, the 双层 7–11 m and 三层 12–16 m families for stairs and escalators
-— in both widths, rotations and directions, each with its own passage, landing graph nodes, ride
+— in every width, rotation and direction, each with its own passage, landing graph nodes, ride
 time, exit snap (a stair as well as a 扶梯), preview refresh, move, save round-trip and drawn
 model, with endpoint-derived sizes saves reading back in each family, contiguous 6/7 m and 11/12 m
 boundaries, 10 m / 15 m double- and triple-storey defaults, and the five-metre grid's strict 30° runs pinned;
 `pick-tool` checks copying a run's length and span and restoring the previous ones with Esc,
 and the same for a **自动步道**'s level length, width and direction.
 `walkways` checks the escalator's flat twin: the three level lengths 短 30 m / 中 60 m /
-长 90 m in every rotation, direction and width; the wide belt's centring being
+长 90 m in every rotation, direction and width; the wide / extra-wide belt's centring being
 direction-independent; the belt's interior cells not being walkable while both
-landings are (a step-free passenger is carried too); the doubled wide rate and
+landings are (a step-free passenger is carried too); the lane-scaled rates and
 1.84 m/s ride; placement carving nothing (every belt cell keeps its floor, and all
 of them are required); the block brush reserving the plan; move/rebuild, the
 preview-key and ghost-key identity; the save round trip; and the shared flat model's own span.
 `ramp-join` checks shared metal caps between escalators and stair-escalator pairs,
 including wide pieces, rotation, reversed travel, single seam ownership and neighbour removal —
 and that a bank fills its seam at every one of the four lengths while two differing lengths never
-share one.
-It also checks the closed end shells and centreline hemispheres seated on the metal cap.
+share one. Two parallel escalators one empty block apart bridge the gap with the widened cap, while
+a run crossing the seam, a wider void and a non-flush stair grow none; a run that shares the lane
+but ends beyond one landing (the saved 天河公园 pair) does not suppress the cap.
+It also checks the closed end shells, the flush cap's single centreline row and the widened cap's
+two evenly spaced columns of double-size hemispheres, all seated on the metal cap.
 `exits` pins one-to-four-bay head-house geometry, including the 6 m 四向 ground exit, placement from a picked
 straight stair or escalator (all rotations, both escalator travel directions, bay alignment, offset top-landing
 rows in the rendered wellway, and rejected
@@ -553,8 +557,8 @@ cell of a 中 turn's 4-cell landing goes with it and comes back laid at the new 
 
 The `shelf` suite also pins tall/short, wire and cooler variants, their save/preview/sweep identity, rotated model bounds, ceiling clearance and cooler shell and tall/short gondola plinth/trim separation to prevent flickering.
 
-`ramp-passengers` covers single-file narrow ramps and two spaced columns on wide
-ramps; same-tick boarding and wide escalator throughput; swept collision clearance;
+`ramp-passengers` covers single-file narrow ramps and one spaced column per extra
+plan block on wider ramps; same-tick boarding and wide / extra-wide escalator throughput; swept collision clearance;
 routes and recovery around rail ends; queue order and journey retention; opposing
 traffic on narrow stairs; and actual access across each stair-turn landing in every
 rotation.
@@ -1159,7 +1163,7 @@ all eleven tools, with dispatch CPU and raycast counts in `.preview/perf/tool-pi
 
 
 `ramp-targeting` rays actual stair/escalator meshes in all four rotations, all
-seven stair shapes and three stair widths, plus both escalator widths. A block
+seven stair shapes and three stair widths, plus all three escalator widths. A block
 inside the run's coarse envelope but in front of its drawn surface must remain
 the hover/delete/inspection/eyedropper target; delete and undo preserve the run.
 An exposed tread remains directly deletable. The forgiving exit snap may span a

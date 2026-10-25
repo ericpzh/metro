@@ -22,14 +22,14 @@ function queue(w, s, count) {
   })
 }
 
-test('narrow escalators keep same-tick boarders single-file; wide ones provide two spaced columns', () => {
-  for (const width of [1, 2]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+test('narrow escalators keep same-tick boarders single-file; wider ones provide spaced columns', () => {
+  for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
     const { w, s } = setup('escalator', width, rot, dir)
     assert.equal(s.rate, width * 1.25)
     const riders = queue(w, s, 8)
     w.stepServers()
     const aboard = riders.filter(a => a.state === 6)
-    assert.equal(aboard.length, width === 1 ? 2 : 3)
+    assert.equal(aboard.length, width + 1)
     for (const a of aboard) w.stepRide(a)
     const g = w.graph
     const dx = g.nodeX[s.exitNode] - g.nodeX[s.node]
@@ -40,7 +40,10 @@ test('narrow escalators keep same-tick boarders single-file; wide ones provide t
       for (const a of aboard) assert.ok(Math.abs(across(a)) < 1e-6, 'narrow rider left the centreline')
       assert.ok(Math.abs(Math.abs(aboard[0].rideT - aboard[1].rideT) - 0.8) < 1e-6, 'same-tick passengers stacked instead of occupying separate steps')
     } else {
-      assert.ok(Math.abs(Math.abs(across(aboard[0]) - across(aboard[1])) - 0.7) < 1e-6, 'wide riders overlap across the tread')
+      const lanes = aboard.slice(0, width).map(across)
+      for (let i = 1; i < width; i++) {
+        assert.ok(Math.abs(lanes[i] - lanes[i - 1] - 0.7) < 1e-6, `width ${width} riders do not fill their spaced columns`)
+      }
     }
   }
 })
@@ -66,7 +69,7 @@ test('narrow stair flights wait for opposing riders; wide flights separate the t
 })
 
 test('crowd pressure cannot shove bodies through escalator or stair landing rails', () => {
-  for (const [type, width] of [['escalator', 1], ['escalator', 2], ['stair-straight', STAIR_WIDTH_NARROW], ['stair-right180', STAIR_WIDTH_DOUBLE]]) {
+  for (const [type, width] of [['escalator', 1], ['escalator', 2], ['escalator', 3], ['stair-straight', STAIR_WIDTH_NARROW], ['stair-right180', STAIR_WIDTH_DOUBLE]]) {
     for (let rot = 0; rot < 4; rot++) {
       const { w } = setup(type, width, rot)
       const wall = w.graph.rampWalls[0]

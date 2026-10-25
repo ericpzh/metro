@@ -264,7 +264,7 @@ test("an exit-bay snap descends the station's own grid, and the ghost is what th
   let preview=null
   const scene={setModulePreview:(mods)=>{preview=Array.isArray(mods)?mods[0]:mods},setGhost(){},setCursor(){},setCollisionHighlight(){},setFencePreview(){}}
   const tool=new EquipmentTool({scene:()=>scene,hover:{current:null},drag:{current:null}})
-  useStore.setState({station,past:[],future:[],tool:'module',moduleType:'escalator',moduleRot:0,rampLength:'medium',escalatorWide:false,escalatorDir:'down'})
+  useStore.setState({station,past:[],future:[],tool:'module',moduleType:'escalator',moduleRot:0,rampLength:'medium',escalatorWidth:1,escalatorDir:'down'})
   // The hover is over the exit's own floor with no block under the pointer, the
   // open bay the snap exists for; the run must descend its own rise (five metres
   // over nine cells at thirty degrees).

@@ -13,6 +13,7 @@ import { msg } from '../../../sim/i18n.ts'
 import type { StateCreator } from 'zustand'
 import type { BridgeRailing, GateDoor, FinishId } from '../../../sim/types.ts'
 import type { RampLength, RampSpan } from '../../../sim/rampLengths.ts'
+import type { EscalatorWidth } from '../../../sim/escalators.ts'
 import type { LiftInterval, LiftSize } from '../../../sim/lifts.ts'
 import type { PillarLength } from '../../../sim/structures.ts'
 import type { WalkwayLength } from '../../../sim/walkways.ts'
@@ -49,7 +50,7 @@ export interface PickDraft {
   bridgeLength: number
   bridgeRailing: BridgeRailing
   escalatorDir: 'up' | 'down'
-  escalatorWide: boolean
+  escalatorWidth: EscalatorWidth
   rampLength: RampLength
   escalatorSpan: RampSpan
   doubleRampLength: RampLength
@@ -110,7 +111,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         bridgeLength: s.bridgeLength,
         bridgeRailing: s.bridgeRailing,
         escalatorDir: s.escalatorDir,
-        escalatorWide: s.escalatorWide,
+        escalatorWidth: s.escalatorWidth,
         rampLength: s.rampLength,
         escalatorSpan: s.escalatorSpan,
         doubleRampLength: s.doubleRampLength,
@@ -150,7 +151,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       bridgeLength: d.bridgeLength,
       bridgeRailing: d.bridgeRailing,
       escalatorDir: d.escalatorDir,
-      escalatorWide: d.escalatorWide,
+      escalatorWidth: d.escalatorWidth,
       rampLength: d.rampLength,
       escalatorSpan: d.escalatorSpan,
       doubleRampLength: d.doubleRampLength,

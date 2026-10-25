@@ -433,8 +433,8 @@ block underneath takes its hosted modules with it in the same undo step.
 | Module | Footprint | Capacity / rate | Notes |
 |---|---|---|---|
 | 楼梯 (straight stair) | 1 lane × 9 cells for the default 长 5 m climb | 25 pax/min per metre up, 33 down | 窄/中/宽 = one/two/three 0.7 m lanes, each in its own cell; turning, switchback and 楼梯块 variants |
-| 扶梯 (escalator) | 1 × 10 cells for the default 长 5 m climb | 75 pax/min, one direction | 30°; 单层 2–6 m and 双层 7–11 m of climb |
-| 自动步道 (moving walkway) | 1 × 30 / 60 / 90 | ~138 pax/min, one direction, step-free | the escalator's level twin, ridden at walking speed + 0.5 m/s (1.84 m/s); 宽 doubles it |
+| 扶梯 (escalator) | 1–3 blocks × 10 / 19 / 27 cells for the default 长 5 / 10 / 15 m climbs | 75 pax/min per lane, one direction | 30°; 窄 / 宽 / 超宽 = one / two / three plan blocks at every span (单层 2–6 m, 双层 7–11 m, 三层 12–16 m) |
+| 自动步道 (moving walkway) | 1–3 × 30 / 60 / 90 | ~138 pax/min per lane, one direction, step-free | the escalator's level twin, ridden at walking speed + 0.5 m/s (1.84 m/s); 宽 doubles and 超宽 triples the lane count |
 | 电梯 (lift) | 2 × 2 小 or 3 × 3 大 | 15 pax/trip, ~40 s cycle | the only step-free path; floors of 3–7 m stack for uneven floors; 大/小 chooses the plan |
 
 There is **no ramp module**: the accessible sloped run the early drafts listed as “Ramp” was
@@ -474,22 +474,28 @@ exactly as it did.
 
 A **自动步道** (moving walkway) is the escalator's **level** twin. It reuses the escalator's body,
 glass balustrades and one-way ride, laid flat: it rises nothing and travels its whole length
-horizontally, in 短 30 m / 中 60 m / 长 90 m, at the 窄 / 宽 width and up/down direction the 扶梯
+horizontally, in 短 30 m / 中 60 m / 长 90 m, at the 窄 / 宽 / 超宽 width and up/down direction the 扶梯
 shares. Everyone on it moves at the free walking speed **plus 0.5 m/s** (1.84 m/s), and — unlike a
 stair or an escalator — it is **step-free**. It is entered and left **at its two landings only**:
 the belt's own cells are not walkable, so the crowd lines up along its axis and rides it end to end,
 and the glass on both sides is a barrier the whole way. It lies **on the floor**: it carves no
 opening, so every cell under the belt must already be floor, and it is placed as plain equipment
-(no exit-bay snap). A 宽 belt carries two lanes and twice the rate.
+(no exit-bay snap). Each plan block is one lane: 宽 carries two and 超宽 three, each multiplying the
+narrow rate.
 
-Two runs of one storey may stand **flush** in adjacent cells. Every run is built to fit inside one
-tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails,
-all inside its own 1 m cell — so a pair simply sits side by side, each carrying its own balustrade,
-and a bank of runs reads as one group with no slot in the middle. It also means a wall, a fence or a
-gate may be built right up against a run. A wall that hugs a flight **from bottom to top** replaces
-that side's handrail: the flight keeps the stringer it meets the wall with and is railed on its open
-sides alone. The wall must run the whole flight, at the flight's own heights — a wall that stops at the
-half-landing, or carries a doorway the flight passes, leaves the handrail on.
+Two runs of one storey may stand **flush** in adjacent cells. A one-block run fits inside its own
+tile — an escalator's balustrades, glass and handrails, and a *narrow* staircase's treads and rails —
+so a pair simply sits side by side, each carrying its own balustrade, and a bank of runs reads as one
+group with no slot in the middle. A 宽 / 超宽 escalator fills two or three whole blocks instead, its
+balustrades still only on the outer edges. Two parallel escalators keep that
+shared stainless infill even with **one empty block** between them: the cap widens across the gap. A
+run that crosses the cap's own along-run stretch is never spanned; one that only shares the lane
+beyond a landing is clear, and a stair shares the infill only when flush. It also
+means a wall, a fence or a gate may be built right up against a run. A wall that hugs a flight **from
+bottom to top** replaces that side's handrail: the flight keeps the stringer it meets the wall with
+and is railed on its open sides alone. The wall must run the whole flight, at the flight's own
+heights — a wall that stops at the half-landing, or carries a doorway the flight passes, leaves the
+handrail on.
 
 A **wider staircase is lanes**: one, two or three parallel flights, each one escalator band (0.7 m),
 each in its own cell — so a 2-lane stair is two 0.7 m lanes in two blocks, a 3-lane stair in three —

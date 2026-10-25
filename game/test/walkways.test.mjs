@@ -225,17 +225,19 @@ test('the crowd rides the belt one way, and a step-free passenger is carried too
   }
 })
 
-test('a wide walkway doubles its lanes and its throughput', () => {
+test('a wider walkway fills its lanes and scales its throughput', () => {
   const cells = floor(-2, 34, -4, 4, 0)
-  const m = walkwayModule({ x: 0, y: 0, z: 0 }, 1, 'up', 'wide', 2, 'short')
-  const state = addEquipment(toState({ name: 'wide', seed: 1, cells, modules: [], lines: [] }), m)
-  const g = buildGraph({ name: 'wide', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
-  const server = g.servers.find((s) => s.kind === 'walkway')
-  assert.ok(server)
-  assert.equal(server.rate, WALKWAY_RATE * 2, 'two lanes carry twice as many')
-  assert.equal(server.ramp.columns, 2)
-  for (let x = 1; x < 30; x++) {
-    assert.ok(!g.nodeIndex.has(`${x},0,0`) && !g.nodeIndex.has(`${x},-1,0`), 'both belt lanes are closed to walking')
+  for (const width of [2, 3]) {
+    const m = walkwayModule({ x: 0, y: 0, z: 0 }, 1, 'up', 'wide', width, 'short')
+    const state = addEquipment(toState({ name: 'wide', seed: 1, cells, modules: [], lines: [] }), m)
+    const g = buildGraph({ name: 'wide', seed: 1, cells: state.cells, modules: state.modules, lines: [] })
+    const server = g.servers.find((s) => s.kind === 'walkway')
+    assert.ok(server)
+    assert.equal(server.rate, WALKWAY_RATE * width, `${width} lanes carry ${width} times as many`)
+    assert.equal(server.ramp.columns, width)
+    for (let x = 1; x < 30; x++) {
+      for (let lane = 0; lane < width; lane++) assert.ok(!g.nodeIndex.has(`${x},${-lane},0`), `${width}-lane belt lanes are closed to walking`)
+    }
   }
 })
 
@@ -245,7 +247,7 @@ test('the tool builds the walkway at the armed length, width and direction', () 
     const station = toState({ name: 'tool', seed: 1, cells: [], modules: [], lines: [] })
     const tool = new EquipmentTool({})
     for (const spec of WALKWAY_LENGTHS) for (const dir of ['up', 'down']) {
-      useStore.setState({ station, moduleRot: 1, escalatorWide: false, escalatorDir: dir, walkwayLength: spec.id })
+      useStore.setState({ station, moduleRot: 1, escalatorWidth: 1, escalatorDir: dir, walkwayLength: spec.id })
       const pieces = tool.buildPlacementModules('walkway', [3, 5, 0], 'wk')
       assert.equal(pieces.length, 1)
       const m = pieces[0]
@@ -254,8 +256,10 @@ test('the tool builds the walkway at the armed length, width and direction', () 
       assert.equal(walkwayLengthOf(m), spec.id)
       assert.deepEqual([m.x, m.y, m.z], [3, 5, 0], 'the anchor is the near landing')
       assert.equal(m.to.y, m.from.y, 'level, never snapped into an exit bay')
-      useStore.setState({ escalatorWide: true })
-      assert.equal(tool.buildPlacementModules('walkway', [3, 5, 0], 'wk')[0].cfg.width, 2)
+      for (const width of [2, 3]) {
+        useStore.setState({ escalatorWidth: width })
+        assert.equal(tool.buildPlacementModules('walkway', [3, 5, 0], 'wk')[0].cfg.width, width)
+      }
     }
   } finally {
     useStore.setState(before)

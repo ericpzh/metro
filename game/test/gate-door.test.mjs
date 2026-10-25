@@ -52,7 +52,8 @@ test('the choice is in the key the viewport rebuilds its hover ghost from', () =
   assert.notEqual(placementPreviewKey({ ...base, moduleType: 'tvm' }), key)
   assert.notEqual(placementPreviewKey({ ...base, guideExitId: 'exit-a' }), key, 'a re-linked guidepost rebuilds the ghost')
   assert.notEqual(placementPreviewKey({ ...base, lightPosition: 3 }), key, 'a moved battens spot rebuilds the ghost')
-  assert.notEqual(placementPreviewKey({ ...base, escalatorWide: true }), key, 'the wide band rebuilds the ghost')
+  assert.notEqual(placementPreviewKey({ ...base, escalatorWidth: 2 }), key, 'the wide band rebuilds the ghost')
+  assert.notEqual(placementPreviewKey({ ...base, escalatorWidth: 3 }), key, 'the extra-wide band rebuilds the ghost')
   assert.notEqual(placementPreviewKey({ ...base, rampLength: 'long' }), key, 'the long run rebuilds the ghost')
 })
 

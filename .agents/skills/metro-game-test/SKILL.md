@@ -440,15 +440,22 @@ paused; consists settle; orchestrator forwarding),
 one-floor rungs, the staircase-only 超长 6 m, and the 双层 family — spans,
 envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
 drawn models, and the catalogue's family fallback and nearest-match answers — with
-`ramp-join` for the seam at each length and `builder-attributes` for the tile,
+`ramp-join` for the seam at each length (including the widened one-block escalator span)
+and `builder-attributes` for the tile,
 the predicate and the dispatch),
 `walkways` (the 扶梯's level twin: its three lengths 短 30 m / 中 60 m / 长 90 m in
-every rotation, direction and width, the direction-independent wide centring, the
+every rotation, direction and width 1 / 2 / 3, the direction-independent wider centring, the
 belt interior closed to walking while both landings stay nodes and a step-free
-passenger is carried, the doubled wide rate and 1.84 m/s ride, placement carving
+passenger is carried, the lane-scaled rate and 1.84 m/s ride, placement carving
 nothing and requiring floor under the whole length, the block-brush reservation,
 move/rebuild, the preview/ghost keys, and the shared flat model's span — with
 `pick-tool` for the length/width/direction a pick arms).
+
+`escalators` pins the three-block plan as well as the narrow and two-block ones:
+envelope, every landing column, carved openings, lane rate and ghost key in all
+rotations, directions and the single/double/triple spans; `module-build` pins the
+drawn band and rails on those multi-storey widths, and `ramp-passengers` pins their
+one-column-per-block boarding.
 
 For the 第三轨, keep the side rule in the pure sim helper and pin each half where
 it lives: `thirdRailSide` (`sim/track.ts`) owns the verdict — travel right in a

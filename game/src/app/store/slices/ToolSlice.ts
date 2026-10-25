@@ -1,9 +1,10 @@
 // The pointer-tool slice: the active tool, the equipment tool's piece and its
 // rotation, the 方块 tool's cut modes and 生成墙壁 ring, the Tab cycles (stair and roof width,
-// escalator direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
+// escalator width and direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
 
 import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
+import { nextEscalatorWidth, type EscalatorWidth } from '../../../sim/escalators.ts'
 import { nextGateDoor } from '../../../sim/gates.ts'
 import type { BridgeRailing, GateDoor, TriangleKind } from '../../../sim/types.ts'
 import { RAMP_LENGTH_DEFAULT, DOUBLE_RAMP_LENGTH_DEFAULT, nextRampLength, type RampLength, type RampSpan } from '../../../sim/rampLengths.ts'
@@ -98,8 +99,8 @@ export interface ToolSlice {
   roofPlateSnap: 'lower' | 'upper'
   /** Escalator travel direction, cycled with Tab (up/down). */
   escalatorDir: 'up' | 'down'
-  /** Whether a newly placed escalator spans two blocks. */
-  escalatorWide: boolean
+  /** Plan width a newly placed 扶梯 / 自动步道 spans: 窄 1, 宽 2, 超宽 3 blocks. */
+  escalatorWidth: EscalatorWidth
   /**
    * The length a newly placed **run** is built at — every 扶梯 and every 楼梯 come
    * in the same one-floor sizes (`sim/rampLengths.ts`): 超短 2 m, 短 3 m,
@@ -134,7 +135,7 @@ export interface ToolSlice {
    * The length a newly placed **自动步道** is built at — 短 30 m, 中 60 m, 长 90 m
    * (`sim/walkways.ts`). Its own cycle, because the walkway's three level sizes
    * are not the escalator's climb sizes; its width and direction reuse the
-   * escalator's settings (`escalatorWide` / `escalatorDir`), since the two pieces
+   * escalator's settings (`escalatorWidth` / `escalatorDir`), since the two pieces
    * are the same body.
    */
   walkwayLength: WalkwayLength
@@ -226,8 +227,10 @@ export interface ToolSlice {
   cycleRoofPlateSnap: () => void
   /** Flip the escalator travel direction up ↔ down (Tab). */
   cycleEscalatorDir: () => void
-  /** Toggle a narrow or two-block-wide escalator from its rail tile. */
-  toggleEscalatorWidth: () => void
+  /** Cycle a 扶梯 / 自动步道 plan width 窄 1 → 宽 2 → 超宽 3 from its rail tile. */
+  cycleEscalatorWidth: () => void
+  /** Point the width at a placed piece's own (the 吸取 tool copies it). */
+  setEscalatorWidth: (width: EscalatorWidth) => void
   /** Step the run length on to the next size (超短 → 短 → 中 → 长 → 超长 on a 楼梯), for 扶梯 and stairs alike. */
   cycleRampLength: () => void
   /** Flip a 扶梯 between 单层 (one floor) and 双层 (two floors). */
@@ -299,7 +302,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   roofWidth: 4,
   roofPlateSnap: 'upper',
   escalatorDir: 'up',
-  escalatorWide: false,
+  escalatorWidth: 1,
   rampLength: RAMP_LENGTH_DEFAULT,
   escalatorSpan: 'single',
   doubleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
@@ -375,7 +378,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setRoofWidth: (width) => set({ roofWidth: supportedRoofWidth(width) }),
   cycleRoofPlateSnap: () => set((s) => ({ roofPlateSnap: s.roofPlateSnap === 'lower' ? 'upper' : 'lower' })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
-  toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
+  cycleEscalatorWidth: () => set((s) => ({ escalatorWidth: nextEscalatorWidth(s.escalatorWidth) })),
+  setEscalatorWidth: (escalatorWidth) => set({ escalatorWidth }),
   cycleRampLength: () => set((s) => s.escalatorSpan === 'triple'
     ? { tripleRampLength: nextRampLength(s.tripleRampLength, 'triple') }
     : s.escalatorSpan === 'double'

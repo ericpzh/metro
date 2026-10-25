@@ -620,6 +620,10 @@ export const messages = {
     "zh": "宽",
     "en": "Wide"
   },
+  "extra_wide": {
+    "zh": "超宽",
+    "en": "Extra wide"
+  },
   "small": {
     "zh": "小",
     "en": "Small"

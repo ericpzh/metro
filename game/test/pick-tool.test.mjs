@@ -58,12 +58,21 @@ test('picking a run copies its length and Esc restores it, for 扶梯 and 单跑
       ctxFor(m.id).onDown(press([0, 0, -8]))
       assert.equal(useStore.getState().rampLength, length)
       assert.equal(useStore.getState().escalatorSpan, 'single', 'a one-floor 超长 comes back as 单层')
-      assert.equal(useStore.getState().escalatorWide, true)
+      assert.equal(useStore.getState().escalatorWidth, 2)
       assert.equal(useStore.getState().escalatorDir, 'down')
       useStore.getState().cancelPick()
       assert.equal(useStore.getState().rampLength, length === 'long' ? 'short' : 'long')
       assert.equal(useStore.getState().escalatorSpan, 'double')
     }
+    // A multi-storey piece comes back at its own span and plan width too.
+    const doubleWide = escalatorModule({ x: 0, y: 0, z: -8 }, 2, 'down', 'picked-double-wide', 3, 'long', 5, 'double')
+    useStore.setState({ station: { ...toState(emptyStation()), modules: [doubleWide] }, escalatorSpan: 'single', escalatorWidth: 1 })
+    ctxFor(doubleWide.id).onDown(press([0, 0, -8]))
+    assert.equal(useStore.getState().escalatorSpan, 'double')
+    assert.equal(useStore.getState().escalatorWidth, 3)
+    assert.equal(useStore.getState().doubleRampLength, 'long')
+    useStore.getState().cancelPick()
+    assert.equal(useStore.getState().escalatorWidth, 1, 'Esc restores the armed plan width')
     // A 单跑楼梯's own length comes with it too, read from its flight's endpoints —
     // the length a bank of 扶梯 and 楼梯 needs both pieces to share.
     for (const length of lengths) {
@@ -116,11 +125,11 @@ test('picking a 自动步道 copies its level length, width and direction', () =
   try {
     for (const length of ['short', 'medium', 'long']) {
       const m = walkwayModule({ x: 0, y: 0, z: 0 }, 2, 'down', 'picked-walkway', 2, length)
-      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, walkwayLength: length === 'long' ? 'short' : 'long', escalatorWide: false, escalatorDir: 'up' })
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, walkwayLength: length === 'long' ? 'short' : 'long', escalatorWidth: 1, escalatorDir: 'up' })
       ctxFor(m.id).onDown(press([0, 0, 0]))
       assert.equal(useStore.getState().moduleType, 'walkway')
       assert.equal(useStore.getState().walkwayLength, length)
-      assert.equal(useStore.getState().escalatorWide, true)
+      assert.equal(useStore.getState().escalatorWidth, 2)
       assert.equal(useStore.getState().escalatorDir, 'down')
       assert.equal(useStore.getState().moduleRot, 2)
       useStore.getState().cancelPick()
@@ -379,7 +388,7 @@ test('picking a 灯具, 导向柱, wide 扶梯 or shell roof arms its tile and s
   for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) cells.push(floor(x, y))
   useStore.setState({
     station: toState({ name: 't', seed: 1, cells, modules: [light, guide, wide, shell], lines: [] }),
-    tool: 'pick', escalatorWide: false, lightPosition: 0, guideExitId: null, roofWidth: 4,
+    tool: 'pick', escalatorWidth: 1, lightPosition: 0, guideExitId: null, roofWidth: 4,
   })
 
   ctxFor('l1').onDown(press([0, 0, 0]))
@@ -392,7 +401,7 @@ test('picking a 灯具, 导向柱, wide 扶梯 or shell roof arms its tile and s
 
   ctxFor('es2').onDown(press([0, 2, 0]))
   assert.equal(st().moduleType, 'escalator')
-  assert.equal(st().escalatorWide, true, 'a wide run arms the wide band')
+  assert.equal(st().escalatorWidth, 2, 'a wide run arms the wide band')
 
   ctxFor('r1').onDown(press([2, 2, 4]))
   assert.equal(st().moduleType, 'roof-shell', 'a shell bay arms the shell tile')

@@ -61,7 +61,7 @@ function base() {
 }
 
 test('every palette piece is placed on the grid, at every rotation, width and mode', () => {
-  const widths = [undefined, 0.68, 1.36, 2.04, 0.7, 1.4, 2]
+  const widths = [undefined, 0.68, 1.36, 2.04, 0.7, 1.4, 2, 3]
   let placed = 0
   for (const opt of MODULE_OPTIONS) {
     for (let rot = 0; rot < 4; rot++) {

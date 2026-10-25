@@ -11,7 +11,7 @@ export function dimensionSelection(kind: string, type: string, s: AppState): { s
   if (kind === 'width') {
     if (type === 'road') return choice(s.roadWidth, [6, 12, 18, 24])
     if (type === 'curtain-wall') return choice(s.curtainWidth, [1, 2, 3, 4])
-    if (type === 'escalator' || type === 'walkway') return choice(s.escalatorWide, [false, true])
+    if (type === 'escalator' || type === 'walkway') return choice(s.escalatorWidth, [1, 2, 3])
     if (isBenchType(type)) return choice(type.endsWith('-2'), [false, true])
     if (isDoorType(type)) return choice(s.doorWide, [false, true])
     if (isStairType(type)) return choice(s.stairWidth, STAIR_WIDTHS)
