@@ -1,3 +1,5 @@
+`monitor-signal` pins bottom-to-top yellow/red/green aspect order, nearest-platform selection shared with TVs, and live lenses excluded from equipment batches. `station-display` checks the real dispatcher phase through departure and disappearance. Signals show green from berth through departure, red during approach and between services.
+
 `audio` pins the six approved assets, four bilingual volume sliders, the 10% default
 music level, master scaling, local preference validation/persistence, outcome-only interaction cues, repeated
 refusal attempts, finite-radius Z-up distance/pan, bounded crowd sampling,

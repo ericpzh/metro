@@ -114,3 +114,20 @@ for (const headways of [{peak: 20, offpeak: 20, late: 20}, {peak: 150, offpeak: 
     assert.ok(future.every((a) => a.seconds >= 0))
   })
 }
+
+
+test('signal service phase follows a real train from approach to disappearance', () => {
+  const world = new World(scenarioStation(), 99)
+  const seen = new Set()
+  let hadTrain = false
+  for (let tick = 0; tick < 500; tick++) {
+    const service = world.trainServices()[0]
+    const train = world.trains.find(t => t.line === service.lineId && t.track === service.trackId)
+    assert.equal(service.trainState, train?.state)
+    if (train) { hadTrain = true; seen.add(service.trainState) }
+    else if (hadTrain) break
+    world.tickOnce()
+  }
+  assert.deepEqual([...seen], ['approach', 'berth', 'opening', 'dwell', 'closing', 'hold', 'depart'])
+  assert.equal(world.trainServices()[0].trainState, undefined)
+})

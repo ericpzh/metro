@@ -816,7 +816,7 @@ export class World {
         if (!anchor) continue
         const active = this.trains.find((t) => t.line === line.id && t.track === trackId)
         services.push({
-          lineId: line.id, trackId, direction: track?.cfg.dir ?? line.direction,
+          lineId: line.id, trackId, trainState: active?.state, direction: track?.cfg.dir ?? line.direction,
           x: anchor.x, y: anchor.y, z: anchor.z, fx: anchor.fx, fy: anchor.fy,
           halfLength: track ? track.w / 2 : 0,
           arrivals: serviceArrivals(this.simTime, this.nextDispatch.get(key) ?? this.simTime, active, line, this.day.service, this.day.peaks, this.dayType() === 'workday'),

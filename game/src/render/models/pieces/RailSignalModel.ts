@@ -23,7 +23,8 @@ export class RailSignalModel extends PieceBuilder {
       rim.position.set(0, -0.155, z)
       setModelDetail(rim, new THREE.CircleGeometry(0.205, 4).rotateX(Math.PI / 2).translate(0, -0.015, 0))
       g.add(rim)
-      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.167, 32), i === 0 ? mats.ledRed : mats.darkSteel)
+      const lens = new THREE.Mesh(new THREE.CircleGeometry(0.167, 32), i === 1 ? mats.ledRed : mats.darkSteel)
+      lens.userData.signalAspect = ['yellow', 'red', 'green'][i]
       lens.name = `signal-lamp-${i}`
       lens.rotation.x = Math.PI / 2
       lens.position.set(0, -0.176, z)
@@ -40,5 +41,13 @@ export class RailSignalModel extends PieceBuilder {
     omitModelDetail(slab(g, mats.steel, 0.25, 0.15, 0.31, 0.18, 0.28, 0.40))
     g.scale.setScalar(RAIL_SIGNAL_SCALE)
     return placeLocal(g, mod)
+  }
+}
+
+/** Only the aspect lenses stay outside static equipment batches. */
+export function setRailSignal(group: THREE.Object3D, green: boolean, mats: { ledRed: THREE.Material; ledGreen: THREE.Material; darkSteel: THREE.Material }): void {
+  for (const i of [1, 2]) {
+    const lens = group.getObjectByName(`signal-lamp-${i}`) as THREE.Mesh | undefined
+    if (lens) lens.material = i === 1 ? (green ? mats.darkSteel : mats.ledRed) : (green ? mats.ledGreen : mats.darkSteel)
   }
 }

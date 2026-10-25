@@ -561,9 +561,12 @@ tooltips and accessible names. `tools/check-info-panel.mjs` checks the real
 production layout and road reversal in both locales.
 
 Monitor decor has a ceiling-hung 1 m cabinet and a 3 m wall-backed panel with
-twelve room-facing views; the separate floor-standing 信号机 is 1 m tall. Route
-implementation to `metro-game` and preserve the mounting, bounds and material
-invariants in `game/test/monitor-signal.test.mjs`.
+twelve room-facing views; the separate floor-standing 信号机 is 1 m tall, with
+yellow/red/green aspects from bottom to top. Its nearest-track choice shares the
+TV distance calculation; its red aspect is on through approach and between trains,
+and green stays on from berth through departure. Keep live lenses outside static
+equipment batches. Route implementation to `metro-game`; pin model and update
+behavior in `game/test/monitor-signal.test.mjs` and `game/test/station-display.test.mjs`.
 
 The eight fixed stairs include 左 / 中 / 右直跑楼梯: two flights climb forward
 with an interior landing between them. Keep their flight plan, landing width,

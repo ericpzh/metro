@@ -13,7 +13,7 @@ export interface TvLineStatus {
 }
 
 /** Select the nearest service track in 3D, including rotated rails and both directions. */
-export function tvLineStatus(lines: readonly LineDef[], services: readonly TrainService[], at: readonly [number, number, number]): TvLineStatus | null {
+export function nearestTrainService(lines: readonly LineDef[], services: readonly TrainService[], at: readonly [number, number, number]): TrainService | undefined {
   let nearest: TrainService | undefined
   let best = Infinity
   for (const service of services) {
@@ -24,6 +24,11 @@ export function tvLineStatus(lines: readonly LineDef[], services: readonly Train
     const distance = along ** 2 + across ** 2 + (at[2] - service.z) ** 2
     if (distance < best) { best = distance; nearest = service }
   }
+  return nearest
+}
+
+export function tvLineStatus(lines: readonly LineDef[], services: readonly TrainService[], at: readonly [number, number, number]): TvLineStatus | null {
+  const nearest = nearestTrainService(lines, services, at)
   const line = lines.find((line) => line.id === nearest?.lineId) ?? lines[0]
   if (!line) return null
   const direction = nearest?.direction ?? line.direction

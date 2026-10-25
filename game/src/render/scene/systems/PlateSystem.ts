@@ -9,6 +9,8 @@
 // changes, only the artwork inside cycles, on its own cadence per screen.
 
 import * as THREE from 'three'
+import { nearestTrainService } from '../../stationDisplay.ts'
+import { setRailSignal } from '../../models/pieces/RailSignalModel.ts'
 import { signLineInk } from '../../presentationEdit.ts'
 import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
@@ -54,6 +56,15 @@ export class PlateSystem extends SceneSystem {
   tvScreens: Array<{ screen: THREE.Mesh; moduleId: string; poster: string; nextAt: number }> = []
   /** The lit station plate per 电视 module, drawn from the live document. */
   tvPlates = new Map<string, THREE.CanvasTexture>()
+  railSignals: Array<{ group: THREE.Object3D; at: [number, number, number] }> = []
+
+  updateRailSignals(): void {
+    for (const { group, at } of this.railSignals) {
+      const state = nearestTrainService(this.ctx.stationData?.lines ?? [], this.services, at)?.trainState
+      setRailSignal(group, state !== undefined && state !== 'approach', this.ctx.modelMats)
+    }
+  }
+
   private services: TrainService[] = []
   private dateText = ''
   private tvInk = new Map<string, string>()
@@ -491,6 +502,7 @@ export class PlateSystem extends SceneSystem {
   setSimClock(simTime: number, services: TrainService[] = []): void {
     this.lastSimTime = simTime
     this.services = services
+    this.updateRailSignals()
     const data = this.ctx.stationData
     const stamp = stampAt(simTime, data?.calendar)
     this.ctx.clockText = stamp.clock

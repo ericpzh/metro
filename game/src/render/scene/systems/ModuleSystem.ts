@@ -330,6 +330,7 @@ export class ModuleSystem extends SceneSystem {
         const roll = group.userData.escalator as EscalatorRoll | undefined
         if (roll) this.lifts.escalatorRolls.push(roll)
       }
+      if (mod.type === 'rail-signal') this.plates.railSignals?.push({ group, at: [mod.x + 0.5, mod.y + 0.5, mod.z] })
       if (mod.type === 'clock') {
         // The dial's two hands per face are pivots, not a pose: the clock system turns them
         // from the sim clock every frame (`ClockSystem.updateClocks`).
@@ -397,6 +398,7 @@ export class ModuleSystem extends SceneSystem {
         else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
       }
     }
+    this.plates.updateRailSignals?.()
     // Contact blobs under floor-standing modules (§11), one retained batch per
     // level. Equipment edits update changed matrices, rather than recreating all
     // station shadows. Spare capacity avoids reallocating for each new piece.
@@ -506,6 +508,7 @@ export class ModuleSystem extends SceneSystem {
     this.crowd.activitySinks.length = 0
     this.plates.adScreens.length = 0
     this.plates.tvScreens.length = 0
+    if (this.plates.railSignals) this.plates.railSignals.length = 0
   }
 
   /**

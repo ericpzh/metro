@@ -6,6 +6,8 @@ import type { Train, TrainState } from './world/types.ts'
 
 export interface TrainService {
   lineId: string
+  /** Live phase, absent between services; signals stay green through departure. */
+  trainState?: TrainState
   trackId: string
   direction: string
   x: number

@@ -2,6 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { createModule } from '../src/build/model.ts'
+import { PlateSystem } from '../src/render/scene/systems/PlateSystem.ts'
+import { EquipmentBatches } from '../src/render/equipmentBatches.ts'
 import { buildModule } from '../src/render/models.ts'
 import { equipmentReason, moduleEnvelope, moduleFootprint, wallSide, isCeilingHung, isWallMounted, isMovableModule } from '../src/sim/placement.ts'
 import { isDecorType, isWallMountedType, familyFor, familyOptions, folderTiles } from '../src/app/store/catalog.ts'
@@ -66,7 +68,7 @@ test('small hanging monitor fits one tile and suspension reaches a taller slab',
   assert.ok(Math.abs(box.max.z - 6) < 1e-6, 'rods touch the actual ceiling underside')
 })
 
-test('rail signal has three unobstructed vertically aligned lamps with red below', () => {
+test('rail signal has three unobstructed vertically aligned lamps with red in the middle', () => {
   const mod = createModule('rail-signal', 0, 0, 0, 'signal')
   const ctx = context()
   const model = buildModule(mod, ctx)
@@ -88,8 +90,9 @@ test('rail signal has three unobstructed vertically aligned lamps with red below
     const ray = new THREE.Raycaster(at.clone().add(new THREE.Vector3(0, -1, 0)), new THREE.Vector3(0, 1, 0))
     assert.equal(ray.intersectObject(model, true)[0]?.object, lamp)
   })
-  assert.equal(lamps[0].material, ctx.mats.ledRed)
-  assert.notEqual(lamps[1].material, ctx.mats.ledRed)
+  assert.equal(lamps[1].material, ctx.mats.ledRed)
+  assert.notEqual(lamps[0].material, ctx.mats.ledRed)
+  assert.deepEqual(lamps.map(lamp => lamp.userData.signalAspect), ['yellow', 'red', 'green'])
   assert.equal(equipmentReason([], [], mod), '', 'signal stands beside the rails on solid ground')
   assert.equal(equipmentReason([{ x: 0, y: 0, z: 1, fill: 'solid' }], [], mod), 'occupied', 'signal cannot be placed inside a solid block')
   assert.equal(equipmentReason([{ x: 0, y: 0, z: 2, fill: 'solid' }], [], mod), '', 'blocks above the one-metre signal are clear')
@@ -113,4 +116,27 @@ test('new decor appears in the palette and preserves variants through save, prev
   assert.notEqual(sweepFamily(modules[0]), sweepFamily(modules[1]))
   const swapped = { ...modules[0], w: 3, cfg: { mount: 'wall' } }
   assert.notEqual(moduleGhostKey(modules[0]), moduleGhostKey(swapped))
+})
+
+
+test('signals select the same nearest rotated platform as TVs and switch live outside batches', () => {
+  const ctx = context()
+  const group = buildModule(createModule('rail-signal', 0, 0, 0, 'signal'), ctx)
+  group.userData.moduleType = 'rail-signal'
+  const root = new THREE.Group(); root.add(group)
+  const batches = new EquipmentBatches()
+  batches.sync(root)
+  const plates = new PlateSystem({ modelMats: ctx.mats, stationData: { lines: [{ id: '5' }] } })
+  plates.railSignals.push({ group, at: [4, 50, -8] })
+  const base = { lineId: '5', x: 0, y: 0, z: -8, fx: 0, fy: 1, halfLength: 60, arrivals: [] }
+  const red = group.getObjectByName('signal-lamp-1'), green = group.getObjectByName('signal-lamp-2')
+  for (const state of [undefined, 'approach', 'berth', 'opening', 'dwell', 'closing', 'hold', 'depart', undefined]) {
+    plates.setSimClock(0, [{ ...base, trainState: 'dwell' }, { ...base, x: 5, trainState: state }, { ...base, x: 4, z: 0, trainState: 'dwell' }])
+    const isGreen = state !== undefined && state !== 'approach'
+    assert.equal(red.material, isGreen ? ctx.mats.darkSteel : ctx.mats.ledRed)
+    assert.equal(green.material, isGreen ? ctx.mats.ledGreen : ctx.mats.darkSteel)
+    assert.equal(red.layers.mask, 1, 'live red lens stays outside static batches')
+    assert.equal(green.layers.mask, 1, 'live green lens stays outside static batches')
+  }
+  batches.clear()
 })

@@ -266,6 +266,7 @@ export class EquipmentBatches {
       const screen = root.userData.adScreen
       const moving = new Set<THREE.Object3D>()
       root.traverse(o => {
+        if (o.userData.signalAspect) moving.add(o)
         for (const leaf of (o.userData.doors ?? []) as THREE.Object3D[]) moving.add(leaf)
         for (const pivot of [...(o.userData.clockRig?.hour ?? []), ...(o.userData.clockRig?.minute ?? [])]) moving.add(pivot)
         for (const key of ['wing', 'liftCabin', 'activityWater']) if (o.userData[key] instanceof THREE.Object3D) moving.add(o.userData[key])
