@@ -32,7 +32,7 @@ import { STOREY_HEIGHT } from './constants.ts'
 // Pure data — no three, no DOM.
 
 /** Which family a run's rise comes from: one floor, or two. */
-export type RampSpan = 'single' | 'double'
+export type RampSpan = 'single' | 'double' | 'triple'
 
 /**
  * Which piece a one-floor length belongs to. Both families carry all five rungs;
@@ -97,7 +97,14 @@ export const DOUBLE_RAMP_LENGTH_DEFAULT: RampLength = 'long'
  * The family a span builds from, in catalogue order. `family` only matters on one
  * floor: the 双层 family is the 扶梯's own, and a 楼梯 never spans two.
  */
+export const TRIPLE_RAMP_LENGTHS: readonly RampLengthSpec[] = DOUBLE_RAMP_LENGTHS.map((s) => ({ ...s, rise: s.rise + 5, run: Math.ceil((s.rise + 5) * 1.5) }))
+
+export function rampSpanOf(rise: number): RampSpan {
+  return Math.abs(rise) > 11 ? 'triple' : Math.abs(rise) > 6 ? 'double' : 'single'
+}
+
 export function rampLengthsFor(span: RampSpan = 'single', family: RampFamily = 'escalator'): readonly RampLengthSpec[] {
+  if (span === 'triple') return TRIPLE_RAMP_LENGTHS
   if (span === 'double') return DOUBLE_RAMP_LENGTHS
   return family === 'stair' ? STAIR_LENGTHS : RAMP_LENGTHS
 }
@@ -113,8 +120,8 @@ export function rampLengthSpec(id: RampLength | undefined, span: RampSpan = 'sin
 }
 
 /** The 楼梯 family's entry for `id` (the same five-rung one-floor family). */
-export function stairLengthSpec(id?: RampLength): RampLengthSpec {
-  return rampLengthSpec(id, 'single', 'stair')
+export function stairLengthSpec(id?: RampLength, span: RampSpan = 'single'): RampLengthSpec {
+  return rampLengthSpec(id, span, 'stair')
 }
 
 /**

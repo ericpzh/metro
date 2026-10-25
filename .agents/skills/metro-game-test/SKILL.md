@@ -80,6 +80,8 @@ such as a 4 m ramp or lift interval remain valid dimensions.
 Current dimensions and ownership live in
 [the profile reference](../metro-game/references/five-metre-profile.md).
 
+`three-storey-ramps.test.mjs` covers the three contiguous ramp families (2–6, 7–11 and 12–16 m), 15 m default, endpoint-derived span/length, every stair shape and rotation, both escalator directions, and the straight-stair placement/exit-snap path. It also pins the stair span cycle and three-layer tile selection contract. Run it with `node --test test/three-storey-ramps.test.mjs`; whole-suite coverage and the per-file coverage map are documented in `game/test/README.md`.
+
 `autosave.test.mjs` covers committed-change saves, undo/redo, immediate new/import/demo
 replacement, invalid storage, quota failure invalidation and retries. It drives
 the autosave flush directly without waiting for timers. Startup restores a valid

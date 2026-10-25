@@ -461,7 +461,7 @@ function createModuleRaw(
     }
     case 'stair': {
       const style = 'straight' as StairStyle;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW, rampLength, storeyHeight);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, width ?? STAIR_WIDTH_NARROW, rampLength, storeyHeight, span);
       return {
         id,
         type: 'stair',
@@ -489,7 +489,7 @@ function createModuleRaw(
       // `rampLength` is every stair shape's own climb (超短 2 m … 超长 6 m): a turning
       // stair splits it between its two flights and turns on the platform at half.
       const size = width ?? STAIR_WIDTH_NARROW;
-      const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength, storeyHeight);
+      const flights = stairFlightsFor({ x, y, z }, rot, style, size, rampLength, storeyHeight, span);
       return {
         id,
         type: 'stair',

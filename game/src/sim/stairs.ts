@@ -15,7 +15,7 @@ import { msg } from './i18n.ts'
 // implied run. Pure data — no three, no DOM.
 
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD, STOREY_HEIGHT } from './constants.ts'
-import { defaultRampLength, rampLengthOf, stairLengthSpec, type RampLength } from './rampLengths.ts'
+import { defaultRampLength, rampLengthOf, stairLengthSpec, type RampLength, type RampSpan, rampSpanOf } from './rampLengths.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
 
 export type { StairFlight, StairStyle } from './types.ts'
@@ -489,8 +489,8 @@ export function stairWallSides(
  * middle landing stays on the block grid and the piece needs no floor of its
  * own to stand on. An omitted `length` uses the five-metre 长 run.
  */
-export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = STOREY_HEIGHT): StairFlight[] {
-  const { run, rise } = stairLengthSpec(length ?? defaultRampLength(storeyHeight, 'single', 'stair'))
+export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, width = STAIR_WIDTH_NARROW, length?: RampLength, storeyHeight = STOREY_HEIGHT, rampSpan: RampSpan = 'single'): StairFlight[] {
+  const { run, rise } = stairLengthSpec(length ?? defaultRampLength(storeyHeight, rampSpan, 'stair'), rampSpan)
   // A turn's two flights are whole cells of run each; the catalogue run is
   // rounded up to an even split so the half-landing lands on a cell edge.
   const flightRun = Math.max(1, Math.ceil(run / 2))
@@ -556,7 +556,7 @@ export function stairFlightsFor(base: Vec3i, rot: number, style: StairStyle, wid
  */
 export function stairLengthOf(m: StairModule): RampLength {
   if (m.cfg.block) return defaultRampLength(m.storeyHeight, 'single', 'stair')
-  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), 'single', 'stair')
+  return rampLengthOf(m.to.z - m.from.z, Math.hypot(m.to.x - m.from.x, m.to.y - m.from.y), rampSpanOf(m.to.z - m.from.z), 'stair')
 }
 
 /**

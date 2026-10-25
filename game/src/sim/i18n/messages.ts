@@ -603,6 +603,7 @@ export const messages = {
     "zh": "单层",
     "en": "Single storey"
   },
+  "triple_storey": { "zh": "三层", "en": "Triple storey" },
   "double_storey": {
     "zh": "双层",
     "en": "Double storey"

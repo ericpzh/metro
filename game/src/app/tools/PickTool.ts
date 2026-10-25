@@ -278,7 +278,8 @@ export class PickTool extends ToolController {
         // its own length, so the next click rebuilds the same two-floor run.
         const span = escalatorSpanOf(mod)
         st.setEscalatorSpan(span)
-        if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
+        if (span === 'triple') st.setTripleRampLength(escalatorLength(mod))
+        else if (span === 'double') st.setDoubleRampLength(escalatorLength(mod))
         else st.setRampLength(escalatorLength(mod))
       }
       // A 自动步道 is picked at its own level length, and copies the shared 窄/宽
@@ -292,7 +293,13 @@ export class PickTool extends ToolController {
       // the player pointed at. Every shape but the 1 × 1 楼梯块 has one: a straight
       // run in one flight, a turning stair in two with its platform at half the
       // rise.
-      if (mod.type === 'stair' && !mod.cfg.block) st.setRampLength(stairLengthOf(mod))
+      if (mod.type === 'stair' && !mod.cfg.block) {
+        const span = escalatorSpanOf(mod)
+        st.setEscalatorSpan(span)
+        if (span === 'triple') st.setTripleRampLength(stairLengthOf(mod))
+        else if (span === 'double') st.setDoubleRampLength(stairLengthOf(mod))
+        else st.setRampLength(stairLengthOf(mod))
+      }
       if (mod.type === 'roof' && mod.cfg.variant) st.setRoofWidth(mod.d)
       if (mod.type === 'lift') {
         st.setLiftStyle(mod.cfg.style === 'steel' ? 'steel' : 'glass')

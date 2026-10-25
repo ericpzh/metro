@@ -65,8 +65,8 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
   }
   if (type === 'escalator') {
     attrs.push(variant('width', msg(s.escalatorWide ? 'wide' : 'narrow'), s.toggleEscalatorWidth))
-    attrs.push(variant('length', rampLengthLabel(s.escalatorSpan === 'double' ? s.doubleRampLength : s.rampLength, s.escalatorSpan), s.cycleRampLength))
-    attrs.push(variant('span', msg(s.escalatorSpan === 'double' ? 'double_storey' : 'single_storey'), s.cycleEscalatorSpan))
+    attrs.push(variant('length', rampLengthLabel(s.escalatorSpan === 'triple' ? s.tripleRampLength : s.escalatorSpan === 'double' ? s.doubleRampLength : s.rampLength, s.escalatorSpan), s.cycleRampLength))
+    attrs.push(variant('span', msg(s.escalatorSpan === 'triple' ? 'triple_storey' : s.escalatorSpan === 'double' ? 'double_storey' : 'single_storey'), s.cycleEscalatorSpan))
     attrs.push(variant('direction', msg(s.escalatorDir), s.cycleEscalatorDir))
   }
   // The 自动步道 is the escalator's level twin: it shares the 窄/宽 width and the
@@ -90,8 +90,9 @@ export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttri
     // stair in one flight, a turning stair in two with its platform at half the
     // rise. The 楼梯 shares the 扶梯's one-floor family through 超长 6 m. A 楼梯块
     // is a single stepped block with no run at all.
-    if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.rampLength, 'single', 'stair'), s.cycleRampLength))
+    if (type !== 'stair-block') attrs.push(variant('length', rampLengthLabel(s.escalatorSpan === 'triple' ? s.tripleRampLength : s.escalatorSpan === 'double' ? s.doubleRampLength : s.rampLength, s.escalatorSpan, 'stair'), s.cycleRampLength))
   }
+  if (isStairType(type) && type !== 'stair-block') attrs.push(variant('span', msg(s.escalatorSpan === 'triple' ? 'triple_storey' : s.escalatorSpan === 'double' ? 'double_storey' : 'single_storey'), s.cycleEscalatorSpan))
   if (isDoorType(type)) attrs.push(variant('width', msg(s.doorWide ? 'wide' : 'narrow'), s.toggleDoorWidth))
   if (type === 'roof-shell' || type === 'roof-truss' || type === 'roof-tapered' || type === 'roof-canopy') attrs.push(variant('width', roofWidthLabel(s.roofWidth), s.cycleRoofWidth))
   if (type === 'roof') attrs.push({ ...variant('position', msg(s.roofPlateSnap === 'lower' ? 'roof_snap_lower' : 'roof_snap_upper'), s.cycleRoofPlateSnap), visual: 'roof-snap' })

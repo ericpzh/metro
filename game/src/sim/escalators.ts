@@ -114,7 +114,7 @@ export function escalatorLengthSpec(length: RampLength | undefined, _storeyHeigh
  * authoritative, so an old 8 m escalator still reads back as 双层.
  */
 export function escalatorSpanOf(m: Pick<Escalator, 'from' | 'to'>): RampSpan {
-  return Math.abs(m.to.z - m.from.z) > rampLengthSpec('ultra-long').rise ? 'double' : 'single'
+  return Math.abs(m.to.z - m.from.z) > 11 ? 'triple' : Math.abs(m.to.z - m.from.z) > 6 ? 'double' : 'single'
 }
 
 /** All floor cells supporting the two ends of this single piece. */

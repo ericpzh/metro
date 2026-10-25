@@ -23,10 +23,12 @@ export function RotationArt({ rotation = 0 }: { rotation?: number }): React.Reac
   </svg>
 }
 
-/** Stacked floor planes: one or two storeys, sharing the size marks' ink. */
-export function StoreyArt({ double }: { double: boolean }): React.ReactElement {
+/** Three floor planes, highlighting only the selected span. */
+export function StoreyArt({ span }: { span: 'single' | 'double' | 'triple' }): React.ReactElement {
+  const selected = span === 'single' ? 0 : span === 'double' ? 1 : 2
   return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8" strokeLinejoin="round">
-    <path d="M2 7 7 3h11l-5 4Z" fill={double ? 'currentColor' : 'none'} opacity={double ? 1 : 0.45} />
-    <path d="M2 16 7 12h11l-5 4Z" fill="currentColor" />
+    {['M2 17 7 13h11l-5 4Z', 'M2 12 7 8h11l-5 4Z', 'M2 7 7 3h11l-5 4Z'].map((d, i) => (
+      <path key={i} d={d} fill={i === selected ? 'currentColor' : 'none'} opacity={i === selected ? 1 : 0.45} />
+    ))}
   </svg>
 }

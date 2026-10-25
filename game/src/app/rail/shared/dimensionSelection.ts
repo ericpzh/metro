@@ -31,9 +31,9 @@ export function dimensionSelection(kind: string, type: string, s: AppState): { s
     // A 楼梯 and a 单层 扶梯 share the five-rung one-floor family; a 双层 扶梯
     // resolves the armed setting into its own 7–11 m family, so the marks show
     // the piece it will actually build.
-    const span = type === 'escalator' ? s.escalatorSpan : 'single'
+    const span = type === 'escalator' || isStairType(type) ? s.escalatorSpan : 'single'
     const family = isStairType(type) ? 'stair' : 'escalator'
-    const armed = span === 'double' ? s.doubleRampLength : s.rampLength
+    const armed = span === 'triple' ? s.tripleRampLength : span === 'double' ? s.doubleRampLength : s.rampLength
     return choice(rampLengthSpec(armed, span, family).id, rampLengthsFor(span, family).map(v => v.id))
   }
   return undefined

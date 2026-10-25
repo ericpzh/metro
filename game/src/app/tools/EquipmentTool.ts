@@ -575,7 +575,7 @@ export class EquipmentTool extends ToolController {
    */
   private rampLengthFor(type: string): RampLength {
     const st = useStore.getState()
-    if (type === 'escalator') return st.escalatorSpan === 'double' ? st.doubleRampLength : st.rampLength
+    if (type === 'escalator' || isStairType(type)) return st.escalatorSpan === 'triple' ? st.tripleRampLength : st.escalatorSpan === 'double' ? st.doubleRampLength : st.rampLength
     return isStairType(type) ? st.rampLength : RAMP_LENGTH_DEFAULT
   }
 
@@ -590,7 +590,7 @@ export class EquipmentTool extends ToolController {
     const length = this.rampLengthFor(type)
     return type === 'escalator'
       ? escalatorLengthSpec(length, st.station.storeyHeight, st.escalatorSpan)
-      : stairLengthSpec(length)
+      : stairLengthSpec(length, st.escalatorSpan)
   }
 
   /**
@@ -633,8 +633,8 @@ export class EquipmentTool extends ToolController {
       mod = type === 'escalator'
         ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWide ? 2 : 1, length, st.station.storeyHeight, st.escalatorSpan)
         : snap
-          ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight })
-          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight })
+          ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
+          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
     } else {
       // `st.gateDoor` rides along like the escalator direction: the 闸机's door
       // side is a tool setting, cycled with Tab, and lands in the piece's
@@ -659,7 +659,7 @@ export class EquipmentTool extends ToolController {
           curtainHeight: st.curtainHeight,
           storeyHeight: st.station.storeyHeight,
           levelBase: st.station.levelBase,
-          rampLength: st.rampLength,
+          rampLength: this.rampLengthFor(type),
           escalatorSpan: st.escalatorSpan,
           liftInterval: st.liftInterval,
         },

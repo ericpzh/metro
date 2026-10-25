@@ -116,6 +116,7 @@ export interface ToolSlice {
    * switching the span back and forth does not lose either choice.
    */
   doubleRampLength: RampLength
+  tripleRampLength: RampLength
   /**
    * The floor interval a newly placed or stacked **电梯** spans: 超短 3 m,
    * 短 4 m, 中 5 m, 长 6 m, 超长 7 m. A fresh shaft spans one interval; a
@@ -229,6 +230,7 @@ export interface ToolSlice {
   setEscalatorSpan: (span: RampSpan) => void
   /** Point the 双层 length family at an absolute size (the 吸取 tool copies a picked run's own). */
   setDoubleRampLength: (length: RampLength) => void
+  setTripleRampLength: (length: RampLength) => void
   /** Step the 电梯's floor interval on (超短 3 m → … → 超长 7 m). */
   cycleLiftInterval: () => void
   /** Point the 电梯 floor interval at an absolute value (the 吸取 tool copies a picked shaft's own). */
@@ -291,6 +293,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   rampLength: RAMP_LENGTH_DEFAULT,
   escalatorSpan: 'single',
   doubleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
+  tripleRampLength: DOUBLE_RAMP_LENGTH_DEFAULT,
   liftInterval: LIFT_INTERVAL_DEFAULT,
   walkwayLength: WALKWAY_LENGTH_DEFAULT,
   bridgeLength: 32,
@@ -362,12 +365,15 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleRoofPlateSnap: () => set((s) => ({ roofPlateSnap: s.roofPlateSnap === 'lower' ? 'upper' : 'lower' })),
   cycleEscalatorDir: () => set((s) => ({ escalatorDir: nextEscalatorDir(s.escalatorDir) })),
   toggleEscalatorWidth: () => set((s) => ({ escalatorWide: !s.escalatorWide })),
-  cycleRampLength: () => set((s) => s.moduleType === 'escalator' && s.escalatorSpan === 'double'
+  cycleRampLength: () => set((s) => s.escalatorSpan === 'triple'
+    ? { tripleRampLength: nextRampLength(s.tripleRampLength, 'triple') }
+    : s.escalatorSpan === 'double'
     ? { doubleRampLength: nextRampLength(s.doubleRampLength, 'double') }
     : { rampLength: nextRampLength(s.rampLength, 'single', isStairType(s.moduleType) ? 'stair' : 'escalator') }),
-  cycleEscalatorSpan: () => set((s) => ({ escalatorSpan: s.escalatorSpan === 'single' ? 'double' : 'single' })),
+  cycleEscalatorSpan: () => set((s) => ({ escalatorSpan: s.escalatorSpan === 'single' ? 'double' : s.escalatorSpan === 'double' ? 'triple' : 'single' })),
   setEscalatorSpan: (escalatorSpan) => set({ escalatorSpan }),
   setDoubleRampLength: (doubleRampLength) => set({ doubleRampLength }),
+  setTripleRampLength: (tripleRampLength) => set({ tripleRampLength }),
   cycleLiftInterval: () => set((s) => ({ liftInterval: nextLiftInterval(s.liftInterval) })),
   setLiftInterval: (liftInterval) => set({ liftInterval }),
   cycleWalkwayLength: () => set((s) => ({ walkwayLength: nextWalkwayLength(s.walkwayLength) })),

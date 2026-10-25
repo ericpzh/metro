@@ -2006,3 +2006,9 @@ passenger gait capture, double-door pulls, sink mesh count and glass-lift mesh c
 These are outside music; raw output is `.preview/music-game-tests-final.log`.
 No crossfade or loudness matching between recordings is implemented; listening
 review remains authoritative for relative musical levels.
+
+### Three-storey ramp catalogue — 2026-10-24
+
+Added 12–16 m families for stairs and escalators with shared span/length controls.
+Focused test coverage is recorded in `game/test/README.md`; first-open browser
+latency was not measured. Menu thumbnail generation took 4.15 s for 121 PNGs.

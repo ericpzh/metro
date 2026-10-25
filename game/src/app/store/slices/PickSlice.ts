@@ -53,6 +53,7 @@ export interface PickDraft {
   rampLength: RampLength
   escalatorSpan: RampSpan
   doubleRampLength: RampLength
+  tripleRampLength: RampLength
   liftInterval: LiftInterval
   walkwayLength: WalkwayLength
   liftStyle: 'glass' | 'steel'
@@ -112,6 +113,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         rampLength: s.rampLength,
         escalatorSpan: s.escalatorSpan,
         doubleRampLength: s.doubleRampLength,
+        tripleRampLength: s.tripleRampLength,
         liftInterval: s.liftInterval,
         walkwayLength: s.walkwayLength,
         liftStyle: s.liftStyle,
@@ -150,6 +152,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       rampLength: d.rampLength,
       escalatorSpan: d.escalatorSpan,
       doubleRampLength: d.doubleRampLength,
+      tripleRampLength: d.tripleRampLength,
       liftInterval: d.liftInterval,
       walkwayLength: d.walkwayLength,
       liftStyle: d.liftStyle,

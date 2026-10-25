@@ -133,7 +133,7 @@ function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: Bui
     return <PositionTile position={position} shortcut={attribute.shortcut} onClick={attribute.activate} />
   }
   const dimension = dimensionSelection(attribute.kind, moduleType, state)
-  const art = attribute.kind === 'span' ? <StoreyArt double={state.escalatorSpan === 'double'} />
+  const art = attribute.kind === 'span' ? <StoreyArt span={state.escalatorSpan} />
     : dimension ? <DimensionArt vertical={attribute.kind === 'height' || (attribute.kind === 'length' && (moduleType.startsWith('pillar') || moduleType === 'lift'))} {...dimension} align={dimensionMarkAlign(attribute.kind)} />
     : attribute.kind === 'direction' ? <DirectionArt direction={moduleType === 'road' ? state.roadDirection : state.escalatorDir} />
     : attribute.visual === 'roof-snap' ? (state.roofPlateSnap === 'lower' ? <LuArrowDownToLine /> : <LuArrowUpToLine />)
