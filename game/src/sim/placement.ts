@@ -2302,7 +2302,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   if (candidate.type === 'exit' && (candidate.cfg as { style?: string }).style === 'virtual' && candidate.z < 0) return 'outdoor-below-ground'
   if (candidate.type === 'track' && candidate.cfg.bridge && candidate.z < BRIDGE_MIN_Z) return 'bridge-below-ground'
   if (candidate.type === 'stair' && candidate.cfg.block && cells.some((c) => c.fill === 'solid' && c.x === candidate.x && c.y === candidate.y && c.z === candidate.z + 1)) return 'occupied'
-  if ((candidate.type === 'pillar' || (candidate.type === 'roof' && candidate.cfg.variant)) && candidate.z < 0) return 'exit-on-slab'
+  if (candidate.type === 'roof' && candidate.cfg.variant && candidate.z < 0) return 'exit-on-slab'
   if (candidate.type === 'roof') {
     if (candidate.cfg.variant === 'canopy' && !moduleFloorOk(cells, modules, candidate)) return 'floor'
     if (placementColliders(modules, candidate).length > 0) return 'occupied'

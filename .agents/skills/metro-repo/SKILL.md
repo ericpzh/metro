@@ -241,6 +241,9 @@ immutable station document, and share neighbor indexes across model builders;
 do not copy the whole document or raycast inside a search predicate. Fresh and
 carried glass panels must share `moduleAim` so their anchor height, rendered
 envelope and placement verdict agree, including the top wall course.
+Pillars may be placed on supported underground storeys; keep their floor support
+and collision checks, while structural roof variants remain restricted below
+ground.
 `game/test/preview-pipeline.test.mjs`, `preview-lod.test.mjs` and
 `roof-preview.test.mjs` pin these rules. Run `npm --prefix game run test:perf`,
 inspect changed-module coverage, and use `node tools/bench-preview-audit.mjs`
