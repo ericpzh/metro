@@ -87,6 +87,8 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
     [
       '--headless=new',
       '--no-sandbox',
+      // Browser checks may exercise real game audio, but test runs must stay silent.
+      '--mute-audio',
       // SwiftShader: a headless box has no GPU, and the thumbnails are a WebGL
       // pass like any other.
       ...(softwareGpu ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : []),
