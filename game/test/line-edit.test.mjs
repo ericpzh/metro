@@ -95,6 +95,23 @@ test('equipment history retains the immutable document and restores it after lat
   st().redo();assert.equal(st().station.modules[0].x,0)
 })
 
+test('bounded block and shaped-cell history retains immutable frames through delete, undo and redo',()=>{
+  load({...referenceStation(),modules:[]})
+  const before=st().station,source=JSON.stringify(before)
+  const xs=before.cells.map(c=>c.x),ys=before.cells.map(c=>c.y)
+  const x=Math.floor((Math.min(...xs)+Math.max(...xs))/2),y=Math.floor((Math.min(...ys)+Math.max(...ys))/2)
+  const cell={x,y,z:13,fill:'solid',tags:['half-wall:n']}
+  st().commit({...before,cells:[...before.cells,cell]})
+  const placed=st().station
+  assert.equal(st().past.at(-1),before,'one block must not copy every unrelated cell')
+  st().commit({...placed,cells:placed.cells.filter(c=>c!==cell)})
+  assert.equal(st().past.at(-1),placed)
+  assert.equal(JSON.stringify(before),source)
+  st().undo();assert.equal(st().station,placed)
+  st().undo();assert.equal(st().station,before)
+  st().redo();assert.deepEqual(st().station.cells.at(-1),cell)
+})
+
 test('population controls send only numbers and preserve undo/redo', () => {
   const data = { name: 'demand', seed: 1, cells: [], lines: [defaultLine('1', 'up')],
     modules: [{id:'exit',type:'exit',x:0,y:0,z:0,cfg:{name:'A',inRate:100,open:true}}] }

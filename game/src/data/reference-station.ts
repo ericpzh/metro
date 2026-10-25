@@ -45,7 +45,8 @@ import demo from './demo-station.json' with { type: 'json' }
 import tanwei from './tanwei-station.json' with { type: 'json' }
 
 const DEMO = demo as unknown as StationData
-export type ExampleStationId = 'zoo' | 'tanwei'
+export const EXAMPLE_STATION_IDS = ['zoo', 'tanwei'] as const
+export type ExampleStationId = typeof EXAMPLE_STATION_IDS[number]
 
 /** A fresh copy of the demo station, safe to mutate. */
 export function referenceStation(id: ExampleStationId = 'zoo'): StationData {

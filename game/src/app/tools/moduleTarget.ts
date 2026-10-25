@@ -7,6 +7,7 @@ import type { Module } from '../../sim/types.ts'
 function needsSurfaceHit(module: Module): boolean {
   return isCeilingHung(module) || (module.type === 'stair' && !module.cfg.block)
     || module.type === 'escalator' || module.type === 'walkway'
+    || module.type === 'platform-edge' || module.type === 'psd-end'
 }
 
 /** Shared pointer target for selection, copying and teardown. Geometry hits

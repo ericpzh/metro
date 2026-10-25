@@ -133,14 +133,15 @@ function fixture(id, run, configure) {
     set: (o, k, v) => (o[k] = v, true),
   }) })
   globalThis.document = { createElement: canvas }
-  const mats = createModelMaterials(), mod = createModule(id, 4, 4, 0, id)
-  const data = { name: 'Test', seed: 1, cells: [], modules: [mod], lines: [] }
+  const mats = createModelMaterials(), mod = createModule(id==='tv-double'?'tv':id, 4, 4, 0, id)
+  const pair=id==='tv-double'?[mod,{...mod,id:id+'-opposite',rot:2}]:[mod]
+  const data = { name: 'Test', seed: 1, cells: [], modules: pair, lines: [] }
   configure?.(mod, data)
   const ads = { adFace: (slug, w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h), slug }), adWindow: (w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h) }) }
   const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, tvPlate: () => new THREE.CanvasTexture(canvas()), ownedMats: [], preview: false }
   let root
   try {
-    root = buildModule(mod, ctx)
+    root = id==='tv-double'?new THREE.Group().add(...pair.map(m=>buildModule(m,ctx))):buildModule(mod, ctx)
     root.userData.moduleType = mod.type; root.userData.moduleId = mod.id; root.userData.levelZs = [0]
     return run(root, mod)
   } finally {
@@ -170,7 +171,8 @@ const budgets = [
 for (const option of MODULE_OPTIONS) test(`${option.id}: every palette model over ten triangles has reduced Low geometry`, () => fixture(option.id, (root, mod) => {
   if (!root) return
   const full = totals(root), low = totals(root, true)
-  const budget = equipmentLowBudget(option.id, full)
+  const budget = equipmentLowBudget(option.id==='tv-double'?'tv':option.id, full/(option.id==='tv-double'?2:1))
+  if(option.id==='tv-double')budget.limit*=2
   assert.ok(low <= budget.limit, `${option.id}: ${low}/${full} exceeds budget ${budget.limit}; ${budget.reason ?? 'strict <10%'}`)
   if (full <= 10) return
   assert.ok(low > 0 && low < full, `${option.id}: ${low}/${full}`)

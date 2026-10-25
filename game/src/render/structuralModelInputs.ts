@@ -9,6 +9,34 @@ import { neighboringGantryPosts } from './models/pieces/TrackGantry.ts'
 import { roadInkIntervals, roadLayout } from '../sim/roads.ts'
 import { getRoadNetwork, roadEdgeMovements, roadJunctionSides } from '../sim/roadNetwork.ts'
 import { ROAD_CROSSWALK_DEPTH } from '../sim/constants.ts'
+import { stairFlights, stairFlightSlides, stairTreadWidth, stairWallSides, stairLandingWalls } from '../sim/stairs.ts'
+import { DEFAULT_MATERIAL } from '../sim/finishes.ts'
+
+const stairInputs = new WeakMap<StationData, Map<string, unknown>>()
+/** Cell inputs read by StairModel and the stair side of RampJoinModel. Modules
+ * are unchanged on this path, so endpoint, exit, lane and join ownership inputs
+ * are already identical. Keep the same wall/landing predicates as the builders. */
+export function rampCellModelInputs(data: StationData, mod: Module): unknown {
+  if(mod.type==='escalator')return data.modules.filter(m=>m.type==='stair'&&nearbyOpening(mod,m)).map(m=>[m.id,rampCellModelInputs(data,m)])
+  if(mod.type!=='stair'||mod.cfg.block)return null
+  let cached=stairInputs.get(data)
+  if(!cached)stairInputs.set(data,cached=new Map())
+  if(cached.has(mod.id))return cached.get(mod.id)
+  const flights=stairFlights(mod),slides=stairFlightSlides(mod)
+  const box=moduleEnvelope(mod)!
+  let x0=box.x0,x1=box.x1,y0=box.y0,y1=box.y1
+  for(const f of flights){x0=Math.min(x0,f.from.x,f.to.x);x1=Math.max(x1,f.from.x,f.to.x);y0=Math.min(y0,f.from.y,f.to.y);y1=Math.max(y1,f.from.y,f.to.y)}
+  // These predicates probe only the flight/landing columns. Retain every
+  // height, including shifted and turning flights, without constructing their
+  // wall sets from an unrelated station's entire floor catalogue.
+  const cells=data.cells.filter(c=>c.x>=x0-3&&c.x<=x1+3&&c.y>=y0-3&&c.y<=y1+3)
+  const floor=cells.find(c=>c.x===mod.from.x&&c.y===mod.from.y&&c.z===mod.from.z)
+  const result=[mod.cfg.finish??floor?.finish?.top??DEFAULT_MATERIAL,
+    flights.map((f,i)=>stairWallSides(cells,f.from,f.to,stairTreadWidth(mod),slides[i])),
+    flights.slice(1).map((_,i)=>stairLandingWalls(cells,mod,i))]
+  cached.set(mod.id,result)
+  return result
+}
 
 export function trackModelInputs(data: StationData, mod: Extract<Module, { type: 'track' }>): unknown {
   const edges = data.modules.filter(m => m.type === 'platform-edge')

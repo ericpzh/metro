@@ -59,6 +59,13 @@ including catalogue previews, place/move/pick/delete, camera movement, view chan
 and line/exit/time edits. Use `npm run bench:placement` to profile placement from
 the first pointer-down through visible feedback; keep the 100 ms response budget
 and its measured gaps current in the performance guide.
+Use `npm run bench:editor-actions` for the complete demo × subtype action matrix:
+preview, place, pickup, move-preview, drop and delete each target <100 ms. This
+measures production APIs through first rendered feedback; retain real-pointer
+probes for input/picking investigations. When changing palette entries or finite
+builder settings, keep `app/benchmark/editorActionCases.ts` and its completeness
+regression aligned. Keep failures, unsupported actions, fixture/build hashes and
+separate profile runs traceable in the shared performance guide.
 Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
 Chrome/GPU traces in separate runs. The playback scripts share
 `configureBenchmarkView`: regular Tanwei uses Hide UI at its default level and

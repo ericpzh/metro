@@ -17,8 +17,23 @@ import { PlateSystem } from '../src/render/scene/systems/PlateSystem.ts'
 import { signBoardsPanel } from '../src/sim/sign.ts'
 import { defaultLine } from '../src/build/rail.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
+import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
+
+test('unchanged cell-edit models retain dressed batch/detail state until the view changes',()=>withDrawing(({modules,ctx})=>{
+  const before=station([createModule('bench',0,0,0,'bench')])
+  modules.buildModules(before,new Set());modules.syncBatches()
+  const roots=[...modules.moduleMeshes.children],sync=modules.batches.sync.bind(modules.batches)
+  let synchronisations=0
+  modules.batches.sync=(...args)=>{synchronisations++;return sync(...args)}
+  const after={...before,cells:[...before.cells,{x:25,y:25,z:-4,fill:'solid'}]}
+  modules.buildModules(after,new Set(),true);modules.syncBatches()
+  assert.deepEqual(modules.moduleMeshes.children,roots)
+  assert.equal(synchronisations,0,'cell geometry alone does not walk unchanged equipment detail/batches')
+  ctx.graphicsQuality='low';modules.syncBatches()
+  assert.equal(synchronisations,1,'a quality change still restores and reapplies source detail')
+}))
 
 test('local equipment additions never detach retained module roots or contact shadows', () => withDrawing(({ modules }) => {
   const before = station(Array.from({length:127},(_,i)=>createModule('bench',i%16,Math.floor(i/16),0,'old-'+i)))
@@ -84,7 +99,7 @@ test('ground-only tool occupancy refresh preserves thin indexes and matches a fr
 })
 
 test('every palette placement/deletion retains remote models of its own type', async () => {
-  const { MODULE_OPTIONS } = await import('../src/app/store/catalog.ts')
+  const MODULE_OPTIONS = SINGLE_MODEL_OPTIONS
   const catalogue = MODULE_OPTIONS.map(option => createModule(option.id, 60, 60, 0, `remote-${option.id}`))
   for (const option of MODULE_OPTIONS) {
     const remote = createModule(option.id, 60, 60, 0, 'remote')

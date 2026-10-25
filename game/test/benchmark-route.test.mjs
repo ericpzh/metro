@@ -11,7 +11,7 @@ test('the benchmark-selected graphics quality controls the renderer without chan
   assert.ok(mountApp > applyQuality, 'the selected quality is applied before mounting the renderer')
   assert.doesNotMatch(source, /\.setGraphicsQuality\(quality\)/, 'the benchmark does not persist its temporary choice')
   assert.match(source, /useStore\.setState\(\{ upscalingMode: savedUpscalingMode \}\)/, 'the player FSR preference returns after the measurement')
-  assert.match(source, /upscalingMode, view, frames, arrivals, stats/, 'results record the selected FSR mode')
+  assert.match(source, /upscalingMode, view, frames, arrivals, resources, stats/, 'results record the selected FSR mode and resource samples')
   assert.match(source, /'ultra', 'quality', 'balanced', 'performance', 'native'/, 'all four FSR modes and Off are selectable')
   assert.match(source, /benchmarkChoices benchmarkFsrModes/, 'FSR choices use one button row')
 })

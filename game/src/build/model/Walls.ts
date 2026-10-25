@@ -275,25 +275,26 @@ export function addWalls(
   // fills it back rather than skipping it in silence. Reading every record as
   // held made the ghost (which asks `checkBlockCells`, and fills the hole)
   // promise a 半墙 / 三角 the release then dropped — blue cursor, no block.
-  const have = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  // Share the preview index, while keeping this commit's additions private.
+  const level = blockIndex(state.cells, state.modules);
+  const addedKeys = new Set<string>();
   const at = new Map<string, number>();
-  state.cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
+  state.cells.forEach((c, i) => { if(c.fill !== 'solid') at.set(cellKey(c.x, c.y, c.z), i) });
   const tags =
     triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
   let blocked = 0;
   const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
-  const level = blockIndex(state.cells, state.modules);
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
-    if (have.has(k)) continue;
+    if (level.solid.has(k) || addedKeys.has(k)) continue;
     // One rule set for every course, whatever laid it: a wall may no more fill a
     // reserved opening or a cell a piece of equipment holds than a block may.
     if (!blockReason(state.cells, state.modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }
-    have.add(k);
+    addedKeys.add(k);
     added.push({ x, y, z, fill: 'solid', tags: [...tags] });
   }
   if (added.length === 0) return { state, changed: 0, blocked };

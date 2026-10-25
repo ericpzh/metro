@@ -722,8 +722,8 @@ export function Viewport(): React.ReactElement {
     thinRef.current = geometry.thins
     // The board the editor is arranging, drawn where the sign it belongs to hangs —
     // while the move effect hides a lifted piece without changing drawn data.
-    const modules = station.modules
-      .map((m) => signModuleWithPreview(m, st.signPreview))
+    const modules = st.signPreview ? station.modules
+      .map((m) => signModuleWithPreview(m, st.signPreview)) : station.modules
     // Hand the street this effect already built to the mesher: `prepareStation`
     // would materialise the same window again per commit, the second
     // window-wide pass of this edit (the walk graph builds the third, in the

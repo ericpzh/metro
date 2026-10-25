@@ -4291,3 +4291,5 @@ Regenerate with `python tools/collect-game-music.py` (FFmpeg required).
 pause persistence, mute, visibility, retry and late-play cancellation.
 
 Stair opening rendering: untagged stacked upper-floor linings follow the upper storey; ceiling-cells and floor-geometry pin classification, seam edits and visibility.
+
+* `editor-action-benchmark.test.mjs` — every demo, palette entry and discrete setting uses valid production payloads, including compound TVs and PSD supports. `editor-build-fingerprint.test.mjs` pins shared source/build attribution across platforms and changed inputs.

@@ -36,6 +36,158 @@ for one fixture and `BENCH_OUTPUT` for another report path; `METRO_BROWSER_GPU=h
 opts out of the default SwiftShader backend. Tour timings include protocol round
 trips and are diagnostic, not pass/fail thresholds.
 
+### Repeatable editor action matrix
+
+`npm run bench:editor-actions` builds the production app and audits every shipped
+example station (`EXAMPLE_STATION_IDS`: Zoo and Tanwei). Its shared manifest,
+`app/benchmark/editorActionCases.ts`, derives every structural/equipment/decor
+palette entry from `MODULE_OPTIONS` and adds each discrete action-row setting:
+roof widths/snap, pillar lengths/positions, stair widths and single/double/triple
+length families, escalator/walkway width/direction/length, lift sizes/intervals/styles,
+gate styles, bench/door widths, hanger lengths, curtain sizes, light positions,
+PSD heights, bridge lengths/railings and road widths/direction. It also includes
+blocks, auto-wall floor patches, full walls, suspended ceilings and all
+half-wall/triangle orientations. Platform/tunnel tools live outside
+`MODULE_OPTIONS`: they are explicit cases, including platform direction, each
+demo's available line binding, catenary style and every tunnel length.
+Settings are varied individually around the default; this is not a Cartesian
+product with all rotations. Compound double TVs use both actual screen payloads.
+The completeness regression rejects omitted palette entries, duplicate case IDs,
+missing size families and invalid production factories.
+
+Each case records `preview`, `place`, `pickup`, `move-preview`, `drop` and `delete`
+separately, with three samples by default. **Every supported stage has a <100 ms
+target**, including first rendered feedback. A product-unsupported action is
+explicitly `unsupported` with its reason (for example raw-cell Move), never a zero
+millisecond pass. Missing renders, wrong commit counts, unexpected preview
+commits, failures and over-budget rows remain visible. Strict runs exit nonzero
+on failures; `--record-only` collects a baseline without hiding failed rows.
+
+The measurement driver calls the production preview, builder and store APIs in
+the browser, including actual `confirmMove` and demolition helpers. It measures
+preview generation CPU time, synchronous action time, and time to the first
+renderer completion containing the committed document. It excludes CDP/network
+round trips and is **API-to-render**, not DOM input latency or compositor
+presentation. Real-pointer tools (`bench:placement`, `bench:block`,
+`bench:block-edits` and `bench:usage-tour`) remain necessary to investigate input,
+geometry targeting, gesture scheduling and the one-scene-pick-per-event rule.
+Do not substitute API timings for a reported pointer stall.
+
+The complete authored demo remains installed. Each case has a declared empty
+staging bay, required walls/ceiling supports, fixed camera and paused simulation;
+fixture preparation and screenshot readback are untimed. This isolates repeatable
+subtype operations while retaining the demo's full document and scene allocations;
+the GPU workload is the declared staging-camera view, not a whole-station FPS test.
+It does not claim each staged payload could be aimed at every point in the demo.
+Compare only matching fixture, view, canvas, pixel ratio, quality and GPU backend.
+Use hardware for latency evidence; SwiftShader is an explicit diagnostic option.
+
+Reports and per-case checkpoints live in unique run directories under
+`.preview/perf/editor-actions/`; ordinary reruns preserve previous captures.
+They include source/build/demo/script SHA-256 hashes, Git revision, CPU/OS,
+Chrome/GPU, camera/canvas/quality, sample index, exact case settings and action
+inputs, commit counts, generation/handler/frame timings and stage work counts.
+Stage keys map back to the owning source file. Preview screenshots are replayed
+outside timing. `--profile` creates per-demo/per-case CPU profiles in a separate
+run; never combine profile timings with clean baseline timings.
+The runner retains the captured source tree and exact driver/harness alongside
+the build so dirty working-tree changes remain attributable after later edits.
+
+```powershell
+npm run bench:editor-actions
+# Initial complete baseline, retaining all failures:
+node tools/bench-editor-actions.mjs --record-only
+# Reproduce one row, using the same build and declared fixtures:
+$env:BENCH_DEMO='tanwei'
+$env:BENCH_CASE='stair-right90'
+$env:BENCH_SAMPLES='3'
+node tools/bench-editor-actions.mjs
+# Optional source maps for original-file/line CPU attribution:
+$env:BENCH_SOURCE_MAP='1'
+npm --prefix game run build
+node tools/bench-editor-actions.mjs --profile --record-only
+Remove-Item Env:BENCH_SOURCE_MAP
+```
+
+`BENCH_CASE` accepts exact comma-separated case IDs; `--list` shows the manifest.
+`BENCH_SAMPLES` accepts 1–10. `BENCH_ACTION_OUTPUT` selects an exact artifact directory.
+`BENCH_DIST` can point to a fixed production-build copy. `BENCH_RESUME=1` reuses
+only complete checkpoints matching source, build, demo, driver, host/browser/GPU,
+case and sample count. Resume is marked explicitly: it does not replay preceding
+cases' cache history. Use a fresh ordered run for matched comparisons; partial,
+filtered and resumed runs must not be represented as a fresh full-matrix pass.
+To resume, point `BENCH_ACTION_OUTPUT` at the original run directory explicitly.
+`BENCH_SOURCE_DIR` pairs a saved source snapshot with `BENCH_DIST` for historical
+reproduction. The build emits a source fingerprint, rejects concurrent source
+edits during compilation, and the driver refuses stale source/build pairs.
+The runner serves a verified copy of the build, rejects a source/build manifest
+mismatch, and stores profiling artifacts in a separate `profiles/` directory by
+default. The double-TV move row carries the picked screen; placement/deletion
+retain the compound two-screen operation.
+Benchmark maps omit embedded sources to stay under the normal asset-size cap;
+use the captured source snapshot for original files. Asset integrity limits stay
+enabled in these local builds.
+
+Captured baseline: one sample per case, hardware RTX 4080 SUPER / i7-14700KF,
+High quality. The capture was stopped at the user's wrap-up request: Zoo completed
+404/404 cases; Tanwei completed 260/405. **The full matrix is incomplete and the
+100 ms commit target is not met.** Across 3,984 recorded stages: 2,225 passed,
+1,403 exceeded budget, two had functional errors and 354 were product-unsupported.
+All recorded initial and supported move previews passed. These are one-sample
+observations, not warmed distributions or a complete Tanwei result.
+
+| Demo / captured cases | Preview max | Move-preview max | Place max | Drop max | Delete max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo / 404 of 404 | 48.3 ms | 74.7 ms | 1,112.6 ms | 855.3 ms | 872.6 ms |
+| Tanwei / 260 of 405 | 78.5 ms | 57.3 ms | 1,186.0 ms | 1,149.9 ms | 1,195.7 ms |
+
+Values are first renderer completion, including synchronous work. Zoo had
+250/262/288 over-budget place/drop/delete stages; captured Tanwei had
+129/214/260. Both demos' `psd-end-cover` drop failed with the production
+“此处没有地板，设备需立于实心地板上” refusal after a valid move candidate;
+this is a functional failure, separate from latency. No browser/WebGL error was
+recorded in completed cases. Broad commits still require further investigation;
+the local-cell optimization below does not establish a universal budget pass.
+
+Raw capture: `.preview/perf/editor-actions/full-matrix/report.json`, with exact
+case inputs, screenshots, environment and source/build snapshots. Source SHA-256
+`845521ca5298c3708ceec4c20010433252921bdeaf3196d4712bc3d2d0010ceb`;
+build SHA-256 `f02dd0abfc7907d55a10e4e94deb031bfddd2b169c381893f170235049e16996`.
+These identify the frozen measured tree, not subsequent working-tree edits.
+A separate filtered Tanwei `stair-right90` profile using that same frozen pair is
+in `.preview/perf/editor-actions/profile-check/profile-report.json`; the CPU
+profile contains 1,514 nodes and 5,738 samples. Its strict command returned exit
+code 1 for three over-budget commits. Profile timings are excluded from the table.
+Rerun the complete default three-sample matrix for a full acceptance result.
+### Local place, drop, move and delete optimization
+
+Local edits previously restarted station-wide tool indexes, chunk hashing,
+equipment dependencies and batching. On the supplied 37,759-cell/135-module
+save, original block pointer commits took 608–783 ms and revisited about 163,000
+cells per edit. The optimized focused pointer audit measured 70 committing
+place/delete/erase/stair-block-move gestures at 32.5–95.2 ms on an i7-14700KF /
+RTX 4080 SUPER, High quality, 892 × 815 canvas and pixel ratio 1. This evidence
+applies to that focused local workload; it is not a pass for the broad demo matrix.
+
+Bounded cell deltas are shared across live tool indexes, model dependencies and
+chunk preparation. Only affected chunk columns, vertical bands and face/AO halos
+are remeshed. Remote geometry and unchanged equipment batches retain allocations;
+known-dirty chunks avoid redundant content hashes. Commit helpers reuse prepared
+preview occupancy without mutating it. Deletes preserve module identity when no
+hosted equipment is removed, and retain old floor classifications until the mesher
+compares them, so unchanged upper storeys survive. Local undo frames share immutable
+records. Stair blocks use the equipment-content path; real ramps still compare
+actual wall and landing inputs. Preview never commits the document.
+
+Deterministic gates compare incremental/fresh mesh triangles, winding, normals,
+colour and UVs, all cut orientations, support changes, deletion and undo; they pin
+occupancy equivalence, remote/upper-storey retention, disposal and immutable history.
+Large edits (>256 changed records), street-window expansion, virtual-ground holes,
+hosted-module removal and unknown dependencies keep the conservative path. Keep
+those cases visible against the same 100 ms target rather than excluding them
+from the general action matrix. The fixed save-specific reproduction remains
+available through `BENCH_STATION` in the focused pointer tools.
+
 ### Q/E level switching
 
 Use `node tools/bench-level-switch.mjs` against both shipped demos after building

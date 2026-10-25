@@ -1,4 +1,4 @@
-import { trackModelInputs, pillarModelInputs, hangerModelInputs, ceilingModelInputs, surfaceModelInputs, nearbyOpening, roadModelInputs } from './structuralModelInputs.ts'
+import { trackModelInputs, pillarModelInputs, hangerModelInputs, ceilingModelInputs, surfaceModelInputs, nearbyOpening, roadModelInputs, rampCellModelInputs } from './structuralModelInputs.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
 import { isEdgeDecor, edgeDecorCurtainShare, curtainCornerJoin, curtainDoorShare, moduleEnvelope, moduleFootprint, outdoorSurfaceLift, isOutdoorSurface, isCeilingHung } from '../sim/placement.ts'
 import { hangerSupports } from '../sim/hangers.ts'
@@ -7,6 +7,7 @@ import { stairFlights } from '../sim/stairs.ts'
 import { trackCellAt, trackHeadroom } from '../sim/track.ts'
 import { groundWindow } from '../sim/ground.ts'
 import { fenceConnectionIndex } from '../sim/fences.ts'
+import { localCellEdit } from './localCellEdit.ts'
 
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
@@ -20,6 +21,8 @@ const STANDALONE = new Set<Module['type']>([
 ])
 const RAMPS = new Set<Module['type']>(['stair', 'escalator', 'walkway'])
 const OPENINGS = new Set<Module['type']>(['stair', 'escalator', 'walkway', 'exit', 'track'])
+const isOpening=(m:Module):boolean=>OPENINGS.has(m.type)&&!(m.type==='stair'&&m.cfg.block)
+const isRamp=(m:Module):boolean=>RAMPS.has(m.type)&&!(m.type==='stair'&&m.cfg.block)
 
 function equal(a: unknown, b: unknown): boolean { return a === b || JSON.stringify(a) === JSON.stringify(b) }
 function sameStationFields(before: StationData, after: StationData): boolean {
@@ -43,7 +46,7 @@ function changedModules(before: StationData, after: StationData): Module[] {
 export function isEquipmentContentEdit(before: StationData, after: StationData): boolean {
   if (!sameStationFields(before, after) || !equal(before.cells, after.cells)) return false
   const changed = changedModules(before, after)
-  if (!changed.length || changed.some(m => !isSimInertDecorModule(m) && !EQUIPMENT_ONLY.has(m.type))) return false
+  if (!changed.length || changed.some(m => !isSimInertDecorModule(m) && !EQUIPMENT_ONLY.has(m.type) && !(m.type==='stair'&&m.cfg.block))) return false
   return true
 }
 
@@ -56,7 +59,7 @@ const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
-  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end',
+  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])
 
 /** The columns a cell-dependent builder reads. Height is intentionally unbounded:
@@ -79,7 +82,7 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
     }
     return cell.x >= x0 - 3 && cell.x <= x1 + 3 && cell.y >= y0 - 3 && cell.y <= y1 + 3
   }
-  if (['sign', 'tv', 'clock', 'cctv', 'hanger'].includes(mod.type)) {
+  if (['sign', 'tv', 'clock', 'cctv', 'hanger', 'monitor'].includes(mod.type)) {
     return moduleFootprint(mod).some(([x, y]) => Math.abs(cell.x - x) <= 1 && Math.abs(cell.y - y) <= 1)
   }
   return true // A future builder must declare its dependencies before reuse.
@@ -100,6 +103,19 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
     } else {
       for (const id of equipmentRetainedIds(before, after)) retained.add(id)
     }
+    return retained
+  }
+  const local=localCellEdit(before,after)
+  if(local){
+    const changed=[...local.removed,...local.added]
+    const unchangedRamp=(mod:Module):boolean=>{
+      if(mod.type!=='stair'&&mod.type!=='escalator')return false
+      const box=moduleEnvelope(mod)
+      return !!box&&[box.x0,box.x1,box.y0,box.y1,box.z0,box.z1].every(Number.isFinite)&&
+        equal(rampCellModelInputs(before,mod),rampCellModelInputs(after,mod))
+    }
+    for(const mod of after.modules)if(!changed.some(cell=>dependsOnCell(mod,cell)) ||
+      unchangedRamp(mod))retained.add(mod.id)
     return retained
   }
   const previous = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
@@ -160,8 +176,8 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     cellChanges.push(...cells.values())
   }
   const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
-  const openingChanged = [...types].some(t => OPENINGS.has(t))
-  const rampChanged = [...types].some(t => RAMPS.has(t))
+  const openingChanged = changes.some(isOpening)
+  const rampChanged = changes.some(isRamp)
   const fenceBefore = rampChanged ? fenceConnectionIndex(before.modules) : null
   const fenceAfter = rampChanged ? fenceConnectionIndex(after.modules) : null
   for (const mod of after.modules) {
@@ -188,9 +204,9 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'psd-end' && changes.some(m => m.id === mod.cfg.corner || m.id === mod.cfg.support)) continue
     if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
     if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
-    if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => OPENINGS.has(m.type) && nearbyOpening(mod, m))) continue
+    if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => isOpening(m) && nearbyOpening(mod, m))) continue
     if (isOutdoorSurface(mod) && openingChanged && !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
-    if (mod.type === 'exit' && changes.some(m => RAMPS.has(m.type) && nearbyOpening(mod, m))) continue
+    if (mod.type === 'exit' && changes.some(m => isRamp(m) && nearbyOpening(mod, m))) continue
     if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
     retained.add(mod.id)
   }

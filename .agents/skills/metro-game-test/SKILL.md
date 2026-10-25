@@ -30,6 +30,11 @@ sync if the feedback page or worker routing changes.
 
 For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
 Guard work counts and ownership invariants; use browser measurements for latency.
+`editor-action-benchmark` guards every palette entry and discrete builder setting
+in the shared production action manifest. Add new settings/subtypes there rather
+than a benchmark-only substitute model. `bench:editor-actions` records the full
+demo matrix against 100 ms per preview/commit stage; unsupported actions and
+failed rows remain explicit, and API timings do not replace pointer regressions.
 Live-panel regressions belong in `draw-batching`: pin one guttered rectangle per
 frame, fair latest-pixel queueing, unchanged static pages/UVs, deletion/reuse and
 complete CPU restoration pixels. `scene-wiring` guards demand frames after pause.

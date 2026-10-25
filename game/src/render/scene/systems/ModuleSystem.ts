@@ -124,6 +124,8 @@ export class ModuleSystem extends SceneSystem {
   readonly retainedLevelRoots = new Set<THREE.Object3D>()
   readonly batches = new EquipmentBatches()
   private readonly sourceDetail = new SourceGeometryDetail()
+  private retainedBatches = false
+  private batchView = ''
   private movingModuleId: string | null = null
   private movingRoot: THREE.Object3D | null = null
   private movingVisible = false
@@ -170,6 +172,14 @@ export class ModuleSystem extends SceneSystem {
   }
 
   syncBatches(): void {
+    const batchView=`${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}`
+    if(this.retainedBatches&&this.batchView===batchView){
+      this.restoreMovingModule()
+      this.applyMovingModule()
+      this.ghost?.refreshFencePreviewLevels?.()
+      return
+    }
+    this.batchView=batchView
     this.sourceDetail.restore()
     this.restoreMovingModule()
     this.batches.activeZ = this.ctx.activeZ
@@ -239,6 +249,7 @@ export class ModuleSystem extends SceneSystem {
    * to rebuild one board's model while retaining everything else.
    */
   buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    this.retainedBatches=false
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
@@ -256,6 +267,7 @@ export class ModuleSystem extends SceneSystem {
       })) {
       for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
       this.builtData = data
+      this.retainedBatches=true
       return
     }
     // Retention has proved these roots' model inputs unchanged. Cache discovery
@@ -458,6 +470,7 @@ export class ModuleSystem extends SceneSystem {
    * every plate goes.
    */
   clearModules(data?: StationData, kept = new Set<THREE.Object3D>()): void {
+    this.retainedBatches=false
     this.sourceDetail.restore()
     if (!data) this.batches.clear()
     this.builtData = null

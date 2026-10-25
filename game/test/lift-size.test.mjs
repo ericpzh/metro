@@ -28,6 +28,7 @@ import { serialize, parse } from '../src/persistence/save.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { moduleBuilderAttributes } from '../src/app/store/builderAttributes.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
+import { editorActionCases } from '../src/app/benchmark/editorActionCases.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 
 /** Floors at every storey the tests reach, so a lift has a landing each end. */
@@ -210,11 +211,14 @@ test('the production factory and the column lookup carry the 大 plan', () => {
   assert.equal(addEquipment(toState({ name: 't', seed: 1, cells: floors(), modules: [], lines: [] }), large).modules.length, 1)
 })
 
-test('the 大/小 action tile leads the lift card', () => {
+test('the 大/小 action tile leads the lift card and the benchmark covers both plans', () => {
   const state = useStore.getState()
   const attrs = moduleBuilderAttributes('lift', state)
   assert.deepEqual(attrs.map((a) => a.kind), ['rotation', 'size', 'length', 'style'])
   assert.deepEqual(attrs.map((a) => a.shortcut), ['R', 'Tab', 'Shift+Tab', undefined])
   assert.equal(attrs[1].label, '小')
   assert.equal(moduleBuilderAttributes('lift', { ...state, liftSize: LIFT_SIZE_LARGE })[1].label, '大')
+
+  const sizes = editorActionCases().filter((c) => c.paletteId === 'lift' && c.settings?.liftSize !== undefined).map((c) => c.settings.liftSize)
+  assert.deepEqual(sizes.sort(), [2, 3])
 })

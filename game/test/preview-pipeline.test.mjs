@@ -1,8 +1,9 @@
 import test from 'node:test'
+import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import * as THREE from 'three'
-import { MODULE_OPTIONS, useStore } from '../src/app/store.ts'
+import { useStore } from '../src/app/store.ts'
 import { createModule, cellKey, toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { buildModule, createModelMaterials, disposeModelMaterials, disposeObject } from '../src/render/models.ts'
@@ -52,9 +53,9 @@ function geometry(root) {
 }
 
 test('every palette preview keeps the station document and matches the merged-document geometry', () => drawing(({ context }) => {
-  const remote = MODULE_OPTIONS.map((option, i) => createModule(option.id, 100 + i * 4, 100, 0, `remote-${i}`))
+  const remote = SINGLE_MODEL_OPTIONS.map((option, i) => createModule(option.id, 100 + i * 4, 100, 0, `remote-${i}`))
   const station = { ...emptyStation(), modules: remote }, resolver = new ModulePreviewDocument()
-  for (const option of MODULE_OPTIONS) {
+  for (const option of SINGLE_MODEL_OPTIONS) {
     const mod = createModule(option.id, 0, 0, 0, 'candidate')
     assert.ok(mod, option.id)
     assert.equal(resolver.resolve(station, [mod], null), station, `${option.id}: no station copy`)

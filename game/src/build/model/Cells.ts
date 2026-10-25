@@ -119,30 +119,30 @@ export function addCells(
   // `checkBlockCells` offers exactly that cell, so a `have` set built from every
   // record instead of every block made the ghost promise a block the release
   // dropped (`addCells(cells, [[x, y, 0]])` on a dug hole returned `changed: 0`).
-  const have = new Set(cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  // Preview already prepared this immutable occupancy. Keep new keys separate:
+  // mutating level.solid would corrupt the old document and its next preview.
+  const level = blockIndex(cells, modules);
+  const addedKeys = new Set<string>();
   // Where each record sits, so a hole is **replaced** rather than shadowed: the
   // document holds one record per coordinate, and appending a second block beside
   // a `void` would leave which one wins to iteration order.
   const at = new Map<string, number>();
-  cells.forEach((c, i) => at.set(cellKey(c.x, c.y, c.z), i));
+  cells.forEach((c, i) => { if(c.fill !== 'solid') at.set(cellKey(c.x, c.y, c.z), i) });
   const out = cells.slice();
   const filledGroundHoles = new Set<string>();
   let changed = 0;
   let blocked = 0;
-  // One set per level, built once for the whole rectangle: equipment is sparse, so
-  // this is the same handful of modules every time a drag asks about another cell.
-  const level = blockIndex(cells, modules);
   for (const [x, y, z] of add) {
     // The street is already solid: laying a block into virtual ground is a
     // no-op, not a duplicate record — the document stays the delta from the
     // plane, so saves never carry the horizon.
-    if (have.has(cellKey(x, y, z)) || level.ground(x, y, z)) continue;
+    if (level.solid.has(cellKey(x, y, z)) || addedKeys.has(cellKey(x, y, z)) || level.ground(x, y, z)) continue;
     if (!blockReason(cells, modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }
     const k = cellKey(x, y, z);
-    have.add(k);
+    addedKeys.add(k);
     const hole = at.get(k);
     // At grade, a plain block is the implicit street, not authored content.
     // Remove the hole record and let absence mean ground again; otherwise a
@@ -175,5 +175,5 @@ export function removeCells(state: StationState, remove: Array<[number, number, 
     cells.push({ x, y, z, fill: 'void' });
   }
   const modules = state.modules.filter((m) => !kill.has(cellKey(m.x, m.y, m.z)));
-  return { ...state, cells, modules };
+  return { ...state, cells, modules: modules.length === state.modules.length ? state.modules : modules };
 }

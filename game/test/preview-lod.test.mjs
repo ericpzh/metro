@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import { MODULE_OPTIONS, useStore } from '../src/app/store.ts'
+import { useStore } from '../src/app/store.ts'
+import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 import { createModule, toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { buildModule, createModelMaterials, disposeModelMaterials, disposeObject } from '../src/render/models.ts'
@@ -46,13 +47,13 @@ function triangles(...roots) {
   return total
 }
 
-test('all 120 tinted preview models use placed equipment Low/High, distance, storey and Hide UI rules', () => drawing(({ context, mats }) => {
+test('all single-model palette previews use placed equipment Low/High, distance, storey and Hide UI rules', () => drawing(({ context, mats }) => {
   const camera = new THREE.OrthographicCamera(-.0001, .0001, .0001, -.0001, .01, 10000)
   camera.position.set(0, -10, 10); camera.lookAt(0, 0, 1); camera.updateMatrixWorld()
   const tintContext = new SceneContextData(new THREE.Scene(), {}, mats, null), tinter = new GhostSystem(tintContext)
   tinter.clocks = { previewRigs: [] }; tinter.plates = { ownsTexture: () => false }
   try {
-  for (const option of MODULE_OPTIONS) {
+  for (const option of SINGLE_MODEL_OPTIONS) {
     const mod = createModule(option.id, 0, 0, 0, option.id)
     const placed = buildModule(mod, context), ghost = buildModule(mod, context)
     for (const root of [placed, ghost]) {

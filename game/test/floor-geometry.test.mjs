@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import * as THREE from 'three'
 import { geometryDetailReady } from '../src/render/geometryDetail.ts'
 import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
@@ -11,6 +12,80 @@ import { stubCanvas } from './support/stub-canvas.mjs'
 import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
+
+test('deleting a supported block retains untouched upper storeys in the same chunk',async()=>{
+  const {emptyStation}=await import('../src/data/reference-station.ts')
+  const {withGround}=await import('../src/sim/ground.ts')
+  const material=new THREE.MeshBasicMaterial(),chunks=new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const cells=[-20,-19,-10].map(z=>({x:4,y:4,z,fill:'solid'})),data={...emptyStation(),cells,modules:[]}
+  try{
+    chunks.prepareStation(data,withGround(cells,data.modules));chunks.meshStation()
+    const upper=chunks.chunkMeshes.filter(m=>m.userData.levelZ===-10)
+    assert.ok(upper.length)
+    const next={...data,cells:cells.filter(c=>c.z!==-19)}
+    chunks.prepareStation(next,withGround(next.cells,next.modules));chunks.meshStation()
+    for(const mesh of upper)assert.ok(chunks.chunkMeshes.includes(mesh),'unchanged lowest floor must not widen deletion to all bands')
+    assert.equal(chunks.ctx.groundOf.get('4,4'),-20)
+  }finally{chunks.disposeChunks();material.dispose()}
+})
+
+test('local block commits match fresh meshes across chunk seams, ceiling support, finishes and undo',async()=>{
+  const {emptyStation}=await import('../src/data/reference-station.ts')
+  const {withGround}=await import('../src/sim/ground.ts')
+  const material=new THREE.MeshBasicMaterial()
+  const make=()=>new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const actual=make(),fresh=make()
+  const cells=[]
+  for(let x=-2;x<=34;x++)for(let y=-2;y<=3;y++)for(const z of [-10,-6])cells.push({x,y,z,fill:'solid',...(x===16&&y===0&&z===-6?{tags:['wall']}:{})})
+  let data={...emptyStation(),cells,modules:[]}
+  const fingerprint=geometry=>{
+    const attributes=Object.values(geometry.attributes),index=geometry.index.array,triangles=[]
+    const vertex=i=>attributes.flatMap(a=>Array.from(a.array.slice(i*a.itemSize,(i+1)*a.itemSize))).join(',')
+    for(let i=0;i<index.length;i+=3){
+      const v=[vertex(index[i]),vertex(index[i+1]),vertex(index[i+2])]
+      triangles.push([v.join('|'),[v[1],v[2],v[0]].join('|'),[v[2],v[0],v[1]].join('|')].sort()[0])
+    }
+    return createHash('sha256').update(triangles.sort().join('\n')).digest('hex')
+  }
+  const snapshot=chunks=>chunks.chunkMeshes.map(m=>JSON.stringify({level:m.userData.levelZ,ground:!!m.userData.ground,ceiling:!!m.userData.suspendedCeiling,float:!!m.userData.float,bounds:m.geometry.boundingBox,hash:fingerprint(m.geometry)})).sort()
+  const install=(chunks,s,local)=>{chunks.prepareStation(s,local?withGround(s.cells,s.modules):undefined);chunks.meshStation()}
+  try{
+    install(actual,data,false)
+    const disposals=new Map([...new Set(actual.chunkMeshes.map(m=>m.geometry))].map(g=>[g,0]))
+    for(const g of disposals.keys())g.addEventListener('dispose',()=>disposals.set(g,disposals.get(g)+1))
+    const remote=actual.chunkMeshes.find(m=>!m.userData.ground&&m.geometry.boundingBox.min.x>=32)
+    const edits=[
+      [...cells,{x:15,y:0,z:-9,fill:'solid'}],
+      cells,
+      [...cells,{x:14,y:0,z:-5,fill:'solid'}],
+      [...cells,{x:15,y:0,z:-5,fill:'solid'}],
+      [...cells,{x:16,y:0,z:-5,fill:'solid'}],
+      cells,
+      [...cells,...[-9,-8,-7].map(z=>({x:15,y:0,z,fill:'solid'}))],
+      cells.filter(c=>!(c.x===16&&c.y===0&&c.z===-10)),
+      cells.map(c=>c.x===15&&c.y===0&&c.z===-6?{...c,finish:{top:'tile'}}:c),
+      cells,
+      [...cells,...[-9,-8,-7].map(z=>({x:15,y:0,z,fill:'solid',tags:['wall']}))],
+      cells,
+      ...['n','e','s','w'].flatMap(side=>['half-wall','tri-upper','tri-lower'].flatMap(kind=>[
+        [...cells,{x:15,y:0,z:-9,fill:'solid',tags:[`${kind}:${side}`]}],
+        [...cells,{x:16,y:0,z:-9,fill:'solid',tags:[`${kind}:${side}`]}],
+        cells,
+      ])),
+    ]
+    for(const next of edits){
+      data={...data,cells:next}
+      install(actual,data,true);fresh.disposeChunks();install(fresh,data,false)
+      assert.deepEqual(snapshot(actual),snapshot(fresh),'incremental geometry is byte-equivalent to a fresh build: '+data.cells.length)
+      assert.deepEqual(actual.ctx.solid,fresh.ctx.solid)
+      assert.deepEqual(actual.ctx.finishes,fresh.ctx.finishes)
+      assert.deepEqual(actual.ctx.groundOf,fresh.ctx.groundOf)
+      assert.ok(actual.chunkMeshes.includes(remote),'remote geometry remains uploaded')
+      assert.ok([...disposals.values()].every(n=>n<=1),'local generation changes release each stale GPU allocation once')
+      assert.ok(actual.chunkKeyCellVisits<fresh.chunkKeyCellVisits/2,'hash only edited chunks and face neighbours')
+    }
+  }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
 
 test('Tanwei raised platforms remain visible at 10 m even with stale ceiling tags', async () => {
   const { readFileSync } = await import('node:fs')

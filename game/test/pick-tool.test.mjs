@@ -655,7 +655,7 @@ test('picking any palette tile arms its placement, including the setting-free �
   // placed piece arms the tile that placed it instead of merely selecting it.
   // The setting-free 空调风机 and 设备柜 regressed here — `paletteIdForModule`
   // had no arm for them, so a pick only selected the cabinet.
-  const { MODULE_OPTIONS } = await import('../src/app/store/catalog.ts')
+  const { SINGLE_MODEL_OPTIONS: MODULE_OPTIONS } = await import('./support/palette-models.mjs')
   const before = useStore.getState()
   try {
     const failures = []

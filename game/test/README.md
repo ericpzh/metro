@@ -1,11 +1,25 @@
+`editor-build-fingerprint` pins canonical cross-platform source hashes and stale-input detection.
+
+`editor-action-benchmark` guards the complete production palette/demo manifest,
+discrete setting families, cut orientations, valid production factories, compound
+double TVs and actual PSD-cover support. `npm run bench:editor-actions` drives
+the production preview/build/store APIs across every case on every demo, measuring
+generation and first rendered feedback separately against 100 ms. Reports retain
+failures, settings, build/demo hashes, source-stage maps and per-case profile links;
+see the shared performance reference for reproduction and the API/pointer boundary.
+
 `local-cell-edit` guards bounded cell deltas, immutable source documents, module-owned
 street-window cache keys, live floor/occupancy indexes, monitor/signal dependencies,
-and actual ramp wall/landing inputs. `floor-geometry` compares incremental commits
+actual ramp wall/landing inputs across all styles/rotations, shared preview occupancy
+through block/wall commits, and stair-block place/move/delete retention. `line-edit`
+pins immutable local-cell undo frames. `floor-geometry` compares incremental commits
 with fresh triangles (positions, winding, normals, colours and UVs), including
 chunk seams, ceiling support, painting and undo, while retaining remote geometry.
 `equipment-retention` also pins zero repeated batch/detail work for retained roots
 and resynchronisation when the graphics view changes. Browser timings belong in
-the shared performance reference; run `npm run bench:block` for real block releases.
+the shared performance reference; run `npm run bench:block-edits` for real pointer
+place/delete gestures across blocks, walls, half walls, both triangle families,
+stair blocks, wall column erase and stair-block move.
 
 `monitor-signal` pins bottom-to-top yellow/red/green aspect order, nearest-platform selection shared with TVs, and live lenses excluded from equipment batches. `station-display` checks the real dispatcher phase through departure and disappearance. Signals show green from berth through departure, red during approach and between services.
 
@@ -862,8 +876,9 @@ percentages.
 | `render/batchStaticModule.ts` | — (new) | 100 % lines / 90 % branches | `render-performance` (bounds, triangles, picking, disposal and exclusions) |
 | `render/modelDetail.ts` | — (new) | 100 % lines / 95.65 % branches / 100 % functions (focused `model-detail` coverage) | `model-detail` (authored triangle budgets, source picks, finish colours, batching, motion, restoration and disposal) |
 | `render/retainPaintedModules.ts` | — (new) | 100 % lines / 94.4 % branches | `render-performance` (paint reuse and structural invalidation) |
-| `render/moduleDependencies.ts` | — (new) | 100 % lines / 96.39 % branches / 100 % functions (focused) | `local-cell-edit`, `equipment-retention`, `floor-geometry`, `geometry-snap`, `scene-wiring`, `performance-policy`; the focused run has 70 passes and one independently reproduced baseline TV-palette fixture failure. Per-model inputs, cell edits, ramp wall/landing signatures, remote monitors/signals, unknown types and the boards-only sign verdict. |
-| `render/localCellEdit.ts`, `app/stationGeometry.ts` | — (new) | 100 % lines / branches / functions (focused) | Same focused run: bounded deltas, module-owned bounds, append/replace/delete/undo and live derived indexes without document mutation. |
+| `render/moduleDependencies.ts` | — (new) | 100 % lines / 97.72 % branches / 100 % functions (`test:perf`) | 748 passing performance checks, including `local-cell-edit`, `equipment-retention`, `floor-geometry`, `geometry-snap`, `scene-wiring` and `performance-policy`. Per-model inputs, cell edits, ramp wall/landing signatures, remote monitors/signals, unknown types and the boards-only sign verdict. |
+| `render/localCellEdit.ts` / `app/stationGeometry.ts` | — (new) | 93.62 / 100 % lines; 93.48 / 100 % branches; 100 / 100 % functions (`test:perf`) | Bounded deltas, module-owned bounds, append/replace/delete/undo and live derived indexes without document mutation. |
+| `render/scene/systems/ChunkSystem.ts` / `render/structuralModelInputs.ts` | — (changed) | 96.34 / 100 % lines; 94.77 / 94.74 % branches; 87.23 / 96.15 % functions (final focused chunk run / broad `test:perf`) | Exact incremental triangles, all cut-shape orientations, retained remote geometry and upper storeys on delete, disposal and bounded stair signatures against full builder inputs. |
 | `render/modulePreviewDocument.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions (focused) | `equipment-retention`, `fence-preview` (prepared-station hover reuse, cached move removal and coupled candidate merging) |
 | `render/equipmentBatches.ts` | — (changed) | 100 % lines / 92.9 % branches / 97.2 % functions (focused) | `fence-preview`, `batching-lifecycle` (local bucket masking, unreplaced source drawing and layer restoration) |
 | `sim/fences.ts` | — (changed) | 97.8 % lines / 96.3 % branches / 100 % functions (focused) | `fence-preview`, `equipment-retention` (prepared fence/gate/landing lookups, candidate overlay and immutable invalidation) |

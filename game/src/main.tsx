@@ -80,6 +80,9 @@ async function boot() {
   }
   const { renderGame } = await import('./app/boot.tsx')
   renderGame(root)
+  if (params.has('bench-editor-actions')) {
+    Object.assign(window, { __editorActions: await import('./app/benchmark/editorActions.ts') })
+  }
 }
 
 void boot()
