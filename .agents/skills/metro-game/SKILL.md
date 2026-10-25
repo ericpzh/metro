@@ -52,9 +52,10 @@ tabs stop voices, cancel late starts and suspend audio until a new gesture.
 Run `npm --prefix game run build`, `node tools/check-game-audio.mjs` and the game
 suite when changing this integration. The browser check verifies real pointer
 cues, one scene intersection/event, bilingual sliders, mute/persistence and
-camera-distance gain. See `audio.test.mjs` and the shared performance record for
-deterministic bounds and measured limitations (whole-recording loop seams, no
-occlusion/reverb).
+camera-distance gain. See `audio.test.mjs` for deterministic bounds. Ambient beds
+loop the full recording and can have audible seams; the renderer has no room
+occlusion or reverb. Keep these feature limits with the audio guidance, not in the
+performance record.
 
 Placement and move snapping must follow actual geometry, never a nominal storey
 band or editing base. The anchor matrix is under
@@ -86,6 +87,9 @@ Every stock uses 0.8 m wheels, with 1.44 m-wheelbase bogies centred 0.25 m inwar
 
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).
 It covers cold interactions, work-count regressions, comparable measurements and GPU validation.
+Update it only with reproducible performance evidence or changes to a performance
+budget or benchmark procedure. Feature summaries and functional validation belong
+in the owning code, tests or reports; do not add dated feature entries.
 Live TV plates opt into CPU-backed source canvases and separate live atlas pages.
 Keep their full resolution and gutters, upload at most one changed panel per
 render frame, and coalesce pending work fairly to the newest source pixels.
@@ -168,6 +172,14 @@ leave and when play/pause is clicked. The issue tracker and language-aware bench
 open in new tabs. Pin structure and behavior in `audio.test.mjs`, `music.test.mjs`,
 `global-stats.test.mjs`, and `topbar-report-issue.test.mjs`; validate live audio
 behavior with `node tools/check-game-audio.mjs` after a build.
+
+FSR 1 uses `native`, `ultra`, `quality`, `balanced` and `performance` modes;
+native is the default. The reduced render scales are 1/1.3, 1/1.5, 1/1.7 and
+0.5, respectively. The Settings tile cycles the persisted preference, while the
+benchmark route exposes each mode as a choice and restores the saved value when
+its run ends. Apply the mode to both editor and exploded renderers on creation
+and change; include post-processing passes in frame statistics. `upscaling.test.mjs`
+pins scale ratios, persistence and both renderer connections.
 
 Inspector controls that edit placed equipment should call a store action and commit
 one station edit, so the worker, undo history and selected document stay in sync.
@@ -403,6 +415,17 @@ use budgeted path requests and skip missing/unreachable stops. Walking gate taps
 add no dwell. Handrail use is identity based and optional; match lane, direction
 and adult height, keep the elbow forward and the wrist neutral. Only an eligible
 first lift rider needs a selection gesture. Queues still walk when advancing.
+Update stop queue ranks once per server/tick instead of rescanning the queue for
+each passenger.
+
+Platform screen-door floor tiles extend past the rendered screen. `World.tryMove`
+must keep ordinary walkers and crowd-separation pushes on the platform side while
+preserving tangential movement; train-controlled boarding crosses through its
+own path. Prepare the node-to-inward-normal index with the graph and replace it on
+structural rebuilds rather than scanning platform doors during each movement.
+`walking-space.test.mjs` pins both platform sides, all rotations, sustained crowd
+pressure and index refresh; `tools/check-platform-floor.mjs` replays the Tanwei
+case.
 
 The activity bake is shared with the model poses; game runtime never imports
 `model/`, creates per-agent skeletons or adds crowd draws. High/Low use the existing
@@ -412,8 +435,8 @@ water are independent retained rigs excluded from equipment batching. Pin these
 contracts in `passenger-activities`, `passenger-activity-assets`, `passenger-view`
 and the equipment lifecycle suites. Run `tools/check-game-passenger-activities.mjs`
 after building for actual GLSL, body variants, service fixtures and pause checks;
-measure demo service/ticks with `tools/bench-passenger-activities.mjs` and record
-the results in the shared performance reference.
+measure demo service/ticks with `tools/bench-passenger-activities.mjs`; add results
+to the shared performance reference only when they establish a performance finding.
 
 Start points: the street plane, the graph, the fare line and the edge cost are
 the four rules most changes trip over.
@@ -1375,6 +1398,18 @@ Run `npm run check:tutorial` for the production browser regression and the
   fixture must reject a door server moved to an unreachable node.
 
 ## Rendering and the app
+
+The exploded viewer is a disposable presentation of the station; never install
+its translated document in the editor or worker. For authored above-ground
+stations, build floor plans from room/fare-zone/auto-floor labels with a one-cell
+enclosure margin. Connected beams must not make remote foundations into rooms or
+let an upper story borrow a floor from above. Keep fixtures and exterior access
+outside retained room plans out of the trays while retaining tracks, platforms,
+ground rooms and underground landings. Unlabelled legacy stations keep their
+unfurnished-floor fallback. Translate complete stair flights and live poses with
+their storey. Pin geometry and demo support in `exploded-view`, `exploded-support`,
+`exploded-passengers` and `layering`; `tools/check-exploded-view.mjs` covers both
+demos and viewer/editor lifecycle cleanup.
 
 Ambient road vehicles are procedural models in `render/models/pieces/vehicles/`:
 `RoadCar`, `RoadBus`, `RoadCycle` share the grey `VehicleKit`; `RoadVehicleModel`

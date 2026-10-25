@@ -18,8 +18,9 @@ After a production build, `node tools/check-game-audio.mjs` separately drives
 actual pointer actions and bilingual sliders, checks one pick and one cue per
 action, reload persistence, zero-output mute and camera-relative ambient sources.
 Its ambient fixture feeds production renderer poses; it is not a simulated-day
-or subjective listening test. Raw reports live in `.preview/perf/game-audio/`,
-with conclusions only in the existing shared performance reference.
+or subjective listening test. Raw reports live in `.preview/perf/game-audio/`.
+Add conclusions to the shared performance reference only when they contain
+reproducible performance evidence; functional audio checks stay with these tests.
 
 For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
 Guard work counts and ownership invariants; use browser measurements for latency.

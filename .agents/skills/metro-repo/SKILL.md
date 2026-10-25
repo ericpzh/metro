@@ -24,8 +24,10 @@ game runtime must not import the model app. Sample skips use 120 ms slices,
 15 ms crossfades, and at most three scheduled grains per sound bus. Keep the
 per-speed audition regressions in `model/test/sound-ambient.test.mjs`, game
 policy/source regressions in `game/test/audio.test.mjs`, and the browser checks
-`tools/check-sound-preview.mjs` and `tools/check-game-audio.mjs` aligned. Record
-audio measurements in the shared performance reference.
+`tools/check-sound-preview.mjs` and `tools/check-game-audio.mjs` aligned.
+Add audio results to the performance reference only when a controlled
+measurement answers a performance question; functional playback checks stay
+in the owning tests and reports.
 `tools/prepare-game-audio.mjs` bakes the selected interaction cues into
 `game/public/audio/`. Keep source/license manifests with both collections.
 Approved background music is
@@ -38,8 +40,9 @@ Music output is capped at half its former level: 100% now equals the former 50%.
 The music row's hover tooltip shows current-track credits and closes on pointer
 leave or immediately after play/pause is clicked. Keep pause/volume outside station
 state and update `metro-game`/`metro-game-test`
-when changing this contract. Audio measurements belong in
-the existing [performance reference](references/performance.md#game-audio-integration--2026-10-23).
+when changing this contract. Add audio results to the performance reference
+only when they contain reproducible performance measurements; do not add
+playback feature notes or functional checks there.
 
 The editor's initial and station-switch home view opens 50% closer after the new
 station bounds are installed (`Viewport.tsx`, `zoomBy(2 / 3)`). Ordinary edits do
@@ -71,7 +74,7 @@ the first 30 seconds. Match canvas size and pixel ratio as well as the view;
 Arrival-correlated stalls can come from TV service-card uploads; periodic stalls
 also follow simulated-minute clock repaints. Use the `plates` and `atlas`
 ablations before attributing them to train construction. Preserve the bounded
-live-panel path; see [live TV atlas uploads](references/performance.md#live-tv-atlas-uploads-and-1-lows--2026-10-23).
+live-panel path; see [live TV atlas uploads](references/performance.md#live-tv-atlas-uploads-and-1-lows).
 For Tanwei editor throughput, use the Low LOD / 1× target of 30 average and 15 1% low
 FPS. Keep Low equipment batch sizing and active-storey contact-shadow policy covered
 by deterministic regressions, and record matched captures and limitations in the
@@ -90,9 +93,8 @@ The left build rail's module previews are checked-in 132 × 132 PNGs generated b
 After changing the module catalogue or preview renderer, regenerate them with
 `npm --prefix game run build`, `npm --prefix game run render:menu-thumbnails`, then
 build again. Keep the catalog/asset regression in `menu-thumbnails.test.mjs` and
-record first-open timings in the
-[performance reference](references/performance.md) with raw captures under
-`.preview/perf/menu-thumbnails/`.
+record first-open timings there only as part of controlled before/after
+comparisons; keep raw captures under `.preview/perf/menu-thumbnails/`.
 For placement drags, use the shared `MultiPlaceDrag` scheduler and its 50 ms
 latest-target policy where appropriate; preserve each tool's preview/refusal and
 release contract. Block collision checks are indexed and cached against immutable
@@ -295,8 +297,8 @@ is native resolution and the default. The benchmark applies its selected mode to
 the temporary store before renderer mount, records it with the run and restores
 the player's saved FSR preference afterward. Pin preference persistence, both
 viewer connections and the benchmark handoff in `game/test/upscaling.test.mjs`;
-the implementation and measured validation are in the
-[FSR performance record](references/performance.md#fsr-1-spatial-upscaling--2026-10-24).
+add an entry to the performance reference only if a controlled comparison
+establishes a performance effect.
 
 The benchmark result page also plots one-second CPU, GPU and RAM readings from
 the measured run. Browser APIs do not expose whole-machine utilization: CPU is
@@ -408,8 +410,8 @@ cannot cross into that part; preserve movement along the screen and train-contro
 boarding/alighting. Prepare the node-to-inward-normal index with the graph and refresh
 it on structural rebuilds. Keep both the Tanwei sustained-pressure regression and the
 four-rotation/both-side rebuild checks in `walking-space.test.mjs`; use
-`node tools/check-platform-floor.mjs` for the 555-tick 06:39:15 replay, and record
-measurements in the existing [performance reference](references/performance.md).
+`node tools/check-platform-floor.mjs` for the 555-tick 06:39:15 replay, and add results to the performance reference only when they answer a
+performance question.
 
 ## What lives where
 
@@ -681,9 +683,9 @@ Optional shops, vending/ticket machines, seats, toilets and sinks use real
 front-facing fixture stops; queue and service dwell must not interrupt normal
 trip routing. Gate taps happen during walking, while elevator presses and
 escalator handrails remain selective. Preserve empty hands and use the sampled
-activity transfer within the existing crowd draw. See
-[`performance.md`](references/performance.md#in-game-passenger-activities--2026-10-24)
-for packed asset size, GPU memory, visual coverage and seeded route measurements.
+activity transfer within the existing crowd draw. Add seeded route timings or
+GPU-memory measurements to the performance reference only when they answer a
+performance question.
 
 The shipped demo's stairs must remain complete current-catalogue pieces with
 explicit block-fitted tread widths (0.79 m for its three straight stairs,
@@ -761,7 +763,7 @@ commands.
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
 | `bake-passenger-activities.mjs` | Bakes reviewed activity poses and shared rig data after validating all current GLB source hashes; `npm run bake:passengers` runs it after the walk atlas. See `metro-model` and `metro-game`. |
-| `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test` and record measurements in the performance reference. |
+| `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test`. Add results to the performance reference only when they establish a performance finding. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |

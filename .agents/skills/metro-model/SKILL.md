@@ -129,9 +129,11 @@ Work from the metro root. Read `model/README.md` and
   lengths, seat/foot support, deterministic scrubbing and escalator rail contact
   in `model/test/interactions.test.mjs`; run
   `node tools/check-model-interactions.mjs` for production scenes, timeline
-  samples, rail clearance and visual captures. Keep measurements and validation
-  limits in the single repo [performance reference](../metro-repo/references/performance.md#model-passenger-activity-previews),
-  with captures under ignored `.preview/model-interactions/`.
+  samples, rail clearance and visual captures. Keep pose and contact behavior in
+  this skill and its tests. Put raw captures under ignored
+  `.preview/model-interactions/`; add a result to the shared
+  [performance reference](../metro-repo/references/performance.md) only when it
+  establishes a reproducible performance finding.
   Solve limb contact in the rig frame before applying independent appearance
   dimensions: world quaternion decomposition under nonuniform scale introduces
   shear and misses the wrist. Retain seated front clearance during settle/release.
