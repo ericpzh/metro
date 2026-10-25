@@ -47,7 +47,7 @@ cpSync(sourceRoot,sourceSnapshot,{recursive:true,errorOnExist:true,force:false})
 if(treeHash(sourceSnapshot)!==metadata.sourceHash)throw Error('Source changed during snapshot; retry')
 metadata.sourceSnapshot=relative(root,sourceSnapshot)
 metadata.buildInputs={}
-const inputs=join(root,'build-inputs');mkdirSync(inputs,{recursive:true})
+const inputs=join(root,`build-inputs-${process.pid}`);mkdirSync(inputs,{recursive:true})
 for(const name of ['vite.config.ts','package.json','package-lock.json']){
   const bytes=readFileSync(join('game',name));metadata.buildInputs[name]=hash(bytes);writeFileSync(join(inputs,name),bytes)
 }
