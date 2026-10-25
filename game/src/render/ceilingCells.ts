@@ -28,9 +28,14 @@ export function ceilingCells(cells: readonly Cell[], base: number, height: numbe
       result.add(key)
       continue
     }
-    // Keep editing-grid floors, wall tops, shaped blocks and stacked solids.
+    // A ceiling may line the underside of the next storey's floor. Keep other
+    // stacked solids ordinary, including wall columns through the room below.
+    const above = solid.get(packKey(c.x, c.y, c.z + 1))
+    const underUpperFloor = c.z + 1 === floorZ + height && above && !shapeOf(above) &&
+      !above.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === 'opening-ceiling')
+    // Keep editing-grid floors, wall tops and shaped blocks.
     if (shapeOf(c) || c.tags?.includes('wall') || solid.has(packKey(c.x, c.y, c.z - 1)) ||
-        solid.has(packKey(c.x, c.y, c.z + 1))) continue
+        (above && !underUpperFloor)) continue
     const floor = solid.get(packKey(c.x, c.y, floorZ))
     if (!floor || shapeOf(floor) || floor.tags?.some(t => t === 'suspended-ceiling' || t === 'opening-ceiling')) continue
     let clear = true

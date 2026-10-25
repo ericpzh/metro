@@ -24,7 +24,7 @@ test('ceiling inference retains wall tops, low ledges, shaped blocks and unsuppo
   const slab = [block(0, 0, -15), block(0, 0, -11), block(1, 0, -11)]
   const key = packKey(0, 0, -11)
   assert.ok(ceilingCells(slab, 0, 5).has(key))
-  for (const z of [-14, -13, -12, -10]) {
+  for (const z of [-14, -13, -12]) {
     assert.equal(ceilingCells([...slab, block(0, 0, z)], 0, 5).has(key), false)
   }
   assert.equal(ceilingCells(slab.slice(1), 0, 5).has(key), false)
@@ -33,6 +33,23 @@ test('ceiling inference retains wall tops, low ledges, shaped blocks and unsuppo
   assert.equal(ceilingCells([slab[0], { ...slab[1], tags: ['half-wall:n'] }, slab[2]], 0, 5).has(key), false)
   assert.equal(ceilingCells([block(0, 0, -11, { tags: ['opening-ceiling'] })], 0, 5).has(key), true)
   assert.equal(ceilingCells([block(0, 0, -11, { tags: ['suspended-ceiling'] })], 0, 5).has(key), true)
+})
+
+test('Tianhe reported ceiling courses beneath the next storey floor hide independently', () => {
+  for (const [cx, cy] of [[-10, -90], [8, -102]]) {
+    const cells = []
+    for (let x = cx - 1; x <= cx + 1; x++) for (let y = cy - 1; y <= cy + 1; y++) {
+      for (const z of [-15, -11, -10, -5]) cells.push(block(x, y, z))
+    }
+    const before = JSON.stringify(cells)
+    const result = ceilingCells(cells, 0, 5)
+    assert.equal(result.size, 9)
+    assert.ok(result.has(packKey(cx, cy, -11)))
+    for (const z of [-15, -10, -5]) assert.equal(result.has(packKey(cx, cy, z)), false)
+    assert.equal(JSON.stringify(cells), before)
+  }
+  // Stacking away from a storey boundary is still ordinary solid geometry.
+  assert.equal(ceilingCells([block(0, 0, -15), block(0, 0, -12), block(1, 0, -12), block(0, 0, -11)], 0, 5).size, 0)
 })
 
 test('Tianhe -5 floor and ramp-carved upper floor remain outside the always-hidden ceiling pass', () => {
