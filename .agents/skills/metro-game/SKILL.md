@@ -70,6 +70,18 @@ to its actual attachment anchor; keep support/refusal in the existing validator.
 Preserve erase/floor-paint contracts and one shared scene raycast per event.
 Pin low-angle beam targeting, occlusion and hidden objects in `placement-surface`.
 
+Ceiling visibility is a render classification, separate from cell occupancy,
+zones and floor geometry. `render/ceilingCells.ts` puts explicit suspended
+plates and inferred overhead slabs in ChunkSystem's independently hideable
+ceiling pass. An inferred slab needs a floor beneath it, clear column space and
+a neighboring block on its course; isolated blocks, shaped pieces and stacked
+solids stay ordinary geometry. Blocks less than 3 m above their five-metre
+storey base stay floor geometry, even if tagged `opening-ceiling` or
+`suspended-ceiling`. This protects raised platforms such as Tanwei z=11 while
+editing 10 m. From a lower level, ordinary upper-storey slicing still hides that
+floor. Keep `ceiling-cells` and `floor-geometry` aligned; the latter exercises
+Tanwei `(15,2,11)` and `(22,-5,11)` with real meshing, toggles and level changes.
+
 Every stock uses 0.8 m wheels, with 1.44 m-wheelbase bogies centred 0.25 m inward of the outer passenger doors. All wheel and suspension hardware stays below the door sills over the lowered rail, so the passenger floor and thresholds remain continuous without raised wheel housings. A/B/C/L passenger roofs and lower skirts derive from the cab rear cut in High and Low; C lamps sit in its coloured band and the floating white skirt blocks are removed. A/B/C/L cab face and lower colour are disjoint paint sections of the same shell, with flush fitted glazing, smooth circular headlights and wiper pivots fully below the glass. Passenger overhead fittings stop at the cab seam. A/B/C/L cabs have a ten-degree front rake that fades to zero at the rear body seam. A/B/L carry glazed crew doors on both sides; all five classes have surface-fitted windshield wipers. A/B/L use the same small centred emblem as C, whose narrower evacuation door clears it. The cabin ceiling stops at the cab seam; the aisle floor and passenger door centres keep their platform alignment. The A/B/C/L passenger leaves, seals and black lower panels follow the common skirt curve through opening travel. A/B/L crew doors stay upright and narrow, moved forward to clear fully opening passenger leaves by over 10 cm.
 
 For performance work, read [the shared performance guide](../metro-repo/references/performance.md).

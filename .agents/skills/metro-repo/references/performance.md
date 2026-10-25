@@ -1,5 +1,65 @@
 # Performance work in metro
 
+## Tanwei raised floors at 10 m — 2026-10-24
+
+Reported targets `(15,2,11)` and `(22,-5,11)` are raised platform slabs within
+the 10 m editing storey. The previous ceiling guard protected only the exact
+grid course; ceiling-tagged raised floors entered the always-hidden pass.
+Protect the lower three courses before interpreting either ceiling tag, matching
+the existing minimum headroom rule for inferred ceilings. Untagged shipped cells
+already survived the isolated mesh check; tag variants reproduce the classification
+failure, so the exact original untagged disappearance is not established.
+
+`floor-geometry` checks both real demo coordinates, original and both ceiling-tag
+variants, after repeated level switches with Hide ceiling on/off. All 44 focused
+ceiling/floor-geometry/level-slicing/storey-height tests and the production build
+pass. `node tools/check-tanwei-raised-floors.mjs` verifies actual WebGL submissions
+at 10 m in all six coordinate/tag cases (one host mesh and 1–2 draw callbacks).
+Two-RAF completion was 70.6–399.6 ms in this headless capture, including rendering;
+this is not a classifier timing or an interactive performance claim. Raw results
+are in `.preview/perf/tanwei-raised-floors/browser.json`. The change adds no work
+to view toggles, scene picking, previews or document commits.
+
+## Tianhe Park untagged ceiling — 2026-10-24
+
+Follow-up: the reported `(97,-99,-5)` must survive Hide ceiling while editing
+at -5 m. The first implementation incorrectly put grid-aligned opening-ceiling
+slabs into the always-hidden pass. Floor courses now take precedence over all
+ceiling tags; when viewed from below, their existing upper-storey slicing still
+applies. The regression checks untagged, opening-ceiling and suspended-ceiling
+versions across level changes and toggles, using actual visible mesh ray hits.
+All 43 focused ceiling/geometry/slicing/storey-height checks and the production
+build pass. `BENCH_STATION=<save> node tools/check-ceiling-floor.mjs` loads the
+supplied file through the production load path and checks the exact coordinate.
+The original untagged cell stayed visible in this fresh browser run, so the
+user's exact disappearance was not reproduced from the supplied file. A subsequent
+ramp-tagged edit at the coordinate remains visible and is submitted in a real
+WebGL frame after the correction (one host mesh, one draw callback). The browser
+report and screenshot are under `.preview/perf/ceiling-floor/`. These checks add
+no scene picks or document commits to production view toggles.
+
+The supplied `天河公园.metro (2).json` has 36,971 authored cells. Its ordinary
+solid `(20,-102,-11)` is a single-course slab over the -15 floor, within the
+same editing band; the former tagged-only ceiling pass left it visible.
+`render/ceilingCells.ts` now classifies untagged horizontal slabs over clear
+room space, retaining grid floors, supported wall tops and shaped blocks.
+Explicit suspended/opening plates remain ceilings. The supplied save produced
+103 ceiling cells, including the reported coordinate; a cold standalone Node
+classification took 38.0 ms on this host. This is classification CPU time,
+not pointer-to-frame latency or a browser FPS measurement.
+
+Classification runs during chunk preparation, with indexed solid lookups and
+a storey-bounded clearance check. The existing independently hideable pass and
+its neighbor cache halos handle visibility; toggling performs no classification,
+scene pick, preview edit or document commit. `ceiling-cells` pins the reported
+neighborhood and negative cases; `floor-geometry` verifies actual ray hits in
+the ceiling pass and invalidation when support is added beneath the slab.
+Inference is conservative: multi-course slabs and isolated single blocks still
+need explicit ceiling tags. No visual browser validation was performed.
+Validation: TypeScript and all 20 focused ceiling/floor-geometry/level-slicing
+checks passed. The broad suite reports failures in benchmark graphics settings
+and staircase toolbar source contracts outside this change.
+
 ## Tanwei passengers beyond platform screens — 2026-10-24
 
 Replayed the reported 16× / 06:39:15 interaction using the production `World`,

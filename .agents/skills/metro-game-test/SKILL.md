@@ -150,6 +150,14 @@ surface cells. `hanger`, `wall-ceiling-snap`, `equipment-placement-input`, `move
 `lights`, `storey-height`, `sign`, `ceiling-deck`, `psd-end`, `booth-sign` and
 `delete-tool` cover the owning contracts, including floor-triangle deletion.
 
+`ceiling-cells` and `floor-geometry` define the hide-ceiling boundary. An inferred
+ceiling needs a floor below, a clear column, a neighboring block on the same
+course, and at least 3 m of height above the storey base. Lower courses remain
+floor geometry even with ceiling tags. `floor-geometry` pins Tanwei's raised
+platforms `(15,2,11)` and `(22,-5,11)` at the 10 m editing level through level
+changes and both ceiling tags, exercising actual ray hits against the production
+mesher. `tools/check-tanwei-raised-floors.mjs` verifies their WebGL draw callbacks.
+
 Validation for the change: all 2,313 owning tests and the production build pass.
 `tools/check-geometry-snapping.mjs` passes nine real pointer placement/move
 fixtures for slabs, hangers and wall mounts across editing bases 0, 2 and 4

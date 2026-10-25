@@ -5,11 +5,86 @@ import { geometryDetailReady } from '../src/render/geometryDetail.ts'
 import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
+import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { createModelMaterials,disposeModelMaterials,setDoorsSides } from '../src/render/models.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
+
+test('Tanwei raised platforms remain visible at 10 m even with stale ceiling tags', async () => {
+  const { readFileSync } = await import('node:fs')
+  const demo = JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json', import.meta.url), 'utf8'))
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  ctx.detailEnabled = false
+  const chunks = new ChunkSystem(ctx), level = new LevelSystem(ctx)
+  level.chunks = chunks
+  level.modules = { restoreMovingModule() {}, moduleMeshes: new THREE.Group(), syncBatches() {} }
+  level.trains = { trainGroup: new THREE.Group() }
+  const targets = [[15, 2], [22, -5]]
+  try {
+    for (const tag of [undefined, 'opening-ceiling', 'suspended-ceiling']) {
+      const cells = demo.cells.map(c => c.z === 11 && targets.some(([x,y]) => c.x === x && c.y === y)
+        ? { ...c, tags: tag ? [tag] : undefined } : c)
+      chunks.prepareStation({ ...demo, cells }); chunks.meshStation(); ctx.scene.updateMatrixWorld(true)
+      for (const z of [5, 10, 15, 10]) for (const on of [false, true]) {
+        level.setLevel(z, false); level.setAutoCeiling(on)
+        if (z !== 10) continue
+        for (const [x,y] of targets) {
+          const ray = new THREE.Raycaster(new THREE.Vector3(x+.5,y+.5,13), new THREE.Vector3(0,0,-1))
+          const hits = ray.intersectObjects(chunks.chunkMeshes.filter(m => m.visible))
+          assert.ok(hits.some(h => Math.abs(h.point.z-12)<1e-6), `${x},${y},11 visible at 10 m, ceiling=${on}, tag=${tag}`)
+        }
+      }
+    }
+  } finally { chunks.disposeChunks(); material.dispose() }
+})
+
+test('Hide ceiling preserves Tianhe -5 floor through level changes and ramp ceiling tags', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const material = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  ctx.detailEnabled = false
+  const chunks = new ChunkSystem(ctx), level = new LevelSystem(ctx)
+  level.chunks = chunks
+  level.modules = { restoreMovingModule() {}, moduleMeshes: new THREE.Group(), syncBatches() {} }
+  level.trains = { trainGroup: new THREE.Group() }
+  const ray = new THREE.Raycaster(new THREE.Vector3(97.5, -98.5, -3), new THREE.Vector3(0, 0, -1))
+  try {
+    for (const tags of [undefined, ['opening-ceiling'], ['suspended-ceiling']]) {
+      const cells = [-20, -15, -5].map(z => ({ x: 97, y: -99, z, fill: 'solid', ...(z === -5 ? { tags } : {}) }))
+      cells.push({ x: 97, y: -100, z: -5, fill: 'solid', tags: ['opening-ceiling'] })
+      chunks.prepareStation({ ...emptyStation(), cells }); chunks.meshStation(); ctx.scene.updateMatrixWorld(true)
+      for (const z of [-10, -5, 0, -5]) for (const on of [false, true]) {
+        level.setLevel(z, false); level.setAutoCeiling(on)
+        if (z !== -5) continue
+        const hits = ray.intersectObjects(chunks.chunkMeshes.filter(m => m.visible))
+        assert.ok(hits.some(h => Math.abs(h.point.z + 4) < 1e-6), `active floor survives ceiling=${on}, tags=${tags}`)
+      }
+    }
+  } finally { chunks.disposeChunks(); material.dispose() }
+})
+
+test('untagged Tianhe ceiling uses the independently hideable mesh pass and invalidates after support edits', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const material = new THREE.MeshBasicMaterial()
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  const chunks = new ChunkSystem(ctx)
+  const cells = []
+  for (let x = 19; x <= 21; x++) for (let y = -103; y <= -101; y++) {
+    for (const z of [-15, -11, -5]) cells.push({ x, y, z, fill: 'solid' })
+  }
+  const ray = new THREE.Raycaster(new THREE.Vector3(20.5, -101.5, -8), new THREE.Vector3(0, 0, -1))
+  const install = cells => { chunks.prepareStation({ ...emptyStation(), cells }); chunks.meshStation(); ctx.scene.updateMatrixWorld(true) }
+  const hitCeiling = () => chunks.chunkMeshes.filter(m => m.userData.suspendedCeiling && ray.intersectObject(m).length)
+  try {
+    install(cells)
+    assert.ok(hitCeiling().length > 0, 'reported slab is in the pass Hide ceiling switches off')
+    install([...cells, ...[-14, -13, -12].map(z => ({ x: 20, y: -102, z, fill: 'solid' }))])
+    assert.equal(hitCeiling().length, 0, 'wall support restores the ordinary block pass after an edit')
+  } finally { chunks.disposeChunks(); material.dispose() }
+})
 
 test('ground-window-only updates preserve authored chunks and match fresh meshing on expansion and shrink',async()=>{
   const {emptyStation}=await import('../src/data/reference-station.ts')

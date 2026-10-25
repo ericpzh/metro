@@ -23,6 +23,7 @@ import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import { coarseGeometry } from '../../geometryDetail.ts'
+import { ceilingCells } from '../../ceilingCells.ts'
 
 /**
  * A small order-stable number for one cut shape, for the chunk content hash: the
@@ -303,7 +304,7 @@ export class ChunkSystem extends SceneSystem {
     }
     // Ceilings have an independently hideable pass. Keep every adjacent ordinary
     // face (including the ledge below one) so hiding that pass never opens a block.
-    const suspended = new Set(this.effectiveCells.filter(c => c.tags?.includes('suspended-ceiling')).map(c => packKey(c.x,c.y,c.z)))
+    const suspended = ceilingCells(this.effectiveCells, this.ctx.levelBase, this.ctx.storeyHeight)
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     // The street's own pass. It is a storey of its own in everything but name: at
     // `GROUND_Z` with the document holding nothing under it, so it is the plate
