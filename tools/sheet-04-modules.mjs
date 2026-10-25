@@ -88,7 +88,10 @@ function loadCards() {
 /* -------------------------------------------------------------------- sheet */
 
 export function artModules() {
-  const { width, height, cards } = loadCards()
+  const { width, height, cards: capturedCards } = loadCards()
+  // Keep the catalogue sheet focused on the established module set; the game's
+  // moving walkway remains available in the build rail but is not shown here.
+  const cards = capturedCards.filter((card) => card.id !== 'walkway')
   const g = []
 
   g.push(
