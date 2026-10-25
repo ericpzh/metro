@@ -12,6 +12,7 @@ import { SiSpeedtest } from 'react-icons/si'
 import { getLanguage, setLanguage, useLanguage } from '../../i18n.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
+import { reportIssueHrefFor } from '../../reportIssueRoute.ts'
 
 const upscalingModes = ['native', 'ultra', 'quality', 'balanced', 'performance'] as const
 
@@ -73,7 +74,7 @@ export function SettingsMenu(): React.ReactElement {
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" /><path d="M13.5 1.8v3h-3" /></svg>
         <span>{t('restart')}</span>
       </button>
-      <a className="ghost settingsAction" href="https://github.com/ericpzh/metro/issues" target="_blank" rel="noreferrer" title={t('report_issue')} aria-label={t('report_issue')}>
+      <a className="ghost settingsAction" href={reportIssueHrefFor(language, Boolean(import.meta.env?.DEV))} target="_blank" rel="noopener noreferrer" title={t('report_issue')} aria-label={t('report_issue')}>
         <FaBug aria-hidden="true" /><span>{t('report_issue')}</span>
       </a>
       <button type="button" className="ghost settingsAction" onClick={() => setLanguage(getLanguage() === 'en' ? 'zh-CN' : 'en')} title={t('switch_language')} aria-label={t('switch_language')}>

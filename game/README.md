@@ -70,7 +70,9 @@ Type B keeps the rounded train body with a single broad cab windshield and three
 inset, rubber-framed side windows between its four passenger doorways per car.
 
 The top-right gear opens settings: 音效 / 环境音, 低画质 / 高画质, 分享匿名统计, restart,
-report issue and the opposite language. Quality is saved locally, separately
+report issue, and the opposite language. Report issue opens the public stats board
+on `/stats/report` in Chinese and `/stats/en/report` in English; local game dev
+opens the stats Worker on port 5176. Quality is saved locally, separately
 from the station. Sharing is also a local preference, in its own slice; it never
 dirties the station or its undo history. High quality uses distance detail on the
 current floor and reduced geometry on other floors visible through 显示其他楼层.
@@ -3390,10 +3392,11 @@ handrail returns with one continuous pane, in both widths and every rotation/tra
   with a reminder to save anything to keep (`new-station-confirmation.test.mjs`); 示例车站 (with the 打开 notice when a load had to be repaired), a
   rename that trims and never commits twice, and a save written and opened back — land on the document
   and the notice they say they do, while a save that cannot be trusted is refused whole.
-* `topbar-report-issue.test.mjs` — the top bar's issue-tracker link: a `FaBug` (`react-icons/fa`)
-  anchor to the repo issues page between the restart button and the language switch, opening in a
-  new tab with `rel="noreferrer"`, named by the bilingual `report_issue` key and wearing the nav's
-  `ghost iconBtn` chrome (with the matching `a.ghost` styling).
+* `topbar-report-issue.test.mjs` and `report-issue-route.test.mjs` — the top bar's `FaBug`
+  action opens the public stats report board between restart and the language switch, follows
+  the active locale to `/stats/report` or `/stats/en/report`, uses the local stats Worker in
+  development and stays on the current production origin, and keeps its bilingual accessible
+  name, new-tab opener protection and `ghost iconBtn` chrome.
 * `topbar-playback.test.mjs` — the top bar's play/pause button: a paused click resumes like
   Space at the kept speed, while the speed tiles still resume at their own speed.
 * `rail-folders.test.mjs` — the two folder ladders (`app/rail/helpers.ts` `RAIL_FOLDERS` +

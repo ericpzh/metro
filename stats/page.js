@@ -12,6 +12,7 @@
  */
 import { FAVICON } from './favicon.js'
 import { BRAND_MARK } from './brand-mark.js'
+import { renderReportContent, reportScript, REPORT_STYLE } from './report-page.js'
 
 const SITE_URL = 'https://stationdesigner.com/'
 const GAME_URL = `${SITE_URL}game/`
@@ -30,6 +31,20 @@ const PAGE_COPY = {
     navLabel: '站点',
     navSite: '主站',
     navGame: '游戏',
+    navStats: '全球统计',
+    navReport: '问题与建议',
+    report: {
+      title: '问题与建议', description: '报告问题、提出功能建议，为你关心的事项投票。',
+      add: '添加事项', type: '类型', bug: '问题报告', feature: '功能建议',
+      subject: '标题', detail: '详细说明', submit: '提交', cancel: '取消',
+      privacy: '内容公开，请勿填写个人信息。每个 IP 每天最多提交 5 条、投票 100 次，每个事项可投一票。限额每天按 UTC 时间重置。仅保存带密钥的 IP 散列值，不保存原始 IP。',
+      sort: '排序', top: '最多赞同', newest: '最新报告', all: '全部类型',
+      loading: '正在读取…', empty: '还没有事项。来提交第一个问题或建议吧。',
+      more: '加载更多', vote: '赞同', voted: '已赞同', success: '已提交，谢谢！',
+      retry: '重新读取',
+      error: '操作失败，请稍后重试。', limited: '今日操作次数已达上限，请稍后重试。',
+      unavailable: '暂时无法提交，请稍后重试。',
+    },
     langLabel: '语言',
     langZh: '中文',
     langEn: 'EN',
@@ -77,6 +92,20 @@ const PAGE_COPY = {
     navLabel: 'Site',
     navSite: 'Main site',
     navGame: 'Game',
+    navStats: 'Global stats',
+    navReport: 'Issues & ideas',
+    report: {
+      title: 'Issues & ideas', description: 'Report a bug, suggest a feature, or upvote what matters to you.',
+      add: 'Add an issue', type: 'Type', bug: 'Bug report', feature: 'Feature request',
+      subject: 'Title', detail: 'Details', submit: 'Submit', cancel: 'Cancel',
+      privacy: 'Posts are public. Leave out personal information. Each IP can submit 5 reports and cast 100 upvotes per day, with one upvote per issue. Limits reset daily at midnight UTC. We store a keyed IP hash, never the raw IP.',
+      sort: 'Sort by', top: 'Most upvotes', newest: 'Newest reports', all: 'All types',
+      loading: 'Loading…', empty: 'No issues yet. Add the first bug report or feature request.',
+      more: 'Load more', vote: 'Upvote', voted: 'Upvoted', success: 'Submitted. Thank you!',
+      retry: 'Try loading again',
+      error: 'Something went wrong. Please try again.', limited: 'Daily limit reached. Please try again later.',
+      unavailable: 'Submissions are temporarily unavailable. Please try again later.',
+    },
     langLabel: 'Language',
     langZh: '中文',
     langEn: 'EN',
@@ -138,10 +167,13 @@ export function normalizePageLang(lang) {
   return lang === 'en' ? 'en' : 'zh'
 }
 
-export function renderPage(environment, lang) {
+export function renderPage(environment, lang, section = 'stats') {
   const copy = PAGE_COPY[normalizePageLang(lang)]
   const isEnglish = copy.lang === 'en'
-  const canonical = `${SITE_URL}stats/${isEnglish ? 'en/' : ''}`
+  const isReport = section === 'report'
+  const zhPath = isReport ? '/stats/report' : '/stats/'
+  const enPath = isReport ? '/stats/en/report' : '/stats/en/'
+  const canonical = SITE_URL.slice(0, -1) + (isEnglish ? enPath : zhPath)
   const docs = copy.docs.map(doc =>
     '<li><a href="' + escapeHtml(doc.href) + '" target="_blank" rel="noreferrer">' +
     escapeHtml(doc.label) + ' <span>' + escapeHtml(doc.sub) + '</span></a></li>'
@@ -152,13 +184,13 @@ export function renderPage(environment, lang) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${escapeHtml(copy.title)}</title>
-<meta name="description" content="${escapeHtml(copy.description)}">
+<title>${escapeHtml(isReport ? copy.report.title + ' · ' + copy.brand : copy.title)}</title>
+<meta name="description" content="${escapeHtml(isReport ? copy.report.description : copy.description)}">
 <meta name="theme-color" content="#070a10">
 <link rel="canonical" href="${canonical}">
-<link rel="alternate" hreflang="zh-CN" href="/stats/">
-<link rel="alternate" hreflang="en" href="/stats/en/">
-<link rel="alternate" hreflang="x-default" href="/stats/">
+<link rel="alternate" hreflang="zh-CN" href="${zhPath}">
+<link rel="alternate" hreflang="en" href="${enPath}">
+<link rel="alternate" hreflang="x-default" href="${zhPath}">
 <link rel="icon" type="image/png" sizes="64x64" href="${FAVICON}">
 <style>
   :root {
@@ -563,6 +595,7 @@ export function renderPage(environment, lang) {
     .card:hover { transform: none; }
     .nav__links a, .langswitch a { transition: none; }
   }
+${isReport ? REPORT_STYLE : ''}
 </style>
 </head>
 <body>
@@ -577,22 +610,25 @@ export function renderPage(environment, lang) {
       <nav class="nav__links" aria-label="${escapeHtml(copy.navLabel)}">
         <a href="${SITE_URL}" target="_blank" rel="noreferrer">${escapeHtml(copy.navSite)}</a>
         <a href="${GAME_URL}" target="_blank" rel="noreferrer">${escapeHtml(copy.navGame)}</a>
+        <a href="/stats/${isEnglish ? 'en/' : ''}${isReport ? '' : 'report'}">${escapeHtml(isReport ? copy.navStats : copy.navReport)}</a>
         <a href="${REPO_URL}" target="_blank" rel="noreferrer">GitHub</a>
       </nav>
       <div class="langswitch" role="group" aria-label="${escapeHtml(copy.langLabel)}">
-        <a href="/stats/" hreflang="zh-CN" lang="zh-CN"${isEnglish ? '' : ' aria-current="page"'}>${escapeHtml(copy.langZh)}</a>
-        <a href="/stats/en/" hreflang="en" lang="en"${isEnglish ? ' aria-current="page"' : ''}>${escapeHtml(copy.langEn)}</a>
+        <a href="${zhPath}" hreflang="zh-CN" lang="zh-CN"${isEnglish ? '' : ' aria-current="page"'}>${escapeHtml(copy.langZh)}</a>
+        <a href="${enPath}" hreflang="en" lang="en"${isEnglish ? ' aria-current="page"' : ''}>${escapeHtml(copy.langEn)}</a>
       </div>
     </div>
   </header>
 
   <main>
+    ${isReport ? renderReportContent(copy.report, isEnglish ? '/stats/en/' : '/stats/', copy.navStats) : `
     <section class="hero">
       <div class="hero__grid" aria-hidden="true"></div>
       <div class="hero__inner">
         <p class="eyebrow">${escapeHtml(copy.eyebrow)}</p>
         <h1>${escapeHtml(copy.heroTitle)}<span class="accent">${escapeHtml(copy.heroAccent)}</span></h1>
         <p class="lede">${escapeHtml(copy.lede)}</p>
+        <p><a href="/stats/${isEnglish ? 'en/' : ''}report">${escapeHtml(copy.navReport)} →</a></p>
         <p class="meta"><span class="dot" aria-hidden="true"></span><span id="updated">${escapeHtml(copy.loading)}</span></p>
       </div>
     </section>
@@ -603,14 +639,15 @@ export function renderPage(environment, lang) {
         <div class="notice">${escapeHtml(copy.loadingGrid)}</div>
       </div>
     </section>
+    `}
   </main>
 
   <footer class="footer">
     <div class="footer__inner">
       <div>
-        <h2>${escapeHtml(copy.aboutTitle)}</h2>
-        <p>${escapeHtml(copy.aboutBody)}</p>
-        <p class="footer__note">${escapeHtml(copy.aboutNote)}</p>
+        <h2>${escapeHtml(isReport ? copy.navReport : copy.aboutTitle)}</h2>
+        <p>${escapeHtml(isReport ? copy.report.privacy : copy.aboutBody)}</p>
+        ${isReport ? '' : `<p class="footer__note">${escapeHtml(copy.aboutNote)}</p>`}
       </div>
       <div>
         <h2>${escapeHtml(copy.docsTitle)}</h2>
@@ -626,6 +663,7 @@ export function renderPage(environment, lang) {
   </footer>
 
   <script>
+    ${isReport ? reportScript(copy.report, copy.locale) : `
     const environment = ${scriptJson(String(environment))};
     const copy = ${scriptJson(copy)};
     const api = '/stats/api/v1/global';
@@ -680,6 +718,7 @@ export function renderPage(environment, lang) {
 
     // One request per page load: the page is a snapshot, not a live dashboard.
     load();
+    `}
   </script>
 </body>
 </html>`

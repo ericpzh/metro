@@ -50,6 +50,42 @@ routes, a **separate local D1 database id**, and `ENVIRONMENT=development`. It
 cannot read or write the production database. Production deploys always run the
 top-level environment.
 
+## Bug reports and feature requests
+
+The public feedback list lives at `/stats/report` (Chinese) and
+`/stats/en/report` (English). Both use the stats shell and its `PAGE_COPY`
+catalogue. The totals page links to it, including on mobile.
+
+Reports persist in `reports` and votes in `report_votes`, in the same D1 database.
+The idempotent `schema.sql` creates them; `npm run deploy:stats` applies the schema
+before deploying. A CI deploy alone does not migrate these tables. No R2 binding
+is needed. Local preview uses the separate dev D1 as usual.
+
+* `GET /stats/api/v1/reports?sort=top&type=all&offset=0` returns up to 40 issues
+  and `hasMore`. `sort=new` orders by report time; `top` orders by upvotes, then
+  newest report time. Type may be `all`, `bug`, or `feature`.
+* `POST /stats/api/v1/reports` accepts `{type, title, details}`. Titles must be
+  3–160 characters and details 10–3,000 characters. Bodies are limited to 16 KiB.
+* `POST /stats/api/v1/reports/:id/vote` casts one upvote. Repeats are idempotent.
+
+Anyone can read the list and post without an account. Writes use the existing
+origin gate and ban list. Each address can create 5 reports and vote on 100 issues
+per UTC day, with one lifetime vote per issue. Limits are enforced inside SQL
+inserts, and vote counts are maintained by triggers to handle concurrent writes.
+Only the existing HMAC of `CF-Connecting-IP` is stored; address hashes are excluded
+from all public responses. Missing IP or `IP_HASH_SECRET` refuses writes with 503.
+Limits are in `limits.js`; keep the bilingual privacy copy aligned when changing them.
+`stats/test/reports.test.mjs` pins the UTC reset boundary for both limits, including
+Retry-After, and exercises database concurrency with real SQLite. Run
+`npm run check:stats:reports` to launch an isolated local Worker/D1 and check the
+actual page in Chrome/Edge: create, text escaping, upvote persistence, both locales
+and mobile/desktop widths. It uses a temporary database and removes it afterward;
+it never clears the normal `dev:stats` data.
+
+To remove abusive feedback, delete the corresponding `reports` row through the
+existing D1 admin command (below). Vote rows cascade on deletion. To remove an
+abusive vote, delete its `report_votes` row; triggers update the public count.
+
 ## Local preview
 
 ```powershell

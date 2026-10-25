@@ -170,9 +170,12 @@ The top bar `SettingsMenu` follows the square tile style. It has four audio slid
 scrolling, stats sharing), and four action tiles (restart, issue, language, benchmark).
 Master scales all audio channels; music playback is capped at half its former output.
 The stats explanation is hover-only, and the music credits tooltip closes on pointer
-leave and when play/pause is clicked. The issue tracker and language-aware benchmark
-open in new tabs. Pin structure and behavior in `audio.test.mjs`, `music.test.mjs`,
-`global-stats.test.mjs`, and `topbar-report-issue.test.mjs`; validate live audio
+leave and when play/pause is clicked. The issue action opens the stats feedback board
+on `/stats/report` for Chinese and `/stats/en/report` for English; local game dev
+targets the stats Worker on port 5176. The language-aware benchmark also opens in a
+new tab. Pin structure and behavior in `audio.test.mjs`, `music.test.mjs`,
+`global-stats.test.mjs`, `topbar-report-issue.test.mjs` and
+`report-issue-route.test.mjs`; validate live audio
 behavior with `node tools/check-game-audio.mjs` after a build.
 
 FSR 1 uses `native`, `ultra`, `quality`, `balanced` and `performance` modes;

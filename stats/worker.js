@@ -42,6 +42,7 @@
  *   - train_arrivals      total trains that reached a platform berth
  */
 import { renderPage } from './page.js'
+import { handleReports } from './reports.js'
 import {
   LEASE_RATE_LIMIT,
   LEASE_RATE_WINDOW_S,
@@ -234,11 +235,11 @@ function json(data, init = {}) {
  * known, so the declared `Content-Length` is refused first. A byte-counted stream reader
  * also bounds requests with missing or inaccurate lengths.
  */
-async function readPayload(request, cors) {
+async function readPayload(request, cors, maxBody = MAX_BODY) {
   const declared = request.headers.get('Content-Length')
   if (declared !== null) {
     const bytes = Number(declared)
-    if (!Number.isFinite(bytes) || bytes < 0 || bytes > MAX_BODY) {
+    if (!Number.isFinite(bytes) || bytes < 0 || bytes > maxBody) {
       return { response: json({ ok: false, error: 'payload too large' }, { status: 413, headers: cors }) }
     }
   }
@@ -251,7 +252,7 @@ async function readPayload(request, cors) {
         const { done, value } = await reader.read()
         if (done) break
         size += value.byteLength
-        if (size > MAX_BODY) {
+        if (size > maxBody) {
           await reader.cancel()
           return { response: json({ ok: false, error: 'payload too large' }, { status: 413, headers: cors }) }
         }
@@ -282,6 +283,12 @@ async function readPayload(request, cors) {
  * at a stable root, matching the site's `/en/` pin.
  */
 function splitRoute(pathname) {
+  if (pathname === '/stats/report/' || pathname === '/stats/en/report/') {
+    return { kind: 'redirect', path: pathname.slice(0, -1) }
+  }
+  if (pathname === '/stats/report' || pathname === '/stats/en/report') {
+    return { kind: 'page', path: '/report', lang: pathname.includes('/en/') ? 'en' : 'zh' }
+  }
   if (pathname === '/' || pathname === '/index.html') {
     return { kind: 'page', path: '/', lang: 'zh' }
   }
@@ -370,8 +377,8 @@ export default {
       if (request.method !== 'GET' && request.method !== 'HEAD') {
         return new Response('Method not allowed', { status: 405, headers: { Allow: 'GET, HEAD', ...cors } })
       }
-      if (route === '/') {
-        return new Response(renderPage(environment, lang), {
+      if (route === '/' || route === '/report') {
+        return new Response(request.method === 'HEAD' ? null : renderPage(environment, lang, route === '/report' ? 'report' : 'stats'), {
           status: 200,
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
@@ -397,6 +404,9 @@ export default {
     const db = env.STATS_DB
 
     try {
+      if (route === '/v1/reports' || route.startsWith('/v1/reports/')) {
+        return await handleReports(request, db, route, { json, readPayload, submitAllowed, clientIpHash, isBlocked, env, cors })
+      }
       if (route === '/' || route === '') {
         if (request.method !== 'GET') {
           return json({ ok: false, error: 'method not allowed' }, { status: 405, headers: { Allow: 'GET', ...cors } })
@@ -409,6 +419,7 @@ export default {
             lease: '/stats/api/v1/lease',
             submit: '/stats/api/v1/submit',
             health: '/stats/api/v1/health',
+            reports: '/stats/api/v1/reports',
           },
         }, { headers: cors })
       }
@@ -420,9 +431,9 @@ export default {
         const table = await db.prepare(
           `SELECT COUNT(*) AS n FROM sqlite_master
             WHERE type = 'table'
-              AND name IN ('stations', 'submit_leases', 'rate_limits')`
+              AND name IN ('stations', 'submit_leases', 'rate_limits', 'reports', 'report_votes')`
         ).first()
-        if (Number(table?.n ?? 0) < 3) {
+        if (Number(table?.n ?? 0) < 5) {
           return json(
             { ok: false, environment, database: 'bound', schema: 'missing' },
             { status: 503, headers: cors }

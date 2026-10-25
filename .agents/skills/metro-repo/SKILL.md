@@ -840,6 +840,13 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   `wrangler dev --env dev`; `npm run deploy:stats` applies `stats/schema.sql` to
   the remote database, deploys the top level and verifies the live health/totals
   endpoints. The page and API are the same Worker; there is no stats build.
+  The public reports board is `/stats/report` (Chinese) and `/stats/en/report`
+  (English), backed by its own `reports` / `report_votes` tables in that D1.
+  Keep its API, privacy and daily IP limits in `stats/README.md`; real-SQLite API,
+  concurrency and UTC-reset coverage lives in `stats/test/reports.test.mjs`.
+  `npm run check:stats:reports` is the repeatable browser check: it starts an
+  isolated Worker/D1 and verifies report creation, safe text rendering, votes,
+  both locales and responsive layouts without touching regular dev data.
   Both `/stats/api/v1/lease` and `/stats/api/v1/submit` are origin-gated.
   The game automatically enables stats only on the apex production hostname;
   keep client host resolution and Worker CORS/write allowlists aligned.

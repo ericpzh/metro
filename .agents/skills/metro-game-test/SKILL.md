@@ -22,6 +22,12 @@ or subjective listening test. Raw reports live in `.preview/perf/game-audio/`.
 Add conclusions to the shared performance reference only when they contain
 reproducible performance evidence; functional audio checks stay with these tests.
 
+The settings report action is pinned by `topbar-report-issue.test.mjs` and
+`report-issue-route.test.mjs`: the FaBug anchor follows the active locale to the
+stats Worker’s `/stats/report` or `/stats/en/report` page and uses the local stats
+origin during game development. Keep both route cases and the source contract in
+sync if the feedback page or worker routing changes.
+
 For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
 Guard work counts and ownership invariants; use browser measurements for latency.
 Live-panel regressions belong in `draw-batching`: pin one guttered rectangle per

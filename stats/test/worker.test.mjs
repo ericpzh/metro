@@ -55,7 +55,7 @@ function fakeDb({ counters = {}, stationCount = 0, latest = null, schema = true,
           throw new Error(`unexpected all(): ${sql}`)
         },
         async first() {
-          if (/sqlite_master/.test(sql)) return { n: schema ? 3 : 0 }
+          if (/sqlite_master/.test(sql)) return { n: schema ? 5 : 0 }
           if (/COUNT\(\*\) AS n FROM stations/.test(sql)) return { n: stationCount }
           if (/MAX\(t\) AS t/.test(sql)) return { t: latest }
           if (/FROM blocked_ips/.test(sql)) return blocked.includes(entry.args[0]) ? { blocked: 1 } : null

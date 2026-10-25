@@ -135,3 +135,33 @@ CREATE INDEX IF NOT EXISTS idx_submit_ips_client ON submit_ips (client_id);
 CREATE INDEX IF NOT EXISTS idx_leases_expiry ON submit_leases (expires_at);
 CREATE INDEX IF NOT EXISTS idx_leases_client ON submit_leases (client_id);
 CREATE INDEX IF NOT EXISTS idx_rate_limits_updated ON rate_limits (updated_at);
+
+-- Public feedback is independent of anonymous game statistics. Only explicit
+-- public fields are selected by the reports API; address hashes stay private.
+CREATE TABLE IF NOT EXISTS reports (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL CHECK (type IN ('bug', 'feature')),
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 3 AND 160),
+  details TEXT NOT NULL CHECK (length(details) BETWEEN 10 AND 3000),
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  votes INTEGER NOT NULL DEFAULT 0 CHECK (votes >= 0)
+);
+CREATE TABLE IF NOT EXISTS report_votes (
+  report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
+  ip_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (report_id, ip_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_reports_top ON reports (votes DESC, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_new ON reports (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_reports_ip_time ON reports (ip_hash, created_at);
+CREATE INDEX IF NOT EXISTS idx_report_votes_ip_time ON report_votes (ip_hash, created_at);
+CREATE TRIGGER IF NOT EXISTS report_vote_insert
+AFTER INSERT ON report_votes BEGIN
+  UPDATE reports SET votes = votes + 1 WHERE id = NEW.report_id;
+END;
+CREATE TRIGGER IF NOT EXISTS report_vote_delete
+AFTER DELETE ON report_votes BEGIN
+  UPDATE reports SET votes = votes - 1 WHERE id = OLD.report_id;
+END;

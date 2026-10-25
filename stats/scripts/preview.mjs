@@ -22,7 +22,7 @@ const statsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repo = resolve(statsDir, '..')
 const wrangler = join(repo, 'node_modules', 'wrangler', 'bin', 'wrangler.js')
 const config = join(statsDir, 'wrangler.jsonc')
-const state = join(statsDir, '.wrangler', 'state')
+const state = resolve(process.env.STATS_STATE_DIR || join(statsDir, '.wrangler', 'state'))
 const args = process.argv.slice(2)
 
 if (!existsSync(wrangler)) {
@@ -33,8 +33,9 @@ if (!existsSync(wrangler)) {
 // Workerd writes its per-run Miniflare state under the OS temp directory. On
 // Windows a sandboxed or profile-owned %TEMP% can reject those directories even
 // when the repo itself is writable (`CreateDirectory: Access is denied`), so
-// keep the runtime's temp files beside the preview's own ignored state.
-const runtimeTemp = join(statsDir, '.wrangler', 'tmp', 'miniflare')
+// keep the runtime's temp files beside this preview's ignored state. An isolated
+// STATS_STATE_DIR therefore also gets an isolated Workerd temporary directory.
+const runtimeTemp = process.env.STATS_RUNTIME_TEMP || join(state, '..', 'runtime-tmp')
 mkdirSync(runtimeTemp, { recursive: true })
 const childEnv = { ...process.env, TEMP: runtimeTemp, TMP: runtimeTemp, TMPDIR: runtimeTemp }
 
