@@ -78,6 +78,13 @@ test('an escalator only needs support at its lower landing, even when the run le
   assert.equal(equipmentReason([], [], escalator), 'escalator-bases', 'the lower landing still needs support')
 })
 
+test('pillars can be placed on underground floors', () => {
+  const pillar = createModule('pillar-slim', 0, 0, -1, 'underground-pillar')
+  assert.ok(pillar)
+  assert.equal(equipmentReason([{ x: 0, y: 0, z: -1, fill: 'solid' }], [], pillar), '')
+  assert.equal(equipmentReason([], [], pillar), 'floor', 'underground pillars still need floor support')
+})
+
 test('moduleAt finds a module from any cell it covers', () => {
   assert.equal(moduleAt([gate(0, 0, 0, 'a')], 0, 0, 0)?.id, 'a')
   assert.equal(moduleAt([gate(0, 0, 0, 'a')], 1, 0, 0), undefined)
