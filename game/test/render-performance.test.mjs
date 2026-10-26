@@ -4,6 +4,17 @@ import * as THREE from 'three'
 import { batchStaticModule } from '../src/render/batchStaticModule.ts'
 import { canRetainPaintedModules } from '../src/render/retainPaintedModules.ts'
 
+test('paint-reuse classification never serializes a retained module catalogue for an ordinary addition',()=>{
+  let serializations=0
+  const modules=Array.from({length:2048},(_,i)=>({id:`bench-${i}`,type:'bench',x:i,y:0,z:0,cfg:{},toJSON(){serializations++;return {id:this.id,type:this.type}}}))
+  const before={name:'large',seed:1,cells:[],modules,lines:[]}
+  const after={...before,modules:[...modules,{id:'new',type:'bench',x:0,y:0,z:0,cfg:{}}]}
+  assert.equal(canRetainPaintedModules(before,after),false)
+  assert.equal(serializations,0)
+  assert.equal(canRetainPaintedModules(before,{...before,modules:[...modules]}),true)
+  assert.equal(serializations,0,'identity-preserving arrays keep the same catalogue inputs')
+})
+
 test('static batching keeps transformed bounds, triangles and module ray picking', () => {
   const root = new THREE.Group()
   root.userData.moduleId = 'bench-1'

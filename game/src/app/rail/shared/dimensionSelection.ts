@@ -1,4 +1,4 @@
-import type { AppState } from '../../store/Store.ts'
+import type { BuilderAttributeState } from '../../store/builderAttributes.ts'
 import { isBenchType, isDoorType, isStairType } from '../../store/catalog.ts'
 import { STAIR_WIDTHS } from '../../../sim/stairs.ts'
 import { rampLengthsFor, rampLengthSpec } from '../../../sim/rampLengths.ts'
@@ -6,7 +6,7 @@ import { TRACK_RUN_LENGTHS } from '../../../sim/track.ts'
 import { PILLAR_LENGTHS } from '../../../sim/structures.ts'
 
 /** Read the selected size from builder state, never from translated labels. */
-export function dimensionSelection(kind: string, type: string, s: AppState): { selected: number; count: number } | undefined {
+export function dimensionSelection(kind: string, type: string, s: BuilderAttributeState): { selected: number; count: number } | undefined {
   const choice = (value: unknown, values: readonly unknown[]) => ({ selected: Math.max(0, values.indexOf(value)), count: values.length })
   if (kind === 'width') {
     if (type === 'road') return choice(s.roadWidth, [6, 12, 18, 24])

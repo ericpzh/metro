@@ -5,6 +5,8 @@ import { packKey, type StationData } from '../sim/types.ts'
 import { thinWallCells } from '../sim/openings.ts'
 import { isEquipmentContentEdit, isEquipmentModelEdit, signBoardsOnlyChange } from '../render/moduleDependencies.ts'
 import { localCellEdit } from '../render/localCellEdit.ts'
+import { changedCellRecords } from '../render/cellChanges.ts'
+import type { Cell } from '../sim/types.ts'
 
 function geometryOf(data: StationData, thins = thinWallSideMap(data.cells, data.modules)) {
   const ground = withGround(data.cells, data.modules)
@@ -23,6 +25,39 @@ function geometryOf(data: StationData, thins = thinWallSideMap(data.cells, data.
 export class StationGeometry {
   private data: StationData | null = null
   private geometry: ReturnType<typeof geometryOf> | null = null
+
+  /** Ground is still derived in full. Update occupancy and exposed-floor keys
+   * from its exact membership delta and all changed authored records, including
+   * duplicates, rather than reclassifying the entire street on every ramp edit. */
+  private updateGeometry(data: StationData, thins: ReturnType<typeof thinWallSideMap>) {
+    const ground=withGround(data.cells,data.modules)
+    const candidates=new Map<number,Cell>()
+    const add=(c:Cell)=>{
+      for(let dz=-1;dz<=1;dz++)candidates.set(packKey(c.x,c.y,c.z+dz),{...c,z:c.z+dz})
+    }
+    for(const c of changedCellRecords(this.data!.cells,data.cells))add(c)
+    // withGround emits generated pavement in ascending x/y order. Merge those
+    // tails directly; a second full street map would cost more than the diff.
+    const old=this.geometry!.ground
+    let i=this.data!.cells.length,j=data.cells.length
+    while(i<old.length||j<ground.length){
+      const a=old[i],b=ground[j]
+      if(!a){add(b);j++;continue}
+      if(!b){add(a);i++;continue}
+      if(a.x===b.x&&a.y===b.y){i++;j++;continue}
+      if(a.x<b.x||a.x===b.x&&a.y<b.y){add(a);i++}
+      else {add(b);j++}
+    }
+    const {solids,floors}=this.geometry!
+    const affected:Cell[]=[]
+    for(const c of candidates.values()){
+      const key=cellKey(c.x,c.y,c.z);solids.delete(key);floors.delete(key)
+    }
+    for(const c of ground)if(candidates.has(packKey(c.x,c.y,c.z)))affected.push(c)
+    for(const c of affected)if(c.fill==='solid')solids.add(cellKey(c.x,c.y,c.z))
+    for(const key of zoneFloorKeys(affected,solids))floors.add(key)
+    return {ground,solids,floors,thins}
+  }
 
   resolve(data: StationData): ReturnType<typeof geometryOf> {
     const edit=this.data && this.geometry && localCellEdit(this.data,data)
@@ -55,7 +90,11 @@ export class StationGeometry {
       !isEquipmentModelEdit(this.data, data) && signBoardsOnlyChange(this.data, data) === null)) {
       const thins = this.geometry && this.data && this.data.cells === data.cells && isEquipmentContentEdit(this.data, data)
         ? this.geometry.thins : undefined
-      this.geometry = geometryOf(data, thins)
+      const preparedThins=thins??thinWallSideMap(data.cells,data.modules)
+      if(this.geometry&&this.data)this.geometry=this.updateGeometry(data,preparedThins)
+      else {
+        this.geometry=geometryOf(data,preparedThins)
+      }
     }
     this.data = data
     return this.geometry

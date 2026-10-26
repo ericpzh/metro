@@ -14,6 +14,7 @@ import type { ChunkSystem } from '../../render/scene/systems/ChunkSystem.ts'
 import type { ModuleSystem } from '../../render/scene/systems/ModuleSystem.ts'
 import type { LevelSystem } from '../../render/scene/systems/LevelSystem.ts'
 import type { CameraSystem } from '../../render/scene/systems/CameraSystem.ts'
+import { StationGeometry } from '../stationGeometry.ts'
 
 const frame=()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))
 const settle=async()=>{await frame();await frame()}
@@ -31,14 +32,16 @@ function instrument(){
   const wrap=(object:object,key:string,label:string)=>{
     const host=object as Record<string, (...args:unknown[])=>unknown>,original=host[key]
     if(typeof original!=='function')throw Error(`Missing stage ${label}`)
-    host[key]=function(...args){const row=current,t=performance.now();try{return original.apply(this,args)}finally{
-      if(row){const w=row.work[label]??={calls:0,ms:0};w.calls++;w.ms+=performance.now()-t
+    const run=function auditedStage(this:unknown,row:NonNullable<typeof current>,args:unknown[]){
+      const t=performance.now();try{return original.apply(this,args)}finally{
+        const w=row.work[label]??={calls:0,ms:0};w.calls++;w.ms+=performance.now()-t
         const data=s.ctx.stationData
         if(label==='renderer.render'&&row.ready&&row.render===null&&
           (row.expectedMoving===undefined||s.ghostSys.movingModuleId===row.expectedMoving)&&
           (!row.expected||data?.cells===row.expected.cells&&data.modules===row.expected.modules))row.render=performance.now()-row.start
       }
-    }}
+    }
+    host[key]=function(...args){return current?run.call(this,current,args):original.apply(this,args)}
   }
   for(const [host,keys,prefix]of [
     [s,['setStation','setModulePreview','setGhost','setMovingModule'],'scene'],
@@ -46,6 +49,7 @@ function instrument(){
     [s.modules,['buildModules','syncBatches','retainedIds','buildModel','clearModules'],'modules'],
     [s.level,['applyLevel'],'level'],[s.renderer,['render'],'renderer'],
   ] as const)for(const key of keys)wrap(host,key,`${prefix}.${key}`)
+  wrap(StationGeometry.prototype,'resolve','tools.resolve')
   addEventListener('error',e=>errors.push(e.message))
   addEventListener('unhandledrejection',e=>errors.push(String(e.reason)))
 }
@@ -218,6 +222,7 @@ export async function runCase(id:string,count=3){
 }
 
 export const stages={
+  'tools.resolve':'game/src/app/stationGeometry.ts',
   'scene.setModulePreview':'game/src/render/scene/systems/GhostSystem.ts',
   'scene.setGhost':'game/src/render/scene/systems/GhostSystem.ts',
   'scene.setMovingModule':'game/src/render/scene/SceneRenderer.ts',

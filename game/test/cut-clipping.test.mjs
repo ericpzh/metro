@@ -48,6 +48,30 @@ test('equipment commits keep unchanged clipping shader versions; toggles and new
   }finally{section.dispose();material.dispose();geometry.dispose()}
 })
 
+test('unchanged clipping and storey views skip retained module trees but dress new roots and toggles',()=>{
+  const ctx=new SceneContextData(new THREE.Scene(),{},{},{})
+  const section=new SectionSystem(ctx),material=new THREE.MeshBasicMaterial(),geometry=new THREE.BoxGeometry()
+  const root=new THREE.Group();root.add(new THREE.Mesh(geometry,material))
+  const modules=new THREE.Group();modules.add(root)
+  section.chunks={chunkMeshes:[],outlineMeshes:[]};section.crowd={clipMaterials:()=>[]}
+  section.modules={moduleMeshes:modules,retainedLevelRoots:new Set([root])}
+  let walks=0;const traverse=root.traverse.bind(root)
+  root.traverse=(...args)=>{walks++;return traverse(...args)}
+  try{
+    ctx.levelKey='view';section.applyClip();assert.equal(walks,1)
+    section.applyClip();assert.equal(walks,1)
+    section.on=true;section.applyClip();assert.equal(walks,2)
+    assert.equal(material.clippingPlanes[0],section.plane)
+    section.applyClip();assert.equal(walks,2)
+    ctx.levelKey='another-view';section.applyClip();assert.equal(walks,3)
+    const added=material.clone();added.clippingPlanes=null
+    const fresh=new THREE.Mesh(geometry,added);modules.add(fresh)
+    section.applyClip();assert.equal(added.clippingPlanes[0],section.plane)
+    section.on=false;section.applyClip();assert.equal(material.clippingPlanes,null)
+    added.dispose()
+  }finally{geometry.dispose();material.dispose()}
+})
+
 const B2 = -8
 const B1 = -4
 

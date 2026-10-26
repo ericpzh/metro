@@ -1,4 +1,5 @@
 import type { StationData } from '../sim/types.ts'
+import { sameModuleMetadata } from './moduleDependencies.ts'
 
 /**
  * A top-face paint edit changes chunks, but not equipment (§4.3). Stairs inherit
@@ -8,9 +9,7 @@ import type { StationData } from '../sim/types.ts'
  */
 export function canRetainPaintedModules(before: StationData, after: StationData): boolean {
   if (before.cells.length !== after.cells.length) return false
-  const { cells: _oldCells, ...oldMetadata } = before
-  const { cells: _newCells, ...newMetadata } = after
-  if (JSON.stringify(oldMetadata) !== JSON.stringify(newMetadata)) return false
+  if (!sameModuleMetadata(before, after)) return false
   const stairStarts = new Set<string>()
   for (const mod of after.modules) {
     if (mod.type !== 'stair') continue

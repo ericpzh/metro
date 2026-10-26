@@ -99,7 +99,7 @@ test('local batch edits reuse retained source discovery and invalidate it on tra
   } finally {batches.clear();cleanup(group);material.dispose()}
 })
 
-test('append-only bucket aggregation matches fresh rendering after local additions, deletion and view changes',()=>{
+test('incremental bucket aggregation matches fresh rendering after additions, replacements, deletion and view changes',()=>{
   const material=new THREE.MeshBasicMaterial(),group=new THREE.Group(),batches=new EquipmentBatches()
   const make=(id,x)=>{const r=root([new THREE.Mesh(new THREE.BoxGeometry(),material)],id);r.position.x=x;return r}
   group.add(make('a',0),make('b',2))
@@ -115,8 +115,33 @@ test('append-only bucket aggregation matches fresh rendering after local additio
     group.add(make('c',4));batches.invalidateViews(true);batches.sync(group,'b','b','slice');freshMatches()
     const removed=group.children[1];group.remove(removed)
     batches.invalidateViews(true);batches.sync(group,'c','c','slice');freshMatches();removed.children[0].geometry.dispose()
+    group.children[0].position.x=3
+    batches.invalidateViews(true);batches.sync(group,'moved','moved','slice');freshMatches()
+    group.children.reverse()
+    batches.invalidateViews(true);batches.sync(group,'reordered','reordered','slice');freshMatches()
     batches.invalidateViews(true);batches.sync(group,'d','d','another-slice');freshMatches()
   }finally{batches.clear();cleanup(group);material.dispose()}
+})
+
+test('local replacements and deletion never revisit remote batch geometry',()=>{
+  const material=new THREE.MeshBasicMaterial(),group=new THREE.Group(),batches=new EquipmentBatches()
+  const make=(id,x)=>{const r=root([new THREE.Mesh(new THREE.BoxGeometry(),material),new THREE.Mesh(new THREE.BoxGeometry(),material)],id);r.position.x=x;r.children[1].position.x=2;return r}
+  const local=make('local',0),remote=make('remote',64);group.add(local,remote)
+  let reads=0
+  try{
+    batches.sync(group,'a','a','slice')
+    const remoteBatch=batches.root.children.find(mesh=>mesh.boundingBox?.min.x>=60||mesh.geometry.boundingBox?.min.x>=60)
+    assert.ok(remoteBatch)
+    for(const mesh of remote.children){let geometry=mesh.geometry;Object.defineProperty(mesh,'geometry',{configurable:true,get(){reads++;return geometry},set(value){geometry=value}})}
+    local.position.x=5
+    batches.invalidateViews(true);batches.sync(group,'b','b','slice')
+    assert.equal(reads,0,'remote source signatures and detail geometry are not reread')
+    assert.ok(batches.root.children.includes(remoteBatch))
+    group.remove(local)
+    batches.invalidateViews(true);batches.sync(group,'c','c','slice')
+    assert.equal(reads,0)
+    assert.ok(batches.root.children.includes(remoteBatch))
+  }finally{batches.clear();cleanup(group);cleanup(local);material.dispose()}
 })
 
 test('retired view buffers leave the click path and teardown cancels and drains their idle job once',()=>{

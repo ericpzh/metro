@@ -56,6 +56,27 @@ test('live tool indexes match fresh occupancy and floor rules through local edit
   assert.equal(JSON.stringify(before),source,'derived index changes never mutate the station')
 })
 
+test('structural tool-index deltas match fresh preparation across holes, duplicates, ground expansion and undo',async()=>{
+  const {addEquipment,removeModule}=await import('../src/build/model.ts')
+  const cache=new StationGeometry(),base=fixture()
+  base.cells=[...base.cells,{x:2,y:2,z:-9,fill:'solid',finish:{top:'floor.track'}},
+    {x:2,y:2,z:-9,fill:'void'},{x:0,y:0,z:0,fill:'void'},
+    {x:1,y:1,z:1,fill:'solid',tags:['half-wall:n']}]
+  const original=JSON.stringify(base),solids=cache.resolve(base).solids,floors=cache.resolve(base).floors
+  for(const kind of ['stair-left180','escalator','lift','exit-virtual','door-glass-1','shelf-white-tall']){
+    const piece=createModule(kind,0,0,-10,kind)
+    assert.ok(piece,kind)
+    const placed=addEquipment(base,piece),moved=addEquipment(base,{...piece,x:80,from:piece.from?{...piece.from,x:80}:undefined,to:piece.to?{...piece.to,x:80}:undefined})
+    for(const state of [placed,moved,removeModule(moved,kind),base]){
+      const result=cache.resolve(state)
+      assert.deepEqual(result,new StationGeometry().resolve(state),kind)
+      assert.equal(result.solids,solids,'the live occupancy index remains allocated')
+      assert.equal(result.floors,floors,'only affected exposed floor keys change')
+    }
+  }
+  assert.equal(JSON.stringify(base),original)
+})
+
 test('cell delta caching includes the module-owned street bounds',()=>{
   const before=fixture(),after={...before,cells:[...before.cells,{x:500,y:0,z:-9,fill:'solid'}]}
   const modules=[createModule('bench',1000,0,0,'distant')]

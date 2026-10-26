@@ -792,9 +792,11 @@ export function removeModule(state: StationState, id: string): StationState {
   });
   if (modules.length === state.modules.length) return state;
   if (!gone) return { ...state, modules };
+  const landings = stairLandingCells(gone);
+  if (!landings.length) return { ...state, modules };
   const keep = cellsInUse(modules);
   const kill = new Set(
-    stairLandingCells(gone)
+    landings
       .map((p) => cellKey(p.x, p.y, p.z))
       .filter((k) => !keep.has(k)),
   );

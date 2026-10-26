@@ -22,6 +22,15 @@ the shared performance reference; run `npm run bench:block-edits` for real point
 place/delete gestures across blocks, walls, half walls, both triangle families,
 stair blocks, wall column erase and stair-block move.
 
+Structural tool-index comparisons also cover generated holes, expanded/shrunk street
+windows, duplicate records and above/below floor dependencies. `line-edit` pins exact
+immutable structural history through repeated undo/redo. `batching-lifecycle` checks
+replacement/deletion/reordering against fresh batches and zero remote geometry reads;
+`cut-clipping` checks retained roots, new materials and plane/view invalidation.
+`builder-attributes` guards inactive action rows against live store subscriptions
+and retaining full document/history/graph snapshots;
+the production tutorial checker exercises the bilingual builder controls.
+
 `monitor-signal` pins bottom-to-top yellow/red/green aspect order, nearest-platform selection shared with TVs, and live lenses excluded from equipment batches. `station-display` checks the real dispatcher phase through departure and disappearance. Signals show green from berth through departure, red during approach and between services.
 
 `audio` pins the six approved assets, four bilingual volume sliders, the 10% default

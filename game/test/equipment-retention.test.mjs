@@ -22,6 +22,17 @@ import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 
+test('doors and activity furniture retain chunk/tool inputs while preserving functional routing edits',()=>{
+  const before=station([]),cache=new StationGeometry(),prepared=cache.resolve(before)
+  for(const type of ['door-glass-1','shelf-white-tall','cubicle','sink']){
+    const mod=createModule(type,0,0,0,type),after={...before,modules:[mod]}
+    assert.equal(isEquipmentModelEdit(before,after),true,type)
+    assert.equal(isCosmeticStationEdit(before,after),false,`${type} still changes pedestrian routing`)
+    assert.equal(cache.resolve(after),prepared)
+    assert.equal(cache.resolve(before),prepared)
+  }
+})
+
 test('large remote tunnel edits prepare each dependent model envelope once',()=>{
   const stair=createModule('stair-left180',0,0,0,'stair'),from=stair.from
   let reads=0

@@ -96,6 +96,18 @@ Known structural commits compare complete prepared chunk inputs and update only
 affected chunk columns, including generated street-window changes. Unknown module
 kinds and edits affecting more than 256 chunk columns retain full hashing. Preserve
 duplicate authored records and compare incremental meshes with a fresh rebuild.
+Committed documents and undo/redo frames share immutable records within the existing
+history limits. Tool occupancy updates compare complete authored-cell changes and
+the sorted generated-ground tails; preserve duplicate records and floor dependencies
+above/below an edited cell. Doors, shelves, cubicles and sinks change model/routing
+inputs without changing chunks. Keep their worker routing edits functional.
+Retained model roots keep live animation registrations and clipping when both the
+plane and storey view agree. Remove registrations with their owner. Equipment batch
+updates replace only affected bucket contributions; ordering/view/mutable-source
+changes must still match a fresh build. Closed build-menu action rows retain their
+last control snapshot for animation without live store subscriptions. Keep that
+snapshot limited to builder settings/actions and displayed line/exit labels; never
+retain full station documents, history, graphs or live buffers in a closed row.
 The prepared train fleet keeps at most eight dormant models, using available room
 for a second copy of each existing appearance. Yaw and door-side flags change poses,
 not train geometry; power, stock, car count, direction and scale still select geometry.

@@ -44,6 +44,15 @@ import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
 
 import type { AppState } from '../../store/Store.ts'
+import { builderAttributeState } from '../../store/builderAttributes.ts'
+
+function actionTileState(state:AppState){
+  return {...builderAttributeState(state),tool:state.tool,moduleType:state.moduleType,
+    railLineId:state.railLineId,guideExitId:state.guideExitId,wallSnapCycle:state.wallSnapCycle,
+    halfWall:state.halfWall,triangles:state.triangles,triKind:state.triKind,
+    station:{lines:state.station.lines,modules:state.station.modules.filter(m=>m.type==='exit')}}
+}
+type ActionTileState=ReturnType<typeof actionTileState>
 
 /**
  * One anchor's action row: the fold, the open rule and the tiles. A folder mounts one
@@ -63,9 +72,15 @@ export function ActionRow({
   openFamily: ModuleFamilyKey | null
 }): React.ReactElement {
   useLanguage()
+  const open=actionRowOpen(anchor,pieceAnchor,openFamily)
+  // InlineExpand keeps the closing row's last element for its animation. Pass
+  // a snapshot into that element: hidden rows must not keep live subscriptions
+  // to every commit, passenger tick and pointer-preview update.
+  const live=useStore(s=>open?s:null)
+  const state=live?actionTileState(live):null
   return (
-    <InlineExpand open={actionRowOpen(anchor, pieceAnchor, openFamily)}>
-      <ActionTiles />
+    <InlineExpand open={open}>
+      {state?<ActionTiles state={state}/>:null}
     </InlineExpand>
   )
 }
@@ -78,23 +93,19 @@ export function ActionRow({
  * is armed on the 方块 tool, which places no module at all, so the two can never both be
  * live — and the guards say so rather than relying on that.
  */
-function ActionTiles(): React.ReactElement {
+function ActionTiles({state}:{state:ActionTileState}): React.ReactElement {
   useLanguage()
-  const tool = useStore((s) => s.tool)
-  const moduleType = useStore((s) => s.moduleType)
-  const lines = useStore((s) => s.station.lines)
-  const railLineId = useStore((s) => s.railLineId)
+  const {tool,moduleType,railLineId,guideExitId}=state
+  const lines = state.station.lines
   const floorLine = lines.find((l) => l.id === railLineId) ?? lines.find((l) => l.id === '5') ?? lines[0]
-  const guideExitId = useStore((s) => s.guideExitId)
-  const exits = useStore((s) => s.station.modules).filter((m) => m.type === 'exit')
+  const exits = state.station.modules.filter((m) => m.type === 'exit')
   const selectedExitId = exits.find((m) => m.id === guideExitId)?.id ?? exits[0]?.id
   const st = useStore.getState
   // The cut piece the 方块 click will lay, if any: its orientation is the one thing a
   // cut can be told about, and it is the same counter **R** turns.
-  const cutArmed = useStore(armedCut)
+  const cutArmed = armedCut(state)
   const cut = tool === 'block' ? cutArmed : null
   const piece = tool === 'module' ? moduleType : null
-  const state = useStore((s) => s)
   return (
     <>
       {cut !== null ? (
@@ -126,7 +137,7 @@ function ActionTiles(): React.ReactElement {
   )
 }
 
-function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: BuilderAttribute; moduleType: string; state: AppState }): React.ReactElement {
+function BuilderAttributeTile({ attribute, moduleType, state }: { attribute: BuilderAttribute; moduleType: string; state: ActionTileState }): React.ReactElement {
   if (attribute.kind === 'rotation') return <RotateTile rotation={state.moduleRot} label={translate(attribute.label)} onClick={attribute.activate} />
   if (attribute.visual === 'grid-position') {
     const position = moduleType.startsWith('pillar-slim') ? state.moduleRot : state.lightPosition

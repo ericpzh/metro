@@ -72,6 +72,8 @@ export class SectionSystem extends SceneSystem {
   private surfaceVisible = true
   /** What the arrow was last sized for, so it is only re-laid-out when it moves. */
   private arrowKey = 0
+  private appliedClip: THREE.Plane | null | undefined
+  private appliedClipView = ''
 
   constructor(ctx: SceneContext) {
     super(ctx)
@@ -273,6 +275,8 @@ export class SectionSystem extends SceneSystem {
    * not come through here at all.
    */
   applyClip(): void {
+    const plane=this.on?this.plane:null
+    const retainedView=this.appliedClip===plane&&this.appliedClipView===this.ctx.levelKey
     const planes: THREE.Plane[] | null = this.on ? [this.plane] : null
     const apply = (mat: THREE.Material): void => {
       const previous = mat.clippingPlanes
@@ -293,6 +297,7 @@ export class SectionSystem extends SceneSystem {
     // Equipment is clipped too: a 闸机, a screen door and a train standing in
     // the half that is cut away must go with the slab, exactly as the crowd does.
     for (const root of this.modules.moduleMeshes.children) {
+      if(retainedView&&this.modules.retainedLevelRoots?.has(root))continue
       root.traverse((o) => {
         const mesh = o as THREE.Mesh
         if (!mesh.isMesh) return
@@ -310,6 +315,8 @@ export class SectionSystem extends SceneSystem {
     // the walk the plane is what makes it restate them (`LevelSystem.setClip`).
     // Without this the cut has holes in it, and a storey shows straight through.
     this.level?.setClip(this.on ? this.plane : null)
+    this.appliedClip=plane
+    this.appliedClipView=this.ctx.levelKey
   }
 
   /**

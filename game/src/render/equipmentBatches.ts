@@ -70,6 +70,7 @@ export class EquipmentBatches {
   private retirementJob: number | null = null
   private sourceTransforms = new Map<THREE.Mesh, boolean>()
   private sourceOnlyRoots = new Set<THREE.Object3D>()
+  private rootCoverage = new WeakMap<THREE.Object3D, { entries: Entry[]; onlySources: boolean }>()
 
   private restoreSourceTransforms(): void {
     for (const [mesh, automatic] of this.sourceTransforms) mesh.matrixAutoUpdate = automatic
@@ -79,6 +80,7 @@ export class EquipmentBatches {
   invalidateViews(retainSources = false): void {
     if (!retainSources) {
       this.rootSources = new WeakMap()
+      this.rootCoverage = new WeakMap()
       this.sourceBuckets = null
       this.sourceRoots.clear()
     }
@@ -86,7 +88,7 @@ export class EquipmentBatches {
     this.views.clear()
     this.revision = undefined
     this.generation = undefined
-    this.publish(undefined, undefined)
+    this.releaseUnusedEntries()
   }
 
   /** Recent slices include the active one. Edits invalidate dormant GPU data. */
@@ -107,20 +109,28 @@ export class EquipmentBatches {
       entries.add(entry); this.entriesByRoot.set(source.root, entries)
     }
     this.sourceOnlyRoots.clear()
-    for (const root of this.entriesByRoot.keys()) {
-      let onlySources = true
-      root.traverse(object => {
-        if (object instanceof THREE.Mesh) {
-          if (!object.layers.isEnabled(BATCH_SOURCE_LAYER)) onlySources = false
-        } else if (!(object instanceof THREE.Group) && object.type !== 'Object3D') onlySources = false
-      })
-      if (onlySources) this.sourceOnlyRoots.add(root)
+    for (const [root,entries] of this.entriesByRoot) {
+      let coverage=this.rootCoverage.get(root)
+      if(!coverage || coverage.entries.length!==entries.size || coverage.entries.some(entry=>!entries.has(entry))){
+        let onlySources = true
+        root.traverse(object => {
+          if (object instanceof THREE.Mesh) {
+            if (!object.layers.isEnabled(BATCH_SOURCE_LAYER)) onlySources = false
+          } else if (!(object instanceof THREE.Group) && object.type !== 'Object3D') onlySources = false
+        })
+        coverage={entries:[...entries],onlySources};this.rootCoverage.set(root,coverage)
+      }
+      if (coverage.onlySources) this.sourceOnlyRoots.add(root)
     }
     if (generation !== undefined && revision !== undefined) {
       this.views.delete(revision)
       this.views.set(revision, { entries: this.entries, sources: this.sources, buckets: this.sourceBuckets, roots: this.sourceRoots })
       if (this.views.size > EQUIPMENT_VIEW_CACHE_SIZE) this.views.delete(this.views.keys().next().value!)
     }
+    this.releaseUnusedEntries()
+  }
+
+  private releaseUnusedEntries(): void {
     const retained = new Set(this.entries.values())
     for (const view of this.views.values()) for (const entry of view.entries.values()) retained.add(entry)
     for (const entry of this.owned) if (!retained.has(entry)) {
@@ -230,22 +240,45 @@ export class EquipmentBatches {
       for (const texture of record.textures) textures.add(texture)
     }
     this.atlas.retain(textures)
-    // An immutable append leaves every existing root's source record and order
-    // intact. Only buckets receiving new sources need another signature/bake.
-    const previousRoots = [...this.sourceRoots.keys()]
-    const append = sourceView !== undefined && this.sourceBuckets !== null && previousRoots.length <= modules.children.length &&
-      previousRoots.every((root, i) => modules.children[i] === root && prepared.get(root) === this.sourceRoots.get(root))
-    if (append) this.sources = new Set(this.sources)
+    // Immutable edits replace only affected roots. Remove their old bucket
+    // contributions and merge their replacements; remote source lists and
+    // geometry signatures remain exact without another station-wide walk.
+    const retainedOrder = [...this.sourceRoots.keys()].filter(root=>prepared.get(root)===this.sourceRoots.get(root))
+    const nextOrder = modules.children.filter(root=>prepared.get(root)===this.sourceRoots.get(root))
+    const incremental = sourceView !== undefined && this.sourceBuckets !== null &&
+      retainedOrder.every((root,i)=>root===nextOrder[i])
+    const unchanged = new Set<THREE.Object3D>()
+    if (incremental) for (const [root,record] of prepared)
+      if (this.sourceRoots.get(root) === record) unchanged.add(root)
+    if (incremental) this.sources = new Set(this.sources)
     else {
       for (const mesh of this.sources) mesh.layers.set(0)
       this.sources = new Set()
     }
-    const buckets: Buckets = append ? new Map(this.sourceBuckets!) : new Map()
+    const buckets: Buckets = incremental ? new Map(this.sourceBuckets!) : new Map()
     const changed = new Set<string>()
+    if (incremental) {
+      const affected = new Set<string>()
+      for (const [root,record] of this.sourceRoots) if (!unchanged.has(root)) {
+        for (const [key,bucket] of record.buckets ?? []) {
+          affected.add(key)
+          for (const source of bucket.sources) {
+            this.sources.delete(source.mesh); source.mesh.layers.set(0)
+          }
+        }
+      }
+      for (const key of affected) {
+        const bucket = buckets.get(key)!
+        const sources = bucket.sources.filter(s=>unchanged.has(s.root))
+        if (sources.length) buckets.set(key,{material:bucket.material,sources})
+        else buckets.delete(key)
+        changed.add(key)
+      }
+    }
     const merge = (local: Buckets): void => {
       for (const [key, bucket] of local) {
         let existing = buckets.get(key)
-        if (append && existing && !changed.has(key)) {
+        if (incremental && existing && !changed.has(key)) {
           existing = { material: existing.material, sources: [...existing.sources] }
           buckets.set(key, existing)
         }
@@ -255,7 +288,7 @@ export class EquipmentBatches {
       }
     }
     for (const root of modules.children) {
-      if (append && this.sourceRoots.has(root)) continue
+      if (unchanged.has(root)) continue
       if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible) continue
       const record = prepared.get(root)!
       if (record.buckets) {
@@ -290,9 +323,11 @@ export class EquipmentBatches {
       record.buckets = local
       merge(local)
     }
-    const alive = append ? new Set(this.entries.keys()) : new Set<string>()
+    const alive = incremental ? new Set([...this.entries.keys()].filter(key=>!changed.has(key))) : new Set<string>()
+    const rootOrder = new Map(modules.children.map((root,i)=>[root,i]))
     for (const [key, { material, sources }] of buckets) {
-      if (append && !changed.has(key)) continue
+      if (incremental && !changed.has(key)) continue
+      if (incremental) sources.sort((a,b)=>rootOrder.get(a.root)!-rootOrder.get(b.root)!)
       const coarse = sources.map(s => modelDetailGeometry(s.mesh))
       if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) continue
       alive.add(key)
@@ -425,6 +460,7 @@ export class EquipmentBatches {
     for (const entry of this.retired) this.drop(entry)
     this.retired.clear()
     this.rootSources = new WeakMap()
+    this.rootCoverage = new WeakMap()
     this.sourceBuckets = null
     this.sourceRoots.clear()
     this.detailView = []

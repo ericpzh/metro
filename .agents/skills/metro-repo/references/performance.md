@@ -364,9 +364,9 @@ all 404 Zoo and 405 Tanwei cases. **All 4,411 timed stages are <500 ms**, with a
 Every one of the original 57 slow case/action pairs is now below 500 ms in this
 matching one-sample inventory. The remaining 443 rows are 441 unsupported actions
 and the two pre-existing Zoo/Tanwei PSD-cover drop refusals, which have no completed
-feedback timing. There are no runtime/GL errors. The current readable matrix and
-JSONL companion contain this full capture, not a merge with the selected repeats.
-Its 100 ms result remains 2,910 passes and 1,501 over-budget stages.
+feedback timing. There are no runtime/GL errors. This full capture originally populated the readable matrix and
+JSONL companion, independently of the selected repeats.
+Its 100 ms result was 2,910 passes and 1,501 over-budget stages; the next section owns the current companions.
 
 | Family | Originally slow case/action pairs | Baseline maximum | Optimized maximum |
 | --- | ---: | ---: | ---: |
@@ -381,7 +381,7 @@ Its 100 ms result remains 2,910 passes and 1,501 over-budget stages.
 
 These are maxima across the same affected pairs in the baseline and optimized full
 one-sample captures; a family's maximum can come from different variants. The
-source fingerprint of the measured build matches the final working source.
+source fingerprint of that measured build matched its captured source.
 
 The host/protocol remains i7-14700KF / RTX 4080 SUPER, HeadlessChrome 156 / ANGLE
 D3D11, High, paused staging camera, 892 × 815 canvas, pixel ratio 1. Captures run
@@ -401,6 +401,123 @@ changes and bounded GPU eviction. The production build and all 2,502 game tests
 pass. Production batching preserves open/closed train triangles with no
 GLSL/WebGL/runtime errors; CPU/trace export checks pass. Logs are
 `.preview/perf/remaining-500-{full-tests,render-batching,perf-tools}.log`.
+
+#### Work toward the 100 ms editor budget
+
+The preceding 500 ms inventory is the baseline for this pass: 1,501 completed
+stages exceeded the normal 100 ms budget. Separate profiles of decor, wide doors,
+turning stairs, auto-wall patches, platforms and tunnels exposed repeated model
+catalogue serialization, whole-station batch aggregation, retained animation/tree
+registration, occupancy/floor classification, and subscriptions in hidden build-menu
+action rows. Profiles are diagnostic and include fixture preparation unless filtered
+to the audited-stage stack; they are not used as clean latency samples. Captures are
+`.preview/perf/target-100-profile-{before,next}/`.
+
+Paint reuse now checks immutable module identities before serialization. Shared
+module-array comparisons are weakly cached, and ordinary additions avoid the
+stair-block-only scan. Remote opening edits skip unrelated raised-floor, ceiling
+and surface dependency readers. Doors, shelves, cubicles and sinks retain chunk
+inputs while continuing to update functional worker routing. Deleting a module
+without stair landing cells no longer enumerates every remaining footprint.
+
+Equipment batches apply root replacements/removals to affected bucket source lists
+and preserve remote geometry signatures. They preserve source order, fall back on
+reordering/view/mutable-input changes, and retire old views without publishing the
+current tree twice. Source-only coverage reuses unchanged entry ownership. Retained
+model roots preserve live animation registrations, and clipping skips their trees
+only when both plane and storey view agree. Removed owners leave every registry.
+
+Structural undo/redo retains immutable documents within the existing history caps.
+Tool occupancy still derives the complete generated street, then merges its ordered
+ground tails and all authored-cell differences to update only affected solid/floor
+keys, including above/below dependencies and duplicate records. It does not skip
+street derivation or thin-wall correctness. Closed build-menu rows retain a small
+control snapshot for their fold animation and have no live store subscription;
+those snapshots exclude document/history/graph/buffer state. Benchmark work counters
+now separately include `tools.resolve` for this tool-index preparation.
+
+Final source/build are `b63047800650b01abde1b061e2e4d62f2e9c06598735b885403cf2ade98c1765` /
+`86e0634203bba21d074211f2613908a49c6574eca1fe89ba9a4c5aab1fb6dd54`. The matched six-case, three-sample recheck uses complete Zoo
+and Tanwei documents, identical fixtures/camera/canvas/quality and normal hardware
+rendering. It records 216 stages: 162 completed timings and 54 unsupported actions.
+Passing timings increase **94 → 119**, and timings at/above 100 ms decrease
+**68 → 43**. Both captures complete without functional/runtime/WebGL errors.
+Reports are `.preview/perf/target-100-matched-{before,final}/report.json`.
+
+The following medians and maxima aggregate place/drop/delete in each selected case;
+unsupported moves are excluded. Three repetitions do not establish a tail distribution.
+
+| Demo | Case | Before commit median | After commit median | Before → after maximum | After commits <100 ms |
+| --- | --- | ---: | ---: | ---: | ---: |
+| zoo | bench-steel-1 | 51.9 ms | 42.0 ms | 64.0 → 48.8 ms | 9/9 |
+| zoo | stair-left180 | 151.2 ms | 113.8 ms | 167.8 → 125.5 ms | 3/9 |
+| zoo | door-glass-1/wide | 99.4 ms | 38.2 ms | 106.9 → 42.6 ms | 9/9 |
+| zoo | block/auto-walls | 73.5 ms | 66.2 ms | 308.2 → 280.3 ms | 4/6 |
+| zoo | platform/line=5 | 176.6 ms | 143.5 ms | 199.6 → 167.2 ms | 0/6 |
+| zoo | tunnel/length=64 | 169.1 ms | 128.3 ms | 180.1 → 159.6 ms | 0/6 |
+| tanwei | bench-steel-1 | 98.8 ms | 66.1 ms | 164.4 → 83.0 ms | 9/9 |
+| tanwei | stair-left180 | 313.7 ms | 171.9 ms | 409.8 → 191.2 ms | 0/9 |
+| tanwei | door-glass-1/wide | 254.8 ms | 62.4 ms | 298.7 → 69.8 ms | 9/9 |
+| tanwei | block/auto-walls | 142.6 ms | 96.4 ms | 189.5 → 135.0 ms | 4/6 |
+| tanwei | platform/line=5 | 347.1 ms | 224.2 ms | 386.1 → 284.3 ms | 0/6 |
+| tanwei | tunnel/length=64 | 297.3 ms | 209.3 ms | 358.6 → 230.9 ms | 0/6 |
+
+The final fresh, ordered, one-sample inventory completes all **809 cases** and
+**4,854 stages**. Of 4,411 completed-feedback timings,
+**3,534 pass <100 ms and
+877 remain over budget**, compared with
+2,910 passes and 1,501 over budget in the baseline. 650 formerly
+slow stages now pass; 26 formerly passing stages exceed the threshold
+in this new sample. The maximum is **421.4 ms**, and
+0 timed stages are at/above 500 ms. The two existing PSD-cover
+drop refusals remain functional errors with no completed-feedback timing; all 441
+unsupported actions remain explicit. Runtime/GL errors are absent. The current
+readable matrix and JSONL companion contain only this full capture, not selected
+samples merged into it. Report: `.preview/perf/target-100-full-final/report.json`.
+
+Stair-family commits account for **639 of the 877 remaining misses**: 182 Zoo
+and 457 Tanwei stages. Remaining over-budget rows have these mean measured work
+times (nested counters must not be summed with their parent scene/level counters):
+
+| Remaining family | Misses | Tool preparation | Chunk preparation | Chunk meshing | Module build/registration | Batch synchronization |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo stairs | 182 | 20.7 ms | 12.0 ms | 8.1 ms | 17.4 ms | 10.0 ms |
+| Tanwei stairs | 457 | 32.8 ms | 26.0 ms | 7.5 ms | 26.5 ms | 19.3 ms |
+| Tanwei platforms | 14 | 61.8 ms | 37.9 ms | 45.6 ms | 42.4 ms | 35.3 ms |
+| Tanwei tunnels | 12 | 66.3 ms | 38.3 ms | 31.9 ms | 44.1 ms | 47.5 ms |
+
+These are means across each family's over-budget rows, not timings for every
+variant or independent tail estimates. Full prepared street/chunk input reuse
+across structural edits is the main remaining shared opportunity. Tanwei's shaped
+cell edits also spend roughly 48–49 ms in batch synchronization despite short
+dependency checks; long rail edits retain substantial local meshing/validation work.
+Detailed grouped counters are in `.preview/perf/target-100-remaining-costs.json`.
+
+The target is not yet met for every stage. The readable matrix lists remaining
+counts by demo/action and the largest exact cases; the JSONL retains every affected
+variant and measured work counter. Structural preparation, local chunk meshing,
+track validation/construction and cell-dependent model work remain the next costs.
+The audit retains full geometry and worker routing; neither a delayed document commit
+nor reduced staging geometry is counted as an optimization.
+
+The host/protocol remains i7-14700KF / RTX 4080 SUPER, HeadlessChrome 156 / ANGLE
+D3D11, High, paused staging camera, 892 × 815 canvas and pixel ratio 1. Final captures
+run sequentially after builds/tests/browser checks. Intermediate captures
+`target-100-{first,second,third,fourth,fifth,matched-after}/` retain their results;
+`target-100-baseline-clean/` overlapped an investigation build and is diagnostic,
+not the matched baseline. The interrupted `target-100-full/` inventory is incomplete
+and is not combined with the final run. API-to-render feedback excludes pointer
+routing, compositor presentation and completed GPU work; one-sample inventories
+and three selected repetitions cannot guarantee every future run stays below a bound.
+
+All **2,509 game tests** pass on the final source. New checks pin fresh occupancy
+through holes/duplicates/window changes/undo, exact structural history, zero remote
+batch geometry reads, replacement/deletion/reordering equivalence, retained clipping
+and hidden-menu subscription/snapshot ownership. Typecheck/production build pass;
+production GPU batching preserves station/train geometry with no shader/runtime/GL
+errors. The live tutorial passes all 18 steps and builder controls in both languages,
+including reload/resume/escape and fixture lifecycle. CPU/trace export checks pass.
+Logs are `.preview/perf/target-100-{final-tests,narrow-build,final-render,final-tutorial,perf-tools}.log`.
 
 ### Local place, drop, move and delete optimization
 

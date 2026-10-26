@@ -14,6 +14,7 @@ import { changedCellRecords } from './cellChanges.ts'
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
 const EQUIPMENT_ONLY = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth', 'road', 'psd-end', 'walkway',
+  'door', 'shelf', 'cubicle', 'sink',
 ])
 const STANDALONE = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink',
@@ -31,7 +32,13 @@ function sameStationFields(before: StationData, after: StationData): boolean {
   const { cells: _ac, modules: _am, ...b } = after
   return equal(a, b)
 }
+const moduleChanges = new WeakMap<readonly Module[], WeakMap<readonly Module[], Module[]>>()
 function changedModules(before: StationData, after: StationData): Module[] {
+  if(before.modules===after.modules)return []
+  let documents=moduleChanges.get(before.modules)
+  if(!documents)moduleChanges.set(before.modules,documents=new WeakMap())
+  const cached=documents.get(after.modules)
+  if(cached)return cached
   const previous = new Map(before.modules.map(m => [m.id, m]))
   const changed: Module[] = []
   for (const mod of after.modules) {
@@ -40,6 +47,7 @@ function changedModules(before: StationData, after: StationData): Module[] {
     previous.delete(mod.id)
   }
   changed.push(...previous.values())
+  documents.set(after.modules,changed)
   return changed
 }
 
@@ -149,6 +157,12 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
 }
 
 function onlyAddedStairBlocks(before: StationData, after: StationData): boolean {
+  const added=after.modules.length-before.modules.length
+  if(added<=0)return false
+  const changes=changedModules(before,after)
+  // Replacements contribute both old and new records; removals also make the
+  // change count larger than the net addition count.
+  if(changes.length!==added||changes.some(mod=>mod.type!=='stair'||!mod.cfg.block))return false
   if (before.cells.length !== after.cells.length) return false
   for (let i = 0; i < before.cells.length; i++) {
     const old = before.cells[i], next = after.cells[i]
@@ -157,14 +171,7 @@ function onlyAddedStairBlocks(before: StationData, after: StationData): boolean 
   const { cells: _beforeCells, modules: _beforeModules, ...beforeMetadata } = before
   const { cells: _afterCells, modules: _afterModules, ...afterMetadata } = after
   if (JSON.stringify(beforeMetadata) !== JSON.stringify(afterMetadata)) return false
-  const afterById = new Map(after.modules.map((mod) => [mod.id, mod]))
-  for (const mod of before.modules) {
-    const next = afterById.get(mod.id)
-    if (!next || (mod !== next && JSON.stringify(mod) !== JSON.stringify(next))) return false
-    afterById.delete(mod.id)
-  }
-  const added = [...afterById.values()]
-  return added.length > 0 && added.every((mod) => mod.type === 'stair' && mod.cfg.block === true)
+  return true
 }
 
 /**
@@ -186,19 +193,33 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   const cellChanges = changedCellRecords(before.cells, after.cells)
   const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
   const openingChanged = changes.some(isOpening)
-  const surfaceLiftChanged = changes.some(m=>isOutdoorSurface(m)||['stair','escalator','walkway','lift','exit'].includes(m.type))
+  const surfaces = changes.filter(isOutdoorSurface)
+  const openings = changes.filter(m=>['stair','escalator','walkway','lift','exit'].includes(m.type))
   const rampChanged = changes.some(isRamp)
+  const boxes = new Map<Module, ReturnType<typeof moduleEnvelope>>()
+  const boxOf = (m: Module) => {
+    if (!boxes.has(m)) boxes.set(m,moduleEnvelope(m))
+    return boxes.get(m)!
+  }
+  const nearby = (a: Module,b: Module): boolean => {
+    const aa=boxOf(a),bb=boxOf(b)
+    return !aa || !bb || ![aa.x0,aa.x1,aa.y0,aa.y1,bb.x0,bb.x1,bb.y0,bb.y1].every(Number.isFinite) ||
+      aa.x0<=bb.x1+3&&aa.x1>=bb.x0-3&&aa.y0<=bb.y1+3&&aa.y1>=bb.y0-3
+  }
   const fenceBefore = rampChanged ? fenceConnectionIndex(before.modules) : null
   const fenceAfter = rampChanged ? fenceConnectionIndex(after.modules) : null
   for (const mod of after.modules) {
     if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
     if (!known(mod) || dependsOnCells(mod, cellChanges)) continue
-    if (surfaceLiftChanged && outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) continue
+    // Only a finish under this model or an opening intersecting its footprint
+    // can change its raised surface. Remote ramp edits leave that input intact.
+    if ((surfaces.some(m=>nearby(mod,m)) || openings.some(m=>nearby(mod,m))) &&
+      outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) continue
     // An edge-decor piece backed against a curtain draws shifted towards its tile
     // centre, so adding/lifting a curtain rebuilds the furniture leaning on it.
     if (isEdgeDecor(mod) && changes.some(c => c.type === 'glass' && edgeDecorCurtainShare(c, mod))) continue
     if (changes.some(h => h.type === 'hanger' && hangerSupports(h, mod))) continue
-    if (isCeilingHung(mod) && openingChanged && !equal(ceilingModelInputs(before, mod), ceilingModelInputs(after, mod))) continue
+    if (isCeilingHung(mod) && openingChanged && changes.some(m=>isOpening(m)&&nearby(mod,m)) && !equal(ceilingModelInputs(before, mod), ceilingModelInputs(after, mod))) continue
     if (STANDALONE.has(mod.type)) { retained.add(mod.id); continue }
     if (mod.type === 'tactile' && changes.some(m => m.type === 'tactile' && adjacent(m, mod))) continue
     if ((mod.type === 'fence' || mod.type === 'gate') && changes.some(m => (m.type === 'fence' || m.type === 'gate') && adjacent(m, mod))) continue
@@ -215,7 +236,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
     if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
     if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => isOpening(m) && nearbyOpening(mod, m))) continue
-    if (isOutdoorSurface(mod) && openingChanged && !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
+    if (isOutdoorSurface(mod) && openingChanged && changes.some(m=>isOpening(m)&&nearby(mod,m)) && !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
     if (mod.type === 'exit' && changes.some(m => isRamp(m) && nearbyOpening(mod, m))) continue
     if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
     retained.add(mod.id)

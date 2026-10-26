@@ -112,6 +112,27 @@ test('bounded block and shaped-cell history retains immutable frames through del
   st().redo();assert.deepEqual(st().station.cells.at(-1),cell)
 })
 
+test('structural history preserves exact immutable documents through stair edits and repeated undo/redo',async()=>{
+  const {addEquipment,removeModule}=await import('../src/build/model.ts')
+  load({...referenceStation(),modules:[]})
+  const before=st().station,original=JSON.stringify(before)
+  const piece=createModule('stair-left180',0,0,0,'history-stair')
+  st().commit(addEquipment(before,piece))
+  const placed=st().station,saved=JSON.stringify(placed)
+  assert.equal(st().past.at(-1),before)
+  st().commit(removeModule(placed,piece.id))
+  const deleted=st().station
+  assert.equal(st().past.at(-1),placed)
+  for(let i=0;i<2;i++){
+    st().undo();assert.equal(st().station,placed)
+    st().undo();assert.equal(st().station,before)
+    st().redo();assert.equal(st().station,placed)
+    st().redo();assert.equal(st().station,deleted)
+  }
+  assert.equal(JSON.stringify(before),original)
+  assert.equal(JSON.stringify(placed),saved)
+})
+
 test('population controls send only numbers and preserve undo/redo', () => {
   const data = { name: 'demand', seed: 1, cells: [], lines: [defaultLine('1', 'up')],
     modules: [{id:'exit',type:'exit',x:0,y:0,z:0,cfg:{name:'A',inRate:100,open:true}}] }

@@ -3,10 +3,22 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { activateModuleBuilderShortcut, isStraightStairType, moduleBuilderAttributes, useStore } from '../src/app/store.ts'
 import { dimensionBars, dimensionMarkAlign } from '../src/app/rail/shared/dimensionMark.ts'
+import { builderAttributeState } from '../src/app/store/builderAttributes.ts'
 
 function stateWith(actions = {}) {
   return { ...useStore.getState(), ...actions }
 }
+
+test('closed action rows retain a rendered snapshot without hidden store subscribers',()=>{
+  const source=fs.readFileSync(new URL('../src/app/rail/actions/ActionRow.tsx',import.meta.url),'utf8')
+  assert.match(source,/useStore\(s=>open\?s:null\)/,'only an open row receives live store changes')
+  assert.match(source,/<ActionTiles state=\{state\}/,'the closing animation retains the last state snapshot')
+  const tiles=source.slice(source.indexOf('function ActionTiles('))
+  assert.doesNotMatch(tiles,/useStore\(/,'retained child controls cannot independently subscribe to live state')
+  const snapshot=builderAttributeState(useStore.getState())
+  for(const key of ['station','past','future','graph','metrics'])assert.equal(key in snapshot,false,`${key} must not survive in a closing builder row`)
+  assert.deepEqual(moduleBuilderAttributes('escalator',snapshot).map(a=>a.label),moduleBuilderAttributes('escalator',useStore.getState()).map(a=>a.label))
+})
 
 test('module attributes use the shared priority and first two variant shortcuts', () => {
   const state = stateWith()

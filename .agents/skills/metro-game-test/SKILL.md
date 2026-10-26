@@ -35,6 +35,15 @@ in the shared production action manifest. Add new settings/subtypes there rather
 than a benchmark-only substitute model. `bench:editor-actions` records the full
 demo matrix against 100 ms per preview/commit stage; unsupported actions and
 failed rows remain explicit, and API timings do not replace pointer regressions.
+`tools.resolve` separately measures live tool occupancy/floor preparation in those
+captures. `local-cell-edit` compares structural occupancy deltas with fresh indexes
+through generated holes, street expansion, duplicates and undo. `line-edit` pins
+exact immutable structural history through repeated undo/redo. `batching-lifecycle`
+pins replacement/deletion/reordering equivalence and zero remote geometry reads;
+`cut-clipping` pins retained-tree skips and new-root/view/plane invalidation.
+`builder-attributes` guards closed action rows against hidden store subscriptions
+and retaining full document/history/graph snapshots;
+the production tutorial check exercises the live bilingual builder controls.
 Live-panel regressions belong in `draw-batching`: pin one guttered rectangle per
 frame, fair latest-pixel queueing, unchanged static pages/UVs, deletion/reuse and
 complete CPU restoration pixels. `scene-wiring` guards demand frames after pause.

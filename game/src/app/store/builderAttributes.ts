@@ -44,8 +44,68 @@ function variant(kind: Exclude<BuilderAttributeKind, 'rotation'>, label: string,
   return { kind, label, shortcut: undefined, activate }
 }
 
+const BUILDER_STATE_KEYS = [
+  'moduleRot',
+  'rotateModule',
+  'roadWidth',
+  'cycleRoadWidth',
+  'roadDirection',
+  'toggleRoadDirection',
+  'curtainWidth',
+  'cycleCurtainWidth',
+  'curtainHeight',
+  'cycleCurtainHeight',
+  'escalatorWidth',
+  'cycleEscalatorWidth',
+  'escalatorSpan',
+  'tripleRampLength',
+  'doubleRampLength',
+  'rampLength',
+  'cycleRampLength',
+  'cycleEscalatorSpan',
+  'escalatorDir',
+  'cycleEscalatorDir',
+  'walkwayLength',
+  'cycleWalkwayLength',
+  'hangerLength',
+  'cycleHangerLength',
+  'pillarLength',
+  'cyclePillarLength',
+  'lightPosition',
+  'cycleLightPosition',
+  'cycleBenchWidth',
+  'stairBlockHeight',
+  'stairWidth',
+  'setStairBlockHeight',
+  'cycleStairWidth',
+  'doorWide',
+  'toggleDoorWidth',
+  'roofWidth',
+  'cycleRoofWidth',
+  'roofPlateSnap',
+  'cycleRoofPlateSnap',
+  'liftSize',
+  'cycleLiftSize',
+  'liftInterval',
+  'cycleLiftInterval',
+  'liftStyle',
+  'cycleLiftStyle',
+  'psdEndHeight',
+  'cyclePsdEndHeight',
+  'gateDoor',
+  'cycleGateDoor',
+  'bridgeLength',
+  'cycleBridgeLength',
+] as const
+export type BuilderAttributeState = Pick<AppState, typeof BUILDER_STATE_KEYS[number]>
+
+/** Small control snapshot: no station document, history, graph or live buffers. */
+export function builderAttributeState(state: AppState): BuilderAttributeState {
+  return Object.fromEntries(BUILDER_STATE_KEYS.map(key=>[key,state[key]])) as BuilderAttributeState
+}
+
 /** Capabilities exposed by the armed module, in the shared priority order. */
-export function moduleBuilderAttributes(type: string, s: AppState): BuilderAttribute[] {
+export function moduleBuilderAttributes(type: string, s: BuilderAttributeState): BuilderAttribute[] {
   const attrs: BuilderAttribute[] = []
   if (isRotatableType(type) && !type.startsWith('pillar-slim')) {
     attrs.push({

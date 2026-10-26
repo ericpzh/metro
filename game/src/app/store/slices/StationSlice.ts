@@ -1,7 +1,5 @@
 import { msg } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
-import { isEquipmentContentEdit } from '../../../render/moduleDependencies.ts'
-import { localCellEdit } from '../../../render/localCellEdit.ts'
 // The station-document slice: the document itself, the undo stack, the
 // selection, the transient toast, and opening/saving/renaming/reference
 // stations. Every mutation goes through `commit` so the worker (`rebuildSim`)
@@ -209,11 +207,11 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const cur = get().station
     if (next === cur) return
     const settingsOnly = populationEdit(cur, next)
-    const shareHistory = settingsOnly || (cur.cells === next.cells && isEquipmentContentEdit(cur, next)) || localCellEdit(cur,next)!==null
     if (!settingsOnly) next = syncBridgePillars(next)
     // Documents are immutable (the renderer and placement caches rely on this).
-    // Retain their geometry identity for settings history as well as live edits.
-    set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, shareHistory ? cur : cloneState(cur)), future: [] })
+    // Keep that same ownership contract through structural history as well:
+    // cloning every module/cell adds work and discards reusable derived indexes.
+    set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, cur), future: [] })
     rebuildSim(toData(next), toData(cur))
   },
   undo: () => {
@@ -221,7 +219,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     if (past.length === 0) return
     const prev = past[past.length - 1]
     const settingsOnly = populationEdit(station, prev)
-    set({ station: prev, past: past.slice(0, -1), future: [...future, settingsOnly ? station : cloneState(station)], version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
+    set({ station: prev, past: past.slice(0, -1), future: [...future, station], version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
     rebuildSim(toData(prev), toData(station))
   },
   redo: () => {
@@ -229,7 +227,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     if (future.length === 0) return
     const next = future[future.length - 1]
     const settingsOnly = populationEdit(station, next)
-    set({ station: next, future: future.slice(0, -1), past: pushPast(past, settingsOnly ? station : cloneState(station)), version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
+    set({ station: next, future: future.slice(0, -1), past: pushPast(past, station), version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
     rebuildSim(toData(next), toData(station))
   },
   newStation: () => {

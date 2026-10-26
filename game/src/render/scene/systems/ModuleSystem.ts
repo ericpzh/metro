@@ -300,7 +300,7 @@ export class ModuleSystem extends SceneSystem {
       .filter(g => typeof g.userData.contactBlobKey === 'string')
       .map(g => [g.userData.contactBlobKey as string, g as THREE.InstancedMesh]))
     if (appendOnly) this.ghost.clearFencePreview()
-    else this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]))
+    else this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]), this.retainedLevelRoots)
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
     const trackCells = appendOnly ? this.ctx.trackCellSet : trackBedKeys(data.cells, data.modules)
@@ -322,9 +322,22 @@ export class ModuleSystem extends SceneSystem {
       blobsByKey.set(key, { levelZ: inst.userData.levelZs[0], ground: inst.userData.groundBand,
         blobs: [...inst.userData.contactBlobValues] })
     }
-    else { this.trains.psdGroups = []; this.plates.adScreens = [] }
+    const addBlob = (mod: Module): void => {
+      const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
+      if (r <= 0) return
+      const ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
+      const blob: [number,number,number,number]=[mod.x+.5,mod.y+.5,mod.z+1-.42,r]
+      const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
+      if(entry)entry.blobs.push(blob)
+      else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob]})
+    }
     for (const mod of data.modules) {
       if (appendOnly && kept.has(mod.id)) continue
+      const existing=kept.get(mod.id)
+      if(existing&&this.retainedLevelRoots.has(existing)){
+        addBlob(mod)
+        continue
+      }
       const ownedStart = this.ctx.ownedMats.length
       const group = kept.get(mod.id) ?? this.buildModel(mod, ctx)
       if (!group) continue
@@ -422,14 +435,7 @@ export class ModuleSystem extends SceneSystem {
       }
       this.crowd.activitySinks.push(...activity.sinks)
       this.crowd.swingDoors.push(...activity.doors)
-      const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
-      if (r > 0) {
-        const blob: [number, number, number, number] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 - 0.42, r]
-        const bk = `${mod.z}|${ground ?? 'x'}`
-        const entry = blobsByKey.get(bk)
-        if (entry) entry.blobs.push(blob)
-        else blobsByKey.set(bk, { levelZ: mod.z, ground, blobs: [blob] })
-      }
+      addBlob(mod)
     }
     this.plates.updateRailSignals?.()
     // Contact blobs under floor-standing modules (§11), one retained batch per
@@ -490,7 +496,7 @@ export class ModuleSystem extends SceneSystem {
    * is the allocation, not the pixels.) Called with no document (scene teardown),
    * every plate goes.
    */
-  clearModules(data?: StationData, kept = new Set<THREE.Object3D>()): void {
+  clearModules(data?: StationData, kept = new Set<THREE.Object3D>(), registered = new Set<THREE.Object3D>()): void {
     this.retainedBatches=false
     this.sourceDetail.restore()
     if (!data) this.batches.clear()
@@ -531,18 +537,36 @@ export class ModuleSystem extends SceneSystem {
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }
-    this.fenceGroups = []
-    this.fenceGroupsById.clear()
-    this.lifts.escalatorRolls.length = 0
-    this.lifts.liftRigs.length = 0
-    this.lifts.liftPickMeshes.length = 0
-    this.clocks.clockRigs.length = 0
-    this.crowd.gateWings.length = 0
-    this.crowd.swingDoors.length = 0
-    this.crowd.activitySinks.length = 0
-    this.plates.adScreens.length = 0
-    this.plates.tvScreens.length = 0
-    if (this.plates.railSignals) this.plates.railSignals.length = 0
+    // Unchanged roots retain their live animation records, not just their meshes.
+    // Re-registering thousands of unrelated models costs work and resets door
+    // state. Filter removed owners; the build loop registers replacements only.
+    const retain=<T,>(items:T[],accepts:(item:T)=>boolean):void=>{
+      let size=0
+      for(const item of items)if(accepts(item))items[size++]=item
+      items.length=size
+    }
+    const rolls=new Set([...registered].map(root=>root.userData.escalator))
+    const clocks=new Set([...registered].map(root=>root.userData.clockRig))
+    const screens=new Set([...registered].map(root=>root.userData.adScreen))
+    const ids=new Set([...registered].map(root=>root.userData.moduleId))
+    const sinks=new Set([...registered].flatMap(root=>this.activityByRoot.get(root)?.sinks??[]))
+    const doors=new Set([...registered].flatMap(root=>this.activityByRoot.get(root)?.doors??[]))
+    retain(this.fenceGroups,root=>registered.has(root))
+    for(const [id,root] of this.fenceGroupsById)if(!registered.has(root))this.fenceGroupsById.delete(id)
+    retain(this.lifts.escalatorRolls,roll=>rolls.has(roll))
+    retain(this.lifts.liftRigs,rig=>registered.has(rig.group))
+    retain(this.lifts.liftPickMeshes,mesh=>{
+      for(let root:THREE.Object3D|null=mesh;root;root=root.parent)if(registered.has(root))return true
+      return false
+    })
+    retain(this.clocks.clockRigs,rig=>clocks.has(rig))
+    retain(this.crowd.gateWings,rig=>registered.has(rig.root))
+    retain(this.crowd.swingDoors,rig=>doors.has(rig))
+    retain(this.crowd.activitySinks,rig=>sinks.has(rig))
+    retain(this.trains.psdGroups,rig=>registered.has(rig.group))
+    retain(this.plates.adScreens,screen=>screens.has(screen))
+    retain(this.plates.tvScreens,screen=>ids.has(screen.moduleId))
+    if(this.plates.railSignals)retain(this.plates.railSignals,signal=>registered.has(signal.group))
   }
 
   /**
