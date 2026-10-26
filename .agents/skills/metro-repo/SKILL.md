@@ -174,6 +174,11 @@ that pair, and cancel pending edits when loading another station. Initial statio
 loads remain immediate. Read
 [placement invalidation and model retention](references/performance.md#placement-invalidation-and-model-retention)
 for its deterministic work counts, production measurements and validation limits.
+For local chunk remeshing, reuse the existing `levelGroups` entry when retained
+chunks already occupy that storey. Replacing the map entry leaves its old group
+attached to the scene, outside layer visibility updates and teardown. Keep the
+group ownership, remote mesh retention and repeated storey switches pinned in
+`floor-geometry.test.mjs`; see the [measured reproduction](references/performance.md#local-edit-storey-group-retention).
 
 Settings and presentation edits have a separate fast path. Line/station/exit labels,
 line colours, termini (including their optional English secondary names), population

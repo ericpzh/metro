@@ -777,8 +777,16 @@ export class ChunkSystem extends SceneSystem {
       }
     }
     for (const [levelZ, band] of byBand) {
-      const group = new THREE.Group()
-      group.userData.levelZ = levelZ
+      // Local edits have already restored remote chunks into this storey's
+      // group. Reuse it so every drawn chunk remains owned by levelGroups;
+      // replacing the map entry leaves the old group permanently in the scene.
+      let group = this.levelGroups.get(levelZ)
+      if (!group) {
+        group = new THREE.Group()
+        group.userData.levelZ = levelZ
+        this.levelGroups.set(levelZ, group)
+        this.ctx.scene.add(group)
+      }
       // Emit exactly this band's cells: runs overlap in z across columns, so a
       // chunk's z window alone would mesh a neighbouring storey too. Both passes
       // read the same set — the second only meshes the plates with nothing under
@@ -809,8 +817,6 @@ export class ChunkSystem extends SceneSystem {
         // station (`cover`), so this pass never draws a cap the storey pass culls.
         meshBand(group, levelZ, floats, floating, emit, 'f', this.ctx.solid)
       }
-      this.levelGroups.set(levelZ, group)
-      this.ctx.scene.add(group)
     }
     // The street's pass: the generated window, in the group of the storey it lies
     // in, so the slice rules that already apply to band 0 apply to it — and so

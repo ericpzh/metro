@@ -4290,6 +4290,6 @@ Regenerate with `python tools/collect-game-music.py` (FFmpeg required).
 `test/music.test.mjs` pins asset provenance/budgets, one streamed element, rotation,
 pause persistence, mute, visibility, retry and late-play cancellation.
 
-Stair opening rendering: untagged stacked upper-floor linings follow the upper storey; ceiling-cells and floor-geometry pin classification, seam edits and visibility.
+Stair opening rendering: untagged stacked upper-floor linings follow the upper storey; local delete/fill commits retain a single tracked group per storey, so remote floor chunks continue following level visibility. `ceiling-cells` and `floor-geometry` pin classification, seam edits and visibility.
 
 * `editor-action-benchmark.test.mjs` — every demo, palette entry and discrete setting uses valid production payloads, including compound TVs and PSD supports. `editor-build-fingerprint.test.mjs` pins shared source/build attribution across platforms and changed inputs.

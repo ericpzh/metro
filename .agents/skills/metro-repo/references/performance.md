@@ -1691,6 +1691,29 @@ triangles, partial/crossing footprints, adjacent wall exposure and footprint-onl
 invalidation across a chunk seam. The complete suite passed 2475 tests; the
 additional seam regression passed in its six-test focused suite.
 
+### Local edit storey-group retention — 2026-10-25
+
+A local delete/fill retained remote chunks in an existing storey group, then
+replaced that storey's map entry with a new group for rebuilt chunks. The former
+group remained attached to the scene and stopped receiving visibility updates.
+Its last state explains both the -5 m floor missing at -5 m and remaining visible
+at -15 m. `floor-geometry` reproduces the group ownership failure on the original
+implementation and passes after reusing the retained group. It covers edits from
+both initial levels, repeated switches, no orphan scene meshes and unchanged
+remote GPU mesh identity. Roof tags and cell occupancy are unchanged.
+
+Production browser check `node tools/check-level-retention.mjs` uses two separated
+2 × 2 floor patches at -15/-5 m, then deletes/fills one cell while retaining the
+remote -5 m floor. HeadlessChrome 156 on Windows, 852 × 715 canvas: all four
+commits retained 27 tracked/drawn chunk meshes, zero group ownership errors and
+zero orphan meshes. Sixteen -15/-5 m switches gave the expected floor visibility.
+Synchronous commits were 0.1–0.3 ms; two-RAF feedback was 64.3 / 52.1 / 45.0 /
+38.4 ms. These are diagnostic API-to-frame timings on a small fixture, without a
+GPU-completion or real-pointer latency claim. Picking and previews are unchanged.
+Raw script, fixture and browser results are under `.preview/level-retention/`.
+Fixture SHA-256: `5b29adc8b73dfa1b414f6d6a711dd7f4cde77043f6ae0ee64ceeeee37f2f12ee`;
+build index SHA-256: `a22b8bcac6d60289059079ac21aa74b89d5d67103992f7f7937f39b07db16f77`.
+
 ### Tianhe underside block placement — 2026-10-25
 
 The reported save `天河公园.metro (10).json` (SHA-256

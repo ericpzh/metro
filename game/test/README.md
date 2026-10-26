@@ -1191,7 +1191,7 @@ it. All pointer cell fallbacks use `moduleTarget`, which requires a drawn-surfac
 hit for stair/escalator/walkway runs. Geometry-free `moduleAt` callers retain their
 coordinate-query contract. This regression runs in `test:perf`.
 
-`floor-geometry` also pins Tanwei `(16,6,-1)` wall sides beside hidden suspended ceilings, the `(18,14,-3)` report’s stepped-wall ledge closure from above and -y, toggle geometry retention, ordinary shared-side culling and cross-chunk cache invalidation when a neighbour is retagged.
+`floor-geometry` also pins Tanwei `(16,6,-1)` wall sides beside hidden suspended ceilings, the `(18,14,-3)` report’s stepped-wall ledge closure from above and -y, toggle geometry retention, ordinary shared-side culling and cross-chunk cache invalidation when a neighbour is retagged. Local delete/fill commits retain one tracked scene group per storey; remote floor meshes preserve their GPU allocations and follow repeated -15/-5 m visibility switches.
 
 Placement latency regressions: `equipment-retention` pins scene-parent retention,
 append-only animation/fence registries without duplicates, and ground-window tool

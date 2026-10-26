@@ -13,6 +13,48 @@ import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
 
+test('local delete and fill keep retained floor groups under level visibility control', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const { withGround } = await import('../src/sim/ground.ts')
+  const material = new THREE.MeshBasicMaterial()
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  ctx.ghost = false
+  ctx.autoCeiling = false
+  const chunks = new ChunkSystem(ctx), level = new LevelSystem(ctx)
+  level.chunks = chunks
+  level.modules = { moduleMeshes: new THREE.Group(), syncBatches() {}, restoreMovingModule() {} }
+  level.trains = { trainGroup: new THREE.Group() }
+  const cells = [0, 64].flatMap(x => [-15, -5].map(z => ({ x, y: 0, z, fill: 'solid' })))
+  const data = { ...emptyStation(), cells, modules: [] }
+  const install = next => {
+    chunks.prepareStation(next, withGround(next.cells, next.modules))
+    chunks.meshStation()
+    level.applyLevel()
+  }
+  try {
+    install(data)
+    const retained = chunks.chunkMeshes.filter(m => m.userData.levelZ === -5 && m.geometry.boundingBox.min.x >= 64)
+    assert.ok(retained.length)
+    for (const initialZ of [-15, -5]) {
+      level.setLevel(initialZ, false)
+      for (const next of [cells.filter(c => !(c.x === 0 && c.z === -5)), cells]) {
+        install({ ...data, cells: next })
+        for (const mesh of chunks.chunkMeshes) {
+          assert.ok(mesh.parent === chunks.levelGroups.get(mesh.userData.levelZ), 'every rendered mesh belongs to the tracked storey group')
+        }
+        const drawn = []
+        ctx.scene.traverse(o => { if (o.isMesh && o !== chunks.wallPick) drawn.push(o) })
+        assert.equal(drawn.length, chunks.chunkMeshes.length, 'no obsolete chunk group remains in the scene')
+        for (const z of [-15, -5, -15, -5]) {
+          level.setLevel(z, false)
+          assert.ok(retained.every(m => chunks.chunkMeshes.includes(m)), 'remote GPU meshes stay retained')
+          assert.ok(retained.every(m => m.visible === (z === -5)), 'the -5 floor follows both level switches')
+        }
+      }
+    }
+  } finally { chunks.disposeChunks(); material.dispose() }
+})
+
 test('deleting a supported block retains untouched upper storeys in the same chunk',async()=>{
   const {emptyStation}=await import('../src/data/reference-station.ts')
   const {withGround}=await import('../src/sim/ground.ts')
