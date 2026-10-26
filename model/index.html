@@ -1,22 +1,40 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Station Designer — Models</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f4f3ed"><title>Station Designer — Models</title></head>
 <body>
+<header>
+ <a class="brand" href="./">▦ <span>STATION DESIGNER <small>MODEL LIBRARY / 02</small></span></a>
+ <nav>
+  <a href="./candidates.html">Human candidates</a>
+  <a href="./sounds.html">Sound studio</a>
+  <a id="site-link" data-i18n="site"></a>
+  <a id="game-link" data-i18n="game"></a>
+  <select id="language" aria-label="Language"><option value="en">English</option><option value="zh">中文</option></select>
+ </nav>
+</header>
 <main>
- <header><div><p class="eyebrow" data-i18n="project"></p><h1 data-i18n="title"></h1></div><nav><a id="site-link" data-i18n="site"></a><a id="game-link" data-i18n="game"></a><select id="language" aria-label="Language"><option value="en">English</option><option value="zh">中文</option></select></nav></header>
- <p><a href="./sounds.html">Sound studio — interaction effects & ambient listening ↗</a></p>
- <section class="workspace">
-  <aside>
+ <div class="intro">
+  <div>
+   <p class="eyebrow" data-i18n="project"></p>
+   <h1 data-i18n="title"></h1>
+   <p data-i18n="viewLabel"></p>
+  </div>
+  <div class="transport">
+   <p class="muted" data-i18n="reference"></p>
+  </div>
+ </div>
+ <div class="workspace">
+  <aside class="panel">
    <label id="action-label" for="action">Passenger activity</label><select id="action"></select>
    <label id="timeline-label" for="timeline">Activity timeline</label><input id="timeline" type="range" min="0" max="10" step="0.01" value="0"><output id="activity-phase" aria-live="off"></output><p class="hint" id="interaction-note"></p><div class="playback"><button id="play"></button><button id="stand" data-i18n="stand"></button></div>
 
    <label for="age" data-i18n="age"></label><select id="age"><option value="adult" data-i18n="adult"></option><option value="child" data-i18n="child"></option></select>
    <label for="character" data-i18n="character"></label><select id="character"><option value="female" data-i18n="female"></option><option value="male" data-i18n="male"></option></select>
-   <label for="hair" data-i18n="hair"></label><select id="hair"><option value="bob" data-i18n="bob"></option><option value="shoulder" data-i18n="shoulder"></option><option value="long" data-i18n="long"></option></select>
+   <label for="hair" data-i18n="hair"></label><select id="hair"></select>
    <label for="outfit" data-i18n="outfit"></label><select id="outfit"></select>
    <button id="swap-tones" data-i18n="swapTones" aria-pressed="false"></button>
    <p class="hint" id="outfit-hint"></p>
-   <label for="bag" data-i18n="bag"></label><select id="bag"><option value="1" data-i18n="withBag"></option><option value="standard-87.5" data-i18n="mediumStandardBag"></option><option value="standard-75" data-i18n="compactStandardBag"></option><option value="small" data-i18n="smallBag"></option><option value="0" data-i18n="noBag"></option></select>
+   <label for="bag" data-i18n="bag"></label><select id="bag"></select>
    <p class="hint" id="variant-hint"></p>
    <fieldset class="size-controls"><legend data-i18n="size"></legend>
     <div class="size-label"><label for="height" data-i18n="height"></label><output id="height-value" for="height"></output></div><input id="height" type="range" min="80" max="120" value="100" step="1">
@@ -29,9 +47,12 @@
    <a id="download" class="download" download data-i18n="download"></a>
    <figure><img id="reference"><figcaption data-i18n="reference"></figcaption></figure>
   </aside>
-  <div id="view"><div id="status" role="status"></div></div>
- </section>
- <footer><div class="views"><button data-view="front" data-i18n="front"></button><button data-view="three" data-i18n="three"></button><button data-view="side" data-i18n="side"></button><button data-view="back" data-i18n="back"></button><button id="rotate" data-i18n="rotate"></button></div><p data-i18n="orbitHint"></p></footer>
+  <div id="view" class="panel"><div id="status" role="status"></div></div>
+ </div>
 </main>
+<footer>
+ <div class="views"><button data-view="front" data-i18n="front"></button><button data-view="three" data-i18n="three"></button><button data-view="side" data-i18n="side"></button><button data-view="back" data-i18n="back"></button><button id="rotate" data-i18n="rotate"></button></div>
+ <p data-i18n="orbitHint"></p>
+</footer>
 <script type="module" src="/src/main.js"></script>
 </body></html>
