@@ -304,7 +304,7 @@ ride laid flat in 短 30 m / 中 60 m / 长 90 m — and carries everyone at the
 walking speed plus 0.5 m/s (1.84 m/s), step-free passengers included. It rides
 end to end only: the belt's own cells are not walkable, so the crowd boards and
 leaves at its two landings. `test/walkways.test.mjs` pins the lengths, the
-level centring, the ends-only routing, the doubled wide rate, the no-carve
+level centring, the ends-only routing, the lane-scaled rate, the no-carve
 placement, the save round trip and the shared flat model.
 Crowd shoves and walking also respect those ramp rails with swept body clearance,
 including landing ends, so pressure cannot push passengers through the glass or
@@ -1726,8 +1726,9 @@ dead in mid-air.
 
 **The ground under a run fills up to its underside.** A run's body hangs below its walking line, so the
 block under it would otherwise swallow the truss. `rampSlopeCuts` (`sim/openings.ts`) derives the
-volume each 楼梯 / 扶梯 takes out of the ground it climbs over: the tiles `rampBodyBoxes` already
-reserves for collision, with the **body's own depth** taken off the local line — an escalator's
+volume each 楼梯 / 扶梯 takes out of the ground it climbs over: every block its **lane span**
+fills (`rampLaneHalf`, the same tiles `rampBodyBoxes` reserves for collision), with the
+**body's own depth** taken off the local line — an escalator's
 `RAMP_FOOT` under its truss, a stair's `STAIR_BODY_DROP` under the stringers and soffit the model hangs
 to that same line, because a stair cut to a truss's depth stops 14 cm short of the steps and leaves a
 slot of daylight under every flight. That depth is the *reservation's* too (`flightBodyBoxes`): a
@@ -1807,12 +1808,33 @@ takes the placement cell one whole step out, which also covers a rounded block c
 off-axis face, and the reason the bug was never only about slopes. The 材质 brush reads the same snap
 through `dominantFace`, so the face a stroke paints and the cell a block lands in cannot disagree.
 
+Block placement uses the same retained underside volume as the terrain mesher.
+A partial wedge remains buildable even when the nominal walking line crosses
+its cell; preview, release, indexed openings and subsequent carving agree.
+Retained wide-stair core cells remain wedges rather than side half-panels.
+Run preparation is cached per immutable module array. Another run's passenger
+corridor, equipment and track refusals still apply. The Tianhe `(77,-100,-16)`
+case and rotation/direction coverage live in `ramp-block-placement.test.mjs`.
+
+**Exact ramp/terrain contact.** `sim/rampSurface.ts` owns the vertical underside depths.
+The escalator truss's normal offset and the rotated stair soffit/stringer centres compensate
+for incline, so the rendered lower face meets the same plane as the ground cut.
+`rampSlopeCuts` uses the actual inset escalator incline and shared exit-landing offsets;
+its cell-local patches retain footprint bounds and every intersecting flight. The mesher
+partitions caps at footprint edges, plane intersections, and floor/ceiling/base clamps.
+Each triangle lies on one planar surface, and partial-width cuts preserve ground outside
+the run. Neighbour wall exposure and chunk/ghost hashes include these derived cuts;
+no cut geometry is written into the station document. `ramp-surface.test.mjs` checks
+actual model ray hits, crossing planes, clamp bends and adjoining block walls.
+
 **Ramps carve their way in.** `sim/openings.ts` (`carveRampOpenings`) removes the solid cells an
 escalator, stair or lift climbs through, so a placed ramp surfaces from an opening rather than
 through the slab; the landing cells are protected because the graph uses them as the ramp's nodes.
-Only the run's **centreline cells** are carved (`RAMP_CORE_HALF`), so `rampOpeningAt` reserves just
-the true opening and the floor beside a run is not deleted — it stays buildable. A block a ramp has
-kept is marked by `rampThinCells`, and the **mesher** draws it half a block thick on the side away from
+A run opens the cells its own **lane span** fills (`rampLaneHalf`, held on each segment as
+`Ramp.coreHalf`): one lane for a narrow stair or escalator, two for a width-2 escalator, three for a
+宽 stair, and 2 / 4 / 6 blocks across a 双跑 / 转角 staircase at 窄 / 中 / 宽. So `rampOpeningAt`
+reserves the true opening, and the floor outside the span is not deleted - it stays buildable. A
+block a ramp has kept is marked by `rampThinCells`, and the **mesher** draws it half a block thick on the side away from
 the run, leaving the near half clear for the body and handrail. It is the same drawing path a player's
 own 半墙 takes (`thinWallCells` hands the mesher both), which is what makes a stair's own half wall a
 real surface: its faces keep their own finishes, so the 材质 brush paints it, and the drawn panel is
@@ -1826,7 +1848,7 @@ turning leg is built to the width of the blocks it fills (0.79 / 1.79 / 2.79 m),
 **exactly** on their edges and the wall a player pushes the piece flush against stays whole, full
 block and full height — which is the point of that width (the handrail drops on the walled side
 instead). While a
-**floor** is still thinned when a wide stair's 1.6 m body reaches into the
+**floor** is still thinned when an old off-grid 1.6 m stair's body reaches into the
 column beside it — which closes the hole the carve used to leave at the top of the stair — and a wall
 a wide stair's handrail reaches is thinned the same way (both kinds draw identically now, so the
 derivation reports only the side). The 动物园
@@ -2228,8 +2250,8 @@ an L, T or + junction turns through the shared centre post with no overhang — 
 segment up to an existing end regenerates that end on the spot, dropping its old cap and post.
 A run plugs straight into a 闸机 row, and it also joins a stair or escalator: `railLandingAt` makes a
 fence next to a run's landing drop its end cap and butt up to the handrail instead of stopping short.
-Wide turning-stair landings include each lane under the outer rail, and both landing columns of a
-wide escalator count too. This lets a fence at `(39,36,6)` in the Tanwei save meet the far lane of
+Wide turning-stair landings include each lane under the outer rail, and every landing column of a
+wide or extra-wide escalator counts too. This lets a fence at `(39,36,6)` in the Tanwei save meet the far lane of
 the right-turn stair's upper rail; `fence.test.mjs` pins that saved geometry.
 A 楼梯块 is a stepped floor tile without a handrail, so it is not a fence neighbour.
 That connection needs no collision exemption: a run reserves just its own tile, so the cell beside it
@@ -2785,9 +2807,10 @@ approximated); neither needs WebGL.
   underneath (`sim/courses.ts` `wallCourses`) claims a course the panel crosses and
   never one its edge merely touches.
 * `openings.test.mjs` — a placed ramp carves the slab it climbs through but keeps its landings as
-  graph nodes, only the run's centreline cells are carved (a block the handrail merely grazes is
-  kept), a wall beside a run survives untouched (the run sweeps less than half a cell, so nothing
-  beside it is reached), **a 双跑楼梯 pushed flush against a wall leaves it whole**, and so does a
+  graph nodes, the cells a run's **lane span** fills are carved (a block the handrail merely grazes
+  is kept), a wall beside a run survives untouched (its rails end on the edges of the lanes it
+  fills, so nothing beside them is reached), **a 双跑楼梯 pushed flush against a wall leaves it
+  whole**, and so does a
   **90° turn** on every side of the corner it turns through — every size and both hands, with the
   wall columns standing just outside the blocks the legs fill, kept through the carve and never
   thinned, because a block-grid run's rails end exactly on the cell edges its runs fill — a single
@@ -2956,7 +2979,7 @@ approximated); neither needs WebGL.
   shaft, a storey opens a three-cell landing row, the nine cabin cells stay out of
   the walk graph, a rider is pinned inside the 2.25 m car centred on the plan, the
   size survives saving while an older save reads back as 小, and the size action
-  tile exposes both plans.
+  tile plus the editor-action manifest expose both plans.
 * `lift-interval.test.mjs` — the 电梯's **层高** tile (§5.1): 超短 3 m / 短 4 m / 中 5 m /
   长 6 m / 超长 7 m, cycled with the default following the document's storey; a fresh
   piece is exactly one interval and records its rise; stacking keeps every stop exact
@@ -3046,7 +3069,7 @@ approximated); neither needs WebGL.
   at a gate, and `fenceArms` builds every joint from the neighbours — a lone panel caps both ends,
   a run end caps its free side, and an L / T / + turns through the centre with no overhang or cap;
   `railLandingAt` lets a fence connect to a stair or escalator landing, every lane of a wide
-  turning-stair landing and both landing columns of a wide escalator included, while a 楼梯块
+  turning-stair landing and every landing column of a wide or extra-wide escalator included, while a 楼梯块
   has no handrail connection. The equipment preview
   refresh also stays silent after 方块 takes over shared placement settings.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 5 m grid line at or
@@ -3297,7 +3320,7 @@ approximated); neither needs WebGL.
   `render/adArt.ts` is stubbed here rather than imported: it resolves its WebPs through Vite's
   `import.meta.glob`, which plain Node has no implementation of, and nothing under test lives there.
 `module-build.test.mjs` also checks that each escalator glass balustrade fills both rounded
-handrail returns with one continuous pane, in both widths and every rotation/travel direction.
+handrail returns with one continuous pane, in every width and every rotation/travel direction.
 
 * `module-build.test.mjs` — lift landing doors stay closed on empty floors and slide with the aligned car in both styles and all rotations; bridge noise-barrier posts yield to coincident overhead catenary gantry pillars; enclosed stainless double bins, inward-facing hopper walls and recessed wells in all four rotations;
   the 地面 X向 exit header fills its full canvas red and keeps fixed-size text as wider bays add spacing;

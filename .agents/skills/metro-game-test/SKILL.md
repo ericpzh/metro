@@ -592,3 +592,17 @@ For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
 ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves
 open, and the seamless ridge join in `triangle.test.mjs`.
+
+`ramp-surface.test.mjs` verifies the actual rotated stair soffit/escalator truss
+against derived terrain cuts across rotations, travel directions, one/two/three-storey
+spans and raised exit landings. It also checks cap triangles across floor/ceiling/base
+clamps, partial footprints, crossing planes, shaved half walls, neighbour exposure,
+and footprint-only invalidation across a chunk seam. `tools/check-ramp-fit.mjs`
+captures the production wide-run fixture and measures alternating stair delete/restore
+commits through rendered feedback; timings are diagnostic, not a real-pointer budget gate.
+
+`ramp-block-placement.test.mjs` extracts the Tianhe `(77,-100,-16)` stair into a
+small deterministic fixture. It pins direct/indexed block verdicts, cached preview,
+release and post-placement carving, every stair/escalator rotation, zero-volume
+remnants and overlapping-run refusals. Existing carve suites distinguish retained
+underside wedges from cells wholly inside the passenger passage.

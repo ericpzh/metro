@@ -128,7 +128,6 @@ test('Tab, Shift+Tab and R dispatch through the module capability list', () => {
   assert.equal(slimPillar[0].kind, 'position')
   assert.equal(slimPillar[0].shortcut, 'R', 'R moves the slim pillar across its in-cell positions')
 
-  // 电梯: Tab is the floor interval, Shift+Tab the housing.
   // 电梯: Tab is the 大/小 plan, Shift+Tab the floor interval.
   const liftCalls = []
   const liftState = stateWith({

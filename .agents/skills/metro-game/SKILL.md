@@ -76,8 +76,8 @@ zones and floor geometry. `render/ceilingCells.ts` puts explicit suspended
 plates and inferred overhead slabs in ChunkSystem's independently hideable
 ceiling pass. An inferred slab needs a floor beneath it, clear column space and
 a neighboring block on its course; isolated blocks, shaped pieces and stacked
-solids stay ordinary geometry, except a ceiling lining directly beneath the next
-storey's plain floor course. Keep Tianhe Park `(-10,-90,-11)` and `(8,-102,-11)`
+solids stay ordinary geometry. An untagged lining directly beneath the next
+storey's plain floor course belongs to that upper floor's render slice. Keep Tianhe Park `(-10,-90,-11)` and `(8,-102,-11)`
 covered with their adjoining −10 m floor retained. Blocks less than 3 m above their five-metre
 storey base stay floor geometry, even if tagged `opening-ceiling` or
 `suspended-ceiling`. This protects raised platforms such as Tanwei z=11 while
@@ -613,8 +613,8 @@ the four rules most changes trip over.
   so a straight run is continuous, a dead end caps itself, and an L / T / + turns
   through the shared centre post with no overhang. A gate neighbour counts only on its
   machine side (`gateSolidFaces`), and `railLandingAt` also treats a stair/escalator
-  landing as a neighbour — read through `escalatorLandings`, so both landing columns
-  of a wide escalator count, and through each stair flight's full-width landing lanes,
+  landing as a neighbour — read through `escalatorLandings`, so every landing column
+  of a wide or extra-wide escalator counts, and through each stair flight's full-width landing lanes,
   including a turned final flight whose axis differs from the module rotation. A fence
   beside any of those lanes butts up to the handrail instead of keeping an end cap.
   A 楼梯块 is a stepped floor tile without a handrail; `railLandingAt` skips it so an adjacent
@@ -774,14 +774,17 @@ the four rules most changes trip over.
   `removeModule` with the piece. Those own cells are why a 移动 of a 楼梯 or a 扶梯 is a
   **tear-down and a rebuild** (`moveRebuilds` → `moveEquipment`) rather than a translation, and
   why `movedModule` re-lays the run's own `from`/`to` and flights.
-* **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a 2 × 2 m
-  assembly with a 1.5 m carriage and **one story** — the 层高 tile's 超短 3 m / 短 4 m /
+* **A lift is one car per shaft** (`sim/lifts.ts`, 电梯 §5.1). The piece is a
+  **2 × 2 小** or **3 × 3 大** assembly (the 大/小 tile chooses it; only the large size
+  is stored, as `cfg.size: 3`) with a 1.5 m 小 / 2.25 m 大 carriage and **one story** —
+  the 层高 tile's 超短 3 m / 短 4 m /
   中 5 m (default) / 长 6 m / 超长 7 m, named by the rung alone (the mark carries the size);
   hovering its upper/lower half stacks another story
   at the currently armed size, so one shaft can serve uneven floors. Find the shaft with
-  `liftAt` (its own 2 × 2 column), never a generic `moduleAt`: a canopy roof or a run
-  envelope can cover the cell without occupying the shaft and win the document-order
-  lookup, so the snap silently never fires. The shaft's retained meshes stay in
+  `liftAt` (its own whole plan, 2 × 2 or 3 × 3), never a generic `moduleAt`: a canopy roof
+  or a run envelope can cover the cell without occupying the shaft and win the
+  document-order lookup, so the snap silently never fires. The shaft's retained meshes
+  stay in
   `liftPickMeshes`, and `CameraSystem.pick` enables the equipment batch source layer or
   the upper shaft (above the cabin and door leaves) stops answering the pointer
   (`lift-extension.test.mjs`). A story serves the
@@ -795,21 +798,22 @@ the four rules most changes trip over.
   **exactly the stacked stories** — a 5 m piece is 5 m from the base floor's surface to the
   cap — closed by a cap at each end; extending removes the shared middle cap and moves the
   caps to the total ends (`module-build.test.mjs` pins both). A
-  fresh piece must stand on all four of its footprint cells, but
+  fresh piece must stand on all four (小) or nine (大) footprint cells, but
   extending never checks for floor, so a shaft may run past a floorless level (it simply
-  has no landing there). `buildGraph` makes the walkable floor tile in front of the cabin
+  has no landing there). `buildGraph` makes the walkable floor tiles in front of the cabin
   door (`liftLandingCells`, turned by the piece's `rot`) at every **level** and
   gives the single `lift` server an edge between every ordered pair, so a rider goes
-  straight to their floor. The whole 2 × 2 footprint is cabin interior and is never a
+  straight to their floor. The whole plan is cabin interior and is never a
   walkable node, so the crowd boards and alights only through the door the model draws.
   The car is a real state machine (`World.stepLift`: park → open → dwell → close → move,
   eased), and riders are `STATE_RIDING` pinned inside the cabin by `stepLiftRide`, so
   they visibly move with it; `World.liftRenderState` sends one car pose per snapshot.
-  The shaft comes in two housings (`cfg.style`, now **Shift+Tab**; Tab is the interval): glass is
+  The shaft comes in two housings (`cfg.style`, the click-only style tile; **Tab** is the
+  **大/小** plan and **Shift+Tab** the interval): glass is
   the default —
   corner posts, panel bays, guide rails and a glazed cabin — and steel keeps the old
   enclosed shaft; both keep the animated-car contract and survive extending and saving
-  (`lift-style.test.mjs`, `lift-interval.test.mjs`).
+  (`lift-style.test.mjs`, `lift-interval.test.mjs`, `lift-size.test.mjs`).
 * **Finishes** (`sim/finishes.ts`): the *family* decides behaviour (floor walk speed,
   track bed not walkable, wall blocks), the finish decides look. The renderer reads the
   same table, so a surface cannot look like one thing and behave like another.
@@ -866,8 +870,10 @@ the four rules most changes trip over.
   (`setCursor(null)` in the equipment, select, delete and move previews;
   `test/wall-ceiling-snap.test.mjs`). A 2 m bench is a real two-cell run (`benchCells`).
   `carveRampOpenings` (`sim/openings.ts`) opens the slab a ramp climbs through while
-  keeping its landings as graph nodes — but only the cells the run's **centreline**
-  crosses (`RAMP_CORE_HALF`). Every other block the body or handrail reaches is kept and
+  keeping its landings as graph nodes — but only the cells the run's **lane span**
+  fills (`rampLaneHalf`, carried as `Ramp.coreHalf`): one lane, both lanes of a
+  width-2 escalator, or all three of a 宽 stair (and both runs of a block-grid
+  switchback). Every other block the body or handrail reaches is kept and
   marked by `rampThinCells`, and the **mesher** draws it a half block thick on the side
   away from the run — the same path a player's own 半墙 takes, so its faces keep their
   finishes and the 材质 brush can paint it (`thinWallCells` is the one list both come
@@ -883,7 +889,7 @@ the four rules most changes trip over.
   depth off the local line — and the mesher (`chunkMesher`'s `slope` map) draws those
   blocks' tops on that plane. A block under a run is therefore floor the 方块 tool lays
   and the carve keeps, and it reads as the filling under the slope. Only the run's own
-  centreline column is cut, a landing column never is, and nothing is added to the
+  lane span is cut, a landing column never is, and nothing is added to the
   document — the cut is derived, like the half panel beside a wide run. **The last course
   under a truss is the one the brush may not lay**, so the renderer draws the rest of the
   filling: `rampFillKeys` names every cut cell the station holds nothing in that stands on
@@ -2428,3 +2434,8 @@ partial footprints and intersecting planes. A retained core cell is slope-cut,
 never converted into a side half-panel. Preserve other runs' corridor refusals.
 The Tianhe `(77,-100,-16)` reproduction is in `ramp-block-placement.test.mjs`;
 `tools/check-ramp-block-placement.mjs <save.json>` drives a real pointer on that save.
+
+Local chunk remeshing must reuse the storey group already holding retained remote
+chunks. Replacing a `levelGroups` entry strands its old group in the scene and
+leaves its meshes outside layer visibility and teardown. `floor-geometry` pins
+local delete/fill, retained GPU mesh identity and repeated -15/-5 m switches.

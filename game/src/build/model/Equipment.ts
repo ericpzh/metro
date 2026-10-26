@@ -513,7 +513,7 @@ function createModuleRaw(
 /**
  * The plan a catalogue piece occupies: every floor cell it stands on, at the
  * origin, read from the builders that place it — so a 单跑楼梯 is its run of cells, a
- * storey's climb whatever the grid, and an 电梯 its 2 × 2 shaft, and neither a
+ * storey's climb whatever the grid, and an 电梯 its 2 × 2 小 or 3 × 3 大 shaft, and neither a
  * palette row's `w`/`h` nor a hand-kept table can drift from the geometry. A caller
  * takes the bounding box of these cells when it wants the footprint a card prints;
  * the list is returned rather than the box because a caller may equally want to
