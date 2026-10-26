@@ -1878,7 +1878,9 @@ on); stacking a 3 m story on top adds the level at 5 m and moves the cap to 8 m.
 The shaft is **exactly the stacked intervals** — a 5 m piece is 5 m from the base
 floor's surface to the cap, no more — and a cap closes each end; extending removes
 the shared middle cap and moves the two caps to the total shaft's ends (no cap is
-left at the joint). The player stacks the shaft — hovering its
+left at the joint). The drawn piece stands **1 cm below the floor plane** so its
+top cap never z-fights through the slab above, and the car rig shares that origin
+so the cabin travels on the same sunk shaft. The player stacks the shaft — hovering its
 upper half adds the currently armed interval above, the lower half one below
 (`liftExtendedUp` / `liftExtendedDown`) — so one car can serve uneven floors: a
 five-metre storey with a three-metre mezzanine above it, or a seven-metre-deep

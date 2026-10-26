@@ -723,6 +723,12 @@ activity transfer within the existing crowd draw. Add seeded route timings or
 GPU-memory measurements to the performance reference only when they answer a
 performance question.
 
+The elevator shaft's rendered geometry stands 0.01 m below its exact stacked
+floor intervals so the top cap clears the slab above. Keep the moving cabin on
+the same lowered origin (`ModuleSystem` reads the model group's origin); do not
+change authored shaft endpoints or support placement. `module-build.test.mjs`
+pins the clearance in both steel and glass styles, including non-ground floors.
+
 The shipped demo's stairs must remain complete current-catalogue pieces with
 explicit block-fitted tread widths (0.79 m for its three straight stairs,
 1.79 m per run for its two medium switchbacks). When refreshing

@@ -638,7 +638,8 @@ replacing the lot on a reset, and the chart axes — the round-number ceiling an
 class axis drawn the way the letter reads, A at the top and F at the bottom.
 
 `module-build` checks lift landing doors at each level (a story's base), independent car doors,
-and synchronized opening only at the aligned landing in both styles and all rotations.
+synchronized opening only at the aligned landing in both styles and all rotations, and the
+1 cm sink that keeps the drawn top cap out of the slab above.
 
 `menu-thumbnails.test.mjs` checks that each `MODULE_OPTIONS` id has a generated 132 × 132 PNG
 and that the rail uses lazy static image URLs rather than the runtime WebGL thumbnail pass.

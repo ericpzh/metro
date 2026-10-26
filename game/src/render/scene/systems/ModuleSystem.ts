@@ -352,7 +352,9 @@ export class ModuleSystem extends SceneSystem {
       if (mod.type === 'lift') {
         const cabin = group.userData.liftCabin as THREE.Object3D | undefined
         if (cabin) {
-          const originZ = mod.from.z + 1
+          // The model sinks its foot a centimetre below the floor plane; read
+          // its own origin so the cabin travels on the same sunk shaft.
+          const originZ = group.position.z
           this.lifts.liftRigs.push(liftRigs.get(group) ?? { key: `${mod.x},${mod.y},${mod.from.z}`, group, cabin, originZ, baseFrom: originZ, baseTo: originZ, doorFrom: 0, doorTo: 0, side: 1, have: false })
         }
         group.traverse((o) => {

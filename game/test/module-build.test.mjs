@@ -1183,6 +1183,27 @@ test('the 电梯 shaft is exactly the stacked floor intervals, with no extra sto
   }
 })
 
+test('the 电梯 sinks a centimetre below the floor plane so its top cap clears the slab above', () => {
+  // The piece is exactly its intervals, so its top cap would otherwise be
+  // coplanar with the floor above it and z-fight through the slab. The whole
+  // piece (cabin rig included) stands 1 cm lower.
+  for (const style of ['glass', 'steel']) {
+    for (const [z, interval] of [[0, 5], [-12, 4]]) {
+      const base = liftModule({ x: 4, y: 4, z }, 0, `sink-${style}-${z}`, interval)
+      const mod = { ...base, cfg: { ...base.cfg, style } }
+      const { group } = build(mod)
+      assert.ok(Math.abs(group.position.z - (z + 1 - 0.01)) < 1e-9, `${style} ${z}: the shaft foot is 1 cm below the floor plane`)
+      let cap
+      group.traverse((o) => {
+        if (o.isMesh && o.name === 'lift-cap-top') cap = o
+      })
+      assert.ok(cap, `${style} ${z}: the top cap exists`)
+      const top = group.position.z + cap.position.z + cap.geometry.parameters.depth / 2
+      assert.ok(Math.abs(top - (mod.to.z + 1 - 0.01)) < 1e-6, `${style} ${z}: the cap's top sits 1 cm below the floor above`)
+    }
+  }
+})
+
 test('a shaft is capped at both ends, and extending moves the caps instead of leaving a middle one', () => {
   // Each placed segment closes at its top and bottom. Extending merges the pieces,
   // so the shared cap in the middle goes away and the caps move to the overall

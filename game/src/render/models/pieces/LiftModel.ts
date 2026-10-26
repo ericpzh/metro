@@ -12,6 +12,14 @@ import { omitModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 const LIFT_OUTER = 0.94
 
 /**
+ * The shaft is exactly its stacked intervals, so its top cap's surface lands on
+ * the floor plane above. Sink the whole piece by a centimetre so those two
+ * coplanar faces do not z-fight through the slab above it. `ModuleSystem` reads
+ * the group's own origin for the cabin rig, so the car sinks with the shaft.
+ */
+export const LIFT_FLOOR_SINK = 0.01
+
+/**
  * A reachable floor selector inside the moving cabin, beside its front door.
  * `k` is the plan scale (`size / 2`): x/y widths grow with the 大 shaft, the
  * panel heights do not.
@@ -191,7 +199,7 @@ function buildLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' }>): 
   const g = new THREE.Group()
   const size = liftSizeOf(mod)
   const k = size / 2
-  g.position.set(mod.x + k, mod.y + k, mod.from.z + 1)
+  g.position.set(mod.x + k, mod.y + k, mod.from.z + 1 - LIFT_FLOOR_SINK)
   if (mod.rot) g.rotation.z = (mod.rot * Math.PI) / 2
 
   // The shaft is **exactly the stacked floor intervals**, closed by a cap at each
@@ -304,7 +312,7 @@ function buildGlassLift(ctx: ModuleContext, mod: Extract<Module, { type: 'lift' 
   const g = new THREE.Group()
   const size = liftSizeOf(mod)
   const k = size / 2
-  g.position.set(mod.x + k, mod.y + k, mod.from.z + 1)
+  g.position.set(mod.x + k, mod.y + k, mod.from.z + 1 - LIFT_FLOOR_SINK)
   g.rotation.z = ((mod.rot ?? 0) * Math.PI) / 2
   // Exactly the stacked floor intervals, closed by a cap at each end. Each story
   // serves the level at its base, so the door side is glazed from above that
