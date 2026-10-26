@@ -45,8 +45,11 @@ export function trackModelInputs(data: StationData, mod: Extract<Module, { type:
     ? neighboringGantryPosts(mod, data.modules.filter(m => m.type === 'track'), edges, data.lines) : []]
 }
 
+const bridgeReaders = new WeakMap<readonly Module[], Module[]>()
 export function pillarModelInputs(data: StationData, mod: Module): unknown {
-  return data.modules.find(m => pillarSupportsBridge(mod, m))?.z
+  let bridges=bridgeReaders.get(data.modules)
+  if(!bridges){bridges=data.modules.filter(m=>m.type==='track'&&m.cfg.bridge);bridgeReaders.set(data.modules,bridges)}
+  return bridges.find(m => pillarSupportsBridge(mod, m))?.z
 }
 
 export function hangerModelInputs(data: StationData, mod: Extract<Module, { type: 'hanger' }>): unknown {

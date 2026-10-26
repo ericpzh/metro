@@ -33,3 +33,18 @@ export function trainPreparationPoses(data: StationData, limit: number): Float32
   // Match the worker protocol's float rounding (notably yaw) before keying models.
   return new Float32Array(poses)
 }
+
+/** One spare for each existing appearance, within the same bounded fleet. A new
+ * platform can then reuse a prepared consist instead of building it on click. */
+export function trainPreparationFleet(data: StationData, limit: number): Float32Array {
+  const poses=Array.from(trainPreparationPoses(data,limit)), originals=poses.length
+  const counts=new Map<string,number>()
+  const shape=(i:number):string=>[poses[i+3],poses[i+4],poses[i+6],poses[i+7],poses[i+9]&4].join(':')
+  for(let i=0;i<originals;i+=10)counts.set(shape(i),(counts.get(shape(i))??0)+1)
+  for(let i=0;i<originals&&poses.length<limit*10;i+=10){
+    const key=shape(i)
+    if(counts.get(key)!>=2)continue
+    counts.set(key,2);poses.push(...poses.slice(i,i+10))
+  }
+  return new Float32Array(poses)
+}

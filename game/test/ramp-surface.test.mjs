@@ -7,7 +7,7 @@ import { EscalatorModel } from '../src/render/models/pieces/EscalatorModel.ts'
 import { StairModel } from '../src/render/models/pieces/StairModel.ts'
 import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { rampSurfaceHeight, rampSurfaceRegions } from '../src/render/rampSurfaceMesh.ts'
-import { rampSlopeCuts } from '../src/sim/openings.ts'
+import { rampSlopeCuts, thinWallCells } from '../src/sim/openings.ts'
 import { escalatorInclineRun } from '../src/sim/escalators.ts'
 import { stairFlights } from '../src/sim/stairs.ts'
 import { exitLandingHeight } from '../src/sim/exitLanding.ts'
@@ -17,6 +17,22 @@ import { emptyStation } from '../src/data/reference-station.ts'
 import { packKey } from '../src/sim/types.ts'
 
 const square = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }]
+
+test('viewport and mesher share thin-wall derivation for an immutable document',()=>{
+  let reads=0
+  const raw=Array.from({length:2000},(_,x)=>({x:x+50,y:50,z:0,fill:'solid'}))
+  raw.push({x:0,y:0,z:1,fill:'solid',tags:['half-wall:n']})
+  const cells=new Proxy(raw,{get(target,key){if(/^\d+$/.test(String(key)))reads++;return Reflect.get(target,key)}})
+  const modules=[createModule('stair-straight',0,0,0,'ramp')]
+  const first=thinWallCells(cells,modules)
+  assert.ok(reads>0)
+  reads=0
+  for(let i=0;i<20;i++)assert.equal(thinWallCells(cells,modules),first)
+  assert.equal(reads,0,'warm consumers perform no cell scans')
+  assert.notEqual(thinWallCells([...cells],modules),first,'replacing cells derives new inputs')
+  assert.notEqual(thinWallCells(cells,[...modules]),first,'replacing modules derives new inputs')
+  assert.equal(thinWallCells(cells,modules),first,'undo can reuse the original derivation')
+})
 const patch = (extra = {}) => ({ axis: 'x', lo: 0, hi: 1, x0: 0, x1: 1, y0: 0, y1: 1, ...extra })
 const close = (a, b) => assert.ok(Math.abs(a - b) < 2e-5, `${a} != ${b}`)
 

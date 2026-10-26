@@ -680,9 +680,9 @@ test('actual train system holds paused/hidden door buffers and evicts their GPU 
     trains.setTrains(pose)
     assert.equal(trains.trainGroup.children[0], root, 'the next service reuses the same consist and GPU allocations')
     for (let index = 0; index < 9; index++) {
-      // Colours now reuse the owned livery material. Distinct orientations still
-      // need separate configurations and must exercise bounded GPU eviction.
-      const other = pose.slice(); other[8] = (index + 1) * Math.PI / 10
+      // Colour, yaw and door sides reuse geometry. Different stock/power pairs
+      // still need separate models and exercise bounded GPU eviction.
+      const other = pose.slice(); other[3] = 1; other[4] = Math.floor(index/2); other[9] = (index%2 ? 4 : 0) | 1
       trains.setTrains(other)
     }
     assert.equal(trains.trainGroup.children.length, 9, 'one active train plus eight dormant configurations bounds the cache')

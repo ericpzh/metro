@@ -92,6 +92,14 @@ It covers cold interactions, work-count regressions, comparable measurements and
 Update it only with reproducible performance evidence or changes to a performance
 budget or benchmark procedure. Feature summaries and functional validation belong
 in the owning code, tests or reports; do not add dated feature entries.
+Known structural commits compare complete prepared chunk inputs and update only
+affected chunk columns, including generated street-window changes. Unknown module
+kinds and edits affecting more than 256 chunk columns retain full hashing. Preserve
+duplicate authored records and compare incremental meshes with a fresh rebuild.
+The prepared train fleet keeps at most eight dormant models, using available room
+for a second copy of each existing appearance. Yaw and door-side flags change poses,
+not train geometry; power, stock, car count, direction and scale still select geometry.
+Keep independent doors and correct first-arrival poses when reusing a spare.
 Live TV plates opt into CPU-backed source canvases and separate live atlas pages.
 Keep their full resolution and gutters, upload at most one changed panel per
 render frame, and coalesce pending work fairly to the newest source pixels.

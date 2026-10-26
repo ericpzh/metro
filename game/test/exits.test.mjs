@@ -4,11 +4,28 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { EXIT_BACK, EXIT_BACK_Y, EXIT_GLASS_Y0, EXIT_GLASS_Y1, EXIT_SIDE, EXIT_W } from '../src/sim/exits.ts'
-import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorAt, exitFloorBounds, exitLandingBack, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth, isExitHeadHouse, snapExitToRamp } from '../src/sim/exits.ts'
+import { exitBayCell, exitBayOffsets, exitBays, exitCentre, exitDoorCell, exitFloorAt, exitFloorBounds, exitFootprintCells, exitLandingBack, exitRunHalf, exitRunOpenings, exitRunSnap, exitSide, exitSpan, exitWallPlanes, exitWidth, isExitHeadHouse, snapExitToRamp } from '../src/sim/exits.ts'
 import { STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 import { createModule } from '../src/build/model.ts'
 
 const exit = (rot) => ({ id: 'e', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { name: 'A口', inRate: 900, open: true } })
+
+test('warm exit floor queries skip unrelated equipment and invalidate with immutable module replacement',()=>{
+  let reads=0
+  const unrelated=Array.from({length:2000},(_,i)=>new Proxy({id:`bench-${i}`,type:'bench',x:i+100,y:100,z:0,rot:0,cfg:{}},{get(target,key){if(key==='type')reads++;return target[key]}}))
+  const head=exit(0),modules=[...unrelated,head],point=exitFootprintCells(head)[0]
+  assert.equal(exitFloorAt(modules,...point),true)
+  reads=0
+  for(let i=0;i<20;i++){
+    assert.equal(exitFloorAt(modules,...point),true)
+    assert.equal(exitFloorAt(modules,1000,1000,0),false)
+  }
+  assert.equal(reads,0)
+  assert.equal(exitFloorAt(unrelated,...point),false)
+  const moved={...head,x:head.x+20}
+  assert.equal(exitFloorAt([...unrelated,moved],...exitFootprintCells(moved)[0]),true)
+  assert.equal(exitFloorAt(modules,...point),true,'undo reuses the old immutable index')
+})
 const variant = (rot, cfg) => ({ id: 'e', type: 'exit', x: 0, y: 0, z: 0, rot, cfg: { name: 'A口', inRate: 900, open: true, ...cfg } })
 
 /** An up run whose upper landing is `(x, 0, 0)`: the base sits one storey down the mouth. */

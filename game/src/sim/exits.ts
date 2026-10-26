@@ -412,9 +412,10 @@ export function exitFootprintCells(m: ExitModule): Array<[number, number, number
  * when a ramp carved a hole there. Placement treats exit-covered cells as
  * solid floor, so stairs and escalators can land through an exit.
  */
+const exitFloorReaders = new WeakMap<readonly Module[], Module[]>()
 export function exitFloorAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
-  for (const m of modules) {
-    if (m.type === 'exit' && isExitHeadHouse(m) && exitCoversCell(m, x, y, z)) return true
-  }
+  let exits=exitFloorReaders.get(modules)
+  if(!exits){exits=modules.filter(m=>m.type==='exit'&&isExitHeadHouse(m));exitFloorReaders.set(modules,exits)}
+  for (const m of exits) if (exitCoversCell(m as Extract<Module,{type:'exit'}>,x,y,z)) return true
   return false
 }

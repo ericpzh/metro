@@ -54,6 +54,8 @@ const classificationHalo = [-2,-1,0,1,2].flatMap(dx=>[-2,-1,0,1,2].map(dy=>[dx,d
 
 export class ChunkSystem extends SceneSystem {
   private platformInsets = new Map<number, BlockInset>()
+  private preparedInsets: readonly StationData['modules'][number][] | null = null
+  private preparedRamps: readonly StationData['modules'][number][] | null = null
   private readonly details = new Map<THREE.Mesh, { near: THREE.BufferGeometry; raycast: THREE.Mesh['raycast'] }>()
 
   /** Shared chunk/outline geometry remains owned by the full mesh cache. */
@@ -108,11 +110,17 @@ export class ChunkSystem extends SceneSystem {
   private localLevels: Set<number> | null = null
   private cellsByChunk = new Map<number, Map<number, Cell[]>>()
   private chunkOrigins = new Map<number, [number,number]>()
-  private indexEffectiveCells(): void {
-    this.cellsByChunk.clear()
-    this.chunkOrigins.clear()
+  private indexEffectiveCells(columns?: ReadonlySet<number>): void {
+    if(columns){
+      if(!columns.size)return
+      for(const column of columns)this.cellsByChunk.delete(column)
+    }else{
+      this.cellsByChunk.clear()
+      this.chunkOrigins.clear()
+    }
     for(const c of this.effectiveCells){
       const column=chunkColumn(c.x,c.y)
+      if(columns&&!columns.has(column))continue
       this.chunkOrigins.set(column,[Math.floor(c.x/CHUNK)*CHUNK,Math.floor(c.y/CHUNK)*CHUNK])
       let bucket=this.cellsByChunk.get(column)
       if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
@@ -176,7 +184,7 @@ export class ChunkSystem extends SceneSystem {
     // compare those inputs so remote chunk caches need no station-wide rehash.
     const structural = previous && this.chunkCache.size > 0 &&
       previous.levelBase === data.levelBase && previous.storeyHeight === data.storeyHeight &&
-      this.onlyRampModulesChanged(previous, data) ? {
+      this.onlyPreparedModulesChanged(previous, data) ? {
         cells: this.effectiveCells, ground: this.groundKeys, solid: this.ctx.solid,
         hidden: this.ctx.hiddenCells, finishes: this.ctx.finishes, thin: this.ctx.thinSides,
         cuts: this.ctx.slopeCuts, fills: this.ctx.slopeFills, insets: this.platformInsets,
@@ -243,13 +251,17 @@ export class ChunkSystem extends SceneSystem {
       this.ctx.stationData = data
       return
     }
-    this.platformInsets = platformBlockInsets(data.modules)
+    const insets=data.modules.filter(m=>m.type==='platform-edge')
+    if(!this.preparedInsets || insets.length!==this.preparedInsets.length || insets.some((m,i)=>m!==this.preparedInsets![i])) {
+      this.platformInsets = platformBlockInsets(data.modules)
+      this.preparedInsets=insets
+    }
     // The street is stored inverted (holes, not blocks), so the mesher works
     // from the **effective** cells: the document's own plus the window's
     // generated ground. The two consumers that walk every cell — this and the
     // walk graph — read the same list, so what is drawn is what is walked.
     this.effectiveCells = effective ?? withGround(data.cells, data.modules)
-    this.indexEffectiveCells()
+    if(!structural)this.indexEffectiveCells()
     // Which of them are the **street** and which are the document's: everything
     // `withGround` added. `meshStation` meshes that set on its own pass, so the
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
@@ -266,8 +278,7 @@ export class ChunkSystem extends SceneSystem {
     this.ctx.stationData = data
     this.ctx.trackCellSet = trackBedKeys(data.cells, data.modules)
     // A stair's turn landing is drawn by the stair model, not the block mesher.
-    const solidKeys = new Set<number>()
-    for (const c of this.effectiveCells) if (c.fill === 'solid') solidKeys.add(packKey(c.x, c.y, c.z))
+    const solidKeys = this.ctx.solid
     this.ctx.hiddenCells = new Set<number>()
     // Every cell that draws as less than a whole block — a 半墙 the player laid, a
     // 三角 corner, and every block a ramp kept beside its run (`thinWallCells`) — is
@@ -282,7 +293,11 @@ export class ChunkSystem extends SceneSystem {
     // instead of bulging through it. Derived from the modules alone (a cut is a
     // property of the run, not of the block), so the build ghost's pending cells
     // read their cut from the same map.
-    this.ctx.slopeCuts = rampSlopeCuts(data.modules)
+    const ramps=data.modules.filter(m=>m.type==='stair'||m.type==='escalator'||m.type==='exit')
+    if(!this.preparedRamps || ramps.length!==this.preparedRamps.length || ramps.some((m,i)=>m!==this.preparedRamps![i])) {
+      this.ctx.slopeCuts = rampSlopeCuts(data.modules)
+      this.preparedRamps=ramps
+    }
     // The filling those cuts leave open where the player has laid no block: the
     // wedge between the ground's top and the truss's underside. Drawn from the block
     // below it (`rampFillKeys`), never a cell the document holds.
@@ -331,15 +346,16 @@ export class ChunkSystem extends SceneSystem {
       }
     }
     if (structural) {
-      const a = groundWindow(previous!.cells, previous!.modules), b = groundWindow(data.cells, data.modules)
-      if (a.x0 === b.x0 && a.x1 === b.x1 && a.y0 === b.y0 && a.y1 === b.y1) {
+      {
         const changed = new Set<number>()
         const same = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(a) === JSON.stringify(b)
         const diffMap = <T,>(before: ReadonlyMap<number,T>, after: ReadonlyMap<number,T>): void => {
+          if(before===after)return
           for (const [key,value] of before) if (!same(value,after.get(key))) changed.add(key)
           for (const key of after.keys()) if (!before.has(key)) changed.add(key)
         }
         const diffSet = (before: ReadonlySet<number>, after: ReadonlySet<number>): void => {
+          if(before===after)return
           for (const key of before) if (!after.has(key)) changed.add(key)
           for (const key of after) if (!before.has(key)) changed.add(key)
         }
@@ -372,7 +388,8 @@ export class ChunkSystem extends SceneSystem {
             columns.add(chunkColumn(cx,cy));this.chunkOrigins.set(chunkColumn(cx,cy),[cx,cy])
           }
         }
-        if (columns.size <= 64) {
+        if (columns.size <= 256) {
+          this.indexEffectiveCells(columns)
           this.localChunks = columns
           // A carve may remove the final cell in a column; meshStation cannot
           // discover that vanished column while visiting only the new cells.
@@ -380,23 +397,26 @@ export class ChunkSystem extends SceneSystem {
             const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096
             this.ctx.groundOf.delete(`${x},${y}`)
           }
-        }
+        } else this.indexEffectiveCells()
       }
     }
   }
 
-  private onlyRampModulesChanged(before: StationData, after: StationData): boolean {
+  private onlyPreparedModulesChanged(before: StationData, after: StationData): boolean {
     const remaining = new Map(before.modules.map(m => [m.id,m]))
     let changed = false
-    const ramp = (m: typeof after.modules[number]): boolean => m.type === 'stair' || m.type === 'escalator'
+    // Each of these builders' chunk inputs is completely represented by the
+    // prepared maps above. Unknown module kinds retain the full hash path.
+    const known = (m: typeof after.modules[number]): boolean =>
+      ['stair', 'escalator', 'walkway', 'track', 'pillar', 'platform-edge', 'psd-end', 'lift', 'exit', 'door', 'shelf', 'cubicle', 'sink', 'shop'].includes(m.type)
     for (const m of after.modules) {
       const old = remaining.get(m.id)
       remaining.delete(m.id)
       if (old === m || old && JSON.stringify(old) === JSON.stringify(m)) continue
-      if (!ramp(m) || old && !ramp(old)) return false
+      if (!known(m) || old && !known(old)) return false
       changed = true
     }
-    for (const m of remaining.values()) { if (!ramp(m)) return false; changed = true }
+    for (const m of remaining.values()) { if (!known(m)) return false; changed = true }
     return changed
   }
 

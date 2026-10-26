@@ -63,16 +63,39 @@ const CELL_INDEPENDENT = new Set<Module['type']>([
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])
 
+const changedColumns = new WeakMap<readonly Cell[], Map<string, Cell[]>>()
+/** Large tunnel edits must not cross every changed cell with every fixture. */
+function changedInBox(cells: readonly Cell[], x0: number, x1: number, y0: number, y1: number,
+  accepts: (cell: Cell) => boolean = () => true): boolean {
+  const inside = (c: Cell): boolean => c.x >= x0 && c.x <= x1 && c.y >= y0 && c.y <= y1 && accepts(c)
+  if (cells.length < 64 || ![x0,x1,y0,y1].every(Number.isFinite)) return cells.some(inside)
+  let columns = changedColumns.get(cells)
+  if (!columns) {
+    changedColumns.set(cells,columns=new Map())
+    for (const c of cells) {
+      const key=`${Math.floor(c.x/16)},${Math.floor(c.y/16)}`, bucket=columns.get(key)
+      if (bucket) bucket.push(c); else columns.set(key,[c])
+    }
+  }
+  const a=Math.floor(x0/16), b=Math.floor(x1/16), c=Math.floor(y0/16), d=Math.floor(y1/16)
+  if ((b-a+1)*(d-c+1)>columns.size) return cells.some(inside)
+  for(let x=a;x<=b;x++)for(let y=c;y<=d;y++)if(columns.get(`${x},${y}`)?.some(inside))return true
+  return false
+}
+
 /** The columns a cell-dependent builder reads. Height is intentionally unbounded:
  * hangers seek a slab, lifts discover stops, ramps inspect adjacent wall courses. */
-function dependsOnCell(mod: Module, cell: Cell): boolean {
-  if (isOutdoorSurface(mod)) return cell.x === mod.x && cell.y === mod.y && cell.z === mod.z
-  if (mod.type === 'track') return mod.cfg.power === 'catenary' &&
-    cell.z > mod.z + 1 && cell.z <= mod.z + trackHeadroom(mod) + 1 &&
-    trackCellAt(mod, cell.x, cell.y, mod.z)
+function dependsOnCells(mod: Module, cells: readonly Cell[]): boolean {
+  if (!cells.length) return false
+  if (isOutdoorSurface(mod)) return changedInBox(cells,mod.x,mod.x,mod.y,mod.y,cell=>cell.z===mod.z)
+  if (mod.type === 'track') {
+    if(mod.cfg.power!=='catenary')return false
+    const box=moduleEnvelope(mod)
+    return !box || changedInBox(cells,box.x0,box.x1,box.y0,box.y1,cell=>
+      cell.z > mod.z + 1 && cell.z <= mod.z + trackHeadroom(mod) + 1 && trackCellAt(mod,cell.x,cell.y,mod.z))
+  }
   if (CELL_INDEPENDENT.has(mod.type)) return false
-  if (mod.type === 'shop') return cell.x >= mod.x - 1 && cell.x <= mod.x + mod.w
-    && cell.y >= mod.y - 1 && cell.y <= mod.y + mod.h
+  if (mod.type === 'shop') return changedInBox(cells,mod.x-1,mod.x+mod.w,mod.y-1,mod.y+mod.h)
   if (mod.type === 'stair' || mod.type === 'escalator' || mod.type === 'walkway' || mod.type === 'lift') {
     const box = moduleEnvelope(mod)
     if (!box || ![box.x0, box.x1, box.y0, box.y1].every(Number.isFinite)) return true
@@ -81,10 +104,11 @@ function dependsOnCell(mod: Module, cell: Cell): boolean {
       x0 = Math.min(x0, f.from.x, f.to.x); x1 = Math.max(x1, f.from.x, f.to.x)
       y0 = Math.min(y0, f.from.y, f.to.y); y1 = Math.max(y1, f.from.y, f.to.y)
     }
-    return cell.x >= x0 - 3 && cell.x <= x1 + 3 && cell.y >= y0 - 3 && cell.y <= y1 + 3
+    return changedInBox(cells,x0-3,x1+3,y0-3,y1+3)
   }
   if (['sign', 'tv', 'clock', 'cctv', 'hanger', 'monitor'].includes(mod.type)) {
-    return moduleFootprint(mod).some(([x, y]) => Math.abs(cell.x - x) <= 1 && Math.abs(cell.y - y) <= 1)
+    const footprint = moduleFootprint(mod)
+    return footprint.some(([x,y])=>changedInBox(cells,x-1,x+1,y-1,y+1))
   }
   return true // A future builder must declare its dependencies before reuse.
 }
@@ -115,12 +139,12 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
       return !!box&&[box.x0,box.x1,box.y0,box.y1,box.z0,box.z1].every(Number.isFinite)&&
         equal(rampCellModelInputs(before,mod),rampCellModelInputs(after,mod))
     }
-    for(const mod of after.modules)if(!changed.some(cell=>dependsOnCell(mod,cell)) ||
+    for(const mod of after.modules)if(!dependsOnCells(mod,changed) ||
       unchangedRamp(mod))retained.add(mod.id)
     return retained
   }
   const changed = changedCellRecords(before.cells, after.cells)
-  for (const mod of after.modules) if (!changed.some(cell => dependsOnCell(mod, cell))) retained.add(mod.id)
+  for (const mod of after.modules) if (!dependsOnCells(mod, changed)) retained.add(mod.id)
   return retained
 }
 
@@ -162,13 +186,14 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   const cellChanges = changedCellRecords(before.cells, after.cells)
   const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
   const openingChanged = changes.some(isOpening)
+  const surfaceLiftChanged = changes.some(m=>isOutdoorSurface(m)||['stair','escalator','walkway','lift','exit'].includes(m.type))
   const rampChanged = changes.some(isRamp)
   const fenceBefore = rampChanged ? fenceConnectionIndex(before.modules) : null
   const fenceAfter = rampChanged ? fenceConnectionIndex(after.modules) : null
   for (const mod of after.modules) {
     if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
-    if (!known(mod) || cellChanges.some(cell => dependsOnCell(mod, cell))) continue
-    if (outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) continue
+    if (!known(mod) || dependsOnCells(mod, cellChanges)) continue
+    if (surfaceLiftChanged && outdoorSurfaceLift(before.modules, mod) !== outdoorSurfaceLift(after.modules, mod)) continue
     // An edge-decor piece backed against a curtain draws shifted towards its tile
     // centre, so adding/lifting a curtain rebuilds the furniture leaning on it.
     if (isEdgeDecor(mod) && changes.some(c => c.type === 'glass' && edgeDecorCurtainShare(c, mod))) continue

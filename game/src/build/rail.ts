@@ -388,9 +388,11 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
   // A tunnel bores through walls and hangs over void; only a platform is held
   // to open air and solid ground under its whole footprint.
   if (track.cfg.bridge && track.z < BRIDGE_MIN_Z) return 'floor'
-  if (track.cfg.bridge && bridgePillarCandidates(state.cells, state.modules, track).some((pillar) =>
-    equipmentReason(state.cells, [...state.modules, track], pillar, true) !== '',
-  )) return 'interference'
+  if (track.cfg.bridge) {
+    const proposedModules = [...state.modules, track]
+    if (bridgePillarCandidates(state.cells,state.modules,track).some(pillar=>
+      equipmentReason(state.cells,proposedModules,pillar,true)!=='')) return 'interference'
+  }
   if (!track.cfg.tunnel) {
     if (trackClearanceBlocked(state, track)) return 'wall'
     if (!track.cfg.bridge && trackFloorMissing(state, track)) return 'floor'

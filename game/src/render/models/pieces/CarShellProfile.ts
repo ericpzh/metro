@@ -9,6 +9,10 @@ export const CAR_ROUND_SILL = .49
 export const CAR_ROUND_WAIST = trainRoofSection('B').shoulder
 type Sample = { y: number; z: number; ny: number; nz: number }
 const profiles = new Map<string, Sample[]>()
+// Door parts repeat across a consist and its prepared fleet. Cache exact vertex
+// inputs, never materials or scene objects; each caller owns an independent copy.
+const curvedDoors = new Map<string, THREE.BufferGeometry>()
+const CURVED_DOOR_LIMIT = 64
 
 /** The cab's actual rear cut is the passenger body's profile, in both LODs. */
 export function carShellProfile(width: number, low = false): Sample[] {
@@ -89,6 +93,14 @@ export function smoothCarRoof(geometry: THREE.BufferGeometry, width: number, low
  * then follow the curve exactly, instead of spanning it with one straight chord. */
 function curvedDoorGeometry(source: THREE.BufferGeometry, width: number, side: number, zOrigin: number, low: boolean): THREE.BufferGeometry {
   const attributes = Object.entries(source.attributes)
+  const key = JSON.stringify([width, side, zOrigin, low,
+    attributes.map(([name,a]) => [name,a.itemSize,Array.from(a.array)]),
+    source.index ? Array.from(source.index.array) : null])
+  const cached = curvedDoors.get(key)
+  if (cached) {
+    curvedDoors.delete(key); curvedDoors.set(key,cached)
+    return cached.clone()
+  }
   type Vertex = Record<string, number[]>
   const output = new Map(attributes.map(([name])=>[name,[] as number[]]))
   const index = source.index
@@ -131,6 +143,11 @@ function curvedDoorGeometry(source: THREE.BufferGeometry, width: number, side: n
   }
   const geometry=new THREE.BufferGeometry()
   for(const [name,attribute]of attributes)geometry.setAttribute(name,new THREE.Float32BufferAttribute(output.get(name)!,attribute.itemSize))
+  curvedDoors.set(key,geometry.clone())
+  if (curvedDoors.size > CURVED_DOOR_LIMIT) {
+    const oldest = curvedDoors.keys().next().value!
+    curvedDoors.get(oldest)!.dispose(); curvedDoors.delete(oldest)
+  }
   return geometry
 }
 

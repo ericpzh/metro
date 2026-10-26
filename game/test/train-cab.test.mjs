@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import * as D_PROFILE from '../src/render/models/pieces/DTrainShell.ts'
-import { carShellAt } from '../src/render/models/pieces/CarShellProfile.ts'
+import { carShellAt, curveCarDoor } from '../src/render/models/pieces/CarShellProfile.ts'
 import { cabSkinGeometry } from '../src/render/models/pieces/CabSkin.ts'
 import { cabShellGeometry } from '../src/render/models/pieces/TrainShell.ts'
 import { buildCab } from '../src/render/models/pieces/CabModel.ts'
@@ -15,6 +15,28 @@ function withKit(run) {
   const mats=createModelMaterials()
   try {run(mats)} finally {disposeModelMaterials(mats);globalThis.document=previous}
 }
+
+test('curved door geometry caches exact inputs with independent disposable outputs and bounded eviction',()=>{
+  const original=THREE.MathUtils.lerp,material=new THREE.MeshBasicMaterial(),meshes=[]
+  let interpolations=0
+  THREE.MathUtils.lerp=(...args)=>{interpolations++;return original(...args)}
+  const make=(z=1.12345)=>{
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(.63,.031,1.91),material)
+    mesh.position.z=z;curveCarDoor(mesh,2.812345,1);meshes.push(mesh);return mesh
+  }
+  try{
+    const cold=make();assert.ok(interpolations>0)
+    interpolations=0
+    const warm=make();assert.equal(interpolations,0,'a repeated part performs no curve interpolation')
+    assert.notEqual(cold.geometry,warm.geometry)
+    assert.deepEqual(cold.geometry.attributes.position.array,warm.geometry.attributes.position.array)
+    const wanted=warm.geometry.attributes.position.array.slice()
+    cold.geometry.attributes.position.array.fill(0);cold.geometry.dispose()
+    assert.deepEqual(warm.geometry.attributes.position.array,wanted,'editing or disposing another consist cannot damage its geometry')
+    for(let i=0;i<70;i++)make(1.12345+i*.001)
+    interpolations=0;make();assert.ok(interpolations>0,'old inputs leave the bounded cache')
+  }finally{THREE.MathUtils.lerp=original;for(const mesh of meshes)disposeObject(mesh);material.dispose()}
+})
 
 test('D Low windshield stays above the coarse crown and solid rubber surround',()=>withKit(mats=>{
  const root=buildTrain(mats,{x:0,y:0,z:0,stock:'D',cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})

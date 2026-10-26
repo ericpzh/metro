@@ -1150,12 +1150,19 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
  * cannot disagree about which cells are cut — the defect that left a stair's own half
  * wall unpaintable was the brush not knowing about the derived ones.
  */
-export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]): Array<{ x: number; y: number; z: number; shape: CellShape }> {
+type ThinCell = { x: number; y: number; z: number; shape: CellShape }
+const thinCellCache = new WeakMap<readonly Cell[], WeakMap<readonly Module[], readonly ThinCell[]>>()
+export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]): readonly ThinCell[] {
+  let byModules=thinCellCache.get(cells)
+  const cached=byModules?.get(modules)
+  if(cached)return cached
   const out: Array<{ x: number; y: number; z: number; shape: CellShape }> = []
   for (const cell of cells) {
     const shape = shapeOf(cell)
     if (shape !== null) out.push({ x: cell.x, y: cell.y, z: cell.z, shape })
   }
   for (const t of rampThinCells(cells, modules)) out.push({ x: t.x, y: t.y, z: t.z, shape: { kind: 'half', side: t.side } })
+  if(!byModules)thinCellCache.set(cells,byModules=new WeakMap())
+  byModules.set(modules,out)
   return out
 }

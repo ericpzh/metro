@@ -12,7 +12,7 @@ import { batchTrainDoors, batchTrainTransparent } from '../../trainBatches.ts'
 import { buildTrain, disposeObject, setDoors, setDoorsSides } from '../../models.ts'
 import type { TrainPose } from '../../models.ts'
 import type { StationData } from '../../../sim/types.ts'
-import { trainPreparationPoses } from '../../trainPreparation.ts'
+import { trainPreparationFleet } from '../../trainPreparation.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { STOCK, STOCK_CLASSES, trainOriginForScale, trainScaleForStorey } from '../../../sim/stock.ts'
 import type { StockClass } from '../../../sim/stock.ts'
@@ -88,24 +88,33 @@ export class TrainSystem extends SceneSystem {
   /** Prepare the bounded service fleet during station opening, before playback.
    * Parked models carry no live service or pose until the worker reports one. */
   prepareForStation(data: StationData): void {
-    const buffer = trainPreparationPoses(data, TRAIN_PARKED_LIMIT)
+    const buffer = trainPreparationFleet(data, TRAIN_PARKED_LIMIT)
     const key = Array.from(buffer).join(',')
     if (key === this.preparationKey) return
     this.preparationKey = key
     const occurrences = new Map<string, number>(), wanted = new Set<string>()
     const modelScale = trainScaleForStorey(this.ctx.storeyHeight)
+    const plans: Array<{ sig:string; shapeKey:string; pose:TrainPose }> = []
     for (let o = 0; o < buffer.length; o += 10) {
       const [x,y,z,cars,stockIdx,,colour,dirSign,yaw,flags] = buffer.subarray(o,o+10)
-      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${flags&4}`
       const modelKey = `${modelScale}:${colour}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
       const occurrence = occurrences.get(modelKey) ?? 0
       occurrences.set(modelKey, occurrence+1)
       const sig = `${modelKey}:${occurrence}`
       wanted.add(sig)
+      plans.push({sig,shapeKey,pose:{x,y,z,cars,stock:STOCK_CLASSES[stockIdx] ?? 'B',
+        colour:`#${colour.toString(16).padStart(6,'0')}`,dirSign,yaw,modelScale,doorsOpen:false,
+        power:(flags&4)!==0?'catenary':'third-rail'}})
+    }
+    for (const {sig,shapeKey,pose} of plans) {
       if (this.trainSlots.has(sig)) continue
-      const entry = this.createEntry(sig, shapeKey, {x,y,z,cars,stock:STOCK_CLASSES[stockIdx] ?? 'B',
-        colour:`#${colour.toString(16).padStart(6,'0')}`, dirSign,yaw,modelScale,doorsOpen:false,
-        power:(flags&4) !== 0 ? 'catenary' : 'third-rail'})
+      let entry=[...this.trainSlots.values()].find(e=>!e.active&&!wanted.has(e.sig)&&e.group.userData.shapeKey===shapeKey)
+      if(entry){
+        this.trainSlots.delete(entry.sig);entry.sig=sig;this.trainSlots.set(sig,entry)
+        ;(entry.group.userData.liveryMaterial as THREE.MeshStandardMaterial).color.set(pose.colour)
+        entry.group.rotation.z=pose.yaw
+      }else entry=this.createEntry(sig,shapeKey,pose)
       entry.active = false; entry.missed = 2
       entry.group.userData.parked = true; entry.group.visible = false
     }
@@ -201,7 +210,7 @@ export class TrainSystem extends SceneSystem {
       occurrences.set(modelKey, occurrence + 1)
       const sig = `${modelKey}:${occurrence}`
       let entry = this.trainSlots.get(sig)
-      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${yaw}:${flags}`
+      const shapeKey = `${modelScale}:${dirSign}:${cars}:${stockIdx}:${flags&4}`
       if (!entry) {
         // A colour edit posts the same pose without stepping. Re-key that live
         // consist and recolour its owned material; retain door rigs and buffers.
@@ -240,6 +249,7 @@ export class TrainSystem extends SceneSystem {
       // parked — and `parked` carries it across an `applyLevel`, which owns the
       // flag otherwise (the level slicing and the sim both write it).
       // Recover the track anchor from the platform-aligned cabin origin, including cached poses.
+      entry.group.rotation.z = yaw
       entry.group.userData.levelZs = [storeyBand(Math.round(z - trainOriginForScale(modelScale)), this.ctx.levelBase, this.ctx.storeyHeight)]
       entry.group.userData.parked = false
       // Doors ease open and shut per bank in `updateTrains`, never snapping.

@@ -108,12 +108,13 @@ test('live power changes select a distinct cached roof without opening the wire 
     assert.equal(powered.userData.doorSides, 1)
     pose[9] = 4
     trains.setTrains(pose)
-    const closed = trains.trainGroup.children.find(root => root !== bare && root !== powered)
+    const closed = trains.trainGroup.children.find(root => root !== bare)
+    assert.equal(closed,powered,'door-side changes retain the same powered roof and consist')
     assert.equal(closed.userData.doorSides, 0)
     pose[9] = 1
     trains.setTrains(pose)
     assert.equal(bare.visible, true)
-    assert.equal(trains.trainGroup.children.length, 3, 'returning power mode reuses its existing consist')
+    assert.equal(trains.trainGroup.children.length, 2, 'power selects geometry while door-side flags only change the live pose')
   } finally { trains.dispose() }
 }))
 

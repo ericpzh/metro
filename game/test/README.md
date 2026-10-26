@@ -65,6 +65,13 @@ prepared fleet to the real Zoo/Tanwei worker anchors, preserves the dormant-mode
 bound, reuses exact geometry/door rigs and correct paused/resume poses at first arrival, evicts changed configurations,
 and guards latest-only train snapshots while the editor is suspended. Production
 playback attribution lives in `tools/bench-sim-stalls.mjs`; FPS is diagnostic.
+It also checks one spare per existing appearance within the eight-model bound,
+new-platform reuse across yaw/door-side changes, and power-system invalidation.
+`train-cab` checks exact curved-door cache reuse, independent geometry ownership
+and bounded eviction. `floor-geometry` compares rail, shaft and furniture commits
+with fresh meshes in all rotations, including street-window expansion and undo.
+`equipment-retention` bounds envelope work on large tunnel edits; `exits` and
+`ramp-surface` pin warm support/shape cache reuse and immutable-array invalidation.
 
 `placement-surface` pins low-angle visible beam targeting ahead of distant ground,
 fresh preview/click/move/undo agreement for supported props, one shared raycast,

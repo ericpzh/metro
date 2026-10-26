@@ -13,6 +13,66 @@ import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
 
+const triangleSnapshot = chunks => chunks.chunkMeshes.map(m => {
+  const hash=createHash('sha256'),attributes=Object.values(m.geometry.attributes),indices=m.geometry.index.array,triangles=[]
+  const vertices=[]
+  const vertex=i=>{
+    if(vertices[i]!==undefined)return vertices[i]
+    let value=''
+    for(const a of attributes)for(let j=0;j<a.itemSize;j++)value+=`${a.array[i*a.itemSize+j]},`
+    return vertices[i]=value
+  }
+  for(let i=0;i<indices.length;i+=3){
+    const v=[vertex(indices[i]),vertex(indices[i+1]),vertex(indices[i+2])]
+    const start=v[0]<=v[1]&&v[0]<=v[2]?0:v[1]<=v[2]?1:2
+    triangles.push(`${v[start]}|${v[(start+1)%3]}|${v[(start+2)%3]}`)
+  }
+  hash.update(triangles.sort().join('\n'))
+  return JSON.stringify([m.userData.levelZ,!!m.userData.ground,!!m.userData.suspendedCeiling,!!m.userData.float,hash.digest('hex')])
+}).sort()
+
+test('rail, shaft and furniture edits match fresh geometry through street expansion and undo',async()=>{
+  const { referenceStation }=await import('../src/data/reference-station.ts')
+  const { toState,toData,addEquipment,removeModule,createModule }=await import('../src/build/model.ts')
+  const { commitTrack }=await import('../src/build/rail.ts')
+  const { editorActionCases,caseModules }=await import('../src/app/benchmark/editorActionCases.ts')
+  const { withGround }=await import('../src/sim/ground.ts')
+  const material=new THREE.MeshBasicMaterial()
+  const make=()=>new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const actual=make(),fresh=make(),cells=[]
+  for(let x=-4;x<=8;x++)for(let y=-4;y<=8;y++)for(const z of [-5,0,4])cells.push({x,y,z,fill:'solid'})
+  for(let x=-32;x<=-30;x++)for(let y=16;y<=18;y++)cells.push({x,y,z:-5,fill:'solid'})
+  for(const y of [-32,32])cells.push({x:-48,y,z:-5,fill:'solid'})
+  cells.push({x:2,y:0,z:4,fill:'solid',tags:['wall'],finish:{top:'tile'}})
+  const base=addEquipment(toState({...referenceStation('tanwei'),modules:[],cells}),createModule('stair-straight',0,0,-5,'retained-ramp'))
+  const specs=editorActionCases(toData(base))
+  const install=(chunks,state)=>{const data=toData(state);chunks.prepareStation(data,withGround(data.cells,data.modules,0));chunks.meshStation()}
+  try{
+    for(const id of ['platform','tunnel/length=16','bridge/length=16','door-glass-1/wide','lift/steel','exit-virtual','shelf-white-tall','cubicle','sink'])for(const rot of [0,1,2,3]){
+      const spec={...specs.find(c=>c.id===id),rot}
+      assert.ok(spec.id,id)
+      install(actual,base)
+      const remote=actual.chunkMeshes.find(m=>!m.userData.ground&&m.geometry.boundingBox.min.x>=-32&&m.geometry.boundingBox.max.x< -24&&m.geometry.boundingBox.min.y>=16)
+      assert.ok(remote)
+      const place=(x,y)=>{
+        let state=base
+        for(const mod of caseModules(spec,x,y,id.startsWith('bridge')?5:0,'changed',toData(base)))state=mod.type==='track'?commitTrack(state,{...mod,w:16}):addEquipment(state,mod)
+        assert.notEqual(state,base,`${id}/${rot}: real placement committed`)
+        return state
+      }
+      const placed=place(32,0),moved=place(36,3)
+      for(const state of [placed,moved,removeModule(moved,'changed'),base]){
+        install(actual,state);fresh.disposeChunks();install(fresh,state)
+        assert.deepEqual(triangleSnapshot(actual),triangleSnapshot(fresh),`${id}/${rot}: all rendered attributes match a complete rebuild`)
+        assert.deepEqual(actual.ctx.groundOf,fresh.ctx.groundOf)
+        assert.deepEqual(actual.ctx.solid,fresh.ctx.solid)
+        assert.ok(actual.chunkMeshes.includes(remote),`${id}/${rot}: remote meshes survive`)
+        if(state!==base)assert.equal(actual.chunkKeyCellVisits,0,`${id}/${rot}: prepared input deltas avoid hashing`)
+      }
+    }
+  }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
+
 test('stair and escalator commits retain remote chunks and match a complete remesh', async () => {
   const { emptyStation } = await import('../src/data/reference-station.ts')
   const { createModule, toState, toData, addEquipment, removeModule } = await import('../src/build/model.ts')

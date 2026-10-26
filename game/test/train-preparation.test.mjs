@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { readFileSync } from 'node:fs'
-import { trainPreparationPoses } from '../src/render/trainPreparation.ts'
+import { trainPreparationPoses, trainPreparationFleet } from '../src/render/trainPreparation.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { createModelMaterials, disposeModelMaterials } from '../src/render/models.ts'
@@ -19,6 +19,46 @@ const appearance = buffer => {
   }
   return counts
 }
+
+test('new platforms reuse bounded spare geometry across yaw and door-side changes',()=>{
+  const previous=globalThis.document
+  globalThis.document={createElement(){const canvas={width:0,height:0};const {g}=stubCanvas();g.canvas=canvas;canvas.getContext=()=>g;return canvas}}
+  const mats=createModelMaterials(),ctx=new SceneContextData(new THREE.Scene(),{},mats,{})
+  const trains=new TrainSystem(ctx)
+  trains.level={applyGroupLevel(group){group.visible=!group.userData.parked}}
+  const fixture=referenceStation(),line={...fixture.lines[0],stock:'B',cars:1}
+  const old=fixture.modules.find(m=>m.type==='track')
+  const track={...old,id:'first',rot:0,x:0,cfg:{line:line.id,dir:'up'}}
+  const base={...fixture,cells:[],lines:[line],modules:[track]}
+  try{
+    assert.equal(trainPreparationFleet(base,8).length,20,'one actual anchor plus one spare')
+    trains.prepareForStation(base)
+    const groups=trains.trainGroup.children.slice()
+    let builds=0
+    const build=trains.createEntry
+    trains.createEntry=function(...args){builds++;return build.apply(this,args)}
+    const second={...track,id:'second',rot:1,x:25}
+    const expanded={...base,modules:[track,second]}
+    assert.equal(trainPreparationFleet(expanded,8).length,20,'an extra anchor consumes the spare instead of adding a third copy')
+    trains.prepareForStation(expanded)
+    assert.equal(builds,0)
+    assert.deepEqual(new Set(trains.trainGroup.children),new Set(groups))
+    const screened={...expanded,modules:[...expanded.modules,{id:'screen',type:'platform-edge',x:25,y:0,z:0,rot:1,w:1,cfg:{line:line.id,dir:'up',side:'left',from:'second',psd:'full'}}]}
+    trains.prepareForStation(screened)
+    assert.equal(builds,0,'door-side bits do not change built train geometry')
+    const poses=trainPreparationPoses(screened,8)
+    trains.setPlaying(false);trains.setTrains(poses)
+    assert.equal(builds,0,'both arrivals reuse the prepared fleet')
+    const active=[...trains.trainSlots.values()].filter(e=>e.active)
+    assert.equal(active.length,2)
+    active.forEach((e,i)=>{
+      assert.equal(e.group.rotation.z,poses[i*10+8])
+      assert.equal(e.group.userData.doorSides,poses[i*10+9]&3)
+    })
+    trains.prepareForStation({...screened,lines:[{...line,power:'catenary'}]})
+    assert.ok(builds>0,'a different power system still prepares different roof geometry')
+  }finally{trains.dispose();disposeModelMaterials(mats);globalThis.document=previous}
+})
 
 test('prepared demo appearances match every worker service anchor without dispatching or changing the document', () => {
   for (const id of ['zoo','tanwei']) {

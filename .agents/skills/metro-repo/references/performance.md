@@ -128,7 +128,7 @@ Benchmark maps omit embedded sources to stay under the normal asset-size cap;
 use the captured source snapshot for original files. Asset integrity limits stay
 enabled in these local builds.
 
-The completed one-sample capture covers all 404 Zoo and 405 Tanwei cases (809 total) on the i7-14700KF / RTX 4080 SUPER, High quality, 892 × 815 canvas at pixel ratio 1. Tanwei resumed matching checkpoints from the same frozen source/build pair after the initial capture stopped; its report marks `resumeRequested: true` and `complete: true`. Results include one sample per setting value, not a warmed distribution.
+The initial one-sample baseline covers all 404 Zoo and 405 Tanwei cases (809 total) on the i7-14700KF / RTX 4080 SUPER, High quality, 892 × 815 canvas at pixel ratio 1. Tanwei resumed matching checkpoints from the same frozen source/build pair after the initial capture stopped; its report marks `resumeRequested: true` and `complete: true`. Results include one sample per setting value, not a warmed distribution.
 
 | Demo | Cases | Preview max frame | Move-preview max frame | Place max frame | Drop max frame | Delete max frame |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -137,7 +137,7 @@ The completed one-sample capture covers all 404 Zoo and 405 Tanwei cases (809 to
 
 Across both demos, 2,654 of 4,854 stages passed, 1,757 exceeded 100 ms, two had functional errors, and 441 actions are unsupported by the product. All 809 previews and all 662 supported move previews passed. Place passed 307/809; drop passed 69/662 supported cases, with two PSD-cover move/drop refusals; delete passed 145/809. The target is met for preview generation and move preview, but broadly missed for drop/delete and often for place. These maxima include time through the first rendered feedback, so they identify work that still needs optimization.
 
-The per-equipment matrices for both demos, with each setting value and action breakdown, are in [the readable matrix](editor-action-matrix.md). The [machine-readable capture](editor-action-matrix.jsonl) retains all 809 cases, exact inputs, stage timings and work counters under the matching source/build hashes. Tanwei resumed matching checkpoints; both demo datasets are complete.
+The current per-equipment matrices for both demos, with each setting value and action breakdown, are in [the readable matrix](editor-action-matrix.md). The [machine-readable capture](editor-action-matrix.jsonl) retains all 809 cases, exact inputs, stage timings and work counters under its declared source/build hashes. These companions track the newest full inventory; the follow-up sections below distinguish their source builds and repeated selected-case captures from this initial baseline.
 #### Shared ceiling-support indexes in structural commits
 
 The existing separate `profile-check` capture maps repeated ceiling support work
@@ -271,16 +271,16 @@ are retained, including their 500–850 ms misses; only `shared-cells` is the se
 final sweep. The broad sweep is ordered differently from the two-case baseline;
 per-case fixture/camera/sample settings match, but previous-case cache history differs.
 
-The fresh one-sample full action matrix was then run against that same final
-source/build and complete current Zoo/Tanwei fixtures. It records 57 action stages
-over 500 ms; the complete case/action list is in
-[`editor-action-matrix.md`](editor-action-matrix.md#remaining-stages-over-500-ms),
-with all timings and work counters in `editor-action-matrix.jsonl`. Platform and
+The first one-sample full action matrix after the stair work ran against that same
+source/build and complete Zoo/Tanwei fixtures. It recorded 57 action stages over
+500 ms in 38 cases. Its complete report remains at
+`.preview/perf/editor-actions/run-2026-10-26T05-13-20-296Z-44188/report.json`.
+Platform and
 tunnel commits now dominate the largest stalls. The full ordered run also measured
 Tanwei `stair-left180/span=triple;length=ultra-long` drop at 502.0 ms once, while
-the selected three-sample sweep for that case peaked at 455.9 ms. Treat that
-borderline variant as variable and not yet a robust <500 ms pass; the 14-case sweep
-result applies to its matched staging fixture and sample history, not every run.
+the selected three-sample sweep for that case peaked at 455.9 ms. The follow-up
+below includes this boundary miss in its slow-case set; the 14-case sweep result
+applies to that build's matched staging fixture and sample history, not every run.
 The full matrix is an inventory with one sample per case, not a distribution.
 
 `floor-geometry` checks all eight stair families and escalators in all four rotations
@@ -308,6 +308,99 @@ line / branch / function coverage is:
 | placement | 95.87% | 87.87% | 89.78% |
 
 Logs are `.preview/perf/stair-500-{full-tests,perf-tests,focused-coverage,carve-coverage}.log`.
+
+#### Remaining structural commits below 500 ms
+
+The 57 stages above 500 ms are the baseline for this follow-up: 55 Tanwei stages
+and two Zoo stages, across 38 cases. Separate profiles of platform placement,
+128 m tunnel edits and wide glass doors show whole-station chunk hashing,
+repeated model/cell dependency checks, and new train construction on platform
+placement. Profiling captures live in `.preview/perf/remaining-500-profile-before/`;
+their times are diagnostic and are not mixed with clean comparisons.
+
+Known rail, shaft, exit and furniture edits now compare the same exact prepared
+chunk inputs as stairs. Generated street membership participates in that diff,
+including window expansion/shrink. Only affected columns update their cell index
+and remesh; remote geometry stays allocated. Unchanged ramp/exit and platform-edge
+records retain their derived cuts/insets. Unknown module kinds, changed storey
+settings and more than 256 affected chunk columns retain the full path. The
+complete solid/finish preparation still runs; this is bounded index rebuilding
+and meshing, not zero document-wide work.
+
+Large cell diffs use spatial buckets for model dependencies, rather than testing
+every fixture against every changed tunnel cell. Independent models skip that
+query, each dependent envelope is prepared once, and bridge-support comparisons
+search a shared list of bridge tracks. Bridge validation shares one proposed
+module array across its piers. Immutable module arrays cache their exit readers;
+cell/module array pairs share readonly thin-wall derivation between viewport and
+mesher. These weak caches expire with their source documents.
+
+Train geometry selection now excludes yaw and door-side bits: they update the
+live pose. Stock, car count, direction, scale and power still select geometry.
+Available space within the existing eight-dormant-model cap prepares a second
+copy of each existing appearance, so a new platform can consume a spare. Live
+consists are not stolen during document preparation. Curved door parts additionally
+use an exact 64-entry LRU keyed by all source vertex/index data and curve inputs;
+each caller receives an independent geometry copy. This spends bounded derived
+memory and more construction during station opening to avoid construction on an
+ordinary platform commit. Station-opening latency is not measured by this audit.
+
+Final source/build hashes are
+`152fa034a3a25d2ac358de0deabd4822ae4d6fa30f55a747f0ee9666f1846fcb` /
+`c6ded93328f98c171f9a4d21c13da43d24f587ed3177a9e68b9915cff08a7a89`.
+The clean three-sample recheck of all 38 previously slow cases records 423 timed
+stages, including 255 commits, all below 500 ms. The maximum is 421.1 ms for
+Tanwei `platform/line=5` deletion; Zoo peaks at 264.4 ms. All 171 repetitions of
+the original 57 slow case/action pairs are below 500 ms. The other 261 stages are
+product-unsupported actions, with no timing or pass claim. There are no functional,
+runtime or WebGL errors in this selected recheck. Reports are
+`.preview/perf/remaining-500-targeted-{zoo,tanwei}/`. Intermediate clean captures
+`remaining-500-{first,second,third,fourth,fifth,sixth}/` retain their misses and work
+counters; they are not represented as final passes.
+
+The final fresh ordered full matrix, `.preview/perf/remaining-500-full/`, completes
+all 404 Zoo and 405 Tanwei cases. **All 4,411 timed stages are <500 ms**, with a
+464.9 ms maximum on Tanwei `platform/line=5` placement (Zoo maximum 351.6 ms).
+Every one of the original 57 slow case/action pairs is now below 500 ms in this
+matching one-sample inventory. The remaining 443 rows are 441 unsupported actions
+and the two pre-existing Zoo/Tanwei PSD-cover drop refusals, which have no completed
+feedback timing. There are no runtime/GL errors. The current readable matrix and
+JSONL companion contain this full capture, not a merge with the selected repeats.
+Its 100 ms result remains 2,910 passes and 1,501 over-budget stages.
+
+| Family | Originally slow case/action pairs | Baseline maximum | Optimized maximum |
+| --- | ---: | ---: | ---: |
+| Platform | 16 | 1571.4 ms | 464.9 ms |
+| Tunnel | 12 | 939.4 ms | 431.1 ms |
+| Bridge | 11 | 876.1 ms | 420.8 ms |
+| Lift | 5 | 557.8 ms | 275.1 ms |
+| Exit | 4 | 551.9 ms | 320.5 ms |
+| Glass/wood door | 6 | 587.9 ms | 212.4 ms |
+| Shelf/cubicle | 2 | 523.0 ms | 198.9 ms |
+| Triple ultra-long left-180 stair | 1 | 502.0 ms | 278.9 ms |
+
+These are maxima across the same affected pairs in the baseline and optimized full
+one-sample captures; a family's maximum can come from different variants. The
+source fingerprint of the measured build matches the final working source.
+
+The host/protocol remains i7-14700KF / RTX 4080 SUPER, HeadlessChrome 156 / ANGLE
+D3D11, High, paused staging camera, 892 × 815 canvas, pixel ratio 1. Captures run
+sequentially without competing builds, tests or profiles. Three-sample fixtures
+reserve three sample positions; only the complete one-sample matrix is directly
+comparable to the baseline matrix's per-case camera/fixture and sample count.
+API-to-render feedback does not measure real pointer dispatch, compositor
+presentation or completed GPU work, and no finite capture guarantees every future
+run or imported station stays below the bound. The normal budget remains 100 ms.
+
+Fresh-mesh regressions cover rail, shaft and furniture edits in all rotations,
+street expansion/shrink, duplicate records, existing ramp cuts, floor ownership,
+remote allocations and undo. Work-count regressions pin dependency-envelope and
+warm exit/thin-wall cache reuse. Train checks pin independent door/LOD buffers,
+exact cache copies/eviction, spare reuse across yaw/door flags, incompatible power
+changes and bounded GPU eviction. The production build and all 2,502 game tests
+pass. Production batching preserves open/closed train triangles with no
+GLSL/WebGL/runtime errors; CPU/trace export checks pass. Logs are
+`.preview/perf/remaining-500-{full-tests,render-batching,perf-tools}.log`.
 
 ### Local place, drop, move and delete optimization
 

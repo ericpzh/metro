@@ -22,6 +22,18 @@ import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 
+test('large remote tunnel edits prepare each dependent model envelope once',()=>{
+  const stair=createModule('stair-left180',0,0,0,'stair'),from=stair.from
+  let reads=0
+  Object.defineProperty(stair,'from',{enumerable:true,get(){reads++;return from}})
+  const before=station([stair,createModule('clock',0,0,0,'clock'),createModule('bench',2,2,0,'bench')])
+  const changed=Array.from({length:2048},(_,i)=>({x:100+Math.floor(i/8),y:100+i%8,z:1,fill:'solid'}))
+  const after={...before,cells:[...before.cells,...changed],modules:[...before.modules,createModule('bridge',100,100,5,'tunnel')]}
+  assert.deepEqual([...retainedModuleIds(before,after)].sort(),['bench','clock','stair'])
+  assert.ok(reads<100,`a remote edit must not recalculate a stair envelope for each changed cell: ${reads}`)
+  assert.equal(retainedModuleIds(before,{...after,cells:[...after.cells,{x:0,y:0,z:1,fill:'solid'}]}).has('stair'),false,'a nearby changed cell still invalidates the model')
+})
+
 test('cloned duplicate cell records do not invent remote model invalidation',()=>{
   const ceiling={x:0,y:0,z:5,fill:'solid',finish:{top:'tile'}}
   const duplicate={x:0,y:0,z:5,fill:'solid'}
