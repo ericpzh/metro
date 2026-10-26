@@ -9,38 +9,85 @@ characters and four Rocketbox visual selections) plus four generated MPFB childr
 outfits of one person. Rocketbox picks are visual selections; that source does not
 provide ethnicity labels. Previous nonmatching candidates are excluded.
 
-`src/candidate-catalog.js` owns the selection and bilingual labels. Switch between
-original and smooth textured grey materials, orbit or use the fixed camera views,
-and keep a shortlist in browser local storage. Candidate/style/language live in
-the URL; picks remain local. Grey mode preserves authored normals, clothing detail
-and alpha cutouts. The page has scoped viewport layout in `src/candidates.css`.
+`src/candidate-catalog.js` owns the bilingual character catalogue. The page now
+opens in Animated grayscale, with standing, waiting and slow/medium/fast walks. The
+accepted static faceless minimalist grayscale image view is also available. Each of the 14
+characters has its own original 16-angle sheet and image-stylized 16-angle sheet
+under `public/human-candidates/studies/`: 224 directional illustrations total.
+The angle slider, fixed-view buttons and Rotate inspect the sheet. Comparison
+mode shows that character's original captures alongside the chosen style; Source
+mode retains the unmodified 3D asset and any bundled animation for reference.
+The earlier replacement heads, hair caps, procedural bags, material/shader style
+experiments and frozen WebGL sprite experiment have been removed.
 
-Adults use a 1.75 m comparison height; generated children span 1.18–1.46 m and use
-actual child age/Asian phenotype targets, not adult meshes scaled smaller. The
-children differ in age/body parameters, hair and fitted clothes. Sources retain
-rigs but these are static appearance candidates; animation and game integration
-remain pending. Nothing here changes the game crowd atlas.
+Candidate, view mode and language live in the URL; shortlists stay in browser
+local storage. Old style/study query parameters migrate to the grayscale view.
+Adults use 1.75 m reference height. Children retain child body proportions and
+are displayed at their authored heights (1.18–1.46 m), relative to that adult
+reference. The illustration display enforces neutral grayscale with a CSS filter.
 
-Source notices, pinned revisions and hashes live in
+The static sheets retain the approved image style with an opaque light background.
+The moving preview now uses stable surface regions derived from original source UVs
+and anatomy, with flat unlit grayscale colours. It does not project the static
+sheets onto moving meshes. This removes side-view phantom hands and paper borders.
+`src/candidate-illustration.js` samples source colours only to fit garment coverage and palette. Sleeve and
+trouser/boot lengths are robust contiguous skin intervals in limb coordinates;
+the shirt hem is one fitted plane, the collar is a fitted V or rounded opening,
+and the hairline is a continuous scalp field. Runtime boundaries evaluate those
+fields per fragment in bind space, independently of texture speckles or individual
+triangle labels. Eye/gland/teeth surfaces use the same unlit skin colour in illustration mode,
+filling face sockets without showing texture detail or opening background holes.
+`node --test model/test/candidate-boundaries.test.mjs` pins noisy short sleeves,
+shorts/boot intervals and covered limbs against isolated texture pixels. Original texture alpha is retained for genuine hair cutouts;
+source texture lighting/detail is not rendered. Source materials and geometry
+restore on source view/disposal. Character-specific clothing boundaries still
+need art review; the static illustrations remain available for comparison.
+
+`src/animation/candidate-library-motion.js` loads the CC0 Quaternius Universal
+Animation Library and uses Three.js `SkeletonUtils.retarget` for walk/idle upper
+body motion. It maps torso, neck, head, shoulders, arms and hands on VALID,
+Rocketbox and MPFB rigs. A temporary target T-pose establishes axis offsets,
+including the children's original A-poses, and is then fully restored. Source
+bone lengths/scales are retained after retargeting; imported rig scales must
+never be copied into mapped joints. Source motions/licenses/pinned mirror/hash
+records live under `public/human-candidates/motions/`, collected by
+`python tools/collect-candidate-motions.py`. Official source:
+https://quaternius.com/packs/universalanimationlibrary.html .
+
+`src/animation/candidate-motion.js` keeps the accepted foot-target trajectory and
+shared slow/medium/fast speed/cadence for lower-body ground contact; the Quaternius
+clip supplies authored upper-body timing instead of procedural hand paths.
+Children scale stride/lift with height. Source lengths and bind transforms restore
+before each sample. Station interaction transfers and game integration remain
+pending. These are live rigged character previews, not baked animated sprite sheets.
+Nothing here changes the game crowd atlas or the reviewed passenger library.
+
+`studies/library.json` records the built-in image edit prompts, source/output
+hashes and the source models. Original source/license notices remain in
 `public/human-candidates/manifest.json` and each collection's `source.json`.
 Rocketbox and VALID are MIT; generated MakeHuman core assets/output are CC0.
-Preserve each collection's license file. Source textures are bounded to 1024px.
+Rocketbox picks are visual selections, not source-verified ethnicity labels.
 
 Reproduction tools:
 - `python tools/collect-valid-candidates.py`: six pinned compressed GLBs.
-- `python tools/generate-child-candidates.py`: four MPFB GLBs, rigged/fitted,
-  shape/mask baking and export-compatible PBR skin/dark hair. Requires the isolated
-  bpy 5.2.3 runtime, pinned MPFB source and CC0 system pack under
-  `.preview/human-tools/`; the output source record contains revisions and hashes.
-- `python tools/collect-human-candidates.py`: four Rocketbox picks plus combined
-  manifest refresh after generating/downloading the other collections.
+- `python tools/generate-child-candidates.py`: four fitted MPFB child GLBs.
+- `python tools/collect-human-candidates.py`: Rocketbox assets and source manifest.
+- `node tools/capture-original-human-study.mjs`: all original contact sheets
+  from the built page, using its shared capture helper. Source texture decoding
+  completes before captures, including FBX clothing maps. Output is deterministic
+  source rendering; stylization is a separate built-in image edit step using the
+  saved prompts and approved reference, not part of this script.
 
 Build without regenerating game passenger exports using
 `node model/node_modules/vite/bin/vite.js build model`, then run
-`node tools/check-human-candidates.mjs`. This checks all fourteen candidates in
-both styles, retained rigs, actual grey desaturation, preserved normals/maps/alpha,
-shortlist persistence, Chinese labels, compact layout and shaders. Visual captures
-are ignored under `.preview/human-candidates/`.
+`node tools/check-human-candidates.mjs`. The browser check covers all 14 sheets,
+occupied figures in all 224 tiles, grayscale display, angle switching, comparison
+and original 3D modes, shaders, shortlist persistence, Chinese and compact layout.
+`node tools/check-candidate-motion.mjs` verifies all 14 rigs and three walk
+profiles: finite joints, body scale, loop closure, stance speed/height, IK endpoint error,
+authored animation mappings, moving rendered pixels and absence of snapshot maps. It saves oblique/side/back captures and a quantitative
+report under `.preview/human-candidates/motion/`.
+Captures/reports are ignored under `.preview/human-candidates/`.
 
 ## Passenger activity previews
 

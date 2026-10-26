@@ -5,6 +5,37 @@ description: Work on the metro repository model/ character library, reviewed hai
 
 # Metro model library
 
+## Human candidate preview studies
+
+`model/candidates.html` is a separate review surface for external clothed human
+sources and does not feed the game crowd atlas. Keep candidate experiments there
+until the user approves a source and its style; game integration still goes through
+the reviewed character library and passenger bake. The current study has 14
+candidates, deterministic 16-view source sheets in
+`model/public/human-candidates/studies/`, and faceless grayscale studies alongside
+them. `library.json` records source/model hashes and generation provenance. Do not
+replace source assets or generated study sheets without updating that record.
+
+External motion for the candidate preview is isolated in
+`model/src/animation/candidate-library-motion.js`; its CC0 Quaternius source,
+license and collection record live in
+`model/public/human-candidates/motions/`. The preview retargets authored upper-body
+clips and keeps the existing foot-targeted gait for legs. Do not import the model
+preview into game runtime. Preserve source material/texture state when switching
+between the flat study and original textured views, and wait for external textures
+to decode before capturing FBX models.
+
+For live grayscale studies, retain the original skinned geometry and derive palette
+boundaries from continuous bind-space fields: fit garment/skin intervals from
+source texture samples, then shade seams per fragment. Per-vertex sampled material
+labels create jagged boundaries at hairlines, sleeves, collars and hems. Keep
+face-detail meshes filled with the skin tone; hiding them can expose holes in the
+head. Verify front, oblique, side and back views at multiple gait phases. The focused
+boundary regression is `model/test/candidate-boundaries.test.mjs`; run
+`node tools/check-candidate-motion.mjs` for all-candidate motion/geometry checks,
+`node tools/check-human-candidates.mjs` for the preview UI and study sheets, then
+`node model/node_modules/vite/bin/vite.js build model`.
+
 ## Sound studio
 
 This skill also owns the isolated `/sounds.html` audition page at model port

@@ -6,12 +6,14 @@
 <section class="workspace"><aside>
 <label id="candidate-label" for="candidate"></label><select id="candidate"></select>
 <p id="description" class="hint"></p><a id="source" target="_blank" rel="noreferrer"></a>
-<label id="style-label" for="style"></label><select id="style"><option value="grey">Metro grey / 灰阶</option><option value="original">Original / 原始材质</option></select>
+<label id="mode-label" for="render-mode"></label><select id="render-mode"></select>
+<div id="motion-controls"><label for="motion">Motion / 动作</label><select id="motion"></select><button id="motion-play">Pause motion</button><label for="motion-timeline">Motion phase / 动作进度</label><input id="motion-timeline" type="range" min="0" max="1" step="0.001" value="0"></div>
+<div id="source-controls" hidden>
 <label id="animation-label" for="animation"></label><select id="animation"></select>
 <div class="playback"><button id="play"></button><button id="reset"></button></div>
 <label id="timeline-label" for="timeline"></label><input id="timeline" type="range" min="0" max="1" step="0.001" value="0">
-<button id="pick" aria-pressed="false"></button><p id="picks" aria-live="polite"></p>
+</div><button id="pick" aria-pressed="false"></button><p id="picks" aria-live="polite"></p>
 <p id="note" class="hint"></p><p><a href="./human-candidates/manifest.json">Sources & asset hashes / 来源</a></p>
-</aside><div id="view"><div id="status" role="status"></div></div></section>
+</aside><div id="view"><div id="status" role="status"></div><input id="live-angle" aria-label="Animated view angle" type="range" min="0" max="15" step="1" value="0"><section id="image-study" aria-label="Grayscale character preview"><h2 id="study-title"></h2><p id="study-name"></p><div class="study-pair"><figure id="original-figure"><div id="study-original" class="study-frame"></div><figcaption id="original-caption"></figcaption></figure><figure><div id="study-clean" class="study-frame"></div><figcaption id="clean-caption"></figcaption></figure></div><label id="angle-label" for="study-angle"></label> <output id="study-degrees">0°</output><input id="study-angle" type="range" min="0" max="15" step="1" value="0"><p><a id="original-sheet" target="_blank" rel="noreferrer"></a> · <a id="clean-sheet" target="_blank" rel="noreferrer"></a></p></section></div></section>
 <footer><div class="views"><button data-view="front">Front / 正面</button><button data-view="three">¾</button><button data-view="side">Side / 侧面</button><button data-view="back">Back / 背面</button><button id="rotate">Rotate / 旋转</button></div><p id="orbit-hint"></p></footer>
 </main><script type="module" src="/src/candidates.js"></script></body></html>

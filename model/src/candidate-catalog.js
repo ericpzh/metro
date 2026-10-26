@@ -4,7 +4,7 @@ export const CANDIDATES=[
  ...['F','M'].flatMap(sex=>[1,2,3].map(number=>({
   id:`valid-Asian_${sex}_${number}_Casual`,
   name:[`VALID · ${sex==='F'?'woman':'man'} ${number} · casual`,`VALID · ${sex==='F'?'女性':'男性'} ${number} · 便装`],
-  age:'adult',kind:'gltf',file:`human-candidates/valid/Asian_${sex}_${number}_Casual.glb`,source:validSource,
+  age:'adult',neckline:sex==='F'&&number===1?'v':'crew',kind:'gltf',file:`human-candidates/valid/Asian_${sex}_${number}_Casual.glb`,source:validSource,
   description:['MIT · Source-labeled East Asian adult base. One casual outfit per distinct base; rig retained, station animations pending.','MIT · 来源标注的东亚成人基础角色。每个独立基础角色仅选一套便装；保留骨架，车站动作待适配。'],
  }))),
  ...[

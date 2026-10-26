@@ -12,3 +12,33 @@
 .candidate-page footer{max-width:none;width:100%;margin:0;padding:12px 26px;gap:12px;letter-spacing:0}
 .candidate-page button:disabled{opacity:.45;cursor:default}
 @media(max-width:720px){.candidate-page header{padding:14px 16px}.candidate-page h1{font-size:23px}.candidate-page #intro{padding:0 16px}.candidate-page .workspace{grid-template-columns:190px minmax(0,1fr)}.candidate-page aside{padding:12px}.candidate-page footer{padding:10px 14px;flex-wrap:wrap}.candidate-page footer p{font-size:10px}}
+
+.candidate-page #view{position:relative}
+.candidate-page #image-study{position:absolute;inset:0;background:#f5f4ed;z-index:2;padding:24px;overflow:auto;text-align:center}
+.candidate-page #image-study[hidden]{display:none}
+.candidate-page #image-study h2{font-size:20px;margin:0 0 10px}
+.candidate-page #image-study p{font-size:12px;line-height:1.5}
+.candidate-page .study-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:1000px;margin:auto}
+.candidate-page .study-pair figure{margin:0;min-width:0}
+.candidate-page .study-frame{width:100%;aspect-ratio:1;background-size:400% 400%;background-repeat:no-repeat}
+.candidate-page #study-clean{filter:grayscale(1)}
+.candidate-page #study-angle{width:min(600px,90%)}
+
+.candidate-page #image-study{background:#f3f3f3}
+.candidate-page #original-figure{display:none}
+.candidate-page .study-pair{grid-template-columns:minmax(0,1fr);max-width:580px}
+.candidate-page .comparison .study-pair{grid-template-columns:1fr 1fr;max-width:1000px}
+.candidate-page .comparison #original-figure{display:block}
+.candidate-page #source-controls[hidden]{display:none}
+.candidate-page #image-study{padding:18px}
+.candidate-page #status{z-index:4}
+
+.candidate-page .study-frame{transform:scale(var(--body-scale,1));transform-origin:50% 86%}
+
+.candidate-page .study-pair{max-width:clamp(200px,calc(100dvh - 420px),580px)}
+.candidate-page .comparison .study-pair{max-width:clamp(200px,calc(200dvh - 840px),1000px)}
+
+.candidate-page #motion-controls[hidden],.candidate-page #live-angle[hidden]{display:none}
+.candidate-page #live-angle{position:absolute;bottom:22px;left:15%;width:70%;z-index:3}
+
+.candidate-page #motion-controls label{display:block;margin-top:12px}.candidate-page #motion-play{display:block;margin-top:8px}
