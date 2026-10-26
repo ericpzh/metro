@@ -30,6 +30,24 @@ import { EscalatorModel } from '../src/render/models/pieces/EscalatorModel.ts'
 import { STOCK_CLASSES, CABIN_FLOOR_Z, doorCentres, trainLength, trainOriginForScale, trainScaleForStorey } from '../src/sim/stock.ts'
 import { BlockTool } from '../src/app/tools/BlockTool.ts'
 
+test('storey lookup preserves shifted finite grid boundaries without building level lists', () => {
+  const expected = []
+  for (const base of [0,1,4,-1,100,NaN]) {
+    const levels=levelSteps(base)
+    for (const z of [-100,-40,-39.9,-5,-.01,0,4.99,5,29.99,30,100,Infinity,-Infinity]) {
+      const offset=levels[8]
+      expected.push([z,base,Math.max(levels[0],Math.min(levels.at(-1),Math.floor((z-offset)/5)*5+offset))])
+    }
+  }
+  const original=Array.from
+  let allocations=0
+  try {
+    Array.from=(...args)=>{allocations++;return original(...args)}
+    for(const [z,base,band] of expected)assert.equal(storeyBand(z,base),band)
+    assert.equal(allocations,0,'per-cell storey queries allocate no editing-level arrays')
+  } finally {Array.from=original}
+})
+
 // Node has no `Worker`; the store's `newStation`/`loadReference` open one through
 // `ensureClient`, so stand a no-op stub up (mirrors line-edit.test.mjs).
 globalThis.Worker = class { constructor() { this.onmessage = null } postMessage() {} }

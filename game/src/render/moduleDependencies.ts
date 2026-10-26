@@ -8,6 +8,7 @@ import { trackCellAt, trackHeadroom } from '../sim/track.ts'
 import { groundWindow } from '../sim/ground.ts'
 import { fenceConnectionIndex } from '../sim/fences.ts'
 import { localCellEdit } from './localCellEdit.ts'
+import { changedCellRecords } from './cellChanges.ts'
 
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
@@ -118,14 +119,7 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
       unchangedRamp(mod))retained.add(mod.id)
     return retained
   }
-  const previous = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
-  const changed: Cell[] = []
-  for (const cell of after.cells) {
-    const key = `${cell.x},${cell.y},${cell.z}`, old = previous.get(key)
-    if (old !== cell && JSON.stringify(old) !== JSON.stringify(cell)) changed.push(cell)
-    previous.delete(key)
-  }
-  changed.push(...previous.values())
+  const changed = changedCellRecords(before.cells, after.cells)
   for (const mod of after.modules) if (!changed.some(cell => dependsOnCell(mod, cell))) retained.add(mod.id)
   return retained
 }
@@ -165,16 +159,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   const known = (m: Module): boolean => CELL_INDEPENDENT.has(m.type) || STANDALONE.has(m.type)
     || ['track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'clock', 'cctv', 'monitor', 'sign', 'tv'].includes(m.type)
   if (changes.some(m => !known(m))) return retained
-  const cellChanges: Cell[] = []
-  if (before.cells !== after.cells) {
-    const cells = new Map(before.cells.map(c => [`${c.x},${c.y},${c.z}`, c]))
-    for (const cell of after.cells) {
-      const key = `${cell.x},${cell.y},${cell.z}`
-      if (!equal(cells.get(key), cell)) cellChanges.push(cell)
-      cells.delete(key)
-    }
-    cellChanges.push(...cells.values())
-  }
+  const cellChanges = changedCellRecords(before.cells, after.cells)
   const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
   const openingChanged = changes.some(isOpening)
   const rampChanged = changes.some(isRamp)

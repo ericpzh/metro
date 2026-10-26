@@ -15,6 +15,7 @@ through block/wall commits, and stair-block place/move/delete retention. `line-e
 pins immutable local-cell undo frames. `floor-geometry` compares incremental commits
 with fresh triangles (positions, winding, normals, colours and UVs), including
 chunk seams, ceiling support, painting and undo, while retaining remote geometry.
+`floor-geometry` compares every stair family and escalators in all four rotations across place, move, delete and undo with a fresh remesh, including duplicate records, cuts, ceiling/ground passes, AO, floor ownership and remote allocation retention. `equipment-retention` pins duplicate-aware immutable cell diffs, retained activity discovery and live registry ownership; `storey-height` pins zero level-list allocations during storey lookup.
 `equipment-retention` also pins zero repeated batch/detail work for retained roots
 and resynchronisation when the graphics view changes. Browser timings belong in
 the shared performance reference; run `npm run bench:block-edits` for real pointer
@@ -441,7 +442,7 @@ and preserved street floors, plus controller preview/release agreement and
 one commit per click or drag, native context-menu drag preservation (also used by
 right-button 分区 erasure) and available erase cursors.
 
-`ceiling-decor` also pins explicit underground ceiling anchors beneath 0 m and
+`ceiling-decor` pins shared ceiling-support index reuse without warm station-array scans, invalidation on cell/module replacement and undo. It also pins explicit underground ceiling anchors beneath 0 m and
 −5 m, with physical slabs or the virtual ground plane and a taller fallback.
 
 `monitor-signal` pins the 监视器's two mounts, all rotated wall backing courses,

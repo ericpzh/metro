@@ -13,6 +13,52 @@ import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
 import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 await geometryDetailReady
 
+test('stair and escalator commits retain remote chunks and match a complete remesh', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const { createModule, toState, toData, addEquipment, removeModule } = await import('../src/build/model.ts')
+  const { withGround } = await import('../src/sim/ground.ts')
+  const material = new THREE.MeshBasicMaterial()
+  const make = () => new ChunkSystem(new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {}))
+  const actual = make(), fresh = make()
+  const cells = []
+  for (let x=12;x<=20;x++) for(let y=-10;y<=10;y++) for(const z of [-5,-1,0,4]) cells.push({x,y,z,fill:'solid'})
+  cells.push({x:32,y:0,z:-5,fill:'solid'},{x:32,y:0,z:4,fill:'solid'})
+  for(const x of [0,32])for(const y of [-12,12])cells.push({x,y,z:-5,fill:'solid'})
+  cells.push({x:15,y:0,z:-1,fill:'solid',tags:['wall'],finish:{top:'tile'}})
+  const base = toState({...emptyStation(),cells,modules:[]})
+  for(const c of base.cells){if(c.tags)Object.freeze(c.tags);if(c.finish)Object.freeze(c.finish);Object.freeze(c)}
+  Object.freeze(base.cells)
+  const snapshot = chunks => chunks.chunkMeshes.map(m => {
+    const hash=createHash('sha256'),attributes=Object.values(m.geometry.attributes),indices=m.geometry.index.array,triangles=[]
+    const vertex=i=>attributes.flatMap(a=>Array.from(a.array.slice(i*a.itemSize,(i+1)*a.itemSize))).join(',')
+    for(let i=0;i<indices.length;i+=3){
+      const v=[vertex(indices[i]),vertex(indices[i+1]),vertex(indices[i+2])]
+      triangles.push([v.join('|'),[v[1],v[2],v[0]].join('|'),[v[2],v[0],v[1]].join('|')].sort()[0])
+    }
+    hash.update(triangles.sort().join('\n'))
+    return JSON.stringify([m.userData.levelZ,!!m.userData.ground,!!m.userData.suspendedCeiling,!!m.userData.float,hash.digest('hex')])
+  }).sort()
+  const install = (chunks,state) => {const data=toData(state);chunks.prepareStation(data,withGround(data.cells,data.modules,0));chunks.meshStation()}
+  try {
+    install(actual,base)
+    const remote=actual.chunkMeshes.find(m=>!m.userData.ground&&m.geometry.boundingBox.min.x>=32)
+    assert.ok(remote)
+    for (const type of ['stair-straight','stair-left90','stair-right90','stair-left180','stair-right180','stair-leftForward','stair-rightForward','stair-centerForward','escalator']) for(const rot of [0,1,2,3]) {
+      const ramp=createModule(type,15,0,-5,`r-${type}-${rot}`,rot,type==='escalator'?2:1.36)
+      const placed=addEquipment(base,ramp)
+      assert.equal(placed.cells.find(c=>c.x===32&&c.y===0&&c.z===-5),base.cells.find(c=>c.x===32&&c.y===0&&c.z===-5),'unaffected authored records retain their identity')
+      const moved=addEquipment(base,createModule(type,17,1,-5,ramp.id,rot,type==='escalator'?2:1.36))
+      for(const state of [placed,moved,removeModule(moved,ramp.id),base]) {
+        install(actual,state);fresh.disposeChunks();install(fresh,state)
+        assert.deepEqual(snapshot(actual),snapshot(fresh),`${type}/${rot}: incremental cuts, ceiling/ground passes and AO match fresh geometry`)
+        assert.deepEqual(actual.ctx.groundOf,fresh.ctx.groundOf)
+        assert.ok(actual.chunkMeshes.includes(remote),'remote GPU allocation remains retained')
+        if(state!==base)assert.ok(actual.chunkKeyCellVisits < fresh.chunkKeyCellVisits/2,`${type}/${rot}: structural commits avoid remote cache hashing`)
+      }
+    }
+  } finally {actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
+
 test('local delete and fill keep retained floor groups under level visibility control', async () => {
   const { emptyStation } = await import('../src/data/reference-station.ts')
   const { withGround } = await import('../src/sim/ground.ts')

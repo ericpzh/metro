@@ -67,8 +67,10 @@ export function levelSteps(base = 0, _height = STOREY_HEIGHT): number[] {
   return Array.from({length:15},(_,i)=>(i-8)*STOREY_HEIGHT+normalizeLevelBase(base))
 }
 export function storeyBand(z: number, base = 0, _height = STOREY_HEIGHT): number {
-  const offset=normalizeLevelBase(base), levels=levelSteps(base)
-  return Math.max(levels[0],Math.min(levels[levels.length-1],Math.floor((z-offset)/STOREY_HEIGHT)*STOREY_HEIGHT+offset))
+  const offset=normalizeLevelBase(base)
+  // Same finite editing grid as levelSteps, without allocating its 15 entries
+  // for each cell and retained module during a structural commit.
+  return Math.max(-8*STOREY_HEIGHT+offset,Math.min(6*STOREY_HEIGHT+offset,Math.floor((z-offset)/STOREY_HEIGHT)*STOREY_HEIGHT+offset))
 }
 /** Full-height PSD fascia finishes five centimetres below the next slab. */
 export function psdFullHeight(_height = STOREY_HEIGHT): number { return PSD_FULL_HEIGHT }

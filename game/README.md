@@ -3055,7 +3055,7 @@ approximated); neither needs WebGL.
   ground: the ring wraps a dug rail bed instead of walling the platform edge, the drag never pours
   a block into the trench, and no auto wall rises through a platform screen door a full track
   sliced through the patch.
-* `equipment-retention.test.mjs` — equipment additions, deletion and movement retain 1,024
+* `equipment-retention.test.mjs` — duplicate cell records survive clone/diff without phantom model invalidation; retained activity discovery preserves live rigs. Equipment additions, deletion and movement retain 1,024
   unrelated models; functional routing remains active while chunk remeshing is skipped where
   safe. Coupled glass, gates, cubicles, TVs, hangers and structural dependencies invalidate
   their own models; ordinary hover/move previews retain immutable support indexes.
@@ -3146,7 +3146,7 @@ approximated); neither needs WebGL.
   and the cabinet is a red steel box standing on exactly four corner legs with one
   white lettered plate spanning both doors in front of them.
 * `monitor-signal.test.mjs` — 监视器 ceiling/wall support, rotated 3×2 m panels with six square screens facing into the room, tall-ceiling suspension, save/preview/sweep variants and the 1 m 信号机's scaled bounds and three unobstructed vertical lamps.
-* `ceiling-decor.test.mjs` — the ceiling-hung 时钟 and 监控 (§5.7): the palette
+* `ceiling-decor.test.mjs` — shared ceiling-support index reuse, immutable cell/module invalidation and undo; the ceiling-hung 时钟 and 监控 (§5.7): the palette
   files both under 装饰 with their Chinese labels, the factory builds them with the hover rotation,
   each reserves exactly its own cell from the floor top to the ceiling, neither may be hung
   where there is no slab overhead while floor-standing pieces are never asked for one, a hung piece is
@@ -4250,7 +4250,7 @@ released into an exit head-house descends the document's own rise in the preview
 and on release alike: a long 直跑楼梯 5 m over 8 m, an 扶梯 one cell further out
 at exactly 30°. The module catalogue's card footprints follow the same grid — a
 long straight stair bounds 1 × 9 cells, an escalator 1 × 10.
-`test/storey-height.test.mjs` pins the 5 m grid, stair landings, suspended ceilings,
+`test/storey-height.test.mjs` pins allocation-free storey lookup across shifted finite grid boundaries, the 5 m grid, stair landings, suspended ceilings,
 hung decor mounting and scaled rolling stock; `test/escalator-length.test.mjs` and
 `test/lift-interval.test.mjs` pin the length and floor-interval families.
 

@@ -25,6 +25,7 @@ import type { SceneContext } from './SceneSystem.ts'
 import { coarseGeometry } from '../../geometryDetail.ts'
 import { ceilingCells } from '../../ceilingCells.ts'
 import { localCellEdit } from '../../localCellEdit.ts'
+import { changedCellRecords } from '../../cellChanges.ts'
 
 /**
  * A small order-stable number for one cut shape, for the chunk content hash: the
@@ -105,7 +106,7 @@ export class ChunkSystem extends SceneSystem {
   private groundTopology = 0
   private localChunks: Set<number> | null = null
   private localLevels: Set<number> | null = null
-  private cellsByChunk = new Map<number, Map<number, Cell>>()
+  private cellsByChunk = new Map<number, Map<number, Cell[]>>()
   private chunkOrigins = new Map<number, [number,number]>()
   private indexEffectiveCells(): void {
     this.cellsByChunk.clear()
@@ -115,7 +116,8 @@ export class ChunkSystem extends SceneSystem {
       this.chunkOrigins.set(column,[Math.floor(c.x/CHUNK)*CHUNK,Math.floor(c.y/CHUNK)*CHUNK])
       let bucket=this.cellsByChunk.get(column)
       if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
-      bucket.set(packKey(c.x,c.y,c.z),c)
+      const key=packKey(c.x,c.y,c.z),records=bucket.get(key)
+      if(records)records.push(c);else bucket.set(key,[c])
     }
   }
   chunkKeyCellVisits = 0
@@ -170,10 +172,21 @@ export class ChunkSystem extends SceneSystem {
     this.localChunks = null
     this.localLevels = null
     const previous=this.ctx.stationData
+    // Structural edits still prepare the exact complete derived state. Afterwards
+    // compare those inputs so remote chunk caches need no station-wide rehash.
+    const structural = previous && this.chunkCache.size > 0 &&
+      previous.levelBase === data.levelBase && previous.storeyHeight === data.storeyHeight &&
+      this.onlyRampModulesChanged(previous, data) ? {
+        cells: this.effectiveCells, ground: this.groundKeys, solid: this.ctx.solid,
+        hidden: this.ctx.hiddenCells, finishes: this.ctx.finishes, thin: this.ctx.thinSides,
+        cuts: this.ctx.slopeCuts, fills: this.ctx.slopeFills, insets: this.platformInsets,
+      } : null
     const edit=previous && effective && localCellEdit(previous,data)
     // A local block edit cannot alter cuts/hidden walls away from structural
     // modules. Those edits still take the complete preparation path.
-    if(edit && ![...edit.removed,...edit.added].some(c=>c.finish?.top==='floor.track'||data.modules.some(m=>{
+    if(edit && new Set(edit.added.map(c=>packKey(c.x,c.y,c.z))).size===edit.added.length &&
+      ![...edit.removed,...edit.added].some(c=>(this.cellsByChunk.get(chunkColumn(c.x,c.y))?.get(packKey(c.x,c.y,c.z))?.length??0)>1) &&
+      ![...edit.removed,...edit.added].some(c=>c.finish?.top==='floor.track'||data.modules.some(m=>{
       if(m.type!=='shop')return false
       const box=moduleEnvelope(m)
       return !box || c.z>=box.z0-1&&c.z<=box.z1+1&&c.x>=box.x0-3&&c.x<=box.x1+3&&c.y>=box.y0-3&&c.y<=box.y1+3
@@ -197,7 +210,7 @@ export class ChunkSystem extends SceneSystem {
         const column=chunkColumn(c.x,c.y)
         let bucket=this.cellsByChunk.get(column)
         if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
-        bucket.set(packKey(c.x,c.y,c.z),c)
+        bucket.set(packKey(c.x,c.y,c.z),[c])
       }
       for(const c of edit.removed)this.ctx.thinSides.delete(packKey(c.x,c.y,c.z))
       for(const c of thinWallCells(edit.added,data.modules))this.ctx.thinSides.set(packKey(c.x,c.y,c.z),c.shape)
@@ -241,7 +254,7 @@ export class ChunkSystem extends SceneSystem {
     // `withGround` added. `meshStation` meshes that set on its own pass, so the
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
     // that is built once.
-    this.groundKeys.clear()
+    this.groundKeys = new Set<number>()
     const owned = new Set<number>()
     for (const c of data.cells) owned.add(packKey(c.x, c.y, c.z))
     for (const c of this.effectiveCells) {
@@ -317,6 +330,74 @@ export class ChunkSystem extends SceneSystem {
         }
       }
     }
+    if (structural) {
+      const a = groundWindow(previous!.cells, previous!.modules), b = groundWindow(data.cells, data.modules)
+      if (a.x0 === b.x0 && a.x1 === b.x1 && a.y0 === b.y0 && a.y1 === b.y1) {
+        const changed = new Set<number>()
+        const same = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(a) === JSON.stringify(b)
+        const diffMap = <T,>(before: ReadonlyMap<number,T>, after: ReadonlyMap<number,T>): void => {
+          for (const [key,value] of before) if (!same(value,after.get(key))) changed.add(key)
+          for (const key of after.keys()) if (!before.has(key)) changed.add(key)
+        }
+        const diffSet = (before: ReadonlySet<number>, after: ReadonlySet<number>): void => {
+          for (const key of before) if (!after.has(key)) changed.add(key)
+          for (const key of after) if (!before.has(key)) changed.add(key)
+        }
+        // The production effective list is authored records followed by plain
+        // generated ground. Its membership is compared below, so share the
+        // authored-record diff with model retention rather than diffing the
+        // whole street twice. Custom effective inputs retain the complete path.
+        const ordinaryGround = (all: readonly Cell[], authored: readonly Cell[]): boolean =>
+          all.length >= authored.length && authored.every((c,i)=>all[i]===c) &&
+          all.slice(authored.length).every(c=>c.fill==='solid'&&c.z===GROUND_Z&&!c.finish&&!c.tags)
+        const records = ordinaryGround(structural.cells,previous!.cells) && ordinaryGround(this.effectiveCells,data.cells)
+          ? changedCellRecords(previous!.cells,data.cells) : changedCellRecords(structural.cells,this.effectiveCells)
+        for(const c of records)changed.add(packKey(c.x,c.y,c.z))
+        diffSet(structural.ground,this.groundKeys)
+        diffSet(structural.solid,this.ctx.solid)
+        diffSet(structural.hidden,this.ctx.hiddenCells)
+        diffSet(structural.fills,this.ctx.slopeFills)
+        diffMap(structural.finishes,this.ctx.finishes)
+        diffMap(structural.thin,this.ctx.thinSides)
+        diffMap(structural.cuts,this.ctx.slopeCuts)
+        diffMap(structural.insets,this.platformInsets)
+        // Rebuild every height in the changed columns. A new lowest floor can
+        // change unsupported-plate ownership far above the edit itself.
+        const columns = new Set<number>()
+        for (const key of changed) {
+          const x = Math.floor(key / (8192 * 8192)) - 4096
+          const y = Math.floor(key / 8192) % 8192 - 4096
+          for (const [dx,dy] of classificationHalo) {
+            const cx=Math.floor((x+dx)/CHUNK)*CHUNK,cy=Math.floor((y+dy)/CHUNK)*CHUNK
+            columns.add(chunkColumn(cx,cy));this.chunkOrigins.set(chunkColumn(cx,cy),[cx,cy])
+          }
+        }
+        if (columns.size <= 64) {
+          this.localChunks = columns
+          // A carve may remove the final cell in a column; meshStation cannot
+          // discover that vanished column while visiting only the new cells.
+          for (const key of changed) {
+            const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096
+            this.ctx.groundOf.delete(`${x},${y}`)
+          }
+        }
+      }
+    }
+  }
+
+  private onlyRampModulesChanged(before: StationData, after: StationData): boolean {
+    const remaining = new Map(before.modules.map(m => [m.id,m]))
+    let changed = false
+    const ramp = (m: typeof after.modules[number]): boolean => m.type === 'stair' || m.type === 'escalator'
+    for (const m of after.modules) {
+      const old = remaining.get(m.id)
+      remaining.delete(m.id)
+      if (old === m || old && JSON.stringify(old) === JSON.stringify(m)) continue
+      if (!ramp(m) || old && !ramp(old)) return false
+      changed = true
+    }
+    for (const m of remaining.values()) { if (!ramp(m)) return false; changed = true }
+    return changed
   }
 
   /**
@@ -341,7 +422,7 @@ export class ChunkSystem extends SceneSystem {
         const [x,y]=this.chunkOrigins.get(key)!
         for(const [dx,dy]of columnHalo)buckets.add(chunkColumn(x+dx*CHUNK,y+dy*CHUNK))
       }
-      this.effectiveCells=[...buckets].flatMap(k=>[...(this.cellsByChunk.get(k)?.values()??[])]).filter(c=>{
+      this.effectiveCells=[...buckets].flatMap(k=>[...(this.cellsByChunk.get(k)?.values()??[])].flat()).filter(c=>{
         for(const [dx,dy]of classificationHalo)
           if(local.has(chunkColumn(c.x+dx,c.y+dy)))return true
         return false

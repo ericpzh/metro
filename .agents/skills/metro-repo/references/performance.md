@@ -138,6 +138,177 @@ The completed one-sample capture covers all 404 Zoo and 405 Tanwei cases (809 to
 Across both demos, 2,654 of 4,854 stages passed, 1,757 exceeded 100 ms, two had functional errors, and 441 actions are unsupported by the product. All 809 previews and all 662 supported move previews passed. Place passed 307/809; drop passed 69/662 supported cases, with two PSD-cover move/drop refusals; delete passed 145/809. The target is met for preview generation and move preview, but broadly missed for drop/delete and often for place. These maxima include time through the first rendered feedback, so they identify work that still needs optimization.
 
 The per-equipment matrices for both demos, with each setting value and action breakdown, are in [the readable matrix](editor-action-matrix.md). The [machine-readable capture](editor-action-matrix.jsonl) retains all 809 cases, exact inputs, stage timings and work counters under the matching source/build hashes. Tanwei resumed matching checkpoints; both demo datasets are complete.
+#### Shared ceiling-support indexes in structural commits
+
+The existing separate `profile-check` capture maps repeated ceiling support work
+to `ceilingMountHeight` during model-retention checks. Each hanging fixture scanned
+the complete cells/modules arrays, including nested solid-cell scans. Immutable
+cell arrays now own a shared solid-coordinate set and exposed-underside columns;
+module arrays own filtered hanger/ceiling-track lists. Replacing either array
+invalidates its index, while undo can reuse the old arrays. WeakMap ownership adds
+derived memory proportional to the retained document, without retaining discarded
+documents globally. Placement rules, document commits and pointer picking are unchanged.
+
+Fresh sequential, unprofiled three-sample captures compare the same current
+workspace with and without only this index change. Tanwei, paused staging view,
+High, 892 × 815 canvas, pixel ratio 1, HeadlessChrome 156, i7-14700KF / RTX 4080
+SUPER / ANGLE D3D11. Cases run in manifest order, straight then short left-180.
+The baseline source/build hashes are
+`bc06d5c996945d34f33bcb828c7cd236d7feb955e98f82475802d394e87914b5` /
+`e93fae68d509c02a2707643ec72bc10b79b51fd9cc226a284650b879393cd6ce`;
+patched hashes are
+`5ca83725a88e203050d0badcc26c1cad4d677dfce5ccf345a7a36bd97403d87b` /
+`9116335700e1a91779c1dcd5985f2a31091be14c2c01b0ec5b5eedc7f6720627`.
+
+| Case / action | Median API-to-render, before → after | Median module build, before → after |
+| --- | ---: | ---: |
+| Straight / place | 1539.9 → 1002.4 ms | 755.9 → 302.7 ms |
+| Straight / drop | 1490.5 → 1036.3 ms | 747.8 → 293.1 ms |
+| Straight / delete | 1333.4 → 825.7 ms | 649.6 → 177.0 ms |
+| Left-180 short / place | 1499.6 → 1054.2 ms | 732.7 → 328.4 ms |
+| Left-180 short / drop | 1530.9 → 1043.3 ms | 733.0 → 309.4 ms |
+| Left-180 short / delete | 1407.9 → 962.0 ms | 697.3 → 293.5 ms |
+
+That ceiling-index-only comparison still misses the interim <500 ms goal; the normal <100 ms target remains.
+Patched first feedback ranges from 770.7 to 1217.9 ms across these commit samples.
+Patched median chunk meshing remains 352.8–387.2 ms. The existing mesh cache
+retains geometry but structural edits still rebuild storey grouping, chunk keys
+and halo coordinate lists. Reusing those dependency lists and bounding structural
+invalidation to old/new footprints plus classification/face/AO neighbors is the
+follow-up described below. At this point they were not implemented. Unknown structural
+inputs must retain the conservative path. Stage timings are nested, not additive.
+These filtered runs do not repeat the historical complete matrix, establish
+real-pointer latency or measure compositor/GPU completion.
+
+Raw source/build snapshots, browser metadata, fixtures, per-stage counters and
+screenshots are under `.preview/perf/ceiling-cache-{baseline-clean,patched}/`.
+The earlier `ceiling-cache-baseline/` is a preparatory capture, excluded from the
+comparison. `ceiling-cache-equivalence.json` confirms identical mount heights for
+all 234 Zoo / 436 Tanwei hanging fixtures against the frozen original helper.
+`ceiling-decor` pins zero reads of 2,000 unrelated cell/module records across 20
+warm queries, cell/module replacement, lower-course occlusion and undo. Focused
+tests: 56 pass; placement focused coverage: 80.15% lines, 59.51% branches, 62.21%
+functions, with no uncovered lines in the new index/helper range. Full suite:
+2492 pass; `test:perf`: 749 pass; production build passes. The instrumented suite
+took 565 seconds and completed normally. Browser timing captures ran without
+build/test/profiler competition; the production audit reports no runtime/GL errors.
+
+#### Stair commits below 500 ms
+
+The next investigation found four separate costs: structural edits rebuilt cache
+keys/halos for remote chunks; underground ceiling checks still scanned all cells
+and modules through `virtualSolidAt`; a coordinate-to-single-cell diff invented
+changes for Tanwei's duplicate authored records; and ramp placement cloned every
+cell even though carving replaces changed records. The separate module-breakdown
+diagnostic builds 35 models on place/drop and 34 on delete for a staged remote
+stair. After duplicate-aware comparison, the same diagnostic retains all 9,694
+existing models and builds only the new stair. Authored duplicates stay intact.
+
+Ramp placement now copies the array while sharing untouched Cell/finish/tag
+records. `changedCellRecords` compares ordered duplicate records, caches comparisons
+against immutable array pairs and shares the result between chunk preparation and
+model retention. Integer underground support checks use the existing block index;
+fractional imported anchors retain their original ground predicate. `storeyBand`
+uses the same clipped grid arithmetic without allocating a 15-entry list per query.
+Retained model roots also cache activity-rig discovery and retain their live poses.
+The latter removes deterministic repeated tree work; its isolated browser run did
+not establish a material latency improvement.
+
+Structural stair/escalator edits still prepare the full exact geometry state.
+They compare old/new cell records, ground/solid membership, finishes, hidden cells,
+thin sides, slope cuts/fills and platform insets, then rebuild changed columns at
+every height with the two-cell classification/face/AO margin. Remote chunks skip
+hashing and retain their GPU allocations. Changed windows, storey grids, unknown
+module changes and more than 64 affected chunk columns keep the conservative path.
+Custom effective-cell inputs retain full record comparison. The chunk cell index
+preserves duplicate records, and a vanished column clears its former floor entry.
+Preview work, saved geometry and one-pick input dispatch are unchanged.
+
+A fresh frozen baseline follows the ceiling-cache build above, with source/build
+`5ca83725a88e203050d0badcc26c1cad4d677dfce5ccf345a7a36bd97403d87b` /
+`9116335700e1a91779c1dcd5985f2a31091be14c2c01b0ec5b5eedc7f6720627`.
+Final source/build hashes are
+`469d5edc8d846cb959278c48ad90a2c7f2103dd132c1f40ee1040ced54f8a1d9` /
+`ee75e054a54ed2d415ec4bc0a644e6bf79e89f3f6843555f5aacb026bf1cc43f`.
+Fresh baseline and final captures run sequentially, without competing builds,
+tests or profiles: Tanwei, High, paused staging camera, 892 × 815 canvas, ratio 1,
+HeadlessChrome 156, i7-14700KF / RTX 4080 SUPER / ANGLE D3D11. Both use three samples
+per case and the same authored demo, staging supports and camera for matching cases.
+
+| Case / action | Median API-to-render, baseline → final | Final maximum of three samples |
+| --- | ---: | ---: |
+| Straight / place | 1071.8 → 366.6 ms | 372.7 ms |
+| Straight / drop | 1094.1 → 390.6 ms | 436.6 ms |
+| Straight / delete | 904.9 → 328.8 ms | 331.2 ms |
+| Left-180 short / place | 1083.9 → 347.3 ms | 357.5 ms |
+| Left-180 short / drop | 1081.4 → 351.7 ms | 420.3 ms |
+| Left-180 short / delete | 1061.1 → 326.9 ms | 403.3 ms |
+
+The final sweep covers all eight default stair families, default escalators,
+left-180 width 2.04, single ultra-short/short and double/triple ultra-long settings:
+14 cases × three samples × place/drop/delete = **126 commits, all <500 ms**.
+Feedback ranges 301.9–491.5 ms; the maximum is a center-forward stair drop.
+All non-commit stages remain <100 ms and there are no functional/runtime/GL errors.
+This is an interim 500 ms pass for the selected cases, not the full 809-case matrix
+or the normal 100 ms commit target. It measures submitted API-to-render feedback,
+not real-pointer latency, compositor presentation or GPU completion. The 8.5 ms
+margin in the slowest sample does not guarantee the same bound on other runs or hosts.
+
+For the two matched cases, final median chunk meshing is 7.8–18.5 ms versus
+379.0–415.0 ms; module building is 53.2–74.6 ms versus 208.3–343.4 ms. Full chunk
+preparation remains 58.6–69.7 ms. Stage times are nested, not additive. Final
+place/drop builds exactly one model and deletion zero; chunk-key cell visits are
+zero, and 256–1,536 cells are meshed. These counts describe bounded remeshing, not
+zero document-wide preparation. The audit now records retained-ID/model/cleanup
+stages plus hashed/meshed cell counts per commit.
+
+Raw reports, source/build snapshots, environment, fixtures and screenshots are
+`.preview/perf/stair-500-baseline-fresh/` and `stair-500-shared-cells/`.
+`stair-500-profile-{before,second}/` are separate profiling runs; module timing
+breakdown and pure retention diagnostics are under the same prefix. Intermediate
+`first`, `second`, `third`, `fourth`, `final`, `sweep` and `sweep-final` captures
+are retained, including their 500–850 ms misses; only `shared-cells` is the selected
+final sweep. The broad sweep is ordered differently from the two-case baseline;
+per-case fixture/camera/sample settings match, but previous-case cache history differs.
+
+The fresh one-sample full action matrix was then run against that same final
+source/build and complete current Zoo/Tanwei fixtures. It records 57 action stages
+over 500 ms; the complete case/action list is in
+[`editor-action-matrix.md`](editor-action-matrix.md#remaining-stages-over-500-ms),
+with all timings and work counters in `editor-action-matrix.jsonl`. Platform and
+tunnel commits now dominate the largest stalls. The full ordered run also measured
+Tanwei `stair-left180/span=triple;length=ultra-long` drop at 502.0 ms once, while
+the selected three-sample sweep for that case peaked at 455.9 ms. Treat that
+borderline variant as variable and not yet a robust <500 ms pass; the 14-case sweep
+result applies to its matched staging fixture and sample history, not every run.
+The full matrix is an inventory with one sample per case, not a distribution.
+
+`floor-geometry` checks all eight stair families and escalators in all four rotations
+across place/move/delete/restoration against fresh rendered triangles, normals and
+UVs, plus identical floor ownership, retained remote allocations and bounded key
+work. Its source cells, finishes and tags are frozen; unchanged records retain
+identity. Duplicate records are included. `equipment-retention` pins duplicate-aware
+diff invalidation and activity registries; `ceiling-decor` pins bounded warm
+underground queries, excavation invalidation and fractional fallback; `storey-height`
+pins shifted/clipped grid equivalence and zero list allocations. Focused coverage
+passes 89 checks; the final sharing change also passes 75 focused checks and a
+separate frozen-carve coverage run covering the changed array-sharing lines.
+The production build passes, the full game suite passes all 2,496 tests, and
+`test:perf` passes all 753 checks in 516.9 seconds. Its reported changed-module
+line / branch / function coverage is:
+
+| Module | Lines | Branches | Functions |
+| --- | ---: | ---: | ---: |
+| cellChanges | 100% | 100% | 100% |
+| moduleDependencies | 100% | 97.65% | 100% |
+| ChunkSystem | 97.93% | 97.48% | 89.66% |
+| ModuleSystem | 84.19% | 92.61% | 72.22% |
+| Equipment | 90.44% | 92.59% | 78.38% |
+| constants | 99.11% | 83.33% | 100% |
+| placement | 95.87% | 87.87% | 89.78% |
+
+Logs are `.preview/perf/stair-500-{full-tests,perf-tests,focused-coverage,carve-coverage}.log`.
+
 ### Local place, drop, move and delete optimization
 
 Local edits previously restarted station-wide tool indexes, chunk hashing,

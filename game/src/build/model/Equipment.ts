@@ -40,7 +40,7 @@ import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, st
 import { STOREY_HEIGHT } from '../../sim/constants.ts';
 import { makeSignBoards, normalizeSignLayout, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
-import { cellKey, cloneCell } from './Cells.ts';
+import { cellKey } from './Cells.ts';
 import type { StationState } from './State.ts';
 
 /**
@@ -709,7 +709,10 @@ export function addEquipment(state: StationState, mod: Module): StationState {
   const modules = assignAdPosters([...state.modules, mod]);
   const isRamp = mod.type === 'escalator' || mod.type === 'stair' || mod.type === 'lift';
   if (!isRamp || (mod.type === 'stair' && mod.cfg.block)) return { ...state, modules };
-  const cells = state.cells.map(cloneCell);
+  // Carving compacts this array and replaces newly tagged records; it never
+  // mutates a retained Cell or its finish/tags. Preserve those identities so
+  // one stair does not invalidate every cell-dependent cache in the station.
+  const cells = state.cells.slice();
   const have = new Set(cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
   const lay = (p: Vec3i): void => {
     const k = cellKey(p.x, p.y, p.z);

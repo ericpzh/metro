@@ -5,6 +5,7 @@ import { createModule } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { isCosmeticStationEdit } from '../src/sim/cosmeticEdit.ts'
 import { retainedModuleIds, isEquipmentModelEdit } from '../src/render/moduleDependencies.ts'
+import { changedCellRecords } from '../src/render/cellChanges.ts'
 import { ModulePreviewDocument } from '../src/render/modulePreviewDocument.ts'
 import { modelNeighbours } from '../src/render/modelNeighbours.ts'
 import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
@@ -20,6 +21,46 @@ import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
+
+test('cloned duplicate cell records do not invent remote model invalidation',()=>{
+  const ceiling={x:0,y:0,z:5,fill:'solid',finish:{top:'tile'}}
+  const duplicate={x:0,y:0,z:5,fill:'solid'}
+  const before=station([createModule('clock',0,0,0,'clock'),{id:'booth',type:'booth',x:10,y:0,z:0,rot:0,w:2,h:2,cfg:{kind:'ticket'}}])
+  before.cells.push(ceiling,duplicate)
+  const after={...before,cells:structuredClone(before.cells),modules:[...before.modules,createModule('stair-straight',70,70,0,'ramp')]}
+  assert.deepEqual([...retainedModuleIds(before,after)].sort(),['booth','clock'])
+  assert.deepEqual(changedCellRecords(before.cells,before.cells),[])
+  assert.deepEqual(changedCellRecords(before.cells,after.cells),[])
+  const changed={...ceiling,finish:{top:'floor.concrete'}}
+  assert.deepEqual(changedCellRecords([ceiling,duplicate],[changed,duplicate]),[ceiling,duplicate,changed,duplicate])
+  assert.deepEqual(changedCellRecords([ceiling,duplicate],[duplicate]),[ceiling,duplicate,duplicate])
+  assert.deepEqual(changedCellRecords([ceiling,duplicate],[duplicate,ceiling]),[ceiling,duplicate,duplicate,ceiling])
+  assert.deepEqual(changedCellRecords([ceiling],[]),[ceiling])
+  assert.deepEqual(changedCellRecords([],[ceiling]),[ceiling])
+  assert.equal(retainedModuleIds(before,{...after,cells:after.cells.map((c,i)=>i===after.cells.length-2?changed:c)}).has('clock'),false,'a real change to any duplicate still invalidates dependent models')
+})
+
+test('structural commits reuse retained activity discovery and keep live rigs coherent',()=>withDrawing(({modules})=>{
+  const before=station(['sink','door-wood-1','cubicle','bench'].map((type,i)=>createModule(type,i*4,0,0,`m${i}`)))
+  modules.buildModules(before,new Set())
+  const sinks=[...modules.crowd.activitySinks],doors=[...modules.crowd.swingDoors]
+  assert.equal(sinks.length,1)
+  assert.ok(doors.length>=2)
+  doors[0].open=.6
+  const roots=modules.moduleMeshes.children.filter(g=>g.userData.moduleId)
+  let discoveries=0
+  for(const root of roots){const walk=root.traverse.bind(root);root.traverse=(...args)=>{discoveries++;return walk(...args)}}
+  const ramp=createModule('stair-straight',70,70,0,'ramp')
+  const after={...before,modules:[...before.modules,ramp]}
+  modules.buildModules(after,new Set(),true)
+  assert.equal(discoveries,0,'retained roots do not repeat activity tree discovery')
+  assert.deepEqual(modules.crowd.activitySinks,sinks)
+  assert.deepEqual(modules.crowd.swingDoors,doors)
+  assert.equal(modules.crowd.swingDoors[0].open,.6)
+  modules.buildModules({...after,modules:after.modules.filter(m=>m.id!=='m0'&&m.id!=='m1')},new Set(),true)
+  assert.equal(modules.crowd.activitySinks.length,0,'removed roots leave the live registry')
+  assert.equal(modules.crowd.swingDoors.length,1,'only the retained cubicle door stays registered')
+}))
 
 test('unchanged cell-edit models retain dressed batch/detail state until the view changes',()=>withDrawing(({modules,ctx})=>{
   const before=station([createModule('bench',0,0,0,'bench')])

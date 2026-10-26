@@ -1300,31 +1300,59 @@ export function ceilingMountMissing(cells: readonly Cell[], candidate: Module, m
  * The deck's underside is the ceiling there — the bed level for a platform, one
  * below it for a bridge's 1 m deck.
  */
+const ceilingCells = new WeakMap<readonly Cell[], { solid: Set<string>; undersides: Map<string, number[]> }>()
+const ceilingModules = new WeakMap<readonly Module[], { hangers: Module[]; tracks: Module[] }>()
+
+/** Immutable document arrays share support discovery across all hanging fixtures.
+ * Keep the full occupied set: a lower course can hide the underside above it. */
+function ceilingCellIndex(cells: readonly Cell[]) {
+  let index = ceilingCells.get(cells)
+  if (index) return index
+  const solid = new Set<string>()
+  const undersides = new Map<string, number[]>()
+  for (const c of cells) if (c.fill === 'solid') solid.add(surfaceKey(c.x, c.y, c.z))
+  for (const c of cells) {
+    if (c.fill !== 'solid' || solid.has(surfaceKey(c.x, c.y, c.z - 1))) continue
+    const key = `${c.x},${c.y}`
+    let column = undersides.get(key)
+    if (!column) undersides.set(key, column = [])
+    column.push(c.z)
+  }
+  index = { solid, undersides }
+  ceilingCells.set(cells, index)
+  return index
+}
+
 export function ceilingMountHeight(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): number | null {
   if (!isCeilingHung(candidate)) return null
-  if (modules.some((m) => hangerSupports(m, candidate))) return 3
+  let supports = ceilingModules.get(modules)
+  if (!supports) {
+    supports = { hangers: modules.filter(m => m.type === 'hanger'), tracks: modules.filter(isCeilingTrack) }
+    ceilingModules.set(modules, supports)
+  }
+  if (supports.hangers.some((m) => hangerSupports(m, candidate))) return 3
+  const index = ceilingCellIndex(cells)
+  const ground = (x: number, y: number, z: number): boolean => z === GROUND_Z &&
+    (Number.isInteger(x) && Number.isInteger(y) ? blockIndex(cells, modules).ground(x, y, z) : virtualSolidAt(cells, modules, x, y, z))
   const footprint = baseCells(candidate)
   const [firstX, firstY] = footprint[0] ?? [candidate.x, candidate.y]
-  const candidates = new Set(cells
-    .filter((c) => c.fill === 'solid' && c.x === firstX && c.y === firstY && c.z > candidate.z + 1
-      && !cells.some(b => b.fill === 'solid' && b.x === c.x && b.y === c.y && b.z === c.z - 1))
-    .map((c) => c.z))
+  const candidates = new Set((index.undersides.get(`${firstX},${firstY}`) ?? []).filter(z => z > candidate.z + 1))
   // A rail deck is horizontal cladding, never a wall course: any underside with
   // headroom counts, even at wall height. Both the platform bed and bridge deck
   // extend one metre below their anchor.
-  for (const m of modules) {
+  for (const m of supports.tracks) {
     const underside = trackCeilingUnderside(m)
     if (underside === null || underside < candidate.z + 2) continue
     if (m.type !== 'track' || !trackCellAt(m as Extract<Module, { type: 'track' }>, firstX, firstY, m.z)) continue
     candidates.add(underside)
   }
   // The real street underside is valid at any room height unless excavated.
-  if (GROUND_Z > candidate.z + 1 && virtualSolidAt(cells, modules, firstX, firstY, GROUND_Z)) candidates.add(GROUND_Z)
+  if (GROUND_Z > candidate.z + 1 && ground(firstX, firstY, GROUND_Z)) candidates.add(GROUND_Z)
   const ceilingZ = [...candidates].sort((a, b) => a - b).find((z) =>
     footprint.every(([x, y]) =>
-      cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z) ||
-      virtualSolidAt(cells, modules, x, y, z) ||
-      trackCeilingAt(modules, x, y, z),
+      index.solid.has(surfaceKey(x, y, z)) ||
+      ground(x, y, z) ||
+      trackCeilingAt(supports.tracks, x, y, z),
     ),
   )
   return ceilingZ === undefined ? null : ceilingZ - candidate.z - 1

@@ -21,7 +21,7 @@ const settle=async()=>{await frame();await frame()}
 type AuditScene=Omit<SceneRenderer,never>&{ctx:SceneContextData;chunks:ChunkSystem;modules:ModuleSystem;level:LevelSystem;cameraSys:CameraSystem;ghostSys:{movingModuleId:string|null}}
 const scene=()=>window.__scene! as unknown as AuditScene
 type Work=Record<string,{calls:number;ms:number}>
-interface Row { action:string; status:string; cpuMs:number; firstRenderMs:number|null; generationMs:number; commits:number; work:Work; error?:string; input?:unknown; cells:number; modules:number }
+interface Row { action:string; status:string; cpuMs:number; firstRenderMs:number|null; generationMs:number; commits:number; work:Work; error?:string; input?:unknown; cells:number; modules:number; chunkKeyCellVisits?:number; meshedCellVisits?:number }
 let installed=false,current:{start:number;render:number|null;work:Work;expected:StationState|null;ready:boolean;expectedMoving?:string|null}|null=null
 const errors:string[]=[]
 function instrument(){
@@ -43,7 +43,7 @@ function instrument(){
   for(const [host,keys,prefix]of [
     [s,['setStation','setModulePreview','setGhost','setMovingModule'],'scene'],
     [s.chunks,['prepareStation','meshStation'],'chunks'],
-    [s.modules,['buildModules','syncBatches'],'modules'],
+    [s.modules,['buildModules','syncBatches','retainedIds','buildModel','clearModules'],'modules'],
     [s.level,['applyLevel'],'level'],[s.renderer,['render'],'renderer'],
   ] as const)for(const key of keys)wrap(host,key,`${prefix}.${key}`)
   addEventListener('error',e=>errors.push(e.message))
@@ -66,7 +66,8 @@ async function measure(action:string,invoke:()=>void,commit:boolean,input?:unkno
     if(probe.render===null)throw Error('No matching rendered feedback within 120 frames')
   }catch(e){if(cpuMs===0)cpuMs=performance.now()-start;error=String(e)}finally{current=null}
   const after=useStore.getState(),generationMs=Object.entries(probe.work).filter(([key])=>key==='scene.setModulePreview'||key==='scene.setGhost').reduce((n,[,w])=>n+w.ms,0)
-  return {action,status:error?'error':Math.max(cpuMs,probe.render??Infinity)>=100?'over-budget':'pass',cpuMs,firstRenderMs:probe.render,generationMs,commits:after.version-before.version,work:probe.work,error,input,cells:after.station.cells.length,modules:after.station.modules.length}
+  const chunks=probe.work['chunks.meshStation'] ? {chunkKeyCellVisits:scene().chunks.chunkKeyCellVisits,meshedCellVisits:scene().chunks.meshedCellVisits} : {}
+  return {action,status:error?'error':Math.max(cpuMs,probe.render??Infinity)>=100?'over-budget':'pass',cpuMs,firstRenderMs:probe.render,generationMs,commits:after.version-before.version,work:probe.work,error,input,cells:after.station.cells.length,modules:after.station.modules.length,...chunks}
 }
 
 let original:StationState,origin={x:0,y:0}
@@ -224,6 +225,9 @@ export const stages={
   'chunks.prepareStation':'game/src/render/scene/systems/ChunkSystem.ts',
   'chunks.meshStation':'game/src/render/scene/systems/ChunkSystem.ts',
   'modules.buildModules':'game/src/render/scene/systems/ModuleSystem.ts',
+  'modules.retainedIds':'game/src/render/moduleDependencies.ts',
+  'modules.buildModel':'game/src/render/models.ts',
+  'modules.clearModules':'game/src/render/scene/systems/ModuleSystem.ts',
   'modules.syncBatches':'game/src/render/scene/systems/ModuleSystem.ts',
   'level.applyLevel':'game/src/render/scene/systems/LevelSystem.ts',
   'renderer.render':'three.WebGLRenderer.render',

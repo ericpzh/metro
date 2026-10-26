@@ -33,7 +33,7 @@ import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
-import type { StationData } from '../../../sim/types.ts'
+import type { Module, StationData } from '../../../sim/types.ts'
 import type { TrainSystem } from './TrainSystem.ts'
 import type { LiftSystem } from './LiftSystem.ts'
 import type { CrowdSystem } from './CrowdSystem.ts'
@@ -45,6 +45,16 @@ import { fenceConnectionIndex } from '../../../sim/fences.ts'
 import { GROUND_Z } from '../../../sim/ground.ts'
 
 export class ModuleSystem extends SceneSystem {
+  private retainedIds(data: StationData): Set<string> {
+    return this.builtData && this.builtLanguage === getLanguage()
+      ? retainedModuleIds(this.builtData, data) : new Set<string>()
+  }
+  private buildModel(mod: Module, ctx: ModuleContext): THREE.Object3D | null {
+    return buildModule(mod, ctx)
+  }
+  private activityByRoot = new WeakMap<THREE.Object3D, {
+    sinks: CrowdSystem['activitySinks']; doors: CrowdSystem['swingDoors']
+  }>()
   presentationKeepIds(data: StationData): Set<string> | null {
     if (!this.builtData || this.builtLanguage !== getLanguage()) return null
     const edit = populationEdit(this.builtData, data)
@@ -253,8 +263,7 @@ export class ModuleSystem extends SceneSystem {
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
-    const retained = keepIds ?? (reuse && this.builtData && this.builtLanguage === getLanguage()
-      ? retainedModuleIds(this.builtData, data) : new Set<string>())
+    const retained = keepIds ?? (reuse ? this.retainedIds(data) : new Set<string>())
     const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
     this.retainedLevelRoots.clear()
     // A remote cell edit can leave every model and its slice inputs intact.
@@ -317,7 +326,7 @@ export class ModuleSystem extends SceneSystem {
     for (const mod of data.modules) {
       if (appendOnly && kept.has(mod.id)) continue
       const ownedStart = this.ctx.ownedMats.length
-      const group = kept.get(mod.id) ?? buildModule(mod, ctx)
+      const group = kept.get(mod.id) ?? this.buildModel(mod, ctx)
       if (!group) continue
       if (!kept.has(mod.id)) {
         prepareArtwork(group)
@@ -391,18 +400,28 @@ export class ModuleSystem extends SceneSystem {
           this.crowd.gateWings.push(gateWings.get(group) ?? { root: group, x: mod.x + 0.5, y: mod.y + 0.5, z: mod.z + 1, axisY, pending: 0, hold: 0, open: 0, target: 0 })
         }
       }
-      group.updateWorldMatrix(true,true)
-      group.traverse(object => {
-        if (object.userData.activityWater) {
-          const at=object.getWorldPosition(new THREE.Vector3())
-          this.crowd.activitySinks.push({stream:object.userData.activityWater,x:at.x,y:at.y,z:at.z})
-        }
-        for (const rig of object.userData.swingDoors ?? []) {
-          const at = rig.pivot.getWorldPosition(new THREE.Vector3())
-          this.crowd.swingDoors.push({pivot:rig.pivot,sign:rig.sign,x:at.x,y:at.y,z:at.z,open:0,target:0,occupied:false,
-            ...(mod.type==='cubicle'?{cubicleX:mod.x+.5,cubicleY:mod.y+.5}:{})})
-        }
-      })
+      // Retained roots have the same model inputs and world anchor. Discover
+      // activity rigs once, including the common empty result, instead of
+      // traversing the entire station's models again for one structural edit.
+      let activity = this.activityByRoot.get(group)
+      if (!activity) {
+        activity = { sinks: [], doors: [] }
+        group.updateWorldMatrix(true,true)
+        group.traverse(object => {
+          if (object.userData.activityWater) {
+            const at=object.getWorldPosition(new THREE.Vector3())
+            activity!.sinks.push({stream:object.userData.activityWater,x:at.x,y:at.y,z:at.z})
+          }
+          for (const rig of object.userData.swingDoors ?? []) {
+            const at = rig.pivot.getWorldPosition(new THREE.Vector3())
+            activity!.doors.push({pivot:rig.pivot,sign:rig.sign,x:at.x,y:at.y,z:at.z,open:0,target:0,occupied:false,
+              ...(mod.type==='cubicle'?{cubicleX:mod.x+.5,cubicleY:mod.y+.5}:{})})
+          }
+        })
+        this.activityByRoot.set(group, activity)
+      }
+      this.crowd.activitySinks.push(...activity.sinks)
+      this.crowd.swingDoors.push(...activity.doors)
       const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
       if (r > 0) {
         const blob: [number, number, number, number] = [mod.x + 0.5, mod.y + 0.5, mod.z + 1 - 0.42, r]

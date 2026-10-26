@@ -55,6 +55,41 @@ test('explicit underground ceiling anchors mount under grade and the lower slab'
 })
 
 const clock = (x, y, z = 0, id = 'clock-1', rot = 0) => ({ id, type: 'clock', x, y, z, rot, cfg: {} })
+
+test('ceiling supports reuse immutable document indexes and invalidate either input array', () => {
+  let cellReads = 0, moduleReads = 0
+  const cells = new Proxy([
+    { x: 2, y: 2, z: 5, fill: 'solid' },
+    ...Array.from({ length: 2000 }, (_, x) => ({ x: x + 10, y: 0, z: 5, fill: 'solid' })),
+  ], { get(target, key, receiver) {
+    if (typeof key === 'string' && /^\d+$/.test(key)) cellReads++
+    return Reflect.get(target, key, receiver)
+  } })
+  const modules = new Proxy(Array.from({ length: 2000 }, (_, x) => ({ id: `b${x}`, type: 'bench', x, y: 0, z: 0, rot: 0, cfg: {} })), {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) moduleReads++
+      return Reflect.get(target, key, receiver)
+    },
+  })
+  assert.equal(ceilingMountHeight(cells, clock(2, 2), modules), 4)
+  cellReads = moduleReads = 0
+  for (let i = 0; i < 20; i++) assert.equal(ceilingMountHeight(cells, clock(2, 2), modules), 4)
+  assert.equal(cellReads, 0, 'warm fixtures do not scan unrelated station cells')
+  assert.equal(moduleReads, 0, 'warm fixtures do not scan unrelated equipment')
+  const lower = [...cells, { x: 2, y: 2, z: 4, fill: 'solid' }]
+  assert.equal(ceilingMountHeight(lower, clock(2, 2), modules), 3, 'new lower course hides the old underside')
+  assert.equal(ceilingMountHeight(cells, clock(2, 2), modules), 4, 'undo can reuse the previous document index')
+  const hanger = { id: 'h', type: 'hanger', x: 2, y: 2, z: 0, w: 1, rot: 0, cfg: { mount: 'roof' } }
+  assert.equal(ceilingMountHeight(cells, clock(2, 2), [...modules, hanger]), 3, 'module replacement discovers added hanger support')
+  assert.equal(ceilingMountHeight([], clock(2, 2), modules), null, 'empty replacement cannot retain a removed slab')
+  const noModules=[]
+  assert.equal(ceilingMountHeight(cells,clock(2,2,-5),noModules),4,'virtual street underside is shared by underground fittings')
+  cellReads=0
+  for(let i=0;i<20;i++)assert.equal(ceilingMountHeight(cells,clock(2,2,-5),noModules),4)
+  assert.equal(cellReads,0,'warm underground support queries do not rescan authored ground records')
+  assert.equal(ceilingMountHeight([...cells,{x:2,y:2,z:0,fill:'void'}],clock(2,2,-5),noModules),9,'an excavated street exposes the higher authored slab')
+  assert.equal(ceilingMountHeight([],clock(2.5,2.5,-5),noModules),4,'fractional imported anchors keep the exact ground predicate')
+})
 const cctv = (x, y, z = 0, id = 'cctv-1', rot = 0) => ({ id, type: 'cctv', x, y, z, rot, cfg: {} })
 const gate = (x, y, z, id = 'gate-1') => ({ id, type: 'gate', x, y, z, rot: 0, cfg: { dir: 'both' } })
 
