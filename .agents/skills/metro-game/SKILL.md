@@ -2506,3 +2506,18 @@ Local chunk remeshing must reuse the storey group already holding retained remot
 chunks. Replacing a `levelGroups` entry strands its old group in the scene and
 leaves its meshes outside layer visibility and teardown. `floor-geometry` pins
 local delete/fill, retained GPU mesh identity and repeated -15/-5 m switches.
+
+### Wall-mounted urinal
+
+`urinal` is wall decor: its local +y faces the room, its two backing courses
+are validated by the shared wall mount and its move uses the same facing and
+support resolver. The wall-hung ceramic shell has a recessed bowl and exposed
+flush valve; `UrinalModel` supplies authored High/Low geometry, with the Low
+shape kept below 10% of High. Its collision envelope must contain the model in
+every rotation. It is sim-inert and can skip route rebuilds; keep palette,
+picker, preview and static menu thumbnail aligned; declare the model as
+standalone and cell-independent so local edits retain unrelated equipment. `module-build`, `placement`,
+`move`, `equipment-placement-input`, `model-detail`, `preview-lod`,
+`performance-policy` and `worker-preview`
+pin the geometry, support, movement and performance contracts. The shared
+performance guide owns the per-option triangle inventory and measured actions.

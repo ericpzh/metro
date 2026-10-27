@@ -550,6 +550,7 @@ export type Module =
    * A wash basin (洗手池, 装饰): the basin + tap unit the 厕所 fit-out stocks
    * along its front wall (§5.7). Same rules as a cubicle.
    */
+  | (ModuleBase & { type: 'urinal'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'sink'; cfg: { auto?: boolean } })
   /**
    * A litter bin (垃圾桶, 装饰): the stainless double bin of the reference — two

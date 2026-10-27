@@ -643,3 +643,16 @@ small deterministic fixture. It pins direct/indexed block verdicts, cached previ
 release and post-placement carving, every stair/escalator rotation, zero-volume
 remnants and overlapping-run refusals. Existing carve suites distinguish retained
 underside wedges from cells wholly inside the passenger passage.
+
+### Urinal and equipment LOD inventory
+
+`module-build` raycasts the urinal's bowl at High and Low and checks its
+envelope in all rotations; `placement`, `equipment-placement-input` and `move` pin wall aiming,
+placement and moving.
+`model-detail` includes it in the strict <10% per-option Low budget, both before
+and after static batching; `preview-lod` covers preview/placed detail policy.
+`performance-policy` and `worker-preview` pin its sim-inert edit path, retained equipment and skipped
+route rebuild. `tools/model-triangle-inventory.mjs` and
+`tools/check-equipment-lod.mjs` build the double TV as a real shared pair, and
+the latter checks all 122 catalogue options in WebGL. Record triangle counts and
+measured placement results only in the shared performance reference.

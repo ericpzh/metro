@@ -995,6 +995,10 @@ export const messages = {
     "zh": "厕所隔间",
     "en": "Toilet cubicle"
   },
+  "urinal": {
+    "zh": "小便池",
+    "en": "Urinal"
+  },
   "sink": {
     "zh": "洗手池",
     "en": "Sink"

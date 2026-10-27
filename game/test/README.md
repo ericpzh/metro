@@ -241,6 +241,7 @@ disposal, UV attributes, alpha-cut exclusions and moving rigs. `floor-geometry`
 pins chunk picking against full source geometry and train rig/restoration/disposal.
 It also covers unbatched moving equipment, hidden/batched-source exclusions and
 source-owned approximation disposal.
+`module-build` checks the urinal cavity at both detail levels and its bounds in all rotations; `move`, `placement`, `performance-policy` and `worker-preview` pin wall support, movement and skipped routing rebuilds.
 `model-detail.test.mjs` sweeps every palette option: models above ten triangles
 must have a nonempty, smaller Low variant before and after batching, with restored
 source geometry. Every option also meets a strict <10% target or its explicit
@@ -249,7 +250,7 @@ tread and riser, their full extent and both end heights; folded exit glazing mee
 the Low canopy, and merged open-exit pads retain all floor/wellway samples in four
 rotations. Printed monitor artwork retains High vectors at any distance, switches
 coherently through global batches and Hide UI, and owns one bounded texture.
-`npm run check:equipment-lod` renders all 121 options at both qualities, checks actual
+`npm run check:equipment-lod` renders all 122 options at both qualities, checks actual
 GPU submissions/blank pixels and global monitor/open-exit batches, and saves contact sheets. Conservative Near/Low bounds are pinned for instanced, merged and transparent batches, including frustum visibility outside the original source bounds. Local batches preserve and isolate coherent detail metadata.
 Primitive panels also pin UVs, exact edge picks, cached swaps and
 single disposal. It covers authored Low triangle budgets for all shelf,

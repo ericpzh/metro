@@ -154,6 +154,7 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'desk':
     case 'checkout':
     case 'cubicle':
+    case 'urinal':
     case 'sink':
     case 'bin':
     case 'vent':

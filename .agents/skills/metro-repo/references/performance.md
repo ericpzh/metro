@@ -934,10 +934,10 @@ behaviour and exact resource release.
 
 ### Equipment and decor
 
-The current inventory covers 120 palette models totalling **9,279 Low / 154,963
-High triangles**. Every individual High count is unchanged by the Low work. **60
-options are strictly below 10%** of their High geometry; **60 use a minimum usable
-shape** (44 user-approved exceptions plus 16 two-triangle artwork/floor quads).
+The current inventory covers 122 palette models totalling **9,947 Low / 162,011
+High triangles**. **61 options are strictly below 10%** of their High geometry;
+**61 use a minimum usable shape** (45 explicit exceptions, including the shared
+housing and two faces of the double TV, plus 16 two-triangle artwork/floor quads).
 `tools/equipment-low-budgets.mjs` shares the strict integer limit
 (`ceil(High / 10) - 1`) and explicit exception caps between inventory, regression
 and browser checks. No High geometry is inflated to meet the ratio.
@@ -955,8 +955,9 @@ geometry. A 100% share means that default model has no reduction.
 | 轨道桥 | `bridge` | 9,576 | 720 | 7.5% |
 | 白色高架 | `shelf-white-tall` | 7,556 | 240 | 3.2% |
 | 深色高架 | `shelf-dark-tall` | 7,244 | 240 | 3.3% |
+| 小便池 | `urinal` | 6,880 | 648 | 9.4% |
 | 移动网篮架 | `shelf-wire` | 6,524 | 412 | 6.3% |
-| 厕所隔间 | `cubicle` | 5,688 | 84 | 1.5% |
+| 厕所隔间 | `cubicle` | 5,688 | 72 | 1.3% |
 | 半球机 | `cctv-dome` | 5,208 | 336 | 6.5% |
 | 自动步道 | `walkway` | 5,162 | 290 | 5.6% |
 | 立柱球机 | `cctv-post` | 5,096 | 352 | 6.9% |
@@ -1013,8 +1014,9 @@ geometry. A 100% share means that default model has no reduction.
 | 小 | `extinguisher-compact` | 146 | 12 | 8.2% |
 | 木 | `door-wood-1` | 144 | 20 | 13.9% |
 | 人行道 | `sidewalk` | 132 | 12 | 9.1% |
+| 双面 | `tv-double` | 132 | 28 | 21.2% |
 | 屏蔽端门 | `psd-end` | 114 | 30 | 26.3% |
-| 电视 | `tv` | 114 | 22 | 19.3% |
+| 单面 | `tv` | 114 | 22 | 19.3% |
 | 全高声屏障 | `noise-barrier` | 108 | 46 | 42.6% |
 | 半高声屏障 | `noise-barrier-half` | 108 | 46 | 42.6% |
 | 交通灯 | `traffic-light` | 108 | 28 | 25.9% |
@@ -1070,20 +1072,56 @@ geometry. A 100% share means that default model has no reduction.
 | 宋体 横排 | `calligraphy-song-h` | 2 | 2 | 100.0% |
 | 宋体 竖排 | `calligraphy-song-v` | 2 | 2 | 100.0% |
 
+#### Urinal placement and model retention (27 October 2026)
+
+A focused production-API capture on an i7-14700KF / RTX 4080 SUPER, 892 × 815
+canvas at pixel ratio 1, used one sample per action in each demo. After declaring
+`UrinalModel` standalone and cell-independent, all twelve first-render timings
+were below 100 ms:
+
+| Demo | Preview | Place | Pickup | Move preview | Drop | Delete |
+|---|---:|---:|---:|---:|---:|---:|
+| Zoo | 21.5 ms | 53.5 ms | 19.4 ms | 21.7 ms | 43.7 ms | 34.8 ms |
+| Tanwei | 16.6 ms | 88.1 ms | 32.3 ms | 46.6 ms | 88.9 ms | 88.0 ms |
+
+The preceding capture, with valid wall supports but without those declarations,
+measured Zoo place/drop/delete at 795.4/812.2/638.6 ms and Tanwei at
+1792.5/1638.3/1542.6 ms; the unknown builder invalidated unrelated models.
+The paired reports are `.preview/perf/editor-actions/run-2026-10-27T23-16-25-535Z-8148/report.json`
+and `.preview/perf/editor-actions/run-2026-10-27T23-17-16-554Z-10932/report.json`
+(after source `e6275872e210`, build `40ffea4c335d`). Reproduce with
+`BENCH_CASE=urinal`, `BENCH_SAMPLES=1`, `BENCH_MATRIX_UPDATE=0` and
+`node tools/bench-editor-actions.mjs --record-only` after a build. These are
+single-sample API-to-render timings, not real-pointer latency or a tail estimate;
+the focused exploratory capture did not update the full action matrix.
+`performance-policy` pins model retention on add/remove and cell edits;
+`worker-preview` pins the skipped routing rebuild. `module-build` raycasts the
+actual High and Low bowls and checks their envelopes in all four rotations.
+The catalogue WebGL check rendered the urinal at 6,880 High and 648 Low triangles
+(9.4%); its 12-sided Low shell and reduced fittings preserve the open bowl.
+A focused V8-instrumented run of `model-detail`, `preview-lod`,
+`performance-policy`, `worker-preview`, `equipment-placement-input` and `move`
+passed 327 tests; `UrinalModel.ts` reached 100% lines, branches and functions in
+that run. The raw report is `.preview/urinal/focused-coverage.log`.
+The broader `test:perf` coverage run was stopped while the existing
+`draw-batching` and `floor-geometry` files were still running, so it is not a
+full-suite pass; the focused instrumented run and WebGL check above completed.
+
 #### Equipment minimum-shape exceptions
 
-Low targets strictly less than 10% of High. The user-approved exceptions below
+Low targets strictly less than 10% of High. The documented exceptions below
 keep a minimum usable shape, including the two-triangle artwork and floor quads.
 Caps and reasons live in `tools/equipment-low-budgets.mjs` and are enforced by the
 inventory and regression suite; High geometry is unchanged. Counts describe model
 geometry; transparent two-sided materials can submit an additional GPU pass.
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
-|---|---:|---:|
+|---|---:|---|
 | bin | 26 / 196 | Two open hoppers, outer cabinet faces, dark wells and sorting label. |
 | vent | 32 / 168 | Frame, dark duct and three louver strips visible above and below. |
 | bench-seat-1 | 20 / 156 | Seat and back surfaces plus two supports. |
 | door-wood-1 | 20 / 144 | Four frame members and a two-sided leaf. |
+| tv-double | 28 / 132 | Two back-to-back TV screens with shared housing and suspension. |
 | psd-end | 30 / 114 | Shortened fixed glass, separate housing/trim faces and artwork. |
 | tv | 22 / 114 | Two suspension rods, bezel, live station board, video window and status light. |
 | noise-barrier | 46 / 108 | Posts and separate opaque/glazed bands, keeping all bay cutouts. |
@@ -1103,7 +1141,6 @@ geometry; transparent two-sided materials can submit an additional GPU pass.
 | glass-3x2 | 18 / 60 | Four frame members and one double-sided glass surface. |
 | exit-virtual | 46 / 60 | Three printed sides and shaped metro-logo collar. |
 | road | 10 / 50 | Road surface plus four lane/edge markings. |
-| pillar-slim | 16 / 36 | Shaft and end collars, preserving height and support footprint. |
 | stair-block | 34 / 48 | All four solid treads, exposed risers and closed side silhouette. |
 | billboard-wide | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
 | billboard-standard | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
@@ -1114,6 +1151,7 @@ geometry; transparent two-sided materials can submit an additional GPU pass.
 | linemap-stand | 16 / 40 | Base, support and two separately oriented readable map faces. |
 | hanger-roof | 6 / 36 | Support bar visible from every direction. |
 | hanger-post | 14 / 36 | Bar, upright and base. |
+| pillar-slim | 16 / 36 | Shaft and end collars, preserving height and support footprint. |
 | linemap-wall | 4 / 26 | Frame surface and original cropped map face. |
 | exit-doorway-1 | 10 / 26 | Doorway framing and independently readable header faces. |
 | exit-doorway-2 | 10 / 26 | Doorway framing and independently readable header faces. |

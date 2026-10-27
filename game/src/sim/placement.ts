@@ -447,6 +447,12 @@ function flatEnvelope(m: Module): ModuleBox | null {
         z0: z0 + panelZ - half, z1: z0 + panelZ + half,
       }
     }
+    case 'urinal': {
+      const [sx, sy] = wallSide(m.rot)
+      const cx = m.x + 0.5, cy = m.y + 0.5
+      return { x0: cx + (sx ? Math.min(sx * .04, sx * .5) : -.3), x1: cx + (sx ? Math.max(sx * .04, sx * .5) : .3),
+        y0: cy + (sy ? Math.min(sy * .04, sy * .5) : -.3), y1: cy + (sy ? Math.max(sy * .04, sy * .5) : .3), z0: z0 + .27, z1: z0 + 1.72 }
+    }
     case 'billboard': {
       // A 广告牌 is **bolted to a wall**, so what it reserves is the panel on that
       // wall: a thin housing a hand's width off the backing, spanning the run along
@@ -837,7 +843,7 @@ export function reservedOpening(modules: readonly Module[], x: number, y: number
  * A **门 is not here**: it carries its own threshold, posts and head, so it stands on the
  * floor like a 货架 and asks the ground rules for a tile, not the wall's for backing.
  */
-const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'calligraphy', 'linemap'])
+const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'calligraphy', 'linemap', 'urinal'])
 
 /**
  * Decoration types that hang by rods from the ceiling slab above them (§5.7). A **sign**
@@ -876,6 +882,7 @@ export function isWallMounted(m: Module): boolean {
  */
 export function wallMountCourses(m: Module): number[] {
   switch (m.type) {
+    case 'urinal': return [0, 1]
     case 'monitor': return m.cfg.mount === 'wall' ? [0, 1, 2] : []
     case 'billboard':
       // A poster is one course: the billboard's variants hang inside the first
@@ -2098,6 +2105,7 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'checkout',
   'cubicle',
   'sink',
+  'urinal',
   'guidepost',
   'busstop',
   'bin',
@@ -2488,6 +2496,7 @@ const MODULE_TYPE_LABELS: Record<string, string> = {
   checkout: msg('checkout'),
   cubicle: msg('toilet_cubicle'),
   sink: msg('sink'),
+  urinal: msg('urinal'),
   guidepost: msg('wayfinding_post'),
   road: msg('road'),
   busstop: msg('bus_stop'),

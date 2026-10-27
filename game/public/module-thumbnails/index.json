@@ -594,6 +594,11 @@
       "bytes": 6474
     },
     {
+      "id": "urinal",
+      "file": "urinal.png",
+      "bytes": 4313
+    },
+    {
       "id": "vending",
       "file": "vending.png",
       "bytes": 6188

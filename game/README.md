@@ -4210,6 +4210,10 @@ High/Low, checks visible pixels and GPU geometry, and captures both contact shee
 Monitor artwork is printed once for Low; its original vector layers stay complete
 at High even at a distance. Stair/wellway/roof joins, exact picking, animation and
 restored buffer identities remain covered by `model-detail`.
+The wall-mounted urinal keeps its recessed bowl in High and Low, follows normal
+wall aiming and moving, and has no routing effect. `module-build`,
+`equipment-placement-input`, `move`, `performance-policy` and `worker-preview`
+pin its cavity, bounds, placement and retained-model behavior.
 
 `static-rendering.test.mjs` pins retained 16 m outdoor tile/tree instance batches,
 original picking layers and move masking, transparent instance ordering with stable

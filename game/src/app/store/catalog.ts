@@ -27,7 +27,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'light-circular', 'light-rectangular', 'vent', 'sign-ceiling',
   ]),
   wall: new Set([
-    'monitor-wall', 'billboard-wide', 'billboard-standard', 'billboard-large', 'billboard-panorama',
+    'urinal', 'monitor-wall', 'billboard-wide', 'billboard-standard', 'billboard-large', 'billboard-panorama',
     'billboard-portrait', 'billboard-square', 'glass-1x1', 'glass-2x1', 'glass-3x1',
     'glass-1x2', 'glass-2x2', 'glass-3x2', 'calligraphy-kai-h', 'calligraphy-kai-v',
     'calligraphy-xing-h', 'calligraphy-xing-v', 'calligraphy-li-h', 'calligraphy-li-v',
@@ -100,6 +100,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'desk', label: msg('desk'), type: 'desk', w: 1, h: 1 },
   { id: 'checkout', label: msg('checkout'), type: 'checkout', w: 1, h: 1 },
   { id: 'cubicle', label: msg('toilet_cubicle'), type: 'cubicle', w: 1, h: 1 },
+  { id: 'urinal', label: msg('urinal'), type: 'urinal', w: 1, h: 1 },
   { id: 'sink', label: msg('sink'), type: 'sink', w: 1, h: 1 },
   { id: 'guidepost', label: msg('wayfinding_post'), type: 'guidepost', w: 1, h: 1 },
   { id: 'busstop-short', label: msg('short'), type: 'busstop', w: 4, h: 2 },
@@ -259,7 +260,7 @@ export function isDecorType(type: string): boolean {
     type === 'desk' ||
     type === 'checkout' ||
     type === 'cubicle' ||
-    type === 'sink' ||
+    type === 'sink' || type === 'urinal' ||
     type === 'sidewalk' || type === 'lawn' || type === 'tree' || type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
     type === 'extinguisher' || type.startsWith('extinguisher-') ||
@@ -335,7 +336,7 @@ export function isSignType(type: string): boolean {
  * stands on a floor tile like a 货架 and the tool resolves it from the ground.
  */
 export function isWallMountedType(type: string): boolean {
-  return type === 'monitor-wall' || isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || type.startsWith('exit-doorway-') || (isLineMapType(type) && type !== 'linemap-stand')
+  return type === 'urinal' || type === 'monitor-wall' || isBillboardType(type) || isGlassType(type) || isCalligraphyType(type) || type === 'sign-wall' || type.startsWith('exit-doorway-') || (isLineMapType(type) && type !== 'linemap-stand')
 }
 
 /** True for the fence piece, which drags out a run like the wall tool. */
@@ -631,7 +632,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     // 厕所's own fit-out comes **before** the ceiling and street pairs — a cubicle and a
     // basin are room furniture like the shelf and the desk, and they used to close the folder.
     'cubicle',
-    'sink',
+    'sink', 'urinal',
     // The ceiling pair sits just above the street pair: 灯具 and 通风口 hang overhead,
     // while 导向柱 and 公交站 stand outside the station.
     familyAnchor('light'),
@@ -652,7 +653,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
 const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = {
   wall: [
     familyAnchor('sign'), familyAnchor('billboard'), familyAnchor('monitor'), familyAnchor('glass'),
-    familyAnchor('calligraphy'), familyAnchor('linemap'),
+    familyAnchor('calligraphy'), familyAnchor('linemap'), 'urinal',
   ],
   floor: [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', familyAnchor('psd-end'),
@@ -873,6 +874,7 @@ const MODULE_LABELS: Record<string, string> = {
   checkout: msg('checkout'),
   cubicle: msg('toilet_cubicle'),
   sink: msg('sink'),
+  urinal: msg('urinal'),
   guidepost: msg('wayfinding_post'),
   sidewalk: msg('sidewalk'), lawn: msg('lawn'), tree: msg('tree'),
   road: msg('road'),

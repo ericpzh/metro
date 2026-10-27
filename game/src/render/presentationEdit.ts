@@ -8,7 +8,7 @@ import { floorMarkLine } from '../sim/floorDecor.ts'
 const RETAINED = new Set<Module['type']>([
   'sidewalk','lawn','tree','hanger','pillar','roof','gate','fence','escalator',
   'walkway','stair','lift','tvm','vending','bench','shelf','desk','checkout',
-  'cubicle','sink','road','bin','extinguisher','light','clock','cctv','billboard',
+  'cubicle','sink', 'urinal','road','bin','extinguisher','light','clock','cctv','billboard',
   'glass','door','calligraphy','linemap','monitor','traffic-light','rail-signal',
   'tv','sign','retail','shop','booth','track','vent','ac-unit','electrical-cabinet','tactile',
 ])

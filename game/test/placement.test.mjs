@@ -127,6 +127,17 @@ test('the placement factory carries the hover rotation into the placed module', 
 
 const billboard = (x, y, z, rot = 0, id = 'bb') => ({ id, type: 'billboard', x, y, z, rot, w: 1, cfg: { variant: 'wide' } })
 
+test('urinal mounts on a supported wall in every rotation', () => {
+  const fixture = createModule('urinal', 0, 0, 0, 'u')
+  assert.equal(fixture.type, 'urinal')
+  for (const [rot, dx, dy] of [[0, 0, -1], [1, 1, 0], [2, 0, 1], [3, -1, 0]]) {
+    const wall = [1, 2].map(z => ({ x: dx, y: dy, z, fill: 'solid' }))
+    assert.equal(wallMountMissing([], { ...fixture, rot }), true)
+    assert.equal(wallMountMissing(wall, { ...fixture, rot }), false)
+    assert.equal(autofaceWallMount(wall, fixture).rot, rot)
+  }
+})
+
 test('wallSide turns the mount direction with the module rotation', () => {
   assert.deepEqual(wallSide(0), [0, -1])
   assert.deepEqual(wallSide(1), [1, 0])

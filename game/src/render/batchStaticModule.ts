@@ -9,7 +9,7 @@ import { setModelDetail } from './modelDetail.ts'
 // mutable screen references must keep their individual meshes.
 const STATIC_TYPES = new Set<Module['type']>([
   'bench', 'fence', 'light', 'vent', 'cctv', 'bin', 'extinguisher', 'shelf',
-  'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof',
+  'desk', 'cubicle', 'sink', 'urinal', 'stair', 'track', 'pillar', 'roof',
   'hanger', 'tactile', 'door', 'shop', 'exit', 'guidepost', 'busstop',
 ])
 

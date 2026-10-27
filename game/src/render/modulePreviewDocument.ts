@@ -5,7 +5,7 @@ import type { Module, StationData } from '../sim/types.ts'
 // Coupled pieces read their small candidate overlay through modelNeighbours.
 // Unknown future kinds retain the conservative merged-document contract.
 const STATION_PREVIEWS = new Set<Module['type']>([
-  'bench', 'tvm', 'vending', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'bin',
+  'bench', 'tvm', 'vending', 'shelf', 'desk', 'checkout', 'cubicle', 'sink', 'urinal', 'bin',
   'extinguisher', 'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'pillar', 'hanger',
   'gate', 'fence', 'light', 'vent', 'clock', 'cctv', 'monitor', 'sign', 'billboard',
   'door', 'calligraphy', 'linemap', 'floor-mark', 'guidepost', 'busstop', 'traffic-light',

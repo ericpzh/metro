@@ -761,3 +761,15 @@ test('the move tool picks up trees, cancels, drops on lawns, and preserves undo/
   st().redo()
   assert.deepEqual([held(tree.id).x, held(tree.id).y], [5, 5])
 })
+
+
+test('a urinal moves to a supported wall and refuses an unsupported drop', () => {
+  const fixture = createModule('urinal', 3, 3, 0, 'urinal')
+  assert.ok(isMovableModule(fixture))
+  const cells = station([1, 2].map(z => ({ x: 5, y: 4, z, fill: 'solid', tags: ['wall'] }))).cells
+  const { module: moved, reason } = moveCandidate(cells, [fixture], fixture, at(5, 5, 0), 2)
+  assert.equal(reason, '')
+  assert.equal(moved.rot, 0)
+  assert.equal(moved.id, fixture.id)
+  assert.notEqual(moveCandidate(station().cells, [fixture], fixture, at(5, 5, 0), 0).reason, '')
+})

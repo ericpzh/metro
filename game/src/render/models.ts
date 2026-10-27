@@ -23,6 +23,7 @@ import { ShelfModel } from './models/pieces/ShelfModel.ts'
 import { DeskModel } from './models/pieces/DeskModel.ts'
 import { CheckoutModel } from './models/pieces/CheckoutModel.ts'
 import { CubicleModel } from './models/pieces/CubicleModel.ts'
+import { UrinalModel } from './models/pieces/UrinalModel.ts'
 import { SinkModel } from './models/pieces/SinkModel.ts'
 import { GuidepostModel, BusstopModel } from './models/pieces/StreetDecorModel.ts'
 import { BinModel } from './models/pieces/BinModel.ts'
@@ -105,6 +106,7 @@ function buildRawModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null 
       return new CheckoutModel(ctx).build(mod)
     case 'cubicle':
       return new CubicleModel(ctx).build(mod)
+    case 'urinal': return new UrinalModel(ctx).build(mod)
     case 'sink':
       return new SinkModel(ctx).build(mod)
     case 'guidepost': return new GuidepostModel(ctx).build(mod)

@@ -15,10 +15,10 @@ import { exitLandingHeight } from '../sim/exitLanding.ts'
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
 const EQUIPMENT_ONLY = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth', 'road', 'psd-end', 'walkway',
-  'door', 'shelf', 'cubicle', 'sink',
+  'door', 'shelf', 'cubicle', 'sink', 'urinal',
 ])
 const STANDALONE = new Set<Module['type']>([
-  'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink',
+  'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink', 'urinal',
   'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'door', 'calligraphy', 'linemap',
   'billboard', 'busstop', 'floor-mark', 'traffic-light', 'rail-signal', 'shop', 'tree',
 ])
@@ -112,7 +112,7 @@ export function translatedWalkwayIds(before:StationData,after:StationData):Set<s
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
-  'cubicle', 'sink', 'checkout', 'booth', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
+  'cubicle', 'sink', 'urinal', 'checkout', 'booth', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])

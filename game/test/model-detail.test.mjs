@@ -15,6 +15,7 @@ import { buildBridgeNoiseBarrier } from '../src/render/models/pieces/BridgeNoise
 import { buildBridgeRailing } from '../src/render/models/pieces/BridgeRailing.ts'
 import { MODULE_OPTIONS } from '../src/app/store/catalog.ts'
 import { equipmentLowBudget } from '../../tools/equipment-low-budgets.mjs'
+import { tvPairSlot } from '../src/sim/tvs.ts'
 import { exitBayCell, exitRunSnap } from '../src/sim/exits.ts'
 
 await geometryDetailReady
@@ -138,7 +139,7 @@ function fixture(id, run, configure) {
   const data = { name: 'Test', seed: 1, cells: [], modules: pair, lines: [] }
   configure?.(mod, data)
   const ads = { adFace: (slug, w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h), slug }), adWindow: (w, h) => ({ material: mats.white, geometry: new THREE.PlaneGeometry(w, h) }) }
-  const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, tvPlate: () => new THREE.CanvasTexture(canvas()), ownedMats: [], preview: false }
+  const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, tvPlate: () => new THREE.CanvasTexture(canvas()), ownedMats: [], preview: false, tvPairSlot: id => tvPairSlot(id, data.modules) }
   let root
   try {
     root = id==='tv-double'?new THREE.Group().add(...pair.map(m=>buildModule(m,ctx))):buildModule(mod, ctx)
@@ -171,8 +172,7 @@ const budgets = [
 for (const option of MODULE_OPTIONS) test(`${option.id}: every palette model over ten triangles has reduced Low geometry`, () => fixture(option.id, (root, mod) => {
   if (!root) return
   const full = totals(root), low = totals(root, true)
-  const budget = equipmentLowBudget(option.id==='tv-double'?'tv':option.id, full/(option.id==='tv-double'?2:1))
-  if(option.id==='tv-double')budget.limit*=2
+  const budget = equipmentLowBudget(option.id, full)
   assert.ok(low <= budget.limit, `${option.id}: ${low}/${full} exceeds budget ${budget.limit}; ${budget.reason ?? 'strict <10%'}`)
   if (full <= 10) return
   assert.ok(low > 0 && low < full, `${option.id}: ${low}/${full}`)

@@ -2174,3 +2174,36 @@ test('wide D stock clears bridge railings and platform cantilever masts even on 
   }finally{disposeObject(group)}
  }
 })
+
+
+test('urinal retains its recessed bowl in High and Low and stays inside its placement bounds', async () => {
+  const { moduleEnvelope } = await import('../src/sim/placement.ts')
+  const { modelDetailGeometry } = await import('../src/render/modelDetail.ts')
+  for (const rot of [0, 1, 2, 3]) {
+    const mod = palette('urinal', rot)
+    const { group } = build(mod)
+    const bounds = box(group), envelope = moduleEnvelope(mod)
+    for (const axis of ['x', 'y', 'z']) {
+      assert.ok(bounds.min[axis] >= envelope[axis + '0'] - .001, `${rot}: ${axis} minimum fits`)
+      assert.ok(bounds.max[axis] <= envelope[axis + '1'] + .001, `${rot}: ${axis} maximum fits`)
+    }
+    if (rot === 0) {
+      const shell = group.getObjectByName('urinal-ceramic-shell')
+      const high = shell.geometry, low = modelDetailGeometry(shell)
+      assert.ok(low && low.index.count < high.index.count / 2)
+      for (const geometry of [high, low]) {
+        shell.geometry = geometry
+        group.updateMatrixWorld(true)
+        const hitAt = (x) => new THREE.Raycaster(
+          new THREE.Vector3(mod.x + .5 + x, mod.y + 2, mod.z + 1.9),
+          new THREE.Vector3(0, -1, 0),
+        ).intersectObject(shell)[0]
+        const centre = hitAt(0), side = hitAt(.22)
+        assert.ok(centre && side, 'ceramic back and side wall both exist')
+        assert.ok(side.point.y - centre.point.y > .08, 'opening reaches behind the side wall into a real cavity')
+      }
+      shell.geometry = high
+    }
+    disposeObject(group)
+  }
+})

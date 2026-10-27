@@ -64,6 +64,33 @@ test('wall-mounted poster and glass tiles reach the backing-wall verdict from op
   assert.equal(canPlaceWithoutFloorHit('billboard-wide'), true)
   assert.equal(canPlaceWithoutFloorHit('glass-1x1'), true)
   assert.equal(canPlaceWithoutFloorHit('sign-wall'), true)
+  assert.equal(canPlaceWithoutFloorHit('urinal'), true)
+})
+
+test('urinal hover and click mount on the aimed wall', () => {
+  const before = useStore.getState()
+  const hit = { cell: [0, 1, 2], place: [0, 0, 2], solid: true, point: [0.5, 1, 2.5] }
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'solid' },
+    { x: 0, y: 1, z: 1, fill: 'solid' },
+    { x: 0, y: 1, z: 2, fill: 'solid' },
+  ]
+  try {
+    let preview, refused
+    const tool = new EquipmentTool({
+      scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {} }),
+      facing: () => [0, -1], hover: { current: hit }, drag: { current: null },
+    })
+    useStore.setState({ station: toState({ name: 'urinal', seed: 1, cells, modules: [], lines: [] }),
+      past: [], future: [], tool: 'module', moduleType: 'urinal', moduleRot: 0 })
+    tool.refreshHover()
+    assert.equal(refused, false)
+    assert.deepEqual([preview.x, preview.y, preview.z, preview.rot], [0, 0, 0, 2])
+    tool.onDown({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
+    const placed = useStore.getState().station.modules.find(mod => mod.type === 'urinal')
+    assert.ok(placed, 'click commits the previewed wall fixture')
+    assert.deepEqual([placed.x, placed.y, placed.z, placed.rot], [0, 0, 0, 2])
+  } finally { useStore.setState(before) }
 })
 
 test('ceiling-mounted tiles reach the ceiling verdict from open air', () => {

@@ -173,7 +173,7 @@ test('one order list lays the grid out, and every tile a folder owns is drawn ex
     familyAnchor('shelf'), 'checkout',
     familyAnchor('glass'),
     familyAnchor('door'),
-    'cubicle', 'sink',
+    'cubicle', 'sink', 'urinal',
     familyAnchor('light'), 'vent',
     familyAnchor('hanger'), 'desk',
     'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'guidepost', familyAnchor('busstop'),
@@ -220,8 +220,8 @@ test('the four top-level decor sections keep their contents and requested order'
   ])
   assert.deepEqual(anchors('wall'), [
     familyAnchor('sign'), familyAnchor('billboard'), familyAnchor('monitor'), familyAnchor('glass'),
-    familyAnchor('calligraphy'), familyAnchor('linemap'),
-  ], '站名 and 线网图 close out the wall section')
+    familyAnchor('calligraphy'), familyAnchor('linemap'), 'urinal',
+  ], 'wall fixtures appear in the wall section')
   assert.deepEqual(anchors('floor'), [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', familyAnchor('psd-end'),
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',

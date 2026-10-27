@@ -14,7 +14,7 @@ import type { GraphicsQuality } from './detailPolicy.ts'
 // No moving rigs: their screens, wings, hands and cabins keep live references.
 // Static TV surrounds/sign faces can batch; the artwork window stays independent.
 const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 'extinguisher', 'shelf',
-  'desk', 'cubicle', 'sink', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
+  'desk', 'cubicle', 'sink', 'urinal', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
   'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass', 'sidewalk', 'lawn', 'tree'])
 // Low quality is also the game's performance mode. Larger buckets reduce draw

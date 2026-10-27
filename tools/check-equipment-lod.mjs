@@ -23,6 +23,7 @@ try {
     const { SourceGeometryDetail } = await import('/src/render/sourceGeometryDetail.ts')
     const { EquipmentBatches } = await import('/src/render/equipmentBatches.ts')
     const { batchStaticModule } = await import('/src/render/batchStaticModule.ts')
+    const { tvPairSlot } = await import('/src/sim/tvs.ts')
     const { geometryDetailReady } = await import('/src/render/geometryDetail.ts')
     await geometryDetailReady
     const errors = [], originalError = console.error
@@ -41,16 +42,18 @@ try {
     const mats = models.createModelMaterials(), rows = []
     const line = { id: '5', name: '5', colour: '#c8102e', stock: 'B', cars: 6, power: 'third-rail', direction: 'up', travelSign: 1, stations: [] }
     for (const [index, option] of MODULE_OPTIONS.entries()) {
-      const mod = createModule(option.id, 4, 4, 0, option.id, 0, undefined, 'up', 'lane', [line])
-      const data = { name: 'Station', seed: 1, cells: [], modules: [mod], lines: [line] }, owned = []
+      const mod = createModule(option.id === 'tv-double' ? 'tv' : option.id, 4, 4, 0, option.id, 0, undefined, 'up', 'lane', [line])
+      const pair = option.id === 'tv-double' ? [mod, { ...mod, id: mod.id + '-back', rot: 2 }] : [mod]
+      const data = { name: 'Station', seed: 1, cells: [], modules: pair, lines: [line] }, owned = []
       const ads = { adFace: (slug, w, h) => ({ geometry: new THREE.PlaneGeometry(w, h), material: mats.desktopScreen, slug }), adWindow: (w, h) => ads.adFace('preview', w, h) }
-      const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, owned, preview: false, tvPlate: () => new THREE.CanvasTexture(document.createElement('canvas')) }
-      const root = models.buildModule(mod, ctx), detail = new SourceGeometryDetail(), instances = []
+      const ctx = { mats, ads, data, trackCells: new Set(), finish: () => mats.steel, owned, preview: false, tvPlate: () => new THREE.CanvasTexture(document.createElement('canvas')), tvPairSlot: id => tvPairSlot(id, data.modules) }
+      const root = pair.length === 2 ? new THREE.Group().add(...pair.map(item => models.buildModule(item, ctx))) : models.buildModule(mod, ctx)
+      const detail = new SourceGeometryDetail(), instances = []
       scene.add(root); root.updateMatrixWorld(true)
       const box = new THREE.Box3().setFromObject(root), centre = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3())
       const span = Math.max(size.x, size.y, size.z, .5) * .75
       const camera = new THREE.OrthographicCamera(-span, span, span, -span, .01, 10000)
-      const rear = option.id === 'monitor-wall' || option.id.startsWith('billboard-') || option.id === 'linemap-wall' || option.id.startsWith('calligraphy-') || option.id === 'sign-wall'
+      const rear = option.id === 'urinal' || option.id === 'monitor-wall' || option.id.startsWith('billboard-') || option.id === 'linemap-wall' || option.id.startsWith('calligraphy-') || option.id === 'sign-wall'
       camera.up.set(0, 0, 1); camera.position.copy(centre).add(new THREE.Vector3(span * .9, span * (rear ? 1.8 : -1.8), span * 1.2)); camera.lookAt(centre)
       const row = { id: option.id }
       for (const low of [false, true]) {
@@ -100,13 +103,13 @@ try {
       if (index % 12 === 0) await new Promise(resolve => setTimeout(resolve, 0))
     }
     models.disposeModelMaterials(mats)
-    return { rows, errors, glError: renderer.getContext().getError(), high: atlases[0].canvas.toDataURL(), low: atlases[1].canvas.toDataURL() }
+    return { rows, catalogueCount: MODULE_OPTIONS.length, errors, glError: renderer.getContext().getError(), high: atlases[0].canvas.toDataURL(), low: atlases[1].canvas.toDataURL() }
   }.toString()})()`)
   for (const quality of ['high', 'low']) writeFileSync(`${output}/${quality}.png`, Buffer.from(result[quality].split(',')[1], 'base64'))
   delete result.high; delete result.low
   writeFileSync(`${output}/browser.json`, JSON.stringify(result, null, 2))
   assert.deepEqual(result.errors, []); assert.equal(result.glError, 0)
-  assert.equal(result.rows.length, 120)
+  assert.equal(result.rows.length, result.catalogueCount)
   for (const row of result.rows) {
     assert.ok(row.highGPU > 0 && row.lowGPU > 0, `${row.id}: visible in both qualities`)
     if (row.highPixels > 20) assert.ok(row.lowPixels > 20, `${row.id}: Low still paints a visible model`)

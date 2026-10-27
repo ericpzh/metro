@@ -15,7 +15,7 @@ import { groundWindow } from './ground.ts'
 import type { Module, StationData } from './types.ts'
 
 const INERT_TYPES: ReadonlySet<Module['type']> = new Set([
-  'tactile', 'floor-mark', 'billboard', 'glass', 'calligraphy', 'linemap',
+  'urinal', 'tactile', 'floor-mark', 'billboard', 'glass', 'calligraphy', 'linemap',
   'sign', 'tv', 'monitor', 'clock', 'cctv', 'light', 'vent', 'traffic-light', 'rail-signal',
   'guidepost', 'busstop', 'desk', 'checkout', 'bin',
   'extinguisher', 'sidewalk', 'lawn', 'tree',

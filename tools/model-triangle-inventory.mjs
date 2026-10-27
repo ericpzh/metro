@@ -19,6 +19,7 @@ import { modelDetailGeometry } from '../game/src/render/modelDetail.ts'
 import { batchStaticParts } from '../game/src/render/batchStaticModule.ts'
 import { batchTrainDoors, batchTrainTransparent } from '../game/src/render/trainBatches.ts'
 import { trainDetails, trainDrawnTriangles } from '../game/src/render/trainDetail.ts'
+import { tvPairSlot } from '../game/src/sim/tvs.ts'
 import { STOCK_CLASSES } from '../game/src/sim/stock.ts'
 const canvas=()=>({width:0,height:0,getContext:()=>new Proxy({}, {get:(o,k)=>o[k]??(k==='measureText'?((s)=>({width:String(s??'').length*8})):()=>undefined),set:(o,k,v)=>(o[k]=v,true)})})
 globalThis.document={createElement:canvas}
@@ -35,11 +36,12 @@ const output=(name)=>resolve(process.env.BENCH_OUTPUT?dirname(process.env.BENCH_
 /* --------------------------------------------------------------- equipment */
 const results=[]
 for(const option of MODULE_OPTIONS){
- const mod=createModule(option.id,4,4,0,`bench-${option.id}`,0,undefined,'up','lane',[LINE])
+ const mod=createModule(option.id==='tv-double'?'tv':option.id,4,4,0,`bench-${option.id}`,0,undefined,'up','lane',[LINE])
  if(!mod){results.push({id:option.id,low:null,high:null,reason:'createModule returned null'});continue}
- data.modules=[mod];ctx.data=data
+ const pair=option.id==='tv-double'?[mod,{...mod,id:mod.id+'-back',rot:2}]:[mod]
+ data.modules=pair;ctx.data=data;ctx.tvPairSlot=id=>tvPairSlot(id,data.modules)
  let root
- try{root=buildModule(mod,ctx)}catch(error){results.push({id:option.id,low:null,high:null,reason:String(error)});continue}
+ try{root=pair.length===2?new THREE.Group().add(...pair.map(item=>buildModule(item,ctx))):buildModule(mod,ctx)}catch(error){results.push({id:option.id,low:null,high:null,reason:String(error)});continue}
  if(!root){results.push({id:option.id,low:0,high:0});continue}
  root.updateMatrixWorld(true)
  let high=0,low=0,parts=0

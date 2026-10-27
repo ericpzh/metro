@@ -440,8 +440,9 @@ test('sim-inert decor skips routing while functional pieces still rebuild', asyn
   const mark = createModule('floor-mark-boarding', 2, 0, -4, 'mark')
   const board = createModule('billboard-wide', 4, 0, -4, 'board')
   const tree = createModule('tree', 0, 0, 0, 'tree')
-  assert.ok(tactile && mark && board && tree)
-  for (const mod of [tactile, mark, board, tree]) assert.equal(isSimInertDecorModule(mod), true, `${mod.id} draws without walking`)
+  const urinal = createModule('urinal', 0, 0, -4, 'urinal')
+  assert.ok(tactile && mark && board && tree && urinal)
+  for (const mod of [tactile, mark, board, tree, urinal]) assert.equal(isSimInertDecorModule(mod), true, `${mod.id} draws without walking`)
   const bench = createModule('bench', 0, 0, -4, 'bench')
   const tvm = createModule('tvm', 0, 0, -4, 'tvm')
   const cabinet = createModule('electrical-cabinet', 0, 0, -4, 'cabinet')
@@ -455,6 +456,8 @@ test('sim-inert decor skips routing while functional pieces still rebuild', asyn
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [tactile] }), true, 'a floor sticker needs no new routes')
   assert.equal(isCosmeticStationEdit(station, { ...station, modules: [tactile] }), true, 'so the worker skips its rebuild')
   assert.equal(isSimInertDecorEdit({ ...station, modules: [tactile] }, station), true, 'lifting it back out is the same bargain')
+  assert.equal(isSimInertDecorEdit(station, { ...station, modules: [urinal] }), true, 'a wall urinal needs no new routes')
+  assert.equal(isCosmeticStationEdit(station, { ...station, modules: [urinal] }), true, 'the worker skips its routing rebuild')
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [tree] }), true, 'a tree is planting, not an obstacle')
   assert.equal(isCosmeticStationEdit(station, { ...station, modules: [tree] }), true, 'so planting one skips the routing rebuild')
   assert.equal(isSimInertDecorEdit(station, { ...station, modules: [bar] }), true, 'a roof bar hangs above the graph')
@@ -464,6 +467,18 @@ test('sim-inert decor skips routing while functional pieces still rebuild', asyn
   assert.equal(isCosmeticStationEdit(station, { ...station, lines: [{ id: '1' }] }), false, 'a line edit still reprints every shield')
   const far = { ...station, modules: [createModule('billboard-wide', 5000, 0, -4, 'far')] }
   assert.equal(isSimInertDecorEdit(station, far), false, 'a prop past the street window still needs its ground')
+})
+
+test('urinal edits keep unrelated equipment and its own model across cell edits', () => {
+  const floor = { x: 0, y: 0, z: -4, fill: 'solid' }
+  const bench = createModule('bench', 0, 0, -4, 'bench')
+  const urinal = createModule('urinal', 2, 0, -4, 'urinal')
+  const base = { name: 'test', seed: 1, lines: [], cells: [floor], modules: [bench] }
+  const placed = { ...base, modules: [bench, urinal] }
+  assert.ok(retainedModuleIds(base, placed).has(bench.id), 'adding a urinal keeps unrelated equipment')
+  assert.ok(retainedModuleIds(placed, base).has(bench.id), 'removing it keeps unrelated equipment')
+  const changedCells = { ...placed, cells: [...placed.cells, { x: 30, y: 30, z: -4, fill: 'solid' }] }
+  assert.ok(retainedModuleIds(placed, changedCells).has(urinal.id), 'cell edits do not rebuild its self-contained model')
 })
 
 test('inert decor additions retain existing groups and rebuild tactile/hanger neighbours only', () => {

@@ -191,6 +191,7 @@ const SILHOUETTE_POSTER: Record<BillboardShape, AdPoster> = {
 
 /** Which way to look at a given piece, so its silhouette is the readable one. */
 function viewDir(id: string): THREE.Vector3 {
+  if (id === 'urinal') return new THREE.Vector3(.65, 1, .45).normalize()
   if (id === 'monitor-wall') return new THREE.Vector3(0.4, 1, 0.45).normalize()
   if (id === 'rail-signal' || id.startsWith('monitor')) return new THREE.Vector3(0.4, -1, 0.45).normalize()
   // The TV's lit screen is on local -y; FRONT sees its blank backing.
@@ -339,6 +340,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'checkout', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cubicle':
       return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'urinal':
+      return { id, type: 'urinal', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'sink':
       return { id, type: 'sink', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'guidepost':
