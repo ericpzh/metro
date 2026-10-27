@@ -7,6 +7,7 @@ export class SourceGeometryDetail {
   private entries = new Map<THREE.Mesh, { near: THREE.BufferGeometry; raycast: THREE.Mesh['raycast'] }>()
 
   apply(root: THREE.Object3D, reduced: boolean): void {
+    if(!reduced)return
     root.traverseVisible(object => {
       if (!(object instanceof THREE.Mesh) || object instanceof THREE.BatchedMesh || object instanceof THREE.SkinnedMesh ||
           object.layers.isEnabled(BATCH_SOURCE_LAYER) || Array.isArray(object.material)) return

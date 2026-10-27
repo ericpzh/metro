@@ -11,6 +11,7 @@
 // them.
 
 import * as THREE from 'three'
+import { movedGuidepostIds, translatedWalkwayIds } from '../../moduleDependencies.ts'
 
 import { batchStaticModule } from '../../batchStaticModule.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
@@ -28,7 +29,7 @@ import {
   disposeObject,
 } from '../../models.ts'
 import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
-import { isCeilingHung, trackBedKeys } from '../../../sim/placement.ts'
+import { isCeilingHung, outdoorSurfaceLift, trackBedKeys } from '../../../sim/placement.ts'
 import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
@@ -79,6 +80,8 @@ export class ModuleSystem extends SceneSystem {
     return true
   }
   private builtData: StationData | null = null
+  private builtTrackCells: Set<string> | null = null
+  private trackInputCells: StationData['cells'] | null = null
   private builtLanguage: ReturnType<typeof getLanguage> | null = null
 
   /** Keep the geometry and animated rigs when only unrelated floor ink changed. */
@@ -206,6 +209,7 @@ export class ModuleSystem extends SceneSystem {
     const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
     this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation, view)
     for (const root of this.moduleMeshes.children) {
+      if(this.batches.isFullyBatched(root))continue
       const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
         this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
       this.sourceDetail.apply(root, reduced)
@@ -264,19 +268,58 @@ export class ModuleSystem extends SceneSystem {
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
     const retained = keepIds ?? (reuse ? this.retainedIds(data) : new Set<string>())
+    const translated=reuse&&!keepIds&&this.builtData&&this.builtLanguage===getLanguage()?translatedWalkwayIds(this.builtData,data):new Set<string>()
+    const relocated=reuse&&!keepIds&&this.builtData&&this.builtLanguage===getLanguage()?movedGuidepostIds(this.builtData,data):new Set<string>()
+    const transforms:Array<{root:THREE.Object3D;before:THREE.Matrix4;delta:THREE.Vector3}>=[]
+    if(translated.size&&this.builtData){
+      const previous=new Map(this.builtData.modules.map(m=>[m.id,m]))
+      for(const mod of data.modules)if(translated.has(mod.id)){
+        const root=this.moduleMeshes.children.find(g=>g.userData.moduleId===mod.id),old=previous.get(mod.id)!
+        if(!root)continue
+        root.updateWorldMatrix(true,false)
+        const before=root.matrixWorld.clone(),position=root.getWorldPosition(new THREE.Vector3())
+        root.position.x+=mod.x-old.x;root.position.y+=mod.y-old.y;root.position.z+=mod.z-old.z
+        transforms.push({root,before,delta:root.getWorldPosition(new THREE.Vector3()).sub(position)})
+        retained.add(mod.id)
+      }
+    }
+    if (reuse && !keepIds && this.builtData && this.builtLanguage === getLanguage()) {
+      const moved = relocated
+      for (const mod of data.modules) if (moved.has(mod.id)) {
+        const root = this.moduleMeshes.children.find(g => g.userData.moduleId === mod.id)
+        if (!root) continue
+        root.updateWorldMatrix(true,false)
+        const before=root.matrixWorld.clone(),position=root.getWorldPosition(new THREE.Vector3())
+        const rotation=root.quaternion.clone()
+        root.position.set(mod.x + .5, mod.y + .5, mod.z + 1 + outdoorSurfaceLift(data.modules, mod))
+        root.rotation.z = (mod.rot ?? 0) * Math.PI / 2
+        if(root.quaternion.equals(rotation))
+          transforms.push({root,before,delta:root.getWorldPosition(new THREE.Vector3()).sub(position)})
+        retained.add(mod.id)
+      }
+    }
     const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
     this.retainedLevelRoots.clear()
     // A remote cell edit can leave every model and its slice inputs intact.
     // Preserve the already dressed roots, animation registries and batch views;
     // a changed ground band still takes the ordinary registration/style path.
-    if (this.builtData && sameModuleMetadata(this.builtData, data) &&
+    const translationOnly=!!this.builtData&&data.cells===this.builtData.cells&&(translated.size>0||relocated.size>0)&&data.modules.length===this.builtData.modules.length&&
+      this.builtData.modules.every((mod,i)=>mod===data.modules[i]||(translated.has(mod.id)||relocated.has(mod.id))&&mod.id===data.modules[i].id)
+    if (this.builtData && (translationOnly||sameModuleMetadata(this.builtData, data)) &&
       retained.size === data.modules.length && data.modules.every(mod => {
+        // A rigid equipment-only move leaves every other anchor, authored
+        // floor and opening fixed. Street-window edges cannot reach those
+        // anchors, which remain inside the content bounds plus its margin.
+        if(translationOnly&&!translated.has(mod.id)&&!relocated.has(mod.id))return true
         const root = kept.get(mod.id)
-        return !root || root.userData.groundBand === this.ctx.groundOf.get(`${mod.x},${mod.y}`)
-      })) {
+        return !root || root.userData.groundBand === this.ctx.groundOf.get(`${mod.x},${mod.y}`)&&
+          (!(translated.has(mod.id)||relocated.has(mod.id))||JSON.stringify(root.userData.levelZs)===JSON.stringify(moduleLevels(mod,this.ctx.levelBase,this.ctx.storeyHeight)))
+      })&&(!relocated.size||this.moveGuidepostBlobs(this.builtData,data,relocated))) {
       for (const root of this.moduleMeshes.children) this.retainedLevelRoots.add(root)
+      if(this.builtData.cells!==data.cells)this.builtTrackCells=null
       this.builtData = data
-      this.retainedBatches=true
+      if(translationOnly)this.restoreMovingModule()
+      this.retainedBatches=!translationOnly||transforms.length===translated.size+relocated.size&&this.batches.translateRoots(transforms)
       return
     }
     // Retention has proved these roots' model inputs unchanged. Cache discovery
@@ -300,10 +343,15 @@ export class ModuleSystem extends SceneSystem {
       .filter(g => typeof g.userData.contactBlobKey === 'string')
       .map(g => [g.userData.contactBlobKey as string, g as THREE.InstancedMesh]))
     if (appendOnly) this.ghost.clearFencePreview()
+    else if(this.equipmentContentChanged(data)&&this.retainedLevelRoots.size===kept.size)
+      this.clearChangedEquipment(data,kept)
     else this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]), this.retainedLevelRoots)
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
-    const trackCells = appendOnly ? this.ctx.trackCellSet : trackBedKeys(data.cells, data.modules)
+    const trackCells = (appendOnly || this.equipmentContentChanged(data)) && this.builtTrackCells && this.trackInputCells===data.cells
+      ? this.builtTrackCells : trackBedKeys(data.cells, data.modules)
+    this.builtTrackCells=trackCells
+    this.trackInputCells=data.cells
     const ctx: ModuleContext = {
       mats: this.ctx.modelMats,
       ads: this.ctx.ads,
@@ -485,6 +533,26 @@ export class ModuleSystem extends SceneSystem {
     this.builtLanguage = getLanguage()
   }
 
+  private moveGuidepostBlobs(before:StationData,after:StationData,ids:ReadonlySet<string>):boolean {
+    const previous=new Map(before.modules.map(m=>[m.id,m]))
+    const updates:Array<{mesh:THREE.InstancedMesh;values:Array<[number,number,number,number]>;index:number;value:[number,number,number,number]}>=[]
+    for(const mod of after.modules)if(ids.has(mod.id)){
+      const old=previous.get(mod.id)!,r=blobRadius(mod.type),ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
+      const mesh=this.moduleMeshes.children.find(root=>root.userData.contactBlobKey===`${mod.z}|${ground??'x'}`) as THREE.InstancedMesh|undefined
+      const values=mesh?.userData.contactBlobValues as Array<[number,number,number,number]>|undefined
+      const index=values?.findIndex(v=>v[0]===old.x+.5&&v[1]===old.y+.5&&v[2]===old.z+1-.42&&v[3]===r)??-1
+      if(!mesh||!values||index<0)return false
+      updates.push({mesh,values,index,value:[mod.x+.5,mod.y+.5,mod.z+1-.42,r]})
+    }
+    for(const {mesh,values,index,value} of updates){
+      const [x,y,z,r]=value
+      mesh.setMatrixAt(index,new THREE.Matrix4().compose(new THREE.Vector3(x,y,z),new THREE.Quaternion(),new THREE.Vector3(r,r,r)))
+      mesh.instanceMatrix.addUpdateRange(index*16,16);mesh.instanceMatrix.needsUpdate=true
+      values[index]=value
+    }
+    return true
+  }
+
   /**
    * Drop the last frame's module geometry and trains without touching materials.
    *
@@ -501,6 +569,8 @@ export class ModuleSystem extends SceneSystem {
     this.sourceDetail.restore()
     if (!data) this.batches.clear()
     this.builtData = null
+    this.builtTrackCells=null
+    this.trackInputCells=null
     this.ghost.clearFencePreview()
     if (data) {
       this.plates.retainTvPlates(data)
@@ -537,6 +607,33 @@ export class ModuleSystem extends SceneSystem {
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }
+    this.filterRegistrations(registered,true)
+  }
+
+  /** A local equipment replacement retires only its former owners. Keeping the
+   * registered remote roots avoids preparing every plate/material registry for
+   * a move of one piece. Cell/metadata and changed slice inputs fail closed. */
+  private clearChangedEquipment(data:StationData,kept:ReadonlyMap<string,THREE.Object3D>):void {
+    this.ghost.clearFencePreview()
+    const gone=new Set(this.moduleMeshes.children.filter(root=>typeof root.userData.moduleId==='string'&&!kept.has(root.userData.moduleId)))
+    if(!gone.size)return
+    const types=new Set([...gone].map(root=>root.userData.moduleType))
+    if(types.has('tv'))this.plates.retainTvPlates(data)
+    if(types.has('sign'))this.plates.retainSignPlates(data)
+    if(types.has('calligraphy')||types.has('linemap'))this.plates.retainDecorPlates(data)
+    const materials=new Set<THREE.Material>([...gone].flatMap(root=>root.userData.ownedMaterials??[]))
+    for(const root of kept.values())for(const material of (root.userData.ownedMaterials??[]) as THREE.Material[])materials.delete(material)
+    for(const material of materials){
+      const map=(material as THREE.MeshBasicMaterial).map
+      if(map&&!this.plates.ownsTexture(map))map.dispose()
+      material.dispose()
+    }
+    this.ctx.ownedMats=this.ctx.ownedMats.filter(material=>!materials.has(material))
+    for(const root of gone){disposeObject(root);this.moduleMeshes.remove(root)}
+    this.filterRegistrations(gone,false)
+  }
+
+  private filterRegistrations(registered:ReadonlySet<THREE.Object3D>,keep:boolean):void {
     // Unchanged roots retain their live animation records, not just their meshes.
     // Re-registering thousands of unrelated models costs work and resets door
     // state. Filter removed owners; the build loop registers replacements only.
@@ -551,22 +648,22 @@ export class ModuleSystem extends SceneSystem {
     const ids=new Set([...registered].map(root=>root.userData.moduleId))
     const sinks=new Set([...registered].flatMap(root=>this.activityByRoot.get(root)?.sinks??[]))
     const doors=new Set([...registered].flatMap(root=>this.activityByRoot.get(root)?.doors??[]))
-    retain(this.fenceGroups,root=>registered.has(root))
-    for(const [id,root] of this.fenceGroupsById)if(!registered.has(root))this.fenceGroupsById.delete(id)
-    retain(this.lifts.escalatorRolls,roll=>rolls.has(roll))
-    retain(this.lifts.liftRigs,rig=>registered.has(rig.group))
+    retain(this.fenceGroups,root=>keep===registered.has(root))
+    for(const [id,root] of this.fenceGroupsById)if(keep!==registered.has(root))this.fenceGroupsById.delete(id)
+    retain(this.lifts.escalatorRolls,roll=>keep===rolls.has(roll))
+    retain(this.lifts.liftRigs,rig=>keep===registered.has(rig.group))
     retain(this.lifts.liftPickMeshes,mesh=>{
-      for(let root:THREE.Object3D|null=mesh;root;root=root.parent)if(registered.has(root))return true
-      return false
+      for(let root:THREE.Object3D|null=mesh;root;root=root.parent)if(registered.has(root))return keep
+      return !keep
     })
-    retain(this.clocks.clockRigs,rig=>clocks.has(rig))
-    retain(this.crowd.gateWings,rig=>registered.has(rig.root))
-    retain(this.crowd.swingDoors,rig=>doors.has(rig))
-    retain(this.crowd.activitySinks,rig=>sinks.has(rig))
-    retain(this.trains.psdGroups,rig=>registered.has(rig.group))
-    retain(this.plates.adScreens,screen=>screens.has(screen))
-    retain(this.plates.tvScreens,screen=>ids.has(screen.moduleId))
-    if(this.plates.railSignals)retain(this.plates.railSignals,signal=>registered.has(signal.group))
+    retain(this.clocks.clockRigs,rig=>keep===clocks.has(rig))
+    retain(this.crowd.gateWings,rig=>keep===registered.has(rig.root))
+    retain(this.crowd.swingDoors,rig=>keep===doors.has(rig))
+    retain(this.crowd.activitySinks,rig=>keep===sinks.has(rig))
+    retain(this.trains.psdGroups,rig=>keep===registered.has(rig.group))
+    retain(this.plates.adScreens,screen=>keep===screens.has(screen))
+    retain(this.plates.tvScreens,screen=>keep===ids.has(screen.moduleId))
+    if(this.plates.railSignals)retain(this.plates.railSignals,signal=>keep===registered.has(signal.group))
   }
 
   /**
@@ -638,12 +735,10 @@ export class ModuleSystem extends SceneSystem {
   }
 
   refreshSelection(): void {
-    if (this.selectionHelper) {
-      this.ctx.scene.remove(this.selectionHelper)
-      this.selectionHelper.geometry.dispose()
-      ;(this.selectionHelper.material as THREE.Material).dispose()
-      this.selectionHelper = null
-    }
+    // Keep the line program and unit-box buffer alive while a lifted piece is
+    // hidden. Disposing the last helper between pickup and drop makes the next
+    // selection pay for the same shader compilation again.
+    if (this.selectionHelper) this.selectionHelper.visible = false
     const id = this.selectedModuleId
     if (!id || id === this.movingModuleId) return
     const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
@@ -651,10 +746,27 @@ export class ModuleSystem extends SceneSystem {
     const box = new THREE.Box3().setFromObject(group)
     if (box.isEmpty()) return
     box.expandByScalar(0.06)
-    const helper = new THREE.Box3Helper(box, 0x55b6ff)
-    helper.renderOrder = 4
-    this.selectionHelper = helper
-    this.ctx.scene.add(helper)
+    const helper=this.ensureSelectionHelper()
+    helper.box.copy(box)
+    helper.visible = true
+  }
+
+  private ensureSelectionHelper(): THREE.Box3Helper {
+    if(!this.selectionHelper){
+      this.selectionHelper=new THREE.Box3Helper(new THREE.Box3(),0x55b6ff)
+      this.selectionHelper.renderOrder=4
+      this.selectionHelper.visible=false
+      this.ctx.scene.add(this.selectionHelper)
+    }
+    return this.selectionHelper
+  }
+
+  /** Include the selection line program in the station-opening offscreen pass.
+   * Pickup hides the box, so its first visible use can otherwise be a drop. */
+  prepareSelection(draw:(helper:THREE.Box3Helper)=>void):void {
+    const helper=this.ensureSelectionHelper(),visible=helper.visible,culled=helper.frustumCulled
+    helper.visible=true;helper.frustumCulled=false
+    try{draw(helper)}finally{helper.visible=visible;helper.frustumCulled=culled}
   }
 
   /** Release the selection box. Mirrors the matching lines of the old `dispose()`. */

@@ -363,6 +363,100 @@ test('real ModuleSystem preserves remote geometry and owned material allocations
   }
 }))
 
+test('equipment replacements retain complete track inputs until a cell edit invalidates them',()=>withDrawing(({modules})=>{
+  const guide=createModule('guidepost',0,0,0,'guide'),bench=createModule('bench',1,0,0,'bench')
+  const before={...station([guide,bench]),cells:[{x:4,y:4,z:0,fill:'solid',finish:{top:'floor.track'}}]}
+  const build=modules.buildModel.bind(modules),inputs=[]
+  modules.buildModel=(mod,ctx)=>{inputs.push(ctx.trackCells);return build(mod,ctx)}
+  modules.buildModules(before,new Set())
+  const prepared=inputs[0]
+  assert.ok(prepared.has('4,4,0'))
+  inputs.length=0
+  const moved={...before,modules:[guide,{...bench,x:2}]}
+  modules.buildModules(moved,new Set(),true)
+  assert.ok(inputs.length)
+  assert.ok(inputs.every(input=>input===prepared),'moving equipment does not re-enumerate unchanged rail beds')
+  const changed={...moved,cells:[...moved.cells,{x:5,y:4,z:0,fill:'solid',finish:{top:'floor.track'}}]}
+  modules.buildModules(changed,new Set(),true)
+  inputs.length=0
+  modules.buildModules({...changed,modules:[guide,{...bench,x:3}]},new Set(),true)
+  assert.ok(inputs.every(input=>input.has('5,4,0')&&input!==prepared),'the next build receives actual edited rail inputs')
+}))
+
+test('a translated flat walkway retains its model and band phase with fresh-equivalent world bounds',()=>withDrawing(({modules,mats})=>{
+  const belt=createModule('walkway',0,0,0,'belt',0,'up',undefined,{walkwayLength:'long'})
+  const before=station([belt])
+  modules.buildModules(before,new Set())
+  const root=modules.moduleMeshes.children.find(g=>g.userData.moduleId==='belt'),roll=root.userData.escalator
+  roll.phase=.42
+  let disposed=0;root.traverse(o=>{if(o.isMesh)o.geometry.addEventListener('dispose',()=>disposed++)})
+  for(const [x,y]of [[5,8],[0,0],[-8,3]]){
+    const moved={...belt,x,y,from:{...belt.from,x:belt.from.x+x,y:belt.from.y+y},to:{...belt.to,x:belt.to.x+x,y:belt.to.y+y}}
+    const data={...before,modules:[moved]}
+    modules.buildModules(data,new Set(),true)
+    assert.equal(modules.moduleMeshes.children.find(g=>g.userData.moduleId==='belt'),root)
+    assert.equal(root.userData.escalator,roll)
+    assert.equal(roll.phase,.42,'moving a belt keeps its running-band state')
+    assert.equal(modules.lifts.escalatorRolls.filter(r=>r===roll).length,1)
+    const fresh=buildModule(moved,{mats,data,trackCells:new Set(),owned:[]})
+    const actualBox=new THREE.Box3().setFromObject(root),freshBox=new THREE.Box3().setFromObject(fresh)
+    assert.ok(actualBox.min.distanceTo(freshBox.min)<1e-5&&actualBox.max.distanceTo(freshBox.max)<1e-5)
+    disposeObject(fresh)
+  }
+  assert.equal(disposed,0)
+  const resized={...belt,to:{...belt.to,y:belt.to.y+4}}
+  modules.buildModules({...before,modules:[resized]},new Set(),true)
+  assert.notEqual(modules.moduleMeshes.children.find(g=>g.userData.moduleId==='belt'),root,'changed run geometry rebuilds')
+  assert.ok(disposed>0)
+}))
+
+test('guidepost moves and undo retain their ink and geometry while label changes rebuild', () => withDrawing(({ modules }) => {
+  let selection,selectionDisposed=0
+  modules.prepareSelection(()=>{
+    selection=modules.selectionHelper
+    assert.equal(selection.visible,true)
+    selection.material.addEventListener('dispose',()=>selectionDisposed++)
+  })
+  assert.equal(selection.visible,false,'opening preparation never presents the helper')
+  const guide=createModule('guidepost',0,0,0,'guide'),before=station([guide])
+  modules.buildModules(before,new Set())
+  const root=modules.moduleMeshes.children.find(g=>g.userData.moduleId==='guide')
+  const materials=[...root.userData.ownedMaterials],textures=materials.map(m=>m.map).filter(Boolean)
+  assert.ok(textures.length>0,'the actual guidepost has printed faces')
+  const versions=textures.map(t=>t.version),geometry=[]
+  modules.setSelection('guide')
+  assert.equal(modules.selectionHelper,selection)
+  modules.setMovingModule('guide')
+  assert.equal(selection.visible,false)
+  modules.setMovingModule(null)
+  assert.equal(selection.visible,true)
+  let disposed=0
+  root.traverse(o=>{if(o.isMesh){geometry.push(o.geometry);o.geometry.addEventListener('dispose',()=>disposed++)}})
+  textures.forEach(t=>t.addEventListener('dispose',()=>disposed++))
+  for(const mod of [{...guide,x:8,y:9,z:5,rot:1},guide,{...guide,x:-8,y:-9,rot:3}]){
+    modules.buildModules({...before,modules:[mod]},new Set(),true)
+    assert.equal(modules.moduleMeshes.children.find(g=>g.userData.moduleId==='guide'),root)
+    assert.deepEqual(root.position.toArray(),[mod.x+.5,mod.y+.5,mod.z+1])
+    assert.equal(root.rotation.z,(mod.rot??0)*Math.PI/2)
+    assert.deepEqual(root.userData.levelZs,[mod.z])
+    const current=[];root.traverse(o=>{if(o.isMesh)current.push(o.geometry)})
+    assert.deepEqual(current,geometry)
+    assert.deepEqual(root.userData.ownedMaterials,materials)
+    assert.deepEqual(textures.map(t=>t.version),versions,'moving uploads no new ink')
+    assert.equal(disposed,0)
+  }
+  const renamed={...before,name:'New station'}
+  modules.buildModules(renamed,new Set(),true)
+  assert.notEqual(modules.moduleMeshes.children.find(g=>g.userData.moduleId==='guide'),root)
+  assert.ok(disposed>0,'replaced artwork is released')
+  const renamedRoot=modules.moduleMeshes.children.find(g=>g.userData.moduleId==='guide')
+  modules.buildModules({...renamed,modules:[{...guide,x:3,cfg:{exitId:'new-exit'}}]},new Set(),true)
+  assert.notEqual(modules.moduleMeshes.children.find(g=>g.userData.moduleId==='guide'),renamedRoot,'a different exit binding needs its own ink')
+  assert.equal(selectionDisposed,0,'pickup, drop and replacement keep the compiled line material')
+  modules.disposeSelection()
+  assert.equal(selectionDisposed,1)
+}))
+
 test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules, ctx }) => {
   const benches = Array.from({ length: 3 }, (_, i) => createModule('bench', i * 2, 0, 0, `bench-${i}`))
   const upper = createModule('bench', 0, 0, 5, 'upper')

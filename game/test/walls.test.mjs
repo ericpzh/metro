@@ -52,6 +52,27 @@ const has = (cells, x, y, z) => cells.some((c) => c.x === x && c.y === y && c.z 
 const tagsAt = (cells, x, y, z) => cells.find((c) => c.x === x && c.y === y && c.z === z)?.tags ?? []
 const autoWalls = (cells) => cells.filter((c) => c.tags?.includes(AUTO_WALL))
 
+test('a floor gesture reconciles its wall courses without repairing unrelated imported storeys',()=>{
+  const stale={x:30,y:30,z:-14,fill:'solid',tags:[AUTO_WALL],finish:{n:'wall.enamel'}}
+  const before={...empty(),cells:[stale]},snapshot=JSON.stringify(before)
+  const placed=addFloor(before,rect(1,1,3,3,1))
+  assert.equal(placed.cells.find(c=>c===stale),stale,'an unrelated lower wall is outside this gesture')
+  assert.equal(autoWalls(placed.cells).filter(c=>c.z>1&&c.z<=6).length,8*before.storeyHeight)
+  const removed=removeFloor(placed,rect(1,1,3,3,1))
+  assert.deepEqual(removed.cells,[stale],'removal reconciles the edited ring, including its final floor')
+  assert.equal(JSON.stringify(before),snapshot)
+  assert.equal(syncAutoWalls(before).cells.includes(stale),false,'an explicit whole-station sync still repairs orphan walls')
+})
+
+test('scoped wall reconciliation preserves owners on overlapping floor height ranges',()=>{
+  const before=addFloor(empty(),rect(0,0,2,2,2))
+  const placed=addFloor(before,rect(8,8,10,10,1))
+  const expected=syncAutoWalls(placed)
+  assert.deepEqual(placed.cells,expected.cells,'an overlapping floor still owns all of its wall courses')
+  const removed=removeFloor(placed,rect(8,8,10,10,1))
+  assert.deepEqual(removed.cells,before.cells)
+})
+
 test('a drawn patch grows a 4 m wall ring around its edge, not its middle', () => {
   const st = addFloor(empty(), rect(1, 1, 5, 5))
   assert.equal(st.cells.filter((c) => c.tags?.includes(AUTO_FLOOR)).length, 25, 'the floor was not tagged')

@@ -71,6 +71,34 @@ export class EquipmentBatches {
   private sourceTransforms = new Map<THREE.Mesh, boolean>()
   private sourceOnlyRoots = new Set<THREE.Object3D>()
   private rootCoverage = new WeakMap<THREE.Object3D, { entries: Entry[]; onlySources: boolean }>()
+  private translatedRoots=new WeakMap<THREE.Object3D,THREE.Matrix4>()
+
+  isFullyBatched(root:THREE.Object3D):boolean { return this.sourceOnlyRoots.has(root) }
+
+  /** Move exclusively owned batches without rebuilding their baked buffers.
+   * Shared buckets, changed parent transforms and unknown source state fail
+   * closed. A later edit/view change rediscovers these roots at their new pose. */
+  translateRoots(updates:readonly {root:THREE.Object3D;before:THREE.Matrix4;delta:THREE.Vector3}[]):boolean {
+    if(!this.enabled)return false
+    const moved=new Map<Entry,THREE.Vector3>()
+    for(const {root,before,delta}of updates){
+      const prepared=this.translatedRoots.get(root)??this.sourceRoots.get(root)?.matrix
+      if(!prepared?.equals(before))return false
+      for(const entry of this.entriesByRoot.get(root)??[]){
+        if(entry.sources.some(source=>source.root!==root))return false
+        moved.set(entry,delta)
+      }
+    }
+    this.setHiddenModule(null)
+    for(const [entry,delta]of moved)entry.mesh.position.add(delta)
+    for(const {root}of updates){
+      this.translatedRoots.set(root,root.matrixWorld.clone())
+      this.rootSources.delete(root)
+    }
+    this.views.clear();this.revision=undefined;this.generation=undefined
+    this.releaseUnusedEntries()
+    return true
+  }
 
   private restoreSourceTransforms(): void {
     for (const [mesh, automatic] of this.sourceTransforms) mesh.matrixAutoUpdate = automatic
@@ -78,6 +106,7 @@ export class EquipmentBatches {
   }
 
   invalidateViews(retainSources = false): void {
+    this.translatedRoots=new WeakMap()
     if (!retainSources) {
       this.rootSources = new WeakMap()
       this.rootCoverage = new WeakMap()
@@ -192,6 +221,7 @@ export class EquipmentBatches {
   sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
     if (!this.enabled) { this.clear(); return }
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
+    this.translatedRoots=new WeakMap()
     const batchTileSize = BATCH_TILE_SIZE[this.graphicsQuality]
     this.restoreSourceTransforms()
     this.detailView = []
@@ -216,12 +246,14 @@ export class EquipmentBatches {
     const textures = new Set<THREE.Texture>()
     const prepared = new Map<THREE.Object3D, RootSources>()
     for (const root of modules.children) {
-      root.updateWorldMatrix(true, false)
+      // The shared parent chain was updated once above. Rewalking it for each
+      // of thousands of roots repeats the same station/scene matrix work.
+      root.updateWorldMatrix(false, false)
       const key = `${sourceView}|${batchTileSize}|${root.visible}|${root.userData.levelZs}|${root.userData.groundBand}`
       const views = this.rootSources.get(root)
       let record = sourceView === undefined ? undefined : views?.get(key)
       if (!record || record.key !== key || !record.matrix.equals(root.matrixWorld)) {
-        root.updateWorldMatrix(true, true)
+        root.updateWorldMatrix(false, true)
         record = { key, matrix: root.matrixWorld.clone(), textures: new Set(), buckets: null }
         root.traverse(o => {
           if (o instanceof THREE.Mesh && !Array.isArray(o.material)) {

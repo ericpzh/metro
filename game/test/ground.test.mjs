@@ -17,7 +17,39 @@
 // two placement predicates that deliberately read it.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { GROUND_MARGIN, GROUND_Z, groundHoleAt, groundWindow, solidAt, virtualSolidAt, withGround } from '../src/sim/ground.ts'
+import { GROUND_MARGIN, GROUND_Z, groundHoleAt, groundWindow, resizeGround, solidAt, virtualSolidAt, withGround } from '../src/sim/ground.ts'
+
+test('equipment-only street resizing reuses unchanged cells and exactly retains holes across expansion and shrink',()=>{
+  const cells=[{x:0,y:0,z:0,fill:'void'},{x:2,y:3,z:1,fill:'solid'}],original=JSON.stringify(cells)
+  let modules=[],ground=withGround(cells,modules),window=groundWindow(cells,modules)
+  for(const next of [[createModule('bench',40,20,0,'edge')],[createModule('bench',-80,-20,0,'edge')],[],[createModule('bench',-80.5,0,0,'fractional')],[]]){
+    const resized=resizeGround(cells,next,ground,window)
+    assert.deepEqual(resized,withGround(structuredClone(cells),structuredClone(next)), 'compare against independently generated pavement')
+    if(next[0]?.x===40)assert.ok(resized.includes(ground[cells.length]),'retained pavement records are reused')
+    assert.equal(resized.some(c=>c.x===0&&c.y===0&&c.fill==='solid'),false)
+    ground=resized;modules=next;window=groundWindow(cells,modules)
+  }
+  assert.equal(JSON.stringify(cells),original)
+})
+
+test('prepared street windows return separate arrays and invalidate on actual opening or cell records',()=>{
+  const cells=[{x:0,y:0,z:0,fill:'void'}],modules=[]
+  const first=withGround(cells,modules),again=withGround(cells,modules)
+  assert.notEqual(first,again,'callers own their array, not the cached tail')
+  assert.equal(first[1],again[1],'generated immutable records can be shared')
+  first.pop()
+  assert.equal(withGround(cells,modules).length,again.length)
+  const bounds=groundWindow(cells,modules),originalBounds={...bounds}
+  bounds.x0=999
+  assert.deepEqual(groundWindow(cells,modules),originalBounds,'cached bounds remain caller-owned')
+  assert.equal(groundWindow(cells,modules,0).x0,originalBounds.x0+GROUND_MARGIN)
+  const shifted=[createModule('bench',100,0,0,'far')]
+  assert.deepEqual(groundWindow(cells,shifted),groundWindow(structuredClone(cells),structuredClone(shifted)))
+  const hole=[...cells,{x:1,y:1,z:0,fill:'void'}]
+  assert.equal(withGround(hole,modules).some(c=>c.x===1&&c.y===1&&c.fill==='solid'),false)
+  const ramp=createModule('stair-straight',0,0,-5,'new-ramp')
+  assert.deepEqual(withGround(cells,[ramp]),withGround(JSON.parse(JSON.stringify(cells)),JSON.parse(JSON.stringify([ramp]))))
+})
 import { blockIndex } from '../src/sim/blockIndex.ts'
 import { rampOpeningAt, rampOpeningsInWindow } from '../src/sim/openings.ts'
 import { exitFloorAt, exitFootprintCells } from '../src/sim/exits.ts'

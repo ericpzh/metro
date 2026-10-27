@@ -5,6 +5,25 @@
 // §7.8: an escalator is single-direction, one passenger per step.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+
+test('non-carving edits reuse structural opening inputs while changed ramps revalidate',async()=>{
+  const {createModule}=await import('../src/build/model.ts')
+  const {rampOpeningsInWindow}=await import('../src/sim/openings.ts')
+  const {movedModule}=await import('../src/sim/placement.ts')
+  let reads=0
+  const source=createModule('stair-straight',0,0,-5,'cached-ramp')
+  const ramp=new Proxy(source,{get(target,key){if(key==='from'||key==='to'||key==='cfg')reads++;return target[key]}})
+  const window={x0:-10,x1:20,y0:-10,y1:20},base=[ramp],expected=rampOpeningsInWindow(base,0,window)
+  assert.ok(reads>0)
+  reads=0
+  for(const piece of [createModule('bench',10,10,0,'bench'),createModule('walkway',10,10,0,'walkway')])
+    assert.deepEqual(rampOpeningsInWindow([...base,piece],0,window),expected)
+  assert.equal(reads,0,'unchanged structural records are not read again for furniture and flat belts')
+  const moved=movedModule(source,{x:5,y:0,z:-5},source.rot??0)
+  const changed=[moved]
+  assert.deepEqual(rampOpeningsInWindow(changed,0,window),rampOpeningsInWindow(JSON.parse(JSON.stringify(changed)),0,window))
+  assert.notDeepEqual(rampOpeningsInWindow(changed,0,window),expected)
+})
 import { carveRampOpenings, rampBlocked, rampCorridorHalf, rampLaneHalf, rampOpeningAt, rampThinCells, OPENING_CEILING } from '../src/sim/openings.ts'
 import { reservedOpening } from '../src/sim/placement.ts'
 import { EXIT_BAY_HALF } from '../src/sim/exits.ts'

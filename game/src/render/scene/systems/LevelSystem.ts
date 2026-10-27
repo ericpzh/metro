@@ -119,7 +119,7 @@ export class LevelSystem extends SceneSystem {
     // and two of those usually change nothing — so skip a repeat with the same
     // slice. `setStation` clears the key because it rebuilds the meshes this
     // assigns materials to.
-    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}`
+    const key = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}`
     if (key === this.ctx.levelKey) return
     const sameView = key === this.lastAppliedView
     this.lastAppliedView = key
@@ -152,6 +152,7 @@ export class LevelSystem extends SceneSystem {
         if (!mesh.isMesh) continue
         this.chunks.setGeometryDetail?.(mesh, this.ctx.detailEnabled !== false &&
           (this.ctx.graphicsQuality === 'low' || (!this.ctx.hideUI && side !== 'active')))
+        if(sameView&&this.chunks.retainedLevelMeshes?.has(mesh))continue
         const isOutline = this.chunks.outlineSet.has(mesh)
         // **隐藏地面: the street plane, gone in every mode.** It is the generated
         // window (`sim/ground.ts`), meshed as its own pass and tagged `ground`

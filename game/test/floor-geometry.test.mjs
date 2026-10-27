@@ -321,6 +321,7 @@ test('ground-window-only updates preserve authored chunks and match fresh meshin
   try{
     actual.prepareStation(before);actual.meshStation()
     const original=actual.chunkMeshes.filter(m=>!m.userData.ground),buffers=original.map(m=>m.geometry)
+    const interior=actual.chunkMeshes.filter(m=>m.userData.ground&&m.geometry.boundingBox.max.x<30)
     let disposed=0;buffers.forEach(g=>g.addEventListener('dispose',()=>disposed++))
     for(const data of [after,before]){
       const structural = [actual.ctx.thinSides,actual.ctx.hiddenCells,actual.ctx.trackCellSet,actual.ctx.slopeCuts]
@@ -331,9 +332,61 @@ test('ground-window-only updates preserve authored chunks and match fresh meshin
       assert.deepEqual([actual.ctx.thinSides,actual.ctx.hiddenCells,actual.ctx.trackCellSet,actual.ctx.slopeCuts],structural)
       assert.deepEqual(snapshot(actual),snapshot(fresh),'local ground pass must match full geometry including edge halos')
       assert.ok(original.every(m=>actual.chunkMeshes.includes(m)))
+      assert.ok(interior.every(m=>actual.chunkMeshes.includes(m)),'unchanged street chunks keep their GPU meshes')
       assert.equal(disposed,0,'authored geometry stays uploaded')
       assert.ok(actual.chunkKeyCellVisits<fresh.chunkKeyCellVisits,'only boundary ground chunks are hashed')
     }
+  }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
+
+test('independent cell edits rebuild their own chunk storeys rather than their cross product',async()=>{
+  const {emptyStation}=await import('../src/data/reference-station.ts')
+  const {withGround}=await import('../src/sim/ground.ts')
+  const material=new THREE.MeshBasicMaterial()
+  const make=()=>new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const actual=make(),fresh=make(),cells=[]
+  for(const x of [0,64])for(const z of [-10,-5])cells.push({x,y:0,z,fill:'solid'})
+  const before={...emptyStation(),cells,modules:[]}
+  const after={...before,cells:[...cells,{x:0,y:0,z:-8,fill:'solid'},{x:64,y:0,z:-3,fill:'solid'}]}
+  const install=(chunks,data)=>{chunks.prepareStation(data,withGround(data.cells,data.modules));chunks.meshStation()}
+  try{
+    install(actual,before)
+    const retained=actual.chunkMeshes.filter(m=>!m.userData.ground&&
+      (m.userData.levelZ===-5&&m.geometry.boundingBox.max.x<32||m.userData.levelZ===-10&&m.geometry.boundingBox.min.x>32))
+    assert.ok(retained.length>=2)
+    for(const data of [after,before]){
+      install(actual,data);install(fresh,data)
+      assert.ok(retained.every(m=>actual.chunkMeshes.includes(m)),'an unrelated level in the edited chunk remains uploaded')
+      assert.deepEqual(triangleSnapshot(actual),triangleSnapshot(fresh))
+      assert.deepEqual(actual.ctx.groundOf,fresh.ctx.groundOf)
+    }
+  }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
+})
+
+test('plain pavement templates match uncached meshes through resizing, holes and overhead support',async()=>{
+  const {emptyStation}=await import('../src/data/reference-station.ts')
+  const {withGround}=await import('../src/sim/ground.ts')
+  const {createModule}=await import('../src/build/model.ts')
+  const {isEquipmentContentEdit}=await import('../src/render/moduleDependencies.ts')
+  const material=new THREE.MeshBasicMaterial()
+  const make=()=>new ChunkSystem(new SceneContextData(new THREE.Scene(),{finish:()=>material,outline:material},{},{}))
+  const actual=make(),fresh=make()
+  fresh.plainGround=(_cells,_cx,_cy,_window,build)=>build()
+  const cells=[{x:-32,y:-16,z:-5,fill:'solid'},{x:64,y:48,z:-5,fill:'solid'}]
+  const base={...emptyStation(),cells,modules:[]}
+  let hits=0
+  try{
+    for(const data of [base,{...base,modules:[createModule('bench',80,72,0,'edge')]},base,
+      {...base,cells:[...cells,{x:15,y:16,z:0,fill:'void'},{x:32,y:16,z:1,fill:'solid'}]},
+      {...base,modules:[createModule('stair-straight',0,0,-5,'cut')]},base]){
+      const onlyWindow=!!actual.ctx.stationData&&isEquipmentContentEdit(actual.ctx.stationData,data)
+      actual.prepareStation(data,withGround(data.cells,data.modules),onlyWindow);actual.meshStation(onlyWindow)
+      fresh.prepareStation(data);fresh.meshStation()
+      assert.deepEqual(triangleSnapshot(actual),triangleSnapshot(fresh),'template reuse must preserve faces, shading, finish, UV and slice ownership')
+      hits+=actual.groundTemplateHits
+      assert.ok(actual.groundTemplates.size<=64,'CPU templates have a fixed scene budget')
+    }
+    assert.ok(hits>0,'repeated plain street chunks reuse prepared CPU geometry')
   }finally{actual.disposeChunks();fresh.disposeChunks();material.dispose()}
 })
 

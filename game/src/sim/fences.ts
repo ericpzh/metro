@@ -35,11 +35,12 @@ export function fenceConnectionIndex(modules: readonly Module[]): FenceConnectio
   const landings = new Set<string>()
   const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
   for (const mod of modules) {
-    const k = key(mod.x, mod.y, mod.z)
     if (mod.type === 'fence') {
+      const k = key(mod.x, mod.y, mod.z)
       const at = fences.get(k) ?? []
       at.push(mod); fences.set(k, at)
     } else if (mod.type === 'gate') {
+      const k = key(mod.x, mod.y, mod.z)
       const at = gates.get(k) ?? []
       at.push(mod); gates.set(k, at)
     } else if (mod.type === 'stair' && !mod.cfg.block) {

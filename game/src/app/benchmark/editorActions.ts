@@ -22,7 +22,7 @@ const settle=async()=>{await frame();await frame()}
 type AuditScene=Omit<SceneRenderer,never>&{ctx:SceneContextData;chunks:ChunkSystem;modules:ModuleSystem;level:LevelSystem;cameraSys:CameraSystem;ghostSys:{movingModuleId:string|null}}
 const scene=()=>window.__scene! as unknown as AuditScene
 type Work=Record<string,{calls:number;ms:number}>
-interface Row { action:string; status:string; cpuMs:number; firstRenderMs:number|null; generationMs:number; commits:number; work:Work; error?:string; input?:unknown; cells:number; modules:number; chunkKeyCellVisits?:number; meshedCellVisits?:number }
+interface Row { action:string; status:string; cpuMs:number; firstRenderMs:number|null; generationMs:number; commits:number; work:Work; error?:string; input?:unknown; cells:number; modules:number; chunkKeyCellVisits?:number; meshedCellVisits?:number; groundTemplateHits?:number }
 let installed=false,current:{start:number;render:number|null;work:Work;expected:StationState|null;ready:boolean;expectedMoving?:string|null}|null=null
 const errors:string[]=[]
 function instrument(){
@@ -70,7 +70,7 @@ async function measure(action:string,invoke:()=>void,commit:boolean,input?:unkno
     if(probe.render===null)throw Error('No matching rendered feedback within 120 frames')
   }catch(e){if(cpuMs===0)cpuMs=performance.now()-start;error=String(e)}finally{current=null}
   const after=useStore.getState(),generationMs=Object.entries(probe.work).filter(([key])=>key==='scene.setModulePreview'||key==='scene.setGhost').reduce((n,[,w])=>n+w.ms,0)
-  const chunks=probe.work['chunks.meshStation'] ? {chunkKeyCellVisits:scene().chunks.chunkKeyCellVisits,meshedCellVisits:scene().chunks.meshedCellVisits} : {}
+  const chunks=probe.work['chunks.meshStation'] ? {chunkKeyCellVisits:scene().chunks.chunkKeyCellVisits,meshedCellVisits:scene().chunks.meshedCellVisits,groundTemplateHits:scene().chunks.groundTemplateHits} : {}
   return {action,status:error?'error':Math.max(cpuMs,probe.render??Infinity)>=100?'over-budget':'pass',cpuMs,firstRenderMs:probe.render,generationMs,commits:after.version-before.version,work:probe.work,error,input,cells:after.station.cells.length,modules:after.station.modules.length,...chunks}
 }
 

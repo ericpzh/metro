@@ -245,7 +245,10 @@ export interface Profile {
  * corner of a cube should be; the rounding §4.2 also asked for stays dropped with it, since
  * a 12.5 cm corner radius cannot coexist with a square rim either.
  */
+const blockProfiles: Array<Profile | undefined> = new Array(16)
 function buildProfile(look: Look, inset?: BlockInset): Profile {
+  const mask=+look.e|+look.w<<1|+look.n<<2|+look.s<<3
+  if(!inset&&blockProfiles[mask])return blockProfiles[mask]!
   // Corner i is the start of side i: NW, SW, SE, NE.
   const corner = (i: number): Pt => ({ x: i === 2 || i === 3 ? inset?.x1 ?? 1 : inset?.x0 ?? 0, y: i === 0 || i === 3 ? inset?.y1 ?? 1 : inset?.y0 ?? 0 })
   const open = [look.w || (inset?.x0 ?? 0) > 0, look.s || (inset?.y0 ?? 0) > 0, look.e || (inset?.x1 ?? 1) < 1, look.n || (inset?.y1 ?? 1) < 1]
@@ -265,12 +268,17 @@ function buildProfile(look: Look, inset?: BlockInset): Profile {
       exposed: open[i],
     })
   }
-  return { edges }
+  const profile={edges}
+  if(!inset)blockProfiles[mask]=profile
+  return profile
 }
 
 /** The outline a profile walks, for a caller that needs the polygon rather than the sides. */
+const profileOutlines = new WeakMap<Profile, Pt[]>()
 function profileOutline(profile: Profile): Pt[] {
-  return profile.edges.map((e) => e.from)
+  let outline=profileOutlines.get(profile)
+  if(!outline)profileOutlines.set(profile,outline=profile.edges.map((e) => e.from))
+  return outline
 }
 
 /* -------------------------------------------------------- 半墙 (§4.1 / §4.3) */
@@ -805,6 +813,7 @@ export function meshChunk(
       return [{ ...neighbour, patches }]
     })
     if (cut !== undefined || neighbours.length > 0) {
+      const topAo=topAoAt(isSolid,x,y,z)
       const surface: SlopeCut = cut ?? { axis: 'x', lo: 1, hi: 1, patches: [] }
       const regions = rampSurfaceRegions(shape, surface, neighbours)
       for (const region of regions) {
@@ -821,7 +830,7 @@ export function meshChunk(
           const p = poly[i], q = poly[(i + 1) % poly.length]
           const hp = height(p.x, p.y), hq = height(q.x, q.y)
           // A cut exposes its cap even if the uncut cell above is solid.
-          if (up || height(cxm, cym) < 1 - 1e-9) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + height(cxm, cym)], [x + p.x, y + p.y, z + hp], [x + q.x, y + q.y, z + hq], normal, topAoAt(isSolid, x, y, z), [[cxm, cym], [p.x, p.y], [q.x, q.y]])
+          if (up || height(cxm, cym) < 1 - 1e-9) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + height(cxm, cym)], [x + p.x, y + p.y, z + hp], [x + q.x, y + q.y, z + hq], normal, topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
           if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
           const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy)
           if (len < 1e-9) continue
@@ -864,9 +873,12 @@ export function meshChunk(
       pushQuad(builderForIndex(sideI[sideOf(e.nx, e.ny)]), [x + p.x, y + p.y, z], [x + q.x, y + q.y, z], [x + q.x, y + q.y, z + 1], [x + p.x, y + p.y, z + 1], [e.nx, e.ny, 0], [ao, ao, ao, ao], 0, 0, Math.hypot(q.x - p.x, q.y - p.y), 1)
     }
     const cxm = cxCenter(shape), cym = cyCenter(shape)
+    // Every triangle in this cap uses the same cell-local AO value. The
+    // sixteen neighbour votes must not be repeated for each fan triangle.
+    const topAo=up?topAoAt(isSolid,x,y,z):0
     for (let i = 0; i < shape.length; i++) {
       const p = shape[i], q = shape[(i + 1) % shape.length]
-      if (up) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + 1], [x + p.x, y + p.y, z + 1], [x + q.x, y + q.y, z + 1], [0, 0, 1], topAoAt(isSolid, x, y, z), [[cxm, cym], [p.x, p.y], [q.x, q.y]])
+      if (up) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + 1], [x + p.x, y + p.y, z + 1], [x + q.x, y + q.y, z + 1], [0, 0, 1], topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
       if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
     }
   }

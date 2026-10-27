@@ -3055,6 +3055,12 @@ approximated); neither needs WebGL.
   ground: the ring wraps a dug rail bed instead of walling the platform edge, the drag never pours
   a block into the trench, and no auto wall rises through a platform screen door a full track
   sliced through the patch.
+* Local editor commit coverage: `walls` preserves unrelated wall courses and overlapping owners;
+  `ground` checks exact window resizing and fractional fallback; `floor-geometry` compares the
+  bounded plain-pavement cache with uncached geometry through holes, ramps, supports and undo.
+  `move` checks exact verdict reuse/invalidation; `render-performance` pins shared cap AO;
+  `equipment-retention` keeps moved guidepost ink, selection resources and valid rail inputs;
+  `level-view-cache` keeps the grid material through resizing.
 * `equipment-retention.test.mjs` — duplicate cell records survive clone/diff without phantom model invalidation; retained activity discovery preserves live rigs. Equipment additions, deletion and movement retain 1,024
   unrelated models; functional routing remains active while chunk remeshing is skipped where
   safe. Coupled glass, gates, cubicles, TVs, hangers and structural dependencies invalidate

@@ -3,6 +3,24 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { batchStaticModule } from '../src/render/batchStaticModule.ts'
 import { canRetainPaintedModules } from '../src/render/retainPaintedModules.ts'
+import { meshChunk } from '../src/render/chunkMesher.ts'
+import { packKey } from '../src/sim/types.ts'
+
+test('a cap samples its cell shading once while preserving every triangle and colour',()=>{
+  const probe=packKey(1,1,2),solid=new Set([packKey(0,0,0),probe]),has=solid.has.bind(solid)
+  let votes=0
+  solid.has=key=>{if(key===probe)votes++;return has(key)}
+  const cells=[{x:0,y:0,z:0}],emit=new Set([packKey(0,0,0)])
+  const actual=meshChunk(solid,new Map(),0,0,0,0,emit,undefined,cells)
+  assert.equal(votes,1,'the same upper ring vote is shared by all cap triangles')
+  const expected=meshChunk(new Set(solid),new Map(),0,0,0,0,emit,undefined,cells)
+  assert.deepEqual(actual.parts,expected.parts)
+  let caps=0
+  for(const part of actual.parts)for(let i=0;i<part.normals.length;i+=3)if(part.normals[i+2]===1){
+    assert.equal(part.colors[i],Math.fround(.94));caps++
+  }
+  assert.ok(caps>0,'the occluded cap still carries its sixteen-neighbour AO result')
+})
 
 test('paint-reuse classification never serializes a retained module catalogue for an ordinary addition',()=>{
   let serializations=0

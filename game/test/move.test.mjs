@@ -38,6 +38,25 @@ import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairTurnCe
 import { useStore } from '../src/app/store.ts'
 import { MoveController } from '../src/app/tools/MoveController.ts'
 
+test('move preview verdicts are reused only for the exact piece and immutable document',()=>{
+  const cells=[],modules=[createModule('walkway',0,0,0,'belt',0,'up',undefined,{walkwayLength:'long'})]
+  let reads=0
+  const moved=movedModule(modules[0],{x:0,y:8,z:0},0)
+  const piece=new Proxy(moved,{get(target,key){if(key==='type')reads++;return target[key]}})
+  const first=moveDropReason(cells,modules,piece),cost=reads
+  reads=0
+  assert.equal(moveDropReason(cells,modules,piece),first)
+  assert.ok(reads<cost/2,'confirming the exact preview skips repeated collision and support readers')
+  for(const [nextCells,nextModules,nextPiece] of [
+    [[{x:0,y:8,z:0,fill:'void'}],modules,piece],
+    [cells,[...modules,createModule('bench',0,8,0,'blocker')],piece],
+    [cells,modules,{...piece,x:2}],
+  ]){
+    const freshCells=nextCells.slice(),freshModules=nextModules.slice()
+    assert.equal(moveDropReason(nextCells,nextModules,nextPiece),moveDropReason(freshCells,freshModules,nextPiece),'changed inputs revalidate against a fresh verdict')
+  }
+})
+
 /* --------------------------------------------------------------- fixtures */
 
 /** Open floor: a 12 × 12 slab at z = 0, with a ceiling slab where asked. */

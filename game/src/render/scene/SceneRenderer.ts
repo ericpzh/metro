@@ -541,6 +541,9 @@ export class SceneRenderer {
     const target = new THREE.WebGLRenderTarget(1, 1)
     const previous = this.renderer.getRenderTarget()
     try {
+      // Prepare this hidden helper with the onscreen output configuration;
+      // the offscreen target uses a different output-colour shader variant.
+      this.modules.prepareSelection(helper=>this.renderer.compile(helper,this.cameraSys.activeCamera(),this.ctx.scene))
       this.renderer.setRenderTarget(target)
       this.level.prepareAdjacentViews(() => {
         const camera = this.cameraSys.activeCamera()

@@ -13,6 +13,7 @@ export class GridSystem extends SceneSystem {
   grid: THREE.Group = new THREE.Group()
   /** The horizontal extent; storey changes only translate the group. */
   private gridKey = ''
+  private readonly lineMaterial=new THREE.LineBasicMaterial({color:0x2a3444,transparent:true,opacity:.8})
   cursor: THREE.Mesh
   /** 隐藏UI: the lattice and its cell cursor are put away. */
   private hideUI = false
@@ -30,13 +31,11 @@ export class GridSystem extends SceneSystem {
   }
 
   clearGrid(): void {
-    // `Group.clear()` only unparents: the geometry and the per-build line material
-    // have to be released too, or every rebuild leaves a dead VBO behind.
+    // `Group.clear()` only unparents: release each old VBO while the grid's
+    // scene-lifetime material keeps its compiled program across resizes.
     for (const child of this.grid.children) {
       const seg = child as THREE.LineSegments
       seg.geometry?.dispose()
-      const mat = seg.material as THREE.Material | undefined
-      mat?.dispose()
     }
     this.grid.clear()
   }
@@ -66,7 +65,7 @@ export class GridSystem extends SceneSystem {
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.BufferAttribute(minor.subarray(0, k), 3))
-    this.grid.add(new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x2a3444, transparent: true, opacity: 0.8 })))
+    this.grid.add(new THREE.LineSegments(geo, this.lineMaterial))
     void k
   }
 
@@ -104,8 +103,9 @@ export class GridSystem extends SceneSystem {
 
   override dispose(): void {
     // Scene-lifetime objects: the lattice group, the cursor ring and its
-    // material. `clearGrid` already disposes per-build line segments.
+    // material. `clearGrid` disposes the replaced line geometries.
     this.clearGrid()
+    this.lineMaterial.dispose()
     this.ctx.scene.remove(this.grid)
     this.ctx.scene.remove(this.cursor)
     this.cursor.geometry.dispose()

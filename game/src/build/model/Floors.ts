@@ -119,7 +119,13 @@ export function plannedAutoWalls(
  * platform edge. Returns the same state when nothing changed, so a no-op stays
  * out of the undo stack.
  */
-export function syncAutoWalls(state: StationState): StationState {
+export function syncAutoWalls(state: StationState, editedFloors?: ReadonlySet<number>): StationState {
+  // A floor gesture owns its wall courses. Imported stale rings on unrelated
+  // storeys are not part of that edit. The explicit full sync still repairs all
+  // levels; include overlapping floor ranges when deciding shared wall owners.
+  const edits=editedFloors?[...editedFloors]:null
+  const editsWall=(z:number)=>!edits||edits.some(floor=>z>floor&&z<=floor+state.storeyHeight)
+  const readsFloor=(z:number)=>!edits||edits.some(floor=>z<floor+state.storeyHeight&&floor<z+state.storeyHeight)
   const solid = new Set<string>();
   for (const c of state.cells) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z));
   // A dug bed reads as void in `cells`, but it is covered ground for the merge.
@@ -133,7 +139,7 @@ export function syncAutoWalls(state: StationState): StationState {
   // Group the tracked floor by level: walls only answer a same-level edge.
   const byLevel = new Map<number, Array<[number, number]>>();
   for (const c of state.cells) {
-    if (c.fill !== 'solid' || !hasTag(c, AUTO_FLOOR)) continue;
+    if (c.fill !== 'solid' || !hasTag(c, AUTO_FLOOR) || !readsFloor(c.z)) continue;
     const arr = byLevel.get(c.z);
     if (arr) arr.push([c.x, c.y]);
     else byLevel.set(c.z, [[c.x, c.y]]);
@@ -208,7 +214,7 @@ export function syncAutoWalls(state: StationState): StationState {
   const kept: Cell[] = [];
   for (const c of state.cells) {
     const k = cellKey(c.x, c.y, c.z);
-    if (hasTag(c, AUTO_WALL) && !wanted.has(k)) {
+    if (hasTag(c, AUTO_WALL) && editsWall(c.z) && !wanted.has(k)) {
       changed = true;
       continue;
     }
@@ -216,7 +222,7 @@ export function syncAutoWalls(state: StationState): StationState {
   }
   const have = new Set(kept.map((c) => cellKey(c.x, c.y, c.z)));
   for (const [k, p] of wanted) {
-    if (have.has(k)) continue;
+    if (have.has(k) || !editsWall(p[2])) continue;
     kept.push({ x: p[0], y: p[1], z: p[2], fill: 'solid', tags: [AUTO_WALL] });
     changed = true;
   }
@@ -264,7 +270,7 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
     if (hole === undefined) grown.push(c);
     else next[hole] = c;
   }
-  return syncAutoWalls({ ...state, cells: [...next, ...grown] });
+  return syncAutoWalls({ ...state, cells: [...next, ...grown] },new Set(laid.map(c=>c.z)));
 }
 
 /**
@@ -275,7 +281,7 @@ export function addFloor(state: StationState, cells: Array<[number, number, numb
  */
 export function removeFloor(state: StationState, remove: Array<[number, number, number]>): StationState {
   const killed = new Set(remove.map(([x, y, z]) => cellKey(x, y, z)));
-  const droppedFloor = state.cells.some((c) => killed.has(cellKey(c.x, c.y, c.z)) && hasTag(c, AUTO_FLOOR));
+  const droppedFloors = new Set(state.cells.filter((c) => killed.has(cellKey(c.x, c.y, c.z)) && hasTag(c, AUTO_FLOOR)).map(c=>c.z));
   const next = removeCells(state, remove);
-  return droppedFloor ? syncAutoWalls(next) : next;
+  return droppedFloors.size ? syncAutoWalls(next,droppedFloors) : next;
 }

@@ -817,14 +817,26 @@ function stairSegments(m: Extract<Module, { type: 'stair' }>): Ramp[] {
  * for equipment (`rampBodyBoxes`) — but the slab under it stays whole.
  */
 const rampListCache = new WeakMap<readonly Module[], Ramp[]>()
+interface RampInputs { next:WeakMap<Module,RampInputs>; ramps?:Ramp[] }
+const rampInputs:RampInputs={next:new WeakMap()}
 function rampList(modules: readonly Module[]): Ramp[] {
   const held = rampListCache.get(modules)
   if (held) return held
+  // Only these immutable records affect cuts and landing lifts. A furniture
+  // or flat-belt move must not reconstruct every structural ramp in the city.
+  const structural=modules.filter(m=>m.type==='stair'||m.type==='escalator'||m.type==='lift'||m.type==='exit')
+  let inputs=rampInputs
+  for(const mod of structural){
+    let next=inputs.next.get(mod)
+    if(!next)inputs.next.set(mod,next={next:new WeakMap()})
+    inputs=next
+  }
+  if(inputs.ramps){rampListCache.set(modules,inputs.ramps);return inputs.ramps}
   const ramps: Ramp[] = []
-  const cuts = rampSlopeCuts(modules)
+  const cuts = rampSlopeCuts(structural)
   const retained = new Set([...cuts].filter(([, cut]) => rampSurfaceRetainsVolume(cut.patches ?? [])).map(([key]) => key))
-  const exits = modules.filter(m => m.type === 'exit')
-  for (const m of modules) {
+  const exits = structural.filter(m => m.type === 'exit')
+  for (const m of structural) {
     if (m.type !== 'stair' && m.type !== 'escalator' && m.type !== 'lift') continue
     const segs = rampSegments(m)
     if (!segs) continue
@@ -834,6 +846,7 @@ function rampList(modules: readonly Module[]): Ramp[] {
     for (const s of segs) ramps.push({ ...s, groundCells, ...(m.type === 'escalator' ? { headroom: ESCALATOR_HEADROOM } : {}) })
   }
   rampListCache.set(modules, ramps)
+  inputs.ramps=ramps
   return ramps
 }
 

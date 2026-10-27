@@ -66,6 +66,17 @@ probes for input/picking investigations. When changing palette entries or finite
 builder settings, keep `app/benchmark/editorActionCases.ts` and its completeness
 regression aligned. Keep failures, unsupported actions, fixture/build hashes and
 separate profile runs traceable in the shared performance guide.
+Completed unprofiled hardware runs automatically update `references/editor-action-matrix.md`
+and `references/editor-action-matrix.jsonl`: focused captures replace only matching
+demo/case/actions, with each capture attributed, and a newer full capture removes
+obsolete cases. The tables sort maximum first-render times into >100 ms and ≤100 ms;
+exactly 100 ms still misses the strict <100 ms budget. Resumed checkpoints retain
+their original observation times, so an older case cannot overwrite a newer focused
+measurement. Unsupported/failed timings
+stay separate. Profiled, software-GPU and incomplete captures do not publish;
+set `BENCH_MATRIX_UPDATE=0` for exploratory captures unsuitable for the record.
+Use `node tools/update-editor-action-matrix.mjs <report.json>` to apply an existing
+complete production capture; never erase older unrelated results with a focused run.
 Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
 Chrome/GPU traces in separate runs. The playback scripts share
 `configureBenchmarkView`: regular Tanwei uses Hide UI at its default level and

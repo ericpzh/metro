@@ -144,6 +144,39 @@ test('local replacements and deletion never revisit remote batch geometry',()=>{
   }finally{batches.clear();cleanup(group);cleanup(local);material.dispose()}
 })
 
+test('exclusive root translations retain draw buffers, match fresh bounds and invalidate cached views',()=>{
+  for(const transparent of [false,true]){
+    const material=new THREE.MeshBasicMaterial({transparent,opacity:transparent?.5:1}),group=new THREE.Group(),batches=new EquipmentBatches()
+    const make=(id,x)=>{const r=root([new THREE.Mesh(new THREE.BoxGeometry(),material),new THREE.Mesh(new THREE.BoxGeometry(),material)],id);r.position.x=x;r.children[1].position.x=2;return r}
+    const a=make('a',0),b=make('b',64);group.add(a,b)
+    const bounds=batch=>new THREE.Box3().setFromObject(batch.root)
+    const freshMatches=()=>{
+      const fresh=new EquipmentBatches(),copy=group.clone(true);copy.traverse(o=>o.layers.set(0))
+      try{fresh.sync(copy);const x=bounds(batches),y=bounds(fresh);assert.ok(x.min.distanceTo(y.min)<1e-6&&x.max.distanceTo(y.max)<1e-6)}finally{fresh.clear()}
+    }
+    try{
+      batches.sync(group,'first','first','slice')
+      const meshes=[...batches.root.children],geometries=meshes.map(m=>m.geometry)
+      for(const y of [8,12]){
+        const before=a.matrixWorld.clone(),old=a.getWorldPosition(new THREE.Vector3());a.position.y=y;a.updateWorldMatrix(true,true)
+        assert.equal(batches.translateRoots([{root:a,before,delta:a.getWorldPosition(new THREE.Vector3()).sub(old)}]),true)
+        assert.deepEqual(batches.root.children,meshes)
+        assert.deepEqual(meshes.map(m=>m.geometry),geometries)
+        assert.equal(batches.views.size,0)
+        freshMatches()
+        batches.setHiddenModule(a);batches.setHiddenModule(null);freshMatches()
+      }
+      batches.sync(group,'after','after','other-slice');freshMatches()
+      b.position.x=1;batches.invalidateViews(true);batches.sync(group,'shared','shared','slice')
+      const before=a.matrixWorld.clone();a.position.y+=1;a.updateWorldMatrix(true,true)
+      const positions=batches.root.children.map(m=>m.position.clone())
+      assert.equal(batches.translateRoots([{root:a,before,delta:new THREE.Vector3(0,1,0)}]),false,'a shared bucket needs ordinary aggregation')
+      assert.deepEqual(batches.root.children.map(m=>m.position),positions,'refusal is atomic')
+      batches.sync(group,'fallback','fallback','slice');freshMatches()
+    }finally{batches.clear();cleanup(group);material.dispose()}
+  }
+})
+
 test('retired view buffers leave the click path and teardown cancels and drains their idle job once',()=>{
   const idle=globalThis.requestIdleCallback,cancel=globalThis.cancelIdleCallback
   const jobs=new Map();let next=0

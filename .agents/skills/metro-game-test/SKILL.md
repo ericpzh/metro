@@ -30,17 +30,38 @@ sync if the feedback page or worker routing changes.
 
 For performance regressions, follow [the shared performance guide](../metro-repo/references/performance.md).
 Guard work counts and ownership invariants; use browser measurements for latency.
+`node tools/check-editor-move-caches.mjs` checks production guidepost/walkway
+drop, undo and redo on the GPU against forced fresh batch aggregation, retaining
+model/artwork identities. It is a functional check, separate from latency captures.
+Ground-cache tests must compare against independently cloned inputs, preserve
+caller-owned arrays and invalidate for new authored cells or structural records.
 `editor-action-benchmark` guards every palette entry and discrete builder setting
 in the shared production action manifest. Add new settings/subtypes there rather
 than a benchmark-only substitute model. `bench:editor-actions` records the full
 demo matrix against 100 ms per preview/commit stage; unsupported actions and
 failed rows remain explicit, and API timings do not replace pointer regressions.
+`editor-action-matrix.test.mjs` also checks focused-run merging, capture ordering,
+strict threshold presentation and incomplete-run refusal.
 `tools.resolve` separately measures live tool occupancy/floor preparation in those
 captures. `local-cell-edit` compares structural occupancy deltas with fresh indexes
 through generated holes, street expansion, duplicates and undo. `line-edit` pins
 exact immutable structural history through repeated undo/redo. `batching-lifecycle`
 pins replacement/deletion/reordering equivalence and zero remote geometry reads;
 `cut-clipping` pins retained-tree skips and new-root/view/plane invalidation.
+`floor-geometry` also compares the 64-entry plain-pavement cache against an
+uncached mesher across window growth/shrink, holes, ramps and overhead support,
+and checks independent chunk/storey ownership. `ground` pins exact pavement
+resizing and fractional-window fallback. `walls` pins scoped floor gestures and
+overlapping wall owners; explicit full repair remains available. `move` checks
+exact verdict reuse and revalidation. `equipment-retention` pins moved guidepost
+geometry/ink, selection-program ownership and rail-index invalidation;
+`render-performance` pins one AO neighbourhood sample per cap with unchanged
+colours, and `level-view-cache` pins line-material retention across grid resizing.
+`batching-lifecycle` also pins exclusive batch translation, repeated moves,
+shared-bucket refusal, masking and fresh bounds after a view change;
+`equipment-retention` pins translated walkway phase and exact model bounds.
+`openings` checks zero repeated structural-record reads across non-carving edits
+and fresh-equivalent openings after a ramp replacement.
 `builder-attributes` guards closed action rows against hidden store subscriptions
 and retaining full document/history/graph snapshots;
 the production tutorial check exercises the live bilingual builder controls.

@@ -9,6 +9,7 @@ import { groundWindow } from '../sim/ground.ts'
 import { fenceConnectionIndex } from '../sim/fences.ts'
 import { localCellEdit } from './localCellEdit.ts'
 import { changedCellRecords } from './cellChanges.ts'
+import { exitLandingHeight } from '../sim/exitLanding.ts'
 
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
@@ -22,7 +23,7 @@ const STANDALONE = new Set<Module['type']>([
   'billboard', 'busstop', 'floor-mark', 'traffic-light', 'rail-signal', 'shop', 'tree',
 ])
 const RAMPS = new Set<Module['type']>(['stair', 'escalator', 'walkway'])
-const OPENINGS = new Set<Module['type']>(['stair', 'escalator', 'walkway', 'exit', 'track'])
+const OPENINGS = new Set<Module['type']>(['stair', 'escalator', 'exit', 'track'])
 const isOpening=(m:Module):boolean=>OPENINGS.has(m.type)&&!(m.type==='stair'&&m.cfg.block)
 const isRamp=(m:Module):boolean=>RAMPS.has(m.type)&&!(m.type==='stair'&&m.cfg.block)
 
@@ -63,10 +64,55 @@ export function isEquipmentModelEdit(before: StationData, after: StationData): b
   return isEquipmentContentEdit(before, after) && equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
 }
 
+/** A guidepost's geometry and ink are local to its root. Moving it must not
+ * allocate and upload its unchanged canvases again. Unknown model kinds keep
+ * their rebuild path; a changed label, binding or station field rebuilds too. */
+export function movedGuidepostIds(before: StationData, after: StationData): Set<string> {
+  const ids = new Set<string>()
+  if (!sameStationFields(before, after)) return ids
+  if(!changedModules(before,after).some(m=>m.type==='guidepost'))return ids
+  const previous = new Map(before.modules.map(m => [m.id, m]))
+  for (const mod of after.modules) {
+    const old = previous.get(mod.id)
+    if (mod.type !== 'guidepost' || old?.type !== 'guidepost' || old === mod) continue
+    const { x: _ox, y: _oy, z: _oz, rot: _or, ...a } = old
+    const { x: _nx, y: _ny, z: _nz, rot: _nr, ...b } = mod
+    if (!equal(a, b)) continue
+    const exit = (modules: readonly Module[]) => modules.find(m => m.id === mod.cfg.exitId && m.type === 'exit')
+    const was = exit(before.modules), now = exit(after.modules)
+    if (!!was !== !!now || was?.type === 'exit' && now?.type === 'exit' && was.cfg.name !== now.cfg.name) continue
+    ids.add(mod.id)
+  }
+  return ids
+}
+
+/** Flat belts have no cell-dependent side walls or ramp seam infill. A pure
+ * translation keeps their complete local geometry and running band phase when
+ * both endpoint landing heights and the surface lift remain identical. */
+export function translatedWalkwayIds(before:StationData,after:StationData):Set<string>{
+  const ids=new Set<string>()
+  if(before.cells!==after.cells||!sameStationFields(before,after))return ids
+  if(!changedModules(before,after).some(m=>m.type==='walkway'))return ids
+  if(before.modules.length!==after.modules.length||before.modules.some((m,i)=>m.id!==after.modules[i].id))return ids
+  const previous=new Map(before.modules.map(m=>[m.id,m])),exitsBefore=before.modules.filter(m=>m.type==='exit'),exitsAfter=after.modules.filter(m=>m.type==='exit')
+  for(const mod of after.modules){
+    const old=previous.get(mod.id)
+    if(mod.type!=='walkway'||old?.type!=='walkway'||mod===old)continue
+    const {x:_x,y:_y,z:_z,from:_f,to:_t,...a}=old,{x:_nx,y:_ny,z:_nz,from:_nf,to:_nt,...b}=mod
+    if(!equal(a,b))continue
+    const dx=mod.x-old.x,dy=mod.y-old.y,dz=mod.z-old.z
+    if(!(['from','to'] as const).every(end=>mod[end].x-old[end].x===dx&&mod[end].y-old[end].y===dy&&mod[end].z-old[end].z===dz&&
+      exitLandingHeight(exitsBefore,old[end])===exitLandingHeight(exitsAfter,mod[end])))continue
+    if(outdoorSurfaceLift(before.modules,old)!==outdoorSurfaceLift(after.modules,mod))continue
+    ids.add(mod.id)
+  }
+  return ids
+}
+
 // These builders read module/metadata only. Changes to either fail closed below.
 const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
-  'cubicle', 'sink', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
+  'cubicle', 'sink', 'checkout', 'booth', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
   'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])
@@ -191,10 +237,13 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     || ['track', 'stair', 'escalator', 'walkway', 'lift', 'hanger', 'clock', 'cctv', 'monitor', 'sign', 'tv'].includes(m.type)
   if (changes.some(m => !known(m))) return retained
   const cellChanges = changedCellRecords(before.cells, after.cells)
+  // Flat belts change fence connections and exit run openings, but carve no
+  // cells and supply no wall, ceiling, surface, rail or furniture input.
+  const flatBeltsOnly=!cellChanges.length&&changes.every(m=>m.type==='walkway')
   const adjacent = (a: Module, b: Module): boolean => a.z === b.z && Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1
   const openingChanged = changes.some(isOpening)
   const surfaces = changes.filter(isOutdoorSurface)
-  const openings = changes.filter(m=>['stair','escalator','walkway','lift','exit'].includes(m.type))
+  const openings = changes.filter(m=>['stair','escalator','lift','exit'].includes(m.type))
   const rampChanged = changes.some(isRamp)
   const boxes = new Map<Module, ReturnType<typeof moduleEnvelope>>()
   const boxOf = (m: Module) => {
@@ -211,6 +260,9 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   for (const mod of after.modules) {
     if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
     if (!known(mod) || dependsOnCells(mod, cellChanges)) continue
+    if(flatBeltsOnly&&!['fence','exit','guidepost','platform-edge','psd-end'].includes(mod.type)){
+      retained.add(mod.id);continue
+    }
     // Only a finish under this model or an opening intersecting its footprint
     // can change its raised surface. Remote ramp edits leave that input intact.
     if ((surfaces.some(m=>nearby(mod,m)) || openings.some(m=>nearby(mod,m))) &&

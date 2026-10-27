@@ -1,6 +1,6 @@
 // Complete, resumable production API-to-render action matrix. No timing captures
 // run concurrently. This is not a substitute for the real-pointer latency probes.
-import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, cpSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync, cpSync, statSync } from 'node:fs'
 import { resolve, join, relative } from 'node:path'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
@@ -8,6 +8,7 @@ import { cpus, platform, release } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import { editorTreeHash as treeHash } from '../game/scripts/editor-benchmark-build.ts'
 import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
+import { updateEditorActionMatrix } from './update-editor-action-matrix.mjs'
 
 const sourceRoot=resolve(process.env.BENCH_SOURCE_DIR??'game/src')
 const {referenceStation,EXAMPLE_STATION_IDS}=await import(pathToFileURL(join(sourceRoot,'data/reference-station.ts')).href)
@@ -54,8 +55,11 @@ for(const name of ['vite.config.ts','package.json','package-lock.json']){
 cpSync(resolve('game/scripts'),join(inputs,'scripts'),{recursive:true,errorOnExist:true,force:false})
 metadata.driverSnapshot=`driver-${process.pid}.mjs`
 metadata.browserHarnessSnapshot=`browser-harness-${process.pid}.mjs`
+metadata.matrixUpdaterSnapshot=`matrix-updater-${process.pid}.mjs`
+metadata.matrixUpdaterHash=hash(readFileSync(new URL('./update-editor-action-matrix.mjs',import.meta.url)))
 writeFileSync(join(root,`driver-${process.pid}.mjs`),readFileSync(new URL(import.meta.url)))
 writeFileSync(join(root,`browser-harness-${process.pid}.mjs`),readFileSync(new URL('./browser-harness.mjs',import.meta.url)))
+writeFileSync(join(root,metadata.matrixUpdaterSnapshot),readFileSync(new URL('./update-editor-action-matrix.mjs',import.meta.url)))
 const reports=[],server=await serveDir(snapshot,0)
 const summarize=()=>{
   const results=reports.flatMap(report=>report.cases.flatMap(c=>c.rows.map(row=>({demo:report.demo,case:c.id,...row}))))
@@ -85,11 +89,15 @@ try{
         let result
         if(process.env.BENCH_RESUME==='1'&&existsSync(checkpoint)){
           const saved=JSON.parse(readFileSync(checkpoint,'utf8'))
-          if(saved.scriptHash===metadata.scriptHash&&JSON.stringify(saved.environment)===JSON.stringify(environment)&&JSON.stringify(saved.host)===JSON.stringify(metadata.host)&&saved.profiled===profile&&saved.buildHash===metadata.buildHash&&saved.sourceHash===metadata.sourceHash&&saved.demoHash===report.demoHash&&saved.samples===count&&JSON.stringify(saved.spec)===JSON.stringify(spec))result=saved.result
+          if(saved.scriptHash===metadata.scriptHash&&JSON.stringify(saved.environment)===JSON.stringify(environment)&&JSON.stringify(saved.host)===JSON.stringify(metadata.host)&&saved.profiled===profile&&saved.buildHash===metadata.buildHash&&saved.sourceHash===metadata.sourceHash&&saved.demoHash===report.demoHash&&saved.samples===count&&JSON.stringify(saved.spec)===JSON.stringify(spec)){
+            result=saved.result
+            result.capturedAt??=statSync(checkpoint).mtime.toISOString()
+          }
         }
         if(!result){
           if(profile){await page.send('Profiler.enable');await page.send('Profiler.start')}
           result=await page.evaluate(`__editorActions.runCase(${JSON.stringify(spec.id)},${count})`)
+          result.capturedAt=new Date().toISOString()
           if(profile){writeFileSync(join(root,`${key}.cpuprofile`),JSON.stringify((await page.send('Profiler.stop')).profile));result.profile=`${key}.cpuprofile`}
           if(result.errors.length||result.glError)throw Error(`${key}: browser/WebGL errors: ${JSON.stringify(result.errors)}/${result.glError}`)
           const image=await page.send('Page.captureScreenshot',{format:'png'})
@@ -106,6 +114,13 @@ try{
 }catch(error){metadata.fatalError=String(error?.stack??error);throw error}
 finally{server.close();persist()}
 const final=summarize()
+if(final.complete&&!profile&&!process.argv.includes('--software-gpu')&&process.env.BENCH_MATRIX_UPDATE!=='0'&&
+  final.reports.every(r=>typeof r.environment?.gpu==='string'&&!/swiftshader|llvmpipe|software rasterizer/i.test(r.environment.gpu))){
+  const updated=updateEditorActionMatrix(final,relative(process.cwd(),join(root,'report.json')).replaceAll('\\','/'))
+  console.log(`Updated latest editor matrix: ${updated.actions} actions from ${updated.captures} capture(s)`)
+}else if(final.complete&&!profile&&process.env.BENCH_MATRIX_UPDATE!=='0'){
+  console.log('Latest editor matrix unchanged: this capture did not use the hardware-rendering protocol')
+}
 console.log(`Report: ${join(root,profile?'profile-report.json':'report.json')}`)
 const {failures,...counts}=final.summary
 console.log(JSON.stringify(counts,null,2))

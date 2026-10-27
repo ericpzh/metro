@@ -46,6 +46,24 @@ test('opening prepares both five-metre Q/E neighbours of the edited storey, incl
   } finally { f.dispose() }
 })
 
+test('unchanged retained chunk styling skips local edits and refreshes on view and quality changes',()=>{
+  const f=fixture(),mesh=new THREE.Mesh(f.geometry,f.material),group=new THREE.Group()
+  group.add(mesh);group.userData.levelZ=0
+  f.level.chunks.levelGroups.set(0,group)
+  try{
+    f.level.applyLevel()
+    f.level.chunks.retainedLevelMeshes=new Set([mesh])
+    let writes=0,current=mesh.material
+    Object.defineProperty(mesh,'material',{get:()=>current,set:value=>{writes++;current=value},configurable:true})
+    f.ctx.levelKey='';f.level.applyLevel()
+    assert.equal(writes,0,'local edits do not redress an unchanged chunk')
+    f.ctx.graphicsQuality='low';f.level.applyLevel()
+    assert.ok(writes>0,'quality changes cannot return an old styled view')
+    writes=0;f.ctx.hideUI=true;f.level.applyLevel()
+    assert.ok(writes>0,'presentation mode restores actual materials')
+  }finally{f.dispose()}
+})
+
 test('Q/E translates the grid without replacing or disposing GPU resources; bounds edits still rebuild', () => {
   const ctx = new SceneContextData(new THREE.Scene(), {}, {}, {})
   ctx.bounds = new THREE.Box3(new THREE.Vector3(-10,-10,0),new THREE.Vector3(10,10,5))
@@ -65,6 +83,7 @@ test('Q/E translates the grid without replacing or disposing GPU resources; boun
     }
     ctx.bounds.max.x += 10; grid.buildGrid()
     assert.notEqual(grid.grid.children[0],lines)
+    assert.equal(grid.grid.children[0].material,material,'resizing the grid keeps its compiled line program')
     assert.equal(releases,1)
   } finally { grid.dispose() }
 })

@@ -108,6 +108,46 @@ changes must still match a fresh build. Closed build-menu action rows retain the
 last control snapshot for animation without live store subscriptions. Keep that
 snapshot limited to builder settings/actions and displayed line/exit labels; never
 retain full station documents, history, graphs or live buffers in a closed row.
+Floor gestures reconcile only their edited wall-height ranges, including other
+floors with overlapping ownership; explicit `syncAutoWalls` still repairs the
+whole station. A local chunk edit tracks affected storeys per column rather than
+their cross product. Non-carving street-window changes reuse sorted pavement
+records and update only the changed edge columns. Plain ground templates have
+a 64-entry scene budget and require an exact rectangular footprint plus complete
+empty/solid halo proof; holes, finishes, cuts and support use normal meshing.
+Preserve fresh-mesh equivalence, duplicate/custom effective inputs and shrinking
+windows. Compute cap AO once per cell without changing its geometry or colours.
+Generated street tails cache four windows per immutable cell/structural-module
+input. Return caller-owned arrays and treat shared generated records as immutable.
+A valid walkway move preview may prime its prospective street bounds; it must
+leave the document, history and live occupancy indexes unchanged. Revalidate on
+confirmation and invalidate derived data when cells or carving modules change.
+Bounds and authored-cell membership may reuse immutable array identities; keep
+returned rectangles independent and apply each requested margin outside the cache.
+Flat belt edits still invalidate fence connections and exit run openings. Only
+proven translation-only edits may skip ground-band checks for unchanged anchors.
+Guidepost translation/rotation retains its local geometry and label textures;
+station/exit bindings, labels and language must still invalidate artwork. Keep
+selection/grid line materials for their scene lifetime and prepare selection's
+onscreen shader variant during opening. Equipment replacements retire only their
+changed roots and registrations, retaining rail-bed inputs only while authored
+cells and rail dependencies agree. Move preview and confirmation may share the
+exact verdict for an immutable cell/module pair and candidate; changed inputs
+must revalidate, and localized refusal text stays live.
+Flat walkway translations may retain their band phase and local model only when
+both endpoint landing heights, support lift, configuration and module order agree.
+An exclusively owned draw bucket can translate its existing buffers with that
+root; shared buckets or a changed parent transform require normal aggregation.
+Invalidate dormant views and prepared source discovery after direct translation.
+Retained chunk styling skips only unchanged view/quality/detail settings; original
+pick geometry stays available and reduced chunk geometry is prepared when requested.
+Install renderer mount, committed geometry and carried-module state in layout
+effects so a new UI commit cannot paint before its scene update.
+Opening preparation is keyed by the ordered immutable stair/escalator/lift/exit
+records, not unrelated furniture or flat walkways. Keep structural-record and
+landing-height invalidation exact. Flat walkways still change fence landing
+connections and head-house openings, but never carve ground or affect hung
+ceiling/raised-surface inputs as if they were sloping ramp openings.
 The prepared train fleet keeps at most eight dormant models, using available room
 for a second copy of each existing appearance. Yaw and door-side flags change poses,
 not train geometry; power, stock, car count, direction and scale still select geometry.

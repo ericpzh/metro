@@ -35,6 +35,28 @@ export const GROUND_Z = 0
  * build rather than bounding it.
  */
 export const GROUND_MARGIN = 16
+type GroundBounds={x0:number;x1:number;y0:number;y1:number}
+const groundBounds=new WeakMap<readonly Cell[],WeakMap<readonly Module[],GroundBounds>>()
+
+interface GroundInputs { next:WeakMap<Module,GroundInputs>; windows:Map<string,Cell[]> }
+const groundInputs=new WeakMap<readonly Cell[],GroundInputs>()
+const groundStructuralTypes=new Set(['stair','escalator','lift','exit','track'])
+const windowKey=(w:ReturnType<typeof groundWindow>)=>`${w.x0},${w.x1},${w.y0},${w.y1}`
+function preparedGround(cells:readonly Cell[],modules:readonly Module[]):GroundInputs{
+  let inputs:GroundInputs=groundInputs.get(cells)??{next:new WeakMap(),windows:new Map()}
+  groundInputs.set(cells,inputs)
+  for(const mod of modules){
+    if(!groundStructuralTypes.has(mod.type))continue
+    let next:GroundInputs|undefined=inputs.next.get(mod)
+    if(!next)inputs.next.set(mod,next={next:new WeakMap(),windows:new Map()})
+    inputs=next
+  }
+  return inputs
+}
+function rememberGround(inputs:GroundInputs,w:ReturnType<typeof groundWindow>,cells:Cell[]):void{
+  const key=windowKey(w);inputs.windows.delete(key);inputs.windows.set(key,cells)
+  if(inputs.windows.size>4)inputs.windows.delete(inputs.windows.keys().next().value!)
+}
 
 function key(x: number, y: number, z: number): string {
   return `${x},${y},${z}`
@@ -46,6 +68,10 @@ export function groundWindow(
   modules: readonly Module[],
   margin = GROUND_MARGIN,
 ): { x0: number; x1: number; y0: number; y1: number } {
+  let byModules=groundBounds.get(cells)
+  if(!byModules)groundBounds.set(cells,byModules=new WeakMap())
+  const cached=byModules.get(modules)
+  if(cached)return {x0:cached.x0-margin,x1:cached.x1+margin,y0:cached.y0-margin,y1:cached.y1+margin}
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -69,8 +95,9 @@ export function groundWindow(
   if (!Number.isFinite(minX)) {
     // A station with nothing in it yet: the window is the origin the new
     // ground is built from, not an empty set no tool can address.
-    return { x0: -margin, x1: margin, y0: -margin, y1: margin }
+    minX=minY=maxX=maxY=0
   }
+  byModules.set(modules,{x0:minX,x1:maxX,y0:minY,y1:maxY})
   return { x0: minX - margin, x1: maxX + margin, y0: minY - margin, y1: maxY + margin }
 }
 
@@ -116,8 +143,43 @@ export function withGround(
   margin = GROUND_MARGIN,
 ): Cell[] {
   const w = groundWindow(cells, modules, margin)
+  return cells.concat(generatedGround(cells,modules,w))
+}
+
+/** Reuse unchanged pavement when only non-carving equipment changes the street bounds.
+ * The caller must prove identical authored cells and unchanged ground openings.
+ * Newly exposed strips still derive every authored hole and module opening. */
+export function resizeGround(cells: readonly Cell[], modules: readonly Module[], previous: readonly Cell[], previousWindow: ReturnType<typeof groundWindow>): Cell[] {
+  const w=groundWindow(cells,modules)
+  const inputs=preparedGround(cells,modules),cached=inputs.windows.get(windowKey(w))
+  if(cached)return cells.concat(cached)
+  if(!Number.isInteger(w.x0-previousWindow.x0)||!Number.isInteger(w.y0-previousWindow.y0))return withGround(cells,modules)
+  const kept=previous.slice(cells.length).filter(c=>c.x>=w.x0&&c.x<=w.x1&&c.y>=w.y0&&c.y<=w.y1)
+  const added=generatedGround(cells,modules,w,previousWindow),out=cells.slice() as Cell[]
+  let i=0,j=0
+  while(i<kept.length||j<added.length){
+    const a=kept[i],b=added[j]
+    if(!b||a&&(a.x<b.x||a.x===b.x&&a.y<b.y)){out.push(a);i++}
+    else {out.push(b);j++}
+  }
+  rememberGround(inputs,w,out.slice(cells.length))
+  return out
+}
+
+/** Speculative derived data only: an accepted non-carving move can prepare its
+ * next street window without mutating the document or live occupancy indexes. */
+export function primeGroundResize(cells:readonly Cell[],before:readonly Module[],after:readonly Module[]):void{
+  const old=groundWindow(cells,before),next=groundWindow(cells,after)
+  if(windowKey(old)===windowKey(next))return
+  resizeGround(cells,after,withGround(cells,before),old)
+}
+
+function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: ReturnType<typeof groundWindow>,exclude?: ReturnType<typeof groundWindow>): Cell[] {
+  const inputs=preparedGround(cells,modules),cached=inputs.windows.get(windowKey(w))
+  if(cached)return exclude?cached.filter(c=>c.x<exclude.x0||c.x>exclude.x1||c.y<exclude.y0||c.y>exclude.y1):cached
   const explicit = new Set<string>()
-  for (const c of cells) explicit.add(key(c.x, c.y, c.z))
+  // Only authored records at grade can suppress generated pavement.
+  for (const c of cells) if(c.z===GROUND_Z)explicit.add(key(c.x, c.y, c.z))
   // The street's derived holes, enumerated by run and by head-house instead of
   // asked per street cell: `rampOpeningAt` rebuilds the run list per call, so a
   // window-wide loop over it was O(window × runs) — most of this function's
@@ -139,9 +201,10 @@ export function withGround(
       openings.add(`${x},${y}`)
     }
   }
-  const out = cells.slice() as Cell[]
+  const out: Cell[] = []
   for (let x = w.x0; x <= w.x1; x++) {
     for (let y = w.y0; y <= w.y1; y++) {
+      if(exclude&&x>=exclude.x0&&x<=exclude.x1&&y>=exclude.y0&&y<=exclude.y1){y=exclude.y1;continue}
       if (explicit.has(key(x, y, GROUND_Z))) continue
       if (openings.has(`${x},${y}`)) continue
       // The street is the **outside** zone, not `unpaid`: `outside`↔`unpaid` is
@@ -154,5 +217,6 @@ export function withGround(
       out.push({ x, y, z: GROUND_Z, fill: 'solid', zone: 'outside' })
     }
   }
+  if(!exclude)rememberGround(inputs,w,out)
   return out
 }

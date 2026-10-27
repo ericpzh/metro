@@ -10,6 +10,7 @@
 import * as THREE from 'three'
 import { platformBlockInsets, type BlockInset } from '../../platformBlockInsets.ts'
 import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
+import type { ChunkGeometry } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { GROUND_Z, withGround, groundWindow } from '../../../sim/ground.ts'
@@ -71,8 +72,7 @@ export class ChunkSystem extends SceneSystem {
       }
       this.details.set(mesh, entry)
     }
-    const far = coarseGeometry(entry.near)
-    mesh.geometry = reduced ? far ?? entry.near : entry.near
+    mesh.geometry = reduced ? coarseGeometry(entry.near) ?? entry.near : entry.near
   }
   levelGroups = new Map<number, THREE.Group>()
   chunkMeshes: THREE.Mesh[] = []
@@ -83,6 +83,7 @@ export class ChunkSystem extends SceneSystem {
    * slice cost grew with the square of the station. Rebuilt with the array.
    */
   outlineSet = new Set<THREE.Mesh>()
+  readonly retainedLevelMeshes=new Set<THREE.Mesh>()
   /**
    * Last rebuild's meshed chunk per storey band, keyed `band|cx,cy`, so an edit that
    * touches one block re-meshes one chunk instead of the whole station.
@@ -108,6 +109,9 @@ export class ChunkSystem extends SceneSystem {
   private groundTopology = 0
   private localChunks: Set<number> | null = null
   private localLevels: Set<number> | null = null
+  private localBands: Map<number, Set<number> | null> | null = null
+  private groundWindowOnly=false
+  private ceilingKeys=new Set<number>()
   private cellsByChunk = new Map<number, Map<number, Cell[]>>()
   private chunkOrigins = new Map<number, [number,number]>()
   private indexEffectiveCells(columns?: ReadonlySet<number>): void {
@@ -130,6 +134,43 @@ export class ChunkSystem extends SceneSystem {
   }
   chunkKeyCellVisits = 0
   meshedCellVisits = 0
+  groundTemplateHits = 0
+  private readonly groundTemplates = new Map<string, ChunkGeometry>()
+  /** Plain pavement repeats exactly between chunk columns. Prove the complete
+   * mesher halo before sharing CPU geometry; holes, cuts and authored support
+   * keep the ordinary mesher. GPU buffers retain their existing ownership. */
+  private plainGround(cells: Array<{x:number;y:number;z:number}>,cx:number,cy:number,w:ReturnType<typeof groundWindow>,build:()=>ChunkGeometry):ChunkGeometry {
+    const fallback=()=>{this.meshedCellVisits+=cells.length;return build()}
+    if(!cells.length||cells.some(c=>c.z!==GROUND_Z||!Number.isInteger(c.x)||!Number.isInteger(c.y)||!this.groundKeys.has(packKey(c.x,c.y,c.z))))return fallback()
+    const x0=Math.min(...cells.map(c=>c.x)),x1=Math.max(...cells.map(c=>c.x)),y0=Math.min(...cells.map(c=>c.y)),y1=Math.max(...cells.map(c=>c.y))
+    if(cells.length!==(x1-x0+1)*(y1-y0+1))return fallback()
+    for(let x=x0-1;x<=x1+1;x++)for(let y=y0-1;y<=y1+1;y++){
+      const k=packKey(x,y,GROUND_Z)
+      if(this.ctx.solid.has(k)!==(x>=w.x0&&x<=w.x1&&y>=w.y0&&y<=w.y1)||
+        x>=x0&&x<=x1&&y>=y0&&y<=y1&&!this.groundKeys.has(k)||this.ctx.finishes.has(k)||
+        this.ctx.hiddenCells.has(k)||this.ctx.thinSides.has(k)||this.ctx.slopeCuts.has(k)||this.ctx.slopeFills.has(k)||this.platformInsets.has(k))return fallback()
+      for(let dz=-1;dz<=2;dz++)if(dz&&
+        (this.ctx.solid.has(packKey(x,y,GROUND_Z+dz))||this.ctx.slopeFills.has(packKey(x,y,GROUND_Z+dz))))return fallback()
+    }
+    const key=[x0-cx,x1-cx,y0-cy,y1-cy,Math.max(cx-1,w.x0)-cx,Math.min(cx+CHUNK,w.x1)-cx,Math.max(cy-1,w.y0)-cy,Math.min(cy+CHUNK,w.y1)-cy].join(',')
+    const cached=this.groundTemplates.get(key)
+    if(!cached){
+      const result=fallback()
+      if(this.groundTemplates.size>=64)this.groundTemplates.delete(this.groundTemplates.keys().next().value!)
+      this.groundTemplates.set(key,{...result,parts:result.parts.map(part=>{
+        const positions=part.positions.slice()
+        for(let i=0;i<positions.length;i+=3){positions[i]-=cx;positions[i+1]-=cy}
+        return {...part,positions}
+      })})
+      return result
+    }
+    this.groundTemplateHits++
+    return {...cached,ms:0,parts:cached.parts.map(part=>{
+      const positions=part.positions.slice()
+      for(let i=0;i<positions.length;i+=3){positions[i]+=cx;positions[i+1]+=cy}
+      return {...part,positions}
+    })}
+  }
   private localMeshGeneration = 0
   /**
    * The effective cell list of the last `prepareStation`: the document's own
@@ -147,6 +188,12 @@ export class ChunkSystem extends SceneSystem {
    * *and* by the unsupported-plate pass, every street cell used to be built twice.
    */
   private groundKeys = new Set<number>()
+  private readonly authoredKeys=new WeakMap<readonly Cell[],Set<number>>()
+  private ownedKeys(cells:readonly Cell[]):Set<number>{
+    let keys=this.authoredKeys.get(cells)
+    if(!keys){keys=new Set(cells.map(c=>packKey(c.x,c.y,c.z)));this.authoredKeys.set(cells,keys)}
+    return keys
+  }
   /**
    * Cache keys this rebuild intends to reuse, set only around the release call in
    * `setStation` so `releaseChunks` leaves their geometry — and the outline materials
@@ -179,10 +226,12 @@ export class ChunkSystem extends SceneSystem {
   prepareStation(data: StationData, effective?: Cell[], groundOnly = false): void {
     this.localChunks = null
     this.localLevels = null
+    this.localBands = null
+    this.groundWindowOnly=false
     const previous=this.ctx.stationData
     // Structural edits still prepare the exact complete derived state. Afterwards
     // compare those inputs so remote chunk caches need no station-wide rehash.
-    const structural = previous && this.chunkCache.size > 0 &&
+    const structural = !groundOnly && previous && this.chunkCache.size > 0 &&
       previous.levelBase === data.levelBase && previous.storeyHeight === data.storeyHeight &&
       this.onlyPreparedModulesChanged(previous, data) ? {
         cells: this.effectiveCells, ground: this.groundKeys, solid: this.ctx.solid,
@@ -201,10 +250,15 @@ export class ChunkSystem extends SceneSystem {
     }))){
       this.localChunks=new Set()
       this.localLevels=new Set()
+      this.localBands=new Map()
       for(const c of [...edit.removed,...edit.added])for(const [dx,dy]of classificationHalo)
       {
         const x=Math.floor((c.x+dx)/CHUNK)*CHUNK,y=Math.floor((c.y+dy)/CHUNK)*CHUNK
-        this.localChunks.add(chunkColumn(x,y));this.chunkOrigins.set(chunkColumn(x,y),[x,y])
+        const column=chunkColumn(x,y)
+        this.localChunks.add(column);this.chunkOrigins.set(column,[x,y])
+        let bands=this.localBands.get(column)
+        if(!bands)this.localBands.set(column,bands=new Set())
+        for(let dz=-2;dz<=1;dz++)bands.add(storeyBand(c.z+dz,this.ctx.levelBase,this.ctx.storeyHeight))
       }
       for(const c of [...edit.removed,...edit.added])for(let dz=-2;dz<=1;dz++)this.localLevels.add(storeyBand(c.z+dz,this.ctx.levelBase,this.ctx.storeyHeight))
       for(const c of edit.removed){const k=packKey(c.x,c.y,c.z);this.ctx.solid.delete(k);this.ctx.finishes.delete(k)}
@@ -237,16 +291,69 @@ export class ChunkSystem extends SceneSystem {
       // The caller proved unchanged authored cells, openings and structural
       // modules. Only generated pavement membership changes; preserve the
       // prepared structural indexes and wall-pick objects.
+      const old=this.effectiveCells
       this.effectiveCells = effective ?? withGround(data.cells, data.modules)
-      this.indexEffectiveCells()
-      const owned = new Set(data.cells.map(c => packKey(c.x, c.y, c.z)))
-      const nextGround = new Set<number>()
-      for (const c of this.effectiveCells) {
-        const key = packKey(c.x, c.y, c.z)
-        if (!owned.has(key)) nextGround.add(key)
+      const owned = this.ownedKeys(data.cells)
+      const ordered=(all:Cell[]):boolean=>{
+        if(all.length<data.cells.length||data.cells.some((c,i)=>all[i]!==c))return false
+        for(let i=data.cells.length;i<all.length;i++){
+          const c=all[i],p=i>data.cells.length?all[i-1]:null
+          if(c.z!==GROUND_Z||c.fill!=='solid'||c.finish||c.tags||owned.has(packKey(c.x,c.y,c.z))||
+            p&&!(p.x<c.x||p.x===c.x&&p.y<c.y))return false
+        }
+        return true
       }
-      for (const key of this.groundKeys) if (!nextGround.has(key)) this.ctx.solid.delete(key)
-      for (const key of nextGround) this.ctx.solid.add(key)
+      const incremental=ordered(old)&&ordered(this.effectiveCells)
+      let nextGround=this.groundKeys
+      const removed:number[]=[],added:Cell[]=[]
+      if(incremental){
+        let i=data.cells.length,j=data.cells.length
+        while(i<old.length||j<this.effectiveCells.length){
+          const a=old[i],b=this.effectiveCells[j]
+          if(a&&b&&a.x===b.x&&a.y===b.y){i++;j++;continue}
+          if(!b||a&&(a.x<b.x||a.x===b.x&&a.y<b.y)){removed.push(packKey(a.x,a.y,a.z));i++}
+          else {added.push(b);j++}
+        }
+      }else{
+        nextGround=new Set<number>()
+        for(const c of this.effectiveCells){const key=packKey(c.x,c.y,c.z);if(!owned.has(key))nextGround.add(key)}
+        for(const key of this.groundKeys)if(!nextGround.has(key))removed.push(key)
+        for(const c of this.effectiveCells){const key=packKey(c.x,c.y,c.z);if(nextGround.has(key)&&!this.groundKeys.has(key))added.push(c)}
+      }
+      const changed=[...removed,...added.map(c=>packKey(c.x,c.y,c.z))]
+      const authored=groundWindow(data.cells,[],0)
+      this.groundWindowOnly=incremental&&changed.every(key=>{
+        const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096
+        return x<authored.x0||x>authored.x1||y<authored.y0||y>authored.y1
+      })
+      if(this.groundWindowOnly){
+        for(const key of removed){const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096;this.ctx.groundOf.delete(`${x},${y}`)}
+        for(const c of added)this.ctx.groundOf.set(`${c.x},${c.y}`,storeyBand(GROUND_Z,this.ctx.levelBase,this.ctx.storeyHeight))
+      }
+      for(const key of removed){this.ctx.solid.delete(key);if(incremental){nextGround.delete(key);const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096;this.cellsByChunk.get(chunkColumn(x,y))?.delete(key)}}
+      for(const c of added){
+        const key=packKey(c.x,c.y,c.z);this.ctx.solid.add(key)
+        if(incremental){
+          nextGround.add(key)
+          const column=chunkColumn(c.x,c.y);let bucket=this.cellsByChunk.get(column)
+          if(!bucket)this.cellsByChunk.set(column,bucket=new Map())
+          bucket.set(key,[c])
+        }
+      }
+      const columns = new Set<number>()
+      for (const key of changed) {
+        const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096
+        for(const cx of new Set([Math.floor((x-2)/CHUNK)*CHUNK,Math.floor((x+2)/CHUNK)*CHUNK]))
+        for(const cy of new Set([Math.floor((y-2)/CHUNK)*CHUNK,Math.floor((y+2)/CHUNK)*CHUNK])){
+          const column=chunkColumn(cx,cy)
+          columns.add(column);this.chunkOrigins.set(column,[cx,cy])
+        }
+      }
+      if (columns.size <= 256) {
+        this.localChunks=columns
+        this.localLevels=new Set([storeyBand(GROUND_Z,this.ctx.levelBase,this.ctx.storeyHeight)])
+        if(!incremental)this.indexEffectiveCells(columns)
+      } else if(!incremental)this.indexEffectiveCells()
       this.groundKeys = nextGround
       this.ctx.stationData = data
       return
@@ -267,8 +374,7 @@ export class ChunkSystem extends SceneSystem {
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
     // that is built once.
     this.groundKeys = new Set<number>()
-    const owned = new Set<number>()
-    for (const c of data.cells) owned.add(packKey(c.x, c.y, c.z))
+    const owned = this.ownedKeys(data.cells)
     for (const c of this.effectiveCells) {
       const k = packKey(c.x, c.y, c.z)
       if (!owned.has(k)) this.groundKeys.add(k)
@@ -429,9 +535,11 @@ export class ChunkSystem extends SceneSystem {
    * the generated street window), so the drawn ground is exactly the walked one.
    */
   meshStation(groundOnly = false): void {
+    this.retainedLevelMeshes.clear()
     const local=this.localChunks
     if(local)this.localMeshGeneration++
     this.meshedCellVisits=0
+    this.groundTemplateHits=0
     const allCells=this.effectiveCells
     if(local){
       // The halo supplies ceiling classification and unsupported-plate votes;
@@ -443,9 +551,12 @@ export class ChunkSystem extends SceneSystem {
         for(const [dx,dy]of columnHalo)buckets.add(chunkColumn(x+dx*CHUNK,y+dy*CHUNK))
       }
       this.effectiveCells=[...buckets].flatMap(k=>[...(this.cellsByChunk.get(k)?.values()??[])].flat()).filter(c=>{
-        for(const [dx,dy]of classificationHalo)
-          if(local.has(chunkColumn(c.x+dx,c.y+dy)))return true
-        return false
+        // A two-cell halo spans at most two 16 m chunks per axis. Its four
+        // corner chunks cover exactly the same columns as all 25 probes.
+        const x0=Math.floor((c.x-2)/CHUNK)*CHUNK,x1=Math.floor((c.x+2)/CHUNK)*CHUNK
+        const y0=Math.floor((c.y-2)/CHUNK)*CHUNK,y1=Math.floor((c.y+2)/CHUNK)*CHUNK
+        return local.has(chunkColumn(x0,y0))||local.has(chunkColumn(x0,y1))||
+          local.has(chunkColumn(x1,y0))||local.has(chunkColumn(x1,y1))
       })
     }
     this.chunkKeyCellVisits = 0
@@ -483,7 +594,8 @@ export class ChunkSystem extends SceneSystem {
     // nothing under it, so it is a plate hanging in space: it must stay on screen
     // even when its storey sits above the one being looked at. Anything with a
     // storey below it is that lower room's ceiling and goes with the cut.
-    const previousGround=local?new Map(this.effectiveCells.map(c=>[`${c.x},${c.y}`,this.ctx.groundOf.get(`${c.x},${c.y}`)])):null
+    const previousGround=local&&!this.groundWindowOnly?new Map(this.effectiveCells.map(c=>[`${c.x},${c.y}`,this.ctx.groundOf.get(`${c.x},${c.y}`)])):null
+    if(!this.groundWindowOnly){
     if(!local)this.ctx.groundOf.clear()
     else for(const c of this.effectiveCells)this.ctx.groundOf.delete(`${c.x},${c.y}`)
     const cellByKey = new Map(this.effectiveCells.filter(c => c.fill === 'solid').map(c => [packKey(c.x, c.y, c.z), c]))
@@ -508,13 +620,31 @@ export class ChunkSystem extends SceneSystem {
       const prev = this.ctx.groundOf.get(col)
       if (prev === undefined || band < prev) this.ctx.groundOf.set(col, band)
     }
+    }
     if(local&&previousGround)for(const c of this.effectiveCells)if(previousGround.get(`${c.x},${c.y}`)!==this.ctx.groundOf.get(`${c.x},${c.y}`)){
-      this.localLevels=null
-      break
+      if(this.localBands){
+        // A changed lowest floor widens ownership only around that column.
+        // Distant edits on another storey must not form a station-wide product
+        // of every affected chunk and every affected level.
+        for(const [dx,dy]of classificationHalo){
+          const column=chunkColumn(c.x+dx,c.y+dy)
+          if(local.has(column))this.localBands.set(column,null)
+        }
+      }else{
+        this.localLevels=null
+        break
+      }
     }
     // Ceilings have an independently hideable pass. Keep every adjacent ordinary
     // face (including the ledge below one) so hiding that pass never opens a block.
-    const suspended = ceilingCells(this.effectiveCells, this.ctx.levelBase, this.ctx.storeyHeight)
+    const suspended = this.groundWindowOnly?this.ceilingKeys:ceilingCells(this.effectiveCells, this.ctx.levelBase, this.ctx.storeyHeight)
+    if(!this.groundWindowOnly){
+      if(!local)this.ceilingKeys=new Set(suspended)
+      else {
+        for(const key of this.ceilingKeys){const x=Math.floor(key/(8192*8192))-4096,y=Math.floor(key/8192)%8192-4096;if(local.has(chunkColumn(x,y)))this.ceilingKeys.delete(key)}
+        for(const c of this.effectiveCells){const key=packKey(c.x,c.y,c.z);if(local.has(chunkColumn(c.x,c.y))&&suspended.has(key))this.ceilingKeys.add(key)}
+      }
+    }
     const byBand = new Map<number, { zLo: number; zHi: number; cells: Array<{ x: number; y: number; z: number }> }>()
     // The street's own pass. It is a storey of its own in everything but name: at
     // `GROUND_Z` with the document holding nothing under it, so it is the plate
@@ -527,7 +657,8 @@ export class ChunkSystem extends SceneSystem {
       if (c.fill !== 'solid') continue
       const k = packKey(c.x, c.y, c.z)
       if(local&&!local.has(chunkColumn(c.x,c.y)))continue
-      if(local&&this.localLevels&&!this.localLevels.has(bandOfCell.get(k)!))continue
+      const levels=this.localBands?this.localBands.get(chunkColumn(c.x,c.y)):this.localLevels
+      if(local&&levels&&!levels.has(this.groundWindowOnly?storeyBand(c.z,this.ctx.levelBase,this.ctx.storeyHeight):bandOfCell.get(k)!))continue
       const fill = this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
       if (this.groundKeys.has(k)) {
         groundCells.push({ x: c.x, y: c.y, z: c.z })
@@ -592,7 +723,7 @@ export class ChunkSystem extends SceneSystem {
       const address = `${levelZ}|${pass}|${cx},${cy}`
       const computed = computedKeys.get(address)
       if (computed) return computed
-      if(local){
+      if(local && !groundOnly){
         // The bounded edit already proved exactly which chunks can change.
         // They rebuild below, so hashing their cells/halos cannot retain more
         // geometry. Remote chunks keep their original keys and allocations.
@@ -723,7 +854,11 @@ export class ChunkSystem extends SceneSystem {
     // released: a reused chunk's `BufferGeometry` must survive the sweep, because a
     // disposed geometry is not re-uploaded and its meshes would draw nothing.
     const keep = new Set<string>()
-    const remote=(key:string):boolean=>{const [level,,xy]=key.split('|'),[x,y]=xy.split(',').map(Number);return !!local&&(!local.has(chunkColumn(x,y))||!!this.localLevels&&!this.localLevels.has(Number(level)))}
+    const remote=(key:string):boolean=>{
+      const [level,pass,xy]=key.split('|'),[x,y]=xy.split(',').map(Number),column=chunkColumn(x,y)
+      const levels=this.localBands?this.localBands.get(column):this.localLevels
+      return !!local&&(groundOnly&&pass!=='g'||!local.has(column)||!!levels&&!levels.has(Number(level)))
+    }
     if(local)for(const key of reuse.keys())if(remote(key))keep.add(key)
     if (groundOnly) for (const [key, entry] of reuse) {
       if (!entry.meshes[0]?.userData.ground) keep.add(key)
@@ -780,7 +915,9 @@ export class ChunkSystem extends SceneSystem {
     // about to reuse. A kept chunk's geometry and its per-chunk outline material
     // survive it, so re-adding the cached meshes below costs no re-upload and no
     // program recompile.
-    if(local)for(const key of keep)if(!remote(key))keep.delete(key)
+    if(local && !groundOnly)for(const key of keep)if(!remote(key))keep.delete(key)
+    if(groundOnly||local)for(const [key,entry] of reuse)if(keep.has(key))
+      for(const mesh of [...entry.meshes,...entry.outlines])this.retainedLevelMeshes.add(mesh)
     this.keepChunkGeometries = keep
     this.releaseChunks(groundOnly || !!local)
     this.ctx.scene.remove(...this.levelGroups.values())
@@ -817,6 +954,7 @@ export class ChunkSystem extends SceneSystem {
         entry.cells.push(c)
       }
       for (const { cx, cy, cells: chunkCells } of byChunk.values()) {
+        if(pass==='g')chunkCells.sort((a,b)=>a.x-b.x||a.y-b.y||a.z-b.z)
         const key = chunkKey(levelZ, cx, cy, pass, chunkCells, emit, solid, cover)
         // Unchanged since the last rebuild: keep the meshes, their GPU geometry and
         // their material wiring, and only put them back in the group.
@@ -835,8 +973,10 @@ export class ChunkSystem extends SceneSystem {
           }
           continue
         }
-        this.meshedCellVisits+=chunkCells.length
-        const chunk = meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets, pass === 'c' ? undefined : suspended)
+        const build=()=>meshChunk(solid, this.ctx.finishes, cx, cy, levelZ, levelZ, emit, this.ctx.hiddenCells, chunkCells, this.ctx.thinSides, this.ctx.slopeCuts, this.ctx.slopeFills, cover, this.platformInsets, pass === 'c' ? undefined : suspended)
+        let chunk:ChunkGeometry
+        if(pass==='g'&&nextWindow)chunk=this.plainGround(chunkCells,cx,cy,nextWindow,build)
+        else {this.meshedCellVisits+=chunkCells.length;chunk=build()}
         if (chunk.triangles === 0) continue
         this.ctx.lastChunkMs = Math.max(this.ctx.lastChunkMs, chunk.ms)
         const meshes: THREE.Mesh[] = []
@@ -976,6 +1116,11 @@ export class ChunkSystem extends SceneSystem {
     this.chunkOrigins.clear()
     this.localChunks=null
     this.localLevels=null
+    this.localBands=null
+    this.groundTemplates.clear()
+    this.ceilingKeys.clear()
+    this.groundWindowOnly=false
+    this.retainedLevelMeshes.clear()
     this.effectiveCells=[]
   }
 

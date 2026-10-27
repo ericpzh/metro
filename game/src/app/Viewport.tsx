@@ -19,7 +19,7 @@ import { useLanguage } from './i18n.ts'
 // release routing; the per-tool press/move/release bodies moved verbatim into
 // their controllers (GAME-SPEC §9.5 gestures).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { TfiHandDrag } from 'react-icons/tfi'
 import { TbBulldozer } from 'react-icons/tb'
 import { CgColorPicker } from 'react-icons/cg'
@@ -522,7 +522,7 @@ export function Viewport(): React.ReactElement {
   }, [tunnelLength, tools])
 
   // Boot the renderer.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
@@ -690,7 +690,7 @@ export function Viewport(): React.ReactElement {
     signPreviewId: typeof signPreviewId; language: typeof language
   } | null>(null)
   // Rebuild the static meshes only when the station itself changes.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const scene = sceneRef.current
     if (!scene) return
     const st = useStore.getState()
@@ -770,7 +770,7 @@ export function Viewport(): React.ReactElement {
   // job, which is what makes the card's 取消 clear the piece on screen. `geometryVersion` is in
   // the list because a structural commit clears the ghost with the station (`setStation`), so an
   // edit made while a piece is in the air — an undo, say — puts it back on screen.
-  useEffect(() => {
+  useLayoutEffect(() => {
     sceneRef.current?.setMovingModule(moveId)
     if (useStore.getState().moveDraft) tools.move.refreshHover()
     else {

@@ -9,6 +9,7 @@ import { moveEquipment } from '../../../build/model.ts'
 import { nextEscalatorDir } from '../../../sim/escalators.ts'
 import { isMovableModule, moveDropReason, movedModule } from '../../../sim/placement.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
+import { primeGroundResize } from '../../../sim/ground.ts'
 import { isRotatableType, moduleLabel } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
@@ -143,6 +144,10 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     const samePosition = d.candidate?.type !== 'light' || candidate?.type !== 'light' || d.candidate.cfg.position === candidate.cfg.position
     const sameMount = exitMountZ(d.candidate) === exitMountZ(candidate)
     if (samePosition && sameMount && sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
+    if(candidate?.type==='walkway'&&!reason){
+      const station=get().station
+      primeGroundResize(station.cells,station.modules,station.modules.map(m=>m.id===candidate.id?candidate:m))
+    }
     set({ moveDraft: { ...d, at, candidate, reason } })
   },
   rotateMove: () => {

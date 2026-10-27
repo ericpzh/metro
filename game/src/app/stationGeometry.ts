@@ -1,6 +1,6 @@
 import { cellKey, thinWallSideMap, zoneFloorKeys } from '../build/model.ts'
 import { populationEdit } from '../sim/populationEdit.ts'
-import { withGround } from '../sim/ground.ts'
+import { groundWindow, resizeGround, withGround } from '../sim/ground.ts'
 import { packKey, type StationData } from '../sim/types.ts'
 import { thinWallCells } from '../sim/openings.ts'
 import { isEquipmentContentEdit, isEquipmentModelEdit, signBoardsOnlyChange } from '../render/moduleDependencies.ts'
@@ -30,7 +30,27 @@ export class StationGeometry {
    * from its exact membership delta and all changed authored records, including
    * duplicates, rather than reclassifying the entire street on every ramp edit. */
   private updateGeometry(data: StationData, thins: ReturnType<typeof thinWallSideMap>) {
-    const ground=withGround(data.cells,data.modules)
+    const content=this.data!.cells===data.cells&&isEquipmentContentEdit(this.data!,data)
+    const previousWindow=content?groundWindow(this.data!.cells,this.data!.modules):null
+    const ground=previousWindow?resizeGround(data.cells,data.modules,this.geometry!.ground,previousWindow):withGround(data.cells,data.modules)
+    if(previousWindow){
+      const w=groundWindow(data.cells,data.modules)
+      if(Number.isInteger(w.x0-previousWindow.x0)&&Number.isInteger(w.y0-previousWindow.y0)){
+        // Resized street strips are beyond the old/new authored content plus
+        // its margin. No authored floor above or below can change exposure here.
+        const {solids,floors}=this.geometry!
+        const outside=(c:Cell,b:typeof w)=>c.x<b.x0||c.x>b.x1||c.y<b.y0||c.y>b.y1
+        for(let i=data.cells.length;i<this.geometry!.ground.length;i++){
+          const c=this.geometry!.ground[i]
+          if(outside(c,w)){const key=cellKey(c.x,c.y,c.z);solids.delete(key);floors.delete(key)}
+        }
+        for(let i=data.cells.length;i<ground.length;i++){
+          const c=ground[i]
+          if(outside(c,previousWindow)){const key=cellKey(c.x,c.y,c.z);solids.add(key);floors.add(key)}
+        }
+        return {ground,solids,floors,thins}
+      }
+    }
     const candidates=new Map<number,Cell>()
     const add=(c:Cell)=>{
       for(let dz=-1;dz<=1;dz++)candidates.set(packKey(c.x,c.y,c.z+dz),{...c,z:c.z+dz})

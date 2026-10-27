@@ -1974,6 +1974,124 @@ main workspace without this atlas change. No full-suite pass is claimed. Logs
 are `tail-full-tests.log`, `tail-fixture-recheck.log`, `tail-unrelated-checks.log`
 and `tail-batching-{native,fallback}.log` under `.preview/perf/sim-stalls/`.
 
+### Three remaining actions toward 100 ms — 2026-10-26
+
+Matched production API-to-first-render recheck: complete Zoo and Tanwei demos,
+High quality, paused staging camera, 892 × 815 canvas at ratio 1, Chrome 156,
+i7-14700KF / RTX 4080 SUPER through ANGLE D3D11. Run
+`BENCH_CASE=walkway/length=long,guidepost,block/auto-walls`, `BENCH_SAMPLES=5`
+with `node tools/bench-editor-actions.mjs --record-only`; set a unique
+`BENCH_ACTION_OUTPUT` for each capture. Baseline and recheck use identical fixtures,
+case order and sample count, without concurrent tests or profiles.
+
+| Demo / action | Baseline first / median / max | Recheck first / median / max | Recheck <100 ms |
+| --- | --- | --- | ---: |
+| Tanwei long walkway drop | 293.2 / 284.0 / 310.0 ms | 97.0 / 84.5 / 97.0 ms | 5/5 |
+| Zoo guidepost drop | 185.3 / 271.2 / 320.8 ms | 65.4 / 39.3 / 65.4 ms | 5/5 |
+| Zoo auto-wall block placement | 379.5 / 61.0 / 379.5 ms | 54.9 / 54.9 / 59.8 ms | 5/5 |
+
+Raw reports: `.preview/perf/target-three-100-{before,bounds}/report.json`.
+Baseline source/build SHA-256 are
+`b63047800650b01abde1b061e2e4d62f2e9c06598735b885403cf2ade98c1765` /
+`86e0634203bba21d074211f2613908a49c6574eca1fe89ba9a4c5aab1fb6dd54`.
+Recheck source/build are
+`4719d7c09d009d0741c77642953719b654bc7d03f21fa0b0e84484f1661a386d` /
+`8b746a9dd86292b0642d4f9bea4456eedaaaf72990806cbb20c87611a303f3f6`.
+At this capture the full inventory and JSONL retained their original results. This six-case subset
+contains 180 rows: 137 below budget, 13 over budget, 30 unsupported. Remaining
+over-budget rows belong to other stages, including walkway placement/deletion
+and Tanwei guidepost move preview. No functional/runtime/WebGL errors occurred.
+Five repetitions do not establish p95, pointer-to-compositor latency or GPU completion.
+
+The improvements remove repeated work rather than lower quality: guideposts
+retain artwork and local geometry; rigid flat walkways retain their model and band
+phase when endpoint heights/support/configuration agree. Exclusively owned draw
+buckets translate without rebuilding GPU buffers; shared buckets fall back.
+Dormant views and source discovery invalidate after translation. Selection/grid
+materials survive for the scene lifetime, including warming selection's onscreen
+shader during opening. Track-bed and structural opening inputs reuse immutable
+records. Floor gestures reconcile only their edited wall-height ranges, including
+overlapping owners: unrelated imported auto-wall records survive (the first Zoo
+gesture previously removed 147 remote records). Explicit full reconciliation
+remains available; this is an intentional change to gesture scope.
+
+Chunk edits classify affected storeys per column; the two-cell classification
+halo probes at most four chunk coordinates instead of 25 cell offsets. Immutable
+authored-cell membership and station bounds are reused across derived consumers;
+returned bounds remain caller-owned, with margins applied outside the cache.
+A non-carving street resize
+updates only edge strips and preserves unrelated meshes/materials. A 64-entry
+plain-ground template cache requires exact shape and halo proof; authored terrain,
+holes and support fall back. Generated pavement caches four windows per immutable
+cell/structural-module input, returning fresh arrays with immutable shared records.
+A valid walkway move preview may prepare its prospective ground tail without
+editing the document/history or live indexes; confirmation revalidates inputs.
+All five Tanwei walkway move previews also pass in the recheck. Renderer mount,
+document installation and carried-module state use ordered layout effects to
+avoid an extra passive-effect paint gap. Original picking geometry remains intact.
+
+Intermediate reports are retained: nineteenth first Tanwei drop 103.5 ms;
+twentieth 97.4 ms, followed by verification misses of 109.1/104.4 ms;
+corners 103.4 ms, belts 100.3 ms and anchor 102.3 ms. The halo capture overlapped
+a focused test and is diagnostic only. Final bounds reuse reduces the first drop
+to 97.0 ms. Flat belts skip dependency readers they cannot affect while fences,
+exit openings and linked owners still invalidate. Proven translation-only edits
+check changed roots' ground bands, retaining other anchors within the unchanged
+authored ground and content margin. Separate CPU profiles are diagnostic,
+not timing evidence. Early custom software-GPU probes must not be interpreted as
+hardware latency results.
+
+Validation: production build and all 2,523 game tests pass; the independent
+ground/layering recheck passes 19 tests. Deterministic regressions cover fresh mesh
+equivalence, duplicate records, shrinking/fractional windows, ownership/disposal,
+work counts, artwork invalidation, animation phase, batch fallback and view reuse.
+`tools/check-editor-move-caches.mjs` checks actual production drop/undo/redo against
+forced fresh aggregation: guidepost differences 4/0/4 pixels and walkway 0/10/0,
+with a 128-pixel tolerance for RGB differences above 1. Both retain root/artwork
+identity and exercise direct translation at every phase; no runtime/WebGL errors.
+Report: `.preview/perf/target-three-validated-move-gpu/report.json` (functional, untimed).
+Batching check: station draws 3,786 → 1,105, closed/open train draws 779 → 29,
+triangles preserved, native multi-draw and no shader/runtime/WebGL errors.
+Profiling-tool CPU export and trace-stream checks also pass.
+Bilingual tutorial browser checks pass all 18 steps, live controls, persistence,
+completion/skip/opt-out and explicit demo loading after the layout-effect change.
+
+### Refreshed complete editor-action inventory — 2026-10-27 UTC
+
+The complete ordered Zoo and Tanwei inventory was rerun with one sample per
+case using the same High-quality hardware API-to-first-render protocol as the
+prior full inventory. The 809 cases produced 4,854 rows: 3,599 timings below
+100 ms, 812 over budget, 441 unsupported actions and two PSD-cover drop
+refusals. Maximum completed feedback was 262.8 ms. The previous full inventory
+had 3,534 below 100 ms and a 421.4 ms maximum. One sample is not a tail
+distribution, and these timings do not include pointer dispatch, compositor
+presentation or completed GPU work.
+
+The source/build SHA-256 were
+`4719d7c09d009d0741c77642953719b654bc7d03f21fa0b0e84484f1661a386d` /
+`8b746a9dd86292b0642d4f9bea4456eedaaaf72990806cbb20c87611a303f3f6`.
+The complete report and frozen inputs are under
+`.preview/perf/editor-actions-current/`. The [latest matrix](editor-action-matrix.md)
+is regenerated after completed hardware captures and may also contain newer
+focused measurements; each row identifies its capture and sample count. The
+original full JSONL remains available in repository history; the existing JSONL
+now holds the latest per-action index.
+The automatic-update integration check then reran the three previously targeted
+cases on both demos with five samples (`.preview/perf/editor-matrix-auto-check/`).
+All five requested Tanwei walkway drops and Zoo guidepost drops/auto-wall placements
+were below 100 ms, with respective maxima of 79.7, 81.1 and 48.3 ms. Three Tanwei
+guidepost move-preview samples exceeded the budget. At that point the focused run
+replaced only its 36 demo/case/action rows; the remaining rows identified the
+complete one-sample capture. Subsequent runs supersede those rows in the matrix.
+The follow-up timestamp-aware integration run
+(`.preview/perf/editor-matrix-auto-timestamps/`) again exercised five samples
+of those six demo/case combinations. The requested Tanwei walkway drop, Zoo
+guidepost drop and Zoo auto-wall placement maxima were 88.1, 55.3 and 52.5 ms;
+other stages included 11 samples over budget. After merging, the latest index
+contains 818 actions above 100 ms, 3,593 at or below 100 ms and 443 unsupported
+or incomplete actions. Per-action capture timestamps prevent older resumed
+checkpoints from superseding newer measurements.
+
 ### Benchmark protocol
 
 Run comparable browser benchmarks sequentially, with no build, test or profiler competing

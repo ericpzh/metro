@@ -2549,8 +2549,16 @@ export function blockerLabels(blockers: readonly Module[]): string {
  * (`placementBlocked` matches a candidate to itself by id), and the **layer** is not
  * re-checked: a 移动 may not be refused for where the piece already is.
  */
+const moveVerdicts = new WeakMap<readonly Cell[], WeakMap<readonly Module[], { key: string; reason: ReturnType<typeof equipmentReason> }>>()
 export function moveDropReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module): string {
-  const reason = equipmentReason(cells, modules, candidate)
+  // Preview and release ask about the same immutable document and exact piece.
+  // Keep one verdict per document pair; a changed aim, module setting, cell or
+  // module array must validate again. Cache the code so notices follow language.
+  let documents=moveVerdicts.get(cells)
+  if(!documents)moveVerdicts.set(cells,documents=new WeakMap())
+  const key=JSON.stringify(candidate),cached=documents.get(modules)
+  const reason=cached?.key===key?cached.reason:equipmentReason(cells, modules, candidate)
+  if(cached?.key!==key)documents.set(modules,{key,reason})
   if (reason === '') return ''
   return equipmentRefusalNotice(reason, placementColliders(modules, candidate))
 }
