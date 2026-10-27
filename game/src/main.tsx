@@ -3,6 +3,7 @@ import { MobileNotice } from './app/MobileNotice.tsx'
 import { isMobileMode } from './app/mobile.ts'
 import './styles.css'
 import { initLanguage } from './app/i18n.ts'
+import { failGameLoading, showGameLoading } from './app/gameLoading.ts'
 
 initLanguage()
 
@@ -73,8 +74,10 @@ async function boot() {
   if (isMobileMode()) {
     // A phone or tablet gets a plain page. Neither the game nor its three.js
     // bundle is imported, so nothing renders, simulates or downloads here.
+    showGameLoading(false)
     root.render(<MobileNotice onProceed={() => {
-      void import('./app/boot.tsx').then(({ renderGame }) => renderGame(root))
+      showGameLoading(true)
+      void import('./app/boot.tsx').then(({ renderGame }) => renderGame(root)).catch(failGameLoading)
     }} />)
     return
   }
@@ -85,4 +88,4 @@ async function boot() {
   }
 }
 
-void boot()
+void boot().catch(failGameLoading)

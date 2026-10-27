@@ -38,15 +38,15 @@ const TIME_SLOTS = 7
  * bar already gives them.
  */
 const COLOUR = {
-  crowdLos: '#ffc861',
-  population: '#55b6ff',
-  gateQueue: '#ff9d76',
-  escalatorQueue: '#7ee3a1',
-  liftQueue: '#c9a3ff',
-  doorQueue: '#6fc7d8',
-  boarded: '#55b6ff',
-  exited: '#7ee3a1',
-  leftBehind: '#ff6b6b',
+  crowdLos: 'var(--chart-amber, #ffc861)',
+  population: 'var(--chart-blue, #55b6ff)',
+  gateQueue: 'var(--chart-orange, #ff9d76)',
+  escalatorQueue: 'var(--chart-green, #7ee3a1)',
+  liftQueue: 'var(--chart-purple, #c9a3ff)',
+  doorQueue: 'var(--chart-teal, #6fc7d8)',
+  boarded: 'var(--chart-blue, #55b6ff)',
+  exited: 'var(--chart-green, #7ee3a1)',
+  leftBehind: 'var(--chart-red, #ff6b6b)',
 } as const
 
 /** The time-of-day labels a chart prints, evenly spread over its samples. */

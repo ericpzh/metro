@@ -2123,6 +2123,13 @@ including the depth prepass, for all six appearances.
   `app/boot.tsx` is lazy-imported so `app/mobile.ts` + `MobileNotice.tsx` can show a plain notice
   on phones without downloading the three.js bundle. `/lab` renders `app/Lab.tsx`, the
   material/renderer lab.
+* UI themes live in `app/uiTheme.ts` outside station state. Blueprint is the default;
+  Night uses command lists and Studio uses light grouped controls and a light scene
+  void. Keep the sky in Hide UI and preserve the standalone exploded-view background.
+  The early loading shell in `index.html` reads the saved theme and locale before the
+  bundle loads; `Viewport` dismisses it after the installed station's first rendered
+  frame. Capture, lab and benchmark routes bypass it, and mobile defers it until the
+  player proceeds. Keep storage failure and load failure usable.
 * **A pass over what a rebuild costs** (`render/scene/systems/*`, `render/materials.ts`,
   `sim/worker.ts`, `build/model/State.ts`, `app/store/slices/*`). The chunk cache is released
   exactly once, keep-aware (`meshStation` used to release the last rebuild twice), and

@@ -11,10 +11,124 @@
   --warn: #ffc861;
   --danger: #ff7d5c;
   --ink: #8fc4ee;
-  --bp-line: rgba(126, 183, 231, 0.3);
-  --bp-grid: rgba(96, 168, 232, 0.1);
+  --bp-line: rgba(var(--ui-accent-rgb, 126, 183, 231), 0.3);
+  --bp-grid: rgba(var(--ui-accent-rgb, 96, 168, 232), 0.1);
   --font: 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
   --mono: 'Cascadia Mono', 'Consolas', 'SFMono-Regular', ui-monospace, monospace;
+}
+
+
+/* Game UI palettes follow the main site and the sound studio. */
+:root[data-ui-theme="site"] {
+  --ui-accent-rgb: 242, 179, 44; --ui-heading: #eef3f9;
+  --bg: #070a10; --panel: #111720; --panel2: #0a0d13; --line: #303b49;
+  --text: #eef3f9; --muted: #9aaabd; --accent: #f2b32c; --ink: #c2cedd;
+  --bp-line: rgba(255,255,255,.17); --bp-grid: rgba(255,255,255,.04);
+  --ui-06111d: #0a0d13;
+  --ui-061426: #0a0d13;
+  --ui-061524: #0a0d13;
+  --ui-081a2c: #111720;
+  --ui-081c2f: #111720;
+  --ui-0a1a2b: #111720;
+  --ui-0a1e33: #111720;
+  --ui-0a2036: #111720;
+  --ui-0b1b2c: #111720;
+  --ui-0b1f36: #111720;
+  --ui-0c2136: #111720;
+  --ui-0d1116: #0a0d13;
+  --ui-0d2137: #111720;
+  --ui-0e2338: #111720;
+  --ui-0f2740: #18212c;
+  --ui-10233a: #111720;
+  --ui-10273b: #111720;
+  --ui-12283d: #111720;
+  --ui-123355: #242f3c;
+  --ui-132a42: #18212c;
+  --ui-13304c: #18212c;
+  --ui-143152: #18212c;
+  --ui-16374f: #18212c;
+  --ui-164b70: #242f3c;
+  --ui-1667b8: #b77d12;
+  --ui-173650: #18212c;
+  --ui-173e60: #242f3c;
+  --ui-182c33: #111720;
+  --ui-18344f: #18212c;
+  --ui-192532: #111720;
+  --ui-1a76cf: #b77d12;
+  --ui-1d527d: #b77d12;
+  --ui-1e4a72: #242f3c;
+  --ui-202e3d: #111720;
+  --ui-23466b: #242f3c;
+  --ui-24435f: #242f3c;
+  --ui-24557f: #b77d12;
+  --ui-2a4d70: #242f3c;
+  --ui-2b8ae0: #b77d12;
+  --ui-2f4763: #242f3c;
+  --ui-356b9c: #b77d12;
+  --ui-365778: #465363;
+  --ui-3d6f9f: #8b9aad;
+  --ui-4ea8ff: #eef3f9;
+  --ui-527199: #8b9aad;
+  --ui-566b72: #242f3c;
+  --ui-8fc4ee: #eef3f9;
+  --ui-93a9bf: #8b9aad;
+  --ui-bfe6ff: #eef3f9;
+}
+:root[data-ui-theme="studio"] {
+  --ui-accent-rgb: 201, 77, 36; --ui-heading: #303a30;
+  --bg: #f4f3ed; --panel: #fdfef9; --panel2: #f0f2e8; --line: #d8dbce;
+  --text: #303a30; --muted: #687363; --accent: #c94d24; --ink: #53634f;
+  --good: #477653; --warn: #91600c; --danger: #b43e24;
+  --bp-line: rgba(92,106,84,.3); --bp-grid: rgba(92,106,84,.08);
+  --ui-06111d: #f4f3ed;
+  --ui-061426: #f4f3ed;
+  --ui-061524: #f4f3ed;
+  --ui-081a2c: #fdfef9;
+  --ui-081c2f: #fdfef9;
+  --ui-0a1a2b: #fdfef9;
+  --ui-0a1e33: #fdfef9;
+  --ui-0a2036: #fdfef9;
+  --ui-0b1b2c: #fdfef9;
+  --ui-0b1f36: #fdfef9;
+  --ui-0c2136: #fdfef9;
+  --ui-0d1116: #f4f3ed;
+  --ui-0d2137: #fdfef9;
+  --ui-0e2338: #fdfef9;
+  --ui-0f2740: #f0f2e8;
+  --ui-10233a: #fdfef9;
+  --ui-10273b: #fdfef9;
+  --ui-12283d: #fdfef9;
+  --ui-123355: #e5e9db;
+  --ui-132a42: #f0f2e8;
+  --ui-13304c: #f0f2e8;
+  --ui-143152: #f0f2e8;
+  --ui-16374f: #f0f2e8;
+  --ui-164b70: #e5e9db;
+  --ui-1667b8: #df6032;
+  --ui-173650: #f0f2e8;
+  --ui-173e60: #e5e9db;
+  --ui-182c33: #fdfef9;
+  --ui-18344f: #f0f2e8;
+  --ui-192532: #fdfef9;
+  --ui-1a76cf: #df6032;
+  --ui-1d527d: #df6032;
+  --ui-1e4a72: #e5e9db;
+  --ui-202e3d: #fdfef9;
+  --ui-23466b: #e5e9db;
+  --ui-24435f: #e5e9db;
+  --ui-24557f: #df6032;
+  --ui-2a4d70: #e5e9db;
+  --ui-2b8ae0: #df6032;
+  --ui-2f4763: #e5e9db;
+  --ui-356b9c: #df6032;
+  --ui-365778: #a2ad99;
+  --ui-3d6f9f: #687363;
+  --ui-4ea8ff: #303a30;
+  --ui-527199: #687363;
+  --ui-566b72: #e5e9db;
+  --ui-8fc4ee: #303a30;
+  --ui-93a9bf: #687363;
+  --ui-bfe6ff: #303a30;
 }
 
 * {
@@ -37,29 +151,29 @@ button {
   font-family: inherit;
   font-size: 12px;
   color: var(--text);
-  background: #132a42;
+  background: var(--ui-132a42, #132a42);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 5px 10px;
   cursor: pointer;
 }
 button:hover {
-  background: #18344f;
-  border-color: #3d6f9f;
+  background: var(--ui-18344f, #18344f);
+  border-color: var(--ui-3d6f9f, #3d6f9f);
 }
 button.primary {
-  background: #1667b8;
-  border-color: #2b8ae0;
+  background: var(--ui-1667b8, #1667b8);
+  border-color: var(--ui-2b8ae0, #2b8ae0);
   font-weight: 600;
 }
 button.primary:hover {
-  background: #1a76cf;
+  background: var(--ui-1a76cf, #1a76cf);
 }
 button.ghost {
   background: transparent;
 }
 button.ghost:hover {
-  background: #10233a;
+  background: var(--ui-10233a, #10233a);
 }
 a.ghost {
   color: var(--text);
@@ -70,8 +184,8 @@ a.ghost {
   text-decoration: none;
 }
 a.ghost:hover {
-  background: #10233a;
-  border-color: #3d6f9f;
+  background: var(--ui-10233a, #10233a);
+  border-color: var(--ui-3d6f9f, #3d6f9f);
 }
 .chip {
   padding: 4px 8px;
@@ -91,9 +205,9 @@ a.ghost:hover {
 }
 .chip.on,
 .railBtn.on {
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
   border-color: var(--accent);
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .iconBtn {
   display: inline-flex;
@@ -127,12 +241,12 @@ a.ghost:hover {
   border-left: 1px solid var(--line);
 }
 .seg button:hover {
-  background: #10233a;
+  background: var(--ui-10233a, #10233a);
   color: var(--text);
 }
 .seg button.on {
-  background: #16374f;
-  color: #eaf5ff;
+  background: var(--ui-16374f, #16374f);
+  color: var(--ui-heading, #eaf5ff);
 }
 
 .app {
@@ -147,23 +261,23 @@ a.ghost:hover {
   align-items: center;
   gap: 8px;
   padding: 0 12px;
-  background: #0c2136;
+  background: var(--ui-0c2136, #0c2136);
   border-bottom: 1px solid var(--line);
 }
 .settingsMenu { position: relative; }
 .settingsMenu summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 3px; color: var(--text); }
 .settingsMenu summary::-webkit-details-marker { display: none; }
-.settingsMenu summary:hover, .settingsMenu[open] summary { background: #173650; color: var(--accent); }
+.settingsMenu summary:hover, .settingsMenu[open] summary { background: var(--ui-173650, #173650); color: var(--accent); }
 .settingsMenu summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.settingsDropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 100; width: min(420px, calc(100vw - 20px)); max-height: calc(100vh - 64px); overflow-y: auto; padding: 10px; background: #081a2c; border: 1px solid var(--bp-line); border-radius: 0; box-shadow: 0 10px 30px #0009; scrollbar-width: thin; }
-.settingsHeading { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; margin-bottom: 8px; color: #eaf5ff; border-bottom: 1px solid var(--bp-line); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+.settingsDropdown { position: absolute; right: 0; top: calc(100% + 8px); z-index: 100; width: min(420px, calc(100vw - 20px)); max-height: calc(100vh - 64px); overflow-y: auto; padding: 10px; background: var(--ui-081a2c, #081a2c); border: 1px solid var(--bp-line); border-radius: 0; box-shadow: 0 10px 30px #0009; scrollbar-width: thin; }
+.settingsHeading { display: flex; align-items: center; gap: 8px; padding: 4px 4px 10px; margin-bottom: 8px; color: var(--ui-heading, #eaf5ff); border-bottom: 1px solid var(--bp-line); font-size: 12px; font-weight: 700; letter-spacing: .12em; }
 .settingsHeading svg { color: var(--accent); }
 .settingsAudioGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
 .settingsQualityLabel { color: var(--muted); margin: 12px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .settingsToggleGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.settingsToggle { min-width: 0; aspect-ratio: 1; padding: 8px; border: 1px solid var(--bp-line); border-radius: 0; background: #0a2036; color: var(--text); font-size: 11px; }
-.settingsToggle:hover { background: #173650; border-color: var(--accent); }
-.settingsToggle.on { background: #16374f; color: #eaf5ff; border-color: var(--accent); box-shadow: inset 0 3px var(--accent); }
+.settingsToggle { min-width: 0; aspect-ratio: 1; padding: 8px; border: 1px solid var(--bp-line); border-radius: 0; background: var(--ui-0a2036, #0a2036); color: var(--text); font-size: 11px; }
+.settingsToggle:hover { background: var(--ui-173650, #173650); border-color: var(--accent); }
+.settingsToggle.on { background: var(--ui-16374f, #16374f); color: var(--ui-heading, #eaf5ff); border-color: var(--accent); box-shadow: inset 0 3px var(--accent); }
 .settingsToggle:focus-visible, .settingsAction:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .settingsToggleGrid { margin-top: 12px; }
 .settingsToggle { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 5px; text-align: left; }
@@ -172,12 +286,12 @@ a.ghost:hover {
 .settingsToggle strong { font-size: 13px; font-weight: 600; }
 .settingsStatsTile { position: relative; min-width: 0; }
 .settingsStatsTile > .settingsToggle { width: 100%; height: 100%; }
-.settingsStatsTooltip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 40; width: min(260px, calc(100vw - 40px)); padding: 9px; color: var(--text); background: #081a2c; border: 1px solid var(--bp-line); box-shadow: 0 8px 24px #0009; font-size: 11px; line-height: 1.45; }
+.settingsStatsTooltip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 40; width: min(260px, calc(100vw - 40px)); padding: 9px; color: var(--text); background: var(--ui-081a2c, #081a2c); border: 1px solid var(--bp-line); box-shadow: 0 8px 24px #0009; font-size: 11px; line-height: 1.45; }
 .settingsStatsTile:hover > .settingsStatsTooltip, .settingsStatsTile:focus-within > .settingsStatsTooltip { display: block; }
 .settingsNote { margin: 7px 2px 10px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .settingsActionGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
-.settingsAction { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 5px; width: 100%; aspect-ratio: 1; padding: 8px; text-align: left; text-decoration: none; border: 1px solid var(--bp-line); border-radius: 0; background: #0a2036; font-size: 11px; }
-.settingsAction:hover { border-color: var(--accent); background: #173650; }
+.settingsAction { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 5px; width: 100%; aspect-ratio: 1; padding: 8px; text-align: left; text-decoration: none; border: 1px solid var(--bp-line); border-radius: 0; background: var(--ui-0a2036, #0a2036); font-size: 11px; }
+.settingsAction:hover { border-color: var(--accent); background: var(--ui-173650, #173650); }
 .settingsAction svg { flex: none; width: 22px; height: 22px; color: var(--accent); }
 .exampleStationsMenu {
   position: fixed;
@@ -211,7 +325,7 @@ a.ghost:hover {
   border-radius: 8px;
   box-shadow: 0 12px 36px #0008;
 }
-.newStationPanel h2 { margin: 0 0 10px; color: #eaf5ff; font-size: 16px; }
+.newStationPanel h2 { margin: 0 0 10px; color: var(--ui-heading, #eaf5ff); font-size: 16px; }
 .newStationPanel p { margin: 0; color: var(--muted); line-height: 1.6; }
 .newStationActions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 .newStationActions button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -236,7 +350,7 @@ a.ghost:hover {
   border-radius: 8px;
   box-shadow: 0 12px 36px #0008;
 }
-.liftDoorPanel h2 { margin: 0 0 6px; color: #eaf5ff; font-size: 16px; }
+.liftDoorPanel h2 { margin: 0 0 6px; color: var(--ui-heading, #eaf5ff); font-size: 16px; }
 .liftDoorPanel p { margin: 0 0 12px; line-height: 1.5; }
 .liftDoorPanel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .liftDoorRows { display: flex; flex-direction: column; gap: 6px; }
@@ -290,7 +404,7 @@ a.ghost:hover {
 .logo {
   font-weight: 700;
   letter-spacing: 2px;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .stationName {
   color: var(--muted);
@@ -299,16 +413,16 @@ a.ghost:hover {
   padding: 3px 6px;
 }
 .stationName:hover {
-  color: #eaf5ff;
-  background: #10233a;
+  color: var(--ui-heading, #eaf5ff);
+  background: var(--ui-10233a, #10233a);
   border-color: var(--line);
 }
 .stationNameInput {
   width: 12em;
   font-family: inherit;
   font-size: 12px;
-  color: #eaf5ff;
-  background: #081a2c;
+  color: var(--ui-heading, #eaf5ff);
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--accent);
   border-radius: 3px;
   padding: 4px 6px;
@@ -335,13 +449,13 @@ a.ghost:hover {
 
 .rail {
   position: relative;
-  background-color: #081a2c;
+  background-color: var(--ui-081a2c, #081a2c);
   /* A drafting grid — flat lines, no gradient. */
   background-image:
     linear-gradient(var(--bp-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px),
-    linear-gradient(rgba(96, 168, 232, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 168, 232, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px);
   background-size:
     40px 40px,
     40px 40px,
@@ -355,13 +469,13 @@ a.ghost:hover {
      grows past the viewport does not re-flow its square tiles when it appears. */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: #24557f transparent;
+  scrollbar-color: var(--ui-24557f, #24557f) transparent;
 }
 .rail::-webkit-scrollbar {
   width: 8px;
 }
 .rail::-webkit-scrollbar-thumb {
-  background: #1e4a72;
+  background: var(--ui-1e4a72, #1e4a72);
   border-radius: 4px;
 }
 
@@ -374,13 +488,13 @@ a.ghost:hover {
   border-radius: 0;
   padding: 6px 8px;
   margin-bottom: 8px;
-  background: #0a2036;
+  background: var(--ui-0a2036, #0a2036);
 }
 .railStampTitle {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 3px;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .railStampSub {
   font-size: 9px;
@@ -403,14 +517,14 @@ a.ghost:hover {
   padding: 0 9px;
   text-align: left;
   color: var(--ink);
-  background: #0f2740;
+  background: var(--ui-0f2740, #0f2740);
   border: 1px solid var(--bp-line);
   border-bottom-color: transparent;
   border-radius: 0;
   letter-spacing: 2px;
 }
 .folderHead:hover {
-  background: #143152;
+  background: var(--ui-143152, #143152);
 }
 /* The folder tab: a flat trapezoid that sits proud of the header's top edge.
    The tabs step progressively rightwards as the folders descend, so they read
@@ -427,25 +541,25 @@ a.ghost:hover {
   left: var(--tab-x, 10px);
   width: var(--tab-w, 60px);
   height: 7px;
-  background: #2a4d70; /* tab outline */
+  background: var(--ui-2a4d70, #2a4d70); /* tab outline */
 }
 .folderHead::after {
   top: -6px;
   left: calc(var(--tab-x, 10px) + 1px);
   width: calc(var(--tab-w, 60px) - 2px);
   height: 6px;
-  background: #0f2740; /* tab fill */
+  background: var(--ui-0f2740, #0f2740); /* tab fill */
 }
 .folder.open > .folderHead {
   border-bottom-color: var(--bp-line);
-  background: #16374f;
-  color: #eaf5ff;
+  background: var(--ui-16374f, #16374f);
+  color: var(--ui-heading, #eaf5ff);
 }
 .folder.open > .folderHead::before {
-  background: #356b9c;
+  background: var(--ui-356b9c, #356b9c);
 }
 .folder.open > .folderHead::after {
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
 }
 
 /* Tab positions: one diagonal, stepping right as the folders descend. */
@@ -521,7 +635,7 @@ a.ghost:hover {
   border: 1px solid var(--bp-line);
   border-top: none;
   border-radius: 0;
-  background: #0a1e33;
+  background: var(--ui-0a1e33, #0a1e33);
   opacity: 0;
   transition: opacity 200ms ease;
 }
@@ -601,13 +715,13 @@ a.ghost:hover {
   padding: 0;
   border: 1px solid var(--bp-line);
   border-radius: 999px;
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
 .panel button.exitSwitch.on {
   border-color: var(--accent);
-  background: #164b70;
+  background: var(--ui-164b70, #164b70);
 }
 .exitSwitchThumb {
   position: absolute;
@@ -616,7 +730,7 @@ a.ghost:hover {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #8fc4ee;
+  background: var(--ui-8fc4ee, #8fc4ee);
   transition: transform 120ms ease;
 }
 .exitSwitch.on .exitSwitchThumb {
@@ -643,27 +757,27 @@ a.ghost:hover {
   overflow: hidden;
   text-align: center;
   color: var(--ink);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border: 1px solid var(--bp-line);
   border-radius: 0;
   transition: border-color 120ms ease, background 120ms ease;
 }
 .bpBlock:hover {
-  background: #13304c;
-  border-color: rgba(85, 182, 255, 0.65);
+  background: var(--ui-13304c, #13304c);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.65);
 }
 /* Technical dashed inner frame. */
 .bpBlock::after {
   content: '';
   position: absolute;
   inset: 4px;
-  border: 1px dashed rgba(126, 183, 231, 0.18);
+  border: 1px dashed rgba(var(--ui-accent-rgb, 126, 183, 231), 0.18);
   border-radius: 0;
   pointer-events: none;
 }
 .bpBlock.on {
   border-color: var(--accent);
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
 }
 /* A tile another mode of the same tool has taken over (the 方块 tool's 生成墙壁
    while 半墙 is on): still drawn, so the rule is discoverable, but plainly out of
@@ -672,11 +786,11 @@ a.ghost:hover {
 .bpBlock:disabled:hover {
   opacity: 0.42;
   cursor: not-allowed;
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border-color: var(--bp-line);
 }
 .bpBlock.on::after {
-  border-color: rgba(85, 182, 255, 0.5);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.5);
 }
 /* Shortcut-key badge: hidden until the tile or the folder header is hovered or
    focused, so the rail stays clean but the keys are discoverable. The header
@@ -693,9 +807,9 @@ a.ghost:hover {
   line-height: 13px;
   text-align: center;
   white-space: nowrap;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
   background: rgba(7, 20, 33, 0.92);
-  border: 1px solid rgba(85, 182, 255, 0.55);
+  border: 1px solid rgba(var(--ui-accent-rgb, 85, 182, 255), 0.55);
   border-radius: 2px;
   pointer-events: none;
   opacity: 0;
@@ -778,7 +892,7 @@ a.ghost:hover {
   border: 0;
 }
 .bpNewColourArt {
-  background: #0a1a2b;
+  background: var(--ui-0a1a2b, #0a1a2b);
 }
 .bpNewColourPlus {
   color: #fff;
@@ -805,8 +919,8 @@ a.ghost:hover {
   font-size: 10.5px;
   line-height: 1.15;
   color: var(--muted);
-  border-top: 1px solid rgba(126, 183, 231, 0.14);
-  background: #0a1a2b;
+  border-top: 1px solid rgba(var(--ui-accent-rgb, 126, 183, 231), 0.14);
+  background: var(--ui-0a1a2b, #0a1a2b);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -820,7 +934,7 @@ html[lang="en"] .bpBlockLabel {
   justify-content: center;
 }
 .bpBlock.on .bpBlockLabel {
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 
 /* Sub-menu tile caret + the nested panel it folds out. */
@@ -853,7 +967,7 @@ html[lang="en"] .bpBlockLabel {
 .subMenuPad {
   margin: 6px 0 2px 12px;
   padding-left: 8px;
-  border-left: 2px solid rgba(85, 182, 255, 0.4);
+  border-left: 2px solid rgba(var(--ui-accent-rgb, 85, 182, 255), 0.4);
 }
 /* Inline expansion: a derived row that lives inside the tile grid, spanning the
    full width right below its parent tile's row. It reuses the subMenu 0fr → 1fr
@@ -936,7 +1050,7 @@ html[lang="en"] .bpBlockLabel {
 }
 .swatchBtn.on {
   border-color: var(--accent);
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
 }
 .finishDot {
   width: 12px;
@@ -951,7 +1065,7 @@ html[lang="en"] .bpBlockLabel {
   left: 50%;
   bottom: 58px;
   transform: translateX(-50%);
-  background: #0b1b2c;
+  background: var(--ui-0b1b2c, #0b1b2c);
   border: 1px solid var(--accent);
   border-radius: 0;
   padding: 8px 14px;
@@ -1006,7 +1120,7 @@ html[lang="en"] .bpBlockLabel {
   position: absolute;
   z-index: 8;
   color: var(--text);
-  background: #06111d;
+  background: var(--ui-06111d, #06111d);
   border: 1px solid var(--ink);
   padding: 3px 8px;
   border-radius: 0;
@@ -1034,7 +1148,7 @@ html[lang="en"] .bpBlockLabel {
   cursor: default;
 }
 .panel .card button:disabled:hover {
-  background: #132a42;
+  background: var(--ui-132a42, #132a42);
   border-color: var(--line);
 }
 
@@ -1059,7 +1173,7 @@ html[lang="en"] .bpBlockLabel {
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 0;
-  background: #0b1f36;
+  background: var(--ui-0b1f36, #0b1f36);
 }
 /* The cube itself: the drag-to-orbit handle, and the box the ⌂ button and the two
    arrows sit on the corners of. The lens slider is below it, deliberately outside this
@@ -1164,7 +1278,7 @@ html[lang="en"] .bpBlockLabel {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #12283d;
+  background: var(--ui-12283d, #12283d);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
   color: var(--muted);
   cursor: pointer;
@@ -1173,13 +1287,13 @@ html[lang="en"] .bpBlockLabel {
 .viewNavBtn:hover {
   color: #dff0ff;
   border-color: rgba(150, 180, 220, 0.5);
-  background: rgba(85, 182, 255, 0.18);
+  background: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.18);
 }
 /* A held arrow is a held pan, so the press is the lit state. */
 .viewNavBtn:active {
   color: #ffffff;
   border-color: rgba(150, 200, 255, 0.75);
-  background: rgba(85, 182, 255, 0.34);
+  background: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.34);
 }
 .viewNavBtn svg {
   display: block;
@@ -1240,7 +1354,7 @@ html[lang="en"] .bpBlockLabel {
   padding: 10px 6px 6px;
   border: 1px solid var(--line);
   border-radius: 0;
-  background: #0b1f36;
+  background: var(--ui-0b1f36, #0b1f36);
 }
 html[lang="en"] .depthRail {
   width: 56px;
@@ -1262,7 +1376,7 @@ html[lang="en"] .depthTag {
   width: 2px;
   transform: translateX(-50%);
   border-radius: 0;
-  background: #23466b;
+  background: var(--ui-23466b, #23466b);
 }
 .depthTick {
   position: absolute;
@@ -1278,14 +1392,14 @@ html[lang="en"] .depthTag {
   height: 3px;
   border-radius: 1px;
   transform: translate(-50%, -50%);
-  background: #2f4763;
-  border: 1px solid #527199;
+  background: var(--ui-2f4763, #2f4763);
+  border: 1px solid var(--ui-527199, #527199);
 }
 .depthTick.on i {
   width: 16px;
   height: 5px;
   background: var(--accent);
-  border-color: #bfe6ff;
+  border-color: var(--ui-bfe6ff, #bfe6ff);
 }
 .depthChip {
   position: absolute;
@@ -1297,8 +1411,8 @@ html[lang="en"] .depthTag {
   white-space: nowrap;
   padding: 2px 7px;
   border-radius: 0;
-  background: #0b1f36;
-  border: 1px solid rgba(85, 182, 255, 0.5);
+  background: var(--ui-0b1f36, #0b1f36);
+  border: 1px solid rgba(var(--ui-accent-rgb, 85, 182, 255), 0.5);
   pointer-events: auto;
 }
 .depthChip b {
@@ -1308,9 +1422,9 @@ html[lang="en"] .depthTag {
 }
 .depthChipInput {
   width: 46px;
-  background: #061426;
+  background: var(--ui-061426, #061426);
   color: var(--accent);
-  border: 1px solid rgba(85, 182, 255, 0.8);
+  border: 1px solid rgba(var(--ui-accent-rgb, 85, 182, 255), 0.8);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   padding: 0 3px;
@@ -1344,8 +1458,8 @@ html[lang="en"] .depthTag {
   z-index: 7;
   width: 116px;
   padding: 8px;
-  border: 1px solid #527199;
-  background: #0b1f36;
+  border: 1px solid var(--ui-527199, #527199);
+  background: var(--ui-0b1f36, #0b1f36);
   box-shadow: 0 5px 18px rgba(0, 0, 0, 0.36);
 }
 .depthBaseTitle {
@@ -1361,8 +1475,8 @@ html[lang="en"] .depthTag {
 }
 .depthBaseChoice {
   padding: 5px 0;
-  border: 1px solid #365778;
-  background: #123355;
+  border: 1px solid var(--ui-365778, #365778);
+  background: var(--ui-123355, #123355);
   color: #c4d9ed;
   font-size: 11px;
   border-radius: 0;
@@ -1370,21 +1484,21 @@ html[lang="en"] .depthTag {
 }
 .depthBaseChoice:hover,
 .depthBaseChoice.on {
-  border-color: #bfe6ff;
-  background: #1d527d;
+  border-color: var(--ui-bfe6ff, #bfe6ff);
+  background: var(--ui-1d527d, #1d527d);
   color: #fff;
 }
 
 .panel {
   position: relative;
-  background-color: #081a2c;
+  background-color: var(--ui-081a2c, #081a2c);
   /* The same drafting grid the build rail wears, so both rails read as one
      blueprint surface. */
   background-image:
     linear-gradient(var(--bp-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px),
-    linear-gradient(rgba(96, 168, 232, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 168, 232, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px);
   background-size:
     40px 40px,
     40px 40px,
@@ -1409,7 +1523,7 @@ html[lang="en"] .depthTag {
   overflow-y: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: #24557f transparent;
+  scrollbar-color: var(--ui-24557f, #24557f) transparent;
   padding: 10px 8px 0;
 }
 /* **`width: 100%` is load-bearing.** The clock card is a `<button>`, and a button does not fill its
@@ -1430,7 +1544,7 @@ html[lang="en"] .depthTag {
      cards do not re-flow when the panel grows past the viewport (matches .rail). */
   scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: #24557f transparent;
+  scrollbar-color: var(--ui-24557f, #24557f) transparent;
 }
 .panel::-webkit-scrollbar,
 .panelHead::-webkit-scrollbar,
@@ -1440,7 +1554,7 @@ html[lang="en"] .depthTag {
 .panel::-webkit-scrollbar-thumb,
 .panelHead::-webkit-scrollbar-thumb,
 .panelBody::-webkit-scrollbar-thumb {
-  background: #1e4a72;
+  background: var(--ui-1e4a72, #1e4a72);
   border-radius: 4px;
 }
 /* The 信息栏's clock (`windows/inspector/ClockCard.tsx`): the sim's own time and the
@@ -1497,7 +1611,7 @@ html[lang="en"] .depthTag {
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   letter-spacing: 1px;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .clockDate {
   display: flex;
@@ -1516,7 +1630,7 @@ html[lang="en"] .depthTag {
   line-height: 14px;
   letter-spacing: 1px;
   color: var(--muted);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--bp-line);
 }
 /* 高峰 is the period the whole crowd curve is shaped for: amber, the same ink the
@@ -1527,12 +1641,12 @@ html[lang="en"] .depthTag {
   background: rgba(255, 200, 97, 0.12);
 }
 .clockChip.late {
-  color: #93a9bf;
+  color: var(--ui-93a9bf, #93a9bf);
 }
 .clockChip.off {
   margin-left: auto;
   color: var(--accent);
-  border-color: rgba(85, 182, 255, 0.5);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.5);
 }
 /* Open or shut, the two states the operating hours are for: green while the station is
    trading, a dashed grey while it is not (a shut station is not a fault, so it does not
@@ -1552,7 +1666,7 @@ html[lang="en"] .depthTag {
   position: relative;
   height: 7px;
   margin-top: 2px;
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--bp-line);
 }
 /* The **operating hours** (§9.6C 营业时间): the lit part of the day. Everything the
@@ -1562,7 +1676,7 @@ html[lang="en"] .depthTag {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(85, 182, 255, 0.18);
+  background: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.18);
 }
 /* The station's two 高峰时段 (`DEFAULT_PEAKS` until the player draws their own),
    shaded; the playhead crosses them as the chip above turns amber. */
@@ -1595,7 +1709,7 @@ html[lang="en"] .depthTag {
   border-radius: 0;
 }
 .card {
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border: 1px solid var(--bp-line);
   border-radius: 0;
   padding: 8px;
@@ -1623,7 +1737,7 @@ html[lang="en"] .depthTag {
   gap: 6px;
   padding: 8px;
   border: 1px solid var(--bp-line);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
 }
 .infoCardActions {
   display: flex;
@@ -1633,7 +1747,7 @@ html[lang="en"] .depthTag {
   gap: 6px;
   padding: 8px;
   border: 1px solid var(--bp-line);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
 }
 .infoCardActions:empty {
   display: none;
@@ -1674,7 +1788,7 @@ html[lang="en"] .depthTag {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 0;
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   color: var(--muted);
   cursor: pointer;
 }
@@ -1699,7 +1813,7 @@ html[lang="en"] .depthTag {
      the build rail's folder headers do. */
   margin: -8px -8px 0;
   padding: 7px 9px;
-  background: #0f2740;
+  background: var(--ui-0f2740, #0f2740);
   border: none;
   border-bottom: 1px solid var(--bp-line);
   color: var(--ink);
@@ -1708,11 +1822,11 @@ html[lang="en"] .depthTag {
   cursor: pointer;
 }
 .disclosureHead:hover {
-  background: #143152;
+  background: var(--ui-143152, #143152);
 }
 .disclosureHead.open {
-  background: #16374f;
-  color: #eaf5ff;
+  background: var(--ui-16374f, #16374f);
+  color: var(--ui-heading, #eaf5ff);
 }
 .disclosureHead .kv {
   flex: 1;
@@ -1780,8 +1894,8 @@ html[lang="en"] .depthTag {
   min-width: 0;
   font-family: inherit;
   font-size: 12px;
-  color: #eaf5ff;
-  background: #081a2c;
+  color: var(--ui-heading, #eaf5ff);
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--line);
   border-radius: 3px;
   padding: 3px 6px;
@@ -1900,12 +2014,12 @@ html[lang="en"] .depthTag {
      It is drawn **faint**, and that is the point: a board is a black plate, so a loud grid
      behind it competes with the thing being composed. The colour is set first so the sheet
      still reads if gradients are ignored anywhere. */
-  background-color: #081a2c;
+  background-color: var(--ui-081a2c, #081a2c);
   background-image:
-    linear-gradient(rgba(96, 168, 232, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 168, 232, 0.075) 1px, transparent 1px),
-    linear-gradient(rgba(96, 168, 232, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 168, 232, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(var(--ui-accent-rgb, 96, 168, 232), 0.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ui-accent-rgb, 96, 168, 232), 0.075) 1px, transparent 1px),
+    linear-gradient(rgba(var(--ui-accent-rgb, 96, 168, 232), 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ui-accent-rgb, 96, 168, 232), 0.03) 1px, transparent 1px);
   background-size:
     40px 40px,
     40px 40px,
@@ -1915,7 +2029,7 @@ html[lang="en"] .depthTag {
      so a blueprint-blue hairline around it read as a bright box floating over the station
      rather than as the edge of a sheet. The sheet is separated from the scrim by its shadow,
      and the frame only says where the paper stops. */
-  border: 1px solid rgba(126, 183, 231, 0.16);
+  border: 1px solid rgba(var(--ui-accent-rgb, 126, 183, 231), 0.16);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
 }
 /* The header: a **small** bar with the way out at its right-hand end and nothing else. It
@@ -1928,7 +2042,7 @@ html[lang="en"] .depthTag {
   justify-content: flex-end;
   margin: -14px -14px 0;
   padding: 5px 8px;
-  background: #081c2f;
+  background: var(--ui-081c2f, #081c2f);
   border-bottom: 1px solid var(--bp-line);
 }
 /* The way out: a small square, the size of a window's close button rather than of a board
@@ -1944,7 +2058,7 @@ html[lang="en"] .depthTag {
   font-size: 13px;
   line-height: 1;
   color: var(--muted);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border: 1px solid var(--bp-line);
   border-radius: 0;
   cursor: pointer;
@@ -1979,7 +2093,7 @@ html[lang="en"] .depthTag {
   gap: var(--sign-gap);
   min-height: 0;
   padding: 8px 4px;
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--bp-line);
 }
 /* **A mark is being carried back into the shelves.** The library is where a tile comes from,
@@ -2026,15 +2140,15 @@ html[lang="en"] .depthTag {
   align-content: start;
   gap: 0;
   padding: var(--sign-gap);
-  background: #061524;
-  border: 1px solid rgba(126, 183, 231, 0.12);
+  background: var(--ui-061524, #061524);
+  border: 1px solid rgba(var(--ui-accent-rgb, 126, 183, 231), 0.12);
   overflow: hidden;
 }
 .signPalette::-webkit-scrollbar {
   width: 8px;
 }
 .signPalette::-webkit-scrollbar-thumb {
-  background: #1e4a72;
+  background: var(--ui-1e4a72, #1e4a72);
 }
 /* The boards' column: 正面 over 背面, then the action cluster at its bottom-right. It stretches
    to the panel's fixed height, so the cluster is pinned to a corner that does not move. */
@@ -2078,7 +2192,7 @@ html[lang="en"] .depthTag {
   font-size: 22px;
   line-height: 1;
   color: var(--text);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border: 1px solid var(--bp-line);
   border-radius: 0;
   cursor: pointer;
@@ -2092,16 +2206,16 @@ html[lang="en"] .depthTag {
   content: '';
   position: absolute;
   inset: var(--signActFrame);
-  border: 1px dashed rgba(126, 183, 231, 0.18);
+  border: 1px dashed rgba(var(--ui-accent-rgb, 126, 183, 231), 0.18);
   border-radius: 0;
   pointer-events: none;
 }
 .signAct:hover {
-  background: #13304c;
-  border-color: rgba(85, 182, 255, 0.65);
+  background: var(--ui-13304c, #13304c);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.65);
 }
 .signAct:hover::after {
-  border-color: rgba(85, 182, 255, 0.5);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.5);
 }
 .signAct.ok {
   color: #b9f2d2;
@@ -2158,7 +2272,7 @@ html[lang="en"] .depthTag {
   opacity: 0.4;
 }
 .signAct.trash:disabled:hover {
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border-color: rgba(255, 125, 92, 0.35);
 }
 /* **A mark is in the air**, which is the state the bin exists for: the plate goes to the
@@ -2245,7 +2359,7 @@ html[lang="en"] .depthTag {
 }
 .signFaceLabel:hover {
   color: var(--text);
-  border-color: rgba(85, 182, 255, 0.65);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.65);
 }
 /* The row of places is **one continuous lit plate**, not a line of tiles: every bin is
    a square of the sign's own black face drawn edge to edge, so a row reads the way the
@@ -2261,7 +2375,7 @@ html[lang="en"] .depthTag {
    `elementFromPoint`), and an unpainted box is not hit-tested at all: with the row's fill
    removed, aiming at the empty right-hand end of a short row, or at a bin's own centre
    where the mark's artwork is transparent, landed on the row's *container* and the drop
-   went nowhere. The fill is the board's own ground (`#0d1116`, exactly what
+   went nowhere. The fill is the board's own ground (`var(--ui-0d1116, #0d1116)`, exactly what
    `render/signFace.ts` fills a plate with), so it is invisible against the bins and makes
    the whole plate a target. The one thing that must still read as a *place* is an empty
    face's well, and that is the dashed square below. */
@@ -2283,7 +2397,7 @@ html[lang="en"] .depthTag {
   min-height: var(--tile);
   /* The board's own unlit ground, exactly as `render/signFace.ts` fills a plate with it,
      so the seams between two bins are the same black as the bins themselves. */
-  background: #0d1116;
+  background: var(--ui-0d1116, #0d1116);
 }
 /* A mark is in the air over the row: the row shows the place it would take, which is
    the cue that matters. The outline is inset so that lighting up the target does not
@@ -2301,7 +2415,7 @@ html[lang="en"] .depthTag {
   padding: 0;
   /* The plate itself, drawn by the board's own renderer: no border of the editor's, and
      the board's black ground behind the mark rather than the panel's blue. */
-  background: #0d1116;
+  background: var(--ui-0d1116, #0d1116);
   border: 0;
   border-radius: 0;
   cursor: grab;
@@ -2323,19 +2437,19 @@ html[lang="en"] .depthTag {
   content: '';
   position: absolute;
   inset: 0;
-  border: 1px dashed #24435f;
+  border: 1px dashed var(--ui-24435f, #24435f);
   pointer-events: none;
   transition: border-color 120ms ease;
 }
 .bin.empty:hover::before {
-  border-color: rgba(85, 182, 255, 0.45);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.45);
 }
 /* The picked mark. It cannot be shown with a border or a filled tile — the row is one
    black plate and either would cut a visible box out of it — so the *mark* is lit
    instead: a faint inner glow that follows the icon's own silhouette, which is the only
    highlight that leaves the plate continuous. */
 .bin.on {
-  filter: drop-shadow(0 0 4px rgba(85, 182, 255, 0.9));
+  filter: drop-shadow(0 0 4px rgba(var(--ui-accent-rgb, 85, 182, 255), 0.9));
 }
 /* The rail's own technical dashed frame, so a bin and a build-rail block are the
    same object in two places — on the *palette* tiles, which are furniture. A place on
@@ -2344,7 +2458,7 @@ html[lang="en"] .depthTag {
   content: '';
   position: absolute;
   inset: 3px;
-  border: 1px dashed rgba(126, 183, 231, 0.18);
+  border: 1px dashed rgba(var(--ui-accent-rgb, 126, 183, 231), 0.18);
   pointer-events: none;
 }
 /* The mark in the air, following the pointer: a piece of the sign lifted off the
@@ -2368,7 +2482,7 @@ html[lang="en"] .depthTag {
   place-items: center;
   padding: 5px;
   pointer-events: none;
-  background: #0d1116;
+  background: var(--ui-0d1116, #0d1116);
   border: 1px solid var(--accent);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
   will-change: transform;
@@ -2449,7 +2563,7 @@ html[lang="en"] .depthTag {
   padding: 5px;
   line-height: 1;
   color: var(--text);
-  background: #0e2338;
+  background: var(--ui-0e2338, #0e2338);
   border: 1px solid var(--bp-line);
   border-radius: 0;
   cursor: pointer;
@@ -2459,12 +2573,12 @@ html[lang="en"] .depthTag {
   cursor: grab;
 }
 .tile:hover {
-  background: #13304c;
-  border-color: rgba(85, 182, 255, 0.65);
+  background: var(--ui-13304c, #13304c);
+  border-color: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.65);
 }
 .tile.on {
   border-color: var(--accent);
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
 }
 /* A **group's** tile that offers more than one mark shows two of them, set on the diagonal
    and divided by a slash: one arrow on the 箭头 tile says it *is* the arrow, not that it
@@ -2502,7 +2616,7 @@ html[lang="en"] .depthTag {
   top: 50%;
   width: 3px;
   height: 62px;
-  border-left: 1px solid rgba(126, 183, 231, 0.5);
+  border-left: 1px solid rgba(var(--ui-accent-rgb, 126, 183, 231), 0.5);
   transform: translate(-50%, -50%) rotate(22deg);
   pointer-events: none;
 }
@@ -2524,7 +2638,7 @@ html[lang="en"] .depthTag {
   font-family: var(--font);
   font-size: 14px;
   color: var(--text);
-  background: #0d2137;
+  background: var(--ui-0d2137, #0d2137);
   border: 1px solid var(--line);
   border-radius: 0;
 }
@@ -2587,7 +2701,7 @@ input.tileSlider {
   margin-top: -5px;
   border: 1px solid var(--accent);
   border-radius: 0;
-  background: #173e60;
+  background: var(--ui-173e60, #173e60);
   box-shadow: inset 0 0 0 2px var(--panel);
 }
 .tileSlider::-moz-range-thumb {
@@ -2595,7 +2709,7 @@ input.tileSlider {
   height: 10px;
   border: 1px solid var(--accent);
   border-radius: 0;
-  background: #173e60;
+  background: var(--ui-173e60, #173e60);
   box-shadow: inset 0 0 0 2px var(--panel);
 }
 .tileSlider:hover { filter: brightness(1.2); }
@@ -2616,7 +2730,7 @@ input.tileSlider {
   align-items: center;
   gap: 14px;
   padding: 0 12px;
-  background: #0c2136;
+  background: var(--ui-0c2136, #0c2136);
   border-top: 1px solid var(--line);
   overflow-x: auto;
 }
@@ -2652,7 +2766,7 @@ input.tileSlider {
   cursor: pointer;
 }
 .bottombarMetrics:hover {
-  background: rgba(85, 182, 255, 0.07);
+  background: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.07);
 }
 .bottombarMetrics:focus-visible {
   outline: 1px solid var(--accent);
@@ -2669,7 +2783,7 @@ input.tileSlider {
   top: 20px;
   left: 20px;
   width: 380px;
-  background: #0b1f36;
+  background: var(--ui-0b1f36, #0b1f36);
   border: 1px solid var(--line);
   border-radius: 0;
   padding: 16px;
@@ -2708,12 +2822,12 @@ input.tileSlider {
   padding: 24px;
   overflow: auto;
   /* The same drafting grid the left rail uses. */
-  background-color: #081a2c;
+  background-color: var(--ui-081a2c, #081a2c);
   background-image:
     linear-gradient(var(--bp-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px),
-    linear-gradient(rgba(96, 168, 232, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(96, 168, 232, 0.045) 1px, transparent 1px);
+    linear-gradient(rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(var(--ui-accent-rgb, 96, 168, 232), 0.045) 1px, transparent 1px);
   background-size:
     40px 40px,
     40px 40px,
@@ -2722,7 +2836,7 @@ input.tileSlider {
 }
 .mobileCard {
   width: min(100%, 460px);
-  background: #0b1f36;
+  background: var(--ui-0b1f36, #0b1f36);
   border: 1px solid var(--bp-line);
   border-left: 3px solid var(--accent);
   padding: 26px 24px;
@@ -2737,7 +2851,7 @@ input.tileSlider {
   margin: 0 0 12px;
   font-size: 24px;
   letter-spacing: 1px;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .mobileLead {
   margin: 0 0 8px;
@@ -2813,7 +2927,7 @@ input.tileSlider {
   flex-direction: column;
   width: min(620px, calc(100vw - 340px));
   max-height: calc(100vh - 108px);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   background-image:
     linear-gradient(var(--bp-grid) 1px, transparent 1px),
     linear-gradient(90deg, var(--bp-grid) 1px, transparent 1px);
@@ -2826,14 +2940,14 @@ input.tileSlider {
   align-items: center;
   gap: 8px;
   padding: 7px 10px;
-  background: #0f2740;
+  background: var(--ui-0f2740, #0f2740);
   border-bottom: 1px solid var(--bp-line);
 }
 .timeTitle {
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 3px;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .timeClose {
   flex: none;
@@ -2845,12 +2959,12 @@ input.tileSlider {
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 0;
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   color: var(--muted);
 }
 .timeClose:hover {
   border-color: var(--accent);
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .timeBody {
   display: flex;
@@ -2859,7 +2973,7 @@ input.tileSlider {
   padding: 10px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #24557f transparent;
+  scrollbar-color: var(--ui-24557f, #24557f) transparent;
 }
 .timeBlock {
   border: 1px solid var(--bp-line);
@@ -2891,16 +3005,16 @@ input.tileSlider {
   height: auto;
 }
 .dayCurve .curveClosed {
-  fill: #06111d;
+  fill: var(--ui-06111d, #06111d);
 }
 .dayCurve .curveOpen {
-  fill: rgba(85, 182, 255, 0.14);
+  fill: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.14);
 }
 .dayCurve .curvePeak {
   fill: rgba(255, 200, 97, 0.2);
 }
 .dayCurve .curveBase {
-  stroke: rgba(126, 183, 231, 0.35);
+  stroke: rgba(var(--ui-accent-rgb, 126, 183, 231), 0.35);
   stroke-width: 1;
   stroke-dasharray: 3 3;
   vector-effect: non-scaling-stroke;
@@ -2912,7 +3026,7 @@ input.tileSlider {
   vector-effect: non-scaling-stroke;
 }
 .dayCurve .curveNow {
-  stroke: #eaf5ff;
+  stroke: var(--ui-heading, #eaf5ff);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -3008,7 +3122,7 @@ input.tileSlider {
   font-family: var(--mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
 }
 .knobHint {
   font-size: 9px;
@@ -3024,12 +3138,12 @@ input.tileSlider {
   font-size: 12px;
   line-height: 1;
   color: var(--muted);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--line);
   border-radius: 0;
 }
 .calNav:hover:not(:disabled) {
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
   border-color: var(--accent);
 }
 .calNav:disabled {
@@ -3066,7 +3180,7 @@ input.tileSlider {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: var(--text);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid transparent;
   border-radius: 0;
   cursor: pointer;
@@ -3085,9 +3199,9 @@ input.tileSlider {
 /* The day the station is **standing on** — the calendar's selection, and the day the curve, the
    card's chip and the crowd are all describing. It is the only highlight the grid carries. */
 .calCell.today {
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
   border-color: var(--accent);
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
   font-weight: 600;
 }
 .calKeys {
@@ -3110,7 +3224,7 @@ input.tileSlider {
   border: 1px solid var(--line);
 }
 .calKey.today {
-  background: #16374f;
+  background: var(--ui-16374f, #16374f);
   border-color: var(--accent);
 }
 .calKey.offday {
@@ -3141,7 +3255,7 @@ input.tileSlider {
   font-size: 10px;
   letter-spacing: 1px;
   color: var(--ink);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--line);
   border-radius: 0;
 }
@@ -3167,10 +3281,10 @@ input.tileSlider {
   height: auto;
 }
 .chart .chartPlot {
-  fill: #06111d;
+  fill: var(--ui-06111d, #06111d);
 }
 .chart .chartGrid {
-  stroke: rgba(126, 183, 231, 0.16);
+  stroke: rgba(var(--ui-accent-rgb, 126, 183, 231), 0.16);
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
@@ -3206,12 +3320,12 @@ input.tileSlider {
   font-size: 9px;
   letter-spacing: 1px;
   color: var(--muted);
-  background: #081a2c;
+  background: var(--ui-081a2c, #081a2c);
   border: 1px solid var(--line);
   border-radius: 0;
 }
 .chartMode.on {
-  color: #eaf5ff;
+  color: var(--ui-heading, #eaf5ff);
   border-color: var(--accent);
 }
 .chartMode:hover {
@@ -3219,14 +3333,14 @@ input.tileSlider {
 }
 
 .guideExitTiles { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; }
-.guideExitTiles button { min-width: 34px; min-height: 34px; padding: 5px 8px; border: 1px solid #566b72; border-radius: 4px; background: #182c33; color: #e9f4f4; cursor: pointer; }
+.guideExitTiles button { min-width: 34px; min-height: 34px; padding: 5px 8px; border: 1px solid var(--ui-566b72, #566b72); border-radius: 4px; background: var(--ui-182c33, #182c33); color: #e9f4f4; cursor: pointer; }
 .guideExitTiles button[aria-pressed="true"] { background: #c72035; border-color: #ffdc23; }
 .guideExitTiles span { font-size: 12px; }
 
 .stationNameEditor { position: relative; }
 .stationNameEnglish { display: inline; margin-left: 8px; font-size: 11px; }
-.stationNameForm { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: 280px; padding: 14px; display: grid; gap: 12px; background: #081a2c; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
-.stationNameForm label { display: grid; gap: 5px; font-size: 12px; color: #eaf5ff; }
+.stationNameForm { position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; width: 280px; padding: 14px; display: grid; gap: 12px; background: var(--ui-081a2c, #081a2c); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px #0006; }
+.stationNameForm label { display: grid; gap: 5px; font-size: 12px; color: var(--ui-heading, #eaf5ff); }
 .stationNameForm .stationNameInput { width: 100%; box-sizing: border-box; }
 .stationNameActions { display: flex; gap: 8px; }
 
@@ -3243,9 +3357,9 @@ input.tileSlider {
 .leftClosed .leftShell .sideContent { transform: translateX(-100%); opacity: 0; visibility: hidden; }
 .rightClosed .rightShell .sideContent { transform: translateX(100%); opacity: 0; visibility: hidden; }
 .main { overflow: clip; }
-.collapseButton { display: grid; place-items: center; width: 26px; height: 32px; padding: 0; border: 1px solid var(--line); background: #0b1f36; color: var(--text); }
-.collapseButton:hover { background: #16374f; }
-.collapseButton:focus-visible { outline: 2px solid #4ea8ff; outline-offset: 2px; }
+.collapseButton { display: grid; place-items: center; width: 26px; height: 32px; padding: 0; border: 1px solid var(--line); background: var(--ui-0b1f36, #0b1f36); color: var(--text); }
+.collapseButton:hover { background: var(--ui-16374f, #16374f); }
+.collapseButton:focus-visible { outline: 2px solid var(--ui-4ea8ff, #4ea8ff); outline-offset: 2px; }
 .sideShell > .collapseButton { position: absolute; top: auto; bottom: 12px; }
 .leftShell > .collapseButton { left: 100%; }
 .rightShell > .collapseButton { right: 100%; }
@@ -3264,7 +3378,7 @@ input.tileSlider {
 /* Line inspector: compact tiles share the build rail's square controls. */
 .lineEditor { display: grid; gap: 6px; min-width: 0; }
 .lineTermini { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.lineTile { padding: 7px; border: 1px solid var(--line); background: #10273b; min-width: 0; }
+.lineTile { padding: 7px; border: 1px solid var(--line); background: var(--ui-10273b, #10273b); min-width: 0; }
 .lineTerminus { display: grid; gap: 5px; }
 .panel .lineEditor .lineNameInput { width: 100%; box-sizing: border-box; min-width: 0; height: 26px; padding: 3px 6px; border-radius: 0; }
 .lineEditor > .row { flex-wrap: nowrap; }
@@ -3276,12 +3390,12 @@ input.tileSlider {
 .lineHeadway > span:first-child { flex: 1; }
 .panel .lineEditor .headwayNum { flex: 0 0 42px; width: 42px; }
 .lineSchedule > .row:last-child { font-size: 11px; }
-.lineEditor > .field { margin: 0; padding: 7px; border: 1px solid var(--line); background: #10273b; }
+.lineEditor > .field { margin: 0; padding: 7px; border: 1px solid var(--line); background: var(--ui-10273b, #10273b); }
 /* Standalone station presentation; native modal focus keeps building behind it inert. */
-.explodedViewer { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: #192532; color: #edf1f5; }
+.explodedViewer { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: var(--ui-192532, #192532); color: var(--ui-heading, #edf1f5); }
 .explodedViewer[open] { display: flex; flex-direction: column; }
-.explodedViewer::backdrop { background: #192532; }
-.explodedToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; background: #202e3d; }
+.explodedViewer::backdrop { background: var(--ui-192532, #192532); }
+.explodedToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; background: var(--ui-202e3d, #202e3d); }
 .explodedToolbar strong { flex: 1; }
 .explodedToolbarControls { display: flex; align-items: center; gap: 12px; }
 .explodedBack { display: grid; place-items: center; padding: 8px; }
@@ -3290,8 +3404,227 @@ input.tileSlider {
 .explodedLevels { display: flex; justify-content: space-around; padding: 10px 20px; color: #b7c5d1; font-size: 12px; }
 .explodedEmpty { position: absolute; top: 50%; width: 100%; text-align: center; pointer-events: none; }
 
-.settingsAudio{display:flex;flex-direction:column;justify-content:space-between;min-width:0;min-height:66px;margin:0;padding:9px;border:1px solid var(--bp-line);background:#0a2036;font-size:11px}.settingsAudio>span{display:flex;justify-content:space-between;gap:8px}.settingsAudio output{color:var(--accent);font-variant-numeric:tabular-nums}.settingsAudio input{display:block;width:100%;margin:8px 0 2px}
+.settingsAudio{display:flex;flex-direction:column;justify-content:space-between;min-width:0;min-height:66px;margin:0;padding:9px;border:1px solid var(--bp-line);background:var(--ui-0a2036, #0a2036);font-size:11px}.settingsAudio>span{display:flex;justify-content:space-between;gap:8px}.settingsAudio output{color:var(--accent);font-variant-numeric:tabular-nums}.settingsAudio input{display:block;width:100%;margin:8px 0 2px}
 
-.settingsMusic{position:relative;min-width:0;margin:0;padding:9px;border:1px solid var(--bp-line);background:#0a2036;font-size:11px}.settingsMusicLabel{display:flex;justify-content:space-between;gap:8px}.settingsMusicLabel>output{color:var(--accent);font-variant-numeric:tabular-nums}.settingsMusicRow{display:flex;align-items:center;gap:7px;margin-top:5px}.settingsMusicRow>.tileSlider{flex:1;min-width:40px;width:70px}.settingsMusicRow>.iconBtn{width:28px;height:28px;padding:6px;flex-shrink:0;border-radius:0}.musicCreditsPanel{display:none;position:absolute;right:0;top:100%;z-index:30;width:min(320px,calc(100vw - 40px));max-height:50vh;overflow:auto;padding:14px;background:var(--panel,#fff);color:var(--text,#303a30);border:1px solid var(--line,#ddd);box-shadow:0 6px 22px #0002;font-size:11px;line-height:1.6}.settingsMusic:hover>.musicCreditsPanel{display:block}.musicCreditsPanel p{margin:10px 0}.musicCreditsPanel a{color:inherit;text-decoration:underline;text-underline-offset:2px}
-.settingsDropdown .musicCreditsPanel{position:absolute;top:100%;right:0;width:min(320px,calc(100vw - 40px));margin:0;padding:9px;background:#081a2c;border-color:var(--bp-line);box-shadow:0 8px 24px #0009}
+.settingsMusic{position:relative;min-width:0;margin:0;padding:9px;border:1px solid var(--bp-line);background:var(--ui-0a2036, #0a2036);font-size:11px}.settingsMusicLabel{display:flex;justify-content:space-between;gap:8px}.settingsMusicLabel>output{color:var(--accent);font-variant-numeric:tabular-nums}.settingsMusicRow{display:flex;align-items:center;gap:7px;margin-top:5px}.settingsMusicRow>.tileSlider{flex:1;min-width:40px;width:70px}.settingsMusicRow>.iconBtn{width:28px;height:28px;padding:6px;flex-shrink:0;border-radius:0}.musicCreditsPanel{display:none;position:absolute;right:0;top:100%;z-index:30;width:min(320px,calc(100vw - 40px));max-height:50vh;overflow:auto;padding:14px;background:var(--panel,#fff);color:var(--text,#303a30);border:1px solid var(--line,#ddd);box-shadow:0 6px 22px #0002;font-size:11px;line-height:1.6}.settingsMusic:hover>.musicCreditsPanel{display:block}.musicCreditsPanel p{margin:10px 0}.musicCreditsPanel a{color:inherit;text-decoration:underline;text-underline-offset:2px}
+.settingsDropdown .musicCreditsPanel{position:absolute;top:100%;right:0;width:min(320px,calc(100vw - 40px));margin:0;padding:9px;background:var(--ui-081a2c, #081a2c);border-color:var(--bp-line);box-shadow:0 8px 24px #0009}
 .settingsMusic.creditsDismissed>.musicCreditsPanel{display:none}
+
+/* The studio uses soft surfaces and the site's dark theme keeps crisp edges. */
+:root[data-ui-theme="studio"] button, :root[data-ui-theme="studio"] a.ghost { border-radius: 5px; }
+:root[data-ui-theme="studio"] .settingsDropdown, :root[data-ui-theme="studio"] .settingsToggle, :root[data-ui-theme="studio"] .settingsAction { border-radius: 6px; }
+:root[data-ui-theme="studio"] button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-ui-theme="site"] button.primary { background: var(--accent); border-color: var(--accent); color: #17140b; }
+
+/* Night: a compact command list with the site's understated, amber-accented chrome. */
+:root[data-ui-theme="site"] .rail,
+:root[data-ui-theme="site"] .panel { background-image: none; }
+:root[data-ui-theme="site"] .railStamp {
+  background: transparent; border: 0; border-left: 2px solid var(--accent);
+  padding: 7px 10px; margin-bottom: 14px;
+}
+:root[data-ui-theme="site"] .railStampTitle { letter-spacing: .08em; }
+:root[data-ui-theme="site"] .folder { margin-bottom: 10px; }
+:root[data-ui-theme="site"] .folderHead,
+:root[data-ui-theme="site"] .folder.open > .folderHead {
+  height: 34px; padding: 0 8px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--text); letter-spacing: .04em; font-weight: 700;
+}
+:root[data-ui-theme="site"] .folderHead::before,
+:root[data-ui-theme="site"] .folderHead::after { display: none; }
+:root[data-ui-theme="site"] .folderCount { border: 0; color: var(--muted); }
+:root[data-ui-theme="site"] .folderPad { background: transparent; border: 0; padding: 5px 0 4px; }
+:root[data-ui-theme="site"] .rail .blockGrid { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+:root[data-ui-theme="site"] .rail .bpBlock {
+  flex-direction: row; align-items: center; aspect-ratio: auto; min-height: 42px;
+  padding: 3px 7px; gap: 8px; text-align: left; border: 1px solid transparent;
+  border-radius: 4px; background: transparent;
+}
+:root[data-ui-theme="site"] .rail .bpBlock:hover { background: #18212c; border-color: var(--line); }
+:root[data-ui-theme="site"] .rail .bpBlock.on { background: #242b30; border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+:root[data-ui-theme="site"] .rail .bpBlock::after { display: none; }
+:root[data-ui-theme="site"] .rail .bpBlockArt { flex: 0 0 34px; height: 34px; border-radius: 3px; }
+:root[data-ui-theme="site"] .rail .bpBlockArt svg { width: 24px; height: 24px; }
+:root[data-ui-theme="site"] .rail .bpBlockLabel,
+:root[data-ui-theme="site"][lang="en"] .rail .bpBlockLabel {
+  flex: 1; display: block; min-height: 0; padding: 0; border: 0; background: none;
+  font-size: 11px; line-height: 1.3; text-align: left; white-space: normal;
+}
+:root[data-ui-theme="site"] .rail .bpCaret { right: 2px; bottom: 2px; }
+:root[data-ui-theme="site"] .card { border-radius: 5px; }
+:root[data-ui-theme="site"] .disclosureHead { letter-spacing: .04em; }
+:root[data-ui-theme="site"] .settingsDropdown { border-radius: 6px; padding: 14px; }
+:root[data-ui-theme="site"] .settingsToggle,
+:root[data-ui-theme="site"] .settingsAction { border-radius: 4px; }
+
+/* Studio: a quiet workspace, with rounded, image-led cards and open section headers. */
+:root[data-ui-theme="studio"] .rail,
+:root[data-ui-theme="studio"] .panel { background-image: none; }
+:root[data-ui-theme="studio"] .rail { padding: 12px 9px 18px; }
+:root[data-ui-theme="studio"] .railStamp {
+  background: transparent; border: 0; padding: 6px 3px 10px; margin-bottom: 5px;
+}
+:root[data-ui-theme="studio"] .railStampTitle { font-size: 14px; letter-spacing: -.02em; font-weight: 700; }
+:root[data-ui-theme="studio"] .railStampSub { letter-spacing: .1em; }
+:root[data-ui-theme="studio"] .folder { margin-bottom: 8px; }
+:root[data-ui-theme="studio"] .folderHead,
+:root[data-ui-theme="studio"] .folder.open > .folderHead {
+  height: 35px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--text); letter-spacing: 0; font-weight: 700;
+}
+:root[data-ui-theme="studio"] .folder.open > .folderHead { background: #e9ede1; }
+:root[data-ui-theme="studio"] .folderHead::before,
+:root[data-ui-theme="studio"] .folderHead::after { display: none; }
+:root[data-ui-theme="studio"] .folderCount { border: 0; border-radius: 10px; background: #e1e7d9; }
+:root[data-ui-theme="studio"] .folderPad { background: transparent; border: 0; padding: 7px 0; }
+:root[data-ui-theme="studio"] .rail .blockGrid { gap: 7px; }
+:root[data-ui-theme="studio"] .bpBlock {
+  border: 1px solid #dfe4d7; border-radius: 9px; background: #fdfef9;
+  box-shadow: 0 2px 5px rgba(50, 63, 43, .05);
+}
+:root[data-ui-theme="studio"] .bpBlock::after { display: none; }
+:root[data-ui-theme="studio"] .bpBlock:hover { background: #f2f5eb; border-color: #a7b39c; }
+:root[data-ui-theme="studio"] .bpBlock.on { background: #f7eee7; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+:root[data-ui-theme="studio"] .bpBlockLabel {
+  background: transparent; border: 0; color: #53634f; font-weight: 600; padding: 3px 5px 8px;
+}
+:root[data-ui-theme="studio"] .bpBlock.on .bpBlockLabel { color: #9f3d1e; }
+:root[data-ui-theme="studio"] .card,
+:root[data-ui-theme="studio"] .infoCardDetails,
+:root[data-ui-theme="studio"] .infoCardActions { border-radius: 9px; background: #fdfef9; }
+:root[data-ui-theme="studio"] .panel button { border-radius: 6px; }
+:root[data-ui-theme="studio"] .disclosureHead { border-radius: 8px 8px 0 0; letter-spacing: 0; font-weight: 700; }
+:root[data-ui-theme="studio"] .settingsDropdown { padding: 16px; box-shadow: 0 14px 40px rgba(46,55,38,.2); }
+:root[data-ui-theme="studio"] .settingsHeading { letter-spacing: 0; font-size: 14px; }
+:root[data-ui-theme="studio"] .settingsAudio, :root[data-ui-theme="studio"] .settingsMusic { border-radius: 7px; }
+:root[data-ui-theme="studio"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-theme="studio"] .settingsToggle { aspect-ratio: auto; min-height: 66px; display: grid; grid-template-columns: 26px 1fr; align-content: center; align-items: center; column-gap: 8px; }
+:root[data-ui-theme="studio"] .settingsToggle > svg { grid-row: span 2; }
+:root[data-ui-theme="studio"] .settingsToggle strong { font-size: 12px; }
+:root[data-ui-theme="studio"] .settingsActionGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-theme="studio"] .settingsAction { aspect-ratio: auto; min-height: 43px; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; }
+:root[data-ui-theme="studio"] .settingsAction svg { width: 18px; height: 18px; }
+:root[data-ui-theme="site"] .panel .blockGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+:root[data-ui-theme="site"] .panel .bpBlock {
+  flex-direction: row; align-items: center; aspect-ratio: auto; min-height: 46px;
+  padding: 4px 6px; gap: 7px; text-align: left; border-radius: 4px;
+}
+:root[data-ui-theme="site"] .panel .bpBlock::after { display: none; }
+:root[data-ui-theme="site"] .panel .bpBlockArt { flex: 0 0 26px; height: 26px; }
+:root[data-ui-theme="site"] .panel .bpBlockArt svg { width: 22px; height: 22px; }
+:root[data-ui-theme="site"] .panel .bpBlockLabel,
+:root[data-ui-theme="site"][lang="en"] .panel .bpBlockLabel {
+  flex: 1; display: block; min-height: 0; padding: 0; border: 0; background: none;
+  text-align: left; white-space: normal; line-height: 1.2;
+}
+:root[data-ui-theme="site"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-theme="site"] .settingsToggle { aspect-ratio: auto; min-height: 62px; display: grid; grid-template-columns: 26px 1fr; align-content: center; align-items: center; column-gap: 8px; }
+:root[data-ui-theme="site"] .settingsToggle > svg { grid-row: span 2; }
+:root[data-ui-theme="site"] .settingsAction { aspect-ratio: auto; min-height: 68px; }
+
+/* Night inspector: uninterrupted commands and readable full-width exits. */
+:root[data-ui-theme="site"] .panel .viewGrid { grid-template-columns: minmax(0, 1fr); }
+:root[data-ui-theme="site"] .panel .viewGrid .inlineExpand:not(.open) { display: none; }
+:root[data-ui-theme="site"] .panel .exitGrid { grid-template-columns: minmax(0, 1fr); }
+:root[data-ui-theme="site"] .panel .exitTile {
+  aspect-ratio: auto; min-height: 76px; padding: 9px 10px; gap: 6px;
+  background: #111720; border-radius: 5px;
+}
+:root[data-ui-theme="site"] .exitTileHeader { width: 100%; }
+:root[data-ui-theme="site"] .exitRateReadout { font-size: 11px; }
+:root[data-ui-theme="site"] .exitNameField .lineNameInput { border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+
+/* Studio: a compact collection of soft controls, grouped by section. */
+:root[data-ui-theme="studio"] .rail .blockGrid,
+:root[data-ui-theme="studio"] .panel .viewGrid {
+  display: flex; flex-wrap: wrap; gap: 5px;
+}
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock {
+  flex: 1 1 calc(50% - 5px); width: auto; min-width: 0; min-height: 42px;
+  aspect-ratio: auto; flex-direction: row; align-items: center; gap: 6px;
+  padding: 4px 7px; border-radius: 20px; text-align: left; box-shadow: none;
+  background: #e9ede1; border-color: transparent;
+}
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock.on,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock.on {
+  background: #fae7dc; border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent);
+}
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock:hover,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock:hover { border-color: #91a089; }
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock .bpBlockArt,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock .bpBlockArt { flex: 0 0 29px; height: 29px; }
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock .bpBlockArt svg,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock .bpBlockArt svg { width: 21px; height: 21px; }
+:root[data-ui-theme="studio"] .rail .blockGrid > .bpBlock .bpBlockLabel,
+:root[data-ui-theme="studio"] .panel .viewGrid > .bpBlock .bpBlockLabel,
+:root[data-ui-theme="studio"][lang="en"] .rail .blockGrid > .bpBlock .bpBlockLabel,
+:root[data-ui-theme="studio"][lang="en"] .panel .viewGrid > .bpBlock .bpBlockLabel {
+  flex: 1; display: block; min-height: 0; padding: 0; font-size: 10.5px;
+  line-height: 1.2; text-align: left; white-space: normal; overflow-wrap: anywhere;
+}
+:root[data-ui-theme="studio"] .rail .blockGrid > .inlineExpand,
+:root[data-ui-theme="studio"] .panel .viewGrid > .inlineExpand { flex: 0 0 100%; }
+:root[data-ui-theme="studio"] .panel .viewGrid > .inlineExpand:not(.open) { display: none; }
+:root[data-ui-theme="studio"] .panel .exitGrid { grid-template-columns: minmax(0, 1fr); }
+:root[data-ui-theme="studio"] .panel .exitTile {
+  aspect-ratio: auto; min-height: 76px; padding: 10px 12px; gap: 6px;
+  background: #fdfef9; border: 1px solid #dfe4d7; border-radius: 10px;
+}
+:root[data-ui-theme="studio"] .exitTileHeader { width: 100%; }
+:root[data-ui-theme="studio"] .exitRateReadout { font-size: 11px; }
+:root[data-ui-theme="studio"] .exitNameField .lineNameInput { background: transparent; border: 0; border-bottom: 1px solid var(--line); }
+:root[data-ui-theme="studio"] .cubeFacePoly { fill: #dce5d4; stroke: #82947a; }
+:root[data-ui-theme="studio"] .cubeFacePoly:hover { fill: #f4cdb9; stroke: var(--accent); }
+:root[data-ui-theme="studio"] .cubeLabel { fill: #344735; }
+:root[data-ui-theme="studio"] .cubeEdge, :root[data-ui-theme="studio"] .cubeEdgeHidden { stroke: #879b81; }
+:root[data-ui-theme="studio"] .cubeEdgeBar { stroke: #5e755c; }
+:root[data-ui-theme="studio"] .cubeEdgeBar.on, :root[data-ui-theme="studio"] .cubeCornerAngle.on { stroke: var(--accent); }
+
+/* Light-theme audit: readable states across shortcuts, navigation and dialogs. */
+:root[data-ui-theme="studio"] { color-scheme: light; }
+:root[data-ui-theme="site"], :root[data-ui-theme="blueprint"] { color-scheme: dark; }
+:root[data-ui-theme="studio"] .bpKey,
+:root[data-ui-theme="studio"] .folderKey {
+  color: #71371f; background: #fff9f2; border-color: #c78a6f;
+  box-shadow: 0 2px 6px rgba(65, 50, 35, .12);
+}
+:root[data-ui-theme="studio"] .viewNavBtn { box-shadow: 0 3px 10px rgba(50, 63, 43, .15); }
+:root[data-ui-theme="studio"] .viewNavBtn:hover,
+:root[data-ui-theme="studio"] .viewNavBtn:active { color: #71371f; border-color: var(--accent); }
+:root[data-ui-theme="studio"] .depthBaseChoice { color: var(--text); }
+:root[data-ui-theme="studio"] .depthBaseChoice:hover,
+:root[data-ui-theme="studio"] .depthBaseChoice.on { color: #71371f; background: #fae7dc; border-color: var(--accent); }
+:root[data-ui-theme="studio"] .bpNewColourPlus,
+:root[data-ui-theme="studio"] .bpNewColourTile .bpBlockLabel { color: var(--text); }
+:root[data-ui-theme="studio"] .timeBlock { background: #f7f8f2; }
+:root[data-ui-theme="studio"] .signAct.ok { color: #477653; }
+:root[data-ui-theme="studio"] .signAct.ok:hover { background: #e4f0e1; }
+:root[data-ui-theme="studio"] .signClose:hover,
+:root[data-ui-theme="studio"] .signAct.cancel:hover,
+:root[data-ui-theme="studio"] .lineDeleteBtn:hover,
+:root[data-ui-theme="studio"] .tile.danger:hover { background: #fae6df; color: #a33922; }
+:root[data-ui-theme="studio"] .signLibrary.over,
+:root[data-ui-theme="studio"] .signPanel.dragging .signAct.trash { background: #fae6df; }
+:root[data-ui-theme="studio"] .signAct.trash.over { background: #f6cbbc; border-color: #a33922; }
+:root[data-ui-theme="studio"] .guideExitTiles button { color: var(--text); background: #edf1e7; }
+:root[data-ui-theme="studio"] .guideExitTiles button[aria-pressed="true"] { color: #fff; background: #a92d35; border-color: #a92d35; }
+:root[data-ui-theme="studio"] .explodedLevels { color: var(--muted); }
+:root[data-ui-theme="studio"] .tutorialCard { color: #303a30; background: #fdfef9; border-color: #cbd3c2; box-shadow: 0 16px 64px rgba(46,55,38,.25); }
+:root[data-ui-theme="studio"] .tutorialEyebrow,
+:root[data-ui-theme="studio"] .tutorialMouse,
+:root[data-ui-theme="studio"] .tutorialKeyPlus,
+:root[data-ui-theme="studio"] .tutorialPreference { color: #687363; }
+:root[data-ui-theme="studio"] .tutorialLanguage button,
+:root[data-ui-theme="studio"] .tutorialMusicSwitch,
+:root[data-ui-theme="studio"] .tutorialActions button { color: #303a30; border-color: #b7c3ae; }
+:root[data-ui-theme="studio"] .tutorialLanguage button[aria-pressed="true"],
+:root[data-ui-theme="studio"] .tutorialMusicSwitch[aria-checked="true"] { color: #71371f; background: #fae7dc; border-color: var(--accent); }
+:root[data-ui-theme="studio"] .tutorialKeys kbd { color: #303a30; background: #edf1e7; border-color: #a6b39d; }
+:root[data-ui-theme="studio"] .tutorialActions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+:root[data-ui-theme="studio"] .tutorialPreference input { accent-color: var(--accent); }
+:root[data-ui-theme="studio"] .tutorialCard :focus-visible { outline-color: var(--accent); }
+:root[data-ui-theme="studio"] {
+  --chart-amber: #8a5a08; --chart-blue: #28649b; --chart-orange: #ae4f22;
+  --chart-green: #33744a; --chart-purple: #7252a1; --chart-teal: #287b81; --chart-red: #b63e3e;
+}

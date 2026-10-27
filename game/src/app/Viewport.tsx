@@ -2,6 +2,8 @@ import {gameMusic} from './gameMusic.ts'
 import {gameAudio} from './gameAudio.ts'
 import {actionSound} from './audioActions.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from './audioSettings.ts'
+import { getUiTheme, subscribeUiTheme, themeVoidColor } from './uiTheme.ts'
+import { showGameLoading } from './gameLoading.ts'
 import { TouchZoom } from './touchZoom.ts'
 import { placementSurface } from './tools/placementSurface.ts'
 import { clearToolPreview } from './tools/clearPreview.ts'
@@ -528,6 +530,9 @@ export function Viewport(): React.ReactElement {
     const scene = new SceneRenderer(canvas)
     scene.setGraphicsQuality(useStore.getState().graphicsQuality)
     scene.setUpscalingMode(useStore.getState().upscalingMode)
+    const updateVoid = (): void => scene.setVoidColor(themeVoidColor(getUiTheme()))
+    updateVoid()
+    const unsubscribeTheme = subscribeUiTheme(updateVoid)
     sceneRef.current = scene
     const unmountAudio=gameAudio.mount()
     const unmountMusic=gameMusic.mount()
@@ -678,6 +683,7 @@ export function Viewport(): React.ReactElement {
       window.removeEventListener('metro:home', onHome)
       window.removeEventListener('metro:delete', onDelete)
       ro.disconnect()
+      unsubscribeTheme()
       scene.dispose()
       sceneRef.current = null
       framedRef.current = false
@@ -760,6 +766,11 @@ export function Viewport(): React.ReactElement {
       // benchmark view. `zoomBy` uses a 2/3 distance factor for that framing.
       scene.zoomBy(2 / 3)
       scene.prepareBuildViews()
+    }
+    const loading = document.getElementById('game-loading')
+    if (loading && !loading.hidden) {
+      scene.onNextFrame = () => showGameLoading(false)
+      scene.requestRender()
     }
   }, [version, station, stationEpoch, signPreviewId, signVersion, language])
 

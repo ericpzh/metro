@@ -11,6 +11,7 @@ import { AUTOSAVE_INTERVAL_MS, readAutosave, watchAutosave } from './autosave.ts
 import { demoStationForPath, gamePathFor } from './demoRoute.ts'
 import { startGlobalStats } from './globalStats.ts'
 import { BenchmarkRoute } from './benchmark/BenchmarkRoute.tsx'
+import { initUiTheme } from './uiTheme.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -36,6 +37,7 @@ declare global {
 }
 
 export function renderGame(root: Root): void {
+  if (!isLab && !isBenchmark) initUiTheme()
   // A demo link names its document (/game/zoo, /game/en/tanwei): it opens that
   // station whether or not this browser holds an autosave. The link is a start,
   // not a location — the URL becomes the plain game path, so a reload restores

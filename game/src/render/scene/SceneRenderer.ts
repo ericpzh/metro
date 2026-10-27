@@ -111,8 +111,17 @@ export class SceneRenderer {
   private readonly restoreFrame = (): void => { this.requestRender() }
   /** Actual GL submissions, independent of RAF cadence while retaining a still frame. */
   framesRendered = 0
+  onNextFrame?: () => void
 
   requestRender(): void { this.demand.invalidate() }
+
+  /** Presentation preference only; the sky remains in charge in Hide UI. */
+  setVoidColor(color: number, standaloneColor = color): void {
+    this.requestRender()
+    this.renderer.setClearColor(color)
+    this.sky.setVoidColor(color)
+    if (this.standalonePresentation) this.ctx.scene.background = new THREE.Color(standaloneColor)
+  }
 
   /** Diagnostics compare actual rendering throughput with the same scene on every RAF. */
   setContinuousRendering(on: boolean): void {
@@ -967,6 +976,9 @@ export class SceneRenderer {
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
       this.framesRendered++
+      const afterFrame = this.onNextFrame
+      this.onNextFrame = undefined
+      afterFrame?.()
     }
     if(this.onAudioFrame && now-this.lastAudioTime>=(this.audioSpeed>1?33:100)){
       this.lastAudioTime=now

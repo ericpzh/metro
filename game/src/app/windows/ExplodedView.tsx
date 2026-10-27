@@ -1,5 +1,6 @@
 import {gameAudio} from '../gameAudio.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from '../audioSettings.ts'
+import { getUiTheme, subscribeUiTheme, themeVoidColor } from '../uiTheme.ts'
 import { useEffect, useRef, useState } from 'react'
 import { toData } from '../../build/model.ts'
 import { explodedView, explodedPoses, explodedLiftPoses } from '../../render/explodedView.ts'
@@ -74,6 +75,7 @@ function Viewer(): React.ReactElement {
     let observer: ResizeObserver | undefined
     let unsubscribe: (() => void) | undefined
     let unsubscribeAudio: (() => void) | undefined
+    let unsubscribeTheme: (() => void) | undefined
     const onBlur = (): void => { renderer.current?.keys.clear() }
     window.addEventListener('blur', onBlur)
     // Let the modal and loading state paint before preparing a large station.
@@ -86,6 +88,12 @@ function Viewer(): React.ReactElement {
       updateAudio()
       unsubscribeAudio=subscribeAudioVolumes(updateAudio)
       scene.setStandalonePresentation()
+      const updateVoid = (): void => {
+        const theme = getUiTheme()
+        scene.setVoidColor(themeVoidColor(theme), theme === 'studio' ? themeVoidColor(theme) : 0x192532)
+      }
+      updateVoid()
+      unsubscribeTheme = subscribeUiTheme(updateVoid)
       scene.audioSpeed=useStore.getState().speed
       scene.setGraphicsQuality(useStore.getState().graphicsQuality)
       scene.setUpscalingMode(useStore.getState().upscalingMode)
@@ -125,6 +133,7 @@ function Viewer(): React.ReactElement {
       window.removeEventListener('blur', onBlur)
       unsubscribe?.()
       unsubscribeAudio?.()
+      unsubscribeTheme?.()
       gameAudio.stop()
       observer?.disconnect()
       renderer.current?.dispose()

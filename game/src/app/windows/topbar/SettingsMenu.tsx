@@ -8,7 +8,8 @@ import { IoLanguageSharp } from 'react-icons/io5'
 import { PiHighDefinition, PiGraphicsCard } from 'react-icons/pi'
 import { CgScrollV } from 'react-icons/cg'
 import { TbWorldUpload } from 'react-icons/tb'
-import { SiSpeedtest } from 'react-icons/si'
+import { FaPalette } from 'react-icons/fa6'
+import { getUiTheme, setUiTheme, subscribeUiTheme, uiThemes } from '../../uiTheme.ts'
 import { getLanguage, setLanguage, useLanguage } from '../../i18n.ts'
 import { t } from '../../../sim/i18n.ts'
 import { useStore } from '../../store.ts'
@@ -19,6 +20,7 @@ const upscalingModes = ['native', 'ultra', 'quality', 'balanced', 'performance']
 export function SettingsMenu(): React.ReactElement {
   const volumes = useSyncExternalStore(subscribeAudioVolumes, getAudioVolumes)
   const language = useLanguage()
+  const theme = useSyncExternalStore(subscribeUiTheme, getUiTheme)
   const quality = useStore(s => s.graphicsQuality)
   const setQuality = useStore(s => s.setGraphicsQuality)
   const upscalingMode = useStore(s => s.upscalingMode)
@@ -80,9 +82,9 @@ export function SettingsMenu(): React.ReactElement {
       <button type="button" className="ghost settingsAction" onClick={() => setLanguage(getLanguage() === 'en' ? 'zh-CN' : 'en')} title={t('switch_language')} aria-label={t('switch_language')}>
         <IoLanguageSharp aria-hidden="true" /><span>{language === 'en' ? t('language_native_chinese') : t('language_native_english')}</span>
       </button>
-      <a className="ghost settingsAction" href={`${location.pathname.startsWith('/game') ? '/game' : ''}/benchmark${language === 'en' ? '/en' : ''}`} target="_blank" rel="noopener noreferrer" title={t('benchmark')} aria-label={t('benchmark')}>
-        <SiSpeedtest aria-hidden="true" /><span>{t('benchmark')}</span>
-      </a>
+      <button type="button" className="ghost settingsAction" onClick={() => setUiTheme(uiThemes[(uiThemes.indexOf(theme) + 1) % uiThemes.length])} title={t('ui_theme')} aria-label={`${t('ui_theme')}: ${t(`theme_${theme}`)}`}>
+        <FaPalette aria-hidden="true" /><span>{t('ui_theme')} · {t(`theme_${theme}`)}</span>
+      </button>
       </div>
     </div>
   </details>

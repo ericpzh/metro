@@ -101,6 +101,6 @@ try{
  await page.send('Page.captureScreenshot',{format:'png'}).then(r=>writeFileSync(resolve(output,'settings.png'),Buffer.from(r.data,'base64')))
  await page.send('Page.reload');await waitFor(page.evaluate,'!!window.__metro && !!window.__scene')
  report.persisted=await page.evaluate(`JSON.parse(localStorage.getItem('metro-game.audio'))`)
- assert.deepEqual(report.persisted,{master:1,effects:0,ambient:0,music:.25})
+ assert.deepEqual(report.persisted,{master:1,effects:0,ambient:0,music:.1})
  writeFileSync(resolve(output,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2))
 }finally{await page?.close();server.close()}

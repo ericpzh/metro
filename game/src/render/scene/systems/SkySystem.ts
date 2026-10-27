@@ -7,7 +7,6 @@ const HORIZON = new THREE.Color('#d4e6ef')
 const ZENITH = new THREE.Color('#438bd0')
 const BELOW = new THREE.Color('#849ba9')
 const CLOUD = new THREE.Color('#ffffff')
-const DARK = new THREE.Color(STATION_CLEAR)
 
 /** Local sunrise/sunset, repeating with the simulation's day rather than wall time. */
 export function skyIntensity(simTime: number): number {
@@ -98,6 +97,7 @@ export class SkySystem {
   private intensity = skyIntensity(DEFAULT_SIM_TIME)
   private appliedIntensity = NaN
   private scene: THREE.Scene
+  private voidColor = new THREE.Color(STATION_CLEAR)
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
@@ -107,6 +107,11 @@ export class SkySystem {
     this.intensity = skyIntensity(simTime)
   }
 
+  setVoidColor(color: number): void {
+    this.voidColor.setHex(color)
+    if (!this.shown && this.scene.fog instanceof THREE.Fog) this.scene.fog.color.copy(this.voidColor)
+  }
+
   update(hideUI: boolean): void {
     if (hideUI === this.shown && this.intensity === this.appliedIntensity) return
     this.shown = hideUI
@@ -114,7 +119,7 @@ export class SkySystem {
     this.scene.background = hideUI ? this.texture : null
     this.scene.backgroundIntensity = hideUI ? this.intensity : 1
     if (this.scene.fog instanceof THREE.Fog) {
-      this.scene.fog.color.copy(hideUI ? HORIZON : DARK)
+      this.scene.fog.color.copy(hideUI ? HORIZON : this.voidColor)
       if (hideUI) this.scene.fog.color.multiplyScalar(this.intensity)
     }
   }

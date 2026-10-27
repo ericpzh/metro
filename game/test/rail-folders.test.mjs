@@ -119,7 +119,7 @@ const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8')
 /** 视图's tile grid, as the JSX in that one block reads — labels in render order. */
 function viewTiles() {
   const src = read('../src/app/rail/folders/ViewFolder.tsx')
-  const open = src.indexOf('<div className="blockGrid">')
+  const open = src.indexOf('<div className="blockGrid viewGrid">')
   assert.ok(open > 0, 'ViewFolder renders no blockGrid')
   const grid = src.slice(open, src.indexOf('</div>', open))
   return {

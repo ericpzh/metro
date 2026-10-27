@@ -21,11 +21,10 @@ test('settings uses matching square tiles for controls and outbound actions', ()
   assert.match(topBar, /aria-label=\{t\('report_issue'\)\}/, 'the accessible name reads the bilingual catalogue key, not hardcoded English')
   assert.match(topBar, /className="settingsToggleGrid"/)
   assert.match(topBar, /className="settingsActionGrid"/)
-  for (const icon of ['PiHighDefinition', 'PiGraphicsCard', 'CgScrollV', 'TbWorldUpload', 'SiSpeedtest']) {
+  for (const icon of ['PiHighDefinition', 'PiGraphicsCard', 'CgScrollV', 'TbWorldUpload', 'FaPalette']) {
     assert.match(topBar, new RegExp(`<${icon} aria-hidden="true"\\s*\/>`), `${icon} decorates its labelled tile`)
   }
-  assert.match(topBar, /href=\{`\$\{location\.pathname\.startsWith\('\/game'\) \? '\/game' : ''\}\/benchmark/)
-  assert.match(topBar, /\/benchmark\$\{language === 'en' \? '\/en' : ''\}`\} target="_blank"/)
+  assert.match(topBar, /setUiTheme\(uiThemes\[\(uiThemes.indexOf\(theme\) \+ 1\) % uiThemes.length\]\)/)
   assert.match(topBar, /graphics_high_short/)
   assert.match(css, /\.settingsToggleGrid \{ display: grid; grid-template-columns: repeat\(4/)
   assert.match(css, /\.settingsActionGrid \{ display: grid; grid-template-columns: repeat\(4/)

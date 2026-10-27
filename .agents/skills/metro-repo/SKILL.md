@@ -220,9 +220,17 @@ scales each channel without changing its saved per-channel level. Music playback
 half the previous output level at the same slider percentage (100% now equals the old
 50% output). Keep the quality, FSR, edge-scroll and stats controls as four equal
 square tiles, with FSR cycling through Native/Off, Ultra, Quality, Balanced and
-Performance. The restart, issue, language and benchmark actions use a matching four
-column square tile row; benchmark opens the language-aware `/benchmark` route in a
-new tab. Retain the requested setting icons and the stats explanation as a hover-only
+Performance. The restart, issue, language and UI theme actions use a matching four
+column square tile row in Blueprint; Night and Studio adapt the controls to their
+own layouts. The theme cycles between the original blueprint, the main
+site's dark interface and the sound studio's light interface, persisted separately
+from the station document. Blueprint is the default; Studio's light void follows
+the preference in the editor and exploded view while Hide UI keeps its sky.
+The initial game loading shell is in `game/index.html` so it paints before the
+game bundle; the viewport dismisses it after the installed station's first frame.
+Capture, lab and benchmark routes bypass it, and the mobile gate dismisses it
+until the player proceeds.
+Retain the requested setting icons and the stats explanation as a hover-only
 tooltip that dismisses on pointer leave and immediately after toggling music. Pin the
 menu structure and CSS behavior in `topbar-report-issue`, `global-stats`, `audio` and
 `music`; run `node tools/check-game-audio.mjs` after building to validate the live menu.

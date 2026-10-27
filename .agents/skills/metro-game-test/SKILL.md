@@ -5,6 +5,13 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 
 # The game's test suite (`game/test/`)
 
+`ui-theme` covers the three theme preference, fallback and storage behavior;
+`game-loading` covers shell visibility and bilingual failure text. After building,
+`node tools/check-game-themes.mjs` blocks the entry bundle to check the early shell,
+checks special-route bypasses, then drives real theme switching, scene clear colors,
+the Night View list, station-version isolation and persistence across reload. The
+browser check does not establish subjective visual quality or every dialog state.
+
 `audio.test.mjs` covers outcome routing, repeated refusal notices, cancellation
 and no-op silence, four local volume preferences with master scaling, language/deployment asset paths,
 native Z-up distance/pan, finite radius and the 256-passenger sample bound. Its

@@ -55,7 +55,7 @@ export function ViewFolder(): React.ReactElement {
   const zoneOverlayOn = useStore((s) => s.zoneOverlayOn)
   const st = useStore.getState
   return (
-    <div className="blockGrid">
+    <div className="blockGrid viewGrid">
       {/* Both slice toggles are shown but plainly out of play while 隐藏UI is on —
           it draws every storey with no ceiling lifted — so the rule is
           discoverable. */}

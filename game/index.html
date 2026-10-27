@@ -3,13 +3,55 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <link rel="icon" type="image/png" sizes="64x64" href="/src/assets/brand/favicon.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/src/assets/brand/apple-touch-icon.png" />
     <title>车站设计师 · Station Designer</title>
+    <style>
+      #game-loading { position:fixed; inset:0; z-index:20000; display:grid; place-items:center; padding:24px; background:#06111d; color:#d6e7f7; font:14px system-ui,sans-serif; }
+      #game-loading[hidden] { display:none; }
+      #game-loading .loading-card { width:min(390px,100%); padding:28px; border:1px solid #315776; background:#0b1b2c; box-shadow:0 20px 70px #0005; }
+      #game-loading .loading-brand { color:#8fc4ee; font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+      #game-loading h1 { margin:20px 0 8px; font-size:25px; line-height:1.2; }
+      #game-loading p { margin:0; line-height:1.6; color:#9ab5cb; }
+      #game-loading .loading-track { height:3px; overflow:hidden; margin:24px 0 0; background:#1d3b58; }
+      #game-loading .loading-track::after { content:''; display:block; width:38%; height:100%; background:#55b6ff; animation:loading-sweep 1.5s ease-in-out infinite alternate; }
+      @keyframes loading-sweep { from { transform:translateX(0); } to { transform:translateX(163%); } }
+      @media (prefers-reduced-motion:reduce) { #game-loading .loading-track::after { animation:none; } }
+      html[data-ui-theme="site"] #game-loading { background:#070a10; color:#eef3f9; }
+      html[data-ui-theme="site"] #game-loading .loading-card { background:#111720; border-color:#303b49; border-radius:6px; }
+      html[data-ui-theme="site"] #game-loading .loading-brand { color:#f2b32c; }
+      html[data-ui-theme="site"] #game-loading .loading-track { background:#303b49; }
+      html[data-ui-theme="site"] #game-loading .loading-track::after { background:#f2b32c; }
+      html[data-ui-theme="studio"] #game-loading { background:#f4f3ed; color:#303a30; }
+      html[data-ui-theme="studio"] #game-loading .loading-card { background:#fdfef9; border-color:#d8dbce; border-radius:14px; box-shadow:0 20px 60px #35402b1c; }
+      html[data-ui-theme="studio"] #game-loading .loading-brand { color:#b94d29; }
+      html[data-ui-theme="studio"] #game-loading p { color:#687363; }
+      html[data-ui-theme="studio"] #game-loading .loading-track { background:#e1e7d9; border-radius:4px; }
+      html[data-ui-theme="studio"] #game-loading .loading-track::after { background:#c94d24; }
+    </style>
   </head>
   <body>
+    <div id="game-loading" hidden role="status" aria-live="polite">
+      <div class="loading-card"><div class="loading-brand">Station Designer</div><h1 id="loading-title">正在准备车站</h1><p id="loading-detail">正在加载游戏并构建车站，请稍候。</p><div class="loading-track" aria-hidden="true"></div></div>
+    </div>
     <div id="root"></div>
+    <script>
+      (() => {
+        const path = location.pathname.replace(/\/+$/, '');
+        const params = new URLSearchParams(location.search);
+        if (path.endsWith('/lab') || /\/benchmark(?:\/en)?$/.test(path) || [...params.keys()].some(key => key.startsWith('capture-'))) return;
+        let theme, language;
+        const route = path.split('/').includes('en') ? 'en' : 'zh-CN';
+        try { theme = localStorage.getItem('metro-game.ui-theme'); language = localStorage.getItem('metro-game.language.' + route); } catch {}
+        document.documentElement.dataset.uiTheme = theme === 'studio' || theme === 'site' ? theme : 'blueprint';
+        if ((language === 'en' || language === 'zh-CN' ? language : route) === 'en') {
+          document.getElementById('loading-title').textContent = 'Preparing your station';
+          document.getElementById('loading-detail').textContent = 'Loading the game and building your station. This may take a moment.';
+        }
+        document.getElementById('game-loading').hidden = false;
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
