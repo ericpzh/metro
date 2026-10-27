@@ -1,0 +1,39 @@
+{
+  "status": "experimental; interpolated frames require visual review",
+  "character": "valid-Asian_F_3_Casual",
+  "frameCount": 32,
+  "cycleSeconds": 1.0666666666666667,
+  "sources": "valid-Asian_F_3_Casual-walk-16.json and valid-Asian_F_3_Casual-elevation-inbetweens.json",
+  "method": "Capture 16 poses with a consistent head anchor. Estimate shirt boundaries per view, including a row-width hem detector in side view; normalize shirt height and projected hip-to-foot height in image space. Normal and low views share a projected reference, while the high view retains foreshortening. RIFE v4.6 interpolates RGB and alpha separately across each pair and the loop boundary; combine 32 frames in an 8x4 atlas. These operations cannot guarantee anatomical proportions and may distort poses. Front view uses the original registered artwork; its arm swing remains too small. An earlier cross-view arm composite was rejected due to detached sleeves and ghost edges.",
+  "tool": "RIFE ncnn Vulkan, 20221029 Windows release, MIT, https://github.com/nihui/rife-ncnn-vulkan/releases/tag/20221029",
+  "model": "rife-v4.6",
+  "modelBinSha256": "f334ed2260149ce0188a6dcf049844e8b0cdd912e01cbcfb63553157d2508958",
+  "modelParamSha256": "28df14d57a225725ee5386f52eba422488450d37c9f40800ed4f62e8ba846692",
+  "reproduce": "Build model, capture the 16 source frames using node tools/capture-candidate-sprite-frames.mjs for each direction/elevation, then run node tools/interpolate-candidate-sprites.mjs with ffmpeg and RIFE_NCNN_HOME installed.",
+  "images": [
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-0-normal.png",
+      "sha256": "848d06ea0d9e14ae912a6a714db2a5832b33a8ad6fd8d7816b276a13191f4354"
+    },
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-2-normal.png",
+      "sha256": "5504d46c266b78ea72c5257a4c467c49ad5a6440723ec22bfd43dd975252475e"
+    },
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-4-normal.png",
+      "sha256": "62fcc22fe2a299e0817517417c41c3379664acf87b44bb34452513e1425822f2"
+    },
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-8-normal.png",
+      "sha256": "708956402145b273b53d3ff1941da9ab8543228f5937b537aa2bf902857a7bb2"
+    },
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-2-low.png",
+      "sha256": "94996c4e9fd2623e4e04c20cdb6897ad3a624b5b11e983ee638f086359dd52c4"
+    },
+    {
+      "name": "valid-Asian_F_3_Casual-walk-rife32-2-high.png",
+      "sha256": "05069ae77e4276b5aecca883b4040914d081371a3ce745a3cd18fe741c4a4832"
+    }
+  ]
+}

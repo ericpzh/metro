@@ -16,6 +16,11 @@ candidates, deterministic 16-view source sheets in
 them. `library.json` records source/model hashes and generation provenance. Do not
 replace source assets or generated study sheets without updating that record.
 
+For pre-rendered walking sprites, read
+[the candidate sprite workflow](references/candidate-sprites.md). It records the
+32-frame requirement, temporal and anatomical consistency checks, camera-angle
+handling, and why the current image-space corrections remain experimental.
+
 External motion for the candidate preview is isolated in
 `model/src/animation/candidate-library-motion.js`; its CC0 Quaternius source,
 license and collection record live in

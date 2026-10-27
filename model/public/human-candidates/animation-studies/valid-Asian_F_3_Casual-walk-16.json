@@ -1,0 +1,20 @@
+{
+  "status": "experimental; four directions; generated poses require visual review",
+  "generator": "built-in image generation tool, image edit",
+  "character": "valid-Asian_F_3_Casual",
+  "frames": 16,
+  "grid": [4, 4],
+  "cycleSeconds": 1.12,
+  "styleReference": "../studies/valid-Asian_F_3_Casual-minimalist.png",
+  "styleReferenceSha256": "9fa82ddcd34d87d3779f9a56654efd9bd57bdeecf092ba8741c987380c17780d",
+  "walkReference": "valid-Asian_F_3_Casual-walk-45.png",
+  "walkReferenceSha256": "ff5c77d13a1f075c39b21f861080890019abdbaa24c2ae3cadf08ff9756dc152",
+  "guideCommand": "node tools/capture-candidate-walk-guide.mjs valid-Asian_F_3_Casual <angleIndex> 16",
+  "angles": [
+    {"index":0,"degrees":0,"description":"front view","image":"valid-Asian_F_3_Casual-walk-16-angle-0.png","sha256":"2b2b582b573c77f898c16bf7a36fa4b7dd0b618a341f3a42a4a79a8e34b4c6b5","guideSha256":"2c6156e0762770ddb391d4396006a6c4762f8d76bb5007db2fb5e1634d5ffdb7"},
+    {"index":2,"degrees":45,"description":"three-quarter front view","image":"valid-Asian_F_3_Casual-walk-16-angle-2.png","sha256":"cf013da72bfc6756a48cea3673f5be2074fb7fb572b8282ad4d8c208d9dd6826","guideSha256":"316d098e4475b97f8c0091f5f78ba5d221b6b0ac50a1a37e18482c860eafc417"},
+    {"index":4,"degrees":90,"description":"left-facing side view","image":"valid-Asian_F_3_Casual-walk-16-angle-4.png","sha256":"896aee8d311aed5db92761d43756661ae84290485f90862543546803deafe473","guideSha256":"a2271416b566308a15b4679167bc3a6ea3846cf237fc79978020dd6dbd3757dc"},
+    {"index":8,"degrees":180,"description":"back view","image":"valid-Asian_F_3_Casual-walk-16-angle-8.png","sha256":"382c7b7ffd494ede97c171bd26d95cd2dd74b05fef4ca2247098ce94a0639279","guideSha256":"4543d204e9b83cdc9edbfe1c52fbe04e0d1488a73e9736668b8e3bd9ddc1f1ed"}
+  ],
+  "promptTemplate": "Use case: style-transfer. Create a 2D game sprite sheet of the SAME faceless woman shown in image 1 and image 2, now from the <angle description>. Image 3 is the exact pose guide. Redraw EACH corresponding pose of image 3 in sequence and preserve which leg is forward, the position of both feet and the arm swing in every cell. Image 1 supplies this viewing angle and character; image 2 supplies the exact clean soft grayscale look and clothing. Output a perfectly regular 4 columns by 4 rows grid of exactly SIXTEEN equally spaced full-body frames, in row-major sequence matching image 3. Each figure is centered within its own square cell with generous transparent margins. Identical camera, scale, dark shoulder-length hair, blank face, light grey short-sleeved top, dark full-length flared trousers and pale sneakers in all cells. Smooth continuous clothes and body boundaries, distinct arms and torso. Preserve motion cycle timing from the pose guide. Do not include text, grids, props, extra figures or facial features."
+}

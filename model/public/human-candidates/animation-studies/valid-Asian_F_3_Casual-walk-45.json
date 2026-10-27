@@ -1,0 +1,16 @@
+{
+  "status": "experimental; one direction only; not approved for game use",
+  "generator": "built-in image generation tool, image edit",
+  "image": "valid-Asian_F_3_Casual-walk-45.png",
+  "imageSha256": "ff5c77d13a1f075c39b21f861080890019abdbaa24c2ae3cadf08ff9756dc152",
+  "styleReference": "../studies/valid-Asian_F_3_Casual-minimalist.png",
+  "styleReferenceSha256": "9fa82ddcd34d87d3779f9a56654efd9bd57bdeecf092ba8741c987380c17780d",
+  "poseGuide": "node tools/capture-candidate-walk-guide.mjs valid-Asian_F_3_Casual 2",
+  "poseGuideSha256": "8f4c7f47501c13a4a27b40e5c72173a15d0f5fb71ed2ae3c08036a1e96b78e96",
+  "angleIndex": 2,
+  "angleDegrees": 45,
+  "frameCount": 8,
+  "grid": [4, 2],
+  "cycleSeconds": 1.12,
+  "prompt": "Use case: style-transfer. Asset type: web-game 2D walking animation sprite sheet. Image 1 is the character/style reference. Image 2 is an exact 4-column by 2-row eight-frame walking pose guide. Redraw Image 2's eight different poses, matching EACH corresponding pose, foot position and arm position cell-for-cell, but replace the rough silhouette with the clean minimalist character in Image 1, first row third cell. Preserve the exact sequence, framing, camera angle, spacing, scale and cell centers of Image 2; both leg stride extremes must appear as shown in frames 1 and 5. Same adult East Asian woman throughout: shoulder-length dark hair, featureless blank face, light grey short-sleeved top, dark full-length trousers and pale sneakers. Match Image 1's soft flat grayscale illustration, distinct body and clothing regions, and smooth flowing fabric outlines. Relaxed upright body, natural arm swing. Output exactly eight full-body frames in a regular 4 by 2 grid with clear cell margins on true transparent background. No text, borders, extra poses, props, shadows, duplicated poses, or facial features."
+}

@@ -42,3 +42,12 @@
 .candidate-page #live-angle{position:absolute;bottom:22px;left:15%;width:70%;z-index:3}
 
 .candidate-page #motion-controls label{display:block;margin-top:12px}.candidate-page #motion-play{display:block;margin-top:8px}
+.candidate-page #sprite-study{position:absolute;inset:0;z-index:2;background:#f3f3f3;text-align:center;padding:18px;overflow:auto}
+.candidate-page #sprite-study[hidden]{display:none}
+.candidate-page #sprite-study h2{font-size:20px;margin:0 0 10px}
+.candidate-page #sprite-study p{font-size:12px}
+.candidate-page #sprite-canvas{display:block;width:min(90%,clamp(200px,calc(100dvh - 390px),580px));height:auto;margin:auto;filter:grayscale(1)}
+.candidate-page #sprite-controls{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+.candidate-page #sprite-controls input{width:min(300px,50%)}
+.candidate-page #sprite-controls select{width:auto}
+.candidate-page #sprite-controls[hidden]{display:none}

@@ -36,8 +36,8 @@ try{
   assert.equal(report.status,'');assert.equal(report.errors,0,JSON.stringify(report.shaderLogs));assert.notEqual(report.hashA,report.hashB,entry.id+' rendered limbs move');
   for(const row of report.rows){assert(row.maxExtent<(entry.height??1.75)*1.25,entry.id+' retarget preserves body scale');assert(row.error<.001,entry.id+' foot IK: '+row.error);assert(row.loopError<1e-5,entry.id+' loop closure');assert(row.stanceError<.001,entry.id+' stance foot velocity/contact: '+row.stanceError)}
   assert(report.rows[0].stride<report.rows[1].stride&&report.rows[1].stride<report.rows[2].stride);
-  for(const angle of [0,2,4,8]){await page.evaluate(`(()=>{const e=document.querySelector('#live-angle');e.value=${angle};e.dispatchEvent(new Event('input'));const p=window.__candidatePreview;p.renderer.render(p.scene,p.illustrationCamera)})()`);const shot=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(out,entry.id+'-'+angle+'.png'),Buffer.from(shot.data,'base64'))}
+  for(const angle of [0,2,4,8])for(const phase of [0,.28]){await page.evaluate(`(()=>{const e=document.querySelector('#live-angle');e.value=${angle};e.dispatchEvent(new Event('input'));const p=window.__candidatePreview;p.poseMotion('medium',${phase});p.drawAnimated()})()`);const shot=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(out,entry.id+'-'+angle+'-'+phase+'.png'),Buffer.from(shot.data,'base64'))}
   results.push(report);console.log(entry.id+' motion passed');
  }
- writeFileSync(resolve(out,'report.json'),JSON.stringify(results,null,2));console.log('All 14 rigs: slow/medium/fast foot contact and speed, loop closure, finite joints, moving rendered pixels and shaders passed.');
+ writeFileSync(resolve(out,'report.json'),JSON.stringify(results,null,2));console.log(`${results.length} rig(s): slow/medium/fast foot contact and speed, loop closure, finite joints, moving rendered pixels and shaders passed.`);
 }finally{await page?.close();server.close()}

@@ -26,6 +26,27 @@ Adults use 1.75 m reference height. Children retain child body proportions and
 are displayed at their authored heights (1.18–1.46 m), relative to that adult
 reference. The illustration display enforces neutral grayscale with a CSS filter.
 
+The **Generated 2D walk experiment** has 32-frame sprite loops for VALID woman 3:
+front, 45-degree, side and back, plus low and high elevations at 45 degrees.
+The 32 frames play at 30 fps. Source poses use a single fixed scale per view;
+`tools/capture-candidate-sprite-frames.mjs` registers each pose's shirt centroid
+with integer translations. All available views register the shirt length while preserving the head anchor.
+Side-view hem detection uses a minimum row width to avoid confusing the swinging
+hand with the shirt. Apparent hip-to-foot height is normalized by stretching or
+compressing the lower body in image space; this can distort the original poses.
+Normal and low views share a projected size reference; the high view retains
+its foreshortened projection.
+`tools/interpolate-candidate-sprites.mjs` then uses RIFE to produce in-between
+frames, including the loop transition. The view
+selector preserves the current walk phase. The independently generated source
+poses still have shape and limb inconsistencies, and neither registration nor
+interpolation can fully correct them. This remains an experiment for one character,
+not a full 16-direction library. Source art and provenance remain in
+`public/human-candidates/animation-studies/`; the source frames are processing
+inputs and are not offered as lower-frame playback.
+`node tools/check-candidate-sprite-study.mjs` checks frame playback, phase
+preservation, candidate-specific availability and measured torso-centre drift.
+
 The static sheets retain the approved image style with an opaque light background.
 The moving preview now uses stable surface regions derived from original source UVs
 and anatomy, with flat unlit grayscale colours. It does not project the static
@@ -42,6 +63,10 @@ shorts/boot intervals and covered limbs against isolated texture pixels. Origina
 source texture lighting/detail is not rendered. Source materials and geometry
 restore on source view/disposal. Character-specific clothing boundaries still
 need art review; the static illustrations remain available for comparison.
+`src/candidate-smooth.js` then cleans small contour irregularities in the rendered
+2D image using a local vote over the flat palette. This is a preview-only image
+filter: it cannot straighten large changes in the underlying mesh silhouette, and
+fine details can be softened. The source view and original study captures bypass it.
 
 `src/animation/candidate-library-motion.js` loads the CC0 Quaternius Universal
 Animation Library and uses Three.js `SkeletonUtils.retarget` for walk/idle upper
@@ -85,7 +110,7 @@ occupied figures in all 224 tiles, grayscale display, angle switching, compariso
 and original 3D modes, shaders, shortlist persistence, Chinese and compact layout.
 `node tools/check-candidate-motion.mjs` verifies all 14 rigs and three walk
 profiles: finite joints, body scale, loop closure, stance speed/height, IK endpoint error,
-authored animation mappings, moving rendered pixels and absence of snapshot maps. It saves oblique/side/back captures and a quantitative
+authored animation mappings, moving rendered pixels and absence of snapshot maps. It saves front/oblique/side/back captures at two walk phases and a quantitative
 report under `.preview/human-candidates/motion/`.
 Captures/reports are ignored under `.preview/human-candidates/`.
 

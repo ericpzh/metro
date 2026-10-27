@@ -73,6 +73,11 @@ export async function createCandidateIllustration(root,height,{neckline}={}){
     shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>',`#include <map_fragment>
      float torso=max(0.0,1.0-dot(bodyParts,vec4(1.0))),weight=torso,part=0.0;
      if(bodyParts.x>weight){weight=bodyParts.x;part=1.0;}if(bodyParts.y>weight){weight=bodyParts.y;part=2.0;}if(bodyParts.z>weight){weight=bodyParts.z;part=3.0;}if(bodyParts.w>weight){part=4.0;}
+     // Neck weights can extend over the shoulders in the source rig. Treat
+     // those lower vertices as clothing instead of painting a skin patch.
+     if(part==1.0 && (restPoint.y<neckPoint.y-bodyHeight*.018 ||
+        (restPoint.y<headPoint.y-bodyHeight*.025 &&
+         (abs(restPoint.x-neckPoint.x)>bodyHeight*.032 || abs(restPoint.z-neckPoint.z)>bodyHeight*.032))))part=0.0;
      float grey=restPoint.y>=seams.w?regionPalette.z:regionPalette.w;
      if(part==1.0){
       float front=smoothstep(-bodyHeight*.025,bodyHeight*.025,restPoint.z-headPoint.z);
@@ -85,7 +90,7 @@ export async function createCandidateIllustration(root,height,{neckline}={}){
       float collarBottom=collar.x,level=clamp((restPoint.y-collarBottom)/(neckPoint.y-collarBottom),0.0,1.0);
       float opening=bodyHeight*.048*(collar.y>.5?level:sqrt(level));
       bool frontCollar=restPoint.z>headPoint.z && restPoint.y>collarBottom && abs(restPoint.x-headPoint.x)<opening;
-      bool neck=restPoint.y>neckPoint.y-bodyHeight*.018 && abs(restPoint.x-headPoint.x)<bodyHeight*.045;
+      bool neck=restPoint.y>neckPoint.y-bodyHeight*.018 && abs(restPoint.x-neckPoint.x)<bodyHeight*.032 && abs(restPoint.z-neckPoint.z)<bodyHeight*.032;
       if(frontCollar||neck)grey=regionPalette.x;
      }
      if(isHair>.5)grey=regionPalette.y;
@@ -93,7 +98,7 @@ export async function createCandidateIllustration(root,height,{neckline}={}){
      diffuseColor.rgb=vec3(grey);
     `);
    };
-   material.customProgramCacheKey=()=> 'candidate-fitted-boundaries-v3';return material;
+   material.customProgramCacheKey=()=> 'candidate-fitted-boundaries-v4';return material;
   });
  }
  let active=false;

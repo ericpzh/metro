@@ -22,6 +22,7 @@ const MIME = {
   '.js': 'text/javascript',
   '.mjs': 'text/javascript',
   '.css': 'text/css',
+  '.css': 'text/css',
   '.json': 'application/json',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
