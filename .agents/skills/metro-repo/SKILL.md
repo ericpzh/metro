@@ -467,9 +467,12 @@ performance question.
 
 `model/` is the third app: a Vite + three.js character viewer at port 5175.
 `model/src/characters/female.js` owns variants, `model/src/animation/` owns the
-accepted gait, and `model/src/i18n.js` owns viewer labels. Its preparation script
-regenerates ignored model assets; use `metro-model` (`../metro-model/SKILL.md`) for
-model editing, exports and the approved game atlas. See `model/README.md`. No model Worker is configured.
+accepted gait, `model/src/soft-human/` owns the isolated soft-human motion study
+at `/soft-human.html`, and `model/src/i18n.js` owns viewer labels. Its preparation
+script regenerates ignored model assets; use `metro-model`
+(`../metro-model/SKILL.md`) for model editing, exports and the approved game atlas.
+The soft-human preview never feeds the game crowd or passenger bake. See
+`model/README.md`. No model Worker is configured.
 
 | Path | What it is |
 |---|---|
@@ -478,7 +481,7 @@ model editing, exports and the approved game atlas. See `model/README.md`. No mo
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
-| `model/` | Reviewed character viewer and GLB library at 5175; `metro-model` owns builders, cleanup, walking clips, exports and game atlas regeneration. |
+| `model/` | Reviewed character viewer and GLB library at 5175, plus the isolated `/soft-human.html` motion study; `metro-model` owns builders, cleanup, walking clips, soft-human preview, exports and game atlas regeneration. |
 | `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
 | `art/` | The generated concept sheets — the source of truth, copied into `web/public/art` at build time by `web/scripts/sync-art.mjs`. Never hand-edited. Each sheet has a `*-en.svg` English sidecar (same rule) for the `/en/` route. `metro-web` covers the pipeline. |
@@ -827,6 +830,7 @@ commands.
 | `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test`. Add results to the performance reference only when they establish a performance finding. |
 | `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
+| `check-soft-human.mjs`, `check-soft-human-activities.mjs`, `check-soft-human-clearance.mjs`, `check-soft-arm-poses.mjs` | Browser checks for the isolated soft-human study: motion/wardrobe/shader capture, all 20 station actions at both ages, production-equipment penetration scans (`--all`, `--seated`, `--escalators`) and elbow posture. See `metro-model`; captures in ignored `.preview/soft-human/`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |
 | `render-module-cards.mjs` | Sheet 04's cards: drives headless Chrome to run the game's own thumbnail pass. Needs Chrome + `game/dist`. |
 | `render-block-cards.mjs` | Sheet 03's blocks, meshed and lit by the game (same shape). |

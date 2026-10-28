@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createSoftHuman,createMotion} from '../src/soft-human/character.js';
+test('soft human has finite continuous skin and normalized rig weights',()=>{const c=createSoftHuman(),g=c.body.geometry;assert(g.index);assert.equal(c.bones.length,11);for(const v of g.attributes.position.array)assert(Number.isFinite(v));const w=g.attributes.skinWeight.array;for(let i=0;i<w.length;i+=4)assert(Math.abs(w[i]+w[i+1]+w[i+2]+w[i+3]-1)<1e-6)});
+test('fixed-step springs reproduce playback and recover from an impulse',()=>{const c=createSoftHuman(),m=createMotion(c);for(let i=0;i<120;i++)m.update(1/60);const first=c.bones.map(b=>b.quaternion.toArray());m.reset();for(let i=0;i<240;i++)m.update(1/120);assert.deepEqual(c.bones.map(b=>b.quaternion.toArray()),first);m.state.mode='idle';m.reset();m.push();m.update(1/60);assert(c.chest.rotation.z>.01);for(let i=0;i<1800;i++)m.update(1/120);assert(Math.abs(c.chest.rotation.z)<1e-6);m.update(100);assert(c.bones.every(b=>b.quaternion.toArray().every(Number.isFinite)))});

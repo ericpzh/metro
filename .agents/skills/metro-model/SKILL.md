@@ -1,6 +1,6 @@
 ---
 name: metro-model
-description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, and shared game crowd atlas. Use for model/ or tools/bake-approved-passenger.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
+description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, the soft-human motion-study preview, and shared game crowd atlas. Use for model/ or tools/bake-approved-passenger.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
 ---
 
 # Metro model library
@@ -40,6 +40,71 @@ boundary regression is `model/test/candidate-boundaries.test.mjs`; run
 `node tools/check-candidate-motion.mjs` for all-candidate motion/geometry checks,
 `node tools/check-human-candidates.mjs` for the preview UI and study sheets, then
 `node model/node_modules/vite/bin/vite.js build model`.
+
+## Soft-human motion study
+
+`model/soft-human.html` (linked from the model library as **Soft human**) is a
+separate, preview-only study inspired by Human: Fall Flat references. It is not
+in the reviewed catalogue, the game crowd atlas or the passenger bake. Keep it
+that way unless the user explicitly asks to promote the style.
+
+- `src/soft-human/character.js` owns the original implicit sculpt. One marching-
+  cubes field produces the continuous skin (skull, torso, mitten hands, legs),
+  weighted from point-to-segment distances across an eleven-bone rig. The cap and
+  clothing/accessories are separate meshes. Do not replace it with downloaded
+  game geometry. The motion layer is fixed-step damped angular springs following
+  procedural targets; it is pose-following lag/overshoot, not an active ragdoll
+  with contacts, balance, grabbing or soft-body volume. Feet are not contact-solved.
+  `state.softness` changes stiffness/damping; keep the timestep and frame clamp so
+  tab resumption stays bounded.
+- `src/soft-human/wardrobe.js` splits the actual skinned triangles into eight
+  opaque material regions at garment/lapel/tie/shoe boundaries, so clothes survive
+  GLB export without a shader. Preserve skin area, winding and per-vertex weights
+  when adding outfits. `OUTFITS` and `BACKPACKS` drive the selectors; eight outfits
+  include three formal suits, and the pack list adds eight carried-bag variants.
+  The plain/base rig must remain exportable.
+- `carried-bags.js` adapts hip, shoulder/crossbody and hand-held shapes to this
+  rig; `bag-shell.js` is the tapered fabric envelope; `strap-fit.js` fits both
+  ribbon edges to the actual bind skin and corrects barycentric LBS error from the
+  posed triangle each frame (no per-frame raycasting). `bag-connectors.js` bridges
+  each fitted end into the bag anchor. Keep continuous attachment and stable bag
+  placement over collision-driven jumps; some skin overlap is accepted.
+- `src/soft-human/activities.js` derives `SOFT_ACTIONS` from
+  `game/src/sim/activities.ts` (20 actions: three walks, every non-walk activity
+  including left-hand escalator, plus idle/reach/float) and adapts the production
+  interaction poses/IK to the soft rig. Reuse `interaction-equipment.js`; keep
+  preview construction isolated from station documents. In narrow lanes (gates,
+  doors, escalators) tuck the free arm inside the balustrade/reader; resting arms
+  elsewhere stay slightly away from the ribs. Seat, basin, rail, door-threshold
+  and lift-floor heights come from the actual equipment anchors. Children use a
+  sized step, shorter rail reach and a visible wash step; adult equipment stays
+  adult-sized.
+- `scripts/export-soft-human.mjs` round-trips GLBs and writes
+  `public/soft-human/` plus per-export provenance/hash JSON. Regenerate every
+  named example after changing a source it lists, and never hand-edit those files.
+  `npm run build:model` must include `soft-human.html` in the Vite inputs.
+
+The page exports the current pose, clothing, pack and cap visibility, but no
+procedural clips or equipment. Keep the model-app isolation: never import
+`src/soft-human/` from `game/` or use it as the game crowd.
+
+### Soft-human validation
+
+Run `node --test model/test/soft-human*.test.mjs`, then
+`node model/node_modules/vite/bin/vite.js build model`, then the browser checks:
+`node tools/check-soft-human.mjs` (motion modes, nudge recovery, shader compile,
+four views, all outfits/packs and carried bags at both ages, compact layout),
+`node tools/check-soft-human-activities.mjs` (all 20 actions × 2 ages × 4 timeline
+samples, equipment visibility, timeline scrubbing), `node tools/check-soft-human-clearance.mjs`
+(`--all` for every station timeline, `--seated` for sit/stand at 0.125 s,
+`--escalators`), and `node tools/check-soft-arm-poses.mjs` (neutral/ticket/wash
+elbows from front, oblique and back). Captures go under ignored
+`.preview/soft-human/`. Tests pin catalogue completeness, deterministic scrubbing,
+seat/foot support, basin/rail contact, lane containment, elbow posture, skin
+weights, all wardrobe combinations, carried-bag anchoring and a posed GLB
+round-trip. A failing activity assertion can be a real pose regression: the
+free-arm lane check caught a hardcoded `narrow=0` that left the arm outside the
+escalator.
 
 ## Sound studio
 
