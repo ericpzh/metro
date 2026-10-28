@@ -1,7 +1,7 @@
 // The stainless infill between neighbouring ramp balustrades (§5.1).
 // Each seam belongs to one escalator, so a rebuild never draws it twice.
 import * as THREE from 'three'
-import { modelNeighbours } from '../../modelNeighbours.ts'
+import { modelNeighbours, modelCellAt } from '../../modelNeighbours.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { moduleEnvelope, type ModuleBox } from '../../../sim/placement.ts'
@@ -122,7 +122,16 @@ function spanBlocked(ctx: ModuleContext, own: Run, other: Run, side: number, sta
     const box = moduleEnvelope(m, ctx.data!.modules)
     if (box && intersects(box)) return true
   }
-  return ctx.data!.cells.some(c => c.fill === 'solid' && intersects({ x0: c.x, x1: c.x + 1, y0: c.y, y1: c.y + 1, z0: c.z, z1: c.z + 1 }))
+  const cells = ctx.data!.cells
+  const solid = (x: number, y: number, z: number): boolean => modelCellAt(cells, x, y, z)?.fill === 'solid'
+  return cells.some(c => {
+    if (c.fill !== 'solid' || !intersects({ x0: c.x, x1: c.x + 1, y0: c.y, y1: c.y + 1, z0: c.z, z1: c.z + 1 })) return false
+    // A single floor course over the open shaft is cleared with the adjacent
+    // escalator openings. A wall or a stack in the gap remains an obstruction.
+    const open = (x: number, y: number, z: number) => !solid(x, y, z)
+    const shaft = [1, 2].every(n => open(c.x, c.y, c.z - n))
+    return !shaft
+  })
 }
 
 /** The actual inclined black rail's endpoints, before its rounded returns. */

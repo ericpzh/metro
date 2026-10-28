@@ -113,10 +113,25 @@ test('objects and blocks crossing the widened span prevent the cap', () => {
   const a = escalator(0, 'a'), b = escalator(2, 'b')
   const obstacle = createModule('bench', 1, 3, 2, 'obstacle', 0)
   assert.equal(joins([a, b, obstacle]).length, 0, 'equipment in the sloping span blocks the connector')
-  assert.equal(joins([a, b], [{ x: 1, y: 3, z: 3, fill: 'solid' }]).length, 0, 'a solid block blocks the connector')
+  assert.equal(joins([a, b], [{ x: 1, y: 3, z: 3, fill: 'solid' }, { x: 1, y: 3, z: 2, fill: 'solid' }]).length, 0, 'a solid block blocks the connector')
   assert.equal(joins([a, b], [{ x: 1, y: 3, z: -5, fill: 'solid' }]).length, 1, 'a block well below the connector does not block it')
   const crossing = stair(1, 'crossing', 1)
   assert.equal(joins([a, b, crossing]).filter(cap => cap.mesh.userData.neighbourId === 'b').length, 0, 'a crossing stair blocks the connector')
+})
+
+test('Tianhe escalator at (-11, -67, -10) joins beside the existing run', () => {
+  const existing = escalator(-9, 'escalator-409', 2, 1, 'up', -67, -10)
+  const placed = escalator(-11, 'preview-escalator', 2, 1, 'up', -67, -10)
+  assert.equal(joins([existing, placed]).filter(cap => cap.mesh.userData.neighbourId === existing.id).length, 1)
+})
+
+test('isolated floor courses above an open middle shaft allow a widened cap', () => {
+  const a = escalator(0, 'a'), b = escalator(2, 'b')
+  const slab = { x: 1, y: 3, z: 3, fill: 'solid' }
+  assert.equal(joins([a, b], [slab]).length, 1, 'one floor course over the cleared shaft does not block the cap')
+  assert.equal(joins([a, b], [slab, { ...slab, x: 0 }, { ...slab, x: 2 }]).length, 1, 'uncarved upper floor beside a preview does not block the cap')
+  assert.equal(joins([a, b], [slab, { ...slab, z: 0 }]).length, 1, 'floor courses separated by two empty cells allow the cap')
+  assert.equal(joins([a, b], [slab, { ...slab, z: 1 }]).length, 0, 'a closer second course blocks the cap')
 })
 
 test('a run that ends beyond one landing does not suppress a widened seam', () => {

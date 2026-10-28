@@ -561,7 +561,7 @@ including wide pieces, rotation, reversed travel, single seam ownership and neig
 and that a bank fills its seam at every one of the four lengths while two differing lengths never
 share one. Two parallel escalators one empty block apart bridge the gap with the widened cap, while
 a run crossing the seam, a wider void and a non-flush stair grow none; a run that shares the lane
-but ends beyond one landing (the saved 天河公园 pair) does not suppress the cap. Stairs, other modules and solid blocks crossing the sloped span suppress the connector, while blocks below it do not.
+but ends beyond one landing (the saved 天河公园 pair) does not suppress the cap. A floor course above two cleared shaft cells permits the cap even while adjacent upper-floor cells are still present during preview; the Tianhe (-11, -67, -10) placement is pinned. Stairs, other modules and solid blocks crossing the sloped span suppress the connector, while blocks below it do not.
 It also checks the closed end shells, the flush cap's single centreline row and the widened cap's
 two evenly spaced columns of double-size hemispheres, all seated on the metal cap.
 `exits` pins one-to-four-bay head-house geometry, including the 6 m 四向 ground exit, placement from a picked
