@@ -109,6 +109,16 @@ test('parallel escalators one empty block apart share a widened cap', () => {
   assert.equal(joins([e, s]).length, 0, 'a stair one block away is not bridged')
 })
 
+test('objects and blocks crossing the widened span prevent the cap', () => {
+  const a = escalator(0, 'a'), b = escalator(2, 'b')
+  const obstacle = createModule('bench', 1, 3, 2, 'obstacle', 0)
+  assert.equal(joins([a, b, obstacle]).length, 0, 'equipment in the sloping span blocks the connector')
+  assert.equal(joins([a, b], [{ x: 1, y: 3, z: 3, fill: 'solid' }]).length, 0, 'a solid block blocks the connector')
+  assert.equal(joins([a, b], [{ x: 1, y: 3, z: -5, fill: 'solid' }]).length, 1, 'a block well below the connector does not block it')
+  const crossing = stair(1, 'crossing', 1)
+  assert.equal(joins([a, b, crossing]).filter(cap => cap.mesh.userData.neighbourId === 'b').length, 0, 'a crossing stair blocks the connector')
+})
+
 test('a run that ends beyond one landing does not suppress a widened seam', () => {
   // Saved 天河公园 geometry: two 2-block 三层 escalators at y = -104 and -101,
   // with a stair on the same lane but four cells past their lower landing. The

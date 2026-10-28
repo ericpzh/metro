@@ -4,6 +4,7 @@ import * as THREE from 'three'
 import { modelNeighbours } from '../../modelNeighbours.ts'
 import { exitLandingHeight } from './ExitLanding.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
+import { moduleEnvelope, type ModuleBox } from '../../../sim/placement.ts'
 import type { Module, Vec3i } from '../../../sim/types.ts'
 import { escalatorBalustradeWidth, escalatorRun } from '../../../sim/escalators.ts'
 import { stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTreadTrim, stairWallSides } from '../../../sim/stairs.ts'
@@ -105,20 +106,23 @@ const WIDE_DOME_SCALE = 2
  * piece between them; a run beyond one landing (same lane, clear of the cap) must
  * not suppress it.
  */
-function nearerRun(ctx: ModuleContext, own: Run, side: number, distance: number, start: number, end: number): boolean {
-  for (const neighbour of modelNeighbours(ctx, 'stair', 'escalator', 'walkway')) {
-    if (neighbour.id === own.mod.id) continue
-    for (const between of runs(ctx, neighbour)) {
-      if (own.axis.dot(between.axis) < 0.999) continue
-      if (Math.abs(own.lower.z - between.lower.z) > 0.001 || Math.abs(own.upper.z - between.upper.z) > 0.001) continue
-      const offset = between.lower.clone().sub(own.lower).dot(own.across)
-      if (Math.sign(offset) !== side || Math.abs(offset) >= distance - 0.001) continue
-      const from = Math.min(between.lower.dot(own.axis), between.upper.dot(own.axis))
-      const to = Math.max(between.lower.dot(own.axis), between.upper.dot(own.axis))
-      if (to > start + 0.001 && from < end - 0.001) return true
-    }
+function spanBlocked(ctx: ModuleContext, own: Run, other: Run, side: number, start: number, end: number): boolean {
+  const inner = own.lower.dot(own.across) + side * own.planHalf
+  const outer = other.lower.dot(own.across) - side * other.planHalf
+  const intersects = (box: ModuleBox): boolean => {
+    const corners = [new THREE.Vector3(box.x0, box.y0, 0), new THREE.Vector3(box.x0, box.y1, 0), new THREE.Vector3(box.x1, box.y0, 0), new THREE.Vector3(box.x1, box.y1, 0)]
+    const along = corners.map(p => p.dot(own.axis)), across = corners.map(p => p.dot(own.across))
+    const lo = Math.max(start, Math.min(...along)), hi = Math.min(end, Math.max(...along))
+    if (hi <= lo + 0.001 || Math.max(...across) <= Math.min(inner, outer) + 0.001 || Math.min(...across) >= Math.max(inner, outer) - 0.001) return false
+    const height = (u: number): number => own.lower.z + (u - own.lower.dot(own.axis)) / own.length * (own.upper.z - own.lower.z)
+    return box.z1 > height(lo) + 0.001 && box.z0 < height(hi) + own.railHeight - 0.001
   }
-  return false
+  for (const m of [...ctx.data!.modules, ...(ctx.previewCandidates ?? [])]) {
+    if (m.id === own.mod.id || m.id === other.mod.id) continue
+    const box = moduleEnvelope(m, ctx.data!.modules)
+    if (box && intersects(box)) return true
+  }
+  return ctx.data!.cells.some(c => c.fill === 'solid' && intersects({ x0: c.x, x1: c.x + 1, y0: c.y, y1: c.y + 1, z0: c.z, z1: c.z + 1 }))
 }
 
 /** The actual inclined black rail's endpoints, before its rounded returns. */
@@ -307,7 +311,7 @@ export function addRampJoins(ctx: ModuleContext, mod: RampBand, group: THREE.Gro
       const gap = separation - own.railHalf - other.railHalf
       if (gap <= 0.03) continue
       // A widened cap spans the empty block: never reach across a run standing in it.
-      if (spacing > 0.001 && nearerRun(ctx, own, side, separation, start, end)) continue
+      if (spacing > 0.001 && spanBlocked(ctx, own, other, side, start, end)) continue
       const near = (u: number): THREE.Vector3 => at(first, own.axis, u).addScaledVector(own.across, -side * RAMP_JOIN_RAIL_OVERLAP).add(new THREE.Vector3(0, 0, -0.04 - ESCALATOR_SURFACE_CLEARANCE))
       const far = (u: number): THREE.Vector3 => at(second, own.axis, u).addScaledVector(own.across, side * RAMP_JOIN_RAIL_OVERLAP).add(new THREE.Vector3(0, 0, -0.04 - ESCALATOR_SURFACE_CLEARANCE))
       const row = (a: THREE.Vector3, b: THREE.Vector3): Row => side > 0 ? [a,b] : [b,a]

@@ -710,7 +710,7 @@ the four rules most changes trip over.
   neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). Two parallel
   escalators with one empty block between them also share one, widened across the gap; a cap never
   spans across another run that overlaps its along-run stretch (one merely sharing the lane beyond
-  a landing does not block it), and a stair only shares one flush. The
+  a landing does not block it). A stair or any other object crossing the sloped gap blocks the cap; floor cells below the connector do not. Keep module and cell edit dependencies rebuilding affected escalators. A stair only shares one flush. The
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house

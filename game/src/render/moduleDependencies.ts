@@ -177,7 +177,7 @@ export function retainedModuleIds(before: StationData, after: StationData): Set<
     // change neighbouring module geometry, so keep every existing model and
     // build the new tile alone. This avoids rebuilding a large station's full
     // equipment catalogue for each block in a dragged stair-block patch.
-    if (onlyAddedStairBlocks(before, after)) {
+    if (onlyAddedStairBlocks(before, after) && !before.modules.some(m => m.type === 'escalator' && changedModules(before, after).some(c => nearbyOpening(m, c)))) {
       for (const mod of before.modules) retained.add(mod.id)
     } else {
       for (const id of equipmentRetainedIds(before, after)) retained.add(id)
@@ -260,6 +260,7 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   for (const mod of after.modules) {
     if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
     if (!known(mod) || dependsOnCells(mod, cellChanges)) continue
+    if (mod.type === 'escalator' && changes.some(m => nearby(mod, m))) continue
     if(flatBeltsOnly&&!['fence','exit','guidepost','platform-edge','psd-end'].includes(mod.type)){
       retained.add(mod.id);continue
     }

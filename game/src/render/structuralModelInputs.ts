@@ -17,7 +17,7 @@ const stairInputs = new WeakMap<StationData, Map<string, unknown>>()
  * are unchanged on this path, so endpoint, exit, lane and join ownership inputs
  * are already identical. Keep the same wall/landing predicates as the builders. */
 export function rampCellModelInputs(data: StationData, mod: Module): unknown {
-  if(mod.type==='escalator')return data.modules.filter(m=>m.type==='stair'&&nearbyOpening(mod,m)).map(m=>[m.id,rampCellModelInputs(data,m)])
+  if(mod.type==='escalator'){ const box=moduleEnvelope(mod); return [data.modules.filter(m=>m.type==='stair'&&nearbyOpening(mod,m)).map(m=>[m.id,rampCellModelInputs(data,m)]), box && data.cells.filter(c=>c.x>=box.x0-3&&c.x<=box.x1+3&&c.y>=box.y0-3&&c.y<=box.y1+3)] }
   if(mod.type!=='stair'||mod.cfg.block)return null
   let cached=stairInputs.get(data)
   if(!cached)stairInputs.set(data,cached=new Map())

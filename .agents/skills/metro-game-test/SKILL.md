@@ -482,7 +482,7 @@ paused; consists settle; orchestrator forwarding),
 one-floor rungs, the staircase-only 超长 6 m, and the 双层 family — spans,
 envelope, carve, landing nodes, ride time, exit-bay snap, save round-trip, both
 drawn models, and the catalogue's family fallback and nearest-match answers — with
-`ramp-join` for the seam at each length (including the widened one-block escalator span)
+`ramp-join` for the seam at each length (including the widened one-block escalator span and stair/object/block obstruction
 and `builder-attributes` for the tile,
 the predicate and the dispatch),
 `walkways` (the 扶梯's level twin: its three lengths 短 30 m / 中 60 m / 长 90 m in
