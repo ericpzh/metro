@@ -2279,3 +2279,22 @@ preview-cache reuse, direct/indexed agreement, post-placement survival, every
 stair/escalator rotation and direction, zero-volume and overlapping-run refusals.
 Existing carve tests now distinguish retained wedges from fully removed passage
 cells. Full suite: 2485 passed; typecheck and production build passed.
+
+### Tianhe door under stair — 2026-10-27
+
+In `天河公园.metro (29).json` (SHA-256
+`d5ade5520833f649c2b08b9958fcbcfe6749bc2c83944ab3ae4d29e4455499817`),
+the steel door at `(-10,-73,-10)` meets the stair clearance at -7.01 m.
+Floating-point rounding introduced approximately 1e-15 m of apparent overlap.
+Ramp collision comparisons now tolerate 1e-9 m at contact, including either
+placement order; the regression also refuses a 1 cm overlap. Other equipment
+collision comparisons retain their existing strict rule. Pointer picking,
+previews and document commits are unchanged.
+
+A direct Node validation on the unmodified save (38,578 cells, 430 modules)
+accepted the door. One cold `equipmentReason` call took 6.90 ms and ten warm
+calls took 0.05–0.15 ms on this machine. These are diagnostic CPU timings,
+not a matched baseline or a pointer-to-render measurement. The focused placement
+regressions and production build passed. The full suite reported 2,535 passes
+and two failures in local-cell-edit ramp model inputs and the existing modified
+toilet cubicle Low-geometry budget; neither is a door collision test.

@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { blockReason } from '../src/sim/placement.ts'
+import { blockReason, equipmentReason, placementColliders } from '../src/sim/placement.ts'
 import { blockIndex } from '../src/sim/blockIndex.ts'
 import { rampSurfaceRetainsVolume } from '../src/sim/rampSurface.ts'
 import { rampSlopeCuts, carveRampOpenings, rampOpeningAt, rampThinCells } from '../src/sim/openings.ts'
@@ -15,6 +15,26 @@ const stair = {
   from: { x: 83, y: -102, z: -20 }, to: { x: 60, y: -102, z: -5 },
   cfg: { width: 2.04, style: 'straight', flights: [{ from: { x: 83, y: -102, z: -20 }, to: { x: 60, y: -102, z: -5 } }] }, storeyHeight: 5,
 }
+
+test('Tianhe (-10,-73,-10): a door at exact stair underside contact fits', () => {
+  // Extracted from 天河公园.metro (29).json. The steel door top and the
+  // stair body bottom are both -7.01, with a rounding difference of ~1e-15.
+  const flights = [
+    { from: { x: -10, y: -68, z: -10 }, to: { x: -10, y: -72, z: -7.5 } },
+    { from: { x: -10, y: -72, z: -7.5 }, to: { x: -10, y: -76, z: -5 } },
+  ]
+  const run = { id: 'reported-stair', type: 'stair', x: -10, y: -68, z: -10, rot: 2,
+    from: flights[0].from, to: flights[1].to, cfg: { width: 0.79, style: 'centerForward', flights }, storeyHeight: 5 }
+  const floor = [{ x: -10, y: -73, z: -10, fill: 'solid' }]
+  const door = createModule('door', -10, -73, -10, 'door', 0)
+  assert.equal(blockReason([], [run], -10, -73, -8).ok, true)
+  assert.equal(equipmentReason(floor, [run], door), '')
+  assert.deepEqual(placementColliders([run], door), [])
+  assert.deepEqual(placementColliders([door], run), [])
+  const raised = { ...door, z: door.z + 0.01 }
+  assert.deepEqual(placementColliders([run], raised), [run], 'real overlap must still be refused')
+  assert.deepEqual(placementColliders([raised], run), [raised])
+})
 
 test('Tianhe (77,-100,-16): preview, placement and carving retain the calculated stair wedge', () => {
   const cells = [], modules = [stair], target = [77, -100, -16]

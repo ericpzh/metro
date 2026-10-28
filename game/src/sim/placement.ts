@@ -1849,7 +1849,13 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     for (const a of candidateBoxes) {
       if (hit) break
       for (const b of boxes) {
-        if (boxesOverlap(a, b)) {
+        // Ramp heights are calculated from slopes and can differ by a few ulps
+        // from a fixture's dimension at exact contact. Contact is not overlap.
+        const rampPair = isRampRun(m) || isRampRun(candidate)
+        const epsilon = rampPair ? 1e-9 : 0
+        if (a.x0 < b.x1 - epsilon && a.x1 > b.x0 + epsilon &&
+            a.y0 < b.y1 - epsilon && a.y1 > b.y0 + epsilon &&
+            a.z0 < b.z1 - epsilon && a.z1 > b.z0 + epsilon) {
           hit = true
           break
         }

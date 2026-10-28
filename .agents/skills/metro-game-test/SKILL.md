@@ -642,7 +642,9 @@ commits through rendered feedback; timings are diagnostic, not a real-pointer bu
 small deterministic fixture. It pins direct/indexed block verdicts, cached preview,
 release and post-placement carving, every stair/escalator rotation, zero-volume
 remnants and overlapping-run refusals. Existing carve suites distinguish retained
-underside wedges from cells wholly inside the passenger passage.
+underside wedges from cells wholly inside the passenger passage. The separate
+Tianhe `(-10,-73,-10)` steel door case pins floating-point contact at the stair
+underside, both placement orders and a real-overlap refusal.
 
 ### Urinal and equipment LOD inventory
 
