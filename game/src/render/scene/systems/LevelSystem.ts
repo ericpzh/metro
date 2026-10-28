@@ -35,7 +35,7 @@ export class LevelSystem extends SceneSystem {
    * is written onto the record as the walk reaches it. Rebuilt whenever the
    * toggles move, which is the only time `applyLevel` does any work.
    */
-  private readonly slice: SliceOptions = { ghost: true, autoCeiling: true }
+  private readonly slice: SliceOptions = { ghost: true, autoCeiling: false }
   /** The cut's plane while a cut is on, shared by every material this walk dresses. */
   private clip: THREE.Plane | null = null
   private lastAppliedView = ''

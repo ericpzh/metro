@@ -77,7 +77,7 @@ plates and inferred overhead slabs in ChunkSystem's independently hideable
 ceiling pass. An inferred slab needs a floor beneath it, clear column space and
 a neighboring block on its course; isolated blocks, shaped pieces and stacked
 solids stay ordinary geometry. An untagged lining directly beneath the next
-storey's plain floor course belongs to that upper floor's render slice. Keep Tianhe Park `(-10,-90,-11)` and `(8,-102,-11)`
+storey's plain floor course belongs to its own five-metre render slice. Keep Tianhe Park `(-10,-90,-11)` and `(8,-102,-11)`
 covered with their adjoining −10 m floor retained. Blocks less than 3 m above their five-metre
 storey base stay floor geometry, even if tagged `opening-ceiling` or
 `suspended-ceiling`. This protects raised platforms such as Tanwei z=11 while

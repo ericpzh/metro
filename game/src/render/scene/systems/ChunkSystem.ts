@@ -19,7 +19,7 @@ import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftLevels } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
-import { packKey, shapeOf } from '../../../sim/types.ts'
+import { packKey } from '../../../sim/types.ts'
 import type { Cell, CellShape, StationData } from '../../../sim/types.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
@@ -598,23 +598,9 @@ export class ChunkSystem extends SceneSystem {
     if(!this.groundWindowOnly){
     if(!local)this.ctx.groundOf.clear()
     else for(const c of this.effectiveCells)this.ctx.groundOf.delete(`${c.x},${c.y}`)
-    const cellByKey = new Map(this.effectiveCells.filter(c => c.fill === 'solid').map(c => [packKey(c.x, c.y, c.z), c]))
     for (const c of this.effectiveCells) {
       if (c.fill !== 'solid') continue
-      let band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
-      // The bottom course of a stacked upper floor belongs to that floor's
-      // slice, not the room below. Keep explicit ceilings and wall columns in
-      // their authored band. This also prevents stair openings exposing an
-      // upper slab's edge while other storeys are hidden.
-      const upperAbove = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
-        const upper = cellByKey.get(packKey(c.x + dx, c.y + dy, c.z + 1))
-        return !!upper && !shapeOf(upper) &&
-          !upper.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === OPENING_CEILING)
-      })
-      if (c.z + 1 === band + this.ctx.storeyHeight && upperAbove &&
-          !shapeOf(c) &&
-          !c.tags?.some(t => t === 'wall' || t === 'suspended-ceiling' || t === OPENING_CEILING) &&
-          !cellByKey.has(packKey(c.x, c.y, c.z - 1))) band += this.ctx.storeyHeight
+      const band = storeyBand(c.z, this.ctx.levelBase, this.ctx.storeyHeight)
       bandOfCell.set(packKey(c.x, c.y, c.z), band)
       const col = `${c.x},${c.y}`
       const prev = this.ctx.groundOf.get(col)

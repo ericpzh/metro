@@ -10,7 +10,7 @@
 //   35% ghost. Ghosts keep their true depth and are drawn as translucent
 //   geometry, so a storey the active one covers simply loses the depth test:
 //   the ghost shows wherever it does not block the depth you are working on.
-// * **隐藏天花板** (on by default) is the single exception, and only for storeys
+// * **隐藏天花板** (off by default) is the single exception, and only for storeys
 //   *above* the active one. A slab one storey up is the active room's ceiling,
 //   so it is the nearest thing to a top-down camera and the one thing that
 //   hides the room you are building. With the toggle on, a storey above keeps

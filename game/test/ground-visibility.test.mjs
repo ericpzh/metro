@@ -27,6 +27,13 @@ import { ChunkSystem } from '../src/render/scene/systems/ChunkSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { useStore } from '../src/app/store.ts'
+import { createViewSlice } from '../src/app/store/slices/ViewSlice.ts'
+
+test('ceiling hiding starts off in both the view store and scene', () => {
+  const view = createViewSlice(() => {}, () => ({}), {})
+  assert.equal(view.autoCeiling, false)
+  assert.equal(new SceneContextData(new THREE.Scene(), kit()).autoCeiling, false)
+})
 
 test('roof visibility is independent of ceiling slicing and hides in every view mode', () => {
   assert.equal(new SceneContextData(new THREE.Scene(), kit()).hideRoof, false)

@@ -540,7 +540,7 @@ test('Tanwei wall sides survive hidden suspended ceilings and neighbour retaggin
   } finally { chunks.disposeChunks(); material.dispose() }
 })
 
-test('stair opening upper-floor lining follows the -10 storey across edits at a chunk seam', async () => {
+test('top-course blocks stay on their own storey across stair opening edits at a chunk seam', async () => {
   const { emptyStation } = await import('../src/data/reference-station.ts')
   const material = new THREE.MeshBasicMaterial({side: THREE.DoubleSide})
   const ctx = new SceneContextData(new THREE.Scene(), {finish:()=>material, outline:material}, {}, {})
@@ -559,7 +559,7 @@ test('stair opening upper-floor lining follows the -10 storey across edits at a 
       level.setLevel(-15,false);level.setAutoCeiling(false)
       const hits=ray.intersectObjects(chunks.chunkMeshes.filter(m=>m.visible))
       assert.ok(hits.length)
-      assert.ok(hits.every(h=>h.point.z<=-14),'upper floor and its lining cannot obstruct the lower editing floor')
+      assert.ok(hits.some(h=>h.point.z===-10),'the top-course block stays visible on its own storey when ceiling hiding is off')
       level.setLevel(-10,false)
       assert.ok(upperRay.intersectObjects(chunks.chunkMeshes.filter(m=>m.visible)).some(h=>h.point.z===-9),'upper floor remains available on its own storey')
     }

@@ -234,7 +234,7 @@ export class SceneContextData implements SceneContext {
   levelBase = 0
   storeyHeight = STOREY_HEIGHT
   ghost = true
-  autoCeiling = true
+  autoCeiling = false
   hideWalls = false
   hideGround = false
   hideRoof = false

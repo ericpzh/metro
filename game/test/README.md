@@ -59,8 +59,7 @@ pointer actions, source/file routing, event pick counts, sliders and ambient fra
 
 `ceiling-cells` covers untagged horizontal ceiling detection in Tianhe Park,
 preserved floor/wall/shape cases, explicit plate tags and upper-floor lining that
-continues across a stair opening. `floor-geometry` checks its lower-storey hiding,
-upper-storey return and chunk-seam invalidation on stair edits. `floor-geometry`
+continues across a stair opening. `floor-geometry` checks its visibility in its own storey and chunk-seam invalidation on stair edits. `floor-geometry`
 also checks the actual ceiling mesh pass and cache invalidation on support edits.
 
 `tv-pair` pins the legal opposite-facing shared-cell rule, one shared housing and
@@ -957,7 +956,7 @@ Truss roof finishes: the truss bays use neutral white vertex colours and metre-s
 
 `structures-gaps.test.mjs` pins the repair-shaped edges the feature suites use but never assert: `normalizeLevelBase` clamping/rounding, the roof width cycle/clamp/labels and ridge formula, the three ways a pillar refuses a bridge, and the roof-paint no-ops.
 
-Roof visibility: 隐藏天花板 leaves actual roof modules visible. 隐藏屋顶 is a separate view toggle, off by default, hiding all roof styles even in 隐藏UI / 剖切. It sits below 隐藏天花板 with 分区图 to its right. `ground-visibility.test.mjs` pins independent ceiling/roof visibility; `rail-folders.test.mjs` pins the nine-tile order and header count.
+Roof visibility: `ground-visibility` pins 隐藏天花板 off by default in the view store and scene. 隐藏天花板 leaves actual roof modules visible. 隐藏屋顶 is a separate view toggle, off by default, hiding all roof styles even in 隐藏UI / 剖切. It sits below 隐藏天花板 with 分区图 to its right. `ground-visibility.test.mjs` pins independent ceiling/roof visibility; `rail-folders.test.mjs` pins the nine-tile order and header count.
 
 `street-decor.test.mjs` verifies above-ground-only placement and movement, whole shelter floor support, track rejection, rotated model bounds, live station/exit labels, the 公交站's displays (a **double-sided** landscape lightbox per cabinet, one upright panel on the route cabinet's back, and its own campaign on every panel — `billboard.test.mjs` pins the choice itself), and persistence of exit references and frozen shared posters.
 
@@ -1315,4 +1314,4 @@ Music: `music.test.mjs` covers full-track licenses/hashes/asset limits, streamin
 
 `three-storey-ramps` pins the contiguous 12–16 m range, 15 m default, endpoint-derived span/length and all rotations for both escalator directions and straight/turning stairs.
 
-The ceiling-cells and floor-geometry suites pin untagged upper-floor linings at (79,-101,-11), upper-storey slicing, seam edit restoration, and diagonal ambient-occlusion cache votes.
+The ceiling-cells and floor-geometry suites pin untagged upper-floor linings at (79,-101,-11), current-storey slicing, seam edit restoration, and diagonal ambient-occlusion cache votes.
