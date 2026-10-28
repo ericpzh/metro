@@ -1,5 +1,45 @@
 # Model library
 
+## Selected soft-human base
+
+The user-selected base for `/soft-human.html` is now
+`public/human-candidates/human-fall-flat/HumanBody_Alt.fbx`.
+`src/soft-human/imported-base.js` normalizes the source to 1.7 m, preserves its
+26,544 vertices, authored weights and smooth normals, and rebinds its 15 bones
+plus a Hips root into an A-pose. The original procedural sculpt remains in
+`character.js` as a historical study and regression fixture; it is not the page's
+active base. The older procedural-study descriptions below describe that fixture.
+
+The selected base supports the eight existing outfits, eleven bag choices,
+adult/child sizing, three walks and the full station activity catalogue.
+Wardrobe boundaries map to its proportions; the neck opening ends at the measured
+narrow neck, and cuffs are clipped perpendicular to the forearm. Straps use
+authored mathematical curves in `torso-fit.js` and `mathematical-strap.js`:
+Bezier shoulder arcs and chest runs, a smooth torso profile, and a level
+superellipse for backpack lower returns. Constant-width ribbons use parallel
+transport and stay owned by Chest alongside the bag. There is no triangle
+projection or per-frame strap fitting. `strap-fit.js` remains a historical
+procedural-study implementation. Carried bags use the actual wrist anchors.
+Station poses use the production equipment's contact heights. Free arms keep
+the default outward A-pose in every action, including seating and narrow lanes;
+only active equipment reaches override it. Adult width is not compressed to fit
+a lane. Collision audits can therefore report an outward free arm crossing narrow
+equipment. Switching back to walking restores the bind joint positions. The preview stays isolated
+from the game atlas; this change does not replace the game's crowd assets.
+
+Run `node --test model/test/soft-human*.test.mjs`, build with
+`node model/node_modules/vite/bin/vite.js build model`, then run the
+`tools/check-soft-human.mjs`, `check-soft-human-activities.mjs`,
+`check-soft-human-clearance.mjs --all` and `check-soft-arm-poses.mjs` browser checks.
+`soft-human-imported.test.mjs` covers the actual selected FBX, both ages, all
+wardrobes, deterministic activities and posed GLB round trips.
+
+`model/scripts/export-soft-human.mjs` now exports the selected base and records
+its source hash. Preserve the supplied `human-fall-flat/readme.txt`: it describes
+the model as a cleaned game extract, and the supplied files contain no
+redistribution license. Export manifests record that provenance rather than
+labelling this base an original procedural sculpt.
+
 ## Clothed human candidates
 
 Open `/candidates.html` from the model viewer's **Human candidates** link.

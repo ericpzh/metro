@@ -15,10 +15,9 @@ export function connectStrapToBag(c,strap,bag,ends=[[0,.085,-.09],[0,.085,.09]])
   const inverse=c.body.matrixWorld.clone().invert();
   for(const {link,row,anchor} of links){
    const ring=[0,1,2,3].map(k=>strap.getVertexPosition(row*4+k,new T.Vector3()));
-   const center=ring.reduce((s,p)=>s.add(p),new T.Vector3()).multiplyScalar(.25);
    const target=bag.localToWorld(anchor.clone()).applyMatrix4(inverse);
-   const across=ring[1].clone().sub(ring[0]).normalize().multiplyScalar(.0125);
-   const thick=ring[3].clone().sub(ring[0]).normalize().multiplyScalar(.0035);
+   const across=ring[1].clone().sub(ring[0]).normalize().multiplyScalar(c.anatomy?strap.userData.width/2:.0125);
+   const thick=ring[3].clone().sub(ring[0]).normalize().multiplyScalar(c.anatomy?strap.userData.thickness/2:.0035);
    const end=[[-1,-1],[1,-1],[1,1],[-1,1]].map(([a,b])=>target.clone().addScaledVector(across,a).addScaledVector(thick,b));
    for(let i=0;i<=12;i++)for(let k=0;k<4;k++){const p=ring[k].clone().lerp(end[k],i/12);link.geometry.attributes.position.setXYZ(i*4+k,p.x,p.y,p.z)}
    link.geometry.attributes.position.needsUpdate=true;link.geometry.computeVertexNormals();link.geometry.computeBoundingSphere();

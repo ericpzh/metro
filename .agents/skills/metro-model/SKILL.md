@@ -43,6 +43,46 @@ boundary regression is `model/test/candidate-boundaries.test.mjs`; run
 
 ## Soft-human motion study
 
+**Selected-base update:** the user explicitly selected the new
+`public/human-candidates/human-fall-flat/HumanBody_Alt.fbx` as the base for this
+page. This supersedes the procedural-only restriction below for the model
+preview. `src/soft-human/imported-base.js` preserves its skin, source weights and
+smooth normals, rebases its 15 source bones plus a Hips root, and exposes measured
+limb/wardrobe coordinates to the existing clothing, bag and activity layers.
+`main.js` and `scripts/export-soft-human.mjs` use this selected base. Keep the
+procedural constructor as a historical fixture; the old tests still cover it.
+Add regressions against the actual FBX in `soft-human-imported.test.mjs`.
+Restore bind joint positions and age width when leaving narrow activity poses.
+The selected base's outward A-pose is already baked into its bind geometry:
+walking and idle use `restArmAngle: 0` and retain that spread while swinging
+forward/back. Do not apply the historical procedural rig's inward arm offset.
+This also applies to **every station action**: free arms retain the outward bind
+pose through approach, waiting, seating and release, including gates, doors and
+escalators. Do not tuck free arms, rest them on the lap, or compress adult width
+to fit a lane. Only active equipment reaches blend to IK; a zero-contact arm
+returns to the outward default. This user direction supersedes the legacy
+narrow-lane tucking rule below. Keep tests against the imported base and live
+activity checker aligned; full collision audits may report the deliberately
+outstretched free arm in adult-sized narrow equipment.
+The selected base uses `mathematical-strap.js`: authored Bezier shoulder arcs,
+an analytic torso profile, and a level superellipse for the backpack lower return
+in `torso-fit.js`. User feedback explicitly rejected geometry-fitted straps.
+Do not project either edge or the centreline to triangles, borrow arm weights, or
+add per-frame surface corrections. Keep constant width, parallel-transport frames
+and Chest ownership shared with the bag; pin continuity and pose stability in
+`soft-human-fit.test.mjs`. `strap-fit.js` is only for the historical procedural
+fixture. Necklines use the measured narrow neck; long sleeves split at a plane
+perpendicular to each forearm (`anatomy.cuffs`), including a separate formal cuff.
+Both left/right shoulder and crossbody straps share that mathematical builder;
+their front/back endpoints come from the actual bag anchors in bind space.
+Backpack upper endpoints likewise use the actual bag attachment. Keep the pack's
+body-facing surface behind the torso so that an attached end is not occluded by
+the back. Do not restore arm-influenced strap weights or adaptive surface fitting.
+Preserve the source readme and hash in export provenance: it describes a game
+extract and supplies no redistribution license. Do not describe the selected FBX
+as original procedural geometry. The game atlas remains unchanged by this preview
+migration; model-app isolation still applies.
+
 `model/soft-human.html` (linked from the model library as **Soft human**) is a
 separate, preview-only study inspired by Human: Fall Flat references. It is not
 in the reviewed catalogue, the game crowd atlas or the passenger bake. Keep it
@@ -51,8 +91,8 @@ that way unless the user explicitly asks to promote the style.
 - `src/soft-human/character.js` owns the original implicit sculpt. One marching-
   cubes field produces the continuous skin (skull, torso, mitten hands, legs),
   weighted from point-to-segment distances across an eleven-bone rig. The cap and
-  clothing/accessories are separate meshes. Do not replace it with downloaded
-  game geometry. The motion layer is fixed-step damped angular springs following
+  clothing/accessories are separate meshes. This constructor is a historical
+  fixture; the active page uses the selected FBX adapter described above. The motion layer is fixed-step damped angular springs following
   procedural targets; it is pose-following lag/overshoot, not an active ragdoll
   with contacts, balance, grabbing or soft-body volume. Feet are not contact-solved.
   `state.softness` changes stiffness/damping; keep the timestep and frame clamp so
@@ -73,9 +113,9 @@ that way unless the user explicitly asks to promote the style.
   `game/src/sim/activities.ts` (20 actions: three walks, every non-walk activity
   including left-hand escalator, plus idle/reach/float) and adapts the production
   interaction poses/IK to the soft rig. Reuse `interaction-equipment.js`; keep
-  preview construction isolated from station documents. In narrow lanes (gates,
-  doors, escalators) tuck the free arm inside the balustrade/reader; resting arms
-  elsewhere stay slightly away from the ribs. Seat, basin, rail, door-threshold
+  preview construction isolated from station documents. The selected FBX keeps
+  free arms in its outward default in every action; the legacy procedural
+  fixture alone retains its older narrow-lane tucking behavior. Seat, basin, rail, door-threshold
   and lift-floor heights come from the actual equipment anchors. Children use a
   sized step, shorter rail reach and a visible wash step; adult equipment stays
   adult-sized.

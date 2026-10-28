@@ -2,6 +2,8 @@ import * as T from 'three';
 import {softBagGeometry} from './bag-shell.js';
 import {fittedStrap} from './strap-fit.js';
 import {connectStrapToBag} from './bag-connectors.js';
+import {shoulderStrapCurve} from './torso-fit.js';
+import {mathematicalStrap} from './mathematical-strap.js';
 
 
 // Adapted from characters/carried-bags.js: thin side panels in Y/Z,
@@ -15,7 +17,7 @@ export function addSoftCarriedBag(c,source,id,outfit){
  function panel(name,size,pos,tone=color){const mesh=new T.Mesh(softBagGeometry(size),material(tone));mesh.name=name;mesh.position.set(...pos);mesh.castShadow=true;group.add(mesh);return mesh}
  const straps=[];
  if(held){
-  const fore=c.limbs.find(x=>x.s===s).fore;fore.add(group);group.position.set(s*.21,-.295,.03);
+  const limb=c.limbs.find(x=>x.s===s),fore=limb.fore;fore.add(group);group.position.copy(limb.wrist??new T.Vector3(s*.21,-.295,.03));
   const h=small?.13:.18,depth=small?.16:.23;
   panel('Hand bag body',[.065,h,depth],[s*.025,-h/2-.10,0]);
   panel('Hand bag flap',[.012,h*.34,depth*.88],[s*.065,-.12,0],outfit.trim);
@@ -29,12 +31,15 @@ export function addSoftCarriedBag(c,source,id,outfit){
   group.userData.updateCarry=()=>{const rotation=new T.Quaternion();let b=fore;while(b&&b!==c.body){rotation.premultiply(b.quaternion);b=b.parent}group.quaternion.copy(rotation.invert());group.updateMatrixWorld(true)};
  }else{
   c.chest.add(group);group.position.set(s*.235,-.23,-.12);
+  if(c.fitPoint)group.position.copy(c.fitPoint(new T.Vector3(s*.263,.75,-.04))).sub(c.chest.userData.rest);
   panel('Side bag body',[.060,.20,.18],[0,0,0]);panel('Side bag flap',[.012,.065,.16],[s*.037,.055,0],outfit.trim);
   const points=type==='crossbody'?
    [[s*.14,-.145,-.13],[s*.08,-.05,-.15],[-s*.08,.14,-.14],[-s*.12,.27,-.04],[-s*.12,.28,.025],[-s*.10,.18,.15],[0,.03,.16],[s*.12,-.12,.14],[s*.19,-.16,.02],[s*.18,-.15,-.10]]:
    [[s*.14,-.145,-.13],[s*.13,.06,-.15],[s*.12,.24,-.09],[s*.12,.28,.015],[s*.12,.19,.145],[s*.13,.03,.15],[s*.17,-.12,.12],[s*.19,-.16,.02],[s*.18,-.15,-.10]];
-  const strap=fittedStrap(c,source,new T.CatmullRomCurve3(points.map(p=>new T.Vector3(...p))),material(color),`Carried strap ${id}`,{width:.038,surfaceWidth:true});
-  connectStrapToBag(c,strap,group,[[0,.085,-.065],[0,.085,.065]]);straps.push(strap);
+  const ends=[[0,.085,-.065],[0,.085,.065]],origin=c.chest.userData.rest.clone().add(group.position);
+  const anchors=c.anatomy?{backAnchor:origin.clone().add(new T.Vector3(...ends[0])),frontAnchor:origin.clone().add(new T.Vector3(...ends[1]))}:{};
+  const strap=c.anatomy?mathematicalStrap(c,shoulderStrapCurve(c,s,{crossbody:type==='crossbody',...anchors}),material(color),`Carried strap ${id}`,{width:type==='crossbody'?.024:.022}):fittedStrap(c,source,new T.CatmullRomCurve3(points.map(p=>new T.Vector3(...p))),material(color),`Carried strap ${id}`,{width:.038,surfaceWidth:true});
+  connectStrapToBag(c,strap,group,ends);straps.push(strap);
  }
  c.carry={side:s,type};return {group,straps};
 }

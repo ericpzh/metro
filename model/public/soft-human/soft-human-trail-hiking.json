@@ -2,35 +2,51 @@
   "generator": "model/scripts/export-soft-human.mjs",
   "sources": [
     {
+      "path": "model/public/human-candidates/human-fall-flat/HumanBody_Alt.fbx",
+      "sha256": "ee77b5ff0aeef637f1e2a68816b1e0f58b62493eb6609bbd9f84b8c4d7d6daa7"
+    },
+    {
+      "path": "model/src/soft-human/imported-base.js",
+      "sha256": "691db8ef424d2c4a2ada2cfd7ecd04b06fabc2be1a6a1458533e81ba36872377"
+    },
+    {
       "path": "model/src/soft-human/character.js",
-      "sha256": "ed4a2751fc1866aa4143500c884be9cdf16e8c5d4c514e52538e9c52264d4061"
+      "sha256": "35ddee671327204a1a430463cfe13fd16ed6d2785e37b11db366ee9072951047"
     },
     {
       "path": "model/src/soft-human/wardrobe.js",
-      "sha256": "86f2da3f8feaf5c6fdba7bd3cfdda9d080e14bac0e051afd20d1355cf4a7434a"
+      "sha256": "65425c08abf059a2dcaf50a39ea2e300a7148f556c999167bf27b02681fa5316"
+    },
+    {
+      "path": "model/src/soft-human/mathematical-strap.js",
+      "sha256": "e2683a26c9ae842d5c5bf43a340e355e7085b15f090afc61d9813b2e03e48a74"
     },
     {
       "path": "model/src/soft-human/strap-fit.js",
-      "sha256": "b2040acb00e70da81322228d60d8844d897ba46ad5bb5e6c753febb811a3bd38"
+      "sha256": "d6da156e07a73e91c84b4f738a78cabf2a27a5b1e6c0899bdcd7e44cd444b47b"
+    },
+    {
+      "path": "model/src/soft-human/torso-fit.js",
+      "sha256": "0244b98e9e6ee9be25abea8273ea238713db729c6fb1abafb65639ee52bb53bd"
     },
     {
       "path": "model/src/soft-human/carried-bags.js",
-      "sha256": "667b26bb5d73a8e6b26c6fa545555e051944604ebd966bef14f8fbaf2fb651a5"
+      "sha256": "a44f532fbd0d9ccbd85fb825fd21cb8381f670df8a888ae2e73391b19fcb9fcb"
     },
     {
       "path": "model/src/soft-human/bag-connectors.js",
-      "sha256": "d477960b66f3aaf738b9eb019a7bd7288ccb39ac38934bdf6c715f4096a7834a"
+      "sha256": "3adca41abfea85d6b1cc93953eb6cd92f4d26de1b563d0496ce340392d789d8a"
     },
     {
       "path": "model/src/soft-human/bag-shell.js",
       "sha256": "68b111c49dff307bab480daf91ac341225db5da551355b8b6fb09212fd41f33b"
     }
   ],
-  "sha256": "249ef9d02df02d41374394290b923b8b2eb84f2b1eb6fd56fbcf2b966642de13",
+  "sha256": "13d5b5d3ff4e8630d4873c5de3684b01118895ed84d9b50ea4b48c8a82293e78",
   "outfit": "trail",
   "backpack": "hiking",
   "age": "adult",
-  "provenance": "Original procedural implicit sculpt and accessories inspired by user-provided Human: Fall Flat screenshots. No game assets copied.",
-  "geometry": "Continuous marching-cubes skin with blended skeletal weights; separate cap and pose-fitted accessories. Garment material boundaries are split into the skin geometry.",
+  "provenance": "User-selected HumanBody_Alt.fbx base. Included source readme describes a cleaned Human: Fall Flat model ripped from Unity; no redistribution license is supplied. Clothing, accessories and animation adapter are locally authored.",
+  "geometry": "Source skin and authored weights, normalized to 1.7 metres and rebound in an A-pose with the 15 source bones plus a root Hips bone. Separate cap and torso-owned mathematical strap ribbons with fixed bag anchors; neckline and forearm-perpendicular cuffs split into the skin geometry.",
   "animation": "Live preview uses damped angular springs for walking/studies and contact-targeted station activities. This file contains the bind-pose rig, without procedural motion or physics."
 }

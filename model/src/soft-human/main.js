@@ -1,7 +1,8 @@
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
-import {createSoftHuman,createMotion} from './character.js';
+import {createMotion} from './character.js';
+import {loadImportedSoftHuman} from './imported-base.js';
 import {createWardrobe,OUTFITS,BACKPACKS} from './wardrobe.js';
 import {SOFT_ACTIONS,isStationActivity,createSoftActivityPoser} from './activities.js';
 import {createInteractionEquipment} from '../interaction-equipment.js';
@@ -12,7 +13,11 @@ const renderer=new T.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
 const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,.96,0);controls.minDistance=2;controls.maxDistance=9;controls.maxPolarAngle=Math.PI*.49;controls.update();
 scene.add(new T.HemisphereLight(0xf6fbff,0x69796e,2.5));const light=new T.DirectionalLight(0xfff4df,3.5);light.position.set(-3,5,4);light.castShadow=true;light.shadow.mapSize.set(2048,2048);light.shadow.camera.left=-3;light.shadow.camera.right=3;light.shadow.camera.top=3;light.shadow.camera.bottom=-3;light.shadow.bias=-.0003;scene.add(light);
 const floor=new T.Mesh(new T.PlaneGeometry(200,200),new T.MeshStandardMaterial({color:0xcadbd8,roughness:1}));floor.rotation.x=-Math.PI/2;floor.position.y=-.018;floor.receiveShadow=true;scene.add(floor);
-const c=createSoftHuman(),wardrobe=createWardrobe(c),motion=createMotion(c);scene.add(c.body,c.rig);let playing=true;
+$('#status').textContent='Loading selected character base…';
+const inputControls=[...document.querySelectorAll('aside input,aside select,aside button')];inputControls.forEach(e=>e.disabled=true);
+const c=await loadImportedSoftHuman().catch(error=>{$('#status').textContent='Could not load character: '+error.message;throw error});
+const wardrobe=createWardrobe(c),motion=createMotion(c);scene.add(c.body,c.rig);let playing=true;
+inputControls.forEach(e=>e.disabled=false);
 const equipment=createInteractionEquipment(scene,{softBody:true}),activityPose=createSoftActivityPoser(c);let action='walk',activityTime=0,lastPhase;
 const previousRoot=new T.Vector3();
 $('#motion').replaceChildren(...SOFT_ACTIONS.map(a=>new Option(a.label,a.id)));$('#motion').value=action;
@@ -49,7 +54,7 @@ $('#cap').onchange=e=>c.cap.visible=e.target.checked;$('#rig').onchange=e=>c.rig
 for(const b of document.querySelectorAll('[data-angle]'))b.onclick=()=>{const a=Number(b.dataset.angle),r=4.5,center=c.body.position.clone().add(new T.Vector3(0,.96*c.body.scale.y,0));camera.position.copy(center).add(new T.Vector3(Math.sin(a)*r,.69,Math.cos(a)*r));controls.target.copy(center);controls.update()};
 $('#download').onclick=async()=>{const button=$('#download');button.disabled=true;const wasPlaying=playing;playing=false;try{wardrobe.update();const data=await new GLTFExporter().parseAsync(c.body,{binary:true,onlyVisible:true});const url=URL.createObjectURL(new Blob([data],{type:'model/gltf-binary'}));const a=document.createElement('a');a.href=url;a.download=`soft-human-${c.appearance.age}-${wardrobe.state.outfit}-${wardrobe.state.backpack}.glb`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#status').textContent='GLB exported · current pose, skin and skeleton'}catch(e){$('#status').textContent='Export failed: '+e.message}finally{button.disabled=false;playing=wasPlaying}};
 let last=performance.now();renderer.setAnimationLoop(now=>{const dt=Math.min((now-last)/1000,.1);last=now;if(playing&&!document.hidden){if(isStationActivity(action))activityTime+=dt*motion.state.speed;else motion.update(dt)}controls.update();poseCurrent();renderer.render(scene,camera)});
-poseCurrent();$('#status').textContent='Continuous skin · Spring motion + station activities';window.__softHuman={ready:true,scene,camera,renderer,controls,character:c,motion,wardrobe,equipment,actions:SOFT_ACTIONS,selectAction,setTime,get phase(){return lastPhase}};
+poseCurrent();$('#status').textContent='Selected FBX base · Clothing, bags + station activities';window.__softHuman={ready:true,scene,camera,renderer,controls,character:c,motion,wardrobe,equipment,actions:SOFT_ACTIONS,selectAction,setTime,get phase(){return lastPhase}};
 
 
 

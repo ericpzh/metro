@@ -74,11 +74,13 @@ export function createMotion(character){
    drive(shin,'x',w?Math.max(0,-Math.sin(a))*.65:fall?.3:0,dt);
    const carrying=character.carry?.side===s;
    drive(arm,'x',w?-.4*stride*Math.sin(a-.35):reach?-.35:fall?-.5:0,dt);
-   drive(arm,'z',reach?s*1.75:fall?s*.7:-s*.60,dt);
+   // The selected FBX already has the outward A-pose baked into its bind
+   // geometry. Only swing forward/back; do not lower that rest angle again.
+   drive(arm,'z',reach?s*1.75:fall?s*.7:-s*(character.restArmAngle??.60),dt);
    drive(fore,'x',reach?-.25:w?-.15-.18*Math.sin(a-.7):fall?-.4:-.08,dt);
   }
  }
- function reset(){time=acc=0;channels.clear();for(const b of character.bones)b.rotation.set(0,0,0);character.hips.position.set(0,.72,0);character.body.position.set(0,0,0);character.body.rotation.set(0,0,0)}
+ function reset(){time=acc=0;channels.clear();character.resetPose?.();for(const b of character.bones)b.rotation.set(0,0,0);character.hips.position.copy(character.hips.userData.rest);character.body.position.set(0,0,0);character.body.rotation.set(0,0,0)}
  return {state,update(dt){acc+=Math.min(Math.max(dt,0),.1);while(acc>=1/120){step(1/120);acc-=1/120}},push(){for(const b of [character.chest,character.head,...character.limbs.map(x=>x.arm)]){const key=b.name+'z';let c=channels.get(key);if(!c){c={x:0,v:0};channels.set(key,c)}c.v+=5}},reset,seek(t){reset();const speed=state.speed;state.speed=1;for(let i=0;i<Math.round(Math.max(0,Math.min(t,12))*120);i++)step(1/120);state.speed=speed},get time(){return time}};
 }
 
