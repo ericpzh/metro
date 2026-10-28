@@ -18,14 +18,16 @@ export function createCandidateMotion(root,height,library){
  const hips=get('Hips','Bip01','pelvis');
  const spine=get('Spine2','Bip01_Spine1','spine_03');
  const head=get('Head','Bip01_Head','head');
- const sides=['Left','Right'].map((side,index)=>{
+ const sideData=[];
+ for(const [index,side] of ['Left','Right'].entries()){
   const suffix=index?'r':'l',prefix=index?'R':'L';
   const leg=[get(side+'UpLeg',`Bip01_${prefix}_Thigh`,`thigh_${suffix}`),get(side+'Leg',`Bip01_${prefix}_Calf`,`calf_${suffix}`),get(side+'Foot',`Bip01_${prefix}_Foot`,`foot_${suffix}`)];
   const arm=[get(side+'Arm',`Bip01_${prefix}_UpperArm`,`upperarm_${suffix}`),get(side+'ForeArm',`Bip01_${prefix}_Forearm`,`lowerarm_${suffix}`),get(side+'Hand',`Bip01_${prefix}_Hand`,`hand_${suffix}`)];
-  if([...leg,...arm].some(bone=>!bone))throw new Error(`Incomplete ${side} motion chain`);
-  return {leg,arm};
- });
- if(!hips||!spine||!head)throw new Error('Incomplete torso motion chain');
+  if([...leg,...arm].some(bone=>!bone))return null;
+  sideData.push({leg,arm});
+ }
+ const sides=sideData;
+ if(!hips||!spine||!head)return null;
  root.updateMatrixWorld(true);
  const bind=[...bones.values()].map(bone=>({bone,p:bone.position.clone(),q:bone.quaternion.clone(),s:bone.scale.clone()}));
  for(const side of sides){

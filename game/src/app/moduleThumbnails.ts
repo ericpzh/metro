@@ -339,7 +339,8 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'checkout':
       return { id, type: 'checkout', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cubicle':
-      return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'cubicle-toilet':
+      return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: id === 'cubicle-toilet' ? { variant: 'toilet' } : {} }
     case 'urinal':
       return { id, type: 'urinal', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'sink':

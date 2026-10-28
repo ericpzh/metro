@@ -258,6 +258,11 @@ endpoints; reverse both together. The inspector's selected-run reverse is
 `game/test/escalators.test.mjs`.
 Escalator equipment collisions use `rampBodyBoxes`'s per-tile slope, even against
 another run; do not substitute the landing-to-landing vertical envelope there.
+Ramp and equipment collision must treat exact surface contact as clear despite
+floating-point rounding. `placementColliders` applies a 1e-9 m tolerance to ramp
+pairs only; real overlaps still refuse in either placement order. The Tianhe
+`(-10,-73,-10)` steel door regression in `ramp-block-placement.test.mjs` pins
+the stair underside contact, supported placement and an actual overlap.
 Placement support is separate from collision: an escalator requires floor only at
 its lower landing, not under the full projected incline. Keep `equipmentReason`
 from routing it through the generic full-footprint floor check; `placement.test.mjs`
@@ -710,7 +715,7 @@ the four rules most changes trip over.
   neighbours share stainless infill caps (`RampJoinModel`, `ramp-join.test.mjs`). Two parallel
   escalators with one empty block between them also share one, widened across the gap; a cap never
   spans across another run that overlaps its along-run stretch (one merely sharing the lane beyond
-  a landing does not block it). A stair or any other object crossing the sloped gap blocks the cap; floor cells below the connector do not. Keep module and cell edit dependencies rebuilding affected escalators. A stair only shares one flush. The
+  a landing does not block it). A stair or any other object crossing the sloped gap blocks the cap; isolated floor courses over two clear cells in the middle shaft also permit the cap. Keep module and cell edit dependencies rebuilding affected escalators. A stair only shares one flush. The
   piece draws its own body (`SlopeCut.ownBody`), so the mesher derives no filling under
   one — `ramp-fill.test.mjs` keeps the mesher's band honest against the real truss. A run
   that lands inside a covered exit rides +0.25 m (`exitLandingHeight`, the head-house

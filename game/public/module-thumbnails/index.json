@@ -164,6 +164,11 @@
       "bytes": 2504
     },
     {
+      "id": "cubicle-toilet",
+      "file": "cubicle-toilet.png",
+      "bytes": 6529
+    },
+    {
       "id": "curtain-wall",
       "file": "curtain-wall.png",
       "bytes": 1890

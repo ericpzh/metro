@@ -61,7 +61,7 @@ function presentation(){
  $('#study-name').textContent=selected.name[lang];$('#image-study').style.setProperty('--body-scale',(selected.height??1.75)/1.75);setAngle(angle);
 }
 function text(){document.documentElement.lang=lang?'zh':'en';$('#language').value=lang?'zh':'en';for(const [id,en,zh] of [
- ['title','Minimalist passengers','极简乘客'],['intro','10 adults and 4 children. Faceless grayscale illustrations captured from 16 directions.','10 位成人与 4 位儿童。基于 16 个视角的无脸灰阶插画。'],
+ ['title','Minimalist passengers','极简乘客'],['intro','11 adults and 4 children. Faceless grayscale illustrations captured from 16 directions.','10 位成人与 4 位儿童。基于 16 个视角的无脸灰阶插画。'],
  ['candidate-label','Character','角色'],['mode-label','View','查看方式'],['angle-label','View angle','视角'],['animation-label','Source animation','原始动画'],['timeline-label','Animation timeline','动画时间轴'],['source','Original source ↗','原始来源 ↗'],['reset','Restart clip','重播动画'],
  ['note','Quaternius CC0 walk/idle animations drive the upper body through Three.js retargeting; foot IK preserves stance contact. Stable surface colours replace snapshot projection.','使用 Quaternius CC0 行走与待机动作及 Three.js 动作重定向驱动上半身，足部 IK 保持接地；表面颜色不再使用快照投射。'],
  ['orbit-hint','Use the angle slider or Rotate to inspect all 16 directions.','使用视角滑块或旋转按钮查看全部 16 个方向。'],['study-title','Faceless · grayscale · minimal lines','无脸 · 灰阶 · 极简线条'],['original-caption','Original 3D snapshot','原始三维快照'],['clean-caption','Minimalist grayscale','极简灰阶'],['original-sheet','Original contact sheet ↗','原始视角图集 ↗'],['clean-sheet','Grayscale contact sheet ↗','灰阶视角图集 ↗']])$('#'+id).textContent=lang?zh:en;
@@ -93,7 +93,7 @@ async function load(){const id=++request,entry=selected;ready=false;clips=[];pla
   // FBX geometry can resolve before its textures: capture only after all images decode.
   const images=new Set();object.traverse(n=>{if(n.isMesh)for(const m of Array.isArray(n.material)?n.material:[n.material])for(const v of Object.values(m))if(v?.isTexture&&v.image?.decode)images.add(v.image)});
   await Promise.all([...images].map(image=>image.decode()));
-  if(mode!=='source')await Promise.all(['original','minimalist'].map(async kind=>{const image=new Image();image.src=sheet(entry,kind);await image.decode()}));
+  if(mode!=='source' && entry.studies!==false)await Promise.all(['original','minimalist'].map(async kind=>{const image=new Image();image.src=sheet(entry,kind);await image.decode()})).catch(()=>{});
   if(id!==request){dispose(object);return}
   object.updateMatrixWorld(true);const bounds=new THREE.Box3().setFromObject(object),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3()),scale=(entry.height??1.75)/size.y;
   const nextRoot=new THREE.Group(),offset=new THREE.Group();offset.position.set(-center.x,-bounds.min.y,-center.z);offset.add(object);nextRoot.scale.setScalar(scale);nextRoot.add(offset);
@@ -115,16 +115,16 @@ $('#timeline').oninput=e=>{playing=false;if(action)action.time=Number(e.target.v
 $('#pick').onclick=()=>{if(picks.has(selected.id))picks.delete(selected.id);else picks.add(selected.id);try{localStorage.setItem('metro-human-picks',JSON.stringify([...picks]))}catch{}text()};
 document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>view(button.dataset.view));
 $('#rotate').onclick=()=>{rotating=!rotating;$('#rotate').setAttribute('aria-pressed',rotating);presentation()};
-function drawAnimated(){ground.visible=false;try{smoother.render(scene,illustrationCamera,illustration.palette)}finally{ground.visible=true}}
-window.__candidatePreview={entries,renderer,scene,camera,drawAnimated,get spritePhase(){return spriteTime/spriteCycle},setSpriteSource(value){spriteQuality=value?'original':'smooth';drawSprite()},get spriteReady(){return spriteSheets.size===6&&[...spriteSheets.values()].every(sheet=>sheet.anchors)&&[...spriteRife.values()].every(image=>image.complete&&image.naturalWidth)},get ready(){return ready},get root(){return root},get clips(){return clips},get selected(){return selected},get mixer(){return mixer},get motion(){return motion},get illustration(){return illustration},get motionReport(){return motionReport},get illustrationCamera(){return illustrationCamera},poseMotion(id,time){motionId=id;motionTime=time;motionPlaying=false;motionReport=motion.pose(id,time);return motionReport},captureOriginal(){illustration?.enable(false);motion?.reset();playing=false;mixer?.stopAllAction();root.updateMatrixWorld(true);return captureDirections(scene,selected.height??1.75)}};
+function drawAnimated(){ground.visible=false;try{if(illustration)smoother.render(scene,illustrationCamera,illustration.palette);else renderer.render(scene,illustrationCamera)}finally{ground.visible=true}}
+window.__candidatePreview={entries,renderer,scene,camera,drawAnimated,get spritePhase(){return spriteTime/spriteCycle},setSpriteSource(value){spriteQuality=value?'original':'smooth';drawSprite()},get spriteReady(){return spriteSheets.size===6&&[...spriteSheets.values()].every(sheet=>sheet.anchors)&&[...spriteRife.values()].every(image=>image.complete&&image.naturalWidth)},get ready(){return ready},get root(){return root},get clips(){return clips},get selected(){return selected},get mixer(){return mixer},get motion(){return motion},get illustration(){return illustration},get motionReport(){return motionReport},get illustrationCamera(){return illustrationCamera},poseMotion(id,time){motionId=id;motionTime=time;motionPlaying=false;motionReport=motion?.pose(id,time);return motionReport},captureOriginal(){illustration?.enable(false);motion?.reset();playing=false;mixer?.stopAllAction();root.updateMatrixWorld(true);return captureDirections(scene,selected.height??1.75)}};
 let previous=0;renderer.setAnimationLoop(now=>{
  const dt=previous?Math.min((now-previous)/1000,.05):0;previous=now;
  if(mode==='animated'){
-  if(ready){if(motionPlaying)motionTime+=dt;motionReport=motion.pose(motionId,motionTime);const duration=CANDIDATE_MOTIONS.find(item=>item.id===motionId)?.cycleSeconds??6;$('#motion-timeline').value=(motionTime%duration)/duration;drawAnimated()}
+  if(ready){if(motionPlaying)motionTime+=dt;motionReport=motion?.pose(motionId,motionTime);const duration=CANDIDATE_MOTIONS.find(item=>item.id===motionId)?.cycleSeconds??6;$('#motion-timeline').value=(motionTime%duration)/duration;drawAnimated()}
  }else if(mode==='sprite'){
   if(spritePlaying)spriteTime=(spriteTime+dt)%spriteCycle;drawSprite();
  }else if(mode==='source'){
-  if(ready){if(playing)mixer?.update(dt);else{if(motionPlaying)motionTime+=dt;motionReport=motion.pose(motionId,motionTime)}}
+  if(ready){if(playing)mixer?.update(dt);else{if(motionPlaying)motionTime+=dt;motionReport=motion?.pose(motionId,motionTime)}}
   controls.update();renderer.render(scene,camera);
  }
  if(rotating&&mode!=='source'){rotationTime+=dt;if(rotationTime>=.3){rotationTime=0;setAngle(angle+1)}}

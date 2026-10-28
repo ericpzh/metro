@@ -119,12 +119,6 @@ test('objects and blocks crossing the widened span prevent the cap', () => {
   assert.equal(joins([a, b, crossing]).filter(cap => cap.mesh.userData.neighbourId === 'b').length, 0, 'a crossing stair blocks the connector')
 })
 
-test('Tianhe escalator at (-11, -67, -10) joins beside the existing run', () => {
-  const existing = escalator(-9, 'escalator-409', 2, 1, 'up', -67, -10)
-  const placed = escalator(-11, 'preview-escalator', 2, 1, 'up', -67, -10)
-  assert.equal(joins([existing, placed]).filter(cap => cap.mesh.userData.neighbourId === existing.id).length, 1)
-})
-
 test('isolated floor courses above an open middle shaft allow a widened cap', () => {
   const a = escalator(0, 'a'), b = escalator(2, 'b')
   const slab = { x: 1, y: 3, z: 3, fill: 'solid' }

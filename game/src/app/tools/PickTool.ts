@@ -148,12 +148,14 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'psd-end':
       id = mod.cfg.variant === 'cover' ? 'psd-end-cover' : 'psd-end'
       break
+    case 'cubicle':
+      id = mod.cfg.variant === 'toilet' ? 'cubicle-toilet' : 'cubicle'
+      break
     case 'guidepost':
     case 'tvm':
     case 'vending':
     case 'desk':
     case 'checkout':
-    case 'cubicle':
     case 'urinal':
     case 'sink':
     case 'bin':

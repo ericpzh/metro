@@ -100,6 +100,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'desk', label: msg('desk'), type: 'desk', w: 1, h: 1 },
   { id: 'checkout', label: msg('checkout'), type: 'checkout', w: 1, h: 1 },
   { id: 'cubicle', label: msg('toilet_cubicle'), type: 'cubicle', w: 1, h: 1 },
+  { id: 'cubicle-toilet', label: msg('standalone_toilet'), type: 'cubicle', w: 1, h: 1 },
   { id: 'urinal', label: msg('urinal'), type: 'urinal', w: 1, h: 1 },
   { id: 'sink', label: msg('sink'), type: 'sink', w: 1, h: 1 },
   { id: 'guidepost', label: msg('wayfinding_post'), type: 'guidepost', w: 1, h: 1 },
@@ -259,7 +260,7 @@ export function isDecorType(type: string): boolean {
     isShelfType(type) ||
     type === 'desk' ||
     type === 'checkout' ||
-    type === 'cubicle' ||
+    (type === 'cubicle' || type === 'cubicle-toilet') ||
     type === 'sink' || type === 'urinal' ||
     type === 'sidewalk' || type === 'lawn' || type === 'tree' || type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
     type === 'bin' ||
@@ -420,7 +421,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
+export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -465,6 +466,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'light', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', owns: isBenchType },
   { key: 'shelf', owns: isShelfType },
+  { key: 'cubicle', owns: (id) => id === 'cubicle' || id === 'cubicle-toilet' },
   { key: 'billboard', owns: isBillboardType },
   { key: 'glass', owns: isGlassType },
   { key: 'door', owns: isDoorType },
@@ -496,6 +498,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'light', label: msg('light'), folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', label: msg('bench'), folder: 'decor', owns: isBenchType },
   { key: 'shelf', label: msg('shelf'), folder: 'decor', owns: isShelfType },
+  { key: 'cubicle', label: msg('toilet_cubicle'), folder: 'decor', owns: (id) => id === 'cubicle' || id === 'cubicle-toilet' },
   { key: 'extinguisher', label: msg('extinguisher'), folder: 'decor', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'billboard', label: msg('billboard'), folder: 'decor', owns: isBillboardType },
   {
@@ -631,7 +634,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     familyAnchor('door'),
     // 厕所's own fit-out comes **before** the ceiling and street pairs — a cubicle and a
     // basin are room furniture like the shelf and the desk, and they used to close the folder.
-    'cubicle',
+    familyAnchor('cubicle'),
     'sink', 'urinal',
     // The ceiling pair sits just above the street pair: 灯具 and 通风口 hang overhead,
     // while 导向柱 and 公交站 stand outside the station.
@@ -658,7 +661,7 @@ const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = 
   floor: [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', familyAnchor('psd-end'),
     familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
-    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', 'cubicle', 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
+    familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', familyAnchor('cubicle'), 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ],
 }
 

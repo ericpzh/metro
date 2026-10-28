@@ -2207,3 +2207,16 @@ test('urinal retains its recessed bowl in High and Low and stays inside its plac
     disposeObject(group)
   }
 })
+
+
+test('standalone toilet keeps the fixture without cubicle walls or door', () => {
+  const toilet = createModule('cubicle-toilet', 0, 0, 0, 'toilet')
+  assert.equal(toilet.cfg.variant, 'toilet')
+  const group = buildModule(toilet, ctx)
+  const names = []
+  group.traverse(part => names.push(part.name))
+  assert.ok(!names.some(name => name.startsWith('cubicle-') || name === 'passenger-swing-door'))
+  assert.equal(group.userData.swingDoors, undefined)
+  assert.ok(new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3()).z > 0.8)
+  disposeObject(group)
+})

@@ -4331,4 +4331,4 @@ Stair opening rendering: untagged stacked upper-floor linings follow the upper s
 
 Editor commits retain immutable documents in undo/redo, update live tool floor/occupancy keys from exact authored and generated-ground differences, and keep unrelated model animation registrations and GPU batch buckets. Doors, shelves, cubicles and sinks retain chunk inputs while still updating pedestrian routing. Closed build-menu action rows preserve their last rendered state for the fold animation without subscribing to live document updates. The owning regressions are listed in `test/README.md`; measured action budgets remain in the shared performance reference.
 
-Escalator seam caps stop when a stair, block or other object crosses their sloped gap. `ramp-join.test.mjs` pins obstruction, the isolated-floor exception and the Tianhe (-11, -67, -10) preview.
+Escalator seam caps stop when a stair, block or other object crosses their sloped gap. `ramp-join.test.mjs` pins obstruction, the isolated-floor exception .

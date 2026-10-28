@@ -15,11 +15,16 @@ export function fitSkinInterval(samples,fallback){
 export async function createCandidateIllustration(root,height,{neckline}={}){
  const parts=[],palette={skin:.64,hair:.025,top:.60,bottom:.12,shoe:.025},bones=new Map();root.updateMatrixWorld(true);root.traverse(node=>{if(node.isBone)bones.set(node.name,node)});
  const find=(...names)=>names.map(name=>bones.get(name)).find(Boolean),pointOf=bone=>bone.getWorldPosition(new THREE.Vector3());
- const headPosition=pointOf(find('Head','Bip01_Head','head')),neckPosition=pointOf(find('Neck','Bip01_Neck','neck_01'));
+ const headBone=find('Head','Bip01_Head','head'),neckBone=find('Neck','Bip01_Neck','neck_01');
+ if(!headBone||!neckBone)return null;
+ const headPosition=pointOf(headBone),neckPosition=pointOf(neckBone);
  const arms=[],legs=[];
  for(const [side,letter,suffix] of [['Left','L','l'],['Right','R','r']]){
-  arms.push([find(side+'Arm',`Bip01_${letter}_UpperArm`,`upperarm_${suffix}`),find(side+'ForeArm',`Bip01_${letter}_Forearm`,`lowerarm_${suffix}`),find(side+'Hand',`Bip01_${letter}_Hand`,`hand_${suffix}`)].map(pointOf));
-  legs.push([find(side+'UpLeg',`Bip01_${letter}_Thigh`,`thigh_${suffix}`),find(side+'Leg',`Bip01_${letter}_Calf`,`calf_${suffix}`),find(side+'Foot',`Bip01_${letter}_Foot`,`foot_${suffix}`)].map(pointOf));
+  const armBones=[find(side+'Arm',`Bip01_${letter}_UpperArm`,`upperarm_${suffix}`),find(side+'ForeArm',`Bip01_${letter}_Forearm`,`lowerarm_${suffix}`),find(side+'Hand',`Bip01_${letter}_Hand`,`hand_${suffix}`)];
+  const legBones=[find(side+'UpLeg',`Bip01_${letter}_Thigh`,`thigh_${suffix}`),find(side+'Leg',`Bip01_${letter}_Calf`,`calf_${suffix}`),find(side+'Foot',`Bip01_${letter}_Foot`,`foot_${suffix}`)];
+  if(armBones.some(b=>!b)||legBones.some(b=>!b))return null;
+  arms.push(armBones.map(pointOf));
+  legs.push(legBones.map(pointOf));
  }
  function along(point,chains){let best=Infinity,result=0;for(const chain of chains){const lengths=[chain[0].distanceTo(chain[1]),chain[1].distanceTo(chain[2])],total=lengths[0]+lengths[1];for(let segment=0;segment<2;segment++){const delta=chain[segment+1].clone().sub(chain[segment]),t=point.clone().sub(chain[segment]).dot(delta)/delta.lengthSq(),nearest=chain[segment].clone().addScaledVector(delta,THREE.MathUtils.clamp(t,0,1)),distance=point.distanceToSquared(nearest);if(distance<best){best=distance;result=((segment?lengths[0]:0)+t*lengths[segment])/total}}}return result}
  const imageCache=new Map(),samples={top:[],bottom:[],shoe:[]},armSamples=[],legSamples=[],hemSamples=[],collarSamples=[];

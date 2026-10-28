@@ -214,7 +214,8 @@ function createModuleRaw(
     case 'checkout':
       return { id, type: 'checkout', x, y, z, rot, cfg: {} };
     case 'cubicle':
-      return { id, type: 'cubicle', x, y, z, rot, cfg: {} };
+    case 'cubicle-toilet':
+      return { id, type: 'cubicle', x, y, z, rot, cfg: type === 'cubicle-toilet' ? { variant: 'toilet' } : {} };
     case 'urinal':
       return { id, type: 'urinal', x, y, z, rot, cfg: {} };
     case 'sink':

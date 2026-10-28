@@ -991,6 +991,7 @@ export const messages = {
     "zh": "收银台",
     "en": "Checkout"
   },
+  "standalone_toilet": { "zh": "马桶", "en": "Toilet" },
   "toilet_cubicle": {
     "zh": "厕所隔间",
     "en": "Toilet cubicle"

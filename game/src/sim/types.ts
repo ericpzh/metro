@@ -545,7 +545,7 @@ export type Module =
    * piece. Turns with the placement rotation, may stand inside a walled room,
    * and `cfg.auto` marks a unit the room builder laid out.
    */
-  | (ModuleBase & { type: 'cubicle'; cfg: { auto?: boolean } })
+  | (ModuleBase & { type: 'cubicle'; cfg: { auto?: boolean; variant?: 'toilet' } })
   /**
    * A wash basin (洗手池, 装饰): the basin + tap unit the 厕所 fit-out stocks
    * along its front wall (§5.7). Same rules as a cubicle.

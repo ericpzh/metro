@@ -19,4 +19,15 @@ export const CANDIDATES=[
   ['boy-01','Boy · younger · casual','男孩 · 低龄 · 便装',1.22],
   ['boy-02','Boy · older · casual','男孩 · 较年长 · 便装',1.46],
  ].map(([id,en,zh,height])=>({id:`mpfb-${id}`,name:[`Generated · ${en}`,`生成 · ${zh}`],age:'child',height,kind:'gltf',file:`human-candidates/generated/${id}.glb`,source:'https://github.com/makehumancommunity/mpfb2',description:['CC0 · Generated MPFB East Asian child candidate with fitted clothing. Authored age/body targets; visual review pending.','CC0 · 使用 MPFB 生成并适配服装的东亚儿童候选。使用年龄及体型参数；待外观审核。']})),
+ {
+  id:'human-fall-flat-character-base',
+  name:['Human Fall Flat character base','Human Fall Flat character base'],
+  age:'adult',
+  height:1.5,
+  kind:'rocketbox',
+  file:'human-candidates/human-fall-flat/HumanBody_Alt.fbx',
+  source:'https://models.spriters-resource.com/pc_computer/humanfallflat/asset/340298',
+  studies:false,
+  description:['Extracted Human Fall Flat playable character base (Spriters Resource). Rig retained; station animations pending. FBX cleaned-up variant.','Extracted Human Fall Flat playable character base (Spriters Resource).'],
+ },
 ];
