@@ -9,6 +9,7 @@ import { NewStationButton } from './NewStationButton.tsx'
 import { IoIosBookmarks } from 'react-icons/io'
 import { SettingsMenu } from './SettingsMenu.tsx'
 import { SimulationControls } from './SimulationControls.tsx'
+import { openSaveWithLoading } from '../../gameLoading.ts'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -111,7 +112,12 @@ export function TopBar(): React.ReactElement {
         style={{ display: 'none' }}
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) void f.text().then(loadFromText)
+          if (f) void openSaveWithLoading(f, (text) => {
+            const epoch = useStore.getState().stationEpoch
+            loadFromText(text)
+            return useStore.getState().stationEpoch !== epoch
+          }, () => useStore.getState().setNotice(document.documentElement.lang === 'en'
+            ? 'Could not read the save file.' : '无法读取存档文件。'))
           e.target.value = ''
         }}
       />

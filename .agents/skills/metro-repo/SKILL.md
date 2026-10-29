@@ -235,7 +235,10 @@ the preference in the editor and exploded view while Hide UI keeps its sky.
 The initial game loading shell is in `game/index.html` so it paints before the
 game bundle; the viewport dismisses it after the installed station's first frame.
 Capture, lab and benchmark routes bypass it, and the mobile gate dismisses it
-until the player proceeds.
+until the player proceeds. Opening a save reuses this shell with localized copy:
+`openSaveWithLoading` lets it paint before reading and parsing, and the viewport
+dismisses it after the new station's first frame. Invalid or unreadable files
+dismiss it and report the error. Keep `game-loading.test.mjs` aligned.
 Retain the requested setting icons and the stats explanation as a hover-only
 tooltip that dismisses on pointer leave and immediately after toggling music. Pin the
 menu structure and CSS behavior in `topbar-report-issue`, `global-stats`, `audio` and
