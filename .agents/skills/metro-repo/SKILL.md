@@ -737,8 +737,10 @@ Passenger sources: the active crowd is the user-selected soft-human base.
 Use `metro-model` and `npm run bake:passengers` (`tools/bake-soft-passengers.mjs`).
 `model/src/soft-human/catalog.js` derives 440 recipes: twenty outfits per male/female
 category × eleven bags, all supported at both ages. Female-only skirts and pink
-jacket, male-only Summer stripes, outward free arms and mathematical straps must
-survive the bake. Keep selected-FBX provenance and recipe source hashes. The old
+jacket, male-only Summer stripes, the walking arm swing, shared relaxed idle/free
+station arms and mathematical straps must survive the bake. Waiting/queueing use
+the standing atlas frame, so preserve the relaxed pose there as well as in the
+activity palettes. Keep selected-FBX provenance and recipe source hashes. The old
 232-export viewer remains historical; it no longer feeds the live crowd. Runtime
 consumes generated atlases and never imports the model app. Stable identity keeps
 20% children, independent size/gait and one draw per LOD. See

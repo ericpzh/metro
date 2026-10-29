@@ -593,7 +593,10 @@ FBX hash and every recipe source hash; hashes alone cannot prove changed geometr
 was baked. Actual skirts preserve the original waist/hips/outer legs and replace only the
 inner-thigh gap. Model tests pin the single-skin waist with matching weights, connector coverage, front strap
 clearance and deterministic seated source skinning. `passenger-activity-assets` checks the
-16 bones, Hips index 15, arms 9–14, rail targets and outward free arms. Follow the
+16 bones, Hips index 15, arms 9–14, the accepted escalator shoulder lift and
+shared relaxed free arms. It checks both activity palettes and actual standing
+atlas vertices, because waiting/queueing bypass activity skinning. Classify hands,
+legs and sleeve occlusion by bone ownership rather than standing coordinates. Follow the
 selected pelvis when seating; short legs can raise it to an adult seat. Preserve
 pause, selection, identity, sizing, one draw per LOD and disposal tests. Low stays
 at most 10% of each full topology while retaining extrema and projected surfaces.

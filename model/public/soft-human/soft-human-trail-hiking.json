@@ -11,7 +11,11 @@
     },
     {
       "path": "model/src/soft-human/character.js",
-      "sha256": "35ddee671327204a1a430463cfe13fd16ed6d2785e37b11db366ee9072951047"
+      "sha256": "1b188f95b99998fd9ebbe3fa8944bbedac03d524d51b10a9db2ec9c482e563a8"
+    },
+    {
+      "path": "model/src/soft-human/relaxed-arms.js",
+      "sha256": "a53ad3dc738e088f9749406b39251478d87f6596e423790a8a91b44e22e76220"
     },
     {
       "path": "model/src/soft-human/wardrobe.js",

@@ -2287,7 +2287,10 @@ including the depth prepass, for all six appearances.
   Keep this visual scale out of simulation physique/speed and the baked atlas. `passenger-clothing`
   pins twenty outfits/category, RGB colors, selected-FBX and recipe hashes, and
   source-body skirt bridge geometry. Source and all animation/wardrobe inputs must match
-  the generated atlas. Free arms stay outward in every action. Activity metadata
+  the generated atlas. Walking keeps its outward swing; idle standing and every
+  unused station-activity arm use the accepted relaxed pose from `metro-model`.
+  Waiting/queueing retain the cheap standing-atlas path, whose frame zero must
+  match that relaxed pose. Activity metadata
   identifies Hips index 15 and arms 9–14; camera offset and gesture masking must
   follow that rig. Skirts use their source leg weights, with no separate GPU shell warp. The rounded body
   uses baked smooth normals with a small fixed light term in the shared material.
@@ -2314,9 +2317,10 @@ including the depth prepass, for all six appearances.
   gait use 3D slope distance. Escalators/lifts/conveyors keep planted feet.
   Every escalator rider, including children and hand-carried bags, uses the
   lane/direction rail gesture until the actual ride countdown ends. A hand-owned
-  bag reserves that hand: use the other hand, switching reachable belts on narrow
-  runs and retaining the real nearby belt target on wider ones. Free arms retain
-  their outward rest angle. Screen/handle actions use a stable identity/action
+  bag reserves that hand: use the other hand with the natural reach on its own
+  side. Never twist the torso or cross an elbow to force rail contact. The bent
+  holding arm pitches forward 30 degrees at the shoulder; the other arm keeps
+  the shared relaxed stance. Equipment overlap is allowed for resting arms. Screen/handle actions use a stable identity/action
   hand preference without consuming sim RNG. `passengerActivity.w` packs three
   gait profiles plus default/right/left action modes; preserve profile modulo 3
   and the baked hand dimension in shader/camera palette indexing. Preserve

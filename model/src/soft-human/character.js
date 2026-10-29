@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {MarchingCubes} from 'three/addons/objects/MarchingCubes.js';
 import {WALK_PROFILES} from '../../../game/src/sim/constants.ts';
+import {poseRelaxedArm} from './relaxed-arms.js';
 
 // Original implicit sculpt: smooth unions produce one skin, including the armpits
 // and crotch. No downloaded game geometry or textures are used.
@@ -64,12 +65,19 @@ export function createSoftHuman(){
 export function createMotion(character){
  const channels=new Map();let time=0,acc=0;
  const state={mode:'walk',softness:.65,speed:1};
+ const idleWrists=character.restArmAngle===0?character.limbs.map(l=>{const end=new T.Object3D();end.position.copy(l.wrist);l.fore.add(end);return end}):[];
+ function idleArms(){
+  if(state.mode!=='idle'||!idleWrists.length)return;
+  character.limbs.forEach((l,i)=>{l.arm.rotation.set(0,0,0);l.fore.rotation.set(0,0,0);poseRelaxedArm(character,l,idleWrists[i])});
+  character.body.updateMatrixWorld(true);character.body.skeleton.update();
+ }
  function drive(b,axis,target,dt){const key=b.name+axis;let c=channels.get(key);if(!c){c={x:0,v:0};channels.set(key,c)}const k=110-85*state.softness,d=2*Math.sqrt(k)*(.95-.4*state.softness);c.v+=(k*(target-c.x)-d*c.v)*dt;c.x+=c.v*dt;b.rotation[axis]=c.x}
  function step(dt){time+=dt*state.speed;const profile=WALK_PROFILES[state.mode==='walk-slow'?0:state.mode==='walk-fast'?2:1],stride=profile.speed/WALK_PROFILES[1].speed,p=time*Math.PI*2/profile.cycleSeconds,w=['walk','walk-slow','walk-fast'].includes(state.mode),reach=state.mode==='reach',fall=state.mode==='float';
   drive(character.hips,'z',w?.07*Math.sin(p):fall?.24*Math.sin(p*.5):.025*Math.sin(p*.4),dt);
   drive(character.chest,'z',0,dt);drive(character.chest,'x',w?.09:fall?-.22:0,dt);drive(character.head,'z',-.09*Math.sin(p*.5),dt);
   character.body.position.y=(fall?.30+.08*Math.sin(p*.6):w?.028*(1-Math.cos(p*2)):0)*character.body.scale.y;
   for(const {s,arm,fore,leg,shin} of character.limbs){const a=p+(s<0?Math.PI:0);
+   if(idleWrists.length){arm.rotation.y=0;fore.rotation.y=fore.rotation.z=0;}
    drive(leg,'x',w?.45*stride*Math.sin(a):fall?.3*Math.sin(a*.6):0,dt);
    drive(shin,'x',w?Math.max(0,-Math.sin(a))*.65:fall?.3:0,dt);
    const carrying=character.carry?.side===s;
@@ -79,8 +87,9 @@ export function createMotion(character){
    drive(arm,'z',reach?s*1.75:fall?s*.7:-s*(character.restArmAngle??.60),dt);
    drive(fore,'x',reach?-.25:w?-.15-.18*Math.sin(a-.7):fall?-.4:-.08,dt);
   }
+  idleArms();
  }
- function reset(){time=acc=0;channels.clear();character.resetPose?.();for(const b of character.bones)b.rotation.set(0,0,0);character.hips.position.copy(character.hips.userData.rest);character.body.position.set(0,0,0);character.body.rotation.set(0,0,0)}
+ function reset(){time=acc=0;channels.clear();character.resetPose?.();for(const b of character.bones)b.rotation.set(0,0,0);character.hips.position.copy(character.hips.userData.rest);character.body.position.set(0,0,0);character.body.rotation.set(0,0,0);idleArms()}
  return {state,update(dt){acc+=Math.min(Math.max(dt,0),.1);while(acc>=1/120){step(1/120);acc-=1/120}},push(){for(const b of [character.chest,character.head,...character.limbs.map(x=>x.arm)]){const key=b.name+'z';let c=channels.get(key);if(!c){c={x:0,v:0};channels.set(key,c)}c.v+=5}},reset,seek(t){reset();const speed=state.speed;state.speed=1;for(let i=0;i<Math.round(Math.max(0,Math.min(t,12))*120);i++)step(1/120);state.speed=speed},get time(){return time}};
 }
 

@@ -33,11 +33,19 @@ superellipse for backpack lower returns. Constant-width ribbons use parallel
 transport and stay owned by Chest alongside the bag. There is no triangle
 projection or per-frame strap fitting. `strap-fit.js` remains a historical
 procedural-study implementation. Carried bags use the actual wrist anchors.
-Station poses use the production equipment's contact heights. Free arms keep
-the default outward A-pose in every action, including seating and narrow lanes;
-only active equipment reaches override it. Adult width is not compressed to fit
-a lane. Collision audits can therefore report an outward free arm crossing narrow
-equipment. Switching back to walking restores the bind joint positions. The selected model now replaces the game crowd. `src/soft-human/catalog.js`
+Station poses use the production equipment's active-hand contact heights.
+Idle standing and all unused station-activity arms share the accepted escalator
+rest pose: a modest spread outside the torso with a relaxed downward reach.
+In side view the elbow angles back and the forearm angles forward, while frontal
+elbow spacing and wrist position stay fixed.
+This applies through approach, interaction and release, including gates,
+elevators, doors, queues, sitting and toilet rest. Active hands blend out of the
+rest pose toward their existing equipment target, while hand-held bags reserve
+the carrying hand. Walking retains its original outward arm swing.
+The escalator holding arm keeps its comfortable bend and lifts forward 30 degrees
+at the shoulder in side view, preserving its sideways spacing and elbow bend.
+Natural posture takes priority over resting-arm and escalator clearance;
+equipment penetration is allowed. The selected model now replaces the game crowd. `src/soft-human/catalog.js`
 derives all 440 clothing/bag recipes for both ages; `npm run bake:passengers`
 generates the shared walking and activity assets offline. Game runtime remains
 independent of the model app. See `game/src/assets/PASSENGERS.md`.
@@ -46,6 +54,9 @@ Run `node --test model/test/soft-human*.test.mjs`, build with
 `node model/node_modules/vite/bin/vite.js build model`, then run the
 `tools/check-soft-human.mjs`, `check-soft-human-activities.mjs`,
 `check-soft-human-clearance.mjs --all` and `check-soft-arm-poses.mjs` browser checks.
+`node tools/check-soft-escalator-pose.mjs` pins natural arm placement and zero
+chest turn across both ages, both hands and the complete ride timeline.
+Escalator clearance reports are diagnostic and do not reject equipment overlap.
 `soft-human-imported.test.mjs` covers the actual selected FBX, both ages, all
 wardrobes, deterministic activities and posed GLB round trips.
 `soft-human-casual.test.mjs` and `tools/check-soft-human-casual.mjs` cover category

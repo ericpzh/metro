@@ -24,7 +24,7 @@ smooth normals, and sole vertices are locked during simplification. Material reg
 90 authored RGB colors. Simplification preserves weights and color boundaries;
 standing plus 24 frames for each of the three gaits are losslessly delta-packed.
 218,396 shared animated vertices serve all 440 recipes. Full topology pads to
-8,101 triangles, Low to 788; each recipe's Low topology stays below 10% of its full
+8,101 triangles, Low to 791; each recipe's Low topology stays below 10% of its full
 triangles and retains pose extrema. MeshBasicMaterial uses the baked smooth
 normals for a small fixed light term, retaining the rounded white head against
 pale station surfaces. High and Low people are fully opaque (opacity 1, transparent false), with depth
@@ -34,8 +34,15 @@ Activity geometry shares the same bind vertices. One 16-bone rig supplies 24
 samples at eight size fits for every station action and the three walks. The
 asset records bone names, Hips index 15 and arm indices 9–14; never reuse the old
 rig's root/arm assumptions. GPU skinning and pose tables keep one instanced draw
-per visible LOD, with no live skeleton or per-passenger mixer. Free arms retain
-the outward default in every action; active hands alone reach equipment.
+per visible LOD, with no live skeleton or per-passenger mixer. Every unused
+station-activity arm shares the accepted relaxed stance, with a modest spread
+outside the torso. The elbow sits back and forearm angles forward in side view,
+preserving the frontal spacing and wrist position. The standing atlas frame uses this same idle pose, so waits,
+queues and transported passengers keep it without extra GPU skinning. All 72
+walking frames retain their original outward arm swing. Escalator upper arms stay on their own side
+and the bent holding arm pitches forward 30 degrees at the shoulder, preserving
+its front-view sideways spacing and elbow bend without chest twisting. Natural
+posture takes priority over belt contact and clearance; equipment overlap is allowed.
 
 Skirts retain the original waist, hips and outer legs. Only the central
 inner-thigh/crotch patch below 0.50 m is replaced with smooth front/back bridges,
@@ -59,9 +66,11 @@ Stair traversal uses 3D slope distance for walking at both LODs. The simulation
 keeps its capacity-controlled Riding state and emits StairWalking in the render
 stream. Escalator riders of both ages use the lane/direction handrail pose through
 the actual ride countdown. A hand-carried bag reserves its hand; only the other
-hand interacts. Narrow escalators can switch belts; wider-lane reaches keep the
-original nearby target and turn the chest into an opposite-hand reach.
-Escalators, moving walkways and lifts keep planted feet; free arms stay outward.
+hand interacts. The chosen escalator arm keeps its natural reach on its own
+side, even when the nearby belt is opposite. Belt position never twists the
+chest, crosses an elbow over the torso or changes the default stance.
+Escalators, moving walkways and lifts keep planted feet. Escalator free arms
+hang naturally beside the body, as do unused moving-walkway and lift arms.
 
 Action hands vary deterministically by passenger/action without using journey
 RNG. Activity asset version 3 stores default/right/left palettes per height fit.

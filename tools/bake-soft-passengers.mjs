@@ -18,7 +18,7 @@ import {writeAsset} from '../model/scripts/write-asset.mjs';
 
 await MeshoptSimplifier.ready;
 const source=readFileSync(new URL('../model/public'+SOFT_BASE_URL,import.meta.url)),sha=b=>createHash('sha256').update(b).digest('hex');
-const inputs=['game/src/sim/activities.ts','game/src/sim/constants.ts','model/src/animation/interactions.js','model/src/soft-human/imported-base.js','model/src/soft-human/character.js','model/src/soft-human/activities.js','model/src/soft-human/wardrobe.js','model/src/soft-human/skirt.js','model/src/soft-human/torso-fit.js','model/src/soft-human/mathematical-strap.js','model/src/soft-human/carried-bags.js','model/src/soft-human/bag-shell.js','model/src/soft-human/bag-connectors.js','model/src/soft-human/catalog.js','tools/bake-soft-passengers.mjs','tools/passenger-low-topology.mjs'];
+const inputs=['game/src/sim/activities.ts','game/src/sim/constants.ts','model/src/animation/interactions.js','model/src/soft-human/imported-base.js','model/src/soft-human/character.js','model/src/soft-human/activities.js','model/src/soft-human/relaxed-arms.js','model/src/soft-human/wardrobe.js','model/src/soft-human/skirt.js','model/src/soft-human/torso-fit.js','model/src/soft-human/mathematical-strap.js','model/src/soft-human/carried-bags.js','model/src/soft-human/bag-shell.js','model/src/soft-human/bag-connectors.js','model/src/soft-human/catalog.js','tools/bake-soft-passengers.mjs','tools/passenger-low-topology.mjs'];
 const sourceHashes=Object.fromEntries(inputs.map(path=>[path,sha(readFileSync(new URL('../'+path,import.meta.url)))]));
 const sourceSha256=sha(source),recipeSha256=sha(JSON.stringify(sourceHashes));
 const c=createImportedSoftHuman(source.buffer.slice(source.byteOffset,source.byteOffset+source.byteLength)),w=createWardrobe(c),motion=createMotion(c);
@@ -64,7 +64,7 @@ function prepare(mesh,group,outfit){
 function sample(newParts){
  for(let frame=0;frame<frames;frame++){
   c.setAge('adult');
-  if(frame){const gait=Math.floor((frame-1)/24),phase=((frame-1)%24)/24;motion.state.mode=['walk-slow','walk','walk-fast'][gait];motion.seek((2+phase)*WALK_PROFILES[gait].cycleSeconds)}else motion.reset();
+  if(frame){const gait=Math.floor((frame-1)/24),phase=((frame-1)%24)/24;motion.state.mode=['walk-slow','walk','walk-fast'][gait];motion.seek((2+phase)*WALK_PROFILES[gait].cycleSeconds)}else{motion.state.mode='idle';motion.seek(0)}
   w.update();
   let foot=Infinity;
   const skin=c.body.geometry.attributes.position;

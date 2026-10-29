@@ -1,6 +1,7 @@
 import * as T from 'three';
 import {INTERACTIONS,interactionFrame,solveLimb,smooth} from '../animation/interactions.js';
 import {ACTIVITY_NAMES,ACTIVITY_DURATION} from '../../../game/src/sim/activities.ts';
+import {relaxedArmTarget,relaxedArmBend,poseRelaxedArm} from './relaxed-arms.js';
 export const SOFT_ACTIONS=[
  {id:'walk-slow',label:'Slow walk / 慢走',duration:4},
  {id:'walk',label:'Medium walk / 行走',duration:4},
@@ -26,7 +27,7 @@ export function createSoftActivityPoser(c){
    const narrow=['qr','card','door','escalator'].includes(base);
    // Keep the selected age's default width as well as its outward arm pose.
    // Narrow equipment must not silently compress the character's silhouette.
-   for(const l of c.limbs)l.leg.position.x=narrow?l.s*.19:l.leg.userData.rest.x-c.hips.userData.rest.x;
+   for(const l of c.limbs)l.leg.position.x=narrow&&base!=='escalator'?l.s*.19:l.leg.userData.rest.x-c.hips.userData.rest.x;
   }
   let sitting;
   if(seated){
@@ -54,15 +55,21 @@ export function createSoftActivityPoser(c){
   if(base==='escalator'&&anchors.foot){
    body.position.set(0,anchors.foot[1]+(c.metrics?.02:0),anchors.foot[2]);
    const s=hand==='default'?(id==='escalator-left'?-1:1):actionSide;
-   // A free hand can reach the same nearby belt across the body. Turn the upper
-   // torso into that reach; do not reflect the target onto a nonexistent rail.
-   if(s*anchors.rail[0]<0){c.chest.rotation.y=-s*.85;c.head.rotation.y-=c.chest.rotation.y*.5;}
-   set(s,anchors.rail);
+   if(keepDefaultArms){
+    // Author a comfortable arm on its own side. The equipment follows the
+    // rider's feet; it must not twist the torso or pull an elbow across the chest.
+    // Rail overlap is allowed: natural posture takes priority over contact.
+    const {arm}=c.limbs.find(l=>l.s===s),length=c.metrics.armLength;
+    body.updateMatrixWorld(true);
+    const target=body.worldToLocal(arm.getWorldPosition(new T.Vector3()))
+     .add(new T.Vector3(s*.20,-.12,.74).multiplyScalar(length));
+    set(s,body.localToWorld(target).toArray());
+   }else set(s,anchors.rail);
   }
   body.updateMatrixWorld(true);
-  // The historical study used a tucked free-arm pose. The selected base keeps
-  // its authored outward A-pose in every activity, including narrow lanes.
-  if(!keepDefaultArms)for(let i=0;i<c.limbs.length;i++){
+  // Keep the historical procedural fixture's older resting pose.
+  for(let i=0;i<c.limbs.length;i++){
+   if(keepDefaultArms)continue;
    const {s,arm,fore}=c.limbs[i],narrow=['qr','card','door','escalator'].includes(base)?1:0,carrying=c.carry?.side===s;
    const spread=T.MathUtils.lerp(carrying?.14:.105,.035,narrow),drop=c.metrics?Math.sqrt(c.metrics.armLength**2-spread**2)*.997:T.MathUtils.lerp(carrying?.644:.651,.658,narrow);
    const rest=arm.getWorldPosition(new T.Vector3()).add(new T.Vector3(s*spread*scale.x,-drop*scale.y,.02*scale.z));
@@ -81,14 +88,15 @@ export function createSoftActivityPoser(c){
    }
   }
   const contact=seated?sitting.lower:base==='escalator'?1:id==='door'?smooth(.4,1.6,t)*(1-smooth(1.8,2.3,t)):['qr','card'].includes(id)&&t>=4?0:moving?0:e;
+  const relaxedTarget=limb=>relaxedArmTarget(c,limb);
   // Bring a short or opposite-side arm within its actual two-bone reach before
   // solving the elbow. This uses joint lengths and the authored target only.
-  if(keepDefaultArms&&targets.size===1&&contact>1e-6){
+  if(keepDefaultArms&&base!=='escalator'&&targets.size===1&&contact>1e-6){
    const [s,target]=targets.entries().next().value,i=c.limbs.findIndex(l=>l.s===s),{arm,fore}=c.limbs[i];
    let frame=arm;while(frame.isBone&&frame.parent)frame=frame.parent;
    const inverse=frame.matrixWorld.clone().invert(),point=bone=>bone.getWorldPosition(new T.Vector3()).applyMatrix4(inverse);
    const a=point(arm),b=point(fore),end=point(wrists[i]);
-   const reach=(a.distanceTo(b)+b.distanceTo(end))*.995,goal=end.clone().lerp(target.clone().applyMatrix4(inverse),contact);
+   const reach=(a.distanceTo(b)+b.distanceTo(end))*.995,goal=relaxedTarget(c.limbs[i]).applyMatrix4(inverse).lerp(target.clone().applyMatrix4(inverse),contact);
    if(a.distanceTo(goal)>reach){
     const start=c.chest.rotation.y,turn=-s*1.45;let low=0,high=1;
     c.chest.rotation.y=turn;body.updateMatrixWorld(true);
@@ -99,13 +107,28 @@ export function createSoftActivityPoser(c){
     body.updateMatrixWorld(true);
    }
   }
+  // The accepted escalator free arm is the shared station rest pose. Apply it
+  // after torso/seat adjustments, including both arms before and after a reach.
+  if(keepDefaultArms)for(let i=0;i<c.limbs.length;i++){
+   const l=c.limbs[i];if(targets.has(l.s)&&contact>1e-6)continue;
+   poseRelaxedArm(c,l,wrists[i]);
+  }
   for(let i=0;i<c.limbs.length;i++){
    const {s,arm,fore}=c.limbs[i],target=targets.get(s);if(!target)continue;
    if(keepDefaultArms&&contact<=1e-6)continue;
-   const rest=wrists[i].getWorldPosition(new T.Vector3()).lerp(target,contact);
+   const rest=(keepDefaultArms&&base!=='escalator'?relaxedTarget(c.limbs[i]):wrists[i].getWorldPosition(new T.Vector3())).lerp(target,contact);
    if(id==='wash')rest.y+=.22*Math.sin(Math.PI*contact);
-   const bend=base==='escalator'?(child?new T.Vector3(s*.2,0,1):new T.Vector3(0,-1,.05)):id==='wash'?(c.metrics?new T.Vector3(s*.9,child?-.1:.2,-.5):new T.Vector3(s*(child?.8:.15),-1,.1)):new T.Vector3(s*.15,-1,-.12);
+   const bend=base==='escalator'?(keepDefaultArms?new T.Vector3(s*.35,-1,-.1):child?new T.Vector3(s*.2,0,1):new T.Vector3(0,-1,.05)):id==='wash'?(c.metrics?new T.Vector3(s*.9,child?-.1:.2,-.5):new T.Vector3(s*(child?.8:.15),-1,.1)):new T.Vector3(s*.15,-1,-.12);
+   if(keepDefaultArms&&base!=='escalator')bend.lerp(relaxedArmBend(c,c.limbs[i]),1-contact);
    solveLimb(arm,fore,wrists[i],rest,bend);
+   if(keepDefaultArms&&base==='escalator'){
+    // Lift the comfortable arm as one piece in side view. Preserve its frontal
+    // spacing and elbow bend, rather than solving a new shape against the rail.
+    const parentFrame=body.matrixWorld.clone().invert().multiply(arm.parent.matrixWorld);
+    const axis=new T.Vector3(1,0,0).transformDirection(parentFrame.invert());
+    arm.quaternion.premultiply(new T.Quaternion().setFromAxisAngle(axis,-Math.PI/6));
+    arm.updateWorldMatrix(true,true);target.copy(wrists[i].getWorldPosition(new T.Vector3()));
+   }
   }
   body.updateMatrixWorld(true);body.skeleton.update();
   return {...f,targets,wrists,ankles,sitting,contact};

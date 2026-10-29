@@ -77,25 +77,45 @@ retains its mathematical clearance; no per-frame geometry fitting is introduced.
 `export-soft-human.mjs --sex=...` validates category and adds it to filenames;
 legacy example filenames remain stable without the option.
 Restore bind joint positions and age width when leaving narrow activity poses.
-The selected base's outward A-pose is already baked into its bind geometry:
-walking and idle use `restArmAngle: 0` and retain that spread while swinging
-forward/back. Do not apply the historical procedural rig's inward arm offset.
-This also applies to **every station action**: free arms retain the outward bind
-pose through approach, waiting, seating and release, including gates, doors and
-escalators. Do not tuck free arms, rest them on the lap, or compress adult width
-to fit a lane. Only active equipment reaches blend to IK; a zero-contact arm
-returns to the outward default. This user direction supersedes the legacy
-narrow-lane tucking rule below. Keep tests against the imported base and live
-activity checker aligned; full collision audits may report the deliberately
-outstretched free arm in adult-sized narrow equipment.
+The selected base's outward A-pose is baked into its bind geometry. Walking
+retains that spread and its existing swing. Idle standing and **every station
+activity** use the accepted escalator relaxed-arm stance for each unused hand:
+a modest spread outside the torso, natural downward reach, and no lap placement.
+In side view, the elbow sits behind the shoulder and the forearm angles forward
+toward the hand. Preserve the accepted frontal elbow spacing and wrist location
+when correcting that bend; never reverse the elbow into a forward bulge.
+`relaxed-arms.js` owns this shared rig-frame pose for `character.js` idle and
+`activities.js`. Active equipment hands blend out of it; zero-contact hands,
+approach and release return to the same relaxed stance. Keep active screen,
+reader, basin and door targets unchanged, and preserve hand-owned bag precedence.
+The standing frame of the walking atlas also uses this idle pose: waits and
+queues intentionally render that cheaper atlas path instead of the activity rig.
+Keep all 72 walking frames unchanged, and pin both actual standing vertices and
+baked activity palettes in `passenger-activity-assets`. Identify skin regions by
+bone ownership: lowered hands are not thighs, and sleeve occlusion is not torso
+strap penetration. The relaxed arms may intersect equipment; retain those scans
+as diagnostics without reshaping the accepted stance.
+The escalator holding arm keeps its comfortable bend and lifts forward 30 degrees
+at the shoulder in side view. Preserve its sideways spacing, elbow bend and torso;
+apply this rigid shoulder pitch before independent appearance scaling.
+**Natural posture comes before escalator geometry.** Never twist the chest or
+pull an elbow across the body to reach a belt. Do not squeeze arms into the
+torso, drop the free hand against the knee, compress body width, or change the
+default stance to clear the equipment. Rail penetration and imperfect hand
+contact are explicitly allowed. The escalator arm pose depends on the rig and
+chosen hand, not belt position. Active hands in other actions keep their existing contact rules.
+`check-soft-escalator-pose.mjs` pins natural arm placement and zero chest turn for
+both ages/hands throughout the ride. Escalator collision scans retain diagnostic
+reports but must not reject this pose or drive corrective contortions.
 `activities.js` accepts `anchors.hand` (`default`, `right`, `left`). A hand-owned
 purse/handbag reserves its carrying hand when no explicit bake mode is supplied.
-Keep left/right reaches on the same equipment target; do not mirror a screen or
-belt away. Opposite-side rail reaches turn the chest into the reach, and a held
-bag allows only the free hand to wash. The game bake stores all three hand modes
-per height fit. Pin target identity/free-arm pose in `soft-human-handedness` and
-both-mode GPU palettes in `passenger-activity-assets`.
-Reach clearance uses joint lengths in the IK rig frame, including independent
+Screen and handle targets stay fixed between hand modes. On escalators, either
+chosen hand uses the comfortable reach on its own side, even when the belt is
+opposite; never twist across the chest to touch it. A held bag allows only the
+free hand to wash. The game bake stores all three hand modes per height fit.
+Pin target identity and natural arms in `soft-human-handedness`, and the actual
+GPU palettes in `passenger-activity-assets`.
+For non-escalator equipment, reach clearance uses joint lengths in the IK rig frame, including independent
 height scaling; a small chest turn must bring the target within reach before
 solving the elbow. World-space lengths would miss short/tall opposite-hand reaches.
 The selected base uses `mathematical-strap.js`: authored Bezier shoulder arcs,
@@ -157,8 +177,10 @@ available as fixtures; they no longer own the game's crowd catalogue.
   including left-hand escalator, plus idle/reach/float) and adapts the production
   interaction poses/IK to the soft rig. Reuse `interaction-equipment.js`; keep
   preview construction isolated from station documents. The selected FBX keeps
-  free arms in its outward default in every action; the legacy procedural
-  fixture alone retains its older narrow-lane tucking behavior. Seat, basin, rail, door-threshold
+  free arms in the shared relaxed stance for all station actions. Walking alone
+  retains its outward bind spread. Escalator contact and resting-arm clearance
+  are subordinate to natural posture; do not turn the chest toward a rail. The legacy procedural fixture retains its older tucking
+  behavior for other narrow equipment. Seat, basin, rail, door-threshold
   and lift-floor heights come from the actual equipment anchors. Children use a
   sized step, shorter rail reach and a visible wash step; adult equipment stays
   adult-sized.
@@ -186,8 +208,9 @@ elbows from front, oblique and back). Captures go under ignored
 seat/foot support, basin/rail contact, lane containment, elbow posture, skin
 weights, all wardrobe combinations, carried-bag anchoring and a posed GLB
 round-trip. A failing activity assertion can be a real pose regression: the
-free-arm lane check caught a hardcoded `narrow=0` that left the arm outside the
-escalator.
+legacy procedural free-arm lane check caught a hardcoded `narrow=0`. That
+historical lane constraint does not apply to the selected escalator pose: use
+the natural-posture rule above, even when collision scans report overlap.
 
 ## Sound studio
 

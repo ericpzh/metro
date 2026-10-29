@@ -12,9 +12,9 @@ import {createSoftActivityPoser,SOFT_ACTIONS} from '../src/soft-human/activities
 const bytes=readFileSync(new URL('../public'+SOFT_BASE_URL,import.meta.url));
 const create=()=>createImportedSoftHuman(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));
 
-test('walking and idle preserve the selected base outward arm angle from the first frame',()=>{
+test('walking preserves the selected base outward arm angle from the first frame',()=>{
  const c=create(),m=createMotion(c);
- for(const age of ['adult','child'])for(const mode of ['idle','walk-slow','walk','walk-fast'])for(const softness of [0,.65,1]){
+ for(const age of ['adult','child'])for(const mode of ['walk-slow','walk','walk-fast'])for(const softness of [0,.65,1]){
   c.setAge(age);m.state.mode=mode;m.state.softness=softness;
   for(const t of [0,1/60,.25,.5,1,2,4]){
    m.seek(t);c.body.updateMatrixWorld(true);
@@ -28,7 +28,24 @@ test('walking and idle preserve the selected base outward arm angle from the fir
  }
 });
 
-test('every station action keeps free arms in the default outward pose, including approach and release',()=>{
+test('idle uses the shared relaxed arms from its first frame and restores walking afterwards',()=>{
+ const c=create(),m=createMotion(c);
+ for(const age of ['adult','child'])for(const softness of [0,.65,1]){
+  c.setAge(age);m.state.mode='idle';m.state.softness=softness;
+  for(const t of [0,1/60,.25,1,2]){
+   m.seek(t);
+   for(const l of c.limbs){
+    const shoulder=c.body.worldToLocal(l.arm.getWorldPosition(new T.Vector3())),elbow=c.body.worldToLocal(l.fore.getWorldPosition(new T.Vector3())),wrist=c.body.worldToLocal(l.fore.localToWorld(l.wrist.clone()));
+    assert(elbow.z<shoulder.z-.05&&wrist.z>elbow.z+.1,'idle keeps the corrected backward-elbow, forward-forearm bend');
+    assert(wrist.sub(shoulder).distanceTo(new T.Vector3(l.s*.26,-.90,.06).multiplyScalar(c.metrics.armLength))<1e-6,'idle matches the accepted escalator free-arm stance');
+   }
+  }
+  m.state.mode='walk';m.update(1/30);c.body.updateMatrixWorld(true);
+  for(const l of c.limbs){const a=c.body.worldToLocal(l.arm.getWorldPosition(new T.Vector3())),d=c.body.worldToLocal(l.fore.getWorldPosition(new T.Vector3())).sub(a);assert(Math.atan2(l.s*d.x,Math.hypot(d.y,d.z))>.65,'resuming walking restores its authored spread')}
+ }
+});
+
+test('all station actions share the accepted relaxed free-arm stance through approach, interaction and release',()=>{
  const c=create(),pose=createSoftActivityPoser(c),m=createMotion(c);
  for(const age of ['adult','child'])for(const carry of [null,{side:1,type:'shoulder'}]){
   c.setAge(age);c.carry=carry;
@@ -38,17 +55,20 @@ test('every station action keeps free arms in the default outward pose, includin
    for(const l of c.limbs){
     const free=!result.targets.has(l.s)||result.contact<=1e-6;
     if(!free)continue;
-    assert(Math.abs(l.arm.rotation.z)<1e-6,`${age}/${action.id}/${t}: no inward free-arm offset`);
-    assert(Math.abs(l.fore.rotation.x)<1e-6,`${age}/${action.id}/${t}: no automatic resting elbow bend`);
-    const shoulder=c.body.worldToLocal(l.arm.getWorldPosition(new T.Vector3())),elbow=c.body.worldToLocal(l.fore.getWorldPosition(new T.Vector3())),d=elbow.sub(shoulder);
-    assert(Math.atan2(l.s*d.x,Math.hypot(d.y,d.z))>.65,`${age}/${action.id}/${t}: free arm retains its outward silhouette`);
+    const shoulder=c.body.worldToLocal(l.arm.getWorldPosition(new T.Vector3())),elbow=c.body.worldToLocal(l.fore.getWorldPosition(new T.Vector3()));
+    const wrist=c.body.worldToLocal(result.wrists[c.limbs.indexOf(l)].getWorldPosition(new T.Vector3()));
+    assert(l.s*(wrist.x-shoulder.x)>.16&&l.s*(wrist.x-shoulder.x)<.25,'free hand hangs outside the body with a modest spread');
+    assert(l.s*(elbow.x-shoulder.x)>.06&&l.s*(elbow.x-shoulder.x)<.16,'free elbow stays on its own side');
+    assert(elbow.z<shoulder.z-.05&&wrist.z>elbow.z+.1,'free elbow sits back and forearm angles forward in side view');
+    assert(wrist.y<shoulder.y-.65&&wrist.y>shoulder.y-.74,'the unused arm hangs without dropping against the knee');
+    if(action.id.startsWith('escalator'))assert.equal(c.chest.rotation.y,0,'rail contact cannot twist the torso');
    }
   }
  }
  // Return from an active equipment reach to an unrelated waiting pose.
- c.setAge('adult');pose('ticket',3.5);pose('wait',4);
- for(const l of c.limbs)assert.equal(l.arm.rotation.z,0);
- m.state.mode='idle';m.seek(2);for(const l of c.limbs)assert.equal(l.arm.rotation.z,0);
+ c.setAge('adult');pose('escalator',4,{foot:[0,.146,.13],rail:[.2255,1.288,.122]});const waiting=pose('wait',4);
+ for(let i=0;i<c.limbs.length;i++){const l=c.limbs[i],a=c.body.worldToLocal(l.arm.getWorldPosition(new T.Vector3())),end=c.body.worldToLocal(waiting.wrists[i].getWorldPosition(new T.Vector3()));assert(l.s*(end.x-a.x)>.16,'waiting keeps the relaxed arms')}
+ m.state.mode='walk';m.seek(2);for(const l of c.limbs)assert.equal(l.arm.rotation.z,0);
 });
 
 test('selected FBX retains its source vertices, weights, smooth normals and complete rig',()=>{

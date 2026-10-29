@@ -68,14 +68,20 @@ test('mathematical straps keep constant width, continuous frames and a level ell
  }
 });
 
-test('crossbody front edges clear the shirt throughout walking at both ages',()=>{
+test('crossbody front edges clear the torso shirt during idle and walking, ignoring sleeve occlusion',()=>{
  const c=create(),w=createWardrobe(c),m=createMotion(c),ray=new T.Raycaster();
+ const armBones=new Set(c.bones.flatMap((b,i)=>/Arm|Forearm/.test(b.name)?[i]:[]));
+ const isSleeve=hit=>{
+  const a=c.body.geometry.attributes;let weight=0;
+  for(const i of [hit.face.a,hit.face.b,hit.face.c])for(let k=0;k<4;k++)if(armBones.has(a.skinIndex.array[i*4+k]))weight+=a.skinWeight.array[i*4+k]/3;
+  return weight>.5;
+ };
  for(const bag of ['crossbody-left','crossbody-right'])for(const age of ['adult','child'])for(const mode of ['idle','walk-slow','walk','walk-fast'])for(const t of [.2,.7,1.3]){
   c.setAge(age);w.set('commuter',bag);m.state.mode=mode;m.seek(t);w.update();c.body.computeBoundingSphere();
   for(const strap of w.straps)for(let row=0;row<=192;row+=4)for(const edge of [0,1]){
    const point=strap.getVertexPosition(row*4+edge,new T.Vector3()).applyMatrix4(strap.matrixWorld),local=c.body.worldToLocal(point.clone());
    if(local.z<.02||local.y<.76||local.y>1.09||Math.abs(local.x)>.27)continue;
-   ray.set(c.body.localToWorld(new T.Vector3(local.x,local.y,1)),new T.Vector3(0,0,-1));const hit=ray.intersectObject(c.body,false)[0];
+   ray.set(c.body.localToWorld(new T.Vector3(local.x,local.y,1)),new T.Vector3(0,0,-1));const hit=ray.intersectObject(c.body,false).find(hit=>!isSleeve(hit));
    if(hit)assert(point.z-hit.point.z>.002,`${bag}/${age}/${mode}/${t}: front ribbon edge stays outside the shirt`);
   }
  }

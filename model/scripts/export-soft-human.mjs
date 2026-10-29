@@ -27,7 +27,7 @@ const hash=data=>createHash('sha256').update(data).digest('hex');
 await writeAsset(new URL(name+'.glb',out),Buffer.from(bytes));
 await writeAsset(new URL(outfit||age==='child'?name+'.json':'manifest.json',out),JSON.stringify({
  generator:'model/scripts/export-soft-human.mjs',
- sources:[{path:'model/public'+SOFT_BASE_URL,sha256:hash(sourceBytes)},...['imported-base.js','character.js','wardrobe.js','skirt.js','mathematical-strap.js','strap-fit.js','torso-fit.js','carried-bags.js','bag-connectors.js','bag-shell.js'].map(file=>({path:'model/src/soft-human/'+file,sha256:hash(readFileSync(new URL('../src/soft-human/'+file,import.meta.url)))}))],
+ sources:[{path:'model/public'+SOFT_BASE_URL,sha256:hash(sourceBytes)},...['imported-base.js','character.js','relaxed-arms.js','wardrobe.js','skirt.js','mathematical-strap.js','strap-fit.js','torso-fit.js','carried-bags.js','bag-connectors.js','bag-shell.js'].map(file=>({path:'model/src/soft-human/'+file,sha256:hash(readFileSync(new URL('../src/soft-human/'+file,import.meta.url)))}))],
  sha256:hash(Buffer.from(bytes)),outfit:outfit??'plain',backpack,age,sex,
  provenance:'User-selected HumanBody_Alt.fbx base. Included source readme describes a cleaned Human: Fall Flat model ripped from Unity; no redistribution license is supplied. Clothing, accessories and animation adapter are locally authored.',
  geometry:'Source skin and authored weights, normalized to 1.7 metres and rebound in an A-pose with the 15 source bones plus a root Hips bone. Separate cap and torso-owned mathematical strap ribbons with fixed bag anchors; neckline and forearm-perpendicular cuffs split into the skin geometry.',

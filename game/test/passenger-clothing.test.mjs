@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto'
 import * as THREE from 'three'
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js'
 import human from '../src/assets/passenger-approved.json' with {type:'json'}
+import activity from '../src/assets/passenger-activities.json' with {type:'json'}
 import {passengerPose,PASSENGER_ADULT_OUTFITS,PASSENGER_CHILD_OUTFITS} from '../src/render/passengerModel.ts'
 import {decodePassengerBytes,restorePassengerFrames} from '../src/render/passengerAtlas.ts'
 import {passengerBakePart,passengerVertexKey,passengerExteriorGeometry} from '../../tools/passenger-bake-geometry.mjs'
@@ -68,11 +69,13 @@ test('the translucent game keeps outer cloth, exposed ankles and sleeves while o
 
 test('game skirts retain a flush waist, outward cloth shell and exposed legs',()=>{
  const raw=decodePassengerBytes(human.indices,human.encoding),ids=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer),regions=decodePassengerBytes(human.regions,human.encoding)
+ const bind=new Float32Array(decodePassengerBytes(activity.data,activity.encoding).buffer),legBones=new Set(activity.boneNames.flatMap((name,i)=>/Thigh|Leg|Hip/.test(name)?[i]:[])),legVertex=new Uint8Array(activity.vertices)
+ for(let v=0;v<activity.vertices;v++){let weight=0;for(let k=0;k<4;k++)if(legBones.has(bind[v*16+12+k]))weight+=bind[v*16+8+k];legVertex[v]=weight>.5?1:0}
  for(const [variant,m] of human.library.entries())if(m.garmentShape==='skirt'){
   const p=passengerPose(0,variant),hem=m.outfit.includes('blouse')||m.outfit==='rose-slate-skirt'?.16:.29;let cloth=0,exposed=0
   for(let i=0;i<human.corners;i++){const color=human.paletteRGB[regions[ids[variant*human.corners+i]]],z=p[i*3+2]
    if(color===m.bottom)cloth++
-   if(color==='#f2f1ed'&&Math.abs(p[i*3+1])<.34){assert(!(z>hem+.04&&z<.63),m.id+' hidden thigh');if(z<hem+.02)exposed++}
+   if(color==='#f2f1ed'&&legVertex[ids[variant*human.corners+i]]){assert(!(z>hem+.04&&z<.63),m.id+' hidden thigh');if(z<hem+.02)exposed++}
   }
   assert(cloth>300&&exposed>20,m.id+' cloth and feet survive')
   let waist=0
