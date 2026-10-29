@@ -80,6 +80,8 @@ run('applying schema to the local D1 database', [
   '--yes',
 ])
 
+if (args.includes('--migrate-only')) process.exit(0)
+
 if (seed) {
   run('adding development sample data', [
     'd1', 'execute', 'STATS_DB',

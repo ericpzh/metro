@@ -19,6 +19,11 @@ function database(t) {
   sql.exec(schema) // Production migrations reapply the entire file.
   t.after(() => sql.close())
   const db = {
+    async batch(statements) {
+      sql.exec('BEGIN')
+      try { const results = []; for (const statement of statements) results.push(await statement.run()); sql.exec('COMMIT'); return results }
+      catch (error) { sql.exec('ROLLBACK'); throw error }
+    },
     prepare(query) {
       let args = []
       const statement = {
@@ -138,7 +143,7 @@ test('invalid, oversized, foreign, unidentified and banned writes create no repo
   assert.equal((await call(env, '', payload, address, { Origin: 'https://evil.example' })).status, 403)
   assert.equal((await call({ ...env, IP_HASH_SECRET: '' }, '', payload)).status, 503)
   assert.equal((await call(env, '', payload, '')).status, 503)
-  assert.equal((await call(env, '', { ...payload, details: 'x'.repeat(17000) })).status, 413)
+  assert.equal((await call(env, '', { ...payload, details: 'x'.repeat(17000) })).status, 400)
   sql.prepare('INSERT INTO blocked_ips (ip_hash,created_at) VALUES (?,?)').run(hash(address), new Date().toISOString())
   assert.equal((await call(env, '', payload)).status, 403)
   assert.equal(sql.prepare('SELECT COUNT(*) n FROM reports').get().n, 0)
@@ -168,4 +173,37 @@ test('both report routes keep the language switch and executable browser scripts
     assert.equal(redirect.status, 308)
     assert.equal(redirect.headers.get('Location'), path)
   }
+})
+
+
+test('report attachments and shared saves round-trip without appearing in list responses', async t => {
+  const { env, sql } = database(t)
+  const save = JSON.stringify({ format: 'metro-save', formatVersion: 1, static: { cells: [], modules: [], lines: [] } })
+  const bug = await create(env, { ...payload, save })
+  const share = await create(env, { ...payload, type: 'share', save, saveName: '我的站.json' })
+  assert.equal(share.saveName, '我的站.json')
+  assert.equal(share.saveSize, Buffer.byteLength(save))
+  assert.equal(bug.hasSave, true)
+  assert.equal(share.type, 'share')
+  const list = await (await call(env)).json()
+  assert.equal(list.issues.length, 2)
+  assert.ok(list.issues.every(issue => issue.hasSave && !('save' in issue)))
+  assert.equal((await (await call(env, '?type=share')).json()).issues[0].id, share.id)
+  assert.equal((await (await call(env, '?type=bug')).json()).issues[0].id, bug.id)
+  const download = await call(env, '/' + share.id + '/save')
+  assert.equal(await download.text(), save)
+  assert.match(download.headers.get('Content-Disposition'), /filename\*=UTF-8''%E6%88%91%E7%9A%84%E7%AB%99.json/)
+  const listedShare = list.issues.find(issue => issue.id === share.id)
+  assert.equal(listedShare.saveName, '我的站.json')
+  assert.equal(listedShare.saveSize, Buffer.byteLength(save))
+  assert.match((await call(env, '/' + bug.id + '/save')).headers.get('Content-Disposition'), /station-save.json/)
+  assert.equal((await call(env, '/' + crypto.randomUUID() + '/save')).status, 404)
+  assert.equal((await call(env, '', { ...payload, type: 'share' })).status, 400)
+  assert.equal((await call(env, '', { ...payload, save: '{}' })).status, 400)
+  assert.equal((await call(env, '', { ...payload, save, saveName: '../bad.json' })).status, 400)
+  assert.equal(sql.prepare('SELECT COUNT(*) n FROM report_saves').get().n, 2)
+  const large = JSON.stringify({ format: 'metro-save', formatVersion: 1, static: { cells: [], modules: [], lines: [] }, note: '😀'.repeat(2400000) })
+  const largeIssue = await create(env, { ...payload, save: large })
+  assert.equal(await (await call(env, '/' + largeIssue.id + '/save')).text(), large)
+  assert.ok(sql.prepare('SELECT COUNT(*) n FROM report_save_chunks WHERE report_id = ?').get(largeIssue.id).n > 1)
 })

@@ -35,7 +35,7 @@ const PAGE_COPY = {
     navReport: '问题与建议',
     report: {
       title: '问题与建议', description: '报告问题、提出功能建议，为你关心的事项投票。',
-      add: '添加事项', type: '类型', bug: '问题报告', feature: '功能建议',
+      add: '添加事项', shareButton: '分享存档', share: '分享存档', saveLabel: '存档 JSON（最多 32 MiB）', savePublic: '先在游戏中保存 JSON 文件。存档会公开供所有人下载，请勿包含个人信息。', download: '下载存档', invalidSave: '请选择有效的车站存档 JSON，大小不能超过 32 MiB。', type: '类型', bug: '问题报告', feature: '功能建议',
       subject: '标题', detail: '详细说明', submit: '提交', cancel: '取消',
       privacy: '内容公开，请勿填写个人信息。每个 IP 每天最多提交 5 条、投票 100 次，每个事项可投一票。限额每天按 UTC 时间重置。仅保存带密钥的 IP 散列值，不保存原始 IP。',
       sort: '排序', top: '最多赞同', newest: '最新报告', all: '全部类型',
@@ -96,7 +96,7 @@ const PAGE_COPY = {
     navReport: 'Issues & ideas',
     report: {
       title: 'Issues & ideas', description: 'Report a bug, suggest a feature, or upvote what matters to you.',
-      add: 'Add an issue', type: 'Type', bug: 'Bug report', feature: 'Feature request',
+      add: 'Add an issue', shareButton: 'Share a save', share: 'Shared save', saveLabel: 'Save JSON (up to 32 MiB)', savePublic: 'First save your station as a JSON file in the game. The save will be public and available for anyone to download. Leave out personal information.', download: 'Download save', invalidSave: 'Choose a valid station save JSON no larger than 32 MiB.', type: 'Type', bug: 'Bug report', feature: 'Feature request',
       subject: 'Title', detail: 'Details', submit: 'Submit', cancel: 'Cancel',
       privacy: 'Posts are public. Leave out personal information. Each IP can submit 5 reports and cast 100 upvotes per day, with one upvote per issue. Limits reset daily at midnight UTC. We store a keyed IP hash, never the raw IP.',
       sort: 'Sort by', top: 'Most upvotes', newest: 'Newest reports', all: 'All types',

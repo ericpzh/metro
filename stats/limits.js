@@ -30,5 +30,6 @@ export const LEASE_RATE_WINDOW_S = 60
 export const REPORTS_PER_DAY = 5
 export const REPORT_VOTES_PER_DAY = 100
 export const REPORT_PAGE_SIZE = 40
-// 3,000 Chinese characters plus JSON framing fit within this byte limit.
-export const REPORT_MAX_BODY = 16 * 1024
+// Bound public save uploads and the surrounding JSON request independently.
+export const REPORT_SAVE_MAX_BYTES = 32 * 1024 * 1024
+export const REPORT_MAX_BODY = 64 * 1024 * 1024

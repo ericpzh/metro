@@ -147,6 +147,21 @@ CREATE TABLE IF NOT EXISTS reports (
   created_at TEXT NOT NULL,
   votes INTEGER NOT NULL DEFAULT 0 CHECK (votes >= 0)
 );
+CREATE TABLE IF NOT EXISTS report_saves (
+  report_id TEXT PRIMARY KEY REFERENCES reports(id) ON DELETE CASCADE,
+  is_share INTEGER NOT NULL DEFAULT 0 CHECK (is_share IN (0, 1))
+);
+CREATE TABLE IF NOT EXISTS report_save_names (
+  report_id TEXT PRIMARY KEY REFERENCES report_saves(report_id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS report_save_chunks (
+  report_id TEXT NOT NULL REFERENCES report_saves(report_id) ON DELETE CASCADE,
+  part INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  PRIMARY KEY (report_id, part)
+);
 CREATE TABLE IF NOT EXISTS report_votes (
   report_id TEXT NOT NULL REFERENCES reports(id) ON DELETE CASCADE,
   ip_hash TEXT NOT NULL,

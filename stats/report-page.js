@@ -42,13 +42,16 @@ export function renderReportContent(c, statsPath, statsLabel) {
     <p>${html(c.description)}</p>
     <div class="report-tools">
       <label>${html(c.sort)} <select id="report-sort"><option value="top">${html(c.top)}</option><option value="new">${html(c.newest)}</option></select></label>
-      <select id="report-filter" aria-label="${html(c.type)}"><option value="all">${html(c.all)}</option><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option></select>
+      <select id="report-filter" aria-label="${html(c.type)}"><option value="all">${html(c.all)}</option><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option><option value="share">${html(c.share)}</option></select>
       <button type="button" class="primary" id="report-add" aria-expanded="false" aria-controls="report-form">＋ ${html(c.add)}</button>
+      <button type="button" id="report-share">${html(c.shareButton)}</button>
     </div>
     <form class="report-form" id="report-form" hidden>
-      <label>${html(c.type)}<select name="type"><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option></select></label>
+      <label>${html(c.type)}<select name="type"><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option><option value="share">${html(c.share)}</option></select></label>
       <label>${html(c.subject)}<input name="title" required minlength="3" maxlength="160"></label>
       <label>${html(c.detail)}<textarea name="details" required minlength="10" maxlength="3000" rows="5"></textarea></label>
+      <label>${html(c.saveLabel)}<input type="file" name="saveFile" accept=".json,application/json"></label>
+      <p>${html(c.savePublic)}</p>
       <p>${html(c.privacy)}</p>
       <button type="submit" class="primary">${html(c.submit)}</button> <button type="button" id="report-cancel">${html(c.cancel)}</button>
     </form>
@@ -115,8 +118,15 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
     const meta = element('div', '', 'report-meta')
     const date = element('time', new Date(issue.createdAt).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }))
     date.dateTime = issue.createdAt
-    meta.append(element('span', issue.type === 'bug' ? copy.bug : copy.feature, 'report-kind'), date)
+    meta.append(element('span', issue.type === 'bug' ? copy.bug : issue.type === 'share' ? copy.share : copy.feature, 'report-kind'), date)
     body.append(meta, element('h2', issue.title), element('p', issue.details))
+    if (issue.hasSave) {
+      const link = element('a', copy.download)
+      link.href = api + '/' + issue.id + '/save'
+      link.setAttribute('download', '')
+      body.append(link)
+      if (issue.saveName && Number.isFinite(issue.saveSize)) body.append(element('span', ' · ' + issue.saveName + ' (' + (issue.saveSize / 1048576).toFixed(2) + ' MiB)', 'report-meta'))
+    }
     li.append(vote, body)
     return li
   }
@@ -141,6 +151,8 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
     } finally { if (run === generation) list.setAttribute('aria-busy', 'false') }
   }
   add.addEventListener('click', () => showForm(form.hidden))
+  document.getElementById('report-share').addEventListener('click', () => { showForm(true); form.elements.type.value = 'share'; form.elements.saveFile.required = true })
+  form.elements.type.addEventListener('change', () => { form.elements.saveFile.required = form.elements.type.value === 'share' })
   document.getElementById('report-cancel').addEventListener('click', () => showForm(false))
   sort.addEventListener('change', () => load(true))
   filter.addEventListener('change', () => load(true))
@@ -151,11 +163,21 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
     const submit = form.querySelector('[type="submit"]')
     submit.disabled = true
     try {
-      await request(api, Object.fromEntries(new FormData(form)))
+      const file = form.elements.saveFile.files[0]
+      const payload = { type: form.elements.type.value, title: form.elements.title.value, details: form.elements.details.value }
+      if (file) {
+        if (file.size > 32 * 1024 * 1024) throw new Error(copy.invalidSave)
+        const save = await file.text()
+        try { const doc = JSON.parse(save); if (!doc || doc.format !== 'metro-save' || !Number.isInteger(doc.formatVersion) || !doc.static || !Array.isArray(doc.static.cells) || !Array.isArray(doc.static.modules) || !Array.isArray(doc.static.lines)) throw new Error() } catch { throw new Error(copy.invalidSave) }
+        payload.save = save
+        payload.saveName = file.name
+      }
+      await request(api, payload)
       form.reset()
+      form.elements.saveFile.required = false
       showForm(false)
       if (await load(true)) status.textContent = copy.success
-    } catch (error) { status.textContent = message(error) }
+    } catch (error) { status.textContent = error.message === copy.invalidSave ? copy.invalidSave : message(error) }
     finally { submit.disabled = false }
   })
   load(true)

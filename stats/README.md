@@ -56,16 +56,23 @@ The public feedback list lives at `/stats/report` (Chinese) and
 `/stats/en/report` (English). Both use the stats shell and its `PAGE_COPY`
 catalogue. The totals page links to it, including on mobile.
 
-Reports persist in `reports` and votes in `report_votes`, in the same D1 database.
+Reports persist in `reports`, votes in `report_votes`, and public save attachments in `report_saves` / `report_save_names` / `report_save_chunks`, in the same D1 database.
 The idempotent `schema.sql` creates them; `npm run deploy:stats` applies the schema
 before deploying. A CI deploy alone does not migrate these tables. No R2 binding
 is needed. Local preview uses the separate dev D1 as usual.
 
 * `GET /stats/api/v1/reports?sort=top&type=all&offset=0` returns up to 40 issues
   and `hasMore`. `sort=new` orders by report time; `top` orders by upvotes, then
-  newest report time. Type may be `all`, `bug`, or `feature`.
-* `POST /stats/api/v1/reports` accepts `{type, title, details}`. Titles must be
-  3–160 characters and details 10–3,000 characters. Bodies are limited to 16 KiB.
+  newest report time. Type may be `all`, `bug`, `feature`, or `share`.
+* `POST /stats/api/v1/reports` accepts `{type, title, details, save?, saveName?}`. The optional
+  save is a JSON string containing a `metro-save` envelope, up to 32 MiB; `share`
+  requires one. `saveName` preserves the original download filename; the server records the UTF-8 byte size alongside it. Titles must be 3–160 characters and details 10–3,000 characters.
+  Request bodies are limited to 64 MiB. Uploads are public and should not contain
+  personal information. Basic envelope validation does not guarantee the game can
+  load a save. D1 stores each save in bounded chunks in the same transaction as
+  the report, avoiding its 2 MB row limit.
+* `GET /stats/api/v1/reports/:id/save` downloads the public JSON attachment.
+  List responses expose `hasSave`, `saveName`, and `saveSize` rather than embedding the file.
 * `POST /stats/api/v1/reports/:id/vote` casts one upvote. Repeats are idempotent.
 
 Anyone can read the list and post without an account. Writes use the existing
@@ -83,7 +90,7 @@ and mobile/desktop widths. It uses a temporary database and removes it afterward
 it never clears the normal `dev:stats` data.
 
 To remove abusive feedback, delete the corresponding `reports` row through the
-existing D1 admin command (below). Vote rows cascade on deletion. To remove an
+existing D1 admin command (below). Vote and save rows cascade on deletion. To remove an
 abusive vote, delete its `report_votes` row; triggers update the public count.
 
 ## Local preview

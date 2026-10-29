@@ -1,4 +1,4 @@
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {connect} from 'node:net';
 import {resolve} from 'node:path';
 const npmCli=process.env.npm_execpath;
@@ -23,7 +23,14 @@ function stop(code=0){
 process.on('SIGINT',()=>stop());process.on('SIGTERM',()=>stop());
 for(const service of services){
  const {name,port,args}=service;
- if(await listening(port)){console.log(`[${name}] Reusing service at http://localhost:${port}/`);continue}
+ if(await listening(port)){
+  console.log(`[${name}] Reusing service at http://localhost:${port}/`);
+  if(name==='stats'){
+   const migration=spawnSync(process.execPath,['stats/scripts/preview.mjs','--migrate-only'],{cwd:resolve(import.meta.dirname,'..'),stdio:'inherit',windowsHide:true});
+   if(migration.status!==0){console.error('[stats] Local schema update failed.');stop(migration.status||1);break}
+  }
+  continue
+ }
  console.log(`[${name}] Starting at http://localhost:${port}/`);
  const child=spawn(process.execPath,args,{cwd:resolve(import.meta.dirname,'..'),stdio:'inherit',windowsHide:true});children.push(child);
  child.on('error',error=>{console.error(`[${name}] ${error.message}`);stop(1)});

@@ -73,6 +73,23 @@ try {
   await page.evaluate(`document.querySelector('.vote:not(:disabled)').click()`)
   await waitFor(page.evaluate, `document.querySelector('.vote[aria-pressed="true"] strong')?.textContent === '1'`)
 
+  const save = JSON.stringify({ format: 'metro-save', formatVersion: 1, static: { cells: [], modules: [], lines: [] } })
+  await page.evaluate(`
+    document.getElementById('report-share').click();
+    document.querySelector('[name="title"]').value = 'Shared browser station';
+    document.querySelector('[name="details"]').value = 'A station shared from the browser.';
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([${JSON.stringify(save)}], 'station.json', { type: 'application/json' }));
+    document.querySelector('[name="saveFile"]').files = transfer.files;
+    document.getElementById('report-form').requestSubmit();
+  `)
+  await waitFor(page.evaluate, `document.querySelectorAll('.report-body a[download]').length === 1`)
+  assert.equal(await page.evaluate(`fetch(document.querySelector('.report-body a[download]').href).then(r => r.text())`), save)
+  assert.ok(await page.evaluate(`document.querySelector('.report-body a[download]').parentElement.textContent.includes('station.json')`))
+  assert.ok(await page.evaluate(`fetch(document.querySelector('.report-body a[download]').href).then(r => r.headers.get('Content-Disposition').includes("filename*=UTF-8''station.json"))`))
+  await page.evaluate(`document.getElementById('report-filter').value = 'share'; document.getElementById('report-filter').dispatchEvent(new Event('change'))`)
+  await waitFor(page.evaluate, `document.querySelector('#report-list').getAttribute('aria-busy') === 'false' && document.querySelector('.report-kind')?.textContent === 'Shared save'`)
+
   for (const [locale, path] of [['en', '/stats/en/report'], ['zh', '/stats/report']]) {
     await page.send('Page.navigate', { url: base + path })
     await waitFor(page.evaluate, `document.querySelector('#report-list')?.getAttribute('aria-busy') === 'false' && document.querySelector('.vote[aria-pressed="true"]') !== null`)
@@ -85,7 +102,7 @@ try {
       await page.evaluate(`document.getElementById('report-cancel').click()`)
     }
   }
-  console.log('Stats reports browser check passed: real local Worker/D1, create, safe rendering, vote persistence, both languages, and 390/1280px layouts.')
+  console.log('Stats reports browser check passed: real local Worker/D1, create, save sharing and download, safe rendering, vote persistence, both languages, and 390/1280px layouts.')
 } catch (error) {
   console.error(error)
   if (previewLogs.length) console.error(tailLogs())
