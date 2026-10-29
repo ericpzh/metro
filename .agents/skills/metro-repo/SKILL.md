@@ -920,12 +920,18 @@ push to `main` ships both. Stats is deployed by hand because it applies its D1 s
   the remote database, deploys the top level and verifies the live health/totals
   endpoints. The page and API are the same Worker; there is no stats build.
   The public reports board is `/stats/report` (Chinese) and `/stats/en/report`
-  (English), backed by its own `reports` / `report_votes` tables in that D1.
+  (English), backed by report, vote and save tables in that D1. Posts can attach
+  a public save or share one separately; retain filename, byte size and chunked
+  JSON downloads, the 32 MiB limit and the atomic report/save write. The
+  frontend-only post-language filter detects Han characters and Latin words in
+  titles and details; bilingual posts match both and detection is approximate.
+  Filter loaded pages without hiding Load more when a page has no matches. Keep
+  filters labeled and the two submission actions together at responsive widths.
   Keep its API, privacy and daily IP limits in `stats/README.md`; real-SQLite API,
   concurrency and UTC-reset coverage lives in `stats/test/reports.test.mjs`.
-  `npm run check:stats:reports` is the repeatable browser check: it starts an
-  isolated Worker/D1 and verifies report creation, safe text rendering, votes,
-  both locales and responsive layouts without touching regular dev data.
+  `npm run check:stats:reports` runs an isolated local Worker/D1 browser check
+  for creation, saves, filtering and pagination, safe text, votes and both locales
+  at desktop and mobile widths without touching regular dev data.
   Both `/stats/api/v1/lease` and `/stats/api/v1/submit` are origin-gated.
   The game automatically enables stats only on the apex production hostname;
   keep client host resolution and Worker CORS/write allowlists aligned.

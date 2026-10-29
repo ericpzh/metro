@@ -54,7 +54,12 @@ top-level environment.
 
 The public feedback list lives at `/stats/report` (Chinese) and
 `/stats/en/report` (English). Both use the stats shell and its `PAGE_COPY`
-catalogue. The totals page links to it, including on mobile.
+catalogue. The totals page links to it, including on mobile. The post-language filter is
+client-side: it inspects title and details for Han characters and at least two
+Latin words. Bilingual posts appear in both language filters; text with neither
+signal appears only in all languages. Detection is approximate (Han also occurs
+in other languages). Filtering applies to loaded pages; Load more remains available
+when a page has no matches, and no language metadata is stored.
 
 Reports persist in `reports`, votes in `report_votes`, and public save attachments in `report_saves` / `report_save_names` / `report_save_chunks`, in the same D1 database.
 The idempotent `schema.sql` creates them; `npm run deploy:stats` applies the schema

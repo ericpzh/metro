@@ -87,6 +87,43 @@ try {
   assert.equal(await page.evaluate(`fetch(document.querySelector('.report-body a[download]').href).then(r => r.text())`), save)
   assert.ok(await page.evaluate(`document.querySelector('.report-body a[download]').parentElement.textContent.includes('station.json')`))
   assert.ok(await page.evaluate(`fetch(document.querySelector('.report-body a[download]').href).then(r => r.headers.get('Content-Disposition').includes("filename*=UTF-8''station.json"))`))
+  await page.evaluate(`Promise.all([
+    { title: '中文报告', details: '这里是一个中文问题报告。' },
+    { title: '中英文报告', details: '这里有中文说明 and English details for the issue.' },
+    { title: '12345', details: '1234567890 1234567890' },
+  ].map(post => fetch('/stats/api/v1/reports', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'bug', ...post }) }).then(r => { if (!r.ok) throw new Error('Seed failed: ' + r.status) })))`)
+  for (const [language, expected, excluded] of [
+    ['zh', ['中文报告', '中英文报告'], ['Shared browser station', '12345']],
+    ['en', ['Shared browser station', '中英文报告'], ['中文报告', '12345']],
+    ['all', ['中文报告', '中英文报告', 'Shared browser station', '12345'], []],
+  ]) {
+    await page.evaluate(`document.getElementById('report-language').value = ${JSON.stringify(language)}; document.getElementById('report-language').dispatchEvent(new Event('change'))`)
+    await waitFor(page.evaluate, `document.querySelector('#report-list').getAttribute('aria-busy') === 'false'`)
+    const titles = await page.evaluate(`Array.from(document.querySelectorAll('.report-body h2'), el => el.textContent)`)
+    for (const title of expected) assert.ok(titles.includes(title), `${language} should show ${title}`)
+    for (const title of excluded) assert.ok(!titles.includes(title), `${language} should hide ${title}`)
+  }
+  // A filtered-out first API page still offers Load more and advances by the
+  // unfiltered result count, so matching posts on later pages remain reachable.
+  await page.evaluate(`
+    window.originalFetch = window.fetch;
+    window.fetch = (url, ...args) => {
+      if (String(url).startsWith('/stats/api/v1/reports?')) {
+        const offset = Number(new URL(url, location.href).searchParams.get('offset'));
+        const issue = offset === 0 ? { title: 'English example', details: 'English details here' } : { title: '中文报告', details: '更多中文内容' };
+        return Promise.resolve(new Response(JSON.stringify({ ok: true, issues: Array.from({ length: offset === 0 ? 40 : 1 }, (_, i) => ({ ...issue, id: String(i), type: 'bug', createdAt: new Date().toISOString(), votes: 0, voted: false })), hasMore: offset === 0 }), { headers: { 'Content-Type': 'application/json' } }));
+      }
+      return window.originalFetch(url, ...args);
+    };
+    document.getElementById('report-language').value = 'zh';
+    document.getElementById('report-language').dispatchEvent(new Event('change'));
+  `)
+  await waitFor(page.evaluate, `document.querySelector('#report-list').getAttribute('aria-busy') === 'false' && !document.getElementById('report-more').hidden`)
+  assert.equal(await page.evaluate(`document.querySelectorAll('.report-row').length`), 0)
+  await page.evaluate(`document.getElementById('report-more').click()`)
+  await waitFor(page.evaluate, `document.querySelector('.report-body h2')?.textContent === '中文报告'`)
+  await page.evaluate(`window.fetch = window.originalFetch; document.getElementById('report-language').value = 'all'`)
+
   await page.evaluate(`document.getElementById('report-filter').value = 'share'; document.getElementById('report-filter').dispatchEvent(new Event('change'))`)
   await waitFor(page.evaluate, `document.querySelector('#report-list').getAttribute('aria-busy') === 'false' && document.querySelector('.report-kind')?.textContent === 'Shared save'`)
 
@@ -97,12 +134,13 @@ try {
     for (const width of [1280, 390]) {
       await page.send('Emulation.setDeviceMetricsOverride', { width, height: 920, deviceScaleFactor: 1, mobile: false })
       assert.ok(await page.evaluate(`document.documentElement.scrollWidth <= innerWidth`), `${locale} ${width}px page overflowed`)
+      assert.ok(await page.evaluate(`Math.abs(document.getElementById('report-add').getBoundingClientRect().top - document.getElementById('report-share').getBoundingClientRect().top) < 1`), `${locale} ${width}px actions wrapped apart`)
       await page.evaluate(`document.getElementById('report-add').click()`)
       assert.ok(await page.evaluate(`document.querySelector('#report-form').getBoundingClientRect().right <= innerWidth`), `${locale} ${width}px form overflowed`)
       await page.evaluate(`document.getElementById('report-cancel').click()`)
     }
   }
-  console.log('Stats reports browser check passed: real local Worker/D1, create, save sharing and download, safe rendering, vote persistence, both languages, and 390/1280px layouts.')
+  console.log('Stats reports browser check passed: real local Worker/D1, create, save sharing, language filters and pagination, safe rendering, vote persistence, both languages, and 390/1280px layouts.')
 } catch (error) {
   console.error(error)
   if (previewLogs.length) console.error(tailLogs())

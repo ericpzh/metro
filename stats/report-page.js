@@ -4,18 +4,23 @@ function html(value) {
 }
 
 export const REPORT_STYLE = `
-  .reports { max-width: 960px; margin: 0 auto; padding: 52px 32px 80px; }
+  .reports { max-width: 1100px; margin: 0 auto; padding: 52px 32px 80px; }
   .reports h1 { font-size: clamp(2rem, 5vw, 3.6rem); line-height: 1.15; margin: 22px 0 16px; }
   .reports p { color: var(--muted); }
   .reports a { color: var(--amber); }
-  .report-tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 30px 0 18px; }
+  .report-tools { display: flex; flex-wrap: wrap; gap: 18px 24px; align-items: end; justify-content: space-between; margin: 30px 0 18px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--sheet-top); }
+  .report-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  .report-filters label { display: grid; gap: 6px; color: var(--muted); font-size: .78rem; }
+  .report-filters select { font-size: .9rem; min-height: 42px; }
+  .report-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .report-actions button { min-height: 42px; white-space: nowrap; font-size: .9rem; }
+  .report-actions #report-share { border-color: var(--line-2); }
   .reports button, .reports select, .reports input, .reports textarea { font: inherit; color: var(--ink); background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 8px; padding: 10px 14px; }
   .reports button { cursor: pointer; }
   .reports button:hover { border-color: var(--amber); }
   .reports :focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; }
   .reports button:disabled { cursor: default; opacity: .55; }
   .reports .primary { color: var(--bg); background: var(--amber); border-color: var(--amber); font-weight: 650; }
-  .report-tools .primary { margin-left: auto; }
   .report-form { padding: 24px; border: 1px solid var(--line-2); border-radius: 12px; margin: 24px 0; background: var(--sheet-top); }
   .report-form label { display: block; margin-bottom: 16px; }
   .report-form input, .report-form textarea, .report-form select { display: block; width: 100%; margin-top: 6px; }
@@ -32,7 +37,7 @@ export const REPORT_STYLE = `
   .report-meta { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: .78rem; }
   .report-kind { color: var(--amber); }
   #report-status { min-height: 1.6em; }
-  @media (max-width: 600px) { .reports { padding: 32px 20px 60px; } .report-tools .primary { margin-left: 0; } .report-row { gap: 12px; } .report-form { padding: 16px; } }
+  @media (max-width: 600px) { .reports { padding: 32px 20px 60px; } .report-tools { padding: 14px; gap: 16px; } .report-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; } .report-filters select { width: 100%; min-width: 0; } .report-actions { width: 100%; } .report-actions button { flex: 1; } .report-row { gap: 12px; } .report-form { padding: 16px; } }
 `
 
 export function renderReportContent(c, statsPath, statsLabel) {
@@ -41,10 +46,15 @@ export function renderReportContent(c, statsPath, statsLabel) {
     <h1 id="report-title">${html(c.title)}<span class="accent">.</span></h1>
     <p>${html(c.description)}</p>
     <div class="report-tools">
-      <label>${html(c.sort)} <select id="report-sort"><option value="top">${html(c.top)}</option><option value="new">${html(c.newest)}</option></select></label>
-      <select id="report-filter" aria-label="${html(c.type)}"><option value="all">${html(c.all)}</option><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option><option value="share">${html(c.share)}</option></select>
-      <button type="button" class="primary" id="report-add" aria-expanded="false" aria-controls="report-form">＋ ${html(c.add)}</button>
-      <button type="button" id="report-share">${html(c.shareButton)}</button>
+      <div class="report-filters">
+        <label>${html(c.sort)} <select id="report-sort"><option value="top">${html(c.top)}</option><option value="new">${html(c.newest)}</option></select></label>
+        <label>${html(c.postLanguage)} <select id="report-language"><option value="all">${html(c.bothLanguages)}</option><option value="zh">${html(c.chineseOnly)}</option><option value="en">${html(c.englishOnly)}</option></select></label>
+        <label>${html(c.type)} <select id="report-filter"><option value="all">${html(c.all)}</option><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option><option value="share">${html(c.share)}</option></select></label>
+      </div>
+      <div class="report-actions">
+        <button type="button" class="primary" id="report-add" aria-expanded="false" aria-controls="report-form">＋ ${html(c.add)}</button>
+        <button type="button" id="report-share">${html(c.shareButton)}</button>
+      </div>
     </div>
     <form class="report-form" id="report-form" hidden>
       <label>${html(c.type)}<select name="type"><option value="bug">${html(c.bug)}</option><option value="feature">${html(c.feature)}</option><option value="share">${html(c.share)}</option></select></label>
@@ -74,6 +84,7 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
   const retry = document.getElementById('report-retry')
   const sort = document.getElementById('report-sort')
   const filter = document.getElementById('report-filter')
+  const language = document.getElementById('report-language')
   let offset = 0
   let generation = 0
   function showForm(open) {
@@ -96,6 +107,15 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
     el.textContent = text
     if (className) el.className = className
     return el
+  }
+  // Han text is Chinese for this filter; English requires at least two Latin
+  // words so product names alone do not classify a Chinese post as bilingual.
+  function matchesLanguage(issue) {
+    if (language.value === 'all') return true
+    const text = issue.title + ' ' + issue.details
+    const chinese = /\p{Script=Han}/u.test(text)
+    const english = (text.match(/[A-Za-z]{2,}/g) || []).length >= 2
+    return language.value === 'zh' ? chinese : english
   }
   function row(issue) {
     const li = element('li', '', 'report-row')
@@ -140,9 +160,9 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
     try {
       const data = await request(api + '?' + new URLSearchParams({ sort: sort.value, type: filter.value, offset: String(offset) }))
       if (run !== generation) return
-      list.append(...data.issues.map(row))
+      list.append(...data.issues.filter(matchesLanguage).map(row))
       offset += data.issues.length
-      status.textContent = offset ? '' : copy.empty
+      status.textContent = list.childElementCount ? '' : offset ? (data.hasMore ? copy.noMatches : copy.noMatchesEnd) : copy.empty
       more.hidden = !data.hasMore
       return true
     } catch (error) {
@@ -156,6 +176,7 @@ const REPORT_CLIENT = String.raw`function reportClient(copy, locale) {
   document.getElementById('report-cancel').addEventListener('click', () => showForm(false))
   sort.addEventListener('change', () => load(true))
   filter.addEventListener('change', () => load(true))
+  language.addEventListener('change', () => load(true))
   more.addEventListener('click', () => load(false))
   retry.addEventListener('click', () => load(true))
   form.addEventListener('submit', async event => {
