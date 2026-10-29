@@ -248,6 +248,12 @@ override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
 `CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
 `geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
 
+Route exploded-view concrete preservation and stair/escalator slicing to
+metro-game and metro-game-test. The game skill owns the infill classification,
+per-storey display sections and cached-material rule for clipping original
+base-level ramps after reframing. Keep exploded-support / exploded-ramps and
+the shared measured performance reference aligned with those contracts.
+
 The standalone 爆炸视图 is owned by `app/windows/ExplodedView.tsx` and the pure
 snapshot transform in `render/explodedView.ts`. Keep it presentation-only: do not
 mutate the saved station, worker document, routes or simulation buffers. Story

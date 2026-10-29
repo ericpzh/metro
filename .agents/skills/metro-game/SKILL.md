@@ -1485,6 +1485,17 @@ Run `npm run check:tutorial` for the production browser regression and the
 
 ## Rendering and the app
 
+Exploded stair/escalator display sections are owned by render/explodedRamps.ts.
+Keep the original translated modules for geometry preparation and live rigs; clip
+their displayed models at five-metre world-height boundaries and translate extra
+sections by the difference between tray offsets. Original base-level roots must
+keep their owned slice materials in LevelSystem's cached base; restore the old
+cache on disposal. Share animated instance buffers
+and current LOD geometry, own only slice materials/extra instances, and exclude
+the source ramps from equipment aggregation. Install after setStation only in
+the standalone viewer; dispose sections before the source modules. Never edit
+ramp endpoints, station cells, simulation data or the saved document for slicing.
+
 The exploded viewer is a disposable presentation of the station; never install
 its translated document in the editor or worker. For authored above-ground
 stations, build floor plans from room/fare-zone/auto-floor labels with a one-cell
@@ -1496,6 +1507,16 @@ unfurnished-floor fallback. Translate complete stair flights and live poses with
 their storey. Pin geometry and demo support in `exploded-view`, `exploded-support`,
 `exploded-passengers` and `layering`; `tools/check-exploded-view.mjs` covers both
 demos and viewer/editor lifecycle cleanup.
+
+Underground solid infill is a concrete section, not an empty room: retain all
+authored courses through tunnel-cap, ceiling-course and near-wall filtering.
+Identify a plain 2 × 2 core with three consecutive solid courses, retaining thin
+remnants between cores around shafts without extending into isolated thin walls.
+Reserve its footprint in packing, but do not use its top as a room's floor when
+choosing which enclosure to open. Keep actual shaft holes and explicit ceiling
+plates unchanged; never synthesize blocks or edit the source save. Pin both the
+ordinary and shifted-baseline cases in `exploded-support` alongside Tanwei's
+untagged roof-ring wall exclusion.
 
 Ambient road vehicles are procedural models in `render/models/pieces/vehicles/`:
 `RoadCar`, `RoadBus`, `RoadCycle` share the grey `VehicleKit`; `RoadVehicleModel`

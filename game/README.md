@@ -1,5 +1,15 @@
 # Station Designer — the game
 
+The exploded view preserves solid underground infill as continuous concrete
+sections while opening usable rooms. `exploded-support` pins full courses above
+platforms, empty shafts, shifted baselines and packing without overlapping trays;
+thin roof rings and room ceilings remain hidden. The transform only changes the
+presentation document.
+
+Stairs and escalators in the exploded view are clipped into each retained storey,
+so upper openings contain the corresponding ramp section. `exploded-ramps` pins
+slice boundaries, tray translations, shared rolling-step buffers and disposal.
+
 Passenger activities now follow real journeys and equipment service. Some
 passengers stop for tickets, drinks, shelves, seats or a restroom visit; toilets
 are followed by a nearby sink when one is available. Machines retain one customer

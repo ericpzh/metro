@@ -1,6 +1,6 @@
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
-import { isWallBlock, packKey } from '../sim/types.ts'
+import { isWallBlock, packKey, shapeOf } from '../sim/types.ts'
 import { moduleFootprint } from '../sim/placement.ts'
 import { GROUND_Z } from '../sim/ground.ts'
 
@@ -56,6 +56,50 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const base = data.levelBase ?? 0
   const band = (z: number): number => storeyBand(z, base, STOREY_HEIGHT)
   const solidKeys = new Set(data.cells.filter(c => c.fill === 'solid').map(c => packKey(c.x,c.y,c.z)))
+  // A 2 x 2 core of three consecutive plain courses distinguishes solid infill
+  // from separate floor/ceiling plates and thin walls (including untagged ones).
+  // A storey through concrete must not be hollowed by the room cutaway.
+  const plainCourses = new Map<number, number>()
+  const columns: Cell[] = []
+  for (const c of data.cells) if (c.fill === 'solid' && c.z < GROUND_Z && !ceiling(c) && !isWallBlock(c) && !shapeOf(c)) {
+    const z = band(c.z), key = packKey(c.x,c.y,z)
+    if (!plainCourses.has(key)) columns.push(c)
+    plainCourses.set(key, (plainCourses.get(key) ?? 0) | (1 << (c.z-z)))
+  }
+  const infillColumns = new Set<number>()
+  const infillQueue: Array<{x:number;y:number;z:number}> = []
+  const retainInfill = (x:number,y:number,z:number): void => {
+    const key = packKey(x,y,z)
+    if (infillColumns.has(key)) return
+    infillColumns.add(key)
+    infillQueue.push({x,y,z})
+  }
+  for (const c of columns) {
+    const z = band(c.z), keys = [packKey(c.x,c.y,z),packKey(c.x+1,c.y,z),packKey(c.x,c.y+1,z),packKey(c.x+1,c.y+1,z)]
+    const courses = keys.reduce((mask,key) => mask & (plainCourses.get(key) ?? 0), (1 << STOREY_HEIGHT)-1)
+    if (courses & (courses >> 1) & (courses >> 2)) {
+      for (let x=c.x;x<=c.x+1;x++) for (let y=c.y;y<=c.y+1;y++) retainInfill(x,y,z)
+    }
+  }
+  // Keep thin remnants between cores around shaft notches. Requiring two
+  // retained neighbours prevents a thin wall branching off a mass (or a roof
+  // ring attached at its corner) from inheriting the infill exemption.
+  for (let i=0;i<infillQueue.length;i++) {
+    const c = infillQueue[i]
+    for (const [x,y] of [[c.x+1,c.y],[c.x-1,c.y],[c.x,c.y+1],[c.x,c.y-1]]) {
+      const key = packKey(x,y,c.z)
+      if (infillColumns.has(key)) continue
+      const own = plainCourses.get(key) ?? 0
+      let neighbours = 0
+      for (const [nx,ny] of [[x+1,y],[x-1,y],[x,y+1],[x,y-1]]) {
+        const neighbour = packKey(nx,ny,c.z)
+        const courses = own & (plainCourses.get(neighbour) ?? 0)
+        if (infillColumns.has(neighbour) && (courses & (courses >> 1) & (courses >> 2))) neighbours++
+      }
+      if (neighbours >= 2) retainInfill(x,y,c.z)
+    }
+  }
+  const infill = (c: Cell): boolean => c.z < GROUND_Z && infillColumns.has(packKey(c.x,c.y,band(c.z))) && !ceiling(c) && !shapeOf(c)
   // Authored station rooms can share the street's height. Their semantic floor
   // labels distinguish usable interiors from outdoor paving and bridge piers.
   const groundRooms = new Set(data.cells.filter(c => c.fill === 'solid' && c.z === GROUND_Z && !ceiling(c) &&
@@ -102,7 +146,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     const cap = band(z), room = capRooms.get(cap)
     return !room || room.has(packKey(x,y,cap))
   }
-  let solids = data.cells.filter(c => c.fill === 'solid' && !ceiling(c) &&
+  let solids = data.cells.filter(c => c.fill === 'solid' && !ceiling(c) && (infill(c) || (
     withinCapRoom(c.x,c.y,c.z) &&
     // The street, including authored street plates, is hidden. A raised deck
     // at 1 m remains a station floor, not ground-level context.
@@ -117,7 +161,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     !(c.finish?.top === 'floor.soil' && !solidKeys.has(packKey(c.x,c.y,c.z+1))) &&
     // Legacy stations also have ordinary, untagged ceiling courses immediately
     // below the next floor. Keep the vertical enclosure, remove the horizontal cap.
-    !(c.z === band(c.z) + STOREY_HEIGHT - 1 && !isWallBlock(c)))
+    !(c.z === band(c.z) + STOREY_HEIGHT - 1 && !isWallBlock(c)))))
   const labelledFloor = (c: Cell): boolean => !!(c.room || ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || c.tags?.includes('auto-floor'))
   const roomPlans = new Map<number, Set<number>>()
   // Authored floor labels distinguish rooms from bridge foundations and rooftop
@@ -171,7 +215,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     const own = byLevel.get(z)!
     const surfaces = new Map<number, Cell[]>()
     for (const cell of own) {
-      if (isWallBlock(cell) || cell.finish?.top?.startsWith('ceil.') ||
+      if (infill(cell) || isWallBlock(cell) || cell.finish?.top?.startsWith('ceil.') ||
         solidKeys.has(packKey(cell.x,cell.y,cell.z+1))) continue
       const row = surfaces.get(cell.z) ?? []
       row.push(cell)
@@ -195,7 +239,9 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const footprints = levels.map(z => {
     const floor = floorsByLevel.get(z)!, own = byLevel.get(z)!
     const points = floor.length ? floor : own.length ? own : modulePoints.get(z) ?? []
-    return [...new Map(points.map(p => [`${p.x},${p.y}`, p])).values()]
+    // Reserve retained concrete as well as usable floors, so another tray cannot
+    // nest inside a mass that used to be incorrectly discarded as a roof.
+    return [...new Map([...points,...own.filter(infill)].map(p => [`${p.x},${p.y}`, p])).values()]
   })
   const packed = packFloors(footprints, x1-x0 >= y1-y0 ? [0,1] : [1,0])
   const direction = packed.direction
@@ -224,7 +270,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
       // A cap-band wall foundation is also overhead relative to the room below.
       // Opening only its upper courses leaves a floating concrete perimeter strip.
       const wallCourse = cell.z > z || (capRooms.has(z) && solidKeys.has(packKey(cell.x,cell.y,cell.z+1)))
-      if (wallCourse && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
+      if (wallCourse && !infill(cell) && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
         (frontX.has(cell.y) && cell.x > frontX.get(cell.y)!) ||
         (frontY.has(cell.x) && cell.y < frontY.get(cell.x)!) ||
         (frontX.size > 0 && !frontX.has(cell.y) && !frontY.has(cell.x) &&

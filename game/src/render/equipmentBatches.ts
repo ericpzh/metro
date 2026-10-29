@@ -321,7 +321,7 @@ export class EquipmentBatches {
     }
     for (const root of modules.children) {
       if (unchanged.has(root)) continue
-      if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible) continue
+      if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible || root.userData.explodedRamp) continue
       const record = prepared.get(root)!
       if (record.buckets) {
         merge(record.buckets)

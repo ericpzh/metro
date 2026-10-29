@@ -1253,6 +1253,14 @@ transitions. `tools/bench-placement-latency.mjs` measures first/repeated real po
 placements on both demos, including generated-ground boundary changes; browser
 timings are evidence, never Node pass thresholds.
 
+`exploded-ramps.test.mjs` covers the separate render slices in `explodedRamps.ts`:
+bounded five-metre clips, per-tray offsets, restored clips after view dressing,
+shared animated instance buffers/LOD geometry, visible formerly batched sources,
+and disposal that preserves source geometry and materials.
+The original base-level meshes also retain their owned slice materials through
+LevelSystem's cached-base dressing after camera reframing; disposal restores the
+previous base cache as well as the material and callback.
+
 `exploded-view.test.mjs` covers the independent presentation document in
 `render/explodedView.ts`: immutable source arrays, baseline-aware story bands,
 separated full equipment footprints, retained unfurnished floors, roof/outdoor and
@@ -1308,6 +1316,10 @@ pedestrians, retained raised/underground floors and riders, authored ramps/lifts
 identity/order retention, and Tanwei tunnel-cap removal with preserved raised decks.
 An unlabelled transfer room beneath a ceiling stays visible at a tunnel-cap
 elevation, while its adjoining exposed tunnel roof is still omitted.
+Solid underground infill retains its complete courses through tunnel-cap, ceiling
+and near-wall filtering, with real shafts empty and its full footprint reserved
+in packing. Synthetic two-storey masses cover both ordinary and shifted baselines;
+the Tanwei roof-ring regression rejects thin untagged walls as infill.
 Ground-decor fixtures distinguish physical street anchors at 0 m from actual raised
 station fixtures at 1 m. The production browser check now compares visible versus
 total passengers and rejects non-riding pedestrians on the hidden street plane.

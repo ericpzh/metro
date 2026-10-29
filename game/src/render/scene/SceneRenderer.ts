@@ -9,6 +9,7 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
+import { ExplodedRamps } from '../explodedRamps.ts'
 import { populationEdit, hasPresentationEdit } from '../../sim/populationEdit.ts'
 import { STOREY_HEIGHT } from '../../sim/constants.ts'
 import { RenderDemand } from '../renderDemand.ts'
@@ -53,6 +54,16 @@ import type { Section, Vec3 } from '../section.ts'
 export type { PickResult, SceneStats }
 
 export class SceneRenderer {
+  private explodedRamps: ExplodedRamps | null = null
+  setExplodedRampSections(offsets:ReadonlyMap<number,number>, direction:readonly [number,number]):void {
+    this.requestRender()
+    if (!this.standalonePresentation || !this.ctx.stationData) return
+    this.explodedRamps?.dispose()
+    this.explodedRamps = new ExplodedRamps(this.modules.moduleMeshes,this.ctx.stationData,offsets,direction)
+    this.ctx.scene.add(this.explodedRamps.group)
+    this.modules.batches.invalidateViews()
+    this.modules.syncBatches()
+  }
   onAudioFrame: ((frame:AudioSceneFrame)=>void)|null = null
   audioSpeed = 1
   private lastAudioTime = 0
@@ -966,6 +977,7 @@ export class SceneRenderer {
       this.clocks.updateClocks(now)
       this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
       this.cameraSys.syncOrtho()
+      this.explodedRamps?.update()
       this.notifyCameraAim()
       if (!this.standalonePresentation) this.sky.update(this.ctx.hideUI)
       // Following a passenger may update or leave eye view during renderAgents.
@@ -1034,6 +1046,7 @@ export class SceneRenderer {
   }
 
   dispose(): void {
+    this.explodedRamps?.dispose()
     this.ctx.disposed = true
     this.renderer.domElement.removeEventListener('webglcontextrestored', this.restoreFrame)
     cancelAnimationFrame(this.raf)

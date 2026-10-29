@@ -104,6 +104,7 @@ function Viewer(): React.ReactElement {
       scene.setAutoCeiling(true)
       // Supply only owned cells: no infinite street window between separated floors.
       scene.setStation(snapshot.data, undefined, snapshot.data.cells)
+      scene.setExplodedRampSections(snapshot.offsets, snapshot.direction)
       const resize = (): void => {
         const rect = canvas.current!.getBoundingClientRect()
         scene.resize(rect.width, rect.height)

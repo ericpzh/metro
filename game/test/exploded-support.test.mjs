@@ -53,6 +53,49 @@ test('roof rings and their wall-mounted fittings do not survive as a false mezza
   assert.ok(!result.data.modules.some(m=>m.id==='hanging'),'fitting does not float after its roof ring disappears')
 })
 
+for (const base of [0,2]) test(`solid infill above a platform survives roof, ceiling and near-wall cuts (base ${base})`,()=>{
+  const cells=[]
+  for(let x=0;x<12;x++) for(let y=0;y<10;y++) cells.push({x,y,z:base-20,fill:'solid'})
+  // Two five-metre sections of concrete beside the actual open transfer room.
+  // The foreground mass has no usable floor/headroom and no room labels.
+  const mass=[]
+  for(let x=6;x<12;x++) for(let y=0;y<4;y++) for(let z=base-15;z<base-5;z++) {
+    if(x===8&&y===2) continue // A real shaft must stay empty.
+    mass.push({x,y,z,fill:'solid'})
+  }
+  cells.push(...mass)
+  for(let x=0;x<4;x++) for(let y=5;y<10;y++) {
+    cells.push({x,y,z:base-15,fill:'solid'}, {x,y,z:base-11,fill:'solid'},
+      {x,y,z:base-10,fill:'solid'}, {x,y,z:base-6,fill:'solid'})
+  }
+  // A neighbouring exposed tunnel roof still disappears, as do real ceilings.
+  cells.push({x:20,y:0,z:base-15,fill:'solid'})
+  const source={cells,modules:[
+    {id:'rail',type:'track',x:0,y:0,z:base-20,w:12,d:3,cfg:{tunnel:true}},
+  ],levelBase:base}
+  const before=structuredClone(source),result=explodedView(source),[dx,dy]=result.direction
+  const shown=new Set(result.data.cells.map(c=>`${c.x},${c.y},${c.z}`))
+  const movedKey=c=>{
+    const offset=result.offsets.get(Math.floor((c.z-base)/5)*5+base)
+    return `${c.x+dx*offset},${c.y+dy*offset},${c.z}`
+  }
+  for(const c of mass) assert.ok(shown.has(movedKey(c)),`continuous concrete remains at ${c.x},${c.y},${c.z}`)
+  assert.ok(!shown.has(movedKey({x:20,y:0,z:base-15})),'exposed roof is not infill')
+  for(const z of [base-11,base-6]) assert.ok(!shown.has(movedKey({x:1,y:6,z})),'room ceiling is removed')
+  for(let z=base-15;z<base-5;z++) assert.ok(!shown.has(movedKey({x:8,y:2,z})),'no concrete is invented in the shaft')
+  const plans=new Map()
+  for(const c of result.data.cells) {
+    const band=Math.floor((c.z-base)/5)*5+base,plan=plans.get(band)??new Set()
+    plan.add(`${c.x},${c.y}`);plans.set(band,plan)
+  }
+  const occupied=new Set()
+  for(const plan of plans.values()) for(const key of plan) {
+    assert.ok(!occupied.has(key),'retained concrete sections do not overlap another tray')
+    occupied.add(key)
+  }
+  assert.deepEqual(source,before,'the presentation leaves the save untouched')
+})
+
 test('an unlabelled enclosed transfer room survives at the same height as a tunnel roof',()=>{
   const cells=[]
   for(let x=0;x<20;x++) for(let y=0;y<10;y++) {
