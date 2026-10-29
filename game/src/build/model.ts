@@ -69,6 +69,7 @@ export {
   wallDirRot,
   wallPointerDir,
   wallRun,
+  storeyWallRun,
   wallSnap,
   WALL_DIRS,
   type WallDir,

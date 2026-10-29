@@ -13,7 +13,7 @@ import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { halfWallSideFor, wallSnapAt } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
-import { storeyColumnsAt, wallColumnsAt, wallRun } from '../../build/model.ts'
+import { storeyColumnsAt, wallColumnsAt, storeyWallRun } from '../../build/model.ts'
 
 export class WallTool extends ToolController {  readonly tool = 'wall' as const
 
@@ -36,8 +36,8 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
 
   /**
    * Preview a wall run: the courses the release would lay, with the refused cells
-   * boxed in red and the pieces standing in their way highlighted. A full-height
-   * column is four candidates, so "this run is blocked" names the courses that are
+   * boxed in red and the pieces standing in their way highlighted. A story-bounded
+   * column can contain several candidates, so "this run is blocked" names the courses that are
    * really refused — the same rule `addWalls` applies on release.
    */
   private showWallGhost(cells: Array<[number, number, number]>): void {
@@ -77,7 +77,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       sy: info.clientY,
       downTime: performance.now(),
     }
-    if (mode === 'add') this.showWallGhost(wallRun([anchor], st.station.storeyHeight))
+    if (mode === 'add') this.showWallGhost(storeyWallRun([anchor], st.station.levelBase, st.station.storeyHeight))
     else scene.setGhost(storeyColumnsAt(st.station, [anchor]), 'remove')
     scene.setCursor(anchor, true)
   }
@@ -102,7 +102,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
         // A wall run is columns × courses, not one cell per pointer step: count
         // the blocks the release would actually lay, so it shares the same
         // budget as a 方块 patch with generated walls.
-        const courses = Math.max(1, Math.round(st.station.storeyHeight))
+        const courses = storeyWallRun([d.anchor], st.station.levelBase, st.station.storeyHeight).length
         const over = this.multiPlace.check(columns * courses)
         scene.setCursor(cursor, !over)
         if (over) {
@@ -116,7 +116,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
             const sceneNow = this.ctx.scene()
             if (!sceneNow) return
             const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
-            this.multiPlace.refuse(sceneNow, wallRun(line, latest.station.storeyHeight), cursor)
+            this.multiPlace.refuse(sceneNow, storeyWallRun(line, latest.station.levelBase, latest.station.storeyHeight), cursor)
           })
           return
         }
@@ -129,20 +129,20 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
           const line = straightLineCells(d.anchor, target, d.z)
           const sceneNow = this.ctx.scene()
           if (!sceneNow) return
-          this.showWallGhost(wallRun(line, useStore.getState().station.storeyHeight))
+          this.showWallGhost(storeyWallRun(line, useStore.getState().station.levelBase, useStore.getState().station.storeyHeight))
           sceneNow.setCursor(line[line.length - 1], true)
         })
         return
       }
       if (d.mode === 'add') this.cancelPreview()
       const line = dragging ? (d.mode === 'remove' ? this.removeLine(d.anchor, target, d.z) : straightLineCells(d.anchor, target, d.z)) : [d.anchor]
-      if (d.mode === 'add') this.showWallGhost(wallRun(line, st.station.storeyHeight))
+      if (d.mode === 'add') this.showWallGhost(storeyWallRun(line, st.station.levelBase, st.station.storeyHeight))
       else scene.setGhost(storeyColumnsAt(st.station, line), 'remove')
       scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
       return
     }
     const c = wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base
-    this.showWallGhost(wallRun([c], useStore.getState().station.storeyHeight))
+    this.showWallGhost(storeyWallRun([c], st.station.levelBase, st.station.storeyHeight))
     scene.setCursor(c, true)
   }
 
@@ -160,10 +160,10 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
     const target = hit ? (d.mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell) : d.anchor
     const st = useStore.getState()
-    // Refuse the whole run before allocating it. A wall column is as many cells
-    // as the storey is high, so the same 10,000-cell budget that covers a 方块
+    // Refuse the whole run before allocating it. Count the remaining courses in
+    // the anchor story, so the same 10,000-cell budget that covers a 方块
     // patch with generated walls covers this one too.
-    const courses = d.single === true ? 1 : Math.max(1, Math.round(st.station.storeyHeight))
+    const courses = d.single === true ? 1 : storeyWallRun([d.anchor], st.station.levelBase, st.station.storeyHeight).length
     const columns = d.single === true || !rect ? 1 : dragCellCount(d.anchor, target, true)
     if (d.mode === 'add' && columns * courses > this.multiPlace.limit) {
       this.multiPlace.setNotice(true)
@@ -192,7 +192,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
       // the red boxes the ghost drew are the same verdict (`checkBlockCells`), and a
       // refusal that is about a piece of equipment says so rather than blaming a
       // reserved opening.
-      const check = checkBlockCells(st.station, d.single === true ? [d.anchor] : wallRun(line, useStore.getState().station.storeyHeight))
+      const check = checkBlockCells(st.station, d.single === true ? [d.anchor] : storeyWallRun(line, useStore.getState().station.levelBase, useStore.getState().station.storeyHeight))
       const { state: next, changed, blocked } = addWalls(st.station, line, side, d.single === true ? 1 : undefined)
       if (changed > 0) st.commit(next)
       // Name the conflict the red boxes showed — the piece, the corridor, the

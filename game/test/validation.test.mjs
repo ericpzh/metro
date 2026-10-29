@@ -161,7 +161,7 @@ test('the wall tool refuses a course a piece holds, in the same words as the rel
   assert.equal(one.blocked, 1, 'the release refused a different number of courses from the preview')
   // A four-course column from the same base is refused at the courses the piece
   // really occupies and rises above it: the 闸机 is 1.3 m, so z = 3 and z = 4 clear.
-  const column = checkBlockCells(st, wallRun([[2, 2, 1]]))
+  const column = checkBlockCells(st, wallRun([[2, 2, 1]], 4))
   assert.deepEqual(
     column.blockedCells.map((c) => c[2]).sort(),
     [1, 2],
@@ -169,11 +169,11 @@ test('the wall tool refuses a course a piece holds, in the same words as the rel
   )
   assert.deepEqual(
     column.acceptedCells.map((c) => c[2]).sort(),
-    [3, 4, 5],
+    [3, 4],
     'a wall higher than the machine stands on it',
   )
   const full = addWalls(st, [[2, 2, 1]])
-  assert.equal(full.changed, 3, 'the release lays the same three courses the preview accepted')
+  assert.equal(full.changed, 2, 'the release lays the same courses the preview accepted')
   assert.equal(full.blocked, 2)
 })
 

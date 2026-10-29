@@ -478,9 +478,9 @@ Actual baked faces must be outward-only and hidden thigh vertices absent.
 `passenger-atlas` verifies lossless temporal frame differences for signed 16-bit
 positions and 8-bit normals, including overflow, legacy data and malformed formats.
 
-`column-delete` covers G's +1..+4 column erase above the floor: plain and tagged blocks,
+`column-delete` covers G placement and column erasure bounded by the selected block's story, including every course at positive and negative boundaries, shifted bases, and hover/press/drag previews matching commits: plain and tagged blocks,
 gaps, negative heights, all height bases, drag deduplication, adjacent storeys
-and preserved street floors, plus controller preview/release agreement and
+and implicit street blocks, plus controller preview/release agreement and
 one commit per click or drag, native context-menu drag preservation (also used by
 right-button 分区 erasure) and available erase cursors.
 

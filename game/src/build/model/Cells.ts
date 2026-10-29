@@ -72,7 +72,7 @@ export function isSolid(cells: Cell[], x: number, y: number, z: number): boolean
   return false;
 }
 
-/** G erases courses +1..+4 above the floor, including the ceiling (§4.4). */
+/** G erases only the story containing the selected block (§4.4). */
 export function storeyColumnsAt(
   state: StationState,
   columns: Array<[number, number, number]>,
@@ -81,17 +81,17 @@ export function storeyColumnsAt(
   for (const [x, y, z] of columns) {
     const key = `${x},${y}`;
     const selected = bands.get(key) ?? new Set<number>();
-    selected.add(storeyBand(z - 1, state.levelBase, state.storeyHeight));
+    selected.add(storeyBand(z, state.levelBase, state.storeyHeight));
     bands.set(key, selected);
   }
   const out = new Map<string, [number, number, number]>();
   for (const c of state.cells) {
-    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z - 1, state.levelBase, state.storeyHeight))) continue;
+    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z, state.levelBase, state.storeyHeight))) continue;
     out.set(cellKey(c.x, c.y, c.z), [c.x, c.y, c.z]);
   }
   // The street is an implicit block too; deleting it must record its hole (§4.1).
   for (const [x, y] of columns) {
-    if (bands.get(`${x},${y}`)?.has(storeyBand(-1, state.levelBase, state.storeyHeight)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
+    if (bands.get(`${x},${y}`)?.has(storeyBand(0, state.levelBase, state.storeyHeight)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
       out.set(cellKey(x, y, 0), [x, y, 0]);
     }
   }

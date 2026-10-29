@@ -1755,15 +1755,17 @@ including the depth prepass, for all six appearances.
   pointer reads the patch's live 长 × 宽 in metres (`Viewport.tsx` `buildMeasure`). A
   **reserved opening** — the corridor a ramp carves or an exit's floor (`reservedOpening`) —
   refuses a hand-built cell, so the block brush cannot seal a run the player can see through.
-  The 墙 tool lays a four-course column. On G, right-clicking any block clears the four courses
-  above its supporting floor (+1 through +4), including the ceiling course: resolve the band
-  from `storeyBand(hit.z - 1, levelBase)` so a hit at −10 m removes −11..−8 m, not the floor
-  course at −12 m. This applies equally to F blocks and wall-tagged blocks, spans gaps, and a
-  drag clears one such column per cell in one commit. `storeyColumnsAt` owns the erase set;
-  its preview and release must match, and the cursor must show erase as available. The browser
-  can dispatch `contextmenu` at right-button down, before pointer-up; `Viewport.tsx` must preserve
-  an active right-button erase there or the release never commits. Keep this guard and the
-  negative-height / shifted-basis pins in `test/column-delete.test.mjs` aligned.
+  The 墙 (G) tool raises a column from its selected bottom block through the last
+  course in that block's story. Resolve the story with `storeyBand(z, levelBase)`;
+  with basis 0, bottoms −4 and −3 both stop at −1, never reaching 0. `storeyWallRun`
+  supplies the same bounded candidates to hover, drag, release and the drag budget.
+  Right-click erases only blocks in the selected block's story, including plain and
+  wall-tagged blocks and separated courses; `storeyColumnsAt` owns that set, including
+  an implicit street block when it lies in the story. A drag removes the selected
+  columns in one commit. Preserve preview/release agreement and erase availability.
+  The browser can dispatch `contextmenu` at right-button down, before pointer-up;
+  `Viewport.tsx` must preserve an active right-button erase. Keep the interaction,
+  positive/negative boundary and every shifted-basis pins in `test/column-delete.test.mjs`.
   删除 remains button-agnostic: it lifts a whole module under the pointer (through its own
   teardown for a rail or room), else a single block or a dragged line.
 * **The 半墙 and 三角 kits** (`sim/types.ts`, `sim/openings.ts`, `build/model/Walls.ts`,

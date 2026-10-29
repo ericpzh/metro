@@ -39,6 +39,16 @@ export function wallRun(cells: Array<[number, number, number]>, height = AUTO_WA
   return out;
 }
 
+/** Wall courses from each bottom cell through the top of its own story. */
+export function storeyWallRun(cells: Array<[number, number, number]>, base = 0, height = AUTO_WALL_H): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [];
+  for (const [x, y, z] of cells) {
+    const top = storeyBand(z, base, height) + height;
+    for (let zz = z; zz < top; zz++) out.push([x, y, zz]);
+  }
+  return out;
+}
+
 /* ------------------------------------------------------- 墙-tool smart snapping */
 
 /**
@@ -258,8 +268,8 @@ export function wallSnap(
  * one block at a time like its 半墙 — a cut is a shape being placed, not a wall being
  * run.
  *
- * `height` is how many courses rise from each base cell. The 墙 tool always wants
- * the full 4 m column (`AUTO_WALL_H`); the 方块 tool's 半墙 / 三角 modes lay one
+ * With no explicit `height`, each column ends at its story boundary. The
+ * 方块 tool's 半墙 / 三角 modes lay one
  * block at a time, so they pass 1 — a single tagged course per click that the
  * player stacks by hand.
  */
@@ -267,7 +277,7 @@ export function addWalls(
   state: StationState,
   baseCells: Array<[number, number, number]>,
   side: WallDir | null = null,
-  height: number = state.storeyHeight,
+  height?: number,
   triangle: { kind: TriangleKind; side: TriSide } | null = null,
 ): { state: StationState; changed: number; blocked: number } {
   // "Already there" means already **solid**, exactly as `addCells` reads it: a
@@ -284,7 +294,7 @@ export function addWalls(
     triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
   let blocked = 0;
-  const run = height === AUTO_WALL_H ? wallRun(baseCells) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
+  const run = height === undefined ? storeyWallRun(baseCells, state.levelBase, state.storeyHeight) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
     if (level.solid.has(k) || addedKeys.has(k)) continue;

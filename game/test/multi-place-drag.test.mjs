@@ -106,7 +106,7 @@ test('equipment and decor multi-place releases refuse oversized footprints whole
     ['fence panels', 'fence', 'module', EquipmentTool, [0, 0], [10_000, 0]],
     ['tactile paving', 'tactile-guide', 'module', TactileTool, [0, 0], [10_000, 0]],
     ['outdoor surface tiles', 'sidewalk', 'module', TileEquipmentTool, [0, 0], [100, 100]],
-    ['wall courses', 'wall', 'wall', WallTool, [0, 0], [2_000, 0]],
+    ['wall courses', 'wall', 'wall', WallTool, [0, 0], [2_500, 0]],
     ['road footprint', 'road', 'module', RoadTool, [0, 0], [1_666, 0]],
   ]
   for (const [label, type, toolName, Tool, anchor, target] of cases) {
