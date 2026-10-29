@@ -669,4 +669,5 @@ the latter checks all 122 catalogue options in WebGL. Record triangle counts and
 measured placement results only in the shared performance reference.
 
 
-The restroom cubicle family regression spans ail-families.test.mjs (family ownership and decor rail anchor), menu-thumbnails.test.mjs (generated option thumbnails), and module-build.test.mjs (the toilet-only variant has fixture geometry and no enclosure or swing door). Run these focused tests when changing the family or its model.
+The restroom cubicle family regression spans 
+ail-families.test.mjs (family ownership and decor rail anchor), menu-thumbnails.test.mjs (generated option thumbnails), and module-build.test.mjs (the toilet-only variant has fixture geometry and no enclosure or swing door). Run these focused tests when changing the family or its model.

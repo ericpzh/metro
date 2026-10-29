@@ -2571,4 +2571,5 @@ pin the geometry, support, movement and performance contracts. The shared
 performance guide owns the per-option triangle inventory and measured actions.
 
 
-The restroom decor family includes cubicle (partition, door and toilet) and cubicle-toilet (toilet fixture only). Keep catalogue family ownership, palette factory and thumbnail preview config, pick round-trip, model geometry and room/passenger behavior aligned. metro-game-test pins family/catalog structure in ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and model geometry in module-build.test.mjs.
+The restroom decor family includes cubicle (partition, door and toilet) and cubicle-toilet (toilet fixture only). Keep catalogue family ownership, palette factory and thumbnail preview config, pick round-trip, model geometry and room/passenger behavior aligned. metro-game-test pins family/catalog structure in 
+ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and model geometry in module-build.test.mjs.
