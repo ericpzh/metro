@@ -1277,8 +1277,10 @@ it. The production exploded-view check also drives live playback, real WASD and
 left/middle drags while checking that the original editor camera and document stay
 unchanged. See the shared performance reference for measured run details.
 
-The current exploded layout regressions use solid floor boundaries and permit 15%
-overlap across the station's short axis, preserving its longitudinal alignment.
+The current exploded layout regressions use solid floor boundaries without overlap.
+Rectangular plans retain the short-axis layout; concave plans compare cardinal and
+diagonal packing. Four L-shaped trays pin diagonal nesting, all four retained
+levels, no covered floor tiles and matching live-pose translations.
 They cover interlocking irregular plans, ignored remote props and direction-aware
 live streams. Exposed soil caps are removed while finished floors/supporting walls
 remain. `exploded-passengers.test.mjs` drives the real CrowdSystem to pin immediate
@@ -1304,6 +1306,8 @@ for the production visual check and first/repeated opening measurements.
 passenger compaction in `render/explodedPassengers.ts`: hidden street/removed-roof
 pedestrians, retained raised/underground floors and riders, authored ramps/lifts,
 identity/order retention, and Tanwei tunnel-cap removal with preserved raised decks.
+An unlabelled transfer room beneath a ceiling stays visible at a tunnel-cap
+elevation, while its adjoining exposed tunnel roof is still omitted.
 Ground-decor fixtures distinguish physical street anchors at 0 m from actual raised
 station fixtures at 1 m. The production browser check now compares visible versus
 total passengers and rejects non-riding pedestrians on the hidden street plane.

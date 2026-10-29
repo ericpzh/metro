@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { serveDir, withPage, waitFor, loadExampleStation } from './browser-harness.mjs'
 
@@ -8,11 +8,15 @@ mkdirSync(output, {recursive:true})
 const server = await serveDir(resolve('game/dist'), 0)
 const reports = []
 try {
-  for (const id of ['zoo', 'tanwei']) {
+  for (const id of process.env.BENCH_STATION ? ['station'] : ['zoo', 'tanwei']) {
     const page = await withPage({url:`http://127.0.0.1:${server.address().port}/`, profile:resolve(output,`chrome-${id}-${process.pid}`),softwareGpu:false})
     try {
       await waitFor(page.evaluate, '!!window.__scene && !!window.__metro', {what:'app'})
-      await loadExampleStation(page, id)
+      if (process.env.BENCH_STATION) {
+        const text = readFileSync(resolve(process.env.BENCH_STATION),'utf8')
+        await page.evaluate(`__metro.getState().loadFromText(${JSON.stringify(text)})`)
+        await waitFor(page.evaluate, '!!__scene.ctx.stationData && __scene.ctx.stationData.cells.length > 0', {what:'loaded station'})
+      } else await loadExampleStation(page, id)
       await page.evaluate(`__metro.getState().setPlaying(false);window.__explodeErrors=[];window.addEventListener('error',e=>__explodeErrors.push(e.message));window.addEventListener('unhandledrejection',e=>__explodeErrors.push(String(e.reason)))`)
       await page.evaluate(`const proto=__scene.constructor.prototype;const setup=proto.setStandalonePresentation;proto.setStandalonePresentation=function(){window.__explodedScene=this;return setup.call(this)}`)
       const runs = []

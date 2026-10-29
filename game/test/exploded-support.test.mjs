@@ -53,6 +53,25 @@ test('roof rings and their wall-mounted fittings do not survive as a false mezza
   assert.ok(!result.data.modules.some(m=>m.id==='hanging'),'fitting does not float after its roof ring disappears')
 })
 
+test('an unlabelled enclosed transfer room survives at the same height as a tunnel roof',()=>{
+  const cells=[]
+  for(let x=0;x<20;x++) for(let y=0;y<10;y++) {
+    cells.push({x:x<10?x:x+1,y,z:-15,fill:'solid'})
+    if(x<10 && !(x===5&&y===5)) cells.push({x,y,z:-11,fill:'solid'})
+  }
+  const source={cells,modules:[
+    {id:'rail',type:'track',x:10,y:0,z:-20,w:10,d:3,cfg:{tunnel:true}},
+    {id:'stairs',type:'stair',x:0,y:0,z:-15,from:{x:0,y:0,z:-15},to:{x:0,y:8,z:-10},cfg:{}},
+  ],levelBase:0}
+  const before=structuredClone(source),result=explodedView(source)
+  const offset=result.offsets.get(-15),[dx,dy]=result.direction
+  const floors=result.data.cells.filter(c=>c.z===-15)
+  assert.equal(floors.length,100,'the full room floor stays; the adjoining exposed roof disappears')
+  assert.ok(floors.every(c=>c.x-dx*offset<10))
+  assert.ok(!result.data.cells.some(c=>c.z===-11),'the overhead ceiling stays hidden')
+  assert.deepEqual(source,before)
+})
+
 test('Tanwei tunnel cap cleanup preserves its usable raised decks',()=>{
   const source=JSON.parse(readFileSync(new URL('../src/data/tanwei-station.json',import.meta.url)))
   const result=explodedView(source)

@@ -247,8 +247,9 @@ The standalone 爆炸视图 is owned by `app/windows/ExplodedView.tsx` and the p
 snapshot transform in `render/explodedView.ts`. Keep it presentation-only: do not
 mutate the saved station, worker document, routes or simulation buffers. Story
 boundaries come from actual exposed floor surfaces (Tanwei's main decks are at
-1/6/11 m), while packing follows the short station axis and may overlap up to 15%
-of adjacent floor area. Preserve stair-flight endpoints and lift shaft ownership
+1/6/11 m). Rectangular plans pack across the short station axis; concave plans
+compare cardinal and diagonal tile packing to minimize projected area, without
+overlapping floor tiles. Preserve stair-flight endpoints and lift shaft ownership
 when translating geometry. Filter physical grade, roof/tunnel caps, ceilings and
 near-side wall courses from the view without dropping usable floors, structural
 connections or exits. `render/explodedPassengers.ts` prepares retained-floor support
@@ -261,6 +262,8 @@ exemption. Include these retained room surfaces in the packed footprint even whe
 the same story has a broader raised deck. Underground roof rings do not become
 usable mezzanines just because they carry another wall course: keep their enclosure
 and fixtures only around actual labelled floors and circulation landings.
+Unlabelled transfer floors with clear headroom beneath the next ceiling also
+establish usable rooms at tunnel-cap elevations.
 Above-ground presentation uses authored station floor/room labels and a small
 enclosure margin to bound retained geometry and fixtures per story. Connected
 bridge beams, foundations, rooftop plant and exterior-only access do not establish

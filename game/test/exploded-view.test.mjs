@@ -148,6 +148,29 @@ test('irregular floor boundaries interlock without reserving their empty boundin
   assert.ok(data.cells.filter(c=>c.z===-5&&lower.has(`${c.x},${c.y}`)).length<=0)
 })
 
+test('four L-shaped floors nest diagonally without covering any other floor', () => {
+  const cells=[]
+  for (const z of [-20,-15,-10,-5]) for(let x=0;x<30;x++) for(let y=0;y<30;y++) {
+    if(x<5||y<5) cells.push({x,y,z,fill:'solid'})
+  }
+  const input=station(cells), before=structuredClone(input)
+  const result=explodedView(input)
+  assert.deepEqual(result.levels,[-20,-15,-10,-5])
+  assert.deepEqual(result.direction,[1,1])
+  assert.deepEqual([...result.offsets.values()],[0,5,10,15],'use the empty corner rather than a full 30 m arm per tray')
+  const seen=new Set()
+  for(const c of result.data.cells) {
+    const key=`${c.x},${c.y}`
+    assert.ok(!seen.has(key),'no floor tile is covered by another storey')
+    seen.add(key)
+  }
+  assert.equal(result.data.cells.length,cells.length)
+  assert.deepEqual(input,before)
+  const poses=new Float32Array([-1,-2,-14,1,0,1])
+  const moved=explodedPoses(poses,6,result.offsets,0,0,undefined,false,result.direction)
+  assert.deepEqual([...moved],[4,3,-14,1,0,1],'live passengers follow both diagonal coordinates')
+})
+
 test('floor boundaries ignore remote props and allow a small measurable overlap', () => {
   const wide = z => Array.from({length:2000},(_,i)=>({x:i%100,y:Math.floor(i/100),z,fill:'solid'}))
   const input = station([...wide(-10),...wide(-5)], [{id:'remote',type:'bench',x:400,y:400,z:-5,cfg:{}}])

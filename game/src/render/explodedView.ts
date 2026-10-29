@@ -8,6 +8,49 @@ const hiddenTypes = new Set(['roof', 'road', 'sidewalk', 'lawn', 'tree', 'traffi
 const structureTypes = new Set(['exit', 'stair', 'escalator', 'walkway', 'lift', 'track', 'platform-edge', 'shop', 'retail', 'booth'])
 const ceiling = (c: Cell): boolean => !!c.tags?.some(t => t === 'suspended-ceiling' || t === 'opening-ceiling')
 
+/** Try cardinal and diagonal translations against tiles, including concave plans. */
+function packFloors(plans: ReadonlyArray<ReadonlyArray<{x:number;y:number}>>, preferred: readonly [number,number]):
+  {direction: readonly [number,number]; shifts:number[]} {
+  let best: {direction: readonly [number,number]; shifts:number[]; score:number} | undefined
+  const concave = plans.some(plan => {
+    let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity
+    for (const p of plan) {x0=Math.min(x0,p.x);x1=Math.max(x1,p.x);y0=Math.min(y0,p.y);y1=Math.max(y1,p.y)}
+    return plan.length > 0 && plan.length < (x1-x0+1)*(y1-y0+1)*0.7
+  })
+  // Rectangular platforms retain their familiar short-axis alignment.
+  const candidates: ReadonlyArray<readonly [number,number]> = concave ?
+    [preferred, [preferred[1],preferred[0]], [1,1], [1,-1]] : [preferred]
+  for (const direction of candidates) {
+    const [dx,dy] = direction, occupied = new Set<string>(), shifts:number[] = []
+    let previous = 0, edge = -Infinity, x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity
+    for (const plan of plans) {
+      let offset = previous
+      if (occupied.size && plan.length) {
+        let near = Infinity
+        for (const p of plan) near = Math.min(near, dx*p.x+dy*p.y)
+        const stop = Math.max(offset, Math.ceil((edge-near+1)/(dx*dx+dy*dy)))
+        for (;offset<=stop;offset++) {
+          if (!plan.some(p=>occupied.has(`${p.x+dx*offset},${p.y+dy*offset}`))) break
+        }
+      }
+      shifts.push(offset)
+      previous = offset
+      for (const p of plan) {
+        const x=p.x+dx*offset, y=p.y+dy*offset
+        occupied.add(`${x},${y}`)
+        edge=Math.max(edge,dx*x+dy*y)
+        // Screen-space extents for the viewer's +x/-1.2y isometric eye.
+        const sx=1.2*x+y, sy=-x+1.2*y
+        x0=Math.min(x0,sx);x1=Math.max(x1,sx)
+        y0=Math.min(y0,sy);y1=Math.max(y1,sy)
+      }
+    }
+    const score=(x1-x0+2.2)*(y1-y0+2.2)
+    if (!best || score < best.score - 1e-6) best={direction,shifts,score}
+  }
+  return best!
+}
+
 /** A disposable presentation document. Never install this in the editor or worker. */
 export function explodedView(data: StationData): { data: StationData; levels: number[]; offsets: ReadonlyMap<number, number>; direction: readonly [number, number] } {
   const base = data.levelBase ?? 0
@@ -25,11 +68,32 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     for (const end of [m.from,m.to]) for (let x=-2;x<=2;x++) for(let y=-2;y<=2;y++) landings.add(packKey(end.x+x,end.y+y,end.z))
   }
   const capRooms = new Map<number, Set<number>>()
+  const enclosedCapFloors = new Set<number>()
   for (const z of tunnelCaps) if (z < GROUND_Z && !floorUse.has(z)) capRooms.set(z,new Set())
+  // A tunnel roof can share its elevation with an unlabelled transfer room.
+  // Clear headroom beneath the next ceiling is physical evidence of that room;
+  // the mere presence of a wall on the roof is not.
+  const clearCapFloors = new Set<number>(), roomSeeds: Cell[] = []
+  for (const c of data.cells) if (capRooms.has(c.z) && c.fill === 'solid' && !ceiling(c) && !isWallBlock(c) &&
+    ![1,2,3].some(dz => solidKeys.has(packKey(c.x,c.y,c.z + dz)))) {
+    clearCapFloors.add(packKey(c.x,c.y,c.z))
+    if (solidKeys.has(packKey(c.x,c.y,c.z + STOREY_HEIGHT - 1))) roomSeeds.push(c)
+  }
+  // Follow the room's clear floor through ceiling openings. Walls and solid
+  // tunnel shells stop the search; an isolated roof ring never seeds it.
+  for (let i=0;i<roomSeeds.length;i++) {
+    const c=roomSeeds[i], key=packKey(c.x,c.y,c.z)
+    if (!clearCapFloors.delete(key)) continue
+    enclosedCapFloors.add(key)
+    for (const [x,y] of [[c.x+1,c.y],[c.x-1,c.y],[c.x,c.y+1],[c.x,c.y-1]]) {
+      if (clearCapFloors.has(packKey(x,y,c.z))) roomSeeds.push({...c,x,y})
+    }
+  }
   for (const c of data.cells) {
     const room = capRooms.get(c.z)
     if (!room || c.fill !== 'solid' || ceiling(c) || !(c.room || c.tags?.includes('auto-floor') ||
-      ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || landings.has(packKey(c.x,c.y,c.z)))) continue
+      ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || landings.has(packKey(c.x,c.y,c.z)) ||
+      enclosedCapFloors.has(packKey(c.x,c.y,c.z)))) continue
     // Keep a one-cell enclosure around actual mezzanine floors/landings, not
     // the roof ring and its walls merely because another course sits above it.
     for (let x=-1;x<=1;x++) for(let y=-1;y<=1;y++) room.add(packKey(c.x+x,c.y+y,c.z))
@@ -47,7 +111,8 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     // Retain actual floor use/landings, rather than presenting the whole cap.
     !(c.z < GROUND_Z && tunnelCaps.has(c.z) && !floorUse.has(c.z) &&
       !solidKeys.has(packKey(c.x,c.y,c.z+1)) && !c.tags?.includes('auto-floor') &&
-      !['paid','unpaid','platform'].includes(c.zone ?? '') && !landings.has(packKey(c.x,c.y,c.z))) &&
+      !['paid','unpaid','platform'].includes(c.zone ?? '') && !landings.has(packKey(c.x,c.y,c.z)) &&
+      !enclosedCapFloors.has(packKey(c.x,c.y,c.z))) &&
     // Earth-topped caps are terrain/room ceilings, not another usable floor.
     !(c.finish?.top === 'floor.soil' && !solidKeys.has(packKey(c.x,c.y,c.z+1))) &&
     // Legacy stations also have ordinary, untagged ceiling courses immediately
@@ -118,9 +183,8 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     floorsByLevel.set(z, floorCells.length ? [...new Set([...floorCells,...roomFloors])] : own.filter(c => c.z === z))
   }
   const offsets = new Map<number, number>()
-  // Retain the station's longitudinal alignment. Explode across its narrow
-  // axis, packing the actual floor tiles instead of their rectangular bounds.
-  // Adjacent stories touch but never overlap, keeping each flow visually separate.
+  // Compare diagonals with the short axis so L-shaped trays can nest in their
+  // empty corners. All candidates keep every floor tile free of overlap.
   const solidFloors = [...floorsByLevel.values()].flat()
   const allPoints = solidFloors.length ? solidFloors : solids.length ? solids : [...modulePoints.values()].flat()
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
@@ -128,10 +192,14 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     x0 = Math.min(x0, point.x); x1 = Math.max(x1, point.x)
     y0 = Math.min(y0, point.y); y1 = Math.max(y1, point.y)
   }
-  const direction: readonly [number, number] = x1 - x0 >= y1 - y0 ? [0, 1] : [1, 0]
+  const footprints = levels.map(z => {
+    const floor = floorsByLevel.get(z)!, own = byLevel.get(z)!
+    const points = floor.length ? floor : own.length ? own : modulePoints.get(z) ?? []
+    return [...new Map(points.map(p => [`${p.x},${p.y}`, p])).values()]
+  })
+  const packed = packFloors(footprints, x1-x0 >= y1-y0 ? [0,1] : [1,0])
+  const direction = packed.direction
   const [dx, dy] = direction
-  const occupied = new Set<string>()
-  let previousOffset = 0, edge = -Infinity
   const cells: Cell[] = []
   for (const z of levels) {
     const own = byLevel.get(z)!
@@ -148,28 +216,8 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
       openMaxX = Math.max(openMaxX, cell.x)
       openMinY = Math.min(openMinY, cell.y)
     }
-    // Equipment only stories (for example a rail deck) still have a real footprint.
-    const points = floorCells.length ? floorCells : own.length ? own : modulePoints.get(z) ?? []
-    const footprint = [...new Map(points.map(p => [`${p.x},${p.y}`, p])).values()]
-    let offset = previousOffset
-    if (occupied.size && footprint.length) {
-      let near = Infinity
-      for (const point of footprint) near = Math.min(near, dx * point.x + dy * point.y)
-      const stop = Math.max(offset, edge - near + 1)
-      for (; offset <= stop; offset++) {
-        let overlap = 0
-        for (const point of footprint) {
-          if (occupied.has(`${point.x + dx * offset},${point.y + dy * offset}`)) overlap++
-        }
-        if (overlap <= 0) break
-      }
-    }
+    const offset = packed.shifts[offsets.size]
     offsets.set(z, offset)
-    for (const point of footprint) {
-      occupied.add(`${point.x + dx * offset},${point.y + dy * offset}`)
-      edge = Math.max(edge, dx * point.x + dy * point.y + offset)
-    }
-    previousOffset = offset
     for (const cell of own) {
       // The default isometric eye is +x/-y. Open those two perimeter sides,
       // retaining internal partitions and the far enclosure, including irregular plans.
