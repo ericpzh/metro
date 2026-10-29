@@ -4,6 +4,9 @@ import { World } from '../src/sim/world.ts'
 import { createModule, addEquipment, toState } from '../src/build/model.ts'
 import { STAIR_WIDTH_NARROW, STAIR_WIDTH_DOUBLE } from '../src/sim/stairs.ts'
 import { rampMoveClear } from '../src/sim/rampCollision.ts'
+import { AgentState, AgentRenderState } from '../src/sim/types.ts'
+import { unpackActivity, activityChoice } from '../src/sim/activities.ts'
+import { passengerIsChild } from '../src/sim/walking.ts'
 
 function setup(type, width, rot = 0, dir = 'up') {
   const m = createModule(type, 0, 0, -5, 'ramp', rot, width, dir)
@@ -21,6 +24,55 @@ function queue(w, s, count) {
     return a
   })
 }
+
+test('all escalator riders get the lane/direction rail pose, including children and delayed boarders', () => {
+  for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {
+    const { w, s } = setup('escalator', width, rot, dir)
+    const riders = queue(w, s, 24), rng = w.rng.state
+    assert.ok(riders.some(a => passengerIsChild(a.id)) && riders.some(a => !passengerIsChild(a.id)))
+    for (const a of riders) w.serve(a, s)
+    assert.equal(w.rng.state, rng, 'rail assignment never consumes journey randomness')
+    const output = new Float32Array(riders.length * 6)
+    w.writeTransfer(output)
+    for (const [i, a] of riders.entries()) {
+      const column = width === 1 ? 0 : (i % width - (width - 1) / 2) * .7
+      assert.equal(output[i * 6 + 3], AgentState.Riding)
+      assert.equal(unpackActivity(output[i * 6 + 4])[0], width===1?(activityChoice(a.id,0x62a3)<.5?14:7):column > 0 ? 14 : 7)
+      assert.equal(a.activityVariant, (width > 1 ? 1 : 0) + (dir === 'down' ? 2 : 0))
+    }
+    if(width===1)assert.equal(new Set(riders.map(a=>a.activity)).size,2,'narrow runs use both reachable rails')
+    // Service may board within a tick. Its visual release must follow the actual
+    // ride countdown rather than expire at the nominal activity wall-clock time.
+    w.tick = Math.ceil(riders[0].activityTotal) + 2
+    for (const a of riders) a.rideT = .5
+    w.writeTransfer(output)
+    for (let i = 0; i < riders.length; i++) assert.ok([7, 14].includes(unpackActivity(output[i * 6 + 4])[0]))
+    w.stepRide(riders[0])
+    assert.equal(riders[0].activity, 0, 'the rail reach releases on arrival')
+  }
+})
+
+test('stair traversal is walking in the render stream while the simulation still controls ramp occupancy', () => {
+  for (const type of ['stair-straight', 'stair-right180']) {
+    const { w, s } = setup(type, STAIR_WIDTH_DOUBLE)
+    const reverse = w.graph.servers.find(other => other.node === s.exitNode && other.exitNode === s.node)
+    for (const server of [s, reverse]) {
+      const [a] = queue(w, server, 1)
+      a.activity = 2; a.activityStart = w.tick; a.activityTotal = 30
+      w.serve(a, server)
+      assert.equal(a.state, AgentState.Riding)
+      assert.equal(a.activity, 0, 'a previous service gesture cannot override the stair walk')
+      w.stepRide(a); w.stepRide(a)
+      const output = new Float32Array(w.pool.count * 6)
+      const before = w.snapshot()
+      w.writeTransfer(output)
+      assert.equal(output[(w.pool.count - 1) * 6 + 3], AgentRenderState.StairWalking)
+      assert.deepEqual(w.snapshot(), before, 'presentation does not change occupancy or journeys')
+      a.rideT = .1; w.stepRide(a)
+      assert.equal(a.rideWalking, false, 'the next transported ride cannot inherit stair locomotion')
+    }
+  }
+})
 
 test('narrow escalators keep same-tick boarders single-file; wider ones provide spaced columns', () => {
   for (const width of [1, 2, 3]) for (let rot = 0; rot < 4; rot++) for (const dir of ['up', 'down']) {

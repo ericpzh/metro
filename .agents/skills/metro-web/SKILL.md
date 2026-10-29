@@ -82,15 +82,14 @@ English-copy change must preserve the Chinese catalogue and default captures.
 
 After character, size or crowd-material changes, use `metro-model` and run
 `npm run art:models`. It captures every eligible adult and child template
-(currently 212 adult / 114 child choices across 232 exports) with the live 70% game
-opacity, including forty jacket-free clothing/grey-arrangement entries shared
-by adults and children. Playback checks require newly clothed figures in both
+(currently 440 appearances, all eligible at both ages) with fully opaque game
+materials, including twenty outfits per male/female category.
+Playback checks require newly clothed figures in both
 age groups. The pipeline validates complete strides and source
 hashes, refreshes bilingual sheets 01/02/07/12/13 and renders previews at 8 s.
-The sheet figure helpers use stable 20/80 child/adult selection; child cards must
-have hair and may carry only approved small backpacks or crossbody bags. Explicit
-catalogue age flags determine both pools, including child-only female crossbody
-templates. Gait duration uses the captured stride after depth scaling.
+The sheet figure helpers use stable 20/80 child/adult selection. Explicit
+catalogue age flags determine both pools; the selected soft-human catalogue
+supports every bag at both ages. Gait duration uses the captured stride after depth scaling.
 Keep `.preview/model-art/` captures separate from other running previews and
 retain `capture-passengers` / `passenger-art-pipeline` coverage when changing formats.
 On a local GPU, `$env:METRO_BROWSER_GPU='hardware'` opts browser tools into
@@ -175,6 +174,18 @@ In 12-C, use the `gate-single` elevation capture, which hides the spare gate lea
 using the game's `hideSecondGateDoor` capture option.
 Sheet 13's near platform screen door is the inside-facing model and sorts in front
 of the crowd, so its printed face is hidden from the cutaway camera.
+For layout-only corrections, reuse `.preview/model-art/passenger-cards` through
+`PASSENGER_CARDS_DIR`; do not repeat the full catalogue capture. Adjacent figure
+identities use a stable hash to spread clothing colours. Sheet 12-A's queue uses
+standing captures with subtle idle motion, independent of the boarding clock.
+Hero/interchange ramp captures explicitly use 4 m rise / 7 m run through the
+capture-only `PieceView.ramp` option. Their lower landings must match the authored
+upper edges (01: y=17 to y=10; 13: x=31 to x=38). Regenerate hero piece views after
+changing these dimensions. Section 02 uses the same explicit rise/run in its
+elevation pass, cropped at the walk-surface datum; keep both runs inside its core.
+Sheet 13 paints the landing apron over the runs to hide their underside, and
+masks them against the near PSD's alpha; do not move the whole PSD band over the
+train. Sheet 07's played capture disables `ghostOtherLevels` in both locales.
 `tools/sheet-plan.mjs` is the **panel plan for the older photograph pass**
 (`tools/shots.mjs`): one entry per sheet that pass still composes, naming the spec
 id, the file and the camera each panel is shot from. Sheets 08 and 10 are retired

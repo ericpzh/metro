@@ -59,6 +59,10 @@ export function createImportedSoftHuman(data){
   const axis=l.wrist.clone().normalize(),point=l.fore.userData.rest.clone().addScaledVector(axis,l.wrist.length()-.055);
   return {side:l.s,point,axis,field:p=>(p[0]-point.x)*axis.x+(p[1]-point.y)*axis.y+(p[2]-point.z)*axis.z};
  });
+ anatomy.sleeves=limbs.map(l=>{
+  const axis=l.fore.userData.rest.clone().sub(l.arm.userData.rest).normalize(),point=l.arm.userData.rest.clone().lerp(l.fore.userData.rest,.55);
+  return {side:l.s,point,axis,field:p=>(p[0]-point.x)*axis.x+(p[1]-point.y)*axis.y+(p[2]-point.z)*axis.z};
+ });
  const shoulder=limbs[1].arm.userData.rest,thigh=limbs[1].leg.userData.rest,knee=limbs[1].shin.userData.rest;
  const reference=[0,.4,.65,.72,.98,1.22,1.38,1.71];
  const actual=[0,knee.y,thigh.y,hips.position.y,chest.userData.rest.y,shoulder.y,head.userData.rest.y,1.7];

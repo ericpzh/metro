@@ -10,8 +10,21 @@ plus a Hips root into an A-pose. The original procedural sculpt remains in
 `character.js` as a historical study and regression fixture; it is not the page's
 active base. The older procedural-study descriptions below describe that fixture.
 
-The selected base supports the eight existing outfits, eleven bag choices,
+The selected base supports twenty outfits per male/female wardrobe category, eleven bag choices,
 adult/child sizing, three walks and the full station activity catalogue.
+The categories share the same body and most outfits. Pink trail jacket is in the
+female category; casual shirt/trousers fills the male category. Both include
+cotton T-shirt/shorts and polo/chino shorts. Sport shorts and Summer stripes are
+male-only; T-shirt/skirt and blouse/midi skirt are female-only. Category changes
+keep a shared outfit and preserve bag, age and timeline; an unavailable outfit
+falls back to the commuter jacket. The unpainted `plain` base remains exportable
+through the API/CLI, outside the twenty wearable choices. The added color combinations mix the reviewed cuts: white/denim, navy/sand,
+sage/stone and coral/navy tees/shorts; blue/cream and burgundy/sand polos/shorts;
+and cream/navy or olive/charcoal shirts/trousers. Male additions include
+black/khaki shorts and a slate suit; female additions include blue/navy and
+rose/slate skirts. Skirts retain the original waist, hips and outer legs, with a
+local inner-thigh connection. Clothing colors share this one skin like trousers;
+there is no separate waist shell, enlarged envelope or projecting lip.
 Wardrobe boundaries map to its proportions; the neck opening ends at the measured
 narrow neck, and cuffs are clipped perpendicular to the forearm. Straps use
 authored mathematical curves in `torso-fit.js` and `mathematical-strap.js`:
@@ -24,8 +37,10 @@ Station poses use the production equipment's contact heights. Free arms keep
 the default outward A-pose in every action, including seating and narrow lanes;
 only active equipment reaches override it. Adult width is not compressed to fit
 a lane. Collision audits can therefore report an outward free arm crossing narrow
-equipment. Switching back to walking restores the bind joint positions. The preview stays isolated
-from the game atlas; this change does not replace the game's crowd assets.
+equipment. Switching back to walking restores the bind joint positions. The selected model now replaces the game crowd. `src/soft-human/catalog.js`
+derives all 440 clothing/bag recipes for both ages; `npm run bake:passengers`
+generates the shared walking and activity assets offline. Game runtime remains
+independent of the model app. See `game/src/assets/PASSENGERS.md`.
 
 Run `node --test model/test/soft-human*.test.mjs`, build with
 `node model/node_modules/vite/bin/vite.js build model`, then run the
@@ -33,6 +48,11 @@ Run `node --test model/test/soft-human*.test.mjs`, build with
 `check-soft-human-clearance.mjs --all` and `check-soft-arm-poses.mjs` browser checks.
 `soft-human-imported.test.mjs` covers the actual selected FBX, both ages, all
 wardrobes, deterministic activities and posed GLB round trips.
+`soft-human-casual.test.mjs` and `tools/check-soft-human-casual.mjs` cover category
+counts, eligibility, perpendicular short sleeves, clean shorts hems, state
+preservation, adult/child renders and export metadata. To export a categorized
+casual example, run `node model/scripts/export-soft-human.mjs --sex=female
+--outfit=polo-shorts`; the explicit category is included in its filename.
 
 `model/scripts/export-soft-human.mjs` now exports the selected base and records
 its source hash. Preserve the supplied `human-fall-flat/readme.txt`: it describes
@@ -359,18 +379,14 @@ profiles, and bundled viewer code. It does not request game dependencies or
 prototype paths at runtime. Set `VITE_WEB_URL` and `VITE_GAME_URL` when building
 to change the two navigation links. No cloud deployment is configured by this change.
 
-The game uses these 232 exports, choosing equally within 212 adult and 114 child
-choices. Children use bagless, small-backpack and crossbody templates with hair
-at a smaller base scale. The crowd is
-20% children / 80% adults, with stable independent variation in all three axes. Run
-`npm run bake:passengers` at the root after approving a model change; it regenerates
-the GLBs and shared game atlas. `src/characters/library.js` is the canonical
-catalogue for the viewer and game bake. Use `.agents/skills/metro-model/SKILL.md`
-for the dedicated model workflow.
+These 232 exports now belong to the historical viewer. The active game uses
+the selected soft-human catalogue described above. `npm run bake:passengers`
+generates its offline atlases; legacy export preparation remains available for
+historical review.
 
 To refresh the art after approving models, run **`npm run art:models`** at the root.
 It regenerates the reviewed exports and game atlas, builds the game, captures
-all 212 adult entries and 114 eligible child templates in standing and
+all active adult and child recipes in standing and
 complete walks, refreshes the interface
 captures for sheet 07 in both languages, updates sheets
 01/02/07/12/13 in Chinese and English, checks animation, renders previews into

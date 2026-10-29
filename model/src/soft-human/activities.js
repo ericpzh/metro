@@ -16,6 +16,8 @@ export function createSoftActivityPoser(c){
  const hips=c.hips.position.clone(),body=c.body;
  return (id,time,anchors={})=>{
   const base=id==='escalator-left'?'escalator':id,f=interactionFrame(base,time),{t,engage:e}=f;
+  const held=c.carry&&['handbag','purse'].includes(c.carry.type),hand=anchors.hand??(held?(c.carry.side===1?'left':'right'):'default');
+  const actionSide=hand==='left'?-1:1;
   c.resetPose?.();for(const b of c.bones)b.rotation.set(0,0,0);c.hips.position.copy(hips);body.position.set(0,0,0);body.rotation.set(0,0,0);
   c.chest.rotation.z=.012*Math.sin(t*1.5);c.head.rotation.y=.09*Math.sin(t*.8);
   for(const {s,arm,fore} of c.limbs){arm.rotation.z=keepDefaultArms?0:s*(c.carry?.side===s?.25:.1);fore.rotation.x=keepDefaultArms?0:-.08}
@@ -41,15 +43,22 @@ export function createSoftActivityPoser(c){
   const moving=(['qr','card'].includes(id)&&t>4.5&&t<7)||(id==='door'&&t>4&&t<7);
   if(moving){for(const {s,leg,shin,arm} of c.limbs){const phase=t*5.3+(s<0?Math.PI:0);leg.rotation.x=.35*Math.sin(phase);shin.rotation.x=.5*Math.max(0,-Math.sin(phase));arm.rotation.x=-.22*Math.sin(phase)}}
   const targets=new Map(),set=(s,p)=>targets.set(s,new T.Vector3(...p));
-  if(['ticket','shop','lift','vending'].includes(id)){body.position.z=.12*e;set(1,[id==='lift'?.42:.16,child?.91:id==='shop'?1.13:1.12,id==='lift'?.46:id==='vending'?.35:child?.38:.48]);if(id==='lift'&&anchors.floorHeight)body.position.y=anchors.floorHeight-(c.metrics?0:.018)*scale.y+.006;}
-  if(id==='qr'||id==='card'){set(1,[.36,id==='qr'?.77:.92,id==='qr'?.28:.36]);body.position.x=-.16*smooth(4,4.5,t);body.position.z=(child?.06*e:0)+1.9*smooth(4.5,7,t)}
+  if(['ticket','shop','lift','vending'].includes(id)){body.position.z=.12*e;set(actionSide,[id==='lift'?.42:.16,child?.91:id==='shop'?1.13:1.12,id==='lift'?.46:id==='vending'?.35:child?.38:.48]);if(id==='lift'&&anchors.floorHeight)body.position.y=anchors.floorHeight-(c.metrics?0:.018)*scale.y+.006;}
+  if(id==='qr'||id==='card'){set(actionSide,[.36,id==='qr'?.77:.92,id==='qr'?.28:.36]);body.position.x=-.16*smooth(4,4.5,t);body.position.z=(child?.06*e:0)+1.9*smooth(4.5,7,t)}
   if(id==='wash'){
    body.position.z=(c.metrics&&!child?-.04:child?.11:.12)*e;if(anchors.washStepHeight)body.position.y=anchors.washStepHeight-(c.metrics?0:.018)*scale.y+.006;c.chest.rotation.x=.10*e;const dry=t>7;
-   for(const s of [-1,1])set(s,[s*.045+.02*Math.sin(t*8+s),dry?.98+.025*Math.sin(t*18+s):child?.92:.89,dry?.4:child?.49:.48]);
+   for(const s of hand==='default'?[-1,1]:[actionSide])set(s,[s*.045+.02*Math.sin(t*8+s),dry?.98+.025*Math.sin(t*18+s):child?.92:.89,dry?.4:child?.49:.48]);
   }
-  if(id==='door'){set(1,[.33,1.02,.72]);body.position.x=(child?.10:0)*smooth(.4,1.6,t)-(child?.18:.08)*smooth(4,4.5,t);body.position.z=(child?.42:.22)*smooth(.4,1.6,t)+1.8*smooth(4,7,t);body.position.y=((anchors.thresholdHeight??.05)+.012)*smooth(.3,.5,body.position.z)*(1-smooth(1.25,1.5,body.position.z));}
+  if(id==='door'){set(actionSide,[.33,1.02,.72]);body.position.x=(child?.10:0)*smooth(.4,1.6,t)-(child?.18:.08)*smooth(4,4.5,t);body.position.z=(child?.42:.22)*smooth(.4,1.6,t)+1.8*smooth(4,7,t);body.position.y=((anchors.thresholdHeight??.05)+.012)*smooth(.3,.5,body.position.z)*(1-smooth(1.25,1.5,body.position.z));}
   if(id==='wait'||id==='queue'){c.hips.position.x=.018*Math.sin(t);c.head.rotation.y=.3*Math.sin(t*.55)}
-  if(base==='escalator'&&anchors.foot){body.position.set(0,anchors.foot[1]+(c.metrics?.02:0),anchors.foot[2]);const s=id==='escalator-left'?-1:1;set(s,anchors.rail)}
+  if(base==='escalator'&&anchors.foot){
+   body.position.set(0,anchors.foot[1]+(c.metrics?.02:0),anchors.foot[2]);
+   const s=hand==='default'?(id==='escalator-left'?-1:1):actionSide;
+   // A free hand can reach the same nearby belt across the body. Turn the upper
+   // torso into that reach; do not reflect the target onto a nonexistent rail.
+   if(s*anchors.rail[0]<0){c.chest.rotation.y=-s*.85;c.head.rotation.y-=c.chest.rotation.y*.5;}
+   set(s,anchors.rail);
+  }
   body.updateMatrixWorld(true);
   // The historical study used a tucked free-arm pose. The selected base keeps
   // its authored outward A-pose in every activity, including narrow lanes.
@@ -72,6 +81,24 @@ export function createSoftActivityPoser(c){
    }
   }
   const contact=seated?sitting.lower:base==='escalator'?1:id==='door'?smooth(.4,1.6,t)*(1-smooth(1.8,2.3,t)):['qr','card'].includes(id)&&t>=4?0:moving?0:e;
+  // Bring a short or opposite-side arm within its actual two-bone reach before
+  // solving the elbow. This uses joint lengths and the authored target only.
+  if(keepDefaultArms&&targets.size===1&&contact>1e-6){
+   const [s,target]=targets.entries().next().value,i=c.limbs.findIndex(l=>l.s===s),{arm,fore}=c.limbs[i];
+   let frame=arm;while(frame.isBone&&frame.parent)frame=frame.parent;
+   const inverse=frame.matrixWorld.clone().invert(),point=bone=>bone.getWorldPosition(new T.Vector3()).applyMatrix4(inverse);
+   const a=point(arm),b=point(fore),end=point(wrists[i]);
+   const reach=(a.distanceTo(b)+b.distanceTo(end))*.995,goal=end.clone().lerp(target.clone().applyMatrix4(inverse),contact);
+   if(a.distanceTo(goal)>reach){
+    const start=c.chest.rotation.y,turn=-s*1.45;let low=0,high=1;
+    c.chest.rotation.y=turn;body.updateMatrixWorld(true);
+    if(point(arm).distanceTo(goal)<=reach){
+     for(let k=0;k<10;k++){const blend=(low+high)/2;c.chest.rotation.y=T.MathUtils.lerp(start,turn,blend);body.updateMatrixWorld(true);if(point(arm).distanceTo(goal)>reach)low=blend;else high=blend;}
+     c.chest.rotation.y=T.MathUtils.lerp(start,turn,high);c.head.rotation.y-=(c.chest.rotation.y-start)*.5;
+    }else c.chest.rotation.y=start;
+    body.updateMatrixWorld(true);
+   }
+  }
   for(let i=0;i<c.limbs.length;i++){
    const {s,arm,fore}=c.limbs[i],target=targets.get(s);if(!target)continue;
    if(keepDefaultArms&&contact<=1e-6)continue;

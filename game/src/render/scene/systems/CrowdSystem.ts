@@ -15,7 +15,7 @@
 // `pickAgent` and `setRoute` never touch the sim.
 
 import * as THREE from 'three'
-import { passengerMesh, passengerFrames, passengerAppearance, passengerDisplayedActivity, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
+import { passengerMesh, passengerFrames, passengerWalkDistance, passengerAppearance, passengerDisplayedActivity, passengerActionChannel, PASSENGER_WALK_FRAMES, PASSENGER_WALK_PROFILES, PASSENGER_EYE_HEIGHT } from '../../passengerModel.ts'
 import type { PassengerAppearance } from '../../passengerModel.ts'
 import { passengerWalkProfile } from '../../../sim/walking.ts'
 import { unpackActivity, packActivity, activityEndTime, ACTIVITY_DURATION } from '../../../sim/activities.ts'
@@ -499,7 +499,7 @@ export class CrowdSystem extends SceneSystem {
       const q = old * 6
       const p = old * 3
       if (this.cur[q + 3] !== AgentState.Riding) {
-        const walked = Math.hypot(this.cur[q] - this.prev[p], this.cur[q + 1] - this.prev[p + 1])
+        const walked = passengerWalkDistance(this.cur[q + 3], this.cur[q] - this.prev[p], this.cur[q + 1] - this.prev[p + 1], this.cur[q + 2] - this.prev[p + 2])
         const strideScale = passengerAppearance(this.cur[q + 5], this.appearanceScratch)[2]
         const stride = PASSENGER_WALK_PROFILES[passengerWalkProfile(this.cur[q + 5])].stride
         oldPhases[old] = (oldPhases[old] + walked / (stride * strideScale)) % 1
@@ -746,10 +746,10 @@ export class CrowdSystem extends SceneSystem {
         activityTime = priorActivity[1] + (activityEndTime(activityKind,priorActivity[1]) - priorActivity[1]) * alpha
         activity[2] = priorActivity[2]
       }
-      activityKind=passengerDisplayedActivity(activityKind,appearance[0])
+      activityKind=passengerDisplayedActivity(activityKind,appearance[0],activityTime)
       if (activityKind && activityKind !== 5 && activityKind !== 6 && activityKind !== 11) this.yaws[i] = activity[2]
       q.setFromAxisAngle(axis, this.yaws[i])
-      const travelled = this.cur[o + 3] !== AgentState.Riding ? Math.hypot(dx, dy) : 0
+      const travelled = passengerWalkDistance(this.cur[o + 3], dx, dy, cz - pz)
       const moving = travelled > 1e-5 ? 1 : 0
       this.gaitWeights[i] += (moving - this.gaitWeights[i]) * Math.min(1, dt * 12)
       // Fore/aft mesh scaling changes the physical step length, including for
@@ -769,7 +769,7 @@ export class CrowdSystem extends SceneSystem {
       this.renderedActivities[at] = drawnActivity?.[0] ?? activityKind
       this.renderedActivities[at+1] = drawnActivity?.[1] ?? activityTime
       this.renderedActivities[at+2] = drawnActivity?.[2] ?? activityPhase
-      this.renderedActivities[at+3] = drawnActivity?.[3] ?? passengerWalkProfile(id)
+      this.renderedActivities[at+3] = drawnActivity?.[3] ?? passengerActionChannel(activityKind,appearance[0],id,passengerWalkProfile(id))
       // Only the crowd on the storeys that are actually drawn: an agent on a
       // hidden floor above (or a ghosted one below) would otherwise float over
       // the visible floor, reading as "seen through" it.

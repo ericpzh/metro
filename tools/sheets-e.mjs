@@ -163,8 +163,8 @@ export function artPlatformFlow() {
         const sy = laneHead - 4 - k * 25;
         g.push(ln(lx - laneW / 2 + 2, sy, lx + laneW / 2 - 2, sy, '#ffffff', 1, '2 3'));
         const identity = i * 10 + k + (sgn > 0 ? 5 : 0);
-        g.push(`<g data-role="queue">${planPerson(lx, sy + 8, identity, false,
-          (identity * 3 % 8) * Math.PI / 4)}</g>`);
+        g.push(`<g data-role="queue" data-pose="waiting" transform="translate(${n(lx)} ${n(sy+8)})"><g class="passenger-wait" style="animation-duration:${3.2+identity%5*.3}s;animation-delay:${-identity*.37}s">${planPerson(0, 0, identity, false,
+          (identity * 3 % 8) * Math.PI / 4)}</g></g>`);
       }
       g.push(arrowLine(lx, laneTop + 2, lx, laneHead - 46, '#2f7ef2', 1.6));
     }
@@ -300,5 +300,6 @@ export function artPlatformFlow() {
     '轮椅乘客需要电梯或坡道，换层时也要照顾他们。',
   ], { size: 17, fill: '#a9b8c8', lh: 29 }));
 
-  return sheet(W, H, g.join(''));
+  const waiting = '<style>@keyframes passenger-wait{0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-1px) rotate(1deg)}}.passenger-wait{animation:passenger-wait 4s ease-in-out infinite;transform-origin:0 0}</style>';
+  return sheet(W, H, waiting + g.join(''));
 }

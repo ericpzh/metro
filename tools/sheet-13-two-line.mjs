@@ -31,7 +31,7 @@ const ZT = -0.5;                       // the walls stop at the underside of the
 const ZR = ZF + 0.18;                  // rail top
 const ZC = ZP + 4;                    // B1 concourse: one real model storey above B2
 const CONCOURSE_END = 9.3;             // rear floor; the right apron reaches the upper landings
-const LANDING_X = X1 - 6, RUN_X = LANDING_X - 6;
+const LANDING_X = X1 - 6, RUN_X = LANDING_X - 7;
 const RUN_Y = [10.4, 11.9];           // paired escalators across the island
 const CONCRETE = '#' + FINISH_LIST.find(f => f.id === 'floor.concrete').tint.toString(16).padStart(6, '0');
 
@@ -304,15 +304,15 @@ export function artTwoLine() {
   }
   // The near wall faces into the island: its printed face is hidden from this
   // corner. Paint it after the crowd so passengers remain behind its glass.
-  model(L.screenNear, 'platform-edge-40-far', 24, PB1, ZP);
+  put(L.screenNear, 24, PB1, ZP, `<g id="interchange-near-psd">${stationPieceImage(pieces, 'platform-edge-40-far', 24, PB1, ZP)}</g>`);
   model(L.platformU + 70, 'platform-edge-40', 24, PB0, ZP);
   for (const [id, x, y] of [['bench-steel-1', 12, 12], ['bench-steel-1', 25, 12],
     ['bin', 6, 12], ['bin', 41, 12]]) model(L.crowdU, id, x, y, ZP);
 
   // A real quarter-turn of the 3D models, not a rotated image. Both climb
   // along +x into the projecting right apron, one 4 m storey, parallel to the trains.
-  model(L.runs, 'escalator-x', RUN_X, RUN_Y[0], ZP);
-  model(L.runs, 'escalator-x', RUN_X, RUN_Y[1], ZP);
+  for (const y of RUN_Y) put(L.runs, RUN_X, y, ZP,
+    `<g data-layer="escalator-run" mask="url(#interchange-psd-occlusion)">${stationPieceImage(pieces, 'escalator-x', RUN_X, y, ZP)}</g>`);
 
   /* ============================================================ 3. the crowd underground
    * Waiting passengers either side of the runs, and two walkers on the long axis, so the busiest
@@ -392,5 +392,9 @@ export function artTwoLine() {
   const concreteGrain = '<defs><pattern id="interchange-concrete-grain" width="64" height="64" patternUnits="userSpaceOnUse">'
     + Array.from({ length: 90 }, (_, i) => `<circle cx="${n(grain() * 64)}" cy="${n(grain() * 64)}" r="${n(.2 + grain() * .6)}" fill="${i % 2 ? '#fff' : '#000'}" opacity=".12"/>`).join('')
     + '</pattern></defs>';
-  return sheet(W, H, concreteGrain + fit.group(scene) + OV.join('') + g.join(''));
+  // Mask only the runs against the near screen, keeping the existing train /
+  // floor paint order. A global PSD band change would put glass over the train.
+  const occlusion = '<defs><filter id="interchange-black"><feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0"/></filter>'
+    + '<mask id="interchange-psd-occlusion" maskUnits="userSpaceOnUse" x="-5000" y="-5000" width="10000" height="10000"><rect x="-5000" y="-5000" width="10000" height="10000" fill="white"/><use href="#interchange-near-psd" filter="url(#interchange-black)"/></mask></defs>';
+  return sheet(W, H, concreteGrain + fit.group(occlusion + scene) + OV.join('') + g.join(''));
 }

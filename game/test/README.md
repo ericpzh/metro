@@ -1,4 +1,30 @@
+The active passenger source is the selected soft-human model. `passenger-library`
+requires 440 recipes (twenty outfits/category × eleven bags), both ages and all walks;
+`passenger-clothing` pins RGB colors, FBX/recipe hashes and source-body skirt bridge.
+`passenger-activity-assets` uses 16 bones, Hips index 15 and arms 9–14, with outward
+free arms. `passenger-view`, `passenger-size` and `passenger-lod` retain identity,
+scale, pause, picking, camera and one-draw-per-LOD contracts. Model tests pin single-skin
+waist joins and mathematical front strap clearance. Regenerate both atlases with
+`npm run bake:passengers`; see `game/src/assets/PASSENGERS.md`. Older catalogue
+notes below are historical.
+
+Ramp locomotion: `ramp-passengers` checks all escalator rail gestures, delayed
+boarders, children and stair presentation without changing simulation occupancy.
+`passenger-view` checks slope-distance stride, compaction, both ages/LODs and
+hand-carried rail poses. `node tools/check-game-ramp-animation.mjs` verifies the
+World transfer stream in production GPU draws and saves functional screenshots
+under `.preview/game-ramp-animation/`.
+`passenger-view` pins stable action handedness and bag precedence;
+`passenger-activity-assets` checks both hand palettes against the same real
+equipment targets. `tools/check-game-passenger-handedness.mjs` compares GPU
+pixels for both hands, both ages/LODs and left/right purses and handbags.
+
 `editor-build-fingerprint` pins canonical cross-platform source hashes and stale-input detection.
+
+`art-sheet-fixes` pins capture-only ramp dimensions without changing palette
+defaults, stable clothing variation, single-floor interface captures, idle queues
+and the interchange's local PSD occlusion. The generated 02 ramps use their walk
+surface as the landing datum; 13's landing slab covers the escalator underside.
 
 `editor-action-benchmark` guards the complete production palette/demo manifest,
 discrete setting families, cut orientations, valid production factories, compound
@@ -352,7 +378,7 @@ silhouette pairs for review. Node bounds alone cannot detect missing body surfac
 The suite retains
 the baked Low topology (every variant, padded the same way), the
 coarser body's unchanged shader contract and silhouette, one shared pose atlas with a
-separate index table and 70% High / 45% Low opacity, the per-storey split (the edited storey full, a ghosted storey
+separate index table and fully opaque High/Low materials with depth writes, the per-storey split (the edited storey full, a ghosted storey
 reduced, one draw when the crowd shares the edited storey), 低画质/隐藏UI, the recorded
 `passengerLevel` attribute, pause and clipping of both draws, and single shared-atlas
 disposal.
@@ -1018,7 +1044,7 @@ not carry passengers; derived zebra markings remain visual. Seeded spawns use ha
 Roads cut pedestrian routing on their own floor and swept movement keeps crowd
 pressure off the pavement. Editing a road beneath walkers relocates them to the
 nearest remaining pedestrian floor before replanning. Vehicle materials are
-grayscale and share the passenger material's 70% High / 45% Low opacity, with a depth prepass for self-occlusion.
+grayscale and use their own 70% High / 45% Low opacity policy, with a depth prepass for self-occlusion.
 `road-vehicles.test.mjs` covers all six procedural variants: grounded finite geometry,
 a 10% triangle cap with fixed High counts, visible outward tyres/hubs on both sides and windscreens, distinct rooflines,
 curb-side bus doors and exposed route/lamp surfaces, open bicycle spokes/basket,

@@ -5,7 +5,7 @@ import { resolve, join } from 'node:path';
 import { serveDir, withPage, waitFor } from './browser-harness.mjs';
 import { walkingSprite, walkingDefinitions } from './passenger-cards.mjs';
 import { passengerIsChild } from '../game/src/sim/walking.ts';
-import { MODEL_LIBRARY } from '../model/src/characters/library.js';
+import { SOFT_MODEL_LIBRARY as MODEL_LIBRARY } from '../model/src/soft-human/catalog.js';
 
 const repo = resolve(import.meta.dirname, '..');
 const port = Number(process.env.PASSENGER_ANIMATION_PORT ?? 4251);

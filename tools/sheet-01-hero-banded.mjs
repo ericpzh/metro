@@ -36,9 +36,9 @@ const PIECES = [
   ...Array.from({ length: 9 }, (_, i) => ['fence', i + .5, 7, 5]),
   ...Array.from({ length: 13 }, (_, i) => ['fence', i + 15.5, 7, 5]),
   ['lift-shaft', 3.3, 11.8, 1], ['lift-car', 3.3, 11.8, 1],
-  ['escalator', 12.5, 16, 1, 'circulation'],
-  ['escalator', 14, 16, 1, 'circulation'],
-  ['stair-straight', 16.6, 16, 1, 'circulation'],
+  ['escalator', 12.5, 17, 1, 'circulation'],
+  ['escalator', 14, 17, 1, 'circulation'],
+  ['stair-straight', 16.6, 17, 1, 'circulation'],
 ];
 
 function loadHeroPieces() {

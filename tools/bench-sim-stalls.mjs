@@ -158,7 +158,8 @@ try {
         contactShadows: scene.modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
           .map(root => ({ level: root.userData.levelZs[0], visible: root.visible, count: root.count })),
         passengerShadows: scene.crowd.blobs.count },
-      draws: scene.renderer.info.render.calls, triangles: scene.renderer.info.render.triangles };
+      draws: scene.renderer.info.render.calls, triangles: scene.renderer.info.render.triangles,
+      passengerMaterials: [scene.crowd.agents,scene.crowd.agentsLow].map(mesh=>({opacity:mesh.material.opacity,transparent:mesh.material.transparent,depthWrite:mesh.material.depthWrite,count:mesh.count})) };
   })()`)
   if (profile) {
     const { profile: cpu } = await page.send('Profiler.stop')

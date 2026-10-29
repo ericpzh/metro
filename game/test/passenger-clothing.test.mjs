@@ -6,17 +6,15 @@ import * as THREE from 'three'
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js'
 import human from '../src/assets/passenger-approved.json' with {type:'json'}
 import {passengerPose,PASSENGER_ADULT_OUTFITS,PASSENGER_CHILD_OUTFITS} from '../src/render/passengerModel.ts'
-import {decodePassengerBytes} from '../src/render/passengerAtlas.ts'
+import {decodePassengerBytes,restorePassengerFrames} from '../src/render/passengerAtlas.ts'
 import {passengerBakePart,passengerVertexKey,passengerExteriorGeometry} from '../../tools/passenger-bake-geometry.mjs'
 
-test('every baked clothing entry matches its current reviewed GLB export',()=>{
- const stale=[]
- for(const model of human.library.filter(m=>m.outfit)){
-  const data=readFileSync(new URL(`../../model/public/models/${model.file}`,import.meta.url))
-  const actual=createHash('sha256').update(data).digest('hex')
-  if(actual!==model.sourceSha256)stale.push({id:model.id,file:model.file,expected:model.sourceSha256,actual})
- }
- assert.deepEqual(stale,[],'clothing exports changed: regenerate the reviewed exports and game atlas with npm run bake:passengers')
+test('the game bake matches the selected FBX and every model recipe source',()=>{
+ const hash=b=>createHash('sha256').update(b).digest('hex')
+ assert.equal(hash(readFileSync(new URL('../../'+human.sourcePath,import.meta.url))),human.sourceSha256)
+ for(const [path,expected] of Object.entries(human.sourceHashes))assert.equal(hash(readFileSync(new URL('../../'+path,import.meta.url))),expected,path+' changed: run npm run bake:passengers')
+ assert.equal(hash(JSON.stringify(human.sourceHashes)),human.recipeSha256)
+ assert.match(human.license,/no redistribution license/)
 })
 
 test('the baker preserves morph identity and samples the same animated weights on detached parts',()=>{
@@ -38,21 +36,12 @@ test('the baker preserves morph identity and samples the same animated weights o
  geometry.dispose();part.geometry.dispose();mesh.material.dispose();mixer.stopAllAction();mixer.uncacheRoot(mesh)
 })
 
-test('all twenty clothes and both grey arrangements enter both age pools with exact flat tones',()=>{
- const clothes=human.library.filter(m=>m.outfit)
- assert.equal(clothes.length,40)
- const bytes=decodePassengerBytes(human.indices,human.encoding)
- const indices=new (human.indexBits===32?Uint32Array:Uint16Array)(bytes.buffer,bytes.byteOffset,bytes.byteLength/(human.indexBits/8))
- const regions=decodePassengerBytes(human.regions,human.encoding)
- for(const sex of ['female','male'])assert.equal(new Set(clothes.filter(m=>m.character===sex).map(m=>m.outfit)).size,10)
- for(const model of clothes){
-  const index=human.library.indexOf(model)
+test('all clothing and bag combinations enter both age pools with the authored RGB palette',()=>{
+ const raw=decodePassengerBytes(human.indices,human.encoding),ids=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer),regions=decodePassengerBytes(human.regions,human.encoding)
+ for(const [index,m] of human.library.entries()){
   assert(PASSENGER_ADULT_OUTFITS.includes(index)&&PASSENGER_CHILD_OUTFITS.includes(index))
-  assert(!model.bag&&model.hair!=='bald')
-  const pair=clothes.find(m=>m.character===model.character&&m.outfit===model.outfit&&m.swapTones!==model.swapTones)
-  assert(pair);assert.equal(pair.top,model.bottom);assert.equal(pair.bottom,model.top)
-  const palette=new Set(Array.from(indices.subarray(index*human.corners,(index+1)*human.corners),v=>human.palette[regions[v]]))
-  for(const color of [model.top,model.bottom])assert(palette.has(parseInt(color.slice(1,3),16)/255),`${model.id}: authored grey survives the bake`)
+  const colors=new Set(Array.from(ids.subarray(index*human.corners,(index+1)*human.corners),v=>human.paletteRGB[regions[v]]))
+  assert(colors.has(m.top),m.id+' top color');assert(colors.has(m.bottom),m.id+' bottom color')
  }
 })
 
@@ -77,90 +66,34 @@ test('the translucent game keeps outer cloth, exposed ankles and sleeves while o
  for(const g of [geometry,exterior,legs,visible])g.dispose()
 })
 
-test('the actual skirt bake omits hidden thighs, inward walls and horizontal caps at game opacity',()=>{
- const bytes=decodePassengerBytes(human.indices,human.encoding)
- const indices=new (human.indexBits===32?Uint32Array:Uint16Array)(bytes.buffer,bytes.byteOffset,bytes.byteLength/(human.indexBits/8))
- const regions=decodePassengerBytes(human.regions,human.encoding)
- for(const [variant,model] of human.library.entries())if(model.outfit&&model.garmentShape!=='trousers'){
-  const pose=passengerPose(0,variant),hem=model.outfit.startsWith('midi-')?.27:.19,bottom=parseInt(model.bottom.slice(1,3),16)/255
-  let outerFaces=0,ankles=0
-  for(let i=0;i<human.corners;i++){
-   const ink=human.palette[regions[indices[variant*human.corners+i]]],point=new THREE.Vector3(...pose.slice(i*3,i*3+3))
-   if(ink===.78&&point.z<hem+.02&&point.z>.10)ankles++
-   assert(!(ink===.78&&point.z>hem+.06&&point.z<.72&&Math.abs(point.y)<.20),`${model.id}: hidden thighs cannot show through the translucent skirt`)
+test('game skirts retain a flush waist, outward cloth shell and exposed legs',()=>{
+ const raw=decodePassengerBytes(human.indices,human.encoding),ids=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer),regions=decodePassengerBytes(human.regions,human.encoding)
+ for(const [variant,m] of human.library.entries())if(m.garmentShape==='skirt'){
+  const p=passengerPose(0,variant),hem=m.outfit.includes('blouse')||m.outfit==='rose-slate-skirt'?.16:.29;let cloth=0,exposed=0
+  for(let i=0;i<human.corners;i++){const color=human.paletteRGB[regions[ids[variant*human.corners+i]]],z=p[i*3+2]
+   if(color===m.bottom)cloth++
+   if(color==='#f2f1ed'&&Math.abs(p[i*3+1])<.34){assert(!(z>hem+.04&&z<.63),m.id+' hidden thigh');if(z<hem+.02)exposed++}
   }
-  for(let i=0;i<human.corners;i+=3){
-   const ids=indices.subarray(variant*human.corners+i,variant*human.corners+i+3)
-   if(new Set(ids).size<3||human.palette[regions[ids[0]]]!==bottom)continue
-   const [a,b,c]=[0,1,2].map(k=>new THREE.Vector3(...pose.slice((i+k)*3,(i+k)*3+3)))
-   const normal=b.clone().sub(a).cross(c.clone().sub(a)),center=a.clone().add(b).add(c).multiplyScalar(1/3)
-   if(normal.lengthSq()<1e-14)continue
-   assert(normal.x*(center.x-.035)+normal.y*center.y>0,`${model.id}: only the outward wall is rendered, without see-through caps or inner walls`)
-   outerFaces++
+  assert(cloth>300&&exposed>20,m.id+' cloth and feet survive')
+  let waist=0
+  for(let i=0;i<human.corners;i++)if(human.paletteRGB[regions[ids[variant*human.corners+i]]]===m.bottom&&Math.abs(p[i*3+2]-.64)<.004){
+   assert(Math.abs(p[i*3+1])<.299&&p[i*3]>-.213&&p[i*3]<.193,m.id+' rim meets the body without a projecting shelf');waist++
   }
-  assert(outerFaces>200&&ankles>20,'outer cloth and exposed ankles both survive the bake')
+  assert(waist>30,m.id+' flush waist seam survives simplification')
+  const walking=passengerPose(human.walkProfiles[1].firstFrame+6,variant)
+  assert(walking.some((v,i)=>Math.abs(v-p[i])>.02),'the skirt follows the moving pelvis')
  }
 })
 
-test('the actual baked skirts retain their exported clearance morphs through all three gaits',async()=>{
- const bytes=decodePassengerBytes(human.indices,human.encoding)
- const indices=new (human.indexBits===32?Uint32Array:Uint16Array)(bytes.buffer,bytes.byteOffset,bytes.byteLength/(human.indexBits/8))
- const regions=decodePassengerBytes(human.regions,human.encoding)
- let missingWithStaticSkirt=0
- for(const model of human.library.filter(m=>m.outfit&&m.garmentShape!=='trousers'&&!m.swapTones)){
-  const data=readFileSync(new URL(`../../model/public/models/${model.file}`,import.meta.url))
-  assert.equal(createHash('sha256').update(data).digest('hex'),model.sourceSha256,`${model.id}: the game uses the current reviewed GLB`)
-  const gltf=await new GLTFLoader().parseAsync(data.buffer.slice(data.byteOffset,data.byteOffset+data.byteLength),'')
-  const skirt=gltf.scene.getObjectByName('Long_skirt');assert.equal(skirt.morphTargetInfluences.length,72)
-  const variant=human.library.indexOf(model),bottom=parseInt(model.bottom.slice(1,3),16)/255
-  const corners=[]
-  for(let i=0;i<human.corners;i++)if(human.palette[regions[indices[variant*human.corners+i]]]===bottom)corners.push(i)
-  const used=[...new Set(corners.map(i=>indices[variant*human.corners+i]))]
-  assert(used.length>200,'the actual skirt surface survives simplification')
-  // The baker grounds the simplified sole, which can sit a few millimetres
-  // above the full GLB sole. Align the common skirt hem before comparing its
-  // actual shape; the library suite independently pins contact with the ground.
-  const key=v=>[v.x,v.y,v.z].map(x=>Math.floor(x/.004)).join(',')
-  const cloud=bakedHem=>{
-   const points=new Map(),point=new THREE.Vector3(),posed=[]
-   for(let i=0;i<skirt.geometry.attributes.position.count;i++){
-    skirt.getVertexPosition(i,point);posed.push(new THREE.Vector3(point.z,point.x,point.y))
-   }
-   const offset=Math.min(...posed.map(q=>q.z))-bakedHem
-   assert(offset>-.001&&offset<.05,`${model.id}: source/bake sole adjustment ${offset} stays within the simplified shoe`)
-   for(const q of posed){
-    q.z-=offset;const cell=key(q)
-    if(!points.has(cell))points.set(cell,[]);points.get(cell).push(q)
-   }
-   return points
-  }
-  const matches=(points,q)=>{
-   const cell=key(q).split(',').map(Number)
-   for(let x=-1;x<=1;x++)for(let y=-1;y<=1;y++)for(let z=-1;z<=1;z++)
-    if(points.get([cell[0]+x,cell[1]+y,cell[2]+z].join(','))?.some(p=>p.distanceTo(q)<.004))return true
-   return false
-  }
-  const mixer=new THREE.AnimationMixer(gltf.scene)
-  for(const [profile,clip] of gltf.animations.entries()){
-   mixer.stopAllAction();mixer.clipAction(clip).play()
-   for(const sample of [6,12,18]){
-    mixer.setTime(sample*clip.duration/24);gltf.scene.updateMatrixWorld(true);skirt.skeleton.update()
-    const pose=passengerPose(human.walkProfiles[profile].firstFrame+sample,variant)
-    const bakedHem=Math.min(...corners.map(i=>pose[i*3+2]))
-    const posed=cloud(bakedHem),weights=skirt.morphTargetInfluences.slice()
-    skirt.morphTargetInfluences.fill(0);const standingShell=cloud(bakedHem);skirt.morphTargetInfluences.splice(0,weights.length,...weights)
-    // Repeated triangle corners need only one check per actual baked vertex.
-    const seen=new Set()
-    for(const corner of corners){
-     const vertex=indices[variant*human.corners+corner];if(seen.has(vertex))continue;seen.add(vertex)
-     const point=new THREE.Vector3(...pose.slice(corner*3,corner*3+3))
-     assert(matches(posed,point),`${model.id}/${clip.name}/${sample}: baked cloth follows the exported moving shell`)
-     if(!matches(standingShell,point))missingWithStaticSkirt++
-    }
-   }
-  }
-  mixer.stopAllAction();mixer.uncacheRoot(gltf.scene)
-  gltf.scene.traverse(m=>{if(m.isMesh){m.geometry.dispose();for(const material of Array.isArray(m.material)?m.material:[m.material])material.dispose()}})
+
+test('the walking atlas preserves smooth source normals across shirt/skirt color boundaries',()=>{
+ const raw=decodePassengerBytes(human.indices,human.encoding),ids=new (human.indexBits===32?Uint32Array:Uint16Array)(raw.buffer),regions=decodePassengerBytes(human.regions,human.encoding)
+ const normals=restorePassengerFrames(new Int8Array(decodePassengerBytes(human.normals,human.encoding).buffer),human.vertices,human.poseEncoding)
+ for(const outfit of ['tee-skirt','blouse-skirt','blue-navy-skirt','rose-slate-skirt']){
+  const variant=human.library.findIndex(m=>m.outfit===outfit&&!m.bag),m=human.library[variant],p=passengerPose(0,variant),upper=new Map(),pairs=[]
+  for(let i=0;i<human.corners;i++)if(Math.abs(p[i*3+2]-.64)<.004){const id=ids[variant*human.corners+i],color=human.paletteRGB[regions[id]],key=Array.from(p.slice(i*3,i*3+3)).join(',');if(color===m.top)upper.set(key,id)}
+  for(let i=0;i<human.corners;i++)if(Math.abs(p[i*3+2]-.64)<.004){const id=ids[variant*human.corners+i],key=Array.from(p.slice(i*3,i*3+3)).join(',');if(human.paletteRGB[regions[id]]===m.bottom&&upper.has(key))pairs.push([id,upper.get(key)])}
+  assert(pairs.length>10,outfit+' has shared source seam points')
+  for(const [a,b]of pairs)for(const frame of [0,31,55])for(let axis=0;axis<3;axis++)assert(Math.abs(normals[(frame*human.vertices+a)*3+axis]-normals[(frame*human.vertices+b)*3+axis])<=2,'color boundaries cannot create a hard lighting seam')
  }
- assert(missingWithStaticSkirt>1000,'the regression rejects a standing skirt attached to a walking skeleton')
 })

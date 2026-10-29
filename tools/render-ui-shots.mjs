@@ -120,6 +120,7 @@ const SHOTS = [
       const THREE = cs.controls.target.constructor
       st.setTimePanel(false)
       st.setHideUI(false)
+      st.setGhostOther(false)
       st.setPlaying(false)
       st.setSpeed(1)
       // The camera stands where the **turnstiles** are, read off the station the

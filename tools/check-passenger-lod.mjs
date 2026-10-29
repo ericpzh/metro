@@ -2,20 +2,21 @@ import assert from 'node:assert/strict';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {serveDir,withPage,waitFor} from './browser-harness.mjs';
-import {MODEL_LIBRARY,modelEligible} from '../model/src/characters/library.js';
+import {SOFT_MODEL_LIBRARY as MODEL_LIBRARY,softModelEligible as modelEligible} from '../model/src/soft-human/catalog.js';
 import {passengerCaptureBatches} from './passenger-capture-plan.mjs';
 
 const out=resolve('.preview/perf/passenger-10pct');mkdirSync(out,{recursive:true});
 const quick=process.argv.includes('--quick');
 const cloth=process.argv.includes('--cloth');
-const variants=quick?[27,31,38,56,74,92,106,107,112,200]:MODEL_LIBRARY.flatMap((m,i)=>!cloth||(m.garmentShape&&m.garmentShape!=='trousers')?[i]:[]);
+const cases=[['male','commuter','daypack'],['male','white-denim','none'],['male','navy-sand','crossbody-right'],['female','tee-skirt','none'],['female','tee-skirt','hiking'],['female','blouse-skirt','none'],['female','blouse-skirt','crossbody-right'],['female','blue-navy-skirt','daypack'],['female','rose-slate-skirt','none'],['female','trail','purse-right']];
+const variants=quick?cases.map(([sex,outfit,bag])=>MODEL_LIBRARY.findIndex(m=>m.character===sex&&m.outfit===outfit&&m.bagStyle===bag)):MODEL_LIBRARY.flatMap((m,i)=>!cloth||(m.garmentShape&&m.garmentShape!=='trousers')?[i]:[]);
 const server=await serveDir(resolve('game/dist'),0);
 let page;
 try{
  page=await withPage({url:`http://127.0.0.1:${server.address().port}/?capture-passengers`,profile:resolve(out,`visual-${process.pid}`),debugPort:9396,softwareGpu:false});
  await waitFor(page.evaluate,'!!window.__passengerCardsReady',{what:'production passenger capture'});
  await page.evaluate(`window.__lodVisual={errors:[],rows:[],worst:[]};const original=console.error;console.error=(...args)=>{__lodVisual.errors.push(args.map(String).join(' '));original(...args)};window.addEventListener('error',e=>__lodVisual.errors.push(e.message));window.addEventListener('unhandledrejection',e=>__lodVisual.errors.push(String(e.reason)))`);
- for(const age of quick?['adult']:['adult','child'])for(let walkProfile=0;walkProfile<(quick?1:3);walkProfile++)for(const cycleVariants of passengerCaptureBatches(variants)){
+ for(const age of ['adult','child'])for(let walkProfile=0;walkProfile<(quick?1:3);walkProfile++)for(const cycleVariants of passengerCaptureBatches(variants)){
   const options={age,walkProfile,cycleVariants,reuseContext:true};
   await page.evaluate(`window.__lodFull=window.__passengerCards.capturePassengers(${JSON.stringify(options)})`);
   const count=await page.evaluate(`(async()=>{
@@ -47,7 +48,7 @@ try{
  writeFileSync(resolve(out,'worst-pairs.png'),Buffer.from(sheet.split(',')[1],'base64'));
  await page.evaluate('window.__passengerCards.disposePassengerCapture()');
  assert.deepEqual(report.errors,[]);
- const expected=quick?variants.filter(i=>modelEligible(MODEL_LIBRARY[i],'adult')).length*12:variants.reduce((n,i)=>n+Number(modelEligible(MODEL_LIBRARY[i],'adult'))+Number(modelEligible(MODEL_LIBRARY[i],'child')),0)*12*3;
+ const expected=quick?variants.reduce((n,i)=>n+Number(modelEligible(MODEL_LIBRARY[i],'adult'))+Number(modelEligible(MODEL_LIBRARY[i],'child')),0)*12:variants.reduce((n,i)=>n+Number(modelEligible(MODEL_LIBRARY[i],'adult'))+Number(modelEligible(MODEL_LIBRARY[i],'child')),0)*12*3;
  assert.equal(report.rows.length,expected);
  assert.equal(new Set(report.rows.map(r=>r.variant)).size,quick?variants.filter(i=>modelEligible(MODEL_LIBRARY[i],'adult')).length:variants.length);
  assert.ok(report.rows.every(r=>r.fullPixels>0&&r.lowPixels>0),'every appearance/pose/view draws pixels');

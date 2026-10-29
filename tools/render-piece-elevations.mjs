@@ -106,6 +106,7 @@ try {
       pxPerMetre: ${PX_PER_M},
       scale: ${SCALE},
       liftStoreys: ${LIFT_STOREYS},
+      ramp: {rise:4,run:7},
       flip: ${JSON.stringify(FLIP.map(modelId))},
       psdCells: ${PSD_CELLS},
       stationName: '地铁站',

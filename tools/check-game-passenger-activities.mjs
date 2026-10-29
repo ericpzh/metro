@@ -3,7 +3,7 @@ import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {serveDir,withPage,waitFor} from './browser-harness.mjs';
 import {ACTIVITY_NAMES,packActivity} from '../game/src/sim/activities.ts';
-import {MODEL_LIBRARY} from '../model/src/characters/library.js';
+import {SOFT_MODEL_LIBRARY as MODEL_LIBRARY} from '../model/src/soft-human/catalog.js';
 import {emptyStation} from '../game/src/data/reference-station.ts';
 import {buildGraph} from '../game/src/sim/station.ts';
 const out=resolve('.preview/game-passenger-activities');mkdirSync(out,{recursive:true});
@@ -11,8 +11,8 @@ const server=await serveDir(resolve('game/dist'),4293);
 const page=await withPage({url:'http://127.0.0.1:4293/?capture-passengers',profile:resolve('.preview/.chrome-game-activities'),debugPort:9403,windowSize:'1440,1000'});
 try {
  await waitFor(page.evaluate,'window.__passengerCardsReady',{tries:160,every:250});
- const variants=[...['male','female'].map(character=>MODEL_LIBRARY.findIndex(m=>m.character===character&&!m.bag&&!m.outfit)),
-  MODEL_LIBRARY.findIndex(m=>m.character==='male'&&m.bag&&!m.bagStyle),
+ const variants=[...['male','female'].map(character=>MODEL_LIBRARY.findIndex(m=>m.character===character&&!m.bag&&m.outfit==='commuter')),
+  MODEL_LIBRARY.findIndex(m=>m.character==='male'&&m.bagStyle==='daypack'),
   MODEL_LIBRARY.findIndex(m=>m.character==='female'&&m.bagType==='purse'&&m.bagSide==='right'),
   MODEL_LIBRARY.findIndex(m=>m.character==='male'&&m.bagType==='crossbody'&&m.bagSide==='right'),
   MODEL_LIBRARY.findIndex(m=>m.character==='female'&&m.outfit&&m.garmentShape!=='trousers'),
@@ -22,26 +22,29 @@ try {
  for(const detail of ['full','low'])for(const age of ['adult','child'])for(let activity=1;activity<ACTIVITY_NAMES.length;activity++){
   const result=await page.evaluate(`(async()=>{
    const cards=window.__passengerCards.capturePassengers(${JSON.stringify({detail,age,activity,activityTime:activity===5||activity===6?2:activity===7||activity===14?1.1:4,cycleVariants:variants,cycleHeading:0,reuseContext:true})});
-   const counts=[];
-   for(const card of cards){const image=new Image();image.src=card.png;await image.decode();const c=document.createElement('canvas');c.width=card.width;c.height=card.height;const g=c.getContext('2d');g.drawImage(image,0,0);const p=g.getImageData(0,0,c.width,c.height).data;let count=0;for(let i=3;i<p.length;i+=4)if(p[i]>10)count++;counts.push(count)}
+   const counts=[],opaque=[];
+   for(const card of cards){const image=new Image();image.src=card.png;await image.decode();const c=document.createElement('canvas');c.width=card.width;c.height=card.height;const g=c.getContext('2d');g.drawImage(image,0,0);const p=g.getImageData(0,0,c.width,c.height).data;let count=0,filled=0;for(let i=3;i<p.length;i+=4){if(p[i]>10)count++;if(p[i]===255)filled++}counts.push(count);opaque.push(filled)}
    if(${detail==='full'&&age==='adult'})window.__activityCards.push(...cards);
-   return {counts,diagnostics:window.__passengerCards.passengerCaptureDiagnostics()};
+   return {counts,opaque,diagnostics:window.__passengerCards.passengerCaptureDiagnostics()};
   })()`);
   assert(result.counts.every(n=>n>180),`${detail}/${age}/${activity}: missing body`);
+  assert(result.opaque.every(n=>n>40),'body interiors are fully opaque in the actual framebuffer');
   assert.equal(result.diagnostics.shaderErrors,0);assert.equal(result.diagnostics.calls,1,'activities retain one instanced draw');
+  assert.deepEqual(result.diagnostics.material,{opacity:1,transparent:false,depthWrite:true,depthTest:true},'every age/activity/LOD uses opaque depth-writing people');
   report.captures.push({detail,age,activity:ACTIVITY_NAMES[activity],...result});
  }
  const errors=await page.evaluate('window.__activityErrors');assert.deepEqual(errors,[]);
  const drape=await page.evaluate(`(async()=>{
-  const widths=[];
+  const measures=[],masks=[];window.__seatedSkirtCards=[];
   for(const time of [0,4]){
    const card=window.__passengerCards.capturePassengers({activity:1,activityTime:time,cycleView:'elevation',cycleHeading:0,cycleVariants:[${variants[5]}],reuseContext:true})[0];
-   const image=new Image();image.src=card.png;await image.decode();const canvas=document.createElement('canvas');canvas.width=card.width;canvas.height=card.height;const g=canvas.getContext('2d');g.drawImage(image,0,0);const pixels=g.getImageData(0,0,card.width,card.height).data;
-   let left=card.width,right=0;for(let y=140;y<195;y++)for(let x=0;x<card.width;x++){const i=(y*card.width+x)*4;if(pixels[i]>70&&pixels[i]<150&&pixels[i+3]>10){left=Math.min(left,x);right=Math.max(right,x)}}widths.push(right-left);
+   window.__seatedSkirtCards.push(card);const image=new Image();image.src=card.png;await image.decode();const canvas=document.createElement('canvas');canvas.width=card.width;canvas.height=card.height;const g=canvas.getContext('2d');g.drawImage(image,0,0);const pixels=g.getImageData(0,0,card.width,card.height).data;
+   const mask=new Uint8Array(card.width*card.height);let left=card.width,right=0,sum=0,count=0;for(let y=0;y<card.height;y++)for(let x=0;x<card.width;x++){const i=(y*card.width+x)*4;if(pixels[i+2]>pixels[i]*1.15&&pixels[i+1]>pixels[i]*1.08&&pixels[i+3]>10){left=Math.min(left,x);right=Math.max(right,x);sum+=x;count++;mask[y*card.width+x]=1}}measures.push({width:right-left,center:sum/count,pixels:count});masks.push(mask);
   }
-  return {standing:widths[0],seated:widths[1]};
+  let intersection=0,union=0;for(let i=0;i<masks[0].length;i++){intersection+=masks[0][i]&&masks[1][i];union+=masks[0][i]||masks[1][i]}return {standing:measures[0],seated:measures[1],overlap:intersection/union};
  })()`);
- assert(drape.seated>drape.standing*1.15,'seated skirt must drape across the lap rather than hang as a standing shell');report.drape=drape;
+ for(const [i,card]of(await page.evaluate('window.__seatedSkirtCards')).entries())writeFileSync(resolve(out,`source-skirt-${i?'seated':'standing'}.png`),Buffer.from(card.png.split(',')[1],'base64'));
+ assert(drape.standing.pixels>40&&drape.seated.pixels>40&&drape.overlap<.9,'the integrated skirt surface participates in the seated source pose');report.drape=drape;
  const details=await page.evaluate('window.__activityCards.filter(c=>c.view==="iso"&&[1,3,7,9,10].includes(c.activity)&&[3,5].includes('+JSON.stringify(variants)+'.indexOf(c.variant)))');
  for(const card of details)writeFileSync(resolve(out,`${card.activity}-${MODEL_LIBRARY[card.variant].id}.png`),Buffer.from(card.png.split(',')[1],'base64'));
  await page.evaluate(`(async()=>{document.body.style.cssText='margin:0;height:auto;overflow:visible;background:#eeefed;color:#444;font:14px system-ui';const grid=document.createElement('div');grid.style.cssText='display:grid;grid-template-columns:repeat(7,192px);gap:8px';for(const card of window.__activityCards.filter(c=>c.view==='iso')){const item=document.createElement('div');const image=new Image();image.src=card.png;image.style.cssText='width:150px;height:200px';await image.decode();item.append(image);const label=document.createElement('div');label.textContent=${JSON.stringify(ACTIVITY_NAMES)}[card.activity];item.append(label);grid.append(item)}document.body.replaceChildren(grid);await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})()`);

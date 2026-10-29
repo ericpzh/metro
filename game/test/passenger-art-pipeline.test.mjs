@@ -39,6 +39,13 @@ test('stale game builds and duplicate captured files cannot regenerate model art
  assert.throws(()=>validatePassengerCaptures(index,[...cycles,cycles[0]],library,24),/duplicate captured file/)
 })
 
+test('a changed model recipe invalidates captures even when the base FBX stays the same',()=>{
+ const {index,cycles,library}=fixture(1);library[0].recipeSha256='current-recipe'
+ for(const card of [...index,...cycles])card.recipeSha256='current-recipe'
+ assert.doesNotThrow(()=>validatePassengerCaptures(index,cycles,library,24))
+ assert.throws(()=>validatePassengerCaptures([{...index[0],recipeSha256:'old-recipe'},...index.slice(1)],cycles,library,24),/stale model recipe/)
+})
+
 test('the art requires complete child strides and rejects bags or bald child cards', () => {
  const {index,cycles,library}=fixture(3)
  Object.assign(library[0],{bag:false,hair:'short'})

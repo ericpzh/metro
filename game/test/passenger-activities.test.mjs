@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph, cellKey } from '../src/sim/station.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
-import { packActivity, unpackActivity, activityChoice, ACTIVITY_DURATION } from '../src/sim/activities.ts'
+import { packActivity, unpackActivity, ACTIVITY_DURATION } from '../src/sim/activities.ts'
 import { activityStopPlaces } from '../src/sim/activityStops.ts'
 import { isSimInertDecorModule } from '../src/sim/decorInert.ts'
 import { AgentState } from '../src/sim/types.ts'
@@ -124,9 +124,7 @@ test('public shopping errands never route somebody to an office or a restroom sh
  assert.ok(errands.includes('stop:store'));assert.ok(!errands.includes('stop:office')&&!errands.includes('stop:toilet'))
 })
 
-test('handrail use varies by identity and does not consume routing randomness',()=>{
- const choices=Array.from({length:1000},(_,i)=>activityChoice(i+1,0x62a3)<.62)
- assert.ok(choices.filter(Boolean).length>550&&choices.filter(Boolean).length<700)
+test('render sampling does not consume routing randomness',()=>{
  const a=new World(fixture(),123),b=new World(fixture(),123)
  for(let i=0;i<4;i++){visitor(a);visitor(b)}
  for(let tick=0;tick<100;tick++){

@@ -1,6 +1,6 @@
 ---
 name: metro-model
-description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, the soft-human motion-study preview, and shared game crowd atlas. Use for model/ or tools/bake-approved-passenger.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
+description: Work on the metro repository model/ character library, reviewed hair and bag variants, silhouette and strap cleanup, walking clips, GLB exports, the soft-human motion-study preview, and shared game crowd atlas. Use for model/ or tools/bake-soft-passengers.mjs changes. Route game renderer/simulation work through metro-game and test work through metro-game-test.
 ---
 
 # Metro model library
@@ -41,17 +41,41 @@ boundary regression is `model/test/candidate-boundaries.test.mjs`; run
 `node tools/check-human-candidates.mjs` for the preview UI and study sheets, then
 `node model/node_modules/vite/bin/vite.js build model`.
 
-## Soft-human motion study
+## Selected soft-human model and game promotion
 
 **Selected-base update:** the user explicitly selected the new
-`public/human-candidates/human-fall-flat/HumanBody_Alt.fbx` as the base for this
-page. This supersedes the procedural-only restriction below for the model
-preview. `src/soft-human/imported-base.js` preserves its skin, source weights and
+`public/human-candidates/human-fall-flat/HumanBody_Alt.fbx` as the base for the preview and game crowd. This supersedes the historical
+procedural-only and preview-isolation restrictions below. `src/soft-human/imported-base.js` preserves its skin, source weights and
 smooth normals, rebases its 15 source bones plus a Hips root, and exposes measured
 limb/wardrobe coordinates to the existing clothing, bag and activity layers.
 `main.js` and `scripts/export-soft-human.mjs` use this selected base. Keep the
 procedural constructor as a historical fixture; the old tests still cover it.
 Add regressions against the actual FBX in `soft-human-imported.test.mjs`.
+`wardrobe.js` owns `SEXES` and `outfitsForSex`: twenty wearable outfits in each
+male/female category on the same body. Pink `trail`, `tee-skirt` and
+`blouse-skirt` are female-only; `beach` (Summer stripes), `sport-shorts` and
+`casual-shirt` are male-only. `plain` is an exportable fixture outside the twenty
+wearables. Cotton tees and polos have perpendicular upper-arm sleeve cuts and
+clean shorts hems. Category changes preserve shared outfits, bag, age and
+animation, falling back to `commuter` when needed. Run `soft-human-casual.test.mjs`
+and `tools/check-soft-human-casual.mjs` for categories, boundaries and both ages.
+`skirt.js` now edits the selected source body: preserve the waist, hips and outer
+legs, replace the central inner-thigh/crotch patch below 0.50 m with smooth front
+and back connections, and close the remaining gap at the hem. Paint this single
+skin like trousers. This user-approved construction supersedes separate skirt
+shells, superellipse flares, waist rims and extra cap thickness. Connector edges
+must conform to the source cuts and share weights/normals, avoiding posed
+T-junctions. Sum duplicate padded skin IDs rather than overwriting a real
+bone-zero hip influence. `soft-human-skirt.test.mjs` pins protected source vertices, one-skin
+waist colors, filled front/back gaps, leg weights, activities and GLB round trips.
+Eight shared color/cut combinations plus two male and two female additions bring
+both categories to twenty. New skirts are `blue-navy-skirt` and
+`rose-slate-skirt`; keep Pink trail and Summer stripes eligibility unchanged.
+The game bake must retain source smooth normals across color boundaries; never
+recompute each material region's normals independently. The front strap envelope
+retains its mathematical clearance; no per-frame geometry fitting is introduced.
+`export-soft-human.mjs --sex=...` validates category and adds it to filenames;
+legacy example filenames remain stable without the option.
 Restore bind joint positions and age width when leaving narrow activity poses.
 The selected base's outward A-pose is already baked into its bind geometry:
 walking and idle use `restArmAngle: 0` and retain that spread while swinging
@@ -64,6 +88,16 @@ returns to the outward default. This user direction supersedes the legacy
 narrow-lane tucking rule below. Keep tests against the imported base and live
 activity checker aligned; full collision audits may report the deliberately
 outstretched free arm in adult-sized narrow equipment.
+`activities.js` accepts `anchors.hand` (`default`, `right`, `left`). A hand-owned
+purse/handbag reserves its carrying hand when no explicit bake mode is supplied.
+Keep left/right reaches on the same equipment target; do not mirror a screen or
+belt away. Opposite-side rail reaches turn the chest into the reach, and a held
+bag allows only the free hand to wash. The game bake stores all three hand modes
+per height fit. Pin target identity/free-arm pose in `soft-human-handedness` and
+both-mode GPU palettes in `passenger-activity-assets`.
+Reach clearance uses joint lengths in the IK rig frame, including independent
+height scaling; a small chest turn must bring the target within reach before
+solving the elbow. World-space lengths would miss short/tall opposite-hand reaches.
 The selected base uses `mathematical-strap.js`: authored Bezier shoulder arcs,
 an analytic torso profile, and a level superellipse for the backpack lower return
 in `torso-fit.js`. User feedback explicitly rejected geometry-fitted straps.
@@ -80,13 +114,23 @@ body-facing surface behind the torso so that an attached end is not occluded by
 the back. Do not restore arm-influenced strap weights or adaptive surface fitting.
 Preserve the source readme and hash in export provenance: it describes a game
 extract and supplies no redistribution license. Do not describe the selected FBX
-as original procedural geometry. The game atlas remains unchanged by this preview
-migration; model-app isolation still applies.
+as original procedural geometry. The user has explicitly promoted this model into the game.
+`catalog.js` derives 440 recipes (twenty outfits/category × eleven bags), all
+eligible at both ages. `npm run bake:passengers` runs
+`tools/bake-soft-passengers.mjs`, consuming the exact preview constructors to
+produce walking and activity atlases. Record source and recipe input hashes.
+The selected 16-bone rig has Hips index 15 and arms 9–14; preserve explicit rig
+metadata and update GPU/camera assumptions with it. Keep one draw per visible
+LOD and no live passenger skeleton. Offline tooling may import model code;
+game runtime consumes only generated assets. Game people use fully opaque, depth-writing materials at both LODs. This
+supersedes the legacy 70%/45% policy below; source atlases do not need rebaking
+for this render-only setting. The integrated skirt is already the body exterior, including its leg bridge. Do
+not strip the lower body or apply the old shell drape in the game shader. Ordinary
+source skinning owns walking and seating. GLB downloads include this same geometry. See `game/src/assets/PASSENGERS.md`.
 
-`model/soft-human.html` (linked from the model library as **Soft human**) is a
-separate, preview-only study inspired by Human: Fall Flat references. It is not
-in the reviewed catalogue, the game crowd atlas or the passenger bake. Keep it
-that way unless the user explicitly asks to promote the style.
+`model/soft-human.html` is the editing/review surface for the active game base.
+Historical procedural constructors and the older 232-export viewer remain
+available as fixtures; they no longer own the game's crowd catalogue.
 
 - `src/soft-human/character.js` owns the original implicit sculpt. One marching-
   cubes field produces the continuous skin (skull, torso, mitten hands, legs),
@@ -100,15 +144,14 @@ that way unless the user explicitly asks to promote the style.
 - `src/soft-human/wardrobe.js` splits the actual skinned triangles into eight
   opaque material regions at garment/lapel/tie/shoe boundaries, so clothes survive
   GLB export without a shader. Preserve skin area, winding and per-vertex weights
-  when adding outfits. `OUTFITS` and `BACKPACKS` drive the selectors; eight outfits
-  include three formal suits, and the pack list adds eight carried-bag variants.
+  when adding outfits. `OUTFITS`/`outfitsForSex` and `BACKPACKS` drive the selectors; twenty wearable
+  outfits per category include the formal suits, and the pack list adds eight carried-bag variants.
   The plain/base rig must remain exportable.
 - `carried-bags.js` adapts hip, shoulder/crossbody and hand-held shapes to this
-  rig; `bag-shell.js` is the tapered fabric envelope; `strap-fit.js` fits both
-  ribbon edges to the actual bind skin and corrects barycentric LBS error from the
-  posed triangle each frame (no per-frame raycasting). `bag-connectors.js` bridges
-  each fitted end into the bag anchor. Keep continuous attachment and stable bag
-  placement over collision-driven jumps; some skin overlap is accepted.
+  rig. `bag-shell.js` owns the fabric envelope; selected-base straps use the
+  mathematical builder and fixed bag anchors. `strap-fit.js` retains the old
+  procedural fixture's surface-fitting implementation only. Keep selected-base
+  ribbons torso-owned, with exact endpoint attachment and no surface fitting.
 - `src/soft-human/activities.js` derives `SOFT_ACTIONS` from
   `game/src/sim/activities.ts` (20 actions: three walks, every non-walk activity
   including left-hand escalator, plus idle/reach/float) and adapts the production
@@ -126,7 +169,7 @@ that way unless the user explicitly asks to promote the style.
 
 The page exports the current pose, clothing, pack and cap visibility, but no
 procedural clips or equipment. Keep the model-app isolation: never import
-`src/soft-human/` from `game/` or use it as the game crowd.
+`src/soft-human/` from game runtime. The offline bake owns game promotion.
 
 ### Soft-human validation
 
@@ -174,7 +217,11 @@ Work from the metro root. Read `model/README.md` and
 `game/src/assets/PASSENGERS.md`. For a new character reconstruction also use
 `stylized-3d-character`. This skill owns the existing reviewed character pipeline.
 
-## Ownership and contracts
+## Historical 232-export library ownership and contracts
+
+The following describes the retained legacy viewer/export tools. Use the
+selected-base catalogue and bake above for the active game crowd. Do not run a
+legacy baker against the active assets during ordinary model work.
 
 - `model/src/characters/library.js` is the catalogue: original/short/bald male
   and bob/shoulder/long female templates, bagless/full/small backpacks, 75% and

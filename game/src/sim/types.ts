@@ -872,6 +872,10 @@ export const AgentState = {
 } as const
 export type AgentStateValue = (typeof AgentState)[keyof typeof AgentState]
 
+/** Presentation can distinguish a stair walk from a transported ride without
+ * changing the simulation's capacity, collision or routing state. */
+export const AgentRenderState = { ...AgentState, StairWalking: 9 } as const
+
 export const STATE_LABEL: Record<number, string> = {
   0: 'arriving',
   1: 'walking',

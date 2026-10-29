@@ -30,6 +30,8 @@ const unknown=process.argv.slice(2).filter(arg=>arg!=='--from-game');
 if(unknown.length)throw new Error(`Unknown option: ${unknown.join(', ')}`);
 if(!process.argv.includes('--from-game'))npmRun('run','bake:passengers');
 npmRun('--prefix','game','run','build');
+node('tools/render-piece-elevations.mjs','--port',await freePort(),'--debug-port',await freePort());
+node('tools/render-piece-views.mjs','--hero','--scale','4','--port',await freePort(),'--debug-port',await freePort());
 env.PASSENGER_CAPTURE_PORT=await freePort();
 env.PASSENGER_CAPTURE_DEBUG_PORT=await freePort();
 node('tools/render-passenger-cards.mjs');

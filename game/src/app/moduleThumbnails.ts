@@ -1,4 +1,5 @@
 import { msg } from '../sim/i18n.ts'
+import { captureRamp } from './captureRamp.ts'
 // Equipment thumbnails for the build rail's PNG asset generator and concept-art captures.
 //
 // The left rail shows the *actual* in-game equipment, not a stand-in glyph: this
@@ -643,6 +644,8 @@ export interface PieceElevations {
    * than left at the single rise a palette icon shows.
    */
   liftStoreys?: number
+  /** Explicit art-storey dimensions for square-on stair/escalator captures. */
+  ramp?: {rise: number; run: number}
   /**
    * Ids whose **readable face points away** from the camera, and which are therefore
    * turned through 180° before they are drawn.
@@ -681,6 +684,8 @@ export interface PieceElevations {
  * it needs no angle of its own.
  */
 export interface PieceView {
+  /** Authored sheet connections may differ from the current palette default. */
+  ramp?: {rise: number; run: number}
   /** Capture the same model under another id, for independently turned views. */
   modelId?: string
   /** Extra framing margin for small pieces with fine antialiased edges. */
@@ -1215,6 +1220,7 @@ export async function renderModulePieces(
       const psdCells = views?.[opt.id]?.psdCells ?? elevations?.psdCells
       if (mod && mod.type === 'platform-edge' && psdCells) mod = { ...mod, w: psdCells }
       if (!mod) continue
+      mod = captureRamp(mod, views?.[opt.id]?.ramp ?? elevations?.ramp)
       // A 电梯 is stacked to the storeys the caller asked for before anything is measured:
       // its shaft, not its rise, is what a section draws.
       if ((opt.id === 'lift' || opt.id === 'lift-shaft') && (elevations?.liftStoreys ?? 1) > 1 && mod.type === 'lift') {
@@ -1331,7 +1337,7 @@ export async function renderModulePieces(
         // shaft. Both carry a little more than one storey above the floor they arrive at —
         // an escalator's balustrade, a lift's overrun — and that is left in, because the
         // game draws it and a shaft's headroom is real.
-        const z0 = box.min.z
+        const z0 = elevations.ramp && (mod.type === 'escalator' || mod.type === 'stair') ? mod.from.z + 1 : box.min.z
         const z1 = box.max.z + pad
         const wPx = Math.max(8, Math.round((x1 - x0) * px))
         const hPx = Math.max(8, Math.round((z1 - z0) * px))

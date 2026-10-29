@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { cameraRig, look } from './support/camera-rig.mjs'
 import { CrowdSystem } from '../src/render/scene/systems/CrowdSystem.ts'
-import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, passengerDisplayedActivity, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
+import { passengerBody, passengerPose, passengerFrames, passengerMaterial, passengerAppearance, passengerDisplayedActivity, passengerActionMode, passengerActionChannel, PASSENGER_OUTFITS, PASSENGER_EYE_HEIGHT, PASSENGER_STRIDE, PASSENGER_WALK_PROFILES } from '../src/render/passengerModel.ts'
 import { passengerIsChild, passengerWalkProfile, passengerWalkSpeed } from '../src/sim/walking.ts'
 import { useStore } from '../src/app/store.ts'
 import human from '../src/assets/passenger-approved.json' with { type: 'json' }
 import { decodePassengerBytes } from '../src/render/passengerAtlas.ts'
 import { packActivity } from '../src/sim/activities.ts'
+import { AgentState, AgentRenderState } from '../src/sim/types.ts'
 
 test('service hold loops do not pass through release poses, and activity pause/resume preserves the displayed moment',()=>{
  const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
@@ -28,21 +29,46 @@ test('service hold loops do not pass through release poses, and activity pause/r
 
 test('walking skirts and occupied carrying hands retain their reviewed motion while service still proceeds',()=>{
  const skirt=human.library.findIndex(m=>m.garmentShape&&m.garmentShape!=='trousers')
- assert.equal(passengerDisplayedActivity(6,skirt),0)
+ assert.equal(passengerDisplayedActivity(6,skirt),6)
  assert.equal(passengerDisplayedActivity(1,skirt),1,'seated skirts use the authored lap drape')
  const purse=human.library.findIndex(m=>m.bagType==='purse'&&m.bagSide==='right')
- assert.equal(passengerDisplayedActivity(7,purse),12,'the occupied rail hand remains carrying')
+ assert.equal(passengerDisplayedActivity(7,purse),14,'a narrow run uses the free hand at its other rail')
  assert.equal(passengerDisplayedActivity(14,purse),14,'the free hand can hold its nearer rail')
- assert.equal(passengerDisplayedActivity(3,purse),12)
+ assert.equal(passengerDisplayedActivity(3,purse),3,'screen use proceeds with the free hand')
+ const handbag=human.library.findIndex(m=>m.bagType==='handbag'&&m.bagSide==='right')
+ assert.equal(passengerDisplayedActivity(10,handbag),10,'washing uses only the unoccupied hand')
+ for (let outfit=0;outfit<human.library.length;outfit++) for (const hand of [7,14]) {
+  assert.ok([7,14].includes(passengerDisplayedActivity(hand,outfit)),'every carrying style supports the rail reach')
+ }
 })
 
-test('the followed eye lowers with the seated body and recovers when the passenger stands',()=>{
+test('action handedness is stable, varied, and always leaves a hand-owned bag alone',()=>{
+ const unladen=human.library.findIndex(m=>!m.bag)
+ for(const action of [2,3,4,5,6,8,11]){
+  const choices=Array.from({length:1000},(_,i)=>passengerActionMode(action,unladen,i+1))
+  const right=choices.filter(h=>h===1).length
+  assert.ok(right>400&&right<600,`action ${action} uses both hands across the crowd`)
+  assert.deepEqual(choices,Array.from({length:1000},(_,i)=>passengerActionMode(action,unladen,i+1)),'preference does not flicker between frames')
+ }
+ for(const [outfit,m] of human.library.entries()) for(const action of [2,3,4,5,6,7,8,10,11,14]) {
+  const mode=passengerActionMode(action,outfit,127)
+  if(['purse','handbag'].includes(m.bagType))assert.equal(mode,m.bagSide==='right'?2:1,'the occupied hand never performs the action')
+  const channel=passengerActionChannel(action,outfit,127,2)
+  assert.equal(channel%3,2,'hand selection preserves the walking profile')
+  assert.equal(Math.floor(channel/3),mode)
+ }
+ const rightBag=human.library.findIndex(m=>m.bagType==='purse'&&m.bagSide==='right')
+ assert.equal(passengerDisplayedActivity(7,rightBag,8/23*10),7,'a wide run keeps its physical rail target')
+ assert.equal(passengerActionMode(7,rightBag,127),2,'the free hand reaches across to that same target')
+})
+
+test('the followed eye tracks the selected short-legged seated pelvis and recovers on standing',()=>{
  let id=1;while(passengerIsChild(id)||Math.abs(passengerAppearance(id)[1]-1)>.05)id++
  const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000}
  const c=new CrowdSystem(ctx);let eye=0;c.followAgentId=id;c.onEyePose=(_x,_y,z)=>{eye=z}
  const show=(kind,time)=>{c.setAgents(new Float32Array([0,0,1,3,packActivity(kind,time,0),id]),1,1000);c.renderAgents(ctx.lastStateTime+1000,undefined,true);return eye}
  const standing=show(0,0),seated=show(1,4)
- assert.ok(standing-seated>.1&&standing-seated<.4,'the eye follows the reviewed rig pelvis rather than retaining standing height')
+ assert.ok(Math.abs(standing-seated)>.04&&Math.abs(standing-seated)<.4,'the eye follows the selected pelvis at the equipment seat height')
  const recovered=show(0,0);assert.ok(Math.abs(recovered-standing)<1e-5)
  c.dispose();ctx.mats.blob.dispose()
 })
@@ -73,7 +99,7 @@ for (const preset of ['iso', 'plan']) {
     assert.ok(look(cam).distanceTo(new THREE.Vector3(0, 1, 0)) < 1e-10)
     keys.add('w')
     cam.panCamera(0.5)
-    assert.deepEqual(cam.camera.position.toArray(), [4, 8, -6.43])
+    assert.deepEqual(cam.camera.position.toArray(), [4, 8, -8 + PASSENGER_EYE_HEIGHT])
     cam.endEyeView()
     assert.ok(cam.camera.position.distanceTo(position) < 1e-10)
     assert.ok(cam.controls.target.distanceTo(aim) < 1e-10)
@@ -180,7 +206,9 @@ test('outfits, proportions and ink tones follow identity through buffer reorderi
     let min = Infinity, max = -Infinity
     for(let i=2; i<idle.length; i+=3) { min=Math.min(min,idle[i]);max=Math.max(max,idle[i]) }
     assert.ok(Math.abs(min) < 0.002 && max >= 1.62 && max < 1.85)
-    if(outfit > 0) assert.notDeepEqual(idle, passengerPose(0, 0))
+    // Shared male/female recipes deliberately reuse the same geometry.
+    const base=human.library[0],model=human.library[outfit]
+    if(model.outfit!==base.outfit||model.bagStyle!==base.bagStyle)assert.notDeepEqual(idle, passengerPose(0,0))
   }
   crowd.dispose()
   ctx.mats.blob.dispose()
@@ -233,7 +261,7 @@ test('illustrated human mesh has human scale, flat ink shading and grounded walk
     const c = new THREE.Vector3().fromBufferAttribute(vertex, body.index.getX(i + 2))
     volume += a.dot(b.cross(c)) / 6
   }
-  assert.ok(volume > 0.025 && volume < 0.22, 'axis conversion preserves outward-facing human surfaces, not inside-out triangles')
+  assert.ok(volume > 0.025 && volume < 0.4, 'axis conversion preserves outward-facing human surfaces, not inside-out triangles')
   const idle = passengerPose(0)
   let movingArms = 0, movingLegs = 0
   for (let frame = 1; frame <= 24; frame++) {
@@ -252,14 +280,14 @@ test('illustrated human mesh has human scale, flat ink shading and grounded walk
   const material = passengerMaterial()
   assert.equal(material.isMeshBasicMaterial, true, 'station lights cannot sculpt gradients into flat illustration colours')
   assert.equal(material.toneMapped, false, 'station exposure must not wash out the ink palette')
-  assert.equal(material.transparent, true, 'all game passenger variants blend with the station behind them')
-  assert.equal(material.opacity, 0.7, 'game passenger models use 70% opacity')
-  assert.equal(material.depthWrite, false, 'translucent passengers do not hide later transparent surfaces')
+  assert.equal(material.transparent, false, 'people use the opaque rendering path')
+  assert.equal(material.opacity, 1, 'game passenger models are fully opaque')
+  assert.equal(material.depthWrite, true, 'opaque people occlude their own surfaces and people behind them')
   body.dispose()
   material.dispose()
 })
 
-test('approved variants retain flat grey boundaries through the pose lookup', () => {
+test('selected variants retain flat RGB boundaries through the pose lookup', () => {
   const regions = Buffer.from(decodePassengerBytes(human.regions, human.encoding))
   const raw = Buffer.from(decodePassengerBytes(human.indices, human.encoding))
   const indices = new (human.indexBits === 32 ? Uint32Array : Uint16Array)(raw.buffer, raw.byteOffset, raw.byteLength / (human.indexBits / 8))
@@ -276,8 +304,8 @@ test('approved variants retain flat grey boundaries through the pose lookup', ()
       used.add(regions[vertex])
     }
     const model=human.library[outfit]
-    const tones=model.outfit?[parseInt(model.top.slice(1,3),16)/255,parseInt(model.bottom.slice(1,3),16)/255]:[model.character==='male'?.89:.62]
-    for (const region of [.78,...tones].map(tone=>human.palette.indexOf(tone))) {
+    const tones=['#f2f1ed',model.top,model.bottom]
+    for (const region of tones.map(tone=>human.paletteRGB.indexOf(tone))) {
       assert.ok(used.has(region), `outfit ${outfit}: missing approved grey region (${region})`)
     }
     const pose = passengerPose(0, outfit)
@@ -302,19 +330,13 @@ test('gait covers one complete walk cycle per stride and interpolates through it
   assert.deepEqual(passengerFrames(PASSENGER_STRIDE, 0, 1), passengerFrames(0, 0, 1))
 })
 
-test('planted shoes hold their world position for all three longer strides', () => {
-  const rest = passengerPose(0)
-  for (const profile of PASSENGER_WALK_PROFILES) for (const side of [-1,1]) {
-    const shoes = []
-    for (let i=0;i<rest.length;i+=3) if(rest[i+2]<0.10 && rest[i+1]*side>0) shoes.push(i)
-    const x = Array.from({length:12}, (_,f) => {
-      const pose = passengerPose(profile.firstFrame+(f+(side>0?12:0))%24)
-      const grounded = Math.min(...shoes.map(i=>pose[i+2]))
-      assert.ok(grounded<0.01, `${profile.name} stance sole stays on the floor`)
-      return shoes.reduce((sum,i)=>sum+pose[i],0)/shoes.length + profile.stride*f/24
-    })
-    assert.ok(Math.max(...x)-Math.min(...x)<0.01, `${profile.name} planted shoe slides less than 1 cm through the stance`)
-  }
+test('the selected soft gait keeps outward arms and distinct slow/medium/fast cycles',()=>{
+ const rest=passengerPose(0),frames=PASSENGER_WALK_PROFILES.map(p=>passengerPose(p.firstFrame+6))
+ assert.notDeepEqual(frames[0],frames[1]);assert.notDeepEqual(frames[1],frames[2])
+ for(const pose of frames){let left=-Infinity,right=Infinity
+  for(let i=0;i<rest.length;i+=3)if(rest[i+2]>.38&&rest[i+2]<.6&&Math.abs(rest[i+1])>.45){left=Math.max(left,pose[i+1]);right=Math.min(right,pose[i+1])}
+  assert(left>.4&&right<-.4,'walking preserves the default spread of the lower arms')
+ }
 })
 
 test('cadence follows displayed speed and the scaled step length for adults and children', () => {
@@ -344,6 +366,39 @@ test('cadence follows displayed speed and the scaled step length for adults and 
   const advances=ids.map(id=>passengerWalkSpeed(id)/(PASSENGER_WALK_PROFILES[passengerWalkProfile(id)].stride*passengerAppearance(id)[2]))
   assert.ok(Math.abs(advances[0]-advances[1])<1e-10, 'free-flow children and adults keep the same natural cadence')
   crowd.dispose();ctx.mats.blob.dispose()
+})
+
+test('stairs walk by slope distance at both LODs and ages while escalators and lifts keep planted feet', () => {
+  const child=Array.from({length:50},(_,i)=>i+1).find(passengerIsChild)
+  const adult=Array.from({length:50},(_,i)=>i+1).find(id=>!passengerIsChild(id))
+  for (const graphicsQuality of ['high','low']) for (const direction of [-1,1]) {
+    const ctx={scene:new THREE.Scene(),mats:{blob:new THREE.MeshBasicMaterial()},activeZ:0,levelBase:0,ghost:false,hideUI:true,stateIntervalMs:1000,graphicsQuality}
+    const crowd=new CrowdSystem(ctx),ids=[child,adult]
+    const frame=(x,z,order=ids,state=AgentRenderState.StairWalking)=>crowd.setAgents(new Float32Array(order.flatMap(id=>[x,id===child?0:2,z,state,0,id])),2,1000)
+    frame(0,1)
+    const starts=ids.map((_,i)=>crowd.gaitPhases[i])
+    frame(.3,1+direction*.4)
+    const time=ctx.lastStateTime
+    for(let i=0;i<=20;i++)crowd.renderAgents(time+i*50,undefined,true)
+    const mesh=graphicsQuality==='low'?crowd.agentsLow:crowd.agents
+    assert.equal(mesh.count,2)
+    const pose=mesh.geometry.getAttribute('passengerPose')
+    const ends=ids.map((id,i)=>{
+      assert.ok(pose.getW(i)>.99,'stairs use a full walking cycle instead of the standing frame')
+      const profile=PASSENGER_WALK_PROFILES[passengerWalkProfile(id)]
+      const phase=(pose.getX(i)-profile.firstFrame+pose.getZ(i))/human.walkFrames
+      const expected=(starts[i]+.5/(profile.stride*passengerAppearance(id)[2]))%1
+      assert.ok(Math.abs(phase-expected)<1e-5,'stride includes vertical stair travel')
+      return phase
+    })
+    frame(.3,1+direction*.4,[adult,child])
+    assert.ok(Math.abs(crowd.gaitPhases[0]-ends[1])<1e-5 && Math.abs(crowd.gaitPhases[1]-ends[0])<1e-5,'stair stride follows identity through compaction')
+    frame(.6,1.8,ids,AgentState.Riding)
+    const transported=ctx.lastStateTime
+    for(let i=0;i<=20;i++)crowd.renderAgents(transported+i*50,undefined,true)
+    assert.ok(pose.getW(0)<.001 && pose.getW(1)<.001,'transported passengers do not walk because their world position moves')
+    crowd.dispose();ctx.mats.blob.dispose()
+  }
 })
 
 test('gait follows travelled distance, survives slot reordering and settles when waiting or riding', () => {

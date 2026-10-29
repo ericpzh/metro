@@ -7,7 +7,7 @@
     },
     {
       "path": "model/src/soft-human/imported-base.js",
-      "sha256": "691db8ef424d2c4a2ada2cfd7ecd04b06fabc2be1a6a1458533e81ba36872377"
+      "sha256": "884d61f344d708b0bcdb10a16a9155e2746eeb3002e5bf766c718f8aeb8c480c"
     },
     {
       "path": "model/src/soft-human/character.js",
@@ -15,7 +15,11 @@
     },
     {
       "path": "model/src/soft-human/wardrobe.js",
-      "sha256": "65425c08abf059a2dcaf50a39ea2e300a7148f556c999167bf27b02681fa5316"
+      "sha256": "cfc97e80af14e1d065c99ff5311589c89f53fd77e9368e44c7cfa39ae7bee710"
+    },
+    {
+      "path": "model/src/soft-human/skirt.js",
+      "sha256": "2a6118e18f4631a9b320a067a2a6d98741a9c95a8b126485cfbcb30d05e3ea5c"
     },
     {
       "path": "model/src/soft-human/mathematical-strap.js",
@@ -27,7 +31,7 @@
     },
     {
       "path": "model/src/soft-human/torso-fit.js",
-      "sha256": "0244b98e9e6ee9be25abea8273ea238713db729c6fb1abafb65639ee52bb53bd"
+      "sha256": "b426e854c100a5a2a099677ce12f2ffaa26d7e5c712b4371263c1e667df92969"
     },
     {
       "path": "model/src/soft-human/carried-bags.js",
@@ -42,10 +46,11 @@
       "sha256": "68b111c49dff307bab480daf91ac341225db5da551355b8b6fb09212fd41f33b"
     }
   ],
-  "sha256": "c389deb2f45e409693d9eaafec596be7a897e3aad0a9af689550a5ed3d487ded",
+  "sha256": "3bf1aac0fb1ada3fab8569ef56087a9b4e2f7af0add221d1ac90a1be3e1ec72c",
   "outfit": "navy-suit",
   "backpack": "crossbody-right",
   "age": "adult",
+  "sex": "male",
   "provenance": "User-selected HumanBody_Alt.fbx base. Included source readme describes a cleaned Human: Fall Flat model ripped from Unity; no redistribution license is supplied. Clothing, accessories and animation adapter are locally authored.",
   "geometry": "Source skin and authored weights, normalized to 1.7 metres and rebound in an A-pose with the 15 source bones plus a root Hips bone. Separate cap and torso-owned mathematical strap ribbons with fixed bag anchors; neckline and forearm-perpendicular cuffs split into the skin geometry.",
   "animation": "Live preview uses damped angular springs for walking/studies and contact-targeted station activities. This file contains the bind-pose rig, without procedural motion or physics."

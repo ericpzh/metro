@@ -2237,21 +2237,22 @@ including the depth prepass, for all six appearances.
   checks actual GLSL/WebGL geometry/calls, and `check:perf-tools` verifies exports.
 
 * **Passengers are instanced humans with an eye view** (`src/assets/passenger-approved.json`,
-  `src/assets/PASSENGERS.md`, `tools/bake-approved-passenger.mjs`,
+  `src/assets/PASSENGERS.md`, `tools/bake-soft-passengers.mjs`,
   `render/passengerModel.ts`, `render/scene/systems/CrowdSystem.ts`,
   `render/scene/systems/CameraSystem.ts`, `app/store/slices/ViewSlice.ts`,
-  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). The complete reviewed grey, faceless catalogue shares the pose atlas.
+  `app/windows/inspector/InfoCard.tsx`, `app/Viewport.tsx`). The selected soft-human catalogue shares the pose atlas: 440 recipes, twenty outfits
+  per male/female category and eleven bags, all eligible for both ages.
   Use `metro-model` (`../metro-model/SKILL.md`) for model builders, exports and
   the bake. Stable identity chooses equally within explicit `adultEligible` /
-  `childEligible` pools. Approved small/crossbody bags can be child templates;
-  bald models cannot. `passengerEligibility` preserves historical pools when an
+  `childEligible` pools. All selected-base bag choices support children. `passengerEligibility` preserves historical pools when an
   old atlas lacks flags, but explicit false always wins. Derive counts from the
   manifest rather than hard-coding variants into render/capture code. Age is
   20% children / 80% adults; size, ink tone and gait use separate identity hashes.
   Height varies 80–120%; width/depth vary 90–110% for adults and 80–90% for children.
   Child bases are 65% height and 70% width/depth; fore/aft depth scales speed and
-  stride together. The High material uses 70% opacity and Low uses 45%, with alpha blending and
-  no depth writes. Keep physique/speed in `sim/walking.ts` and model selection in
+  stride together. People use opacity 1 at both LODs, with transparent false and depth writes/test
+  enabled. Keep this setting in the passenger material so traffic retains its
+  separate opacity policy. Keep physique/speed in `sim/walking.ts` and model selection in
   `passengerAppearance`; consume no simulation RNG. `passenger-library.test.mjs`
   pins catalogue, equal age-pool selection, every walk on every variant, bag visibility,
   bounded topology and atlas disposal. `passenger-lod` pins the Low topology and its
@@ -2261,18 +2262,20 @@ including the depth prepass, for all six appearances.
   children multiply all three size axes by `trainScaleForStorey()` (0.98);
   shadows, picking, stride phase and eye height consume that scaled appearance.
   Keep this visual scale out of simulation physique/speed and the baked atlas. `passenger-clothing`
-  pins all twenty jacket-free presets in both grey arrangements in both age pools,
-  exact tones and actual baked skirt morphs against current GLB hashes. Appended
-  clothing preserves original catalogue ordering and shares the instanced draw.
-  Never replace clip/morph sampling with skeleton posing alone; see `metro-model`.
-  Game-only exterior trimming removes internal garment supports and covered
-  thighs before the transparent bake. Lossless frame deltas restore in
+  pins twenty outfits/category, RGB colors, selected-FBX and recipe hashes, and
+  source-body skirt bridge geometry. Source and all animation/wardrobe inputs must match
+  the generated atlas. Free arms stay outward in every action. Activity metadata
+  identifies Hips index 15 and arms 9–14; camera offset and gesture masking must
+  follow that rig. Skirts use their source leg weights, with no separate GPU shell warp. The rounded body
+  uses baked smooth normals with a small fixed light term in the shared material.
+  The skirt body already replaces hidden inner-thigh faces with a connector;
+  retain that exterior in the game bake. Lossless frame deltas restore in
   `passengerAtlas` before texture creation; preserve absolute legacy atlases and
   keep both tracked-asset and shipped-chunk size guards.
   The model preview
   shares tuning through `preview-appearance.js`. The
   crowd draws once per visible LOD group (normally one; a ghosted storey's crowd
-  adds a second), gait by distance, idle when waiting/riding, frozen while
+  adds a second), gait by distance, idle when waiting/transported, frozen while
   paused — and so is every other sim-driven animation: escalator step bands
   (`LiftSystem`), 闸机 leaves (`CrowdSystem.updateGates`) and train/screen doors
   (`TrainSystem`, which holds consist poses and door leaves, then resumes from
@@ -2283,6 +2286,19 @@ including the depth prepass, for all six appearances.
   entry yaw, Space still pauses, Esc / departure restores everything. The
   inspector eye chip is the way in; keyboard/pan/tool input is ignored while
   following. Pin in `game/test/passenger-view.test.mjs`.
+  Stairs remain Riding for simulation capacity/collision, but `writeTransfer`
+  emits `AgentRenderState.StairWalking`; both phase accumulation and displayed
+  gait use 3D slope distance. Escalators/lifts/conveyors keep planted feet.
+  Every escalator rider, including children and hand-carried bags, uses the
+  lane/direction rail gesture until the actual ride countdown ends. A hand-owned
+  bag reserves that hand: use the other hand, switching reachable belts on narrow
+  runs and retaining the real nearby belt target on wider ones. Free arms retain
+  their outward rest angle. Screen/handle actions use a stable identity/action
+  hand preference without consuming sim RNG. `passengerActivity.w` packs three
+  gait profiles plus default/right/left action modes; preserve profile modulo 3
+  and the baked hand dimension in shader/camera palette indexing. Preserve
+  these distinctions in `ramp-passengers`, `passenger-view` and
+  `tools/check-game-ramp-animation.mjs` and `tools/check-game-passenger-handedness.mjs`.
 * **Canvas ink shares one shrink-to-fit helper** (`render/modelLabels.ts`):
   `drawModelText` with `t('printed_*')` captions. No hardcoded English on
   models, PSD decals, TVMs, floor marks, line maps or signs.

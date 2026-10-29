@@ -76,6 +76,8 @@ export interface Agent {
   rideToZ: number
   rideT: number
   rideTotal: number
+  /** Stairs are capacity-controlled rides in the sim, but animated as walking. */
+  rideWalking: boolean
   /** Lift car handling: the shaft's server, the boarding stop and the target. */
   liftServer: number
   liftBoard: number
@@ -181,6 +183,7 @@ export class AgentPool {
     a.crowdCheckTick = tick
     a.rideT = 0
     a.rideTotal = 0
+    a.rideWalking = false
     a.liftServer = -1
     a.liftBoard = -1
     a.liftDest = -1

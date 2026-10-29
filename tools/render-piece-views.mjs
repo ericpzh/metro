@@ -72,11 +72,11 @@ const DEBUG_PORT = Number(arg('debug-port', 9352))
  */
 const VIEWS = HERO ? {
   // The camera sees +x/+y. Machines face local -y, so turn their actual models.
-  escalator: { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1] },
-  'stair-straight': { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1] },
+  escalator: { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1], ramp: {rise: 4, run: 7} },
+  'stair-straight': { from: 'iso', rotationZ: 180, anchor: [0.5, 0.5, 1], ramp: {rise: 4, run: 7} },
   // Sheet 13: uphill along +x, parallel to the two underground roads.
-  'escalator-x': { modelId: 'escalator', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
-  'stair-straight-x': { modelId: 'stair-straight', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1] },
+  'escalator-x': { modelId: 'escalator', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1], ramp: {rise: 4, run: 7} },
+  'stair-straight-x': { modelId: 'stair-straight', from: 'iso', rotationZ: -90, anchor: [0.5, 0.5, 1], ramp: {rise: 4, run: 7} },
   gate: { from: 'iso', padding: 1.12 },
   // Sheet 13's concourse bank is the modern housing; sheet 01 keeps `gate`.
   'gate-new': { modelId: 'gate-new', from: 'iso', padding: 1.12 },

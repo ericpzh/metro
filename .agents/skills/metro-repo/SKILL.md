@@ -716,20 +716,16 @@ review those paths as well. Run relevant language/renderer tests and inspect aff
 text in both locales for clipping and CN regressions. Art generation must report
 no missing translations. Follow the owning subskill for layout and cache refresh.
 
-Passenger sources: the live `game/src/assets/passenger-approved.json` comes from
-the complete reviewed catalogue; use `metro-model` and `npm run bake:passengers`.
-The current library has 232 variants with ten hairstyles per sex (212 adult-eligible / 114 child-eligible).
-Forty appended bagless entries cover ten jacket-free outfits per sex in both
-grey arrangements, shared by both ages. Use `metro-model` for their exported
-skirt morphs and bake, and keep `passenger-clothing`'s actual-asset regression.
-Stable identity chooses equally within explicit `adultEligible` / `childEligible`
-pools; the 20% child population can use approved small/crossbody bags, never bald
-heads. `render/passengerEligibility.ts` preserves the previous pools for legacy
-atlases without flags; explicit false takes precedence. Derive counts from metadata
-rather than hard-coding them into captures or validators. The shared game material uses 70% opacity.
-The historical `game/src/assets/passenger-human.json` is baked, not authored —
-`game/src/assets/PASSENGERS.md` names the CC0 Quaternius outfits and
-`tools/bake-passengers.mjs` regenerates the atlas. Never hand-edit the JSON.
+Passenger sources: the active crowd is the user-selected soft-human base.
+Use `metro-model` and `npm run bake:passengers` (`tools/bake-soft-passengers.mjs`).
+`model/src/soft-human/catalog.js` derives 440 recipes: twenty outfits per male/female
+category × eleven bags, all supported at both ages. Female-only skirts and pink
+jacket, male-only Summer stripes, outward free arms and mathematical straps must
+survive the bake. Keep selected-FBX provenance and recipe source hashes. The old
+232-export viewer remains historical; it no longer feeds the live crowd. Runtime
+consumes generated atlases and never imports the model app. Stable identity keeps
+20% children, independent size/gait and one draw per LOD. See
+`game/src/assets/PASSENGERS.md` and the model/game/test skills for the pipeline.
 
 Passenger activities are shared across the model preview and live crowd. The
 `metro-model` skill owns reviewed interaction poses and the offline activity
@@ -826,10 +822,11 @@ commands.
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
 | `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
-| `bake-approved-passenger.mjs` | Bakes the complete reviewed catalogue, age flags and all walks into the active shared crowd atlas; run `npm run bake:passengers` to regenerate exports first. See `metro-model`. |
+| `bake-soft-passengers.mjs` | Bakes selected-base outfits/bags, walks and activities into the shared game assets. Run `npm run bake:passengers`; see `metro-model`. |
+| `bake-approved-passenger.mjs` | Historical 232-export baker; no longer the active crowd source. |
 | `bake-passenger-activities.mjs` | Bakes reviewed activity poses and shared rig data after validating all current GLB source hashes; `npm run bake:passengers` runs it after the walk atlas. See `metro-model` and `metro-game`. |
 | `check-game-passenger-activities.mjs`, `bench-passenger-activities.mjs` | Exercise production activity poses/fixtures in the browser and replay deterministic demo routes for measured service visits; use `metro-game-test`. Add results to the performance reference only when they establish a performance finding. |
-| `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, 70% opacity and the instanced crowd in the built game GPU renderer. |
+| `check-game-passenger-library.mjs` | Checks every adult variant, live child model/size restrictions, fully opaque depth-writing people and the instanced crowd in the built game GPU renderer. |
 | `check-model-preview-options.mjs`, `check-game-passenger-size.mjs` | Verify production model age/size controls and render a game lineup. The model's pure preview rules also have `npm --prefix model test`. |
 | `check-soft-human.mjs`, `check-soft-human-activities.mjs`, `check-soft-human-clearance.mjs`, `check-soft-arm-poses.mjs` | Browser checks for the isolated soft-human study: motion/wardrobe/shader capture, all 20 station actions at both ages, production-equipment penetration scans (`--all`, `--seated`, `--escalators`) and elbow posture. See `metro-model`; captures in ignored `.preview/soft-human/`. |
 | `bake-passengers.mjs` | Regenerates `game/src/assets/passenger-human.json` from the CC0 sources listed in `game/src/assets/PASSENGERS.md` (see `metro-game`). |

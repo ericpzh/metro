@@ -107,9 +107,9 @@ test('the offline reducer leaves authoritative poses and topology unchanged and 
   const regions = decoded('regions')
   const result = passengerLowTopology({ indices: source, poses, regions, vertices: human.vertices })
   assert.ok(result.indices.length > 0 && result.indices.length <= Math.floor(source.length / 30) * 3)
-  const clothIndex = human.library.findIndex(m => m.garmentShape === 'a-line'), cloth = human.library[clothIndex]
+  const clothIndex = human.library.findIndex(m => m.garmentShape === 'skirt'), cloth = human.library[clothIndex]
   const clothSource = [...full.subarray(clothIndex * human.corners, clothIndex * human.corners + cloth.triangles * 3)]
-  const clothLow = passengerLowTopology({ indices: clothSource, poses, regions, vertices: human.vertices, garmentShape: cloth.garmentShape })
+  const clothLow = passengerLowTopology({ indices: clothSource, poses, regions, vertices: human.vertices, garmentShape: cloth.garmentShape, clothRegion: human.paletteRGB.indexOf(cloth.bottom), minimumClothTriangles: 60 })
   assert.ok(clothLow.indices.length > 0 && clothLow.indices.length <= Math.floor(cloth.triangles * .1) * 3)
   assert.deepEqual(source, [...full.subarray(0, source.length)])
   assert.deepEqual(poses, before, 'Low reduction cannot modify High geometry or animation')
@@ -175,7 +175,7 @@ test('the Low body is a coarser mesh over the same atlas, not a second pose set'
   } finally { full.dispose(); low.dispose() }
 })
 
-test('full and Low draws share one pose atlas with separate topology and opacity', () => {
+test('full and Low draws share one pose atlas with separate topology and opaque depth writes', () => {
   const full = passengerMesh(16), low = passengerMesh(16, 'low')
   try {
     const compile = (mesh) => {
@@ -188,13 +188,22 @@ test('full and Low draws share one pose atlas with separate topology and opacity
       assert.equal(lowShader.uniforms[name].value, fullShader.uniforms[name].value, `${name} is one GPU allocation`)
     }
     assert.notEqual(lowShader.uniforms.passengerIndices.value, fullShader.uniforms.passengerIndices.value)
-    assert.equal(lowShader.uniforms.passengerIndices.value.image.height, Math.ceil(human.library.length * human.lowCorners / 1024))
-    assert.equal(fullShader.uniforms.passengerIndices.value.image.height, Math.ceil(human.library.length * human.corners / 1024))
+    for(const [shader,stride,key] of [[lowShader,human.lowCorners,'lowIndices'],[fullShader,human.corners,'indices']]){
+      const image=shader.uniforms.passengerIndices.value.image
+      assert.equal(image.height,Math.ceil(human.library.length*stride/image.width))
+      assert(image.height<=8192,'growing catalogues widen before exceeding the GPU row budget')
+      const raw=decoded(key),source=human.indexBits===32?new Uint32Array(raw.buffer,raw.byteOffset,raw.byteLength/4):new Uint16Array(raw.buffer,raw.byteOffset,raw.byteLength/2)
+      for(const variant of [0,Math.floor(human.library.length/2),human.library.length-1])for(const corner of [0,stride-1])assert.equal(image.data[variant*stride+corner],source[variant*stride+corner],'first, middle and last catalogue rows survive widening')
+    }
     assert.notEqual(full.material.customProgramCacheKey(), low.material.customProgramCacheKey(), 'the two strides compile separate programs')
-    assert.equal(full.material.opacity, .7, 'High bodies keep 70% opacity')
-    assert.equal(low.material.opacity, .45, 'Low bodies reveal more of the station at 45% opacity')
-    assert.equal(full.material.transparent, true)
-    assert.equal(low.material.depthWrite, false)
+    assert.equal(full.material.opacity, 1, 'High bodies are fully opaque')
+    assert.equal(low.material.opacity, 1, 'Low bodies are fully opaque')
+    assert.equal(full.material.transparent, false)
+    assert.equal(low.material.transparent, false)
+    assert.equal(full.material.depthWrite, true)
+    assert.equal(full.material.depthTest, true)
+    assert.equal(low.material.depthTest, true)
+    assert.equal(low.material.depthWrite, true)
     assert.equal(full.geometry.getAttribute('passengerPose').count, low.geometry.getAttribute('passengerPose').count, 'instance contract is shared')
   } finally { full.geometry.dispose(); full.material.dispose(); full.dispose(); low.geometry.dispose(); low.material.dispose(); low.dispose() }
 })
@@ -242,7 +251,7 @@ test('低画质 draws the whole crowd reduced, including in Hide UI; disabled de
   try {
     assert.equal(low.crowd.agents.count, 0)
     assert.equal(low.crowd.agentsLow.count, 3, 'every drawn passenger, on every storey, is reduced')
-    assert.equal(low.crowd.agentsLow.material.opacity, .45)
+    assert.equal(low.crowd.agentsLow.material.opacity, 1)
     assert.deepEqual(levels(low.crowd.agentsLow), [0, 0, -5])
     const outfit = low.crowd.agentsLow.geometry.getAttribute('passengerOutfit')
     assert.equal(outfit.getX(2), passengerAppearance(11)[0], 'identity is repacked into the reduced draw')
@@ -251,7 +260,7 @@ test('低画质 draws the whole crowd reduced, including in Hide UI; disabled de
   try {
     assert.equal(hidden.crowd.agents.count, 3, 'Hide UI is the presentation mode: full bodies on every storey')
     assert.equal(hidden.crowd.agentsLow.count, 0)
-    assert.equal(hidden.crowd.agents.material.opacity, .7, 'presentation mode restores High opacity too')
+    assert.equal(hidden.crowd.agents.material.opacity, 1, 'presentation mode keeps people opaque')
   } finally { cleanup(hidden) }
   const disabled = crowdFixture('high', { ghost: true })
   try {

@@ -91,9 +91,8 @@ export function artSection() {
   const W = 1600;
   const g = [];
   const GY = 430;
-  // The game's storey grid is fixed at **4 m** (`sim/constants.ts`: "every 4 m from
-  // +12 down to -32"), so the section's floors sit on it: a drawn storey is a storey,
-  // and the depth rail on the left is those floors in metres.
+  // This authored section uses 4 m floors. Its equipment captures explicitly
+  // request that rise, independently of the current game placement defaults.
   const SH = 4 * S;
   const B1f = GY + SH, B2f = B1f + SH, B3f = B2f + SH;
   const L1 = '#e5484d', L2 = '#2f7ef2', L3 = '#f2b32c';
@@ -176,7 +175,8 @@ export function artSection() {
   // or so above the floor it arrives at, which lands in the core's own void rather than
   // through a slab: the rooms stop at the core wall.
   for (const floor of [B1f, B2f, B3f]) g.push(pieceAt('escalator', 1150, floor).svg);
-  for (const floor of [B2f, B3f]) g.push(pieceAt('stair-straight', 1358, floor).svg);
+  const stairX = CORE1 - pieceAt('stair-straight', 0, 0).w - 6;
+  for (const floor of [B2f, B3f]) g.push(pieceAt('stair-straight', stairX, floor).svg);
   // Continuous landing band spans the core on all four levels and covers the run heads.
   for (const y of [GY, B1f, B2f, B3f]) {
     g.push(`<rect data-layer="circulation-landing" x="${CORE0}" y="${y}" width="${CORE1 - CORE0}" height="10" fill="#5b6570"/>`);

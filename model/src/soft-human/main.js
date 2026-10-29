@@ -3,7 +3,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 import {GLTFExporter} from 'three/addons/exporters/GLTFExporter.js';
 import {createMotion} from './character.js';
 import {loadImportedSoftHuman} from './imported-base.js';
-import {createWardrobe,OUTFITS,BACKPACKS} from './wardrobe.js';
+import {createWardrobe,SEXES,outfitsForSex,BACKPACKS} from './wardrobe.js';
 import {SOFT_ACTIONS,isStationActivity,createSoftActivityPoser} from './activities.js';
 import {createInteractionEquipment} from '../interaction-equipment.js';
 const $=s=>document.querySelector(s),view=$('#view');
@@ -38,12 +38,16 @@ function selectAction(id){
 }
 function setTime(t){if(isStationActivity(action))activityTime=Number(t);else motion.seek(Number(t));poseCurrent()}
 const resize=()=>{const {width,height}=view.getBoundingClientRect();renderer.setSize(width,height);camera.aspect=width/height;camera.updateProjectionMatrix()};new ResizeObserver(resize).observe(view);resize();
-for(const [id,items] of [['outfit',OUTFITS],['backpack',BACKPACKS]]){
- const select=document.getElementById(id);
- for(const item of items)select.add(new Option(item.label,item.id));
- select.value=wardrobe.state[id];
- select.onchange=()=>wardrobe.set(document.getElementById('outfit').value,document.getElementById('backpack').value);
+function syncWardrobe(){
+ $('#sex').value=wardrobe.state.sex;
+ $('#outfit').replaceChildren(...outfitsForSex(wardrobe.state.sex).map(o=>new Option(o.label,o.id)));
+ $('#outfit').value=wardrobe.state.outfit;$('#backpack').value=wardrobe.state.backpack;
 }
+$('#sex').replaceChildren(...SEXES.map(s=>new Option(s.label,s.id)));
+$('#backpack').replaceChildren(...BACKPACKS.map(b=>new Option(b.label,b.id)));
+$('#sex').onchange=e=>{wardrobe.setSex(e.target.value);syncWardrobe();poseCurrent()};
+for(const id of ['outfit','backpack'])document.getElementById(id).onchange=()=>{wardrobe.set($('#outfit').value,$('#backpack').value);syncWardrobe();poseCurrent()};
+syncWardrobe();
 $('#age').onchange=e=>{c.setAge(e.target.value);poseCurrent()};
 $('#motion').onchange=e=>selectAction(e.target.value);
 $('#timeline').oninput=e=>{playing=false;$('#play').textContent='Play / 播放';setTime(e.target.value)};
@@ -52,7 +56,7 @@ $('#softness').oninput=e=>motion.state.softness=Number(e.target.value);$('#speed
 $('#play').onclick=()=>{playing=!playing;$('#play').textContent=playing?'Pause / 暂停':'Play / 播放'};$('#reset').onclick=()=>setTime(0);$('#push').onclick=()=>motion.push();
 $('#cap').onchange=e=>c.cap.visible=e.target.checked;$('#rig').onchange=e=>c.rig.visible=e.target.checked;
 for(const b of document.querySelectorAll('[data-angle]'))b.onclick=()=>{const a=Number(b.dataset.angle),r=4.5,center=c.body.position.clone().add(new T.Vector3(0,.96*c.body.scale.y,0));camera.position.copy(center).add(new T.Vector3(Math.sin(a)*r,.69,Math.cos(a)*r));controls.target.copy(center);controls.update()};
-$('#download').onclick=async()=>{const button=$('#download');button.disabled=true;const wasPlaying=playing;playing=false;try{wardrobe.update();const data=await new GLTFExporter().parseAsync(c.body,{binary:true,onlyVisible:true});const url=URL.createObjectURL(new Blob([data],{type:'model/gltf-binary'}));const a=document.createElement('a');a.href=url;a.download=`soft-human-${c.appearance.age}-${wardrobe.state.outfit}-${wardrobe.state.backpack}.glb`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#status').textContent='GLB exported · current pose, skin and skeleton'}catch(e){$('#status').textContent='Export failed: '+e.message}finally{button.disabled=false;playing=wasPlaying}};
+$('#download').onclick=async()=>{const button=$('#download');button.disabled=true;const wasPlaying=playing;playing=false;try{wardrobe.update();const data=await new GLTFExporter().parseAsync(c.body,{binary:true,onlyVisible:true});const url=URL.createObjectURL(new Blob([data],{type:'model/gltf-binary'}));const a=document.createElement('a');a.href=url;a.download=`soft-human-${wardrobe.state.sex}-${c.appearance.age}-${wardrobe.state.outfit}-${wardrobe.state.backpack}.glb`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);$('#status').textContent='GLB exported · current pose, skin and skeleton'}catch(e){$('#status').textContent='Export failed: '+e.message}finally{button.disabled=false;playing=wasPlaying}};
 let last=performance.now();renderer.setAnimationLoop(now=>{const dt=Math.min((now-last)/1000,.1);last=now;if(playing&&!document.hidden){if(isStationActivity(action))activityTime+=dt*motion.state.speed;else motion.update(dt)}controls.update();poseCurrent();renderer.render(scene,camera)});
 poseCurrent();$('#status').textContent='Selected FBX base · Clothing, bags + station activities';window.__softHuman={ready:true,scene,camera,renderer,controls,character:c,motion,wardrobe,equipment,actions:SOFT_ACTIONS,selectAction,setTime,get phase(){return lastPhase}};
 

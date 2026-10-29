@@ -38,6 +38,7 @@ import { fileURLToPath } from 'node:url';
 // `tools/render-block-cards.mjs` into `.preview/block-cards/`, and its material
 // table is the rail's own (`sim/finishes.ts`), carried out with them.
 import { toEnglish } from './sheet-i18n.mjs';
+import { prunePassengerSprites } from './passenger-cards.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 const OUT = join(__dir, '..', 'art');
@@ -91,7 +92,7 @@ for (const [file, module, exported] of chosen) {
     // A sheet builds synchronously and returns its SVG; the two that need a
     // browser (03's blocks, 04's cards) are captured into `.preview/` before this
     // runs, not here.
-    const svg = await fn(enOnly ? { language: 'en' } : {});
+    const svg = prunePassengerSprites(await fn(enOnly ? { language: 'en' } : {}));
     if (!svg || !svg.startsWith('<svg')) throw new Error('no svg returned');
     if (!enOnly) await writeSheet(join(OUT, file), svg);
     const kb = (Buffer.byteLength(svg) / 1024).toFixed(0);

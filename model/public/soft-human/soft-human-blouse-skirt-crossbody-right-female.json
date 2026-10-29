@@ -1,0 +1,57 @@
+{
+  "generator": "model/scripts/export-soft-human.mjs",
+  "sources": [
+    {
+      "path": "model/public/human-candidates/human-fall-flat/HumanBody_Alt.fbx",
+      "sha256": "ee77b5ff0aeef637f1e2a68816b1e0f58b62493eb6609bbd9f84b8c4d7d6daa7"
+    },
+    {
+      "path": "model/src/soft-human/imported-base.js",
+      "sha256": "884d61f344d708b0bcdb10a16a9155e2746eeb3002e5bf766c718f8aeb8c480c"
+    },
+    {
+      "path": "model/src/soft-human/character.js",
+      "sha256": "35ddee671327204a1a430463cfe13fd16ed6d2785e37b11db366ee9072951047"
+    },
+    {
+      "path": "model/src/soft-human/wardrobe.js",
+      "sha256": "cfc97e80af14e1d065c99ff5311589c89f53fd77e9368e44c7cfa39ae7bee710"
+    },
+    {
+      "path": "model/src/soft-human/skirt.js",
+      "sha256": "2a6118e18f4631a9b320a067a2a6d98741a9c95a8b126485cfbcb30d05e3ea5c"
+    },
+    {
+      "path": "model/src/soft-human/mathematical-strap.js",
+      "sha256": "e2683a26c9ae842d5c5bf43a340e355e7085b15f090afc61d9813b2e03e48a74"
+    },
+    {
+      "path": "model/src/soft-human/strap-fit.js",
+      "sha256": "d6da156e07a73e91c84b4f738a78cabf2a27a5b1e6c0899bdcd7e44cd444b47b"
+    },
+    {
+      "path": "model/src/soft-human/torso-fit.js",
+      "sha256": "b426e854c100a5a2a099677ce12f2ffaa26d7e5c712b4371263c1e667df92969"
+    },
+    {
+      "path": "model/src/soft-human/carried-bags.js",
+      "sha256": "a44f532fbd0d9ccbd85fb825fd21cb8381f670df8a888ae2e73391b19fcb9fcb"
+    },
+    {
+      "path": "model/src/soft-human/bag-connectors.js",
+      "sha256": "3adca41abfea85d6b1cc93953eb6cd92f4d26de1b563d0496ce340392d789d8a"
+    },
+    {
+      "path": "model/src/soft-human/bag-shell.js",
+      "sha256": "68b111c49dff307bab480daf91ac341225db5da551355b8b6fb09212fd41f33b"
+    }
+  ],
+  "sha256": "a5c7f20fd1e853b72ef1384cd1a84b0f4f1cdbb633010041ba1e028968916a34",
+  "outfit": "blouse-skirt",
+  "backpack": "crossbody-right",
+  "age": "adult",
+  "sex": "female",
+  "provenance": "User-selected HumanBody_Alt.fbx base. Included source readme describes a cleaned Human: Fall Flat model ripped from Unity; no redistribution license is supplied. Clothing, accessories and animation adapter are locally authored.",
+  "geometry": "Source skin and authored weights, normalized to 1.7 metres and rebound in an A-pose with the 15 source bones plus a root Hips bone. Separate cap and torso-owned mathematical strap ribbons with fixed bag anchors; neckline and forearm-perpendicular cuffs split into the skin geometry.",
+  "animation": "Live preview uses damped angular springs for walking/studies and contact-targeted station activities. This file contains the bind-pose rig, without procedural motion or physics."
+}

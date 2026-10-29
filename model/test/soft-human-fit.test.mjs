@@ -68,6 +68,19 @@ test('mathematical straps keep constant width, continuous frames and a level ell
  }
 });
 
+test('crossbody front edges clear the shirt throughout walking at both ages',()=>{
+ const c=create(),w=createWardrobe(c),m=createMotion(c),ray=new T.Raycaster();
+ for(const bag of ['crossbody-left','crossbody-right'])for(const age of ['adult','child'])for(const mode of ['idle','walk-slow','walk','walk-fast'])for(const t of [.2,.7,1.3]){
+  c.setAge(age);w.set('commuter',bag);m.state.mode=mode;m.seek(t);w.update();c.body.computeBoundingSphere();
+  for(const strap of w.straps)for(let row=0;row<=192;row+=4)for(const edge of [0,1]){
+   const point=strap.getVertexPosition(row*4+edge,new T.Vector3()).applyMatrix4(strap.matrixWorld),local=c.body.worldToLocal(point.clone());
+   if(local.z<.02||local.y<.76||local.y>1.09||Math.abs(local.x)>.27)continue;
+   ray.set(c.body.localToWorld(new T.Vector3(local.x,local.y,1)),new T.Vector3(0,0,-1));const hit=ray.intersectObject(c.body,false)[0];
+   if(hit)assert(point.z-hit.point.z>.002,`${bag}/${age}/${mode}/${t}: front ribbon edge stays outside the shirt`);
+  }
+ }
+});
+
 test('backpacks sit behind the torso instead of hiding the strap joins inside it',()=>{
  const c=create(),w=createWardrobe(c);
  for(const bag of ['daypack','hiking']){
@@ -82,7 +95,7 @@ test('backpacks sit behind the torso instead of hiding the strap joins inside it
 
 test('sleeve cuffs use one plane perpendicular to each forearm',()=>{
  const c=create(),w=createWardrobe(c);
- for(const outfit of OUTFITS.filter(o=>!['plain','beach'].includes(o.id))){
+ for(const outfit of OUTFITS.filter(o=>!['plain','beach'].includes(o.id)&&o.sleeve!=='short')){
   w.set(outfit.id,'none');const g=c.body.geometry,p=g.attributes.position;
   for(const cuff of c.anatomy.cuffs){
    let boundary=0;

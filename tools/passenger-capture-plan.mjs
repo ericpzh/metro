@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {modelEligible} from '../model/src/characters/library.js';
+import {passengerEligible as modelEligible} from '../game/src/render/passengerEligibility.ts';
 
 /** Bound browser responses as the catalogue grows, without dropping any model. */
 export function passengerCaptureBatches(variants, size = 4) {
@@ -15,6 +15,7 @@ export function validatePassengerCaptures(index, cycles, library, walkFrames, in
   const model = library[card.variant];
   assert.ok(model && card.model === model.id, `unknown or stale model: ${card.model}`);
   assert.equal(card.sourceSha256, model.sourceSha256, `stale game build: ${model.id}`);
+  if(model.recipeSha256)assert.equal(card.recipeSha256,model.recipeSha256,`stale model recipe: ${model.id}`);
   assert.ok(modelEligible(model,card.age??'adult'),`ineligible ${card.age??'adult'} model: ${model.id}`);
   assert.ok(!files.has(card.file), `duplicate captured file: ${card.file}`);files.add(card.file);
  }

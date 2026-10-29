@@ -41,7 +41,9 @@ class TorsoDiagonal extends T.Curve{
  getPoint(t,target=new T.Vector3()){
   this.guide.getPoint(t,target);
   const y=target.y,low=1-T.MathUtils.smoothstep(y,.70,.98),rx=.218+.077*low,cz=-.01-.04*T.MathUtils.smoothstep(y,.70,1.10);
-  const front=.105+.09*low-.025*T.MathUtils.smoothstep(y,.98,1.10),back=-.205-.005*T.MathUtils.smoothstep(y,.94,1.10);
+  // Reserve clearance for the weighted belly moving independently of Chest.
+  // This is one smooth authored envelope, shared by both strap edges and ages.
+  const front=.140+.105*low-.035*T.MathUtils.smoothstep(y,.98,1.10),back=-.205-.005*T.MathUtils.smoothstep(y,.94,1.10);
   const profile=Math.max(0,1-Math.min(1,Math.abs(target.x)/rx)**3.5)**(1/3.5);
   const z=this.front?cz+(front-cz)*profile+.004:cz-(cz-back)*profile-.004;
   const blend=T.MathUtils.smoothstep(t,0,.25)*(1-T.MathUtils.smoothstep(t,.60,.85));target.z=T.MathUtils.lerp(target.z,z,blend);return target;

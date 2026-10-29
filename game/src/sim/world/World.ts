@@ -70,7 +70,7 @@ import { crossingDir, isUnpaidZone } from '../zones.ts'
 import { STOCK, STOCK_CLASSES, CABIN_ALIGHT_MAX_S, CABIN_ALIGHT_PAIR_S, CABIN_FLOOR_Z, trainOriginForScale, trainScaleForStorey, CABIN_MAX_ROWS, CABIN_PAIR_HALF, cabinSlot, trainRatedCapacity } from '../stock.ts'
 import { History } from '../history.ts'
 import { normRot, rotateLocal, trackFacing, trackSide, trackTrainCentreV, type TrackModule } from '../track.ts'
-import { ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
+import { AgentRenderState, ZONES, type LineDef, type StationData, type Trip } from '../types.ts'
 import type { DynamicSnapshot, LineAnchor, Metrics, Train, TrainAt, TrainState } from './types.ts'
 
 const STATE_ARRIVING = 0
@@ -640,7 +640,8 @@ export class World {
   }
 
   /**
-   * Write a render buffer: [x, y, z, state, packed activity, id] per live agent. The id
+   * Write a render buffer: [x, y, z, render state, packed activity, id] per live agent.
+   * StairWalking refines Riding for presentation; capacity and routing stay Riding. The id
    * is what lets the renderer interpolate the same agent across frames; slots
    * move around as agents die because `pool.compact()` shifts the live list.
    */
@@ -653,7 +654,7 @@ export class World {
       out[o] = a.x
       out[o + 1] = a.y
       out[o + 2] = a.z
-      out[o + 3] = a.state
+      out[o + 3] = a.state === STATE_RIDING && a.rideWalking ? AgentRenderState.StairWalking : a.state
       out[o + 4] = this.activityTransfer(a)
       out[o + 5] = a.id
       n++
@@ -663,7 +664,8 @@ export class World {
 
   private activityTransfer(a: Agent): number {
     const elapsed = (this.tick - a.activityStart) * SIM_DT
-    if (a.activity && elapsed >= 0 && (a.activeStop || elapsed < a.activityTotal)) {
+    const railRide = a.state === STATE_RIDING && (a.activity === 7 || a.activity === 14)
+    if (a.activity && elapsed >= 0 && (railRide || a.activeStop || elapsed < a.activityTotal)) {
       const time = a.activeStop ? dwellTimeline(elapsed, a.activityTotal, a.activity)
         : a.activity === 5 || a.activity === 6 ? a.activityVariant * 4 + elapsed * 2
         : a.activity === 11 ? 2.5 + elapsed * 2
@@ -1184,6 +1186,7 @@ export class World {
     a.rideFromY = a.y
     a.rideFromZ = a.z
     a.state = STATE_RIDING
+    a.rideWalking = false
     a.server = -1
     train.onboard++
   }
@@ -1760,6 +1763,7 @@ export class World {
       a.rideFromZ = a.z
       a.server = s.id
       a.state = STATE_RIDING
+      a.rideWalking = false
       filled++
     }
   }
@@ -1825,6 +1829,8 @@ export class World {
     if (s.exitNode >= 0) {
       const g = this.graph
       a.state = STATE_RIDING
+      a.rideWalking = s.kind === 'stair'
+      if (a.rideWalking) a.activity = 0
       a.rideFromX = a.x
       a.rideFromY = a.y
       a.rideFromZ = a.z
@@ -1857,8 +1863,8 @@ export class World {
         a.x = a.rideFromX
         a.y = a.rideFromY
         a.z = a.rideFromZ
-        if (s.kind === 'escalator' && !passengerIsChild(a.id) && activityChoice(a.id, 0x62a3) < .62) {
-          a.activity = column > 0 ? 14 : 7
+        if (s.kind === 'escalator') {
+          a.activity = s.ramp.columns === 1 ? (activityChoice(a.id,0x62a3)<.5?14:7) : column > 0 ? 14 : 7
           a.activityVariant = (s.ramp.columns > 1 ? 1 : 0) + (a.rideToZ < a.rideFromZ ? 2 : 0)
           a.activityStart = this.tick; a.activityTotal = a.rideTotal
           a.activityYaw = Math.atan2(a.rideToY-a.rideFromY,a.rideToX-a.rideFromX)
@@ -2356,6 +2362,7 @@ export class World {
     a.z = a.rideFromZ + (a.rideToZ - a.rideFromZ) * k
     if (a.rideT <= 0) {
       if (a.activity === 7 || a.activity === 14) a.activity = 0
+      a.rideWalking = false
       a.state = STATE_WALKING
       this.onArrive(a)
     }

@@ -9,7 +9,7 @@ export const PASSENGER_LOW_RATIO=.1;
  * a head must not join a hand, nor may the two legs collapse into one cluster.
  * No full-detail positions, normals, palette values or walk samples are edited.
  */
-export function passengerLowTopology({indices,poses,vertices,regions,garmentShape,positionScale=4096,maxTriangles=Infinity}){
+export function passengerLowTopology({indices,poses,vertices,regions,garmentShape,positionScale=4096,maxTriangles=Infinity,clothRegion,minimumClothTriangles=200}){
  const budget=Math.min(maxTriangles,Math.floor(indices.length/3*PASSENGER_LOW_RATIO));
  if(budget<1)throw Error('Passenger Low topology needs at least ten source triangles');
  const positions=Float32Array.from(poses.subarray(0,vertices*3),v=>v/positionScale);
@@ -28,7 +28,7 @@ export function passengerLowTopology({indices,poses,vertices,regions,garmentShap
   if(regions&&face.some(v=>regions[v]!==region))throw Error('Passenger source triangle crosses palette regions');
   const center=[0,1,2].map(axis=>face.reduce((sum,v)=>sum+positions[v*3+axis],0)/3);
   const [x,y,z]=center,side=y<0?'right':'left';
-  const skirt=garmentShape&&garmentShape!=='trousers';
+  const skirt=garmentShape&&garmentShape!=='trousers'&&(clothRegion===undefined||region===clothRegion);
   const zone=z>1.34?'head':z<.13?`foot-${side}`:z<.84?(skirt&&z>.16?'skirt':`leg-${side}`):Math.abs(y)>.18?`arm-${side}`:x<-.17?'pack':'torso';
   const key=region+':'+zone;
   if(!groups.has(key))groups.set(key,[]);
@@ -51,7 +51,7 @@ export function passengerLowTopology({indices,poses,vertices,regions,garmentShap
    const frame=1+gait*24+(phase+1)*6;
    attributes[v*27+gait*9+phase*3+axis]=(poses[(frame*vertices+ids[v])*3+axis]-poses[ids[v]*3+axis])/positionScale;
   }
-  parts.push({ids,points:packed,indices:Uint32Array.from(topology),attributes,animatedCloth,weight:Math.sqrt(area),minimum:Math.min(animatedCloth?200:4,topology.length/3)});
+  parts.push({ids,points:packed,indices:Uint32Array.from(topology),attributes,animatedCloth,weight:Math.sqrt(area),minimum:Math.min(animatedCloth?minimumClothTriangles:4,topology.length/3)});
  }
  // Retain source faces incident to every gait's extrema, including vertices
  // that lie inside the standing envelope and become exposed while walking.

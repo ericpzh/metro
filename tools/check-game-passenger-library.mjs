@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {mkdirSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {serveDir,withPage,waitFor} from './browser-harness.mjs';
-import {MODEL_LIBRARY,modelEligible} from '../model/src/characters/library.js';
+import {serveDir,withPage,waitFor,loadExampleStation} from './browser-harness.mjs';
+import {SOFT_MODEL_LIBRARY as MODEL_LIBRARY,softModelEligible as modelEligible} from '../model/src/soft-human/catalog.js';
 import {passengerCaptureBatches} from './passenger-capture-plan.mjs';
 const out=resolve('.preview/game-passenger-library');mkdirSync(out,{recursive:true});
 const server=await serveDir(resolve('game/dist'),4281);
@@ -36,13 +36,13 @@ try {
  report.variants=[...new Set(report.variants)];report.childVariants=[...new Set(report.childVariants)];
  // Photograph new clothes at the actual game opacity on both age groups.
  const clothingImage=await page.evaluate(`(async()=>{
-  const models=${JSON.stringify(MODEL_LIBRARY)},canvas=document.createElement('canvas');canvas.width=1920;canvas.height=1160;
-  const c=canvas.getContext('2d');c.fillStyle='#eeefed';c.fillRect(0,0,1920,1160);
+  const models=${JSON.stringify(MODEL_LIBRARY)},canvas=document.createElement('canvas');canvas.width=1920;const ageHeight=Math.ceil(models.filter(m=>!m.bag).length/10)*290;canvas.height=ageHeight*2;
+  const c=canvas.getContext('2d');c.fillStyle='#eeefed';c.fillRect(0,0,canvas.width,canvas.height);
   for(const [row,age] of ['adult','child'].entries()){
-   const cards=window[age==='child'?'__childImages':'__libraryImages'].filter(card=>card.view==='iso'&&card.sample===1&&models[card.variant].outfit&&!models[card.variant].swapTones);
+   const cards=window[age==='child'?'__childImages':'__libraryImages'].filter(card=>card.view==='iso'&&card.sample===1&&models[card.variant].bagStyle==='none');
    for(const [i,card] of cards.entries()){
-    const image=new Image();image.src=card.png;await image.decode();const x=i%10*192,y=row*580+Math.floor(i/10)*290;
-    c.drawImage(image,x,y);c.fillStyle='#444';c.font='11px sans-serif';c.fillText(age+' / '+models[card.variant].outfit,x+4,y+272);
+    const image=new Image();image.src=card.png;await image.decode();const x=i%10*192,y=row*ageHeight+Math.floor(i/10)*290;
+    c.drawImage(image,x,y);c.fillStyle='#444';c.font='11px sans-serif';c.fillText(age+' / '+models[card.variant].character+' / '+models[card.variant].outfit,x+4,y+272);
    }
   }
   return canvas.toDataURL('image/png');
@@ -63,6 +63,7 @@ try {
  const shot=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(out,'all-variants.png'),Buffer.from(shot.data,'base64'));
  await page.send('Page.navigate',{url:'http://127.0.0.1:4281/'});
  await waitFor(page.evaluate,'!!(window.__scene&&window.__metro?.getState().metrics)',{what:'live production station'});
+ await loadExampleStation(page,'zoo');
  await page.evaluate('window.__metro.getState().setSpeed(16);window.__metro.getState().setPlaying(true)');
  await waitFor(page.evaluate,'window.__scene.crowd.agentCount>100',{what:'live library crowd',tries:120,every:250});
  const live=await page.evaluate(`(()=>{
@@ -70,7 +71,7 @@ try {
   const outfits=c.agents.geometry.getAttribute('passengerOutfit');
   const models=${JSON.stringify(MODEL_LIBRARY)},children=[],invalid=[];let visible=0;
   for(let i=0;i<c.agents.count;i++){
-   const m=c.agents.instanceMatrix.array,offset=i*16,depth=Math.hypot(m[offset],m[offset+1],m[offset+2]),width=Math.hypot(m[offset+4],m[offset+5],m[offset+6]),height=Math.hypot(m[offset+8],m[offset+9],m[offset+10]);
+   const m=c.agents.instanceMatrix.array,offset=i*16,depth=Math.hypot(m[offset],m[offset+1],m[offset+2])/.98,width=Math.hypot(m[offset+4],m[offset+5],m[offset+6])/.98,height=Math.hypot(m[offset+8],m[offset+9],m[offset+10])/.98;
    // Hidden storeys and a followed passenger use a zero instance matrix.
    if(height===0&&depth===0&&width===0)continue;visible++;
    const child=height<.8,model=models[outfits.getX(i)];if(child)children.push(model.id);
@@ -82,9 +83,9 @@ try {
  // The captures above exhaust every eligible template. A finite station crowd
  // can omit a rare child-only template, so validate its actual sampled pool.
  assert(live.variants.length>20&&live.variants.every(i=>Number.isInteger(i)&&i>=0&&i<MODEL_LIBRARY.length));
- assert.deepEqual([...new Set(live.variants.map(i=>MODEL_LIBRARY[i].bagType).filter(Boolean))].sort(),['crossbody','purse','shoulder']);
+ assert.deepEqual([...new Set(live.variants.map(i=>MODEL_LIBRARY[i].bagType).filter(Boolean))].sort(),['crossbody','daypack','handbag','hiking','none','purse','shoulder']);
  assert(live.variants.some(i=>MODEL_LIBRARY[i].outfit),'the live station spawns approved clothes');
- assert.equal(live.opacity,.7);assert.equal(live.transparent,true);
+ assert.equal(live.opacity,1);assert.equal(live.transparent,false);
  assert.deepEqual(live.invalidSizes,[]);assert(live.children>0&&live.children<live.agents,'the live crowd contains adults and smaller children');
  writeFileSync(resolve(out,'report.json'),JSON.stringify({report,live},null,2));console.log({report,live});
 } finally {if(page)await page.close();server.close()}

@@ -367,6 +367,21 @@ matrices alone do not compile GLSL: build and run
 pause, doors, running sinks and actual seated skirt silhouettes. The focused model
 interaction suite additionally guards source geometry restoration and IK.
 
+`ramp-passengers` pins rail gestures for all escalator identities/ages, both
+directions, every lane/rotation and delayed service starts. It also pins the
+stair-only render state without changing simulation occupancy. `passenger-view`
+checks 3D stair stride, slot compaction, both ages/LODs, planted transported feet
+and hand-owned bag rail gestures. `node tools/check-game-ramp-animation.mjs`
+feeds real World transfers into production High/Low draws; review its ignored
+captures for ascent/descent and carrying poses. This is functional evidence,
+separate from the shared performance reference's controlled playback timings.
+`passenger-view` also pins stable hand variation, carrying-hand precedence and
+gait/hand channel packing. `passenger-activity-assets` checks both hands reach the
+same screen/belt using the actual default/right/left baked palettes. Run
+`node tools/check-game-passenger-handedness.mjs` for High/Low and both ages: free
+hand preferences must produce different GPU pixels, while a held bag overrides
+either request to produce identical free-hand pixels.
+
 Coverage means the changed behaviour has a deterministic regression for each affected
 contract, the `game/test/README.md` map names the owning suite, and the **full** game
 suite completes. A focused file, V8 percentage, build, or browser check cannot stand
@@ -563,40 +578,24 @@ pre-existing-floor requirements.
 Model integration coverage lives in `passenger-library`, `passenger-size`,
 `passenger-view`, `passenger-clothing`, `capture-passengers` and `passenger-art-pipeline`: the complete
 reviewed catalogue and walks, equal explicit adult/child pools, 20% child selection, separate age
-size ranges, body/shadow axes, 70% opacity, pause, picking and physical stride.
-Clothing tests require forty appended entries (ten presets per sex in both grey
-arrangements) in both age pools, exact authored tones, source GLB hashes and
-actual baked skirt points in all gaits. The small skinned fixture rejects
-welding standing-coincident points with different morphs, and proves detached
-bake parts follow animated morph weights. Actual-asset checks must reject a
-standing shell on a moving skeleton. Art validation requires complete child and
-adult strides for both grey arrangements; GPU sheet playback must show new
-clothes on both ages.
-Pin actual baked skirt faces as outward-only and reject hidden thigh vertices;
-closed GLB support shells must not show through the game's 70% material.
-`passenger-atlas` checks byte-exact temporal-delta round trips for signed positions
-and normals (including overflow), absolute legacy data and malformed formats.
-Scale appearance sampling with the child pool so rare templates retain enough
-observations for the existing equal-selection/gait-independence thresholds.
-The approved male additions must retain lower crowns in the actual baked poses:
-all seven styles and every bag stay below 1.70 m and at least 2 cm below the
-original standing crown. Source model tests separately pin original-lock topology,
-head/neck weights and pairwise silhouette separation; catalogue checks alone do
-not prove that regenerated geometry reached the game.
-Side bag assertions must inspect the accessory's baked surface, including frame
-zero: broad faces along body depth, left/right mirroring, thin bodies between arm
-and torso, torso-following shoulder/crossbody bags and hand-following purses.
-Check the baked strap/handle surfaces for long triangles or ink escaping below
-their attachment region, allowing the atlas simplifier's larger planar triangles.
-Model tests pin missed fitting rays and carrying-arm metadata; the browser
-crossbody checker samples shoulder pixels to catch hidden or missing strap patches.
-The art validator must reject missing child frames and age-ineligible/bald child
-cards; approved small/crossbody bags can be child-eligible. Never freeze the
-catalogue length or infer modern eligibility only from bag presence.
-Browser geometry/strap/hem/GPU checks live in `tools/check-model-*.mjs` and
-`check-game-passenger-library.mjs`; model preview rules have their own deterministic
-`npm --prefix model test`. The boarding capacity fixture uses a one-car train and
-no alighting, so changes in stride do not turn its counter into an alighting test.
+size ranges, body/shadow axes, fully opaque depth-writing people, pause, picking and physical stride.
+The active source is the selected soft-human base. Require 440 recipes,
+twenty outfits per category, female-only skirts/pink jacket, male-only Summer
+stripes, both age pools, and exact RGB regions. `passenger-clothing` checks the
+FBX hash and every recipe source hash; hashes alone cannot prove changed geometry
+was baked. Actual skirts preserve the original waist/hips/outer legs and replace only the
+inner-thigh gap. Model tests pin the single-skin waist with matching weights, connector coverage, front strap
+clearance and deterministic seated source skinning. `passenger-activity-assets` checks the
+16 bones, Hips index 15, arms 9–14, rail targets and outward free arms. Follow the
+selected pelvis when seating; short legs can raise it to an adult seat. Preserve
+pause, selection, identity, sizing, one draw per LOD and disposal tests. Low stays
+at most 10% of each full topology while retaining extrema and projected surfaces.
+`passenger-atlas` retains byte-exact delta and legacy checks. The old morph fixture
+still guards baker behavior, but is not the active source pipeline.
+Browser `check-game-passenger-library` exhausts all recipes/both ages, then
+loads Zoo. `check-game-passenger-activities` covers station shaders/full and Low;
+`check-passenger-lod` checks projected silhouettes. Keep browser captures ignored
+and functional results separate from performance claims.
 
 For a **turning stair**, keep the whole block-grid rule in `stairs.test.mjs`: every turning
 shape built at `stairSwitchbackRunWidth`, a 90° turn's two perpendicular legs each slid

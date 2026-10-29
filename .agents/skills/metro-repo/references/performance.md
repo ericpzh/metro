@@ -906,7 +906,7 @@ atlas records. Update this reference after changing models or the detail policy.
 Ambient road vehicles are seeded into the six models listed below. Counts are per
 vehicle instance and include the colour geometry plus its matching depth-only
 prepass; the prepass suppresses far-side fittings. High uses 70% opacity; Low
-vehicles and Low passenger bodies use 45%. Low road vehicles stay at or below 10%
+vehicles use 45%; passenger bodies are now opaque at both LODs. Low road vehicles stay at or below 10%
 of High's submitted triangles (including the depth pass). Low is an authored
 geometry variant selected by the game's Low graphics setting, not a runtime
 simplification. Regenerate the production counts and front/rear captures with
@@ -1336,289 +1336,572 @@ shipped overhead-wire counts are in
 
 ### Passenger models (乘客)
 
-One row per reviewed appearance in the baked crowd atlas
-(`game/src/assets/passenger-approved.json`, prepared instanced draws with no
-per-agent GLB or skeleton). High is each variant's full topology; Low is a second
-index table over the same animated vertex pool. Every appearance has a hard budget
-of `floor(highTriangles * 0.10)`; the shared padded draw also stays below 10% of
-High. The current shared stride is **9,370 High / 841 Low triangles (9.0%)**.
+The selected soft-human catalogue has **440 appearances**: twenty clothing
+choices per male/female category × eleven bag choices, all eligible at both ages.
+`game/src/assets/passenger-approved.json` supplies standing plus three 24-frame
+walks; `passenger-activities.json` supplies shared bind geometry and one 16-bone
+activity rig with default/right/left action palettes per height fit. Runtime draws prepared instances with no per-agent GLB, skeleton,
+animation mixer or geometry fitting. Skirts use the source body's waist/hips and
+a local inner-thigh connection, with source smooth normals retained across colors.
 
-`tools/passenger-low-topology.mjs` builds separate faceted envelopes for each
-anatomical part and palette region, keeping heads, arms, legs, shoes, skirts and
-bags separate. Closed envelopes avoid the missing legs produced by unconstrained
-grid clustering. Envelope simplification does not prune components; original
-source faces retain extrema from every one of the 73 pose frames. Every output
-corner references an existing animated vertex from that appearance, and every
-triangle keeps one original flat palette region. Skirts retain their original
-cloth topology with motion-aware reduction instead of a standing envelope. Other
-parts use convex envelopes that remove concavities and small detail. Full geometry,
-pose frames, normals, regions, source hashes and eligibility metadata are unchanged.
+The current shared draw stride is **8,101 High / 788 Low triangles
+(9.73%)**. Every appearance's real Low row stays at or below
+`floor(highTriangles * .10)` and references that appearance's existing animated
+vertices. `passenger-low-topology.mjs` separates anatomy and palette regions,
+preserves each pose's extrema and reduces the moving cloth topology separately.
+Real appearances reference 2,562,491 High / 246,484 Low triangles in total;
+short rows pad with degenerate triangles. The atlas has **218,396 vertex entries,
+73 frames and 90 RGB colors**.
 
-Each packed instance records its storey in `passengerLevel`. 高画质 draws the
-edited storey full and ghosted storeys reduced; 低画质 draws the whole crowd reduced;
-隐藏UI restores full bodies. One-storey crowds use one draw; ghosted crowds can add
-a second. High bodies use 70% opacity and Low bodies 45%. The pose, normal and
-region textures remain shared, so the triangle reduction does not reduce their
-memory. Switching quality retains the prepared GPU allocations.
+Both LODs share pose/normal/region and activity data. The full index table widens
+to 2,048 pixels before exceeding the 8,192-row budget; the standing/walk atlas is
+2,048 × 7,785 texels. Palette/geometry changes compile with the recipe
+hash in the shader cache key. People are fully opaque at both LODs, with depth
+testing and depth writes. Storey classification still uses `passengerLevel`: one crowd draw per
+visible LOD, with a second possible for ghosted floors. No new draw per outfit.
+
+Measured allocation inventory (`tools/measure-passenger-assets.mjs`):
+
+| Asset workload | Previous 220 appearances | Current 440 appearances |
+|---|---:|---:|
+| Vertex entries | 110,385 | 218,396 |
+| Padded High / Low triangles | 8,170 / 793 | 8,101 / 788 |
+| Packed walking + activity payload, MiB | 23.57 | 44.63 |
+| Prepared textures, both LODs, MiB | 147.92 | 296.30 |
+| Prepared textures, High only, MiB | 143.92 | 288.36 |
+
+Texture bytes follow actual allocation dimensions/formats and exclude driver,
+render-target, instance-buffer and CPU-object overhead. This is not browser
+process memory. Low reduces submitted geometry while retaining the shared pose
+storage. Color regions currently duplicate some vertex entries: catalogue growth
+therefore increases texture storage even though draw count stays bounded.
+The current three-mode action matrix texture is 10.125 MiB, 6.75 MiB above the
+previous single-mode 440-appearance build (289.55 MiB total). Bind geometry,
+walking atlas and index strides are unchanged. Current allocation/build hashes
+are in `.preview/perf/passengers-440/assets-handedness.json`.
+
+Matched production playback uses Zoo, regular view, High, 16×, the first 30 seconds
+of Play, 1,400 × 900 canvas, pixel ratio 1, active storey −15 with ground hidden and
+ghosted floors visible. Both captures use Chrome 156 / ANGLE D3D11 / RTX 4080 SUPER
+on an i7-14700KF, 14,073 cells, 4,291 modules and seed 7654321.
+This earlier opacity comparison uses the same 440-appearance catalogue and source-body
+bridge: the previous material was 70% High / 45% Low with no depth writes; the
+current material is opaque and depth-writing at both LODs. The allocation table
+above separately compares the earlier 220-appearance atlas with the expanded
+440-appearance atlas. Traffic retains its own 70% High / 45% Low alpha policy.
+
+| Submitted-frame measurement | 440 translucent | 440 opaque |
+|---|---:|---:|
+| Average FPS | 44.95 | 46.30 |
+| 1% low FPS | 19.65 | 20.02 |
+| Worst frame, ms | 53.30 | 52.50 |
+| Frames over 100 ms | 0 | 0 |
+| End tick / population | 484 / 330 | 484 / 330 |
+| Final scene draws / triangles | 3,271 / 1,360,954 | 3,271 / 1,360,186 |
+
+There is one unprofiled 30-second capture per build, with no overlapping tests or
+other benchmark browsers. These observations do not establish a statistically
+significant FPS difference or performance on Tanwei, Low, mobile GPUs or every
+crowd density or cold page/atlas initialization. Both captures report zero runtime/GL errors. Fixture SHA-256:
+`2792e9ea2bc455c7e9d04155c70cdb15d1bfb9f56c9262c585c28a8b673b6c3a`. Opacity-comparison recipe SHA-256:
+`35d03d68723c0d201b9ffdc83aee8e5e4c819b4773f89fbb17905b525d0eacf6`. Build fingerprints and per-file hashes, raw frame/work
+samples and exact payload/texture counts are in
+`.preview/perf/passengers-440/assets-{220,440}.json` and
+`playback-440-translucent.json` / `playback-440.json`.
+
+Reproduce with a production game build, then set `BENCH_DEMO=zoo`,
+`BENCH_MODE=regular`, `BENCH_QUALITY=high`, `BENCH_SPEED=16`, `BENCH_SECONDS=30`,
+`BENCH_CANVAS_SIZE=1400,900`, `BENCH_PIXEL_RATIO=1` and a unique `BENCH_OUTPUT`
+before `node tools/bench-sim-stalls.mjs`. Record asset/build fingerprints with
+`node tools/measure-passenger-assets.mjs <output.json>` against that same build.
+Do not mix timing with CPU profiles, traces or parallel test/visual runs.
+
+The latest opaque build also walks on stairs, applies rail poses to every
+escalator rider, and selects default/right/left action palettes while reserving
+a hand-carried bag's hand. A separate clean capture uses the same production
+configuration above, after the full suite and browser checks finished:
+
+| Submitted-frame measurement | Prior opaque | Current stair/hand actions |
+|---|---:|---:|
+| Average FPS | 46.30 | 44.18 |
+| 1% low FPS | 20.02 | 19.05 |
+| Worst frame, ms | 52.50 | 57.70 |
+| Frames over 100 ms | 0 | 0 |
+| End tick / population | 484 / 330 | 484 / 330 |
+| Final scene draws / triangles | 3,271 / 1,360,186 | 3,271 / 1,360,810 |
+
+The new capture is slower in these samples; one run per build does not establish
+a statistically significant difference or isolate hand-palette indexing from the
+increased rail/stair animation workload. Both materials remain opacity 1,
+transparent false and depth-writing, with 110 High / 11 Low passengers in the
+final packed draws. Runtime/GL errors are zero. Current recipe SHA-256:
+`fa6f335242edadba1eb1a298bb7c68903801acc0396bfb3b255b4fda97d014bb`.
+Exact source/build allocation hashes are in `assets-handedness.json` and raw
+frame/work samples in `playback-handedness.json`, both under
+`.preview/perf/passengers-440/`. Keep the earlier opacity captures as the
+historical comparison; the current three-mode storage inventory is separate.
+
+Prior catalogue functional coverage exhausts **10,560 renders**: 440 appearances × two
+ages × three views × standing/three walking samples. A separate **240 paired
+High/Low** check covers ten named recipes, both ages, slow gait and the same
+three views/four samples, including all four skirt cuts/palettes. Its minimum
+High-mask coverage is 94.45% and minimum intersection-over-union
+70.50%; the fixed gates remain 80% coverage / 70% IoU. This focused
+pairing is not an exhaustive interpolation or all-gait visual audit. Numeric
+`passenger-lod` tests independently cover all appearances and all 73 frame extrema,
+10% budgets, shared disposal, storey routing and the widened index table's first,
+middle and last appearance rows. `passenger-clothing` pins source hashes, exact
+RGB colors, filled skirts and matching normal samples across the waist boundary.
+
+`npm run bake:passengers` runs the selected-base baker and regenerates both
+walking and activity assets. Legacy export and Low-only bakers do not own these
+assets. `node tools/check-passenger-lod.mjs --quick` regenerates the focused pairs;
+omitting `--quick` requests every appearance, both ages and all three gaits.
+`tools/model-triangle-inventory.mjs` can regenerate the per-appearance table;
+raw counts for this capture are `.preview/perf/passenger-triangles.json`.
 
 | Passenger model | Low triangles | High triangles |
 |---|---:|---:|
-| male-original-bag | 820 | 9,370 |
-| male-short-bag | 811 | 9,314 |
-| male-bald-bag | 801 | 9,296 |
-| male-short-small-bag | 831 | 8,872 |
-| male-short-standard-87.5-bag | 841 | 8,867 |
-| male-bald-small-bag | 827 | 8,854 |
-| male-bald-standard-87.5-bag | 835 | 8,849 |
-| male-short-standard-75-bag | 825 | 8,832 |
-| male-bald-standard-75-bag | 821 | 8,814 |
-| male-side-part-bag | 776 | 8,772 |
-| male-quiff-bag | 776 | 8,772 |
-| male-swept-bag | 776 | 8,752 |
-| male-crop-bag | 765 | 8,673 |
-| female-rounded-bob-bag | 760 | 8,636 |
-| female-lob-bag | 758 | 8,594 |
-| female-bob-bag | 758 | 8,584 |
-| female-angled-bob-bag | 758 | 8,582 |
-| female-side-part-bob-bag | 758 | 8,580 |
-| female-shoulder-bag | 754 | 8,579 |
-| female-shoulder-swept-bag | 754 | 8,579 |
-| female-cropped-bob-bag | 758 | 8,578 |
-| male-crew-bag | 752 | 8,569 |
-| male-buzz-bag | 752 | 8,526 |
-| male-rounded-bag | 752 | 8,524 |
-| male-original-small-bag | 791 | 8,425 |
-| male-original-standard-87.5-bag | 798 | 8,409 |
-| male-original-standard-75-bag | 788 | 8,389 |
-| male-side-part-small-bag | 787 | 8,363 |
-| male-quiff-small-bag | 787 | 8,363 |
-| male-side-part-standard-87.5-bag | 794 | 8,347 |
-| male-quiff-standard-87.5-bag | 792 | 8,347 |
-| male-swept-small-bag | 787 | 8,343 |
-| male-swept-standard-87.5-bag | 790 | 8,327 |
-| male-side-part-standard-75-bag | 782 | 8,327 |
-| male-quiff-standard-75-bag | 784 | 8,327 |
-| male-swept-standard-75-bag | 782 | 8,307 |
-| female-rounded-bob-small-bag | 785 | 8,269 |
-| male-crop-small-bag | 782 | 8,264 |
-| male-crop-standard-87.5-bag | 787 | 8,248 |
-| female-rounded-bob-standard-87.5-bag | 784 | 8,241 |
-| female-rounded-bob-standard-75-bag | 779 | 8,235 |
-| male-crop-standard-75-bag | 775 | 8,228 |
-| female-lob-small-bag | 781 | 8,227 |
-| female-bob-small-bag | 779 | 8,217 |
-| female-angled-bob-small-bag | 779 | 8,215 |
-| female-side-part-bob-small-bag | 779 | 8,213 |
-| female-shoulder-small-bag | 779 | 8,212 |
-| female-shoulder-swept-small-bag | 779 | 8,212 |
-| female-cropped-bob-small-bag | 779 | 8,211 |
-| female-lob-standard-87.5-bag | 780 | 8,199 |
-| female-lob-standard-75-bag | 777 | 8,193 |
-| female-bob-standard-87.5-bag | 780 | 8,189 |
-| female-angled-bob-standard-87.5-bag | 780 | 8,187 |
-| female-side-part-bob-standard-87.5-bag | 780 | 8,185 |
-| female-shoulder-standard-87.5-bag | 780 | 8,184 |
-| female-shoulder-swept-standard-87.5-bag | 780 | 8,184 |
-| female-cropped-bob-standard-87.5-bag | 780 | 8,183 |
-| female-bob-standard-75-bag | 777 | 8,183 |
-| female-angled-bob-standard-75-bag | 777 | 8,181 |
-| female-side-part-bob-standard-75-bag | 777 | 8,179 |
-| female-shoulder-standard-75-bag | 777 | 8,178 |
-| female-shoulder-swept-standard-75-bag | 779 | 8,178 |
-| female-cropped-bob-standard-75-bag | 777 | 8,177 |
-| male-crew-small-bag | 763 | 8,160 |
-| male-crew-standard-87.5-bag | 772 | 8,144 |
-| male-crew-standard-75-bag | 764 | 8,124 |
-| male-buzz-small-bag | 761 | 8,117 |
-| male-rounded-small-bag | 759 | 8,115 |
-| male-buzz-standard-87.5-bag | 766 | 8,101 |
-| male-rounded-standard-87.5-bag | 764 | 8,099 |
-| male-buzz-standard-75-bag | 760 | 8,081 |
-| male-rounded-standard-75-bag | 760 | 8,079 |
-| female-midi-pleated-swapped-no-bag | 569 | 5,832 |
-| female-long-a-line-swapped-no-bag | 565 | 5,806 |
-| female-long-pleated-swapped-no-bag | 570 | 5,805 |
-| female-midi-pleated-no-bag | 571 | 5,802 |
-| female-midi-a-line-swapped-no-bag | 551 | 5,785 |
-| female-long-a-line-no-bag | 563 | 5,775 |
-| female-long-pleated-no-bag | 565 | 5,775 |
-| female-midi-a-line-no-bag | 563 | 5,773 |
-| female-full-pleated-swapped-no-bag | 564 | 5,771 |
-| female-full-pleated-no-bag | 562 | 5,770 |
-| female-slim-long-skirt-no-bag | 561 | 5,749 |
-| female-slim-long-skirt-swapped-no-bag | 558 | 5,718 |
-| male-short-crossbody-right-bag | 481 | 5,071 |
-| male-short-crossbody-left-bag | 474 | 5,070 |
-| male-bald-crossbody-right-bag | 479 | 5,053 |
-| male-bald-crossbody-left-bag | 474 | 5,052 |
-| male-short-shoulder-right-bag | 452 | 4,764 |
-| male-short-shoulder-left-bag | 451 | 4,762 |
-| male-bald-shoulder-right-bag | 450 | 4,746 |
-| male-bald-shoulder-left-bag | 451 | 4,744 |
-| male-short-no-bag | 450 | 4,705 |
-| male-bald-no-bag | 440 | 4,687 |
-| male-original-crossbody-right-bag | 451 | 4,650 |
-| male-original-crossbody-left-bag | 446 | 4,649 |
-| female-long-swept-crossbody-right-bag | 446 | 4,612 |
-| female-long-swept-crossbody-left-bag | 446 | 4,611 |
-| female-long-crossbody-right-bag | 446 | 4,605 |
-| female-long-crossbody-left-bag | 444 | 4,604 |
-| male-side-part-crossbody-right-bag | 447 | 4,588 |
-| male-quiff-crossbody-right-bag | 447 | 4,588 |
-| male-side-part-crossbody-left-bag | 440 | 4,587 |
-| male-quiff-crossbody-left-bag | 440 | 4,587 |
-| male-swept-crossbody-right-bag | 443 | 4,568 |
-| male-swept-crossbody-left-bag | 438 | 4,567 |
-| male-crop-crossbody-right-bag | 438 | 4,489 |
-| male-crop-crossbody-left-bag | 435 | 4,488 |
-| female-rounded-bob-crossbody-right-bag | 432 | 4,482 |
-| female-rounded-bob-crossbody-left-bag | 432 | 4,481 |
-| female-lob-crossbody-right-bag | 429 | 4,440 |
-| female-lob-crossbody-left-bag | 421 | 4,439 |
-| female-bob-crossbody-right-bag | 428 | 4,430 |
-| female-bob-crossbody-left-bag | 420 | 4,429 |
-| female-angled-bob-crossbody-right-bag | 428 | 4,428 |
-| female-angled-bob-crossbody-left-bag | 420 | 4,427 |
-| female-side-part-bob-crossbody-right-bag | 428 | 4,426 |
-| female-side-part-bob-crossbody-left-bag | 420 | 4,425 |
-| female-shoulder-crossbody-right-bag | 425 | 4,425 |
-| female-shoulder-swept-crossbody-right-bag | 425 | 4,425 |
-| female-shoulder-crossbody-left-bag | 421 | 4,424 |
-| female-shoulder-swept-crossbody-left-bag | 421 | 4,424 |
-| female-cropped-bob-crossbody-right-bag | 428 | 4,424 |
-| female-cropped-bob-crossbody-left-bag | 420 | 4,423 |
-| male-crew-crossbody-right-bag | 427 | 4,385 |
-| male-crew-crossbody-left-bag | 424 | 4,384 |
-| male-buzz-crossbody-right-bag | 419 | 4,342 |
-| male-original-shoulder-right-bag | 423 | 4,341 |
-| male-buzz-crossbody-left-bag | 418 | 4,341 |
-| male-rounded-crossbody-right-bag | 419 | 4,340 |
-| female-long-swept-purse-left-bag | 415 | 4,340 |
-| female-long-swept-purse-right-bag | 414 | 4,340 |
-| male-original-shoulder-left-bag | 419 | 4,339 |
-| male-rounded-crossbody-left-bag | 418 | 4,339 |
-| female-long-purse-left-bag | 415 | 4,333 |
-| female-long-purse-right-bag | 414 | 4,333 |
-| female-long-swept-shoulder-right-bag | 414 | 4,318 |
-| female-long-swept-shoulder-left-bag | 416 | 4,316 |
-| female-long-shoulder-right-bag | 414 | 4,311 |
-| female-long-shoulder-left-bag | 416 | 4,309 |
-| male-short-straight-no-bag | 411 | 4,294 |
-| male-short-straight-swapped-no-bag | 404 | 4,292 |
-| male-crew-straight-no-bag | 411 | 4,285 |
-| male-relaxed-straight-swapped-no-bag | 413 | 4,281 |
-| male-side-part-shoulder-right-bag | 415 | 4,279 |
-| male-quiff-shoulder-right-bag | 417 | 4,279 |
-| male-side-part-shoulder-left-bag | 411 | 4,277 |
-| male-quiff-shoulder-left-bag | 413 | 4,277 |
-| male-relaxed-straight-no-bag | 410 | 4,277 |
-| male-fitted-straight-no-bag | 410 | 4,268 |
-| male-original-no-bag | 409 | 4,262 |
-| male-crew-straight-swapped-no-bag | 408 | 4,262 |
-| male-swept-shoulder-right-bag | 415 | 4,259 |
-| male-swept-shoulder-left-bag | 413 | 4,257 |
-| female-long-swept-no-bag | 410 | 4,231 |
-| female-long-no-bag | 408 | 4,224 |
-| male-fitted-straight-swapped-no-bag | 404 | 4,224 |
-| male-short-wide-no-bag | 407 | 4,217 |
-| male-relaxed-wide-swapped-no-bag | 405 | 4,215 |
-| female-rounded-bob-purse-left-bag | 407 | 4,210 |
-| female-rounded-bob-purse-right-bag | 410 | 4,210 |
-| male-relaxed-wide-no-bag | 405 | 4,209 |
-| male-long-relaxed-no-bag | 410 | 4,205 |
-| male-side-part-no-bag | 403 | 4,200 |
-| male-quiff-no-bag | 403 | 4,200 |
-| female-rounded-bob-shoulder-right-bag | 404 | 4,188 |
-| female-rounded-bob-shoulder-left-bag | 404 | 4,186 |
-| male-swept-no-bag | 401 | 4,180 |
-| male-crop-shoulder-right-bag | 408 | 4,180 |
-| male-short-wide-swapped-no-bag | 400 | 4,179 |
-| male-crop-shoulder-left-bag | 406 | 4,178 |
-| female-lob-purse-left-bag | 395 | 4,168 |
-| female-lob-purse-right-bag | 398 | 4,168 |
-| female-bob-purse-left-bag | 395 | 4,158 |
-| female-bob-purse-right-bag | 396 | 4,158 |
-| female-angled-bob-purse-left-bag | 393 | 4,156 |
-| female-angled-bob-purse-right-bag | 396 | 4,156 |
-| female-side-part-bob-purse-left-bag | 395 | 4,154 |
-| female-side-part-bob-purse-right-bag | 396 | 4,154 |
-| female-shoulder-purse-left-bag | 399 | 4,153 |
-| female-shoulder-swept-purse-left-bag | 401 | 4,153 |
-| female-shoulder-purse-right-bag | 400 | 4,153 |
-| female-shoulder-swept-purse-right-bag | 402 | 4,153 |
-| female-cropped-bob-purse-left-bag | 395 | 4,152 |
-| female-cropped-bob-purse-right-bag | 396 | 4,152 |
-| male-crew-tapered-swapped-no-bag | 399 | 4,152 |
-| female-lob-shoulder-right-bag | 402 | 4,146 |
-| female-lob-shoulder-left-bag | 400 | 4,144 |
-| male-crew-tapered-no-bag | 402 | 4,144 |
-| male-long-relaxed-swapped-no-bag | 403 | 4,144 |
-| female-bob-shoulder-right-bag | 400 | 4,136 |
-| female-bob-shoulder-left-bag | 398 | 4,134 |
-| female-angled-bob-shoulder-right-bag | 400 | 4,134 |
-| female-angled-bob-shoulder-left-bag | 398 | 4,132 |
-| female-side-part-bob-shoulder-right-bag | 400 | 4,132 |
-| male-fitted-tapered-no-bag | 393 | 4,132 |
-| female-shoulder-shoulder-right-bag | 402 | 4,131 |
-| female-shoulder-swept-shoulder-right-bag | 406 | 4,131 |
-| female-side-part-bob-shoulder-left-bag | 398 | 4,130 |
-| female-cropped-bob-shoulder-right-bag | 400 | 4,130 |
-| female-shoulder-shoulder-left-bag | 404 | 4,129 |
-| female-shoulder-swept-shoulder-left-bag | 404 | 4,129 |
-| female-cropped-bob-shoulder-left-bag | 398 | 4,128 |
-| male-fitted-tapered-swapped-no-bag | 389 | 4,128 |
-| male-long-tapered-no-bag | 405 | 4,105 |
-| male-crop-no-bag | 389 | 4,101 |
-| female-rounded-bob-no-bag | 398 | 4,101 |
-| male-long-tapered-swapped-no-bag | 402 | 4,089 |
-| male-crew-shoulder-right-bag | 393 | 4,076 |
-| male-crew-shoulder-left-bag | 395 | 4,074 |
-| female-lob-no-bag | 392 | 4,059 |
-| female-bob-no-bag | 390 | 4,049 |
-| female-angled-bob-no-bag | 392 | 4,047 |
-| female-side-part-bob-no-bag | 390 | 4,045 |
-| female-shoulder-no-bag | 394 | 4,044 |
-| female-shoulder-swept-no-bag | 394 | 4,044 |
-| female-cropped-bob-no-bag | 390 | 4,043 |
-| female-straight-trousers-no-bag | 390 | 4,040 |
-| female-straight-trousers-swapped-no-bag | 393 | 4,034 |
-| male-buzz-shoulder-right-bag | 389 | 4,033 |
-| male-buzz-shoulder-left-bag | 389 | 4,031 |
-| male-rounded-shoulder-right-bag | 389 | 4,031 |
-| male-rounded-shoulder-left-bag | 389 | 4,029 |
-| male-crew-no-bag | 383 | 3,997 |
-| female-wide-trousers-swapped-no-bag | 384 | 3,976 |
-| female-wide-trousers-no-bag | 382 | 3,960 |
-| male-buzz-no-bag | 379 | 3,954 |
-| male-rounded-no-bag | 377 | 3,952 |
-| female-relaxed-trousers-no-bag | 377 | 3,921 |
-| female-relaxed-trousers-swapped-no-bag | 376 | 3,900 |
-| female-tapered-trousers-swapped-no-bag | 376 | 3,830 |
-| female-tapered-trousers-no-bag | 371 | 3,821 |
-
-Across all 232 variants, the atlas references **1,308,230 High / 123,928 Low**
-triangles over the unchanged pool of **226,731 animated vertices**, 73 frames and
-21 palette stops. Real Low rows range from **371 to 841 triangles**. The padded
-Low row is `lowCorners` **2,523 corners**, versus 28,110 High corners.
-
-Production GPU validation compares **11,736 paired High/Low renders**: every
-eligible adult/child appearance, all three gait profiles, standing and three
-walking samples per profile, in isometric/elevation/plan views. Every comparison
-passes the fixed gates (80% High-mask coverage, 70% intersection-over-union).
-Worst overlap is **78.59%**, and minimum High-mask coverage **86.15%**. The 864
-skirt-only comparisons reach minimum overlap 92.49% and coverage 95.63%. These
-samples do not claim exhaustive visual coverage of all interpolated poses, camera
-angles or age-size extremes.
-
-`passenger-lod` pins both 10% budgets, per-appearance vertex membership, flat
-palette boundaries, all-frame extrema, quality/storey routing and shared disposal.
-`node tools/check-passenger-lod.mjs` performs paired production GPU captures for
-both eligible ages, all variants, all three gaits and three camera views; review
-its worst silhouette pairs in ignored `.preview/perf/passenger-10pct/`.
-`node tools/model-triangle-inventory.mjs` regenerates the table. A full
-`npm run bake:passengers` regenerates reviewed exports and the complete atlas;
-for Low-policy-only changes, `node tools/bake-approved-passenger.mjs --low-only`
-first verifies every export hash and then regenerates only Low topology fields.
+| soft-female-blue-navy-skirt-hiking | 788 | 8,101 |
+| soft-female-tee-skirt-hiking | 788 | 8,101 |
+| soft-female-blouse-skirt-hiking | 776 | 8,016 |
+| soft-female-rose-slate-skirt-hiking | 776 | 8,016 |
+| soft-female-blue-navy-skirt-daypack | 713 | 7,382 |
+| soft-female-tee-skirt-daypack | 713 | 7,382 |
+| soft-female-blouse-skirt-daypack | 705 | 7,297 |
+| soft-female-rose-slate-skirt-daypack | 705 | 7,297 |
+| soft-female-beige-blazer-hiking | 684 | 7,149 |
+| soft-female-charcoal-suit-hiking | 684 | 7,149 |
+| soft-female-navy-suit-hiking | 692 | 7,149 |
+| soft-male-beige-blazer-hiking | 684 | 7,149 |
+| soft-male-charcoal-suit-hiking | 684 | 7,149 |
+| soft-male-navy-suit-hiking | 692 | 7,149 |
+| soft-male-slate-suit-hiking | 684 | 7,149 |
+| soft-male-beach-hiking | 678 | 7,145 |
+| soft-female-trail-hiking | 684 | 7,021 |
+| soft-female-cream-navy-hiking | 667 | 6,976 |
+| soft-female-olive-charcoal-hiking | 667 | 6,976 |
+| soft-male-casual-shirt-hiking | 667 | 6,976 |
+| soft-male-cream-navy-hiking | 667 | 6,976 |
+| soft-male-olive-charcoal-hiking | 667 | 6,976 |
+| soft-female-stripe-hiking | 668 | 6,968 |
+| soft-male-stripe-hiking | 668 | 6,968 |
+| soft-female-commuter-hiking | 674 | 6,961 |
+| soft-male-commuter-hiking | 674 | 6,961 |
+| soft-male-sport-shorts-hiking | 664 | 6,894 |
+| soft-female-blue-cream-hiking | 663 | 6,888 |
+| soft-female-burgundy-sand-hiking | 663 | 6,888 |
+| soft-female-polo-shorts-hiking | 663 | 6,888 |
+| soft-male-blue-cream-hiking | 663 | 6,888 |
+| soft-male-burgundy-sand-hiking | 663 | 6,888 |
+| soft-male-polo-shorts-hiking | 663 | 6,888 |
+| soft-female-blue-navy-skirt-handbag-right | 674 | 6,862 |
+| soft-female-blue-navy-skirt-purse-right | 672 | 6,862 |
+| soft-female-tee-skirt-handbag-right | 674 | 6,862 |
+| soft-female-tee-skirt-purse-right | 672 | 6,862 |
+| soft-female-blue-navy-skirt-purse-left | 671 | 6,861 |
+| soft-female-tee-skirt-purse-left | 671 | 6,861 |
+| soft-female-blue-navy-skirt-handbag-left | 672 | 6,860 |
+| soft-female-tee-skirt-handbag-left | 672 | 6,860 |
+| soft-female-coral-navy-hiking | 660 | 6,858 |
+| soft-female-navy-sand-hiking | 660 | 6,858 |
+| soft-female-sage-stone-hiking | 660 | 6,858 |
+| soft-female-tee-shorts-hiking | 660 | 6,858 |
+| soft-female-white-denim-hiking | 660 | 6,858 |
+| soft-male-black-khaki-hiking | 660 | 6,858 |
+| soft-male-coral-navy-hiking | 660 | 6,858 |
+| soft-male-navy-sand-hiking | 660 | 6,858 |
+| soft-male-sage-stone-hiking | 660 | 6,858 |
+| soft-male-tee-shorts-hiking | 660 | 6,858 |
+| soft-male-white-denim-hiking | 660 | 6,858 |
+| soft-female-blouse-skirt-handbag-right | 657 | 6,777 |
+| soft-female-blouse-skirt-purse-right | 657 | 6,777 |
+| soft-female-rose-slate-skirt-handbag-right | 657 | 6,777 |
+| soft-female-rose-slate-skirt-purse-right | 657 | 6,777 |
+| soft-female-blouse-skirt-purse-left | 660 | 6,776 |
+| soft-female-rose-slate-skirt-purse-left | 660 | 6,776 |
+| soft-female-blouse-skirt-handbag-left | 659 | 6,775 |
+| soft-female-rose-slate-skirt-handbag-left | 659 | 6,775 |
+| soft-female-blue-navy-skirt-crossbody-left | 656 | 6,761 |
+| soft-female-blue-navy-skirt-shoulder-left | 659 | 6,761 |
+| soft-female-tee-skirt-crossbody-left | 656 | 6,761 |
+| soft-female-tee-skirt-shoulder-left | 659 | 6,761 |
+| soft-female-blue-navy-skirt-crossbody-right | 656 | 6,760 |
+| soft-female-blue-navy-skirt-shoulder-right | 659 | 6,760 |
+| soft-female-tee-skirt-crossbody-right | 656 | 6,760 |
+| soft-female-tee-skirt-shoulder-right | 659 | 6,760 |
+| soft-female-blouse-skirt-crossbody-left | 646 | 6,676 |
+| soft-female-blouse-skirt-shoulder-left | 640 | 6,676 |
+| soft-female-rose-slate-skirt-crossbody-left | 646 | 6,676 |
+| soft-female-rose-slate-skirt-shoulder-left | 640 | 6,676 |
+| soft-female-blouse-skirt-crossbody-right | 646 | 6,675 |
+| soft-female-blouse-skirt-shoulder-right | 640 | 6,675 |
+| soft-female-rose-slate-skirt-crossbody-right | 646 | 6,675 |
+| soft-female-rose-slate-skirt-shoulder-right | 640 | 6,675 |
+| soft-female-beige-blazer-daypack | 622 | 6,430 |
+| soft-female-charcoal-suit-daypack | 622 | 6,430 |
+| soft-female-navy-suit-daypack | 618 | 6,430 |
+| soft-male-beige-blazer-daypack | 622 | 6,430 |
+| soft-male-charcoal-suit-daypack | 622 | 6,430 |
+| soft-male-navy-suit-daypack | 618 | 6,430 |
+| soft-male-slate-suit-daypack | 622 | 6,430 |
+| soft-male-beach-daypack | 616 | 6,426 |
+| soft-female-trail-daypack | 606 | 6,302 |
+| soft-female-cream-navy-daypack | 605 | 6,257 |
+| soft-female-olive-charcoal-daypack | 605 | 6,257 |
+| soft-male-casual-shirt-daypack | 605 | 6,257 |
+| soft-male-cream-navy-daypack | 605 | 6,257 |
+| soft-male-olive-charcoal-daypack | 605 | 6,257 |
+| soft-female-stripe-daypack | 598 | 6,249 |
+| soft-male-stripe-daypack | 598 | 6,249 |
+| soft-female-commuter-daypack | 594 | 6,242 |
+| soft-male-commuter-daypack | 594 | 6,242 |
+| soft-male-sport-shorts-daypack | 592 | 6,175 |
+| soft-female-blue-cream-daypack | 591 | 6,169 |
+| soft-female-burgundy-sand-daypack | 591 | 6,169 |
+| soft-female-polo-shorts-daypack | 591 | 6,169 |
+| soft-male-blue-cream-daypack | 591 | 6,169 |
+| soft-male-burgundy-sand-daypack | 591 | 6,169 |
+| soft-male-polo-shorts-daypack | 591 | 6,169 |
+| soft-female-coral-navy-daypack | 590 | 6,139 |
+| soft-female-navy-sand-daypack | 590 | 6,139 |
+| soft-female-sage-stone-daypack | 590 | 6,139 |
+| soft-female-tee-shorts-daypack | 590 | 6,139 |
+| soft-female-white-denim-daypack | 590 | 6,139 |
+| soft-male-black-khaki-daypack | 590 | 6,139 |
+| soft-male-coral-navy-daypack | 590 | 6,139 |
+| soft-male-navy-sand-daypack | 590 | 6,139 |
+| soft-male-sage-stone-daypack | 590 | 6,139 |
+| soft-male-tee-shorts-daypack | 590 | 6,139 |
+| soft-male-white-denim-daypack | 590 | 6,139 |
+| soft-female-beige-blazer-handbag-right | 566 | 5,910 |
+| soft-female-beige-blazer-purse-right | 566 | 5,910 |
+| soft-female-charcoal-suit-handbag-right | 566 | 5,910 |
+| soft-female-charcoal-suit-purse-right | 566 | 5,910 |
+| soft-female-navy-suit-handbag-right | 574 | 5,910 |
+| soft-female-navy-suit-purse-right | 570 | 5,910 |
+| soft-male-beige-blazer-handbag-right | 566 | 5,910 |
+| soft-male-beige-blazer-purse-right | 566 | 5,910 |
+| soft-male-charcoal-suit-handbag-right | 566 | 5,910 |
+| soft-male-charcoal-suit-purse-right | 566 | 5,910 |
+| soft-male-navy-suit-handbag-right | 574 | 5,910 |
+| soft-male-navy-suit-purse-right | 570 | 5,910 |
+| soft-male-slate-suit-handbag-right | 566 | 5,910 |
+| soft-male-slate-suit-purse-right | 566 | 5,910 |
+| soft-female-beige-blazer-purse-left | 565 | 5,909 |
+| soft-female-charcoal-suit-purse-left | 565 | 5,909 |
+| soft-female-navy-suit-purse-left | 567 | 5,909 |
+| soft-male-beige-blazer-purse-left | 565 | 5,909 |
+| soft-male-charcoal-suit-purse-left | 565 | 5,909 |
+| soft-male-navy-suit-purse-left | 567 | 5,909 |
+| soft-male-slate-suit-purse-left | 565 | 5,909 |
+| soft-female-beige-blazer-handbag-left | 564 | 5,908 |
+| soft-female-charcoal-suit-handbag-left | 564 | 5,908 |
+| soft-female-navy-suit-handbag-left | 572 | 5,908 |
+| soft-male-beige-blazer-handbag-left | 564 | 5,908 |
+| soft-male-charcoal-suit-handbag-left | 564 | 5,908 |
+| soft-male-navy-suit-handbag-left | 572 | 5,908 |
+| soft-male-slate-suit-handbag-left | 564 | 5,908 |
+| soft-male-beach-handbag-right | 561 | 5,906 |
+| soft-male-beach-purse-right | 559 | 5,906 |
+| soft-male-beach-purse-left | 560 | 5,905 |
+| soft-male-beach-handbag-left | 563 | 5,904 |
+| soft-female-beige-blazer-crossbody-left | 553 | 5,809 |
+| soft-female-beige-blazer-shoulder-left | 553 | 5,809 |
+| soft-female-charcoal-suit-crossbody-left | 553 | 5,809 |
+| soft-female-charcoal-suit-shoulder-left | 553 | 5,809 |
+| soft-female-navy-suit-crossbody-left | 553 | 5,809 |
+| soft-female-navy-suit-shoulder-left | 559 | 5,809 |
+| soft-male-beige-blazer-crossbody-left | 553 | 5,809 |
+| soft-male-beige-blazer-shoulder-left | 553 | 5,809 |
+| soft-male-charcoal-suit-crossbody-left | 553 | 5,809 |
+| soft-male-charcoal-suit-shoulder-left | 553 | 5,809 |
+| soft-male-navy-suit-crossbody-left | 553 | 5,809 |
+| soft-male-navy-suit-shoulder-left | 559 | 5,809 |
+| soft-male-slate-suit-crossbody-left | 553 | 5,809 |
+| soft-male-slate-suit-shoulder-left | 553 | 5,809 |
+| soft-female-beige-blazer-crossbody-right | 553 | 5,808 |
+| soft-female-beige-blazer-shoulder-right | 551 | 5,808 |
+| soft-female-charcoal-suit-crossbody-right | 553 | 5,808 |
+| soft-female-charcoal-suit-shoulder-right | 551 | 5,808 |
+| soft-female-navy-suit-crossbody-right | 553 | 5,808 |
+| soft-female-navy-suit-shoulder-right | 559 | 5,808 |
+| soft-male-beige-blazer-crossbody-right | 553 | 5,808 |
+| soft-male-beige-blazer-shoulder-right | 551 | 5,808 |
+| soft-male-charcoal-suit-crossbody-right | 553 | 5,808 |
+| soft-male-charcoal-suit-shoulder-right | 551 | 5,808 |
+| soft-male-navy-suit-crossbody-right | 553 | 5,808 |
+| soft-male-navy-suit-shoulder-right | 559 | 5,808 |
+| soft-male-slate-suit-crossbody-right | 553 | 5,808 |
+| soft-male-slate-suit-shoulder-right | 551 | 5,808 |
+| soft-male-beach-crossbody-left | 547 | 5,805 |
+| soft-male-beach-shoulder-left | 545 | 5,805 |
+| soft-male-beach-crossbody-right | 549 | 5,804 |
+| soft-male-beach-shoulder-right | 547 | 5,804 |
+| soft-female-trail-handbag-right | 561 | 5,782 |
+| soft-female-trail-purse-right | 559 | 5,782 |
+| soft-female-trail-purse-left | 559 | 5,781 |
+| soft-female-trail-handbag-left | 562 | 5,780 |
+| soft-female-cream-navy-handbag-right | 552 | 5,737 |
+| soft-female-cream-navy-purse-right | 554 | 5,737 |
+| soft-female-olive-charcoal-handbag-right | 552 | 5,737 |
+| soft-female-olive-charcoal-purse-right | 554 | 5,737 |
+| soft-male-casual-shirt-handbag-right | 552 | 5,737 |
+| soft-male-casual-shirt-purse-right | 554 | 5,737 |
+| soft-male-cream-navy-handbag-right | 552 | 5,737 |
+| soft-male-cream-navy-purse-right | 554 | 5,737 |
+| soft-male-olive-charcoal-handbag-right | 552 | 5,737 |
+| soft-male-olive-charcoal-purse-right | 554 | 5,737 |
+| soft-female-cream-navy-purse-left | 553 | 5,736 |
+| soft-female-olive-charcoal-purse-left | 553 | 5,736 |
+| soft-male-casual-shirt-purse-left | 553 | 5,736 |
+| soft-male-cream-navy-purse-left | 553 | 5,736 |
+| soft-male-olive-charcoal-purse-left | 553 | 5,736 |
+| soft-female-cream-navy-handbag-left | 552 | 5,735 |
+| soft-female-olive-charcoal-handbag-left | 552 | 5,735 |
+| soft-male-casual-shirt-handbag-left | 552 | 5,735 |
+| soft-male-cream-navy-handbag-left | 552 | 5,735 |
+| soft-male-olive-charcoal-handbag-left | 552 | 5,735 |
+| soft-female-stripe-handbag-right | 547 | 5,729 |
+| soft-female-stripe-purse-right | 549 | 5,729 |
+| soft-male-stripe-handbag-right | 547 | 5,729 |
+| soft-male-stripe-purse-right | 549 | 5,729 |
+| soft-female-stripe-purse-left | 550 | 5,728 |
+| soft-male-stripe-purse-left | 550 | 5,728 |
+| soft-female-stripe-handbag-left | 549 | 5,727 |
+| soft-male-stripe-handbag-left | 549 | 5,727 |
+| soft-female-commuter-handbag-right | 553 | 5,722 |
+| soft-female-commuter-purse-right | 553 | 5,722 |
+| soft-male-commuter-handbag-right | 553 | 5,722 |
+| soft-male-commuter-purse-right | 553 | 5,722 |
+| soft-female-commuter-purse-left | 550 | 5,721 |
+| soft-male-commuter-purse-left | 550 | 5,721 |
+| soft-female-commuter-handbag-left | 553 | 5,720 |
+| soft-male-commuter-handbag-left | 553 | 5,720 |
+| soft-female-trail-crossbody-left | 548 | 5,681 |
+| soft-female-trail-shoulder-left | 544 | 5,681 |
+| soft-female-trail-crossbody-right | 546 | 5,680 |
+| soft-female-trail-shoulder-right | 542 | 5,680 |
+| soft-male-sport-shorts-handbag-right | 545 | 5,655 |
+| soft-male-sport-shorts-purse-right | 545 | 5,655 |
+| soft-male-sport-shorts-purse-left | 544 | 5,654 |
+| soft-male-sport-shorts-handbag-left | 543 | 5,653 |
+| soft-female-blue-cream-handbag-right | 542 | 5,649 |
+| soft-female-blue-cream-purse-right | 540 | 5,649 |
+| soft-female-burgundy-sand-handbag-right | 542 | 5,649 |
+| soft-female-burgundy-sand-purse-right | 540 | 5,649 |
+| soft-female-polo-shorts-handbag-right | 542 | 5,649 |
+| soft-female-polo-shorts-purse-right | 540 | 5,649 |
+| soft-male-blue-cream-handbag-right | 542 | 5,649 |
+| soft-male-blue-cream-purse-right | 540 | 5,649 |
+| soft-male-burgundy-sand-handbag-right | 542 | 5,649 |
+| soft-male-burgundy-sand-purse-right | 540 | 5,649 |
+| soft-male-polo-shorts-handbag-right | 542 | 5,649 |
+| soft-male-polo-shorts-purse-right | 540 | 5,649 |
+| soft-female-blue-cream-purse-left | 541 | 5,648 |
+| soft-female-burgundy-sand-purse-left | 541 | 5,648 |
+| soft-female-polo-shorts-purse-left | 541 | 5,648 |
+| soft-male-blue-cream-purse-left | 541 | 5,648 |
+| soft-male-burgundy-sand-purse-left | 541 | 5,648 |
+| soft-male-polo-shorts-purse-left | 541 | 5,648 |
+| soft-female-blue-cream-handbag-left | 542 | 5,647 |
+| soft-female-burgundy-sand-handbag-left | 542 | 5,647 |
+| soft-female-polo-shorts-handbag-left | 542 | 5,647 |
+| soft-male-blue-cream-handbag-left | 542 | 5,647 |
+| soft-male-burgundy-sand-handbag-left | 542 | 5,647 |
+| soft-male-polo-shorts-handbag-left | 542 | 5,647 |
+| soft-female-cream-navy-crossbody-left | 548 | 5,636 |
+| soft-female-cream-navy-shoulder-left | 544 | 5,636 |
+| soft-female-olive-charcoal-crossbody-left | 548 | 5,636 |
+| soft-female-olive-charcoal-shoulder-left | 544 | 5,636 |
+| soft-male-casual-shirt-crossbody-left | 548 | 5,636 |
+| soft-male-casual-shirt-shoulder-left | 544 | 5,636 |
+| soft-male-cream-navy-crossbody-left | 548 | 5,636 |
+| soft-male-cream-navy-shoulder-left | 544 | 5,636 |
+| soft-male-olive-charcoal-crossbody-left | 548 | 5,636 |
+| soft-male-olive-charcoal-shoulder-left | 544 | 5,636 |
+| soft-female-cream-navy-crossbody-right | 548 | 5,635 |
+| soft-female-cream-navy-shoulder-right | 546 | 5,635 |
+| soft-female-olive-charcoal-crossbody-right | 548 | 5,635 |
+| soft-female-olive-charcoal-shoulder-right | 546 | 5,635 |
+| soft-male-casual-shirt-crossbody-right | 548 | 5,635 |
+| soft-male-casual-shirt-shoulder-right | 546 | 5,635 |
+| soft-male-cream-navy-crossbody-right | 548 | 5,635 |
+| soft-male-cream-navy-shoulder-right | 546 | 5,635 |
+| soft-male-olive-charcoal-crossbody-right | 548 | 5,635 |
+| soft-male-olive-charcoal-shoulder-right | 546 | 5,635 |
+| soft-female-stripe-crossbody-left | 523 | 5,628 |
+| soft-female-stripe-shoulder-left | 521 | 5,628 |
+| soft-male-stripe-crossbody-left | 523 | 5,628 |
+| soft-male-stripe-shoulder-left | 521 | 5,628 |
+| soft-female-stripe-crossbody-right | 523 | 5,627 |
+| soft-female-stripe-shoulder-right | 519 | 5,627 |
+| soft-male-stripe-crossbody-right | 523 | 5,627 |
+| soft-male-stripe-shoulder-right | 519 | 5,627 |
+| soft-female-commuter-crossbody-left | 541 | 5,621 |
+| soft-female-commuter-shoulder-left | 541 | 5,621 |
+| soft-male-commuter-crossbody-left | 541 | 5,621 |
+| soft-male-commuter-shoulder-left | 541 | 5,621 |
+| soft-female-commuter-crossbody-right | 541 | 5,620 |
+| soft-female-commuter-shoulder-right | 537 | 5,620 |
+| soft-male-commuter-crossbody-right | 541 | 5,620 |
+| soft-male-commuter-shoulder-right | 537 | 5,620 |
+| soft-female-coral-navy-handbag-right | 543 | 5,619 |
+| soft-female-coral-navy-purse-right | 541 | 5,619 |
+| soft-female-navy-sand-handbag-right | 543 | 5,619 |
+| soft-female-navy-sand-purse-right | 541 | 5,619 |
+| soft-female-sage-stone-handbag-right | 543 | 5,619 |
+| soft-female-sage-stone-purse-right | 541 | 5,619 |
+| soft-female-tee-shorts-handbag-right | 543 | 5,619 |
+| soft-female-tee-shorts-purse-right | 541 | 5,619 |
+| soft-female-white-denim-handbag-right | 543 | 5,619 |
+| soft-female-white-denim-purse-right | 541 | 5,619 |
+| soft-male-black-khaki-handbag-right | 543 | 5,619 |
+| soft-male-black-khaki-purse-right | 541 | 5,619 |
+| soft-male-coral-navy-handbag-right | 543 | 5,619 |
+| soft-male-coral-navy-purse-right | 541 | 5,619 |
+| soft-male-navy-sand-handbag-right | 543 | 5,619 |
+| soft-male-navy-sand-purse-right | 541 | 5,619 |
+| soft-male-sage-stone-handbag-right | 543 | 5,619 |
+| soft-male-sage-stone-purse-right | 541 | 5,619 |
+| soft-male-tee-shorts-handbag-right | 543 | 5,619 |
+| soft-male-tee-shorts-purse-right | 541 | 5,619 |
+| soft-male-white-denim-handbag-right | 543 | 5,619 |
+| soft-male-white-denim-purse-right | 541 | 5,619 |
+| soft-female-coral-navy-purse-left | 542 | 5,618 |
+| soft-female-navy-sand-purse-left | 542 | 5,618 |
+| soft-female-sage-stone-purse-left | 542 | 5,618 |
+| soft-female-tee-shorts-purse-left | 542 | 5,618 |
+| soft-female-white-denim-purse-left | 542 | 5,618 |
+| soft-male-black-khaki-purse-left | 542 | 5,618 |
+| soft-male-coral-navy-purse-left | 542 | 5,618 |
+| soft-male-navy-sand-purse-left | 542 | 5,618 |
+| soft-male-sage-stone-purse-left | 542 | 5,618 |
+| soft-male-tee-shorts-purse-left | 542 | 5,618 |
+| soft-male-white-denim-purse-left | 542 | 5,618 |
+| soft-female-coral-navy-handbag-left | 541 | 5,617 |
+| soft-female-navy-sand-handbag-left | 541 | 5,617 |
+| soft-female-sage-stone-handbag-left | 541 | 5,617 |
+| soft-female-tee-shorts-handbag-left | 541 | 5,617 |
+| soft-female-white-denim-handbag-left | 541 | 5,617 |
+| soft-male-black-khaki-handbag-left | 541 | 5,617 |
+| soft-male-coral-navy-handbag-left | 541 | 5,617 |
+| soft-male-navy-sand-handbag-left | 541 | 5,617 |
+| soft-male-sage-stone-handbag-left | 541 | 5,617 |
+| soft-male-tee-shorts-handbag-left | 541 | 5,617 |
+| soft-male-white-denim-handbag-left | 541 | 5,617 |
+| soft-male-sport-shorts-crossbody-left | 535 | 5,554 |
+| soft-male-sport-shorts-shoulder-left | 537 | 5,554 |
+| soft-male-sport-shorts-crossbody-right | 535 | 5,553 |
+| soft-male-sport-shorts-shoulder-right | 535 | 5,553 |
+| soft-female-blue-cream-crossbody-left | 538 | 5,548 |
+| soft-female-blue-cream-shoulder-left | 536 | 5,548 |
+| soft-female-burgundy-sand-crossbody-left | 538 | 5,548 |
+| soft-female-burgundy-sand-shoulder-left | 536 | 5,548 |
+| soft-female-polo-shorts-crossbody-left | 538 | 5,548 |
+| soft-female-polo-shorts-shoulder-left | 536 | 5,548 |
+| soft-male-blue-cream-crossbody-left | 538 | 5,548 |
+| soft-male-blue-cream-shoulder-left | 536 | 5,548 |
+| soft-male-burgundy-sand-crossbody-left | 538 | 5,548 |
+| soft-male-burgundy-sand-shoulder-left | 536 | 5,548 |
+| soft-male-polo-shorts-crossbody-left | 538 | 5,548 |
+| soft-male-polo-shorts-shoulder-left | 536 | 5,548 |
+| soft-female-blue-cream-crossbody-right | 538 | 5,547 |
+| soft-female-blue-cream-shoulder-right | 534 | 5,547 |
+| soft-female-burgundy-sand-crossbody-right | 538 | 5,547 |
+| soft-female-burgundy-sand-shoulder-right | 534 | 5,547 |
+| soft-female-polo-shorts-crossbody-right | 538 | 5,547 |
+| soft-female-polo-shorts-shoulder-right | 534 | 5,547 |
+| soft-male-blue-cream-crossbody-right | 538 | 5,547 |
+| soft-male-blue-cream-shoulder-right | 534 | 5,547 |
+| soft-male-burgundy-sand-crossbody-right | 538 | 5,547 |
+| soft-male-burgundy-sand-shoulder-right | 534 | 5,547 |
+| soft-male-polo-shorts-crossbody-right | 538 | 5,547 |
+| soft-male-polo-shorts-shoulder-right | 534 | 5,547 |
+| soft-female-coral-navy-crossbody-left | 529 | 5,518 |
+| soft-female-coral-navy-shoulder-left | 533 | 5,518 |
+| soft-female-navy-sand-crossbody-left | 529 | 5,518 |
+| soft-female-navy-sand-shoulder-left | 533 | 5,518 |
+| soft-female-sage-stone-crossbody-left | 529 | 5,518 |
+| soft-female-sage-stone-shoulder-left | 533 | 5,518 |
+| soft-female-tee-shorts-crossbody-left | 529 | 5,518 |
+| soft-female-tee-shorts-shoulder-left | 533 | 5,518 |
+| soft-female-white-denim-crossbody-left | 529 | 5,518 |
+| soft-female-white-denim-shoulder-left | 533 | 5,518 |
+| soft-male-black-khaki-crossbody-left | 529 | 5,518 |
+| soft-male-black-khaki-shoulder-left | 533 | 5,518 |
+| soft-male-coral-navy-crossbody-left | 529 | 5,518 |
+| soft-male-coral-navy-shoulder-left | 533 | 5,518 |
+| soft-male-navy-sand-crossbody-left | 529 | 5,518 |
+| soft-male-navy-sand-shoulder-left | 533 | 5,518 |
+| soft-male-sage-stone-crossbody-left | 529 | 5,518 |
+| soft-male-sage-stone-shoulder-left | 533 | 5,518 |
+| soft-male-tee-shorts-crossbody-left | 529 | 5,518 |
+| soft-male-tee-shorts-shoulder-left | 533 | 5,518 |
+| soft-male-white-denim-crossbody-left | 529 | 5,518 |
+| soft-male-white-denim-shoulder-left | 533 | 5,518 |
+| soft-female-coral-navy-crossbody-right | 531 | 5,517 |
+| soft-female-coral-navy-shoulder-right | 533 | 5,517 |
+| soft-female-navy-sand-crossbody-right | 531 | 5,517 |
+| soft-female-navy-sand-shoulder-right | 533 | 5,517 |
+| soft-female-sage-stone-crossbody-right | 531 | 5,517 |
+| soft-female-sage-stone-shoulder-right | 533 | 5,517 |
+| soft-female-tee-shorts-crossbody-right | 531 | 5,517 |
+| soft-female-tee-shorts-shoulder-right | 533 | 5,517 |
+| soft-female-white-denim-crossbody-right | 531 | 5,517 |
+| soft-female-white-denim-shoulder-right | 533 | 5,517 |
+| soft-male-black-khaki-crossbody-right | 531 | 5,517 |
+| soft-male-black-khaki-shoulder-right | 533 | 5,517 |
+| soft-male-coral-navy-crossbody-right | 531 | 5,517 |
+| soft-male-coral-navy-shoulder-right | 533 | 5,517 |
+| soft-male-navy-sand-crossbody-right | 531 | 5,517 |
+| soft-male-navy-sand-shoulder-right | 533 | 5,517 |
+| soft-male-sage-stone-crossbody-right | 531 | 5,517 |
+| soft-male-sage-stone-shoulder-right | 533 | 5,517 |
+| soft-male-tee-shorts-crossbody-right | 531 | 5,517 |
+| soft-male-tee-shorts-shoulder-right | 533 | 5,517 |
+| soft-male-white-denim-crossbody-right | 531 | 5,517 |
+| soft-male-white-denim-shoulder-right | 533 | 5,517 |
+| soft-female-blue-navy-skirt-none | 520 | 5,422 |
+| soft-female-tee-skirt-none | 520 | 5,422 |
+| soft-female-blouse-skirt-none | 512 | 5,337 |
+| soft-female-rose-slate-skirt-none | 512 | 5,337 |
+| soft-female-beige-blazer-none | 430 | 4,470 |
+| soft-female-charcoal-suit-none | 430 | 4,470 |
+| soft-female-navy-suit-none | 426 | 4,470 |
+| soft-male-beige-blazer-none | 430 | 4,470 |
+| soft-male-charcoal-suit-none | 430 | 4,470 |
+| soft-male-navy-suit-none | 426 | 4,470 |
+| soft-male-slate-suit-none | 430 | 4,470 |
+| soft-male-beach-none | 420 | 4,466 |
+| soft-female-trail-none | 417 | 4,342 |
+| soft-female-cream-navy-none | 417 | 4,297 |
+| soft-female-olive-charcoal-none | 417 | 4,297 |
+| soft-male-casual-shirt-none | 417 | 4,297 |
+| soft-male-cream-navy-none | 417 | 4,297 |
+| soft-male-olive-charcoal-none | 417 | 4,297 |
+| soft-female-stripe-none | 402 | 4,289 |
+| soft-male-stripe-none | 402 | 4,289 |
+| soft-female-commuter-none | 408 | 4,282 |
+| soft-male-commuter-none | 408 | 4,282 |
+| soft-male-sport-shorts-none | 408 | 4,215 |
+| soft-female-blue-cream-none | 401 | 4,209 |
+| soft-female-burgundy-sand-none | 401 | 4,209 |
+| soft-female-polo-shorts-none | 401 | 4,209 |
+| soft-male-blue-cream-none | 401 | 4,209 |
+| soft-male-burgundy-sand-none | 401 | 4,209 |
+| soft-male-polo-shorts-none | 401 | 4,209 |
+| soft-female-coral-navy-none | 404 | 4,179 |
+| soft-female-navy-sand-none | 404 | 4,179 |
+| soft-female-sage-stone-none | 404 | 4,179 |
+| soft-female-tee-shorts-none | 404 | 4,179 |
+| soft-female-white-denim-none | 404 | 4,179 |
+| soft-male-black-khaki-none | 404 | 4,179 |
+| soft-male-coral-navy-none | 404 | 4,179 |
+| soft-male-navy-sand-none | 404 | 4,179 |
+| soft-male-sage-stone-none | 404 | 4,179 |
+| soft-male-tee-shorts-none | 404 | 4,179 |
+| soft-male-white-denim-none | 404 | 4,179 |
 
 ### Five-metre clearance and other geometry
 
@@ -1635,13 +1918,13 @@ Covered track has a 5 m bottom-to-ceiling envelope. Open bridges/gantries use th
 own taller clearance. Full PSDs stand 3 m above the platform: 2.35 m of glass, a
 0.6 m information plate and a 0.05 m cap.
 
-Passenger atlas draw strides are 9,370 High / 841 Low triangles per instance;
+Passenger atlas draw strides are 8,101 High / 788 Low triangles per instance;
 individual variants can be smaller. Both LODs share animation data. Rendered
 passenger dimensions use the train's 0.98 uniform scale, including shadows,
 picking, stride phase and eye height; simulation physique/speed and the atlas
 topology are unchanged. A single-storey crowd uses one draw; a visible ghosted
-storey can add a second. Passenger and road-vehicle opacity is 70% at High and 45%
-at Low.
+storey can add a second. Passengers are opaque and depth-writing at both LODs; road vehicles retain
+70% High / 45% Low opacity.
 
 Current inventory sizes:
 

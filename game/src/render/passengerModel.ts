@@ -1,14 +1,15 @@
 import * as THREE from 'three'
 import human from '../assets/passenger-approved.json' with { type: 'json' }
 import { passengerIsChild, passengerProportions } from '../sim/walking.ts'
+import { AgentRenderState } from '../sim/types.ts'
+import { activityChoice, ACTIVITY_SAMPLES } from '../sim/activities.ts'
 import { trainScaleForStorey } from '../sim/stock.ts'
-import { PASSENGER_OPACITY, PASSENGER_LOW_OPACITY } from '../sim/constants.ts'
 import { passengerEligible } from './passengerEligibility.ts'
 import { decodePassengerBytes, restorePassengerFrames } from './passengerAtlas.ts'
 import { activityShader, disposePassengerActivities } from './passengerActivities.ts'
 
-/** Approved grey, faceless commuter and baked walk; see assets/PASSENGERS.md. */
-export const PASSENGER_EYE_HEIGHT = 1.57
+/** Selected soft-human wardrobe and baked motion; see assets/PASSENGERS.md. */
+export const PASSENGER_EYE_HEIGHT = 1.48
 export const PASSENGER_STRIDE = human.stride
 export const PASSENGER_WALK_FRAMES = human.walkFrames
 export const PASSENGER_WALK_PROFILES = human.walkProfiles
@@ -16,22 +17,39 @@ export const PASSENGER_LIBRARY = human.library.map(model => ({ ...model,
   childEligible: passengerEligible(model, 'child'), adultEligible: passengerEligible(model, 'adult') }))
 export const PASSENGER_OUTFITS = human.variants
 export const PASSENGER_HAIRSTYLES = human.hairstyles
-// Both age pools are explicit: children may carry small/crossbody bags, while
-// female crossbody templates are child-only and never enter the adult pool.
+// Every selected-base recipe supports both ages; size stays identity-driven.
 export const PASSENGER_CHILD_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'child') ? [index] : [])
 export const PASSENGER_ADULT_OUTFITS = human.library.flatMap((model, index) => passengerEligible(model, 'adult') ? [index] : [])
 export type PassengerAppearance = [outfit: number, height: number, depth: number, width: number, tone: number]
 
-/** A gesture is optional when the reviewed carrying/cloth pose needs the hand. */
-export function passengerDisplayedActivity(kind: number, outfit: number): number {
+/** A narrow run has a reachable belt on either side. Switch belts when the
+ * requested hand is carrying; wide-lane poses keep their actual target. */
+export function passengerDisplayedActivity(kind: number, outfit: number, time = 0): number {
   const model=PASSENGER_LIBRARY[outfit]
-  if (model.garmentShape && model.garmentShape!=='trousers' && (kind===5||kind===6||kind===11)) return 0
-  if (model.bagType==='purse') {
+  if (model.bagType==='purse'||model.bagType==='handbag') {
     const right=model.bagSide==='right'
-    if ((kind===7&&right)||(kind===14&&!right)||kind===10) return 12
-    if (right && ((kind>=2&&kind<=8&&kind!==7)||kind===11)) return kind===5||kind===6||kind===11?0:12
+    const wide = Math.floor((time / 10 * (ACTIVITY_SAMPLES - 1) + .01) / 6) % 2 === 1
+    if (!wide && ((kind===7&&right)||(kind===14&&!right))) return kind===7?14:7
   }
   return kind
+}
+
+/** 0 = default/two hands, 1 = right only, 2 = left only. Stable action-specific
+ * preferences consume no sim RNG. A hand-owned bag always reserves that hand. */
+export function passengerActionMode(kind: number, outfit: number, id: number, preferred = 0): number {
+  if (kind===0||kind===1||kind===9||kind===12||kind===13) return 0
+  const model=PASSENGER_LIBRARY[outfit]
+  if (model.bagType==='purse'||model.bagType==='handbag') return model.bagSide==='right'?2:1
+  if (preferred===1||preferred===2) return preferred
+  if (kind===7) return 1
+  if (kind===14) return 2
+  if (kind===10) return 0
+  return activityChoice(id, 0x6a09e667 ^ kind * 0x45d9f3b)<.5?1:2
+}
+
+/** Pack hand mode beside the gait profile in the existing instance attribute. */
+export function passengerActionChannel(kind: number, outfit: number, id: number, profile: number, preferred = 0): number {
+  return profile + PASSENGER_WALK_PROFILES.length * passengerActionMode(kind, outfit, id, preferred)
 }
 
 /** Which prepared crowd topology a draw reads (§9.3). Both animate the same atlas. */
@@ -136,7 +154,7 @@ interface PassengerAtlases {
   normals: THREE.DataTexture
   regions: THREE.DataTexture
   /** Uploaded on first use: a crowd that never draws Low never allocates its table. */
-  indices: Map<PassengerDetail, { texture: THREE.DataTexture; rows: number }>
+  indices: Map<PassengerDetail, { texture: THREE.DataTexture; rows: number; width: number }>
   dispose(): void
 }
 
@@ -166,25 +184,29 @@ function passengerAtlases(): PassengerAtlases {
   return shared
 }
 
-function indexTable(detail: PassengerDetail): { texture: THREE.DataTexture; rows: number } {
+function indexTable(detail: PassengerDetail): { texture: THREE.DataTexture; rows: number; width: number } {
   const atlases = passengerAtlases()
   const cached = atlases.indices.get(detail)
   if (cached) return cached
   const table = detail === 'low' ? bakedLowIndices : bakedIndices
-  const rows = Math.ceil(table.length / 1024)
-  const pixels = new Float32Array(1024 * rows)
+  // Outfit growth widens the prepared table before exceeding 8192 GPU rows.
+  const width = 2 ** Math.ceil(Math.log2(Math.max(1024, Math.ceil(table.length / 8192))))
+  const rows = Math.ceil(table.length / width)
+  const pixels = new Float32Array(width * rows)
   pixels.set(table)
-  const texture = new THREE.DataTexture(pixels, 1024, rows, THREE.RedFormat, THREE.FloatType)
+  const texture = new THREE.DataTexture(pixels, width, rows, THREE.RedFormat, THREE.FloatType)
   texture.needsUpdate = true
-  const entry = { texture, rows }
+  const entry = { texture, rows, width }
   atlases.indices.set(detail, entry)
   return entry
 }
 
 export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshBasicMaterial {
   // Illustration colours stay flat under the station's lights and exposure.
-  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: true,
-    opacity: detail === 'low' ? PASSENGER_LOW_OPACITY : PASSENGER_OPACITY, depthWrite: false })
+  // The legacy sim alpha constants also drive traffic. People use the opaque
+  // depth-writing path at both LODs so their own surfaces occlude correctly.
+  const material = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, transparent: false,
+    opacity: 1, depthWrite: true })
   const corners = detail === 'low' ? LOW_CORNERS : human.corners
   const indices = indexTable(detail)
   const atlases = passengerAtlases()
@@ -211,8 +233,8 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
       varying float passengerRegion;
       float passengerIndex() {
         float corner = passengerVertex + passengerOutfit * ${corners.toFixed(1)};
-        return texture2D(passengerIndices, vec2((mod(corner, 1024.0) + 0.5) / 1024.0,
-          (floor(corner / 1024.0) + 0.5) / ${indices.rows.toFixed(1)})).r;
+        return texture2D(passengerIndices, vec2((mod(corner, ${indices.width.toFixed(1)}) + 0.5) / ${indices.width.toFixed(1)},
+          (floor(corner / ${indices.width.toFixed(1)}) + 0.5) / ${indices.rows.toFixed(1)})).r;
       }
       vec3 passengerSample(highp isampler2D data, float frame, float divisor) {
         float vertex = passengerIndex();
@@ -245,7 +267,7 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
         passengerRegion = texture2D(passengerRegions, vec2((mod(vertex, 1024.0) + 0.5) / 1024.0,
           (floor(vertex / 1024.0) + 0.5) / ${Math.ceil(human.vertices / 1024).toFixed(1)})).r;
         if(passengerUsesActivityRig()) passengerRegion = activityRegion();
-        passengerInk = ${human.palette.map((grey, i) => `${i < human.palette.length - 1 ? `passengerRegion < ${(i + .5).toFixed(1)} ? ` : ''}vec3(${new THREE.Color().setRGB(grey, grey, grey, THREE.SRGBColorSpace).r.toFixed(6)})`).join(' : ')};
+        passengerInk = ${human.paletteRGB.map((color, i) => `${i < human.paletteRGB.length - 1 ? `passengerRegion < ${(i + .5).toFixed(1)} ? ` : ''}vec3(${new THREE.Color(color).toArray().map(v=>v.toFixed(6)).join(',')})`).join(' : ')};
       `)
       .replace('#include <project_vertex>', '#include <project_vertex>\npassengerView = -mvPosition.xyz;')
     shader.fragmentShader = `
@@ -257,10 +279,14 @@ export function passengerMaterial(detail: PassengerDetail = 'full'): THREE.MeshB
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
       #include <color_fragment>
       diffuseColor.rgb *= passengerInk;
+      // The rounded white head needs shape against pale station surfaces.
+      // Reuse the baked smooth normals; no station-light or skeleton work.
+      float softLight=.72+.28*max(0.0,dot(normalize(passengerNormal),normalize(vec3(-.4,.6,1.0))));
+      diffuseColor.rgb *= softLight;
     `)
   }
   // The two topologies sample different tables and strides: separate programs.
-  material.customProgramCacheKey = () => `passenger-approved-activities-v1-${detail}`
+  material.customProgramCacheKey = () => `passenger-soft-human-${human.recipeSha256}-${detail}`
   return material
 }
 
@@ -297,6 +323,11 @@ export function passengerMesh(capacity: number, detail: PassengerDetail = 'full'
   // scene owns them once, and whichever draw is torn down releases them together.
   mesh.userData.disposePassenger = () => passengerAtlases().dispose()
   return mesh
+}
+
+/** Stair travel includes rise; transported passengers keep planted feet. */
+export function passengerWalkDistance(state: number, dx: number, dy: number, dz: number): number {
+  return state === AgentRenderState.Riding ? 0 : Math.hypot(dx, dy, state === AgentRenderState.StairWalking ? dz : 0)
 }
 
 /** Travel-driven gait: queued passengers and conveyor/lift riders do not march. */

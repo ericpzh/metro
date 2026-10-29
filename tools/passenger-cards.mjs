@@ -3,6 +3,12 @@ import { resolve, join } from 'node:path';
 import { passengerIsChild } from '../game/src/sim/walking.ts';
 
 let cards;
+/** Adjacent figure identities should not select adjacent colour/bag recipes. */
+export function passengerArtIndex(identity, count) {
+  let hash=Math.imul(Math.round(identity)^0x51ed270b,0x85ebca6b)>>>0;
+  hash=Math.imul(hash^(hash>>>16),0xc2b2ae35)>>>0;
+  return ((hash^(hash>>>16))>>>0)%count;
+}
 function load() {
   if (cards) return cards;
   const dir = resolve(process.env.PASSENGER_CARDS_DIR ?? resolve(import.meta.dirname, '../.preview/passenger-cards'));
@@ -20,7 +26,7 @@ export function passengerImage(view, x, y, pixelsPerMetre, variant = 0, walking,
   const age=passengerIsChild(Math.round(variant))?'child':'adult';
   const matches = load().filter(p => p.view === view && (p.age??'adult')===age && (walking === undefined || p.walking === walking));
   if(!matches.length)throw new Error(`capture ${age} humans first: npm run art:models`);
-  const p = matches[((Math.round(variant) % matches.length) + matches.length) % matches.length];
+  const p = matches[passengerArtIndex(variant,matches.length)];
   const s = pixelsPerMetre / p.pixelsPerMetre * scale;
   // A plan camera looks straight down: rotating around the floor origin is an
   // exact heading change, retaining the captured stride and appearance.
@@ -38,6 +44,15 @@ export function passengerSpriteDefinitions(images) {
     if(first.has(image))return `<g id="human-${i}"><use href="#human-${first.get(image)}"/></g>`;
     first.set(image,i);return `<g id="human-${i}">${image}</g>`;
   }).join('');
+}
+
+/** Keep only referenced static sprites, including dependencies of aliases. */
+export function prunePassengerSprites(svg) {
+  const definitions=new Map();
+  const body=svg.replace(/<g id="(human-\d+)">[\s\S]*?<\/g>/g,(node,id)=>{definitions.set(id,node);return ''});
+  const used=new Set(),pending=[...body.matchAll(/href="#(human-\d+)"/g)].map(m=>m[1]);
+  while(pending.length){const id=pending.pop();if(used.has(id))continue;used.add(id);for(const m of (definitions.get(id)??'').matchAll(/href="#(human-\d+)"/g))pending.push(m[1]);}
+  return svg.replace(/<g id="(human-\d+)">[\s\S]*?<\/g>/g,(node,id)=>used.has(id)?node:'');
 }
 
 export function passengerSprites() {
@@ -84,7 +99,7 @@ export function walkingSprite(view, id, identity, heading, speedMetresPerSecond,
   const cards = loadWalking().filter(p => p.view === view && (p.age??'adult')===age);
   if(!cards.length)throw new Error(`capture ${age} walking humans first: npm run art:models`);
   const variants = [...new Set(cards.map(p => p.variant))];
-  const variant = variants[identity % variants.length];
+  const variant = variants[passengerArtIndex(identity,variants.length)];
   const headings = [...new Set(cards.map(p => p.heading))];
   const delta = a => Math.abs(Math.atan2(Math.sin(a - heading), Math.cos(a - heading)));
   const capturedHeading = headings.reduce((a, b) => delta(a) <= delta(b) ? a : b);

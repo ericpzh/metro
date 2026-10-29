@@ -37,7 +37,7 @@ test('passengers have independent height/depth/width variation and a 20% child p
   for(let axis=0;axis<3;axis++){min[axis]=Math.min(min[axis],size[axis]);max[axis]=Math.max(max[axis],size[axis])}
   if(!child){heights.add(p[0]);widthDepth.add(`${Math.floor((p[1]-.9)*50)},${Math.floor((p[2]-.9)*50)}`)}
   const model=PASSENGER_LIBRARY[passengerAppearance(id)[0]];
-  if(child){assert(model.childEligible);assert(!model.bag||model.bagStyle==='small'||model.bagType==='crossbody');assert.notEqual(model.hair,'bald')}
+  if(child){assert(model.childEligible);assert.notEqual(model.hair,'bald')}
   else assert(model.adultEligible);
  }
  assert.ok(children>9750 && children<10250,'20% chance across many independent identities')
