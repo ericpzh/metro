@@ -34,6 +34,9 @@ try {
           const canvas=dialog.querySelector('canvas');
           if(canvas.width<100||canvas.height<100)throw Error('canvas not sized');
           const now=__metro.getState();
+          const guides=__explodedScene.explodedLayout.connections;
+          if(!guides?.connections.length)throw Error('floor connection guides missing');
+          window.__guidePositions=guides.lines.geometry.attributes.position.array.slice();
           if(now.station!==station||now.version!==version||now.past!==past)throw Error('presentation edited document');
           if(dialog.textContent.includes('拖动旋转')||!dialog.querySelector('.explodedBack'))throw Error('old toolbar remains');
           if(dialog.querySelectorAll('header .seg button').length!==5)throw Error('speed bar missing');
@@ -76,7 +79,7 @@ try {
           assert.notDeepEqual(after.viewer,before.viewer,`W pans the viewer ${JSON.stringify(held)}`)
           assert.deepEqual(after.main,before.main,'viewer input preserves the editor camera')
           const point=await page.evaluate(`(()=>{const r=document.querySelector('.explodedViewer canvas').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`)
-          for(const button of ['left','middle','right']) {
+          for(const button of ['middle','right']) {
             const initial=await page.evaluate(`({position:__explodedScene.controls.object.position.toArray(),target:__explodedScene.controls.target.toArray()})`)
             const buttons=button==='left'?1:button==='middle'?4:2
             await page.send('Input.dispatchMouseEvent',{type:'mousePressed',...point,button,buttons,clickCount:1})
@@ -89,6 +92,69 @@ try {
           }
         }
         const tool=await page.evaluate('__metro.getState().tool')
+        const layoutBefore = await page.evaluate(`(()=>{
+          const scene=__explodedScene,layout=scene.explodedLayout,camera=scene.cameraSys.activeCamera();
+          scene.settleExplodedCamera();camera.updateMatrixWorld();layout.root.updateWorldMatrix(true,true);
+          window.__layoutDocument=__metro.getState().station;window.__layoutVersion=__metro.getState().version;
+          const r=document.querySelector('.explodedViewer canvas').getBoundingClientRect();
+          for(const floor of layout.floors)for(const mesh of floor.children){
+            const p=mesh.geometry.attributes.position;
+            for(let i=0;i<p.count;i+=Math.max(3,Math.floor(p.count/120/3)*3)){
+              const v=new scene.controls.target.constructor((p.getX(i)+p.getX(i+1)+p.getX(i+2))/3,(p.getY(i)+p.getY(i+1)+p.getY(i+2))/3,(p.getZ(i)+p.getZ(i+1)+p.getZ(i+2))/3);
+              v.applyMatrix4(mesh.matrixWorld).project(camera);
+              if(Math.abs(v.x)>.85||Math.abs(v.y)>.8)continue;
+              const index=layout.pick(v.x,v.y,camera);if(index===null)continue;
+              window.__layoutGeometry=layout.floors[index].children.map(m=>({geometry:m.geometry,position:m.geometry.attributes.position.array.slice()}));
+              return {x:r.left+(v.x+1)*r.width/2,y:r.top+(1-v.y)*r.height/2,index,target:scene.controls.target.toArray()};
+            }
+          }
+          throw Error('no visible floor to select');
+        })()`)
+        const layoutStart=performance.now()
+        await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:layoutBefore.x,y:layoutBefore.y,button:'left',buttons:1,clickCount:1})
+        await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:layoutBefore.x,y:layoutBefore.y,button:'left',buttons:0,clickCount:1})
+        assert.equal(await page.evaluate('__explodedScene.explodedLayout.selected'),layoutBefore.index,'click directly selects floor')
+        await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:layoutBefore.x,y:layoutBefore.y,button:'left',buttons:1,clickCount:1})
+        await page.send('Input.dispatchMouseEvent',{type:'mouseMoved',x:layoutBefore.x+120,y:layoutBefore.y-80,button:'left',buttons:1})
+        await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:layoutBefore.x+120,y:layoutBefore.y-80,button:'left',buttons:0,clickCount:1})
+        const layoutResult=await page.evaluate(`new Promise((resolve,reject)=>requestAnimationFrame(()=>requestAnimationFrame(()=>{try{
+          const scene=__explodedScene,layout=scene.explodedLayout,index=layout.selected;
+          const guides=layout.connections,positions=guides.lines.geometry.attributes.position;
+          guides.connections.forEach((connection,i)=>{
+            [connection.lower,connection.upper].forEach((floor,end)=>{
+              const o=i*6+end*3,shift=layout.shifts[floor];
+              [shift.x,shift.y,shift.z].forEach((value,axis)=>{
+                if(Math.abs(positions.array[o+axis]-__guidePositions[o+axis]-value)>1e-4)throw Error('guide endpoint detached from floor');
+              });
+            });
+          });
+          const failed=scene.renderer.info.programs.find(program=>program.diagnostics?.runnable===false);
+          if(failed)throw Error('floor shader failed: '+JSON.stringify(failed.diagnostics));
+          if(index===null||!layout.shifts[index].lengthSq())throw Error('floor drag did not move selected floor');
+          if(layout.shifts.some((v,i)=>i!==index&&v.lengthSq()))throw Error('drag moved another floor');
+          layout.floors[index].children.forEach((mesh,i)=>{
+            const before=__layoutGeometry[i];if(mesh.geometry!==before.geometry)throw Error('drag rebuilt geometry');
+            const now=mesh.geometry.attributes.position.array;if(now.some((v,k)=>v!==before.position[k]))throw Error('drag stretched vertices');
+          });
+          if(__metro.getState().station!==__layoutDocument||__metro.getState().version!==__layoutVersion)throw Error('floor drag edited station');
+          resolve({shift:layout.shifts[index].toArray(),target:scene.controls.target.toArray()});
+        }catch(error){reject(error)}})))`)
+        assert.ok(layoutResult.target.every((v,i)=>Math.abs(v-layoutBefore.target[i])<1e-9),'floor drag preserves camera target')
+        report.layoutDragMs=performance.now()-layoutStart
+        if (n===0) {
+          const shot=await page.send('Page.captureScreenshot',{format:'png'})
+          writeFileSync(resolve(output,`${id}-arranged.png`),Buffer.from(shot.data,'base64'))
+        }
+        const empty=await page.evaluate(`(()=>{const r=document.querySelector('.explodedViewer canvas').getBoundingClientRect();return{x:r.left+10,y:r.top+10}})()`)
+        await page.send('Input.dispatchMouseEvent',{type:'mousePressed',...empty,button:'left',buttons:1,clickCount:1})
+        await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',...empty,button:'left',buttons:0,clickCount:1})
+        assert.equal(await page.evaluate('__explodedScene.explodedLayout.selected'),null,'empty space deselects')
+        await page.evaluate(`(()=>{
+          document.querySelector('.explodedToolbar > button').click();
+          if(__explodedScene.explodedLayout.shifts.some(v=>v.lengthSq()))throw Error('reset failed');
+          const positions=__explodedScene.explodedLayout.connections.lines.geometry.attributes.position.array;
+          if(positions.some((v,i)=>v!==__guidePositions[i]))throw Error('guide reset failed');
+        })()`)
         const deferred=await page.evaluate('Array.from(__scene.deferredTrains??[])')
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'b',code:'KeyB',windowsVirtualKeyCode:66})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'b',code:'KeyB',windowsVirtualKeyCode:66})

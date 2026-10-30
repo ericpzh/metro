@@ -257,6 +257,19 @@ per-storey display sections and cached-material rule for clipping original
 base-level ramps after reframing. Keep exploded-support / exploded-ramps and
 the shared measured performance reference aligned with those contracts.
 
+Floor arrangement uses `render/explodedLayout.ts`: bake each tray once as rigid
+geometry, select/highlight it by clicking the rendered floor, drag its Group,
+click elsewhere to deselect and reset to restore positions. Never scale trays or
+move individual vertices by height; that stretches faces between floors.
+`render/explodedConnections.ts` supplies non-pickable dashed light-blue guides
+for stair/escalator/elevator joins, using original module/flight anchors and each
+floor's independent packed/manual offset. Keep their endpoint/dash buffers reusable
+and paused passenger/train poses attached during dragging. Route implementation
+details to metro-game; pin ownership, cuts, picking, highlight, reset, guide
+attachment and cleanup in `exploded-layout` / `exploded-connections`, then run the
+production exploded-view browser check on both demos. Arrangement stays outside
+station state, worker data and undo history.
+
 The standalone 爆炸视图 is owned by `app/windows/ExplodedView.tsx` and the pure
 snapshot transform in `render/explodedView.ts`. Keep it presentation-only: do not
 mutate the saved station, worker document, routes or simulation buffers. Story
@@ -289,8 +302,9 @@ Keep native
 game interpolation unchanged. The view has its own renderer and camera, shares the
 simulation controls, and suspends the editor renderer while open. The persistent
 edge-scrolling preference lives in `app/edgeScrolling.ts` and gates only the mouse
-edge-pan input in `render/scene/systems/CameraSystem.ts`; keep it applied to both
-the editor and exploded renderers while leaving keyboard panning available. Both
+edge-pan input in `render/scene/systems/CameraSystem.ts`; preserve it in the editor,
+but disable edge pan in the exploded arranger so dragging a floor cannot also
+drift its camera. Leave keyboard panning available. Both
 views expose the shared `SettingsMenu`; in the exploded toolbar keep the back
 button, simulation time controls and gear in that order. Pin geometry,
 passenger support/transfer, live stream and toolbar contracts in the `exploded-*`,

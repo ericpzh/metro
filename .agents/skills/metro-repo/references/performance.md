@@ -6,6 +6,43 @@ measurement, benchmark procedure or known bottleneck. Include the scenario,
 workload, observed result and limits. Do not add dates or feature summaries.
 Functional behavior and unrelated validation belong in their owning code, tests or
 documents. If a change has no measured performance result, leave this file alone.
+## Exploded floor arrangement
+
+`node tools/check-exploded-view.mjs` measures a real click on visible floor geometry,
+then a left press, 120 px right / 80 px up move and release, ending after two RAFs.
+The production capture in `.preview/perf/exploded-view/report.json` uses the shipped
+Zoo and Tanwei fixtures, five trays each, a 1384 × 702 canvas, paused simulation,
+local headless Chrome with hardware GPU requested, and two fresh viewer openings
+per station. No build, test or profiler runs competed with this capture.
+
+| Fixture | First / second opening to ready | First / second drag round trip |
+| --- | --- | --- |
+| Zoo | 6936 / 6382 ms | 102.3 / 92.5 ms |
+| Tanwei | 9392 / 8675 ms | 116.1 / 81.4 ms |
+
+These interaction values include five CDP input calls, a selection assertion and
+two RAFs, so they are diagnostic upper bounds rather than isolated
+input-to-first-render measurements. The first interaction in each demo does
+not meet the strict <100 ms budget on this conservative measure; this capture does
+not establish its handler latency, sustained dragging FPS or a performance gain
+over a prior implementation. Initial shader/geometry preparation is accounted for
+separately in opening time, rather than hidden in a warmed interaction claim.
+
+Floors are baked and ramp triangles physically clipped once during opening.
+Each press resolves one scene raycast; movement changes a retained floor Group's
+translation, with no scene pick, document commit or geometry rebuild. The former
+per-vertex-height displacement was rejected because faces could stretch between
+different floors. `exploded-layout.test.mjs` guards immutable vertex buffers,
+physical cuts, picking after movement, selection/highlight/reset, source ownership
+and paused/live pose offsets. The browser check guards direct rendered-floor
+selection, camera/document isolation, unchanged geometry/vertices, empty-space
+deselection, reset, live playback and shader compilation on both fixtures. Baked
+floors use ordinary transformed bounds and retain frustum culling.
+The capture includes dashed stair/escalator/elevator guides. Movement rewrites
+their retained endpoint and dash-distance buffers only, with no added scene pick
+or floor rebuild; `exploded-connections.test.mjs` pins that reuse and independent
+endpoint motion. The browser check verifies attachment and reset on both fixtures.
+
 ## Reproduce the reported interaction
 
 Measure the actual event sequence before choosing an optimization. For a drag,

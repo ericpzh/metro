@@ -5,6 +5,18 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 
 # The game's test suite (`game/test/`)
 
+Exploded floor arrangement is covered by `exploded-layout.test.mjs` and
+`exploded-connections.test.mjs`: immutable baked geometry (including reflected
+instances and multiple materials), direct picking/highlighting/deselection,
+physical ramp cuts, independent tray movement/reset, paused/live pose attachment
+and train cabin-origin correction. Guides must reuse endpoint/dash buffers, ignore
+picking and release owned geometry/materials on replacement and teardown.
+Run `node tools/check-exploded-view.mjs` after building for real rendered-floor
+selection/drag/deselection/reset on Zoo and Tanwei, including guide attachment,
+unchanged vertex buffers and document/camera isolation. Numeric coverage and its
+command belong in `game/test/README.md`; measured timings belong only in the shared
+performance reference.
+
 `ui-theme` covers the three theme preference, fallback and storage behavior;
 `game-loading` covers shell visibility and bilingual failure text. After building,
 `node tools/check-game-themes.mjs` blocks the entry bundle to check the early shell,

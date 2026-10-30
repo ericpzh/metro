@@ -793,6 +793,9 @@ export const messages = {
     "en": "Hide roofs"
   },
   "exploded_view": { "zh": "爆炸视图", "en": "Exploded view" },
+  "exploded_arrange": { "zh": "移动楼层", "en": "Arrange floors" },
+  "exploded_reset": { "zh": "重置位置", "en": "Reset positions" },
+  "exploded_arrange_hint": { "zh": "点击楼层选中并拖动 · 点击空白处取消选择 · 中键旋转 · 右键平移", "en": "Click a floor to select and drag · Click empty space to deselect · Middle-drag to orbit · Right-drag to pan" },
   "statistics_charts": { "zh": "统计图", "en": "Statistics charts" },
   "exploded_hint": { "zh": "拖动旋转 · 滚轮缩放 · 右键拖动平移 · Esc 返回", "en": "Drag to orbit · Scroll to zoom · Right-drag to pan · Esc to return" },
   "exploded_empty": { "zh": "建造车站后即可查看楼层爆炸图", "en": "Build a station to see its exploded view" },

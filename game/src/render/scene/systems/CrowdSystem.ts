@@ -458,6 +458,15 @@ export class CrowdSystem extends SceneSystem {
 
   teleportBetweenStoreys = false
 
+  /** A rigid presentation drag must move paused poses immediately, without interpolation. */
+  snapPresentationPoses():void {
+    for(let i=0;i<this.agentCount;i++) {
+      const o=i*6,p=i*3
+      this.prev[p]=this.cur[o];this.prev[p+1]=this.cur[o+1];this.prev[p+2]=this.cur[o+2]
+      this.frozen.get(this.cur[o+5])?.position.set(this.cur[o],this.cur[o+1],this.cur[o+2])
+    }
+  }
+
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
     const floats = count * 6
     // Play/pause controls publish a copy of the latest sim state. The first

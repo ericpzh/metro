@@ -1497,6 +1497,24 @@ the standalone viewer; dispose sections before the source modules. Never edit
 ramp endpoints, station cells, simulation data or the saved document for slicing.
 
 The exploded viewer is a disposable presentation of the station; never install
+its floor arrangement in station state or undo history. `render/explodedLayout.ts`
+generates independent floor meshes once from source chunks/modules/instances,
+physically cutting ramp triangles at their slice planes before merging by material.
+Translate each floor's Group only: never displace vertices by height, stretch faces
+between storeys, rescale trays or regenerate geometry during dragging/selection.
+One scene pick on left press selects and tints the actual floor; drag moves it,
+empty-space/UI clicks deselect, and reset restores positions and clears selection.
+Middle drag orbits and right drag pans. Source geometry stays hidden and retains
+its original ownership; dispose baked geometry/materials before source teardown.
+Live passenger/train poses follow floor offsets, including paused/frozen poses
+without interpolation during presentation moves. Closing discards the arrangement.
+`render/explodedConnections.ts` adds dashed light-blue guides at the matching
+stair/escalator/elevator cut points on adjacent trays. Derive anchors from original
+module coordinates and actual stair flights; apply each tray's packed and manual
+offset independently. Reuse position/dash-distance buffers during drag/reset,
+exclude guides from picking, and dispose them with the layout.
+
+The exploded viewer is a disposable presentation of the station; never install
 its translated document in the editor or worker. For authored above-ground
 stations, build floor plans from room/fare-zone/auto-floor labels with a one-cell
 enclosure margin. Connected beams must not make remote foundations into rooms or

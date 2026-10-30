@@ -1261,6 +1261,31 @@ The original base-level meshes also retain their owned slice materials through
 LevelSystem's cached-base dressing after camera reframing; disposal restores the
 previous base cache as well as the material and callback.
 
+`exploded-layout.test.mjs` guards baked rigid floor objects, immutable vertices
+through large translations, physical triangle clipping, real geometry picking,
+whole-floor highlighting/deselection, reset, source ownership and live pose offsets.
+The production exploded-view browser check clicks a rendered floor, drags it,
+checks unchanged vertex buffers and camera/document isolation, clicks empty space
+to deselect, and resets on both demos.
+`exploded-connections.test.mjs` covers stair/escalator/elevator guide counts,
+actual turned-stair flights, multi-storey and missing-tray handling, independent
+endpoint motion, retained dash/position buffers, reset, non-pickability and source
+immutability. The browser check verifies attachment and reset on both demos.
+
+Numeric V8 coverage for the arrangement helpers (12 tests):
+
+| Module | Lines | Branches | Functions |
+| --- | ---: | ---: | ---: |
+| `render/explodedLayout.ts` | 100% | 89.77% | 93.33% |
+| `render/explodedConnections.ts` | 100% | 94.12% | 100% |
+
+From the repository root, reproduce with
+`node --test --experimental-test-coverage --test-coverage-include="game/src/render/explodedLayout.ts" --test-coverage-include="game/src/render/explodedConnections.ts" game/test/exploded-layout.test.mjs game/test/exploded-connections.test.mjs`.
+The remaining branches cover additional source/material/clipping variants; this
+is not a claim of exhaustive visual or geometry coverage. Instance/material tests
+also pin mirrored winding, independence from later source transforms and retained
+source ownership; guide lifecycle tests pin replacement and teardown disposal.
+
 `exploded-view.test.mjs` covers the independent presentation document in
 `render/explodedView.ts`: immutable source arrays, baseline-aware story bands,
 separated full equipment footprints, retained unfurnished floors, roof/outdoor and

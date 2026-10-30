@@ -26,16 +26,19 @@ function Viewer(): React.ReactElement {
   const canvas = useRef<HTMLCanvasElement>(null)
   const renderer = useRef<SceneRenderer | null>(null)
   const [ready, setReady] = useState(false)
+  const [selectedFloor, setSelectedFloor] = useState<number | null>(null)
+  const drag = useRef<{ id: number; x: number; y: number; floor: number } | null>(null)
   const playing = useStore(s => s.playing)
   const speed = useStore(s => s.speed)
-  const edgeScrolling = useStore(s => s.edgeScrolling)
   const upscalingMode = useStore(s => s.upscalingMode)
   useEffect(() => { renderer.current?.setPlaying(playing) }, [playing])
   useEffect(() => { if(renderer.current)renderer.current.audioSpeed=speed }, [speed])
-  useEffect(() => { renderer.current?.setEdgeScrolling(edgeScrolling) }, [edgeScrolling])
   useEffect(() => { renderer.current?.setUpscalingMode(upscalingMode) }, [upscalingMode])
   // Capture once on opening: simulation ticks and UI state cannot remesh it.
-  const [snapshot] = useState(() => explodedView(toData(useStore.getState().station)))
+  const [snapshot] = useState(() => {
+    const source=toData(useStore.getState().station)
+    return {...explodedView(source),source}
+  })
   const close = (): void => useStore.getState().setExplodedView(false)
   useEffect(() => {
     const modal = dialog.current!
@@ -97,7 +100,7 @@ function Viewer(): React.ReactElement {
       scene.audioSpeed=useStore.getState().speed
       scene.setGraphicsQuality(useStore.getState().graphicsQuality)
       scene.setUpscalingMode(useStore.getState().upscalingMode)
-      scene.setEdgeScrolling(useStore.getState().edgeScrolling)
+      scene.setEdgeScrolling(false)
       scene.setHideUI(true)
       scene.setHideGround(true)
       scene.setHideRoof(true)
@@ -113,6 +116,7 @@ function Viewer(): React.ReactElement {
       observer.observe(canvas.current!)
       resize()
       scene.frameStandalonePresentation()
+      scene.enableExplodedLayout(snapshot.levels,snapshot.source,snapshot.offsets,snapshot.direction)
       scene.setPlaying(useStore.getState().playing)
       let agentPoses: Float32Array = new Float32Array(0), trainPoses: Float32Array = new Float32Array(0)
       const passengerSupport=explodedPassengerSupport(snapshot.data,snapshot.offsets,snapshot.direction)
@@ -144,17 +148,52 @@ function Viewer(): React.ReactElement {
       previous?.focus()
     }
   }, [snapshot])
-  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} aria-label={t('exploded_view')} onCancel={close}>
+  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} aria-label={t('exploded_view')} onCancel={close}
+    onPointerDownCapture={event => {
+      if(event.target !== canvas.current) { renderer.current?.selectExplodedFloor(null);setSelectedFloor(null) }
+    }}>
     <header className="explodedToolbar">
       <strong>{t('exploded_view')}</strong>
+      <button disabled={!ready} onClick={() => { renderer.current?.resetExplodedLayout(); setSelectedFloor(null) }}>{t('exploded_reset')}</button>
       <div className="explodedToolbarControls">
         <button className="explodedBack" autoFocus onClick={close} aria-label={t('back_to_game')}><IoArrowBackOutline /></button>
         <SimulationControls />
         <SettingsMenu />
       </div>
     </header>
-    <canvas ref={canvas} aria-label={t('exploded_view')} onContextMenu={e => e.preventDefault()} />
+    <canvas ref={canvas} aria-label={t('exploded_view')} onContextMenu={e => e.preventDefault()}
+      className={selectedFloor !== null ? 'explodedArrangeCanvas' : undefined}
+      onPointerDownCapture={event => {
+        if (!ready || event.button !== 0 || !snapshot.levels.length) return
+        const floor = renderer.current?.pickExplodedFloor(event.clientX,event.clientY) ?? null
+        renderer.current?.selectExplodedFloor(floor)
+        setSelectedFloor(floor)
+        if (floor === null) return
+        renderer.current?.settleExplodedCamera()
+        event.stopPropagation()
+        event.preventDefault()
+        event.currentTarget.setPointerCapture(event.pointerId)
+        drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY, floor }
+      }}
+      onPointerMoveCapture={event => {
+        const previous = drag.current
+        if (!previous || previous.id !== event.pointerId) return
+        event.stopPropagation()
+        renderer.current?.moveExplodedFloor(previous.floor, event.clientX - previous.x, event.clientY - previous.y)
+        drag.current = { ...previous, x: event.clientX, y: event.clientY }
+      }}
+      onPointerUpCapture={event => {
+        if (drag.current?.id !== event.pointerId) return
+        event.stopPropagation()
+        drag.current = null
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }}
+      onLostPointerCapture={() => { drag.current = null }}
+      onPointerCancel={() => { drag.current = null }} />
     {(!ready || snapshot.levels.length === 0) && <p className="explodedEmpty" role="status">{t(!ready ? 'exploded_loading' : 'exploded_empty')}</p>}
-    <footer className="explodedLevels">{snapshot.levels.map(z => <span key={z}>{z > 0 ? '+' : ''}{z} m</span>)}</footer>
+    <footer className="explodedLevels">
+      <span>{t('exploded_arrange_hint')}</span>
+      {snapshot.levels.map((z,index) => <span key={z} className={selectedFloor === index ? 'explodedSelectedLevel' : undefined}>{z > 0 ? '+' : ''}{z} m</span>)}
+    </footer>
   </dialog>
 }

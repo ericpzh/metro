@@ -9,9 +9,11 @@
 // `/lab` page keep importing the path they always did.
 
 import * as THREE from 'three'
+import { ExplodedLayout } from '../explodedLayout.ts'
 import { ExplodedRamps } from '../explodedRamps.ts'
 import { populationEdit, hasPresentationEdit } from '../../sim/populationEdit.ts'
 import { STOREY_HEIGHT } from '../../sim/constants.ts'
+import { trainOriginForScale, trainScaleForStorey } from '../../sim/stock.ts'
 import { RenderDemand } from '../renderDemand.ts'
 import { EXPLODED_LIFT_ABSENT } from '../explodedView.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
@@ -54,6 +56,55 @@ import type { Section, Vec3 } from '../section.ts'
 export type { PickResult, SceneStats }
 
 export class SceneRenderer {
+  private explodedLayout: ExplodedLayout | null = null
+  private layoutAgents: {buffer:Float32Array;count:number;intervalMs:number}|null=null
+  private layoutTrains: Float32Array|null=null
+  private refreshLayoutPoses():void {
+    if(this.layoutAgents){const {buffer,count,intervalMs}=this.layoutAgents;this.setAgents(buffer,count,intervalMs)}
+    if(this.layoutTrains)this.setTrains(this.layoutTrains)
+    this.crowd.snapPresentationPoses()
+    this.trains.snapPresentationPoses()
+  }
+  enableExplodedLayout(levels: readonly number[],source:StationData,offsets:ReadonlyMap<number,number>,direction:readonly [number,number]): void {
+    if (this.standalonePresentation && levels.length && !this.explodedLayout) {
+      const sources: THREE.Object3D[] = [...this.chunks.levelGroups.values(), this.modules.moduleMeshes]
+      if(this.explodedRamps)sources.push(this.explodedRamps.group)
+      this.explodedLayout = new ExplodedLayout(levels)
+      this.explodedLayout.generate(sources,[...sources,this.modules.batches.root],this.ctx.stationData?.levelBase??0)
+      const visible=new Set(this.ctx.stationData?.modules.map(m=>m.id))
+      const modules=source.modules.filter(m=>visible.has(m.id)||(m.type==='lift'&&[...visible].some(id=>id.startsWith(`${m.id}:exploded:`))))
+      this.explodedLayout.setConnections(modules,offsets,direction)
+      this.ctx.scene.add(this.explodedLayout.root)
+    }
+    this.requestRender()
+  }
+  pickExplodedFloor(clientX:number,clientY:number):number|null {
+    const rect=this.renderer.domElement.getBoundingClientRect()
+    return this.explodedLayout?.pick((clientX-rect.left)/rect.width*2-1,1-(clientY-rect.top)/rect.height*2,this.cameraSys.activeCamera())??null
+  }
+  selectExplodedFloor(index:number|null):void {this.explodedLayout?.select(index);this.requestRender()}
+  moveExplodedFloor(index: number, dx: number, dy: number): void {
+    const shift = this.explodedLayout?.shifts[index]
+    if (!shift) return
+    const camera = this.cameraSys.activeCamera()
+    const size = this.renderer.getSize(new THREE.Vector2())
+    const a = new THREE.Vector3(0, 0, 0).unproject(camera)
+    const b = new THREE.Vector3(2 * dx / size.x, -2 * dy / size.y, 0).unproject(camera)
+    shift.add(b.sub(a))
+    this.explodedLayout?.connections?.update()
+    this.refreshLayoutPoses()
+    this.requestRender()
+  }
+  resetExplodedLayout(): void { this.explodedLayout?.reset(); this.refreshLayoutPoses(); this.requestRender() }
+  settleExplodedCamera(): void {
+    this.requestRender()
+    const controls = this.cameraSys.controls
+    const damping = controls.enableDamping
+    controls.enableDamping = false
+    controls.update()
+    controls.enableDamping = damping
+    this.cameraSys.syncOrtho()
+  }
   private explodedRamps: ExplodedRamps | null = null
   setExplodedRampSections(offsets:ReadonlyMap<number,number>, direction:readonly [number,number]):void {
     this.requestRender()
@@ -529,7 +580,8 @@ export class SceneRenderer {
     // The exploded viewer receives this same worker frame. Keep the editor's
     // latest poses, but do not build a second invisible consist during playback.
     if (this.suspended) { this.deferredTrains = buffer; return }
-    this.trains.setTrains(buffer)
+    if(this.explodedLayout)this.layoutTrains=buffer
+    this.trains.setTrains(this.explodedLayout?.offsetPoses(buffer,10,trainOriginForScale(trainScaleForStorey()))??buffer)
   }
 
   setLifts(buffer: Float32Array): void {
@@ -719,7 +771,8 @@ export class SceneRenderer {
 
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
     this.requestRender()
-    this.crowd.setAgents(buffer, count, intervalMs)
+    if(this.explodedLayout)this.layoutAgents={buffer,count,intervalMs}
+    this.crowd.setAgents(this.explodedLayout?.offsetPoses(buffer,6)??buffer, count, intervalMs)
   }
 
   setPlaying(on: boolean): void {
@@ -986,6 +1039,7 @@ export class SceneRenderer {
       drawCamera.updateMatrixWorld()
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
+      this.explodedLayout?.hideSources()
       this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
       this.framesRendered++
       const afterFrame = this.onNextFrame
@@ -1046,6 +1100,7 @@ export class SceneRenderer {
   }
 
   dispose(): void {
+    this.explodedLayout?.dispose()
     this.explodedRamps?.dispose()
     this.ctx.disposed = true
     this.renderer.domElement.removeEventListener('webglcontextrestored', this.restoreFrame)

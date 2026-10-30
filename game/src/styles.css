@@ -3628,3 +3628,7 @@ input.tileSlider {
   --chart-amber: #8a5a08; --chart-blue: #28649b; --chart-orange: #ae4f22;
   --chart-green: #33744a; --chart-purple: #7252a1; --chart-teal: #287b81; --chart-red: #b63e3e;
 }
+
+.explodedArrangeCanvas { cursor: move; }
+.explodedLevels { align-items: center; flex-wrap: wrap; gap: 8px; }
+.explodedSelectedLevel { color: var(--accent, #80cfff); font-weight: 700; }

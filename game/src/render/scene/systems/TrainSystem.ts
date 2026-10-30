@@ -294,6 +294,14 @@ export class TrainSystem extends SceneSystem {
     this.updateTrains(performance.now(), 0)
   }
 
+  /** Keep a paused consist rigidly attached when its presentation tray is dragged. */
+  snapPresentationPoses():void {
+    for(const entry of this.trainSlots.values()) {
+      entry.from.copy(entry.to)
+      entry.group.position.copy(entry.to)
+    }
+  }
+
   /** Place every visible consist between its last two worker poses, and ease doors. */
   updateTrains(now: number, dt: number): void {
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
