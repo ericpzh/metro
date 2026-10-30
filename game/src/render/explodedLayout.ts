@@ -47,11 +47,14 @@ export class ExplodedLayout {
   readonly root = new THREE.Group()
   readonly floors: THREE.Group[]
   readonly shifts: THREE.Vector3[]
+  readonly floorVisible:boolean[]
+  readonly wallsVisible:boolean[]
+  readonly floorBounds:THREE.Box3[]
   selected: number | null = null
   connections: ExplodedConnections | null = null
   setConnections(modules:readonly Module[],offsets:ReadonlyMap<number,number>,direction:readonly [number,number]):void {
     this.connections?.dispose()
-    this.connections=new ExplodedConnections(modules,this.levels,offsets,direction,this.shifts)
+    this.connections=new ExplodedConnections(modules,this.levels,offsets,direction,this.shifts,this.floorVisible)
     this.root.add(this.connections.lines)
   }
   private readonly materials = new Map<THREE.Material, {color?: THREE.Color; emissive?: THREE.Color}>()
@@ -61,11 +64,14 @@ export class ExplodedLayout {
     this.levels = [...readonlyLevels]
     this.floors = this.levels.map((level,index) => { const floor = new THREE.Group();floor.userData.floorIndex=index;floor.userData.levelZ=level;this.root.add(floor);return floor })
     this.shifts = this.floors.map(floor => floor.position)
+    this.floorVisible=this.levels.map(()=>true)
+    this.wallsVisible=this.levels.map(()=>true)
+    this.floorBounds=this.levels.map(()=>new THREE.Box3())
   }
   readonly levels: readonly number[]
 
   generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0): void {
-    const buckets = new Map<string, {owner:number; material:THREE.Material; geometries:THREE.BufferGeometry[]}>()
+    const buckets = new Map<string, {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]}>()
     const seen = new Set<THREE.Object3D>()
     for (const source of sources) {
       source.updateWorldMatrix(true,true)
@@ -98,9 +104,10 @@ export class ExplodedLayout {
             }
             geometry=clipFloorGeometry(geometry,material.clippingPlanes??[])
             if (!geometry.getAttribute('position').count) {geometry.dispose();continue}
-            const key=`${owner}:${material.uuid}:${attributeKey(geometry)}`
+            const wall=mesh.userData.wall===true
+            const key=`${owner}:${wall}:${material.uuid}:${attributeKey(geometry)}`
             let bucket=buckets.get(key)
-            if(!bucket){bucket={owner,material,geometries:[]};buckets.set(key,bucket)}
+            if(!bucket){bucket={owner,wall,material,geometries:[]};buckets.set(key,bucket)}
             bucket.geometries.push(geometry)
           }
         }
@@ -117,12 +124,21 @@ export class ExplodedLayout {
       const emissive=(material as THREE.MeshStandardMaterial).emissive
       this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
       const mesh=new THREE.Mesh(geometry,material)
+      mesh.userData.wall=bucket.wall
+      this.floorBounds[bucket.owner].union(geometry.boundingBox!)
       this.floors[bucket.owner].add(mesh)
     }
     for(const object of hidden)this.hidden.push([object,object.visible])
     this.hideSources()
   }
   hideSources(): void { for(const [object] of this.hidden)object.visible=false }
+  setVisibility(index:number,visible:boolean,walls:boolean):void {
+    if(!this.floors[index])return
+    this.floorVisible[index]=visible;this.wallsVisible[index]=walls
+    this.floors[index].visible=visible
+    for(const mesh of this.floors[index].children)if(mesh.userData.wall)mesh.visible=walls
+    this.connections?.update()
+  }
   select(index:number|null):void {
     this.selected=index
     this.floors.forEach((floor,i)=>floor.traverse(object=>{
@@ -136,22 +152,40 @@ export class ExplodedLayout {
       }
     }))
   }
+  screenAnchor(camera:THREE.Camera,width:number,height:number):[number,number]|null {
+    const index=this.selected
+    if(index===null)return null
+    const bounds=this.floorBounds[index],shift=this.shifts[index]
+    if(bounds.isEmpty())return null
+    let right=-Infinity,top=Infinity,bottom=-Infinity
+    for(const x of [bounds.min.x,bounds.max.x])for(const y of [bounds.min.y,bounds.max.y])for(const z of [bounds.min.z,bounds.max.z]) {
+      const p=new THREE.Vector3(x+shift.x,y+shift.y,z+shift.z).project(camera)
+      right=Math.max(right,p.x);top=Math.min(top,p.y);bottom=Math.max(bottom,p.y)
+    }
+    return [(right+1)*width/2,(1-(top+bottom)/2)*height/2]
+  }
   pick(x:number,y:number,camera:THREE.Camera):number|null {
     this.root.updateWorldMatrix(true,true)
     this.raycaster.setFromCamera(new THREE.Vector2(x,y),camera)
-    const hit=this.raycaster.intersectObject(this.root,true)[0]
+    const hit=this.raycaster.intersectObjects(this.floors.filter(floor=>floor.visible),true).find(hit=>hit.object.visible)
     return hit ? hit.object.parent!.userData.floorIndex as number : null
   }
   reset():void { for(const shift of this.shifts)shift.set(0,0,0);this.select(null);this.connections?.update() }
-  offsetPoses(source:Float32Array,stride:number,floorLift=0):Float32Array {
+  offsetPoses(source:Float32Array,stride:number,floorLift=0,owners?:Map<number,number>):Float32Array {
+    owners?.clear()
     const result=source.slice()
+    let write=0
     for(let i=0;i+stride<=result.length;i+=stride) {
       const height=floorLift ? Math.round(source[i+2]-floorLift) : source[i+2]
       const index=this.levels.findIndex(z=>height>=z && height<z+STOREY_HEIGHT)
+      if(index>=0&&!this.floorVisible[index])continue
+      if(owners&&index>=0)owners.set(source[i+5],this.levels[index])
+      result.set(source.subarray(i,i+stride),write)
       const shift=this.shifts[index]
-      if(shift){result[i]+=shift.x;result[i+1]+=shift.y;result[i+2]+=shift.z}
+      if(shift){result[write]+=shift.x;result[write+1]+=shift.y;result[write+2]+=shift.z}
+      write+=stride
     }
-    return result
+    return result.subarray(0,write)
   }
   dispose():void {
     this.connections?.dispose()

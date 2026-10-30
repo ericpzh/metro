@@ -141,6 +141,52 @@ try {
         }catch(error){reject(error)}})))`)
         assert.ok(layoutResult.target.every((v,i)=>Math.abs(v-layoutBefore.target[i])<1e-9),'floor drag preserves camera target')
         report.layoutDragMs=performance.now()-layoutStart
+        const visibilityPoint=await page.evaluate(`(()=>{
+          const panel=document.querySelector('.explodedFloorPanel');if(!panel)throw Error('selected floor visibility panel missing');
+          if(panel.querySelectorAll(':scope > div').length!==1)throw Error('panel must only show the selected floor');
+          const row=panel.querySelector(':scope > div'),buttons=row.querySelectorAll('button');
+          buttons[1].click();
+          const layout=__explodedScene.explodedLayout,index=layout.selected;
+          if(layout.wallsVisible[index]||layout.floors[index].children.some(m=>m.userData.wall&&m.visible))throw Error('wall toggle failed');
+          buttons[1].click();
+          if(!layout.wallsVisible[index])throw Error('wall restore failed');
+          const r=buttons[0].getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+r.height/2,index};
+        })()`)
+        const visibilityStart=performance.now()
+        for(const visible of [false,true]){
+          await page.send('Input.dispatchMouseEvent',{type:'mousePressed',x:visibilityPoint.x,y:visibilityPoint.y,button:'left',buttons:1,clickCount:1})
+          await page.send('Input.dispatchMouseEvent',{type:'mouseReleased',x:visibilityPoint.x,y:visibilityPoint.y,button:'left',buttons:0,clickCount:1})
+          const state=await page.evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            const layout=__explodedScene.explodedLayout,index=layout.selected;
+            resolve({selected:index,visible:layout.floorVisible[index],panel:!!document.querySelector('.explodedFloorPanel'),guides:layout.connections.lines.geometry.drawRange.count});
+          })))`)
+          assert.equal(state.selected,visibilityPoint.index,'panel controls preserve floor selection')
+          assert.equal(state.visible,visible,'floor visibility toggles in place')
+          assert.equal(state.panel,true,'hidden selected floor retains its recovery controls')
+        }
+        report.visibilityRoundTripMs=performance.now()-visibilityStart
+        report.crossStoreyTeleportMs=await page.evaluate(`(()=>{
+          const scene=__explodedScene,layout=scene.explodedLayout,saved=scene.layoutAgents;
+          const lower=layout.levels[0],upper=layout.levels[1],oldShift=layout.shifts[1].clone();
+          const geometry=layout.floors[0].children[0].geometry;
+          try {
+            layout.shifts[1].z=lower+layout.shifts[0].z-upper;
+            const before=performance.now();
+            scene.setAgents(new Float32Array([0,0,lower+1,0,0,999991]),1,1000);
+            scene.setAgents(new Float32Array([120,80,upper+1,0,0,999991]),1,1000);
+            const elapsed=performance.now()-before,crowd=scene.crowd;
+            for(const alpha of [.1,.5,.9])for(let axis=0;axis<3;axis++){
+              const rendered=crowd.prev[axis]+(crowd.cur[axis]-crowd.prev[axis])*alpha;
+              if(rendered!==crowd.cur[axis])throw Error('passenger flies through exploded floor gap');
+            }
+            if(layout.floors[0].children[0].geometry!==geometry)throw Error('passenger transition rebuilt floor');
+            return elapsed;
+          }finally{
+            layout.shifts[1].copy(oldShift);
+            if(saved)scene.setAgents(saved.buffer,saved.count,saved.intervalMs);else scene.setAgents(new Float32Array(),0,1000);
+            scene.refreshLayoutPoses();layout.connections.update();
+          }
+        })()`)
         if (n===0) {
           const shot=await page.send('Page.captureScreenshot',{format:'png'})
           writeFileSync(resolve(output,`${id}-arranged.png`),Buffer.from(shot.data,'base64'))

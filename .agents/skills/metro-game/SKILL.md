@@ -1503,16 +1503,29 @@ physically cutting ramp triangles at their slice planes before merging by materi
 Translate each floor's Group only: never displace vertices by height, stretch faces
 between storeys, rescale trays or regenerate geometry during dragging/selection.
 One scene pick on left press selects and tints the actual floor; drag moves it,
-empty-space/UI clicks deselect, and reset restores positions and clears selection.
+empty-space/outside-UI clicks deselect, and reset restores positions and clears selection.
 Middle drag orbits and right drag pans. Source geometry stays hidden and retains
 its original ownership; dispose baked geometry/materials before source teardown.
 Live passenger/train poses follow floor offsets, including paused/frozen poses
 without interpolation during presentation moves. Closing discards the arrangement.
+Cross-floor passengers teleport using their original tray identity, keyed by agent
+ID before manual displacement/visibility compaction. Never infer a transfer from
+displayed height alone: dragged trays can share a Z band, causing interpolation
+through the dashed guide gap. Keep same-tray walking and ordinary game interpolation
+unchanged; preserve ownership across reordering, paused/resume packets and reused maps.
 `render/explodedConnections.ts` adds dashed light-blue guides at the matching
 stair/escalator/elevator cut points on adjacent trays. Derive anchors from original
 module coordinates and actual stair flights; apply each tray's packed and manual
 offset independently. Reuse position/dash-distance buffers during drag/reset,
 exclude guides from picking, and dispose them with the layout.
+The selected floor's side panel follows cached projected bounds through camera
+and tray movement. Show only that selected floor's visibility and wall controls,
+never a list of other floors in this panel. Keep the controls usable without
+deselecting, including after hiding the selection; footer floor labels can select
+hidden trays for recovery. Visibility is local to the viewer and survives position
+reset. Preserve wall classification as a separate bake bucket even when floor and
+wall materials match. Hide a tray's live poses and incident guides with it, omit
+hidden floors/walls from picks, and toggle retained meshes without remeshing.
 
 The exploded viewer is a disposable presentation of the station; never install
 its translated document in the editor or worker. For authored above-ground

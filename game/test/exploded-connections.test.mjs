@@ -51,3 +51,16 @@ test('multi-floor turned stairs use their actual flights; missing trays and flat
  assert.equal(same.connections.length,0)
  guide.dispose();absent.dispose();same.dispose()
 })
+
+test('guides disappear when either endpoint floor is hidden and restore with the same buffers',()=>{
+ const visible=[true,true,true],guide=new ExplodedConnections([ramp('escalator')],levels,offsets,[0,1],shifts(),visible)
+ const position=guide.lines.geometry.attributes.position,distance=guide.lines.geometry.attributes.lineDistance
+ const initial=position.array.slice()
+ assert.equal(guide.lines.geometry.drawRange.count,2)
+ visible[1]=false;guide.update();assert.equal(guide.lines.geometry.drawRange.count,0)
+ visible[1]=true;guide.update();assert.equal(guide.lines.geometry.drawRange.count,2)
+ assert.equal(guide.lines.geometry.attributes.position,position);assert.equal(guide.lines.geometry.attributes.lineDistance,distance)
+ assert.deepEqual(position.array,initial)
+ visible[0]=false;guide.update();assert.equal(guide.lines.geometry.drawRange.count,0)
+ guide.dispose()
+})

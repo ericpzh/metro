@@ -20,9 +20,11 @@ export class ExplodedConnections {
   private readonly offsets:ReadonlyMap<number,number>
   private readonly direction:readonly [number,number]
   private readonly shifts:readonly THREE.Vector3[]
+  private readonly visibility:readonly boolean[]
   constructor(modules:readonly Module[],levels:readonly number[],
-    offsets:ReadonlyMap<number,number>,direction:readonly [number,number],shifts:readonly THREE.Vector3[]) {
+    offsets:ReadonlyMap<number,number>,direction:readonly [number,number],shifts:readonly THREE.Vector3[],visibility:readonly boolean[]=levels.map(()=>true)) {
     this.levels=levels;this.offsets=offsets;this.direction=direction;this.shifts=shifts
+    this.visibility=visibility
     for(const module of modules) {
       if(module.type!=='escalator' && module.type!=='stair' && module.type!=='lift')continue
       const lo=Math.min(module.from.z,module.to.z),hi=Math.max(module.from.z,module.to.z)
@@ -62,7 +64,10 @@ export class ExplodedConnections {
   update():void {
     const position=this.lines.geometry.getAttribute('position') as THREE.BufferAttribute
     const distances=this.lines.geometry.getAttribute('lineDistance') as THREE.BufferAttribute
-    this.connections.forEach((connection,i)=>{
+    let active=0
+    this.connections.forEach(connection=>{
+      if(!this.visibility[connection.lower]||!this.visibility[connection.upper])return
+      const i=active++
       for(const [end,index]of [connection.lower,connection.upper].entries()) {
         const level=this.levels[index],offset=this.offsets.get(level)??0,shift=this.shifts[index]
         position.setXYZ(i*2+end,connection.point.x+offset*this.direction[0]+shift.x,
@@ -74,6 +79,7 @@ export class ExplodedConnections {
     })
     position.needsUpdate=true
     distances.needsUpdate=true
+    this.lines.geometry.setDrawRange(0,active*2)
   }
   dispose():void {this.lines.geometry.dispose();(this.lines.material as THREE.Material).dispose();this.lines.removeFromParent()}
 }

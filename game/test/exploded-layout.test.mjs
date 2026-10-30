@@ -131,3 +131,68 @@ test('train cabin-origin offsets map back to the owning floor before translation
  assert.ok(Math.abs(source[2]+10.3)<1e-5)
  layout.dispose();scene.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
 })
+
+test('floor and wall visibility stay independent without rebuilding geometry, including shared materials',()=>{
+ const source=new THREE.Group(),material=new THREE.MeshStandardMaterial()
+ for(const z of [-10,-5]){
+   const group=new THREE.Group();group.userData.levelZ=z;source.add(group)
+   for(const wall of [false,true]){
+     const mesh=new THREE.Mesh(new THREE.BoxGeometry(2,2,1),material);mesh.position.set(wall?3:0,0,z+1);mesh.userData.wall=wall;group.add(mesh)
+   }
+ }
+ const layout=new ExplodedLayout([-10,-5]);layout.generate([source],[source])
+ assert.equal(layout.floors[0].children.length,2,'wall and floor may share a material but remain separate batches')
+ const meshes=layout.floors.flatMap(f=>f.children),geometry=meshes.map(m=>m.geometry)
+ layout.select(0);layout.shifts[0].set(20,30,40)
+ layout.setVisibility(0,true,false)
+ assert.equal(layout.floors[0].children.find(m=>m.userData.wall).visible,false)
+ assert.equal(layout.floors[0].children.find(m=>!m.userData.wall).visible,true)
+ assert.ok(layout.floors[1].children.every(m=>m.visible))
+ layout.setVisibility(0,false,false);assert.equal(layout.floors[0].visible,false);assert.equal(layout.selected,0)
+ layout.setVisibility(0,true,false);assert.deepEqual(layout.shifts[0].toArray(),[20,30,40])
+ assert.equal(layout.floors[0].children.find(m=>m.userData.wall).visible,false,'showing floor preserves wall choice')
+ layout.setVisibility(0,true,true);assert.ok(layout.floors[0].children.every(m=>m.visible))
+ assert.ok(meshes.every((mesh,i)=>mesh.geometry===geometry[i]))
+ layout.setVisibility(1,false,true);layout.reset();assert.equal(layout.floors[1].visible,false,'position reset preserves visibility')
+ layout.dispose();source.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
+})
+
+test('hidden floors and walls cannot be selected and hidden-floor live poses are omitted',()=>{
+ const {layout,scene,material}=fixture()
+ const camera=new THREE.OrthographicCamera(-20,20,15,-15,.1,100);camera.position.set(0,0,30);camera.lookAt(0,0,0);camera.updateMatrixWorld()
+ layout.setVisibility(0,false,true)
+ assert.equal(layout.pick(-.3,0,camera),null)
+ const source=new Float32Array([1,2,-9,0,0,7,3,4,-4,0,0,8])
+ assert.deepEqual(Array.from(layout.offsetPoses(source,6)),Array.from(source).slice(6))
+ layout.setVisibility(0,true,true);assert.equal(layout.pick(-.3,0,camera),0)
+ assert.deepEqual(layout.offsetPoses(source,6),source)
+ layout.dispose();scene.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
+})
+
+test('selected-floor panel anchor follows the floor and camera, including when the floor is hidden',()=>{
+ const {layout,scene,material}=fixture()
+ const camera=new THREE.OrthographicCamera(-20,20,15,-15,.1,100);camera.position.set(0,0,30);camera.lookAt(0,0,0);camera.updateMatrixWorld()
+ assert.equal(layout.screenAnchor(camera,400,300),null)
+ layout.select(0)
+ const initial=layout.screenAnchor(camera,400,300)
+ assert.ok(Math.abs(initial[0]-160)<1e-6);assert.ok(Math.abs(initial[1]-150)<1e-6)
+ layout.shifts[0].x=10
+ assert.ok(Math.abs(layout.screenAnchor(camera,400,300)[0]-260)<1e-6)
+ layout.setVisibility(0,false,false)
+ assert.ok(Math.abs(layout.screenAnchor(camera,400,300)[0]-260)<1e-6,'hidden floor keeps its recovery panel anchored')
+ camera.zoom=2;camera.updateProjectionMatrix()
+ assert.notDeepEqual(layout.screenAnchor(camera,400,300),initial)
+ layout.dispose();scene.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
+})
+
+test('passenger floor identities survive arbitrary tray heights and visibility compaction',()=>{
+ const {layout,scene,material}=fixture(),owners=new Map([[999,999]])
+ layout.shifts[1].z=-5
+ const source=new Float32Array([1,2,-9,0,0,7,3,4,-4,0,0,8])
+ const positions=layout.offsetPoses(source,6,0,owners)
+ assert.equal(positions[2],positions[8]);assert.deepEqual([...owners],[[7,-10],[8,-5]])
+ layout.setVisibility(0,false,true);layout.offsetPoses(source,6,0,owners)
+ assert.deepEqual([...owners],[[8,-5]],'ownership follows passenger IDs after hidden-row compaction')
+ layout.offsetPoses(new Float32Array(),6,0,owners);assert.equal(owners.size,0,'old passengers do not retain floor identities')
+ layout.dispose();scene.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
+})

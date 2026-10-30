@@ -59,6 +59,18 @@ export class SceneRenderer {
   private explodedLayout: ExplodedLayout | null = null
   private layoutAgents: {buffer:Float32Array;count:number;intervalMs:number}|null=null
   private layoutTrains: Float32Array|null=null
+  private readonly layoutPassengerFloors=new Map<number,number>()
+  onExplodedFloorAnchor:((point:readonly [number,number])=>void)|null=null
+  getExplodedFloorAnchor():[number,number]|null {
+    const size=this.renderer.getSize(new THREE.Vector2())
+    return this.explodedLayout?.screenAnchor(this.cameraSys.activeCamera(),size.x,size.y)??null
+  }
+  setExplodedFloorVisibility(index:number,visible:boolean,walls:boolean):void {
+    this.requestRender()
+    const floorChanged=this.explodedLayout?.floorVisible[index]!==visible
+    this.explodedLayout?.setVisibility(index,visible,walls)
+    if(floorChanged)this.refreshLayoutPoses()
+  }
   private refreshLayoutPoses():void {
     if(this.layoutAgents){const {buffer,count,intervalMs}=this.layoutAgents;this.setAgents(buffer,count,intervalMs)}
     if(this.layoutTrains)this.setTrains(this.layoutTrains)
@@ -772,7 +784,8 @@ export class SceneRenderer {
   setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
     this.requestRender()
     if(this.explodedLayout)this.layoutAgents={buffer,count,intervalMs}
-    this.crowd.setAgents(this.explodedLayout?.offsetPoses(buffer,6)??buffer, count, intervalMs)
+    const poses=this.explodedLayout?.offsetPoses(buffer.subarray(0,count*6),6,0,this.layoutPassengerFloors)
+    this.crowd.setAgents(poses??buffer, poses?poses.length/6:count, intervalMs,poses?this.layoutPassengerFloors:undefined)
   }
 
   setPlaying(on: boolean): void {
@@ -1037,6 +1050,8 @@ export class SceneRenderer {
       // Sort transparent instances and choose detail against that final camera.
       const drawCamera = this.cameraSys.activeCamera()
       drawCamera.updateMatrixWorld()
+      const anchor=this.onExplodedFloorAnchor?this.getExplodedFloorAnchor():null
+      if(anchor)this.onExplodedFloorAnchor?.(anchor)
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.explodedLayout?.hideSources()

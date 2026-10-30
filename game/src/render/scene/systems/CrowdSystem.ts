@@ -457,6 +457,7 @@ export class CrowdSystem extends SceneSystem {
   }
 
   teleportBetweenStoreys = false
+  private readonly presentationFloors=new Map<number,number>()
 
   /** A rigid presentation drag must move paused poses immediately, without interpolation. */
   snapPresentationPoses():void {
@@ -467,13 +468,14 @@ export class CrowdSystem extends SceneSystem {
     }
   }
 
-  setAgents(buffer: Float32Array, count: number, intervalMs: number): void {
+  setAgents(buffer: Float32Array, count: number, intervalMs: number,presentationFloors?:ReadonlyMap<number,number>): void {
     const floats = count * 6
     // Play/pause controls publish a copy of the latest sim state. The first
     // resume copy must not replace the frozen origin with its future endpoint.
     if (this.resumeSnapshotPending) {
       this.resumeSnapshotPending = false
-      if (count === this.agentCount && buffer.subarray(0, floats).every((value, i) => value === this.cur[i])) return
+      if (count === this.agentCount && buffer.subarray(0, floats).every((value, i) => value === this.cur[i] &&
+        (i%6!==5||!presentationFloors||presentationFloors.get(value)===this.presentationFloors.get(value)))) return
     }
     if (this.cur.length < floats) {
       // Preserve the old frame so ids that survive the resize still interpolate
@@ -528,12 +530,17 @@ export class CrowdSystem extends SceneSystem {
         this.prev[p] = this.cur[q]
         this.prev[p + 1] = this.cur[q + 1]
         this.prev[p + 2] = this.cur[q + 2]
-        if (this.teleportBetweenStoreys &&
-          storeyBand(buffer[o + 2], this.ctx.levelBase, this.ctx.storeyHeight) !==
-          storeyBand(this.cur[q + 2], this.ctx.levelBase, this.ctx.storeyHeight)) {
-          this.prev[p] = buffer[o]
-          this.prev[p + 1] = buffer[o + 1]
-          this.prev[p + 2] = buffer[o + 2]
+        if(this.teleportBetweenStoreys) {
+          const id=buffer[o+5],floor=presentationFloors?.get(id),previousFloor=this.presentationFloors.get(id)
+          const crossedFloor=floor!==undefined&&previousFloor!==undefined ? floor!==previousFloor :
+            storeyBand(buffer[o + 2], this.ctx.levelBase, this.ctx.storeyHeight) !==
+            storeyBand(this.cur[q + 2], this.ctx.levelBase, this.ctx.storeyHeight)
+          if (crossedFloor) {
+            this.prev[p] = buffer[o]
+            this.prev[p + 1] = buffer[o + 1]
+            this.prev[p + 2] = buffer[o + 2]
+            this.frozen.get(id)?.position.set(buffer[o],buffer[o+1],buffer[o+2])
+          }
         }
       } else {
         // New spawn: start it at its own position, not somewhere it came from.
@@ -549,6 +556,11 @@ export class CrowdSystem extends SceneSystem {
       this.appearances.set(passengerAppearance(buffer[o + 5], this.appearanceScratch), i * 5)
     }
     this.cur.set(buffer.subarray(0, floats))
+    this.presentationFloors.clear()
+    if(presentationFloors)for(let i=0;i<count;i++){
+      const id=buffer[i*6+5],floor=presentationFloors.get(id)
+      if(floor!==undefined)this.presentationFloors.set(id,floor)
+    }
     this.prevId = nextId
     this.nextId = prevId
     this.agentCount = count

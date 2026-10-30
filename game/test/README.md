@@ -1267,17 +1267,23 @@ whole-floor highlighting/deselection, reset, source ownership and live pose offs
 The production exploded-view browser check clicks a rendered floor, drags it,
 checks unchanged vertex buffers and camera/document isolation, clicks empty space
 to deselect, and resets on both demos.
+Visibility regressions cover wall/floor separation with shared materials, independent
+wall and tray settings, hidden-tray picking/live-pose exclusion, retained geometry,
+visibility preservation through position reset and side-panel anchors on moved or
+hidden floors. Browser checks toggle the panel's walls and use real pointer clicks
+to hide/show the selected floor while preserving selection and recovery controls.
+The panel must contain exactly one floor row: only the selected level's controls.
 `exploded-connections.test.mjs` covers stair/escalator/elevator guide counts,
 actual turned-stair flights, multi-storey and missing-tray handling, independent
 endpoint motion, retained dash/position buffers, reset, non-pickability and source
 immutability. The browser check verifies attachment and reset on both demos.
 
-Numeric V8 coverage for the arrangement helpers (12 tests):
+Numeric V8 coverage for the arrangement helpers (17 tests):
 
 | Module | Lines | Branches | Functions |
 | --- | ---: | ---: | ---: |
-| `render/explodedLayout.ts` | 100% | 89.77% | 93.33% |
-| `render/explodedConnections.ts` | 100% | 94.12% | 100% |
+| `render/explodedLayout.ts` | 100% | 89.47% | 94.59% |
+| `render/explodedConnections.ts` | 100% | 94.29% | 100% |
 
 From the repository root, reproduce with
 `node --test --experimental-test-coverage --test-coverage-include="game/src/render/explodedLayout.ts" --test-coverage-include="game/src/render/explodedConnections.ts" game/test/exploded-layout.test.mjs game/test/exploded-connections.test.mjs`.
@@ -1318,7 +1324,13 @@ They cover interlocking irregular plans, ignored remote props and direction-awar
 live streams. Exposed soil caps are removed while finished floors/supporting walls
 remain. `exploded-passengers.test.mjs` drives the real CrowdSystem to pin immediate
 storey transfers in the standalone view, smooth same-floor walking, and unchanged
-normal-game interpolation. The production check includes right-drag pan as well as
+normal-game interpolation. It additionally pins source-floor identities when dragged
+trays share displayed height, opposing transfers through ID reordering/compaction,
+reappearing passengers, reused owner maps and frozen/resume pose correction. The
+layout regression preserves these identities through hidden-row filtering. The
+production check reproduces a same-height cross-tray packet pair through the real
+SceneRenderer and rejects any interpolated position in the guide gap.
+The production check includes right-drag pan as well as
 middle drag, orbit and WASD. Current measurements and visual review are recorded in
 the shared performance reference.
 

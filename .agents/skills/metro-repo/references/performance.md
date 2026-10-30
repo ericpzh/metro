@@ -11,18 +11,18 @@ documents. If a change has no measured performance result, leave this file alone
 `node tools/check-exploded-view.mjs` measures a real click on visible floor geometry,
 then a left press, 120 px right / 80 px up move and release, ending after two RAFs.
 The production capture in `.preview/perf/exploded-view/report.json` uses the shipped
-Zoo and Tanwei fixtures, five trays each, a 1384 × 702 canvas, paused simulation,
+Zoo and Tanwei fixtures, five trays each, a 1384 × 690 canvas, paused simulation,
 local headless Chrome with hardware GPU requested, and two fresh viewer openings
 per station. No build, test or profiler runs competed with this capture.
 
-| Fixture | First / second opening to ready | First / second drag round trip |
-| --- | --- | --- |
-| Zoo | 6936 / 6382 ms | 102.3 / 92.5 ms |
-| Tanwei | 9392 / 8675 ms | 116.1 / 81.4 ms |
+| Fixture | First / second opening to ready | First / second drag round trip | First / second hide-show round trip |
+| --- | --- | --- | --- |
+| Zoo | 7009 / 6232 ms | 107.4 / 90.8 ms | 68.4 / 78.5 ms |
+| Tanwei | 10884 / 9611 ms | 122.6 / 102.5 ms | 79.4 / 83.1 ms |
 
 These interaction values include five CDP input calls, a selection assertion and
 two RAFs, so they are diagnostic upper bounds rather than isolated
-input-to-first-render measurements. The first interaction in each demo does
+input-to-first-render measurements. Both Tanwei drags and the first Zoo drag do
 not meet the strict <100 ms budget on this conservative measure; this capture does
 not establish its handler latency, sustained dragging FPS or a performance gain
 over a prior implementation. Initial shader/geometry preparation is accounted for
@@ -42,6 +42,22 @@ The capture includes dashed stair/escalator/elevator guides. Movement rewrites
 their retained endpoint and dash-distance buffers only, with no added scene pick
 or floor rebuild; `exploded-connections.test.mjs` pins that reuse and independent
 endpoint motion. The browser check verifies attachment and reset on both fixtures.
+The side panel shows only the selected floor's wall/floor controls and toggles retained batches, without geometry
+rebuilds or scene picks; wall classification is a separate bake bucket. Hide-show
+timings include two complete native-pointer clicks (four CDP input calls), two RAFs
+after each click, and state assertions. They are combined diagnostic round trips,
+not per-toggle handler timings or a new FPS gate. Incident guides use retained
+buffers/draw ranges and live poses omit hidden trays. Panel placement projects
+eight cached bounds corners per drawn frame, rather than walking meshes or picking
+the scene. Browser checks keep the hidden selection's panel open and restore it.
+The same capture reproduces a cross-floor passenger transfer after aligning two
+trays to the same displayed height. The old displayed-Z test interpolated through
+the guide gap; original floor identities now travel with agent IDs before manual
+displacement and visibility compaction. The interpolated position must equal the
+destination at 10/50/90% of the packet interval. The two injected setAgents calls
+take 0–0.1 ms at the browser timer's resolution (setup/restoration excluded); this
+is a functional transition probe, not population-wide throughput or visible-frame
+latency. It adds no pick, geometry rebuild, worker request or document commit.
 
 ## Reproduce the reported interaction
 

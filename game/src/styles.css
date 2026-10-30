@@ -3398,8 +3398,8 @@ input.tileSlider {
 .explodedToolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; background: var(--ui-202e3d, #202e3d); }
 .explodedToolbar strong { flex: 1; }
 .explodedToolbarControls { display: flex; align-items: center; gap: 12px; }
-.explodedBack { display: grid; place-items: center; padding: 8px; }
-.explodedBack svg { width: 20px; height: 20px; }
+.explodedBack, .explodedReset { display: grid; place-items: center; padding: 8px; }
+.explodedBack svg, .explodedReset svg { width: 20px; height: 20px; }
 .explodedViewer canvas { display: block; width: 100%; flex: 1; min-height: 0; touch-action: none; }
 .explodedLevels { display: flex; justify-content: space-around; padding: 10px 20px; color: #b7c5d1; font-size: 12px; }
 .explodedEmpty { position: absolute; top: 50%; width: 100%; text-align: center; pointer-events: none; }
@@ -3632,3 +3632,13 @@ input.tileSlider {
 .explodedArrangeCanvas { cursor: move; }
 .explodedLevels { align-items: center; flex-wrap: wrap; gap: 8px; }
 .explodedSelectedLevel { color: var(--accent, #80cfff); font-weight: 700; }
+.explodedFloorPanel { position: absolute; z-index: 4; left: 12px; top: 80px; width: 180px; padding: 10px; border: 1px solid var(--border, #426078); background: var(--panel, #202e3d); color: var(--text, #edf1f5); box-shadow: 0 6px 22px #0005; }
+.explodedFloorPanel > strong { display: block; margin-bottom: 8px; font-size: 12px; }
+.explodedFloorPanel > div { display: grid; grid-template-columns: 1fr 30px 30px; gap: 5px; align-items: center; padding: 3px; font-size: 12px; }
+.explodedFloorPanel > div.selected { color: var(--accent, #80cfff); background: #80cfff12; }
+.explodedFloorPanel button { display: grid; place-items: center; width: 30px; height: 30px; padding: 5px; }
+.explodedFloorPanel button svg { width: 18px; height: 18px; }
+.explodedFloorPanel button[aria-pressed='false'] { opacity: .5; }
+.explodedHiddenLevel { opacity: .5; text-decoration: line-through; }
+
+.explodedFloorPanel { max-height: calc(100dvh - 130px); overflow-y: auto; box-sizing: border-box; }
