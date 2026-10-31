@@ -1,3 +1,4 @@
+import * as artworkTest from '../src/render/artwork.ts'
 import { trackTrainCentreV } from '../src/sim/track.ts'
 import { TRACK_UNDERFLOOR_DROP, TRACK_BED_DROP, CONTACT_STRIP_Z, CONTACT_WIRE_Z } from '../src/sim/constants.ts'
 // Every piece the station can draw, and the handles the scene animates it by.
@@ -2219,4 +2220,85 @@ test('standalone toilet keeps the fixture without cubicle walls or door', () => 
   assert.equal(group.userData.swingDoors, undefined)
   assert.ok(new THREE.Box3().setFromObject(group).getSize(new THREE.Vector3()).z > 0.8)
   disposeObject(group)
+})
+
+for (const bays of [1,2,3]) for (const rot of [0,1,2,3]) test(`Shenzhen covered exit ${bays} bays rotation ${rot}: curved canopy, glass, stone and right-hand Metro sign`, () => {
+  const mod = createModule(bays === 2 ? 'exit' : `exit-covered-${bays}`,0,0,0,'sz-exit')
+  mod.rot = rot
+  const local = { ...ctx, data: { ...data, cityStyle:'shenzhen' } }
+  const root=buildModule(mod,local), names=[]
+  root.traverse(o=>names.push(o.name))
+  assert.equal(root.userData.exitCityStyle,'shenzhen')
+  assert.equal(names.filter(n=>n==='shenzhen-curved-canopy').length,1)
+  assert.equal(names.filter(n=>n==='shenzhen-canopy-soffit').length,1)
+  assert.equal(names.filter(n=>n==='shenzhen-stone-plinth').length,2)
+  assert.equal(names.filter(n=>n==='shenzhen-projecting-metro-sign').length,1)
+  assert.equal(names.filter(n=>n==='shenzhen-side-glass').length,8)
+  const face=root.getObjectByName('shenzhen-front-metro-sign-face')
+  const roof=root.getObjectByName('shenzhen-curved-canopy')
+  roof.geometry.computeBoundingBox()
+  face.geometry.computeBoundingBox()
+  assert.ok(face.position.x+face.geometry.boundingBox.max.x < roof.geometry.boundingBox.min.x,'decorative sign extends fully outside the right-hand side')
+  assert.equal(face.rotation.z,Math.PI,'sign faces the doorway, not the pavement')
+  assert.equal(names.filter(n=>n==='shenzhen-recessed-downlight').length,6)
+  assert.ok(!names.includes('exit-canopy-segment'),'no Guangzhou wave remains')
+  root.traverse(o=>{if(o.name==='shenzhen-curved-canopy')assert.equal(o.material.color.getHexString(),'343c40')})
+  const glass=[],opaque=[]
+  root.traverse(o=>{
+    if(['shenzhen-side-glass','shenzhen-rear-glass'].includes(o.name))glass.push(o)
+    if(['shenzhen-stone-plinth','shenzhen-glazing-mullion','shenzhen-front-jamb','shenzhen-glazing-base-gasket'].includes(o.name))opaque.push(o)
+  })
+  root.updateMatrixWorld(true)
+  for(const pane of glass) for(const frame of opaque) {
+    const overlap=new THREE.Box3().setFromObject(pane).intersect(new THREE.Box3().setFromObject(frame)).getSize(new THREE.Vector3())
+    assert.ok(overlap.x*overlap.y*overlap.z < 1e-8,`${pane.name} must not overlap ${frame.name}`)
+  }
+  for(const base of opaque.filter(o=>o.name==='shenzhen-stone-plinth'))for(const post of opaque.filter(o=>o.name.includes('jamb')||o.name.includes('mullion'))) {
+    const overlap=new THREE.Box3().setFromObject(base).intersect(new THREE.Box3().setFromObject(post)).getSize(new THREE.Vector3())
+    assert.ok(overlap.x*overlap.y*overlap.z < 1e-8,'plinth and post meet without coincident side faces')
+  }
+  const gz=buildModule(mod,ctx)
+  const decor=[]
+  root.traverse(o=>{if(['shenzhen-projecting-metro-sign','shenzhen-front-metro-sign-face','shenzhen-metro-sign-bracket'].includes(o.name))decor.push(o)})
+  const parents=decor.map(o=>o.parent);decor.forEach(o=>o.removeFromParent())
+  const a=box(root),b=box(gz)
+  decor.forEach((o,i)=>parents[i].add(o))
+  assert.ok(a.min.x>=b.min.x-1e-5 && a.max.x<=b.max.x+1e-5)
+  assert.ok(a.min.y>=b.min.y-1e-5 && a.max.y<=b.max.y+1e-5)
+  assert.ok(a.max.z<=b.max.z+1e-5,'new shell fits the existing placement envelope')
+  disposeObject(root);disposeObject(gz)
+})
+
+test('uncovered Shenzhen exits retain the open railing model',()=>{
+  const mod=createModule('exit-uncovered-2',0,0,0,'open')
+  const root=buildModule(mod,{...ctx,data:{...data,cityStyle:'shenzhen'}})
+  const names=[];root.traverse(o=>names.push(o.name))
+  assert.ok(!names.some(n=>n.startsWith('shenzhen-')))
+  disposeObject(root)
+})
+
+test('Shenzhen canopy curves progressively down to the rear plinth', async()=>{
+  const { shenzhenRoofHeight: height }=await import('../src/render/models/pieces/ShenzhenExitCanopy.ts')
+  assert.equal(height(2.3),3.2)
+  assert.ok(Math.abs(height(-5.6)-1.08)<1e-6)
+  assert.ok(Math.abs(height(-1.65)-2.67)<1e-6)
+  assert.ok(height(-3)-height(-4)>height(1)-height(0),'rear becomes steeper')
+})
+
+for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Shenzhen ${id} rotation ${rot}: grey column, green crown and bound names`,()=>{
+  const mod=createModule(id,0,0,0,'sz-guide');mod.rot=rot
+  const exit=createModule('exit-virtual',2,2,0,'bound-exit');exit.cfg.name='C口'
+  if(id==='guidepost')mod.cfg.exitId=exit.id;else mod.cfg.name='C口'
+  const local={...ctx,data:{...data,cityStyle:'shenzhen',nameEn:'Guangming Station',modules:[mod,exit]}}
+  const root=buildModule(mod,local),names=[];root.traverse(o=>names.push(o.name))
+  assert.equal(root.userData.guideCityStyle,'shenzhen')
+  assert.equal(root.userData.guideLabels.exit,'C')
+  for(const [name,count] of [['shenzhen-guide-grey-column',1],['shenzhen-guide-green-ring',2],['shenzhen-guide-crown-emblem',2],['shenzhen-guide-vertical-metro',4],['shenzhen-guide-exit-station',4]])assert.equal(names.filter(n=>n===name).length,count,name)
+  assert.ok(!names.includes('guide-yellow-logo-collar'))
+  const bounds=box(root),size=bounds.getSize(new THREE.Vector3())
+  assert.ok(size.x<=1&&size.y<=1&&size.z<=4.001,'both appearances fit the existing one-cell pylon footprint')
+  const {prepareArtwork,repaintArtwork}=artworkTest
+  prepareArtwork(root);assert.ok(repaintArtwork(root,{...local.data,name:'新站',modules:[{...mod,cfg:{...mod.cfg,name:'D口'}},{...exit,cfg:{...exit.cfg,name:'D口'}}]}))
+  assert.equal(root.userData.guideLabels.station,'新站');assert.equal(root.userData.guideLabels.exit,'D')
+  disposeObject(root)
 })

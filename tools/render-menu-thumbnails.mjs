@@ -46,6 +46,15 @@ try {
     index.push({ id, file, bytes: png.byteLength })
   }
   writeFileSync(join(outDir, 'index.json'), `${JSON.stringify({ width: 132, height: 132, pixelRatio: 1, thumbnails: index }, null, 2)}\n`)
+  const cityIds = ids.filter(id => id === 'exit' || id.startsWith('exit-') || id === 'guidepost' || id.startsWith('linemap-'))
+  const cityImages = await page.evaluate(`window.__menuThumbnails.renderModuleThumbnails(132, null, {
+    hideSecondGateDoor: true, pixelRatio: 1, cityStyle: 'shenzhen', ids: ${JSON.stringify(cityIds)}
+  })`)
+  mkdirSync(join(outDir, 'shenzhen'), { recursive: true })
+  for (const id of cityIds) {
+    const png = Buffer.from(cityImages[id].split(',')[1], 'base64')
+    writeFileSync(join(outDir, 'shenzhen', `${id}.png`), png)
+  }
   console.log(`menu thumbnails: ${ids.length} PNGs, ${(bytes / 1024).toFixed(1)} KiB -> ${outDir}`)
 } finally {
   await page.close()

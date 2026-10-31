@@ -32,7 +32,7 @@ export const createLineSlice: StateCreator<AppState, [], [], LineSlice> = (set, 
     let n = st.station.lines.length + 1
     while (used.has(String(n))) n++
     const id = String(n)
-    const line = defaultLine(id, st.railDir, 'third-rail', st.station.storeyHeight)
+    const line = defaultLine(id, st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
     get().commit({ ...st.station, lines: [...st.station.lines, line] })
     set({ railLineId: id, notice: msg('created_value_new_track_will_bind_automatically', line.name) })
   },

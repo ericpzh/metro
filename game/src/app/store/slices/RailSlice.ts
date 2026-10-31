@@ -87,7 +87,7 @@ export const createRailSlice: StateCreator<AppState, [], [], RailSlice> = (set, 
       // First rail on a fresh station: create the line it binds to, so placement
       // never stalls on an empty line list.
       if (station.lines.length === 0) {
-        const line = defaultLine('1', st.railDir, 'third-rail', st.station.storeyHeight)
+        const line = defaultLine('1', st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
         station = { ...station, lines: [line] }
         lineId = line.id
       } else {

@@ -612,3 +612,14 @@ for (const id of ['escalator', 'walkway', 'lift']) test(`${id} Low preserves the
     for (const [mesh, geometry] of originals) assert.equal(mesh.geometry, geometry)
   } finally { detail.restore() }
 }))
+
+for(const id of ['exit-covered-1','exit','exit-covered-3','exit-virtual','guidepost','linemap-wall','linemap-stand'])test(`Shenzhen ${id}: authored Low stays within the model budget`,()=>fixture(id,(root,mod)=>{
+  const full=totals(root),low=totals(root,true),budget=equipmentLowBudget(id,full)
+  assert.ok(low<=budget.limit,`${id}: ${low}/${full} exceeds ${budget.limit}`)
+  const detail=new SourceGeometryDetail(),original=new Map()
+  root.traverse(mesh=>{if(mesh.isMesh)original.set(mesh,mesh.geometry)})
+  try {detail.apply(root,true);assert.equal(totals(root),low);detail.restore()
+    for(const [mesh,geometry] of original)assert.equal(mesh.geometry,geometry)
+    batchStaticModule(root,mod.type);assert.equal(totals(root,true),low)
+  } finally {detail.restore()}
+},(mod,data)=>{data.cityStyle='shenzhen'}))

@@ -1,3 +1,4 @@
+import { cityLineMapSuffix } from '../../lineMapCity.ts'
 // PlateSystem — printed light: the 电视 station plates, the 指示牌 faces and
 // the 装饰/电视 artwork windows with their refresh cadence (moved verbatim from
 // `render/scene.ts`: `makeTvPlate`, `clearTvPlates`, `makeSignPlate`,
@@ -320,7 +321,7 @@ export class PlateSystem extends SceneSystem {
     }
     if (mod.type === 'linemap') {
       const spec = lineMapSpec(mod.cfg?.mount)
-      return `${mod.id}|linemap|${spec.panelW.toFixed(3)}x${spec.panelH.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}`
+      return `${mod.id}|linemap|${spec.panelW.toFixed(3)}x${spec.panelH.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}${cityLineMapSuffix(this.ctx.stationData?.cityStyle)}`
     }
     return null
   }
@@ -347,7 +348,7 @@ export class PlateSystem extends SceneSystem {
       // A **placeholder** map board is dropped the moment the supplied poster is in
       // hand: its key is the same, so leaving it in the cache would keep the drawn
       // board on the wall for the session instead of the artwork.
-      const stalePlaceholder = entry.kind === 'linemap' && entry.owned && this.ctx.lineMaps?.ready() === true
+      const stalePlaceholder = entry.kind === 'linemap' && entry.owned && this.ctx.lineMaps?.ready(this.ctx.stationData?.cityStyle) === true
       if (!stalePlaceholder && keep.has(key)) continue
       drop(entry)
       this.decorPlates.delete(key)
@@ -400,12 +401,12 @@ export class PlateSystem extends SceneSystem {
    * needs no window of its own.
    */
   makeLineMapPlate(id: string, panel: { w: number; h: number }): PrintedFace {
-    const key = `${id}|linemap|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}`
+    const key = `${id}|linemap|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}${getLanguage() === 'en' ? '|en' : ''}${cityLineMapSuffix(this.ctx.stationData?.cityStyle)}`
     const existing = this.decorPlates.get(key)
     if (existing) return existing.face
     const art = this.ctx.lineMaps
-    if (art?.ready()) {
-      const painted = art.face(panel.w, panel.h)
+    if (art?.ready(this.ctx.stationData?.cityStyle)) {
+      const painted = art.face(panel.w, panel.h, this.ctx.stationData?.cityStyle)
       // The art owns its texture and material (every map on this panel shares them), so
       // the ownership tests that free a module's maps must leave them alone.
       if (painted.material.map) this.mintedTextures.add(painted.material.map)

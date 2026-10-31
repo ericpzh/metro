@@ -1,3 +1,4 @@
+import { normalizeCityStyle, type CityStyle } from '../../../sim/cityStyles.ts'
 import { msg } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
 // The station-document slice: the document itself, the undo stack, the
@@ -99,6 +100,7 @@ export interface StationSlice {
   select: (sel: AppState['selected']) => void
   /** Rename the station (top-bar title). Blank names are ignored. */
   renameStation: (name: string, nameEn?: string) => void
+  setCityStyle: (city: CityStyle) => void
   /**
    * Set the station's operating hours (§9.6C 营业时间), in seconds since midnight. The
    * pair is repaired by `normalizeService` before it lands, so an inverted or
@@ -163,6 +165,12 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const current = get().selected
     if (current?.kind === sel?.kind && current?.key === sel?.key && current?.label === sel?.label) return
     set({ selected: sel })
+  },
+
+  setCityStyle: (value) => {
+    const s = get().station, cityStyle = normalizeCityStyle(value)
+    if (s.cityStyle === cityStyle) return
+    get().commit({ ...s, cityStyle })
   },
 
   renameStation: (name, nameEn) => {

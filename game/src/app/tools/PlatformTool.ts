@@ -61,7 +61,7 @@ export class PlatformTool extends ToolController {
     const st = useStore.getState()
     const h = this.ctx.hover.current
     if (!h) return null
-    const line = st.station.lines.find((l) => l.id === st.railLineId) ?? st.station.lines[0] ?? defaultLine(st.railLineId || '1', st.railDir, 'third-rail', st.station.storeyHeight)
+    const line = st.station.lines.find((l) => l.id === st.railLineId) ?? st.station.lines[0] ?? defaultLine(st.railLineId || '1', st.railDir, 'third-rail', st.station.storeyHeight, st.station.cityStyle)
     const { w, d } = trackPieceForLine(line)
     // Centre the long run on the highlighted tile, so it grows evenly both ways.
     const [ox, oy] = trackOriginForCentre(st.railRot, h.cell[0], h.cell[1], w, d)

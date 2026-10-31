@@ -1,5 +1,13 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  "printed_metro": { "zh": "Metro", "en": "Metro" },
+  "printed_line_suffix": { "zh": "号线", "en": "号线" },
+  "city_style": { "zh": "城市风格", "en": "City style" },
+  "city_guangzhou": { "zh": "广州", "en": "Guangzhou" },
+  "city_shenzhen": { "zh": "深圳", "en": "Shenzhen" },
+  "shenzhen_metro": { "zh": "深圳地铁", "en": "Shenzhen Metro" },
+  "printed_shenzhen_metro": { "zh": "Shenzhen Metro", "en": "Shenzhen Metro" },
+
   suspended_ceiling: { zh: '吊顶', en: 'Suspended ceiling' },
   settings: { zh: '设置', en: 'Settings' },
   benchmark: { zh: '性能测试', en: 'Benchmark' },

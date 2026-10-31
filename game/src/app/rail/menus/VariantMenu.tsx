@@ -25,6 +25,7 @@ import { useStore } from '../../store.ts'
 
 export function VariantMenu({ family, open }: { family: ModuleFamily; open: boolean }): React.ReactElement {
   useLanguage()
+  const city = useStore(s => s.station.cityStyle)
   const tool = useStore((s) => s.tool)
   const moduleType = useStore((s) => s.moduleType)
   const setTool = useStore((s) => s.setTool)
@@ -36,7 +37,7 @@ export function VariantMenu({ family, open }: { family: ModuleFamily; open: bool
           key={m.id}
           label={translate(family.tileLabel ? family.tileLabel(m) : m.label)}
           tile={m.id}
-          thumb={family.folder === 'rail' ? undefined : moduleThumbnail(m.id)}
+          thumb={family.folder === 'rail' ? undefined : moduleThumbnail(m.id, city)}
           icon={family.folder === 'rail' ? m.id : undefined}
           active={tool === 'module' && moduleType === m.id}
           onClick={() => {

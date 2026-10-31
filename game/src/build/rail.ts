@@ -19,7 +19,7 @@ import { rampBodyBoxes } from '../sim/openings.ts'
 import { STOCK, doorCentres, trainLength, trainScaleForStorey } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
 import type { Cell, LineDef, LineDirection, Module, PsdHeight } from '../sim/types.ts'
-import { lineColourFor } from '../data/line-colours.ts'
+import { lineColourFor, type CityStyle } from '../sim/cityStyles.ts'
 import { cellKey, nextModuleId, removeModule, type StationState } from './model.ts'
 
 /** Default bed depth in cells: a 2.8 m Type-B car sits inside with clearance. */
@@ -47,12 +47,12 @@ export function railRect(a: readonly [number, number, number], b: readonly [numb
 }
 
 /** A fresh line for the first rail a player lays, so placement never stalls. */
-export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary', _storeyHeight = STOREY_HEIGHT): LineDef {
+export function defaultLine(id: string, dir: LineDirection, power: 'third-rail' | 'catenary', _storeyHeight = STOREY_HEIGHT, cityStyle?: CityStyle): LineDef {
   return {
     id,
     modelScale:trainScaleForStorey(),
     name: msg('line_value', id),
-    colour: lineColourFor(id),
+    colour: lineColourFor(id, cityStyle),
     stock: 'B',
     cars: 6,
     power,

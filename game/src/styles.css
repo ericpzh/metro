@@ -265,6 +265,32 @@ a.ghost:hover {
   border-bottom: 1px solid var(--line);
 }
 .settingsMenu { position: relative; }
+.exampleStationsMenu.cityStylesMenu { width: max-content; }
+.cityStylesGrid { display: grid; gap: 6px; padding: 0; }
+.cityStyleTile { width: 84px; height: 84px; padding: 4px; box-sizing: border-box; font-size: 11px; aspect-ratio: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; border: 1px solid var(--line); background: var(--bg); border-radius: 4px; cursor: pointer; }
+.cityStyleTile:hover, .cityStyleTile[aria-pressed="true"] { border-color: var(--accent); background: var(--ui-173650, #173650); }
+.cityStyleTile canvas { width: 40px; height: 40px; background: #fff; border-radius: 3px; }
+
+/* City chooser follows the active workspace theme while retaining its compact grid. */
+.cityStyleTile { position: relative; color: var(--text); }
+.cityStyleTile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:root[data-ui-theme="blueprint"] .cityStylesMenu { border-radius: 0; border-color: var(--bp-line); background: var(--ui-081a2c, #081a2c); }
+:root[data-ui-theme="blueprint"] .cityStylesMenu .exampleStationsHeading { border-bottom: 1px solid var(--bp-line); padding-bottom: 8px; letter-spacing: .08em; }
+:root[data-ui-theme="blueprint"] .cityStyleTile { border-radius: 0; border-color: var(--bp-line); background: var(--ui-0e2338, #0e2338); }
+:root[data-ui-theme="blueprint"] .cityStyleTile::after { content: ""; position: absolute; inset: 3px; border: 1px dashed var(--bp-line); pointer-events: none; }
+:root[data-ui-theme="blueprint"] .cityStyleTile[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--ui-173650, #173650); }
+:root[data-ui-theme="site"] .cityStylesMenu { border-radius: 6px; background: var(--panel); box-shadow: 0 12px 30px #0006; }
+:root[data-ui-theme="site"] .cityStylesMenu .exampleStationsHeading { border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+:root[data-ui-theme="site"] .cityStyleTile { border-radius: 4px; background: transparent; border-color: transparent; }
+:root[data-ui-theme="site"] .cityStyleTile:hover { background: #18212c; border-color: var(--line); }
+:root[data-ui-theme="site"] .cityStyleTile[aria-pressed="true"] { background: #242b30; border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+:root[data-ui-theme="studio"] .cityStylesMenu { border-radius: 12px; background: #fdfef9; border-color: #dfe4d7; box-shadow: 0 14px 40px rgba(46,55,38,.2); }
+:root[data-ui-theme="studio"] .cityStylesMenu .exampleStationsHeading { letter-spacing: 0; color: #53634f; }
+:root[data-ui-theme="studio"] .cityStyleTile { border-radius: 9px; background: #e9ede1; border-color: transparent; color: #53634f; box-shadow: 0 2px 5px rgba(50,63,43,.05); }
+:root[data-ui-theme="studio"] .cityStyleTile:hover { background: #f2f5eb; border-color: #91a089; }
+:root[data-ui-theme="studio"] .cityStyleTile[aria-pressed="true"] { background: #fae7dc; border-color: var(--accent); color: #9f3d1e; box-shadow: inset 0 0 0 1px var(--accent); }
+:root[data-ui-theme="studio"] .cityStyleTile canvas { border-radius: 6px; }
+
 .settingsMenu summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 3px; color: var(--text); }
 .settingsMenu summary::-webkit-details-marker { display: none; }
 .settingsMenu summary:hover, .settingsMenu[open] summary { background: var(--ui-173650, #173650); color: var(--accent); }

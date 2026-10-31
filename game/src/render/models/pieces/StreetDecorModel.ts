@@ -1,5 +1,7 @@
+import { buildShenzhenGuidepost } from './ShenzhenGuidepost.ts'
+import { cityStyleFor, type CityStyle } from '../../../sim/cityStyles.ts'
 import { drawModelText } from '../../modelLabels.ts'
-import { t } from '../../../sim/i18n.ts'
+import { t, tForLanguage } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { omitModelDetail, setModelDetail, surfaceModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab, plate, plateOf, placeLocal, ownedMaterial, canvasTexture, drawMetroMark } from '../PieceBuilder.ts'
@@ -113,14 +115,14 @@ function triangleColumn(material: THREE.Material, height: number, scale = 1, pla
   return mesh
 }
 
-function guideLogoFace(triangular = false, leftSide = false): HTMLCanvasElement {
+function guideLogoFace(city?: CityStyle, triangular = false, leftSide = false): HTMLCanvasElement {
   const c = document.createElement('canvas'); c.width = 512; c.height = 512
   const g = c.getContext('2d')!
   g.fillStyle = '#ffdc23'; g.fillRect(0, 0, 512, 512)
   const x = triangular ? leftSide ? 150 : 362 : 256
-  drawMetroMark(g, x, 218, 140, '#26272a')
+  drawMetroMark(g, x, 218, 140, '#26272a', city)
   g.fillStyle = '#26272a'; g.textAlign = 'center'; g.font = 'bold 36px "Microsoft YaHei", sans-serif'
-  drawModelText(g, t('guangzhou_metro'), x, 342, triangular ? 224 : 448)
+  drawModelText(g, tForLanguage('zh-CN', cityStyleFor(city).brandKey), x, 342, triangular ? 224 : 448)
   return c
 }
 
@@ -160,7 +162,9 @@ function threeFaces(group: THREE.Group, scale: number, mat: THREE.Material | rea
 export class GuidepostModel extends PieceBuilder {
   readonly kind = 'guidepost'
   build(mod: Extract<Module, { type: 'guidepost' }>): THREE.Group {
+    if (cityStyleFor(this.ctx.data.cityStyle).logo === 'shenzhen') return buildShenzhenGuidepost(this.ctx, mod, guideLabels)
     const g = new THREE.Group(), mats = this.ctx.mats
+    g.userData.guideCityStyle = 'guangzhou'
     const base = triangleColumn(mats.darkSteel, .07, 1.14); base.name = 'guide-triangular-base'; g.add(base)
     const body = triangleColumn(mats.exitRed, GUIDE_LOGO_BOTTOM); body.name = 'guide-triangular-column'; g.add(body)
     const head = triangleColumn(mats.exitRed, 4 - GUIDE_LOGO_TOP); head.position.z = GUIDE_LOGO_TOP; g.add(head)
@@ -189,10 +193,12 @@ export class GuidepostModel extends PieceBuilder {
       bindArtworkTexture(g,upper.map!,(c,data)=>{const next=guideLabels(data,mod);c.drawImage(guideFace(next.station,next.exit),0,0,256,277,0,0,256,277)})
       bindArtworkTexture(g,rear.map!,(c,data)=>c.drawImage(guideEnglishFace(data.nameEn?.trim() || t('printed_metro_station')),0,0))
       threeFaces(g, 1, [upper, upper, rear], GUIDE_LOGO_TOP, 4, 'guide-station-face')
-      const logo = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, c => c.drawImage(guideLogoFace(), 0, 0)) }))
+      const logo = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, c => c.drawImage(guideLogoFace(this.ctx.data.cityStyle), 0, 0)) }))
+      bindArtworkTexture(g, logo.map!, (c, data) => c.drawImage(guideLogoFace(data.cityStyle), 0, 0))
       plate(collar, logo, .34 * GUIDE_WIDTH_SCALE, GUIDE_LOGO_TOP - GUIDE_LOGO_BOTTOM, 0, .071, (GUIDE_LOGO_BOTTOM + GUIDE_LOGO_TOP) / 2, Math.PI).name = 'guide-metro-logo-face'
       for (const side of ['left', 'right'] as const) {
-        const sideLogo = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, c => c.drawImage(guideLogoFace(true, side === 'left'), 0, 0)) }))
+        const sideLogo = ownedMaterial(this.ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 512, c => c.drawImage(guideLogoFace(this.ctx.data.cityStyle, true, side === 'left'), 0, 0)) }))
+        bindArtworkTexture(g, sideLogo.map!, (c, data) => c.drawImage(guideLogoFace(data.cityStyle, true, side === 'left'), 0, 0))
         const face = new THREE.Mesh(yellowPyramidGeometry(side), sideLogo)
         face.name = 'guide-metro-logo-face'; face.position.z = GUIDE_LOGO_BOTTOM
         face.position.x = side === 'left' ? -.001 : .001; face.position.y = -.0004

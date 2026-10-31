@@ -1,3 +1,5 @@
+import { drawMetroMark } from '../cityBranding.ts'
+export { drawMetroMark } from '../cityBranding.ts'
 import { drawModelText } from '../modelLabels.ts'
 import { getLanguage, t } from '../../sim/i18n.ts'
 // Shared procedural-model kit behind render/models.ts (Lane E, step 0).
@@ -124,7 +126,7 @@ export interface ModelMaterials {
   trainGlass: THREE.MeshStandardMaterial
   /** Cab bumper band and cheek swoosh. */
   trainTrim: THREE.MeshStandardMaterial
-  /** The red 广州地铁 mark on the cab's nose (see `drawMetroMark`). */
+  /** Scene-owned city emblem texture, shared by live and prepared cabs. */
   trainMark: THREE.MeshBasicMaterial
   /** Lit cab head lamps (leading end) — unlit so they read as emissive. */
   headlight: THREE.MeshBasicMaterial
@@ -569,41 +571,6 @@ function fireLabelCanvas(): HTMLCanvasElement {
     x += widths[i]
   }
   return c
-}
-
-/**
- * The 广州地铁 mark — the stylised 羊 the network wears. Two strokes rise from
- * the base, bend outward over their top half and run out to the upper corners,
- * with a narrow slot between them.
- *
- * The outline is traced from the reference artwork: the shape is 0.849 as wide
- * as it is tall, each stroke is 0.174 wide at the base, its inner edge sits
- * 0.455 of the way across, and the bend is the arc the strokes share (the
- * quadratics below stand in for it to within a pixel or two). One routine, so
- * the cab's nose and the exit banner wear the same mark rather than two
- * approximations of it.
- *
- * `cx, cy` is the centre of the mark's bounding box and `size` its height.
- */
-export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: number, size: number, colour: string): void {
-  const w = size * 0.849
-  const left = cx - w / 2
-  const top = cy - size / 2
-  // u across the mark (0..1), t up from its base (0..1); canvas y runs down.
-  const X = (side: number, u: number): number => left + (side === 0 ? u : 1 - u) * w
-  const Y = (t: number): number => top + (1 - t) * size
-  g.fillStyle = colour
-  for (const side of [0, 1]) {
-    g.beginPath()
-    g.moveTo(X(side, 0.455), Y(0))
-    g.lineTo(X(side, 0.455), Y(0.5))
-    g.quadraticCurveTo(X(side, 0.455), Y(0.833), X(side, 0.22), Y(1))
-    g.lineTo(X(side, 0), Y(1))
-    g.quadraticCurveTo(X(side, 0.281), Y(0.8), X(side, 0.281), Y(0.5))
-    g.lineTo(X(side, 0.281), Y(0))
-    g.closePath()
-    g.fill()
-  }
 }
 
 /**

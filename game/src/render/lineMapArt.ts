@@ -1,4 +1,6 @@
-// Line-map art — the supplied 广州地铁 线网示意图 as a lit material.
+import { normalizeCityStyle, type CityStyle } from '../sim/cityStyles.ts'
+import { cityLineMapSlug } from './lineMapCity.ts'
+// Supplied Guangzhou and Shenzhen line-map posters as city-specific lit materials.
 //
 // The network a 线网图 prints is the poster the station wall really carries, saved as
 // an asset: `src/assets/linemaps/network-map.jpg` (1080 × 1080). This module is the
@@ -24,7 +26,7 @@
 import * as THREE from 'three'
 import { croppedPlane, panelUvWindow } from './panelUv.ts'
 
-// The folder is `linemaps/`, and holds one poster. (Not `ads/`: EasyList ships
+// The folder is `linemaps/`, and holds the supplied city posters. (Not `ads/`: EasyList ships
 // `/assets/ads/*$~image`, which blocks Vite's dev-time module URL for anything under an
 // `assets/ads/` path, and because the glob below is `eager` one blocked file rejects
 // this module's whole graph.)
@@ -34,7 +36,7 @@ const MAP_URLS: Record<string, string> = import.meta.glob('../assets/linemaps/*.
   import: 'default',
 })
 
-/** The asset's stem — the one poster a 线网图 prints. */
+/** The default Guangzhou poster; Shenzhen uses its own supplied asset. */
 export const LINE_MAP_SLUG = 'network-map'
 
 /** The poster's URL, for the one asset in `src/assets/linemaps/`. */
@@ -58,13 +60,13 @@ export interface LineMapArt {
    */
   load(onReady?: () => void): Promise<void>
   /** True once the poster's pixels are in hand — what a plate asks before it draws. */
-  ready(): boolean
+  ready(city?: CityStyle): boolean
   /**
    * The lit board for a `w` × `h` metre panel, cropped to the panel's aspect. The
    * caller owns the geometry it is given (dispose it with the module); the material is
    * the art's and is shared by every map printing the same panel.
    */
-  face(w: number, h: number): LineMapFace
+  face(w: number, h: number, city?: CityStyle): LineMapFace
   dispose(): void
 }
 
@@ -78,7 +80,7 @@ async function decode(url: string): Promise<HTMLImageElement | null> {
   })
 }
 
-export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
+function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string): LineMapArt {
   const maxAnisotropy = renderer ? Math.min(4, renderer.capabilities.getMaxAnisotropy()) : 1
   let texture: THREE.Texture | null = null
   /**
@@ -89,7 +91,7 @@ export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
   const materials = new Map<string, THREE.MeshBasicMaterial>()
   /** The same bargain for the quads, keyed the same way (`adArt`'s reasoning). */
   const geometries = new Map<string, THREE.PlaneGeometry>()
-  const slug = LINE_MAP_SLUG
+  let disposed = false
 
   async function load(onReady?: () => void): Promise<void> {
     if (texture) {
@@ -104,7 +106,7 @@ export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
       return
     }
     const image = await decode(url)
-    if (!image) return
+    if (!image || disposed) return
     const tex = new THREE.Texture(image)
     tex.colorSpace = THREE.SRGBColorSpace
     tex.anisotropy = maxAnisotropy
@@ -142,6 +144,7 @@ export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
     ready: () => texture !== null,
     face,
     dispose() {
+      disposed = true
       for (const mat of materials.values()) mat.dispose()
       materials.clear()
       // The scene owns the quads now: a module group must not dispose one it shares
@@ -151,5 +154,19 @@ export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
       texture?.dispose()
       texture = null
     },
+  }
+}
+
+/** Each city owns one decoded poster and a retained material/geometry cache. */
+export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
+  const posters = {
+    guangzhou: createPosterArt(renderer, cityLineMapSlug('guangzhou')),
+    shenzhen: createPosterArt(renderer, cityLineMapSlug('shenzhen')),
+  }
+  return {
+    async load(onReady) { await Promise.all(Object.values(posters).map(art => art.load(onReady))) },
+    ready(city) { return posters[normalizeCityStyle(city)].ready() },
+    face(w,h,city) { return posters[normalizeCityStyle(city)].face(w,h) },
+    dispose() { for (const art of Object.values(posters)) art.dispose() },
   }
 }

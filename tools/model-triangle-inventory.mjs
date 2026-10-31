@@ -26,7 +26,7 @@ globalThis.document={createElement:canvas}
 await geometryDetailReady
 const mats=createModelMaterials()
 const LINE={id:'5',name:'5号线',colour:'#c8102e',stock:'B',cars:6,power:'third-rail',psd:'full',headwayProfile:{peak:150,offpeak:240,late:480},alightPerTrain:420,terminus:'through',direction:'up',upTerminus:'文冲',downTerminus:'滘口',travelSign:1,stations:[]}
-const data={name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
+const data={cityStyle:process.env.MODEL_CITY==='shenzhen'?'shenzhen':'guangzhou',name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
 const ads={adFace:(slug,w,h)=>({material:new THREE.MeshBasicMaterial(),geometry:new THREE.PlaneGeometry(w,h),slug}),adWindow:(w,h)=>ads.adFace('a',w,h),load:async()=>{},dispose(){}}
 const ctx={mats,ads,data,trackCells:new Set(),tvPlate:()=>new THREE.CanvasTexture(canvas()),signFace:()=>new THREE.MeshBasicMaterial(),finish:()=>mats.steel,preview:false,ownedMats:[]}
 const tris=g=>(g.index?.count??g.getAttribute('position')?.count??0)/3
@@ -35,7 +35,7 @@ const output=(name)=>resolve(process.env.BENCH_OUTPUT?dirname(process.env.BENCH_
 
 /* --------------------------------------------------------------- equipment */
 const results=[]
-for(const option of MODULE_OPTIONS){
+for(const option of MODULE_OPTIONS.filter(o=>!process.env.MODEL_CITY || ['exit','guidepost','linemap'].includes(o.type))){
  const mod=createModule(option.id==='tv-double'?'tv':option.id,4,4,0,`bench-${option.id}`,0,undefined,'up','lane',[LINE])
  if(!mod){results.push({id:option.id,low:null,high:null,reason:'createModule returned null'});continue}
  const pair=option.id==='tv-double'?[mod,{...mod,id:mod.id+'-back',rot:2}]:[mod]
@@ -61,13 +61,13 @@ const missingLow=results.filter(result=>result.high>10 && !(result.low>0 && resu
 if(missingLow.length)throw new Error(`Palette models over ten triangles require reduced Low geometry: ${JSON.stringify(missingLow)}`)
 for(const row of results) {
  const budget=equipmentLowBudget(row.id,row.high)
- if(row.low>budget.limit)throw new Error(`${row.id}: ${row.low}/${row.high} triangles exceeds Low budget ${budget.limit}`)
+ if(row.low>budget.limit && process.env.INVENTORY_REPORT_ONLY!=='1')throw new Error(`${row.id}: ${row.low}/${row.high} triangles exceeds Low budget ${budget.limit}`)
  row.lowBudget=budget.limit;row.lowException=budget.reason
 }
 results.sort((a,b)=>b.high-a.high)
 let out=output('model-triangles.json')
 mkdirSync(dirname(out),{recursive:true})
-writeFileSync(out,JSON.stringify({revision:THREE.REVISION,options:MODULE_OPTIONS.length,results},null,2))
+writeFileSync(out,JSON.stringify({revision:THREE.REVISION,cityStyle:data.cityStyle,options:results.length,budgetFailures:results.filter(r=>r.low>r.lowBudget).map(r=>({id:r.id,low:r.low,limit:r.lowBudget})),results},null,2))
 writeFileSync(out.replace(/\.json$/,'.md'),table(['Equipment / decor model name','Low triangles','High triangles'],results.map(r=>[r.id,r.low,r.high])))
 writeFileSync(output('equipment-lod-exceptions.md'),table(['Equipment / decor model name','Low / High','Minimum-shape exception'],results.filter(r=>r.low>=r.high*.1).map(r=>[r.id,`${r.low} / ${r.high}`,r.lowException])))
 console.log(results.length+' palette models: '+out)

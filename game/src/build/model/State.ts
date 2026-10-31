@@ -2,6 +2,7 @@
 // Owns toStateFrom (grid repair entry, poster backfill, termini defaults) plus
 // toStateRepairing, so Grid.ts stays a leaf and no State↔Grid cycle forms (C4).
 
+import { normalizeCityStyle, type CityStyle } from '../../sim/cityStyles.ts';
 import { trainScaleForStorey } from '../../sim/stock.ts';
 import type { Cell, Module, StationData } from '../../sim/types.ts';
 import { normalizeLevelBase, STOREY_HEIGHT, type PeakWindows, type TimeSpan } from '../../sim/constants.ts';
@@ -16,6 +17,7 @@ import { syncBridgePillars } from './BridgePillars.ts';
 import { clearCeilingZoneLabels } from './Zones.ts';
 
 export interface StationState {
+  cityStyle: CityStyle;
   name: string;
   nameEn?: string;
   seed: number;
@@ -59,6 +61,7 @@ export function toState(data: StationData): StationState {
 function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>): StationState {
   const storeyHeight = STOREY_HEIGHT;
   const state: StationState = {
+    cityStyle: normalizeCityStyle(data.city ?? data.cityStyle),
     name: data.name,
     nameEn: typeof data.nameEn === 'string' ? data.nameEn.trim() : '',
     seed: data.seed,
@@ -99,6 +102,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
 
 export function toData(s: StationState): StationData {
   return {
+    cityStyle: s.cityStyle,
     name: s.name,
     nameEn: s.nameEn,
     seed: s.seed,
@@ -129,6 +133,7 @@ function deepCopy<T>(value: T): T {
 
 export function cloneState(s: StationState): StationState {
   return {
+    cityStyle: s.cityStyle,
     name: s.name,
     nameEn: s.nameEn,
     seed: s.seed,

@@ -1,4 +1,7 @@
-import { t } from '../../../sim/i18n.ts'
+import { buildShenzhenCanopy } from './ShenzhenExitCanopy.ts'
+import { cityStyleFor } from '../../../sim/cityStyles.ts'
+import type { StationData } from '../../../sim/types.ts'
+import { t, tForLanguage } from '../../../sim/i18n.ts'
 // Exit portal (出入口) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -15,25 +18,30 @@ import { omitModelDetail, panelModelDetail, setModelDetail, surfaceModelDetail, 
 /**
  * The exit portal header: the metro logo, station name and the exit's name.
  */
-export function exitHeaderCanvas(stationName: string, exitName: string, stationNameEn = '', width = 512): HTMLCanvasElement {
+export function exitHeaderCanvas(stationName: string, exitName: string, stationNameEn = '', width = 512, style: Partial<Pick<StationData, 'cityStyle' | 'lines'>> = {}): HTMLCanvasElement {
   const c = document.createElement('canvas')
   c.width = width
   c.height = 96
   const g = c.getContext('2d') as CanvasRenderingContext2D
-  g.fillStyle = '#c22f28'
+  const city = cityStyleFor(style.cityStyle)
+  if (city.entrance === 'shenzhen') {
+    drawShenzhenHeader(g, stationName, exitName, stationNameEn, width, style)
+    return c
+  }
+  g.fillStyle = city.entranceColour
   g.fillRect(0, 0, width, 96)
-  drawMetroMark(g, 34, 48, 46, '#ffffff')
+  drawMetroMark(g, 34, 48, 46, '#ffffff', style.cityStyle)
   g.fillStyle = '#ffffff'
   g.textBaseline = 'middle'
   g.textAlign = 'left'
   g.font = 'bold 19px "Microsoft YaHei", sans-serif'
-  g.fillText(t('guangzhou_metro'), 64, 39, 108)
+  g.fillText(tForLanguage('zh-CN', city.brandKey), 64, 39, 108)
   g.font = '11px Arial, sans-serif'
-  g.fillText(t('printed_guangzhou_metro'), 64, 61, 108)
+  g.fillText(t(city.brandEnglishKey), 64, 61, 108)
 
   // Keep long station names within the centre field, clear of the brand and exit.
-  const station = (stationName || t('metro')).trim()
-  const stationLabel = station.endsWith(t('station')) ? station : t('value_station', station)
+  const station = (stationName || tForLanguage('zh-CN', 'metro')).trim()
+  const stationLabel = station.endsWith(tForLanguage('zh-CN', 'station')) ? station : tForLanguage('zh-CN', 'value_station', station)
   g.textAlign = 'center'
   g.font = 'bold 29px "Microsoft YaHei", sans-serif'
   const stationCentre = width / 2 + 24
@@ -45,13 +53,13 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   }
 
   // Preserve multi-character identifiers such as C1; named exits remain readable.
-  const label = (exitName || t('entrance')).trim()
+  const label = (exitName || tForLanguage('zh-CN', 'entrance')).trim()
   const identifier = label.match(/^([A-Za-z]\d*)(?:入口|出口|口)?$/)?.[1]
   if (identifier) {
     g.font = 'bold 40px Arial, sans-serif'
     g.fillText(identifier.toUpperCase(), width - 85, 48, 64)
     g.font = 'bold 21px "Microsoft YaHei", sans-serif'
-    g.fillText(t('entrance'), width - 30, 39, 48)
+    g.fillText(tForLanguage('zh-CN', 'entrance'), width - 30, 39, 48)
     g.font = '10px Arial, sans-serif'
     g.fillText(t('printed_entrance'), width - 30, 62, 48)
   } else {
@@ -59,6 +67,53 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
     g.fillText(label, width - 61, 48, 106)
   }
   return c
+}
+
+/** Shenzhen's navy fascia: white emblem, exit letter, rail pictogram and line badges. */
+function drawShenzhenHeader(g: CanvasRenderingContext2D, stationName: string, exitName: string, english: string, width: number, data: Partial<Pick<StationData, 'cityStyle' | 'lines'>>): void {
+  g.fillStyle = cityStyleFor(data.cityStyle).entranceColour
+  g.fillRect(0, 0, width, 96)
+  drawMetroMark(g, 31, 48, 48, '#ffffff', data.cityStyle)
+  g.fillStyle = '#ffffff'; g.textBaseline = 'middle'; g.textAlign = 'center'
+  const label = (exitName || tForLanguage('zh-CN', 'entrance')).trim()
+  const identifier = label.match(/^([A-Za-z]\d*)(?:入口|出口|口)?$/)?.[1]
+  g.font = 'bold 54px Arial, sans-serif'
+  g.fillText(identifier?.toUpperCase() || label, 91, 49, 62)
+  // Framed rail pictogram, kept white like the reference fascia.
+  g.strokeStyle = '#ffffff'; g.lineWidth = 2
+  g.beginPath(); g.roundRect(137, 25, 41, 46, 4); g.stroke()
+  g.beginPath(); g.roundRect(145, 33, 25, 28, 7); g.stroke()
+  g.fillRect(149, 38, 17, 10)
+  for (const x of [150, 165]) { g.beginPath(); g.arc(x, 55, 2, 0, Math.PI * 2); g.fill() }
+  g.beginPath(); g.moveTo(151, 61); g.lineTo(146, 67); g.moveTo(164, 61); g.lineTo(169, 67); g.stroke()
+
+  const lines = data.lines?.slice(0, 3) ?? []
+  const badgeWidth = 68, badgeGap = 5
+  const badgesLeft = width - 14 - lines.length * (badgeWidth + badgeGap) + (lines.length ? badgeGap : 0)
+  const stationLeft = 192, stationRight = badgesLeft - 12
+  const centre = (stationLeft + stationRight) / 2
+  const room = Math.max(32, stationRight - stationLeft)
+  const station = (stationName || tForLanguage('zh-CN', 'metro')).trim()
+  const name = station.endsWith(tForLanguage('zh-CN', 'station')) ? station : tForLanguage('zh-CN', 'value_station', station)
+  g.font = 'bold 28px "Microsoft YaHei", sans-serif'
+  g.fillText(name, centre, english.trim() ? 36 : 48, room)
+  if (english.trim()) {
+    g.font = 'bold 16px Arial, sans-serif'
+    g.fillText(english.trim(), centre, 64, room)
+  }
+  lines.forEach((line, i) => {
+    const x = badgesLeft + i * (badgeWidth + badgeGap)
+    g.fillStyle = line.colour
+    g.beginPath(); g.roundRect(x, 23, badgeWidth, 50, 4); g.fill()
+    g.strokeStyle = '#ffffff'; g.lineWidth = 1
+    g.beginPath(); g.roundRect(x, 23, badgeWidth, 50, 4); g.stroke()
+    g.fillStyle = '#ffffff'; g.font = '38px Arial, sans-serif'
+    g.fillText(line.id, x + 19, 48, 31)
+    g.font = '14px "Microsoft YaHei", sans-serif'
+    g.fillText(t('printed_line_suffix'), x + 49, 43, 29)
+    g.font = '9px Arial, sans-serif'
+    g.fillText(t('printed_line_value', line.id), x + 49, 59, 30)
+  })
 }
 
 /* ------------------------------------------------------------------ exit */
@@ -157,6 +212,8 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const BACK = EXIT_BACK // canopy overhang past the street doorway (+y)
   const hl = L / 2
   const covered = mod.cfg.covered !== false
+  const shenzhen = cityStyleFor(ctx.data.cityStyle).entrance === 'shenzhen'
+  if (covered) g.userData.exitCityStyle = shenzhen ? 'shenzhen' : 'guangzhou'
   const side = hw - 0.06 // the glass line, just inside the frame
   const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
   const runs = exitRunOpenings(modelNeighbours(ctx, 'stair', 'escalator', 'walkway'), mod)
@@ -270,10 +327,16 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const ry1 = BACK
   const waveAmp = 0.16
   const periods = 0.85
-  const heightAt = (t: number): number => H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
+  const heightAt = (t: number): number => shenzhen ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
   const topAt = (y: number): number => heightAt((y - ry0) / (ry1 - ry0))
 
-  if (covered) {
+  if (covered && shenzhen) {
+    buildShenzhenCanopy(house, ctx, xc, W)
+    for (const cx of dividers) {
+      slab(house, mats.steel, cx, -1.0, .95, .06, 2, .06)
+      for (const y of [-1.8,-.2]) slab(house, mats.steel, cx, y, .5, .06, .06, .9)
+    }
+  } else if (covered) {
     // The reference head-house is a red steel frame, not a row of pillars: on
     // each side a post runs up to a top beam that wraps over the blue canopy,
     // the frames are tied at the base by red steel parallel to the ground, and
@@ -377,10 +440,10 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signY = covered ? hl - 0.02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   panelModelDetail(slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard))
-  const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || t('metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn), 0, 0)) })), W - 0.3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || tForLanguage('zh-CN', 'metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn, 512, ctx.data), 0, 0)) })), W - .3, 0.5, xc, signY + 0.08, signZ, Math.PI)
   bindArtworkTexture(house, (header.material as THREE.MeshBasicMaterial).map!, (c, data) => {
     const next = data.modules.find(m => m.id === mod.id)
-    c.drawImage(exitHeaderCanvas(data.name || t('metro'), next?.type === 'exit' ? next.cfg.name || t('entrances') : mod.cfg.name, data.nameEn),0,0)
+    c.drawImage(exitHeaderCanvas(data.name || tForLanguage('zh-CN', 'metro'), next?.type === 'exit' ? next.cfg.name || t('entrances') : mod.cfg.name, data.nameEn, 512, data),0,0)
   })
   header.renderOrder = 1
   return g

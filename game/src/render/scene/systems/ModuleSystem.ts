@@ -1,3 +1,4 @@
+import { normalizeCityStyle } from '../../../sim/cityStyles.ts'
 // ModuleSystem — the placed equipment: building every module through the
 // model factory, the contact blobs, plus the selection and
 // collision highlights (moved verbatim from `render/scene.ts`: `buildModules`,
@@ -68,6 +69,9 @@ export class ModuleSystem extends SceneSystem {
     for (const mod of data.modules) {
       if (retained.has(mod.id)) continue
       const root = roots.get(mod.id)
+      // Covered exits change their shell as well as their printed city identity.
+      if (root?.userData.guideCityStyle && root.userData.guideCityStyle !== normalizeCityStyle(data.cityStyle)) continue
+      if (root?.userData.exitCityStyle && root.userData.exitCityStyle !== normalizeCityStyle(data.cityStyle)) continue
       if (root && repaintArtwork(root,data)) retained.add(mod.id)
     }
     return retained

@@ -5,6 +5,16 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+## City identity
+
+Use [city styles: contracts and verification](references/city-styles.md) for saved
+city identity, city-specific models/maps, top-menu tiles and cached LHS previews.
+Wire saves use `city`; internal state uses `cityStyle`. Missing/invalid city defaults
+to Guangzhou. City changes preserve every existing line colour and affect only
+new-line defaults. Keep shell replacement separate from artwork repainting, and
+keep preview fixtures separate from document commits. The shared performance
+reference owns measured timings; the linked guide names each deterministic suite.
+
 ## Audio
 
 `app/gameAudio.ts` owns the browser AudioContext, cached buffers and bounded

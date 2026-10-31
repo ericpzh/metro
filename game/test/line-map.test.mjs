@@ -554,3 +554,30 @@ test('a line edit repaints the placeholder map in place', async () => {
     restore()
   }
 })
+
+test('supplied Shenzhen poster is selected by city and maps replace artwork on city switch', async()=>{
+  const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
+  const {presentationKeepIds}=await import('../src/render/presentationEdit.ts')
+  const {populationEdit}=await import('../src/sim/populationEdit.ts')
+  assert.equal(cityLineMapSlug('shenzhen'),'shenzhen-map')
+  assert.equal(cityLineMapSlug(),'network-map')
+  assert.equal(cityLineMapSuffix('shenzhen'),'|shenzhen')
+  const jpg=readFileSync(new URL('../src/assets/linemaps/shenzhen-map.jpg',import.meta.url))
+  assert.equal(jpg[0],255);assert.equal(jpg[1],216)
+  const mod=placed('linemap-wall'),panel=mapPanel()
+  const art={ready:()=>true,face:(w,h,city)=>({material:new THREE.MeshBasicMaterial({name:city??'guangzhou'}),geometry:new THREE.PlaneGeometry(w,h)})}
+  const {plates,data,ctx,restore}=await mapPlateRig('公园前',mod,art)
+  try {
+    const gz=plates.makeLineMapPlate(mod.id,panel)
+    assert.equal(gz.material.name,'guangzhou')
+    const after={...data,cityStyle:'shenzhen'}
+    const edit=populationEdit(data,after)
+    assert.ok(!presentationKeepIds(data,after,edit).has(mod.id),'a city edit must replace the retained map model')
+    ctx.stationData=after;plates.retainDecorPlates(after)
+    const sz=plates.makeLineMapPlate(mod.id,panel)
+    assert.equal(sz.material.name,'shenzhen');assert.notEqual(sz.material,gz.material)
+    assert.equal(plates.makeLineMapPlate(mod.id,panel).material,sz.material,'same city reuses its face')
+    ctx.stationData=data;plates.retainDecorPlates(data)
+    assert.equal(plates.makeLineMapPlate(mod.id,panel).material.name,'guangzhou','undo restores the Guangzhou poster')
+  } finally {restore()}
+})

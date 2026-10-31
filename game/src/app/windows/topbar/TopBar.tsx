@@ -10,6 +10,7 @@ import { IoIosBookmarks } from 'react-icons/io'
 import { SettingsMenu } from './SettingsMenu.tsx'
 import { SimulationControls } from './SimulationControls.tsx'
 import { openSaveWithLoading } from '../../gameLoading.ts'
+import { CityStyleSelect } from './CityStyleSelect.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -78,6 +79,7 @@ export function TopBar(): React.ReactElement {
       <div className="spacer" />
       <NewStationButton />
       <ExampleStationsButton />
+      <CityStyleSelect />
       <button className="ghost iconBtn" onClick={() => window.dispatchEvent(new Event('metro:tutorial'))} title={t('tutorial_title')} aria-label={t('tutorial_title')}>
         <IoIosBookmarks aria-hidden="true" />
       </button>

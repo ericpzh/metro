@@ -1,3 +1,4 @@
+import { lineColourFor, type CityStyle } from '../sim/cityStyles.ts'
 import { msg } from '../sim/i18n.ts'
 import { captureRamp } from './captureRamp.ts'
 // Equipment thumbnails for the build rail's PNG asset generator and concept-art captures.
@@ -841,7 +842,7 @@ async function cropToAlpha(dataUrl: string): Promise<{ png: string; rect: { x: n
 export async function renderModuleThumbnails(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
-  options: { hideSecondGateDoor?: boolean; pixelRatio?: number } = {},
+  options: { hideSecondGateDoor?: boolean; pixelRatio?: number; cityStyle?: CityStyle; ids?: readonly string[] } = {},
 ): Promise<Record<string, string>> {
   return (await renderModulePieces(size, elevations, options)).images
 }
@@ -858,7 +859,7 @@ export async function renderModuleThumbnails(
 export async function renderModulePieces(
   size: number | ThumbnailSize = 132,
   elevations: PieceElevations | null = null,
-  options: { hideSecondGateDoor?: boolean; pixelRatio?: number } = {},
+  options: { hideSecondGateDoor?: boolean; pixelRatio?: number; cityStyle?: CityStyle; ids?: readonly string[] } = {},
 ): Promise<PieceViewResult> {
   const frame = frameOf(size)
   const out: Record<string, string> = {}
@@ -901,6 +902,8 @@ export async function renderModulePieces(
   // its marks missing and the tiles are cached for the session.
   await loadPictograms()
   const station = syntheticStation()
+  station.cityStyle = options.cityStyle
+  if (options.cityStyle) station.lines = station.lines.map(line => ({ ...line, colour: lineColourFor(line.id, options.cityStyle) }))
   if (elevations?.stationName) station.name = elevations.stationName
   // A thumbnail has no live service to print, so the 电视 plate shows the station
   // name and a blank clock — the same shape the placed piece draws.
@@ -972,8 +975,8 @@ export async function renderModulePieces(
     // and the art's shared material. The drawn placeholder board is the fallback for a
     // pass whose poster did not decode.
     lineMapFace: (id, panel) => {
-      if (lineMaps.ready()) {
-        const painted = lineMaps.face(panel.w, panel.h)
+      if (lineMaps.ready(station.cityStyle)) {
+        const painted = lineMaps.face(panel.w, panel.h, station.cityStyle)
         return { material: painted.material, geometry: painted.geometry }
       }
       const key = `linemap|${id}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
@@ -1212,15 +1215,28 @@ export async function renderModulePieces(
     }
     const wanted = elevations
       ? rowsFor([...elevations.ids, ...Object.keys(elevations.views ?? {})])
-      : rowsFor(MODULE_OPTIONS.map((o) => o.id))
+      : rowsFor(options.ids ?? MODULE_OPTIONS.map((o) => o.id))
     for (const opt of wanted) {
       // A `lift-car` is sampled as the lift it is a part of; everything else by its own id.
       const sourceId = views?.[opt.id]?.modelId ?? opt.id
+      station.modules = []
       let mod = sampleModule(sourceId === 'lift-car' || sourceId === 'lift-shaft' ? 'lift' : sourceId, station)
       const psdCells = views?.[opt.id]?.psdCells ?? elevations?.psdCells
       if (mod && mod.type === 'platform-edge' && psdCells) mod = { ...mod, w: psdCells }
       if (!mod) continue
       mod = captureRamp(mod, views?.[opt.id]?.ramp ?? elevations?.ramp)
+      // Bind only the synthetic thumbnail document; no authored station is edited.
+      if (options.cityStyle === 'shenzhen' && (mod.type === 'guidepost' || (mod.type === 'exit' && mod.cfg.style === 'virtual'))) {
+        if (mod.type === 'guidepost') {
+          const exit = createModule('exit-virtual', 0, 0, 0, 'preview-exit') as Extract<Module, { type: 'exit' }>
+          exit.cfg.name = 'C口'
+          mod = { ...mod, cfg: { ...mod.cfg, exitId: exit.id } }
+          station.modules = [exit]
+        } else {
+          mod = { ...mod, cfg: { ...mod.cfg, name: 'C口' } }
+          station.modules = [mod]
+        }
+      }
       // A 电梯 is stacked to the storeys the caller asked for before anything is measured:
       // its shaft, not its rise, is what a section draws.
       if ((opt.id === 'lift' || opt.id === 'lift-shaft') && (elevations?.liftStoreys ?? 1) > 1 && mod.type === 'lift') {

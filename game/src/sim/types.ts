@@ -822,6 +822,10 @@ export interface LineDef {
 }
 
 export interface StationData {
+  /** City field used by authored demo documents. */
+  city?: import('./cityStyles.ts').CityStyle
+  /** Visual identity; absent in legacy documents means Guangzhou. */
+  cityStyle?: import('./cityStyles.ts').CityStyle
   /** The supported station grid is five metres. */
   storeyHeight?: number
   name: string

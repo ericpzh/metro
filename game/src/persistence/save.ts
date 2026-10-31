@@ -1,3 +1,4 @@
+import { normalizeCityStyle, type CityStyle } from '../sim/cityStyles.ts'
 import { msg } from '../sim/i18n.ts'
 // Save / load — GAME-SPEC.md §9.4, §10.5; PLAN.md §6.
 //
@@ -27,6 +28,9 @@ export interface SaveFileV1 {
   savedAt: string
   name: string
   nameEn?: string
+  city?: CityStyle
+  /** Compatibility with saves written before the city field was named. */
+  cityStyle?: CityStyle
   seed: number
   /** Base of the five-metre editing grid. */
   levelBase?: number
@@ -70,6 +74,7 @@ export function serialize(state: StationState, now: Date = new Date()): string {
     savedAt: now.toISOString(),
     name: state.name,
     nameEn: state.nameEn,
+    city: state.cityStyle,
     seed: state.seed,
     levelBase: state.levelBase,
     storeyHeight: STOREY_HEIGHT,
@@ -104,6 +109,7 @@ export function parse(text: string): ParseResult {
   if (version > SAVE_VERSION) return { ok: false, error: msg('this_save_is_too_new_update_the_game_first') }
   if (!d.static || !Array.isArray(d.static.cells)) return { ok: false, error: msg('missing_station_data') }
   const data: StationData = {
+    cityStyle: normalizeCityStyle(d.city ?? d.cityStyle),
     name: typeof d.name === 'string' ? d.name : msg('unnamed_station'),
     nameEn: typeof d.nameEn === 'string' ? d.nameEn : '',
     seed: typeof d.seed === 'number' ? d.seed : 1234567,

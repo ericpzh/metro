@@ -37,3 +37,18 @@ test('palette thumbnails use static lazy-loaded assets instead of runtime WebGL 
   assert.match(block, /loading="lazy" decoding="async"/)
   assert.match(vite, /\/en\/module-thumbnails\//, 'Vite development and preview rewrite the English asset path')
 })
+
+test('city-branded exits, guideposts and maps have distinct cached Shenzhen PNGs', () => {
+  const ids = MODULE_OPTIONS.filter(o => o.type === 'exit' || o.id === 'guidepost' || o.type === 'linemap').map(o => o.id)
+  for (const id of ids) {
+    const png = readFileSync(new URL(`shenzhen/${id}.png`, assetDir))
+    const original = readFileSync(new URL(`${id}.png`, assetDir))
+    assert.equal(png.readUInt32BE(16),132)
+    assert.equal(png.readUInt32BE(20),132)
+    assert.ok(!png.equals(original), `${id} must carry city-specific artwork`)
+  }
+  for (const path of ['app/rail/shared/TileGrid.tsx','app/rail/menus/VariantMenu.tsx']) {
+    assert.match(read(path), /station.cityStyle/)
+    assert.match(read(path), /moduleThumbnail\([^\n]+, city\)/)
+  }
+})

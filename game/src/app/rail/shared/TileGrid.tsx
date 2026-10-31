@@ -53,6 +53,7 @@ export function TileGrid({
   onToggleSubMenu: (k: SubMenuKey) => void
 }): React.ReactElement {
   useLanguage()
+  const city = useStore(s => s.station.cityStyle)
   const tool = useStore((s) => s.tool)
   const setTool = useStore((s) => s.setTool)
   const moduleType = useStore((s) => s.moduleType)
@@ -86,7 +87,7 @@ export function TileGrid({
                 tile={tile.anchor}
                 // The parent's icon is its first variant's, so a closed list still shows
                 // what is behind it â€” the same rule for every family.
-                thumb={folder === 'rail' ? undefined : moduleThumbnail(familyOptions(tile.family)[0]?.id ?? '')}
+                thumb={folder === 'rail' ? undefined : moduleThumbnail(familyOptions(tile.family)[0]?.id ?? '', city)}
                 icon={folder === 'rail' ? tile.family.key : undefined}
                 active={pieceFamily === tile.family}
                 submenu={familyOpen(tile.family)}
@@ -110,7 +111,7 @@ export function TileGrid({
                 key={tile.anchor}
                 label={translate(tile.option.label)}
                 tile={tile.option.id}
-                thumb={folder === 'rail' ? undefined : moduleThumbnail(tile.option.id)}
+                thumb={folder === 'rail' ? undefined : moduleThumbnail(tile.option.id, city)}
                 icon={folder === 'rail' ? tile.option.id : undefined}
                 active={tool === 'module' && moduleType === tile.option.id}
                 onClick={() => {

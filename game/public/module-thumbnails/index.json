@@ -206,52 +206,52 @@
     {
       "id": "exit",
       "file": "exit.png",
-      "bytes": 9392
+      "bytes": 9472
     },
     {
       "id": "exit-covered-1",
       "file": "exit-covered-1.png",
-      "bytes": 9147
+      "bytes": 9162
     },
     {
       "id": "exit-covered-3",
       "file": "exit-covered-3.png",
-      "bytes": 9773
+      "bytes": 9879
     },
     {
       "id": "exit-doorway-1",
       "file": "exit-doorway-1.png",
-      "bytes": 3466
+      "bytes": 3434
     },
     {
       "id": "exit-doorway-2",
       "file": "exit-doorway-2.png",
-      "bytes": 2840
+      "bytes": 2838
     },
     {
       "id": "exit-doorway-3",
       "file": "exit-doorway-3.png",
-      "bytes": 2651
+      "bytes": 2646
     },
     {
       "id": "exit-doorway-4",
       "file": "exit-doorway-4.png",
-      "bytes": 2483
+      "bytes": 2453
     },
     {
       "id": "exit-uncovered-1",
       "file": "exit-uncovered-1.png",
-      "bytes": 7870
+      "bytes": 7971
     },
     {
       "id": "exit-uncovered-2",
       "file": "exit-uncovered-2.png",
-      "bytes": 8594
+      "bytes": 8704
     },
     {
       "id": "exit-uncovered-3",
       "file": "exit-uncovered-3.png",
-      "bytes": 9077
+      "bytes": 9280
     },
     {
       "id": "exit-virtual",

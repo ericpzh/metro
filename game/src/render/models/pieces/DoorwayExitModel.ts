@@ -1,3 +1,4 @@
+import { cityStyleFor } from '../../../sim/cityStyles.ts'
 import { t } from '../../../sim/i18n.ts'
 import * as THREE from 'three'
 import { PieceBuilder, slab, plate, canvasTexture } from '../PieceBuilder.ts'
@@ -14,19 +15,21 @@ export class DoorwayExitModel extends PieceBuilder {
     // 地面 X向 is a wall-fixed exit panel: the anchor's −y face sits flush
     // against a one-metre block. The old floor feet made it read as a totem.
     panelModelDetail(slab(g, this.ctx.mats.darkSteel, centre, -0.475, 0.5, width, 0.05, 0.78))
-    panelModelDetail(slab(g, this.ctx.mats.exitRed, centre, -0.441, 0.5, width - 0.06, 0.02, 0.68))
+    const panel = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: cityStyleFor(this.ctx.data.cityStyle).entranceColour }))
+    bindArtwork(g, data => panel.color.set(cityStyleFor(data.cityStyle).entranceColour))
+    panelModelDetail(slab(g, panel, centre, -0.441, 0.5, width - 0.06, 0.02, 0.68))
     // Keep the header's pixel density constant as the bay count grows. The
     // artwork's text stays the same physical size; only the gaps between the
     // brand, station name and exit identifier get wider.
     const headerWidth = Math.round(512 * (width - 0.12) / 2.88)
     const map = canvasTexture(headerWidth, 96, (c) => c.drawImage(
-      exitHeaderCanvas(this.ctx.data.name || t('metro'), mod.cfg.name, this.ctx.data.nameEn, headerWidth),
+      exitHeaderCanvas(this.ctx.data.name || t('metro'), mod.cfg.name, this.ctx.data.nameEn, headerWidth, this.ctx.data),
       0, 0,
     ))
     const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
     bindArtworkTexture(g,map,(c,data)=>{
       const next=data.modules.find(m=>m.id===mod.id)
-      c.drawImage(exitHeaderCanvas(data.name || t('metro'),next?.type==='exit'?next.cfg.name:mod.cfg.name,data.nameEn,headerWidth),0,0)
+      c.drawImage(exitHeaderCanvas(data.name || t('metro'),next?.type==='exit'?next.cfg.name:mod.cfg.name,data.nameEn,headerWidth,data),0,0)
     })
     plate(g, mat, width - 0.12, 0.48, centre, -0.428, 0.5, Math.PI)
     this.placeLocal(g, mod)
@@ -36,4 +39,4 @@ export class DoorwayExitModel extends PieceBuilder {
     return g
   }
 }
-import { bindArtworkTexture } from '../../artwork.ts'
+import { bindArtwork, bindArtworkTexture } from '../../artwork.ts'

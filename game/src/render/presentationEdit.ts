@@ -2,6 +2,7 @@ import type { Module, StationData } from '../sim/types.ts'
 import type { PopulationEdit } from '../sim/populationEdit.ts'
 import type { SignLayout } from '../sim/sign.ts'
 import { floorMarkLine } from '../sim/floorDecor.ts'
+import { cityStyleFor } from '../sim/cityStyles.ts'
 
 // Authored metadata-independent geometry plus plates managed by PlateSystem.
 // A future piece must declare its inputs before its model can be retained.
@@ -39,7 +40,9 @@ export function presentationKeepIds(before: StationData, after: StationData, edi
     else if (m.type === 'psd-end') replace = m.cfg.variant !== 'cover' && (m.cfg.psd??before.lines[0]?.psd??'full')==='full' &&
       !!edit.labels?.some(l=>l.id===first && l.colour!==undefined)
     else if (m.type === 'floor-mark') replace = shields.has(floorMarkLine(m,before.lines).id)
-    else if (m.type === 'exit') replace = m.cfg.style!=='virtual' && (station || exitNames.has(m.id))
+    else if (m.type === 'exit') replace = station || exitNames.has(m.id) || (m.cfg.style!=='virtual' &&
+      cityStyleFor(after.cityStyle).entrance === 'shenzhen' && shields.size > 0)
+    else if (m.type === 'linemap') replace = before.cityStyle !== after.cityStyle
     else if (m.type === 'guidepost') replace = station || exitNames.has(m.cfg.exitId ?? '')
     else if (m.type === 'busstop') replace = before.name !== after.name
     else replace = !RETAINED.has(m.type)

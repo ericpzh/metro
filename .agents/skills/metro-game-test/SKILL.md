@@ -3,6 +3,18 @@ name: metro-game-test
 description: Run, extend or fix the game's test suite in game/test/ of the ericpzh/metro repo. Use when adding tests for game/src behaviour, when `npm test` / a suite fails, when a new sim rule needs a pin, or when deciding what the suite does and does not cover.
 ---
 
+## City-style regression ownership
+
+Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)
+for changes to Guangzhou/Shenzhen saves, menus, models, supplied line maps and
+cached PNGs. `city-style`, `module-build`, `line-map`, `menu-thumbnails` and
+`nonstructural-updates` own these contracts. `model-detail` enforces actual city-specific Low budgets and geometry restoration before/after batching. Include outward decorative sign
+bounds without widening sim collision, disjoint glazing joints, virtual-exit city
+invalidation, unchanged existing line colours, and map cache replacement on undo.
+Keep PNG/browser evidence distinct from deterministic coverage and V8 percentages.
+Run the full suite; report the known ramp-retention and cubicle-toilet Low-budget
+failures separately if they persist. Do not claim a green suite from focused tests.
+
 # The game's test suite (`game/test/`)
 
 Exploded floor arrangement is covered by `exploded-layout.test.mjs` and

@@ -1,3 +1,4 @@
+import { refreshCityTrainMark } from '../cityBranding.ts'
 // SceneRenderer — the thin orchestrator (Lane F).
 //
 // The old `render/scene.ts` god-class (~70 methods: chunks, modules, ghosts,
@@ -422,6 +423,7 @@ export class SceneRenderer {
 
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
+    refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
     const previousData = this.ctx.stationData
     this.ctx.levelBase = data.levelBase ?? 0
     this.ctx.storeyHeight = data.storeyHeight ?? STOREY_HEIGHT
@@ -493,6 +495,7 @@ export class SceneRenderer {
       const candidates = this.modules.presentationKeepIds(data)
       if (!candidates) return false
       this.ctx.stationData = data
+      refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
       this.plates.redrawSignPlates(previous ?? undefined)
       this.plates.redrawDecorPlates(previous ?? undefined)
       const keep = this.modules.repaintPresentation(data,candidates)

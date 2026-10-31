@@ -5,7 +5,7 @@ export interface PopulationEdit {
   lines: Array<{ id: string; alightPerTrain: number }>
   exits: Array<{ id: string; inRate: number; open?: boolean; name?: string }>
   labels?: Array<{ id: string } & Partial<Pick<StationData['lines'][number], 'name' | 'colour' | 'upTerminus' | 'downTerminus' | 'upTerminusEn' | 'downTerminusEn'>>>
-  station?: Pick<StationData, 'name' | 'nameEn'>
+  station?: Pick<StationData, 'name' | 'nameEn' | 'cityStyle'>
   headways?: Array<{ id: string; headwayProfile: StationData['lines'][number]['headwayProfile'] }>
   settings?: Pick<StationData, 'service' | 'peaks' | 'demand' | 'calendar'>
 }
@@ -23,11 +23,11 @@ function same(a: unknown, b: unknown): boolean {
  * must be the same immutable array: do not scan a station's geometry per input. */
 export function populationEdit(before: StationData, after: StationData): PopulationEdit | null {
   if (before.cells !== after.cells) return null
-  const { cells: _bc, modules: bm, lines: bl, service: bs, peaks: bp, demand: bd, calendar: bc, name: bn, nameEn: be, ...b } = before
-  const { cells: _ac, modules: am, lines: al, service, peaks, demand, calendar, name, nameEn, ...a } = after
+  const { cells: _bc, modules: bm, lines: bl, service: bs, peaks: bp, demand: bd, calendar: bc, name: bn, nameEn: be, cityStyle: bcity, ...b } = before
+  const { cells: _ac, modules: am, lines: al, service, peaks, demand, calendar, name, nameEn, cityStyle, ...a } = after
   if (!same(b, a) || bm.length !== am.length || bl.length !== al.length) return null
   const edit: PopulationEdit = { lines: [], exits: [] }
-  if (bn !== name || be !== nameEn) edit.station = { name, nameEn }
+  if (bn !== name || be !== nameEn || bcity !== cityStyle) edit.station = { name, nameEn, ...(bcity !== cityStyle ? { cityStyle } : {}) }
   if (!same(bs, service)) (edit.settings ??= {}).service = service
   if (!same(bp, peaks)) (edit.settings ??= {}).peaks = peaks
   if (!same(bd, demand)) (edit.settings ??= {}).demand = demand
