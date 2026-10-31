@@ -17,17 +17,20 @@ per station. No build, test or profiler runs competed with this capture.
 
 | Fixture | First / second opening to ready | First / second drag round trip | First / second hide-show round trip |
 | --- | --- | --- | --- |
-| Zoo | 7009 / 6232 ms | 107.4 / 90.8 ms | 68.4 / 78.5 ms |
-| Tanwei | 10884 / 9611 ms | 122.6 / 102.5 ms | 79.4 / 83.1 ms |
+| Zoo | 6887 / 6160 ms | 94.7 / 80.0 ms | 77.4 / 78.1 ms |
+| Tanwei | 9477 / 9051 ms | 167.1 / 116.3 ms | 69.0 / 71.4 ms |
 
 These interaction values include five CDP input calls, a selection assertion and
 two RAFs, so they are diagnostic upper bounds rather than isolated
-input-to-first-render measurements. Both Tanwei drags and the first Zoo drag do
+input-to-first-render measurements. Both Tanwei drags do
 not meet the strict <100 ms budget on this conservative measure; this capture does
 not establish its handler latency, sustained dragging FPS or a performance gain
 over a prior implementation. Initial shader/geometry preparation is accounted for
 separately in opening time, rather than hidden in a warmed interaction claim.
 
+The workload retains front perimeter walls at opening and partitions their baked
+chunk triangles by owning cell for the wall control. These measurements include
+that preparation; they are not a controlled before/after performance comparison.
 Floors are baked and ramp triangles physically clipped once during opening.
 Each press resolves one scene raycast; movement changes a retained floor Group's
 translation, with no scene pick, document commit or geometry rebuild. The former

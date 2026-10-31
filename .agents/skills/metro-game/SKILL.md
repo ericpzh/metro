@@ -1524,7 +1524,12 @@ never a list of other floors in this panel. Keep the controls usable without
 deselecting, including after hiding the selection; footer floor labels can select
 hidden trays for recovery. Visibility is local to the viewer and survives position
 reset. Preserve wall classification as a separate bake bucket even when floor and
-wall materials match. Hide a tray's live poses and incident guides with it, omit
+wall materials match. Front perimeter walls start visible; only the selected tray's
+wall button hides those near-side cells, including all painted faces and foundations.
+Keep interior partitions and far enclosure visible. `explodedView` returns the
+translated front-wall cells separately; the layout classifies baked chunk triangles
+by owning voxel, independent of finish, without changing module visibility.
+Hide a tray's live poses and incident guides with it, omit
 hidden floors/walls from picks, and toggle retained meshes without remeshing.
 
 The exploded viewer is a disposable presentation of the station; never install
@@ -1544,7 +1549,7 @@ authored courses through tunnel-cap, ceiling-course and near-wall filtering.
 Identify a plain 2 × 2 core with three consecutive solid courses, retaining thin
 remnants between cores around shafts without extending into isolated thin walls.
 Reserve its footprint in packing, but do not use its top as a room's floor when
-choosing which enclosure to open. Keep actual shaft holes and explicit ceiling
+classifying the near enclosure for the wall control. Keep actual shaft holes and explicit ceiling
 plates unchanged; never synthesize blocks or edit the source save. Pin both the
 ordinary and shifted-baseline cases in `exploded-support` alongside Tanwei's
 untagged roof-ring wall exclusion.

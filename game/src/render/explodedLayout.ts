@@ -3,7 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { attributeKey, bakedGeometry } from './batchGeometry.ts'
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 import { ExplodedConnections } from './explodedConnections.ts'
-import type { Module } from '../sim/types.ts'
+import { packKey } from '../sim/types.ts'
+import type { Cell, Module } from '../sim/types.ts'
 
 /** Cut complete triangles once, before the resulting floor becomes a rigid object. */
 export function clipFloorGeometry(source: THREE.BufferGeometry, planes: readonly THREE.Plane[]): THREE.BufferGeometry {
@@ -42,6 +43,40 @@ export function clipFloorGeometry(source: THREE.BufferGeometry, planes: readonly
   return result
 }
 
+/** Split the baked chunk by owned cell, independent of its painted finish. */
+export function splitFrontWalls(source: THREE.BufferGeometry, cells: ReadonlySet<number>): Array<{geometry:THREE.BufferGeometry;wall:boolean}> {
+  const geometry=source.index?source.toNonIndexed():source
+  const position=geometry.getAttribute('position'), normal=geometry.getAttribute('normal')
+  const indices:number[][]=[[],[]]
+  const center=new THREE.Vector3(),vertex=new THREE.Vector3()
+  for(let i=0;i<position.count;i+=3) {
+    center.set(0,0,0)
+    for(let j=0;j<3;j++)center.add(vertex.fromBufferAttribute(position,i+j))
+    center.multiplyScalar(1/3)
+    // Nudge boundary faces into their owning voxel, including top/bottom caps.
+    if(normal)center.addScaledVector(vertex.fromBufferAttribute(normal,i),-1e-4)
+    const wall=cells.has(packKey(Math.floor(center.x),Math.floor(center.y),Math.floor(center.z)))
+    indices[wall?1:0].push(i,i+1,i+2)
+  }
+  if(!indices[0].length || !indices[1].length) {
+    if(geometry!==source)geometry.dispose()
+    return [{geometry:source,wall:indices[1].length>0}]
+  }
+  const result=indices.flatMap((keep,index)=>{
+    if(!keep.length)return []
+    const part=new THREE.BufferGeometry()
+    for(const [name,attribute] of Object.entries(geometry.attributes)) {
+      const values=new Float32Array(keep.length*attribute.itemSize)
+      for(let j=0;j<keep.length;j++)for(let k=0;k<attribute.itemSize;k++)values[j*attribute.itemSize+k]=attribute.getComponent(keep[j],k)
+      part.setAttribute(name,new THREE.Float32BufferAttribute(values,attribute.itemSize))
+    }
+    return [{geometry:part,wall:index===1}]
+  })
+  if(geometry!==source)geometry.dispose()
+  source.dispose()
+  return result
+}
+
 /** Generated once. A tray is ordinary immutable geometry under one translated Group. */
 export class ExplodedLayout {
   readonly root = new THREE.Group()
@@ -70,7 +105,8 @@ export class ExplodedLayout {
   }
   readonly levels: readonly number[]
 
-  generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0): void {
+  generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0, frontWalls?: readonly Cell[]): void {
+    const frontKeys=frontWalls && new Set(frontWalls.map(c=>packKey(c.x,c.y,c.z)))
     const buckets = new Map<string, {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]}>()
     const seen = new Set<THREE.Object3D>()
     for (const source of sources) {
@@ -104,11 +140,16 @@ export class ExplodedLayout {
             }
             geometry=clipFloorGeometry(geometry,material.clippingPlanes??[])
             if (!geometry.getAttribute('position').count) {geometry.dispose();continue}
-            const wall=mesh.userData.wall===true
-            const key=`${owner}:${wall}:${material.uuid}:${attributeKey(geometry)}`
-            let bucket=buckets.get(key)
-            if(!bucket){bucket={owner,wall,material,geometries:[]};buckets.set(key,bucket)}
-            bucket.geometries.push(geometry)
+            // Chunk meshes carry a boolean wall marker; equipment must stay visible.
+            const parts=frontKeys && typeof mesh.userData.wall==='boolean'
+              ? splitFrontWalls(geometry,frontKeys)
+              : [{geometry,wall:!frontKeys && mesh.userData.wall===true}]
+            for(const {geometry,wall} of parts) {
+              const key=`${owner}:${wall}:${material.uuid}:${attributeKey(geometry)}`
+              let bucket=buckets.get(key)
+              if(!bucket){bucket={owner,wall,material,geometries:[]};buckets.set(key,bucket)}
+              bucket.geometries.push(geometry)
+            }
           }
         }
       })

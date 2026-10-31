@@ -145,7 +145,7 @@ function Viewer(): React.ReactElement {
       observer.observe(canvas.current!)
       resize()
       scene.frameStandalonePresentation()
-      scene.enableExplodedLayout(snapshot.levels,snapshot.source,snapshot.offsets,snapshot.direction)
+      scene.enableExplodedLayout(snapshot.levels,snapshot.source,snapshot.offsets,snapshot.direction,snapshot.frontWalls)
       scene.setPlaying(useStore.getState().playing)
       let agentPoses: Float32Array = new Float32Array(0), trainPoses: Float32Array = new Float32Array(0)
       const passengerSupport=explodedPassengerSupport(snapshot.data,snapshot.offsets,snapshot.direction)

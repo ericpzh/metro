@@ -77,12 +77,12 @@ export class SceneRenderer {
     this.crowd.snapPresentationPoses()
     this.trains.snapPresentationPoses()
   }
-  enableExplodedLayout(levels: readonly number[],source:StationData,offsets:ReadonlyMap<number,number>,direction:readonly [number,number]): void {
+  enableExplodedLayout(levels: readonly number[],source:StationData,offsets:ReadonlyMap<number,number>,direction:readonly [number,number],frontWalls?:readonly Cell[]): void {
     if (this.standalonePresentation && levels.length && !this.explodedLayout) {
       const sources: THREE.Object3D[] = [...this.chunks.levelGroups.values(), this.modules.moduleMeshes]
       if(this.explodedRamps)sources.push(this.explodedRamps.group)
       this.explodedLayout = new ExplodedLayout(levels)
-      this.explodedLayout.generate(sources,[...sources,this.modules.batches.root],this.ctx.stationData?.levelBase??0)
+      this.explodedLayout.generate(sources,[...sources,this.modules.batches.root],this.ctx.stationData?.levelBase??0,frontWalls)
       const visible=new Set(this.ctx.stationData?.modules.map(m=>m.id))
       const modules=source.modules.filter(m=>visible.has(m.id)||(m.type==='lift'&&[...visible].some(id=>id.startsWith(`${m.id}:exploded:`))))
       this.explodedLayout.setConnections(modules,offsets,direction)

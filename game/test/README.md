@@ -1278,15 +1278,17 @@ actual turned-stair flights, multi-storey and missing-tray handling, independent
 endpoint motion, retained dash/position buffers, reset, non-pickability and source
 immutability. The browser check verifies attachment and reset on both demos.
 
-Numeric V8 coverage for the arrangement helpers (17 tests):
+Numeric V8 coverage for the arrangement helpers (20 tests):
 
 | Module | Lines | Branches | Functions |
 | --- | ---: | ---: | ---: |
-| `render/explodedLayout.ts` | 100% | 89.47% | 94.59% |
+| `render/explodedLayout.ts` | 100% | 89.86% | 95.00% |
 | `render/explodedConnections.ts` | 100% | 94.29% | 100% |
 
 From the repository root, reproduce with
 `node --test --experimental-test-coverage --test-coverage-include="game/src/render/explodedLayout.ts" --test-coverage-include="game/src/render/explodedConnections.ts" game/test/exploded-layout.test.mjs game/test/exploded-connections.test.mjs`.
+Mixed indexed/non-indexed front-wall chunks cover cap/side ownership, preserved
+attributes and source disposal; source contracts pin viewer/renderer wiring.
 The remaining branches cover additional source/material/clipping variants; this
 is not a claim of exhaustive visual or geometry coverage. Instance/material tests
 also pin mirrored winding, independence from later source transforms and retained
@@ -1295,8 +1297,10 @@ source ownership; guide lifecycle tests pin replacement and teardown disposal.
 `exploded-view.test.mjs` covers the independent presentation document in
 `render/explodedView.ts`: immutable source arrays, baseline-aware story bands,
 separated full equipment footprints, retained unfurnished floors, roof/outdoor and
-ceiling removal, open near perimeter with retained back/internal walls, ramp endpoint
-translation and per-story lift segments. `tools/check-exploded-view.mjs` separately
+ceiling removal, visible near perimeter classified separately from back/internal walls, ramp endpoint
+translation and per-story lift segments. `exploded-layout` pins all six front-wall
+faces toggling independently of floor faces and interior partitions, with no rebake.
+`tools/check-exploded-view.mjs` separately
 checks both production demos, modal lifecycle, blocked editor shortcuts, unchanged
 station/version/history and first/repeated opening times. Browser results belong in
 `.agents/skills/metro-repo/references/performance.md`; no numeric V8 coverage was

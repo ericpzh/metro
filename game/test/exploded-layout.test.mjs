@@ -1,7 +1,10 @@
+import {readFileSync} from 'node:fs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
-import {ExplodedLayout,clipFloorGeometry} from '../src/render/explodedLayout.ts'
+import {mergeGeometries} from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import {packKey} from '../src/sim/types.ts'
+import {ExplodedLayout,clipFloorGeometry,splitFrontWalls} from '../src/render/explodedLayout.ts'
 
 function fixture() {
   const scene=new THREE.Group(), material=new THREE.MeshStandardMaterial({color:0x999999})
@@ -195,4 +198,62 @@ test('passenger floor identities survive arbitrary tray heights and visibility c
  assert.deepEqual([...owners],[[8,-5]],'ownership follows passenger IDs after hidden-row compaction')
  layout.offsetPoses(new Float32Array(),6,0,owners);assert.equal(owners.size,0,'old passengers do not retain floor identities')
  layout.dispose();scene.traverse(o=>{if(o.isMesh)o.geometry.dispose()});material.dispose()
+})
+
+
+test('front wall control retains interior partitions and all horizontal floor faces',()=>{
+  const group=new THREE.Group();group.userData.levelZ=-10
+  const material=new THREE.MeshBasicMaterial()
+  for(const [x,z] of [[0,-10],[0,-9],[2,-9]]) {
+    const mesh=new THREE.Mesh(new THREE.BoxGeometry(1,1,1),material)
+    mesh.position.set(x+.5,.5,z+.5);mesh.userData.wall=true;group.add(mesh)
+  }
+  const layout=new ExplodedLayout([-10])
+  layout.generate([group],[group],0,[{x:0,y:0,z:-9}])
+  const front=layout.floors[0].children.find(m=>m.userData.wall)
+  const retained=layout.floors[0].children.find(m=>!m.userData.wall)
+  assert.equal(front.geometry.attributes.position.count,36,'all six front-wall faces belong to the control')
+  assert.equal(retained.geometry.attributes.position.count,72,'floor and internal partition remain')
+  assert.equal(front.visible,true,'front wall starts visible')
+  const geometry=front.geometry
+  layout.setVisibility(0,true,false)
+  assert.equal(front.visible,false)
+  assert.equal(retained.visible,true)
+  layout.setVisibility(0,true,true)
+  assert.equal(front.visible,true)
+  assert.equal(front.geometry,geometry,'toggle reuses baked geometry')
+  layout.dispose();material.dispose()
+})
+
+
+test('mixed painted chunk geometry splits front-wall caps and sides from interior cells',()=>{
+  for(const indexed of [false,true]) {
+    const front=new THREE.BoxGeometry(1,1,1).translate(.5,.5,-8.5)
+    const inside=new THREE.BoxGeometry(1,1,1).translate(2.5,.5,-8.5)
+    let source=mergeGeometries([front,inside]);front.dispose();inside.dispose()
+    if(!indexed){const expanded=source.toNonIndexed();source.dispose();source=expanded}
+    const original=source.attributes.position.array.slice()
+    let disposed=false;source.addEventListener('dispose',()=>disposed=true)
+    const parts=splitFrontWalls(source,new Set([packKey(0,0,-9)]))
+    assert.equal(disposed,true,'replaced source geometry is released')
+    assert.deepEqual(source.attributes.position.array,original,'source vertices never change')
+    assert.equal(parts.length,2)
+    for(const {geometry,wall} of parts) {
+      assert.equal(geometry.attributes.position.count,36)
+      geometry.computeBoundingBox()
+      assert.equal(geometry.boundingBox.min.x,wall?0:2)
+      assert.equal(geometry.boundingBox.max.x,wall?1:3)
+      assert.ok(geometry.attributes.normal && geometry.attributes.uv)
+      geometry.dispose()
+    }
+  }
+})
+
+test('front-wall presentation data reaches the layout without applying editor wall hiding',()=>{
+  const viewer=readFileSync(new URL('../src/app/windows/ExplodedView.tsx',import.meta.url),'utf8')
+  const scene=readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
+  assert.match(viewer,/enableExplodedLayout\(snapshot.levels,snapshot.source,snapshot.offsets,snapshot.direction,snapshot.frontWalls\)/)
+  assert.match(viewer,/floor:true,walls:true/)
+  assert.doesNotMatch(viewer,/setHideWalls\(/)
+  assert.match(scene,/generate\(sources,\[\.\.\.sources,this.modules.batches.root\],this.ctx.stationData\?\.levelBase\?\?0,frontWalls\)/)
 })

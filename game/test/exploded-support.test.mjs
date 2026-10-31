@@ -122,7 +122,7 @@ test('Tanwei tunnel cap cleanup preserves its usable raised decks',()=>{
   assert.ok(result.data.cells.filter(c=>c.z===-5).length<oldCap*.25,'broad tunnel cap is not presented as an empty floor')
   const offset=result.offsets.get(-5),[dx,dy]=result.direction
   assert.ok(!result.data.cells.some(c=>c.z===-5&&c.x===25+dx*offset&&c.y===-9+dy*offset),'covered roof ring outside the actual mezzanine disappears')
-  for(const x of [11,16,21]) assert.ok(!result.data.cells.some(c=>c.z===-5&&c.x===x+dx*offset&&c.y===-2+dy*offset),'front wall foundation does not survive as an overhead strip')
+  for(const x of [11,16,21]) assert.ok(result.frontWalls.some(c=>c.z===-5&&c.x===x+dx*offset&&c.y===-2+dy*offset),'front wall foundation hides with its upper courses')
   for(const z of [1,6,11]) assert.ok(result.data.cells.filter(c=>c.z===z).length>500,'usable raised deck remains without exterior foundations')
 })
 

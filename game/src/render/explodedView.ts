@@ -52,7 +52,7 @@ function packFloors(plans: ReadonlyArray<ReadonlyArray<{x:number;y:number}>>, pr
 }
 
 /** A disposable presentation document. Never install this in the editor or worker. */
-export function explodedView(data: StationData): { data: StationData; levels: number[]; offsets: ReadonlyMap<number, number>; direction: readonly [number, number] } {
+export function explodedView(data: StationData): { data: StationData; frontWalls: Cell[]; levels: number[]; offsets: ReadonlyMap<number, number>; direction: readonly [number, number] } {
   const base = data.levelBase ?? 0
   const band = (z: number): number => storeyBand(z, base, STOREY_HEIGHT)
   const solidKeys = new Set(data.cells.filter(c => c.fill === 'solid').map(c => packKey(c.x,c.y,c.z)))
@@ -247,6 +247,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
   const direction = packed.direction
   const [dx, dy] = direction
   const cells: Cell[] = []
+  const frontWalls: Cell[] = []
   for (const z of levels) {
     const own = byLevel.get(z)!
     const floorCells = floorsByLevel.get(z)!
@@ -265,20 +266,22 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     const offset = packed.shifts[offsets.size]
     offsets.set(z, offset)
     for (const cell of own) {
-      // The default isometric eye is +x/-y. Open those two perimeter sides,
-      // retaining internal partitions and the far enclosure, including irregular plans.
+      // The default isometric eye is +x/-y. Classify those two perimeter sides,
+      // so the wall control retains internal partitions and the far enclosure.
       // A cap-band wall foundation is also overhead relative to the room below.
       // Opening only its upper courses leaves a floating concrete perimeter strip.
       const wallCourse = cell.z > z || (capRooms.has(z) && solidKeys.has(packKey(cell.x,cell.y,cell.z+1)))
-      if (wallCourse && !infill(cell) && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
+      const frontWall = wallCourse && !infill(cell) && !floorKeys.has(packKey(cell.x,cell.y,cell.z)) && (
         (frontX.has(cell.y) && cell.x > frontX.get(cell.y)!) ||
         (frontY.has(cell.x) && cell.y < frontY.get(cell.x)!) ||
         (frontX.size > 0 && !frontX.has(cell.y) && !frontY.has(cell.x) &&
           (cell.x > openMaxX || cell.y < openMinY)) ||
         (floor.has(`${cell.x},${cell.y}`) &&
           (!floor.has(`${cell.x + 1},${cell.y}`) || !floor.has(`${cell.x},${cell.y - 1}`)))
-      )) continue
-      cells.push({ ...cell, x: cell.x + dx * offset, y: cell.y + dy * offset })
+      )
+      const translated = { ...cell, x: cell.x + dx * offset, y: cell.y + dy * offset }
+      if (frontWall) frontWalls.push(translated)
+      cells.push(translated)
     }
   }
   const pieces = modules.flatMap((m): Module[] => {
@@ -309,7 +312,7 @@ export function explodedView(data: StationData): { data: StationData; levels: nu
     }
     return result
   })
-  return { data: { ...data, cells, modules: moved }, levels, offsets, direction }
+  return { frontWalls, data: { ...data, cells, modules: moved }, levels, offsets, direction }
 }
 
 /** Reuse one output buffer per stream; never modify worker-owned coordinates. */

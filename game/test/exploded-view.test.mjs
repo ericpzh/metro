@@ -27,24 +27,28 @@ test('exploded floors are opaque owned footprints, separated horizontally withou
   assert.deepEqual(levels, [-10, -5])
 })
 
-test('front perimeter opens while rear walls and internal partitions remain', () => {
+test('front perimeter remains visible and is classified separately from internal partitions', () => {
   const walls = [{x:4,y:2,z:-9}, {x:2,y:0,z:-9}, {x:0,y:2,z:-9}, {x:2,y:4,z:-9}, {x:2,y:2,z:-9}]
     .map(c => ({...c, fill:'solid', tags:['wall']}))
-  const result = explodedView(station([...slab(-10), ...walls])).data.cells
-  assert.equal(result.filter(c => c.z === -9).length, 3)
+  const {data,frontWalls} = explodedView(station([...slab(-10), ...walls]))
+  const result=data.cells
+  assert.equal(result.filter(c => c.z === -9).length, 5)
+  assert.deepEqual(frontWalls.map(c=>[c.x,c.y]),[[4,2],[2,0]])
   const dx = result[0].x
   assert.ok(result.some(c => c.x === dx && c.y === dx + 2 && c.z === -9))
 })
 
-test('the entire thickness of a near wall opens, including columns without floor beneath', () => {
+test('the entire thickness of a near wall is available to the hide control, including missing bases', () => {
   const cells = Array.from({length:120},(_,i)=>({x:i%12,y:Math.floor(i/12),z:-10,fill:'solid'}))
   for (let x=0;x<12;x++) for (let y=0;y<10;y++) for(let z=-9;z<=-7;z++) {
     if(y<=2||y===9||x===0||x>=9) cells.push({x,y,z,fill:'solid',tags:['wall']})
   }
   // Missing bases must not leave another floating course of the same front wall.
   cells.push({x:12,y:5,z:-8,fill:'solid',tags:['wall']})
-  const {data}=explodedView(station(cells))
-  assert.equal(data.cells.filter(c=>c.z>-10&&(c.y<=2||c.x>=9)).length,0)
+  const {data,frontWalls}=explodedView(station(cells))
+  const hidden=new Set(frontWalls)
+  assert.equal(data.cells.filter(c=>!hidden.has(c)&&c.z>-10&&(c.y<=2||c.x>=9)).length,0)
+  assert.ok(frontWalls.length>0)
   assert.ok(data.cells.some(c=>c.z>-10&&c.x===0&&c.y===5),'back enclosure survives')
 })
 

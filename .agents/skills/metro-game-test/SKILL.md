@@ -11,6 +11,12 @@ instances and multiple materials), direct picking/highlighting/deselection,
 physical ramp cuts, independent tray movement/reset, paused/live pose attachment
 and train cabin-origin correction. Guides must reuse endpoint/dash buffers, ignore
 picking and release owned geometry/materials on replacement and teardown.
+Front perimeter walls start visible. `exploded-view` classifies their complete
+thickness (including missing bases and cap-band foundations) separately from
+interior partitions and far walls. `exploded-layout` pins all six faces, mixed
+indexed/non-indexed chunk geometry, attribute retention, disposal and geometry
+reuse across hide/show. Preserve the source contract passing `frontWalls` through
+the viewer and renderer; editor `hideWalls` must not drive this local control.
 Run `node tools/check-exploded-view.mjs` after building for real rendered-floor
 selection/drag/deselection/reset on Zoo and Tanwei, including guide attachment,
 unchanged vertex buffers and document/camera isolation. Numeric coverage and its
