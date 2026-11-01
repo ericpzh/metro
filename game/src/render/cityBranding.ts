@@ -16,6 +16,7 @@ import type * as THREE from 'three'
  * `cx, cy` is the centre of the mark's bounding box and `size` its height.
  */
 export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: number, size: number, colour: string, city?: CityStyle): void {
+  if (cityStyleFor(city).logo === 'shanghai') { drawShanghaiMark(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'shenzhen') {
     drawShenzhenMark(g, cx, cy, size, colour)
     return
@@ -69,7 +70,23 @@ export function refreshCityTrainMark(material: THREE.MeshBasicMaterial, city?: C
   const g = canvas?.getContext('2d')
   if (!g || !canvas || !material.map) return
   g.clearRect(0, 0, canvas.width, canvas.height)
-  drawMetroMark(g, canvas.width / 2, canvas.height / 2, canvas.height - 10, style.logoColour, city)
+  drawMetroMark(g, canvas.width / 2, canvas.height / 2, (style.logo==='shanghai'?Math.min(canvas.width,canvas.height):canvas.height) - 10, style.logoColour, city)
   material.map.needsUpdate = true
   material.userData.cityLogo = style.logo
+}
+
+/** Shanghai's broken circular S enclosing the joined M strokes. */
+function drawShanghaiMark(g:CanvasRenderingContext2D,cx:number,cy:number,size:number,colour:string):void {
+  g.save();g.translate(cx-size/2,cy-size/2);g.scale(size,size);g.fillStyle=colour
+  g.beginPath();g.moveTo(.016,.628)
+  g.bezierCurveTo(-.09,.2,.20,0,.50,0);g.bezierCurveTo(.75,0,.95,.17,.994,.412)
+  g.lineTo(.837,.412);g.bezierCurveTo(.79,.24,.65,.155,.50,.155)
+  g.bezierCurveTo(.31,.155,.17,.28,.151,.477);g.quadraticCurveTo(.15,.487,.17,.487)
+  g.lineTo(.22,.487);g.lineTo(.363,.304);g.lineTo(.501,.445);g.lineTo(.608,.304)
+  g.lineTo(.768,.488);g.lineTo(.989,.488);g.quadraticCurveTo(1,.488,1,.5)
+  g.bezierCurveTo(1,.78,.78,1,.5,1);g.bezierCurveTo(.30,1,.11,.88,.041,.703)
+  g.lineTo(.216,.703);g.bezierCurveTo(.29,.80,.39,.844,.5,.844)
+  g.bezierCurveTo(.65,.844,.76,.76,.823,.629)
+  g.lineTo(.709,.629);g.lineTo(.617,.526);g.lineTo(.501,.627);g.lineTo(.374,.527)
+  g.lineTo(.281,.627);g.closePath();g.fill();g.restore()
 }

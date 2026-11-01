@@ -1225,15 +1225,16 @@ export async function renderModulePieces(
       if (mod && mod.type === 'platform-edge' && psdCells) mod = { ...mod, w: psdCells }
       if (!mod) continue
       mod = captureRamp(mod, views?.[opt.id]?.ramp ?? elevations?.ramp)
+      if (options.cityStyle === 'shanghai' && mod.type === 'exit') mod = { ...mod, cfg: { ...mod.cfg, name: '13号口' } }
       // Bind only the synthetic thumbnail document; no authored station is edited.
-      if (options.cityStyle === 'shenzhen' && (mod.type === 'guidepost' || (mod.type === 'exit' && mod.cfg.style === 'virtual'))) {
+      if (options.cityStyle !== undefined && options.cityStyle !== 'guangzhou' && (mod.type === 'guidepost' || (mod.type === 'exit' && mod.cfg.style === 'virtual'))) {
         if (mod.type === 'guidepost') {
           const exit = createModule('exit-virtual', 0, 0, 0, 'preview-exit') as Extract<Module, { type: 'exit' }>
-          exit.cfg.name = 'C口'
+          exit.cfg.name = options.cityStyle === 'shanghai' ? '13号口' : 'C口'
           mod = { ...mod, cfg: { ...mod.cfg, exitId: exit.id } }
           station.modules = [exit]
         } else {
-          mod = { ...mod, cfg: { ...mod.cfg, name: 'C口' } }
+          mod = { ...mod, cfg: { ...mod.cfg, name: options.cityStyle === 'shanghai' ? '13号口' : 'C口' } }
           station.modules = [mod]
         }
       }

@@ -154,3 +154,18 @@ test('virtual exits and decor pylons rebuild their city shell and retain name re
     root.userData.guideCityStyle='shenzhen';assert.ok(repaint().has('pylon'));assert.equal(count,1)
   }
 })
+
+test('Shanghai branding, numeric exits and palette preserve existing station data',async()=>{
+  const {nextExitName,createModule}=await import('../src/build/model.ts')
+  assert.equal(nextExitName([],'shanghai'),'1号口')
+  const exit=createModule('exit',0,0,0,'e');exit.cfg.name='1号口'
+  assert.equal(nextExitName([exit],'shanghai'),'2号口')
+  assert.equal(lineColourFor('12','shanghai'),'#007a60')
+  const old=globalThis.document
+  try {
+    const {g,ops}=stubCanvas(512,96);globalThis.document={createElement:()=>({getContext:()=>g})}
+    exitHeaderCanvas('南京西路','13号口','West Nanjing Road Station',512,{cityStyle:'shanghai',lines:[defaultLine('12','up','third-rail',5,'shanghai')]})
+    for(const text of ['13','南京西路站','West Nanjing Road Station','12'])assert.ok(ops.texts.includes(text),text)
+    assert.equal(ops.filled[0],'#353b35')
+  } finally {globalThis.document=old}
+})

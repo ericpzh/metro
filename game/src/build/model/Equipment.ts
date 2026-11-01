@@ -863,7 +863,12 @@ export function nextModuleId(modules: readonly Module[], type: string): string {
  * A rename to anything not starting A ~ Z simply keeps that name; once all 26
  * letters are taken the placeholder comes back.
  */
-export function nextExitName(modules: readonly Module[]): string {
+export function nextExitName(modules: readonly Module[], city?: import('../../sim/cityStyles.ts').CityStyle): string {
+  if(city === 'shanghai') {
+    const used=new Set(modules.filter(m=>m.type==='exit').map(m=>m.type==='exit'?m.cfg.name.match(/^([0-9]+)(?:号口|口)?$/)?.[1]:undefined));
+    let number=1;while(used.has(String(number)))number++;
+    return `${number}号口`;
+  }
   const letter = nextExitLetter(modules);
   return letter === null ? msg('unnamed_exit') : msg('exit_value', letter);
 }

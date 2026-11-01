@@ -41,7 +41,7 @@ export function presentationKeepIds(before: StationData, after: StationData, edi
       !!edit.labels?.some(l=>l.id===first && l.colour!==undefined)
     else if (m.type === 'floor-mark') replace = shields.has(floorMarkLine(m,before.lines).id)
     else if (m.type === 'exit') replace = station || exitNames.has(m.id) || (m.cfg.style!=='virtual' &&
-      cityStyleFor(after.cityStyle).entrance === 'shenzhen' && shields.size > 0)
+      cityStyleFor(after.cityStyle).entrance !== 'guangzhou' && shields.size > 0)
     else if (m.type === 'linemap') replace = before.cityStyle !== after.cityStyle
     else if (m.type === 'guidepost') replace = station || exitNames.has(m.cfg.exitId ?? '')
     else if (m.type === 'busstop') replace = before.name !== after.name

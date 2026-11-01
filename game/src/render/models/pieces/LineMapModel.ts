@@ -49,6 +49,8 @@ function buildLineMap(ctx: ModuleContext, mod: Extract<Module, { type: 'linemap'
   const panel = { w: spec.panelW, h: spec.panelH }
   const face: PrintedFace = ctx.lineMapFace?.(mod.id, panel) ?? { material: ctx.mats.lineMapPlaceholder }
 
+  const frameWidth = (face.geometry as THREE.PlaneGeometry | undefined)?.parameters?.width ?? panel.w
+
   /** Mount one lit board on a face that already carries its own crop window. */
   const board = (x: number, y: number, z: number, yaw: number): THREE.Mesh => {
     const mesh = face.geometry
@@ -72,7 +74,7 @@ function buildLineMap(ctx: ModuleContext, mod: Extract<Module, { type: 'linemap'
     surfaceModelDetail(slab(g, ctx.mats.darkSteel, 0, 0, 0.035, 0.62, 0.62, 0.07), 'z', 1)
     tubeModelDetail(slab(g, ctx.mats.steel, 0, 0, base / 2 + 0.035, 0.12, 0.12, Math.max(0.1, base - 0.035)))
     // The board's own body, two panels thick, with a face proud of each side.
-    slab(g, ctx.mats.darkSteel, 0, 0, zc, panel.w + 0.06, 0.11, panel.h + 0.06)
+    slab(g, ctx.mats.darkSteel, 0, 0, zc, frameWidth + 0.06, 0.11, panel.h + 0.06)
     board(0, -0.06 - FACE_STAND_OFF, zc, 0).userData.lineMapFace = 'front'
     board(0, 0.06 + FACE_STAND_OFF, zc, Math.PI).userData.lineMapFace = 'back'
     return g
@@ -86,8 +88,8 @@ function buildLineMap(ctx: ModuleContext, mod: Extract<Module, { type: 'linemap'
   const pz = spec.panelZ
   // Housing flat against the wall, with a steel edge frame around it — the same
   // construction a 广告牌 uses, in the map's own format.
-  omitModelDetail(slab(g, ctx.mats.darkSteel, 0, -BOARD_OFFSET, pz, panel.w + 0.08, FRAME_DEPTH, panel.h + 0.1))
-  surfaceModelDetail(slab(g, ctx.mats.steel, 0, -BOARD_OFFSET + FRAME_DEPTH / 2, pz, panel.w + 0.12, 0.04, panel.h + 0.14), 'y', 1)
+  omitModelDetail(slab(g, ctx.mats.darkSteel, 0, -BOARD_OFFSET, pz, frameWidth + 0.08, FRAME_DEPTH, panel.h + 0.1))
+  surfaceModelDetail(slab(g, ctx.mats.steel, 0, -BOARD_OFFSET + FRAME_DEPTH / 2, pz, frameWidth + 0.12, 0.04, panel.h + 0.14), 'y', 1)
   board(0, -BOARD_OFFSET + FRAME_DEPTH / 2 + FACE_STAND_OFF, pz, Math.PI).userData.lineMapFace = 'front'
   return g
 }

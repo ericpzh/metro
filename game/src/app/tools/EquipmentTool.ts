@@ -706,7 +706,7 @@ export class EquipmentTool extends ToolController {
     // placeholder, so the card and the 3D header read like real signage. A 虚拟
     // exit takes the bare letter (`C`, not `C口`), matching the pillar it reuses.
     if (mod && mod.type === 'exit' && mod.cfg.name === msg('unnamed_exit')) {
-      mod.cfg.name = mod.cfg.style === 'virtual'
+      mod.cfg.name = st.station.cityStyle === 'shanghai' ? nextExitName(st.station.modules, 'shanghai') : mod.cfg.style === 'virtual'
         ? (nextExitLetter(st.station.modules) ?? msg('unnamed_exit'))
         : nextExitName(st.station.modules)
     }

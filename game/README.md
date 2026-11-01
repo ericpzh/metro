@@ -4360,3 +4360,5 @@ Shenzhen exit glazing clears the plinth, gasket and posts; `module-build` checks
 Shenzhen virtual exits and 导向柱 share a grey pylon, open green circular crown, vertical 地铁 / METRO lettering and live bound exit/station labels. `module-build` covers both appearances in every rotation; cached PNGs remain city-specific.
 
 City-specific 线网图 art uses the supplied `network-map.jpg` for Guangzhou and `shenzhen-map.jpg` for Shenzhen. `line-map` pins poster routing, city-aware face caching and replacement on city switch/undo. Wall and standing panels share each city’s decoded image.
+
+Shanghai city identity includes numbered bilingual exit plates, a flat grey glazed covered entrance, red logo lantern pylons, and the supplied portrait network map. `city-style`, `module-build`, `model-detail`, `line-map` and `menu-thumbnails` cover saves, numbering, geometry, Low budgets, artwork selection and static city previews.

@@ -30,7 +30,7 @@ import { croppedPlane, panelUvWindow } from './panelUv.ts'
 // `/assets/ads/*$~image`, which blocks Vite's dev-time module URL for anything under an
 // `assets/ads/` path, and because the glob below is `eager` one blocked file rejects
 // this module's whole graph.)
-const MAP_URLS: Record<string, string> = import.meta.glob('../assets/linemaps/*.jpg', {
+const MAP_URLS: Record<string, string> = import.meta.glob('../assets/linemaps/*.{jpg,png}', {
   eager: true,
   query: '?url',
   import: 'default',
@@ -42,7 +42,7 @@ export const LINE_MAP_SLUG = 'network-map'
 /** The poster's URL, for the one asset in `src/assets/linemaps/`. */
 export function lineMapUrl(slug: string = LINE_MAP_SLUG): string | undefined {
   for (const [path, url] of Object.entries(MAP_URLS)) {
-    if ((path.split('/').pop() ?? '').replace(/\.jpg$/, '') === slug) return url
+    if ((path.split('/').pop() ?? '').replace(/\.(?:jpg|png)$/, '') === slug) return url
   }
   return undefined
 }
@@ -131,7 +131,9 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
     const image = texture?.image as { width?: number; height?: number } | undefined
     const imageAspect = image?.width && image.height ? image.width / image.height : w / h
     const geometry = texture ? geometries.get(key) : undefined
-    const quad = geometry ?? croppedPlane(w, h, panelUvWindow(imageAspect, w / h))
+    const quad = geometry ?? (slug === 'shanghai-map'
+      ? new THREE.PlaneGeometry(Math.min(w,h*imageAspect),Math.min(h,w/imageAspect))
+      : croppedPlane(w, h, panelUvWindow(imageAspect, w / h)))
     if (texture) {
       materials.set(key, material)
       geometries.set(key, quad)
@@ -161,6 +163,7 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
 export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
   const posters = {
     guangzhou: createPosterArt(renderer, cityLineMapSlug('guangzhou')),
+    shanghai: createPosterArt(renderer, cityLineMapSlug('shanghai')),
     shenzhen: createPosterArt(renderer, cityLineMapSlug('shenzhen')),
   }
   return {

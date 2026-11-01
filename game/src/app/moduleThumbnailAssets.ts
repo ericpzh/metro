@@ -3,5 +3,5 @@ import type { CityStyle } from '../sim/cityStyles.ts'
 // and let <img loading="lazy"> fetch them only as a palette tile nears the viewport.
 
 export function moduleThumbnail(id: string, city: CityStyle = 'guangzhou'): string {
-  return `${import.meta.env.BASE_URL}module-thumbnails/${city === 'shenzhen' && (id === 'exit' || id.startsWith('exit-') || id === 'guidepost' || id.startsWith('linemap-')) ? 'shenzhen/' : ''}${encodeURIComponent(id)}.png`
+  return `${import.meta.env.BASE_URL}module-thumbnails/${city !== 'guangzhou' && (id === 'exit' || id.startsWith('exit-') || id === 'guidepost' || id.startsWith('linemap-')) ? `${city}/` : ''}${encodeURIComponent(id)}.png`
 }

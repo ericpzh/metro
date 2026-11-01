@@ -581,3 +581,11 @@ test('supplied Shenzhen poster is selected by city and maps replace artwork on c
     assert.equal(plates.makeLineMapPlate(mod.id,panel).material.name,'guangzhou','undo restores the Guangzhou poster')
   } finally {restore()}
 })
+
+test('Shanghai selects its supplied portrait poster',async()=>{
+  const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
+  assert.equal(cityLineMapSlug('shanghai'),'shanghai-map')
+  assert.equal(cityLineMapSuffix('shanghai'),'|shanghai')
+  const png=readFileSync(new URL('../src/assets/linemaps/shanghai-map.png',import.meta.url))
+  assert.ok(png.readUInt32BE(20)>png.readUInt32BE(16),'the supplied portrait map must retain its original aspect')
+})

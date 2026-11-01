@@ -1,3 +1,5 @@
+import { buildShanghaiCanopy } from './ShanghaiExitCanopy.ts'
+import { drawShanghaiHeader } from './ShanghaiExitHeader.ts'
 import { buildShenzhenCanopy } from './ShenzhenExitCanopy.ts'
 import { cityStyleFor } from '../../../sim/cityStyles.ts'
 import type { StationData } from '../../../sim/types.ts'
@@ -24,6 +26,7 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   c.height = 96
   const g = c.getContext('2d') as CanvasRenderingContext2D
   const city = cityStyleFor(style.cityStyle)
+  if (city.entrance === 'shanghai') { drawShanghaiHeader(g,stationName,exitName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'shenzhen') {
     drawShenzhenHeader(g, stationName, exitName, stationNameEn, width, style)
     return c
@@ -213,7 +216,8 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const hl = L / 2
   const covered = mod.cfg.covered !== false
   const shenzhen = cityStyleFor(ctx.data.cityStyle).entrance === 'shenzhen'
-  if (covered) g.userData.exitCityStyle = shenzhen ? 'shenzhen' : 'guangzhou'
+  const shanghai = cityStyleFor(ctx.data.cityStyle).entrance === 'shanghai'
+  if (covered) g.userData.exitCityStyle = ctx.data.cityStyle ?? 'guangzhou'
   const side = hw - 0.06 // the glass line, just inside the frame
   const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
   const runs = exitRunOpenings(modelNeighbours(ctx, 'stair', 'escalator', 'walkway'), mod)
@@ -327,10 +331,12 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const ry1 = BACK
   const waveAmp = 0.16
   const periods = 0.85
-  const heightAt = (t: number): number => shenzhen ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
+  const heightAt = (t: number): number => (shenzhen || shanghai) ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
   const topAt = (y: number): number => heightAt((y - ry0) / (ry1 - ry0))
 
-  if (covered && shenzhen) {
+  if (covered && shanghai) {
+    buildShanghaiCanopy(house,ctx,xc,W)
+  } else if (covered && shenzhen) {
     buildShenzhenCanopy(house, ctx, xc, W)
     for (const cx of dividers) {
       slab(house, mats.steel, cx, -1.0, .95, .06, 2, .06)

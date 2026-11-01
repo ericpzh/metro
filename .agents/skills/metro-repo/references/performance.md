@@ -214,6 +214,32 @@ eight-segment annulus visible from both sides, emblem and upright labels, omitti
 High geometry is unchanged. City-specific `model-detail` cases enforce the same
 limits as the default catalogue and restore the exact original geometry.
 
+#### Shanghai variants
+
+Shanghai's flat grey entrance uses a bevelled High roof and box-based Low roof;
+the lantern pylon keeps its four correctly oriented logo faces at both detail
+levels. Counts use the same production inventory and budget checks as other cities.
+The portrait map changes panel framing width, not its triangle count. Records:
+`.preview/perf/current-models-shanghai/model-triangles.json`.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-1 | 124 | 1518 |
+| exit | 124 | 1518 |
+| exit-covered-3 | 124 | 1518 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| guidepost | 36 | 164 |
+| exit-virtual | 36 | 164 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
+
 #### Equipment minimum-shape exceptions
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
@@ -574,7 +600,7 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | Exploded viewer | `node tools/check-exploded-view.mjs`, `npm run bench:explode` |
 | Playback tails | `npm run bench:sim-stalls` |
 | Actual model counts | `node tools/model-triangle-inventory.mjs` |
-| Shenzhen counts | Set `MODEL_CITY=shenzhen`, then run the inventory command |
+| Shenzhen counts | Set `MODEL_CITY=shenzhen` or `MODEL_CITY=shanghai`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
 

@@ -2302,3 +2302,28 @@ for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Sh
   assert.equal(root.userData.guideLabels.station,'新站');assert.equal(root.userData.guideLabels.exit,'D')
   disposeObject(root)
 })
+
+for(const rot of [0,1,2,3])test(`Shanghai city models rotation ${rot}: covered shell and lantern pole`,()=>{
+  for(const id of ['exit-covered-1','exit','exit-covered-3','guidepost','exit-virtual']){
+    const mod=createModule(id,0,0,0,'sh');mod.rot=rot
+    const root=buildModule(mod,{...ctx,data:{...data,cityStyle:'shanghai',modules:[mod]}})
+    const names=[];root.traverse(o=>names.push(o.name))
+    if(id==='guidepost'||id==='exit-virtual'){
+      assert.equal(root.userData.guideCityStyle,'shanghai')
+      assert.equal(names.filter(n=>n==='shanghai-guide-red-emblem').length,4)
+      assert.ok(names.includes('shanghai-guide-mast'))
+    }else{
+      assert.equal(root.userData.exitCityStyle,'shanghai')
+      assert.ok(names.includes('shanghai-flat-canopy'))
+      assert.equal(names.filter(n=>n==='shanghai-side-glass').length,8)
+      assert.equal(names.filter(n=>n==='shanghai-downlight').length,6)
+      const panes=[],piers=[];root.traverse(o=>{if(o.name==='shanghai-side-glass')panes.push(o);if(o.name==='shanghai-logo-pier')piers.push(o)})
+      root.updateMatrixWorld(true)
+      for(const pane of panes)for(const pier of piers){const overlap=box(pane).intersect(box(pier)).getSize(new THREE.Vector3());assert.ok(overlap.x*overlap.y*overlap.z<1e-8,'logo pier must not overlap glazing')}
+
+      assert.ok(!names.includes('shenzhen-curved-canopy'))
+    }
+    assert.ok(box(root).getSize(new THREE.Vector3()).z<4.01)
+    disposeObject(root)
+  }
+})

@@ -7,7 +7,7 @@ Never recolour existing lines when changing city; only new-line defaults change.
 
 ## Model and rendering ownership
 
-`sim/cityStyles.ts` owns the Guangzhou (default) and Shenzhen visual identities and
+`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen and Shanghai visual identities and
 line palettes. `StationData.cityStyle` is optional on old v1 saves; `StationState`
 normalizes it. The top-bar `CityStyleSelect` commits one undoable presentation edit.
 Every existing line colour survives; city palettes apply only to newly created lines. Pass city style to every new-line factory, including the
@@ -74,3 +74,14 @@ replace visual review of each theme, Low geometry, or a GPU-completion benchmark
 The supplied posters and model previews must be visually reviewed in the real
 renderer. Hardware timings belong only in the repo skill's shared performance
 reference, with source/build hash, workload, sample count and capture path.
+
+## Shanghai
+
+Shanghai uses `ShanghaiExitHeader.ts`, `ShanghaiExitCanopy.ts` and
+`ShanghaiGuidepost.ts`. New exits receive numeric identifiers; preserve existing
+names on city switch. The shared logo drawer renders the supplied red mark for
+train cabs, UI and signage. Lantern pylons replace both virtual exits and guideposts.
+The supplied portrait `shanghai-map.png` is fitted whole and its frame follows the
+portrait artwork width; do not crop the legend or stretch it to a square. Collision
+and wall support remain conservative on the shared panel footprint. Generate all
+city-specific PNGs for exits, guideposts and maps; palettes apply only to new lines.

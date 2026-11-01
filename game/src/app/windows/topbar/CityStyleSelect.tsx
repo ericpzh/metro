@@ -41,7 +41,7 @@ export function CityStyleSelect(): React.ReactElement {
       aria-label={t('city_style')} onToggle={e => setOpen(e.newState === 'open')} onKeyDown={e => e.stopPropagation()}>
       <div className="exampleStationsHeading"><strong>{t('city_style')}</strong>
         <button className="ghost iconBtn" aria-label={t('cancel')} onClick={() => menu.current?.hidePopover()}>×</button></div>
-      <div className="cityStylesGrid" style={{ gridTemplateColumns: `repeat(${Math.min(4, CITY_STYLE_IDS.length)}, 84px)` }}>{CITY_STYLE_IDS.map(id => <button key={id} className="cityStyleTile" aria-pressed={city === id}
+      <div className="cityStylesGrid" style={{ gridTemplateColumns: `repeat(${Math.min(4, CITY_STYLE_IDS.length)}, 84px)` }}>{CITY_STYLE_IDS.map(id => <button key={id} data-city={id} className="cityStyleTile" aria-pressed={city === id}
         onClick={() => { setCityStyle(id); menu.current?.hidePopover(); button.current?.focus() }}>
         <CityIcon city={id} /><strong>{t(CITY_STYLES[id].nameKey)}</strong>
       </button>)}</div>

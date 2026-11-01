@@ -52,3 +52,10 @@ test('city-branded exits, guideposts and maps have distinct cached Shenzhen PNGs
     assert.match(read(path), /moduleThumbnail\([^\n]+, city\)/)
   }
 })
+
+test('Shanghai city models have cached 132px PNG previews',()=>{
+  for(const opt of MODULE_OPTIONS.filter(o=>['exit','guidepost','linemap'].includes(o.type))) {
+    const png=readFileSync(new URL(`shanghai/${opt.id}.png`,assetDir))
+    assert.equal(png.readUInt32BE(16),132);assert.equal(png.readUInt32BE(20),132)
+  }
+})
