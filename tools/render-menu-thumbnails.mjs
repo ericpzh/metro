@@ -10,6 +10,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { CITY_STYLE_IDS } from '../game/src/sim/cityStyles.ts'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -47,7 +48,7 @@ try {
   }
   writeFileSync(join(outDir, 'index.json'), `${JSON.stringify({ width: 132, height: 132, pixelRatio: 1, thumbnails: index }, null, 2)}\n`)
   const cityIds = ids.filter(id => id === 'exit' || id.startsWith('exit-') || id === 'guidepost' || id.startsWith('linemap-'))
-  for (const city of ['shenzhen','shanghai']) {
+  for (const city of CITY_STYLE_IDS.filter(city=>city!=='guangzhou')) {
   const cityImages = await page.evaluate(`window.__menuThumbnails.renderModuleThumbnails(132, null, {
     hideSecondGateDoor: true, pixelRatio: 1, cityStyle: '${city}', ids: ${JSON.stringify(cityIds)}
   })`)

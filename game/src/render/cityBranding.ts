@@ -1,3 +1,4 @@
+import { drawBeijingTrainMark } from './beijingTrainMark.ts'
 import { cityStyleFor, type CityStyle } from '../sim/cityStyles.ts'
 import type * as THREE from 'three'
 
@@ -16,6 +17,7 @@ import type * as THREE from 'three'
  * `cx, cy` is the centre of the mark's bounding box and `size` its height.
  */
 export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: number, size: number, colour: string, city?: CityStyle): void {
+  if (cityStyleFor(city).logo === 'beijing') { drawBeijingMetroMark(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'shanghai') { drawShanghaiMark(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'shenzhen') {
     drawShenzhenMark(g, cx, cy, size, colour)
@@ -65,14 +67,18 @@ function drawShenzhenMark(g: CanvasRenderingContext2D, cx: number, cy: number, s
 /** Repaint the scene-owned cab texture in place, retaining all live/prepared trains. */
 export function refreshCityTrainMark(material: THREE.MeshBasicMaterial, city?: CityStyle): void {
   const style = cityStyleFor(city)
-  if (material.userData.cityLogo === style.logo) return
+  const mark = style.trainMark ?? style.logo
+  if (material.userData.cityTrainMark === mark) return
   const canvas = material.map?.image as HTMLCanvasElement | undefined
   const g = canvas?.getContext('2d')
   if (!g || !canvas || !material.map) return
   g.clearRect(0, 0, canvas.width, canvas.height)
-  drawMetroMark(g, canvas.width / 2, canvas.height / 2, (style.logo==='shanghai'?Math.min(canvas.width,canvas.height):canvas.height) - 10, style.logoColour, city)
+  const width = canvas.width === 256 ? 128 : canvas.width
+  if (style.trainMark === 'beijing-calligraphy') drawBeijingTrainMark(g,canvas.width-width/2,canvas.height/2,width-8,style.trainMarkColour)
+  else drawMetroMark(g, width / 2, canvas.height / 2, (style.logo==='shanghai'?Math.min(width,canvas.height):canvas.height) - 10, style.logoColour, city)
   material.map.needsUpdate = true
   material.userData.cityLogo = style.logo
+  material.userData.cityTrainMark = mark
 }
 
 /** Shanghai's broken circular S enclosing the joined M strokes. */
@@ -89,4 +95,15 @@ function drawShanghaiMark(g:CanvasRenderingContext2D,cx:number,cy:number,size:nu
   g.bezierCurveTo(.65,.844,.76,.76,.823,.629)
   g.lineTo(.709,.629);g.lineTo(.617,.526);g.lineTo(.501,.627);g.lineTo(.374,.527)
   g.lineTo(.281,.627);g.closePath();g.fill();g.restore()
+}
+
+/** Beijing station DC roundel, deliberately separate from the 北京 train wordmark. */
+function drawBeijingMetroMark(g:CanvasRenderingContext2D,cx:number,cy:number,size:number,colour:string):void {
+  g.save();g.translate(cx-size/2,cy-size/2);g.scale(size,size)
+  g.strokeStyle=colour;g.lineWidth=.10;g.lineCap='butt'
+  g.beginPath();g.arc(.5,.5,.45,0,Math.PI*2-.30);g.stroke()
+  g.fillStyle=colour;g.beginPath();g.moveTo(.276,.256);g.lineTo(.70,.256)
+  g.quadraticCurveTo(.84,.50,.70,.744);g.lineTo(.276,.744);g.closePath()
+  g.moveTo(.388,.344);g.lineTo(.625,.344);g.quadraticCurveTo(.69,.50,.625,.656);g.lineTo(.388,.656);g.closePath()
+  g.fill('evenodd');g.fillRect(.70,.50,.30,.10);g.restore()
 }

@@ -1,6 +1,7 @@
-import { normalizeCityStyle, type CityStyle } from '../sim/cityStyles.ts'
+import type { CityStyle } from '../sim/cityStyles.ts'
 import { cityLineMapSlug } from './lineMapCity.ts'
-// Supplied Guangzhou and Shenzhen line-map posters as city-specific lit materials.
+import { cityLineMapCache } from './cityLineMapCache.ts'
+// Supplied city line-map posters as separately decoded, retained lit materials.
 //
 // The network a 线网图 prints is the poster the station wall really carries, saved as
 // an asset: `src/assets/linemaps/network-map.jpg` (1080 × 1080). This module is the
@@ -55,10 +56,11 @@ export interface LineMapFace {
 
 export interface LineMapArt {
   /**
-   * Decode the poster. Resolves once the image is in hand (or has failed), and calls
+   * Decode only the selected city's poster (Guangzhou if omitted). Resolves once
+   * the image is in hand (or has failed), and calls
    * `onReady` when that changes what a map would draw.
    */
-  load(onReady?: () => void): Promise<void>
+  load(onReady?: () => void, city?: CityStyle): Promise<void>
   /** True once the poster's pixels are in hand — what a plate asks before it draws. */
   ready(city?: CityStyle): boolean
   /**
@@ -131,7 +133,7 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
     const image = texture?.image as { width?: number; height?: number } | undefined
     const imageAspect = image?.width && image.height ? image.width / image.height : w / h
     const geometry = texture ? geometries.get(key) : undefined
-    const quad = geometry ?? (slug === 'shanghai-map'
+    const quad = geometry ?? ((slug === 'shanghai-map' || slug === 'beijing-map')
       ? new THREE.PlaneGeometry(Math.min(w,h*imageAspect),Math.min(h,w/imageAspect))
       : croppedPlane(w, h, panelUvWindow(imageAspect, w / h)))
     if (texture) {
@@ -163,13 +165,9 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
 export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
   const posters = {
     guangzhou: createPosterArt(renderer, cityLineMapSlug('guangzhou')),
+    beijing: createPosterArt(renderer, cityLineMapSlug('beijing')),
     shanghai: createPosterArt(renderer, cityLineMapSlug('shanghai')),
     shenzhen: createPosterArt(renderer, cityLineMapSlug('shenzhen')),
   }
-  return {
-    async load(onReady) { await Promise.all(Object.values(posters).map(art => art.load(onReady))) },
-    ready(city) { return posters[normalizeCityStyle(city)].ready() },
-    face(w,h,city) { return posters[normalizeCityStyle(city)].face(w,h) },
-    dispose() { for (const art of Object.values(posters)) art.dispose() },
-  }
+  return cityLineMapCache(posters)
 }

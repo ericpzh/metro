@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import type { Stock } from '../../../sim/stock.ts'
 import { setModelDetail } from '../../modelDetail.ts'
+import { trainMarkAtlasUV } from '../../trainMarkAtlas.ts'
 import { dSection, dCrown, dSurface, D_CROWN_HALF } from './DTrainShell.ts'
 
 const NOSE_Z = 0.78
@@ -291,7 +292,23 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     marker('d-upper-marker-housing', mats.rubber, 0.042, 0.018)
     marker('d-upper-marker-light', head ? mats.headlight : mats.taillight, 0.026, 0.020)
   }
-  surface('d-metro-mark', mats.trainMark, (u, v) => frontPoint((v - 0.5) * 0.20, 1.79 + u * 0.13, length, 0.014).point, 8, 12, false, 2, 3)
+  trainMarkAtlasUV(surface('d-metro-mark', mats.trainMark, (u, v) => frontPoint((v - 0.5) * 0.20, 1.79 + u * 0.13, length, 0.014).point, 8, 12, false, 2, 3))
+  const lamps = new THREE.Box3()
+  for (const part of cab.children) if (part.name === 'd-headlight' || part.name === 'd-taillight') {
+    const geometry = (part as THREE.Mesh).geometry; geometry.computeBoundingBox(); lamps.union(geometry.boundingBox!)
+  }
+  const targetZ = lamps.getCenter(new THREE.Vector3()).z
+  let centreZ = targetZ
+  // The surface solver has chord error; align the fitted vertices, not just its input height.
+  for (let step=0;step<3;step++) {
+    let lo=Infinity,hi=-Infinity
+    for (const u of [0,.5,1]) for (const v of [0,.5,1]) {
+      const z=frontPoint((v-.5)*.30,centreZ+(u-.5)*.195,length,.014).point.z
+      lo=Math.min(lo,z);hi=Math.max(hi,z)
+    }
+    centreZ += targetZ-(lo+hi)/2
+  }
+  trainMarkAtlasUV(surface('d-beijing-cab-mark', mats.trainMark, (u, v) => frontPoint((v-.5)*.30, centreZ+(u-.5)*.195, length,.014).point,2,2,false,1,1),true)
   surface('d-cab-bulkhead', mats.trainInterior, (u, v) => {
     const edge = dCabPoint(dSection(v), length - 0.05, length)
     return new THREE.Vector3(-length + 0.05, 0, 1.85).lerp(edge, u)

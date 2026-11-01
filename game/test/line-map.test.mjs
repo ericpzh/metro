@@ -589,3 +589,45 @@ test('Shanghai selects its supplied portrait poster',async()=>{
   const png=readFileSync(new URL('../src/assets/linemaps/shanghai-map.png',import.meta.url))
   assert.ok(png.readUInt32BE(20)>png.readUInt32BE(16),'the supplied portrait map must retain its original aspect')
 })
+
+test('Beijing selects its complete supplied high-resolution PNG poster',async()=>{
+  const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
+  assert.equal(cityLineMapSlug('beijing'),'beijing-map')
+  assert.equal(cityLineMapSuffix('beijing'),'|beijing')
+  const png=readFileSync(new URL('../src/assets/linemaps/beijing-map.png',import.meta.url))
+  assert.deepEqual(png.subarray(0,8),Buffer.from([137,80,78,71,13,10,26,10]))
+  assert.equal(png.readUInt32BE(16),6564);assert.equal(png.readUInt32BE(20),6537)
+})
+
+test('city poster cache decodes only requested cities and coalesces pending requests',async()=>{
+  const {cityLineMapCache}=await import('../src/render/cityLineMapCache.ts')
+  const {CITY_STYLE_IDS}=await import('../src/sim/cityStyles.ts')
+  const calls=[],finish={},ready=new Set(),released=[]
+  const posters=Object.fromEntries(CITY_STYLE_IDS.map(city=>[city,{
+    load:()=>{calls.push(city);return new Promise(resolve=>{finish[city]=()=>{ready.add(city);resolve()}})},
+    ready:()=>ready.has(city),face:(w,h)=>({city,w,h}),dispose:()=>released.push(city)
+  }]))
+  const cache=cityLineMapCache(posters),callbacks=[]
+  const gz=cache.load(()=>callbacks.push('gz'))
+  assert.deepEqual(calls,['guangzhou']);assert.equal(cache.ready('beijing'),false)
+  const first=cache.load(()=>callbacks.push('first'),'beijing'),second=cache.load(()=>callbacks.push('second'),'beijing')
+  assert.deepEqual(calls,['guangzhou','beijing'],'two simultaneous consumers share one decode')
+  finish.beijing();await Promise.all([first,second])
+  assert.deepEqual(callbacks,['first','second']);assert.equal(cache.ready('beijing'),true)
+  assert.deepEqual(cache.face(1,2,'beijing'),{city:'beijing',w:1,h:2})
+  cache.dispose();cache.dispose();finish.guangzhou();await gz
+  assert.deepEqual(callbacks,['first','second'],'late decoding must not repaint a disposed scene')
+  assert.deepEqual(released,CITY_STYLE_IDS)
+  await cache.load(undefined,'shanghai');assert.deepEqual(calls,['guangzhou','beijing'])
+})
+
+test('failed city poster loads release their pending request for retry',async()=>{
+  const {cityLineMapCache}=await import('../src/render/cityLineMapCache.ts')
+  const {CITY_STYLE_IDS}=await import('../src/sim/cityStyles.ts')
+  let calls=0
+  const art={load:async()=>{if(++calls===1)throw new Error('decode failed')},ready:()=>calls>1,dispose(){},face(){}}
+  const cache=cityLineMapCache(Object.fromEntries(CITY_STYLE_IDS.map(city=>[city,art])))
+  await assert.rejects(cache.load(undefined,'beijing'),/decode failed/)
+  let painted=false;await cache.load(()=>painted=true,'beijing')
+  assert.equal(calls,2);assert.equal(painted,true)
+})

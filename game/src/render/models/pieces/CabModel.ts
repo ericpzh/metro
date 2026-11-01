@@ -10,6 +10,7 @@ import { cabShellGeometry } from './TrainShell.ts'
 import { cabSkinGeometry, seatCabFront } from './CabSkin.ts'
 import { buildTrainWiper } from './TrainWiper.ts'
 import { rakeCabFittings } from './CabRake.ts'
+import { trainMarkAtlasUV } from '../../trainMarkAtlas.ts'
 
 /**
  * One cab end (车头), the assembly the reference photographs show: the silver
@@ -101,7 +102,13 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
   const mark = plate(g, mats.trainMark, 0.24, 0.28,
     nose + d * 0.2, 0, 1.43, d > 0 ? Math.PI / 2 : -Math.PI / 2)
   mark.name = `${s.cls.toLowerCase()}-cab-mark`
+  trainMarkAtlasUV(mark)
   frontParts.push({mesh: mark, reference: .2, lift: .004, scale: 1})
+  const beijingMark = plate(g, mats.trainMark, .36, .42,
+    nose + d * .2, 0, s.cls === 'C' ? .99 : 1.38, d > 0 ? Math.PI / 2 : -Math.PI / 2)
+  beijingMark.name = `${s.cls.toLowerCase()}-beijing-cab-mark`
+  trainMarkAtlasUV(beijingMark, true)
+  frontParts.push({mesh: beijingMark, reference: .2, lift: .004, scale: 1})
   const wiperY = s.cls === 'C' ? -d * s.width * 0.205 : 0
   buildTrainWiper(g, mats, (y, z, lift) => new THREE.Vector3(nose + d * (0.24 + lift), y, z),
     wiperY - d * 0.18, 1.59, wiperY + d * 0.12, 2.12, wiperY + d * 0.18, 2.51)

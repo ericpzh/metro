@@ -1,3 +1,4 @@
+import { normalizeCityStyle, type CityStyle } from '../../sim/cityStyles.ts'
 import { refreshCityTrainMark } from '../cityBranding.ts'
 // SceneRenderer — the thin orchestrator (Lane F).
 //
@@ -296,8 +297,8 @@ export class SceneRenderer {
     // face, and `onReady` redraws the modules so every poster appears without a
     // reload — see `render/adArt.ts` for why the pixels are not loaded lazily.
     const ads = createAdArt(this.renderer)
-    // The 线网图's poster, one cache per scene the same way: it decodes in the
-    // background and `onReady` redraws the modules, so every map hangs the real
+    // The 线网图's poster, one cache per scene: ensureCityMap decodes the selected
+    // city in the background and refreshes map roots, so every map hangs the real
     // 线网示意图 without a reload. Until then each prints the **drawn placeholder board**
     // (`render/lineMapFace.ts`), because a material minted around an image-less texture
     // uploads empty and stays blank.
@@ -309,10 +310,9 @@ export class SceneRenderer {
     let artChanged = false
     void Promise.all([
       this.ctx.ads.load(() => { artChanged = true }),
-      this.ctx.lineMaps?.load(() => { artChanged = true }),
       loadPictograms(),
       geometryDetailReady,
-    ]).then(([, , icons]) => {
+    ]).then(([, icons]) => {
       if (this.ctx.disposed) return
       this.artReady = true
       if (icons.size > 0) refreshSignFaceMaterial(this.ctx.modelMats)
@@ -421,6 +421,23 @@ export class SceneRenderer {
     this.modules.setMovingModule(id)
   }
 
+  private loadingMapCities = new Set<CityStyle>()
+  /** Decode only the selected city's supplied poster; refresh map roots without a document edit. */
+  private ensureCityMap(data: StationData): void {
+    const art=this.ctx.lineMaps,city=normalizeCityStyle(data.cityStyle)
+    if(!art||art.ready(city)||this.loadingMapCities.has(city))return
+    this.loadingMapCities.add(city)
+    void art.load(undefined,city).then(()=>{
+      this.loadingMapCities.delete(city)
+      const current=this.ctx.stationData
+      if(this.ctx.disposed||!current||normalizeCityStyle(current.cityStyle)!==city||!art.ready(city))return
+      const keep=new Set(current.modules.filter(m=>m.type!=='linemap').map(m=>m.id))
+      this.modules.buildModules(current,new Set(),true,keep)
+      this.ctx.levelKey='';this.level.applyLevel();this.sectionSys.applyClip()
+      this.modules.refreshSelection();this.ghostSys.clearModulePreview();this.requestRender()
+    })
+  }
+
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
     refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
@@ -483,6 +500,7 @@ export class SceneRenderer {
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
     this.modules.refreshHoverHighlight()
+    this.ensureCityMap(data)
     if (!this.suspended) this.trains.prepareForStation(data)
   }
 
@@ -511,6 +529,7 @@ export class SceneRenderer {
         this.modules.refreshHoverHighlight()
       }
       this.plates.refreshSettings()
+      this.ensureCityMap(data)
       this.requestRender()
       return true
     }

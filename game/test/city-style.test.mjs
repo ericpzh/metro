@@ -11,7 +11,7 @@ import { populationEdit, applyPopulationEdit } from '../src/sim/populationEdit.t
 import { useStore } from '../src/app/store.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { exitHeaderCanvas } from '../src/render/models/pieces/ExitModel.ts'
-import { refreshCityTrainMark } from '../src/render/cityBranding.ts'
+import { drawMetroMark, refreshCityTrainMark } from '../src/render/cityBranding.ts'
 import { presentationKeepIds } from '../src/render/presentationEdit.ts'
 import { getLanguage, setLanguage } from '../src/sim/i18n.ts'
 
@@ -160,7 +160,7 @@ test('Shanghai branding, numeric exits and palette preserve existing station dat
   assert.equal(nextExitName([],'shanghai'),'1号口')
   const exit=createModule('exit',0,0,0,'e');exit.cfg.name='1号口'
   assert.equal(nextExitName([exit],'shanghai'),'2号口')
-  assert.equal(lineColourFor('12','shanghai'),'#007a60')
+  assert.equal(lineColourFor('12','shanghai'),'#007b61')
   const old=globalThis.document
   try {
     const {g,ops}=stubCanvas(512,96);globalThis.document={createElement:()=>({getContext:()=>g})}
@@ -168,4 +168,76 @@ test('Shanghai branding, numeric exits and palette preserve existing station dat
     for(const text of ['13','南京西路站','West Nanjing Road Station','12'])assert.ok(ops.texts.includes(text),text)
     assert.equal(ops.filled[0],'#353b35')
   } finally {globalThis.document=old}
+})
+
+test('Beijing station roundel and white calligraphic cab mark use separate retained artwork',()=>{
+  const {g,ops}=stubCanvas(128,150)
+  const canvas={width:128,height:150,getContext:()=>g},map=new THREE.CanvasTexture(canvas)
+  const material=new THREE.MeshBasicMaterial({map,transparent:true})
+  refreshCityTrainMark(material,'beijing')
+  assert.equal(material.userData.cityLogo,'beijing')
+  assert.equal(material.userData.cityTrainMark,'beijing-calligraphy')
+  assert.deepEqual(ops.filled,['#ffffff'],'P7 is white lettering without the orange train body')
+  assert.equal(ops.arcs.length,0,'the cab must not print the circular station emblem')
+  assert.equal(ops.texts.length,0,'the supplied calligraphy must not depend on an installed font')
+  const version=map.version
+  refreshCityTrainMark(material,'beijing');assert.equal(map.version,version)
+  drawMetroMark(g,64,64,110,'#004a95','beijing')
+  assert.equal(ops.arcs.length,1,'the station uses the blue circular DC emblem')
+  assert.ok(ops.stroked.includes('#004a95'))
+  refreshCityTrainMark(material,'shanghai')
+  assert.equal(material.map,map);assert.equal(map.image,canvas)
+  assert.equal(material.userData.cityTrainMark,'shanghai');assert.ok(map.version>version)
+  material.dispose();map.dispose()
+})
+
+test('Beijing plates print live bilingual names and original line colours at every bay width',()=>{
+  const saved=globalThis.document,language=getLanguage()
+  try {
+    for(const [width,locale] of [[512,'zh-CN'],[1024,'en']]) {
+      setLanguage(locale)
+      const {g,ops}=stubCanvas(width,96)
+      globalThis.document={createElement:()=>({getContext:()=>g})}
+      exitHeaderCanvas('双井','C口','SHUANGJING Station',width,{cityStyle:'beijing',lines:[{...defaultLine('7','up','third-rail'),colour:'#123456'},defaultLine('10','up','third-rail',5,'beijing')]})
+      assert.equal(ops.filled[0],'#073563')
+      for(const text of ['双井站','SHUANGJING Station','7','10','Line 7','Line 10'])assert.ok(ops.texts.includes(text),text)
+      assert.ok(ops.filled.includes('#123456'));assert.ok(ops.filled.includes('#0092bc'))
+      const cn=ops.words.find(w=>w.text==='双井站'),en=ops.words.find(w=>w.text==='SHUANGJING Station')
+      assert.equal(cn.x,en.x);assert.ok(cn.y<en.y)
+      assert.ok(!ops.texts.includes('广州地铁'));assert.ok(!ops.texts.includes('C'))
+    }
+  }finally{globalThis.document=saved;setLanguage(language)}
+})
+
+for(const city of ['beijing','shanghai'])test(`${city} selection preserves saved lines and only changes new-line defaults`,()=>{
+  const previous=useStore.getState(),before=fixture()
+  before.lines=[{...defaultLine('1','up','third-rail'),colour:'#123456'}]
+  try {
+    useStore.setState({station:before,past:[],future:[],version:0,geometryVersion:0})
+    useStore.getState().setCityStyle(city)
+    assert.equal(useStore.getState().station.lines,before.lines)
+    assert.equal(useStore.getState().station.lines[0].colour,'#123456')
+    assert.equal(useStore.getState().geometryVersion,0)
+    useStore.getState().addLine()
+    assert.equal(useStore.getState().station.lines.at(-1).colour,city==='beijing'?'#004b87':'#82bf25')
+    const loaded=parse(serialize(useStore.getState().station)).state
+    assert.equal(loaded.lines[0].colour,'#123456','save/load preserves authored colour')
+  }finally{useStore.setState(previous)}
+})
+
+test('every supplied Beijing and Shanghai colour reaches the new-line factory',()=>{
+  const numbered={
+    beijing:['A4343A','004B87','D90627','008C95','AA0061','B58500','FFC56E','009B77','97D700','0092BC','FF8674','9C4F01','F4DA40','CA9A8E','653279','6BA539','00ABAB','685BC7','D3A3C9','666666'],
+    shanghai:['E3002B','82BF25','FCD600','461D84','944D9A','E30067','ED6F00','0094D8','87CAED','C6AFD4','871C2B','007B61','E999C0','626020','BCA886','98D1C0','BC796F','C4984F','F5AB78','009F65','F7AF00','5F376F','B0D478'],
+  }
+  for(const [city,colours] of Object.entries(numbered))colours.forEach((hex,i)=>assert.equal(defaultLine(String(i+1),'up','third-rail',5,city).colour,'#'+hex.toLowerCase(),`${city} ${i+1}`))
+  const extra={
+    beijing:{'22':'F4C1CA','25':'D86018','28':'476205',Batong:'A4343A',Daxing:'008C95',Yizhuang:'D0006F',Fangshan:'D86018',Yanfang:'D86018',S1:'A45A2A',Changping:'D986BA',Xijiao:'D22630',CapitalAirport:'A192B2',DaxingAirport:'0049A5',M101:'666666',YizhuangT1:'D22630'},
+    shanghai:{'26':'5F67A9',Pujiang:'B5B5B6',Maglev:'1C5F5B'},
+  }
+  const names={beijing:{'八通线':'Batong','大兴线':'Daxing','亦庄线':'Yizhuang','房山线':'Fangshan','燕房线':'Yanfang','S1线':'S1','昌平线':'Changping','西郊线':'Xijiao','首都机场线':'CapitalAirport','大兴机场线':'DaxingAirport','M101线':'M101','亦庄T1线':'YizhuangT1'},shanghai:{'浦江线':'Pujiang','磁浮线':'Maglev'}}
+  for(const [city,entries] of Object.entries(extra)) {
+    for(const [id,hex] of Object.entries(entries))assert.equal(defaultLine(id,'up','third-rail',5,city).colour,'#'+hex.toLowerCase(),`${city} ${id}`)
+    for(const [name,id] of Object.entries(names[city]))assert.equal(defaultLine(name,'up','third-rail',5,city).colour,'#'+entries[id].toLowerCase(),name)
+  }
 })

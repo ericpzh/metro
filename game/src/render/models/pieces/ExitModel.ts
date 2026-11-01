@@ -1,3 +1,5 @@
+import { buildBeijingCanopy } from './BeijingExitCanopy.ts'
+import { drawBeijingHeader } from './BeijingExitHeader.ts'
 import { buildShanghaiCanopy } from './ShanghaiExitCanopy.ts'
 import { drawShanghaiHeader } from './ShanghaiExitHeader.ts'
 import { buildShenzhenCanopy } from './ShenzhenExitCanopy.ts'
@@ -26,6 +28,7 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   c.height = 96
   const g = c.getContext('2d') as CanvasRenderingContext2D
   const city = cityStyleFor(style.cityStyle)
+  if (city.entrance === 'beijing') { drawBeijingHeader(g,stationName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'shanghai') { drawShanghaiHeader(g,stationName,exitName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'shenzhen') {
     drawShenzhenHeader(g, stationName, exitName, stationNameEn, width, style)
@@ -217,6 +220,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const covered = mod.cfg.covered !== false
   const shenzhen = cityStyleFor(ctx.data.cityStyle).entrance === 'shenzhen'
   const shanghai = cityStyleFor(ctx.data.cityStyle).entrance === 'shanghai'
+  const beijing = cityStyleFor(ctx.data.cityStyle).entrance === 'beijing'
   if (covered) g.userData.exitCityStyle = ctx.data.cityStyle ?? 'guangzhou'
   const side = hw - 0.06 // the glass line, just inside the frame
   const BACKY = EXIT_BACK_Y // back wall, just past where the runs go under the floor
@@ -331,10 +335,13 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const ry1 = BACK
   const waveAmp = 0.16
   const periods = 0.85
-  const heightAt = (t: number): number => (shenzhen || shanghai) ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
+  const heightAt = (t: number): number => (shenzhen || shanghai || beijing) ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
   const topAt = (y: number): number => heightAt((y - ry0) / (ry1 - ry0))
 
-  if (covered && shanghai) {
+  const beijingHeader = covered && beijing ? ownedMaterial(ctx,new THREE.MeshBasicMaterial({map:canvasTexture(512,96,c=>drawBeijingHeader(c,ctx.data.name,ctx.data.nameEn??'',512,ctx.data.lines))})) : undefined
+  if (covered && beijing) {
+    buildBeijingCanopy(house,ctx,xc,W,beijingHeader!)
+  } else if (covered && shanghai) {
     buildShanghaiCanopy(house,ctx,xc,W)
   } else if (covered && shenzhen) {
     buildShenzhenCanopy(house, ctx, xc, W)
@@ -446,7 +453,8 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const signY = covered ? hl - 0.02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   panelModelDetail(slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard))
-  const header = plate(house, ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || tForLanguage('zh-CN', 'metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn, 512, ctx.data), 0, 0)) })), W - .3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  const header = plate(house, beijingHeader ?? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(512, 96, (c) => c.drawImage(exitHeaderCanvas(ctx.data.name || tForLanguage('zh-CN', 'metro'), mod.cfg.name || t('entrances'), ctx.data.nameEn, 512, ctx.data), 0, 0)) })), W - .3, 0.5, xc, signY + 0.08, signZ, Math.PI)
+  if (beijing) header.name = 'beijing-entrance-sign'
   bindArtworkTexture(house, (header.material as THREE.MeshBasicMaterial).map!, (c, data) => {
     const next = data.modules.find(m => m.id === mod.id)
     c.drawImage(exitHeaderCanvas(data.name || tForLanguage('zh-CN', 'metro'), next?.type === 'exit' ? next.cfg.name || t('entrances') : mod.cfg.name, data.nameEn, 512, data),0,0)

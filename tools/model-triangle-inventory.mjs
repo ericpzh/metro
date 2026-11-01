@@ -26,7 +26,7 @@ globalThis.document={createElement:canvas}
 await geometryDetailReady
 const mats=createModelMaterials()
 const LINE={id:'5',name:'5号线',colour:'#c8102e',stock:'B',cars:6,power:'third-rail',psd:'full',headwayProfile:{peak:150,offpeak:240,late:480},alightPerTrain:420,terminus:'through',direction:'up',upTerminus:'文冲',downTerminus:'滘口',travelSign:1,stations:[]}
-const data={cityStyle:process.env.MODEL_CITY==='shanghai'?'shanghai':process.env.MODEL_CITY==='shenzhen'?'shenzhen':'guangzhou',name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
+const data={cityStyle:process.env.MODEL_CITY==='beijing'?'beijing':process.env.MODEL_CITY==='shanghai'?'shanghai':process.env.MODEL_CITY==='shenzhen'?'shenzhen':'guangzhou',name:'动物园',seed:7654321,cells:[],modules:[],lines:[LINE]}
 const ads={adFace:(slug,w,h)=>({material:new THREE.MeshBasicMaterial(),geometry:new THREE.PlaneGeometry(w,h),slug}),adWindow:(w,h)=>ads.adFace('a',w,h),load:async()=>{},dispose(){}}
 const ctx={mats,ads,data,trackCells:new Set(),tvPlate:()=>new THREE.CanvasTexture(canvas()),signFace:()=>new THREE.MeshBasicMaterial(),finish:()=>mats.steel,preview:false,ownedMats:[]}
 const tris=g=>(g.index?.count??g.getAttribute('position')?.count??0)/3

@@ -1,3 +1,4 @@
+import { buildBeijingGuidepost } from './BeijingGuidepost.ts'
 import { buildShanghaiGuidepost } from './ShanghaiGuidepost.ts'
 import { buildShenzhenGuidepost } from './ShenzhenGuidepost.ts'
 import { cityStyleFor, type CityStyle } from '../../../sim/cityStyles.ts'
@@ -163,6 +164,7 @@ function threeFaces(group: THREE.Group, scale: number, mat: THREE.Material | rea
 export class GuidepostModel extends PieceBuilder {
   readonly kind = 'guidepost'
   build(mod: Extract<Module, { type: 'guidepost' }>): THREE.Group {
+    if (cityStyleFor(this.ctx.data.cityStyle).logo === 'beijing') return buildBeijingGuidepost(this.ctx,mod,guideLabels)
     if (cityStyleFor(this.ctx.data.cityStyle).logo === 'shanghai') return buildShanghaiGuidepost(this.ctx,mod)
     if (cityStyleFor(this.ctx.data.cityStyle).logo === 'shenzhen') return buildShenzhenGuidepost(this.ctx, mod, guideLabels)
     const g = new THREE.Group(), mats = this.ctx.mats

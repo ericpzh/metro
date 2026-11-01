@@ -95,6 +95,41 @@ test('A/B/C/L fronts rake inward at the roof while their square rear seams and c
   }finally{disposeObject(root)}
  }
 }))
+test('Beijing lettering is 50% larger and vertically centred on both headlight pairs',()=>withKit(mats=>{
+ assert.ok(mats.trainMark.alphaTest>0 && mats.trainMark.alphaTest<.1,'empty atlas pixels discard before depth writes while preserving antialiased lettering')
+ for(const cls of ['A','B','C','L'])for(const outward of [-1,1]){
+  const root=new THREE.Group();buildCab(root,mats,STOCK[cls],0,outward,true);root.updateMatrixWorld(true)
+  try {
+   const standard=root.getObjectByName(`${cls.toLowerCase()}-cab-mark`),beijing=root.getObjectByName(`${cls.toLowerCase()}-beijing-cab-mark`)
+   const a=new THREE.Box3().setFromObject(standard),b=new THREE.Box3().setFromObject(beijing)
+   assert.ok(Math.abs((b.max.y-b.min.y)/(a.max.y-a.min.y)-1.5)<1e-6)
+   assert.ok(Math.abs((b.max.z-b.min.z)/(a.max.z-a.min.z)-1.5)<1e-6)
+   const lamps=root.children.filter(m=>m.name==='cab-round-light')
+   const centre=lamps.reduce((sum,m)=>sum+new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()).z,0)/lamps.length
+   assert.ok(Math.abs(b.getCenter(new THREE.Vector3()).z-centre)<1e-6)
+   for(const [mesh,lo,hi] of [[standard,0,.5],[beijing,.5,1]]) {
+    const uv=mesh.geometry.attributes.uv
+    for(let i=0;i<uv.count;i++)assert.ok(uv.getX(i)>=lo&&uv.getX(i)<=hi,'each footprint samples its own city artwork')
+   }
+  }finally{disposeObject(root)}
+ }
+}))
+
+test('D Beijing lettering follows the curved lamp centre at both cab ends',()=>withKit(mats=>{
+ const root=buildTrain(mats,{x:0,y:0,z:0,cars:1,stock:'D',doorsOpen:false,colour:'#a4343a',dirSign:1,yaw:0})
+ root.updateMatrixWorld(true)
+ try {
+  const marks=[];root.traverse(m=>{if(m.name==='d-beijing-cab-mark')marks.push(m)})
+  assert.equal(marks.length,2)
+  for(const mark of marks){
+   const lamps=new THREE.Box3();for(const child of mark.parent.children)if(['d-headlight','d-taillight'].includes(child.name))lamps.union(new THREE.Box3().setFromObject(child,true))
+   const bounds=new THREE.Box3().setFromObject(mark,true)
+   const delta=bounds.getCenter(new THREE.Vector3()).z-lamps.getCenter(new THREE.Vector3()).z
+   assert.ok(Math.abs(delta)<.001,`D centre offset ${delta}`)
+  }
+ }finally{disposeObject(root)}
+}))
+
 test('every stock has two surface-fitted articulated wipers with authored Low geometry and single disposal',()=>withKit(mats=>{
  for(const stock of STOCK_CLASSES) {
   const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:1,doorsOpen:false,colour:'#287db2',dirSign:1,yaw:0})

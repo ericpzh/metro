@@ -1,16 +1,19 @@
 /** Station-wide visual identity. Old saves default to Guangzhou. */
-export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai'
+export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
 export const DEFAULT_CITY_STYLE: CityStyle = 'guangzhou'
 export function normalizeCityStyle(value: unknown): CityStyle {
   return typeof value === 'string' && Object.hasOwn(CITY_STYLES, value) ? value as CityStyle : DEFAULT_CITY_STYLE
 }
 export interface CityStyleDefinition {
-  nameKey: 'city_guangzhou' | 'city_shenzhen' | 'city_shanghai'
-  brandKey: 'guangzhou_metro' | 'shenzhen_metro' | 'shanghai_metro'
-  brandEnglishKey: 'printed_guangzhou_metro' | 'printed_shenzhen_metro' | 'printed_shanghai_metro'
-  logo: 'guangzhou' | 'shenzhen' | 'shanghai'
+  nameKey: `city_${CityStyle}`
+  brandKey: `${CityStyle}_metro`
+  brandEnglishKey: `printed_${CityStyle}_metro`
+  logo: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
   logoColour: string
-  entrance: 'guangzhou' | 'shenzhen' | 'shanghai'
+  /** Station identity and train nose artwork can differ. */
+  trainMark?: 'beijing-calligraphy'
+  trainMarkColour?: string
+  entrance: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
   entranceColour: string
   lineColours: Readonly<Record<string, string>>
 }
@@ -63,12 +66,29 @@ export const SHENZHEN_LINE_COLOURS: Readonly<Record<string, string>> = {
   '20': '#88dbdf', '21': '#bbbbbb', '22': '#fbe122', '24': '#79abde',
   '25': '#fead77', '27': '#3c8065', '29': '#9f2f47', '32': '#ba5801',
 }
-/** Shanghai defaults from the supplied network-map reference. Existing lines stay authored. */
+/** User-supplied Shanghai defaults. Existing lines keep their saved colours. */
 export const SHANGHAI_LINE_COLOURS: Readonly<Record<string,string>> = {
-  '1':'#e4002b','2':'#8cc220','3':'#fcd600','4':'#461d84','5':'#944d9a',
-  '6':'#d40068','7':'#ed6f00','8':'#0094d8','9':'#87caed','10':'#c6afd4',
-  '11':'#871c2b','12':'#007a60','13':'#e999c0','14':'#616020','15':'#bda16b',
-  '16':'#98d1c0','17':'#bc796f','18':'#c4984f',
+  '1':'#e3002b','2':'#82bf25','3':'#fcd600','4':'#461d84','5':'#944d9a',
+  '6':'#e30067','7':'#ed6f00','8':'#0094d8','9':'#87caed','10':'#c6afd4',
+  '11':'#871c2b','12':'#007b61','13':'#e999c0','14':'#626020','15':'#bca886',
+  '16':'#98d1c0','17':'#bc796f','18':'#c4984f','19':'#f5ab78','20':'#009f65',
+  '21':'#f7af00','22':'#5f376f','23':'#b0d478','26':'#5f67a9',
+  Pujiang:'#b5b5b6',Maglev:'#1c5f5b',
+  '浦江线':'#b5b5b6','磁浮线':'#1c5f5b',
+}
+/** User-supplied Beijing defaults, including named branches, airports and trams. */
+export const BEIJING_LINE_COLOURS: Readonly<Record<string,string>> = {
+  '1':'#a4343a','2':'#004b87','3':'#d90627','4':'#008c95','5':'#aa0061',
+  '6':'#b58500','7':'#ffc56e','8':'#009b77','9':'#97d700','10':'#0092bc',
+  '11':'#ff8674','12':'#9c4f01','13':'#f4da40','14':'#ca9a8e','15':'#653279',
+  '16':'#6ba539','17':'#00abab','18':'#685bc7','19':'#d3a3c9','20':'#666666',
+  '22':'#f4c1ca','25':'#d86018','28':'#476205',
+  Batong:'#a4343a',Daxing:'#008c95',Yizhuang:'#d0006f',Fangshan:'#d86018',
+  Yanfang:'#d86018',S1:'#a45a2a',Changping:'#d986ba',Xijiao:'#d22630',
+  CapitalAirport:'#a192b2',DaxingAirport:'#0049a5',M101:'#666666',YizhuangT1:'#d22630',
+  '八通线':'#a4343a','大兴线':'#008c95','亦庄线':'#d0006f','房山线':'#d86018',
+  '燕房线':'#d86018','S1线':'#a45a2a','昌平线':'#d986ba','西郊线':'#d22630',
+  '首都机场线':'#a192b2','大兴机场线':'#0049a5','M101线':'#666666','亦庄T1线':'#d22630',
 }
 export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   guangzhou: { nameKey: 'city_guangzhou', brandKey: 'guangzhou_metro',
@@ -79,6 +99,9 @@ export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
     entrance: 'shenzhen', entranceColour: '#101b2b', lineColours: SHENZHEN_LINE_COLOURS },
   shanghai: { nameKey: 'city_shanghai', brandKey: 'shanghai_metro', brandEnglishKey: 'printed_shanghai_metro',
     logo: 'shanghai', logoColour: '#e60012', entrance: 'shanghai', entranceColour: '#353b35', lineColours: SHANGHAI_LINE_COLOURS },
+  beijing: { nameKey:'city_beijing',brandKey:'beijing_metro',brandEnglishKey:'printed_beijing_metro',
+    logo:'beijing',logoColour:'#004a95',trainMark:'beijing-calligraphy',trainMarkColour:'#ffffff',
+    entrance:'beijing',entranceColour:'#073563',lineColours:BEIJING_LINE_COLOURS },
 }
 export const CITY_STYLE_IDS = Object.keys(CITY_STYLES) as CityStyle[]
 export function cityStyleFor(value?: CityStyle): CityStyleDefinition {

@@ -2303,6 +2303,78 @@ for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Sh
   disposeObject(root)
 })
 
+async function assertLowSolidSides(mesh) {
+  const {modelDetailGeometry}=await import('../src/render/modelDetail.ts')
+  const high=mesh.geometry;mesh.geometry=modelDetailGeometry(mesh)
+  try {
+    for(const [x,y] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+      const origin=mesh.localToWorld(new THREE.Vector3(x,y,0)),centre=mesh.localToWorld(new THREE.Vector3())
+      assert.ok(new THREE.Raycaster(origin,centre.sub(origin).normalize()).intersectObject(mesh).length,`${mesh.name} must stay opaque from all four sides at Low`)
+    }
+  }finally{mesh.geometry=high}
+}
+
+for(const bays of [1,2,3])for(const rot of [0,1,2,3])test(`Beijing covered exit ${bays} bays rotation ${rot}: cut-out diamonds and three synchronized plates`,async()=>{
+  const mod=createModule(bays===2?'exit':`exit-covered-${bays}`,0,0,0,'bj');mod.rot=rot
+  const saved=structuredClone(mod),local={...ctx,data:{...data,cityStyle:'beijing',modules:[mod]}}
+  const root=buildModule(mod,local),panes=[],shells=[],signs=[]
+  root.traverse(o=>{
+    if(o.name==='beijing-diamond-glass')panes.push(o)
+    if(o.name==='beijing-diamond-metal-panel')shells.push(o)
+    if(['beijing-entrance-sign','beijing-rooftop-front-sign','beijing-rooftop-side-sign'].includes(o.name))signs.push(o)
+  })
+  assert.equal(root.userData.exitCityStyle,'beijing')
+  assert.equal(panes.length,9);assert.equal(shells.length,9);assert.equal(signs.length,3)
+  assert.ok(root.getObjectByName('beijing-stainless-canopy'))
+  assert.equal(signs[1].material,signs[0].material);assert.equal(signs[2].material,signs[0].material)
+  const map=signs[0].material.map,version=map.version
+  artworkTest.prepareArtwork(root)
+  assert.ok(artworkTest.repaintArtwork(root,{...local.data,name:'双井',nameEn:'SHUANGJING Station',lines:[{...LINE,colour:'#123456'}]}))
+  assert.equal(map.version,version+1,'one upload updates all three plates')
+  assert.ok(signs.every(s=>s.material.map===map))
+  // A view through each diamond must hit glass but no opaque metal, at High and Low.
+  const {modelDetailGeometry}=await import('../src/render/modelDetail.ts')
+  root.updateMatrixWorld(true)
+  const columns=root.children.flatMap(o=>o.children).filter(o=>o.name==='beijing-front-column')
+  assert.equal(columns.length,2)
+  for(const column of columns)await assertLowSolidSides(column)
+  for(let i=0;i<panes.length;i++) {
+    const pane=panes[i],shell=shells[i],highPane=pane.geometry,highShell=shell.geometry
+    for(const low of [false,true]){
+      pane.geometry=low?modelDetailGeometry(pane):highPane;shell.geometry=low?modelDetailGeometry(shell):highShell
+      pane.geometry.computeBoundingBox();const centre=pane.geometry.boundingBox.getCenter(new THREE.Vector3())
+      const origin=pane.localToWorld(centre.clone().add(new THREE.Vector3(1,0,0)))
+      const direction=pane.localToWorld(centre.clone()).sub(origin).normalize()
+      const ray=new THREE.Raycaster(origin,direction)
+      assert.ok(ray.intersectObject(pane).length,'the diamond contains actual glass')
+      assert.equal(ray.intersectObject(shell).length,0,'opaque metal is cut away behind the glass')
+    }
+    pane.geometry=highPane;shell.geometry=highShell
+  }
+  const gz=buildModule(mod,ctx),a=box(root),b=box(gz)
+  for(const axis of ['x','y']){assert.ok(a.min[axis]>=b.min[axis]-1e-5);assert.ok(a.max[axis]<=b.max[axis]+1e-5)}
+  assert.ok(a.max.z-a.min.z<5,'decorative rooftop signs stay below the next storey')
+  assert.deepEqual(mod,saved,'decorative rooftop signs do not mutate simulation placement')
+  disposeObject(root);disposeObject(gz)
+})
+
+for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Beijing ${id} rotation ${rot}: blue station pylon and bound labels`,async()=>{
+  const mod=createModule(id,0,0,0,'bj-guide');mod.rot=rot
+  const exit=createModule('exit-virtual',2,2,0,'bj-bound');exit.cfg.name='C口'
+  if(id==='guidepost')mod.cfg.exitId=exit.id;else mod.cfg.name='C口'
+  const local={...ctx,data:{...data,cityStyle:'beijing',nameEn:'BEITUCHENG Station',modules:[mod,exit]}}
+  const root=buildModule(mod,local),names=[];root.traverse(o=>names.push(o.name))
+  assert.equal(root.userData.guideCityStyle,'beijing');assert.equal(root.userData.guideLabels.exit,'C')
+  for(const [name,count] of [['beijing-guide-blue-column',1],['beijing-guide-drum',1],['beijing-guide-station-emblem',2],['beijing-guide-live-labels',4]])assert.equal(names.filter(n=>n===name).length,count,name)
+  const size=box(root).getSize(new THREE.Vector3());assert.ok(size.x<=1&&size.y<=1&&size.z<=4.001)
+  await assertLowSolidSides(root.getObjectByName('beijing-guide-blue-column'))
+  await assertLowSolidSides(root.getObjectByName('beijing-guide-burgundy-base'))
+  artworkTest.prepareArtwork(root)
+  assert.ok(artworkTest.repaintArtwork(root,{...local.data,name:'双井',modules:[{...mod,cfg:{...mod.cfg,name:'D口'}},{...exit,cfg:{...exit.cfg,name:'D口'}}]}))
+  assert.equal(root.userData.guideLabels.station,'双井');assert.equal(root.userData.guideLabels.exit,'D')
+  disposeObject(root)
+})
+
 for(const rot of [0,1,2,3])test(`Shanghai city models rotation ${rot}: covered shell and lantern pole`,()=>{
   for(const id of ['exit-covered-1','exit','exit-covered-3','guidepost','exit-virtual']){
     const mod=createModule(id,0,0,0,'sh');mod.rot=rot

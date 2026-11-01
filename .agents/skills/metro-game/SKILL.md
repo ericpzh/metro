@@ -14,6 +14,9 @@ to Guangzhou. City changes preserve every existing line colour and affect only
 new-line defaults. Keep shell replacement separate from artwork repainting, and
 keep preview fixtures separate from document commits. The shared performance
 reference owns measured timings; the linked guide names each deterministic suite.
+Beijing uses a separate white 北京 cab wordmark, synchronized doorway/roof signs,
+diamond glazing and a blue pylon. Decode supplied maps only for requested cities;
+the linked city guide covers shared artwork, lazy loading and High/Low verification.
 
 ## Audio
 

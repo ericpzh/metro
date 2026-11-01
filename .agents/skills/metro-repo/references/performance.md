@@ -49,6 +49,12 @@ Badge recolouring, undo/redo, autosave reload, bilingual controls and 1024 px me
 fit pass. Costs remain unprofiled. Theme appearance and Low geometry need their
 own visual/geometry checks; this capture does not prove them.
 
+City poster images decode on demand per selected city and share pending requests.
+Beijing's 6564 × 6537 source is kept whole and is not decoded when opening another
+city. `line-map` guards request coalescing/retry/disposal;
+`tools/check-beijing-style.mjs` verifies selected-city loading and retained sign
+repaints in production. These functional checks do not establish latency or FPS.
+
 ## Per-model geometry detail inventory
 
 Actual generated counts, not station totals or FPS estimates. Equipment counts
@@ -240,6 +246,33 @@ The portrait map changes panel framing width, not its triangle count. Records:
 | exit-doorway-4 | 10 | 26 |
 
 
+#### Beijing variants
+
+The stainless canopy retains real diamond holes at both detail levels. Low uses
+flat cut-out panels, inset glass faces and box roof geometry; roof-top/doorway
+signs retain their shared artwork. Low keeps the front columns and blue pylon
+opaque from all four directions, with a closed four-sided logo drum, both emblem
+faces and all four live label faces. All 14 city
+variants pass the existing budgets; no limit was raised. Records:
+`.preview/perf/current-models-beijing/model-triangles.json`.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-1 | 154 | 1542 |
+| exit | 154 | 1542 |
+| exit-covered-3 | 154 | 1542 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| guidepost | 44 | 164 |
+| exit-virtual | 44 | 164 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
 #### Equipment minimum-shape exceptions
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
@@ -321,16 +354,25 @@ wall-input retention is a separate unresolved regression.
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 76672 | 1308000 |
-| D-6 | 60092 | 1011484 |
-| A-8 | 69544 | 735088 |
-| A-6 | 53508 | 577676 |
-| C-6 | 49412 | 538320 |
-| B-6 | 47520 | 518976 |
-| L-6 | 43168 | 468008 |
-| C-4 | 34880 | 397940 |
-| B-4 | 33388 | 381628 |
-| L-4 | 30396 | 346780 |
+| D-8 | 76676 | 1308016 |
+| D-6 | 60096 | 1011500 |
+| A-8 | 69672 | 735216 |
+| A-6 | 53636 | 577804 |
+| C-6 | 49540 | 538448 |
+| B-6 | 47648 | 519104 |
+| L-6 | 43296 | 468136 |
+| C-4 | 35008 | 398068 |
+| B-4 | 33516 | 381756 |
+| L-4 | 30524 | 346908 |
+
+Beijing and other city emblems share a retained two-slot texture atlas. Beijing's
+50%-larger footprint is fitted at headlight height before batching, so switching
+cities never rebuilds prepared trains. The additional fitted decals are included
+in these actual counts; `train-cab` pins scale, alignment and separate UV slots.
+Transparent atlas pixels discard before depth writes so the overlapping unused
+decal cannot occlude active ink. `check-beijing-style` compares rendered glyph
+pixels at three angles in High/Low against a zero-cutoff negative control. This
+material-only correction leaves the measured geometry counts unchanged.
 
 ### Passenger models (乘客)
 
@@ -600,14 +642,14 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | Exploded viewer | `node tools/check-exploded-view.mjs`, `npm run bench:explode` |
 | Playback tails | `npm run bench:sim-stalls` |
 | Actual model counts | `node tools/model-triangle-inventory.mjs` |
-| Shenzhen counts | Set `MODEL_CITY=shenzhen` or `MODEL_CITY=shanghai`, then run the inventory command |
+| City-specific counts | Set `MODEL_CITY=shenzhen`, `shanghai` or `beijing`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
 
 ### Model inventory upkeep
 
 Replace tables when geometry/detail changes. Generated records live under
-`.preview/perf/current-models/` and `.preview/perf/current-models-shenzhen/`.
+`.preview/perf/current-models/` and the matching `current-models-{city}/` directories.
 Run model-detail, train/passenger LOD and owning geometry tests, then full tests
 and build. Source restoration, ownership and disposal are required at both LODs.
 

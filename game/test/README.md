@@ -778,7 +778,7 @@ thick-pillar one continuous shaft with end-only collars, periodic obsidian pixel
 | Touch navigation | `touch-zoom` — pinch direction, cancellation and release suppression; shared zoom and limits in both projections |
 | The scene | `chunk-cache`, `level-slicing`, `grid-visibility`, `ground-visibility`, `section`, `section-drag`, `cut-clipping`, `floor-surface`, `render-performance`, `camera-vertical-pan`, `camera-fov`, `camera-orbit`, `view-home`, `refused-ghost`, `sim-pause` — `render-performance` pins static module batching and safe reuse after floor paint; `ground-visibility` covers the street mesh, placed outdoor tiles/roads/traffic lights and ambient cars under 隐藏地面; `sim-pause` is the paused-sim freeze: escalator bands, 闸机 leaves and train/screen doors hold their pose while consists glide to their latest snapshot |
 | Performance policy | `static-rendering` (outdoor chunk instances, transparent ordering, LOD retention/disposal and framebuffer wakeups), `outdoor-surfaces` (bulk edits, indexed support, refusals and shared geometry), `equipment-retention`, `fence-preview`, `performance-policy`, `worker-preview` — placement index equivalence/cache invalidation, cosmetic edits and graph rebuilds, equipment model dependencies (fence/gate/tactile, glass/door, cubicle, TV, hanger, track/pillar, ramp/exit and PSD families), render-only chunk classification, prepared hover documents, local fence previews and bucket masking, material disposal, pointer coalescing, crowd upload ranges/culling, retained rigs and train shell batching |
-| City identity | `city-style` — save/legacy defaults, city palettes, custom colours, undo/redo, new lines, entrance badges and cab texture retention; `tools/check-city-styles.mjs` checks production keyboard selection, redraw timing, retained models and reload |
+| City identity | `city-style` — save/legacy defaults, city palettes, custom colours, undo/redo, new lines, entrance badges, Beijing station/cab separation and cab texture retention; `tools/check-city-styles.mjs` checks production keyboard selection, redraw timing, retained models and reload |
 | The pixels | `sign-render` (short 0.4 m signs, nine-arrow capacity and centred existing content, primary-only labels at twice the size and centred on both axes in a square tile, the divider line and the blank divider), `station-display` (TV layout, per-track timetable and seconds/minutes), `exit-banner` |
 | Concept art | `passenger-art-pipeline` — growing catalogues, bounded browser batches, complete standing/stride coverage, stale build rejection and duplicate capture files; `capture-passengers` — the `?capture-passengers` route wiring, the live crowd mesh photographed with alpha, every field the sheet tools place by (foot origin, scale, stride) and full-stride gait captures in plan, elevation and isometric views. `art-passenger-heading` projects facing through the capture camera and compares it with all eight isometric travel directions, preventing sideways walking. Browser playback is checked separately with `node tools/test-passenger-animation.mjs` after captures and art generation. |
 | Languages and routes | `i18n` — both catalogues and interpolation slots, live notice translation, canonical labels, explicit-language formatting without changing UI state, and the `/game` + `/game/en` routes with their asset resolution at the deployed prefix and the workers.dev root; `report-issue-route` — the public feedback URLs (`/stats/report`, `/stats/en/report`) and local stats Worker origin; `site-worker` — the site's `/en` → `/en/` pin, English asset paths and untouched non-`/en` requests; `demo-route` — the demo URLs (`/game/zoo`, `/game/en/tanwei`), their trailing-slash redirect, the boot that opens the named station over the autosave, and the one-shot URL rewrite; `site-demo-links` — the concept site's picker wiring, its two triggers and its copied game previews |
@@ -892,6 +892,17 @@ Rows marked `(focused)` come from the focused coverage command over
 `scene-wiring`, `static-rendering` and `level-view-cache`; they are not whole-suite
 percentages.
 
+City rows marked `(city focused)` come from `city-style`, `module-build`, `line-map`,
+`menu-thumbnails`, `nonstructural-updates` and `scene-wiring` with V8 coverage
+restricted to the named modules (161 checks). Vite-only poster/scene code and
+actual GPU pixels are checked separately by the production city browser scripts.
+Rows marked `(mark focused)` use the 31 checks in `city-style` and `train-cab`,
+with V8 coverage restricted to the shared branding and decal atlas helpers.
+The Beijing browser checker also guards overlapping decal depth: three camera
+angles at High/Low must retain their white glyph pixels, with zero alpha cutoff
+as a negative control that reproduces the clipping. Node's cab test pins the
+shared material's discard threshold; the browser check verifies the actual pixels.
+
 | File | Before | Now | The test that closed it |
 |---|---|---|---|
 | `sim/globalStats.ts` | — (new) | 100 % lines / 100 % branches / 100 % functions | `global-stats` — station counts (solid cells, tracks/platform tracks), cumulative deltas, run resets, station-switch baselines, empty-station skipping and the submit body. Reproduce the four rows with `npm --prefix game run coverage:global-stats`. |
@@ -902,7 +913,16 @@ percentages.
 | `sim/ground.ts` (the street plane) | — (new) | 100 % lines / 97.6 % branches | `ground` — the window, the three answers at a coordinate, the dig and the fill-back, the brushes that materialise the plane, and the two predicates that read it |
 | `render/models.ts` (the dispatcher) | 100 % | 100 % | `module-build` (now including the 灯具/通风口/导向柱/公交站/地面 rows, which closed the new dispatch arms) |
 | `render/models/pieces/PsdModel.ts` (站台门) | 11.1 % | 100 % | `module-build` |
-| `render/models/pieces/ExitModel.ts` | 95.7 % | 97.8 % | `module-build` |
+| `sim/cityStyles.ts` | — | 100 % lines / branches / functions (city focused) | `city-style` — four saved identities, palettes and fallback |
+| `render/cityBranding.ts` | — | 100 % lines / 95 % branches / 100 % functions (mark focused) | `city-style`, `train-cab` — station marks, distinct Beijing cab wordmark and retained texture uploads |
+| `render/trainMarkAtlas.ts` | — (new) | 100 % lines / branches / functions (mark focused) | `train-cab` — separate city UV slots on fitted High/Low decals |
+| `render/beijingTrainMark.ts` | — (new) | 100 % lines / branches / functions (city focused) | `city-style` — white traced calligraphy without runtime fonts |
+| `render/cityLineMapCache.ts` | — (new) | 100 % lines / branches / functions (city focused) | `line-map` — selected-city decode, coalescing, disposal and retry |
+| `render/models/pieces/BeijingExitCanopy.ts` | — (new) | 100 % lines / branches / functions (city focused) | `module-build` — all bays/rotations, real High/Low diamond openings, three shared signs and solid Low front columns |
+| `render/models/pieces/BeijingExitHeader.ts` | — (new) | 100 % lines / 71.43 % branches / 100 % functions (city focused) | `city-style`, `module-build` — bilingual names and actual line badges |
+| `render/models/pieces/BeijingGuidepost.ts` | — (new) | 100 % lines / 80 % branches / 100 % functions (city focused) | `module-build` — guidepost and virtual-exit labels, all rotations, solid Low columns/base |
+| `render/models/pieces/ExitModel.ts` | 95.7 % | 97.35 % lines / 86.39 % branches / 100 % functions (city focused) | `module-build`, `city-style` |
+| `render/models/pieces/StreetDecorModel.ts` | — | 100 % lines / 92.59 % branches / 78.79 % functions (city focused) | `module-build` — shared city guidepost dispatch and decor |
 | `render/models/pieces/TrackModel.ts` | 100 % | 95.1 % | `module-build` |
 | `render/models/pieces/TvmModel.ts` | 28.6 % | 100 % | `module-build` |
 | `render/models/pieces/TrainModel.ts` | 99.1 % | 99.2 % | `module-build` |
@@ -1111,7 +1131,7 @@ smaller emblem clears both panes and the front door at both ends.
 
 `floor-geometry` pins full-volume platform cuts under PSD bases in every rotation/bank, intact yellow-line support, and chunk-cache invalidation/restoration when screens are removed.
 
-`train-cab` pins gapless passenger-door centre joins for every stock, flush curved outer skins, separate outward/sideways plug phases and the reverse closing order, with the opposite bank held closed.
+`train-cab` pins gapless passenger-door centre joins for every stock, flush curved outer skins, separate outward/sideways plug phases and the reverse closing order, with the opposite bank held closed. Beijing's decal is 50% larger at headlight-centre height on both cab ends, including C's lower lights and D's curved lamps. Its atlas UV slot is separate from other city emblems; the scene retains one texture and all prepared train geometry across city switches. `train-lod` pins the updated measured full counts and existing Low ratios.
 
 `catenary-model` pins single-mast cantilevers and braced joints; `module-build` pins gantry/third-rail agreement for full, half and absent PSD banks, both directions and every rotation, including bridge barrier and shoulder cutouts only on the mast side. `track-third-rail` pins travel-right fallback with both or neither PSD bank.
 
@@ -1400,7 +1420,7 @@ Music: `music.test.mjs` covers full-track licenses/hashes/asset limits, streamin
 
 The ceiling-cells and floor-geometry suites pin untagged upper-floor linings at (79,-101,-11), current-storey slicing, seam edit restoration, and diagonal ambient-occlusion cache votes.
 
-City-specific LHS exit and guidepost PNGs are generated by `tools/render-menu-thumbnails.mjs`; `menu-thumbnails` pins the Shenzhen cache and reactive city selection.
+City-specific LHS exit and guidepost PNGs are generated by `tools/render-menu-thumbnails.mjs`; `menu-thumbnails` pins each city cache and reactive city selection.
 
 Shenzhen 有盖 exits use a charcoal canopy curving down to the rear, pale soffit, downlights, stone plinths and glazed bays with one forward-facing Metro sign on the entrance right. `module-build` pins every bay/rotation and the existing footprint; `city-style` pins shell replacement on city switch and undo.
 
@@ -1411,3 +1431,5 @@ Shenzhen virtual exits and 导向柱 share a grey pylon, open green circular cro
 City-specific 线网图 art uses the supplied `network-map.jpg` for Guangzhou and `shenzhen-map.jpg` for Shenzhen. `line-map` pins poster routing, city-aware face caching and replacement on city switch/undo. Wall and standing panels share each city’s decoded image.
 
 Shanghai city identity includes numbered bilingual exit plates, a flat grey glazed covered entrance, red logo lantern pylons, and the supplied portrait network map. `city-style`, `module-build`, `model-detail`, `line-map` and `menu-thumbnails` cover saves, numbering, geometry, Low budgets, artwork selection and static city previews.
+
+Beijing uses a blue DC station emblem and a separate white calligraphic 北京 cab mark. Its stainless covered entrance has diamond glass cut-outs and matching doorway/front-roof/side-roof plates sharing one retained texture. Blue guideposts and virtual exits bind station/exit/line labels. `city-style`, `module-build` and `model-detail` pin these contracts, including all bay widths/rotations and real High/Low glazing holes. `line-map` covers the complete supplied Beijing PNG plus deferred decode/coalescing/retry/disposal; `menu-thumbnails` covers all 14 static previews. `node tools/check-beijing-style.mjs` checks production selection, shared-sign repaint retention, distinct train artwork, lazy posters, undo/redo and reload, with High/Low captures.

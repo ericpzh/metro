@@ -896,7 +896,7 @@ export async function renderModulePieces(
   // tile drawn before it lands would show the drawn placeholder board and keep it for
   // the session, because the tiles are cached.
   const lineMaps = createLineMapArt(renderer)
-  await lineMaps.load()
+  await lineMaps.load(undefined, options.cityStyle)
   // The 指示牌 icon prints the board's own pictograms, which are bitmaps: await
   // them for the same reason, because a tile drawn without them shows a board with
   // its marks missing and the tiles are cached for the session.
