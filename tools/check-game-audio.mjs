@@ -49,11 +49,17 @@ try{
  const settings=await page.evaluate(`(()=>{const r=document.querySelector('.settingsMenu summary').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2};})()`)
  await click(settings)
  assert.ok(await page.evaluate(`!!document.querySelector('.settingsMusic input')`))
+ async function checkSettingsTilesFit(){
+  const tiles=await page.evaluate(`Array.from(document.querySelectorAll('.settingsToggle')).map(tile=>{const box=tile.getBoundingClientRect();return {label:tile.innerText,box:{top:box.top,bottom:box.bottom},children:Array.from(tile.children).map(child=>{const r=child.getBoundingClientRect();return {top:r.top,bottom:r.bottom}})}})`)
+  for(const tile of tiles) for(const child of tile.children) assert.ok(child.top>=tile.box.top && child.bottom<=tile.box.bottom,`settings tile overflows: ${tile.label}`)
+ }
+ await checkSettingsTilesFit()
  assert.equal(await page.evaluate(`document.querySelectorAll('.musicCreditsPanel a').length`),2)
  report.labels=await page.evaluate(`Array.from(document.querySelectorAll('.settingsAudio input')).map(e=>e.getAttribute('aria-label'))`)
  assert.ok(JSON.stringify(report.labels)===JSON.stringify(['Master volume','Sound effects','Ambient sound'])||JSON.stringify(report.labels)===JSON.stringify(['总音量','音效','环境音']))
  await page.evaluate(`document.querySelector('.settingsActionGrid > button:nth-child(3)').click()`);await settle()
  report.otherLabels=await page.evaluate(`Array.from(document.querySelectorAll('.settingsAudio input')).map(e=>e.getAttribute('aria-label'))`)
+ await checkSettingsTilesFit()
  assert.notDeepEqual(report.labels,report.otherLabels)
  assert.ok(JSON.stringify([report.labels,report.otherLabels]).includes('Sound effects'))
  const beforeSettings=await page.evaluate('__metro.getState().version')

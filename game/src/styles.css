@@ -300,17 +300,17 @@ a.ghost:hover {
 .settingsHeading svg { color: var(--accent); }
 .settingsAudioGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-bottom: 12px; }
 .settingsQualityLabel { color: var(--muted); margin: 12px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
-.settingsToggleGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.settingsToggle { min-width: 0; aspect-ratio: 1; padding: 8px; border: 1px solid var(--bp-line); border-radius: 0; background: var(--ui-0a2036, #0a2036); color: var(--text); font-size: 11px; }
+.settingsToggleGrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); grid-auto-rows: minmax(112px, auto); gap: 6px; }
+.settingsToggle { min-width: 0; min-height: max-content; height: 100%; aspect-ratio: 1; padding: 8px; border: 1px solid var(--bp-line); border-radius: 0; background: var(--ui-0a2036, #0a2036); color: var(--text); font-size: 11px; }
 .settingsToggle:hover { background: var(--ui-173650, #173650); border-color: var(--accent); }
 .settingsToggle.on { background: var(--ui-16374f, #16374f); color: var(--ui-heading, #eaf5ff); border-color: var(--accent); box-shadow: inset 0 3px var(--accent); }
 .settingsToggle:focus-visible, .settingsAction:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .settingsToggleGrid { margin-top: 12px; }
 .settingsToggle { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 5px; text-align: left; }
 .settingsToggle > svg { flex: none; width: 22px; height: 22px; color: var(--accent); }
-.settingsToggle span { color: var(--muted); line-height: 1.3; }
+.settingsToggle span { color: var(--muted); line-height: 1.3; overflow-wrap: anywhere; }
 .settingsToggle strong { font-size: 13px; font-weight: 600; }
-.settingsStatsTile { position: relative; min-width: 0; }
+.settingsStatsTile { position: relative; min-width: 0; min-height: max-content; }
 .settingsStatsTile > .settingsToggle { width: 100%; height: 100%; }
 .settingsStatsTooltip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 40; width: min(260px, calc(100vw - 40px)); padding: 9px; color: var(--text); background: var(--ui-081a2c, #081a2c); border: 1px solid var(--bp-line); box-shadow: 0 8px 24px #0009; font-size: 11px; line-height: 1.45; }
 .settingsStatsTile:hover > .settingsStatsTooltip, .settingsStatsTile:focus-within > .settingsStatsTooltip { display: block; }
@@ -3523,7 +3523,7 @@ input.tileSlider {
 :root[data-ui-theme="studio"] .settingsDropdown { padding: 16px; box-shadow: 0 14px 40px rgba(46,55,38,.2); }
 :root[data-ui-theme="studio"] .settingsHeading { letter-spacing: 0; font-size: 14px; }
 :root[data-ui-theme="studio"] .settingsAudio, :root[data-ui-theme="studio"] .settingsMusic { border-radius: 7px; }
-:root[data-ui-theme="studio"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-theme="studio"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
 :root[data-ui-theme="studio"] .settingsToggle { aspect-ratio: auto; min-height: 66px; display: grid; grid-template-columns: 26px 1fr; align-content: center; align-items: center; column-gap: 8px; }
 :root[data-ui-theme="studio"] .settingsToggle > svg { grid-row: span 2; }
 :root[data-ui-theme="studio"] .settingsToggle strong { font-size: 12px; }
@@ -3543,7 +3543,7 @@ input.tileSlider {
   flex: 1; display: block; min-height: 0; padding: 0; border: 0; background: none;
   text-align: left; white-space: normal; line-height: 1.2;
 }
-:root[data-ui-theme="site"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:root[data-ui-theme="site"] .settingsToggleGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; }
 :root[data-ui-theme="site"] .settingsToggle { aspect-ratio: auto; min-height: 62px; display: grid; grid-template-columns: 26px 1fr; align-content: center; align-items: center; column-gap: 8px; }
 :root[data-ui-theme="site"] .settingsToggle > svg { grid-row: span 2; }
 :root[data-ui-theme="site"] .settingsAction { aspect-ratio: auto; min-height: 68px; }
