@@ -143,6 +143,30 @@ test('paint, fill and erase are immutable and reversible', () => {
   assert.equal(floorSpeed({ finish: { top: 'floor.concrete' } }), 0.9)
 })
 
+test('the whole-surface flood reaches the true edge of a large floor', () => {
+  // 142×142 = 20,164 cells: just past the old 20,000-cell budget. That budget
+  // was spent in depth-first order, so a click near the middle could leave the
+  // cell immediately beside it unpainted while the rest of the floor filled.
+  const side = 142
+  const cells = []
+  for (let x = 0; x < side; x++) for (let y = 0; y < side; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const base = toState({
+    name: 't',
+    seed: 1,
+    cells,
+    modules: [],
+    lines: [],
+  })
+
+  const anchor = side >> 1
+  const filled = fillSurface(base, anchor, anchor, 0, 'top', 'floor.tile')
+  assert.equal(filled.cells.filter((c) => c.finish?.top === 'floor.tile').length, side * side, 'the flood stopped short of the floor edge')
+  for (const [x, y] of [[anchor + 1, anchor], [anchor - 1, anchor], [anchor, anchor + 1], [anchor, anchor - 1]]) {
+    const cell = filled.cells.find((c) => c.x === x && c.y === y)
+    assert.equal(cell?.finish?.top, 'floor.tile', `the cell beside the click (${x},${y}) was skipped`)
+  }
+})
+
 test('the chunk mesher groups faces into one part per finish', () => {
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' },

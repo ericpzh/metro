@@ -77,7 +77,7 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
                   {colours.length > 0 ? (
                     <div className="blockGrid">
                       {colours.map((colour) => (
-                        <ColourTile key={colour} colour={colour} onChange={(next) => changeColour(anchor, next)} />
+                        <ColourTile key={colour} colour={colour} current={colour === colourFor(anchor)} onChange={(next) => changeColour(anchor, next)} />
                       ))}
                       <NewColorTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
                     </div>

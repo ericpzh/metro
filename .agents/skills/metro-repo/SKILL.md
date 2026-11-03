@@ -12,6 +12,9 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+Material palette color selection and whole-surface finish/zone floods are owned by
+`metro-game`; their regressions live in `metro-game-test` and the game test suite.
+
 Audio work spans the model sound studio and the game. Use `metro-model` for
 `model/sounds.html`, candidate shaping and source collection; use `metro-game`
 for playback, camera-aware sources and settings, plus `metro-game-test` for

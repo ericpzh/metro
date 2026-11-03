@@ -248,6 +248,11 @@ export function paintPillarSurface(state: StationState, id: string, finish: Fini
  * slot (`triangleSlopeFace`) beside it — the diagonal and the floor or ceiling it
  * leans to are one surface to the brush, which is the only reading the palette has of
  * "the same face".
+ *
+ * The region is bounded by the authored cells themselves, so the flood runs to the
+ * true edge of the surface. It used to stop at 20,000 cells as a work budget, but a
+ * depth-first walk spends that budget in an order the player cannot see: a large
+ * floor could lose cells beside the one that was clicked while the rest painted.
  */
 export function fillSurface(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
   // Explicit cells only: the 整面 flood paints the surfaces a player built, and
@@ -261,7 +266,7 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
   const queue: Array<[number, number, number]> = [[x, y, z]];
   const region: Array<[number, number, number]> = [];
   const plane = FACE_PLANE[face];
-  while (queue.length > 0 && region.length < 20000) {
+  while (queue.length > 0) {
     const [cx, cy, cz] = queue.pop() as [number, number, number];
     region.push([cx, cy, cz]);
     for (const [dx, dy, dz] of plane) {

@@ -128,10 +128,12 @@ test('each material owns a two-mode submenu, with Tab cycling and no current-col
   assert.match(appShell, /if \(st\.tool === 'paint'\) st\.setPaintMode\(st\.paintMode === 'single' \? 'surface' : 'single'\)/)
 })
 
-test('used-color tiles and New Color open native color pickers in the two-column palette', () => {
+test('used colors select the brush; the current color and New Color open native pickers', () => {
   assert.match(paintFolder, /colours\.map\(\(colour\) => \(\s*<ColourTile key=\{colour\}/)
+  assert.match(paintFolder, /current=\{colour === colourFor\(anchor\)\}/)
   assert.match(paintFolder, /<NewColorTile colour=\{colourFor\(anchor\)\}/)
   assert.doesNotMatch(paintFolder, /blockGrid three/)
+  assert.match(colourTiles, /if \(!current\)\s*\{\s*return <Block[^\n]*onClick=\{\(\) => onChange\(colour\)\}/)
   assert.match(colourTiles, /export function ColourTile[\s\S]*?className="bpColour"[\s\S]*?type="color"/)
   assert.match(colourTiles, /export function NewColorTile[\s\S]*?className="bpNewColourInput"[\s\S]*?type="color"/)
   assert.match(paintCss, /\.bpNewColourPlus\s*\{[^}]*color:\s*#fff/i)

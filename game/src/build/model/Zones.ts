@@ -176,7 +176,9 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
     targets.add(start);
   } else {
     // Flood the connected floor, but stop at an existing zone line so a region
-    // can be repainted once its boundary has been drawn.
+    // can be repainted once its boundary has been drawn. The same-zone test is
+    // what bounds the walk; there is no arbitrary cell budget, because a budget
+    // spent in depth-first order drops cells the player cannot predict.
     const startZone = zoneOf(state.cells[start]);
     const sameZone = (cx: number, cy: number, cz: number): boolean => {
       const idx = solid.get(cellKey(cx, cy, cz));
@@ -188,7 +190,7 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
     };
     const seen = new Set<string>([cellKey(x, y, z)]);
     const queue: Array<[number, number, number]> = [[x, y, z]];
-    while (queue.length > 0 && targets.size < 20000) {
+    while (queue.length > 0) {
       const [cx, cy, cz] = queue.pop() as [number, number, number];
       const idx = solid.get(cellKey(cx, cy, cz));
       if (idx === undefined || !isFloorCell(state.cells[idx], floors)) continue;

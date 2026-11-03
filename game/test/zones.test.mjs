@@ -147,6 +147,22 @@ test('zone painting is a bucket and is immutable', () => {
   assert.equal(zoneAt(one.cells, 1, 0, 0), 'unpaid', 'single-cell paint should not flood')
 })
 
+test('a bucket flood covers a floor larger than the old 20,000-cell budget', () => {
+  // 142×142 = 20,164 cells. The budget used to end the walk in depth-first
+  // order, so a cell beside the click could stay unpainted on a large floor.
+  const side = 142
+  const cells = []
+  for (let x = 0; x < side; x++) for (let y = 0; y < side; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+
+  const anchor = side >> 1
+  const painted = paintZone(state, anchor, anchor, 0, 'platform')
+  assert.equal(painted.cells.filter((c) => c.zone === 'platform').length, side * side, 'the bucket stopped short of the floor edge')
+  for (const [x, y] of [[anchor + 1, anchor], [anchor - 1, anchor], [anchor, anchor + 1], [anchor, anchor - 1]]) {
+    assert.equal(zoneAt(painted.cells, x, y, 0), 'platform', `the cell beside the click (${x},${y}) was skipped`)
+  }
+})
+
 test('the zone drag paint sets a rectangle, skipping void cells', () => {
   const state = toState(flatStation({ gate: true }))
   // A 3x2 patch over cells that all exist, plus one void cell outside the floor.
