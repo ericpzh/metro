@@ -1,5 +1,5 @@
 /** Station-wide visual identity. Old saves default to Guangzhou. */
-export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
+export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
 export const DEFAULT_CITY_STYLE: CityStyle = 'guangzhou'
 export function normalizeCityStyle(value: unknown): CityStyle {
   return typeof value === 'string' && Object.hasOwn(CITY_STYLES, value) ? value as CityStyle : DEFAULT_CITY_STYLE
@@ -8,12 +8,12 @@ export interface CityStyleDefinition {
   nameKey: `city_${CityStyle}`
   brandKey: `${CityStyle}_metro`
   brandEnglishKey: `printed_${CityStyle}_metro`
-  logo: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
+  logo: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
   logoColour: string
   /** Station identity and train nose artwork can differ. */
   trainMark?: 'beijing-calligraphy'
   trainMarkColour?: string
-  entrance: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing'
+  entrance: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
   entranceColour: string
   lineColours: Readonly<Record<string, string>>
 }
@@ -90,6 +90,12 @@ export const BEIJING_LINE_COLOURS: Readonly<Record<string,string>> = {
   '燕房线':'#d86018','S1线':'#a45a2a','昌平线':'#d986ba','西郊线':'#d22630',
   '首都机场线':'#a192b2','大兴机场线':'#0049a5','M101线':'#666666','亦庄T1线':'#d22630',
 }
+/** Colours sampled from the supplied Chengdu network poster (P5). */
+export const CHENGDU_LINE_COLOURS: Readonly<Record<string,string>> = {
+  '1':'#3c0899','2':'#ff6034','3':'#df007a','4':'#00af66','5':'#a04a98',
+  '6':'#b77a2b','7':'#70d1df','8':'#a1cd00','9':'#eabb00','10':'#0052b8',
+  '17':'#80e2ae','18':'#1d6b70',Rong2:'#80bc28','蓉2':'#80bc28','蓉2号线':'#80bc28',
+}
 export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   guangzhou: { nameKey: 'city_guangzhou', brandKey: 'guangzhou_metro',
     brandEnglishKey: 'printed_guangzhou_metro', logo: 'guangzhou', logoColour: '#d8231c',
@@ -102,6 +108,8 @@ export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   beijing: { nameKey:'city_beijing',brandKey:'beijing_metro',brandEnglishKey:'printed_beijing_metro',
     logo:'beijing',logoColour:'#004a95',trainMark:'beijing-calligraphy',trainMarkColour:'#ffffff',
     entrance:'beijing',entranceColour:'#073563',lineColours:BEIJING_LINE_COLOURS },
+  chengdu: { nameKey:'city_chengdu',brandKey:'chengdu_metro',brandEnglishKey:'printed_chengdu_metro',
+    logo:'chengdu',logoColour:'#006bb1',entrance:'chengdu',entranceColour:'#343433',lineColours:CHENGDU_LINE_COLOURS },
 }
 export const CITY_STYLE_IDS = Object.keys(CITY_STYLES) as CityStyle[]
 export function cityStyleFor(value?: CityStyle): CityStyleDefinition {

@@ -12,7 +12,7 @@ checks saved custom colours across city switches and reloads.
 
 ## Model and rendering ownership
 
-`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai and Beijing visual identities and
+`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing and Chengdu visual identities and
 line palettes. `StationData.cityStyle` is optional on old v1 saves; `StationState`
 normalizes it. The top-bar `CityStyleSelect` commits one undoable presentation edit.
 Every existing line colour survives; city palettes apply only to newly created lines. Pass city style to every new-line factory, including the
@@ -100,10 +100,10 @@ Beijing uses `BeijingExitHeader.ts`, `BeijingExitCanopy.ts` and
 instead prints the white calligraphic 北京 contours in `beijingTrainMark.ts`, traced
 from the supplied P7 reference. Never replace that lettering with the station mark
 or an installed font. Repaint the shared train texture in place as for other cities.
-The train texture is a two-slot atlas: existing city emblems use the first half,
-and Beijing uses the second. `trainMarkAtlas.ts` assigns each decal's UVs once.
+The train texture is a three-slot atlas: standard city emblems use the first slot,
+Beijing uses the second and Chengdu uses the third. `trainMarkAtlas.ts` assigns each decal's UVs once.
 Beijing's decal is 1.5× the original size, centred on the headlight lenses (including
-C's lower lamps and D's curved light strips). Both slots remain in prepared cab
+C's lower lamps and D's curved light strips). All three slots remain in prepared cab
 geometry; switching city only repaints the retained atlas.
 Empty atlas pixels must discard before depth writes (`trainMark.alphaTest` keeps
 the lettering's antialiased edge). Otherwise the unused overlapping decal clips
@@ -122,3 +122,57 @@ decode deferred until Beijing is selected, and refresh only current-city map roo
 when it completes. `tools/check-beijing-style.mjs` exercises selection, lazy map
 loading, shared retained sign repainting, distinct cab artwork, undo/redo and reload;
 it also captures both High and Low for visual review.
+
+## Chengdu
+
+Chengdu is the fifth city. `chengduBranding.ts` draws separate vector contours
+from the supplied P1 (train/UI, METRO) and P6 (exit, METRO 成都地铁) references.
+`tools/trace-chengdu-branding.py` reproduces the contours from those two images;
+the contour asset retains each source hash. Exit plates and the blue pillar logo
+box print the P6 lockup in white. `ChengduExitHeader.ts` lays out bilingual live
+station names, actual line-colour badges and an alphabetic exit identifier on
+charcoal. The fascia stands forward of both inclined front columns; keep the
+complete printed face clear at every bay count/rotation in High and Low.
+`ChengduGuidepost.ts` uses equilateral sections with 60-degree corners, through
+the shared prism builder in `GuidepostGeometry.ts`. The shaft has 0.30 m sides;
+the foot is 1.14× that profile. The blue middle has the shaft's exact same profile
+rotated 30 degrees about its centroid, with
+labels on all three faces. Black sections stop at the blue middle; its exposed
+caps remain in High and Low, including virtual exits.
+Both decor guideposts and virtual exits use it. `ChengduExitCanopy.ts` owns
+the silver curved shell, green side edges/sills, glazing and inclined portal legs.
+Silver roof and soffit stop inside the green trim, with no overlapping end-cap
+volumes. The dark edge detail also clears the green skin.
+Side stone bases, green sills and the final glass panels are clipped against the
+actual inclined rear faces of the front columns, with a 4 mm joint gap. Columns
+have horizontal feet at the entrance floor. The sill starts above the stone base;
+it must not overlap it. Keep the fitted column/band volumes at Low, and share the
+same coarse roof profile with Low glazing and posts so they remain connected.
+`module-build` derives planes from the actual column normals and checks every
+fitted vertex at all bay counts/rotations and both detail levels. The production
+checker also captures close low-angle joints from both sides.
+Keep these decorative changes within shared exit placement and walking rules.
+
+Pillar names share a top edge, with vertical English on the right of Chinese.
+Line badges share the bilingual station-name group's vertical centre. Chengdu
+entrance artwork draws vector paths and text at 4× native pixel resolution
+(covered fascia: 2048 × 384), capped at 4096 px width for wide doorway panels.
+Repaints retain this resolution; `exitHeaderScale` replaces an allocation only
+when the city's resolution policy changes, including doorway/uncovered models.
+
+Chengdu train cabs retain their own lower decal in the third 128 px slot of the
+384 × 150 atlas. A/B/C/L place the visible logo inside the lower line-colour strip;
+D drapes it onto the centre of its coloured livery ring with outward-facing
+triangles. Other city decal positions remain unchanged. All slots coexist in
+prepared geometry, so switching city still repaints one retained texture.
+`train-cab` pins paint behind the lettering at both ends and detail levels, and
+`train-lod` pins the updated inventory. The production checker captures all stocks.
+
+The supplied 3000 × 3202 `chengdu-map.png` is lazily decoded and fitted whole on
+both map mounts. New-line colours are sampled from that supplied poster; this is
+the reference's palette, not a claim about the present-day operating network.
+Existing saved lines retain their colours. The city tile wraps to a second row
+in the existing four-column popover. All city-specific previews remain cached PNGs.
+`tools/check-chengdu-style.mjs` checks selection, deferred poster decode, retained
+train texture/sign repainting, no chunk remeshes/raycasts, undo/redo and saved reload,
+and captures the selector, plate, train/UI mark and High/Low scene for review.

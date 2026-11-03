@@ -6,7 +6,7 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 ## City-style regression ownership
 
 Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)
-for changes to Guangzhou/Shenzhen/Shanghai/Beijing saves, menus, models, supplied line maps and
+for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu saves, menus, models, supplied line maps and
 cached PNGs. `city-style`, `module-build`, `line-map`, `menu-thumbnails` and
 `nonstructural-updates` own these contracts. `model-detail` enforces actual city-specific Low budgets and geometry restoration before/after batching. Include outward decorative sign
 bounds without widening sim collision, disjoint glazing joints, virtual-exit city

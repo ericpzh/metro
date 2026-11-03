@@ -23,7 +23,7 @@ try {
   await page.evaluate(`__metro.getState().loadFromText(${JSON.stringify(fixture)})`)
   await waitFor(page.evaluate,`__scene.ctx.stationData?.name==='北宫门'`)
   await page.evaluate(`document.querySelector('.cityStyleButton').click()`)
-  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),4)
+  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),5)
   await page.evaluate(`document.querySelector('.cityStyleTile[data-city=beijing]').click()`)
   await waitFor(page.evaluate,`__scene.ctx.stationData?.cityStyle==='beijing' && __scene.ctx.lineMaps.ready('beijing')`)
   const state=await page.evaluate(`(()=>{

@@ -4,12 +4,14 @@ import * as THREE from 'three'
 import { PieceBuilder, slab, plate, canvasTexture } from '../PieceBuilder.ts'
 import { exitSpan } from '../../../sim/exits.ts'
 import { exitHeaderCanvas } from './ExitModel.ts'
+import { exitHeaderScale, exitHeaderResolution } from '../../exitHeaderResolution.ts'
 import { panelModelDetail } from '../../modelDetail.ts'
-import type { Module } from '../../../sim/types.ts'
+import type { Module, StationData } from '../../../sim/types.ts'
 export class DoorwayExitModel extends PieceBuilder {
   readonly kind = 'exit'
   build(mod: Extract<Module, { type: 'exit' }>): THREE.Group {
     const g = new THREE.Group()
+    g.userData.exitHeaderScale=exitHeaderScale(this.ctx.data.cityStyle)
     const { centre, half } = exitSpan(mod)
     const width = half * 2
     // 地面 X向 is a wall-fixed exit panel: the anchor's −y face sits flush
@@ -22,16 +24,15 @@ export class DoorwayExitModel extends PieceBuilder {
     // artwork's text stays the same physical size; only the gaps between the
     // brand, station name and exit identifier get wider.
     const headerWidth = Math.round(512 * (width - 0.12) / 2.88)
-    const map = canvasTexture(headerWidth, 96, (c) => c.drawImage(
-      exitHeaderCanvas(this.ctx.data.name || t('metro'), mod.cfg.name, this.ctx.data.nameEn, headerWidth, this.ctx.data),
-      0, 0,
-    ))
-    const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
-    bindArtworkTexture(g,map,(c,data)=>{
+    const pixels=exitHeaderResolution(headerWidth,this.ctx.data.cityStyle)
+    const paint=(c:CanvasRenderingContext2D,data:StationData)=>{
       const next=data.modules.find(m=>m.id===mod.id)
-      c.drawImage(exitHeaderCanvas(data.name || t('metro'),next?.type==='exit'?next.cfg.name:mod.cfg.name,data.nameEn,headerWidth,data),0,0)
-    })
-    plate(g, mat, width - 0.12, 0.48, centre, -0.428, 0.5, Math.PI)
+      c.drawImage(exitHeaderCanvas(data.name||t('metro'),next?.type==='exit'?next.cfg.name:mod.cfg.name,data.nameEn,headerWidth,data,pixels.width/headerWidth),0,0)
+    }
+    const map=canvasTexture(pixels.width,pixels.height,c=>paint(c,this.ctx.data))
+    const mat = this.ownedMaterial(new THREE.MeshBasicMaterial({ map }))
+    bindArtworkTexture(g,map,paint)
+    plate(g, mat, width - 0.12, 0.48, centre, -0.428, 0.5, Math.PI).name='exit-doorway-sign'
     this.placeLocal(g, mod)
     // The logical exit remains on the floor storey; only the sign follows the
     // exact backing block course the player clicked.

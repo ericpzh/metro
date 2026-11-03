@@ -309,6 +309,13 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     centreZ += targetZ-(lo+hi)/2
   }
   trainMarkAtlasUV(surface('d-beijing-cab-mark', mats.trainMark, (u, v) => frontPoint((v-.5)*.30, centreZ+(u-.5)*.195, length,.014).point,2,2,false,1,1),true)
+  // Follow the middle of the livery ring, with a margin from both paint edges.
+  trainMarkAtlasUV(surface('d-chengdu-cab-mark', mats.trainMark, (u,v)=>{
+    const t=.25+.5*u,angle=(v-.5)*.32
+    const rx=THREE.MathUtils.lerp(colourEdge[0],maskEdge[0],t)
+    const ry=THREE.MathUtils.lerp(colourEdge[1],maskEdge[1],t)
+    return planPoint(-2.35+rx*Math.cos(angle),ry*Math.sin(angle),.018)
+  },4,8,false,2,4),'chengdu')
   surface('d-cab-bulkhead', mats.trainInterior, (u, v) => {
     const edge = dCabPoint(dSection(v), length - 0.05, length)
     return new THREE.Vector3(-length + 0.05, 0, 1.85).lerp(edge, u)

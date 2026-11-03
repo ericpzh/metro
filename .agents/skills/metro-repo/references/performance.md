@@ -273,6 +273,31 @@ variants pass the existing budgets; no limit was raised. Records:
 | exit-doorway-3 | 10 | 26 |
 | exit-doorway-4 | 10 | 26 |
 
+#### Chengdu variants
+
+Low reduces the covered entrance, guidepost/virtual-exit prisms and doorway
+headers; High keeps the authored detail. All 14 city variants pass the existing
+budgets; no limit was raised. Counts include authored surfaces and readable label
+faces; they do not establish FPS or GPU cost. Records:
+`.preview/perf/model-triangles.json`.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-1 | 362 | 8706 |
+| exit | 362 | 8706 |
+| exit-covered-3 | 362 | 8706 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| guidepost | 49 | 50 |
+| exit-virtual | 41 | 50 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
 #### Equipment minimum-shape exceptions
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
@@ -354,25 +379,27 @@ wall-input retention is a separate unresolved regression.
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 76676 | 1308016 |
-| D-6 | 60096 | 1011500 |
-| A-8 | 69672 | 735216 |
-| A-6 | 53636 | 577804 |
-| C-6 | 49540 | 538448 |
-| B-6 | 47648 | 519104 |
-| L-6 | 43296 | 468136 |
-| C-4 | 35008 | 398068 |
-| B-4 | 33516 | 381756 |
-| L-4 | 30524 | 346908 |
+| D-8 | 76708 | 1308144 |
+| D-6 | 60128 | 1011628 |
+| A-8 | 69736 | 735280 |
+| A-6 | 53700 | 577868 |
+| C-6 | 49604 | 538512 |
+| B-6 | 47712 | 519168 |
+| L-6 | 43360 | 468200 |
+| C-4 | 35072 | 398132 |
+| B-4 | 33580 | 381820 |
+| L-4 | 30588 | 346972 |
 
-Beijing and other city emblems share a retained two-slot texture atlas. Beijing's
-50%-larger footprint is fitted at headlight height before batching, so switching
-cities never rebuilds prepared trains. The additional fitted decals are included
-in these actual counts; `train-cab` pins scale, alignment and separate UV slots.
-Transparent atlas pixels discard before depth writes so the overlapping unused
-decal cannot occlude active ink. `check-beijing-style` compares rendered glyph
-pixels at three angles in High/Low against a zero-cutoff negative control. This
-material-only correction leaves the measured geometry counts unchanged.
+Standard, Beijing and Chengdu emblems share a retained three-slot texture atlas.
+Beijing's larger decal is fitted before batching, so switching cities never
+rebuilds prepared trains. The additional fitted decals are included in these
+actual counts. Chengdu adds one retained lower decal per cab. `train-cab`
+pins scale and separate UV slots at both ends and detail levels; `train-lod` pins
+the regenerated counts. Transparent atlas pixels discard before depth writes so
+the overlapping unused decal cannot occlude active ink. `check-beijing-style`
+compares rendered glyph pixels at three angles in High/Low against a zero-cutoff
+negative control. The same alpha-discard policy applies to Chengdu; the counts
+above include its retained lower decals.
 
 ### Passenger models (乘客)
 
@@ -642,7 +669,7 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | Exploded viewer | `node tools/check-exploded-view.mjs`, `npm run bench:explode` |
 | Playback tails | `npm run bench:sim-stalls` |
 | Actual model counts | `node tools/model-triangle-inventory.mjs` |
-| City-specific counts | Set `MODEL_CITY=shenzhen`, `shanghai` or `beijing`, then run the inventory command |
+| City-specific counts | Set `MODEL_CITY=shenzhen`, `shanghai`, `beijing` or `chengdu`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
 

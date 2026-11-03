@@ -2303,6 +2303,106 @@ for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Sh
   disposeObject(root)
 })
 
+for(const bays of [1,2,3])for(const rot of [0,1,2,3])test(`Chengdu covered exit ${bays} bays rotation ${rot}: green edges, slanted portal and retained sign`,async()=>{
+  const mod=createModule(bays===2?'exit':`exit-covered-${bays}`,0,0,0,'cd');mod.rot=rot
+  const saved=structuredClone(mod),local={...ctx,data:{...data,cityStyle:'chengdu',modules:[mod]}}
+  const root=buildModule(mod,local),names=[];root.traverse(o=>names.push(o.name))
+  assert.equal(root.userData.exitCityStyle,'chengdu')
+  for(const [name,count] of [['chengdu-green-rolled-edge',2],['chengdu-slanted-front-jamb',2],['chengdu-side-glass',10]])assert.equal(names.filter(n=>n===name).length,count)
+  assert.ok(names.includes('chengdu-silver-curved-roof'))
+  const sign=root.getObjectByName('chengdu-entrance-sign'),map=sign.material.map,version=map.version
+  assert.equal(map.image.width,2048);assert.equal(map.image.height,384)
+  const {modelDetailGeometry}=await import('../src/render/modelDetail.ts'),original=[]
+  root.traverse(o=>{if(o.isMesh)original.push([o,o.geometry])})
+  try {
+    for(const low of [false,true]) {
+      for(const [mesh,geometry] of original)mesh.geometry=low?(modelDetailGeometry(mesh)??geometry):geometry
+      root.updateMatrixWorld(true)
+      const skins=original.map(([mesh])=>mesh).filter(m=>['chengdu-silver-curved-roof','chengdu-pale-soffit','chengdu-dark-edge-recess'].includes(m.name))
+      const edges=original.map(([mesh])=>mesh).filter(m=>m.name==='chengdu-green-rolled-edge')
+      for(const skin of skins)for(const edge of edges) {
+        const overlap=box(skin).intersect(box(edge)).getSize(new THREE.Vector3())
+        assert.ok(overlap.x*overlap.y*overlap.z<1e-9,'silver roof/soffit must not penetrate green trim, including front caps')
+      }
+      const pieces=original.map(([mesh])=>mesh),jambs=pieces.filter(m=>m.name==='chengdu-slanted-front-jamb')
+      const fitted=pieces.filter(m=>['chengdu-stone-plinth','chengdu-green-sill','chengdu-side-glass'].includes(m.name))
+      for(const jamb of jambs) {
+        const p=jamb.geometry.attributes.position,n=jamb.geometry.attributes.normal
+        let back
+        for(let i=0;i<n.count;i++)if(n.getY(i)<-.9) {
+          const normal=new THREE.Vector3().fromBufferAttribute(n,i).applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(jamb.matrixWorld))
+          back=new THREE.Plane().setFromNormalAndCoplanarPoint(normal,jamb.localToWorld(new THREE.Vector3().fromBufferAttribute(p,i)));break
+        }
+        assert.ok(back,'the actual column has an inclined rear face')
+        for(const mesh of fitted) {
+          const vertices=mesh.geometry.attributes.position
+          for(let i=0;i<vertices.count;i++)assert.ok(back.distanceToPoint(mesh.localToWorld(new THREE.Vector3().fromBufferAttribute(vertices,i)))>=.003,'stone, sill and glazing must clear the actual inclined column at High and Low')
+        }
+        jamb.geometry.computeBoundingBox();assert.equal(jamb.geometry.boundingBox.min.z,0,'the column seats on the entrance floor')
+      }
+      const bases=pieces.filter(m=>m.name==='chengdu-stone-plinth'),sills=pieces.filter(m=>m.name==='chengdu-green-sill'),panes=pieces.filter(m=>m.name==='chengdu-side-glass'),posts=pieces.filter(m=>m.name==='chengdu-glazing-mullion')
+      for(const [left,right] of [[bases,sills],[panes,sills],[panes,posts]])for(const a of left)for(const b of right) {
+        const size=box(a).intersect(box(b)).getSize(new THREE.Vector3())
+        assert.ok(size.x*size.y*size.z<1e-9,'side base, sill, glass and mullions must not interpenetrate')
+      }
+      const normal=new THREE.Vector3(0,0,1).transformDirection(sign.matrixWorld),w=sign.geometry.parameters.width,h=sign.geometry.parameters.height
+      for(const u of [-.48,0,.48])for(const v of [-.4,0,.4]) {
+        const target=sign.localToWorld(new THREE.Vector3(u*w,v*h,0)),origin=target.clone().addScaledVector(normal,3)
+        const hit=new THREE.Raycaster(origin,normal.clone().negate()).intersectObject(root)[0]
+        assert.equal(hit?.object,sign,`the complete plate must clear front columns at ${low?'Low':'High'}`)
+      }
+    }
+  }finally{for(const [mesh,geometry] of original)mesh.geometry=geometry}
+  artworkTest.prepareArtwork(root)
+  assert.ok(artworkTest.repaintArtwork(root,{...local.data,name:'孵化园',nameEn:'Incubation Park Station',lines:[{...LINE,colour:'#123456'}]}))
+  assert.equal(sign.material.map,map);assert.equal(map.version,version+1)
+  assert.equal(map.image.width,2048);assert.equal(map.image.height,384,'repaint retains native resolution')
+  assert.deepEqual(mod,saved,'preview geometry must not mutate authored placement')
+  assert.ok(box(root).getSize(new THREE.Vector3()).z<4.01)
+  disposeObject(root)
+})
+
+for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Chengdu ${id} rotation ${rot}: charcoal blade and bound live labels`,()=>{
+  const mod=createModule(id,0,0,0,'cd-guide');mod.rot=rot
+  const exit=createModule('exit-virtual',2,2,0,'cd-bound');exit.cfg.name='D1口'
+  if(id==='guidepost')mod.cfg.exitId=exit.id;else mod.cfg.name='D1口'
+  const local={...ctx,data:{...data,cityStyle:'chengdu',modules:[mod,exit]}}
+  const root=buildModule(mod,local)
+  assert.equal(root.userData.guideCityStyle,'chengdu');assert.equal(root.userData.guideLabels.exit,'D1')
+  assert.ok(root.getObjectByName('chengdu-guide-blue-logo-box'))
+  assert.ok(root.getObjectByName('chengdu-guide-charcoal-blade'))
+  const foot=root.getObjectByName('chengdu-guide-triangular-base')
+  const column=root.getObjectByName('chengdu-guide-charcoal-blade'),points=column.geometry.attributes.position
+  const top=new Set(),bottom=new Set()
+  for(let i=0;i<points.count;i++) {
+    const key=`${points.getX(i).toFixed(6)},${points.getY(i).toFixed(6)}`
+    if(points.getZ(i)<.001)bottom.add(key)
+    if(points.getZ(i)>2.96)top.add(key)
+  }
+  assert.equal(top.size,3);assert.deepEqual(top,bottom,'black shaft keeps its triangular section')
+  const collar=root.getObjectByName('chengdu-guide-blue-logo-box'),crown=root.getObjectByName('chengdu-guide-charcoal-crown')
+  const plan=mesh=>{const p=mesh.geometry.attributes.position,seen=new Map();for(let i=0;i<p.count;i++)seen.set(`${p.getX(i).toFixed(6)},${p.getY(i).toFixed(6)}`,[p.getX(i),p.getY(i)]);return [...seen.values()]}
+  const black=plan(column),blue=plan(collar),upper=plan(crown)
+  assert.equal(blue.length,3);assert.deepEqual(upper,black,'upper black prism has the same section')
+  for(const [section,side] of [[black,.30],[blue,.30],[plan(foot),.342]])for(let i=0;i<3;i++) {
+    const a=section[i],b=section[(i+1)%3],c=section[(i+2)%3],ab=[b[0]-a[0],b[1]-a[1]],ac=[c[0]-a[0],c[1]-a[1]]
+    assert.ok(Math.abs(Math.hypot(...ab)-side)<1e-6,'all three edges have equal length')
+    const cosine=(ab[0]*ac[0]+ab[1]*ac[1])/(Math.hypot(...ab)*Math.hypot(...ac))
+    assert.ok(Math.abs(cosine-.5)<1e-6,'every Chengdu corner is 60 degrees')
+  }
+  const cos=Math.cos(Math.PI/6),sin=Math.sin(Math.PI/6)
+  for(const [x,y] of black)assert.ok(blue.some(([X,Y])=>Math.abs(X-(x*cos-y*sin))<1e-6&&Math.abs(Y-(x*sin+y*cos))<1e-6),'blue is the same equilateral section rotated 30 degrees about the shared centroid')
+  column.geometry.computeBoundingBox();collar.geometry.computeBoundingBox();crown.geometry.computeBoundingBox()
+  assert.ok(Math.abs(column.position.z+column.geometry.boundingBox.max.z-collar.position.z)<1e-6,'black stops at the blue section')
+  assert.ok(Math.abs(collar.position.z+collar.geometry.boundingBox.max.z-crown.position.z)<1e-6,'upper black starts above the blue section')
+  assert.equal(column.position.z,.07)
+  artworkTest.prepareArtwork(root)
+  artworkTest.repaintArtwork(root,{...local.data,name:'人民公园',modules:[{...mod,cfg:{...mod.cfg,name:'B口'}},{...exit,cfg:{...exit.cfg,name:'B口'}}]})
+  assert.equal(root.userData.guideLabels.station,'人民公园');assert.equal(root.userData.guideLabels.exit,'B')
+  const size=box(root).getSize(new THREE.Vector3());assert.ok(size.x<=1&&size.y<=1&&size.z<=4.001)
+  disposeObject(root)
+})
+
 async function assertLowSolidSides(mesh) {
   const {modelDetailGeometry}=await import('../src/render/modelDetail.ts')
   const high=mesh.geometry;mesh.geometry=modelDetailGeometry(mesh)

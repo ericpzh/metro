@@ -1,4 +1,5 @@
 import { normalizeCityStyle } from '../../../sim/cityStyles.ts'
+import { exitHeaderScale } from '../../exitHeaderResolution.ts'
 // ModuleSystem — the placed equipment: building every module through the
 // model factory, the contact blobs, plus the selection and
 // collision highlights (moved verbatim from `render/scene.ts`: `buildModules`,
@@ -72,6 +73,7 @@ export class ModuleSystem extends SceneSystem {
       // Covered exits change their shell as well as their printed city identity.
       if (root?.userData.guideCityStyle && root.userData.guideCityStyle !== normalizeCityStyle(data.cityStyle)) continue
       if (root?.userData.exitCityStyle && root.userData.exitCityStyle !== normalizeCityStyle(data.cityStyle)) continue
+      if (root?.userData.exitHeaderScale!==undefined && root.userData.exitHeaderScale !== exitHeaderScale(data.cityStyle)) continue
       if (root && repaintArtwork(root,data)) retained.add(mod.id)
     }
     return retained

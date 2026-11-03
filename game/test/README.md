@@ -1,3 +1,21 @@
+Chengdu coverage is split across `city-style` (distinct P1/P6 contours, palette,
+save and undo), `module-build` (all bay counts/rotations, retained plates and bound
+pylon labels), `line-map` (supplied poster), `menu-thumbnails` (static city assets),
+and `model-detail` (High/Low restoration and batching budgets). `module-build`
+also raycasts the whole Chengdu entrance plate ahead of the columns and pins
+Chengdu's equilateral 60-degree sections, congruent blue middle turned 30 degrees,
+non-overlapping black sections, and disjoint roof/trim volumes in High and Low.
+The Chengdu entrance tests also derive each column's true back plane and check
+stone, sill and glass clearance vertex by vertex, horizontal column feet, and
+disjoint stone/sill/glass/mullion volumes for every bay count and rotation.
+`city-style` checks right-side/top-aligned pillar English, vertically centred
+line badges, native-resolution text drawing and resolution-aware city switches.
+`train-cab` checks
+Chengdu lettering over livery on all five stocks at both ends/detail levels,
+including outward-facing D decals; `train-lod` pins regenerated counts. The production
+check is `node tools/check-chengdu-style.mjs`; screenshots are functional evidence,
+and measured timings belong only in the shared performance reference.
+
 The active passenger source is the selected soft-human model. `passenger-library`
 requires 440 recipes (twenty outfits/category × eleven bags), both ages and all walks;
 `passenger-clothing` pins RGB colors, FBX/recipe hashes and source-body skirt bridge.

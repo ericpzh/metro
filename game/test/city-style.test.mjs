@@ -11,11 +11,102 @@ import { populationEdit, applyPopulationEdit } from '../src/sim/populationEdit.t
 import { useStore } from '../src/app/store.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { exitHeaderCanvas } from '../src/render/models/pieces/ExitModel.ts'
+import { drawChengduGuideLabels } from '../src/render/models/pieces/ChengduGuidepost.ts'
+import { drawChengduHeader } from '../src/render/models/pieces/ChengduExitHeader.ts'
+import { exitHeaderResolution } from '../src/render/exitHeaderResolution.ts'
 import { drawMetroMark, refreshCityTrainMark } from '../src/render/cityBranding.ts'
+import { drawChengduLogo } from '../src/render/chengduBranding.ts'
+import chengduContours from '../src/assets/branding/chengdu-contours.json' with { type: 'json' }
 import { presentationKeepIds } from '../src/render/presentationEdit.ts'
 import { getLanguage, setLanguage } from '../src/sim/i18n.ts'
 
 const fixture = () => toState({ name: '光明', nameEn: 'Guangming', seed: 1, cells: [], modules: [], lines: [defaultLine('6', 'up', 'third-rail')] })
+
+test('Chengdu line badges share the station-name ink centre with and without English',()=>{
+  for(const english of ['Tanwei','']) {
+    const {g,ops}=stubCanvas(512,96),rectangles=[],fill=g.fillRect
+    g.fillRect=(x,y,w,h)=>{rectangles.push({x,y,w,h,colour:g.fillStyle});fill(x,y,w,h)}
+    const lines=[{...defaultLine('5','up','third-rail'),colour:'#123456'},{...defaultLine('6','up','third-rail'),colour:'#654321'}]
+    drawChengduHeader(g,'坦尾','B',english,512,lines)
+    const station=ops.words.filter(w=>w.text==='坦尾站'||english&&w.text===english)
+    const centre=(Math.min(...station.map(w=>w.y-w.size/2))+Math.max(...station.map(w=>w.y+w.size/2)))/2
+    for(const line of lines) {
+      const rect=rectangles.find(r=>r.colour===line.colour)
+      assert.equal(rect.y+rect.h/2,centre,'badge box aligns with the bilingual station name')
+      const text=ops.words.filter(w=>w.text===`${line.id}号线`||w.text===`Line ${line.id}`)
+      const ink=(Math.min(...text.map(w=>w.y-w.size/2))+Math.max(...text.map(w=>w.y+w.size/2)))/2
+      assert.ok(Math.abs(ink-centre)<=.5,'badge text aligns with the middle text')
+    }
+  }
+})
+
+test('Chengdu headers render native text at fourfold resolution, with bounded wide panels',()=>{
+  const previous=globalThis.document,{g}=stubCanvas(),scales=[],textScales=[]
+  let scale=1;g.scale=(x,y)=>{scales.push([x,y]);scale=x};const fill=g.fillText;g.fillText=(...args)=>{textScales.push(scale);fill(...args)}
+  globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>g})}
+  try {
+    const pixels=exitHeaderResolution(512,'chengdu'),canvas=exitHeaderCanvas('坦尾','B','Tanwei',512,{cityStyle:'chengdu'},pixels.width/512)
+    assert.deepEqual(pixels,{width:2048,height:384});assert.equal(canvas.width,2048);assert.equal(canvas.height,384)
+    assert.deepEqual(scales,[[4,4]]);assert.ok(textScales.length>0&&textScales.every(s=>s===4),'scale applies while drawing text, not when stretching a low-resolution image')
+    assert.deepEqual(exitHeaderResolution(512,'guangzhou'),{width:512,height:96})
+    assert.deepEqual(exitHeaderResolution(2048,'chengdu'),{width:4096,height:192})
+  } finally {globalThis.document=previous}
+})
+
+test('city changes replace lower-resolution doorway artwork and retain same-resolution repaints',()=>{
+  const meshes=new THREE.Group(),root=new THREE.Group();root.userData.moduleId='door';root.userData.exitHeaderScale=1
+  bindArtwork(root,()=>{});prepareArtwork(root);meshes.add(root)
+  const data={...fixture(),cityStyle:'chengdu',modules:[{id:'door'}]}
+  const repaint=next=>ModuleSystem.prototype.repaintPresentation.call({moduleMeshes:meshes},next,new Set())
+  assert.ok(!repaint(data).has('door'),'switching into Chengdu replaces the original lower-resolution allocation')
+  root.userData.exitHeaderScale=4;assert.ok(repaint(data).has('door'),'renaming keeps the sharp allocation')
+  assert.ok(!repaint({...data,cityStyle:'guangzhou'}).has('door'),'undo restores the original resolution policy')
+})
+
+test('Chengdu English starts at the Chinese top edge on its right',()=>{
+  for(const name of ['坦尾','很长的中文车站名称']) {
+    const {g,ops}=stubCanvas(192,640),translations=[]
+    g.translate=(x,y)=>translations.push({x,y})
+    drawChengduGuideLabels(g,name,'B','Tanwei')
+    const chinese=ops.words.find(w=>w.text===Array.from(name)[0]),english=ops.words.find(w=>w.text==='Tanwei'),anchor=translations[0]
+    assert.ok(anchor.x>chinese.x+chinese.size/2,'English is beside the Chinese on its right')
+    assert.ok(Math.abs(anchor.y-(chinese.y-chinese.size/2))<1e-6,'both names share a top edge')
+    assert.equal(english.x,0);assert.equal(english.y,0)
+    assert.deepEqual(ops.rotations,[Math.PI/2]);assert.equal(g.textAlign,'left')
+  }
+})
+
+test('Chengdu P1 train/UI and P6 exit logos keep distinct supplied contours and colours',()=>{
+  assert.notEqual(chengduContours.trainUi.sha256,chengduContours.exit.sha256)
+  assert.ok(chengduContours.trainUi.aspect>2&&chengduContours.trainUi.aspect<2.5)
+  assert.ok(chengduContours.exit.aspect>2.5&&chengduContours.exit.aspect<3)
+  assert.ok(chengduContours.exit.layers[3].paths.length>chengduContours.trainUi.layers[3].paths.length,'P6 also carries the supplied Chinese lettering')
+  const ui=stubCanvas(),exit=stubCanvas()
+  drawMetroMark(ui.g,64,64,118,'#006bb1','chengdu')
+  drawChengduLogo(exit.g,64,64,118,true,'#ffffff')
+  assert.deepEqual(ui.ops.filled,['#0068b2','#1685c8','#7cbde6','#281a16'])
+  assert.deepEqual(exit.ops.filled,['#ffffff','#ffffff','#ffffff','#ffffff'])
+  assert.equal(ui.ops.texts.length,0);assert.equal(exit.ops.texts.length,0,'logos use original glyph contours')
+})
+
+test('Chengdu is fifth, preserves saved colours and uses the supplied map palette for new lines',()=>{
+  assert.equal(CITY_STYLE_IDS[4],'chengdu')
+  const before=fixture(),previous=useStore.getState()
+  try {
+    useStore.setState({station:before,past:[],future:[],geometryVersion:0})
+    useStore.getState().setCityStyle('chengdu')
+    assert.equal(useStore.getState().station.lines,before.lines)
+    assert.equal(useStore.getState().geometryVersion,0)
+    useStore.getState().addLine()
+    assert.equal(useStore.getState().station.lines.at(-1).colour,'#ff6034')
+    assert.equal(parse(serialize(useStore.getState().station)).state.cityStyle,'chengdu')
+    useStore.getState().undo();useStore.getState().undo()
+    assert.equal(useStore.getState().station,before)
+    useStore.getState().redo();assert.equal(useStore.getState().station.cityStyle,'chengdu')
+    for(const [id,colour] of Object.entries({'1':'#3c0899','4':'#00af66','7':'#70d1df','18':'#1d6b70','蓉2号线':'#80bc28'}))
+      assert.equal(defaultLine(id,'up','third-rail',5,'chengdu').colour,colour)
+  } finally {useStore.setState(previous)}
+})
 
 test('city identity round-trips, old and unknown saves default to Guangzhou', () => {
   for (const cityStyle of CITY_STYLE_IDS) {

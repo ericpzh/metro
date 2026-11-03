@@ -60,9 +60,9 @@ test('Shanghai city models have cached 132px PNG previews',()=>{
   }
 })
 
-test('Beijing exits, guideposts and maps have distinct cached 132px PNG previews',()=>{
+for(const city of ['chengdu','beijing'])test(`${city} exits, guideposts and maps have distinct cached 132px PNG previews`,()=>{
   for(const opt of MODULE_OPTIONS.filter(o=>['exit','guidepost','linemap'].includes(o.type))) {
-    const png=readFileSync(new URL(`beijing/${opt.id}.png`,assetDir))
+    const png=readFileSync(new URL(`${city}/${opt.id}.png`,assetDir))
     assert.equal(png.readUInt32BE(16),132);assert.equal(png.readUInt32BE(20),132)
     assert.ok(!png.equals(readFileSync(new URL(`${opt.id}.png`,assetDir))),opt.id)
   }

@@ -109,6 +109,12 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
   beijingMark.name = `${s.cls.toLowerCase()}-beijing-cab-mark`
   trainMarkAtlasUV(beijingMark, true)
   frontParts.push({mesh: beijingMark, reference: .2, lift: .004, scale: 1})
+  // Chengdu's black METRO lettering needs the coloured bumper, below the dark mask.
+  const chengduMark = plate(g, mats.trainMark, .32, .30,
+    nose + d * .2, 0, .99, d > 0 ? Math.PI / 2 : -Math.PI / 2)
+  chengduMark.name = `${s.cls.toLowerCase()}-chengdu-cab-mark`
+  trainMarkAtlasUV(chengduMark, 'chengdu')
+  frontParts.push({mesh: chengduMark, reference: .2, lift: .008, scale: 1})
   const wiperY = s.cls === 'C' ? -d * s.width * 0.205 : 0
   buildTrainWiper(g, mats, (y, z, lift) => new THREE.Vector3(nose + d * (0.24 + lift), y, z),
     wiperY - d * 0.18, 1.59, wiperY + d * 0.12, 2.12, wiperY + d * 0.18, 2.51)

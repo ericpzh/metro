@@ -107,12 +107,55 @@ test('Beijing lettering is 50% larger and vertically centred on both headlight p
    const lamps=root.children.filter(m=>m.name==='cab-round-light')
    const centre=lamps.reduce((sum,m)=>sum+new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()).z,0)/lamps.length
    assert.ok(Math.abs(b.getCenter(new THREE.Vector3()).z-centre)<1e-6)
-   for(const [mesh,lo,hi] of [[standard,0,.5],[beijing,.5,1]]) {
+   const chengdu=root.getObjectByName(`${cls.toLowerCase()}-chengdu-cab-mark`)
+   for(const [mesh,lo,hi] of [[standard,0,1/3],[beijing,1/3,2/3],[chengdu,2/3,1]]) {
     const uv=mesh.geometry.attributes.uv
-    for(let i=0;i<uv.count;i++)assert.ok(uv.getX(i)>=lo&&uv.getX(i)<=hi,'each footprint samples its own city artwork')
+    for(let i=0;i<uv.count;i++)assert.ok(uv.getX(i)>=lo-1e-7&&uv.getX(i)<=hi+1e-7,'each footprint samples its own city artwork')
    }
   }finally{disposeObject(root)}
  }
+}))
+
+test('Chengdu logos sit over the coloured strip on A/B/C/L at both ends and both detail levels',()=>withKit(mats=>{
+ for(const cls of ['A','B','C','L'])for(const outward of [-1,1]) {
+  const root=new THREE.Group();buildCab(root,mats,STOCK[cls],0,outward,true);root.updateMatrixWorld(true)
+  try {
+   const mark=root.getObjectByName(`${cls.toLowerCase()}-chengdu-cab-mark`)
+   const paint=root.children.filter(m=>['cab-shell','cab-face-paint','cab-livery-paint'].includes(m.name)),original=paint.map(m=>m.geometry)
+   assert.ok(Math.abs(new THREE.Box3().setFromObject(mark).getCenter(new THREE.Vector3()).z-.99)<1e-6)
+   for(const low of [false,true]) {
+    paint.forEach((m,i)=>m.geometry=low?m.userData.lowDetailGeometry:original[i])
+    for(const y of [-.12,0,.12])for(const z of [.95,1.03]) {
+     const hit=new THREE.Raycaster(new THREE.Vector3(outward*4,y,z),new THREE.Vector3(-outward,0,0)).intersectObjects(paint)[0]
+     assert.equal(hit?.object.name,'cab-livery-paint',`${cls} ${outward} ${low?'Low':'High'}: lettering has coloured paint behind it`)
+    }
+   }
+   paint.forEach((m,i)=>m.geometry=original[i])
+  }finally{disposeObject(root)}
+ }
+}))
+
+test('D Chengdu logos follow the coloured livery ring at both ends and both detail levels',()=>withKit(mats=>{
+ const root=buildTrain(mats,{x:0,y:0,z:0,cars:1,stock:'D',doorsOpen:false,colour:'#a4343a',dirSign:1,yaw:0})
+ root.updateMatrixWorld(true)
+ try {
+  const marks=[];root.traverse(m=>{if(m.name==='d-chengdu-cab-mark')marks.push(m)})
+  assert.equal(marks.length,2)
+  for(const mark of marks) {
+   const paint=mark.parent.children.filter(m=>['d-cab-livery','d-cab-mask','d-cab-gold-trim'].includes(m.name)),original=paint.map(m=>m.geometry),originalMark=mark.geometry
+   for(const low of [false,true]) {
+    paint.forEach((m,i)=>m.geometry=low?m.userData.lowDetailGeometry:original[i])
+    mark.geometry=low?mark.userData.lowDetailGeometry:originalMark
+    mark.geometry.computeBoundingBox();const point=mark.geometry.boundingBox.getCenter(new THREE.Vector3())
+    const origin=mark.parent.localToWorld(point.clone().add(new THREE.Vector3(3,0,0))),direction=new THREE.Vector3(-1,0,0).transformDirection(mark.parent.matrixWorld)
+    const ray=new THREE.Raycaster(origin,direction),back=ray.intersectObjects(paint)[0],decal=ray.intersectObject(mark)[0]
+    assert.equal(back?.object.name,'d-cab-livery')
+    assert.ok(decal&&decal.distance<back.distance,'the front-facing logo stays visible above the paint')
+   }
+   paint.forEach((m,i)=>m.geometry=original[i])
+   mark.geometry=originalMark
+  }
+ }finally{disposeObject(root)}
 }))
 
 test('D Beijing lettering follows the curved lamp centre at both cab ends',()=>withKit(mats=>{

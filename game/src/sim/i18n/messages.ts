@@ -1,5 +1,8 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  "city_chengdu": { "zh": "成都", "en": "Chengdu" },
+  "chengdu_metro": { "zh": "成都地铁", "en": "Chengdu Metro" },
+  "printed_chengdu_metro": { "zh": "Chengdu Metro", "en": "Chengdu Metro" },
   "city_beijing": { "zh": "北京", "en": "Beijing" },
   "beijing_metro": { "zh": "北京地铁", "en": "Beijing Subway" },
   "printed_beijing_metro": { "zh": "Beijing Subway", "en": "Beijing Subway" },

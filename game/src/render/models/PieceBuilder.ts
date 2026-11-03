@@ -678,7 +678,7 @@ export function createModelMaterials(): ModelMaterials {
     trainGlass: new THREE.MeshStandardMaterial({ color: C.trainGlass, roughness: 0.12, metalness: 0.5 }),
     trainTrim: new THREE.MeshStandardMaterial({ color: C.trainTrim, roughness: 0.4, metalness: 0.25 }),
     // Atlas slots use overlapping decal footprints: empty pixels must never occlude the active mark.
-    trainMark: new THREE.MeshBasicMaterial({ map: canvasTexture(256, 150, (g) => drawMetroMark(g, 64, 75, 140, `#${C.trainMark.toString(16).padStart(6, '0')}`)), transparent: true, alphaTest: .01 }),
+    trainMark: new THREE.MeshBasicMaterial({ map: canvasTexture(384, 150, (g) => drawMetroMark(g, 64, 75, 140, `#${C.trainMark.toString(16).padStart(6, '0')}`)), transparent: true, alphaTest: .01 }),
     headlight: new THREE.MeshBasicMaterial({ color: 0xfff6e2 }),
     taillight: new THREE.MeshBasicMaterial({ color: 0xff2318 }),
     screen: new THREE.MeshBasicMaterial({ map: canvasTexture(128, 96, (g) => g.drawImage(lcdCanvas(), 0, 0)), side: THREE.DoubleSide }),

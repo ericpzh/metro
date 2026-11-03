@@ -1,3 +1,4 @@
+import { drawChengduLogo } from './chengduBranding.ts'
 import { drawBeijingTrainMark } from './beijingTrainMark.ts'
 import { cityStyleFor, type CityStyle } from '../sim/cityStyles.ts'
 import type * as THREE from 'three'
@@ -17,6 +18,7 @@ import type * as THREE from 'three'
  * `cx, cy` is the centre of the mark's bounding box and `size` its height.
  */
 export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: number, size: number, colour: string, city?: CityStyle): void {
+  if (cityStyleFor(city).logo === 'chengdu') { drawChengduLogo(g,cx,cy,size);return }
   if (cityStyleFor(city).logo === 'beijing') { drawBeijingMetroMark(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'shanghai') { drawShanghaiMark(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'shenzhen') {
@@ -73,8 +75,9 @@ export function refreshCityTrainMark(material: THREE.MeshBasicMaterial, city?: C
   const g = canvas?.getContext('2d')
   if (!g || !canvas || !material.map) return
   g.clearRect(0, 0, canvas.width, canvas.height)
-  const width = canvas.width === 256 ? 128 : canvas.width
-  if (style.trainMark === 'beijing-calligraphy') drawBeijingTrainMark(g,canvas.width-width/2,canvas.height/2,width-8,style.trainMarkColour)
+  const width = canvas.width >= 256 ? 128 : canvas.width
+  if (style.logo === 'chengdu') drawChengduLogo(g,canvas.width-width/2,canvas.height/2,width-10)
+  else if (style.trainMark === 'beijing-calligraphy') drawBeijingTrainMark(g,canvas.width >= 256 ? width*1.5 : width/2,canvas.height/2,width-8,style.trainMarkColour)
   else drawMetroMark(g, width / 2, canvas.height / 2, (style.logo==='shanghai'?Math.min(width,canvas.height):canvas.height) - 10, style.logoColour, city)
   material.map.needsUpdate = true
   material.userData.cityLogo = style.logo
