@@ -29,6 +29,8 @@ export interface BillboardSpec {
   panelH: number
   /** Poster centre height above the floor top, metres. */
   panelZ: number
+  /** Total framed height for large formats, metres. */
+  totalHeight?: number
   /** The poster silhouette this panel is cut for (`AD_POSTERS[].shapes`). */
   shape: BillboardShape
   /**
@@ -46,10 +48,10 @@ export interface BillboardSpec {
  * without stretching, and the portrait and square sit inside their cells.
  */
 export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
-  '16x9-3m': { variant: '16x9-3m', label: msg('billboard_16x9_3m'), w: 6, panelW: 3 * 16 / 9, panelH: 3, panelZ: 3 / 2 + 0.25, shape: 'landscape', family: ['16x9-3m'] },
-  '16x9-4m': { variant: '16x9-4m', label: msg('billboard_16x9_4m'), w: 8, panelW: 4 * 16 / 9, panelH: 4, panelZ: 4 / 2 + 0.25, shape: 'landscape', family: ['16x9-4m'] },
-  '4x3-3m': { variant: '4x3-3m', label: msg('billboard_4x3_3m'), w: 5, panelW: 3 * 4 / 3, panelH: 3, panelZ: 3 / 2 + 0.25, shape: 'landscape', family: ['4x3-3m'] },
-  '4x3-4m': { variant: '4x3-4m', label: msg('billboard_4x3_4m'), w: 6, panelW: 4 * 4 / 3, panelH: 4, panelZ: 4 / 2 + 0.25, shape: 'landscape', family: ['4x3-4m'] },
+  '16x9-3m': { variant: '16x9-3m', label: msg('billboard_16x9_3m'), w: 6, panelW: (3 - 0.24) * 16 / 9, panelH: 3 - 0.24, panelZ: 3 / 2, totalHeight: 3, shape: 'landscape', family: ['16x9-3m'] },
+  '16x9-4m': { variant: '16x9-4m', label: msg('billboard_16x9_4m'), w: 7, panelW: (4 - 0.24) * 16 / 9, panelH: 4 - 0.24, panelZ: 4 / 2, totalHeight: 4, shape: 'landscape', family: ['16x9-4m'] },
+  '4x3-3m': { variant: '4x3-3m', label: msg('billboard_4x3_3m'), w: 4, panelW: (3 - 0.24) * 4 / 3, panelH: 3 - 0.24, panelZ: 3 / 2, totalHeight: 3, shape: 'landscape', family: ['4x3-3m'] },
+  '4x3-4m': { variant: '4x3-4m', label: msg('billboard_4x3_4m'), w: 6, panelW: (4 - 0.24) * 4 / 3, panelH: 4 - 0.24, panelZ: 4 / 2, totalHeight: 4, shape: 'landscape', family: ['4x3-4m'] },
   wide: {
     variant: 'wide',
     label: msg('landscape_16_9'),

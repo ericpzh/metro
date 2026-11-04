@@ -158,16 +158,16 @@ Never raise a limit to conceal a regression.
 | exit-virtual | 46 | 60 |
 | road | 10 | 50 |
 | stair-block | 34 | 48 |
-| billboard-wide | 6 | 40 |
-| billboard-standard | 6 | 40 |
-| billboard-large | 6 | 40 |
-| billboard-panorama | 6 | 40 |
-| billboard-portrait | 6 | 40 |
-| billboard-square | 6 | 40 |
-| billboard-16x9-3m | 6 | 40 |
-| billboard-16x9-4m | 6 | 40 |
-| billboard-4x3-3m | 6 | 40 |
-| billboard-4x3-4m | 6 | 40 |
+| billboard-wide | 4 | 26 |
+| billboard-standard | 4 | 26 |
+| billboard-large | 4 | 26 |
+| billboard-panorama | 4 | 26 |
+| billboard-portrait | 4 | 26 |
+| billboard-square | 4 | 26 |
+| billboard-16x9-3m | 4 | 26 |
+| billboard-16x9-4m | 4 | 26 |
+| billboard-4x3-3m | 4 | 26 |
+| billboard-4x3-4m | 4 | 26 |
 | linemap-stand | 16 | 40 |
 | hanger-roof | 6 | 36 |
 | hanger-post | 14 | 36 |
@@ -332,16 +332,16 @@ faces; they do not establish FPS or GPU cost. Records:
 | exit-virtual | 46 / 60 | Three printed sides and shaped metro-logo collar. |
 | road | 10 / 50 | Road surface plus four lane/edge markings. |
 | stair-block | 34 / 48 | All four solid treads, exposed risers and closed side silhouette. |
-| billboard-wide | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-standard | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-large | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-panorama | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-portrait | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-square | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-16x9-3m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-16x9-4m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-4x3-3m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
-| billboard-4x3-4m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-wide | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-standard | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-large | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-panorama | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-portrait | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-square | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-16x9-3m | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-16x9-4m | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-4x3-3m | 4 / 26 | Original cropped artwork and frame surface. |
+| billboard-4x3-4m | 4 / 26 | Original cropped artwork and frame surface. |
 | linemap-stand | 16 / 40 | Base, support and two separately oriented readable map faces. |
 | hanger-roof | 6 / 36 | Support bar visible from every direction. |
 | hanger-post | 14 / 36 | Bar, upright and base. |

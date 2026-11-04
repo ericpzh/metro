@@ -143,9 +143,9 @@ test('the formats are a palette of real panels', () => {
   // under a poster is not in its way.
   for (const variant of BILLBOARD_VARIANTS) {
     const spec = BILLBOARD_SPECS[variant]
-    assert.ok(spec.panelW <= spec.w, `${variant}: a ${spec.panelW} m panel cannot fit ${spec.w} cells`)
-    assert.ok(spec.panelZ - spec.panelH / 2 > 0.2, `${variant}: the panel would sit on the floor`)
-    if (spec.panelH < 3) assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
+    assert.ok(spec.panelW + (spec.totalHeight ? 0.12 : 0) <= spec.w, `${variant}: a ${spec.panelW} m panel cannot fit ${spec.w} cells`)
+    assert.ok(spec.panelZ - spec.panelH / 2 >= (spec.totalHeight ? 0.119 : 0.2), `${variant}: the panel would sit on the floor`)
+    if (!spec.totalHeight) assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
   }
 })
 
@@ -186,12 +186,13 @@ test('one material per poster serves every panel size; one geometry per panel', 
   const { wallMountCourses, wallMountMissing } = await import('../src/sim/placement.ts')
   for (const [variant, ratio, height] of [['16x9-3m', 16/9, 3], ['16x9-4m', 16/9, 4], ['4x3-3m', 4/3, 3], ['4x3-4m', 4/3, 4]]) {
     const spec = billboardSpec(variant)
-    assert.equal(spec.panelH, height)
+    assert.equal(spec.totalHeight, height)
+    assert.ok(Math.abs(spec.panelH + 0.24 - height) < 1e-12)
     assert.ok(Math.abs(spec.panelW / spec.panelH - ratio) < 1e-12)
     const mod = createModule(`billboard-${variant}`, 0, 0, 0, variant)
     assert.equal(mod.w, spec.w)
     const courses = wallMountCourses(mod)
-    assert.deepEqual(courses, Array.from({ length: height + 1 }, (_, i) => i))
+    assert.deepEqual(courses, Array.from({ length: height }, (_, i) => i))
     const cells = []
     for (let x = mod.x; x < mod.x + mod.w; x++) for (const course of courses) cells.push({x, y: mod.y - 1, z: mod.z + 1 + course, fill:'solid'})
     assert.equal(wallMountMissing(cells, mod), false)

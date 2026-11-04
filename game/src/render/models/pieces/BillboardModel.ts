@@ -2,7 +2,7 @@
 
 import * as THREE from 'three'
 import { omitModelDetail, surfaceModelDetail } from '../../modelDetail.ts'
-import { PieceBuilder, slab, plate, plateOf } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, plateOf } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { billboardSpec, posterFor } from '../../../sim/billboards.ts'
 import { normRot, rotateLocal } from '../../../sim/track.ts'
@@ -41,11 +41,6 @@ function buildBillboard(ctx: ModuleContext, mod: Extract<Module, { type: 'billbo
   const ad = plateOf(g, face.geometry, face.material, 0, -0.315, pz, Math.PI)
   ad.renderOrder = 1
   ad.userData.adPoster = poster.slug
-  // A small illuminated 广告 / AD bar under the frame.
-  const barZ = pz - ph / 2 - 0.18
-  omitModelDetail(slab(g, ctx.mats.black, 0, -0.36, barZ, Math.min(0.5, pw * 0.7), 0.03, 0.16))
-  const label = plate(g, ctx.mats.glow, Math.min(0.42, pw * 0.6), 0.1, 0, -0.335, barZ, Math.PI)
-  label.renderOrder = 1
   g.userData.adScreen = ad
   return g
 }

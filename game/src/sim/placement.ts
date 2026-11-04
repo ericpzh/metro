@@ -463,7 +463,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // same wall is not "in the way" of a poster five feet above it.
       const spec = billboardSpec(m.cfg?.variant)
       const pz = m.z + 1 + spec.panelZ
-      const half = spec.panelH / 2 + FRAME_PAD
+      const half = spec.panelH / 2 + (spec.totalHeight ? 0.12 : FRAME_PAD)
       return wallPanelBox(m, billboardCells(m), pz - half, pz + half)
     }
     case 'glass': {
@@ -886,10 +886,8 @@ export function wallMountCourses(m: Module): number[] {
     case 'monitor': return m.cfg.mount === 'wall' ? [0, 1, 2] : []
     case 'billboard': {
       const spec = billboardSpec(m.cfg?.variant)
-      if (spec.panelH < 3) return [0]
-      const bottom = Math.max(0, Math.floor(spec.panelZ - spec.panelH / 2 - 0.26))
-      const top = Math.ceil(spec.panelZ + spec.panelH / 2 + 0.12)
-      return Array.from({ length: top - bottom }, (_, i) => bottom + i)
+      if (!spec.totalHeight) return [0]
+      return Array.from({ length: spec.totalHeight }, (_, i) => i)
     }
     case 'exit':
       // 地面 exits use the anchor block as their single wall attachment.

@@ -21,52 +21,52 @@
     {
       "id": "billboard-16x9-3m",
       "file": "billboard-16x9-3m.png",
-      "bytes": 11598
+      "bytes": 11629
     },
     {
       "id": "billboard-16x9-4m",
       "file": "billboard-16x9-4m.png",
-      "bytes": 11625
+      "bytes": 11655
     },
     {
       "id": "billboard-4x3-3m",
       "file": "billboard-4x3-3m.png",
-      "bytes": 12544
+      "bytes": 12675
     },
     {
       "id": "billboard-4x3-4m",
       "file": "billboard-4x3-4m.png",
-      "bytes": 12577
+      "bytes": 12687
     },
     {
       "id": "billboard-large",
       "file": "billboard-large.png",
-      "bytes": 10871
+      "bytes": 11422
     },
     {
       "id": "billboard-panorama",
       "file": "billboard-panorama.png",
-      "bytes": 8144
+      "bytes": 8394
     },
     {
       "id": "billboard-portrait",
       "file": "billboard-portrait.png",
-      "bytes": 10224
+      "bytes": 11247
     },
     {
       "id": "billboard-square",
       "file": "billboard-square.png",
-      "bytes": 10503
+      "bytes": 12012
     },
     {
       "id": "billboard-standard",
       "file": "billboard-standard.png",
-      "bytes": 10283
+      "bytes": 10727
     },
     {
       "id": "billboard-wide",
       "file": "billboard-wide.png",
-      "bytes": 10264
+      "bytes": 11745
     },
     {
       "id": "bin",
