@@ -4,6 +4,9 @@ This is the current measured state and engineering contract, not a run diary.
 Replace superseded values in place. Keep raw reports with source hashes and
 hardware metadata outside this document. Do not describe unmatched workloads as
 a speedup, or an older measurement as validation of newer code.
+Record findings only when they answer a performance question or change a budget
+or benchmark procedure. Functional fixes, test coverage and incidental durations
+belong in their owning code, tests or reports, not in this reference.
 
 ## Reproduce the reported interaction
 
@@ -715,53 +718,3 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | City-specific counts | Set `MODEL_CITY=shenzhen`, `shanghai`, `beijing` or `chengdu`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
-
-### Model inventory upkeep
-
-Replace tables when geometry/detail changes. Generated records live under
-`.preview/perf/current-models/` and the matching `current-models-{city}/` directories.
-Run model-detail, train/passenger LOD and owning geometry tests, then full tests
-and build. Source restoration, ownership and disposal are required at both LODs.
-
-### Exact ramp terrain cuts
-
-`sim/rampSurface.ts` owns exact shared surfaces. Preview, validation, carve and
-mesher use the same retained-volume allowance without editing the source document.
-Pin in `ramp-surface`, `ramp-block-placement` and real browser fit/placement checks.
-
-### Local edit storey-group retention
-
-Reuse groups holding retained remote chunks; replacing their map entries can
-strand geometry outside visibility/teardown. Compare local edits with fresh meshes.
-
-### Tianhe underside block placement
-
-A ground wedge under one ramp can accept a block while an intersecting passage
-still refuses it. Preserve the `(77,-100,-16)` fixture and real-pointer probe.
-
-### Tianhe door under stair
-
-Wall/door support and underside clearance follow actual surfaces, not nominal
-storey rounding. Preview and commit must agree on passage clearance and refusal.
-
-### Wall erasure floor preservation (2026-11-03)
-
-The deterministic `node --test game/test/column-delete.test.mjs` controller fixture
-measured 2.09 ms for right-button press/drag preview and release over four small
-fixtures, with the floor retained and one commit. This is Node test-runner time,
-not real-pointer or rendered latency; it does not establish the 100 ms budget.
-A production browser capture was unavailable because the current workspace's
-unrelated in-progress type errors prevent a fresh game build. The shared selection
-keeps preview separate from the single release commit and introduces no scene picks.
-
-### Whole-wall fill at Tianhe Park
-
-On the supplied Tianhe Park save (118,718 cells, 2,849 modules), a Node.js
-`fillSurface` probe from `(184,-117,-2)`, north face, previously painted 1,644
-cells including `(194,-117,-2)`; the corrected flood painted 1,483 and left
-that other wall unchanged. Six sequential calls measured 301.4/29.5/29.0/
-27.1/33.0/24.2 ms before and 37.8/11.2/10.9/11.8/12.9/10.2 ms after.
-The corrected run followed the original in the same process and benefited from
-shared caches; these are model-call timings, not matched cold interaction or
-browser first-frame measurements. `surfaces.test.mjs` pins the floor boundary,
-opening and inset half-wall connection without relying on the private save.

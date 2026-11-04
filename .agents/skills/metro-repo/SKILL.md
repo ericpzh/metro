@@ -66,8 +66,10 @@ preview/commit contract.
 For performance investigations or changes, read
 [the performance guide](references/performance.md): reproduce the first real
 interaction, bound event work, compare equivalent runs and guard the measured cause.
-This is the repository's only performance document; keep placement audits and
-measurements here, and do not create `game/PERFORMANCE.md` or another parallel report.
+This is the repository's only performance document; keep performance-focused
+placement audits and reproducible measurements here, and do not create
+`game/PERFORMANCE.md` or another parallel report. Functional changes and their
+checks do not need an entry, even if a test or browser check reports a duration.
 Use `npm run bench:usage-tour` for normal demo workflows across Zoo and Tanwei,
 including catalogue previews, place/move/pick/delete, camera movement, view changes
 and line/exit/time edits. Use `npm run bench:placement` to profile placement from
@@ -204,7 +206,7 @@ For local chunk remeshing, reuse the existing `levelGroups` entry when retained
 chunks already occupy that storey. Replacing the map entry leaves its old group
 attached to the scene, outside layer visibility updates and teardown. Keep the
 group ownership, remote mesh retention and repeated storey switches pinned in
-`floor-geometry.test.mjs`; see the [measured reproduction](references/performance.md#local-edit-storey-group-retention).
+`floor-geometry.test.mjs`.
 
 Settings and presentation edits have a separate fast path. Line/station/exit labels,
 line colours, termini (including their optional English secondary names), population
