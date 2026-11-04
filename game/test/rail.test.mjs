@@ -119,7 +119,7 @@ test('a rail with no platform still gets a running train', () => {
   assert.equal(pose[3], 6, 'six cars')
   assert.ok(Math.abs(pose[2] - (1 - .62 * .98)) < 1e-6, 'rides the recessed slab')
   assert.equal(pose[8], 0, 'an east–west track has no yaw')
-  assert.equal(pose[9], 0, 'no screen doors, so neither bank may open')
+  assert.equal(pose[9] & 3, 0, 'no screen doors, so neither bank may open')
 })
 
 test('a fresh line is B stock, six cars, and carries the rail direction', () => {

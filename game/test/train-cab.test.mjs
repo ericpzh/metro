@@ -116,11 +116,11 @@ test('Beijing lettering is 50% larger and vertically centred on both headlight p
  }
 }))
 
-test('Chengdu logos sit over the coloured strip on A/B/C/L at both ends and both detail levels',()=>withKit(mats=>{
+for(const city of ['chengdu','chongqing'])test(`${city} logos sit over the coloured strip on A/B/C/L at both ends and both detail levels`,()=>withKit(mats=>{
  for(const cls of ['A','B','C','L'])for(const outward of [-1,1]) {
-  const root=new THREE.Group();buildCab(root,mats,STOCK[cls],0,outward,true);root.updateMatrixWorld(true)
+  const root=new THREE.Group();buildCab(root,mats,STOCK[cls],0,outward,true,mats.trainTrim,city==='chongqing'?mats.trainMark:undefined);root.updateMatrixWorld(true)
   try {
-   const mark=root.getObjectByName(`${cls.toLowerCase()}-chengdu-cab-mark`)
+   const mark=root.getObjectByName(`${cls.toLowerCase()}-${city}-cab-mark`)
    const paint=root.children.filter(m=>['cab-shell','cab-face-paint','cab-livery-paint'].includes(m.name)),original=paint.map(m=>m.geometry)
    assert.ok(Math.abs(new THREE.Box3().setFromObject(mark).getCenter(new THREE.Vector3()).z-.99)<1e-6)
    for(const low of [false,true]) {
@@ -135,21 +135,21 @@ test('Chengdu logos sit over the coloured strip on A/B/C/L at both ends and both
  }
 }))
 
-test('D Chengdu logos follow the coloured livery ring at both ends and both detail levels',()=>withKit(mats=>{
+for(const city of ['chengdu','chongqing'])test(`D ${city} logos follow the coloured livery ring at both ends and both detail levels`,()=>withKit(mats=>{
  const root=buildTrain(mats,{x:0,y:0,z:0,cars:1,stock:'D',doorsOpen:false,colour:'#a4343a',dirSign:1,yaw:0})
  root.updateMatrixWorld(true)
  try {
-  const marks=[];root.traverse(m=>{if(m.name==='d-chengdu-cab-mark')marks.push(m)})
+  const marks=[];root.traverse(m=>{if(m.name===`d-${city}-cab-mark`)marks.push(m)})
   assert.equal(marks.length,2)
   for(const mark of marks) {
    const paint=mark.parent.children.filter(m=>['d-cab-livery','d-cab-mask','d-cab-gold-trim'].includes(m.name)),original=paint.map(m=>m.geometry),originalMark=mark.geometry
    for(const low of [false,true]) {
     paint.forEach((m,i)=>m.geometry=low?m.userData.lowDetailGeometry:original[i])
     mark.geometry=low?mark.userData.lowDetailGeometry:originalMark
-    mark.geometry.computeBoundingBox();const point=mark.geometry.boundingBox.getCenter(new THREE.Vector3())
+    mark.geometry.computeBoundingBox();const point=city==='chongqing'?new THREE.Vector3().fromBufferAttribute(mark.geometry.attributes.position,Math.floor(mark.geometry.attributes.position.count/2)):mark.geometry.boundingBox.getCenter(new THREE.Vector3())
     const origin=mark.parent.localToWorld(point.clone().add(new THREE.Vector3(3,0,0))),direction=new THREE.Vector3(-1,0,0).transformDirection(mark.parent.matrixWorld)
     const ray=new THREE.Raycaster(origin,direction),back=ray.intersectObjects(paint)[0],decal=ray.intersectObject(mark)[0]
-    assert.equal(back?.object.name,'d-cab-livery')
+    assert.equal(back?.object.name,'d-cab-livery',`${city} ${low?'Low':'High'} at ${point.toArray()}`)
     assert.ok(decal&&decal.distance<back.distance,'the front-facing logo stays visible above the paint')
    }
    paint.forEach((m,i)=>m.geometry=original[i])

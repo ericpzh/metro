@@ -82,7 +82,7 @@ test('a dispatched train gets a pose on the track beside its platform edge', () 
   // The platform lies past the bed on the track's local +v, which is the
   // consist's local +y — bit 0. The tunnel-wall side (bit 1) has no screen
   // doors, so it is never set (§1.13).
-  assert.equal(doorSides, 1, 'only the platform side may open')
+  assert.equal(doorSides & 3, 1, 'only the platform side may open')
 })
 
 test('a berth with no screen doors never opens a door bank', () => {
@@ -94,7 +94,7 @@ test('a berth with no screen doors never opens a door bank', () => {
   assert.equal(s1.modules.filter((m) => m.type === 'platform-edge').length, 0, 'nothing beside the bed')
   const w = new World(s1, 99)
   w.tickOnce()
-  assert.equal(w.trainRenderState()[9], 0, 'no screen doors, no open side')
+  assert.equal(w.trainRenderState()[9] & 3, 0, 'no screen doors, no open side')
 })
 
 test('an island platform opens both door banks', () => {
@@ -105,7 +105,7 @@ test('an island platform opens both door banks', () => {
   assert.equal(s1.modules.filter((m) => m.type === 'platform-edge').length, 2, 'one screen run each side')
   const w = new World(s1, 99)
   w.tickOnce()
-  assert.equal(w.trainRenderState()[9], 3, 'both sides have screen doors')
+  assert.equal(w.trainRenderState()[9] & 3, 3, 'both sides have screen doors')
 })
 
 test('every screen door stands on a car door, and no car door is left without one', () => {

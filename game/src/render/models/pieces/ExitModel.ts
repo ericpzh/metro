@@ -1,4 +1,6 @@
 import { buildChengduCanopy } from './ChengduExitCanopy.ts'
+import { buildChongqingCanopy } from './ChongqingExitCanopy.ts'
+import { drawChongqingHeader } from './ChongqingExitHeader.ts'
 import { drawChengduHeader } from './ChengduExitHeader.ts'
 import { exitHeaderScale, exitHeaderResolution } from '../../exitHeaderResolution.ts'
 import { buildBeijingCanopy } from './BeijingExitCanopy.ts'
@@ -32,6 +34,7 @@ export function exitHeaderCanvas(stationName: string, exitName: string, stationN
   const g = c.getContext('2d') as CanvasRenderingContext2D
   if(resolution!==1)g.scale(c.width/width,c.height/96)
   const city = cityStyleFor(style.cityStyle)
+  if (city.entrance === 'chongqing') { drawChongqingHeader(g,stationName,exitName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'chengdu') { drawChengduHeader(g,stationName,exitName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'beijing') { drawBeijingHeader(g,stationName,stationNameEn,width,style.lines??[]);return c }
   if (city.entrance === 'shanghai') { drawShanghaiHeader(g,stationName,exitName,stationNameEn,width,style.lines??[]);return c }
@@ -226,6 +229,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const shenzhen = cityStyleFor(ctx.data.cityStyle).entrance === 'shenzhen'
   const shanghai = cityStyleFor(ctx.data.cityStyle).entrance === 'shanghai'
   const chengdu = cityStyleFor(ctx.data.cityStyle).entrance === 'chengdu'
+  const chongqing = cityStyleFor(ctx.data.cityStyle).entrance === 'chongqing'
   g.userData.exitHeaderScale=exitHeaderScale(ctx.data.cityStyle)
   const beijing = cityStyleFor(ctx.data.cityStyle).entrance === 'beijing'
   if (covered) g.userData.exitCityStyle = ctx.data.cityStyle ?? 'guangzhou'
@@ -342,11 +346,13 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   const ry1 = BACK
   const waveAmp = 0.16
   const periods = 0.85
-  const heightAt = (t: number): number => (shenzhen || shanghai || beijing || chengdu) ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
+  const heightAt = (t: number): number => (shenzhen || shanghai || beijing || chengdu || chongqing) ? H : H + 0.4 * (t - 0.5) - waveAmp * Math.sin(t * Math.PI * 2 * periods)
   const topAt = (y: number): number => heightAt((y - ry0) / (ry1 - ry0))
 
   const beijingHeader = covered && beijing ? ownedMaterial(ctx,new THREE.MeshBasicMaterial({map:canvasTexture(512,96,c=>drawBeijingHeader(c,ctx.data.name,ctx.data.nameEn??'',512,ctx.data.lines))})) : undefined
-  if (covered && chengdu) {
+  if (covered && chongqing) {
+    buildChongqingCanopy(house,ctx,xc,W)
+  } else if (covered && chengdu) {
     buildChengduCanopy(house,ctx,xc,W)
   } else if (covered && beijing) {
     buildBeijingCanopy(house,ctx,xc,W,beijingHeader!)
@@ -459,7 +465,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   // carries it and it needs no posts of its own. Both read from the same side
   // (+y, the head-house's own length), which is where a passenger stands.
   const signBoard = 0.62
-  const signY = covered ? chengdu ? hl + .22 : hl - .02 : BACKY
+  const signY = covered ? chongqing ? 2.50 : chengdu ? hl + .22 : hl - .02 : BACKY
   const signZ = covered ? topAt(hl + 0.06) - signBoard / 2 - 0.02 : 0.52
   panelModelDetail(slab(house, mats.darkSteel, xc, signY, signZ, W - 0.06, 0.12, signBoard))
   const pixels=exitHeaderResolution(512,ctx.data.cityStyle)
@@ -469,6 +475,7 @@ function buildExit(ctx: ModuleContext, mod: Extract<Module, { type: 'exit' }>): 
   }
   const header = plate(house, beijingHeader ?? ownedMaterial(ctx, new THREE.MeshBasicMaterial({ map: canvasTexture(pixels.width,pixels.height,c=>paintHeader(c,ctx.data)) })), W - .3, 0.5, xc, signY + 0.08, signZ, Math.PI)
   if (chengdu) header.name = 'chengdu-entrance-sign'
+  if (chongqing) header.name = 'chongqing-entrance-sign'
   if (beijing) header.name = 'beijing-entrance-sign'
   bindArtworkTexture(house,(header.material as THREE.MeshBasicMaterial).map!,paintHeader)
   header.renderOrder = 1
@@ -487,7 +494,7 @@ export class ExitModel extends PieceBuilder {
       for (const child of root.children) {
         if (!(child instanceof THREE.Mesh)) continue
         if (child.name === 'guide-triangular-base' || child.name === 'chengdu-guide-triangular-base') omitModelDetail(child)
-        else if (root.userData.guideCityStyle === 'chengdu') continue // Rotated joints expose the prism caps.
+        else if (root.userData.guideCityStyle === 'chengdu' || root.userData.guideCityStyle === 'chongqing') continue // Keep each city's authored Low silhouette.
         else if (child.geometry.type === 'ExtrudeGeometry') {
           // Adjacent column sections cover the two triangular end caps.
           const simple = child.geometry.clone()

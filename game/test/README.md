@@ -1463,3 +1463,5 @@ preview/texture pixel parity and `node tools/check-geometry-snapping.mjs` for re
 pointer placement/move and the one-raycast-per-event bound. The optional
 `node tools/check-sign-save.mjs <save-path>` captures the reported Tianhe sign;
 it is diagnostic and does not require checking the user's entire save into tests.
+
+Chongqing coverage: `city-style` pins the complete supplied palette, save/undo, cream plates and retained line-numbered badge textures; `train-preparation` distinguishes same-colour lines using shared worker/preparation flags. `train-cab` checks badges over livery on all five stocks and both ends/detail levels; `train-lod` pins the published inventory. `module-build` raycasts three sealed glass sides at roof/base/column joints across all bay counts/rotations and all four housing caps in High/Low. `model-detail` enforces the existing city budgets, `line-map` pins the original poster dimensions, and `menu-thumbnails` checks all 14 cached assets. Production review: `node tools/check-chongqing-style.mjs`; measured timings stay in the shared performance reference.

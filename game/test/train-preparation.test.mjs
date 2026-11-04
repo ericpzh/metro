@@ -10,6 +10,7 @@ import { referenceStation } from '../src/data/reference-station.ts'
 import { World } from '../src/sim/world.ts'
 import { STOCK_CLASSES } from '../src/sim/stock.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
+import { trainFlags } from '../src/sim/trainFlags.ts'
 
 const appearance = buffer => {
   const counts = new Map()
@@ -68,7 +69,7 @@ test('prepared demo appearances match every worker service anchor without dispat
     for (const [key, anchor] of world.lineAnchors) {
       const line = world.lineById.get(key.split('|')[0])
       expected.push(anchor.x,anchor.y,anchor.z,anchor.cars,STOCK_CLASSES.indexOf(anchor.stock),0,
-        anchor.colour,anchor.dirSign,anchor.yaw,anchor.doorSides | (line.power === 'catenary' ? 4 : 0))
+        anchor.colour,anchor.dirSign,anchor.yaw,trainFlags(anchor.doorSides,line,data.lines))
     }
     assert.deepEqual(appearance(trainPreparationPoses(data,64)), appearance(new Float32Array(expected)), id)
     assert.equal(world.tick,0); assert.equal(world.trains.length,0)
@@ -128,4 +129,28 @@ test('suspended editor retains only the latest train snapshot and applies it whe
   const setTrains = source.slice(source.indexOf('  setTrains('),source.indexOf('  setLifts('))
   assert.ok(setTrains.indexOf('if (this.suspended)') < setTrains.indexOf('this.trains.setTrains'))
   assert.match(setTrains,/if \(this\.suspended\) \{ this\.deferredTrains = buffer; return \}/)
+})
+
+test('Chongqing same-colour lines retain distinct numbered badges through preparation, arrival and city changes',()=>{
+  const previous=globalThis.document
+  globalThis.document={createElement(){const canvas={width:0,height:0};const {g}=stubCanvas();g.canvas=canvas;canvas.getContext=()=>g;return canvas}}
+  const mats=createModelMaterials(),ctx=new SceneContextData(new THREE.Scene(),{},mats,{}),trains=new TrainSystem(ctx)
+  trains.level={applyGroupLevel(group){group.visible=!group.userData.parked}}
+  const source=referenceStation(),line={...source.lines[0],stock:'B',cars:1,colour:'#123456'}
+  const lines=[{...line,id:'4'},{...line,id:'6'}],track=source.modules.find(m=>m.type==='track')
+  const data={...source,cityStyle:'chongqing',cells:[],lines,modules:lines.map((l,i)=>({...track,id:'cq-'+i,x:i*30,cfg:{line:l.id,dir:'up'}}))}
+  try{
+    trains.prepareForStation(data)
+    const groups=trains.trainGroup.children.slice(),maps=groups.map(g=>g.userData.chongqingTrainMark.map)
+    assert.deepEqual(new Set(groups.map(g=>g.userData.lineId)),new Set(['4','6']))
+    assert.deepEqual(new Set(groups.map(g=>g.userData.chongqingTrainMark.userData.badgeKey)),new Set(['4|#123456','6|#123456']))
+    trains.setPlaying(false);trains.setTrains(trainPreparationPoses(data,8))
+    assert.deepEqual(trains.trainGroup.children,groups)
+    trains.repaintPresentation({...data,cityStyle:'guangzhou'})
+    assert.ok(groups.every(g=>g.userData.chongqingTrainMark.userData.badgeKey===''))
+    trains.repaintPresentation({...data,lines:lines.map(l=>({...l,colour:'#654321'}))})
+    groups.forEach((g,i)=>{assert.equal(g.userData.chongqingTrainMark.map,maps[i]);assert.equal(g.userData.chongqingTrainMark.userData.badgeKey,g.userData.lineId+'|#654321')})
+    assert.equal(trainFlags(3,{...line,power:'catenary'},[]),7,'legacy/unknown line leaves only the low flags')
+    assert.equal(trainFlags(3,lines[1],lines)&7,3);assert.equal(trainFlags(3,lines[1],lines)>>>3,2)
+  }finally{trains.dispose();disposeModelMaterials(mats);globalThis.document=previous}
 })

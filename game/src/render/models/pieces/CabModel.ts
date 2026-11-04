@@ -25,7 +25,7 @@ import { trainMarkAtlasUV } from '../../trainMarkAtlas.ts'
  * lamps: white head lamps on the end that leads, red tail lamps on the end that
  * trails. Both ends wear the same body.
  */
-export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: number, outward: number, head: boolean, livery: THREE.Material = mats.trainTrim): void {
+export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: number, outward: number, head: boolean, livery: THREE.Material = mats.trainTrim, chongqing?:THREE.Material): void {
   const firstPart = g.children.length
   const d = outward
   const lamp = head ? mats.headlight : mats.taillight
@@ -115,6 +115,11 @@ export function buildCab(g: THREE.Group, mats: ModelMaterials, s: Stock, nose: n
   chengduMark.name = `${s.cls.toLowerCase()}-chengdu-cab-mark`
   trainMarkAtlasUV(chengduMark, 'chengdu')
   frontParts.push({mesh: chengduMark, reference: .2, lift: .008, scale: 1})
+  if(chongqing){
+    const badge=plate(g,chongqing,.62,.155,nose+d*.2,0,.99,d>0?Math.PI/2:-Math.PI/2)
+    badge.name=`${s.cls.toLowerCase()}-chongqing-cab-mark`
+    frontParts.push({mesh:badge,reference:.2,lift:.010,scale:1})
+  }
   const wiperY = s.cls === 'C' ? -d * s.width * 0.205 : 0
   buildTrainWiper(g, mats, (y, z, lift) => new THREE.Vector3(nose + d * (0.24 + lift), y, z),
     wiperY - d * 0.18, 1.59, wiperY + d * 0.12, 2.12, wiperY + d * 0.18, 2.51)

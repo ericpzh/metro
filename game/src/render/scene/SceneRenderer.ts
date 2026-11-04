@@ -514,6 +514,7 @@ export class SceneRenderer {
       if (!candidates) return false
       this.ctx.stationData = data
       refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
+      this.trains.repaintPresentation(data)
       this.plates.redrawSignPlates(previous ?? undefined)
       this.plates.redrawDecorPlates(previous ?? undefined)
       const keep = this.modules.repaintPresentation(data,candidates)

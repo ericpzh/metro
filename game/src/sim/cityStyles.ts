@@ -1,5 +1,5 @@
 /** Station-wide visual identity. Old saves default to Guangzhou. */
-export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
+export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu' | 'chongqing'
 export const DEFAULT_CITY_STYLE: CityStyle = 'guangzhou'
 export function normalizeCityStyle(value: unknown): CityStyle {
   return typeof value === 'string' && Object.hasOwn(CITY_STYLES, value) ? value as CityStyle : DEFAULT_CITY_STYLE
@@ -8,12 +8,12 @@ export interface CityStyleDefinition {
   nameKey: `city_${CityStyle}`
   brandKey: `${CityStyle}_metro`
   brandEnglishKey: `printed_${CityStyle}_metro`
-  logo: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
+  logo: CityStyle
   logoColour: string
   /** Station identity and train nose artwork can differ. */
   trainMark?: 'beijing-calligraphy'
   trainMarkColour?: string
-  entrance: 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu'
+  entrance: CityStyle
   entranceColour: string
   lineColours: Readonly<Record<string, string>>
 }
@@ -96,6 +96,20 @@ export const CHENGDU_LINE_COLOURS: Readonly<Record<string,string>> = {
   '6':'#b77a2b','7':'#70d1df','8':'#a1cd00','9':'#eabb00','10':'#0052b8',
   '17':'#80e2ae','18':'#1d6b70',Rong2:'#80bc28','蓉2':'#80bc28','蓉2号线':'#80bc28',
 }
+/** User-supplied Chongqing defaults, including planned and regional lines. */
+export const CHONGQING_LINE_COLOURS: Readonly<Record<string,string>> = {
+  '0':'#f2a900','环':'#f2a900','环线':'#f2a900',
+  '1':'#e4002b','2':'#007a33','3':'#003da5','4':'#dc8633','5':'#00a3e0',
+  '6':'#f67599','7':'#008c95','8':'#7a9a01','9':'#861f41','10':'#5f259f',
+  '11':'#d986ba','12':'#d2d755','13':'#b89d18','14':'#b94700','15':'#0057b8',
+  '16':'#b04a5a','17':'#9f5cc0','18':'#2cd5c4','19':'#0057b8','20':'#0057b8',
+  '21':'#319b42','22':'#2f6f7a','23':'#93c90e','24':'#d6a148','25':'#8a75d1',
+  '26':'#0057b8','27':'#0057b8','28':'#0057b8','29':'#ff585d',
+  jt:'#0057b8',bt:'#0057b8',yc:'#0057b8',nc:'#0057b8',dz:'#0057b8',qw:'#0057b8',
+  '江跳':'#0057b8','江跳线':'#0057b8','璧铜':'#0057b8','璧铜线':'#0057b8',
+  '永川':'#0057b8','永川线':'#0057b8','南川':'#0057b8','南川线':'#0057b8',
+  '大足':'#0057b8','大足线':'#0057b8','綦万':'#0057b8','綦万线':'#0057b8',
+}
 export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   guangzhou: { nameKey: 'city_guangzhou', brandKey: 'guangzhou_metro',
     brandEnglishKey: 'printed_guangzhou_metro', logo: 'guangzhou', logoColour: '#d8231c',
@@ -110,6 +124,8 @@ export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
     entrance:'beijing',entranceColour:'#073563',lineColours:BEIJING_LINE_COLOURS },
   chengdu: { nameKey:'city_chengdu',brandKey:'chengdu_metro',brandEnglishKey:'printed_chengdu_metro',
     logo:'chengdu',logoColour:'#006bb1',entrance:'chengdu',entranceColour:'#343433',lineColours:CHENGDU_LINE_COLOURS },
+  chongqing: { nameKey:'city_chongqing',brandKey:'chongqing_metro',brandEnglishKey:'printed_chongqing_metro',
+    logo:'chongqing',logoColour:'#008c44',entrance:'chongqing',entranceColour:'#f2f0dd',lineColours:CHONGQING_LINE_COLOURS },
 }
 export const CITY_STYLE_IDS = Object.keys(CITY_STYLES) as CityStyle[]
 export function cityStyleFor(value?: CityStyle): CityStyleDefinition {

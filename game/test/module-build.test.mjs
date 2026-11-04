@@ -1791,7 +1791,7 @@ test('a consist is cars × carLength of body, with a cab and its doors on both s
         `${stock}: a door leaf wears no window`,
       )
     }
-    assert.equal(g.userData.ownedMats.length, 2, `${stock}: the consist owns its livery and cabin floor materials`)
+    assert.equal(g.userData.ownedMats.length, 3, `${stock}: the consist owns its livery, cabin floor and line badge materials`)
 
     // Both ends wear a cab, and only the lamps tell them apart: white leads, red trails.
     const head = []
@@ -2502,4 +2502,83 @@ for(const rot of [0,1,2,3])test(`Shanghai city models rotation ${rot}: covered s
     assert.ok(box(root).getSize(new THREE.Vector3()).z<4.01)
     disposeObject(root)
   }
+})
+
+for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Chongqing ${bays} bays rotation ${rot}: silver entrance, unobstructed fascia and ring guide`,()=>{
+  const mod=createModule('exit',0,0,0,'cq');mod.cfg.bays=bays;mod.rot=rot
+  const before=structuredClone(mod),root=buildModule(mod,{...ctx,data:{...data,cityStyle:'chongqing',modules:[mod]}})
+  try{
+    assert.equal(root.userData.exitCityStyle,'chongqing');assert.deepEqual(mod,before)
+    assert.ok(root.getObjectByName('chongqing-silver-roof'));assert.ok(root.getObjectByName('chongqing-entrance-guidepost'))
+    const header=root.getObjectByName('chongqing-entrance-sign'),original=[]
+    root.traverse(m=>{if(m.isMesh)original.push([m,m.geometry])})
+    for(const low of [false,true]){
+      original.forEach(([m,geo])=>{m.geometry=low?m.userData.lowDetailGeometry??geo:geo});root.updateMatrixWorld(true)
+      const p=header.localToWorld(new THREE.Vector3()),normal=new THREE.Vector3(0,0,1).transformDirection(header.matrixWorld)
+      const hits=new THREE.Raycaster(p.clone().addScaledVector(normal,2),normal.clone().negate()).intersectObject(root,true)
+      assert.equal(hits[0]?.object,header,'the printed fascia is clear of portal columns and roof')
+    }
+    original.forEach(([m,geo])=>{m.geometry=geo})
+  }finally{disposeObject(root)}
+})
+
+for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Chongqing ${id} rotation ${rot}: round shaft, open silver ring and double-sided CRT`,()=>{
+  const mod=createModule(id,0,0,0,'cq-guide');mod.rot=rot
+  const root=buildModule(mod,{...ctx,data:{...data,cityStyle:'chongqing',modules:[mod]}})
+  try{
+    assert.equal(root.userData.guideCityStyle,'chongqing')
+    const marks=[];root.traverse(m=>{if(m.name==='chongqing-guide-crt-mark')marks.push(m)})
+    assert.equal(marks.length,2);assert.ok(root.getObjectByName('chongqing-guide-round-shaft'))
+    const ring=root.getObjectByName('chongqing-guide-silver-ring')
+    assert.equal(ring.geometry.parameters.options.bevelEnabled,false)
+    assert.ok(ring.userData.lowDetailGeometry,'Low keeps the ring opening')
+    root.updateMatrixWorld(true)
+    for(const mark of marks){const p=mark.localToWorld(new THREE.Vector3()),n=new THREE.Vector3(0,0,1).transformDirection(mark.matrixWorld)
+      assert.equal(new THREE.Raycaster(p.clone().addScaledVector(n,2),n.clone().negate()).intersectObject(root,true)[0]?.object,mark)}
+  }finally{disposeObject(root)}
+})
+
+test('Chongqing guide box has outward-facing ends, top and bottom in High and Low',()=>{
+  const mod=createModule('guidepost',0,0,0,'cq-closed'),root=buildModule(mod,{...ctx,data:{...data,cityStyle:'chongqing',modules:[mod]}})
+  const box=root.getObjectByName('chongqing-guide-green-box'),high=box.geometry
+  try{
+    for(const low of [false,true]){
+      box.geometry=low?box.userData.lowDetailGeometry:high;root.updateMatrixWorld(true)
+      for(const [p,n] of [[[.79,0,3.38],[1,0,0]],[[-.79,0,3.38],[-1,0,0]],[[0,0,3.74],[0,0,1]],[[0,0,3.02],[0,0,-1]]]){
+        const point=root.localToWorld(new THREE.Vector3(...p)),normal=new THREE.Vector3(...n).transformDirection(root.matrixWorld)
+        const hit=new THREE.Raycaster(point.clone().addScaledVector(normal,.2),normal.clone().negate()).intersectObject(box)[0]
+        assert.ok(hit,`${low?'Low':'High'}: missing housing face ${n}`);assert.ok(Math.abs(hit.distance-.2)<1e-5)
+      }
+    }
+  }finally{box.geometry=high;disposeObject(root)}
+})
+
+for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Chongqing ${bays} bays rotation ${rot}: three glazed sides seal to roof, base and front columns`,async()=>{
+  const {chongqingRoofHeight}=await import('../src/render/models/pieces/ChongqingExitCanopy.ts')
+  const {EXIT_BACK_Y,EXIT_BACK,EXIT_H,exitSpan}=await import('../src/sim/exits.ts')
+  const mod=createModule('exit',0,0,0,'cq-sealed');mod.cfg.bays=bays;mod.rot=rot
+  const root=buildModule(mod,{...ctx,data:{...data,cityStyle:'chongqing',modules:[mod]}}),panes=[]
+  root.traverse(m=>{if(m.name==='chongqing-side-glass'||m.name==='chongqing-rear-glass')panes.push(m)})
+  const saved=panes.map(m=>m.geometry),{centre:cx,half}=exitSpan(mod),house=panes[0].parent
+  const hit=(pane,point,normal)=>{
+    const p=house.localToWorld(new THREE.Vector3(...point)),n=new THREE.Vector3(...normal).transformDirection(house.matrixWorld)
+    assert.ok(new THREE.Raycaster(p.clone().addScaledVector(n,.2),n.clone().negate()).intersectObject(pane).length,`${pane.name} has a gap at ${point}`)
+  }
+  try{
+    assert.equal(panes.length,3)
+    for(const low of [false,true]){
+      panes.forEach((m,i)=>{m.geometry=low?m.userData.lowDetailGeometry:saved[i]});root.updateMatrixWorld(true)
+      const height=y=>{if(!low)return chongqingRoofHeight(y);const mid=(EXIT_BACK_Y+EXIT_BACK)/2,a=y<mid?EXIT_BACK_Y:mid,b=y<mid?mid:EXIT_BACK;return chongqingRoofHeight(a)+(chongqingRoofHeight(b)-chongqingRoofHeight(a))*(y-a)/(b-a)}
+      for(const pane of panes.filter(m=>m.name==='chongqing-side-glass')){
+        const x=pane.geometry.boundingBox?.getCenter(new THREE.Vector3()).x??0,side=Math.sign(x-cx)
+        for(let i=0;i<=24;i++){
+          const y=EXIT_BACK_Y+.001+(1.35-EXIT_BACK_Y-.002)*i/24
+          for(const z of [.3501,.6,height(y)-.162])hit(pane,[x,y,z],[side,0,0])
+        }
+        for(const z of [.36,.8,1.5,2.2,2.9])hit(pane,[x,1.36+.70*z/(EXIT_H-.04)-.0001,z],[side,0,0])
+      }
+      const rear=panes.find(m=>m.name==='chongqing-rear-glass')
+      for(const x of [cx-half+.151,cx,cx+half-.151])for(const z of [.3501,.6,chongqingRoofHeight(EXIT_BACK_Y)-.1601])hit(rear,[x,EXIT_BACK_Y,z],[0,-1,0])
+    }
+  }finally{panes.forEach((m,i)=>{m.geometry=saved[i]});disposeObject(root)}
 })

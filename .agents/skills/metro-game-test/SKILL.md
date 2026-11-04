@@ -6,7 +6,7 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 ## City-style regression ownership
 
 Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)
-for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu saves, menus, models, supplied line maps and
+for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu/Chongqing saves, menus, models, supplied line maps and
 cached PNGs. `city-style`, `module-build`, `line-map`, `menu-thumbnails` and
 `nonstructural-updates` own these contracts. `model-detail` enforces actual city-specific Low budgets and geometry restoration before/after batching. Include outward decorative sign
 bounds without widening sim collision, disjoint glazing joints, virtual-exit city
@@ -16,6 +16,13 @@ Beijing adds separate station and cab marks, High/Low diamond cut-outs, synchron
 doorway/roof signs, blue pylons and deferred per-city poster loading. Keep these
 contracts in `city-style`, `module-build` and `line-map`, and exercise the real
 production path with `node tools/check-beijing-style.mjs`.
+Chongqing uses `city-style` for the complete supplied palette and retained numbered
+badges, `train-preparation` for same-colour lines and pose identity, and `train-cab`
+for badges over livery at both ends of all stocks. `module-build` raycasts all three
+sealed glass sides and every green housing cap in High/Low, across bay counts and
+rotations; keep `model-detail` budgets and `train-lod` inventories aligned. Run
+`node tools/check-chongqing-style.mjs` for production selection/reload, retained
+artwork, theme captures and High/Low views. Screenshots do not replace these pins.
 Run the full suite; report the known ramp-retention and cubicle-toilet Low-budget
 failures separately if they persist. Do not claim a green suite from focused tests.
 

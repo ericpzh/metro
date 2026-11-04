@@ -1,6 +1,7 @@
 import type { StationData, Module } from '../sim/types.ts'
 import { STOCK_CLASSES, trainOriginForScale, trainScaleForStorey } from '../sim/stock.ts'
 import { trackFacing } from '../sim/track.ts'
+import { trainFlags } from '../sim/trainFlags.ts'
 
 type TrackModule = Extract<Module, { type: 'track' }>
 
@@ -27,7 +28,7 @@ export function trainPreparationPoses(data: StationData, limit: number): Float32
       const sign = track.cfg.dir ? (track.cfg.dir === 'down' ? -1 : 1) : (line.travelSign ?? 1) >= 0 ? 1 : -1
       poses.push(track.x, track.y, track.z+trainOriginForScale(trainScaleForStorey(data.storeyHeight)),
         line.cars, STOCK_CLASSES.indexOf(line.stock), 0, parseInt(line.colour.replace('#',''),16) || 0x1f5fd0,
-        sign, Math.atan2(fy,fx), (ownSides || legacySides) | (line.power === 'catenary' ? 4 : 0))
+        sign, Math.atan2(fy,fx), trainFlags(ownSides || legacySides,line,data.lines))
     }
   }
   // Match the worker protocol's float rounding (notably yaw) before keying models.

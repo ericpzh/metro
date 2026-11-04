@@ -19,8 +19,52 @@ import { drawChengduLogo } from '../src/render/chengduBranding.ts'
 import chengduContours from '../src/assets/branding/chengdu-contours.json' with { type: 'json' }
 import { presentationKeepIds } from '../src/render/presentationEdit.ts'
 import { getLanguage, setLanguage } from '../src/sim/i18n.ts'
+import { drawChongqingTrainBadge } from '../src/render/chongqingBranding.ts'
+import { refreshChongqingTrainMark } from '../src/render/chongqingTrainMark.ts'
+import { drawChongqingHeader } from '../src/render/models/pieces/ChongqingExitHeader.ts'
 
 const fixture = () => toState({ name: '光明', nameEn: 'Guangming', seed: 1, cells: [], modules: [], lines: [defaultLine('6', 'up', 'third-rail')] })
+
+test('Chongqing preserves custom colours, undo and saved identity and uses every supplied default',()=>{
+  assert.equal(CITY_STYLE_IDS[5],'chongqing')
+  const colours=['F2A900','E4002B','007A33','003DA5','DC8633','00A3E0','F67599','008C95','7A9A01','861F41','5F259F','D986BA','D2D755','B89D18','B94700','0057B8','B04A5A','9F5CC0','2CD5C4','0057B8','0057B8','319B42','2F6F7A','93C90E','D6A148','8A75D1','0057B8','0057B8','0057B8','FF585D']
+  colours.forEach((hex,i)=>assert.equal(defaultLine(String(i),'up','third-rail',5,'chongqing').colour,'#'+hex.toLowerCase()))
+  for(const id of ['jt','bt','yc','nc','dz','qw','江跳线','璧铜线','永川线','南川线','大足线','綦万线'])assert.equal(lineColourFor(id,'chongqing'),'#0057b8')
+  for(const id of ['环','环线'])assert.equal(lineColourFor(id,'chongqing'),'#f2a900')
+  const previous=useStore.getState(),before=fixture()
+  try{
+    useStore.setState({station:before,past:[],future:[],geometryVersion:0})
+    useStore.getState().setCityStyle('chongqing')
+    assert.equal(useStore.getState().station.lines,before.lines);assert.equal(useStore.getState().geometryVersion,0)
+    assert.equal(parse(serialize(useStore.getState().station)).state.cityStyle,'chongqing')
+    useStore.getState().undo();assert.equal(useStore.getState().station,before)
+    useStore.getState().redo();assert.equal(useStore.getState().station.cityStyle,'chongqing')
+    useStore.getState().addLine();assert.equal(useStore.getState().station.lines.at(-1).colour,'#007a33')
+  }finally{useStore.setState(previous)}
+})
+
+test('Chongqing train badges include actual line number and colour and retain their texture',()=>{
+  for(const [id,colour] of [['0','#f2a900'],['4','#dc8633'],['6','#f67599'],['jt','#0057b8']]){
+    const {g,ops}=stubCanvas(512,128);g.ellipse=()=>{}
+    drawChongqingTrainBadge(g,id,colour)
+    assert.ok(ops.texts.includes(id));assert.ok(ops.filled.includes('#ffffff'));assert.ok(ops.filled.includes(colour))
+    const map=new THREE.CanvasTexture({width:512,height:128,getContext:()=>g}),mat=new THREE.MeshBasicMaterial({map})
+    refreshChongqingTrainMark(mat,'chongqing',id,colour);const version=map.version
+    refreshChongqingTrainMark(mat,'chongqing',id,colour);assert.equal(map.version,version)
+    refreshChongqingTrainMark(mat,'chongqing','10','#123456');assert.equal(mat.map,map);assert.ok(map.version>version)
+    refreshChongqingTrainMark(mat,'guangzhou','10','#123456');assert.equal(mat.userData.badgeKey,'')
+    map.dispose();mat.dispose()
+  }
+})
+
+test('Chongqing cream entrance plate prints live interchange colours and numeric/alphanumeric exits',()=>{
+  for(const exit of ['4','3A','4A出入口']){
+    const {g,ops}=stubCanvas(512,96),lines=[{...defaultLine('9','up','third-rail'),colour:'#123456'},{...defaultLine('5','up','third-rail'),colour:'#654321'}]
+    drawChongqingHeader(g,'红岩村',exit,'Hongyancun',512,lines)
+    for(const label of ['9','5','红岩村','Hongyancun','出入口',exit.replace('出入口','')])assert.ok(ops.texts.includes(label),label)
+    assert.deepEqual(exitHeaderResolution(512,'chongqing'),{width:2048,height:384})
+  }
+})
 
 test('Chengdu line badges share the station-name ink centre with and without English',()=>{
   for(const english of ['Tanwei','']) {

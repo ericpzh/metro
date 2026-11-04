@@ -58,6 +58,20 @@ city. `line-map` guards request coalescing/retry/disposal;
 `tools/check-beijing-style.mjs` verifies selected-city loading and retained sign
 repaints in production. These functional checks do not establish latency or FPS.
 
+Chongqing production observation (2026-11-04): source
+`c0e862b5f777e8971a65d6d90899ab4126a306b98f3f6a2110f6256e1e999ae9`, raw evidence
+at `.preview/city-styles/chongqing-browser/report.json`. i7-14700KF / RTX 4080
+SUPER, ANGLE D3D11, paused normal view, 1440 × 1000 window, 892 × 815 canvas,
+pixel ratio 1. Fixture: one covered exit, virtual exit, guidepost, wall/standing
+maps, doorway and four prepared B consists for two lines. One Guangzhou →
+Chongqing DOM tile click took **155.5 ms to first render submission**, missing the
+strict <100 ms target. This single observation is not a percentile, real-pointer
+latency or GPU/display completion measurement. No concurrent builds/tests/profiles
+ran during capture. It retained train roots and badge textures, performed zero
+chunk remeshes/raycasts, and verified live recolouring, undo and saved reload.
+The capture does not attribute the remaining cost. High/Low and theme screenshots
+in the same directory are functional evidence, not timing samples.
+
 ## Per-model geometry detail inventory
 
 Actual generated counts, not station totals or FPS estimates. Equipment counts
@@ -305,6 +319,36 @@ faces; they do not establish FPS or GPU cost. Records:
 | exit-doorway-3 | 10 | 26 |
 | exit-doorway-4 | 10 | 26 |
 
+#### Chongqing variants
+
+The silver entrance keeps its two side panes and rear glass sealed against the
+roof, stone bases and inclined front columns in High/Low. Low shares the fitted
+two-section roof/glass profile. The guidepost and virtual exit retain an open
+eleven-segment ring, round-shaft approximation, two logo faces and a fully closed
+green housing. All 14 city variants meet the existing budgets; no limit was raised.
+Production-path inventory (three.js r186):
+`.preview/perf/current-models-chongqing/model-triangles.json`, generated with
+`MODEL_CITY=chongqing` and `tools/model-triangle-inventory.mjs`. Counts include
+the entrance's decorative guidepost and authored readable surfaces; they do not
+establish FPS or GPU cost.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-1 | 308 | 4290 |
+| exit | 308 | 4290 |
+| exit-covered-3 | 308 | 4290 |
+| guidepost | 46 | 1940 |
+| exit-virtual | 46 | 1940 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
 #### Equipment minimum-shape exceptions
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
@@ -390,16 +434,16 @@ wall-input retention is a separate unresolved regression.
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 76708 | 1308144 |
-| D-6 | 60128 | 1011628 |
-| A-8 | 69736 | 735280 |
-| A-6 | 53700 | 577868 |
-| C-6 | 49604 | 538512 |
-| B-6 | 47712 | 519168 |
-| L-6 | 43360 | 468200 |
-| C-4 | 35072 | 398132 |
-| B-4 | 33580 | 381820 |
-| L-4 | 30588 | 346972 |
+| D-8 | 76740 | 1308336 |
+| D-6 | 60160 | 1011820 |
+| A-8 | 69856 | 735400 |
+| A-6 | 53820 | 577988 |
+| C-6 | 49724 | 538632 |
+| B-6 | 47832 | 519288 |
+| L-6 | 43480 | 468320 |
+| C-4 | 35192 | 398252 |
+| B-4 | 33700 | 381940 |
+| L-4 | 30708 | 347092 |
 
 Standard, Beijing and Chengdu emblems share a retained three-slot texture atlas.
 Beijing's larger decal is fitted before batching, so switching cities never
@@ -411,6 +455,14 @@ the overlapping unused decal cannot occlude active ink. `check-beijing-style`
 compares rendered glyph pixels at three angles in High/Low against a zero-cutoff
 negative control. The same alpha-discard policy applies to Chengdu; the counts
 above include its retained lower decals.
+
+The table also includes Chongqing's retained, per-consist line-badge decals at
+both cab ends. Their separate 512 × 128 texture is repainted on city/line changes;
+all other city marks keep the existing shared atlas. Inventory:
+`.preview/perf/current-models-chongqing/train-triangles.json` (three.js r186,
+production static/door/transparent batching and detail swaps). `train-preparation`
+pins same-colour line identity and texture/root reuse; `train-cab` pins paint
+behind the badge in High/Low. Counts remain below the existing 10% train budget.
 
 ### Passenger models (乘客)
 

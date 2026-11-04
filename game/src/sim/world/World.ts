@@ -6,6 +6,7 @@
 // iteration order, so `seed + tick -> identical crowd` (§7.6).
 
 import { AgentPool, type Agent } from '../agents.ts'
+import { trainFlags } from '../trainFlags.ts'
 import { activityChoice, dwellTimeline, packActivity, railTimeline } from '../activities.ts'
 import { applyPopulationEdit, type PopulationEdit } from '../populationEdit.ts'
 import { serviceArrivals, type TrainService } from '../trainSchedule.ts'
@@ -1428,7 +1429,8 @@ export class World {
    * One pose per live train, stride 10: x, y, z, cars, stock index (A/B/C/L),
    * doors-open, line colour, direction, yaw, door/power flags. A pure function of
    * train state, so it adds no randomness and cannot disturb §7.6 determinism.
-   * Bits 0–1 are `LineAnchor.doorSides`; bit 2 selects catenary pickup. The
+   * Bits 0–1 are `LineAnchor.doorSides`; bit 2 selects catenary pickup;
+   * bits 3+ carry the one-based document line index (zero is legacy/unknown). The
    * renderer slides only leaves whose screen doors exist (§1.13).
    *
    * `doors-open` is the leaves' commanded position: open over the opening and
@@ -1455,8 +1457,8 @@ export class World {
       out[k++] = a.colour
       out[k++] = a.dirSign
       out[k++] = a.yaw
-      // Bits 0–1 open door banks; bit 2 selects the overhead-wire roof variant.
-      out[k++] = a.doorSides | (this.lineById.get(train.line)?.power === 'catenary' ? 4 : 0)
+      // Upper bits carry the line index independently of custom/shared colours.
+      out[k++] = trainFlags(a.doorSides,this.lineById.get(train.line)!,this.data.lines)
     }
     return out.subarray(0, k)
   }

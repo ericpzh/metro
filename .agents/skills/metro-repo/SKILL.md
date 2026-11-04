@@ -265,7 +265,7 @@ override Low quality to High. Keep the policy in `render/detailPolicy.ts`,
 `CrowdSystem`, `TrainSystem` and `LevelSystem`; `graphics-quality`,
 `geometry-detail`, `floor-geometry` and `passenger-lod` pin it.
 
-City visual identities (Guangzhou, Shenzhen, Shanghai, Beijing, Chengdu) own their
+City visual identities (Guangzhou, Shenzhen, Shanghai, Beijing, Chengdu, Chongqing) own their
 geometry, layout, artwork and fit contracts in `metro-game` →
 [city styles](../metro-game/references/city-styles.md); keep only measured timings
 and triangle inventories in the performance guide.

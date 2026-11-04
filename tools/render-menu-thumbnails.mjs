@@ -7,7 +7,7 @@
 // The first build supplies game/dist to the capture browser; the last copies the
 // generated files in game/public/module-thumbnails into the production app.
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { CITY_STYLE_IDS } from '../game/src/sim/cityStyles.ts'
@@ -15,6 +15,8 @@ import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const outDir = join(repo, 'game', 'public', 'module-thumbnails')
+const selectedCity=process.env.MENU_CITY
+if(selectedCity&&!CITY_STYLE_IDS.includes(selectedCity))throw new Error(`unknown MENU_CITY: ${selectedCity}`)
 const server = await serveDir(join(repo, 'game', 'dist'), 4195)
 const page = await withPage({
   url: `http://127.0.0.1:${server.address().port}/?capture-menu-thumbnails`,
@@ -26,17 +28,17 @@ try {
   await waitFor(page.evaluate, '!!window.__menuThumbnailsReady && !!window.__menuThumbnails', {
     what: 'the menu thumbnail renderer',
   })
-  const thumbnails = await page.evaluate(`window.__menuThumbnails.renderModuleThumbnails(132, null, {
+  const thumbnails = selectedCity?{}:await page.evaluate(`window.__menuThumbnails.renderModuleThumbnails(132, null, {
     hideSecondGateDoor: true,
     pixelRatio: 1,
   })`)
-  const ids = Object.keys(thumbnails ?? {}).sort()
+  const ids = selectedCity?JSON.parse(readFileSync(join(outDir,'index.json'),'utf8')).thumbnails.map(t=>t.id):Object.keys(thumbnails ?? {}).sort()
   if (ids.length < 100) throw new Error(`expected at least 100 menu thumbnails; renderer returned ${ids.length}`)
 
   mkdirSync(outDir, { recursive: true })
   const index = []
   let bytes = 0
-  for (const id of ids) {
+  for (const id of selectedCity?[]:ids) {
     const dataUrl = String(thumbnails[id])
     const base64 = dataUrl.startsWith('data:image/png;base64,') ? dataUrl.slice('data:image/png;base64,'.length) : ''
     if (!base64) throw new Error(`renderer returned invalid PNG data for ${id}`)
@@ -46,9 +48,9 @@ try {
     bytes += png.byteLength
     index.push({ id, file, bytes: png.byteLength })
   }
-  writeFileSync(join(outDir, 'index.json'), `${JSON.stringify({ width: 132, height: 132, pixelRatio: 1, thumbnails: index }, null, 2)}\n`)
+  if(!selectedCity)writeFileSync(join(outDir, 'index.json'), `${JSON.stringify({ width: 132, height: 132, pixelRatio: 1, thumbnails: index }, null, 2)}\n`)
   const cityIds = ids.filter(id => id === 'exit' || id.startsWith('exit-') || id === 'guidepost' || id.startsWith('linemap-'))
-  for (const city of CITY_STYLE_IDS.filter(city=>city!=='guangzhou')) {
+  for (const city of CITY_STYLE_IDS.filter(city=>city!=='guangzhou'&&(!selectedCity||city===selectedCity))) {
   const cityImages = await page.evaluate(`window.__menuThumbnails.renderModuleThumbnails(132, null, {
     hideSecondGateDoor: true, pixelRatio: 1, cityStyle: '${city}', ids: ${JSON.stringify(cityIds)}
   })`)

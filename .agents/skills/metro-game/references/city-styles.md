@@ -12,7 +12,7 @@ checks saved custom colours across city switches and reloads.
 
 ## Model and rendering ownership
 
-`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing and Chengdu visual identities and
+`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing, Chengdu and Chongqing visual identities and
 line palettes. `StationData.cityStyle` is optional on old v1 saves; `StationState`
 normalizes it. The top-bar `CityStyleSelect` commits one undoable presentation edit.
 Every existing line colour survives; city palettes apply only to newly created lines. Pass city style to every new-line factory, including the
@@ -54,6 +54,8 @@ line-map variants. `TileGrid` and `VariantMenu` subscribe to the saved city.
 committed documents; bind its pylon to a sample C exit without editing user data.
 Generate with build → `node tools/render-menu-thumbnails.mjs` → build. Keep the
 base index consistent and inspect diffs so unrelated capture noise is not included.
+For one added/changed city, set `MENU_CITY` to its id to regenerate only that city's
+14 assets; the existing base index supplies the option list and remains untouched.
 
 ## Deterministic coverage ownership
 
@@ -67,6 +69,8 @@ base index consistent and inspect diffs so unrelated capture noise is not includ
 | Virtual exit and guidepost grey pylon, green crown, bound labels and all rotations | `module-build` |
 | All supplied poster routing, selected-city decode/coalescing/disposal/retry, retained map cache, city change/undo, wall and standing mounts | `line-map` |
 | Beijing diamond cut-outs at High/Low, all bays/rotations, three synchronized signs, blue guidepost and virtual exit labels | `module-build` |
+| Chongqing's complete supplied palette, numbered train badges, same-colour line identity, retained artwork and livery placement | `city-style`, `train-preparation`, `train-cab`, `train-lod` |
+| Chongqing glass sealed to roof/base/front columns on three sides; outward-facing guide housing ends/top/bottom in High/Low | `module-build`, `model-detail` |
 | Complete static PNG catalogue, city asset differences/dimensions and reactive parent/variant tiles | `menu-thumbnails` |
 
 Run these focused suites when changing their contracts, plus typecheck/build and
@@ -176,3 +180,47 @@ in the existing four-column popover. All city-specific previews remain cached PN
 `tools/check-chengdu-style.mjs` checks selection, deferred poster decode, retained
 train texture/sign repainting, no chunk remeshes/raycasts, undo/redo and saved reload,
 and captures the selector, plate, train/UI mark and High/Low scene for review.
+
+## Chongqing
+
+Chongqing is the sixth city. `chongqingBranding.ts` draws the green CRT station/UI
+emblem from the supplied P4 contours; `tools/trace-chongqing-branding.py` reproduces
+them and retains the source hash. Train badges follow P1–3: a white oval carrying
+CRT and the actual line number in that line's current colour. Each consist owns a
+retained 512 × 128 badge texture (`chongqingTrainMark.ts`), separate from the shared
+three-slot city atlas. Both cab ends retain their badge geometry in every city;
+switches clear/repaint textures rather than rebuild live or prepared trains.
+A/B/C/L seat the badge inside the lower colour band; D drapes it onto the coloured
+livery ring. Empty badge/atlas pixels discard before writing depth.
+
+Line colour cannot identify a line: regional lines share a default blue and users
+may assign identical colours. `sim/trainFlags.ts` preserves the ten-float pose
+stride: bits 0–1 select doors, bit 2 selects catenary, bits 3+ encode the one-based
+document line index (zero means legacy/unknown). The worker and preparation path
+use the same helper; `TrainSystem` retains the resolved line id for presentation
+edits, spare reuse and recolouring. Keep door/power masking unchanged.
+
+`ChongqingExitHeader.ts` prints the cream P6–9 plate with rail pictogram, live line
+colour separators, bilingual station name and numeric/alphanumeric exit. New exits
+use `1口`, `2口`, etc.; city switches preserve existing identifiers. Headers use the
+same bounded 4× text resolution policy as Chengdu, including doorway variants.
+`ChongqingExitCanopy.ts` owns the silver curved roof, inclined front columns, stone
+bases and entrance-side guide column. Both side panes meet the exact sloped roof
+underside and column rear face, and the rear panel closes the third side. Glass
+meets the stone bases without a visible slit. High and Low share the same fitted
+boundary policy; only the entrance stays open. Decorative guide bounds do not
+widen the simulation footprint or alter the walking opening.
+
+`ChongqingGuidepost.ts` serves both decor and virtual exits: dark round shaft,
+open silver ring and bowed green CRT housing, with readable marks on both sides.
+Its two ends, top and bottom face outward; Low keeps a closed box and open ring.
+Preserve these caps when changing virtual-exit detail handling.
+
+The complete supplied 2000 × 1833 `chongqing-map.png` decodes only on demand and
+fits whole on both mounts with framing matched to its aspect. New-line defaults
+use the user's exact table for lines 0–29 and jt/bt/yc/nc/dz/qw, with Chinese named
+aliases. Existing saved colours survive city switches and reloads. All 14 city
+previews are checked-in PNGs. `tools/check-chongqing-style.mjs` verifies production
+selection, retained textures/roots, live recolouring, undo/reload and deferred map
+loading, and captures all themes and all five train stocks in High/Low. Keep its
+measured selection timings and model inventories only in the performance reference.

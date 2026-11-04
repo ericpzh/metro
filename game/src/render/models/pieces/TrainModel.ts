@@ -2,7 +2,9 @@
 
 import * as THREE from 'three'
 import { trainDoorMotion } from '../../trainDoorMotion.ts'
-import { PieceBuilder, slab, registerDoorLeaf } from '../PieceBuilder.ts'
+import { PieceBuilder, slab, registerDoorLeaf, canvasTexture } from '../PieceBuilder.ts'
+import { refreshChongqingTrainMark } from '../../chongqingTrainMark.ts'
+import type { CityStyle } from '../../../sim/cityStyles.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
 import { STOCK, CABIN_FLOOR_Z, CABIN_HALF_W, DOOR_HEAD_Z, DOOR_SILL_Z, doorCentres, doorWidthAt } from '../../../sim/stock.ts'
@@ -47,6 +49,8 @@ export interface TrainPose {
   /** Absent for legacy model callers, which keep the third-rail roof. */
   power?: 'third-rail' | 'catenary'
   modelScale?: number
+  lineId?: string
+  cityStyle?: CityStyle
 }
 
 /**
@@ -81,6 +85,10 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   // deliberately keeps. `TrainSystem` releases these when it evicts the consist.
   const floor = new THREE.MeshStandardMaterial({ color: 0x586879, roughness: 0.85, metalness: 0 })
   g.userData.ownedMats = [blue, floor]
+  const badge=new THREE.MeshBasicMaterial({transparent:true,alphaTest:.01,map:canvasTexture(512,128,()=>{})})
+  g.userData.chongqingTrainMark=badge;g.userData.lineId=pose.lineId
+  g.userData.ownedMats.push(badge)
+  refreshChongqingTrainMark(badge,pose.cityStyle,pose.lineId??'1',pose.colour)
   const carDoors = doorCentres({ stock: pose.stock, cars: pose.cars })
   const doors: THREE.Mesh[] = []
   g.userData.doors = doors
@@ -341,11 +349,11 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
   const lead = (total / 2) * (pose.dirSign >= 0 ? 1 : -1)
   const leadOut = pose.dirSign >= 0 ? 1 : -1
   if (s.cabLength) {
-    buildStreamlinedCab(g, mats, s, lead, leadOut, true, blue)
-    buildStreamlinedCab(g, mats, s, -lead, -leadOut, false, blue)
+    buildStreamlinedCab(g, mats, s, lead, leadOut, true, blue,badge)
+    buildStreamlinedCab(g, mats, s, -lead, -leadOut, false, blue,badge)
   } else {
-    buildCab(g, mats, s, lead, leadOut, true, blue)
-    buildCab(g, mats, s, -lead, -leadOut, false, blue)
+    buildCab(g, mats, s, lead, leadOut, true, blue,badge)
+    buildCab(g, mats, s, -lead, -leadOut, false, blue,badge)
   }
   // The train keeps its own pose; the caller moves the group.
   g.scale.setScalar(pose.modelScale ?? 1)

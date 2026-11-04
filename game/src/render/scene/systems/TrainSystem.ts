@@ -22,6 +22,7 @@ import type { LevelSystem } from './LevelSystem.ts'
 import { trainDetails } from '../../trainDetail.ts'
 import type { TrainDetail } from '../../trainDetail.ts'
 import { levelSide } from '../../levelSlicing.ts'
+import { refreshChongqingTrainMark } from '../../chongqingTrainMark.ts'
 
 /**
  * One live consist. The worker only reports a pose per tick (1 Hz at 1×), so the
@@ -84,10 +85,26 @@ export class TrainSystem extends SceneSystem {
   private drawBatching = true
   private lastBuffer = new Float32Array()
   private preparationKey = ''
+  private presentationData?:StationData
+
+  /** Repaint retained badges, including parked trains, without replacing geometry. */
+  repaintPresentation(data:StationData):void {
+    this.presentationData=data
+    for(const entry of this.trainSlots.values())this.repaintBadge(entry.group,data)
+  }
+
+  private repaintBadge(group:THREE.Group,data:StationData):void {
+    const line=data.lines.find(line=>line.id===group.userData.lineId)
+    const material=group.userData.chongqingTrainMark as THREE.MeshBasicMaterial|undefined
+    if(!material)return
+    const colour=line?.colour??`#${(group.userData.liveryMaterial as THREE.MeshStandardMaterial).color.getHexString()}`
+    refreshChongqingTrainMark(material,data.cityStyle,line?.id??group.userData.lineId??'1',colour)
+  }
 
   /** Prepare the bounded service fleet during station opening, before playback.
    * Parked models carry no live service or pose until the worker reports one. */
   prepareForStation(data: StationData): void {
+    this.repaintPresentation(data)
     const buffer = trainPreparationFleet(data, TRAIN_PARKED_LIMIT)
     const key = Array.from(buffer).join(',')
     if (key === this.preparationKey) return
@@ -105,6 +122,7 @@ export class TrainSystem extends SceneSystem {
       wanted.add(sig)
       plans.push({sig,shapeKey,pose:{x,y,z,cars,stock:STOCK_CLASSES[stockIdx] ?? 'B',
         colour:`#${colour.toString(16).padStart(6,'0')}`,dirSign,yaw,modelScale,doorsOpen:false,
+        lineId:data.lines[(flags>>>3)-1]?.id,cityStyle:data.cityStyle,
         power:(flags&4)!==0?'catenary':'third-rail'}})
     }
     for (const {sig,shapeKey,pose} of plans) {
@@ -116,6 +134,7 @@ export class TrainSystem extends SceneSystem {
         entry.group.rotation.z=pose.yaw
       }else entry=this.createEntry(sig,shapeKey,pose)
       entry.active = false; entry.missed = 2
+      entry.group.userData.lineId=pose.lineId;this.repaintBadge(entry.group,data)
       entry.group.userData.parked = true; entry.group.visible = false
     }
     const parked = [...this.trainSlots.values()].filter(entry => !entry.active)
@@ -126,7 +145,7 @@ export class TrainSystem extends SceneSystem {
   }
 
   private createEntry(sig: string, shapeKey: string, pose: TrainPose): TrainEntry {
-    const group = buildTrain(this.ctx.modelMats, pose)
+    const group = buildTrain(this.ctx.modelMats, {...pose,cityStyle:pose.cityStyle??this.presentationData?.cityStyle})
     group.userData.renderFamily = 'train'
     group.userData.shapeKey = shapeKey
     batchStaticParts(group, new Set(group.userData.doors as THREE.Object3D[]), this.drawBatching)
@@ -165,7 +184,7 @@ export class TrainSystem extends SceneSystem {
   /**
    * Rolling stock (§6). The worker sends one pose per live train as a flat
    * `Float32Array`, stride 10: x, y, z, cars, stock index, doors-open, colour,
-   * direction, yaw, door/power flags (bits 0–1 doors, bit 2 catenary).
+   * direction, yaw, flags (bits 0–1 doors, bit 2 catenary, bits 3+ one-based line index).
    * A consist is cached by its signature (colour + direction + length + flags),
    * so it survives slot reordering, and its two
    * latest poses are kept so `updateTrains` can glide it between ticks.
@@ -196,6 +215,8 @@ export class TrainSystem extends SceneSystem {
       const dirSign = buffer[o + 7] >= 0 ? 1 : -1
       const yaw = buffer[o + 8]
       const flags = buffer[o + 9] | 0
+      const data=this.ctx.stationData??this.presentationData
+      const lineId=data?.lines[(flags>>>3)-1]?.id
       const doorSides = flags & 3
       const power = (flags & 4) !== 0 ? 'catenary' : 'third-rail'
       if (doorsOpen && doorSides !== 0) {
@@ -228,6 +249,7 @@ export class TrainSystem extends SceneSystem {
       if (!entry) {
         const stock: StockClass = STOCK_CLASSES[stockIdx] ?? 'B'
         entry = this.createEntry(sig, shapeKey, { x,y,z,cars,stock,power,doorsOpen,modelScale,
+          lineId,cityStyle:data?.cityStyle,
           colour:`#${colour.toString(16).padStart(6,'0')}`,dirSign,yaw })
       } else {
         // Continue from where this consist was last drawn. A consist that has
@@ -250,6 +272,8 @@ export class TrainSystem extends SceneSystem {
       // flag otherwise (the level slicing and the sim both write it).
       // Recover the track anchor from the platform-aligned cabin origin, including cached poses.
       entry.group.rotation.z = yaw
+      if(lineId!==undefined)entry.group.userData.lineId=lineId
+      if(data)this.repaintBadge(entry.group,data)
       entry.group.userData.levelZs = [storeyBand(Math.round(z - trainOriginForScale(modelScale)), this.ctx.levelBase, this.ctx.storeyHeight)]
       entry.group.userData.parked = false
       // Doors ease open and shut per bank in `updateTrains`, never snapping.

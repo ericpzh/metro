@@ -68,7 +68,7 @@ function frontPoint(y: number, z: number, length: number, lift: number): { point
   return { point: cabSurface(q, distance, length, lift), error: Math.hypot(fitted.y - y, fitted.z - z), distance, q }
 }
 
-export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, stock: Stock, nose: number, outward: number, head: boolean, livery: THREE.Material): void {
+export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, stock: Stock, nose: number, outward: number, head: boolean, livery: THREE.Material, chongqing?:THREE.Material): void {
   const cab = new THREE.Group()
   cab.name = 'streamlined-cab'
   cab.position.x = nose
@@ -316,6 +316,11 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     const ry=THREE.MathUtils.lerp(colourEdge[1],maskEdge[1],t)
     return planPoint(-2.35+rx*Math.cos(angle),ry*Math.sin(angle),.018)
   },4,8,false,2,4),'chengdu')
+  if(chongqing)surface('d-chongqing-cab-mark',chongqing,(u,v)=>{
+    const t=.32+.36*u,angle=(v-.5)*.62
+    const rx=THREE.MathUtils.lerp(colourEdge[0],maskEdge[0],t),ry=THREE.MathUtils.lerp(colourEdge[1],maskEdge[1],t)
+    return planPoint(-2.35+rx*Math.cos(angle),ry*Math.sin(angle),.020)
+  },4,12,false,2,4)
   surface('d-cab-bulkhead', mats.trainInterior, (u, v) => {
     const edge = dCabPoint(dSection(v), length - 0.05, length)
     return new THREE.Vector3(-length + 0.05, 0, 1.85).lerp(edge, u)

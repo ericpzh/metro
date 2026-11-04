@@ -17,6 +17,10 @@ reference owns measured timings; the linked guide names each deterministic suite
 Beijing uses a separate white 北京 cab wordmark, synchronized doorway/roof signs,
 diamond glazing and a blue pylon. Decode supplied maps only for requested cities;
 the linked city guide covers shared artwork, lazy loading and High/Low verification.
+Chongqing adds line-numbered CRT train badges inside the coloured livery band,
+cream entrance plates, three sealed glass sides and a closed green ring pylon.
+Its per-consist badge textures retain line identity through the ten-float pose flags;
+see the city guide before changing that protocol or the shared train preparation.
 
 ## Audio
 

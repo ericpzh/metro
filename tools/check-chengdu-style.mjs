@@ -24,7 +24,7 @@ try {
   await page.evaluate(`__metro.getState().loadFromText(${JSON.stringify(fixture)})`)
   await waitFor(page.evaluate,`__scene.ctx.stationData?.name==='成都大学'`)
   await page.evaluate(`document.querySelector('.cityStyleButton').click()`)
-  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),5)
+  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),6)
   await page.send('Page.captureScreenshot',{format:'png'}).then(r=>writeFileSync(resolve(out,'selector.png'),Buffer.from(r.data,'base64')))
   await page.evaluate(`(()=>{
     window.cdAudit={chunks:0,rays:0};const chunks=__scene.chunks,mesh=chunks.meshStation;chunks.meshStation=function(...a){cdAudit.chunks++;return mesh.apply(this,a)};
