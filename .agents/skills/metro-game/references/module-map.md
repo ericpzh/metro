@@ -24,13 +24,16 @@ new window, subwindow, list item, tool, model or scene system.
 
 ## `sim/` — pure simulation
 
-City identity spans `sim/cityStyles.ts` (six identities and new-line palettes),
+City identity spans `sim/cityStyles.ts` (seven identities and new-line palettes),
 `sim/trainFlags.ts` (line identity in the existing train pose flags), and
 `render/cityBranding.ts` (shared city artwork). Chongqing's per-consist train
 textures live in `render/chongqingTrainMark.ts`; its emblem/badge drawing lives in
 `render/chongqingBranding.ts`. `render/models/pieces/ChongqingExitCanopy.ts`,
 `ChongqingExitHeader.ts` and `ChongqingGuidepost.ts` own its three-sided glazing,
 cream fascia and closed green housing. See the [city guide](city-styles.md).
+Wuhan's gradient/white M drawing lives in `render/wuhanBranding.ts`;
+`WuhanExitCanopy.ts`, `WuhanExitHeader.ts` and `WuhanGuidepost.ts` own its flat
+head-house, navy plate and square cube/column with live bilingual labels.
 
 Performance additions: `blockIndex.ts` caches occupancy, track keys, per-level ramp/
 exit openings and virtual-ground membership by immutable cell/module arrays;

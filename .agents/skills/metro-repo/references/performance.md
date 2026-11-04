@@ -329,16 +329,42 @@ green housing. All 14 city variants meet the existing budgets; no limit was rais
 Production-path inventory (three.js r186):
 `.preview/perf/current-models-chongqing/model-triangles.json`, generated with
 `MODEL_CITY=chongqing` and `tools/model-triangle-inventory.mjs`. Counts include
-the entrance's decorative guidepost and authored readable surfaces; they do not
+authored readable surfaces; guideposts are separate modules. These counts do not
 establish FPS or GPU cost.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
-| exit-covered-1 | 308 | 4290 |
-| exit | 308 | 4290 |
-| exit-covered-3 | 308 | 4290 |
+| exit-covered-1 | 222 | 2350 |
+| exit | 222 | 2350 |
+| exit-covered-3 | 222 | 2350 |
 | guidepost | 46 | 1940 |
 | exit-virtual | 46 | 1940 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
+#### Wuhan variants
+
+Production-path inventory (three.js r186):
+`.preview/perf/current-models-wuhan/model-triangles.json`, generated with
+`MODEL_CITY=wuhan BENCH_OUTPUT=.preview/perf/current-models-wuhan/report.json node tools/model-triangle-inventory.mjs`.
+Counts include label faces and shutter perforations; guideposts are separate modules.
+Low retains three glass sides and closed guide shaft/cube housings; all 14
+variants meet existing budgets. These are geometry counts, not FPS measurements.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-3 | 102 | 4982 |
+| exit | 102 | 4634 |
+| exit-covered-1 | 102 | 4322 |
+| guidepost | 40 | 1204 |
+| exit-virtual | 40 | 1204 |
 | exit-uncovered-2 | 52 | 554 |
 | exit-uncovered-3 | 52 | 554 |
 | exit-uncovered-1 | 52 | 530 |

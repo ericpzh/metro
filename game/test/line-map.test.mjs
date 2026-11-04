@@ -590,6 +590,13 @@ test('Shanghai selects its supplied portrait poster',async()=>{
   assert.ok(png.readUInt32BE(20)>png.readUInt32BE(16),'the supplied portrait map must retain its original aspect')
 })
 
+test('Wuhan selects the complete supplied network poster',async()=>{
+  const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
+  assert.equal(cityLineMapSlug('wuhan'),'wuhan-map');assert.equal(cityLineMapSuffix('wuhan'),'|wuhan')
+  const png=readFileSync(new URL('../src/assets/linemaps/wuhan-map.png',import.meta.url))
+  assert.equal(png.readUInt32BE(16),2732);assert.equal(png.readUInt32BE(20),2731)
+})
+
 test('Chongqing selects the complete supplied network poster',async()=>{
   const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
   assert.equal(cityLineMapSlug('chongqing'),'chongqing-map');assert.equal(cityLineMapSuffix('chongqing'),'|chongqing')

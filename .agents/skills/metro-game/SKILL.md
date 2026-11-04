@@ -21,6 +21,9 @@ Chongqing adds line-numbered CRT train badges inside the coloured livery band,
 cream entrance plates, three sealed glass sides and a closed green ring pylon.
 Its per-consist badge textures retain line identity through the ten-float pose flags;
 see the city guide before changing that protocol or the shared train preparation.
+Wuhan uses the supplied gradient M mark, navy bilingual entrance plates, flat
+silver/glass head-houses and square logo-cube guide columns. Keep three glass
+sides and closed guide housings in High/Low; see the city guide for ownership.
 
 ## Audio
 

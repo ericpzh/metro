@@ -6,7 +6,7 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 ## City-style regression ownership
 
 Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)
-for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu/Chongqing saves, menus, models, supplied line maps and
+for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu/Chongqing/Wuhan saves, menus, models, supplied line maps and
 cached PNGs. `city-style`, `module-build`, `line-map`, `menu-thumbnails` and
 `nonstructural-updates` own these contracts. `model-detail` enforces actual city-specific Low budgets and geometry restoration before/after batching. Include outward decorative sign
 bounds without widening sim collision, disjoint glazing joints, virtual-exit city
@@ -25,6 +25,11 @@ rotations; keep `model-detail` budgets and `train-lod` inventories aligned. Run
 artwork, theme captures and High/Low views. Screenshots do not replace these pins.
 Run the full suite; report the known ramp-retention and cubicle-toilet Low-budget
 failures separately if they persist. Do not claim a green suite from focused tests.
+Wuhan adds exact numbered/named palettes, gradient atlas slot bounds, navy plate
+and subscript exit labels in `city-style`; `module-build` checks three sealed
+glass sides, clear fascia/entrance, all six cube/shaft caps and bound label repaints
+across bays/rotations in High/Low. Run `tools/check-wuhan-style.mjs` for production
+selection, lazy poster loading, retained resources, theme captures and saved reload.
 
 # The game's test suite (`game/test/`)
 

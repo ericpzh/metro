@@ -21,6 +21,8 @@ import { presentationKeepIds } from '../src/render/presentationEdit.ts'
 import { getLanguage, setLanguage } from '../src/sim/i18n.ts'
 import { drawChongqingTrainBadge } from '../src/render/chongqingBranding.ts'
 import { refreshChongqingTrainMark } from '../src/render/chongqingTrainMark.ts'
+import { drawWuhanHeader } from '../src/render/models/pieces/WuhanExitHeader.ts'
+import { drawWuhanGuideLabels } from '../src/render/models/pieces/WuhanGuidepost.ts'
 import { drawChongqingHeader } from '../src/render/models/pieces/ChongqingExitHeader.ts'
 
 const fixture = () => toState({ name: '光明', nameEn: 'Guangming', seed: 1, cells: [], modules: [], lines: [defaultLine('6', 'up', 'third-rail')] })
@@ -41,6 +43,46 @@ test('Chongqing preserves custom colours, undo and saved identity and uses every
     useStore.getState().redo();assert.equal(useStore.getState().station.cityStyle,'chongqing')
     useStore.getState().addLine();assert.equal(useStore.getState().station.lines.at(-1).colour,'#007a33')
   }finally{useStore.setState(previous)}
+})
+
+test('Wuhan supplied palette, undo/reload and new-line defaults preserve existing custom colours',()=>{
+  const colours=['0067a1','ec9cbb','d3b466','a6d30b','a43034','007128','eb7c16','9dabaa','a5d4ad','7f74ac','f6d300','00a3e9','25cad0','825aa3','5c5577','c24c6d','e9a786','da7c49','469c7f','7ec3e4','b2007b']
+  assert.equal(CITY_STYLE_IDS[6],'wuhan')
+  colours.forEach((hex,i)=>assert.equal(defaultLine(String(i+1),'up','third-rail',5,'wuhan').colour,'#'+hex))
+  for(const id of ['Yangluo','阳逻','阳逻线'])assert.equal(lineColourFor(id,'wuhan'),'#b2007b')
+  for(const id of ['Xingang','新港','新港线'])assert.equal(lineColourFor(id,'wuhan'),'#7f74ac')
+  const previous=useStore.getState(),before=fixture();before.lines[0].colour='#123456'
+  try{
+    useStore.setState({station:before,past:[],future:[],version:0,geometryVersion:0})
+    useStore.getState().setCityStyle('wuhan')
+    assert.equal(useStore.getState().station.lines,before.lines);assert.equal(useStore.getState().geometryVersion,0)
+    const saved=parse(serialize(useStore.getState().station)).state
+    assert.equal(saved.cityStyle,'wuhan');assert.equal(saved.lines[0].colour,'#123456')
+    useStore.getState().undo();assert.equal(useStore.getState().station,before)
+    useStore.getState().redo();assert.equal(useStore.getState().station.cityStyle,'wuhan')
+    useStore.getState().addLine();assert.equal(useStore.getState().station.lines.at(-1).colour,'#ec9cbb')
+  }finally{useStore.setState(previous)}
+})
+
+test('Wuhan navy plate prints bilingual brand/station, live interchange badges and subscript exit',()=>{
+  const {g,ops}=stubCanvas(512,96),lines=['2','4'].map(id=>defaultLine(id,'up','third-rail',5,'wuhan'))
+  drawWuhanHeader(g,'中南路','C2口','Zhongnan Rd.',512,lines)
+  for(const text of ['武汉地铁','WUHAN METRO','中南路站','ZHONGNAN RD. STATION','2','4','C','2','出入口','Entrance'])assert.ok(ops.texts.includes(text),text)
+  assert.equal(ops.filled[0],'#183b70');for(const line of lines)assert.ok(ops.filled.includes(line.colour))
+  assert.deepEqual(exitHeaderResolution(512,'wuhan'),{width:2048,height:384})
+  const guide=stubCanvas(192,640);drawWuhanGuideLabels(guide.g,'仁和路','C','Renhe Rd.',[{id:'4',colour:'#123456'}])
+  assert.ok(guide.ops.texts.includes('RENHE RD. STATION'));assert.ok(guide.ops.texts.includes('C'));assert.ok(guide.ops.filled.includes('#123456'))
+})
+
+test('Wuhan gradient cab artwork repaints the retained atlas once and stays inside its first slot',()=>{
+  const {g}=stubCanvas(384,150),points=[];g.moveTo=(x,y)=>points.push([x,y]);g.lineTo=g.moveTo
+  const texture=new THREE.CanvasTexture({width:384,height:150,getContext:()=>g}),mat=new THREE.MeshBasicMaterial({map:texture})
+  try{
+    refreshCityTrainMark(mat,'wuhan');const version=texture.version
+    assert.ok(points.length>10);assert.ok(points.every(([x,y])=>x>=0&&x<=128&&y>=0&&y<=150))
+    refreshCityTrainMark(mat,'wuhan');assert.equal(texture.version,version)
+    refreshCityTrainMark(mat,'chongqing');refreshCityTrainMark(mat,'wuhan');assert.equal(mat.map,texture);assert.ok(texture.version>version)
+  }finally{texture.dispose();mat.dispose()}
 })
 
 test('Chongqing train badges include actual line number and colour and retain their texture',()=>{

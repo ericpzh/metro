@@ -133,7 +133,7 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
     const image = texture?.image as { width?: number; height?: number } | undefined
     const imageAspect = image?.width && image.height ? image.width / image.height : w / h
     const geometry = texture ? geometries.get(key) : undefined
-    const quad = geometry ?? ((slug === 'shanghai-map' || slug === 'beijing-map' || slug === 'chengdu-map' || slug === 'chongqing-map')
+    const quad = geometry ?? ((slug === 'shanghai-map' || slug === 'beijing-map' || slug === 'chengdu-map' || slug === 'chongqing-map' || slug === 'wuhan-map')
       ? new THREE.PlaneGeometry(Math.min(w,h*imageAspect),Math.min(h,w/imageAspect))
       : croppedPlane(w, h, panelUvWindow(imageAspect, w / h)))
     if (texture) {
@@ -164,6 +164,7 @@ function createPosterArt(renderer: THREE.WebGLRenderer | undefined, slug: string
 /** Each city owns one decoded poster and a retained material/geometry cache. */
 export function createLineMapArt(renderer?: THREE.WebGLRenderer): LineMapArt {
   const posters = {
+    wuhan: createPosterArt(renderer, cityLineMapSlug('wuhan')),
     chongqing: createPosterArt(renderer, cityLineMapSlug('chongqing')),
     chengdu: createPosterArt(renderer, cityLineMapSlug('chengdu')),
     guangzhou: createPosterArt(renderer, cityLineMapSlug('guangzhou')),

@@ -6,6 +6,7 @@ import {cpus} from 'node:os'
 import {createModule,toState} from '../game/src/build/model.ts'
 import {serialize} from '../game/src/persistence/save.ts'
 import {defaultLine} from '../game/src/build/rail.ts'
+import {CITY_STYLE_IDS} from '../game/src/sim/cityStyles.ts'
 import {serveDir,withPage,waitFor} from './browser-harness.mjs'
 
 const out=resolve('.preview/city-styles/chongqing-browser');mkdirSync(out,{recursive:true})
@@ -23,7 +24,7 @@ const report={build:JSON.parse(readFileSync('game/dist/editor-benchmark-build.js
 const shot=async name=>{const r=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(out,name+'.png'),Buffer.from(r.data,'base64'))}
 const exportCanvas=async(name,expression)=>{const data=await page.evaluate(`${expression}.toDataURL('image/png')`);writeFileSync(resolve(out,name+'.png'),Buffer.from(data.split(',')[1],'base64'))}
 try{
-  page=await withPage({url:`http://127.0.0.1:${server.address().port}/en`,profile:resolve(out,'browser'),debugPort:9366,softwareGpu:false,windowSize:'1440,1000'})
+  page=await withPage({url:`http://127.0.0.1:${server.address().port}/en`,profile:resolve(out,'browser-'+process.pid),debugPort:9366,softwareGpu:false,windowSize:'1440,1000'})
   await page.send('Page.enable')
   await page.send('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('metro-game.ui-theme','blueprint');localStorage.setItem('metro-game.tutorial.v1','{"step":0,"hidden":true}');window.cqErrors=[];addEventListener('error',e=>cqErrors.push(e.message));addEventListener('unhandledrejection',e=>cqErrors.push(String(e.reason)));`})
   await page.send('Page.reload');await waitFor(page.evaluate,'!!window.__scene && !!window.__metro')
@@ -31,7 +32,7 @@ try{
   await page.evaluate(`__metro.getState().loadFromText(${JSON.stringify(fixture)})`)
   await waitFor(page.evaluate,`__scene.ctx.stationData?.name==='重光'`)
   await page.evaluate(`document.querySelector('.cityStyleButton').click()`)
-  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),6);await shot('selector')
+  assert.equal(await page.evaluate(`document.querySelectorAll('.cityStyleTile').length`),CITY_STYLE_IDS.length);await shot('selector')
   await page.evaluate(`(()=>{
     window.cqAudit={chunks:0,rays:0};const chunks=__scene.chunks,mesh=chunks.meshStation;chunks.meshStation=function(...a){cqAudit.chunks++;return mesh.apply(this,a)};
     const ray=__scene.cameraSys.raycaster,intersect=ray.intersectObjects;ray.intersectObjects=function(...a){cqAudit.rays++;return intersect.apply(this,a)};
@@ -50,6 +51,7 @@ try{
   assert.deepEqual(report.colours,['#00a3e0','#861f41']);assert.ok(report.badges.includes('5|#00a3e0'));assert.ok(report.badges.includes('9|#861f41'))
   assert.ok(Math.abs(report.aspect-2000/1833)<1e-8)
   await page.evaluate(`(()=>{const root=__scene.modules.moduleMeshes.children.find(g=>g.userData.exitCityStyle==='chongqing'),sign=root.getObjectByName('chongqing-entrance-sign');window.cqRetained={root,sign,map:sign.material.map,version:sign.material.map.version}})()`)
+  assert.equal(await page.evaluate(`cqRetained.root.getObjectByName('chongqing-guide-round-shaft')===undefined`),true)
   await page.evaluate(`__metro.getState().renameStation('红岩村','Hongyancun')`)
   await waitFor(page.evaluate,`cqRetained.map.version>cqRetained.version`)
   assert.equal(await page.evaluate(`__scene.modules.moduleMeshes.children.includes(cqRetained.root)&&cqRetained.sign.material.map===cqRetained.map`),true)
@@ -70,10 +72,10 @@ try{
   await page.evaluate(`document.querySelector('.settingsActionGrid button:last-child').click()`)
   for(const subject of ['front','left','right','rear','guide-end'])for(const quality of ['high','low']){
     await page.evaluate(`(()=>{
-      const s=__scene,root=s.modules.moduleMeshes.children.find(g=>g.userData.exitCityStyle==='chongqing'),V=root.position.constructor;
+      const s=__scene,root=s.modules.moduleMeshes.children.find(g=>g.userData.${subject==='guide-end'?"moduleId==='guidepost'":"exitCityStyle==='chongqing'"}),V=root.position.constructor;
       root.updateMatrixWorld(true);const target=s.cameraSys.controls.target,c=s.cameraSys.activeCamera();
-      const p=${subject==='front'?'[0,1.4,1.7]':subject==='rear'?'[0,-4.8,1.5]':subject==='left'?'[-1.7,-1.0,1.8]':subject==='right'?'[1.7,-1,1.8]':'[3.0,1.7,3.6]'};
-      const eye=${subject==='front'?'[-4,10,4.2]':subject==='rear'?'[5,-12,4]':subject==='left'?'[-10,-.5,2.4]':subject==='right'?'[10,-.5,2.4]':'[6,1.72,4.0]'};
+      const p=${subject==='front'?'[0,1.4,1.7]':subject==='rear'?'[0,-4.8,1.5]':subject==='left'?'[-1.7,-1.0,1.8]':subject==='right'?'[1.7,-1,1.8]':'[.5,0,3.38]'};
+      const eye=${subject==='front'?'[-4,10,4.2]':subject==='rear'?'[5,-12,4]':subject==='left'?'[-10,-.5,2.4]':subject==='right'?'[10,-.5,2.4]':'[3,.02,3.6]'};
       target.copy(root.localToWorld(new V(...p)));c.position.copy(root.localToWorld(new V(...eye)));c.lookAt(target);s.cameraSys.controls.update();__metro.getState().setGraphicsQuality('${quality}');
       return new Promise(r=>{s.onNextFrame=r;s.requestRender()})
     })()`);await shot('exit-'+subject+'-'+quality)

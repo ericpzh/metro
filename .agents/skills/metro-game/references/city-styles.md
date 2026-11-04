@@ -12,7 +12,7 @@ checks saved custom colours across city switches and reloads.
 
 ## Model and rendering ownership
 
-`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing, Chengdu and Chongqing visual identities and
+`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing, Chengdu, Chongqing and Wuhan visual identities and
 line palettes. `StationData.cityStyle` is optional on old v1 saves; `StationState`
 normalizes it. The top-bar `CityStyleSelect` commits one undoable presentation edit.
 Every existing line colour survives; city palettes apply only to newly created lines. Pass city style to every new-line factory, including the
@@ -71,6 +71,8 @@ For one added/changed city, set `MENU_CITY` to its id to regenerate only that ci
 | Beijing diamond cut-outs at High/Low, all bays/rotations, three synchronized signs, blue guidepost and virtual exit labels | `module-build` |
 | Chongqing's complete supplied palette, numbered train badges, same-colour line identity, retained artwork and livery placement | `city-style`, `train-preparation`, `train-cab`, `train-lod` |
 | Chongqing glass sealed to roof/base/front columns on three sides; outward-facing guide housing ends/top/bottom in High/Low | `module-build`, `model-detail` |
+| Wuhan exact supplied palette, named aliases, gradient atlas bounds and navy bilingual plate with subscript exit | `city-style` |
+| Wuhan three sealed glass sides, open entrance/clear fascia, closed square column/cube and live bound labels across bays/rotations in High/Low | `module-build`, `model-detail` |
 | Complete static PNG catalogue, city asset differences/dimensions and reactive parent/variant tiles | `menu-thumbnails` |
 
 Run these focused suites when changing their contracts, plus typecheck/build and
@@ -204,12 +206,13 @@ edits, spare reuse and recolouring. Keep door/power masking unchanged.
 colour separators, bilingual station name and numeric/alphanumeric exit. New exits
 use `1口`, `2口`, etc.; city switches preserve existing identifiers. Headers use the
 same bounded 4× text resolution policy as Chengdu, including doorway variants.
-`ChongqingExitCanopy.ts` owns the silver curved roof, inclined front columns, stone
-bases and entrance-side guide column. Both side panes meet the exact sloped roof
+`ChongqingExitCanopy.ts` owns the silver curved roof, inclined front columns and
+stone bases. Guide columns are placed separately, never attached to exits.
+Both side panes meet the exact sloped roof
 underside and column rear face, and the rear panel closes the third side. Glass
 meets the stone bases without a visible slit. High and Low share the same fitted
-boundary policy; only the entrance stays open. Decorative guide bounds do not
-widen the simulation footprint or alter the walking opening.
+boundary policy; only the entrance stays open. Keep the shared simulation
+footprint and walking opening unchanged.
 
 `ChongqingGuidepost.ts` serves both decor and virtual exits: dark round shaft,
 open silver ring and bowed green CRT housing, with readable marks on both sides.
@@ -224,3 +227,35 @@ previews are checked-in PNGs. `tools/check-chongqing-style.mjs` verifies product
 selection, retained textures/roots, live recolouring, undo/reload and deferred map
 loading, and captures all themes and all five train stocks in High/Low. Keep its
 measured selection timings and model inventories only in the performance reference.
+
+## Wuhan
+
+Wuhan is the seventh city. `wuhanBranding.ts` draws the supplied P1 M with a blue
+gradient for UI/train cabs and white on navy/charcoal signage. The tiny reference
+has compression ringing: `tools/trace-wuhan-branding.py` reconstructs measured
+straight edges and preserves its source hash in `wuhan-contours.json`. Keep the
+two horizontal white separators and three separate lower bars. The shared retained
+train atlas uses its first 128 px slot; the square mark must stay inside that slot.
+
+`WuhanExitHeader.ts` follows P2: navy background, white 武汉地铁 / WUHAN METRO,
+bilingual station, actual line-colour badges, large exit letter with numeric
+subscript and 出入口 / Entrance. Keep the identifier clear of the English label.
+Use the same bounded 4× native text policy as Chengdu/Chongqing, including doorway
+and uncovered variants. `WuhanExitCanopy.ts` follows P3–5/P7 with a flat folded
+silver roof, charcoal portal/mullions, stone bases and retracted perforated shutter.
+Both sides and the rear glass meet the roof and base in High/Low; the street
+doorway stays open. Guide columns are placed separately, never attached to exits.
+
+`WuhanGuidepost.ts` serves decor guideposts and virtual
+exits. The closed square shaft supports a closed cube with white M marks on four
+faces. Four retained label faces print upright Chinese, rotated English, the bound
+exit and live line-colour bands. Station/exit/line edits repaint retained textures;
+city changes replace city-specific shells. Low preserves all exterior cube/shaft
+faces. Keep decorative guides within the existing simulation placement policy.
+
+The supplied 2732 × 2731 `wuhan-map.png` loads only on request and fits whole on
+both mounts, with no crop or stretch. Defaults use the user's complete 1–21 table
+and Yangluo/阳逻/阳逻线 and Xingang/新港/新港线 aliases. Existing colours survive city
+switches and reloads. All 14 menu previews are cached 132 px PNGs. Run
+`node tools/check-wuhan-style.mjs` for production selection, retained train/sign
+resources, recolouring, undo/reload, deferred poster decode and High/Low captures.

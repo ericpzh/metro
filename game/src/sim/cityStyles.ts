@@ -1,5 +1,5 @@
 /** Station-wide visual identity. Old saves default to Guangzhou. */
-export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu' | 'chongqing'
+export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu' | 'chongqing' | 'wuhan'
 export const DEFAULT_CITY_STYLE: CityStyle = 'guangzhou'
 export function normalizeCityStyle(value: unknown): CityStyle {
   return typeof value === 'string' && Object.hasOwn(CITY_STYLES, value) ? value as CityStyle : DEFAULT_CITY_STYLE
@@ -110,6 +110,15 @@ export const CHONGQING_LINE_COLOURS: Readonly<Record<string,string>> = {
   '永川':'#0057b8','永川线':'#0057b8','南川':'#0057b8','南川线':'#0057b8',
   '大足':'#0057b8','大足线':'#0057b8','綦万':'#0057b8','綦万线':'#0057b8',
 }
+/** Exact user-supplied Wuhan defaults, including planned lines and named aliases. */
+export const WUHAN_LINE_COLOURS: Readonly<Record<string,string>> = {
+  '1':'#0067a1','2':'#ec9cbb','3':'#d3b466','4':'#a6d30b','5':'#a43034',
+  '6':'#007128','7':'#eb7c16','8':'#9dabaa','9':'#a5d4ad','10':'#7f74ac',
+  '11':'#f6d300','12':'#00a3e9','13':'#25cad0','14':'#825aa3','15':'#5c5577',
+  '16':'#c24c6d','17':'#e9a786','18':'#da7c49','19':'#469c7f','20':'#7ec3e4',
+  '21':'#b2007b',Yangluo:'#b2007b','阳逻':'#b2007b','阳逻线':'#b2007b',
+  Xingang:'#7f74ac','新港':'#7f74ac','新港线':'#7f74ac',
+}
 export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   guangzhou: { nameKey: 'city_guangzhou', brandKey: 'guangzhou_metro',
     brandEnglishKey: 'printed_guangzhou_metro', logo: 'guangzhou', logoColour: '#d8231c',
@@ -126,6 +135,8 @@ export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
     logo:'chengdu',logoColour:'#006bb1',entrance:'chengdu',entranceColour:'#343433',lineColours:CHENGDU_LINE_COLOURS },
   chongqing: { nameKey:'city_chongqing',brandKey:'chongqing_metro',brandEnglishKey:'printed_chongqing_metro',
     logo:'chongqing',logoColour:'#008c44',entrance:'chongqing',entranceColour:'#f2f0dd',lineColours:CHONGQING_LINE_COLOURS },
+  wuhan: { nameKey:'city_wuhan',brandKey:'wuhan_metro',brandEnglishKey:'printed_wuhan_metro',
+    logo:'wuhan',logoColour:'#0067a1',entrance:'wuhan',entranceColour:'#183b70',lineColours:WUHAN_LINE_COLOURS },
 }
 export const CITY_STYLE_IDS = Object.keys(CITY_STYLES) as CityStyle[]
 export function cityStyleFor(value?: CityStyle): CityStyleDefinition {

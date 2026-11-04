@@ -2504,12 +2504,72 @@ for(const rot of [0,1,2,3])test(`Shanghai city models rotation ${rot}: covered s
   }
 })
 
-for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Chongqing ${bays} bays rotation ${rot}: silver entrance, unobstructed fascia and ring guide`,()=>{
+for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Wuhan ${bays} bays rotation ${rot}: sealed glass, open entrance and unobstructed navy plate in High/Low`,async()=>{
+  const {EXIT_H,EXIT_BACK_Y,exitSpan}=await import('../src/sim/exits.ts')
+  const mod=createModule('exit',0,0,0,'wh');mod.cfg.bays=bays;mod.cfg.name='C2口';mod.rot=rot
+  const saved=structuredClone(mod),local={...ctx,data:{...data,cityStyle:'wuhan',nameEn:'Zhongyi Road',modules:[mod]}},root=buildModule(mod,local)
+  const original=[],panes=[];root.traverse(m=>{if(m.isMesh)original.push([m,m.geometry]);if(['wuhan-side-glass','wuhan-rear-glass'].includes(m.name))panes.push(m)})
+  const header=root.getObjectByName('wuhan-entrance-sign'),house=header.parent,{centre:cx,half}=exitSpan(mod)
+  try{
+    assert.equal(root.userData.exitCityStyle,'wuhan');assert.equal(panes.length,3);assert.deepEqual(mod,saved)
+    assert.ok(root.getObjectByName('wuhan-flat-silver-roof'));assert.ok(root.getObjectByName('wuhan-perforated-shutter'))
+    assert.equal(root.getObjectByName('wuhan-entrance-guidepost'),undefined,'guide columns are placed separately')
+    assert.equal(root.getObjectByName('wuhan-guide-square-shaft'),undefined)
+    for(const low of [false,true]){
+      original.forEach(([m,geo])=>{m.geometry=low?m.userData.lowDetailGeometry??geo:geo});root.updateMatrixWorld(true)
+      for(const pane of panes){
+        for(const t of [.001,.25,.5,.75,.999])for(const z of [.4501,1,2,EXIT_H-.0801]){
+          const side=pane.name==='wuhan-side-glass',x=side?pane.position.x:cx-half+.14+(2*half-.28)*t,y=side?EXIT_BACK_Y+(1.88-EXIT_BACK_Y)*t:EXIT_BACK_Y
+          const p=house.localToWorld(new THREE.Vector3(x,y,z)),n=new THREE.Vector3(...(side?[Math.sign(x-cx),0,0]:[0,-1,0])).transformDirection(house.matrixWorld)
+          assert.ok(new THREE.Raycaster(p.clone().addScaledVector(n,.2),n.clone().negate()).intersectObject(pane).length,`${low?'Low':'High'} ${pane.name} gap at ${t},${z}`)
+        }
+      }
+      // All plate columns must be visible, including narrow one-bay entrances.
+      for(const x of [-.46,-.25,0,.25,.46]){
+        const p=header.localToWorld(new THREE.Vector3(x*header.geometry.parameters.width,0,0)),n=new THREE.Vector3(0,0,1).transformDirection(header.matrixWorld)
+        assert.equal(new THREE.Raycaster(p.clone().addScaledVector(n,2),n.clone().negate()).intersectObject(root,true)[0]?.object,header)
+      }
+      const p=house.localToWorld(new THREE.Vector3(cx,3,1.3)),n=new THREE.Vector3(0,-1,0).transformDirection(house.matrixWorld)
+      const hit=new THREE.Raycaster(p,n,0,1.5).intersectObject(root,true)[0];assert.equal(hit,undefined,'street doorway stays open')
+    }
+    original.forEach(([m,geo])=>{m.geometry=geo})
+  }finally{original.forEach(([m,geo])=>{m.geometry=geo});disposeObject(root)}
+})
+
+for(const id of ['guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Wuhan ${id} rotation ${rot}: closed square shaft/cube with four logo and label faces`,()=>{
+  const mod=createModule(id,0,0,0,'wh-guide');mod.rot=rot
+  const exit=createModule('exit-virtual',3,3,0,'wh-exit');exit.cfg.name='C2口'
+  if(id==='guidepost')mod.cfg.exitId=exit.id;else mod.cfg.name='C2口'
+  const local={...ctx,data:{...data,cityStyle:'wuhan',nameEn:'Renhe Road',modules:[mod,exit]}},root=buildModule(mod,local),meshes=[]
+  root.traverse(m=>{if(m.isMesh)meshes.push(m)})
+  try{
+    assert.equal(root.userData.guideCityStyle,'wuhan');assert.equal(root.userData.guideLabels.exit,'C2')
+    assert.equal(meshes.filter(m=>m.name==='wuhan-guide-logo-face').length,4);assert.equal(meshes.filter(m=>m.name==='wuhan-guide-live-labels').length,4)
+    for(const name of ['wuhan-guide-square-shaft','wuhan-guide-logo-cube']){
+      const m=root.getObjectByName(name),high=m.geometry
+      for(const low of [false,true]){
+        m.geometry=low?m.userData.lowDetailGeometry:high;m.geometry.computeBoundingBox();root.updateMatrixWorld(true)
+        const b=m.geometry.boundingBox,c=b.getCenter(new THREE.Vector3())
+        for(const axis of ['x','y','z'])for(const s of [-1,1]){
+          const p=c.clone();p[axis]=s<0?b.min[axis]:b.max[axis]
+          const n=new THREE.Vector3();n[axis]=s;n.transformDirection(m.matrixWorld);m.localToWorld(p)
+          assert.ok(new THREE.Raycaster(p.clone().addScaledVector(n,.1),n.clone().negate()).intersectObject(m).length,`${name} missing ${axis}/${s} face at ${low?'Low':'High'}`)
+        }
+      }
+      m.geometry=high
+    }
+    artworkTest.prepareArtwork(root);artworkTest.repaintArtwork(root,{...local.data,name:'中一路',modules:[{...mod,cfg:{...mod.cfg,name:'B1口'}},{...exit,cfg:{...exit.cfg,name:'B1口'}}]})
+    assert.deepEqual(root.userData.guideLabels,{station:'中一路',exit:'B1'})
+  }finally{disposeObject(root)}
+})
+
+for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Chongqing ${bays} bays rotation ${rot}: silver entrance and unobstructed fascia without an attached guide`,()=>{
   const mod=createModule('exit',0,0,0,'cq');mod.cfg.bays=bays;mod.rot=rot
   const before=structuredClone(mod),root=buildModule(mod,{...ctx,data:{...data,cityStyle:'chongqing',modules:[mod]}})
   try{
     assert.equal(root.userData.exitCityStyle,'chongqing');assert.deepEqual(mod,before)
-    assert.ok(root.getObjectByName('chongqing-silver-roof'));assert.ok(root.getObjectByName('chongqing-entrance-guidepost'))
+    assert.ok(root.getObjectByName('chongqing-silver-roof'));assert.equal(root.getObjectByName('chongqing-entrance-guidepost'),undefined)
+    assert.equal(root.getObjectByName('chongqing-guide-round-shaft'),undefined,'guide columns are placed separately')
     const header=root.getObjectByName('chongqing-entrance-sign'),original=[]
     root.traverse(m=>{if(m.isMesh)original.push([m,m.geometry])})
     for(const low of [false,true]){

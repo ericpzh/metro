@@ -1,7 +1,7 @@
 # Station Designer — the game
 
 The top-bar city style selector switches between Guangzhou (the default), Shenzhen,
-Shanghai, Beijing, Chengdu and Chongqing. A city supplies the train emblem, entrance plate design and new-line
+Shanghai, Beijing, Chengdu, Chongqing and Wuhan. A city supplies the train emblem, entrance plate design and new-line
 colours. Switching cities preserves every existing line colour and changes only new-line defaults. The choice is saved with the station and supports undo.
 
 The exploded view preserves solid underground infill as continuous concrete
@@ -3209,7 +3209,7 @@ approximated); neither needs WebGL.
   first one standing — and reprints the station and exit names live, dropping to 入口 when its exit is
   gone; short and long shelters with frozen ad posters; rotated model bounds; exit binding, shelter
   variants and posters survive the save round trip.
-* `city-style.test.mjs` — all six saved city identities, legacy fallback, supplied city palettes, Chongqing's numbered train badges and Beijing's distinct station/cab marks,
+* `city-style.test.mjs` — all seven saved city identities, legacy fallback, supplied city palettes, Chongqing's numbered train badges and Beijing's distinct station/cab marks,
   custom-colour preservation, undo/redo, city-aware new lines, navy entrance badges and retained cab textures.
 * `exit-banner.test.mjs` — the exit header (§5.6): the red brand board prints the saved English station
   name under the Chinese with the exit identifier beside it, white on red, with no 口 suffix and none

@@ -1,3 +1,11 @@
+Wuhan coverage spans `city-style` (exact supplied palette/named aliases, save/undo,
+gradient atlas bounds and bilingual plate), `module-build` (three sealed glass
+sides, clear entrance/fascia, closed cube/shaft and bound labels at all bay counts,
+rotations and detail levels), `line-map` (2732 × 2731 supplied poster), `model-detail`
+(Low budgets/restoration/batching) and `menu-thumbnails` (14 cached city PNGs).
+`node tools/check-wuhan-style.mjs` checks the production selector, lazy map decode,
+retained train/sign resources, live recolouring, undo/reload and theme/High/Low views.
+
 Chengdu coverage is split across `city-style` (distinct P1/P6 contours, palette,
 save and undo), `module-build` (all bay counts/rotations, retained plates and bound
 pylon labels), `line-map` (supplied poster), `menu-thumbnails` (static city assets),

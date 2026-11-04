@@ -2,7 +2,6 @@ import * as THREE from 'three'
 import { slab, ownedMaterial, type ModuleContext } from '../PieceBuilder.ts'
 import { setModelDetail, omitModelDetail } from '../../modelDetail.ts'
 import { EXIT_H, EXIT_BACK, EXIT_REACH, EXIT_BACK_Y } from '../../../sim/exits.ts'
-import { chongqingGuideCrown } from './ChongqingGuidepost.ts'
 
 export function chongqingRoofHeight(y:number):number {
   const t=THREE.MathUtils.clamp((EXIT_BACK-y)/(EXIT_BACK+EXIT_REACH),0,1)
@@ -53,14 +52,15 @@ export function buildChongqingCanopy(house:THREE.Group,ctx:ModuleContext,cx:numb
     for(let i=0;i<5;i++){
       const a=EXIT_BACK_Y+(1.40-EXIT_BACK_Y)*i/5,h=chongqingRoofHeight(a)-.16-.35
       const post=slab(house,dark,x,a,.35+h/2,.06,.06,h);post.name='chongqing-glass-mullion'
-      setModelDetail(post,new THREE.BoxGeometry(.06,.06,lowHeight(a)-.16-.35).translate(0,0,(lowHeight(a)-.16-.35-h)/2))
+      const low=new THREE.BoxGeometry(.06,.06,lowHeight(a)-.16-.35).translate(0,0,(lowHeight(a)-.16-.35-h)/2)
+      // Roof and plinth cover these ends; retain the four visible sides at Low.
+      low.setIndex(Array.from(low.index!.array.slice(0,24)));low.clearGroups();setModelDetail(post,low)
     }
   }
   const rearHeight=chongqingRoofHeight(EXIT_BACK_Y)-.16-.35
   const rear=slab(house,ctx.mats.glass,cx,EXIT_BACK_Y,.35+rearHeight/2,width-.30,.025,rearHeight)
   rear.name='chongqing-rear-glass';setModelDetail(rear,rear.geometry.clone())
   const base=slab(house,stone,cx,EXIT_BACK_Y,.175,width-.30,.27,.35);base.name='chongqing-rear-plinth';setModelDetail(base,base.geometry.clone())
-  const guide=chongqingGuideCrown(ctx);guide.position.set(cx+width/2+.95,1.7,0);guide.name='chongqing-entrance-guidepost';house.add(guide)
   for(const y of [1.5,-.5,-2.3]){
     const lamp=slab(house,ctx.mats.glow,cx,y,chongqingRoofHeight(y)-.17,.40,.10,.015);omitModelDetail(lamp)
   }
