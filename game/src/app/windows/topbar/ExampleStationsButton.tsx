@@ -2,6 +2,8 @@ import { translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import { EXAMPLE_STATIONS } from './exampleStations.ts'
+import { openExampleWithLoading } from '../../gameLoading.ts'
+import { useStore } from '../../store.ts'
 
 /** The button and shortcut open the same chooser; only a card loads a station. */
 export function ExampleStationsButton(): React.ReactElement {
@@ -67,7 +69,12 @@ export function ExampleStationsButton(): React.ReactElement {
               className="exampleStationCard"
               onClick={() => {
                 menuRef.current?.hidePopover()
-                station.load()
+                void openExampleWithLoading(() => {
+                  const epoch = useStore.getState().stationEpoch
+                  station.load()
+                  return useStore.getState().stationEpoch !== epoch
+                }, () => useStore.getState().setNotice(document.documentElement.lang === 'en'
+                  ? 'Could not open the example station.' : '无法打开示例车站。'))
               }}
               aria-label={t('open_the_value_example_station', translate(station.name))}
             >

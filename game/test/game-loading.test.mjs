@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { showGameLoading, failGameLoading, openSaveWithLoading } from '../src/app/gameLoading.ts'
+import { readFileSync } from 'node:fs'
+import { showGameLoading, failGameLoading, openSaveWithLoading, openExampleWithLoading } from '../src/app/gameLoading.ts'
 
 test('loading shell can be shown, dismissed and report a load failure in the active language', () => {
   const screen = { hidden: true }
@@ -55,4 +56,38 @@ test('invalid or unreadable saves dismiss the loading shell', async () => {
   assert.equal(screen.hidden, true)
   delete globalThis.document
   delete globalThis.requestAnimationFrame
+})
+
+test('opening an example paints the shell before loading and dismisses it on failure', async () => {
+  const screen = { hidden: true }, title = {}, detail = {}
+  const frames = []
+  globalThis.document = { documentElement: { lang: 'en' }, getElementById: id => ({ 'game-loading': screen, 'loading-title': title, 'loading-detail': detail })[id] }
+  globalThis.requestAnimationFrame = cb => frames.push(cb)
+  let opened = false
+  const pending = openExampleWithLoading(() => { opened = true; return true }, () => assert.fail('load failed'))
+  assert.equal(screen.hidden, false)
+  assert.match(title.textContent, /example station/)
+  frames.shift()()
+  assert.equal(opened, false)
+  frames.shift()()
+  await pending
+  assert.equal(opened, true)
+  assert.equal(screen.hidden, false)
+  showGameLoading(false) // viewport's first rendered frame
+  document.documentElement.lang = 'zh-CN'
+  const failed = openExampleWithLoading(() => { throw new Error('failed') }, () => { opened = false })
+  assert.match(title.textContent, /示例车站/)
+  frames.shift()()
+  frames.shift()()
+  await failed
+  assert.equal(opened, false)
+  assert.equal(screen.hidden, true)
+  delete globalThis.document
+  delete globalThis.requestAnimationFrame
+})
+
+test('example station cards use the loading shell', () => {
+  const source = readFileSync(new URL('../src/app/windows/topbar/ExampleStationsButton.tsx', import.meta.url), 'utf8')
+  assert.match(source, /openExampleWithLoading\(\(\) =>/)
+  assert.match(source, /station\.load\(\)/)
 })

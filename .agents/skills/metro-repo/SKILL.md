@@ -242,7 +242,10 @@ Capture, lab and benchmark routes bypass it, and the mobile gate dismisses it
 until the player proceeds. Opening a save reuses this shell with localized copy:
 `openSaveWithLoading` lets it paint before reading and parsing, and the viewport
 dismisses it after the new station's first frame. Invalid or unreadable files
-dismiss it and report the error. Keep `game-loading.test.mjs` aligned.
+dismiss it and report the error. Example-station cards use `openExampleWithLoading`
+to paint the same localized shell before loading; the viewport dismisses it after
+the first station frame, and failed loads dismiss it and show a notice. Keep
+`game-loading.test.mjs` aligned.
 Retain the requested setting icons and the stats explanation as a hover-only
 tooltip that dismisses on pointer leave and immediately after toggling music. Pin the
 menu structure and CSS behavior in `topbar-report-issue`, `global-stats`, `audio` and

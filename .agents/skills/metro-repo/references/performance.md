@@ -741,3 +741,12 @@ The corrected run followed the original in the same process and benefited from
 shared caches; these are model-call timings, not matched cold interaction or
 browser first-frame measurements. `surfaces.test.mjs` pins the floor boundary,
 opening and inset half-wall connection without relying on the private save.
+
+### Example station loading screen (2026-11-03)
+
+A production-build headless browser check opened Tanwei using the example card at
+1440 × 900. A DOM mutation observer saw the loading shell shown 4 ms after the
+scripted click and hidden 15,753.5 ms after it, after the station frame. This
+single run overlapped the full game test suite; it is not an isolated latency
+benchmark or a display-paint measurement. `game-loading.test.mjs` pins the two
+frame wait, success/failure lifecycle, localization and card wiring.

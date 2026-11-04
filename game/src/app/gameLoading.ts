@@ -34,3 +34,23 @@ export async function openSaveWithLoading(
     reportReadFailure()
   }
 }
+
+/** Paint the shell before preparing an example station. */
+export async function openExampleWithLoading(open: () => boolean, reportFailure: () => void): Promise<void> {
+  const english = document.documentElement.lang === 'en'
+  const title = document.getElementById('loading-title')
+  const detail = document.getElementById('loading-detail')
+  if (title) title.textContent = english ? 'Loading example station' : '正在载入示例车站'
+  if (detail) detail.textContent = english ? 'Building the example station. Please wait.' : '正在构建示例车站，请稍候。'
+  showGameLoading(true)
+  try {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    if (!open()) {
+      showGameLoading(false)
+      reportFailure()
+    }
+  } catch {
+    showGameLoading(false)
+    reportFailure()
+  }
+}
