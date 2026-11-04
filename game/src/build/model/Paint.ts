@@ -66,6 +66,7 @@ export function facePresent(
   y: number,
   z: number,
   face: Face,
+  occupied: (x: number, y: number, z: number) => boolean = (nx, ny, nz) => solid.has(cellKey(nx, ny, nz)),
 ): boolean {
   const k = cellKey(x, y, z);
   if (!solid.has(k)) return false;
@@ -74,7 +75,7 @@ export function facePresent(
   if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) return true;
   const step = FACE_STEP[face];
   const neighbourKey = cellKey(x + step[0], y + step[1], z + step[2]);
-  if (!solid.has(neighbourKey)) return true;
+  if (!occupied(x + step[0], y + step[1], z + step[2])) return true;
 
   // Match the mesher's cap culling: a triangular neighbour only covers the
   // horizontal face when its flat base is against it. Its sloping half leaves
@@ -258,9 +259,18 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
   // Explicit cells only: the 整面 flood paints the surfaces a player built, and
   // must not spill onto the infinite street — the plane is uniform, so there is
   // nothing there to fill, and materialising the horizon would bloat the save.
-  const solid = new Set(state.cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
+  const index = blockIndex(state.cells, state.modules);
+  const solid = index.solid;
   const thin = thinWallSideMap(state.cells, state.modules);
-  const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face);
+  // Authored faces are the only flood targets, but generated street ground still
+  // occludes them. Treating it as air lets a wall flood bridge a buried row at z=0.
+  const occupied = (px: number, py: number, pz: number): boolean =>
+    solid.has(cellKey(px, py, pz)) || index.ground(px, py, pz);
+  const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face, occupied);
+  const inset = (px: number, py: number, pz: number): boolean => {
+    const shape = thin.get(cellKey(px, py, pz));
+    return isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face;
+  };
   if (!exposed(x, y, z)) return state;
   const seen = new Set<string>([cellKey(x, y, z)]);
   const queue: Array<[number, number, number]> = [[x, y, z]];
@@ -274,7 +284,7 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
       const ny = cy + dy;
       const nz = cz + dz;
       const k = cellKey(nx, ny, nz);
-      if (seen.has(k) || !exposed(nx, ny, nz)) continue;
+      if (seen.has(k) || !exposed(nx, ny, nz) || inset(cx, cy, cz) !== inset(nx, ny, nz)) continue;
       seen.add(k);
       queue.push([nx, ny, nz]);
     }

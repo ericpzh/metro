@@ -2121,7 +2121,10 @@ including the depth prepass, for all six appearances.
   current brush mode and saves that color in the station when painted. `paint-mode.test.mjs` pins
   the mode and UI contracts. Whole-surface finish and zone bucket floods run to the actual
   connected boundary without a cell-count cutoff; `surfaces.test.mjs` and `zones.test.mjs` pin
-  floors larger than 20,000 cells. `P` 吸取 (the 工具 folder's eyedropper) lifts
+  floors larger than 20,000 cells. Wall floods count virtual street ground as an occluder,
+  honor openings, and join inset half-wall faces only to matching surfaces. The Tianhe Park
+  `(184,-117,-2)` / `(194,-117,-2)` floor-separated walls are pinned in `surfaces.test.mjs`.
+  `P` 吸取 (the 工具 folder's eyedropper) lifts
   a bare face's finish into the brush and a placed piece into the placement; a **指示牌** is
   copied as its own printed **boards** (`SignSlice.adoptSignBoards`), not merely as its tile,
   and a picked 灯具 / 导向柱 / wide 扶梯 / shell roof brings its spot / exit / width / bay along

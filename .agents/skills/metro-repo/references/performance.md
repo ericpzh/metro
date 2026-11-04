@@ -729,3 +729,15 @@ not real-pointer or rendered latency; it does not establish the 100 ms budget.
 A production browser capture was unavailable because the current workspace's
 unrelated in-progress type errors prevent a fresh game build. The shared selection
 keeps preview separate from the single release commit and introduces no scene picks.
+
+### Whole-wall fill at Tianhe Park
+
+On the supplied Tianhe Park save (118,718 cells, 2,849 modules), a Node.js
+`fillSurface` probe from `(184,-117,-2)`, north face, previously painted 1,644
+cells including `(194,-117,-2)`; the corrected flood painted 1,483 and left
+that other wall unchanged. Six sequential calls measured 301.4/29.5/29.0/
+27.1/33.0/24.2 ms before and 37.8/11.2/10.9/11.8/12.9/10.2 ms after.
+The corrected run followed the original in the same process and benefited from
+shared caches; these are model-call timings, not matched cold interaction or
+browser first-frame measurements. `surfaces.test.mjs` pins the floor boundary,
+opening and inset half-wall connection without relying on the private save.

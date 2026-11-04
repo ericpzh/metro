@@ -167,6 +167,38 @@ test('the whole-surface flood reaches the true edge of a large floor', () => {
   }
 })
 
+test('whole-wall fill stops at floors and does not bridge the Tianhe Park wall gap', () => {
+  const cells = []
+  for (const x of [184, 194]) for (let z = -6; z <= 1; z++) {
+    cells.push({ x, y: -117, z, fill: 'solid' })
+  }
+  for (let x = 185; x < 194; x++) for (const z of [-5, 0]) {
+    cells.push({ x, y: -117, z, fill: 'solid' })
+  }
+  for (let x = 184; x <= 194; x++) cells.push({ x, y: -116, z: -5, fill: 'solid' })
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+  const filled = fillSurface(state, 184, -117, -2, 'n', 'wall.tile')
+  const finish = (x, y, z) => filled.cells.find(c => c.x === x && c.y === y && c.z === z)?.finish?.n
+  for (const z of [-4, -3, -2, -1]) assert.equal(finish(184, -117, z), 'wall.tile')
+  for (const z of [-6, -5, 0, 1]) assert.equal(finish(184, -117, z), undefined)
+  assert.equal(finish(194, -117, -2), undefined, 'the floor must not connect separate walls')
+  assert.equal(state.cells.find(c => c.x === 184 && c.y === -117 && c.z === -2).finish, undefined)
+
+  // A real opening in the virtual street exposes the connecting row.
+  const open = { ...state, cells: [...state.cells, ...Array.from({ length: 11 }, (_, i) => ({ x: 184 + i, y: -116, z: 0, fill: 'void' }))] }
+  const throughOpening = fillSurface(open, 184, -117, -2, 'n', 'wall.tile')
+  assert.equal(throughOpening.cells.find(c => c.x === 194 && c.y === -117 && c.z === -2).finish?.n, 'wall.tile')
+})
+
+test('whole-wall fill joins inset half-wall faces only when their surfaces meet', () => {
+  const cells = [0, 1, 2].map(x => ({ x, y: 0, z: 1, fill: 'solid', ...(x < 2 ? { tags: ['half-wall:s'] } : {}) }))
+  const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })
+  const filled = fillSurface(state, 0, 0, 1, 'n', 'wall.tile')
+  assert.equal(filled.cells[0].finish?.n, 'wall.tile')
+  assert.equal(filled.cells[1].finish?.n, 'wall.tile')
+  assert.equal(filled.cells[2].finish?.n, undefined)
+})
+
 test('the chunk mesher groups faces into one part per finish', () => {
   const cells = [
     { x: 0, y: 0, z: 0, fill: 'solid' },
