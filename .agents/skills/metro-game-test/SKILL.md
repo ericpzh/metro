@@ -706,3 +706,19 @@ measured placement results only in the shared performance reference.
 
 The restroom cubicle family regression spans 
 ail-families.test.mjs (family ownership and decor rail anchor), menu-thumbnails.test.mjs (generated option thumbnails), and module-build.test.mjs (the toilet-only variant has fixture geometry and no enclosure or swing door). Run these focused tests when changing the family or its model.
+
+
+`geometry-snap` pins all four rotations, positive/negative wall courses, stationary
+snaps within a cell, one-metre transitions, centred short signs, edge-aligned other
+panels, hover document identity, missing backing refusal, move/save round trips,
+and storey visibility. Its grid-repair checks scope fractional anchor acceptance
+to wall artwork. `preview-lod` pins glass preview/commit and rendered bounds.
+`sign-model` pins explicit board ownership despite stale legacy side flags;
+`equipment-retention` pins front-only wall-sign plate retention and repaint with a
+wider unused saved back. `tools/check-sign-preview.mjs` compares editor canvases
+with production sign textures for hanging/wall mounts and checks that each
+printed mark hits its own drag target; `tools/check-geometry-snapping.mjs` drives actual
+pointer preview/place/move, including centred short signs and edge-aligned posters,
+and checks one scene raycast per event. `tools/check-sign-save.mjs <save-path>`
+captures the reported Tianhe sign in High/Low and both view directions; captures
+alone do not establish a fix for an intermittent failure that did not reproduce.

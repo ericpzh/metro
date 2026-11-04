@@ -1451,3 +1451,15 @@ City-specific 线网图 art uses the supplied `network-map.jpg` for Guangzhou an
 Shanghai city identity includes numbered bilingual exit plates, a flat grey glazed covered entrance, red logo lantern pylons, and the supplied portrait network map. `city-style`, `module-build`, `model-detail`, `line-map` and `menu-thumbnails` cover saves, numbering, geometry, Low budgets, artwork selection and static city previews.
 
 Beijing uses a blue DC station emblem and a separate white calligraphic 北京 cab mark. Its stainless covered entrance has diamond glass cut-outs and matching doorway/front-roof/side-roof plates sharing one retained texture. Blue guideposts and virtual exits bind station/exit/line labels. `city-style`, `module-build` and `model-detail` pin these contracts, including all bay widths/rotations and real High/Low glazing holes. `line-map` covers the complete supplied Beijing PNG plus deferred decode/coalescing/retry/disposal; `menu-thumbnails` covers all 14 static previews. `node tools/check-beijing-style.mjs` checks production selection, shared-sign repaint retention, distinct train artwork, lazy posters, undo/redo and reload, with High/Low captures.
+
+
+Wall decor and sign coverage: `geometry-snap` checks all wall rotations, cell-edge
+snaps and centred short signs, preview/commit/move/save agreement, missing backing,
+stationary within-cell aims and visibility. `preview-lod` checks glass rendered
+bounds. `sign-model` checks stale side flags on explicit boards;
+`equipment-retention` checks front-only wall-sign plate retention and repaint with
+an unused wider back. After building, run `node tools/check-sign-preview.mjs` for
+preview/texture pixel parity and `node tools/check-geometry-snapping.mjs` for real
+pointer placement/move and the one-raycast-per-event bound. The optional
+`node tools/check-sign-save.mjs <save-path>` captures the reported Tianhe sign;
+it is diagnostic and does not require checking the user's entire save into tests.

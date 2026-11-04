@@ -19,7 +19,7 @@ export interface HoverTile {
   solid: boolean
   /** The drawn module under the pointer, when one was picked. */
   moduleId?: string | null
-  point?: [number, number]
+  point?: [number, number, number?]
   roofSnap?: 'lower' | 'upper'
 }
 

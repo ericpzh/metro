@@ -1,12 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
+import { parse, serialize } from '../src/persistence/save.ts'
 import { createModule, toState } from '../src/build/model.ts'
 import { addSuspendedCeiling } from '../src/build/model/Ceilings.ts'
 import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
+import { moduleLevels } from '../src/render/scene/systems/SceneSystem.ts'
+import { storeyBand } from '../src/sim/constants.ts'
+import { rotateLocal } from '../src/sim/track.ts'
+import { isGridModule } from '../src/build/model/Grid.ts'
 import { moduleAim } from '../src/app/tools/moduleAim.ts'
 import { useStore } from '../src/app/store.ts'
-import { moveCandidate, equipmentReason, pillarAt, liftAt, topBlockZ, wallMountStandCell } from '../src/sim/placement.ts'
+import { moduleEnvelope, moveCandidate, equipmentReason, pillarAt, liftAt, topBlockZ, wallMountStandCell } from '../src/sim/placement.ts'
 import { hangerBoxes, hangerCells, hangerRoofZ } from '../src/sim/hangers.ts'
 import { buildModule, disposeObject } from '../src/render/models.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
@@ -107,5 +112,66 @@ test('suspended ceiling placement preserves existing fixture anchors across edit
     const result = addSuspendedCeiling(state, [[0, 0, 17], [0, 0, 28]])
     assert.equal(result.state.modules, state.modules)
     assert.deepEqual(result.state.modules.map(m => m.z), [18, 23])
+  }
+})
+
+
+test('wall decor snaps to whole-metre cell edges through preview, commit, move and save', () => {
+  const previous = useStore.getState()
+  try {
+    const cells = Array.from({ length: 11 }, (_, x) => Array.from({ length: 14 }, (_, i) => solid(40 + x, -24, i - 7))).flat()
+    const originalCells = cells
+    for (const rot of [0, 1, 2, 3]) {
+    const cells = originalCells.map(c => { const [x, y] = rotateLocal(rot, c.x - 45, c.y + 23); return { ...c, x: 45 + x, y: -23 + y } })
+      const [dx, dy] = rotateLocal(rot, 0, -1)
+      const station = toState({ name: 'wall aim', seed: 1, cells, modules: [], lines: [] })
+      for (const type of ['sign-wall', 'billboard-wide', 'calligraphy-kai-h', 'linemap-wall', 'glass-1x1', 'monitor-wall']) {
+        for (const height of [-3.9, -3.1, -0.9, -0.1, 2.1, 2.9]) {
+          useStore.setState({ station, moduleType: type, moduleRot: rot, past: [], future: [], signPreview: null })
+          const tool = new EquipmentTool({})
+          const hit = { cell: [45 + dx, -23 + dy, Math.floor(height)], place: [45, -23, Math.floor(height)], solid: true, point: [45.5 + dx * .5, -22.5 + dy * .5, height] }
+          const snappedHeight = hit.cell[2]
+          const preview = tool.wallMountPlacement(hit.cell, hit.place, 'preview', hit.point)
+          assert.ok(preview, type)
+          assert.equal(useStore.getState().station, station, 'hover never commits a document')
+          if (snappedHeight !== 0) assert.equal(equipmentReason([], [], preview), 'wall', 'missing backing remains refused')
+          const box = moduleEnvelope(preview)
+          const inset = preview.type === 'sign' && box.z1 - box.z0 < 1 ? (1 - (box.z1 - box.z0)) / 2 : 0
+          assert.ok(Math.abs(box.z0 - snappedHeight - inset) < 1e-8, type)
+          if (preview.type === 'sign') assert.ok(Math.abs((box.z0 + box.z1) / 2 - (hit.cell[2] + .5)) < 1e-8, 'short wall sign has equal top and bottom margins within the cell')
+          assert.equal(equipmentReason(cells, [], preview), '', type)
+          tool.placeModule(hit.cell, hit.place, true, type, hit.point)
+          const placed = useStore.getState().station.modules[0]
+          assert.ok(placed, type)
+          assert.equal(placed.z, preview.z, type)
+          assert.deepEqual(moduleLevels(placed), [storeyBand((box.z0 + box.z1) / 2)], 'visibility follows the panel instead of its offset anchor')
+          const saved = parse(serialize(toState({ ...station, modules: [placed] })))
+          assert.equal(saved.state?.modules[0]?.z, placed.z, 'save round trip keeps exact wall height')
+          const at = moduleAim(station, placed, { ...hit, point: [hit.point[0], hit.point[1], height + .17] })
+          const moved = moveCandidate(cells, [], placed, { x: at[0], y: at[1], z: at[2] }, rot)
+          assert.equal(moved.reason, '', type)
+          assert.ok(Math.abs(moved.module.z - placed.z) < 1e-8, 'movement within the same wall cell keeps the same anchor')
+          const nextCell = moduleAim(station, placed, { ...hit, cell: [45 + dx, -23 + dy, hit.cell[2] + 1], place: [45, -23, hit.cell[2] + 1] })
+          assert.ok(Math.abs(nextCell[2] - at[2] - 1) < 1e-8, 'crossing a wall cell advances exactly one metre')
+          const movedBox = moduleEnvelope(moved.module)
+          assert.ok(Math.abs(movedBox.z0 - snappedHeight - inset) < 1e-8, type)
+        }
+      }
+    }
+  } finally { useStore.setState(previous) }
+})
+
+
+test('fractional height exemption belongs only to wall artwork', () => {
+  for (const type of ['bench', 'sign-ceiling', 'linemap-stand', 'monitor-ceiling', 'curtain-wall']) {
+    const mod = createModule(type, 0, 0, -.25, type)
+    assert.ok(mod, type)
+    assert.equal(isGridModule(mod), false, type)
+  }
+  for (const type of ['sign-wall', 'billboard-wide', 'glass-1x1']) {
+    const mod = createModule(type, 0, 0, -.25, type)
+    assert.equal(isGridModule(mod), true, type)
+    assert.equal(isGridModule({ ...mod, z: Infinity }), false, type)
+    assert.equal(isGridModule({ ...mod, x: .5 }), false, type)
   }
 })

@@ -943,7 +943,16 @@ export function wallSide(rot: number | undefined): [number, number] {
   return [dx === 0 ? 0 : dx, dy === 0 ? 0 : dy]
 }
 
-/** Resolve a wall mount from its real backing column and adjacent exposed floor. Glass cladding follows the aimed course; other panels use the actual wall base. Legacy editing-base arguments never affect the result. */
+/** Align decor to a wall cell; a sub-metre sign has equal top/bottom margins. */
+export function wallDecorAnchorZ(mod: Module, course: number): number {
+  const box = moduleEnvelope(mod)
+  if (!box) return course
+  const height = box.z1 - box.z0
+  const inset = mod.type === 'sign' && height < 1 ? (1 - height) / 2 : 0
+  return mod.z + course + inset - box.z0
+}
+
+/** Resolve a legacy wall anchor from the backing column and exposed floor. */
 export function wallMountStandCell(
   cells: readonly Cell[],
   cell: readonly [number, number, number],
@@ -1186,10 +1195,14 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module, modu
   const [dx, dy] = wallSide(candidate.rot)
   // The half of the backing cell the panel's own back plane touches.
   const needed = stepSide(-dx, -dy)
-  for (const course of wallMountCourses(candidate)) {
+  const bounds = moduleEnvelope(candidate)
+  const courses = bounds && !Number.isInteger(candidate.z)
+    ? Array.from({ length: Math.ceil(bounds.z1 - 1e-8) - Math.floor(bounds.z0 + 1e-8) }, (_, i) => Math.floor(bounds.z0 + 1e-8) + i - candidate.z - 1)
+    : wallMountCourses(candidate)
+  for (const course of courses) {
     const nz = candidate.type === 'exit' && candidate.cfg.style === 'doorway'
       ? candidate.cfg.mountZ ?? candidate.z + 1 + course
-      : candidate.z + 1 + course
+      : Math.round(candidate.z + 1 + course)
     for (const [bx, by] of baseCells(candidate)) {
       const back = cells.find((c) => c.fill === 'solid' && c.x === bx + dx && c.y === by + dy && c.z === nz)
       // The 地面 exit is a shallow sign on the face of any solid 1 m block.

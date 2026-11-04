@@ -23,7 +23,7 @@ import { drawLineMapPlaceholder, lineMapPlaceholderPlate } from '../../lineMapFa
 import { drawSignPanel } from '../../signFace.ts'
 import { calligraphyPanelSize } from '../../../sim/calligraphy.ts'
 import { lineMapSpec } from '../../../sim/linemaps.ts'
-import { signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
+import { mountedSignBoards, signBoardsOf, signBoardsPanel, signFaceLayout, signPlate } from '../../../sim/sign.ts'
 import { stampAt } from '../../../sim/clock.ts'
 import type { SignBoards, SignLayout, SignPanelSize } from '../../../sim/sign.ts'
 import type { CalligraphyAxis, CalligraphyStyle, LineDef, Module, StationData } from '../../../sim/types.ts'
@@ -168,7 +168,7 @@ export class PlateSystem extends SceneSystem {
     const keep = new Set<string>()
     for (const mod of data.modules) {
       if (mod.type !== 'sign') continue
-      const panel = signBoardsPanel(signBoardsOf(mod.cfg, data))
+      const panel = signBoardsPanel(mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, data)))
       keep.add(signPlateKey(mod.id, 'left', panel))
       keep.add(signPlateKey(mod.id, 'right', panel))
     }
@@ -249,7 +249,7 @@ export class PlateSystem extends SceneSystem {
       const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
       if (!mod || mod.type !== 'sign') continue
       if (sameLines && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
-      const boards = signBoardsOf(mod.cfg, this.ctx.stationData)
+      const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, this.ctx.stationData))
       const layout = signFaceLayout(boards, entry.face === 'right' ? 'back' : 'front')
       const previousMod = old.get(id)
       if (previous && previousMod?.type === 'sign' && JSON.stringify(previousMod) === JSON.stringify(mod)) {

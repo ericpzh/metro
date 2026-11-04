@@ -33,7 +33,7 @@ export class MoveController extends ToolController {
       st.liftModule(id)
       const hit = info.hit
       if (useStore.getState().moveDraft && hit) {
-        this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
+        this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1], hit.point[2]] }
         this.refreshHover()
       }
       return
@@ -53,7 +53,7 @@ export class MoveController extends ToolController {
         cell: hit.cell,
         place: hit.place,
         solid: hit.solid,
-        point: [hit.point[0], hit.point[1]],
+        point: [hit.point[0], hit.point[1], hit.point[2]],
       }
       this.refreshHover()
     }
@@ -79,7 +79,7 @@ export class MoveController extends ToolController {
     }
     scene.setHoverHighlight?.(null)
     if (!hit) return
-    this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
+    this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1], hit.point[2]] }
     this.refreshHover()
   }
 
@@ -101,7 +101,7 @@ export class MoveController extends ToolController {
    * for a hung fitting, the floor under the ceiling slab (`ceilingMountStandCell`)
    * — exactly as a fresh placement resolves the same hover.
    */
-  private moveAnchorAt(h: { cell: [number, number, number]; place: [number, number, number]; solid: boolean }): Vec3i {
+  private moveAnchorAt(h: { cell: [number, number, number]; place: [number, number, number]; solid: boolean; point?: [number, number, number?] }): Vec3i {
     const st = useStore.getState()
     const d = st.moveDraft
     const [x, y, z] = d ? moduleAim(st.station, d.module, h) : h.cell
@@ -169,7 +169,7 @@ export class MoveController extends ToolController {
       }
     }
     const { module: candidate, reason } = h || !d.candidate
-      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point, aimedAtBlock ? undefined : this.facing())
+      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point ? [h.point[0], h.point[1]] : undefined, aimedAtBlock ? undefined : this.facing())
       : { module: d.candidate, reason: d.reason }
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a

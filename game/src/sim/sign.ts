@@ -1519,7 +1519,10 @@ export function signBoardsOf(cfg: { components?: SignLayout; front?: SignLayout;
   // `normalizeSignLayout` would quietly overturn it by filling the blank in.
   const fixed = (face: SignLayout | undefined): SignLayout => (face && face.length > 0 ? normalizeSignLayout(face, station) : [])
   if (cfg.front !== undefined || cfg.back !== undefined) {
-    return { front: fixed(cfg.front), back: fixed(cfg.back) }
+    // Explicit board ownership supersedes the legacy per-component side flag.
+    // A mark moved from front to back must print on its new board.
+    const own = (layout: SignLayout): SignLayout => layout.map(c => ({ ...c, side: 'both' }))
+    return { front: own(fixed(cfg.front)), back: own(fixed(cfg.back)) }
   }
   const legacy = splitSignBoards(cfg.components ?? [])
   return { front: normalizeSignLayout(legacy.front, station), back: fixed(legacy.back) }

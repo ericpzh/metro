@@ -654,3 +654,26 @@ test('real ordinary hover previews do not rescan the prepared document on new po
     }
   } finally { ghost.dispose() }
 }))
+
+
+test('wall sign plate retention uses the mounted front even when a save carries a wider unused back', () => withDrawing(({ ctx }) => {
+  const front = [{ id: 'front', kind: 'text', text: 'A', x: 0, y: .35, scale: 1, side: 'both' }]
+  const back = Array.from({ length: 6 }, (_, i) => ({ id: `back-${i}`, kind: 'arrow', arrow: 'left', x: i * .6, y: .35, scale: 1, side: 'both' }))
+  const sign = createModule('sign-wall', 0, 0, 0, 'wall-retained')
+  sign.cfg = { ...sign.cfg, front, back }
+  const data = station([sign]), plates = new PlateSystem(ctx)
+  ctx.stationData = data
+  const panel = signBoardsPanel({ front, back: [] })
+  const material = plates.makeSignPlate(sign.id, front, 'left', panel)
+  let disposed = false
+  material.map.addEventListener('dispose', () => { disposed = true })
+  plates.retainSignPlates(data)
+  assert.equal(disposed, false)
+  assert.equal(plates.makeSignPlate(sign.id, front, 'left', panel), material)
+  const version = material.map.version
+  const edited = { ...data, modules: [{ ...sign, cfg: { ...sign.cfg, front: [{ ...front[0], text: 'B' }] } }] }
+  ctx.stationData = edited
+  plates.redrawSignPlates(data)
+  assert.equal(material.map.version, version + 1, 'front repaint uses the mounted panel despite the wider unused back')
+  plates.clearSignPlates()
+}))

@@ -2,6 +2,7 @@
 // Leaf module: sim types only, so State.ts can import it without a cycle.
 
 import type { Cell, Module, StationData } from '../../sim/types.ts';
+import { isWallMounted } from '../../sim/placement.ts';
 
 /**
  * True when a cell sits on the 1 m editing grid, with a coordinate a double can
@@ -32,6 +33,10 @@ export function isGridCell(c: { x: number; y: number; z: number }): boolean {
  * grid would leave a flight landing on a cell that does not exist.
  */
 export function isGridModule(m: Module): boolean {
+  // Wall artwork uses offset anchors to align its visible panel to a wall cell.
+  if (['sign', 'billboard', 'calligraphy', 'linemap', 'glass', 'monitor'].includes(m.type)
+    && Number.isInteger(m.x) && Number.isInteger(m.y) && Number.isFinite(m.z)
+    && isWallMounted(m)) return true;
   const points: Array<{ x: number; y: number; z: number }> = [m];
   const run = m as { from?: { x: number; y: number; z: number }; to?: { x: number; y: number; z: number } };
   if (run.from) points.push(run.from);

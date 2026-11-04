@@ -73,9 +73,10 @@ performance record.
 Placement and move snapping must follow actual geometry, never a nominal storey
 band or editing base. The anchor matrix is under
 [Geometry snapping anchors](#geometry-snapping-anchors).
-`moduleAim` shares fresh/carried anchors; wall mounts resolve actual exposed floors
-and backing columns, ceiling props resolve actual slabs/decks/hanger supports, and
-shaft targets overlap the pointed air cell. Infer `ceilingAnchored` from a real
+`moduleAim` shares fresh/carried anchors; wall decor follows the pointed cell
+through `wallDecorAnchorZ` (short signs centred, other panels bottom-aligned),
+legacy floor aims resolve exposed floors/backing columns. Ceiling props resolve
+actual slabs/decks/hanger supports, and shaft targets overlap the pointed air cell. Infer `ceilingAnchored` from a real
 support directly above the candidate, never from station settings. Keep the
 `geometry-snap` integration suite and `tools/check-geometry-snapping.mjs` aligned.
 Construction placement and moving must prioritize the nearest visible object surface
@@ -2629,3 +2630,30 @@ performance guide owns the per-option triangle inventory and measured actions.
 
 The restroom decor family includes cubicle (partition, door and toilet) and cubicle-toilet (toilet fixture only). Keep catalogue family ownership, palette factory and thumbnail preview config, pick round-trip, model geometry and room/passenger behavior aligned. metro-game-test pins family/catalog structure in 
 ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and model geometry in module-build.test.mjs.
+
+
+## Wall decor and sign faces
+
+Fresh placement and moving share `wallDecorAnchorZ`: wall signs shorter than one
+metre are vertically centred within the pointed wall block; other wall decor
+aligns its bottom with that block's whole-metre edge. Pointer movement within one
+block never changes height, and crossing a course moves the panel by one metre.
+Keep the picked third coordinate in `HoverTile.point`; do not return to a fixed
+height above the floor. Booth headers retain their booth attachment policy.
+
+Wall artwork may carry a finite fractional anchor because authored panel offsets
+are measured from the anchor, even though the visible panel snaps to the block.
+Preserve this through grid repair and save round trips; structural modules/cells
+remain on-grid. Backing validation checks the panel's actual occupied courses for
+fractional anchors. `moduleLevels` slices wall decor by its visible centre.
+
+The sign editor draws retained row canvases with `drawSignPanel`, using the same
+paired panel size and resolution as the production textures. Transparent bins
+handle dragging and meet halfway between printed mark centres, rather than
+proportionally to ink widths. Preserve stored mark positions on opening; normalise a hover
+insertion through the same write policy. Do not resize each mark independently or
+encode PNGs per drag.
+Explicit front/back boards override legacy component side flags. Retention and
+repainting use the mounted front-only panel for wall signs, even if an older save
+carries a wider unused back. Empty saved backs stay empty; do not invent artwork
+when investigating an intermittently blank front.

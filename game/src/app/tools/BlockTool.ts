@@ -545,7 +545,7 @@ export class BlockTool extends ToolController {
     const base: [number, number, number] = h.solid ? h.place : h.cell
     let check: PlacementPreview
     if (st.halfWall || st.triangles) {
-      const open = wallSnap(st.station.cells, base, h.point ?? null, 0).dirs
+      const open = wallSnap(st.station.cells, base, h.point ? [h.point[0], h.point[1]] : null, 0).dirs
       const shape = cutShapeFor([base], open, st)
       // A press still held keeps its anchor: **R** stepped mid-drag has to move the
       // shape the release will lay, not only the one the ghost under the pointer

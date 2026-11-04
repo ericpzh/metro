@@ -35,6 +35,8 @@ import {
   equipmentReason,
   equipmentRefusalNotice,
   isCeilingHung,
+  isWallMounted,
+  wallDecorAnchorZ,
   liftAt,
   pillarAt,
   placementColliders,
@@ -250,7 +252,7 @@ export class EquipmentTool extends ToolController {
     // the ramp's upper landing supplies the bay position and orientation.
     const targetRamp = pickedRamp
     if (targetRamp) {
-      this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]], targetRamp)
+      this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]], targetRamp)
       return
     }
     // Wall/ceiling mounts are placed from their backing surface, so the pointer
@@ -263,7 +265,7 @@ export class EquipmentTool extends ToolController {
       st.setNotice(equipmentRefusalNotice('floor'))
       return
     }
-    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1]], undefined, pickedCoverTarget)
+    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]], undefined, pickedCoverTarget)
   }
 
   onMove(info: PointerInfo): void {
@@ -397,7 +399,7 @@ export class EquipmentTool extends ToolController {
       moduleId: st.moduleType === 'psd-end-cover'
         ? pickedCoverId
         : isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : null,
-      point: [hit.point[0], hit.point[1]],
+      point: [hit.point[0], hit.point[1], hit.point[2]],
     }
     this.refreshHover()
   }
@@ -803,14 +805,14 @@ export class EquipmentTool extends ToolController {
     cell: [number, number, number],
     place: [number, number, number],
     id: string,
-    near?: readonly [number, number],
+    near?: readonly [number, number, number?],
   ): Module | null {
     const st = useStore.getState()
     const groundExit = st.moduleType.startsWith('exit-doorway-')
     // A 玻璃板 is cladding from its base, so it **hangs over the course the pointer is
     // on** rather than always at the storey floor (`wallMountFollowsCourse`): aim at a
     // wall's third course and the window covers the third course.
-    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true })
+    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true, point: near ? [...near] : undefined })
     const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
       && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
     const snappedRot = groundExit && hitBlock
@@ -840,9 +842,15 @@ export class EquipmentTool extends ToolController {
     }
     // A wall 指示牌 whose board is open in the editor draws the board being arranged.
     const printed = signModuleWithPreview(draft, st.signPreview)
-    const snapped = printed.type === 'sign' && near
-      ? snapSignToBooth(st.station.modules, printed, near, cell[2], this.signBoothId ?? undefined)
+    let snapped = printed.type === 'sign' && near
+      ? snapSignToBooth(st.station.modules, printed, [near[0], near[1]], cell[2], this.signBoothId ?? undefined)
       : printed
+    // Resolve the final configured panel, including custom station lettering and
+    // live sign boards, before applying its wall-cell alignment policy.
+    if (near?.[2] !== undefined && (cell[0] !== place[0] || cell[1] !== place[1])
+      && isWallMounted(snapped) && !groundExit && snapped.type !== 'urinal' && !(snapped.type === 'sign' && snapped.cfg.boothId)) {
+      snapped = { ...snapped, z: wallDecorAnchorZ(snapped, cell[2]) }
+    }
     // The wall the panel hangs on is the one the camera is looking at
     // (`autofaceWallMount`) — except for a 地面出入口, which is a shallow sign on the
     // **block face the pointer clicked** (`snappedRot`, and its `cfg.mountZ` names that
@@ -851,7 +859,7 @@ export class EquipmentTool extends ToolController {
     const mod = autofaceWallMount(
       st.station.cells,
       snapped,
-      near,
+      near ? [near[0], near[1]] : undefined,
       st.station.modules,
       snappedRot === null ? this.facing() : undefined,
     )
@@ -1007,7 +1015,7 @@ export class EquipmentTool extends ToolController {
     place: [number, number, number],
     solid: boolean,
     type: string,
-    near?: [number, number],
+    near?: [number, number, number?],
     targetRamp?: Module,
     directTarget?: Module,
   ): void {

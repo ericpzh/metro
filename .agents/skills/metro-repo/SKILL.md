@@ -12,6 +12,11 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+Wall decor and sign previews route to `metro-game`, with regressions in
+`metro-game-test`: short wall signs centre in the pointed block, other panels
+snap their bottom edge to its course, and the sign editor uses production-sized
+board canvases. Preserve placement/move/save and single-pick agreement.
+
 Material palette color selection and whole-surface finish/zone floods are owned by
 `metro-game`; their regressions live in `metro-game-test` and the game test suite.
 

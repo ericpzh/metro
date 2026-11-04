@@ -561,6 +561,30 @@ Resolve at most one scene pick per event and share it across tools, surface aims
 selection and audio. Snap to actual visible geometry/supports, not editing levels.
 Preserve `tool-picking`, `ramp-targeting`, `geometry-snap` and `placement-surface`.
 
+### Exact wall decor and sign preview validation
+
+`node tools/check-geometry-snapping.mjs` now aims posters at the pointed wall-cell edge
+height instead of asserting a fixed floor anchor. The production hardware-browser
+capture in `.preview/perf/geometry-snapping/browser.json` covers 12 fixtures and
+111 pointer events: maximum one scene raycast per event, no browser errors. Its
+synchronous dispatch maximum was 16.4 ms; this excludes queued hover work, render
+submission and display and does **not** establish the <100 ms visible-response
+budget. Keep the build identifier and timing boundary in the raw report.
+`geometry-snap` pins whole-metre wall-cell edges, fractional-anchor save round trips and
+preview/commit/move agreement in all four rotations. Short wall signs centre
+within the pointed cell, while other panels align to its edge. Wall artwork
+visibility follows its panel centre.
+
+`node tools/check-sign-preview.mjs` compares both editor row canvases byte-for-byte
+with their production sign textures for hanging and wall mounts, including a
+bilingual line badge and a shorter back on the front's wider panel. It also checks
+that every printed mark hits its own drag target. Use retained canvases rather than PNG encoding during drags. This is a
+functional pixel comparison, not a timing claim. `node tools/check-sign-save.mjs
+<save-path>` captures the reported Tianhe signs at `(191,-106,-16)` and their
+neighbour from front/back in High/Low and at −20/−15 m. The supplied save's fronts
+rendered after fresh loading; its stored backs are empty. The intermittent blank
+front from the screenshot was not reproduced in that capture.
+
 ### Placement invalidation and model retention
 
 Use immutable inputs and complete dependency keys. Retain remote roots, animation
@@ -741,12 +765,3 @@ The corrected run followed the original in the same process and benefited from
 shared caches; these are model-call timings, not matched cold interaction or
 browser first-frame measurements. `surfaces.test.mjs` pins the floor boundary,
 opening and inset half-wall connection without relying on the private save.
-
-### Example station loading screen (2026-11-03)
-
-A production-build headless browser check opened Tanwei using the example card at
-1440 × 900. A DOM mutation observer saw the loading shell shown 4 ms after the
-scripted click and hidden 15,753.5 ms after it, after the station frame. This
-single run overlapped the full game test suite; it is not an isolated latency
-benchmark or a display-paint measurement. `game-loading.test.mjs` pins the two
-frame wait, success/failure lifecycle, localization and card wiring.

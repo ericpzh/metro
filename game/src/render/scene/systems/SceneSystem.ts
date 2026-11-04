@@ -22,6 +22,7 @@ import { STOREY_HEIGHT, storeyBand } from '../../../sim/constants.ts'
 import { ROOF_THICKNESS, CANOPY_ROOF_DROP, TRUSS_ROOF_BASE, trussRoofTop } from '../../../sim/structures.ts'
 import type { SlopeCut } from '../../../sim/openings.ts'
 import { stairLevels } from '../../../sim/stairs.ts'
+import { isWallMounted, moduleEnvelope } from '../../../sim/placement.ts'
 import { DEFAULT_SECTION_AZIMUTH } from '../../section.ts'
 import type { Section } from '../../section.ts'
 import type { CellShape, Face, FinishId, Module, StationData } from '../../../sim/types.ts'
@@ -296,6 +297,12 @@ export abstract class SceneSystem {
  * come out of `stairLevels` already on the grid.
  */
 export function moduleLevels(mod: Module, base = 0, height = STOREY_HEIGHT): number[] {
+  // Wall artwork can have an anchor below its visible panel. Slice it by the
+  // pointed panel height, so low-mounted signs do not disappear into the floor below.
+  if (isWallMounted(mod) && ['sign', 'billboard', 'calligraphy', 'linemap', 'glass', 'monitor'].includes(mod.type)) {
+    const box = moduleEnvelope(mod)
+    if (box) return [storeyBand((box.z0 + box.z1) / 2, base, height)]
+  }
   switch (mod.type) {
     case 'roof': {
       const lowZ = !mod.cfg.variant && mod.cfg.plateSnap

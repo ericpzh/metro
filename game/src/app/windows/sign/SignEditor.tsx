@@ -61,6 +61,8 @@ import {
   SIGN_ARROWS,
   SIGN_COMPONENT_MAX,
   settleSignBins,
+  signBoardsPanel,
+  normalizeSignLayout,
   signLayoutCarried,
   signLayoutInserted,
   signLayoutMoved,
@@ -926,19 +928,17 @@ export function SignEditor(): React.ReactElement | null {
   // keeps its own id, and a palette tile is `DRAG_MARK_ID` (`markFor`), so the two are told
   // apart by the id the drag already carries.
   const carryingBoardMark = dragMark !== null && dragMark.id !== DRAG_MARK_ID
-  // Each face's own geometry, for the two things a row of tiles needs from it: the
-  // settled order and the marks on it. A tile is a fixed square rather than a slice of
-  // the panel, but the row is still the board: one square per mark, in order. The back
-  // row is laid over `faceRowLayout`, which is what gives an empty back its one place.
+  // Preserve the stored layout until an edit changes it. Repacking on open can
+  // shift marks relative to the production texture. An empty back keeps a drop target.
   const rows = faces.map((face) => {
-    const board = settleSignBins(faceRowLayout(boards[face]))
+    const board = faceRowLayout(boards[face])
     // What is drawn **while a mark is in the air**: it takes the place the pointer is
     // over and the row shifts along, so the row shows the drop that is about to happen
     // rather than the one that already did. Only the row under the pointer is drawn with
     // the mark in it: the other row is a different board and never takes a mark the
     // pointer is not over.
-    const shown = withHover(board.layout, hoverFace === face ? dragMark : null, hoverFace === face ? insertAt : null)
-    return { face, layout: shown === board.layout ? board.layout : settleSignBins(shown).layout }
+    const shown = withHover(board, hoverFace === face ? dragMark : null, hoverFace === face ? insertAt : null)
+    return { face, layout: shown === board ? board : normalizeSignLayout(settleSignBins(shown).layout, station) }
   })
   return (
     <div className="signModal" role="dialog" aria-modal="true" aria-label={t('sign_editor')}>
@@ -1069,6 +1069,7 @@ export function SignEditor(): React.ReactElement | null {
                     {translate(FACE_LABEL[row.face])}
                   </button>
                   <BinStrip
+                    panel={signBoardsPanel({ front: rows[0].layout, back: rows[1]?.layout ?? [] })}
                     face={row.face}
                     layout={row.layout}
                     selectedId={selectedId(row.face)}

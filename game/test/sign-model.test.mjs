@@ -365,3 +365,12 @@ test('sticking signs stay as a thin printed sheet at every wall rotation', () =>
     assert.ok(spans[0] > 0.5 && spans[1] < 0.005, `rotation ${rot}: one broad face and no depth`)
   }
 })
+
+
+test('explicit front and back boards print despite stale per-component side flags', () => {
+  for (const side of ['left', 'right']) {
+    const mark = { id: 'legacy', kind: 'arrow', arrow: 'left', x: .5, y: .3, scale: 1, side }
+    const { plates } = buildSignMeshes({ front: [mark], back: [{ ...mark, id: 'back' }] })
+    assert.equal(plates.length, 2, 'board ownership determines which faces exist')
+  }
+})

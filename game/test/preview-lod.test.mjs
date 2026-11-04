@@ -179,16 +179,17 @@ test('glass previews and commits use the same aimed course and rendered height a
       tool.onMove(info)
       const preview = previews.at(-1)
       assert.ok(preview)
-      assert.equal(preview.z, z - 1, 'the bottom of the pane is the course the pointer aimed at')
+      const bottom = z
+      assert.equal(preview.z, bottom - 1, 'the pane snaps to the whole-metre cell edge')
       const group = buildModule(preview, { ...context, data: station })
       try {
         const bounds = new THREE.Box3().setFromObject(group), envelope = moduleEnvelope(preview)
-        assert.ok(Math.abs(bounds.min.z - z) < 1e-6)
-        assert.ok(Math.abs(bounds.max.z - (z + height)) < 1e-6)
-        assert.equal(envelope.z0, z); assert.equal(envelope.z1, z + height)
+        assert.ok(Math.abs(bounds.min.z - bottom) < 1e-6)
+        assert.ok(Math.abs(bounds.max.z - (bottom + height)) < 1e-6)
+        assert.equal(envelope.z0, bottom); assert.equal(envelope.z1, bottom + height)
       } finally { disposeObject(group) }
       tool.onDown(info)
-      if (course + height - 1 <= 5) {
+      if (bottom >= (base === 0 ? 0 : base + 1) && bottom + height <= base + 6) {
         assert.ok(committed, 'a supported preview commits')
         const placed = committed.modules.at(-1)
         assert.equal(placed.z, preview.z); assert.deepEqual(placed.cfg, preview.cfg)

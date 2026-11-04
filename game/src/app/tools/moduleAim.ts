@@ -1,6 +1,7 @@
 import { exitFloorAt } from '../../sim/exits.ts'
+import { createModule } from '../../build/model.ts'
 import { hangerCells } from '../../sim/hangers.ts'
-import { ceilingMountStandCell, hungCeilingAim, isCeilingHung, isWallMounted, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
+import { ceilingMountStandCell, wallDecorAnchorZ, hungCeilingAim, isCeilingHung, isWallMounted, wallMountFollowsCourse, wallMountStandCell } from '../../sim/placement.ts'
 import type { Module, StationData } from '../../sim/types.ts'
 import { isWallMountedType } from '../store/catalog.ts'
 import type { HoverTile } from './ToolContext.ts'
@@ -10,12 +11,17 @@ import type { HoverTile } from './ToolContext.ts'
 export function moduleAim(
   station: Pick<StationData, 'cells' | 'modules' | 'levelBase' | 'storeyHeight'>,
   piece: Module | string,
-  hit: Pick<HoverTile, 'cell' | 'place' | 'solid'>,
+  hit: Pick<HoverTile, 'cell' | 'place' | 'solid' | 'point'>,
 ): [number, number, number] {
   const type = typeof piece === 'string' ? piece : piece.type
   const mount = typeof piece === 'string' ? { type } : piece
   const wall = typeof piece === 'string' ? isWallMountedType(type) : isWallMounted(piece)
   if (wall) {
+    const side = hit.cell[0] !== hit.place[0] || hit.cell[1] !== hit.place[1]
+    const draft = typeof piece === 'string' ? createModule(piece, 0, 0, 0, 'aim') : piece
+    if (side && hit.point?.[2] !== undefined && draft && isWallMounted(draft) && ['sign', 'billboard', 'calligraphy', 'linemap', 'glass', 'monitor'].includes(draft.type)) {
+      return [hit.place[0], hit.place[1], wallDecorAnchorZ(draft, hit.cell[2])]
+    }
     const doorway = typeof piece === 'string' ? type.startsWith('exit-doorway-') : piece.type === 'exit' && piece.cfg.style === 'doorway'
     return wallMountStandCell(station.cells, hit.cell, hit.place, doorway,
       station.levelBase, wallMountFollowsCourse(mount), station.storeyHeight, station.modules)

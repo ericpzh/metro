@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createModule } from '../game/src/build/model.ts'
+import { moduleEnvelope } from '../game/src/sim/placement.ts'
 import { serveDir, withPage, waitFor } from './browser-harness.mjs'
 
 const output = resolve('.preview/perf/geometry-snapping')
@@ -21,7 +22,7 @@ try {
     const preview = scene.setModulePreview;
     scene.setModulePreview = function(mods,...args) { __snapAudit.preview = mods ? JSON.parse(JSON.stringify(Array.isArray(mods) ? mods[0] : mods)) : null; return preview.call(this,mods,...args) };
     const dispatch = scene.withPointerPick;
-    scene.withPointerPick = function(action) { const rays = __snapAudit.rays; try { return dispatch.call(this,action) } finally { __snapAudit.events.push({ rays: __snapAudit.rays - rays }) } };
+    scene.withPointerPick = function(action) { const rays = __snapAudit.rays, started=performance.now(); try { return dispatch.call(this,action) } finally { __snapAudit.events.push({ rays: __snapAudit.rays - rays, dispatchMs: performance.now()-started }) } };
     const placement = scene.pickPlacement;
     scene.pickPlacement = function(...args) { const hit=placement.apply(this,args);__snapAudit.surfacePicks.push(hit);return hit };
   })()`)
@@ -82,14 +83,14 @@ try {
     assert.equal(await page.evaluate('__metro.getState().moveDraft'), null)
     fixtures.push({ base, beam, previewZ: preview.z, placedZ: placed.z, movedZ: carried.candidate.z })
   }
-  for (const base of [0, 2, 4]) {
-    const source = createModule('billboard-wide', 4, 0, 0, 'source-wall', 2)
+  for (const base of [0, 2, 4]) for (const type of ['billboard-wide', 'sign-wall']) {
+    const source = createModule(type, 4, 0, 0, 'source-wall', 2)
     await page.evaluate(`(async () => {
       const store=__metro,s=store.getState(),cells=[];
       for(let x=-2;x<=6;x++)for(let y=-2;y<=3;y++)cells.push({x,y,z:11,fill:'solid'});
       for(let z=12;z<=17;z++)cells.push({x:0,y:1,z,fill:'solid',tags:['wall']});
       s.commit({...s.station,name:'Wall snap audit',levelBase:${base},cells,modules:[${JSON.stringify(source)}],lines:[]});
-      store.setState({tool:'module',moduleType:'billboard-wide',moduleRot:2,activeZ:10,playing:false,ghostOther:true,autoCeiling:false,cutaway:false,past:[],future:[]});
+      store.setState({tool:'module',moduleType:${JSON.stringify(type)},moduleRot:2,activeZ:10,playing:false,ghostOther:true,autoCeiling:false,cutaway:false,past:[],future:[]});
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       const cs=__scene.cameraSys;cs.controls.enableDamping=false;cs.camera.position.set(.5,-10,15);cs.controls.target.set(.5,1,14.5);cs.controls.update();cs.camera.updateMatrixWorld(true);
     })()`)
@@ -97,24 +98,35 @@ try {
     const p = await point(.5, 1, 14.5)
     await send('mouseMoved', p)
     const preview = await page.evaluate('__snapAudit.preview')
-    assert.equal(preview.z, 11, 'wall preview uses the actual floor under a high course')
+    const box = moduleEnvelope(preview)
+    const target = type === 'sign-wall' ? (box.z0 + box.z1) / 2 : box.z0
+    assert.ok(Math.abs(target - (type === 'sign-wall' ? 14.5 : 14)) < .03, 'short signs centre within the pointed cell; posters align to its edge')
+    for (const height of [14.1, 14.9]) {
+      await send('mouseMoved', await point(.5, 1, height))
+      const within = await page.evaluate('__snapAudit.preview')
+      assert.ok(Math.abs(within.z - preview.z) < 1e-8, 'moving within one wall cell cannot drift')
+    }
+    await send('mouseMoved', await point(.5, 1, 15.1))
+    assert.ok(Math.abs((await page.evaluate('__snapAudit.preview')).z - preview.z - 1) < 1e-8, 'next wall cell moves exactly one metre')
+    await send('mouseMoved', p)
     await send('mousePressed', p, 'left'); await send('mouseReleased', p, 'left')
-    const placed = await page.evaluate(`__metro.getState().station.modules.find(m=>m.type==='billboard'&&m.id!=='source-wall')`)
+    const placed = await page.evaluate(`__metro.getState().station.modules.find(m=>m.type===${JSON.stringify(source.type)}&&m.id!=='source-wall')`)
     assert.ok(placed)
-    assert.equal(placed.z, 11)
+    assert.ok(Math.abs(placed.z - preview.z) < .03)
     await page.evaluate(`__metro.getState().undo();__metro.getState().liftModule('source-wall')`)
     await settle()
     await send('mouseMoved', { x: p.x + .1, y: p.y })
     const carried = await page.evaluate('__metro.getState().moveDraft')
     assert.equal(carried.reason, '')
-    assert.equal(carried.candidate.z, 11)
+    assert.ok(Math.abs(carried.candidate.z - preview.z) < .03)
     await send('mousePressed', p, 'left'); await send('mouseReleased', p, 'left')
     assert.equal(await page.evaluate('__metro.getState().moveDraft'), null)
-    fixtures.push({ base, wall: true, previewZ: preview.z, placedZ: placed.z, movedZ: carried.candidate.z })
+    fixtures.push({ base, type, wall: true, previewZ: preview.z, placedZ: placed.z, movedZ: carried.candidate.z })
   }
   const report = await page.evaluate('__snapAudit')
   assert.deepEqual(report.errors, [])
   assert.ok(report.events.length > 0 && report.events.every(e => e.rays <= 1))
-  writeFileSync(resolve(output, 'browser.json'), JSON.stringify({ fixtures, events: report.events, errors: report.errors }, null, 2))
-  console.log(JSON.stringify({ fixtures: fixtures.length, events: report.events.length, maxRaycasts: Math.max(...report.events.map(e=>e.rays)), errors: report.errors }))
+  const context = await page.evaluate(`(() => { const r=__scene.renderer, gl=r.getContext(), debug=gl.getExtension('WEBGL_debug_renderer_info');return {graphicsQuality:__metro.getState().graphicsQuality,canvas:[r.domElement.width,r.domElement.height],pixelRatio:r.getPixelRatio(),gpu:debug?gl.getParameter(debug.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER)} })()`)
+  writeFileSync(resolve(output, 'browser.json'), JSON.stringify({ context, observedAt: new Date().toISOString(), build: JSON.parse(readFileSync(resolve('game/dist/editor-benchmark-build.json'), 'utf8')), timingBoundary: 'synchronous withPointerPick dispatch; excludes deferred hover work, frame submission and display', fixtures, events: report.events, errors: report.errors }, null, 2))
+  console.log(JSON.stringify({ fixtures: fixtures.length, events: report.events.length, maxRaycasts: Math.max(...report.events.map(e=>e.rays)), maxDispatchMs: Math.max(...report.events.map(e=>e.dispatchMs)), errors: report.errors }))
 } finally { await page?.close(); server.close() }
