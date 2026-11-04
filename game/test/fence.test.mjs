@@ -111,6 +111,36 @@ test('fence drag previews and places the selected variant, and deletion leaves d
   } finally { useStore.setState(before) }
 })
 
+test('fence drag marks only skipped cells and commits the previewed panels', () => {
+  const before = useStore.getState()
+  try {
+    for (const type of ['fence', 'fence-iron']) {
+      const pillar = createModule('pillar', 1, 0, 0, 'pillar')
+      useStore.setState({ station: toState({ ...emptyStation(), modules: [pillar] }), past: [], future: [], tool: 'module', moduleType: type, moduleRot: 0 })
+      let panels = [], refused = [], tint
+      const scene = {
+        setFencePreview(mods, blocked) { panels = mods ?? []; tint = blocked },
+        setGhost(cells, kind, colour, thin, blocked) { refused = blocked ?? [] },
+        setModulePreview() {}, setCollisionHighlight() {}, setCursor() {},
+      }
+      const drag = { current: null }
+      const tool = new EquipmentTool({ scene: () => scene, drag, hover: { current: null }, pickModule: () => null })
+      const event = x => ({ clientX: x * 20, clientY: 0, button: 0, buttons: 1,
+        hit: { cell: [x, 0, 0], place: [x, 0, 1], solid: true }, preventDefault() {} })
+      tool.onDown(event(0))
+      drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+      tool.onMove(event(2))
+      tool.multiPlace.flushPreview()
+      assert.deepEqual(panels.map(m => m.x), [0, 2], type)
+      assert.equal(tint, undefined, 'accepted panels retain their normal tint')
+      assert.deepEqual(refused, [[1, 0, 0]], 'only the obstructed cell is red')
+      tool.onUp(event(2))
+      assert.deepEqual(useStore.getState().station.modules.filter(m => m.type === 'fence').map(m => m.x), [0, 2])
+      assert.deepEqual(refused, [], 'release clears refused markers')
+    }
+  } finally { useStore.setState(before) }
+})
+
 test('sound-barrier line drags retain the R-selected side in their preview and committed run', () => {
   const before = useStore.getState()
   try {

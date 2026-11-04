@@ -196,12 +196,12 @@ export class EquipmentTool extends ToolController {
         downTime: performance.now(),
       }
       if (mode === 'add') {
-        const { mods, blocked, colliderIds } = this.fenceRunPreview([hit.cell], st.moduleRot)
-        scene.setGhost([], 'add')
+        const { mods, blockedCells, colliderIds } = this.fenceRunPreview([hit.cell], st.moduleRot)
+        scene.setGhost([], 'add', undefined, undefined, blockedCells)
         scene.setModulePreview(null)
-        scene.setFencePreview(mods, blocked)
-        scene.setCollisionHighlight(blocked ? colliderIds : null)
-        scene.setCursor(hit.cell, !blocked)
+        scene.setFencePreview(mods)
+        scene.setCollisionHighlight(colliderIds.length ? colliderIds : null)
+        scene.setCursor(hit.cell, blockedCells.length === 0)
       } else {
         scene.setFencePreview(null)
         scene.setCollisionHighlight(null)
@@ -349,23 +349,24 @@ export class EquipmentTool extends ToolController {
             if (this.ctx.drag.current !== d) return
             const line = straightLineCells(d.anchor, target, d.z)
             const rot = this.fenceRunRotation(line)
-            const { mods, blocked, colliderIds } = this.fenceRunPreview(line, rot)
+            const { mods, blockedCells, colliderIds } = this.fenceRunPreview(line, rot)
             const sceneNow = this.ctx.scene()
-            sceneNow?.setFencePreview(mods, blocked)
-            sceneNow?.setCollisionHighlight(blocked ? colliderIds : null)
-            sceneNow?.setCursor(line[line.length - 1] ?? cursor, !blocked)
+            sceneNow?.setGhost([], 'add', undefined, undefined, blockedCells)
+            sceneNow?.setFencePreview(mods)
+            sceneNow?.setCollisionHighlight(colliderIds.length ? colliderIds : null)
+            sceneNow?.setCursor(line[line.length - 1] ?? cursor, blockedCells.length === 0)
           })
           return
         }
         this.cancelPreview()
         const line = [d.anchor]
         const rot = this.fenceRunRotation(line)
-        const { mods, blocked, colliderIds } = this.fenceRunPreview(line, rot)
-        scene.setGhost([], 'add')
+        const { mods, blockedCells, colliderIds } = this.fenceRunPreview(line, rot)
+        scene.setGhost([], 'add', undefined, undefined, blockedCells)
         scene.setModulePreview(null)
-        scene.setFencePreview(mods, blocked)
-        scene.setCollisionHighlight(blocked ? colliderIds : null)
-        scene.setCursor(d.anchor, !blocked)
+        scene.setFencePreview(mods)
+        scene.setCollisionHighlight(colliderIds.length ? colliderIds : null)
+        scene.setCursor(d.anchor, blockedCells.length === 0)
       } else {
         // Preview exactly the fence panels the release would lift.
         const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
@@ -495,9 +496,8 @@ export class EquipmentTool extends ToolController {
   /**
    * The fence panels a drag run would place: one 1 m panel per cell, all at the
    * run's rotation, skipping cells that are not floor or already occupied. The
-   * result drives the live fence preview; `blocked` is true when any cell of the
-   * run was refused, so the whole ghost flags red, and `colliderIds` names the
-   * placed modules the refused panels hit.
+   * result drives the live fence preview; `blockedCells` identifies refused cells,
+   * and `colliderIds` names the placed modules the refused panels hit.
    */
   private fenceRunRotation(line: Array<[number, number, number]>): number {
     const st = useStore.getState()
@@ -508,10 +508,10 @@ export class EquipmentTool extends ToolController {
     return axis + (st.moduleType.startsWith('noise-barrier') && st.moduleRot >= 2 ? 2 : 0)
   }
 
-  private fenceRunPreview(line: Array<[number, number, number]>, rot: number): { mods: Module[]; blocked: boolean; colliderIds: string[] } {
+  private fenceRunPreview(line: Array<[number, number, number]>, rot: number): { mods: Module[]; blockedCells: Array<[number, number, number]>; colliderIds: string[] } {
     const st = useStore.getState()
     const mods: Module[] = []
-    let blocked = false
+    const blockedCells: Array<[number, number, number]> = []
     const colliderIds: string[] = []
     const seen = new Set<string>()
     for (const [x, y, z] of line) {
@@ -520,17 +520,16 @@ export class EquipmentTool extends ToolController {
       seen.add(k)
       const mod = createModule(st.moduleType, x, y, z, 'preview', rot)
       if (!mod) continue
-      // The same verdict the release asks, so the red run under the drag is the run
-      // the release refuses.
+      // Use the release verdict for each panel, so only skipped cells are red.
       const check = checkModulePlacements(st.station, [{ id: mod.id, module: mod }])
       if (check.refused.size > 0) {
-        blocked = true
+        blockedCells.push([x, y, z])
         for (const id of check.colliderIds) if (!colliderIds.includes(id)) colliderIds.push(id)
         continue
       }
       mods.push(mod)
     }
-    return { mods, blocked, colliderIds }
+    return { mods, blockedCells, colliderIds }
   }
 
   /**

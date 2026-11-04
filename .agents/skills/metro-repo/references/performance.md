@@ -590,6 +590,17 @@ occupancy/verdicts against immutable inputs and exercise blocked demo footprints
 
 ### Fence drags and equipment placement
 
+2026-11-03: `tools/bench-fence-drag.mjs` production builds before and after the
+per-cell refusal preview, on the 256-fence fixture at 1424 × 905 in headless
+Chrome 156 / SwiftShader, two RAFs after real pointer events. Cold down was
+157.9 / 260.6 ms and warm down 32.6 / 32.5 ms; warm move 2 was 48.9 / 50.9 ms.
+Single samples are noisy and do not establish a speedup or hardware performance.
+Raw reports: `.preview/perf/fence-drag-cell-before.json` and
+`.preview/perf/fence-drag-cell-after.json`. This fixture has no blocked cell,
+so it does not measure the extra red-box rendering; `fence.test.mjs` pins the
+mixed pillar collision, preview and release contract deterministically.
+
+
 Bound neighbour discovery and retain unrelated preview/batch contributions. Keep
 occupied/unsupported cases, cancellation and disposal covered deterministically.
 
