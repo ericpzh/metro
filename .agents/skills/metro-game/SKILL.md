@@ -1829,9 +1829,10 @@ including the depth prepass, for all six appearances.
   course in that block's story. Resolve the story with `storeyBand(z, levelBase)`;
   with basis 0, bottoms −4 and −3 both stop at −1, never reaching 0. `storeyWallRun`
   supplies the same bounded candidates to hover, drag, release and the drag budget.
-  Right-click erases only blocks in the selected block's story, including plain and
-  wall-tagged blocks and separated courses; `storeyColumnsAt` owns that set, including
-  an implicit street block when it lies in the story. A drag removes the selected
+  Right-click erases blocks in the selected block's story, including plain and
+  wall-tagged blocks and separated courses, while preserving the untagged or
+  auto-floor slab at the story base and the street at z=0. Tagged wall courses
+  at the story base remain erasable; `storeyColumnsAt` owns the shared selection. A drag removes the selected
   columns in one commit. Preserve preview/release agreement and erase availability.
   The browser can dispatch `contextmenu` at right-button down, before pointer-up;
   `Viewport.tsx` must preserve an active right-button erase. Keep the interaction,

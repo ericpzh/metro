@@ -24,7 +24,7 @@ export const AUTO_WALL_H = 5;
  * 方块 right-click find the whole column under the pointer — geometry alone cannot
  * tell a wall course from the floor it stands on. `AUTO_WALL` blocks answer the
  * same lookup, so a hand run and a generated ring can both be lifted in bulk.
- * G itself clears all blocks in the storey through `storeyColumnsAt`.
+ * G clears the storey through `storeyColumnsAt`, preserving its floor.
  */
 export const WALL = 'wall';
 

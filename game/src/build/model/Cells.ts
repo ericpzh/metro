@@ -2,7 +2,7 @@
 // Leaf module: only sim/ imports plus a type-only StationState.
 
 import { levelSteps, STOREY_HEIGHT, storeyBand } from '../../sim/constants.ts';
-import { GROUND_Z, groundHoleAt, virtualSolidAt } from '../../sim/ground.ts';
+import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
@@ -72,7 +72,7 @@ export function isSolid(cells: Cell[], x: number, y: number, z: number): boolean
   return false;
 }
 
-/** G erases only the story containing the selected block (§4.4). */
+/** G erases the selected story while preserving its floor and street (§4.4). */
 export function storeyColumnsAt(
   state: StationState,
   columns: Array<[number, number, number]>,
@@ -86,14 +86,11 @@ export function storeyColumnsAt(
   }
   const out = new Map<string, [number, number, number]>();
   for (const c of state.cells) {
-    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(storeyBand(c.z, state.levelBase, state.storeyHeight))) continue;
+    const band = storeyBand(c.z, state.levelBase, state.storeyHeight);
+    if (c.fill !== 'solid' || !bands.get(`${c.x},${c.y}`)?.has(band)) continue;
+    // A story-base slab is floor unless explicitly authored as a wall course.
+    if (c.z === GROUND_Z || (c.z === band && !hasTag(c, 'wall') && !hasTag(c, 'auto-wall'))) continue;
     out.set(cellKey(c.x, c.y, c.z), [c.x, c.y, c.z]);
-  }
-  // The street is an implicit block too; deleting it must record its hole (§4.1).
-  for (const [x, y] of columns) {
-    if (bands.get(`${x},${y}`)?.has(storeyBand(0, state.levelBase, state.storeyHeight)) && virtualSolidAt(state.cells, state.modules, x, y, 0)) {
-      out.set(cellKey(x, y, 0), [x, y, 0]);
-    }
   }
   return [...out.values()];
 }

@@ -16,8 +16,8 @@ test('G clears only the -15..-11 story when hit at -13', () => {
     block(3, 3, -13),
   ])
   const remove = storeyColumnsAt(st, [[2, 3, -13]])
-  assert.deepEqual(heights(remove), [-15, -14, -13, -12, -11])
-  assert.deepEqual(removeCells(st, remove).cells.map(({ x, y, z }) => [x, y, z]), [[2, 3, -16], [2, 3, -10], [3, 3, -13]])
+  assert.deepEqual(heights(remove), [-14, -13, -12, -11])
+  assert.deepEqual(removeCells(st, remove).cells.map(({ x, y, z }) => [x, y, z]), [[2, 3, -16], [2, 3, -15], [2, 3, -10], [3, 3, -13]])
 })
 
 test('G includes separated blocks across gaps and excludes void records', () => {
@@ -30,9 +30,9 @@ test('G follows every height basis at negative storey boundaries', () => {
     const bottom = -15 + base
     const st = station(Array.from({ length: 7 }, (_, i) => block(2, 3, bottom - 1 + i)), base)
     for (let hit = bottom; hit < bottom + 5; hit++) {
-      assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, hit]])), [bottom, bottom + 1, bottom + 2, bottom + 3, bottom + 4])
+      assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, hit]])), [bottom + 1, bottom + 2, bottom + 3, bottom + 4])
     }
-    assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, bottom + 5]])), [bottom + 5])
+    assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, bottom + 5]])), [])
   }
 })
 
@@ -42,16 +42,16 @@ test('G drag clears every selected column once, including sparse columns without
   assert.deepEqual(storeyColumnsAt(st, [[9, 9, -13]]), [])
 })
 
-test('G at +1 removes blocks in the 0..4 story and leaves the next story', () => {
+test('G at +1 preserves the street floor and leaves the next story', () => {
   const st = station([block(2, 3, 0), ...[1, 2, 3, 4, 5, 6].map((z) => block(2, 3, z))])
   const remove = storeyColumnsAt(st, [[2, 3, 1]])
-  assert.deepEqual(heights(remove), [0, 1, 2, 3, 4])
+  assert.deepEqual(heights(remove), [1, 2, 3, 4])
   const next = removeCells(st, remove)
-  assert.deepEqual(next.cells.filter((c) => c.fill === 'solid').map((c) => c.z), [5, 6])
-  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, 4]])), [0, 1, 2, 3, 4], 'the boundary block belongs to the next story')
+  assert.deepEqual(next.cells.filter((c) => c.fill === 'solid').map((c) => c.z), [0, 5, 6])
+  assert.deepEqual(heights(storeyColumnsAt(st, [[2, 3, 4]])), [1, 2, 3, 4], 'the street floor is preserved')
   assert.deepEqual(storeyColumnsAt(next, [[2, 3, 1]]), [])
   const virtual = station([block(2, 3, 1), block(2, 3, 4)])
-  assert.deepEqual(heights(storeyColumnsAt(virtual, [[2, 3, 1]])), [0, 1, 4], 'the implicit street block is in the selected story')
+  assert.deepEqual(heights(storeyColumnsAt(virtual, [[2, 3, 1]])), [1, 4], 'the implicit street floor is preserved')
 })
 
 test('G right-click and drag preview the blocks that release removes in one commit', () => {
@@ -87,7 +87,7 @@ test('G right-click and drag preview the blocks that release removes in one comm
         ctx.drag.current.downTime -= 1000
         tool.onMove(press(3, 100))
       }
-      const expected = dragRun ? [[2, 3, -15 + base], [2, 3, -13 + base], [3, 3, -12 + base]] : [[2, 3, -15 + base], [2, 3, -13 + base]]
+      const expected = dragRun ? [[2, 3, -13 + base], [3, 3, -12 + base]] : [[2, 3, -13 + base]]
       assert.deepEqual(preview, expected)
       assert.equal(cursorValid, true)
       tool.onUp(dragRun ? press(3, 100) : press(2))
@@ -118,10 +118,10 @@ test('G placement and erasure stay within the bottom block story at each basis',
       const preview = storeyWallRun([[2, 3, start]], base, st.storeyHeight)
       assert.deepEqual(heights(preview), expected)
       const placed = addWalls(st, [[2, 3, start]]).state
-      const erased = base > 0 && !expected.includes(0) ? [...expected, 0].sort((a, b) => a - b) : expected
+      const erased = expected.filter(z => z !== 0)
       assert.deepEqual(heights(storeyColumnsAt(placed, [[2, 3, start]])), erased)
       const remaining = removeCells(placed, storeyColumnsAt(placed, [[2, 3, start]])).cells.filter(c => c.fill === 'solid')
-      assert.deepEqual(remaining, st.cells)
+      assert.deepEqual(remaining, expected.includes(0) ? [...st.cells, block(2, 3, 0, ['wall'])] : st.cells)
     }
   }
 })
@@ -180,9 +180,44 @@ test('G story boundaries assign every course to exactly one story on either side
     for (let start = band; start < band + 5; start++) {
       const expected = Array.from({ length: band + 5 - start }, (_, i) => start + i)
       assert.deepEqual(heights(storeyWallRun([[8, 8, start]], base)), expected)
-      assert.deepEqual(heights(storeyColumnsAt(st, [[8, 8, start]])), [band, band + 1, band + 2, band + 3, band + 4])
+      assert.deepEqual(heights(storeyColumnsAt(st, [[8, 8, start]])), [band + 1, band + 2, band + 3, band + 4])
     }
     assert.deepEqual(heights(storeyColumnsAt(st, [[8, 8, band - 1]])), [band - 1])
-    assert.deepEqual(heights(storeyColumnsAt(st, [[8, 8, band + 5]])), [band + 5])
+    assert.deepEqual(heights(storeyColumnsAt(st, [[8, 8, band + 5]])), [])
   }
+})
+
+
+test('G preserves floor records while removing tagged wall courses at the story base', () => {
+  for (const base of [0, 1, 2, 3, 4]) {
+    const floor = { ...block(2, 3, -10 + base, ['auto-floor']), zone: 'paid' }
+    const taggedWall = block(3, 3, -10 + base, ['wall'])
+    const st = station([floor, block(2, 3, -9 + base, ['auto-wall']), taggedWall], base)
+    const remove = storeyColumnsAt(st, [[2, 3, -9 + base], [3, 3, -9 + base]])
+    assert.deepEqual(remove, [[2, 3, -9 + base], [3, 3, -10 + base]])
+    assert.deepEqual(removeCells(st, remove).cells, [floor])
+    assert.deepEqual(storeyColumnsAt(st, [[2, 3, -10 + base]]), [[2, 3, -9 + base]])
+  }
+})
+
+
+test('G on a floor alone previews no removal and makes no commit', () => {
+  const before = useStore.getState()
+  try {
+    const st = station([block(2, 3, -10, ['auto-floor'])])
+    let preview = null, commits = 0
+    useStore.setState({ station: st, tool: 'wall', commit: () => { commits++ }, setNotice() {} })
+    const ctx = { drag: { current: null }, scene: () => ({
+      setGhost: (cells, mode) => { if (mode === 'remove') preview = cells },
+      setCursor() {}, setModulePreview() {}, setFencePreview() {}, setCollisionHighlight() {},
+    }) }
+    const tool = new WallTool(ctx)
+    const event = { button: 2, clientX: 0, clientY: 0, shiftKey: false, preventDefault() {},
+      hit: { cell: [2, 3, -10], place: [2, 3, -9], solid: true, point: [2, 3, -10] } }
+    tool.onDown(event)
+    assert.deepEqual(preview, [])
+    tool.onUp(event)
+    assert.equal(commits, 0)
+    assert.equal(useStore.getState().station, st)
+  } finally { useStore.setState(before) }
 })

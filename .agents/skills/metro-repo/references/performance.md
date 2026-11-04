@@ -700,3 +700,13 @@ still refuses it. Preserve the `(77,-100,-16)` fixture and real-pointer probe.
 
 Wall/door support and underside clearance follow actual surfaces, not nominal
 storey rounding. Preview and commit must agree on passage clearance and refusal.
+
+### Wall erasure floor preservation (2026-11-03)
+
+The deterministic `node --test game/test/column-delete.test.mjs` controller fixture
+measured 2.09 ms for right-button press/drag preview and release over four small
+fixtures, with the floor retained and one commit. This is Node test-runner time,
+not real-pointer or rendered latency; it does not establish the 100 ms budget.
+A production browser capture was unavailable because the current workspace's
+unrelated in-progress type errors prevent a fresh game build. The shared selection
+keeps preview separate from the single release commit and introduces no scene picks.

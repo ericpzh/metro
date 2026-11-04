@@ -53,7 +53,8 @@ not reframe the camera. Keep the load/home wiring regression in
 `game/test/view-home.test.mjs` aligned with this default.
 
 Wall (G) placement and column erasure are bounded by the story of the selected
-bottom block, including shifted height bases. Route changes to `metro-game` and
+bottom block, including shifted height bases; erasure preserves the story slab and
+street floor. Route changes to `metro-game` and
 regressions to `metro-game-test`; `column-delete.test.mjs` owns the boundary and
 preview/commit contract.
 

@@ -63,7 +63,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
     // The add path snaps the column to the cell that faces open space and to
     // the R-selected wall face; the remove path lifts exactly what the pointer
-    // is on, every block in that column's storey regardless of wall tags.
+    // is on, the column's story while preserving its floor.
     const anchor = mode === 'add' ? wallSnapAt(hit, st.station.cells, st.wallSnapCycle).base : hit.cell
     this.ctx.drag.current = {
       active: true,
@@ -172,7 +172,7 @@ export class WallTool extends ToolController {  readonly tool = 'wall' as const
     if (d.mode === 'add') this.multiPlace.setNotice(false)
     // A 墙 drag lays a straight axis-aligned run of full-height columns; a
     // quick press is one. The right drag lifts all blocks in each column's
-    // storey. A **半墙** (`d.single`, the 方块 tool's mode) is always
+    // storey except its floor. A **半墙** (`d.single`, the 方块 tool's mode) is always
     // exactly one block — the one the press landed on — however far the pointer
     // travelled, because that mode places one piece at a time.
     //

@@ -497,7 +497,8 @@ For G wall placement and erasure, `column-delete.test.mjs` pins each course at
 positive and negative story boundaries for all five bases, including the −4/−3
 bottoms stopping at −1 when the basis is 0. Exercise hover, press, drag, release,
 and right-click preview/commit agreement with adjacent-story blocks preserved;
-include the implicit street block and the single-commit contract. `multi-place-drag`
+preserve the story floor and implicit or explicit street, retain tagged wall courses
+at the story base as erasable, and include the single-commit contract. `multi-place-drag`
 pins the budget against the actual bounded wall courses.
 
 For a thin roof snap change, keep the quarter-metre model bounds, collision bounds and
