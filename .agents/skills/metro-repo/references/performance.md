@@ -164,6 +164,10 @@ Never raise a limit to conceal a regression.
 | billboard-panorama | 6 | 40 |
 | billboard-portrait | 6 | 40 |
 | billboard-square | 6 | 40 |
+| billboard-16x9-3m | 6 | 40 |
+| billboard-16x9-4m | 6 | 40 |
+| billboard-4x3-3m | 6 | 40 |
+| billboard-4x3-4m | 6 | 40 |
 | linemap-stand | 16 | 40 |
 | hanger-roof | 6 | 36 |
 | hanger-post | 14 | 36 |
@@ -334,6 +338,10 @@ faces; they do not establish FPS or GPU cost. Records:
 | billboard-panorama | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
 | billboard-portrait | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
 | billboard-square | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-16x9-3m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-16x9-4m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-4x3-3m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
+| billboard-4x3-4m | 6 / 40 | Original cropped artwork, frame surface and illuminated AD label. |
 | linemap-stand | 16 / 40 | Base, support and two separately oriented readable map faces. |
 | hanger-roof | 6 / 36 | Support bar visible from every direction. |
 | hanger-post | 14 / 36 | Bar, upright and base. |

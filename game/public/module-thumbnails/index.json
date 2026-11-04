@@ -19,6 +19,26 @@
       "bytes": 6101
     },
     {
+      "id": "billboard-16x9-3m",
+      "file": "billboard-16x9-3m.png",
+      "bytes": 11598
+    },
+    {
+      "id": "billboard-16x9-4m",
+      "file": "billboard-16x9-4m.png",
+      "bytes": 11625
+    },
+    {
+      "id": "billboard-4x3-3m",
+      "file": "billboard-4x3-3m.png",
+      "bytes": 12544
+    },
+    {
+      "id": "billboard-4x3-4m",
+      "file": "billboard-4x3-4m.png",
+      "bytes": 12577
+    },
+    {
       "id": "billboard-large",
       "file": "billboard-large.png",
       "bytes": 10871

@@ -271,6 +271,10 @@ function createModuleRaw(
     case 'cctv-post':
       return { id, type: 'cctv', x, y, z, rot, cfg: { variant: type === 'cctv-post' ? 'post' : type === 'cctv-ptz' ? 'ptz' : type === 'cctv-dome' ? 'dome' : 'bullet' } };
     case 'billboard':
+    case 'billboard-16x9-3m':
+    case 'billboard-16x9-4m':
+    case 'billboard-4x3-3m':
+    case 'billboard-4x3-4m':
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':

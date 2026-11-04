@@ -1076,6 +1076,10 @@ export const messages = {
     "zh": "半球机",
     "en": "Dome camera"
   },
+  "billboard_16x9_3m": { "zh": "特大横版 16:9", "en": "Extra large landscape 16:9" },
+  "billboard_16x9_4m": { "zh": "超大横版 16:9", "en": "Giant landscape 16:9" },
+  "billboard_4x3_3m": { "zh": "特大横版 4:3", "en": "Extra large landscape 4:3" },
+  "billboard_4x3_4m": { "zh": "超大横版 4:3", "en": "Giant landscape 4:3" },
   "landscape_16_9": {
     "zh": "横版 16:9",
     "en": "Landscape 16:9"

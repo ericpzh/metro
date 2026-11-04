@@ -371,6 +371,10 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'cctv-dome':
     case 'cctv-post':
       return { id, type: 'cctv', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'cctv-post' ? 'post' : id === 'cctv-ptz' ? 'ptz' : id === 'cctv-dome' ? 'dome' : 'bullet' } }
+    case 'billboard-16x9-3m':
+    case 'billboard-16x9-4m':
+    case 'billboard-4x3-3m':
+    case 'billboard-4x3-4m':
     case 'billboard-wide':
     case 'billboard-standard':
     case 'billboard-large':

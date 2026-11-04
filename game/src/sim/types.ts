@@ -351,7 +351,7 @@ export type RoomKind = 'store' | 'toilet' | 'office'
  * landscape, a standard, a wide two-cell banner, a three-cell panoramic strip,
  * a tall portrait and a square.
  */
-export type BillboardVariant = 'wide' | 'standard' | 'large' | 'panorama' | 'portrait' | 'square'
+export type BillboardVariant = 'wide' | 'standard' | 'large' | 'panorama' | 'portrait' | 'square' | '16x9-3m' | '16x9-4m' | '4x3-3m' | '4x3-4m'
 
 /**
  * The poster silhouette a billboard format is cut for (`sim/billboards.ts`).

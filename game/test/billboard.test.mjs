@@ -135,8 +135,8 @@ test('a format prints the poster it was given, and an unknown slug a placeholder
   assert.equal(posterFor(undefined).slug, AD_POSTERS[0].slug)
 })
 
-test('the six formats are a palette of real panels', () => {
-  assert.equal(BILLBOARD_VARIANTS.length, 6)
+test('the formats are a palette of real panels', () => {
+  assert.equal(BILLBOARD_VARIANTS.length, 10)
   // The drawn panel fits its run and stays clear of the floor and of the ceiling
   // slab two storeys up — the band `moduleEnvelope` reserves is exactly this one
   // (`panelZ` ± `panelH` / 2, `sim/placement.ts`), which is why a 座椅 on the floor
@@ -145,7 +145,7 @@ test('the six formats are a palette of real panels', () => {
     const spec = BILLBOARD_SPECS[variant]
     assert.ok(spec.panelW <= spec.w, `${variant}: a ${spec.panelW} m panel cannot fit ${spec.w} cells`)
     assert.ok(spec.panelZ - spec.panelH / 2 > 0.2, `${variant}: the panel would sit on the floor`)
-    assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
+    if (spec.panelH < 3) assert.ok(spec.panelZ + spec.panelH / 2 < 2.4, `${variant}: the panel would poke through the ceiling`)
   }
 })
 
@@ -179,4 +179,23 @@ test('one material per poster serves every panel size; one geometry per panel', 
     'decoded posters must invalidate both caches')
   assert.ok(load.indexOf('onReady()') > Math.max(load.indexOf('materials.clear()'), load.indexOf('geometries.clear()')),
     'the redraw must run after the caches are cleared')
+})
+
+ test('large posters retain exact aspect, size and wall backing', async () => {
+  const { createModule } = await import('../src/build/model.ts')
+  const { wallMountCourses, wallMountMissing } = await import('../src/sim/placement.ts')
+  for (const [variant, ratio, height] of [['16x9-3m', 16/9, 3], ['16x9-4m', 16/9, 4], ['4x3-3m', 4/3, 3], ['4x3-4m', 4/3, 4]]) {
+    const spec = billboardSpec(variant)
+    assert.equal(spec.panelH, height)
+    assert.ok(Math.abs(spec.panelW / spec.panelH - ratio) < 1e-12)
+    const mod = createModule(`billboard-${variant}`, 0, 0, 0, variant)
+    assert.equal(mod.w, spec.w)
+    const courses = wallMountCourses(mod)
+    assert.deepEqual(courses, Array.from({ length: height + 1 }, (_, i) => i))
+    const cells = []
+    for (let x = mod.x; x < mod.x + mod.w; x++) for (const course of courses) cells.push({x, y: mod.y - 1, z: mod.z + 1 + course, fill:'solid'})
+    assert.equal(wallMountMissing(cells, mod), false)
+    cells.pop()
+    assert.equal(wallMountMissing(cells, mod), true)
+  }
 })

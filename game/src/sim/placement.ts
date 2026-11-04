@@ -884,10 +884,13 @@ export function wallMountCourses(m: Module): number[] {
   switch (m.type) {
     case 'urinal': return [0, 1]
     case 'monitor': return m.cfg.mount === 'wall' ? [0, 1, 2] : []
-    case 'billboard':
-      // A poster is one course: the billboard's variants hang inside the first
-      // metre of their wall whatever their panel size.
-      return [0]
+    case 'billboard': {
+      const spec = billboardSpec(m.cfg?.variant)
+      if (spec.panelH < 3) return [0]
+      const bottom = Math.max(0, Math.floor(spec.panelZ - spec.panelH / 2 - 0.26))
+      const top = Math.ceil(spec.panelZ + spec.panelH / 2 + 0.12)
+      return Array.from({ length: top - bottom }, (_, i) => bottom + i)
+    }
     case 'exit':
       // 地面 exits use the anchor block as their single wall attachment.
       return m.cfg.style === 'doorway' ? [0] : []

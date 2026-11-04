@@ -22,7 +22,7 @@ minimum('curtain-wall glass-1x1 glass-2x1 glass-3x1 glass-1x2 glass-2x2 glass-3x
 minimum('road', 10, 'Road surface plus four lane/edge markings.')
 minimum('pillar-slim', 16, 'Shaft and end collars, preserving height and support footprint.')
 minimum('stair-block', 34, 'All four solid treads, exposed risers and closed side silhouette.')
-minimum('billboard-wide billboard-standard billboard-large billboard-panorama billboard-portrait billboard-square', 6, 'Original cropped artwork, frame surface and illuminated AD label.')
+minimum('billboard-wide billboard-standard billboard-large billboard-panorama billboard-portrait billboard-square billboard-16x9-3m billboard-16x9-4m billboard-4x3-3m billboard-4x3-4m', 6, 'Original cropped artwork, frame surface and illuminated AD label.')
 minimum('linemap-stand', 16, 'Base, support and two separately oriented readable map faces.')
 minimum('linemap-wall', 4, 'Frame surface and original cropped map face.')
 minimum('hanger-roof', 6, 'Support bar visible from every direction.')

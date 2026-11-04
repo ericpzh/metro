@@ -46,6 +46,10 @@ export interface BillboardSpec {
  * without stretching, and the portrait and square sit inside their cells.
  */
 export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
+  '16x9-3m': { variant: '16x9-3m', label: msg('billboard_16x9_3m'), w: 6, panelW: 3 * 16 / 9, panelH: 3, panelZ: 3 / 2 + 0.25, shape: 'landscape', family: ['16x9-3m'] },
+  '16x9-4m': { variant: '16x9-4m', label: msg('billboard_16x9_4m'), w: 8, panelW: 4 * 16 / 9, panelH: 4, panelZ: 4 / 2 + 0.25, shape: 'landscape', family: ['16x9-4m'] },
+  '4x3-3m': { variant: '4x3-3m', label: msg('billboard_4x3_3m'), w: 5, panelW: 3 * 4 / 3, panelH: 3, panelZ: 3 / 2 + 0.25, shape: 'landscape', family: ['4x3-3m'] },
+  '4x3-4m': { variant: '4x3-4m', label: msg('billboard_4x3_4m'), w: 6, panelW: 4 * 4 / 3, panelH: 4, panelZ: 4 / 2 + 0.25, shape: 'landscape', family: ['4x3-4m'] },
   wide: {
     variant: 'wide',
     label: msg('landscape_16_9'),
@@ -113,7 +117,7 @@ export const BILLBOARD_SPECS: Record<BillboardVariant, BillboardSpec> = {
  * Every variant, in palette order: the landscape family shortest first, so the
  * sub-menu reads 横版 → 标准 → 大横版 → 长幅, then the tall ones.
  */
-export const BILLBOARD_VARIANTS: readonly BillboardVariant[] = ['wide', 'standard', 'large', 'panorama', 'portrait', 'square']
+export const BILLBOARD_VARIANTS: readonly BillboardVariant[] = ['wide', 'standard', 'large', 'panorama', 'portrait', 'square', '16x9-3m', '16x9-4m', '4x3-3m', '4x3-4m']
 
 /** The variant the palette shows first in the 广告牌 sub-menu. */
 export const DEFAULT_BILLBOARD_VARIANT: BillboardVariant = 'wide'
