@@ -778,7 +778,10 @@ The suites, by the thing they are about. Each one's full description is in
 `surfaces` also covers the four material categories, all-face application, and custom
 涂料 colours surviving save/load and meshing. `paint-mode` covers independent 涂料
 and 搪瓷板 picker colors, persistent 单块 / 整面 mode, Tab cycling, saved station color
-swatches, and the compact picker-tile UI source contracts.
+swatches, and the compact picker-tile UI source contracts. It also pins the current
+color editor's stable key (the native picker survives drag edits) and the palette
+outcome: a color still worn stays selectable, while an unused old color is replaced
+in place rather than leaving a duplicate swatch.
 `render-regressions` pins model-label shrink-to-fit arithmetic, the round/recessed
 thick-pillar one continuous shaft with end-only collars, periodic obsidian pixels, and material roughness.
 

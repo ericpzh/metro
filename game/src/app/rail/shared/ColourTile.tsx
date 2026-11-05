@@ -4,6 +4,9 @@ import { Block } from './Block.tsx'
 // The shared colour picker tile for 搪瓷板 and 涂料 (§4.3).
 //
 // Saved colours select the brush; the current colour opens a native picker.
+// The caller must give the current tile a key that does not depend on its colour:
+// the native picker stays open across `onChange` events only while this input
+// keeps its DOM node, so remounting it on the first drag would drop the edit.
 // `hexColour` is also used for the material tile's swatch.
 
 /** Lowercase `#rrggbb` for a packed 0xRRGGBB colour (native `<input type=color>`). */

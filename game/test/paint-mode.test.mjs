@@ -129,13 +129,30 @@ test('each material owns a two-mode submenu, with Tab cycling and no current-col
 })
 
 test('used colors select the brush; the current color and New Color open native pickers', () => {
-  assert.match(paintFolder, /colours\.map\(\(colour\) => \(\s*<ColourTile key=\{colour\}/)
-  assert.match(paintFolder, /current=\{colour === colourFor\(anchor\)\}/)
-  assert.match(paintFolder, /<NewColorTile colour=\{colourFor\(anchor\)\}/)
+  assert.match(paintFolder, /savedColours\.map\(\(colour\) => \(\s*<ColourTile key=\{colour\}/)
+  assert.match(paintFolder, /const savedColours = colourMenu \? customPaintColoursInStation\(station, anchor\)\.filter\(\(colour\) => colour !== currentColour\)/)
+  assert.match(paintFolder, /<ColourTile key="current" colour=\{currentColour\} current/)
+  assert.match(paintFolder, /<NewColorTile colour=\{currentColour\}/)
   assert.doesNotMatch(paintFolder, /blockGrid three/)
   assert.match(colourTiles, /if \(!current\)\s*\{\s*return <Block[^\n]*onClick=\{\(\) => onChange\(colour\)\}/)
   assert.match(colourTiles, /export function ColourTile[\s\S]*?className="bpColour"[\s\S]*?type="color"/)
   assert.match(colourTiles, /export function NewColorTile[\s\S]*?className="bpNewColourInput"[\s\S]*?type="color"/)
   assert.match(paintCss, /\.bpNewColourPlus\s*\{[^}]*color:\s*#fff/i)
   assert.match(paintCss, /\.bpNewColourTile \.bpBlockLabel\s*\{[^}]*color:\s*#fff/i)
+})
+
+test('the current colour editor survives its own edits and leaves only colours still worn', () => {
+  // The native picker emits onChange while the player drags, so the current tile
+  // must keep one DOM node: a key that followed the colour would remount the input
+  // and close the picker before the player could confirm.
+  assert.match(paintFolder, /<ColourTile key="current" colour=\{currentColour\} current/)
+  assert.doesNotMatch(paintFolder, /<ColourTile key=\{currentColour\}/)
+
+  // The palette is still read from the station: a colour worn by a face remains
+  // listed after the brush moves past it; one that was never applied is simply not
+  // returned, so editing it replaced the only swatch rather than adding another.
+  const worn = { cells: [{ finish: { n: 'wall.enamel#f72b2b' } }], modules: [] }
+  assert.deepEqual(customPaintColoursInStation(worn, 'wall.enamel'), [0xf72b2b])
+  const withoutOld = { cells: [{ finish: { n: 'wall.enamel#123456' } }], modules: [] }
+  assert.equal(customPaintColoursInStation(withoutOld, 'wall.enamel').includes(0xf72b2b), false)
 })

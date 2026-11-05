@@ -3411,6 +3411,8 @@ handrail returns with one continuous pane, in every width and every rotation/tra
   opens its own submenu with 单块 / 整面, Tab cycles the modes and `N` selects 单块; the mode
   grid has no extra current-color tile. It also pins saved custom colors restored from station
   finish ids, stock-tint exclusion, two-column native color-picker tiles and the white New Color tile.
+  The current color tile keeps a stable key so the native picker survives drag edits; a colour
+  still worn stays as a saved swatch, while an unused old colour is replaced in place.
 * `tool-shortcuts.test.mjs` — B 删除, P 吸取 and M 移动 toggle back to the tool that was active
   before the mode; changing tools records the previous one, and each shortcut cancels its own mode.
   The service-room R tile cycles the front face.

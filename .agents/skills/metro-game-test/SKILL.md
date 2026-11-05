@@ -141,6 +141,15 @@ to back. `tv-double.test.mjs` covers the 单面/双面 palette choices and confi
 that the 双面 option previews and commits the two opposite-facing modules as one
 undoable placement.
 
+`paint-mode.test.mjs` owns the 材质 palette contract for 搪瓷板 and 涂料. Keep the
+current color editor's key independent of its color: a key derived from the color
+remounts the native input on the first picker `onChange` and closes the dialog
+before confirmation. The saved swatches stay derived from station finish ids, so
+a colour still worn after the edit remains selectable while an unused old colour
+simply disappears; the current picker then shows the new colour like New Color.
+Pin the stable key and both swatch outcomes here; React views remain source
+contracts because the Node suite does not mount TSX.
+
 ```powershell
 cd game
 npm test                 # node --test "test/**/*.test.mjs"

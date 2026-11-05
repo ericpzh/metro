@@ -60,7 +60,13 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
               }
             }), (anchor) => {
               const colourMenu = menuFor(anchor)
-              const colours = colourMenu ? customPaintColoursInStation(station, anchor) : []
+              const currentColour = colourFor(anchor)
+              // The palette is read from the station, so a colour that is still worn
+              // stays listed while the picker edits the brush past it. The current
+              // colour's own tile is rendered separately under a stable key: keying
+              // it by its colour would remount the native input on the first drag
+              // event and close the OS picker before the player could confirm.
+              const savedColours = colourMenu ? customPaintColoursInStation(station, anchor).filter((colour) => colour !== currentColour) : []
               const menu = `paint:${anchor}` as const
               return [
                 <InlinePanel key={`${menu}-options`} open={subMenu === menu}>
@@ -74,16 +80,13 @@ export function PaintFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey 
                         onClick={() => { st().setTool('paint'); st().setPaintMode(mode.id) }} />
                     ))}
                   </div>
-                  {colours.length > 0 ? (
+                  {colourMenu ? (
                     <div className="blockGrid">
-                      {colours.map((colour) => (
-                        <ColourTile key={colour} colour={colour} current={colour === colourFor(anchor)} onChange={(next) => changeColour(anchor, next)} />
+                      {savedColours.map((colour) => (
+                        <ColourTile key={colour} colour={colour} current={false} onChange={(next) => changeColour(anchor, next)} />
                       ))}
-                      <NewColorTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
-                    </div>
-                  ) : colourMenu ? (
-                    <div className="blockGrid">
-                      <NewColorTile colour={colourFor(anchor)} onChange={(colour) => changeColour(anchor, colour)} />
+                      <ColourTile key="current" colour={currentColour} current onChange={(next) => changeColour(anchor, next)} />
+                      <NewColorTile colour={currentColour} onChange={(colour) => changeColour(anchor, colour)} />
                     </div>
                   ) : null}
                 </InlinePanel>,

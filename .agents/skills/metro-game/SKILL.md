@@ -2129,9 +2129,15 @@ including the depth prepass, for all six appearances.
   current-color tile beside them. Custom-color slots are derived from saved station finish ids
   (`app/rail/paintColours.ts`) and omit the stock enamel tint. Clicking a saved color selects
   it for the brush; clicking the current color opens its native color picker;
-  **New Color** is the final picker tile, with a white plus and label. Choosing a color keeps the
-  current brush mode and saves that color in the station when painted. `paint-mode.test.mjs` pins
-  the mode and UI contracts. Whole-surface finish and zone bucket floods run to the actual
+  **New Color** is the final picker tile, with a white plus and label. The current color's tile
+  must keep a **stable key**, not one derived from its color: the native input emits `onChange`
+  while the player drags, and a remount closes the OS picker before confirmation. Editing an
+  existing swatch updates it in place when that old color is no longer worn by any cell or module;
+  a color still worn stays as a saved swatch, so the new color behaves like New Color. Keep the
+  palette derived from station finish ids — do not add a second color-history state. Choosing a
+  color keeps the current brush mode and saves that color in the station when painted.
+  `paint-mode.test.mjs` pins the mode, UI contracts, stable current editor key and the
+  used/unused swatch rule. Whole-surface finish and zone bucket floods run to the actual
   connected boundary without a cell-count cutoff; `surfaces.test.mjs` and `zones.test.mjs` pin
   floors larger than 20,000 cells. Wall floods count virtual street ground as an occluder,
   honor openings, and join inset half-wall faces only to matching surfaces. The Tianhe Park
