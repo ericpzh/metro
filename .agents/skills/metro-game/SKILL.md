@@ -2680,3 +2680,7 @@ Explicit front/back boards override legacy component side flags. Retention and
 repainting use the mounted front-only panel for wall signs, even if an older save
 carries a wider unused back. Empty saved backs stay empty; do not invent artwork
 when investigating an intermittently blank front.
+Equipment batch signatures include the source texture and atlas region baked
+into their UVs. Releasing atlas slots invalidates prepared root/view mappings;
+unchanged mesh identities cannot justify reusing geometry with stale atlas UVs.
+Keep unchanged mappings and pixel-only repaints on their retained allocations.

@@ -21,6 +21,8 @@ export class PanelAtlas {
   private patch: THREE.DataTexture | null = null
   private pending = new Map<Slot, Page>()
   readonly size: number
+  /** Cached UV geometry must be discarded when a slot can be reassigned. */
+  mappingVersion = 0
   constructor(size = 2048) { this.size = size }
   get pendingUpdates(): boolean { return this.pending.size > 0 }
 
@@ -145,10 +147,12 @@ export class PanelAtlas {
       const { x, y, w, h } = entry.slot
       entry.page.free.push({ x, y, w, h })
       this.slots.delete(texture)
+      this.mappingVersion++
     }
   }
 
   dispose(): void {
+    this.mappingVersion++
     for (const page of this.pages) page.texture.dispose()
     for (const material of this.materials.values()) material.dispose()
     this.pages = []; this.slots.clear(); this.materials.clear()

@@ -863,3 +863,43 @@ test('equipment batching leaves door, wing, clock and cabin descendants live', (
     assert.equal(moving.parent, wing); assert.equal(arm.parent, hand, 'the actual pivots still own the visible surfaces')
   } finally { batches.clear(); modules.traverse(o => { if (o.isMesh) o.geometry.dispose() }); material.dispose() }
 })
+
+test('recycled atlas slots invalidate baked sign UVs without changing source geometry', () => {
+  for (const cached of [false, true]) {
+    const previous = globalThis.document; globalThis.document = { createElement: canvas }
+    const modules = new THREE.Group(), batches = new EquipmentBatches()
+    const image = canvas(); image.width = 32; image.height = 16
+    const source = new THREE.CanvasTexture(image), replacement = new THREE.CanvasTexture(image)
+    const material = new THREE.MeshBasicMaterial({ map: source })
+    const otherMaterial = new THREE.MeshBasicMaterial({ map: replacement })
+    const root = equipment(0, 'original-sign', new THREE.PlaneGeometry(), material, 'sign')
+    const copy = equipment(2, 'copied-sign', new THREE.PlaneGeometry(), material, 'sign')
+    modules.add(root, copy)
+    const sync = () => batches.sync(modules, cached ? 'same-view' : undefined,
+      cached ? 'same-generation' : undefined, cached ? 'prepared-view' : undefined)
+    try {
+      sync()
+      const before = batches.root.children[0]
+      const oldUV = [...before.geometry.getAttribute('uv').array]
+      // Recycle the former slot for another panel, then bring this source back.
+      // Its mesh, geometry and transform stay identical; only its atlas UVs move.
+      batches.atlas.retain(new Set())
+      const otherRegion = batches.atlas.resolve(otherMaterial)
+      const region = batches.atlas.resolve(material)
+      assert.notEqual(region.u, otherRegion.u)
+      sync()
+      const after = batches.root.children[0]
+      assert.notEqual(after, before, 'the old UV geometry cannot be reused')
+      assert.notDeepEqual([...after.geometry.getAttribute('uv').array], oldUV)
+      const expected = root.children[0].geometry.toNonIndexed(); atlasUV(expected, region)
+      const expectedUV = [...expected.getAttribute('uv').array]
+      assert.deepEqual([...after.geometry.getAttribute('uv').array], [...expectedUV, ...expectedUV])
+      expected.dispose()
+      sync()
+      assert.equal(batches.root.children[0], after, 'an unchanged atlas mapping retains its allocation')
+    } finally {
+      batches.clear(); root.children[0].geometry.dispose(); copy.children[0].geometry.dispose(); material.dispose(); otherMaterial.dispose()
+      source.dispose(); replacement.dispose(); globalThis.document = previous
+    }
+  }
+})

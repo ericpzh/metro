@@ -52,6 +52,7 @@ export class EquipmentBatches {
   graphicsQuality: GraphicsQuality = 'high'
   readonly root = new THREE.Group()
   readonly atlas = new PanelAtlas()
+  private atlasMappingVersion = 0
   private entries = new Map<string, Entry>()
   private sources = new Set<THREE.Mesh>()
   private revision: string | undefined
@@ -220,6 +221,7 @@ export class EquipmentBatches {
 
   sync(modules: THREE.Group, revision?: string, generation?: string, sourceView?: string): void {
     if (!this.enabled) { this.clear(); return }
+    if (this.atlasMappingVersion !== this.atlas.mappingVersion) this.invalidateViews()
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
     this.translatedRoots=new WeakMap()
     const batchTileSize = BATCH_TILE_SIZE[this.graphicsQuality]
@@ -272,6 +274,19 @@ export class EquipmentBatches {
       for (const texture of record.textures) textures.add(texture)
     }
     this.atlas.retain(textures)
+    if (this.atlasMappingVersion !== this.atlas.mappingVersion) {
+      // Root/view caches also contain baked atlas regions. A released slot may
+      // now belong to a different sign even if its old mesh stayed unchanged.
+      this.invalidateViews()
+      for (const [root, record] of prepared) {
+        const fresh = { ...record, buckets: null }
+        prepared.set(root, fresh)
+        if (sourceView !== undefined) this.rootSources.set(root, new Map([[record.key, fresh]]))
+      }
+      this.atlasMappingVersion = this.atlas.mappingVersion
+      this.generation = generation
+      this.revision = revision
+    }
     // Immutable edits replace only affected roots. Remove their old bucket
     // contributions and merge their replacements; remote source lists and
     // geometry signatures remain exact without another station-wide walk.
@@ -350,7 +365,8 @@ export class EquipmentBatches {
         const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
         const bucket = local.get(key) ?? { material, sources: [] as Source[] }
         const matrix = o.matrixWorld.clone()
-        bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
+        const artwork = region ? `${(o.material as THREE.MeshBasicMaterial).map?.uuid}:${region.material.uuid}:${region.u},${region.v},${region.w},${region.h}` : ''
+        bucket.sources.push({ mesh: o, root, matrix, signature: `${o.uuid}:${o.geometry.uuid}:${matrix.elements.join(',')}:${artwork}`, region, levels: root.userData.levelZs }); local.set(key, bucket)
       })
       record.buckets = local
       merge(local)

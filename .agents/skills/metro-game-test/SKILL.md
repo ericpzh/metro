@@ -698,6 +698,10 @@ artwork identical to the production plate after every deletion. Check the longes
 legal board at normal and narrow window widths: preserve production aspect ratio,
 share the same scale across shorter boards and never require horizontal scrolling. Browser evidence
 is separate from deterministic test coverage.
+`draw-batching` pins atlas-slot recycling with unchanged sign meshes: fresh and
+cached source/view paths must rebuild relocated UVs, then retain the allocation
+on an unchanged sync. This guards cache correctness independently of reproducing
+a particular saved station's intermittent blank front.
 For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
 ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves
