@@ -133,6 +133,25 @@ try {
       && (!i || size.width <= deletionSizes[i - 1].width + 1)), JSON.stringify({ type, deletionSizes }))
     results.push({ type, deletionSizes })
   }
+  // Opening an older equal-spaced board previews compaction immediately, while
+  // Escape restores its original document rather than committing the shorter sign.
+  const legacy = createModule('sign-ceiling', 0, 0, 0, 'audit-sign', 0, undefined, 'up', 'right', [line], {
+    front: initialBoards.front.map((c, i) => ({ ...c, x: .3 + i * .6 })), back: [],
+  })
+  await page.evaluate('__metro.getState().closeSignEditor()')
+  await page.evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))')
+  await page.evaluate(`(() => {
+    const s = __metro.getState();
+    s.commit({...s.station, modules:[${JSON.stringify(legacy)}]});
+    s.openSignEditor('audit-sign');
+  })()`)
+  await page.evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(r))))')
+  const draft = await page.evaluate('__metro.getState().currentBoards')
+  assert.ok(signBoardsPanel(draft).w < signBoardsPanel(signBoardsOf(legacy.cfg, {lines:[line]})).w)
+  assert.deepEqual(await page.evaluate('__metro.getState().station.modules[0]'), legacy, 'opening does not commit compaction')
+  await page.evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))`)
+  assert.deepEqual(await page.evaluate('__metro.getState().station.modules[0]'), legacy, 'cancelling preserves saved spacing')
+  assert.equal(await page.evaluate('__metro.getState().signPreview'), null)
   writeFileSync(resolve(output, 'browser.json'), JSON.stringify(results, null, 2))
   console.log(JSON.stringify(results))
 } finally {

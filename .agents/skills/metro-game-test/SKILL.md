@@ -699,7 +699,10 @@ slice key cleared so batches resync) in `scene-wiring` — `SceneRenderer` itsel
 needs WebGL, so that contract is source-text.
 Sign regressions must cover every deletion order for mixed text/line/arrow and
 arrow/exit/arrow rows on either face, nonoverlapping bounds, idempotent settling
-and truly empty faces (`sign`). Pin zero-descender single-letter ink centering in
+and truly empty faces (`sign`). Mixed text/icon/line rows must use touching padded
+boxes, preserve order on both faces, and produce shorter steel than equal-width
+bins; hover insertion and committed boards use this same compaction policy.
+Pin zero-descender single-letter ink centering in
 `sign-render` and local draft settling in `sign-editor`. After building, run
 `node tools/check-sign-preview.mjs`: drag-to-trash must remove exactly one mark,
 keep the board height constant, shorten its width and leave nonempty editor

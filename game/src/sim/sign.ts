@@ -1559,9 +1559,17 @@ export function makeSignBoards(front: readonly SignComponent[] | undefined, stat
  * on, not a face with a blank plate.
  */
 export function settleSignBoards(boards: SignBoardsDraft, station?: SignLineSource | null): SignBoards {
-  const front = boards.front.length > 0 ? normalizeSignLayout(settleSignBins(boards.front).layout, station) : []
-  const back = boards.back.length > 0 ? normalizeSignLayout(settleSignBins(boards.back).layout, station) : []
+  const front = compactSignLayout(boards.front, station)
+  const back = compactSignLayout(boards.back, station)
   return { front, back }
+}
+
+/** Compose in list order with each mark's own padded width, not equal-width bins.
+ * Existing stored positions are preserved on load; an edit closes unused gaps.
+ */
+export function compactSignLayout(layout: readonly SignComponent[], station?: SignLineSource | null): SignLayout {
+  if (layout.length === 0) return []
+  return normalizeSignLayout(layout.map(c => ({ ...c, x: PANEL_END_PAD })), station)
 }
 
 /**

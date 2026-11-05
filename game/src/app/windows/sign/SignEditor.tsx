@@ -60,10 +60,9 @@ import { Icon } from '../../LeftRail.tsx'
 import {
   SIGN_ARROWS,
   SIGN_COMPONENT_MAX,
-  settleSignBins,
+  compactSignLayout,
   settleSignBoards,
   signBoardsPanel,
-  normalizeSignLayout,
   signLayoutCarried,
   signLayoutInserted,
   signLayoutMoved,
@@ -172,7 +171,10 @@ export function SignEditor(): React.ReactElement | null {
     // were just closed, so it goes with them. The library opens on 箭头 (see `group`), which
     // is what makes a fresh session show tiles rather than an empty well.
     opened.current = stored
-    setBoards(stored)
+    const compact = settleSignBoards(stored, station)
+    setBoards(compact)
+    boardsRef.current = compact
+    previewSignLayout(compact)
     setSelection(null)
     setGroup('arrow')
     setFocusedFace('front')
@@ -929,8 +931,8 @@ export function SignEditor(): React.ReactElement | null {
   // keeps its own id, and a palette tile is `DRAG_MARK_ID` (`markFor`), so the two are told
   // apart by the id the drag already carries.
   const carryingBoardMark = dragMark !== null && dragMark.id !== DRAG_MARK_ID
-  // Preserve the stored layout until an edit changes it. Repacking on open can
-  // shift marks relative to the production texture. An empty back keeps a drop target.
+  // The session draft and its scene preview share the compact write policy.
+  // An empty back keeps a drop target; the document changes only on confirmation.
   const rows = faces.map((face) => {
     const board = faceRowLayout(boards[face])
     // What is drawn **while a mark is in the air**: it takes the place the pointer is
@@ -939,7 +941,7 @@ export function SignEditor(): React.ReactElement | null {
     // the mark in it: the other row is a different board and never takes a mark the
     // pointer is not over.
     const shown = withHover(board, hoverFace === face ? dragMark : null, hoverFace === face ? insertAt : null)
-    return { face, layout: shown === board ? board : normalizeSignLayout(settleSignBins(shown).layout, station) }
+    return { face, layout: shown === board ? board : compactSignLayout(shown, station) }
   })
   return (
     <div className="signModal" role="dialog" aria-modal="true" aria-label={t('sign_editor')}>

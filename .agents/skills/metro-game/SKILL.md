@@ -2667,16 +2667,20 @@ fractional anchors. `moduleLevels` slices wall decor by its visible centre.
 The sign editor draws retained row canvases with `drawSignPanel`, using the same
 paired panel size and resolution as the production textures. Transparent bins
 handle dragging and meet halfway between printed mark centres, rather than
-proportionally to ink widths. Preserve stored mark positions on opening; normalise a hover
-insertion through the same write policy. Do not resize each mark independently or
+proportionally to ink widths. Opening the editor compacts its draft and scene
+preview together; keep the original for cancellation and commit only on ✓.
+Normalise a hover insertion through the same write policy. Do not resize each mark independently or
 encode PNGs per drag.
 Preview artwork shares the scale at which `PANEL_MAX_W` fits the workspace;
 each board uses `panel.w / PANEL_MAX_W` of the available width with its production
 aspect ratio. Keep the entire board visible without scrolling, including narrower
 windows. Never fit each row independently: that enlarges marks on deletion.
 Settle local editor drafts before drawing, using the same policy as scene
-previews. Settling must be idempotent; derive bin pitch from content widths/count,
-not the previous panel span. When a shortened panel excludes the old row origin,
+previews. Settling must be idempotent. `compactSignLayout` packs list-ordered
+marks by their individual padded widths, closing unused gaps; hover insertions
+use the same rule. Do not give narrow icons the widest text's equal-width slot.
+`settleSignBins` remains a legacy bin helper, not the composer write policy.
+When a shortened panel excludes the old row origin,
 translate the row together before clamping individual marks, preserving spacing.
 Keep the legacy clamp for maximum-width saved rows; the authored-demo load
 regression guards against shifting existing artwork during save repair.

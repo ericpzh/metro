@@ -1327,3 +1327,22 @@ test('every deletion order preserves spacing, stable settling and empty faces', 
   }
   assert.deepEqual(settleSignBoards({ front: [], back: [] }), { front: [], back: [] })
 })
+
+test('mixed sign rows close unused equal-bin gaps using each mark width', () => {
+  const mark = (id, kind, extra) => ({ id, kind, x: 0, y: .2, scale: 1, side: 'both', ...extra })
+  const front = [mark('exit', 'text', { text: '出站\nExit' }), mark('escalator', 'icon', { icon: 'escalator' }),
+    mark('line13', 'line', { lineId: '13', english: true }), mark('next', 'text', { text: '下站 员村\nNext Yuancun' }),
+    mark('line11', 'line', { lineId: '11', english: true }), mark('arrow', 'arrow', { arrow: 'up-right' })]
+  const legacy = settleSignBins(front).layout
+  const boards = settleSignBoards({ front: legacy, back: [...legacy].reverse() })
+  assert.ok(signBoardsPanel(boards).w < signPanelSize(legacy).w, 'the actual steel is shorter than equal-width bins')
+  for (const face of ['front', 'back']) {
+    assert.deepEqual(boards[face].map(c => c.id), (face === 'front' ? legacy : [...legacy].reverse()).map(c => c.id))
+    const pieces = signPieces(boards[face], signBoardsPanel(boards))
+    for (let i = 1; i < pieces.length; i++) {
+      assert.ok(Math.abs(pieces[i].left - (pieces[i - 1].left + pieces[i - 1].w)) < 1e-9,
+        'adjacent padded boxes meet without empty slots or overlap')
+    }
+  }
+  assert.deepEqual(settleSignBoards(boards), boards, 'compaction stays stable through preview and commit')
+})
