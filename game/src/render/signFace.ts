@@ -552,7 +552,7 @@ function drawText(g: CanvasRenderingContext2D, comp: Extract<SignComponent, { ki
     const top = box.y + box.h - (lines.length - i) * rowH
     const metrics = g.measureText(line)
     const ascent = metrics.actualBoundingBoxAscent || font * 0.8
-    const descent = metrics.actualBoundingBoxDescent || font * 0.2
+    const descent = metrics.actualBoundingBoxDescent ?? font * 0.2
     const baseY = lines.length === 1
       ? top + rowH * 0.5 + (ascent - descent) * 0.5
       : top + font + (rowH - font) * 0.5

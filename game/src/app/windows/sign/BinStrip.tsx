@@ -64,8 +64,10 @@ export function BinStrip({
   // text boxes. Scaling target widths by ink size can put a pictogram under a
   // neighbouring label's target even when the artwork itself is correct.
   const edges = [0, ...centres.slice(1).map((x, i) => (x + centres[i]) / 2), 1]
+  // Keep a stable artwork height. Fitting every board to the workspace width
+  // magnifies the remaining marks whenever deletion shortens the panel.
   return (
-    <div className={dropping ? 'bins signBoardPreview drop' : 'bins signBoardPreview'} style={{ aspectRatio: `${panel.w} / ${panel.h}`, width: '100%', minHeight: 0 }} data-face={face} role="list" aria-label={translate(label)}>
+    <div className={dropping ? 'bins signBoardPreview drop' : 'bins signBoardPreview'} style={{ aspectRatio: `${panel.w} / ${panel.h}`, width: `${64 * panel.w / panel.h}px`, minHeight: 0 }} data-face={face} role="list" aria-label={translate(label)}>
       <canvas ref={art} aria-hidden="true" />
       {layout.map((comp) => {
         // An empty face's one place: a well, drawn and measured as nothing, so the row

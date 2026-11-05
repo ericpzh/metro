@@ -400,3 +400,9 @@ test('a live drag defers the scene redraw to a scheduled trailing sync', () => {
   assert.ok(end.includes('cancelScheduledPreview'), 'and a trailing redraw never fires behind it')
   assert.ok(src.includes('getCoalescedEvents'), 'a fast pointer is evaluated once per frame, not once per queued move')
 })
+
+test('the local editor settles every edit before drawing the shortened board', () => {
+  const src = fs.readFileSync(new URL('../src/app/windows/sign/SignEditor.tsx', import.meta.url), 'utf8')
+  const local = src.slice(src.indexOf('const applyLocal'), src.indexOf('const schedulePreview'))
+  assert.ok(local.includes('settleSignBoards({'), 'local bins use the same settled layout as the scene')
+})

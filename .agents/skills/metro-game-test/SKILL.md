@@ -688,6 +688,14 @@ verdict and `buildModules`' keep-set retention in `performance-policy`, and the
 `setStation` fast paths (no chunk remesh, station-wide plate repaints skipped,
 slice key cleared so batches resync) in `scene-wiring` — `SceneRenderer` itself
 needs WebGL, so that contract is source-text.
+Sign regressions must cover every deletion order for mixed text/line/arrow and
+arrow/exit/arrow rows on either face, nonoverlapping bounds, idempotent settling
+and truly empty faces (`sign`). Pin zero-descender single-letter ink centering in
+`sign-render` and local draft settling in `sign-editor`. After building, run
+`node tools/check-sign-preview.mjs`: drag-to-trash must remove exactly one mark,
+keep the board height constant, shorten its width and leave nonempty editor
+artwork identical to the production plate after every deletion. Browser evidence
+is separate from deterministic test coverage.
 For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
 ridge-only line, the one-shape-per-course release, the neighbour side a wedge leaves

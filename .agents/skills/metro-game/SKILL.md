@@ -2664,6 +2664,16 @@ handle dragging and meet halfway between printed mark centres, rather than
 proportionally to ink widths. Preserve stored mark positions on opening; normalise a hover
 insertion through the same write policy. Do not resize each mark independently or
 encode PNGs per drag.
+Preview artwork has a fixed 64 px board height and scrolls horizontally for wide
+boards: fitting each row to the workspace width enlarges marks when content is
+deleted. Settle local editor drafts before drawing, using the same policy as scene
+previews. Settling must be idempotent; derive bin pitch from content widths/count,
+not the previous panel span. When a shortened panel excludes the old row origin,
+translate the row together before clamping individual marks, preserving spacing.
+Keep the legacy clamp for maximum-width saved rows; the authored-demo load
+regression guards against shifting existing artwork during save repair.
+Explicitly emptied fronts and backs stay empty. Single-line text centers its actual
+ink bounds; zero `actualBoundingBoxDescent` is valid, not a missing measurement.
 Explicit front/back boards override legacy component side flags. Retention and
 repainting use the mounted front-only panel for wall signs, even if an older save
 carries a wider unused back. Empty saved backs stay empty; do not invent artwork

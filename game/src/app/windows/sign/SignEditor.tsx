@@ -61,6 +61,7 @@ import {
   SIGN_ARROWS,
   SIGN_COMPONENT_MAX,
   settleSignBins,
+  settleSignBoards,
   signBoardsPanel,
   normalizeSignLayout,
   signLayoutCarried,
@@ -218,10 +219,10 @@ export function SignEditor(): React.ReactElement | null {
    */
   const applyLocal = useCallback(
     (next: SignBoards) => {
-      const trimmed: SignBoards = {
+      const trimmed = settleSignBoards({
         front: next.front.slice(0, SIGN_COMPONENT_MAX),
         back: next.back.slice(0, SIGN_COMPONENT_MAX),
-      }
+      })
       // Readable to the window listeners before the next render commits: two
       // pointer moves can land in one frame, and the second must read the first
       // one's row rather than the last render's.

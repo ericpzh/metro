@@ -1275,3 +1275,55 @@ test('the shield prints the line name as the 线路 panel spells it', () => {
   ])
   assert.equal(orphan[0].lineId, 'gone')
 })
+
+test('removing leading marks fits the remaining row as a group without stacking', () => {
+  const row = [
+    { id: 'line', kind: 'line', lineId: '11', english: true, x: 2.4, y: .2, scale: 1, side: 'both' },
+    { id: 'arrow', kind: 'arrow', arrow: 'right', x: 2.9, y: .2, scale: 1, side: 'both' },
+  ]
+  for (const layout of [normalizeSignLayout(row), normalizeSignLayout(normalizeSignLayout(row))]) {
+    const pieces = signPieces(layout, signPanelSize(layout))
+    assert.ok(pieces[0].left + pieces[0].w <= pieces[1].left + 1e-9)
+    assert.ok(Math.abs(pieces[1].x - pieces[0].x - .5) < 1e-9)
+  }
+})
+
+test('every deletion order preserves spacing, stable settling and empty faces', () => {
+  const mark = (id, kind, extra) => ({ id, kind, x: 0, y: .2, scale: 1, side: 'both', ...extra })
+  const fixtures = [
+    [mark('a', 'text', { text: 'A' }), mark('aa', 'text', { text: 'A.A' }),
+      mark('line', 'line', { lineId: '11', english: true }), mark('right', 'arrow', { arrow: 'right' })],
+    [mark('left', 'arrow', { arrow: 'left' }), mark('exit', 'icon', { icon: 'exit' }),
+      mark('right', 'arrow', { arrow: 'right' })],
+  ]
+  const check = boards => {
+    const settled = settleSignBoards(boards)
+    assert.deepEqual(settleSignBoards(settled), settled, 'settling twice must not change spacing')
+    const panel = signBoardsPanel(settled)
+    for (const face of ['front', 'back']) {
+      const pieces = signPieces(settled[face], panel)
+      for (let i = 0; i < pieces.length; i++) {
+        assert.ok(pieces[i].left >= -1e-9)
+        assert.ok(pieces[i].left + pieces[i].w <= panel.w + 1e-9)
+        for (let j = i + 1; j < pieces.length; j++) {
+          assert.ok(pieces[i].left + pieces[i].w <= pieces[j].left + 1e-9,
+            `${face}: ${pieces[i].id} overlaps ${pieces[j].id}`)
+        }
+      }
+    }
+    return settled
+  }
+  const visit = boards => {
+    const settled = check(boards)
+    for (const face of ['front', 'back']) {
+      for (const mark of settled[face]) {
+        visit({ ...settled, [face]: settled[face].filter(c => c.id !== mark.id) })
+      }
+    }
+  }
+  for (const front of fixtures) {
+    visit({ front, back: [] })
+    visit({ front: [], back: front })
+  }
+  assert.deepEqual(settleSignBoards({ front: [], back: [] }), { front: [], back: [] })
+})

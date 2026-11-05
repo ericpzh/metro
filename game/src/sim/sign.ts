@@ -730,6 +730,18 @@ export function signPieces(
   return out
 }
 
+// Panel width measures the row's span, not its distance from the old origin.
+// Move the whole row into that panel before clamping individual marks; otherwise
+// removing leading content folds all remaining marks onto the right edge.
+function fitSignRow(layout: readonly SignComponent[], panel: SignPanelSize, measure: SignMeasure = estimateSignTextWidth): SignLayout {
+  if (layout.length === 0) return []
+  const left = Math.min(...layout.map(c => c.x - signPieceSize(c, measure).w / 2))
+  const right = Math.max(...layout.map(c => c.x + signPieceSize(c, measure).w / 2))
+  const shift = panel.w < PANEL_MAX_W && left >= EDGE_PAD && right > panel.w - EDGE_PAD
+    ? (panel.w - (right - left)) / 2 - left : 0
+  return layout.map(c => clampSignComponent({ ...c, x: c.x + shift }, panel, measure))
+}
+
 /**
  * The topmost component under a point given in **metres** from the panel's
  * bottom-left, or null. Later components paint over earlier ones, so the hit test
@@ -1036,7 +1048,9 @@ export function settleSignBins(
   // over-full reads as such rather than growing into a wall.
   const widest = layout.reduce((w, c) => Math.max(w, signPieceSize(c, measure).w), 0)
   const perBin = Math.max(SIGN_BIN_PITCH, widest)
-  const room = Math.max(bare.panel.w + PANEL_END_PAD, Math.min(maxW, perBin * bins))
+  // Never feed the previous panel span back into its pitch: settling a settled
+  // row (local preview, scene preview, then commit) must preserve its spacing.
+  const room = Math.max(PANEL_MIN_W, Math.min(maxW, perBin * bins))
   const pitch = room / bins
   return { layout: signLayoutInOrder(layout, pitch), panel: bare.panel, room, bins, pitch }
 }
@@ -1282,7 +1296,7 @@ export function normalizeSignLayout(layout: readonly SignComponent[] | undefined
   // hold — and because the pack is idempotent and the clamp is too, the pair is a
   // fixed point: `toState` can repair an old save without rewriting it every load.
   const packed = packSignRow(out)
-  return packed.map((c) => clampSignComponent(c, signPanelSize(packed)))
+  return fitSignRow(packed, signPanelSize(packed))
 }
 
 /** The sign type name, so callers do not spell it out. */
@@ -1545,7 +1559,7 @@ export function makeSignBoards(front: readonly SignComponent[] | undefined, stat
  * on, not a face with a blank plate.
  */
 export function settleSignBoards(boards: SignBoardsDraft, station?: SignLineSource | null): SignBoards {
-  const front = normalizeSignLayout(settleSignBins(boards.front).layout, station)
+  const front = boards.front.length > 0 ? normalizeSignLayout(settleSignBins(boards.front).layout, station) : []
   const back = boards.back.length > 0 ? normalizeSignLayout(settleSignBins(boards.back).layout, station) : []
   return { front, back }
 }

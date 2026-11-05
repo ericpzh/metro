@@ -73,6 +73,43 @@ try {
     const shot = await page.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(resolve(output, `${type}.png`), Buffer.from(shot.data, 'base64'))
     results.push({ type, rows })
+    // Delete marks through the editor's drag-to-trash path. Shortening a
+    // sign must never magnify it or push the action buttons out of the modal.
+    const deletionSizes = []
+    for (let remaining = printedBoards.front.length; remaining > 0; remaining--) {
+      deletionSizes.push(await page.evaluate(`(() => {
+        const row = document.querySelector('.signBoardPreview');
+        const box = row.getBoundingClientRect();
+        const bin = row.querySelector('[data-sign-mark]');
+        if (row.querySelectorAll('[data-sign-mark]').length !== ${remaining}) throw new Error('deletion did not remove one mark');
+        bin.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: box.left + 2, clientY: box.top + 2 }));
+        return { width: box.width, height: box.height };
+      })()`))
+      await page.evaluate(`(() => {
+        const box = document.querySelector('.signAct.trash').getBoundingClientRect();
+        window.dispatchEvent(new PointerEvent('pointermove', { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 }));
+      })()`)
+      await page.evaluate('new Promise(r => requestAnimationFrame(r))')
+      await page.evaluate(`window.dispatchEvent(new PointerEvent('pointerup'))`)
+      await page.evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))')
+      const current = await page.evaluate('__metro.getState().currentBoards')
+      const currentPanel = signBoardsPanel(current)
+      const pieces = signPieces(current.front, currentPanel)
+      for (let i = 1; i < pieces.length; i++) {
+        assert.ok(pieces[i - 1].left + pieces[i - 1].w <= pieces[i].left + 1e-9,
+          `deletion stacked ${pieces[i - 1].id} and ${pieces[i].id}`)
+      }
+      if (remaining > 1) assert.equal(await page.evaluate(`(() => {
+        const canvas = document.querySelector('.signBoardPreview canvas');
+        const plate = [...__scene.plates.signPlates.entries()].find(([key]) => key.startsWith('audit-sign|left|'))?.[1];
+        return plate?.texture.image.toDataURL() === canvas.toDataURL();
+      })()`), true, 'after deletion the local preview must match the settled production artwork: ' + remaining)
+    }
+    assert.equal(await page.evaluate(`document.querySelector('.signBoardPreview').querySelectorAll('[data-sign-mark]').length`), 0)
+    assert.ok(deletionSizes.every((size, i) => size.height <= 65
+      && (!i || size.height <= deletionSizes[i - 1].height + 1)
+      && (!i || size.width <= deletionSizes[i - 1].width + 1)), JSON.stringify({ type, deletionSizes }))
+    results.push({ type, deletionSizes })
   }
   writeFileSync(resolve(output, 'browser.json'), JSON.stringify(results, null, 2))
   console.log(JSON.stringify(results))

@@ -673,3 +673,15 @@ test('a sign module round-trips its boards through the save', () => {
   const backPlate = paint(state.modules[0].cfg.back, [LINE], 'right')
   assert.ok(backPlate.ops.texts.includes('电'), 'and the back prints its own board')
 })
+
+test('a capital without a descender keeps its ink vertically centred', () => {
+  const { g, ops } = stubCanvas(1000, 1000)
+  g.measureText = () => {
+    const font = Number(/(\d+(?:\.\d+)?)px/.exec(g.font)?.[1] ?? 10)
+    return { width: font * .7, actualBoundingBoxAscent: font * .75, actualBoundingBoxDescent: 0 }
+  }
+  drawSignPanel(g, [{ id: 'a', kind: 'text', text: 'A', x: .5, y: .5, scale: 1, side: 'both' }],
+    { lines: [LINE], panel: { w: 1, h: 1 }, ppm: 1000 }, 'both')
+  const word = ops.words[0]
+  assert.ok(Math.abs(word.y - word.size * .75 / 2 - 500) < .01)
+})
