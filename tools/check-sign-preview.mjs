@@ -11,7 +11,7 @@ const line = { id: '11', name: '11号线', colour: '#efb900', stock: 'B', cars: 
   power: 'third-rail', headwayProfile: { peak: 150, offpeak: 240, late: 480 },
   alightPerTrain: 420, terminus: 'through', direction: 'up', travelSign: 1, stations: [] }
 const mark = (id, kind, extra) => ({ id, kind, x: 0, y: .3, scale: 1, side: 'left', ...extra })
-const boards = settleSignBoards({
+const initialBoards = settleSignBoards({
   front: [mark('a', 'arrow', { arrow: 'left' }), mark('l', 'line', { lineId: '11', english: true }),
     mark('t', 'text', { text: 'B.E.F' }), mark('i', 'icon', { icon: 'lift' }), mark('r', 'arrow', { arrow: 'right' })],
   back: [mark('b', 'text', { text: 'C.D' })],
@@ -24,7 +24,11 @@ try {
   await waitFor(page.evaluate, '!!window.__scene && !!window.__metro?.getState().metrics')
   await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
   const results = []
-  for (const type of ['sign-ceiling', 'sign-wall']) {
+  for (const { type, boards } of ['sign-ceiling', 'sign-wall'].flatMap(type => [
+    { type, boards: initialBoards },
+    { type, boards: settleSignBoards({ front: Array.from({ length: 9 }, (_, i) =>
+      mark(`arrow-${i}`, 'arrow', { arrow: 'right' })), back: [] }) },
+  ])) {
     const sign = createModule(type, 0, 0, 0, 'audit-sign', 0, undefined, 'up', 'right', [line], boards)
     await page.evaluate(`(() => {
       __metro.getState().closeSignEditor();
@@ -68,11 +72,29 @@ try {
       });
     })()`)
     assert.equal(rows.length, type === 'sign-wall' ? 1 : 2)
-    assert.ok(rows.every(r => r.matchesPlate && r.ink > 50 && r.height > 10
+    assert.ok(rows.every((r, i) => (printedBoards[i === 0 ? 'front' : 'back'].length === 0 || (r.matchesPlate && r.ink > 50)) && r.height > 10
       && Math.abs(r.width / r.height - r.textureWidth / r.textureHeight) < .03), JSON.stringify({ type, rows }))
     const shot = await page.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(resolve(output, `${type}.png`), Buffer.from(shot.data, 'base64'))
     results.push({ type, rows })
+    const viewport = await page.evaluate('({width: innerWidth, height: innerHeight})')
+    for (const width of [800, 1280]) {
+      await page.send('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: false })
+      const sizes = await page.evaluate(`(() => {
+        const column = document.querySelector('.signBoards');
+        return { scroll: column.scrollWidth > column.clientWidth,
+          rows: [...column.querySelectorAll('.signBoardPreview')].map(row => {
+            const box = row.getBoundingClientRect();
+            const canvas = row.querySelector('canvas');
+            return { width: box.width, height: box.height, available: column.clientWidth,
+              aspect: canvas.width / canvas.height };
+          }) };
+      })()`)
+      assert.equal(sizes.scroll, false, JSON.stringify({ width, sizes }))
+      assert.ok(sizes.rows.every(r => r.width <= r.available + 1
+        && Math.abs(r.width / r.height - r.aspect) < .03), JSON.stringify({ width, sizes }))
+    }
+    await page.send('Emulation.setDeviceMetricsOverride', { ...viewport, deviceScaleFactor: 1, mobile: false })
     // Delete marks through the editor's drag-to-trash path. Shortening a
     // sign must never magnify it or push the action buttons out of the modal.
     const deletionSizes = []

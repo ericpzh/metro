@@ -2352,8 +2352,7 @@ html[lang="en"] .depthTag {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* Keep every mark reachable on a viewport narrower than the fixed modal. */
-  overflow-x: auto;
+  /* All boards share a scale that fits the widest legal panel in this column. */
   flex-shrink: 0;
 }
 /* A face is two rows: its label, then a board with the full column width. */

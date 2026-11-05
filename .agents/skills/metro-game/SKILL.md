@@ -2664,9 +2664,11 @@ handle dragging and meet halfway between printed mark centres, rather than
 proportionally to ink widths. Preserve stored mark positions on opening; normalise a hover
 insertion through the same write policy. Do not resize each mark independently or
 encode PNGs per drag.
-Preview artwork has a fixed 64 px board height and scrolls horizontally for wide
-boards: fitting each row to the workspace width enlarges marks when content is
-deleted. Settle local editor drafts before drawing, using the same policy as scene
+Preview artwork shares the scale at which `PANEL_MAX_W` fits the workspace;
+each board uses `panel.w / PANEL_MAX_W` of the available width with its production
+aspect ratio. Keep the entire board visible without scrolling, including narrower
+windows. Never fit each row independently: that enlarges marks on deletion.
+Settle local editor drafts before drawing, using the same policy as scene
 previews. Settling must be idempotent; derive bin pitch from content widths/count,
 not the previous panel span. When a shortened panel excludes the old row origin,
 translate the row together before clamping individual marks, preserving spacing.

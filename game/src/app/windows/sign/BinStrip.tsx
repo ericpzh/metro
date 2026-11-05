@@ -5,7 +5,7 @@ import { useLanguage } from '../../i18n.ts'
 
 import { useLayoutEffect, useRef } from 'react'
 import { drawSignPanel } from '../../../render/signFace.ts'
-import { SIGN_BACK_MARK, signPlate, signPieces, type SignPanelSize, type SignComponent, type SignFaceName } from '../../../sim/sign.ts'
+import { PANEL_MAX_W, SIGN_BACK_MARK, signPlate, signPieces, type SignPanelSize, type SignComponent, type SignFaceName } from '../../../sim/sign.ts'
 import type { LineDef } from '../../../sim/types.ts'
 import { componentName } from './tokens.ts'
 
@@ -64,10 +64,10 @@ export function BinStrip({
   // text boxes. Scaling target widths by ink size can put a pictogram under a
   // neighbouring label's target even when the artwork itself is correct.
   const edges = [0, ...centres.slice(1).map((x, i) => (x + centres[i]) / 2), 1]
-  // Keep a stable artwork height. Fitting every board to the workspace width
-  // magnifies the remaining marks whenever deletion shortens the panel.
+  // Fit the widest legal board to the workspace. Every shorter board shares
+  // that scale, so deletion cannot magnify the remaining artwork.
   return (
-    <div className={dropping ? 'bins signBoardPreview drop' : 'bins signBoardPreview'} style={{ aspectRatio: `${panel.w} / ${panel.h}`, width: `${64 * panel.w / panel.h}px`, minHeight: 0 }} data-face={face} role="list" aria-label={translate(label)}>
+    <div className={dropping ? 'bins signBoardPreview drop' : 'bins signBoardPreview'} style={{ aspectRatio: `${panel.w} / ${panel.h}`, width: `${100 * panel.w / PANEL_MAX_W}%`, minHeight: 0 }} data-face={face} role="list" aria-label={translate(label)}>
       <canvas ref={art} aria-hidden="true" />
       {layout.map((comp) => {
         // An empty face's one place: a well, drawn and measured as nothing, so the row

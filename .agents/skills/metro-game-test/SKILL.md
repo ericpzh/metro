@@ -694,7 +694,9 @@ and truly empty faces (`sign`). Pin zero-descender single-letter ink centering i
 `sign-render` and local draft settling in `sign-editor`. After building, run
 `node tools/check-sign-preview.mjs`: drag-to-trash must remove exactly one mark,
 keep the board height constant, shorten its width and leave nonempty editor
-artwork identical to the production plate after every deletion. Browser evidence
+artwork identical to the production plate after every deletion. Check the longest
+legal board at normal and narrow window widths: preserve production aspect ratio,
+share the same scale across shorter boards and never require horizontal scrolling. Browser evidence
 is separate from deterministic test coverage.
 For 三角 runs, keep the drag arithmetic in the pure geometry module
 (`app/tools/geometry/cells.ts` `triangleRidgeAxis` / `triangleLineCells`) and pin the
