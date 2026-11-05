@@ -12,6 +12,7 @@ import { demoStationForPath, gamePathFor } from './demoRoute.ts'
 import { startGlobalStats } from './globalStats.ts'
 import { BenchmarkRoute } from './benchmark/BenchmarkRoute.tsx'
 import { initUiTheme } from './uiTheme.ts'
+import { openingLevel } from './openingLevel.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -56,10 +57,7 @@ export function renderGame(root: Root): void {
       if (!demo) {
         const restored = readAutosave(storage)
         if (restored) {
-          let activeZ = restored.levelBase
-          for (const c of restored.cells) if (c.z < activeZ) activeZ = c.z
-          for (const m of restored.modules) if (m.z < activeZ) activeZ = m.z
-          useStore.setState({ station: restored, activeZ })
+          useStore.setState({ station: restored, activeZ: openingLevel(restored) })
         }
       }
       const autosave = watchAutosave(useStore, storage)

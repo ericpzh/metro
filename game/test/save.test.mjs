@@ -11,6 +11,7 @@ import { DEFAULT_DEMAND, DEFAULT_OFFDAY } from '../src/sim/demand.ts'
 import { DEFAULT_CALENDAR, SERVICE_MIN_SPAN } from '../src/sim/clock.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { useStore } from '../src/app/store.ts'
+import { openingLevel } from '../src/app/openingLevel.ts'
 
 test('saving normalizes stale train scales without mutating the open document', () => {
   for (const scale of [undefined, 1, 0.85, 0.98]) {
@@ -313,6 +314,33 @@ test('loadFromText opens on the basis floor, not the 0 m ground plane', () => {
     !useStore.getState().station.cells.some((c) => c.z < 2),
     'nothing below the basis floor drags the view down further',
   )
+})
+
+test('fractional artwork anchors do not become the opening editing height', () => {
+  const state = toState({
+    name: 'fractional wall artwork', seed: 7, levelBase: 0, storeyHeight: 5,
+    cells: [{ x: 0, y: 0, z: -20, fill: 'solid' }],
+    modules: [{ id: 'name', type: 'calligraphy', x: 0, y: 1,
+      z: -20.200000000000003, rot: 2, w: 5, panelH: 1,
+      cfg: { style: 'wei', axis: 'h' } }],
+    lines: [],
+  })
+  const saved = serialize(state)
+  const before = globalThis.Worker
+  globalThis.Worker = class { postMessage() {} }
+  try {
+    useStore.getState().loadFromText(saved)
+    assert.equal(useStore.getState().activeZ, -20)
+    assert.equal(useStore.getState().station.modules[0].z, -20.200000000000003,
+      'opening the view does not move the saved artwork')
+    assert.equal(openingLevel(parse(saved).state), -20, 'autosave restoration uses the same calculation')
+    assert.equal(openingLevel({ ...state, cells: [], modules: [{ ...state.modules[0], z: -21.2 }] }), -21,
+      'a deeper module still lowers the opening height')
+    assert.match(readFileSync(new URL('../src/app/boot.tsx', import.meta.url), 'utf8'),
+      /activeZ: openingLevel\(restored\)/, 'startup applies the shared calculation to autosaves')
+  } finally {
+    globalThis.Worker = before
+  }
 })
 
 test('the worker ready message does not reset the active storey to the 0 m ground plane', () => {

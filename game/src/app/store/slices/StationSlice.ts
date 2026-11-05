@@ -24,23 +24,11 @@ import { normalizeDayDemand, type DayDemand, type DemandKnobs } from '../../../s
 import type { PeakWindows } from '../../../sim/constants.ts'
 import type { AppState } from '../Store.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
+import { openingLevel } from '../../openingLevel.ts'
 
 /** Most undo frames, and the most document they may hold between them. */
 const UNDO_MAX_FRAMES = 40
 const UNDO_BUDGET = 120_000
-
-/**
- * The level a document opens on: its basis floor, lowered to the lowest authored
- * cell or module when the player actually built beneath it. `打开存档` and
- * `打开示例车站` share this one rule, so a demo station is not a special case with
- * its own hardcoded altitude.
- */
-function openingLevel(s: StationState): number {
-  let z = s.levelBase
-  for (const c of s.cells) if (c.z < z) z = c.z
-  for (const m of s.modules) if (m.z < z) z = m.z
-  return z
-}
 
 /**
  * Roughly what one snapshot costs to keep: a cell is a small record, a module is a
