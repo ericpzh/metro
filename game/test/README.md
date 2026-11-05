@@ -1486,3 +1486,16 @@ closed pylons and bound labels across bays/rotations. `line-map`, `model-detail`
 `train-lod` and `menu-thumbnails` own supplied artwork, budgets and cached previews.
 Run `node tools/check-nanjing-style.mjs` for production selection/reload, lazy map
 loading, retained resources and theme/High/Low captures.
+
+Half-wall and triangle cut tiles use absolute clockwise A=N, B=E, C=S, D=W,
+independent of neighbouring blocks and pointer/camera position. Both drag one
+course along their panel/ridge axis. Stair-block tile directions use the same
+absolute compass with saved module rotations preserved; picking converts back
+to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
+Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mjs`
+and `pick-tool.test.mjs` pin stair direction, dragging and picking.
+
+`local-cell-edit.test.mjs` distinguishes unchanged stair wall inputs from an
+escalator's conservative nearby-terrain dependency. `model-detail.test.mjs`
+checks the standalone toilet's authored Low geometry budget, High restoration,
+and preservation through static batching.

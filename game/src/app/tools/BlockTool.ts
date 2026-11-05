@@ -1,7 +1,7 @@
 import { msg } from '../../sim/i18n.ts'
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
 // patch (with an auto-wall ring when 生成墙壁 is on, which **Shift+Tab** and the ring's
-// own tile raise), one **半墙** block at a time or a ridge-locked **三角** line
+// own tile raise), a direction-locked **半墙** or **三角** line
 // when a cut piece is armed, right-press on a wall for a whole-column lift.
 // right-press on a wall for a whole-column lift. Moved verbatim
 // from app/Viewport.tsx (GAME-SPEC §4).
@@ -16,7 +16,6 @@ import {
   sameCells,
   wallColumnAt,
   wallColumnsAt,
-  wallSnap,
 } from '../../build/model.ts'
 import { checkBlockCells, newPreview, previewNotice } from '../../build/validation.ts'
 import type { PlacementPreview } from '../../build/validation.ts'
@@ -51,10 +50,8 @@ export class BlockTool extends ToolController {
     // 方块: a click is one block, a long press + drag is a rectangle on the
     // pressed plane (the depth you are on, stepped with Q/E). With 生成墙壁
     // on the patch grows an auto-wall ring; off, it is plain blocks.
-    // With a cut piece armed (半墙 / 三角, its own tile) it is neither: the click lays
-    // one piece where it lands — a cut is one piece at a time, and it is what
-    // the patch grows instead of the ring, so there is no patch and no auto wall
-    // (`store.ts` keeps the two modes exclusive).
+    // Cut pieces place one course per click or drag a row along their fixed
+    // direction. They never generate an auto-wall ring.
     info.preventDefault()
     const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
     let anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
@@ -83,14 +80,8 @@ export class BlockTool extends ToolController {
       }
     }
     if (mode === 'add' && (st.halfWall || st.triangles)) {
-      // The shape follows the wall tool's own rule — the cell's geometry first, then
-      // whatever **R** has stepped to (`halfWallRunSide` / `triangleRunSide`) — but the
-      // piece stands exactly where the click landed: a cut block is placed like a
-      // block, not snapped to an edge like the 墙 tool's course. The resolved shape
-      // goes on the drag, so the release lays the very piece the ghost is about to
-      // draw rather than resolving it a second time and hoping the two agree.
-      const open = wallSnap(st.station.cells, anchor, [hit.point[0], hit.point[1]], 0).dirs
-      const shape = cutShapeFor([anchor], open, st)
+      // Resolve the absolute direction once for preview and release.
+      const shape = cutShapeFor([anchor], [], st)
       this.ctx.drag.current = {
         active: true,
         button: info.button,
@@ -100,7 +91,6 @@ export class BlockTool extends ToolController {
         shift: false,
         wall: true,
         single: true,
-        wallDirs: open,
         shape,
         sx: info.clientX,
         sy: info.clientY,
@@ -151,30 +141,24 @@ export class BlockTool extends ToolController {
       this.ctx.clearMeasure()
       return
     }
-    // A cut mode (半墙 / 三角), add path: a 半墙 is one piece, never a patch and
-    // never a run; a 三角 drags a ridge-locked line, so its slopes join as one
-    // smooth surface. There is no rectangle to preview and no patch size to report.
-    // The pressed column's own candidate faces (`d.wallDirs`) are what **R** steps
-    // through, and the shape it resolves to is written back to the drag so the
-    // release and the ghost never part company.
+    // Half walls and triangles drag along their panel/ridge axis. Every piece
+    // uses the same absolute side, independent of neighbouring cells.
     if ((st.halfWall || st.triangles) && d?.mode !== 'remove') {
       this.cancelPreview()
       const held = d?.active === true && d.wall === true
       const base: [number, number, number] = held ? d.anchor : hit.solid ? hit.place : hit.cell
-      const open = d?.wallDirs ?? wallSnap(st.station.cells, base, [hit.point[0], hit.point[1]], 0).dirs
-      const shape = cutShapeFor([base], open, st)
+      const shape = cutShapeFor([base], [], st)
       if (held) d.shape = shape
-      // A held 三角 press becomes a line along its own ridge once the pointer
-      // moves; a tap stays one wedge, and a 半墙 stays one panel either way.
+      // A deliberate drag grows a line along the selected panel/ridge axis.
       const target: [number, number, number] = hit.solid ? hit.place : hit.cell
       const dragging = held && performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const triangleDrag = dragging && shape?.kind === 'triangle'
+      const cutDrag = dragging && shape !== null
       // A run over the drag budget is refused whole: every wedge is drawn red
       // and the release lays none of them, rather than the ghost promising a
       // shorter run than the pointer drew.
-      const tooLarge = triangleDrag
+      const tooLarge = cutDrag
         && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > this.multiPlace.limit
-      const cursor: [number, number, number] = triangleDrag ? [target[0], target[1], d.z] : base
+      const cursor: [number, number, number] = cutDrag ? [target[0], target[1], d.z] : base
       if (tooLarge) {
         this.multiPlace.setNotice(true)
         const key = [...d.anchor, ...target, d.z, shape.side, st.stationEpoch].join(':')
@@ -189,13 +173,13 @@ export class BlockTool extends ToolController {
       }
       this.multiPlace.setNotice(false)
       const draw = () => {
-        const line = triangleDrag
+        const line = cutDrag
           ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape!.side)
           : [base]
         const blocked = this.drawCutGhost(line, shape).blockedCells.length > 0
         scene.setCursor(cursor, !blocked)
       }
-      if (triangleDrag) {
+      if (cutDrag) {
         const key = [...d.anchor, ...target, d.z, shape!.side, st.stationEpoch].join(':')
         this.multiPlace.deferPreview(scene, key, () => { if (this.ctx.drag.current === d) draw() })
       } else {
@@ -398,13 +382,13 @@ export class BlockTool extends ToolController {
       if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
         const shape = d.shape ?? null
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
-        if (rect && triangle && cutLineCellCount(d.anchor, [target[0], target[1], d.z], triangle.side) > this.multiPlace.limit) {
+        if (rect && shape && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > this.multiPlace.limit) {
           this.multiPlace.setNotice(true)
           return
         }
         this.multiPlace.setNotice(false)
         const line =
-          rect && triangle ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, triangle.side) : [d.anchor]
+          rect && shape ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side) : [d.anchor]
         const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle)
         if (changed > 0) st.commit(next)
         // The cut piece answers to the same block verdict, so name the same
@@ -495,7 +479,7 @@ export class BlockTool extends ToolController {
    * **三角** as the 45° wedges it tags — one shape on every cell, so a dragged
    * line previews the smooth slope the release will lay (`thinGhost`). The shape
    * is resolved before it gets here (`cutShapeFor` over the pressed cell's own
-   * candidate faces), so the ghost that shows the pieces and the release that
+   * absolute direction), so the ghost that shows the pieces and the release that
    * lays them read one answer.
    */
   private drawCutGhost(bases: Array<[number, number, number]>, shape: CellShape | null): PlacementPreview {
@@ -545,14 +529,21 @@ export class BlockTool extends ToolController {
     const base: [number, number, number] = h.solid ? h.place : h.cell
     let check: PlacementPreview
     if (st.halfWall || st.triangles) {
-      const open = wallSnap(st.station.cells, base, h.point ? [h.point[0], h.point[1]] : null, 0).dirs
-      const shape = cutShapeFor([base], open, st)
+      const shape = cutShapeFor([base], [], st)
       // A press still held keeps its anchor: **R** stepped mid-drag has to move the
       // shape the release will lay, not only the one the ghost under the pointer
       // shows, or the two would disagree at the release.
       const d = this.ctx.drag.current
       if (d?.active === true && d.wall === true && d.single === true) d.shape = shape
-      check = this.drawCutGhost([base], shape)
+      const held = d?.active === true && d.wall === true && d.single === true
+      const line = held && shape && performance.now() - d.downTime >= LONG_PRESS_MS
+        ? triangleLineCells(d.anchor, base, d.z, shape.side) : [held ? d.anchor : base]
+      if (line.length > this.multiPlace.limit) {
+        this.multiPlace.setNotice(true)
+        this.multiPlace.refuse(scene, line, base)
+        return
+      }
+      check = this.drawCutGhost(line, shape)
     } else {
       check = this.showAddGhost([base])
     }

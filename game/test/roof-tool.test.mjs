@@ -71,6 +71,7 @@ test('stair-block mouse-down raycasts once with many modules, including misses a
 test('stair-block dragging defers placement checks until release and commits only valid tiles', () => {
   const cells = [{ x: 0, y: 1, z: 1, fill: 'solid' }]
   const h = harness(cells, 'stair-block')
+  useStore.setState({ moduleRot: 1 })
   const unreadable = new Proxy(cells, { get() { throw new Error('preview must not inspect station cells for placement validation') } })
   useStore.setState({ station: { ...h.state, cells: unreadable } })
   h.tool.onDown(h.event(0, 0))
@@ -109,7 +110,7 @@ test('Tab switches stair block height and refreshes a held run before release', 
 
 test('small stair blocks drag along their rotated width axis, undo and remove without disturbing floors', () => {
   const h = harness([], 'stair-block')
-  useStore.setState({ moduleRot: 1 })
+  useStore.setState({ moduleRot: 0 })
   h.tool.onDown(h.event(0, 0))
   assert.equal(h.ghost().length, 1)
   h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
@@ -134,10 +135,10 @@ test('small stair blocks drag along their rotated width axis, undo and remove wi
 
 test('small stair block drag axis follows the rotated stair width while roofs remain rectangular', () => {
   for (const [rot, target, expected] of [
-    [0, [2, 1], [[0, 0], [0, 1]]],
-    [1, [2, 1], [[0, 0], [1, 0], [2, 0]]],
-    [2, [-2, 1], [[0, 0], [0, 1]]],
-    [3, [2, -1], [[0, 0], [1, 0], [2, 0]]],
+    [1, [2, 1], [[0, 0], [0, 1]]],
+    [0, [2, 1], [[0, 0], [1, 0], [2, 0]]],
+    [3, [-2, 1], [[0, 0], [0, 1]]],
+    [2, [2, -1], [[0, 0], [1, 0], [2, 0]]],
   ]) {
     const h = harness([], 'stair-block')
     useStore.setState({ moduleRot: rot })
@@ -411,4 +412,19 @@ test('ground canopy drag keeps the two-column bay style through preview, release
   assert.equal(useStore.getState().station.modules.length, 2)
   const viewport = fs.readFileSync(new URL('../src/app/Viewport.tsx', import.meta.url), 'utf8')
   assert.match(viewport, /st\.moduleType === 'roof-canopy' \? 0 : trussRoofTop/, 'canopy pointer aims at the ground rather than the elevated roof plane')
+})
+
+
+test('stair tile A-D face absolute north, east, south and west', () => {
+  for (const [direction, rot] of [1,0,3,2].entries()) {
+    const h = harness([], 'stair-block')
+    useStore.setState({moduleRot: direction})
+    h.tool.onDown(h.event(5,-6))
+    assert.equal(h.ghost()[0].rot, rot)
+    h.tool.onUp(h.event(5,-6))
+    const placed = useStore.getState().station.modules[0]
+    assert.equal(placed.rot, rot)
+    const delta = [placed.to.x-placed.from.x, placed.to.y-placed.from.y]
+    assert.deepEqual(delta, [[0,2],[2,0],[0,-2],[-2,0]][direction])
+  }
 })

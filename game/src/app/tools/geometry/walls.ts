@@ -1,9 +1,6 @@
-// Wall and cut-shape math shared by the 墙 tool and the 方块 tool's 半墙 / 三角
-// modes, moved verbatim from app/Viewport.tsx. Snapping is a pure function of the
-// surrounding geometry — the player's rotation is never an input, it is an
-// *output* — so R can never leave the tool in a state where it refuses to snap.
+// Wall snapping follows surrounding geometry; cut tiles use absolute directions.
 
-import { halfWallRunSide, triangleRunSide, wallDirRot, wallSnap, type WallDir } from '../../../build/model.ts'
+import { halfWallRunSide, wallDirRot, wallSnap, type WallDir } from '../../../build/model.ts'
 import type { Cell, CellShape, TriangleKind, WallSide } from '../../../sim/types.ts'
 import { packKey } from '../../../sim/types.ts'
 
@@ -49,18 +46,13 @@ export interface CutMode {
  * hover ghost and the release all read it — so the piece that lands is the piece
  * the ghost drew.
  *
- * A 半墙 keeps half its cell, so the shape is the thickness side the run's own rule
- * picks (`halfWallRunSide`). A 三角 is the cell cut on a 45° plane, so it is the side
- * the wedge hugs — the same cycle picks it (`triangleRunSide`) — plus which of the
- * two cuts the mode is on.
- *
- * `line` is the cell the click landed on — one cell, always, because both cut modes
- * lay one piece at a time — which the 半墙 rule reads to decide whether it is
- * looking at a run.
+ * All cut pieces use absolute clockwise sides A=N, B=E, C=S, D=W.
+ * Neighbours and pointer position never change the selected direction.
  */
-export function cutShapeFor(line: Array<[number, number, number]>, open: readonly WallDir[], st: CutMode): CellShape | null {
-  if (st.halfWall) return { kind: 'half', side: halfWallRunSide(line, open, st.wallSnapCycle) }
-  if (st.triangles) return { kind: 'triangle', triangle: st.triKind, side: triangleRunSide(open, st.wallSnapCycle) }
+export function cutShapeFor(_line: Array<[number, number, number]>, _open: readonly WallDir[], st: CutMode): CellShape | null {
+  const side = (['n', 'e', 's', 'w'] as const)[((st.wallSnapCycle % 4) + 4) % 4]
+  if (st.halfWall) return { kind: 'half', side }
+  if (st.triangles) return { kind: 'triangle', triangle: st.triKind, side }
   return null
 }
 

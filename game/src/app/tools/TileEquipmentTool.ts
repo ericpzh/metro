@@ -113,7 +113,7 @@ export class TileEquipmentTool extends ToolController {
           : pickedRoof?.cfg.variant === 'truss' ? 'roof-truss'
             : pickedRoof?.cfg.variant === 'tapered-truss' ? 'roof-tapered' : st.moduleType
       : undefined
-    const tileRot = info.button === 2 ? pickedRoof?.rot ?? pickedStair?.rot ?? st.moduleRot : undefined
+    const tileRot = info.button === 2 ? pickedRoof?.rot ?? pickedStair?.rot ?? (st.moduleType === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot) : undefined
     const tileWidth = info.button === 2 && pickedRoof
       ? pickedRoof.d
       : undefined
@@ -140,7 +140,7 @@ export class TileEquipmentTool extends ToolController {
         : hit.cell
       const count = this.cellCount(info)
       const over = drag.mode === 'add' && this.multiPlace.check(count)
-      const key = [...drag.anchor, ...target, drag.z, type, drag.tileRot ?? st.moduleRot,
+      const key = [...drag.anchor, ...target, drag.z, type, drag.tileRot ?? (type === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot),
         drag.tileWidth ?? st.roofWidth, drag.tileSnap ?? st.roofPlateSnap, drag.mode, st.stationEpoch].join(':')
       const dragging = count > 1
       if (over) {
@@ -196,7 +196,7 @@ export class TileEquipmentTool extends ToolController {
     // rectangle, while the other tile pieces keep the block tool's long-press guard.
     const rect = isMoved(drag, info) && (type === 'roof' || type === 'sidewalk' || type === 'lawn' || performance.now() - drag.downTime >= LONG_PRESS_MS)
     if (!rect) return [drag.anchor]
-    const rot = drag.tileRot ?? st.moduleRot
+    const rot = drag.tileRot ?? (type === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot)
     const width = drag.tileWidth ?? st.roofWidth
     if (isTrussRun(type)) {
       return trussLineCells(drag.anchor, info.hit?.cell ?? drag.anchor, rot)
@@ -217,7 +217,7 @@ export class TileEquipmentTool extends ToolController {
     const type = drag.tileType ?? st.moduleType
     const rect = isMoved(drag, info) && (type === 'roof' || type === 'sidewalk' || type === 'lawn' || performance.now() - drag.downTime >= LONG_PRESS_MS)
     if (!rect) return 1
-    const rot = drag.tileRot ?? st.moduleRot
+    const rot = drag.tileRot ?? (type === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot)
     const hit = info.hit
     const target = hit && type === 'roof'
       ? [hit.roofSnap ? hit.cell[0] : hit.place[0], hit.roofSnap ? hit.cell[1] : hit.place[1], drag.z] as [number, number, number]
@@ -240,7 +240,7 @@ export class TileEquipmentTool extends ToolController {
     const st = useStore.getState()
     const removing = this.ctx.drag.current?.mode === 'remove'
     const type = this.ctx.drag.current?.tileType ?? st.moduleType
-    const rot = this.ctx.drag.current?.tileRot ?? st.moduleRot
+    const rot = this.ctx.drag.current?.tileRot ?? (type === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot)
     const width = this.ctx.drag.current?.tileWidth ?? st.roofWidth
     const snap = this.ctx.drag.current?.tileSnap ?? this.ctx.hover.current?.roofSnap ?? st.roofPlateSnap
     const mods: Module[] = []
@@ -290,7 +290,7 @@ export class TileEquipmentTool extends ToolController {
     let why = ''
     let removed = 0
     const type = drag.tileType ?? st.moduleType
-    const rot = drag.tileRot ?? st.moduleRot
+    const rot = drag.tileRot ?? (type === 'stair-block' ? (1 - st.moduleRot + 4) % 4 : st.moduleRot)
     const width = drag.tileWidth ?? st.roofWidth
     const snap = drag.tileSnap ?? st.roofPlateSnap
     if (type === 'sidewalk' || type === 'lawn') {

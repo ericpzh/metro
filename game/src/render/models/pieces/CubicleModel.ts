@@ -3,7 +3,7 @@ import { PieceBuilder, slab, placeLocal, ownedMaterial } from '../PieceBuilder.t
 import { rotateLocal } from '../../../sim/track.ts'
 import type { Module } from '../../../sim/types.ts'
 import { ceramicMaterial, roundedFixture, turnedFixture, fixtureRing } from './RestroomFixtures.ts'
-import { omitModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, boxModelDetail } from '../../modelDetail.ts'
 
 type Cubicle = Extract<Module, { type: 'cubicle' }>
 const WALLS = [[-0.5, 0], [0.5, 0], [0, 0.5]] as const
@@ -76,6 +76,18 @@ export class CubicleModel extends PieceBuilder {
     }
     // The enclosing panels identify a distant cubicle; its hidden sanitary fit-out does not.
     if (!standalone) for (const part of g.children) if (!part.name.startsWith('cubicle-')) omitModelDetail(part)
+    // A standalone toilet needs its bowl, seat and cistern silhouette in Low.
+    // Keep the hollow profiles and material boundaries with fewer curved segments.
+    if (standalone) for (const part of g.children) {
+      if (!(part instanceof THREE.Mesh)) continue
+      const geometry = part.geometry
+      if (geometry instanceof THREE.LatheGeometry) {
+        setModelDetail(part, new THREE.LatheGeometry(geometry.parameters.points, 6).rotateX(Math.PI / 2))
+      } else if (geometry instanceof THREE.TorusGeometry) {
+        const { radius, tube } = geometry.parameters
+        setModelDetail(part, new THREE.TorusGeometry(radius, tube, 4, 8))
+      } else boxModelDetail(part)
+    }
     return placeLocal(g, mod)
   }
 }

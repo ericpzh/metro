@@ -1826,8 +1826,8 @@ including the depth prepass, for all six appearances.
 * **The 方块 tool** has a **生成墙壁** toggle (**off by default**): on, a deliberate drag grows
   the `auto-wall` ring and tags the floor; off, the same click / drag lays untagged bare blocks
   with no ring. **Tab** is that toggle's key, refused while a cut piece owns the tool; the
-  **半墙** cut tile places **one piece per click**, while the **上三角块 / 下三角块** tiles
-  drag **ridge-locked lines** (`triangleRidgeAxis` / `triangleLineCells` in
+  **半墙** and **上三角块 / 下三角块** cut tiles place **one course per click**
+  and drag **direction-locked lines** (`triangleRidgeAxis` / `triangleLineCells` in
   `app/tools/geometry/cells.ts`: `e`/`w` runs go north–south, `n`/`s` east–west, one
   shape on every cell so slopes join smooth — `BlockTool` for placement, `BlockTool` /
   `WallTool` ridge-locked removes via `wallRemoveLine` / `removeLine`). The
@@ -2694,3 +2694,11 @@ Equipment batch signatures include the source texture and atlas region baked
 into their UVs. Releasing atlas slots invalidates prepared root/view mappings;
 unchanged mesh identities cannot justify reusing geometry with stale atlas UVs.
 Keep unchanged mappings and pixel-only repaints on their retained allocations.
+
+Half-wall and triangle cut tiles use absolute clockwise A=N, B=E, C=S, D=W,
+independent of neighbouring blocks and pointer/camera position. Both drag one
+course along their panel/ridge axis. Stair-block tile directions use the same
+absolute compass with saved module rotations preserved; picking converts back
+to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
+Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mjs`
+and `pick-tool.test.mjs` pin stair direction, dragging and picking.

@@ -23,8 +23,8 @@ sealed glass sides and every green housing cap in High/Low, across bay counts an
 rotations; keep `model-detail` budgets and `train-lod` inventories aligned. Run
 `node tools/check-chongqing-style.mjs` for production selection/reload, retained
 artwork, theme captures and High/Low views. Screenshots do not replace these pins.
-Run the full suite; report the known ramp-retention and cubicle-toilet Low-budget
-failures separately if they persist. Do not claim a green suite from focused tests.
+Run the full suite. `local-cell-edit` pins conservative escalator invalidation
+for nearby terrain, and `model-detail` enforces the standalone toilet Low budget.
 Wuhan adds exact numbered/named palettes, gradient atlas slot bounds, navy plate
 and subscript exit labels in `city-style`; `module-build` checks three sealed
 glass sides, clear fascia/entrance, all six cube/shaft caps and bound label repaints
@@ -767,3 +767,11 @@ pointer preview/place/move, including centred short signs and edge-aligned poste
 and checks one scene raycast per event. `tools/check-sign-save.mjs <save-path>`
 captures the reported Tianhe sign in High/Low and both view directions; captures
 alone do not establish a fix for an intermittent failure that did not reproduce.
+
+Half-wall and triangle cut tiles use absolute clockwise A=N, B=E, C=S, D=W,
+independent of neighbouring blocks and pointer/camera position. Both drag one
+course along their panel/ridge axis. Stair-block tile directions use the same
+absolute compass with saved module rotations preserved; picking converts back
+to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
+Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mjs`
+and `pick-tool.test.mjs` pin stair direction, dragging and picking.

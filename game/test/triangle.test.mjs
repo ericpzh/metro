@@ -783,3 +783,49 @@ test('a ridge run of 三角 joins with no faces between its wedges', () => {
   assert.ok(Math.abs(areaOn(faces, [0, -1, 0], 'y', 0) - 0.5) < 1e-6, 'the outer south end stays')
   assert.ok(Math.abs(areaOn(faces, [0, 1, 0], 'y', 2) - 0.5) < 1e-6, 'and the outer north end stays')
 })
+
+
+test('cut directions are absolute across neighbour faces and run axes', async () => {
+  const { cutShapeFor } = await import('../src/app/tools/geometry/walls.ts')
+  for (const halfWall of [true, false]) for (const [cycle, side] of ['n', 'e', 's', 'w'].entries()) {
+    for (const open of [[], ['w'], ['e', 's'], ['s', 'n', 'w', 'e']]) {
+      for (const line of [[[0,0,1]], [[0,0,1],[0,1,1]]]) {
+        assert.equal(cutShapeFor(line, open, {halfWall, triangles: !halfWall, triKind: 'upper', wallSnapCycle: cycle}).side, side)
+      }
+    }
+  }
+})
+
+test('half-wall long drag previews and commits a single direction-locked course', () => {
+  for (let cycle = 0; cycle < 4; cycle++) {
+    station('upper', cycle)
+    useStore.setState({halfWall: true, triangles: false})
+    const { tool, ghosts } = ctxFor()
+    tool.onDown(press([0,0,0], true))
+    tool.ctx.drag.current.downTime = -10000
+    const event = {...press([3,2,0], true), clientX: 80, clientY: 60}
+    tool.onMove(event)
+    tool.multiPlace.flushPreview()
+    const preview = ghosts.at(-1).cells
+    assert.equal(preview.length, cycle % 2 === 0 ? 4 : 3)
+    assert.equal(useStore.getState().past.length, 0)
+    tool.onUp(event)
+    const placed = useStore.getState().station.cells.filter(c => shapeOf(c)?.kind === 'half')
+    assert.deepEqual(placed.map(c => [c.x,c.y,c.z]), preview)
+    assert.ok(placed.every(c => shapeOf(c).side === ['n','e','s','w'][cycle]))
+    assert.equal(useStore.getState().past.length, 1)
+  }
+})
+
+test('Tianhe floor under a half wall retains its top face in every direction', () => {
+  for (const side of ['n','e','s','w']) {
+    const cells = [floor(5,-76,-10), {...floor(5,-76,-9), tags: ['wall', halfWallTag(side)]}]
+    const thin = new Map([[packKey(5,-76,-9), {kind: 'half', side}]])
+    const chunk = meshChunk(buildSolidSet(cells), new Map(), 0,-80,-16,-6, undefined, undefined, cells, thin)
+    let top = 0
+    for (const part of chunk.parts) for (let i=0; i<part.positions.length; i+=3) {
+      if (part.normals[i+2] > .99 && Math.abs(part.positions[i+2]+9)<1e-5) top++
+    }
+    assert.ok(top >= 4, `floor cap survives under ${side} panel`)
+  }
+})

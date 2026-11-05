@@ -702,13 +702,14 @@ export function meshChunk(
     // A wedge's slope leaves the square above/below it half open: a block under
     // an 上 wedge's tip (or over a 下 one's) still shows its cap there. Only a
     // wedge whose flat base faces the cell covers it — 上 below, 下 above.
+    const ownShape = thin?.get(key(x, y, z))
     if (!up) {
       const over = thin?.get(above)
-      if (over?.kind === 'triangle' && over.triangle !== 'upper') up = true
+      if ((over?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === over.side)) || (over?.kind === 'triangle' && over.triangle !== 'upper')) up = true
     }
     if (!down) {
       const under = thin?.get(key(x, y, z - 1))
-      if (under?.kind === 'triangle' && under.triangle !== 'lower') down = true
+      if ((under?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === under.side)) || (under?.kind === 'triangle' && under.triangle !== 'lower')) down = true
     }
     // Sides cull only against a covering block (`coversSide`): a full block, or
     // a wedge whose full-height face is the interface. A wedge's thin edge or

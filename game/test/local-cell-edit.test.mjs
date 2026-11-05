@@ -94,13 +94,20 @@ test('block edits retain remote monitors and cell-independent rail signals but i
   assert.equal(retainedModuleIds(before,support).has('signal'),true)
 })
 
-test('nearby ramp edits retain equal wall inputs and invalidate landing finishes and complete walls',()=>{
+test('nearby ramp edits retain stair wall inputs but invalidate escalator terrain, landing finishes and complete walls',()=>{
   const before=fixture(),stair=createModule('stair-straight',0,0,-10,'stair'),escalator=createModule('escalator',2,0,-10,'escalator')
   before.modules=[stair,escalator]
   const nearby={...before,cells:[...before.cells,{x:-1,y:0,z:-9,fill:'solid'}]}
   for(const mod of before.modules){
-    assert.deepEqual(rampCellModelInputs(before,mod),rampCellModelInputs(nearby,mod))
-    assert.equal(retainedModuleIds(before,nearby).has(mod.id),true)
+    if (mod.type === 'stair') {
+      assert.deepEqual(rampCellModelInputs(before,mod),rampCellModelInputs(nearby,mod))
+      assert.equal(retainedModuleIds(before,nearby).has(mod.id),true)
+    } else {
+      // Escalator terrain skirts read nearby individual blocks, even when
+      // those blocks do not form a complete stair wall.
+      assert.notDeepEqual(rampCellModelInputs(before,mod),rampCellModelInputs(nearby,mod))
+      assert.equal(retainedModuleIds(before,nearby).has(mod.id),false)
+    }
   }
   const painted={...before,cells:before.cells.map(c=>c.x===0&&c.y===0?{...c,finish:{top:'floor.tile'}}:c)}
   assert.equal(retainedModuleIds(before,painted).has('stair'),false)

@@ -232,7 +232,7 @@ test('picking a short stair block restores its height and rotation', () => {
   ctxFor(m.id).onDown(press([0, 0, 0]))
   assert.equal(useStore.getState().moduleType, 'stair-block')
   assert.equal(useStore.getState().stairBlockHeight, 0.5)
-  assert.equal(useStore.getState().moduleRot, 2)
+  assert.equal(useStore.getState().moduleRot, 3)
 })
 
 function ctxFor(pickedId, moduleVisible = true) {

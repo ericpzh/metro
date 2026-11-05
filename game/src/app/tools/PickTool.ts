@@ -273,7 +273,7 @@ export class PickTool extends ToolController {
       if (mod.type === 'pillar') useStore.setState({ pillarLength: pillarSectionOf(mod.cfg.height) })
       if (mod.type === 'stair' && mod.cfg.block) st.setStairBlockHeight(mod.cfg.blockHeight ?? 1)
       if (mod.type === 'door') st.setDoorWidth((mod.cfg.variant ?? 'steel-1').endsWith('-2'))
-      if (typeof mod.rot === 'number') st.setModuleRot(mod.rot)
+      if (typeof mod.rot === 'number') st.setModuleRot(optionId === 'stair-block' ? (1 - mod.rot + 4) % 4 : mod.rot)
       if (mod.type === 'escalator') {
         st.setEscalatorDir(mod.cfg.dir)
         st.setEscalatorWidth(escalatorWidthOf(mod))
