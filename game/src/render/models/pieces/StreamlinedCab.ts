@@ -167,6 +167,14 @@ export function buildStreamlinedCab(root: THREE.Group, mats: ModelMaterials, sto
     }
     stripe('d-cab-side-livery-sweep', livery, 1.05, 1.16)
     stripe('d-cab-side-gold-sweep', mats.trainTrim, 1.01, 1.045)
+    // Nanjing's emblem sits on the black taper ahead of the single doorway.
+    const sideMark=surface('d-nanjing-side-mark',mats.nanjingTrainMark,(u,v)=>
+      sidePoint(4.15+(u-.5)*.38,2.08+(v-.5)*.43,side,.016),2,2,side>0,1,1)
+    for(const [geometry,rows,columns] of [[sideMark.geometry,2,2],[sideMark.userData.lowDetailGeometry,1,1]] as const){
+      const uv=geometry.getAttribute('uv')
+      for(let i=0;i<=rows;i++)for(let j=0;j<=columns;j++)uv.setXY(i*(columns+1)+j,i/rows,j/columns)
+    }
+
   }
   const glass = new THREE.MeshStandardMaterial({color:0x527c91, roughness:0.13, metalness:0.08})
   const accent = new THREE.MeshStandardMaterial({color:0xe73541,roughness:0.45,metalness:0})

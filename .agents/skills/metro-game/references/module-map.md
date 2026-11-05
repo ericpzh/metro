@@ -22,9 +22,15 @@ included) still resolves: `sim/world.ts` → `world/`, `build/model.ts` →
 path and delegates pointer work to `tools/`. Keep the rule when adding a
 new window, subwindow, list item, tool, model or scene system.
 
+Nanjing's supplied emblem lives in `render/nanjingBranding.ts`. The owning pieces
+are `NanjingExitCanopy.ts`, `NanjingExitHeader.ts`, `NanjingRoofSign.ts`,
+`NanjingGuidepost.ts` and `NanjingTrainMark.ts`. The separate scene-owned side
+texture is repainted by `cityBranding.ts`; the existing nose atlas stays blank
+in Nanjing. Keep side decals retained across city changes.
+
 ## `sim/` — pure simulation
 
-City identity spans `sim/cityStyles.ts` (seven identities and new-line palettes),
+City identity spans `sim/cityStyles.ts` (eight identities and new-line palettes),
 `sim/trainFlags.ts` (line identity in the existing train pose flags), and
 `render/cityBranding.ts` (shared city artwork). Chongqing's per-consist train
 textures live in `render/chongqingTrainMark.ts`; its emblem/badge drawing lives in

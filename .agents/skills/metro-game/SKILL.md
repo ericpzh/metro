@@ -25,6 +25,10 @@ Wuhan uses the supplied gradient M mark, navy bilingual entrance plates, flat
 silver/glass head-houses and square logo-cube guide columns. Keep three glass
 sides and closed guide housings in High/Low; see the city guide for ownership.
 
+Nanjing uses side train emblems between the cab-end doorways, thick entrance
+columns labeled on their side faces, a curved rear roof and a raised blossom
+sign. Guide pylons remain separately placed; see the city guide.
+
 ## Audio
 
 `app/gameAudio.ts` owns the browser AudioContext, cached buffers and bounded

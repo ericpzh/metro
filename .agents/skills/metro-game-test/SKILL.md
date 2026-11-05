@@ -6,7 +6,7 @@ description: Run, extend or fix the game's test suite in game/test/ of the ericp
 ## City-style regression ownership
 
 Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)
-for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu/Chongqing/Wuhan saves, menus, models, supplied line maps and
+for changes to Guangzhou/Shenzhen/Shanghai/Beijing/Chengdu/Chongqing/Wuhan/Nanjing saves, menus, models, supplied line maps and
 cached PNGs. `city-style`, `module-build`, `line-map`, `menu-thumbnails` and
 `nonstructural-updates` own these contracts. `model-detail` enforces actual city-specific Low budgets and geometry restoration before/after batching. Include outward decorative sign
 bounds without widening sim collision, disjoint glazing joints, virtual-exit city
@@ -30,6 +30,13 @@ and subscript exit labels in `city-style`; `module-build` checks three sealed
 glass sides, clear fascia/entrance, all six cube/shaft caps and bound label repaints
 across bays/rotations in High/Low. Run `tools/check-wuhan-style.mjs` for production
 selection, lazy poster loading, retained resources, theme captures and saved reload.
+
+Nanjing adds exact 1–11/S1–S9 defaults, retained side-only train artwork and navy
+numeric exit plates in `city-style`. `train-cab` checks four outward side marks
+seated on every stock in High/Low. `module-build` checks sealed curved glazing,
+1.2 m deep inclined columns with side-facing labels, a raised blossom/Metro sign
+and separate closed guide pylons. Keep `train-lod`, `model-detail`, supplied-map
+and PNG coverage aligned; run `tools/check-nanjing-style.mjs` for actual rendering.
 
 # The game's test suite (`game/test/`)
 

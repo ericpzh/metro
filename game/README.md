@@ -1,7 +1,7 @@
 # Station Designer — the game
 
 The top-bar city style selector switches between Guangzhou (the default), Shenzhen,
-Shanghai, Beijing, Chengdu, Chongqing and Wuhan. A city supplies the train emblem, entrance plate design and new-line
+Shanghai, Beijing, Chengdu, Chongqing, Wuhan and Nanjing. A city supplies the train emblem, entrance plate design and new-line
 colours. Switching cities preserves every existing line colour and changes only new-line defaults. The choice is saved with the station and supports undo.
 
 The exploded view preserves solid underground infill as continuous concrete
@@ -3209,7 +3209,7 @@ approximated); neither needs WebGL.
   first one standing — and reprints the station and exit names live, dropping to 入口 when its exit is
   gone; short and long shelters with frozen ad posters; rotated model bounds; exit binding, shelter
   variants and posters survive the save round trip.
-* `city-style.test.mjs` — all seven saved city identities, legacy fallback, supplied city palettes, Chongqing's numbered train badges and Beijing's distinct station/cab marks,
+* `city-style.test.mjs` — all eight saved city identities, legacy fallback, supplied city palettes, Chongqing's numbered train badges and Beijing's distinct station/cab marks,
   custom-colour preservation, undo/redo, city-aware new lines, navy entrance badges and retained cab textures.
 * `exit-banner.test.mjs` — the exit header (§5.6): the red brand board prints the saved English station
   name under the Chinese with the exit identifier beside it, white on red, with no 口 suffix and none
@@ -4366,3 +4366,13 @@ Shanghai city identity includes numbered bilingual exit plates, a flat grey glaz
 Beijing uses a blue DC station emblem and a separate white calligraphic 北京 cab mark. Its stainless covered entrance has diamond glass cut-outs and matching doorway/front-roof/side-roof plates sharing one retained texture. Blue guideposts and virtual exits bind station/exit/line labels. `city-style`, `module-build` and `model-detail` pin these contracts, including all bay widths/rotations and real High/Low glazing holes. `line-map` covers the complete supplied Beijing PNG plus deferred decode/coalescing/retry/disposal; `menu-thumbnails` covers all 14 static previews. `node tools/check-beijing-style.mjs` checks production selection, shared-sign repaint retention, distinct train artwork, lazy posters, undo/redo and reload, with High/Low captures.
 
 Chongqing uses the supplied CRT station mark, line-numbered train badges inside the colour band, cream bilingual exit plates, a silver entrance sealed with glass on three sides, and green ring guide columns with closed housings in High/Low. Its supplied network map is fitted whole. New lines use the exact supplied palette (0–29 and regional identifiers); existing colours persist. `city-style`, `train-preparation`, `train-cab`, `module-build`, `line-map`, `model-detail` and `menu-thumbnails` pin these contracts; `node tools/check-chongqing-style.mjs` verifies production selection/reload and retained artwork with High/Low captures.
+
+Nanjing uses side-only train emblems, a curved silver/glass entrance with thick
+side-labeled columns and a raised blossom/Metro sign, navy numeric exit plates,
+and separate white guide pylons. `city-style` pins exact 1–11/S1–S9 defaults and
+retained artwork, `train-cab` pins four outward marks seated on every stock in
+High/Low, and `module-build` pins three fitted glass sides, column label normals,
+closed pylons and bound labels across bays/rotations. `line-map`, `model-detail`,
+`train-lod` and `menu-thumbnails` own supplied artwork, budgets and cached previews.
+Run `node tools/check-nanjing-style.mjs` for production selection/reload, lazy map
+loading, retained resources and theme/High/Low captures.

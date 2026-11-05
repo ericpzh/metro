@@ -1,3 +1,4 @@
+import { buildNanjingGuidepost } from './NanjingGuidepost.ts'
 import { GUIDE_WIDTH_SCALE, GUIDE_PLAN, GUIDE_MIDDLE_PLAN, GUIDE_YELLOW_PLAN, GUIDE_LOGO_BOTTOM, GUIDE_LOGO_TOP, triangleColumn, threeFaces } from './GuidepostGeometry.ts'
 export { GUIDE_WIDTH_SCALE, GUIDE_RED_SCALE, GUIDE_PLAN, GUIDE_YELLOW_PLAN, GUIDE_LOGO_BOTTOM, GUIDE_LOGO_TOP } from './GuidepostGeometry.ts'
 import { buildChengduGuidepost } from './ChengduGuidepost.ts'
@@ -128,6 +129,7 @@ export function yellowPyramidGeometry(face?: 'left' | 'right'): THREE.BufferGeom
 export class GuidepostModel extends PieceBuilder {
   readonly kind = 'guidepost'
   build(mod: Extract<Module, { type: 'guidepost' }>): THREE.Group {
+    if (cityStyleFor(this.ctx.data.cityStyle).logo === 'nanjing') return buildNanjingGuidepost(this.ctx,mod,guideLabels)
     if (cityStyleFor(this.ctx.data.cityStyle).logo === 'wuhan') return buildWuhanGuidepost(this.ctx,mod,guideLabels)
     if (cityStyleFor(this.ctx.data.cityStyle).logo === 'chongqing') return buildChongqingGuidepost(this.ctx,mod)
     if (cityStyleFor(this.ctx.data.cityStyle).logo === 'chengdu') return buildChengduGuidepost(this.ctx,mod,guideLabels)

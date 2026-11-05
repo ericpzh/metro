@@ -653,3 +653,9 @@ test('failed city poster loads release their pending request for retry',async()=
   let painted=false;await cache.load(()=>painted=true,'beijing')
   assert.equal(calls,2);assert.equal(painted,true)
 })
+
+test('Nanjing selects the supplied 1497 x 1618 network poster',async()=>{
+  const {cityLineMapSlug,cityLineMapSuffix}=await import('../src/render/lineMapCity.ts')
+  assert.equal(cityLineMapSlug('nanjing'),'nanjing-map');assert.equal(cityLineMapSuffix('nanjing'),'|nanjing')
+  const png=readFileSync(new URL('../src/assets/linemaps/nanjing-map.png',import.meta.url));assert.equal(png.readUInt32BE(16),1497);assert.equal(png.readUInt32BE(20),1618)
+})

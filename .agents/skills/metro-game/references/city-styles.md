@@ -12,7 +12,7 @@ checks saved custom colours across city switches and reloads.
 
 ## Model and rendering ownership
 
-`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing, Chengdu, Chongqing and Wuhan visual identities and
+`sim/cityStyles.ts` owns the Guangzhou (default), Shenzhen, Shanghai, Beijing, Chengdu, Chongqing, Wuhan and Nanjing visual identities and
 line palettes. `StationData.cityStyle` is optional on old v1 saves; `StationState`
 normalizes it. The top-bar `CityStyleSelect` commits one undoable presentation edit.
 Every existing line colour survives; city palettes apply only to newly created lines. Pass city style to every new-line factory, including the
@@ -73,6 +73,7 @@ For one added/changed city, set `MENU_CITY` to its id to regenerate only that ci
 | Chongqing glass sealed to roof/base/front columns on three sides; outward-facing guide housing ends/top/bottom in High/Low | `module-build`, `model-detail` |
 | Wuhan exact supplied palette, named aliases, gradient atlas bounds and navy bilingual plate with subscript exit | `city-style` |
 | Wuhan three sealed glass sides, open entrance/clear fascia, closed square column/cube and live bound labels across bays/rotations in High/Low | `module-build`, `model-detail` |
+| Nanjing exact palette, retained side-only marks, numeric plates and side-facing thick-column labels/raised roof sign | `city-style`, `train-cab`, `module-build`, `model-detail` |
 | Complete static PNG catalogue, city asset differences/dimensions and reactive parent/variant tiles | `menu-thumbnails` |
 
 Run these focused suites when changing their contracts, plus typecheck/build and
@@ -259,3 +260,43 @@ and Yangluo/阳逻/阳逻线 and Xingang/新港/新港线 aliases. Existing colo
 switches and reloads. All 14 menu previews are cached 132 px PNGs. Run
 `node tools/check-wuhan-style.mjs` for production selection, retained train/sign
 resources, recolouring, undo/reload, deferred poster decode and High/Low captures.
+
+## Nanjing
+
+Nanjing is the eighth city. `nanjingBranding.ts` draws the P4 red plum blossom
+and white open roundel/upright from `nanjing-contours.json`.
+`tools/trace-nanjing-branding.py` reproduces the source-hashed contours with a
+2 px simplification tolerance, preserving smooth curves without pixel stair steps.
+
+Train marks follow P1–3: four emblems, on both sides at both cab ends, between
+the crew door and the first passenger door. D uses its curved black cab-side panel ahead of the first narrow door; C uses the corresponding panel after its cab
+side window. `NanjingTrainMark.ts` seats A/B/C/L decals on the shared body profile
+and D's on its black cab taper through `StreamlinedCab.ts`. Every city retains these quads; only Nanjing paints the
+separate scene-owned 256 px side texture. It uses alpha cutout and opaque batching.
+`refreshNanjingTrainMark` repaints in place and suppresses no-op uploads. Clear all
+three nose-atlas slots in Nanjing; do not add a nose emblem or rebuild trains.
+
+`NanjingExitCanopy.ts` follows P5–7: silver canopy with a curved descending rear
+profile and a flat front overhang, three glass sides fitted to the roof, stone
+bases and the actual inclined column back planes. The white entrance columns
+have 1.2 m deep side faces; put the logo, station and outlined exit identifier on
+those outward side faces, not on their narrow entrance-facing fronts. The
+`NanjingRoofSign.ts` blossom sits above the roof on a short 地铁 / Metro stem.
+Keep the raised sign separate from ground guideposts. All fitted glass boundaries
+and thick column profiles remain in High/Low. Labels repaint retained textures.
+
+`NanjingExitHeader.ts` follows P8: navy, actual line-colour number tiles, 号线 /
+Line, rail pictogram, bilingual station and an outlined exit number. New exits
+are numeric (`1口`, `2口`); city switches preserve existing labels. Headers use the
+bounded 4× text resolution shared with Chengdu/Chongqing/Wuhan.
+`NanjingGuidepost.ts` follows P9/P10 with a closed white blade, blue crown,
+blossom, curved live line-colour divider and two bilingual retained label faces.
+Guideposts and virtual exits are separate modules, never attached to head-houses.
+
+The supplied 1497 × 1618 `nanjing-map.png` decodes on request and fits whole on
+both mounts. Use the exact user-supplied HEX values for 1–11 and S1–S9, including
+S3/S4/S7; do not infer colours from the nearby Pantone descriptions or old map.
+Keep saved custom colours on city switches/reload. All 14 previews are cached
+132 px PNGs. `tools/check-nanjing-style.mjs` checks production selection,
+retained train/sign resources, lazy map decode, live recolouring, undo/reload,
+all themes and High/Low views of the entrance, guide, map and every train stock.

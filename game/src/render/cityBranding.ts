@@ -1,3 +1,4 @@
+import { drawNanjingLogo } from './nanjingBranding.ts'
 import { drawChengduLogo } from './chengduBranding.ts'
 import { drawWuhanLogo } from './wuhanBranding.ts'
 import { drawChongqingLogo } from './chongqingBranding.ts'
@@ -20,6 +21,7 @@ import type * as THREE from 'three'
  * `cx, cy` is the centre of the mark's bounding box and `size` its height.
  */
 export function drawMetroMark(g: CanvasRenderingContext2D, cx: number, cy: number, size: number, colour: string, city?: CityStyle): void {
+  if (cityStyleFor(city).logo === 'nanjing') { drawNanjingLogo(g,cx,cy,size);return }
   if (cityStyleFor(city).logo === 'wuhan') { drawWuhanLogo(g,cx,cy,size);return }
   if (cityStyleFor(city).logo === 'chongqing') { drawChongqingLogo(g,cx,cy,size,colour);return }
   if (cityStyleFor(city).logo === 'chengdu') { drawChengduLogo(g,cx,cy,size);return }
@@ -81,7 +83,7 @@ export function refreshCityTrainMark(material: THREE.MeshBasicMaterial, city?: C
   g.clearRect(0, 0, canvas.width, canvas.height)
   const width = canvas.width >= 256 ? 128 : canvas.width
   // Chongqing uses each consist's own line-numbered badge material.
-  if (style.logo === 'chongqing') { /* shared atlas stays transparent */ }
+  if (style.logo === 'chongqing' || style.logo === 'nanjing') { /* shared atlas stays transparent */ }
   else if (style.logo === 'chengdu') drawChengduLogo(g,canvas.width-width/2,canvas.height/2,width-10)
   else if (style.trainMark === 'beijing-calligraphy') drawBeijingTrainMark(g,canvas.width >= 256 ? width*1.5 : width/2,canvas.height/2,width-8,style.trainMarkColour)
   else drawMetroMark(g, width / 2, canvas.height / 2, (style.logo==='shanghai'||style.logo==='wuhan'?Math.min(width,canvas.height):canvas.height) - 10, style.logoColour, city)
@@ -115,4 +117,15 @@ function drawBeijingMetroMark(g:CanvasRenderingContext2D,cx:number,cy:number,siz
   g.quadraticCurveTo(.84,.50,.70,.744);g.lineTo(.276,.744);g.closePath()
   g.moveTo(.388,.344);g.lineTo(.625,.344);g.quadraticCurveTo(.69,.50,.625,.656);g.lineTo(.388,.656);g.closePath()
   g.fill('evenodd');g.fillRect(.70,.50,.30,.10);g.restore()
+}
+
+/** Separate retained side texture: Nanjing carries no nose emblem. */
+export function refreshNanjingTrainMark(material:THREE.MeshBasicMaterial,city?:CityStyle):void {
+  const key=city==='nanjing'?'nanjing':''
+  if(material.userData.citySideMark===key)return
+  const canvas=material.map?.image as HTMLCanvasElement|undefined,g=canvas?.getContext('2d')
+  if(!g||!canvas||!material.map)return
+  g.clearRect(0,0,canvas.width,canvas.height)
+  if(key)drawNanjingLogo(g,canvas.width/2,canvas.height/2,canvas.height-12)
+  material.map.needsUpdate=true;material.userData.citySideMark=key
 }

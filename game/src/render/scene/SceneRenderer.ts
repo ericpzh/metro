@@ -1,5 +1,5 @@
 import { normalizeCityStyle, type CityStyle } from '../../sim/cityStyles.ts'
-import { refreshCityTrainMark } from '../cityBranding.ts'
+import { refreshCityTrainMark, refreshNanjingTrainMark } from '../cityBranding.ts'
 // SceneRenderer — the thin orchestrator (Lane F).
 //
 // The old `render/scene.ts` god-class (~70 methods: chunks, modules, ghosts,
@@ -441,6 +441,7 @@ export class SceneRenderer {
   setStation(data: StationData, trackCells: Set<number> = new Set(), effective?: Cell[]): void {
     this.requestRender()
     refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
+    refreshNanjingTrainMark(this.ctx.modelMats.nanjingTrainMark, data.cityStyle)
     const previousData = this.ctx.stationData
     this.ctx.levelBase = data.levelBase ?? 0
     this.ctx.storeyHeight = data.storeyHeight ?? STOREY_HEIGHT
@@ -514,6 +515,7 @@ export class SceneRenderer {
       if (!candidates) return false
       this.ctx.stationData = data
       refreshCityTrainMark(this.ctx.modelMats.trainMark, data.cityStyle)
+      refreshNanjingTrainMark(this.ctx.modelMats.nanjingTrainMark, data.cityStyle)
       this.trains.repaintPresentation(data)
       this.plates.redrawSignPlates(previous ?? undefined)
       this.plates.redrawDecorPlates(previous ?? undefined)

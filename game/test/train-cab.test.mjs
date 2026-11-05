@@ -419,3 +419,27 @@ test('every passenger leaf has its own continuous rubber perimeter that follows 
   }finally{disposeObject(root)}
  }
 }))
+
+for(const stock of STOCK_CLASSES)test(`Nanjing ${stock}: four outward side emblems seated on the body in High and Low`,()=>withKit(mats=>{
+ const root=buildTrain(mats,{x:0,y:0,z:0,stock,cars:2,doorsOpen:false,colour:'#009a44',dirSign:1,yaw:0}),marks=[],original=[]
+ root.traverse(m=>{if(m.isMesh)original.push([m,m.geometry]);if(m.name.endsWith('-nanjing-side-mark'))marks.push(m)})
+ try{
+  assert.equal(marks.length,4)
+  for(const low of [false,true]){
+   original.forEach(([m,g])=>{m.geometry=low?m.userData.lowDetailGeometry??g:g});root.updateMatrixWorld(true)
+   for(const m of marks){
+    const p=new THREE.Box3().setFromObject(m).getCenter(new THREE.Vector3()),side=Math.sign(p.y),n=new THREE.Vector3(0,side,0)
+    assert.ok(Math.abs(p.y)>STOCK[stock].width/2-.03,'logo faces out from the carriage side')
+    const hit=new THREE.Raycaster(p.clone().addScaledVector(n,.3),n.clone().negate()).intersectObject(root,true)[0]
+    assert.equal(hit?.object,m,`${stock} emblem must be visible from the side at ${low?'Low':'High'}`)
+    const backing=new THREE.Raycaster(p.clone().addScaledVector(n,-.001),n.clone().negate()).intersectObjects(original.map(([o])=>o).filter(o=>!marks.includes(o)),false)[0]
+    assert.ok(backing&&backing.distance<.045,'side logo stays seated on the body/window band')
+    if(stock==='D'){
+      assert.ok(STOCK.D.length-Math.abs(p.x)<4.9,'D emblem is ahead of the narrow doorway, toward the nose')
+      assert.equal(backing.object.name,'d-cab-side-black-taper','D emblem is seated on the black cab panel')
+    }
+
+   }
+  }
+ }finally{original.forEach(([m,g])=>{m.geometry=g});disposeObject(root)}
+}))

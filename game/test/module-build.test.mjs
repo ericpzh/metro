@@ -2642,3 +2642,77 @@ for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Chongqing ${bays} b
     }
   }finally{panes.forEach((m,i)=>{m.geometry=saved[i]});disposeObject(root)}
 })
+
+for(const bays of [1,2,3,4])for(const rot of [0,1,2,3])test(`Nanjing ${bays} bays rotation ${rot}: three glazed sides seal to roof, base and front columns`,async()=>{
+  const {nanjingRoofHeight}=await import('../src/render/models/pieces/NanjingExitCanopy.ts')
+  const {EXIT_BACK_Y,EXIT_BACK,EXIT_H,exitSpan}=await import('../src/sim/exits.ts')
+  const mod=createModule('exit',0,0,0,'nj-sealed');mod.cfg.bays=bays;mod.rot=rot
+  const root=buildModule(mod,{...ctx,data:{...data,cityStyle:'nanjing',modules:[mod]}}),panes=[]
+  root.traverse(m=>{if(m.name==='nanjing-side-glass'||m.name==='nanjing-rear-glass')panes.push(m)})
+  const saved=panes.map(m=>m.geometry),{centre:cx,half}=exitSpan(mod),house=panes[0].parent
+  const hit=(pane,point,normal)=>{
+    const p=house.localToWorld(new THREE.Vector3(...point)),n=new THREE.Vector3(...normal).transformDirection(house.matrixWorld)
+    assert.ok(new THREE.Raycaster(p.clone().addScaledVector(n,.2),n.clone().negate()).intersectObject(pane).length,`${pane.name} has a gap at ${point}`)
+  }
+  try{
+    assert.equal(panes.length,3)
+    for(const low of [false,true]){
+      panes.forEach((m,i)=>{m.geometry=low?m.userData.lowDetailGeometry:saved[i]});root.updateMatrixWorld(true)
+      const height=y=>{if(!low)return nanjingRoofHeight(y);const mid=(EXIT_BACK_Y+EXIT_BACK)/2,a=y<mid?EXIT_BACK_Y:mid,b=y<mid?mid:EXIT_BACK;return nanjingRoofHeight(a)+(nanjingRoofHeight(b)-nanjingRoofHeight(a))*(y-a)/(b-a)}
+      for(const pane of panes.filter(m=>m.name==='nanjing-side-glass')){
+        const x=pane.geometry.boundingBox?.getCenter(new THREE.Vector3()).x??0,side=Math.sign(x-cx)
+        for(let i=0;i<=24;i++){
+          const y=EXIT_BACK_Y+.001+(.54-EXIT_BACK_Y-.002)*i/24
+          for(const z of [.3501,.6,height(y)-.162])hit(pane,[x,y,z],[side,0,0])
+        }
+        for(const z of [.36,.8,1.5,2.2,2.8])hit(pane,[x,0.55+.55*z/(EXIT_H-.04)-.0001,z],[side,0,0])
+      }
+      const rear=panes.find(m=>m.name==='nanjing-rear-glass')
+      for(const x of [cx-half+.151,cx,cx+half-.151])for(const z of [.3501,.6,nanjingRoofHeight(EXIT_BACK_Y)-.1601])hit(rear,[x,EXIT_BACK_Y,z],[0,-1,0])
+    }
+  }finally{panes.forEach((m,i)=>{m.geometry=saved[i]});disposeObject(root)}
+})
+
+for(const id of ['exit','exit-covered-1','exit-covered-3','guidepost','exit-virtual'])for(const rot of [0,1,2,3])test(`Nanjing ${id} rotation ${rot}: inclined portals and separate white guide pylon`,()=>{
+ const mod=createModule(id,0,0,0,'nj');mod.rot=rot
+ const exit=createModule('exit-virtual',5,5,0,'nj-bound');exit.cfg.name='1A口'
+ if(id==='guidepost')mod.cfg.exitId=exit.id;else mod.cfg.name='4口'
+ const local={...ctx,data:{...data,cityStyle:'nanjing',nameEn:'Chengxindadao',modules:[mod,exit]}},root=buildModule(mod,local),original=[]
+ root.traverse(m=>{if(m.isMesh)original.push([m,m.geometry])})
+ try{
+  if(id==='guidepost'||id==='exit-virtual'){
+   assert.equal(root.userData.guideCityStyle,'nanjing');assert.ok(root.getObjectByName('nanjing-guide-white-pylon'))
+   assert.equal(original.filter(([m])=>m.name==='nanjing-guide-live-face').length,2)
+   for(const low of [false,true]){
+    original.forEach(([m,g])=>{m.geometry=low?m.userData.lowDetailGeometry??g:g});root.updateMatrixWorld(true)
+    const body=root.getObjectByName('nanjing-guide-white-pylon');body.geometry.computeBoundingBox();const b=body.geometry.boundingBox,c=b.getCenter(new THREE.Vector3())
+    for(const axis of ['x','y','z'])for(const sign of [-1,1]){
+     const p=c.clone();p[axis]=sign<0?b.min[axis]:b.max[axis];body.localToWorld(p)
+     const n=new THREE.Vector3();n[axis]=sign;n.transformDirection(body.matrixWorld)
+     assert.ok(new THREE.Raycaster(p.clone().addScaledVector(n,.1),n.clone().negate()).intersectObject(body).length,`${axis} cap at ${low}`)
+    }
+   }
+   artworkTest.prepareArtwork(root);artworkTest.repaintArtwork(root,{...local.data,name:'万寿',modules:[{...mod,cfg:{...mod.cfg,name:'2口'}},{...exit,cfg:{...exit.cfg,name:'2口'}}]});assert.equal(root.userData.guideLabels.exit,'2')
+  }else{
+   assert.equal(root.userData.exitCityStyle,'nanjing');assert.equal(root.getObjectByName('nanjing-guide-white-pylon'),undefined,'guideposts are separate')
+   assert.ok(root.getObjectByName('nanjing-sloped-silver-roof'));assert.equal(original.filter(([m])=>m.name==='nanjing-portal-live-label').length,2)
+   assert.ok(root.getObjectByName('nanjing-rooftop-blossom'));assert.ok(root.getObjectByName('nanjing-rooftop-sign-stem'))
+   for(const [m] of original.filter(([m])=>m.name==='nanjing-inclined-front-jamb')){
+    m.geometry.computeBoundingBox();assert.ok(Math.abs(m.geometry.boundingBox.getSize(new THREE.Vector3()).y-1.75)<1e-5,'column side is 1.2 m deep with a .55 m incline')
+   }
+   for(const [m] of original.filter(([m])=>m.name==='nanjing-portal-live-label')){
+    const n=new THREE.Vector3().fromBufferAttribute(m.geometry.attributes.normal,0)
+    assert.ok(Math.abs(n.x)>.999&&Math.abs(n.y)<1e-5,'labels face outward from the side, not the front')
+   }
+
+   const header=root.getObjectByName('nanjing-entrance-sign')
+   for(const low of [false,true]){
+    original.forEach(([m,g])=>{m.geometry=low?m.userData.lowDetailGeometry??g:g});root.updateMatrixWorld(true)
+    for(const x of [-.46,0,.46]){
+     const p=header.localToWorld(new THREE.Vector3(x*header.geometry.parameters.width,0,0)),n=new THREE.Vector3(0,0,1).transformDirection(header.matrixWorld)
+     assert.equal(new THREE.Raycaster(p.clone().addScaledVector(n,1),n.clone().negate()).intersectObject(root,true)[0]?.object,header,'fascia clears portal columns')
+    }
+   }
+  }
+ }finally{original.forEach(([m,g])=>{m.geometry=g});disposeObject(root)}
+})

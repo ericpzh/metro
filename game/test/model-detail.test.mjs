@@ -646,7 +646,7 @@ for(const id of ['exit-covered-1','exit','exit-covered-3','exit-virtual','guidep
   } finally {detail.restore()}
 },(mod,data)=>{data.cityStyle='beijing'}))
 
-for(const city of ['chengdu','chongqing','wuhan'])for(const id of ['exit-covered-1','exit','exit-covered-3','exit-virtual','guidepost','linemap-wall','linemap-stand'])test(`${city} ${id}: authored Low stays within the model budget`,()=>fixture(id,(root,mod)=>{
+for(const city of ['chengdu','chongqing','wuhan','nanjing'])for(const id of ['exit-covered-1','exit','exit-covered-3','exit-virtual','guidepost','linemap-wall','linemap-stand'])test(`${city} ${id}: authored Low stays within the model budget`,()=>fixture(id,(root,mod)=>{
   const full=totals(root),low=totals(root,true),budget=equipmentLowBudget(id,full)
   assert.ok(low<=budget.limit,`${id}: ${low}/${full} exceeds ${budget.limit}`)
   const detail=new SourceGeometryDetail(),original=new Map()

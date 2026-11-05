@@ -1,5 +1,5 @@
 /** Station-wide visual identity. Old saves default to Guangzhou. */
-export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu' | 'chongqing' | 'wuhan'
+export type CityStyle = 'guangzhou' | 'shenzhen' | 'shanghai' | 'beijing' | 'chengdu' | 'chongqing' | 'wuhan' | 'nanjing'
 export const DEFAULT_CITY_STYLE: CityStyle = 'guangzhou'
 export function normalizeCityStyle(value: unknown): CityStyle {
   return typeof value === 'string' && Object.hasOwn(CITY_STYLES, value) ? value as CityStyle : DEFAULT_CITY_STYLE
@@ -119,6 +119,13 @@ export const WUHAN_LINE_COLOURS: Readonly<Record<string,string>> = {
   '21':'#b2007b',Yangluo:'#b2007b','阳逻':'#b2007b','阳逻线':'#b2007b',
   Xingang:'#7f74ac','新港':'#7f74ac','新港线':'#7f74ac',
 }
+/** Exact user-supplied Nanjing HEX values, including suburban lines. */
+export const NANJING_LINE_COLOURS: Readonly<Record<string,string>> = {
+  '1':'#009ace','2':'#a6093d','3':'#009a44','4':'#7d55c7','5':'#f2da51',
+  '6':'#4bbbb4','7':'#4a7729','8':'#93282c','9':'#fa4616','10':'#b9975b','11':'#ef426f',
+  S1:'#4bbbb4',S2:'#93282c',S3:'#ba84ac',S4:'#ff631b',S5:'#f2df67',
+  S6:'#c98bdb',S7:'#b46b7a',S8:'#ff8000',S9:'#ffc600',
+}
 export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
   guangzhou: { nameKey: 'city_guangzhou', brandKey: 'guangzhou_metro',
     brandEnglishKey: 'printed_guangzhou_metro', logo: 'guangzhou', logoColour: '#d8231c',
@@ -137,6 +144,8 @@ export const CITY_STYLES: Readonly<Record<CityStyle, CityStyleDefinition>> = {
     logo:'chongqing',logoColour:'#008c44',entrance:'chongqing',entranceColour:'#f2f0dd',lineColours:CHONGQING_LINE_COLOURS },
   wuhan: { nameKey:'city_wuhan',brandKey:'wuhan_metro',brandEnglishKey:'printed_wuhan_metro',
     logo:'wuhan',logoColour:'#0067a1',entrance:'wuhan',entranceColour:'#183b70',lineColours:WUHAN_LINE_COLOURS },
+  nanjing: { nameKey:'city_nanjing',brandKey:'nanjing_metro',brandEnglishKey:'printed_nanjing_metro',
+    logo:'nanjing',logoColour:'#d82316',entrance:'nanjing',entranceColour:'#14213f',lineColours:NANJING_LINE_COLOURS },
 }
 export const CITY_STYLE_IDS = Object.keys(CITY_STYLES) as CityStyle[]
 export function cityStyleFor(value?: CityStyle): CityStyleDefinition {

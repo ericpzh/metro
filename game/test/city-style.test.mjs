@@ -1,3 +1,6 @@
+import { drawNanjingHeader } from '../src/render/models/pieces/NanjingExitHeader.ts'
+import { drawNanjingGuideFace } from '../src/render/models/pieces/NanjingGuidepost.ts'
+import { refreshNanjingTrainMark } from '../src/render/cityBranding.ts'
 import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
 import { bindArtwork, prepareArtwork } from '../src/render/artwork.ts'
 import test from 'node:test'
@@ -417,4 +420,40 @@ test('every supplied Beijing and Shanghai colour reaches the new-line factory',(
     for(const [id,hex] of Object.entries(entries))assert.equal(defaultLine(id,'up','third-rail',5,city).colour,'#'+hex.toLowerCase(),`${city} ${id}`)
     for(const [name,id] of Object.entries(names[city]))assert.equal(defaultLine(name,'up','third-rail',5,city).colour,'#'+entries[id].toLowerCase(),name)
   }
+})
+
+test('Nanjing exact supplied numbered/suburban palette and undoable save identity preserve custom colours',()=>{
+  const hex=['009ace','a6093d','009a44','7d55c7','f2da51','4bbbb4','4a7729','93282c','fa4616','b9975b','ef426f']
+  hex.forEach((h,i)=>assert.equal(defaultLine(String(i+1),'up','third-rail',5,'nanjing').colour,'#'+h))
+  const suburbs=['4bbbb4','93282c','ba84ac','ff631b','f2df67','c98bdb','b46b7a','ff8000','ffc600']
+  suburbs.forEach((h,i)=>assert.equal(defaultLine('S'+(i+1),'up','third-rail',5,'nanjing').colour,'#'+h))
+  assert.equal(CITY_STYLE_IDS[7],'nanjing')
+  const previous=useStore.getState(),before=fixture();before.lines[0].colour='#123456'
+  try{
+    useStore.setState({station:before,past:[],future:[],version:0,geometryVersion:0})
+    useStore.getState().setCityStyle('nanjing');assert.equal(useStore.getState().station.lines,before.lines);assert.equal(useStore.getState().geometryVersion,0)
+    const saved=parse(serialize(useStore.getState().station)).state;assert.equal(saved.cityStyle,'nanjing');assert.equal(saved.lines[0].colour,'#123456')
+    useStore.getState().undo();assert.equal(useStore.getState().station,before);useStore.getState().redo();assert.equal(useStore.getState().station.cityStyle,'nanjing')
+    useStore.getState().addLine();assert.equal(useStore.getState().station.lines.at(-1).colour,'#a6093d')
+  }finally{useStore.setState(previous)}
+})
+test('Nanjing navy exit plate and white guide face print live colours, bilingual station and boxed exit',()=>{
+  const lines=['3','5'].map(id=>defaultLine(id,'up','third-rail',5,'nanjing')),{g,ops}=stubCanvas(512,96)
+  drawNanjingHeader(g,'诚信大道','4口','Chengxindadao',512,lines)
+  for(const word of ['3','5','号线','Line 3/5','诚信大道站','CHENGXINDADAO','4'])assert.ok(ops.texts.includes(word),word)
+  assert.equal(ops.filled[0],'#14213f');for(const line of lines)assert.ok(ops.filled.includes(line.colour))
+  assert.deepEqual(exitHeaderResolution(512,'nanjing'),{width:2048,height:384})
+  const face=stubCanvas(384,1800);drawNanjingGuideFace(face.g,{lines,nameEn:'Minggugong'},'明故宫','1A')
+  for(const word of ['地铁','Metro','明故宫站','MINGGUGONG','1A'])assert.ok(face.ops.texts.includes(word))
+})
+test('Nanjing clears nose artwork and retains the separate side texture through city switches',()=>{
+  const front=stubCanvas(384,150),side=stubCanvas(256,256)
+  const a=new THREE.CanvasTexture({width:384,height:150,getContext:()=>front.g}),b=new THREE.CanvasTexture({width:256,height:256,getContext:()=>side.g})
+  const nose=new THREE.MeshBasicMaterial({map:a}),sides=new THREE.MeshBasicMaterial({map:b})
+  try{
+    refreshCityTrainMark(nose,'nanjing');assert.equal(front.ops.fills,0,'all nose atlas slots stay transparent')
+    refreshNanjingTrainMark(sides,'nanjing');assert.ok(side.ops.filled.includes('#d82316'));assert.ok(side.ops.filled.includes('#ffffff'));const version=b.version
+    refreshNanjingTrainMark(sides,'nanjing');assert.equal(b.version,version)
+    refreshNanjingTrainMark(sides,'wuhan');assert.equal(sides.userData.citySideMark,'');assert.equal(sides.map,b);assert.ok(b.version>version)
+  }finally{a.dispose();b.dispose();nose.dispose();sides.dispose()}
 })

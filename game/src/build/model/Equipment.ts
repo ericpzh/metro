@@ -868,10 +868,10 @@ export function nextModuleId(modules: readonly Module[], type: string): string {
  * letters are taken the placeholder comes back.
  */
 export function nextExitName(modules: readonly Module[], city?: import('../../sim/cityStyles.ts').CityStyle): string {
-  if(city === 'shanghai' || city === 'chongqing') {
+  if(city === 'shanghai' || city === 'chongqing' || city === 'nanjing') {
     const used=new Set(modules.filter(m=>m.type==='exit').map(m=>m.type==='exit'?m.cfg.name.match(/^([0-9]+)(?:号口|口)?$/)?.[1]:undefined));
     let number=1;while(used.has(String(number)))number++;
-    return city==='chongqing'?`${number}口`:`${number}号口`;
+    return city!=='shanghai'?`${number}口`:`${number}号口`;
   }
   const letter = nextExitLetter(modules);
   return letter === null ? msg('unnamed_exit') : msg('exit_value', letter);

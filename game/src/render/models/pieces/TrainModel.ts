@@ -1,3 +1,4 @@
+import { buildNanjingTrainMarks } from './NanjingTrainMark.ts'
 // Train consist (车辆) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
@@ -355,6 +356,7 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     buildCab(g, mats, s, lead, leadOut, true, blue,badge)
     buildCab(g, mats, s, -lead, -leadOut, false, blue,badge)
   }
+  buildNanjingTrainMarks(g,mats,pose.stock,pose.cars)
   // The train keeps its own pose; the caller moves the group.
   g.scale.setScalar(pose.modelScale ?? 1)
   g.position.set(pose.x, pose.y, pose.z)

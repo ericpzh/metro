@@ -375,6 +375,31 @@ variants meet existing budgets. These are geometry counts, not FPS measurements.
 | exit-doorway-3 | 10 | 26 |
 | exit-doorway-4 | 10 | 26 |
 
+#### Nanjing variants
+
+Production-path inventory (three.js r186):
+`.preview/perf/current-models-nanjing/model-triangles.json`, generated with
+`MODEL_CITY=nanjing` and `tools/model-triangle-inventory.mjs`. Includes thick
+side-labeled entrance columns, the raised blossom/Metro sign and three glass
+sides. All 14 variants meet existing budgets; counts do not establish FPS.
+
+| Equipment / decor model name | Low triangles | High triangles |
+|---|---:|---:|
+| exit-covered-1 | 374 | 3818 |
+| exit | 374 | 3818 |
+| exit-covered-3 | 374 | 3818 |
+| guidepost | 16 | 592 |
+| exit-virtual | 16 | 592 |
+| exit-uncovered-2 | 52 | 554 |
+| exit-uncovered-3 | 52 | 554 |
+| exit-uncovered-1 | 52 | 530 |
+| linemap-stand | 16 | 40 |
+| linemap-wall | 4 | 26 |
+| exit-doorway-1 | 10 | 26 |
+| exit-doorway-2 | 10 | 26 |
+| exit-doorway-3 | 10 | 26 |
+| exit-doorway-4 | 10 | 26 |
+
 #### Equipment minimum-shape exceptions
 
 | Equipment / decor model name | Low / High | Minimum-shape exception |
@@ -460,16 +485,16 @@ wall-input retention is a separate unresolved regression.
 
 | Train model | Low triangles | High triangles |
 |---|---:|---:|
-| D-8 | 76740 | 1308336 |
-| D-6 | 60160 | 1011820 |
-| A-8 | 69856 | 735400 |
-| A-6 | 53820 | 577988 |
-| C-6 | 49724 | 538632 |
-| B-6 | 47832 | 519288 |
-| L-6 | 43480 | 468320 |
-| C-4 | 35192 | 398252 |
-| B-4 | 33700 | 381940 |
-| L-4 | 30708 | 347092 |
+| D-8 | 76772 | 1308368 |
+| D-6 | 60192 | 1011852 |
+| A-8 | 69864 | 735408 |
+| A-6 | 53828 | 577996 |
+| C-6 | 49732 | 538640 |
+| B-6 | 47840 | 519296 |
+| L-6 | 43488 | 468328 |
+| C-4 | 35200 | 398260 |
+| B-4 | 33708 | 381948 |
+| L-4 | 30716 | 347100 |
 
 Standard, Beijing and Chengdu emblems share a retained three-slot texture atlas.
 Beijing's larger decal is fitted before batching, so switching cities never
@@ -484,8 +509,10 @@ above include its retained lower decals.
 
 The table also includes Chongqing's retained, per-consist line-badge decals at
 both cab ends. Their separate 512 × 128 texture is repainted on city/line changes;
-all other city marks keep the existing shared atlas. Inventory:
-`.preview/perf/current-models-chongqing/train-triangles.json` (three.js r186,
+Nanjing adds four retained side quads using a separate shared cutout texture;
+its nose atlas stays transparent. Other city marks keep the existing shared atlas.
+Current inventory:
+`.preview/perf/current-models-nanjing/train-triangles.json` (three.js r186,
 production static/door/transparent batching and detail swaps). `train-preparation`
 pins same-colour line identity and texture/root reuse; `train-cab` pins paint
 behind the badge in High/Low. Counts remain below the existing 10% train budget.
