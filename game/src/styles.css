@@ -723,9 +723,7 @@ a.ghost:hover {
 .exitRateReadout {
   min-width: 0;
   font-size: 9px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .exitNameField .lineNameInput {
   width: 100%;

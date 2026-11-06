@@ -74,14 +74,16 @@ export function ExitCard({ mod }: { mod: Extract<Module, { type: 'exit' }> }): R
           <span className="exitSwitchThumb" />
         </button>
       </div>
-      <span className="exitRateReadout">{t('entering')}{' '}{translate(mod.cfg.inRate)} {' '}{t('people_h')}</span>
+      <span className="exitRateReadout" title={`${t('entering')} ${translate(mod.cfg.inRate)} ${t('people_h')}`}>
+        {t('exit_rate_compact', translate(mod.cfg.inRate))}
+      </span>
       <Slider
         className="exitRateSlider"
         min={0}
         max={6000}
         step={10}
         value={mod.cfg.inRate}
-        aria-label={t('entering', translate(mod.cfg.inRate), t('people_h'))}
+        aria-label={`${t('entering')} ${translate(mod.cfg.inRate)} ${t('people_h')}`}
         onFocus={pick}
         onChange={(e) => patch({ inRate: Number(e.target.value) })}
       />

@@ -1816,6 +1816,10 @@ export const messages = {
     "zh": "进站",
     "en": "Entering"
   },
+  "exit_rate_compact": {
+    "zh": "进站 {0} 人/时",
+    "en": "In {0}/h"
+  },
   "people_h": {
     "zh": "人/时",
     "en": "people/h"
