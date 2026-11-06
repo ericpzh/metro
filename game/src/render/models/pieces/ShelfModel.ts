@@ -4,6 +4,7 @@ import { PieceBuilder, C, slab, placeLocalAtEdge } from '../PieceBuilder.ts'
 import { shelfSpec, shelfVariant, shelfWidth } from '../../../sim/shelves.ts'
 import type { Module } from '../../../sim/types.ts'
 import { omitModelDetail } from '../../modelDetail.ts'
+import { buildDisplayShelves } from './DisplayShelves.ts'
 import { buildWideBackbar } from './WideBackbar.ts'
 import { buildShopShelf } from './ShopShelves.ts'
 
@@ -31,6 +32,10 @@ export class ShelfModel extends PieceBuilder {
   build(mod: Extract<Module, { type: 'shelf' }>): THREE.Group {
     const g = new THREE.Group(), mats = this.ctx.mats
     const variant = shelfVariant(mod.cfg.variant), spec = shelfSpec(variant)
+    if (variant === 'books' || variant === 'bags') {
+      buildDisplayShelves(g, mats, variant)
+      return placeLocalAtEdge(g, mod, spec.depth, this.ctx.data?.modules)
+    }
     if (shelfWidth(variant) > 1) {
       buildWideBackbar(g, mats, shelfWidth(variant))
       return placeLocalAtEdge(g, mod, spec.depth, this.ctx.data?.modules)

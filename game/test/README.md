@@ -1511,3 +1511,5 @@ checks the standalone toilet's authored Low geometry budget, High restoration,
 and preservation through static batching.
 
 The shelf suite checks distinct short/medium/long prep-cabinet layouts, one full-width worktop, pantry/dish organization, long-cabinet sink/fridge fittings and upper-stock roof clearance.
+
+The shelf catalogue includes a two-column wooden bookcase and a white 5×5 bag display. Shelf regressions pin their stock, cubby arrangement, rotated two-cell bounds, saves and picking; model-detail checks authored Low geometry.

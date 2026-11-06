@@ -534,6 +534,16 @@
       "bytes": 9327
     },
     {
+      "id": "shelf-bags",
+      "file": "shelf-bags.png",
+      "bytes": 6088
+    },
+    {
+      "id": "shelf-books",
+      "file": "shelf-books.png",
+      "bytes": 7853
+    },
+    {
       "id": "shelf-cafe-backbar",
       "file": "shelf-cafe-backbar.png",
       "bytes": 4660

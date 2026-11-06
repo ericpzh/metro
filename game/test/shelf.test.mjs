@@ -394,3 +394,32 @@ test('prep cabinets have continuous worktops and different pantry, dish and wet-
     }
   } finally { roots.forEach(disposeObject); mat.dispose() }
 })
+
+
+test('wooden bookcase and bag cubbies have their own stocked organization', async () => {
+  const THREE=await import('three')
+  const {ShelfModel}=await import('../src/render/models/pieces/ShelfModel.ts')
+  const {disposeObject}=await import('../src/render/models.ts')
+  const mat=new THREE.MeshStandardMaterial(), model=new ShelfModel({mats:new Proxy({},{get:()=>mat})})
+  const books=model.build(createModule('shelf-books',0,0,0,'books'))
+  const bags=model.build(createModule('shelf-bags',0,0,0,'bags'))
+  try {
+    assert.equal(books.children.filter(o=>o.name==='display-deck').length,7)
+    assert.equal(books.children.filter(o=>o.name==='display-divider').length,6)
+    assert.equal(books.getObjectByName('stock-books').count,180)
+    assert.equal(bags.children.filter(o=>o.name==='display-divider').length,20)
+    assert.equal(bags.getObjectByName('stock-bags').count,25)
+    assert.equal(bags.getObjectByName('stock-bag-handles').count,25)
+    for(const root of [books,bags]) {
+      const goods=new THREE.Box3().setFromObject(root.getObjectByName(root===books?'stock-books':'stock-bags'))
+      const back=new THREE.Box3().setFromObject(root.getObjectByName('display-back'))
+      assert.ok(goods.max.y<back.min.y,'stock is in front of the backing')
+    }
+  } finally {disposeObject(books);disposeObject(bags);mat.dispose()}
+})
+
+
+test('book and bag shelves are the final shelf catalogue entries', async () => {
+  const {SHELF_VARIANTS}=await import('../src/sim/shelves.ts')
+  assert.deepEqual(SHELF_VARIANTS.slice(-2), ['books','bags'])
+})

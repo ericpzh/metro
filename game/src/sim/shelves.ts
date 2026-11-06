@@ -23,6 +23,8 @@ export const SHELF_SPECS = {
   'cafe-backbar': { label: msg('cafe_backbar_shelf'), height: 2.15, depth: 0.6, levels: [] },
   'cafe-backbar-2': { label: msg('cafe_backbar_medium'), height: 2.15, depth: 0.6, levels: [] },
   'cafe-backbar-4': { label: msg('cafe_backbar_extra_long'), height: 2.15, depth: 0.6, levels: [] },
+  books: { label: msg('book_shelves'), height: 2.05, depth: .4, levels: [] },
+  bags: { label: msg('bag_shelves'), height: 2.05, depth: .4, levels: [] },
 } as const
 
 export const SHELF_VARIANTS = Object.keys(SHELF_SPECS) as ShelfVariant[]
@@ -36,7 +38,7 @@ export function shelfSpec(value?: string) {
   return SHELF_SPECS[shelfVariant(value)]
 }
 
-export const shelfWidth = (variant?: string): number => variant === 'cafe-backbar-2' ? 2 : variant === 'cafe-backbar-4' ? 4 : 1
+export const shelfWidth = (variant?: string): number => variant === 'books' || variant === 'bags' || variant === 'cafe-backbar-2' ? 2 : variant === 'cafe-backbar-4' ? 4 : 1
 export function shelfCells(m: Extract<Module, {type:'shelf'}>): Array<[number,number,number]> {
   return Array.from({length:shelfWidth(m.cfg.variant)}, (_,i) => {const [dx,dy]=rotateLocal(m.rot,i,0);return [m.x+dx,m.y+dy,m.z]})
 }

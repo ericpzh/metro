@@ -4378,3 +4378,5 @@ closed pylons and bound labels across bays/rotations. `line-map`, `model-detail`
 `train-lod` and `menu-thumbnails` own supplied artwork, budgets and cached previews.
 Run `node tools/check-nanjing-style.mjs` for production selection/reload, lazy map
 loading, retained resources and theme/High/Low captures.
+
+The shelf catalogue includes a two-column wooden bookcase and a white 5×5 bag display. Shelf regressions pin their stock, cubby arrangement, rotated two-cell bounds, saves and picking; model-detail checks authored Low geometry.

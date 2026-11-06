@@ -116,11 +116,13 @@ Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/
 | shelf-wire | 412 | 6524 |
 | checkout-cafe-pastry/3m | 108 | 6332 |
 | shelf-food-bakery | 80 | 5884 |
+| shelf-books | 64 | 5808 |
 | cubicle | 72 | 5688 |
 | shelf-fruit-tiered | 384 | 5672 |
 | cctv-dome | 336 | 5208 |
 | walkway | 290 | 5162 |
 | cctv-post | 352 | 5096 |
+| shelf-bags | 116 | 5048 |
 | sink | 224 | 4972 |
 | cctv-ptz | 308 | 4924 |
 | shelf-white-short | 192 | 4420 |

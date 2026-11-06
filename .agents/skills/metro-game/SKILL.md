@@ -1683,7 +1683,7 @@ including the depth prepass, for all six appearances.
   `sim/benches.ts` — a plain stainless bench with no back and an upholstered seat with a back
   and arm rests — one tile per style, with **Tab** cycling each between its 1 m and 2 m
   run (`cycleBenchWidth`); the 2 m piece is a real two-cell run, and a pick arms its exact
-  `-2` id. 货架 is an eighteen-variant family from `sim/shelves.ts` (tall/short, wire, cooler, clothing, food, ice-cream, fruit and café back-bar storage):
+  `-2` id. 货架 is a twenty-variant family from `sim/shelves.ts` (tall/short, wire, cooler, clothing, food, ice-cream, fruit and café back-bar storage):
   each variant is its own tile, and a pick copies the style. 商店柜台 is a four-variant
   family from `sim/counters.ts`: original checkout, generic white counter, espresso
   bar and glazed pastry bay. `counterLength` cycles 1–4 m with Tab through
