@@ -128,7 +128,14 @@ export class EquipmentTool extends ToolController {
       this.placeModule([upper.x, upper.y, upper.z], [upper.x, upper.y, upper.z], false, st.moduleType, undefined, pickedRamp)
       return
     }
-    if (!hit) return
+    if (!hit) {
+      if (info.button === 2) {
+        const pickedId = this.pickModuleAt(info)
+        const picked = st.station.modules.find(m => m.id === pickedId)
+        if (picked?.type === 'shelf' || picked?.type === 'checkout') this.removePlacedModule(picked)
+      }
+      return
+    }
     if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
       // Vinyl can share a screen-door strip: erase the print the ray hits,
       // rather than tearing down the screen standing over that floor (§9.5).

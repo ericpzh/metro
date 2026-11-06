@@ -22,7 +22,7 @@ export function moduleTarget(
   storeyHeight = STOREY_HEIGHT,
 ): Module | undefined {
   const drawn = modules.find(module => module.id === pickedId)
-  if (drawn && (drawn.type === 'roof' || needsSurfaceHit(drawn))) return drawn
+  if (drawn && (drawn.type === 'roof' || drawn.type === 'shelf' || drawn.type === 'checkout' || needsSurfaceHit(drawn))) return drawn
   if (drawn && moduleAt([drawn], ...cell, facing, levelBase, storeyHeight)) return drawn
   return moduleAt(modules, ...cell, facing, levelBase, storeyHeight, module => !needsSurfaceHit(module)) ?? drawn
 }

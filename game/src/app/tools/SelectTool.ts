@@ -32,11 +32,10 @@ export class SelectTool extends ToolController {
     const st = useStore.getState()
     // Right-click bulldozes the equipment under the pointer.
     if (info.button === 2) {
-      if (!hit) return
       const pickedId = this.pickModuleAt(info)
       const picked = pickedId ? st.station.modules.find((m) => m.id === pickedId) : undefined
       if (picked) this.removePlacedModule(picked)
-      else this.bulldoze(hit.cell, hit.place, this.facing())
+      else if (hit) this.bulldoze(hit.cell, hit.place, this.facing())
       return
     }
     // A passenger under the pointer wins over the floor and the fixtures on it:

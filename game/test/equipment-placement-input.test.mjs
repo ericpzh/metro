@@ -1,3 +1,5 @@
+import { SelectTool } from '../src/app/tools/SelectTool.ts'
+import { moduleTarget } from '../src/app/tools/moduleTarget.ts'
 import { equipmentReason } from '../src/sim/placement.ts'
 // Wall and ceiling mounts can be aimed from open air; floor equipment cannot.
 //
@@ -391,4 +393,30 @@ test('counter length is identical in hover, click and undo for every style', () 
       assert.equal(useStore.getState().station.modules.length, 0)
     }
   } finally { useStore.setState(before, true) }
+})
+
+
+test('right-click deletes the drawn shelf or counter even when its floor hit lies elsewhere', () => {
+  const before = useStore.getState()
+  try {
+    for (const id of ['shelf', 'checkout-generic', 'checkout-cafe', 'checkout-cafe-pastry']) {
+      const target = createModule(id, 4, 4, 0, 'target', 0)
+      const other = createModule('bench', 8, 8, 0, 'other', 0)
+      const station = toState({ name: 'furniture removal', seed: 1,
+        cells: [{ x: 8, y: 8, z: 0, fill: 'solid' }], modules: [other, target], lines: [] })
+      assert.equal(moduleTarget(station.modules, target.id, [8, 8, 0]).id, target.id)
+      for (const Tool of [EquipmentTool, SelectTool]) for (const hit of [null,
+        { cell: [8, 8, 0], place: [8, 8, 1], solid: true, point: [8.5, 8.5, 1] }]) {
+        useStore.setState({ station, past: [], future: [], tool: Tool === EquipmentTool ? 'module' : 'select', moduleType: id })
+        let picks = 0
+        const tool = new Tool({ scene: () => ({ setModulePreview() {}, setCollisionHighlight() {}, setHoverHighlight() {} }),
+          pickModule: () => { picks++; return target.id }, facing: () => [0, -1], drag: { current: null }, hover: { current: null } })
+        tool.onDown({ button: 2, clientX: 10, clientY: 10, hit, preventDefault() {} })
+        assert.equal(picks, 1)
+        assert.deepEqual(useStore.getState().station.modules.map(m => m.id), ['other'])
+        assert.equal(useStore.getState().station.cells.length, 1)
+        assert.equal(useStore.getState().past.length, 1)
+      }
+    }
+  } finally { useStore.setState(before) }
 })
