@@ -167,13 +167,13 @@ test('sound-barrier line drags retain the R-selected side in their preview and c
 })
 
 test('fence variants keep their save and preview identity, including legacy glass', () => {
-  const modules = ['fence', 'fence-gate', 'fence-iron', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing'].map((id, x) => createModule(id, x * 3, 0, 0, id, 1))
-  assert.deepEqual(modules.map((m) => m.cfg.variant), ['glass', 'gate', 'iron', 'sound-barrier', 'sound-barrier-half', 'bridge-railing'])
+  const modules = ['fence', 'fence-gate', 'fence-iron', 'fence-steel-blue', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing'].map((id, x) => createModule(id, x * 3, 0, 0, id, 1))
+  assert.deepEqual(modules.map((m) => m.cfg.variant), ['glass', 'gate', 'iron', 'steel-blue', 'sound-barrier', 'sound-barrier-half', 'bridge-railing'])
   const state = toState({ ...emptyStation(), modules: [...modules, fence(12, 0, 0, 0, 'legacy')] })
   const loaded = parse(serialize(state))
   assert.equal(loaded.ok, true)
   assert.deepEqual(loaded.state.modules, state.modules)
-  assert.equal(new Set(modules.map((m) => moduleGhostKey({ ...m, x: 0 }))).size, 6)
+  assert.equal(new Set(modules.map((m) => moduleGhostKey({ ...m, x: 0 }))).size, modules.length)
   assert.equal(moduleGhostKey(fence(0, 0, 0)), moduleGhostKey(createModule('fence', 0, 0, 0, 'new')))
 })
 

@@ -5,6 +5,14 @@ description: Work in game/ of the ericpzh/metro repo — the React 19 + three.js
 
 # The game (`game/`)
 
+Ballfield equipment lives in `CourtModel.ts`: pickleball and badminton courts
+reserve a supported 14 × 7 m bay; portable two-cell dividers can stand on court
+paint but not intersect the net. Divider drags preview without document changes,
+commit or delete one run per undo step, and support both axes. The blue steel
+fence is a connected 2 m-high fence variant with a solid kick panel and mesh;
+keep its rendered bounds, collision height, save and preview identity aligned.
+See `court.test.mjs` and `fence.test.mjs` for these contracts.
+
 ## City identity
 
 Use [city styles: contracts and verification](references/city-styles.md) for saved
@@ -1679,11 +1687,11 @@ including the depth prepass, for all six appearances.
   base using `floor.concrete`. Keep mounting, rotations, screen orientation, tall-ceiling suspension,
   and signal bounds/materials pinned in `test/monitor-signal.test.mjs`. `DECOR_CATEGORY_ORDER` pins
   the wall and ground layouts. 座椅 is a
-  nested sub-menu of two styles from
-  `sim/benches.ts` — a plain stainless bench with no back and an upholstered seat with a back
-  and arm rests — one tile per style, with **Tab** cycling each between its 1 m and 2 m
-  run (`cycleBenchWidth`); the 2 m piece is a real two-cell run, and a pick arms its exact
-  `-2` id. 货架 is a twenty-variant family from `sim/shelves.ts` (tall/short, wire, cooler, clothing, food, ice-cream, fruit and café back-bar storage):
+  nested sub-menu from `sim/benches.ts`: stainless, upholstered and wooden seating
+  cycle between 1 m and 2 m runs with **Tab**; the shared office chair is fixed at
+  1 m. A 2 m piece is a real two-cell run, and a pick arms its exact `-2` id.
+  货架 is a twenty-variant family from `sim/shelves.ts` (tall/short, wire, cooler,
+  clothing, food, ice-cream, fruit, café prep cabinets, books and bags):
   each variant is its own tile, and a pick copies the style. 商店柜台 is a four-variant
   family from `sim/counters.ts`: original checkout, generic white counter, espresso
   bar and glazed pastry bay. `counterLength` cycles 1–4 m with Tab through

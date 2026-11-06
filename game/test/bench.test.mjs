@@ -1,6 +1,6 @@
-// Benches (座椅, GAME-SPEC §5.7): the 装饰 seating comes in two families — a
-// plain stainless bench with no back and an upholstered seat with a back and arm
-// rests — each 1 m or 2 m wide. The 2 m piece is a real two-cell run, so its
+// Seating (座椅, GAME-SPEC §5.7) includes stainless, upholstered and wooden
+// benches in 1 m or 2 m widths, plus a fixed 1 m office chair. A 2 m piece is
+// a real two-cell run, so its
 // collision envelope and its base cells cover both of its cells for every
 // rotation, and the variant table is the one source the factory, the renderer
 // and the palette share.
@@ -108,4 +108,18 @@ test('a bench variant and its width round-trip the save', () => {
   const r = parse(serialize(st))
   assert.equal(r.ok, true)
   assert.deepEqual(r.state.modules, st.modules)
+})
+
+test('wooden benches and office chairs retain their footprint and identity through saves', () => {
+  for (const variant of ['wood-1', 'wood-2', 'office-1']) for (const rot of [0, 1, 2, 3]) {
+    const mod = createModule(`bench-${variant}`, 4, 4, 0, variant, rot)
+    const state = { ...flatStation(), modules: [mod] }
+    const loaded = parse(serialize(state))
+    assert.equal(loaded.ok, true)
+    const restored = loaded.state.modules[0]
+    assert.deepEqual(restored, mod)
+    const cells = benchCells(restored)
+    assert.equal(cells.length, benchSpec(variant).w)
+    for (const [x, y, z] of cells) assert.equal(moduleAt([restored], x, y, z)?.id, variant)
+  }
 })

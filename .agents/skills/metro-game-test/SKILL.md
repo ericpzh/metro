@@ -3,6 +3,22 @@ name: metro-game-test
 description: Run, extend or fix the game's test suite in game/test/ of the ericpzh/metro repo. Use when adding tests for game/src behaviour, when `npm test` / a suite fails, when a new sim rule needs a pin, or when deciding what the suite does and does not cover.
 ---
 
+## Station equipment models
+
+`shelf` covers shop fixtures, including clothing, food, fruit, café prep
+cabinets and book/bag displays; `checkout` covers the four counter styles and
+their lengths. Preserve rotated footprints, support, save/pick identity, stock
+and model clearance. `builder-attributes`, `equipment-placement-input`,
+`pick-tool` and `editor-action-benchmark` cover their editor integration.
+`bench` and `module-build` cover wooden benches and the fixed-width office chair,
+including save and rotated footprints. `court` covers both 14 × 7 m courts and
+the portable divider: support, net clearance, geometry, preview, drag deletion
+and undo. `fence` covers the blue steel variant's two-metre envelope, rendered
+bounds, drag, save and distinct preview identity. `model-detail` and
+`menu-thumbnails` check the shared Low-detail and catalogue assets. Run the
+affected focused suites when changing these families; browser checks and
+performance measurements have their own scope.
+
 ## City-style regression ownership
 
 Use the [city-style coverage table](../metro-game/references/city-styles.md#deterministic-coverage-ownership)

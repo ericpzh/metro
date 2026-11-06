@@ -12,6 +12,10 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+Station equipment models, including shop fixtures, seating, ballfields and steel
+fences, belong to `metro-game`; their deterministic regressions belong to
+`metro-game-test`. Keep generated menu thumbnails aligned with catalogue changes.
+
 Wall decor and sign previews route to `metro-game`, with regressions in
 `metro-game-test`: short wall signs centre in the pointed block, other panels
 snap their bottom edge to its course, and the sign editor uses production-sized

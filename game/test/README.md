@@ -1513,3 +1513,5 @@ and preservation through static batching.
 The shelf suite checks distinct short/medium/long prep-cabinet layouts, one full-width worktop, pantry/dish organization, long-cabinet sink/fridge fittings and upper-stock roof clearance.
 
 The shelf catalogue includes a two-column wooden bookcase and a white 5×5 bag display. Shelf regressions pin their stock, cubby arrangement, rotated two-cell bounds, saves and picking; model-detail checks authored Low geometry.
+
+`bench` checks the wooden seating and office chair across save/load and all rotations; `module-build` checks their models. `court` covers supported pickleball and badminton courts, portable-divider clearance, drag preview, deletion and undo. `fence` covers the blue steel fence's two-metre model/envelope, save, drag and distinct preview identity. Shared catalogue thumbnails and Low-detail budgets remain in `menu-thumbnails` and `model-detail`.
