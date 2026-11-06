@@ -377,10 +377,12 @@ export class ModuleSystem extends SceneSystem {
         blobs: [...inst.userData.contactBlobValues] })
     }
     const addBlob = (mod: Module): void => {
-      const r = isCeilingHung(mod) ? 0 : blobRadius(mod.type)
+      const r = isCeilingHung(mod) || (mod.type === 'exit' && mod.cfg.style === 'doorway') ? 0 : blobRadius(mod.type)
       if (r <= 0) return
       const ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
-      const blob: [number,number,number,number]=[mod.x+.5,mod.y+.5,mod.z+1-.42,r]
+      // Match the model's foot plane. A blob sunk into the block becomes visible
+      // through a triangular block's cut face instead of grounding the equipment.
+      const blob: [number,number,number,number]=[mod.x+.5,mod.y+.5,mod.z+1+.012,r]
       const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
       if(entry)entry.blobs.push(blob)
       else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob]})
@@ -546,9 +548,9 @@ export class ModuleSystem extends SceneSystem {
       const old=previous.get(mod.id)!,r=blobRadius(mod.type),ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       const mesh=this.moduleMeshes.children.find(root=>root.userData.contactBlobKey===`${mod.z}|${ground??'x'}`) as THREE.InstancedMesh|undefined
       const values=mesh?.userData.contactBlobValues as Array<[number,number,number,number]>|undefined
-      const index=values?.findIndex(v=>v[0]===old.x+.5&&v[1]===old.y+.5&&v[2]===old.z+1-.42&&v[3]===r)??-1
+      const index=values?.findIndex(v=>v[0]===old.x+.5&&v[1]===old.y+.5&&v[2]===old.z+1+.012&&v[3]===r)??-1
       if(!mesh||!values||index<0)return false
-      updates.push({mesh,values,index,value:[mod.x+.5,mod.y+.5,mod.z+1-.42,r]})
+      updates.push({mesh,values,index,value:[mod.x+.5,mod.y+.5,mod.z+1+.012,r]})
     }
     for(const {mesh,values,index,value} of updates){
       const [x,y,z,r]=value

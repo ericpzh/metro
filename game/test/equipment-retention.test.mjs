@@ -529,6 +529,31 @@ test('ceiling fixtures never allocate contact shadows while floor-mounted varian
   assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'rebuilding retained shadows keeps ceiling fixtures excluded')
 }))
 
+test('wall-mounted exit nameplates never allocate floor shadows across mount heights and edits', () => withDrawing(({ modules }) => {
+  const exit = createModule('exit', 0, 0, 0, 'exit')
+  const wallExit = { ...exit, cfg: { ...exit.cfg, style: 'doorway', mountZ: 4 } }
+  const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  modules.buildModules(station([wallExit]), new Set())
+  assert.equal(blobs().length, 0)
+  modules.buildModules(station([{ ...wallExit, cfg: { ...wallExit.cfg, mountZ: 8 } }]), new Set(), true)
+  assert.equal(blobs().length, 0, 'raising a wall plate does not add a floor shadow')
+  modules.buildModules(station([exit]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'a freestanding entrance retains its contact shadow')
+  modules.buildModules(station([wallExit]), new Set(), true)
+  assert.equal(blobs().length, 0, 'changing back to a wall plate removes the old shadow')
+}))
+
+test('equipment shadow matrices stay above the support block instead of intersecting its triangular cut', () => withDrawing(({ modules }) => {
+  const pieces = [0, 5, -10].map((z, i) => createModule('bench', i * 3, 0, z, `bench-${z}`))
+  modules.buildModules(station(pieces), new Set())
+  const matrix = new THREE.Matrix4()
+  for (const root of modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)) {
+    root.getMatrixAt(0, matrix)
+    const z = root.userData.levelZs[0]
+    assert.ok(Math.abs(matrix.elements[14] - (z + 1.012)) < 1e-6, 'shadow follows the model foot plane above the entire block, including its slope')
+  }
+}))
+
 test('PSD infill and elevated cover panels never allocate contact shadows', () => withDrawing(({ modules }) => {
   const panels = ['psd-end', 'psd-end-cover'].map((type, i) => createModule(type, i * 4, 0, i * 4, type))
   modules.buildModules(station(panels), new Set())

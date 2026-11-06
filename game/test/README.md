@@ -165,6 +165,9 @@ hover/delete priority over the road terrain behind it, with one undoable removal
 `equipment-retention` also checks that ceiling-mounted fixtures allocate no contact
 shadow batches, while floor-mounted variants retain their shadows through edits.
 Fixed PSD infill and elevated cover panels also allocate no contact shadows.
+Wall-mounted doorway exit nameplates allocate none across height/style edits;
+standing equipment shadow matrices sit just above the model's foot plane so
+they cannot show through a triangular support block's cut face.
 It checks that contact shadows draw only on the active
 floor band, that Hide UI/cutaway restore every floor's shadows, and that Hide Ground
 still hides street shadows. `level-slicing` pins shifted floor bands;
