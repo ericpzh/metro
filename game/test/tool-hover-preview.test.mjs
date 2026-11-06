@@ -61,6 +61,27 @@ test('move, picker and select hover previews tint the target blue; bulldoze prev
   }
 })
 
+test('select hover marks the cell that a click selects, not the adjacent placement cell', () => {
+  const before = useStore.getState()
+  try {
+    const f = fixture()
+    f.ctx.pickModule = () => null
+    const cursors = []
+    f.ctx.scene().setCursor = (...args) => cursors.push(args)
+    const tool = new SelectTool(f.ctx)
+    for (const target of [
+      { cell: [2, 3, -1], place: [2, 3, 0], solid: true },
+      { cell: [2, 3, -1], place: [3, 3, -1], solid: true },
+      { cell: [2, 3, 0], place: [2, 3, 0], solid: false },
+    ]) {
+      tool.onMove({ ...f.pointer, hit: target })
+      assert.deepEqual(cursors.at(-1), [target.cell, true])
+    }
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('equipment settings refresh cannot restore a stair-block preview after switching to 方块', () => {
   const before = useStore.getState()
   try {

@@ -96,8 +96,9 @@ export class SelectTool extends ToolController {
     }
     scene.setHoverHighlight?.(null)
     scene.setModulePreview(null)
-    const c = hit.solid ? hit.place : hit.cell
-    scene.setCursor(c, true)
+    // Selection targets the hit block, whereas `place` is the adjacent cell
+    // used when placing something against its surface.
+    scene.setCursor(hit.cell, true)
   }
 
   // Selection commits on press; the release owns nothing.
