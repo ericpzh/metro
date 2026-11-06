@@ -195,8 +195,8 @@ live countdowns/clocks: short CPU timings can conceal GPU transfer stalls.
 See the performance reference's live-TV section for matched captures and the
 refresh-delay/memory tradeoff. `check-panel-atlas.mjs` verifies real GPU pixels;
 batching checks accept `BENCH_DIST` for an isolated production build.
-Module contact blobs are for floor-standing equipment only: use `isCeilingHung` to
-exclude ceiling fixtures, and give fixed `psd-end` infill/covers the same no-blob
+Module contact blobs are for floor-standing equipment only: use `isCeilingHung` and
+`isWallMounted` to exclude ceiling and wall fixtures, and give fixed `psd-end` infill/covers the same no-blob
 policy as `platform-edge`. Keep the active-storey filter in `LevelSystem`; pin
 allocation, append/edit retention and presentation visibility in `equipment-retention`.
 Keep `tactile` and `floor-mark` blob-free in `blobRadius`: their thin floor surfaces

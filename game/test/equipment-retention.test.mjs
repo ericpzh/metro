@@ -19,6 +19,7 @@ import { signBoardsPanel } from '../src/sim/sign.ts'
 import { defaultLine } from '../src/build/rail.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
+import { isCeilingHung, isWallMounted } from '../src/sim/placement.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 
@@ -547,6 +548,23 @@ test('ceiling fixtures never allocate contact shadows while floor-mounted varian
   assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), standing.length, 'only standing equipment contributes shadows after append')
   modules.buildModules(station([...hung, ...standing.slice(0, 1)]), new Set(), true)
   assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'rebuilding retained shadows keeps ceiling fixtures excluded')
+}))
+
+test('all mounted catalogue fixtures remain free of contact shadows across edits', () => withDrawing(({ modules, ctx }) => {
+  modules.plates = new PlateSystem(ctx)
+  ctx.ads = { adFace: (_slug, w, h) => ({ geometry: new THREE.PlaneGeometry(w, h), material: ctx.modelMats.white }) }
+  const mounted = SINGLE_MODEL_OPTIONS.map((option, i) => createModule(option.id, i * 10, 0, 0, `mounted-${i}`))
+    .filter(mod => isWallMounted(mod) || isCeilingHung(mod))
+  assert.ok(mounted.some(mod => mod.type === 'monitor' && mod.cfg.mount === 'wall'))
+  assert.ok(mounted.some(mod => mod.type === 'urinal'))
+  const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  modules.buildModules(station(mounted), new Set())
+  assert.equal(blobs().length, 0, 'wall and ceiling fixtures allocate no contact shadows')
+  const bench = createModule('bench', 0, 10, 0, 'standing')
+  modules.buildModules(station([...mounted, bench]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'standing furniture still allocates a shadow')
+  modules.buildModules(station(mounted.map(mod => ({ ...mod, z: mod.z + 5 }))), new Set(), true)
+  assert.equal(blobs().length, 0, 'moving mounted fixtures and removing the standing item leaves no shadows')
 }))
 
 test('wall-mounted exit nameplates never allocate floor shadows across mount heights and edits', () => withDrawing(({ modules }) => {

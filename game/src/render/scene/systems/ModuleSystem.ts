@@ -31,7 +31,7 @@ import {
   disposeObject,
 } from '../../models.ts'
 import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
-import { isCeilingHung, outdoorSurfaceLift, trackBedKeys } from '../../../sim/placement.ts'
+import { isCeilingHung, isWallMounted, outdoorSurfaceLift, trackBedKeys } from '../../../sim/placement.ts'
 import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
@@ -399,7 +399,7 @@ export class ModuleSystem extends SceneSystem {
         blobs: [...inst.userData.contactBlobValues], ids: [...inst.userData.contactBlobIds] })
     }
     const addBlob = (mod: Module): void => {
-      const r = isCeilingHung(mod) || (mod.type === 'exit' && mod.cfg.style === 'doorway') ? 0 : blobRadius(mod.type)
+      const r = isCeilingHung(mod) || isWallMounted(mod) ? 0 : blobRadius(mod.type)
       if (r <= 0) return
       const ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       // Match the model's foot plane. A blob sunk into the block becomes visible
