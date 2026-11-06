@@ -457,6 +457,26 @@ test('guidepost moves and undo retain their ink and geometry while label changes
   assert.equal(selectionDisposed,1)
 }))
 
+test('moving hides only the picked contact shadow and restores it on cancel or drop', () => withDrawing(({ modules }) => {
+  const benches = [createModule('bench', 0, 0, 0, 'a'), createModule('bench', 2, 0, 0, 'b')]
+  const before = station(benches)
+  modules.buildModules(before, new Set())
+  const blob = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
+  const matrix = index => { const m = new THREE.Matrix4(); blob.getMatrixAt(index, m); return m }
+  const original = matrix(0).clone(), other = matrix(1).clone()
+  modules.setMovingModule('a')
+  assert.equal(matrix(0).elements[0], 0)
+  assert.deepEqual(matrix(1).elements, other.elements)
+  modules.setMovingModule(null)
+  assert.deepEqual(matrix(0).elements, original.elements)
+  modules.setMovingModule('a')
+  modules.buildModules({ ...before, modules: [{ ...benches[0], x: 4 }, benches[1]] }, new Set(), true)
+  modules.setMovingModule(null)
+  assert.equal(matrix(0).elements[12], 4.5)
+  assert.notEqual(matrix(0).elements[0], 0)
+  assert.deepEqual(matrix(1).elements, other.elements)
+}))
+
 test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules, ctx }) => {
   const benches = Array.from({ length: 3 }, (_, i) => createModule('bench', i * 2, 0, 0, `bench-${i}`))
   const upper = createModule('bench', 0, 0, 5, 'upper')

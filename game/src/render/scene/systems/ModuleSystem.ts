@@ -148,10 +148,18 @@ export class ModuleSystem extends SceneSystem {
   private movingModuleId: string | null = null
   private movingRoot: THREE.Object3D | null = null
   private movingVisible = false
+  private movingBlob: { mesh: THREE.InstancedMesh; index: number; matrix: THREE.Matrix4 } | null = null
   private previewRoots: readonly THREE.Object3D[] = []
   private previewVisibility = new Map<THREE.Object3D, boolean>()
 
   restoreMovingModule(): void {
+    if (this.movingBlob) {
+      const { mesh, index, matrix } = this.movingBlob
+      mesh.setMatrixAt(index, matrix)
+      mesh.instanceMatrix.addUpdateRange(index * 16, 16)
+      mesh.instanceMatrix.needsUpdate = true
+      this.movingBlob = null
+    }
     if (this.movingRoot) this.movingRoot.visible = this.movingVisible
     this.movingRoot = null
     for (const [root, visible] of this.previewVisibility) root.visible = visible
@@ -180,6 +188,19 @@ export class ModuleSystem extends SceneSystem {
       this.movingRoot = root
       this.movingVisible = root.visible
       root.visible = false
+    }
+    if (this.movingModuleId !== null) for (const child of this.moduleMeshes.children) {
+      const ids = child.userData.contactBlobIds as string[] | undefined
+      const index = ids?.indexOf(this.movingModuleId) ?? -1
+      if (index < 0) continue
+      const mesh = child as THREE.InstancedMesh
+      const matrix = new THREE.Matrix4()
+      mesh.getMatrixAt(index, matrix)
+      this.movingBlob = { mesh, index, matrix }
+      mesh.setMatrixAt(index, new THREE.Matrix4().makeScale(0, 0, 0))
+      mesh.instanceMatrix.addUpdateRange(index * 16, 16)
+      mesh.instanceMatrix.needsUpdate = true
+      break
     }
     for (const preview of this.previewRoots) {
       if (preview === root) continue // The moving piece already owns its saved visibility.
@@ -269,6 +290,7 @@ export class ModuleSystem extends SceneSystem {
    * to rebuild one board's model while retaining everything else.
    */
   buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    this.restoreMovingModule()
     this.retainedBatches=false
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
@@ -371,10 +393,10 @@ export class ModuleSystem extends SceneSystem {
       lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
       owned: this.ctx.ownedMats,
     }
-    const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]> }>()
+    const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]>; ids: string[] }>()
     if (appendOnly) for (const [key, inst] of contactBlobs) {
       blobsByKey.set(key, { levelZ: inst.userData.levelZs[0], ground: inst.userData.groundBand,
-        blobs: [...inst.userData.contactBlobValues] })
+        blobs: [...inst.userData.contactBlobValues], ids: [...inst.userData.contactBlobIds] })
     }
     const addBlob = (mod: Module): void => {
       const r = isCeilingHung(mod) || (mod.type === 'exit' && mod.cfg.style === 'doorway') ? 0 : blobRadius(mod.type)
@@ -384,8 +406,8 @@ export class ModuleSystem extends SceneSystem {
       // through a triangular block's cut face instead of grounding the equipment.
       const blob: [number,number,number,number]=[mod.x+.5,mod.y+.5,mod.z+1+.012,r]
       const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
-      if(entry)entry.blobs.push(blob)
-      else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob]})
+      if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
+      else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
     }
     for (const mod of data.modules) {
       if (appendOnly && kept.has(mod.id)) continue
@@ -530,6 +552,7 @@ export class ModuleSystem extends SceneSystem {
       }
       if (changed) inst.instanceMatrix.needsUpdate = true
       inst.userData.contactBlobValues = blobs
+      inst.userData.contactBlobIds = entry.ids
       inst.count = blobs.length
       if (inst.parent !== this.moduleMeshes) this.moduleMeshes.add(inst)
     }
