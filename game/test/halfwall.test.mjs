@@ -215,6 +215,27 @@ function panel(side, cells = [{ x: 1, y: 1, z: 0, fill: 'solid' }], finishes = n
 
 const near = (a, b) => Math.abs(a - b) < 1e-6
 
+/** Area of the triangles facing `[nx,ny,nz]` on one axis-aligned plane. */
+function faceAreaAt(chunk, nx, ny, nz, axis, coord) {
+  const ax = axis === 'x' ? 0 : axis === 'y' ? 1 : 2
+  let area = 0
+  for (const part of chunk.parts) {
+    for (let i = 0; i < part.indices.length; i += 3) {
+      const a = part.indices[i]
+      const b = part.indices[i + 1]
+      const c = part.indices[i + 2]
+      if (Math.abs(part.normals[a * 3] - nx) > 1e-6 || Math.abs(part.normals[a * 3 + 1] - ny) > 1e-6 || Math.abs(part.normals[a * 3 + 2] - nz) > 1e-6) continue
+      if (Math.abs(part.positions[a * 3 + ax] - coord) > 1e-6) continue
+      const p = (j) => [part.positions[j * 3], part.positions[j * 3 + 1], part.positions[j * 3 + 2]]
+      const A = p(a), B = p(b), C = p(c)
+      const u = [B[0] - A[0], B[1] - A[1], B[2] - A[2]]
+      const v = [C[0] - A[0], C[1] - A[1], C[2] - A[2]]
+      area += Math.hypot(u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]) / 2
+    }
+  }
+  return area
+}
+
 test('the mesher draws a 半墙 half a block thick, in the half its side names', () => {
   // Every side keeps its own half of the tile: the panel is always HALF_WALL_T
   // through, and always the full cell along the wall and the full storey up.
@@ -245,6 +266,35 @@ test('two columns of one run join, and the panel keeps its own faces', () => {
   const run = panel('w', cells, new Map(), [[1, 1, 0], [1, 2, 0]])
   assert.ok(near(run.lo[0], 1) && near(run.hi[0], 1 + HALF_WALL_T), 'the panel is one thickness')
   assert.ok(near(run.lo[1], 1) && near(run.hi[1], 3), `two columns should run the whole way, got ${run.lo[1]}..${run.hi[1]}`)
+})
+
+test('a block beside or past a 半墙 keeps the face its clear half leaves open', () => {
+  // The panel hugs its `side`, so the opposite half of the cell is clear. A block
+  // touching that clear half — or the end of a run — must draw its own face:
+  // culling it as if the panel filled the whole cell left a hole into the block
+  // behind the wall (and a vertical slot at the end of a run).
+  const cells = [
+    { x: 5, y: 5, z: 0, fill: 'solid' }, // the 半墙, hugging west (clear half east)
+    { x: 6, y: 5, z: 0, fill: 'solid' }, // behind the clear half
+    { x: 5, y: 6, z: 0, fill: 'solid' }, // past the run's north end
+    { x: 4, y: 5, z: 0, fill: 'solid' }, // flush against the panel's outer face
+  ]
+  const thin = new Map([[packKey(5, 5, 0), { kind: 'half', side: 'w' }]])
+  const chunk = meshChunk(buildSolidSet(cells), new Map(), 0, 0, 0, 0, undefined, undefined, cells, thin)
+  assert.ok(faceAreaAt(chunk, -1, 0, 0, 'x', 6) > 0.99, 'the block behind the clear half draws its face')
+  assert.ok(faceAreaAt(chunk, 0, -1, 0, 'y', 6) > 0.99, 'the block past the run draws its face')
+  // Flush is still flush: the panel covers that square, so the block does not
+  // draw a second face on its own plane.
+  assert.equal(faceAreaAt(chunk, 1, 0, 0, 'x', 5), 0, 'the flush side stays interior')
+  // A same-side run stays one continuous panel: its ridge interface draws nothing.
+  const joined = meshChunk(
+    buildSolidSet([floor(5, 5), floor(5, 6)]),
+    new Map(),
+    0, 0, 0, 0,
+    undefined, undefined, [floor(5, 5), floor(5, 6)],
+    new Map([[packKey(5, 5, 0), { kind: 'half', side: 'w' }], [packKey(5, 6, 0), { kind: 'half', side: 'w' }]]),
+  )
+  assert.equal(faceAreaAt(joined, 0, -1, 0, 'y', 6), 0, 'the ridge interface between two courses stays interior')
 })
 
 test('a painted face of a 半墙 colours the surface it names, not the whole panel', () => {

@@ -635,14 +635,17 @@ export function meshChunk(
   /**
    * Does the neighbour cell fully cover the square it shares with the current
    * one — i.e. is the interface interior with nothing to draw? A whole block
-   * (and, to keep their runs seamless, a 半墙 panel) always does; a 三角 does
-   * only when its full-height face is the interface (`side` facing the current
-   * cell). Anything else — a thin edge, a triangular end — leaves part of the
-   * square open, so the current cell must still draw its side there. Without
-   * this a full block beside a wedge culls the very face the wedge leaves
-   * exposed, which is the black hole in the report.
+   * always does; a 三角 does only when its full-height face is the interface
+   * (`side` facing the current cell). A 半墙 panel is only flush where its own
+   * side faces the cell (`side === facing`); every other side leaves part of
+   * the square open — the panel's clear half — so the current cell must still
+   * draw its side there. The one exception is a run of same-side panels: their
+   * ridge interface lies inside the continuous panel and stays interior, which
+   * is what keeps a dragged 半墙 one wall instead of a row of separate panels.
+   * Without this the block behind a 半墙 culled the very face its clear half
+   * leaves exposed, and the end of a run showed a hole into the block behind.
    */
-  const coversSide = (nx: number, ny: number, nz: number, facing: 'e' | 'w' | 'n' | 's', current?: BlockInset): boolean => {
+  const coversSide = (nx: number, ny: number, nz: number, facing: 'e' | 'w' | 'n' | 's', current?: BlockInset, currentShape?: CellShape): boolean => {
     const neighbor = insets?.get(key(nx, ny, nz))
     if (neighbor) {
       if ((facing === 'e' && neighbor.x1 < 1) || (facing === 'w' && neighbor.x0 > 0) ||
@@ -654,12 +657,18 @@ export function meshChunk(
     const shape = thin?.get(key(nx, ny, nz))
     if (slope?.has(key(nx, ny, nz))) return false
     if (shape === undefined) return true
-    if (shape.kind === 'half') return true
-    return shape.side === facing
+    if (shape.kind === 'triangle') return shape.side === facing
+    if (shape.side === facing) return true
+    // A panel hugs `side`; a facing across the run is along its ridge. Two
+    // courses of one run share that plane through their own thickness, so it is
+    // interior. Any other neighbour (a full block beside the run, the clear
+    // half's neighbour) must draw its face to close the panel's open half.
+    const ridge = shape.side === 'e' || shape.side === 'w' ? facing === 'n' || facing === 's' : facing === 'e' || facing === 'w'
+    return ridge && currentShape?.kind === 'half' && currentShape.side === shape.side
   }
   /** A side is drawn unless a covering block stands against it. */
   const sideOpen = (_x: number, _y: number, _z: number, nx: number, ny: number, facing: 'e' | 'w' | 'n' | 's'): boolean =>
-    !isSolid(nx, ny, _z) || !coversSide(nx, ny, _z, facing, insets?.get(key(_x, _y, _z)))
+    !isSolid(nx, ny, _z) || !coversSide(nx, ny, _z, facing, insets?.get(key(_x, _y, _z)), thin?.get(key(_x, _y, _z)))
 
   // Faces are sorted into one builder per finish, so a chunk yields a handful of
   // parts (one per material) instead of one part repainted per face. A dense
