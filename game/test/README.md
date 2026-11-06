@@ -135,8 +135,11 @@ with fresh meshes in all rotations, including street-window expansion and undo.
 
 `placement-surface` pins low-angle visible beam targeting ahead of distant ground,
 fresh preview/click/move/undo agreement for supported props, one shared raycast,
-nearer-block occlusion, hidden-source exclusion and unchanged unsupported-host
-surface cells. `check-geometry-snapping.mjs` drives the same low-angle beam case
+nearer-block occlusion, hidden-source exclusion, unchanged unsupported-host
+surface cells, and that a decor aimed at the drawn top of a 人行道 / 草坪 tile
+keeps the tile's own column instead of the air cell the 0.1 m finish steps above.
+An actual sidewalk mesh also exercises the picker, placement and move verdict.
+`check-geometry-snapping.mjs` drives the same low-angle beam case
 with real production pointer events across three editing bases.
 The production check also verifies block, wall, rail and tunnel hover picks on the
 visible beam instead of distant ground.

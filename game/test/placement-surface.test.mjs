@@ -9,6 +9,7 @@ import { EquipmentTool } from '../src/app/tools/EquipmentTool.ts'
 import { moveCandidate } from '../src/sim/placement.ts'
 import { hangerSupports } from '../src/sim/hangers.ts'
 import { useStore } from '../src/app/store.ts'
+import { OutdoorSurfaceModel } from '../src/render/models/pieces/OutdoorSurfaceModel.ts'
 
 test('low-angle beam hit wins over distant ground for fresh placement and moving, with one shared raycast', () => {
   const previous = useStore.getState(), { cam } = cameraRig()
@@ -63,6 +64,54 @@ test('low-angle beam hit wins over distant ground for fresh placement and moving
     assert.equal(cam.pick(640, 410, 11, true).moduleId, undefined, 'hidden modules cannot attract placement')
     occluder.geometry.dispose()
   } finally { useStore.setState(previous); cam.dispose(); beam.geometry.dispose(); floor.geometry.dispose(); material.dispose() }
+})
+
+test('the pavement top keeps decor in the tile column instead of the air cell above it', () => {
+  for (const type of ['sidewalk', 'lawn']) {
+    const surface = createModule(type, 2, 3, 0, 'surface')
+    const station = { modules: [surface] }
+    // What `pickCells` hands a top-face hit on the drawn tile: the 0.1 m finish
+    // reads as a block one cell up, so the raw place cell is the air above it.
+    const hit = { moduleId: surface.id, cell: [2, 3, 1], place: [2, 3, 2], normal: [0, 0, 1], solid: true, point: [2.5, 3.5, 1.1] }
+    for (const piece of ['bench', 'tree', 'bin', 'tvm', 'light']) {
+      const aimed = placementSurface(station, piece, hit)
+      assert.deepEqual(aimed.cell, [2, 3, 0], `${type} ${piece}: the tile's own column`)
+      assert.deepEqual(aimed.place, [2, 3, 0])
+      assert.deepEqual(moduleAim({ ...station, cells: [], levelBase: 0, storeyHeight: 5 }, piece, aimed), [2, 3, 0], `${type} ${piece}: the candidate stands on the pavement`)
+    }
+    // A side hit is a neighbour placement, not a tile-column target.
+    const side = { ...hit, cell: [2, 3, 0], place: [2, 2, 0], normal: [0, -1, 0], point: [2.5, 3, 0.05] }
+    assert.equal(placementSurface(station, 'bench', side), side)
+  }
+})
+
+test('a real pavement mesh supports fresh placement and a moved decor drop', () => {
+  const previous = useStore.getState(), { cam } = cameraRig()
+  const surface = createModule('sidewalk', 2, 3, 0, 'surface')
+  const station = { name: 'pavement', seed: 1, cells: [], modules: [surface], lines: [], storeyHeight: 5, levelBase: 0 }
+  const root = new THREE.Group(); root.userData = { moduleId: surface.id, moduleType: surface.type }
+  const model = new OutdoorSurfaceModel({ data: station, mats: {}, owned: [] }).build(surface)
+  model.position.set(2, 3, 1); root.add(model)
+  const modules = new THREE.Group(); modules.add(root); modules.updateMatrixWorld(true)
+  cam.modules = { moduleMeshes: modules }; cam.setPickables([])
+  cam.camera.position.set(2.5, 3.5, 10); cam.camera.up.set(0, 1, 0)
+  cam.camera.lookAt(2.5, 3.5, 0); cam.camera.updateMatrixWorld(true)
+  try {
+    const raw = cam.pick(640, 410, 0, true)
+    assert.equal(raw.moduleId, surface.id)
+    assert.deepEqual(raw.cell, [2, 3, 1])
+    const hit = placementSurface(station, 'bin', raw)
+    assert.deepEqual(moduleAim(station, 'bin', hit), [2, 3, 0])
+    useStore.setState({ station: toState(station), moduleType: 'bin', moduleRot: 0, past: [], future: [] })
+    new EquipmentTool({}).placeModule(hit.cell, hit.place, hit.solid, 'bin')
+    const placed = useStore.getState().station.modules.find(m => m.type === 'bin')
+    assert.ok(placed)
+    assert.deepEqual([placed.x, placed.y, placed.z], [2, 3, 0])
+    const [x, y, z] = moduleAim(station, placed, hit)
+    const moved = moveCandidate([], [surface], { ...placed, x: 8 }, { x, y, z }, 0)
+    assert.equal(moved.reason, '')
+    assert.deepEqual([moved.module.x, moved.module.y, moved.module.z], [2, 3, 0])
+  } finally { useStore.setState(previous); cam.dispose() }
 })
 
 test('non-hanger objects keep their visible surface cell instead of inventing support behind them', () => {
