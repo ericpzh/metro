@@ -1,6 +1,7 @@
 import { normalizeCityStyle, type CityStyle } from '../../../sim/cityStyles.ts'
 import { msg } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
+import { clearContactFinishes } from '../../../sim/contactFinishes.ts'
 // The station-document slice: the document itself, the undo stack, the
 // selection, the transient toast, and opening/saving/renaming/reference
 // stations. Every mutation goes through `commit` so the worker (`rebuildSim`)
@@ -204,6 +205,10 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     if (next === cur) return
     const settingsOnly = populationEdit(cur, next)
     if (!settingsOnly) next = syncBridgePillars(next)
+    if (next.cells !== cur.cells) {
+      const cells = clearContactFinishes(next.cells)
+      if (cells !== next.cells) next = { ...next, cells }
+    }
     // Documents are immutable (the renderer and placement caches rely on this).
     // Keep that same ownership contract through structural history as well:
     // cloning every module/cell adds work and discards reusable derived indexes.

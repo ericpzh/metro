@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { clearContactFinishes } from '../src/sim/contactFinishes.ts'
 import { readFileSync } from 'node:fs'
 import * as THREE from 'three'
 import { parse, serialize } from '../src/persistence/save.ts'
@@ -55,7 +56,7 @@ test('the five-metre save opens without moving its authored blocks', () => {
   const result = parse(source)
   assert.ok(result.ok)
   assert.equal(result.state.storeyHeight, 5)
-  assert.deepEqual(result.state.cells, original.static.cells)
+  assert.deepEqual(result.state.cells, clearContactFinishes(original.static.cells))
   assert.deepEqual(result.state.modules.map(m => [m.id, m.x, m.y, m.z]), original.static.modules.map(m => [m.id, m.x, m.y, m.z]))
   assert.equal(parse(serialize(result.state)).state.storeyHeight, 5)
 })

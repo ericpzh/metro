@@ -8,6 +8,7 @@ import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
 import { toData, toStateRepairing } from '../src/build/model.ts'
+import { clearContactFinishes } from '../src/sim/contactFinishes.ts'
 
 function reachable(g, starts) {
   const seen = new Uint8Array(g.nodeCount)
@@ -30,7 +31,7 @@ test('both authored demos load without dropping or moving cells and modules', ()
     assert.equal(data.cells.length, cells, id)
     assert.equal(data.modules.length, modules, id)
     assert.equal(loaded.droppedCells + loaded.droppedModules, 0, id)
-    assert.deepEqual(loaded.state.cells, data.cells, `${id}: authored blocks stay in place`)
+    assert.deepEqual(loaded.state.cells, clearContactFinishes(data.cells), `${id}: authored blocks stay in place`)
     assert.deepEqual(loaded.state.modules, data.modules, `${id}: authored equipment stays in place`)
     assert.ok(toData(loaded.state).lines.every(line => line.modelScale === 0.98))
   }
@@ -48,7 +49,7 @@ test('no demo carries a zone label on a ceiling plate', () => {
     const labelled = data.cells.filter((c) => ceiling(c) && (c.zone !== undefined || c.room !== undefined))
     assert.deepEqual(labelled, [], `${id}: ${labelled.length} ceiling plates still carry a zone label`)
     const loaded = toStateRepairing(data)
-    assert.deepEqual(loaded.state.cells, data.cells, `${id}: the load path had to clean the shipped file`)
+    assert.deepEqual(loaded.state.cells, clearContactFinishes(data.cells), `${id}: the load path had to clean ceiling labels`)
   }
 })
 

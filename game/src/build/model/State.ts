@@ -15,6 +15,7 @@ import { ensureRoomFurniture } from './Facilities.ts';
 import { repairGrid } from './Grid.ts';
 import { syncBridgePillars } from './BridgePillars.ts';
 import { clearCeilingZoneLabels } from './Zones.ts';
+import { clearContactFinishes } from '../../sim/contactFinishes.ts';
 
 export interface StationState {
   cityStyle: CityStyle;
@@ -72,7 +73,7 @@ function toStateFrom(data: StationData, repaired: ReturnType<typeof repairGrid>)
     // be cleaned from inside the game (`repairGrid`). A zone label sitting on a
     // ceiling plate — dead paint no overlay draws, which the 分区 brush could not
     // even reach to erase — goes the same way (§4.5, `clearCeilingZoneLabels`).
-    cells: clearCeilingZoneLabels(repaired.cells.map(cloneCell)),
+    cells: clearContactFinishes(clearCeilingZoneLabels(repaired.cells.map(cloneCell))),
     // A save written before ad screens carried a poster (or the demo) gets one
     // printed now, so a loaded station shows the same campaign on every frame
     // instead of re-rolling it at draw time.

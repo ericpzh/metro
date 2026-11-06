@@ -74,7 +74,8 @@ test('custom paint colours retain their look on every face through save and mesh
   state = paintFace(state, 2, 0, 0, 'n', green)
   const loaded = parse(serialize(state))
   assert.equal(loaded.ok, true)
-  for (const face of ['top', 'bottom', 'n', 'e', 's', 'w']) assert.equal(finishOf(loaded.state.cells[0], face), red)
+  for (const face of ['top', 'bottom', 'n', 's', 'w']) assert.equal(finishOf(loaded.state.cells[0], face), red)
+  assert.equal(loaded.state.cells[0].finish.e, undefined, 'the face touching the next block is cleaned')
   const cells = loaded.state.cells
   const chunk = meshChunk(buildSolidSet(cells), finishMapOf(cells), 0, 0, 0)
   const finishes = new Set(chunk.parts.map((p) => p.finish))
