@@ -364,6 +364,7 @@ first and warmed interactions in the
 
 | Work | Skill |
 |---|---|
+| Gameplay demo video planning, recordings, retakes, Studio captions, audio and regeneration (`tools/demo-video*`, `video/`) | [metro-video](../metro-video/SKILL.md) |
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
 | Adding, running or fixing tests under `game/test` | `metro-game-test` |
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |

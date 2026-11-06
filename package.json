@@ -5,6 +5,8 @@
   "description": "Root tooling for the Station Designer concept-art site. The site itself lives in web/ and is deployed to Cloudflare Workers as static assets.",
   "type": "module",
   "scripts": {
+    "video:demo": "node tools/demo-video.mjs",
+    "video:plan": "node tools/demo-video.mjs --plan",
     "setup": "npm --prefix web ci",
     "start": "npm run dev:all",
     "dev:all": "node tools/dev-services.mjs",

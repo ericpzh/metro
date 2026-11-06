@@ -1,0 +1,10 @@
+{
+  "description": "P1 east/south exterior looking west → P2 west/south interior looking east",
+  "from": {"azimuth": 122, "radius": 39, "height": 6, "target": [22, 0, 4]},
+  "to": {"azimuth": 215, "radius": 38, "height": 6, "target": [17, 0, 4]},
+  "fov": 30,
+  "westwardPan": 3,
+  "westwardPanFrom": 0.6,
+  "frameSeconds": 48,
+  "endingHoldSeconds": 16
+}

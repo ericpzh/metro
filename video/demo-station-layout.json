@@ -1,0 +1,544 @@
+{
+  "format": "metro-video-layout",
+  "version": 1,
+  "save": "C:\\Users\\ericp\\Desktop\\metro\\video\\demo-station.metro.json",
+  "actions": [
+    {
+      "index": 0,
+      "catalogueId": "stair-rightForward",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 1,
+      "catalogueId": "stair-left180",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 2,
+      "catalogueId": "stair-right180",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 3,
+      "catalogueId": "stair-centerForward",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 4,
+      "catalogueId": "stair-left90",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 5,
+      "catalogueId": "stair-right90",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 6,
+      "catalogueId": "stair-straight",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": false
+    },
+    {
+      "index": 7,
+      "catalogueId": "stair-leftForward",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-7"
+      ],
+      "retained": true
+    },
+    {
+      "index": 8,
+      "catalogueId": "escalator",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-8"
+      ],
+      "retained": true
+    },
+    {
+      "index": 9,
+      "catalogueId": "shelf-cooler",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-9"
+      ],
+      "retained": true
+    },
+    {
+      "index": 10,
+      "catalogueId": "shelf-cooler-dark",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-10"
+      ],
+      "retained": true
+    },
+    {
+      "index": 11,
+      "catalogueId": "shelf-white-tall",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-11"
+      ],
+      "retained": true
+    },
+    {
+      "index": 12,
+      "catalogueId": "shelf-dark-tall",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-12"
+      ],
+      "retained": true
+    },
+    {
+      "index": 13,
+      "catalogueId": "shelf-wire",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-13"
+      ],
+      "retained": true
+    },
+    {
+      "index": 14,
+      "catalogueId": "shelf-white-short",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-14"
+      ],
+      "retained": true
+    },
+    {
+      "index": 15,
+      "catalogueId": "checkout",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-15"
+      ],
+      "retained": true
+    },
+    {
+      "index": 16,
+      "catalogueId": "checkout",
+      "action": "place",
+      "zone": "shop",
+      "moduleIds": [
+        "video-placed-16"
+      ],
+      "retained": true
+    },
+    {
+      "index": 17,
+      "catalogueId": "cubicle",
+      "action": "place",
+      "zone": "restroom",
+      "moduleIds": [
+        "video-placed-17"
+      ],
+      "retained": true
+    },
+    {
+      "index": 18,
+      "catalogueId": "cubicle-toilet",
+      "action": "place",
+      "zone": "restroom",
+      "moduleIds": [
+        "video-placed-18"
+      ],
+      "retained": true
+    },
+    {
+      "index": 19,
+      "catalogueId": "sink",
+      "action": "place",
+      "zone": "restroom",
+      "moduleIds": [
+        "video-placed-19"
+      ],
+      "retained": true
+    },
+    {
+      "index": 20,
+      "catalogueId": "urinal",
+      "action": "place",
+      "zone": "restroom",
+      "moduleIds": [
+        "video-placed-20"
+      ],
+      "retained": true
+    },
+    {
+      "index": 21,
+      "catalogueId": "lift",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-21"
+      ],
+      "retained": true
+    },
+    {
+      "index": 22,
+      "catalogueId": "lift",
+      "action": "extend",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-21"
+      ],
+      "retained": true
+    },
+    {
+      "index": 23,
+      "catalogueId": "electrical-cabinet",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-23"
+      ],
+      "retained": true
+    },
+    {
+      "index": 24,
+      "catalogueId": "extinguisher-glass",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-24"
+      ],
+      "retained": true
+    },
+    {
+      "index": 25,
+      "catalogueId": "cctv-dome",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-25"
+      ],
+      "retained": true
+    },
+    {
+      "index": 26,
+      "catalogueId": "clock",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-26"
+      ],
+      "retained": true
+    },
+    {
+      "index": 27,
+      "catalogueId": "cctv-ptz",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-27"
+      ],
+      "retained": true
+    },
+    {
+      "index": 28,
+      "catalogueId": "cctv",
+      "action": "place",
+      "zone": "services",
+      "moduleIds": [
+        "video-placed-28"
+      ],
+      "retained": true
+    },
+    {
+      "index": 29,
+      "catalogueId": "tvm",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-29"
+      ],
+      "retained": true
+    },
+    {
+      "index": 30,
+      "catalogueId": "tvm",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-30"
+      ],
+      "retained": true
+    },
+    {
+      "index": 31,
+      "catalogueId": "tvm",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-31"
+      ],
+      "retained": true
+    },
+    {
+      "index": 32,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-32"
+      ],
+      "retained": true
+    },
+    {
+      "index": 33,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-33"
+      ],
+      "retained": true
+    },
+    {
+      "index": 34,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-34"
+      ],
+      "retained": true
+    },
+    {
+      "index": 35,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-35"
+      ],
+      "retained": true
+    },
+    {
+      "index": 36,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-36"
+      ],
+      "retained": true
+    },
+    {
+      "index": 37,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-37"
+      ],
+      "retained": true
+    },
+    {
+      "index": 38,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-38"
+      ],
+      "retained": true
+    },
+    {
+      "index": 39,
+      "catalogueId": "gate-new",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-39"
+      ],
+      "retained": true
+    },
+    {
+      "index": 40,
+      "catalogueId": "vending",
+      "action": "place",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-40"
+      ],
+      "retained": true
+    },
+    {
+      "index": 41,
+      "catalogueId": "bench-seat-1",
+      "action": "place",
+      "zone": "details",
+      "moduleIds": [
+        "video-placed-41"
+      ],
+      "retained": true
+    },
+    {
+      "index": 42,
+      "catalogueId": "bin",
+      "action": "place",
+      "zone": "details",
+      "moduleIds": [
+        "video-placed-42"
+      ],
+      "retained": true
+    },
+    {
+      "index": 43,
+      "catalogueId": "walkway",
+      "action": "place",
+      "zone": "circulation",
+      "moduleIds": [
+        "video-placed-43"
+      ],
+      "retained": true
+    },
+    {
+      "index": 44,
+      "catalogueId": "tactile-guide",
+      "action": "drag",
+      "zone": "details",
+      "moduleIds": [
+        "video-placed-44-0",
+        "video-placed-44-1",
+        "video-placed-44-2"
+      ],
+      "retained": true
+    },
+    {
+      "index": 45,
+      "catalogueId": "tactile-warning",
+      "action": "place",
+      "zone": "details",
+      "moduleIds": [
+        "video-placed-45"
+      ],
+      "retained": true
+    },
+    {
+      "index": 46,
+      "catalogueId": "fence-iron",
+      "action": "drag",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-46-0",
+        "video-placed-46-1",
+        "video-placed-46-2",
+        "video-placed-46-3",
+        "video-placed-46-4",
+        "video-placed-46-5",
+        "video-placed-46-6",
+        "video-placed-46-7",
+        "video-placed-46-8"
+      ],
+      "retained": true
+    },
+    {
+      "index": 47,
+      "catalogueId": "fence-iron",
+      "action": "drag",
+      "zone": "ticketing",
+      "moduleIds": [
+        "video-placed-47-0",
+        "video-placed-47-1",
+        "video-placed-47-2",
+        "video-placed-47-3",
+        "video-placed-47-4",
+        "video-placed-47-5",
+        "video-placed-47-6",
+        "video-placed-47-7"
+      ],
+      "retained": true
+    },
+    {
+      "index": 48,
+      "catalogueId": "ac-unit",
+      "action": "place",
+      "zone": "forecourt",
+      "moduleIds": [
+        "video-placed-48"
+      ],
+      "retained": true
+    },
+    {
+      "index": 49,
+      "catalogueId": "tree",
+      "action": "place",
+      "zone": "forecourt",
+      "moduleIds": [
+        "video-placed-49"
+      ],
+      "retained": true
+    },
+    {
+      "index": 50,
+      "catalogueId": "busstop-long",
+      "action": "place",
+      "zone": "forecourt",
+      "moduleIds": [
+        "video-placed-50"
+      ],
+      "retained": true
+    },
+    {
+      "index": 51,
+      "catalogueId": "cctv-post",
+      "action": "place",
+      "zone": "forecourt",
+      "moduleIds": [
+        "video-placed-51"
+      ],
+      "retained": true
+    }
+  ]
+}

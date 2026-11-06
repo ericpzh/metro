@@ -83,6 +83,14 @@ dev-server path.
 `game/README.md` covers the milestones, the simulation's time base, and the
 places where the vertical slice deliberately diverges from the spec.
 
+Regenerate the 72-second, 2560×1440 gameplay demo with `npm run video:demo`; use
+`npm run video:plan` to inspect its scene plan first. It records both shipped
+stations, coloured walls, close-up station furnishing and real building at 8×. The closing montage run combines furnishing, city styles and a four-second train sequence, then mixes the game's
+approved music and sounds. See [the video runbook](tools/demo-video/README.md)
+for capture requirements, individual retakes, bilingual titles and output files.
+The [metro-video skill](.agents/skills/metro-video/SKILL.md) guides future generation, regeneration and edits.
+The editable recording station is [video/demo-station.metro.json](video/demo-station.metro.json). Existing working saves are preserved when recordings regenerate; [the layout handoff](video/README.md) explains how to update object positions after editing.
+
 
 ## The model library
 
