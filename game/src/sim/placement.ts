@@ -1854,6 +1854,10 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     // fit underneath in either placement order, while other equipment still collides.
     if ((isFloorSticker(m) && candidate.type === 'fence' && candidate.cfg.variant === 'gate')
       || (isFloorSticker(candidate) && m.type === 'fence' && m.cfg.variant === 'gate')) continue
+    // Covers can meet or overlap at screen-door corners, even when their
+    // separately fitted spans cross. Neither cover obstructs the other.
+    if (m.type === 'psd-end' && m.cfg.variant === 'cover' &&
+      candidate.type === 'psd-end' && candidate.cfg.variant === 'cover') continue
     if (isPsdCornerPair(m, candidate) || isPsdEndJoin(m, candidate) || isPsdEndCoverSupport(m, candidate)) continue
     if (isTvPair(m, candidate)) continue
     if (isHangingShare(m, candidate)) continue

@@ -5,7 +5,7 @@ import { createModule, toState } from '../src/build/model.ts'
 import { emptyStation } from '../src/data/reference-station.ts'
 import { isPsdEndCoverSupport, psdEndSpan, snapPsdEnd, snapPsdEndCover } from '../src/sim/psdEnds.ts'
 import { edgeCells, rotateLocal } from '../src/sim/track.ts'
-import { moduleEnvelope, equipmentReason, moduleFootprint, placementBlocked, moveCandidate, movedModule, blockReason } from '../src/sim/placement.ts'
+import { moduleEnvelope, equipmentReason, moduleFootprint, placementBlocked, placementColliders, moveCandidate, movedModule, blockReason } from '../src/sim/placement.ts'
 import { buildGraph } from '../src/sim/station.ts'
 import { useStore, placementPreviewKey, folderTiles } from '../src/app/store.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
@@ -269,6 +269,33 @@ test('corner covers clear the covered PSD at both endpoints, track sides and eve
     assert.ok(cover.cfg.width > 0 && cover.cfg.depth > 0)
     assert.equal(equipmentReason([], [s, end, ...run], cover, true), '', `rotation ${rot}, ${side}, endpoint ${at}`)
   }
+})
+
+test('Tianhe corner covers do not obstruct each other in either placement order', () => {
+  const s = { ...screen(1, 'right', 'full'), id: 'edge-track-13-right', x: 3, y: -70, z: -10, w: 117 }
+  const end = { ...panel(0, 'full'), id: 'psd-end-248', x: 3, y: -70, z: -10,
+    cfg: { psd: 'full', offset: [0.16000000000000014, -0.15999999999999998], corner: s.id } }
+  const runCover = snapPsdEndCover(createModule('psd-end-cover', 3, -70, -10, 'run'), [s], [], s.id)
+  const cornerCover = snapPsdEndCover(createModule('psd-end-cover', 3, -70, -10, 'corner'), [s, end, runCover], [], end.id)
+  assert.ok(runCover && cornerCover)
+  assert.equal(equipmentReason([], [s, end, runCover], cornerCover, true), '')
+  assert.equal(equipmentReason([], [s, end, cornerCover], runCover, true), '')
+  const overlapping = { ...runCover, id: 'overlap' }
+  assert.deepEqual(placementColliders([runCover], overlapping), [], 'even overlapping covers never block each other')
+  const before = useStore.getState()
+  try {
+    useStore.setState({ station: toState({ ...emptyStation(), modules: [s, end, runCover] }), tool: 'module', moduleType: 'psd-end-cover', past: [], future: [] })
+    let preview, blocked
+    const scene = { setModulePreview(mods, refused) { preview = mods; blocked = refused }, setGhost() {}, setCursor() {}, setCollisionHighlight() {}, setFencePreview() {} }
+    const tool = new EquipmentTool({ scene: () => scene, pickModule: () => end.id, hover: { current: null }, drag: { current: null } })
+    const event = pointer()
+    event.hit = null
+    tool.onMove(event)
+    assert.equal(blocked, false)
+    assert.equal(preview[0].cfg.support, end.id)
+    tool.onDown(event)
+    assert.deepEqual(useStore.getState().station.modules.find(m => m.cfg?.support === end.id), preview[0])
+  } finally { useStore.setState(before) }
 })
 
 test('屏蔽门盖板 applies one tile when the ground is picked', () => {
