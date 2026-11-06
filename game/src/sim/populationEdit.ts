@@ -4,7 +4,7 @@ import type { StationData } from './types.ts'
 export interface PopulationEdit {
   lines: Array<{ id: string; alightPerTrain: number }>
   exits: Array<{ id: string; inRate: number; open?: boolean; name?: string }>
-  labels?: Array<{ id: string } & Partial<Pick<StationData['lines'][number], 'name' | 'colour' | 'upTerminus' | 'downTerminus' | 'upTerminusEn' | 'downTerminusEn'>>>
+  labels?: Array<{ id: string } & Partial<Pick<StationData['lines'][number], 'name' | 'colour' | 'upTerminus' | 'downTerminus' | 'upTerminusEn' | 'downTerminusEn' | 'upNextStation' | 'upNextStationEn' | 'downNextStation' | 'downNextStationEn'>>>
   station?: Pick<StationData, 'name' | 'nameEn' | 'cityStyle'>
   headways?: Array<{ id: string; headwayProfile: StationData['lines'][number]['headwayProfile'] }>
   settings?: Pick<StationData, 'service' | 'peaks' | 'demand' | 'calendar'>
@@ -34,12 +34,14 @@ export function populationEdit(before: StationData, after: StationData): Populat
   if (!same(bc, calendar)) (edit.settings ??= {}).calendar = calendar
   for (let i = 0; i < bl.length; i++) {
     if (bl[i] === al[i]) continue
-    const { alightPerTrain: old, headwayProfile: oldHeadway, name: on, colour: oc, upTerminus: ou, downTerminus: od, upTerminusEn: oue, downTerminusEn: ode, ...rest } = bl[i]
-    const { alightPerTrain: value, headwayProfile, name: nn, colour: nc, upTerminus: nu, downTerminus: nd, upTerminusEn: nue, downTerminusEn: nde, ...next } = al[i]
+    const { alightPerTrain: old, headwayProfile: oldHeadway, name: on, colour: oc, upTerminus: ou, downTerminus: od, upTerminusEn: oue, downTerminusEn: ode, upNextStation: op, upNextStationEn: ope, downNextStation: oq, downNextStationEn: oqe, ...rest } = bl[i]
+    const { alightPerTrain: value, headwayProfile, name: nn, colour: nc, upTerminus: nu, downTerminus: nd, upTerminusEn: nue, downTerminusEn: nde, upNextStation: np, upNextStationEn: npe, downNextStation: nq, downNextStationEn: nqe, ...next } = al[i]
     if (!same(rest, next)) return null
     if (old !== value) edit.lines.push({ id: al[i].id, alightPerTrain: value })
     if (!same(oldHeadway, headwayProfile)) (edit.headways ??= []).push({ id: al[i].id, headwayProfile })
-    if (!same([on,oc,ou,od,oue,ode],[nn,nc,nu,nd,nue,nde])) (edit.labels ??= []).push({ id: al[i].id,
+    if (!same([on,oc,ou,od,oue,ode,op,ope,oq,oqe],[nn,nc,nu,nd,nue,nde,np,npe,nq,nqe])) (edit.labels ??= []).push({ id: al[i].id,
+      ...(op !== np ? {upNextStation: np} : {}), ...(ope !== npe ? {upNextStationEn: npe} : {}),
+      ...(oq !== nq ? {downNextStation: nq} : {}), ...(oqe !== nqe ? {downNextStationEn: nqe} : {}),
       ...(on !== nn ? {name: nn} : {}), ...(oc !== nc ? {colour: nc} : {}),
       ...(oue !== nue ? {upTerminusEn: nue} : {}), ...(ode !== nde ? {downTerminusEn: nde} : {}),
       ...(ou !== nu ? {upTerminus: nu} : {}), ...(od !== nd ? {downTerminus: nd} : {}),

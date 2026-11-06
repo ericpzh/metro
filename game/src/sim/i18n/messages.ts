@@ -1940,6 +1940,8 @@ export const messages = {
     "zh": "删除线路",
     "en": "Delete line"
   },
+  "previous_station": { "zh": "上一站", "en": "Previous station" },
+  "next_station": { "zh": "下一站", "en": "Next station" },
   "up_terminus": {
     "zh": "上行终点",
     "en": "Up terminus"

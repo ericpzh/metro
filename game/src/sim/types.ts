@@ -813,6 +813,11 @@ export interface LineDef {
    */
   upTerminus: string
   downTerminus: string
+  /** Adjacent station in each travel direction, for PSD station plaques. */
+  upNextStation?: string
+  upNextStationEn?: string
+  downNextStation?: string
+  downNextStationEn?: string
   /** Optional secondary names for bilingual destination signage. */
   upTerminusEn?: string
   downTerminusEn?: string

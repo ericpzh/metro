@@ -72,3 +72,18 @@ test('secondary terminus names print beneath the destination in either direction
   }
   assert.equal(psdHeaderInfo(line, edge('up', 'left'), '').destinationEn, '')
 })
+
+
+test('adjacent station replaces only the station plaque destination for its direction', () => {
+  const configured = { ...line, upTerminusEn: 'Wenchong', downTerminusEn: 'Jiaokou',
+    upNextStation: '华景路', upNextStationEn: 'Huajing Road', downNextStation: '岗顶', downNextStationEn: 'Gangding' }
+  for (const [dir, name, english, terminus] of [['up', '华景路', 'Huajing Road', '文冲'], ['down', '岗顶', 'Gangding', '滘口']]) {
+    for (const side of ['left', 'right']) {
+      const info = psdHeaderInfo(configured, edge(dir, side), '动物园')
+      assert.deepEqual(printed('station', info).words.map(w => w.text), ['动物园', 'Zoo', name, english])
+      assert.ok(printed('route', info).words.some(w => w.text === terminus))
+    }
+  }
+  const fallback = psdHeaderInfo({ ...configured, upNextStation: '  ' }, edge('up', 'left'), '动物园')
+  assert.deepEqual(printed('station', fallback).words.map(w => w.text), ['动物园', 'Zoo', '文冲', 'Wenchong'])
+})

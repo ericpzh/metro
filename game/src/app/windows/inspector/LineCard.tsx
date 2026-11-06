@@ -27,14 +27,16 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
   const [upTerminusEn, setUpTerminusEn] = useState(line.upTerminusEn ?? '')
   const [downTerminus, setDownTerminus] = useState(line.downTerminus ?? '')
   const [downTerminusEn, setDownTerminusEn] = useState(line.downTerminusEn ?? '')
+  const [adjacent, setAdjacent] = useState({ up: line.upNextStation ?? '', upEn: line.upNextStationEn ?? '', down: line.downNextStation ?? '', downEn: line.downNextStationEn ?? '' })
   useEffect(() => {
+    setAdjacent({ up: line.upNextStation ?? '', upEn: line.upNextStationEn ?? '', down: line.downNextStation ?? '', downEn: line.downNextStationEn ?? '' })
     setName(line.name)
     setColour(line.colour)
     setUpTerminus(line.upTerminus ?? '')
     setUpTerminusEn(line.upTerminusEn ?? '')
     setDownTerminus(line.downTerminus ?? '')
     setDownTerminusEn(line.downTerminusEn ?? '')
-  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus, line.upTerminusEn, line.downTerminusEn])
+  }, [line.id, line.name, line.colour, line.upTerminus, line.downTerminus, line.upTerminusEn, line.downTerminusEn, line.upNextStation, line.upNextStationEn, line.downNextStation, line.downNextStationEn])
 
   const commitName = (): void => {
     const t = name.trim()
@@ -63,6 +65,11 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
       setDownTerminusEn(line.downTerminusEn ?? '')
       e.currentTarget.blur()
     }
+  }
+
+  const commitAdjacent = (): void => {
+    const patch = { upNextStation: adjacent.up.trim(), upNextStationEn: adjacent.upEn.trim(), downNextStation: adjacent.down.trim(), downNextStationEn: adjacent.downEn.trim() }
+    if (Object.entries(patch).some(([key, value]) => value !== (line[key as keyof typeof patch] ?? ''))) updateLine(line.id, patch)
   }
 
   return (
@@ -117,6 +124,16 @@ function LineFields({ line }: { line: LineDef }): React.ReactElement {
               aria-label={`${t(direction === 'up' ? 'up_terminus' : 'down_terminus')} · ${t('secondary_sign_text')}`}
               onChange={(e) => (direction === 'up' ? setUpTerminusEn : setDownTerminusEn)(e.target.value)}
               onBlur={commitTermini} onKeyDown={terminusKeys} />
+            <span className="muted small">{t(direction === 'up' ? 'previous_station' : 'next_station')}</span>
+            {([false, true] as const).map((english) => {
+              const key = `${direction}${english ? 'En' : ''}` as keyof typeof adjacent
+              const label = t(direction === 'up' ? 'previous_station' : 'next_station')
+              return <input key={key} className="lineNameInput" value={adjacent[key]}
+                maxLength={english ? 48 : 12} placeholder={t(english ? 'secondary_sign_text' : 'primary_sign_text')}
+                lang={english ? 'en' : undefined} aria-label={`${label} · ${t(english ? 'secondary_sign_text' : 'primary_sign_text')}`}
+                onChange={(e) => setAdjacent({ ...adjacent, [key]: e.target.value })}
+                onBlur={commitAdjacent} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }} />
+            })}
           </div>
         ))}
       </div>

@@ -20,6 +20,7 @@ test('presentation patches preserve topology and target only artwork-dependent m
   const before=fixture()
   for(const patch of [{name:'New station'},{nameEn:'New English station'},
     {lines:before.lines.map(l=>l.id==='1'?{...l,name:'New line',colour:'#123456',upTerminus:'East',downTerminus:'West'}:l)},
+    {lines:before.lines.map(l=>l.id==='1'?{...l,upNextStation:'华景路',upNextStationEn:'Huajing Road',downNextStation:'岗顶',downNextStationEn:'Gangding'}:l)},
     {modules:before.modules.map(m=>m.id==='exit'?{...m,cfg:{...m.cfg,name:'C'}}:m)}]) {
     const after={...before,...patch}, edit=populationEdit(before,after)
     assert.ok(edit)

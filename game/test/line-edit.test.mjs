@@ -1079,3 +1079,17 @@ test('both station names edit together and survive undo, redo and file reload', 
   st().loadFromText(text)
   assert.equal(st().station.nameEn, 'Zoo')
 })
+
+
+test('adjacent station names survive undo, redo and save reload', async () => {
+  load(twoLines())
+  const patch = { upNextStation: '华景路', upNextStationEn: 'Huajing Road', downNextStation: '岗顶', downNextStationEn: 'Gangding' }
+  st().updateLine('1', patch)
+  for (const [key, value] of Object.entries(patch)) assert.equal(st().station.lines[0][key], value)
+  st().undo()
+  assert.equal(st().station.lines[0].upNextStation, undefined)
+  st().redo()
+  const { text } = await saveToText()
+  st().loadFromText(text)
+  for (const [key, value] of Object.entries(patch)) assert.equal(st().station.lines[0][key], value)
+})
