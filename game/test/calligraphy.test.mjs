@@ -318,7 +318,7 @@ test('both axes round-trip the save, and a sweep keeps the hands apart', () => {
   const r = parse(serialize({ name: '动物园', seed: 1, cells: walled(4), modules, lines: [LINE] }))
   assert.equal(r.ok, true)
   assert.deepEqual(r.state.modules, modules)
-  assert.equal(sweepFamily(placed('动物园', 'calligraphy-kai-h')), 'calligraphy:kai:h')
+  assert.equal(sweepFamily(placed('动物园', 'calligraphy-kai-h')), 'calligraphy:kai:h:false')
   assert.equal(sameSweepFamily(placed('动物园', 'calligraphy-kai-h'), placed('动物园', 'calligraphy-kai-h', 0, 4)), true)
   assert.equal(sameSweepFamily(placed('动物园', 'calligraphy-kai-h'), placed('动物园', 'calligraphy-kai-v')), false, 'the axis is part of the piece')
   assert.equal(sameSweepFamily(placed('动物园', 'calligraphy-kai-h'), placed('动物园', 'calligraphy-song-h')), false, 'and so is the hand')
@@ -593,3 +593,44 @@ test('structural placement keeps existing inscription pixels; rename still repai
   plates.clearDecorPlates()
 })
 
+
+test('bilingual inscriptions place English below horizontal and beside vertical ink', () => {
+  for (const axis of ['h', 'v']) {
+    const panel = axis === 'h' ? { w: 3, h: 1 } : { w: 0.98, h: 2.6 }
+    const { g, ops } = stubCanvas()
+    const moves = []
+    const ctx = new Proxy(g, { get: (target, key) => key === 'translate' ? (x, y) => moves.push([x, y]) : target[key] })
+    const layout = drawCalligraphyPanel(ctx, { text: '海傍', english: 'Hai Bang', style: 'hei', axis, panel })
+    const english = ops.words.find(w => w.text === 'Hai Bang')
+    assert.ok(english)
+    if (axis === 'h') assert.ok(english.y > layout.glyphs[0].y * 512)
+    else {
+      assert.ok(moves.at(-1)[0] > layout.glyphs[0].x * 512)
+      assert.equal(ops.rotations.at(-1), Math.PI / 2)
+    }
+    assert.deepEqual(ops.filled, [])
+  }
+})
+
+test('English name repaint keeps the bilingual plate and its saved choice', async () => {
+  const mod = placed('海傍', 'calligraphy-kai-h')
+  mod.cfg.showEnglish = true
+  const saved = parse(serialize({ name: '海傍', nameEn: 'Hai Bang', seed: 1, cells: walled(4), modules: [mod], lines: [LINE] }))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.state.modules[0].cfg.showEnglish, true)
+  assert.equal(sameSweepFamily(mod, { ...mod, cfg: { ...mod.cfg, showEnglish: false } }), false)
+  assert.notEqual(moduleGhostKey(mod), moduleGhostKey({ ...mod, cfg: { ...mod.cfg, showEnglish: false } }))
+  const { plates, data, canvases } = await plateRig('海傍', mod)
+  data.nameEn = 'Hai Bang'
+  const spec = { style: 'kai', axis: 'h', panel: calligraphyPanelSize('h', mod.w, mod.panelH), showEnglish: true }
+  const face = plates.makeCalligraphyPlate(mod.id, spec)
+  assert.ok(canvases[0].ops.texts.includes('Hai Bang'))
+  const previous = { ...data }
+  data.nameEn = 'Haibang'
+  canvases[0].ops.texts.length = 0
+  plates.redrawDecorPlates(previous)
+  assert.ok(canvases[0].ops.texts.includes('Haibang'))
+  plates.retainDecorPlates(data)
+  assert.equal(plates.makeCalligraphyPlate(mod.id, spec), face)
+  plates.clearDecorPlates()
+})

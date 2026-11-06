@@ -263,6 +263,7 @@ export class PickTool extends ToolController {
       // the next click hangs are the one the player pointed at.
       if (mod.type === 'sign') st.adoptSignBoards(signBoardsOf(mod.cfg, st.station))
       st.setModuleType(optionId)
+      if (mod.type === 'calligraphy') useStore.setState({ calligraphyEnglish: !!mod.cfg.showEnglish })
       if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction, roadWidth: (mod.rot??0)%2?mod.d:mod.w })
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
       if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })

@@ -47,7 +47,7 @@ function buildCalligraphy(ctx: ModuleContext, mod: Extract<Module, { type: 'call
   // kit's own neutral inscription for a ctx with no scene behind it. The plate is the
   // panel's size and its alpha is the strokes, so everything it does not cover is the
   // wall.
-  const material = ctx.calligraphyFace?.(mod.id, { style, axis, panel }).material ?? ctx.mats.calligraphyInk
+  const material = ctx.calligraphyFace?.(mod.id, { style, axis, panel, showEnglish: mod.cfg.showEnglish }).material ?? ctx.mats.calligraphyInk
   const ink = plate(g, material, panel.w, panel.h, 0, -INK_OFFSET, zc, Math.PI)
   ink.renderOrder = 1
   ink.userData.calligraphy = true

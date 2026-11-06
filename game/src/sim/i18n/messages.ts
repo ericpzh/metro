@@ -3171,6 +3171,8 @@ export const messages = {
     "zh": "设备区",
     "en": "Equipment area"
   },
+  "english_name_on": { zh: "英文名 开", en: "Secondary name on" },
+  "english_name_off": { zh: "英文名 关", en: "Secondary name off" },
   "english_station_name": {
     "zh": "英文站名",
     "en": "Secondary name"

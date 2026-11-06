@@ -41,6 +41,8 @@ export interface ToolSlice {
   toggleRoadDirection: () => void
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
+  calligraphyEnglish: boolean
+  toggleCalligraphyEnglish: () => void
   guideExitId: string | null
   setGuideExitId: (id: string | null) => void
   lightPosition: number
@@ -286,6 +288,8 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   roadDirection: 'two-way',
   toggleRoadDirection: () => set(s => ({ roadDirection: s.roadDirection === 'one-way' ? 'two-way' : 'one-way' })),
   moduleRot: 0,
+  calligraphyEnglish: false,
+  toggleCalligraphyEnglish: () => set(s => ({ calligraphyEnglish: !s.calligraphyEnglish })),
   guideExitId: null,
   setGuideExitId: (id) => set({ guideExitId: id }),
   lightPosition: 0,

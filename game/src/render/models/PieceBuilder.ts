@@ -1026,7 +1026,7 @@ export interface ModuleContext {
    */
   calligraphyFace?: (
     id: string,
-    spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number } },
+    spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number }; showEnglish?: boolean },
   ) => PrintedFace
   /**
    * The printed face of one 线网图: the supplied 线网示意图 (`render/lineMapArt.ts`) once

@@ -317,7 +317,7 @@ export class PlateSystem extends SceneSystem {
     if (mod.type === 'calligraphy') {
       const axis = mod.cfg?.axis === 'v' ? 'v' : 'h'
       const panel = calligraphyPanelSize(axis, mod.w, mod.panelH)
-      return `${mod.id}|calligraphy|${mod.cfg?.style ?? 'kai'}|${axis}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}`
+      return `${mod.id}|calligraphy|${mod.cfg?.style ?? 'kai'}|${axis}|${panel.w.toFixed(3)}x${panel.h.toFixed(3)}|${!!mod.cfg?.showEnglish}`
     }
     if (mod.type === 'linemap') {
       const spec = lineMapSpec(mod.cfg?.mount)
@@ -373,14 +373,14 @@ export class PlateSystem extends SceneSystem {
    * an inscription is brush strokes on the wall rather than a printed board: the
    * pixels the brush does not cover must be the wall's, not a ground of the plate's.
    */
-  makeCalligraphyPlate(id: string, spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number } }): PrintedFace {
-    const key = `${id}|calligraphy|${spec.style}|${spec.axis}|${spec.panel.w.toFixed(3)}x${spec.panel.h.toFixed(3)}`
+  makeCalligraphyPlate(id: string, spec: { style: CalligraphyStyle; axis: CalligraphyAxis; panel: { w: number; h: number }; showEnglish?: boolean }): PrintedFace {
+    const key = `${id}|calligraphy|${spec.style}|${spec.axis}|${spec.panel.w.toFixed(3)}x${spec.panel.h.toFixed(3)}|${!!spec.showEnglish}`
     const existing = this.decorPlates.get(key)
     if (existing) return existing.face
     const text = this.ctx.stationData?.name ?? ''
     const plate = calligraphyPlate(spec.panel)
     const texture = canvasTexture(plate.width, plate.height, (g) => {
-      drawCalligraphyPanel(g, { text, style: spec.style, axis: spec.axis, panel: spec.panel })
+      drawCalligraphyPanel(g, { text, english: spec.showEnglish ? this.ctx.stationData?.nameEn : undefined, style: spec.style, axis: spec.axis, panel: spec.panel })
     })
     const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, side: THREE.FrontSide })
     this.mintedTextures.add(texture)
@@ -446,7 +446,7 @@ export class PlateSystem extends SceneSystem {
     if (!data) return
     const old = new Map(previous?.modules.map(m => [m.id, m]))
     const mapInk = (d: StationData) => d.lines.map(l=>[l.id,l.name,l.colour,l.stations])
-    const sameWords = previous && previous.name === data.name && JSON.stringify(mapInk(previous)) === JSON.stringify(mapInk(data))
+    const sameWords = previous && previous.name === data.name && previous.nameEn === data.nameEn && JSON.stringify(mapInk(previous)) === JSON.stringify(mapInk(data))
     for (const [key, entry] of this.decorPlates) {
       if (!entry.owned || !entry.face.texture) continue
       const id = key.slice(0, key.indexOf('|'))
@@ -457,7 +457,7 @@ export class PlateSystem extends SceneSystem {
       const g = canvas?.getContext('2d')
       if (!canvas || !g) continue
       if (mod.type === 'calligraphy') {
-        if (previous && previous.name === data.name && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
+        if (previous && previous.name === data.name && previous.nameEn === data.nameEn && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
         const axis = mod.cfg?.axis === 'v' ? 'v' : 'h'
         const panel = calligraphyPanelSize(axis, mod.w, mod.panelH)
         const plate = calligraphyPlate(panel)
@@ -467,7 +467,7 @@ export class PlateSystem extends SceneSystem {
         // The ink has no ground, so the old strokes have to be taken off the canvas
         // before the new ones go down — a redraw over a redraw would double-print.
         g.clearRect(0, 0, canvas.width, canvas.height)
-        drawCalligraphyPanel(g, { text: data.name, style: mod.cfg?.style ?? 'kai', axis, panel })
+        drawCalligraphyPanel(g, { text: data.name, english: mod.cfg?.showEnglish ? data.nameEn : undefined, style: mod.cfg?.style ?? 'kai', axis, panel })
         entry.face.texture.needsUpdate = true
       } else if (mod.type === 'linemap') {
         const spec = lineMapSpec(mod.cfg?.mount)

@@ -667,6 +667,7 @@ export class EquipmentTool extends ToolController {
         },
       )
     }
+    if (mod?.type === 'calligraphy') mod.cfg.showEnglish = st.calligraphyEnglish && !!st.station.nameEn?.trim()
     if (mod?.type === 'pillar') mod.cfg.height = st.pillarLength
     // Fit a door into the curtain panel under the pointer. Use the curtain's
     // own axis and edge as the snap frame, then clamp a double door to its run.
@@ -836,6 +837,7 @@ export class EquipmentTool extends ToolController {
       st.currentBoards,
     )
     if (!draft) return null
+    if (draft.type === 'calligraphy') draft.cfg.showEnglish = st.calligraphyEnglish && !!st.station.nameEn?.trim()
     if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
     if (draft.type === 'billboard' && draft.cfg.poster === undefined) {
       draft.cfg.poster = randomAdSlug(draft)

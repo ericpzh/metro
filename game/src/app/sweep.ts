@@ -106,7 +106,7 @@ export function sweepFamily(mod: Module): string | null {
   // A 门 sweeps by variant too: a 双开 stainless door does not collect the single
   // wooden ones beside it, and a drag takes the doors of one finish only.
   if (mod.type === 'door') return `door:${doorSpec(mod.cfg?.variant).variant}`
-  if (mod.type === 'calligraphy') return `calligraphy:${mod.cfg?.style ?? 'kai'}:${mod.cfg?.axis ?? 'h'}`
+  if (mod.type === 'calligraphy') return `calligraphy:${mod.cfg?.style ?? 'kai'}:${mod.cfg?.axis ?? 'h'}:${!!mod.cfg?.showEnglish}`
   if (mod.type === 'linemap') return `linemap:${lineMapSpec(mod.cfg?.mount).variant}`
   // A 指示牌 sweeps by mount on the same reasoning: a drag takes the boards hung over
   // the concourse and leaves the ones bolted to the wall (and vice versa).

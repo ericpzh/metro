@@ -168,6 +168,7 @@ export function calligraphyLayout(
 export interface CalligraphyFaceOptions {
   /** The station's name, exactly as the document spells it. */
   text: string
+  english?: string
   /** The hand it is written in. */
   style: CalligraphyStyle
   /** The way it runs: 横排 along the wall, 竖排 down it. */
@@ -191,7 +192,9 @@ export function drawCalligraphyPanel(g: CanvasRenderingContext2D, opts: Calligra
   const ppm = opts.ppm ?? PX_PER_METRE
   const spec = calligraphyStyle(opts.style)
   const chars = Array.from(opts.text.trim())
-  const layout = calligraphyLayout(chars.length > 0 ? chars : [t('unknown')], opts.axis, opts.style, opts.panel)
+  const english = opts.english?.trim() ?? ''
+  const inkPanel = english ? (opts.axis === 'v' ? { w: opts.panel.w * 0.72, h: opts.panel.h } : { w: opts.panel.w, h: opts.panel.h * 0.72 }) : opts.panel
+  const layout = calligraphyLayout(chars.length > 0 ? chars : [t('unknown')], opts.axis, opts.style, inkPanel)
 
   // The plate is the ink alone: the wall behind the piece is the inscription's
   // paper, so nothing here fills a ground. Both alignments are centred, because
@@ -224,6 +227,23 @@ export function drawCalligraphyPanel(g: CanvasRenderingContext2D, opts: Calligra
     g.restore()
   }
 
+  if (english) {
+    g.save()
+    g.fillStyle = spec.ink
+    g.globalAlpha = 1
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    const size = Math.min(opts.axis === 'v' ? opts.panel.w * 0.19 : opts.panel.h * 0.19, 0.18) * ppm
+    g.font = `500 ${size}px sans-serif`
+    if (opts.axis === 'v') {
+      g.translate(opts.panel.w * 0.85 * ppm, opts.panel.h * 0.5 * ppm)
+      g.rotate(Math.PI / 2)
+      g.fillText(english, 0, 0, opts.panel.h * 0.88 * ppm)
+    } else {
+      g.fillText(english, opts.panel.w * 0.5 * ppm, opts.panel.h * 0.85 * ppm, opts.panel.w * 0.9 * ppm)
+    }
+    g.restore()
+  }
   g.textAlign = 'left'
   g.textBaseline = 'alphabetic'
   return layout

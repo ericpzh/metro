@@ -50,7 +50,7 @@ function actionTileState(state:AppState){
   return {...builderAttributeState(state),tool:state.tool,moduleType:state.moduleType,
     railLineId:state.railLineId,guideExitId:state.guideExitId,wallSnapCycle:state.wallSnapCycle,
     halfWall:state.halfWall,triangles:state.triangles,triKind:state.triKind,
-    station:{lines:state.station.lines,modules:state.station.modules.filter(m=>m.type==='exit')}}
+    calligraphyEnglish:state.calligraphyEnglish, station:{nameEn:state.station.nameEn,lines:state.station.lines,modules:state.station.modules.filter(m=>m.type==='exit')}}
 }
 type ActionTileState=ReturnType<typeof actionTileState>
 
@@ -112,6 +112,9 @@ function ActionTiles({state}:{state:ActionTileState}): React.ReactElement {
         <RotateTile rotation={state.wallSnapCycle} label={t('rotate')} onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null ? moduleBuilderAttributes(piece, state).map((attribute, index) => <BuilderAttributeTile key={`${attribute.kind}-${index}`} attribute={attribute} moduleType={piece} state={state} />) : null}
+      {piece?.startsWith('calligraphy') && state.station.nameEn?.trim() ? (
+        <Block label={t(state.calligraphyEnglish ? 'english_name_on' : 'english_name_off')} active={state.calligraphyEnglish} onClick={() => st().toggleCalligraphyEnglish()} art={<svg viewBox="0 0 100 70" fill="none" stroke="currentColor" strokeWidth="4"><rect x="8" y="12" width="84" height="30" rx="15" fill="currentColor"/><rect x="24" y="53" width="52" height="9" rx="2" fill={state.calligraphyEnglish ? "currentColor" : "none"} /></svg>} />
+      ) : null}
       {piece === 'floor-mark-direction' ? (
         <div className="floorLineTiles" role="group" aria-label={t('choose_floor_guide_line')}>
           {lines.length ? lines.map((line) => <Block key={line.id} label={line.name} tone={line.colour} active={floorLine?.id === line.id} onClick={() => st().setRailLine(line.id)} />) : <span>{t('no_lines_yet')}</span>}
