@@ -168,6 +168,8 @@ hover/delete priority over the road terrain behind it, with one undoable removal
 `equipment-retention` also checks that ceiling-mounted fixtures allocate no contact
 shadow batches, while floor-mounted variants retain their shadows through edits.
 Fixed PSD infill and elevated cover panels also allocate no contact shadows.
+Tactile guide/warning tiles and boarding/waiting/direction markings allocate none,
+including when standing furniture is appended to the same floor.
 Wall-mounted doorway exit nameplates allocate none across height/style edits;
 standing equipment shadow matrices sit just above the model's foot plane so
 they cannot show through a triangular support block's cut face.

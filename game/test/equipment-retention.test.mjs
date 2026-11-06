@@ -554,6 +554,15 @@ test('equipment shadow matrices stay above the support block instead of intersec
   }
 }))
 
+test('tactile paving and floor markings never allocate equipment shadows', () => withDrawing(({ modules }) => {
+  const tiles = ['tactile-guide', 'tactile-warning', 'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction'].map((type, i) => createModule(type, i, 0, 1, `tile-${i}`))
+  const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
+  modules.buildModules(station(tiles), new Set())
+  assert.equal(blobs().length, 0, 'floor decoration creates no dark blobs along the paving')
+  modules.buildModules(station([...tiles, createModule('bench', 8, 0, 1, 'bench')]), new Set(), true)
+  assert.equal(blobs().reduce((sum, root) => sum + root.count, 0), 1, 'standing furniture retains its shadow after append')
+}))
+
 test('PSD infill and elevated cover panels never allocate contact shadows', () => withDrawing(({ modules }) => {
   const panels = ['psd-end', 'psd-end-cover'].map((type, i) => createModule(type, i * 4, 0, i * 4, type))
   modules.buildModules(station(panels), new Set())

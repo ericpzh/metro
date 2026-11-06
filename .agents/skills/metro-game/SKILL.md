@@ -191,6 +191,12 @@ Module contact blobs are for floor-standing equipment only: use `isCeilingHung` 
 exclude ceiling fixtures, and give fixed `psd-end` infill/covers the same no-blob
 policy as `platform-edge`. Keep the active-storey filter in `LevelSystem`; pin
 allocation, append/edit retention and presentation visibility in `equipment-retention`.
+Keep `tactile` and `floor-mark` blob-free in `blobRadius`: their thin floor surfaces
+otherwise receive a dark blob from every tile. Wall-mounted `exit` modules with
+`cfg.style === 'doorway'` also allocate none; freestanding entrances retain theirs.
+Place standing-equipment blobs just above the model foot plane, never inside the
+support block where triangular cuts expose them. Check shadow eligibility before
+changing height or layering when repeated dark spots follow a module run.
 
 Its own application: its own `package.json`, Vite config, tests and Cloudflare
 Worker (`metro-game`). It imports nothing from `web/` or `art/`.

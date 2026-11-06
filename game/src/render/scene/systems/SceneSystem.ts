@@ -339,6 +339,9 @@ export function moduleLevels(mod: Module, base = 0, height = STOREY_HEIGHT): num
 export function blobRadius(type: Module['type']): number {
   switch (type) {
     case 'roof': return 0
+    // Flush floor decoration must not cast an equipment contact blob over itself.
+    case 'tactile':
+    case 'floor-mark':
     case 'track':
     case 'platform-edge':
     case 'psd-end': // Fixed infill and elevated covers belong to the PSD, without floor blobs.
