@@ -2,6 +2,7 @@
 // rotation, the 方块 tool's cut modes and 生成墙壁 ring, the Tab cycles (stair and roof width,
 // escalator width and direction, 闸机 door) and the zone tool's brush (§4.5, §5.7).
 
+import { counterLength, nextCounterLength, type CounterLength } from '../../../sim/counters.ts'
 import type { StateCreator } from 'zustand'
 import { nextEscalatorDir } from '../../../build/model.ts'
 import { nextEscalatorWidth, type EscalatorWidth } from '../../../sim/escalators.ts'
@@ -153,6 +154,9 @@ export interface ToolSlice {
   setStructureOptions: (patch: Partial<Pick<ToolSlice, 'bridgeLength' | 'bridgeRailing'>>) => void
   cycleBridgeLength: () => void
   liftStyle: 'glass' | 'steel'
+  counterLength: CounterLength
+  setCounterLength: (length: number) => void
+  cycleCounterLength: () => void
   hangerLength: 4 | 6 | 8
   cycleHangerLength: () => void
   curtainWidth: 1 | 2 | 3 | 4
@@ -322,6 +326,9 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   }),
   cycleBridgeLength: () => set((s) => ({ bridgeLength: nextTrackRunLength(s.bridgeLength) })),
   liftStyle: 'glass',
+  counterLength: 1,
+  setCounterLength: (length) => set({ counterLength: counterLength(length) }),
+  cycleCounterLength: () => set(s => ({ counterLength: nextCounterLength(s.counterLength) })),
   hangerLength: 4,
   cycleHangerLength: () => set((s) => ({ hangerLength: s.hangerLength === 4 ? 6 : s.hangerLength === 6 ? 8 : 4 })),
   curtainWidth: 2,

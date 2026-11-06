@@ -36,8 +36,9 @@ const output=(name)=>resolve(process.env.BENCH_OUTPUT?dirname(process.env.BENCH_
 
 /* --------------------------------------------------------------- equipment */
 const results=[]
-for(const option of MODULE_OPTIONS.filter(o=>!process.env.MODEL_CITY || ['exit','guidepost','linemap'].includes(o.type))){
- const mod=createModule(option.id==='tv-double'?'tv':option.id,4,4,0,`bench-${option.id}`,0,undefined,'up','lane',[LINE])
+const inventoryOptions = MODULE_OPTIONS.flatMap(o => o.type === 'checkout' ? [o, ...[2,3,4].map(w => ({...o,id:`${o.id}/${w}m`,factoryId:o.id,counterLength:w}))] : [o])
+for(const option of inventoryOptions.filter(o=>!process.env.MODEL_CITY || ['exit','guidepost','linemap'].includes(o.type))){
+ const mod=createModule(option.id==='tv-double'?'tv':option.factoryId??option.id,4,4,0,`bench-${option.id}`,0,option.counterLength,'up','lane',[LINE])
  if(!mod){results.push({id:option.id,low:null,high:null,reason:'createModule returned null'});continue}
  const pair=option.id==='tv-double'?[mod,{...mod,id:mod.id+'-back',rot:2}]:[mod]
  data.modules=pair;ctx.data=data;ctx.tvPairSlot=id=>tvPairSlot(id,data.modules)
@@ -61,7 +62,7 @@ if(results.some(result=>result.reason))throw new Error(JSON.stringify(results.fi
 const missingLow=results.filter(result=>result.high>10 && !(result.low>0 && result.low<result.high))
 if(missingLow.length)throw new Error(`Palette models over ten triangles require reduced Low geometry: ${JSON.stringify(missingLow)}`)
 for(const row of results) {
- const budget=equipmentLowBudget(row.id,row.high)
+ const budget=equipmentLowBudget(row.id.replace(/\/[234]m$/, ''),row.high)
  if(row.low>budget.limit && process.env.INVENTORY_REPORT_ONLY!=='1')throw new Error(`${row.id}: ${row.low}/${row.high} triangles exceeds Low budget ${budget.limit}`)
  row.lowBudget=budget.limit;row.lowException=budget.reason
 }

@@ -4,6 +4,7 @@ const exceptions = new Map()
 const minimum = (ids, triangles, reason) => {
   for (const id of ids.split(' ')) exceptions.set(id, { triangles, reason })
 }
+minimum('checkout-generic', 28, 'Closed cabinet, plinth, worktop and supported cashier screen.')
 minimum('court-divider', 52, 'Fabric screen, two uprights, top/bottom rails and stable T-feet.')
 minimum('court-pickleball', 88, 'Court surface, eight playable boundary/service lines, two posts, feet and top tape; open net uses lines.')
 minimum('court-badminton', 100, 'Court surface, twelve doubles/singles/service markings, two posts, feet and top tape; open net uses lines.')

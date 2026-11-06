@@ -1,9 +1,11 @@
 // Stocked shop fixtures, GAME-SPEC §5.7. The shopping face is local −y.
 import * as THREE from 'three'
 import { PieceBuilder, C, slab, placeLocalAtEdge } from '../PieceBuilder.ts'
-import { shelfSpec, shelfVariant } from '../../../sim/shelves.ts'
+import { shelfSpec, shelfVariant, shelfWidth } from '../../../sim/shelves.ts'
 import type { Module } from '../../../sim/types.ts'
 import { omitModelDetail } from '../../modelDetail.ts'
+import { buildWideBackbar } from './WideBackbar.ts'
+import { buildShopShelf } from './ShopShelves.ts'
 
 type Part = { x: number; y: number; z: number; w: number; d: number; h: number; color: number }
 
@@ -29,6 +31,11 @@ export class ShelfModel extends PieceBuilder {
   build(mod: Extract<Module, { type: 'shelf' }>): THREE.Group {
     const g = new THREE.Group(), mats = this.ctx.mats
     const variant = shelfVariant(mod.cfg.variant), spec = shelfSpec(variant)
+    if (shelfWidth(variant) > 1) {
+      buildWideBackbar(g, mats, shelfWidth(variant))
+      return placeLocalAtEdge(g, mod, spec.depth, this.ctx.data?.modules)
+    }
+    if (buildShopShelf(g, mats, variant)) return placeLocalAtEdge(g, mod, spec.depth, this.ctx.data?.modules)
     const cooler = variant === 'cooler' || variant === 'cooler-dark', wire = variant === 'wire'
     const white = variant.startsWith('white') || variant === 'cooler'
     const frame = white ? mats.white : mats.darkSteel

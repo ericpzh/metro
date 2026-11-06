@@ -1,6 +1,7 @@
 // Shared builder capabilities for module transforms and variants. The rail and
 // keyboard read this same ordered list, so controls, icons and shortcuts agree.
 import { msg } from '../../sim/i18n.ts'
+import { counterLengthLabel } from '../../sim/counters.ts'
 import { escalatorWidthLabel } from '../../sim/escalators.ts'
 import { rampLengthLabel } from '../../sim/rampLengths.ts'
 import { walkwayLengthLabel } from '../../sim/walkways.ts'
@@ -11,6 +12,7 @@ import { trackRunLengthLabel } from '../../sim/track.ts'
 import type { AppState } from './Store.ts'
 import {
   isBenchType,
+  isCounterType,
   isDoorType,
   isGateType,
   isRotatableType,
@@ -67,6 +69,8 @@ const BUILDER_STATE_KEYS = [
   'cycleEscalatorDir',
   'walkwayLength',
   'cycleWalkwayLength',
+  'counterLength',
+  'cycleCounterLength',
   'hangerLength',
   'cycleHangerLength',
   'pillarLength',
@@ -141,6 +145,7 @@ export function moduleBuilderAttributes(type: string, s: BuilderAttributeState):
   if (type === 'hanger-roof' || type === 'hanger-post') attrs.push(variant('length', msg(s.hangerLength === 4 ? 'short' : s.hangerLength === 6 ? 'medium' : 'long'), s.cycleHangerLength))
   if (type.startsWith('pillar')) attrs.push(variant('length', pillarLengthLabel(s.pillarLength), s.cyclePillarLength))
   if (type === 'light-rectangular') attrs.push({ kind: 'position', label: msg('position_value_9', s.lightPosition + 1), shortcut: undefined, activate: s.cycleLightPosition, visual: 'grid-position' })
+  if (isCounterType(type)) attrs.push(variant('length', counterLengthLabel(s.counterLength), s.cycleCounterLength))
   if (isBenchType(type)) attrs.push(variant('width', msg(type.endsWith('-2') ? 'wide' : 'narrow'), s.cycleBenchWidth))
   if (isStairType(type)) {
     attrs.push(variant(

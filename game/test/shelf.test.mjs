@@ -204,14 +204,17 @@ test('every shelf draws inside its tile and agrees with its clearance height', a
     const m = createModule(`shelf-${v}`, 2, 2, 0, v, rot)
     const group = model.build(m)
     const box = new THREE.Box3().setFromObject(group)
-    assert.ok(box.min.x >= 2 - 1e-6 && box.max.x <= 3 + 1e-6, `${v}: x outside its reserved tile`)
-    assert.ok(box.min.y >= 2 - 1e-6 && box.max.y <= 3 + 1e-6, `${v}: y outside its reserved tile`)
+    const envelope = moduleEnvelope(m)
+    assert.ok(box.min.x >= envelope.x0 - 1e-6 && box.max.x <= envelope.x1 + 1e-6, `${v}: x outside its reserved run`)
+    assert.ok(box.min.y >= envelope.y0 - 1e-6 && box.max.y <= envelope.y1 + 1e-6, `${v}: y outside its reserved tile`)
     assert.ok(Math.abs(box.max.z - 1 - shelfSpec(v).height) < 1e-6, `${v}: drawn height matches clearance`)
     assert.equal(moduleEnvelope(m).z1, 1 + shelfSpec(v).height)
-    const stock = group.children.filter(c => c.name.startsWith('stock-'))
-    assert.ok(stock.length >= 3)
-    const goods = group.getObjectByName('stock-bottles').count + (group.getObjectByName('stock-packages')?.count ?? 0)
-    assert.equal(goods, shelfSpec(v).levels.length * 16, 'each deck stocks two rows of eight products')
+    const stock = []; group.traverse(c => { if(c.name.startsWith('stock-')) stock.push(c) })
+    assert.ok(stock.length >= 1, `${v}: visible merchandise`)
+    if (shelfSpec(v).levels.length) {
+      const goods = group.getObjectByName('stock-bottles').count + (group.getObjectByName('stock-packages')?.count ?? 0)
+      assert.equal(goods, shelfSpec(v).levels.length * 16, 'each deck stocks two rows of eight products')
+    }
     for (const child of group.children) {
       child.geometry?.dispose()
       if (child.isInstancedMesh) child.dispose()
@@ -276,4 +279,118 @@ test('tall and short gondolas keep their toe strip in front of the plinth', asyn
     }
   }
   mat.dispose()
+})
+
+
+test('ice-cream stock sits in the open freezer cavity below its sliding glass lids', async () => {
+  const THREE = await import('three')
+  const { ShelfModel } = await import('../src/render/models/pieces/ShelfModel.ts')
+  const mat = new THREE.MeshStandardMaterial()
+  const model = new ShelfModel({ mats: new Proxy({}, { get: () => mat }) })
+  const root = model.build(createModule('shelf-ice-cream', 0, 0, 0, 'freezer'))
+  const bounds = name => new THREE.Box3().setFromObject(root.getObjectByName(name))
+  assert.equal(root.getObjectByName('stock-packages').count, 24)
+  assert.ok(bounds('stock-packages').min.z > bounds('freezer-well').max.z)
+  assert.ok(bounds('stock-packages').max.z < bounds('freezer-sliding-glass').min.z)
+  assert.ok(bounds('stock-packages').min.y > bounds('freezer-wall').max.y)
+  mat.dispose()
+})
+
+
+test('fixture shell joints butt cleanly without overlapping freezer rims, fruit posts or rear headers', async () => {
+  const THREE = await import('three')
+  const { ShelfModel } = await import('../src/render/models/pieces/ShelfModel.ts')
+  const mat = new THREE.MeshStandardMaterial()
+  const model = new ShelfModel({ mats: new Proxy({}, { get: () => mat }) })
+  const parts = (root, name) => {
+    const out = []; root.traverse(o => { if (o.name === name) out.push(new THREE.Box3().setFromObject(o)) }); return out
+  }
+  const disjoint = (a, b, label) => {
+    const overlap = a.clone().intersect(b).getSize(new THREE.Vector3())
+    assert.ok(Math.min(overlap.x, overlap.y, overlap.z) < 1e-6, `${label}: no shared volume or coplanar skin`)
+  }
+  try {
+    for (const rot of [0, 1, 2, 3]) {
+      const freezer = model.build(createModule('shelf-ice-cream', 0, 0, 0, 'freezer', rot))
+      for (const wall of [...parts(freezer, 'freezer-side'), ...parts(freezer, 'freezer-wall')]) {
+        for (const rim of parts(freezer, 'freezer-red-rim')) disjoint(wall, rim, 'white shell ends below the red rim')
+      }
+      const fruit = model.build(createModule('shelf-fruit-island', 0, 0, 0, 'fruit', rot))
+      for (const panel of [...parts(fruit, 'fruit-side'), ...parts(fruit, 'fruit-island-slat')]) {
+        for (const post of [...parts(fruit, 'fruit-end-post'), ...parts(fruit, 'fruit-front-post')]) disjoint(panel, post, 'fruit cladding ends at the corner post')
+      }
+      for (const variant of ['food-snacks', 'food-bakery']) {
+        const root = model.build(createModule('shelf-' + variant, 0, 0, 0, variant, rot))
+        const header = parts(root, 'food-header')[0]
+        disjoint(header, parts(root, 'food-back')[0], 'rear panel ends below its header')
+        for (const post of parts(root, 'fixture-upright')) disjoint(header, post, 'header fits between the posts')
+      }
+      for (const [variant, deck] of [['clothing-wall', 'clothing-top-deck'], ['clothing-shoes', 'shoe-display-deck']]) {
+        const root = model.build(createModule('shelf-' + variant, 0, 0, 0, variant, rot))
+        const top = parts(root, deck).sort((a, b) => b.max.z - a.max.z)[0]
+        for (const post of parts(root, 'fixture-upright')) disjoint(top, post, 'upright stops beneath the top deck')
+      }
+    }
+  } finally { mat.dispose() }
+})
+
+test('the clothing rail has two top end bars connecting all four uprights to the hanging rail', async () => {
+  const THREE = await import('three')
+  const { ShelfModel } = await import('../src/render/models/pieces/ShelfModel.ts')
+  const mat = new THREE.MeshStandardMaterial()
+  const root = new ShelfModel({ mats: new Proxy({}, { get: () => mat }) }).build(createModule('shelf-clothing-rail', 0, 0, 0, 'rail'))
+  const bars = root.children.filter(o => o.name === 'clothing-top-end-bar')
+  const posts = root.children.filter(o => o.name === 'fixture-upright')
+  const rail = new THREE.Box3().setFromObject(root.getObjectByName('clothing-hanging-rail'))
+  assert.equal(bars.length, 2)
+  for (const bar of bars) {
+    const bounds = new THREE.Box3().setFromObject(bar).expandByScalar(1e-6)
+    assert.equal(posts.filter(post => bounds.intersectsBox(new THREE.Box3().setFromObject(post))).length, 2)
+    assert.ok(bounds.intersectsBox(rail), 'the hanging bar is supported at each end')
+  }
+  mat.dispose()
+})
+
+
+test('the café back-bar keeps its prep worktop open below stocked upper cubbies', async () => {
+  const THREE = await import('three')
+  const { ShelfModel } = await import('../src/render/models/pieces/ShelfModel.ts')
+  const mat = new THREE.MeshStandardMaterial()
+  const root = new ShelfModel({ mats: new Proxy({}, { get: () => mat }) }).build(createModule('shelf-cafe-backbar', 0, 0, 0, 'backbar'))
+  const box = name => new THREE.Box3().setFromObject(root.getObjectByName(name))
+  assert.equal(root.children.filter(o => o.name === 'backbar-stock-deck').length, 3)
+  assert.equal(root.children.filter(o => o.name === 'backbar-cubby-divider').length, 6)
+  assert.ok(box('backbar-prep-machine').min.z >= box('backbar-worktop').max.z - 1e-6)
+  assert.ok(box('backbar-prep-machine').max.z < box('backbar-stock-deck').min.z)
+  assert.ok(box('stock-jars').max.z < box('backbar-cap').min.z)
+  assert.ok(Math.abs(box('backbar-cap').min.z - box('backbar-side').max.z) < 1e-6)
+  mat.dispose()
+})
+
+
+test('prep cabinets have continuous worktops and different pantry, dish and wet-prep layouts', async () => {
+  const THREE = await import('three')
+  const { ShelfModel } = await import('../src/render/models/pieces/ShelfModel.ts')
+  const { shelfSpec } = await import('../src/sim/shelves.ts')
+  const { disposeObject } = await import('../src/render/models.ts')
+  const mat = new THREE.MeshStandardMaterial()
+  const model = new ShelfModel({ mats: new Proxy({}, { get: () => mat }) })
+  const roots = ['cafe-backbar','cafe-backbar-2','cafe-backbar-4'].map(v => model.build(createModule('shelf-'+v,0,0,0,v)))
+  try {
+    assert.deepEqual(['cafe-backbar','cafe-backbar-2','cafe-backbar-4'].map(v => shelfSpec(v).label), ['短备餐柜','中备餐柜','长备餐柜'])
+    for (const [i,root] of roots.entries()) {
+      const tops=[];root.traverse(o=>{if(o.name==='backbar-worktop')tops.push(o)})
+      assert.equal(tops.length,1,'one continuous worktop, no repeated one-metre cabinets')
+      assert.equal(Number(new THREE.Box3().setFromObject(tops[0]).getSize(new THREE.Vector3()).x.toFixed(2)),[.96,1.96,3.96][i])
+    }
+    assert.equal(roots[1].getObjectByName('backbar-sink-well'),undefined)
+    assert.ok(roots[2].getObjectByName('backbar-sink-well'))
+    assert.ok(roots[2].getObjectByName('backbar-fridge-door'))
+    assert.equal(roots[1].children.filter(o=>o.name==='backbar-stock-deck').length,5)
+    assert.equal(roots[2].children.filter(o=>o.name==='backbar-stock-deck').length,8)
+    for(const root of roots.slice(1)) {
+      const stock = new THREE.Box3().setFromObject(root.getObjectByName('stock-jars'))
+      assert.ok(stock.max.z < new THREE.Box3().setFromObject(root.getObjectByName('backbar-cap')).min.z,'upper stock clears the roof')
+    }
+  } finally { roots.forEach(disposeObject); mat.dispose() }
 })

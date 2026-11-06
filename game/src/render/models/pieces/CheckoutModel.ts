@@ -3,15 +3,20 @@ import { PieceBuilder, slab, plate, placeLocal } from '../PieceBuilder.ts'
 import type { Module } from '../../../sim/types.ts'
 import { CHECKOUT_HEIGHT } from '../../../sim/constants.ts'
 import { omitModelDetail, panelModelDetail } from '../../modelDetail.ts'
+import { buildShopCounter } from './ShopCounter.ts'
+import { counterLength } from '../../../sim/counters.ts'
 
 /** White convenience-store checkout with a stocked impulse display (§5.7). */
 export class CheckoutModel extends PieceBuilder {
   readonly kind = 'checkout'
   build(mod: Extract<Module, { type: 'checkout' }>): THREE.Group {
     const g = new THREE.Group(), mats = this.ctx.mats
-    slab(g, mats.darkSteel, 0, 0, 0.055, 0.92, 0.72, 0.11).name = 'checkout-plinth'
-    slab(g, mats.white, 0, 0.02, 0.515, 0.92, 0.68, 0.83).name = 'checkout-cabinet'
-    slab(g, mats.white, 0, -0.015, 0.96, 0.98, 0.79, 0.06).name = 'checkout-worktop'
+    if (buildShopCounter(g, mats, mod.cfg.variant, mod.w)) return placeLocal(g, mod)
+    const extension = counterLength(mod.w) - 1, centre = extension / 2
+    slab(g, mats.darkSteel, centre, 0, 0.055, 0.92 + extension, 0.72, 0.11).name = 'checkout-plinth'
+    slab(g, mats.white, centre, 0.02, 0.515, 0.92 + extension, 0.68, 0.83).name = 'checkout-cabinet'
+    slab(g, mats.white, centre, -0.015, 0.96, 0.98 + extension, 0.79, 0.06).name = 'checkout-worktop'
+    if (extension) slab(g, mats.white, .49 + centre, -.348, .53, extension - .02, .045, .8).name = 'checkout-fascia'
     // Split white fascia flanks a recessed four-tier merchandise rack.
     for (const x of [-0.33, 0.33]) {
       slab(g, mats.white, x, -0.348, 0.53, 0.25, 0.045, 0.8).name = 'checkout-fascia'

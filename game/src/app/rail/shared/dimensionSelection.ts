@@ -1,5 +1,6 @@
 import type { BuilderAttributeState } from '../../store/builderAttributes.ts'
-import { isBenchType, isDoorType, isStairType } from '../../store/catalog.ts'
+import { isBenchType, isCounterType, isDoorType, isStairType } from '../../store/catalog.ts'
+import { COUNTER_LENGTHS } from '../../../sim/counters.ts'
 import { STAIR_WIDTHS } from '../../../sim/stairs.ts'
 import { rampLengthsFor, rampLengthSpec } from '../../../sim/rampLengths.ts'
 import { TRACK_RUN_LENGTHS } from '../../../sim/track.ts'
@@ -23,6 +24,7 @@ export function dimensionSelection(kind: string, type: string, s: BuilderAttribu
     return choice(s.psdEndHeight, ['half', 'full'])
   }
   if (kind === 'length') {
+    if (isCounterType(type)) return choice(s.counterLength, COUNTER_LENGTHS)
     if (type === 'walkway') return choice(s.walkwayLength, ['short', 'medium', 'long'])
     if (type.startsWith('hanger')) return choice(s.hangerLength, [4, 6, 8])
     if (type.startsWith('pillar')) return choice(s.pillarLength, PILLAR_LENGTHS)

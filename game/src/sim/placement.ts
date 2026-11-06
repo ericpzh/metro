@@ -23,9 +23,10 @@ export { isOutdoorSurface } from './outdoorSurfaces.ts'
 //
 // Pure data — no three, no DOM.
 
-import { shelfSpec } from './shelves.ts'
+import { counterSpec, counterCells } from './counters.ts'
+import { shelfSpec, shelfCells } from './shelves.ts'
 import { extinguisherCells, extinguisherSpec } from './extinguishers.ts'
-import { CHECKOUT_HEIGHT, DESK_HEIGHT } from './constants.ts'
+import { DESK_HEIGHT } from './constants.ts'
 import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
 import { fenceArms, fenceConnectionIndex, type FenceNeighbours } from './fences.ts'
 import { isPsdCornerPair, isPsdEndCoverSupport, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd, snapPsdEndCover } from './psdEnds.ts'
@@ -78,14 +79,13 @@ const PANEL_DEPTH = 0.25
 const FRAME_PAD = 0.14
 
 /** How tall a body of each flat module stands above its cell top, metres. */
-const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'checkout' | 'cubicle' | 'sink' | 'bin' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
+const FLAT_HEIGHT: Record<'gate' | 'fence' | 'tvm' | 'vending' | 'bench' | 'desk' | 'cubicle' | 'sink' | 'bin' | 'clock' | 'cctv' | 'tv' | 'sign' | 'retail' | 'shop' | 'booth' | 'platform-edge' | 'track', number> = {
   gate: 1.3,
   fence: 1.0,
   tvm: 1.9,
   vending: 1.9,
   bench: 1.0,
   desk: DESK_HEIGHT,
-  checkout: CHECKOUT_HEIGHT,
   cubicle: 1.8,
   sink: 0.9,
   bin: 0.95,
@@ -371,11 +371,12 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + 4 }
     case 'busstop':
       return cellsAabb(trackCells(m), z0, z0 + 3)
+    case 'checkout':
+      return cellsAabb(counterCells(m), z0, z0 + counterSpec(m.cfg.variant).height)
     case 'gate':
     case 'tvm':
     case 'vending':
     case 'desk':
-    case 'checkout':
     case 'cubicle':
     case 'sink':
     case 'bin':
@@ -387,7 +388,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
     case 'extinguisher':
       return cellsAabb(extinguisherCells(m), z0, z0 + extinguisherSpec(m.cfg.variant).height)
     case 'shelf':
-      return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + shelfSpec(m.cfg.variant).height }
+      return cellsAabb(shelfCells(m), z0, z0 + shelfSpec(m.cfg.variant).height)
     case 'court':
     case 'ac-unit':
     case 'electrical-cabinet':
@@ -744,6 +745,10 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
       return monitorCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'linemap':
       return lineMapCells(m).map(([x, y]) => [x, y] as [number, number])
+    case 'shelf':
+      return shelfCells(m).map(([x,y]) => [x,y])
+    case 'checkout':
+      return counterCells(m).map(([x, y]) => [x, y])
     case 'bench':
       return benchCells(m).map(([x, y]) => [x, y] as [number, number])
     case 'busstop':
@@ -785,6 +790,8 @@ function baseCells(m: Module): Array<[number, number]> {
     case 'linemap':
     case 'monitor':
     case 'busstop':
+    case 'shelf':
+    case 'checkout':
     case 'bench':
     case 'extinguisher':
     case 'hanger':

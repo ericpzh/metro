@@ -1,10 +1,14 @@
+import { COUNTER_VARIANTS, COUNTER_LENGTHS, counterCells, counterPaletteId, counterSpec } from '../src/sim/counters.ts'
+import { sweepFamily } from '../src/app/sweep.ts'
+import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
+import { moveEquipment } from '../src/build/model.ts'
 // Shop and control-room furniture, GAME-SPEC §5.7: the visible displays and
 // chair must fit the cells that placement reserves, in all four orientations.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import * as THREE from 'three'
 import { createModule, toState } from '../src/build/model.ts'
-import { equipmentReason, moduleAt, moduleEnvelope, isMovableModule, placementBlocked } from '../src/sim/placement.ts'
+import { equipmentReason, moduleAt, moduleFootprint, moduleEnvelope, isMovableModule, placementBlocked } from '../src/sim/placement.ts'
 import { buildModule } from '../src/render/models.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { sameSweepFamily } from '../src/app/sweep.ts'
@@ -83,4 +87,73 @@ test('the workstation has two exposed monitor faces and an open mesh chair', () 
     assert.equal(ray.intersectObject(g, true)[0].object, screen, 'bezel does not hide the illuminated face')
   }
   for (const name of ['desktop', 'keyboard', 'mouse', 'paperwork', 'chair-seat']) assert.ok(g.getObjectByName(name), name)
+})
+
+
+test('store and café counters preserve distinct styles through ghosts, move, save and sweeping', () => {
+  const pieces = COUNTER_VARIANTS.flatMap(v => COUNTER_LENGTHS.map(w => createModule(counterPaletteId(v), 2, 2, 0, `${v}-${w}`, 3, w)))
+  assert.equal(new Set(pieces.map(moduleGhostKey)).size, 16)
+  assert.equal(new Set(pieces.map(sweepFamily)).size, 16)
+  for (const mod of pieces) {
+    assert.equal(isDecorType(counterPaletteId(mod.cfg.variant)), true)
+    assert.equal(moduleLabel(mod), counterSpec(mod.cfg.variant).label)
+    const state = toState({ name: 'test', seed: 1, cells: [], modules: [mod], lines: [] })
+    const moved = moveEquipment(state, { ...mod, x: 4, y: 5, rot: 1 })
+    assert.equal(moved.modules[0].x, 4)
+    assert.equal(moved.modules[0].rot, 1)
+    assert.deepEqual(moved.modules[0].cfg, mod.cfg)
+    assert.equal(moved.modules[0].w, mod.w)
+    const restored = parse(serialize(moved))
+    assert.equal(restored.ok, true)
+    assert.deepEqual(restored.state.modules, moved.modules)
+  }
+})
+
+test('every counter reserves its complete screens or display case at every rotation', () => {
+  for (const variant of COUNTER_VARIANTS) for (const length of COUNTER_LENGTHS) for (let rot = 0; rot < 4; rot++) {
+    const mod = createModule(counterPaletteId(variant), 2, 3, -5, variant, rot, length)
+    const root = build(mod), box = new THREE.Box3().setFromObject(root), env = moduleEnvelope(mod)
+    for (const axis of ['x', 'y', 'z']) {
+      assert.ok(box.min[axis] >= env[axis + '0'] - 1e-6, `${variant}/${rot}: minimum ${axis}`)
+      assert.ok(box.max[axis] <= env[axis + '1'] + 1e-6, `${variant}/${rot}: maximum ${axis}`)
+    }
+    assert.equal(env.z1, -4 + counterSpec(variant).height)
+    assert.equal(Math.max(box.max.x - box.min.x, box.max.y - box.min.y).toFixed(2), (length - (variant === 'checkout' ? .02 : .01)).toFixed(2), 'continuous worktop follows the full length')
+    assert.equal(equipmentReason([{ x: 2, y: 3, z: -3, fill: 'solid' }], [], mod), 'occupied')
+    const floor = counterCells(mod).map(([x, y, z]) => ({ x, y, z, fill: 'solid' }))
+    assert.equal(moduleFootprint(mod).length, length)
+    assert.equal(equipmentReason([...floor, { x: 2, y: 3, z: -2, fill: 'solid' }], [], mod), '')
+    if (length > 1) assert.equal(equipmentReason(floor.slice(0, -1), [], mod), 'floor', 'the last bay needs floor too')
+    const [lastX, lastY] = counterCells(mod).at(-1)
+    assert.equal(moduleAt([mod], lastX, lastY, -5)?.id, mod.id)
+    assert.equal(placementBlocked([mod], createModule('shelf', lastX, lastY, -5, 'blocker')), true)
+  }
+})
+
+test('café bays expose their espresso machine and stock inside a hollow pastry case', () => {
+  const coffee = build(createModule('checkout-cafe', 0, 0, 0, 'coffee'))
+  const top = new THREE.Box3().setFromObject(coffee.getObjectByName('counter-worktop'))
+  for (const name of ['espresso-machine', 'espresso-brew-group', 'counter-cups']) {
+    assert.ok(new THREE.Box3().setFromObject(coffee.getObjectByName(name)).min.z >= top.max.z)
+  }
+  const pastry = build(createModule('checkout-cafe-pastry', 0, 0, 0, 'pastry'))
+  const stock = pastry.getObjectByName('counter-pastries')
+  assert.equal(stock.count, 12)
+  const stockBounds = new THREE.Box3().setFromObject(stock)
+  const glass = new THREE.Box3().setFromObject(pastry.getObjectByName('pastry-case-glass-front'))
+  const lid = new THREE.Box3().setFromObject(pastry.getObjectByName('pastry-case-glass-top'))
+  assert.equal(pastry.getObjectByName('pastry-case-glass-front').material.name, 'glass')
+  assert.ok(stockBounds.min.y > glass.max.y, 'pastries are behind the glass')
+  assert.ok(stockBounds.max.z < lid.min.z, 'lid clears the merchandise')
+})
+
+
+test('espresso rear panel ends between the drip tray and upper housing without duplicate side faces', () => {
+  for (const length of COUNTER_LENGTHS) for (const rot of [0, 1, 2, 3]) {
+    const root = build(createModule('checkout-cafe', 0, 0, 0, 'coffee', rot, length))
+    const box = name => new THREE.Box3().setFromObject(root.getObjectByName(name))
+    const back = box('espresso-back'), head = box('espresso-machine'), tray = box('espresso-drip-tray')
+    assert.ok(Math.abs(back.max.z - head.min.z) < 1e-6, 'back stops at the silver housing')
+    assert.ok(Math.abs(back.min.z - tray.max.z) < 1e-6, 'back starts at the drip tray')
+  }
 })

@@ -1,3 +1,5 @@
+import { SHELF_VARIANTS } from '../src/sim/shelves.ts'
+import { COUNTER_VARIANTS, COUNTER_LENGTHS, counterPaletteId } from '../src/sim/counters.ts'
 // The 吸取 picker (工具栏, `P`): clicking a placed piece arms the placement
 // with that exact variant — and its rotation / escalator direction / 闸机 door —
 // selects the instance, and hands the left rail to the folder that owns it (by
@@ -619,7 +621,7 @@ test('a pick notes nothing when it changes nothing', () => {
 
 
 test('picking each shelf variant and a legacy shelf copies its style and rotation', () => {
-  for (const variant of ['dark-tall', 'white-tall', 'white-short', 'wire', 'cooler', 'cooler-dark', undefined]) {
+  for (const variant of [...SHELF_VARIANTS, undefined]) {
     const m = { id: 'shelf-picked', type: 'shelf', x: 1, y: 1, z: 0, rot: 3, cfg: { variant } }
     useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'pick', moduleType: 'gate', pickDraft: null })
     ctxFor(m.id).onDown(press([1, 1, 0]))
@@ -692,4 +694,22 @@ test('picking any palette tile arms its placement, including the setting-free �
     }
     assert.deepEqual(failures, [], `every palette tile round-trips through the picker:\n${failures.join('\n')}`)
   } finally { useStore.setState(before) }
+})
+
+
+test('picking every counter copies its style and rotation, with Esc restoring the prior tool', () => {
+  const before = st()
+  try {
+    for (const variant of [...COUNTER_VARIANTS, undefined]) for (const length of COUNTER_LENGTHS) {
+      const m = { id: 'counter-picked', type: 'checkout', x: 1, y: 1, z: 0, rot: 2, w: length, cfg: { variant } }
+      useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'pick', moduleType: 'gate', pickDraft: null })
+      ctxFor(m.id).onDown(press([1, 1, 0]))
+      assert.equal(st().moduleType, counterPaletteId(variant))
+      assert.equal(st().counterLength, length)
+      assert.equal(st().moduleRot, 2)
+      st().cancelPick()
+      assert.equal(st().moduleType, 'gate')
+      assert.equal(st().counterLength, before.counterLength)
+    }
+  } finally { useStore.setState(before, true) }
 })

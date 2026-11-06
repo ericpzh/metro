@@ -1,3 +1,4 @@
+import { counterPaletteId } from '../../sim/counters.ts'
 import { msg } from '../../sim/i18n.ts'
 import { escalatorLength, escalatorSpanOf, escalatorWidthOf } from '../../sim/escalators.ts'
 import { walkwayLengthOf } from '../../sim/walkways.ts'
@@ -154,11 +155,13 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'court':
       id = `court-${mod.cfg.variant}`
       break
+    case 'checkout':
+      id = counterPaletteId(mod.cfg.variant)
+      break
     case 'guidepost':
     case 'tvm':
     case 'vending':
     case 'desk':
-    case 'checkout':
     case 'urinal':
     case 'sink':
     case 'bin':
@@ -268,6 +271,7 @@ export class PickTool extends ToolController {
       st.setModuleType(optionId)
       if (mod.type === 'calligraphy') useStore.setState({ calligraphyEnglish: !!mod.cfg.showEnglish })
       if (mod.type === 'road') useStore.setState({ roadDirection: mod.cfg.direction, roadWidth: (mod.rot??0)%2?mod.d:mod.w })
+      if (mod.type === 'checkout') st.setCounterLength(mod.w ?? 1)
       if (mod.type === 'hanger') useStore.setState({ hangerLength: mod.w })
       if (mod.type === 'glass' && optionId === 'curtain-wall') useStore.setState({ curtainWidth: Math.max(1, Math.min(4, mod.w)) as 1 | 2 | 3 | 4, curtainHeight: mod.cfg.curtainHeight ?? 4 })
       if (mod.type === 'psd-end' && mod.cfg.variant !== 'cover') useStore.setState({ psdEndHeight: mod.cfg.psd })

@@ -1077,7 +1077,7 @@ into a row — from the shared `sim/benches.ts` table, with **Tab** cycling each
 and a 2 m run. A 2 m bench is a real
 two-cell run: its `w` fixes the collision envelope and its base cells (`benchCells`), the renderer
 draws the whole run from the run's centre, and a legacy bench with neither `w` nor a variant is the
-1 m stainless piece. 货架 now offers six variants: 深色高架 / 白色高架 (1.9 m), 白色矮架 (1.25 m), 移动网篮架 (1.6 m), and 白色冷柜 / 深色冷柜 (2.05 m). The shared `sim/shelves.ts` table sets their deck heights and placement clearance; legacy shelves remain tall dark gondolas. Stock is batched across decks, with paired product facings, bottle caps, package labels and price tickets. Room furniture (shelf / desk / cubicle / sink / bench, and the floor vinyl with them) may
+1 m stainless piece. 货架 retains its six original supermarket variants: 深色高架 / 白色高架 (1.9 m), 白色矮架 (1.25 m), 移动网篮架 (1.6 m), and 白色冷柜 / 深色冷柜 (2.05 m). The shared `sim/shelves.ts` table sets their deck heights and placement clearance; legacy shelves remain tall dark gondolas. Stock is batched across decks, with paired product facings, bottle caps, package labels and price tickets. It also offers clothing rails, two-tier garment racks, folded-clothing tables, shoe/bag displays, snack and bakery shelves, glass-top ice-cream freezers, island/tiered fruit bins, and a café back-bar hutch with lower cabinets, prep worktop, dishes and jar/bottle cubbies. 商店柜台 includes the original checkout plus generic white, espresso and glazed pastry counters. Every counter has a continuous 1–4 m cabinet selected with **Tab**, labeled **短 / 中 / 长 / 超长** without numeric dimensions. Picking copies both style and length; sweeping keeps other styles and lengths. Room furniture (shelf / desk / cubicle / sink / bench, and the floor vinyl with them) may
 stand inside a room footprint or booth (`placementBlocked` exempts the furniture ↔ room pair, and
 `moduleAt` prefers the furniture over the room around it). A room brush marks a footprint only —
 
@@ -3099,7 +3099,7 @@ approximated); neither needs WebGL.
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two
   floors into one band. The 高度 rail's 0–4 m base shifts every stop and band together; `save.test.mjs`
   checks that the base survives a save and an older save defaults to 0 m.
-* `shelf.test.mjs` — the 货架 (§5.7): six variants keep their configuration through factory/save/ghost/sweep; every rotated model stays inside its tile and matches its clearance height, and a low ceiling blocks the cooler. Cooler panels butt between the lid and base, with proud trim to prevent flickering at coplanar surfaces. Tall and short gondolas recess the plinth 12 mm behind the toe strip, and their back panels/posts start above it. the factory builds it with the hover rotation, it may stand
+* `shelf.test.mjs` — the 货架 (§5.7): sixteen variants keep their configuration through factory/save/ghost/sweep; every rotated model stays inside its tile and matches its clearance height, and a low ceiling blocks the cooler. Cooler panels butt between the lid and base, with proud trim to prevent flickering at coplanar surfaces. Tall and short gondolas recess the plinth 12 mm behind the toe strip, and their back panels/posts start above it. the factory builds it with the hover rotation, it may stand
   inside a room footprint or booth (either side of the shelf ↔ room pair, while shelves still collide
   with each other and other equipment does not enter rooms), `moduleAt` prefers the furniture over
   the room around it, placing a store builds no walls and stocks no shelves, each shelf deletes on
@@ -3107,7 +3107,7 @@ approximated); neither needs WebGL.
   stocks and builds nothing, legacy rooms only gain `stocked` on load (the dead `cfg.bare` flag buys
   nothing), and everything
   round-trips the save.
-* `checkout.test.mjs` — 收银台 shop placement, move/sweep and save round-trip; checkout and control-room workstation bounds in every rotation, low-ceiling clearance, exposed merchandise and monitor faces, and the mesh chair.
+* `checkout.test.mjs` — four counter styles at all four lengths, shared 短 / 中 / 长 / 超长 control, shop placement, hover/click and undo, move/sweep and save round-trip; checkout and control-room workstation bounds in every rotation, low-ceiling clearance, exposed merchandise and monitor faces, and the mesh chair.
 * `desk.test.mjs` — the 办公桌 (§5.7): the factory builds it with the hover
   rotation, it may stand inside a room footprint, `moduleAt` prefers it over the room, placing an
   office builds no walls and stocks no desks, each desk deletes on its own while bulldozing keeps

@@ -6,7 +6,8 @@ import { msg } from '../../sim/i18n.ts'
 
 import type { AppState } from './Store.ts'
 import type { Module, RoomKind, TriangleKind, Zone } from '../../sim/types.ts'
-import { SHELF_VARIANTS, shelfSpec } from '../../sim/shelves.ts'
+import { COUNTER_VARIANTS, counterSpec, counterPaletteId } from '../../sim/counters.ts'
+import { SHELF_VARIANTS, shelfSpec, shelfWidth } from '../../sim/shelves.ts'
 import { SIGN_MOUNTS, signMountSpec } from '../../sim/sign.ts'
 
 export interface ModuleOption {
@@ -44,7 +45,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
 }
 
 export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
-  if (category === 'floor' && (id.startsWith('shelf-') || id.startsWith('extinguisher-'))) return true
+  if (category === 'floor' && (id.startsWith('shelf-') || id.startsWith('checkout-') || id.startsWith('extinguisher-'))) return true
   return DECOR_CATEGORY_IDS[category].has(id)
 }
 
@@ -100,9 +101,9 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'vending', label: msg('vending_machine'), type: 'vending', w: 1, h: 1 },
   { id: 'bench-steel-1', label: msg('stainless_steel'), type: 'bench', w: 1, h: 1 },
   { id: 'bench-seat-1', label: msg('backed_seats'), type: 'bench', w: 1, h: 1 },
-  ...SHELF_VARIANTS.map((variant) => ({ id: `shelf-${variant}`, label: shelfSpec(variant).label, type: 'shelf', w: 1, h: 1 })),
+  ...SHELF_VARIANTS.map((variant) => ({ id: `shelf-${variant}`, label: shelfSpec(variant).label, type: 'shelf', w: shelfWidth(variant), h: 1 })),
   { id: 'desk', label: msg('desk'), type: 'desk', w: 1, h: 1 },
-  { id: 'checkout', label: msg('checkout'), type: 'checkout', w: 1, h: 1 },
+  ...COUNTER_VARIANTS.map(variant => ({ id: counterPaletteId(variant), label: counterSpec(variant).label, type: 'checkout', w: 1, h: 1 })),
   { id: 'cubicle', label: msg('toilet_cubicle'), type: 'cubicle', w: 1, h: 1 },
   { id: 'cubicle-toilet', label: msg('standalone_toilet'), type: 'cubicle', w: 1, h: 1 },
   { id: 'urinal', label: msg('urinal'), type: 'urinal', w: 1, h: 1 },
@@ -226,6 +227,10 @@ export function isBillboardType(type: string): boolean {
   return type === 'billboard' || type.startsWith('billboard-')
 }
 
+export function isCounterType(type: string): boolean {
+  return type === 'checkout' || type.startsWith('checkout-')
+}
+
 export function isShelfType(type: string): boolean {
   return type === 'shelf' || type.startsWith('shelf-')
 }
@@ -267,7 +272,7 @@ export function isDecorType(type: string): boolean {
     type === 'curtain-wall' || type === 'psd-end' || type === 'psd-end-cover' ||
     isShelfType(type) ||
     type === 'desk' ||
-    type === 'checkout' ||
+    isCounterType(type) ||
     (type === 'cubicle' || type === 'cubicle-toilet') ||
     type === 'sink' || type === 'urinal' ||
     type === 'sidewalk' || type === 'lawn' || type === 'tree' || type === 'traffic-light' || type === 'road' || type === 'guidepost' || type === 'busstop' || type.startsWith('busstop-') ||
@@ -429,7 +434,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'court' | 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
+export type ModuleFamilyKey = 'court' | 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'checkout' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -475,6 +480,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
   { key: 'light', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', owns: isBenchType },
   { key: 'shelf', owns: isShelfType },
+  { key: 'checkout', owns: isCounterType },
   { key: 'cubicle', owns: (id) => id === 'cubicle' || id === 'cubicle-toilet' },
   { key: 'billboard', owns: isBillboardType },
   { key: 'glass', owns: isGlassType },
@@ -508,6 +514,7 @@ export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'light', label: msg('light'), folder: 'decor', owns: (id) => id === 'light' || id.startsWith('light-') },
   { key: 'bench', label: msg('bench'), folder: 'decor', owns: isBenchType },
   { key: 'shelf', label: msg('shelf'), folder: 'decor', owns: isShelfType },
+  { key: 'checkout', label: msg('shop_counters'), folder: 'decor', owns: isCounterType },
   { key: 'cubicle', label: msg('toilet_cubicle'), folder: 'decor', owns: (id) => id === 'cubicle' || id === 'cubicle-toilet' },
   { key: 'extinguisher', label: msg('extinguisher'), folder: 'decor', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'billboard', label: msg('billboard'), folder: 'decor', owns: isBillboardType },
@@ -637,7 +644,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'clock',
     familyAnchor('cctv'),
     familyAnchor('shelf'),
-    'checkout',
+    familyAnchor('checkout'),
     // 玻璃板 and 门 share a palette row — the window and the doorway of the same vocabulary —
     // though only the 玻璃板 is wall-mounted: the 门 is a free-standing doorway.
     familyAnchor('glass'),
@@ -670,7 +677,7 @@ const DECOR_CATEGORY_ORDER: Partial<Record<DecorCategory, readonly string[]>> = 
   ],
   floor: [
     'tvm', 'vending', familyAnchor('bench'), familyAnchor('door'), 'curtain-wall', familyAnchor('psd-end'),
-    familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), 'checkout', familyAnchor('linemap'), 'desk',
+    familyAnchor('extinguisher'), 'bin', familyAnchor('shelf'), familyAnchor('checkout'), familyAnchor('linemap'), 'desk',
     familyAnchor('tactile'), familyAnchor('floor-mark'), 'electrical-cabinet', 'rail-signal', familyAnchor('cubicle'), 'sink', familyAnchor('hanger'), familyAnchor('noise-barrier'),
   ],
 }
@@ -933,6 +940,8 @@ const ROOM_KIND_LABELS: Record<string, string> = {
 
 export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (typeof type !== 'string') {
+    if (type.type === 'shelf') return shelfSpec(type.cfg.variant).label
+    if (type.type === 'checkout') return counterSpec(type.cfg.variant).label
     if (type.type === 'fence') return type.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : type.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : type.cfg.variant === 'bridge-railing' ? msg('railing') : type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'steel-blue' ? msg('blue_steel_fence') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
     return moduleLabel(type.type, type.type === 'shop' || type.type === 'booth' ? type.cfg.kind : undefined)
   }
@@ -940,7 +949,7 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (type === 'booth' && roomKind === 'info') return msg('information_desk')
   if (type.startsWith('cctv-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.cctv
   if (type.startsWith('monitor-')) return MODULE_OPTIONS.find((m) => m.id === type)?.label ?? MODULE_LABELS.monitor
-  return MODULE_LABELS[type] ?? MODULE_OPTIONS.find((m) => m.type === type)?.label ?? type
+  return MODULE_LABELS[type] ?? MODULE_OPTIONS.find((m) => m.id === type || m.type === type)?.label ?? type
 }
 
 /**
@@ -959,8 +968,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'calligraphyEnglish' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWidth' | 'rampLength' | 'escalatorSpan' | 'doubleRampLength' | 'tripleRampLength' | 'liftInterval' | 'liftSize' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'suspendedCeiling' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'counterLength' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'calligraphyEnglish' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWidth' | 'rampLength' | 'escalatorSpan' | 'doubleRampLength' | 'tripleRampLength' | 'liftInterval' | 'liftSize' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'suspendedCeiling' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.calligraphyEnglish}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWidth}|${s.rampLength}|${s.escalatorSpan}|${s.doubleRampLength}|${s.tripleRampLength}|${s.liftInterval}|${s.liftSize}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.suspendedCeiling}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.counterLength}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.calligraphyEnglish}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWidth}|${s.rampLength}|${s.escalatorSpan}|${s.doubleRampLength}|${s.tripleRampLength}|${s.liftInterval}|${s.liftSize}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.suspendedCeiling}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

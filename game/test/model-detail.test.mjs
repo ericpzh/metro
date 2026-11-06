@@ -656,3 +656,22 @@ for(const city of ['chengdu','chongqing','wuhan','nanjing'])for(const id of ['ex
     batchStaticModule(root,mod.type);assert.equal(totals(root,true),low)
   } finally {detail.restore()}
 },(mod,data)=>{data.cityStyle=city}))
+
+
+for (const id of ['checkout', 'checkout-generic', 'checkout-cafe', 'checkout-cafe-pastry']) for (const length of [2, 3, 4]) {
+  test(`${id}/${length}m retains its continuous cabinet and exact High geometry after Low batching`, () => fixture(id, (root, mod) => {
+    const full = totals(root), low = totals(root, true), budget = equipmentLowBudget(id, full)
+    assert.ok(low > 0 && low <= budget.limit, `${id}/${length}: ${low}/${full}, limit ${budget.limit}`)
+    const near = []
+    root.traverse(o => { if (o.isMesh) near.push(o.geometry) })
+    const detail = new SourceGeometryDetail()
+    detail.apply(root, true)
+    detail.restore()
+    const restored = []
+    root.traverse(o => { if (o.isMesh) restored.push(o.geometry) })
+    assert.deepEqual(restored, near)
+    batchStaticModule(root, mod.type)
+    assert.equal(totals(root), full)
+    assert.equal(totals(root, true), low)
+  }, mod => { mod.w = length }))
+}

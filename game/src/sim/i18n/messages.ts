@@ -1,5 +1,22 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  cafe_backbar_medium: { zh: '中备餐柜', en: 'Medium prep cabinet' },
+  cafe_backbar_extra_long: { zh: '长备餐柜', en: 'Long prep cabinet' },
+  cafe_backbar_shelf: { zh: '短备餐柜', en: 'Short prep cabinet' },
+
+  clothing_rail: { zh: '落地衣架', en: 'Clothing rail' },
+  clothing_wall: { zh: '双层服装架', en: 'Two-tier clothing rack' },
+  clothing_table: { zh: '叠衣展示台', en: 'Folded clothing table' },
+  clothing_shoes: { zh: '鞋包展示架', en: 'Shoe and bag display' },
+  food_snacks: { zh: '零食货架', en: 'Snack display' },
+  food_bakery: { zh: '面包货架', en: 'Bakery shelves' },
+  ice_cream_freezer: { zh: '冰淇淋冷柜', en: 'Ice-cream freezer' },
+  fruit_island: { zh: '水果岛台', en: 'Fruit island' },
+  fruit_tiered: { zh: '阶梯水果架', en: 'Tiered fruit stand' },
+  store_counter: { zh: '通用商店柜台', en: 'Store counter' },
+  cafe_counter: { zh: '咖啡吧台', en: 'Coffee counter' },
+  cafe_pastry_counter: { zh: '咖啡甜点柜台', en: 'Café pastry counter' },
+  shop_counters: { zh: '商店柜台', en: 'Shop counters' },
   ballfield: { zh: '球场', en: 'Ballfield' },
   court_divider: { zh: '球场矮围栏', en: 'Court divider' },
   pickleball_court: { zh: '匹克球场', en: 'Pickleball court' },

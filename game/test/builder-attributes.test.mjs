@@ -223,3 +223,31 @@ test('all width action tiles use the shared width glyph and the shell delegates 
   assert.deepEqual(dimensionSelection('length', 'escalator', stateWith({ escalatorSpan: 'single', rampLength: 'ultra-long' })), { selected: 4, count: 5 })
   assert.equal(dimensionSelection('direction', 'road', stateWith()), undefined)
  })
+
+
+test('every counter shares the 1–4 m length control and refreshes its ghost without a document edit', async () => {
+  const { counterPaletteId, COUNTER_VARIANTS } = await import('../src/sim/counters.ts')
+  const { placementPreviewKey } = await import('../src/app/store/catalog.ts')
+  const { dimensionSelection } = await import('../src/app/rail/shared/dimensionSelection.ts')
+  const before = useStore.getState()
+  try {
+    for (const variant of COUNTER_VARIANTS) {
+      useStore.setState({ moduleType: counterPaletteId(variant), counterLength: 1 })
+      const keys = []
+      for (const length of [1, 2, 3, 4]) {
+        const state = useStore.getState(), attrs = moduleBuilderAttributes(state.moduleType, state)
+        assert.deepEqual(attrs.map(a => a.kind), ['rotation', 'length'])
+        assert.equal(attrs[1].shortcut, 'Tab')
+        assert.equal(attrs[1].label, ['短', '中', '长', '超长'][length - 1])
+        assert.equal(state.counterLength, length)
+        assert.deepEqual(dimensionSelection('length', state.moduleType, state), { selected: length - 1, count: 4 })
+        keys.push(placementPreviewKey(state))
+        assert.equal(activateModuleBuilderShortcut(state.moduleType, state, 'Tab'), true)
+      }
+      assert.equal(useStore.getState().counterLength, 1)
+      assert.equal(new Set(keys).size, 4)
+      assert.equal(useStore.getState().station, before.station)
+      assert.equal(useStore.getState().past, before.past)
+    }
+  } finally { useStore.setState(before, true) }
+})

@@ -1,6 +1,7 @@
 // Station data model. Pure types shared by the build tools, the sim graph and
 // the save format (§10.5). Ids stay ASCII per §9.2 even though the UI is Chinese.
 
+import type { CounterVariant } from './counters.ts'
 import type { ShelfVariant } from './shelves.ts'
 import type { ExtinguisherVariant } from './extinguishers.ts'
 import type { StockClass } from './stock.ts'
@@ -538,7 +539,7 @@ export type Module =
    * and `cfg.auto` marks a unit the room builder laid out itself.
    */
   | (ModuleBase & { type: 'desk'; cfg: { auto?: boolean } })
-  | (ModuleBase & { type: 'checkout'; cfg: Record<string, never> })
+  | (ModuleBase & { type: 'checkout'; w?: number; cfg: { variant?: CounterVariant } })
   /**
    * One cubicle of a restroom (隔间, 装饰): the partition + WC + tank unit the
    * 厕所 fit-out stocks along its back row (§5.7), as a free-standing floor

@@ -11,6 +11,7 @@
 // Pure data + `build/model.ts` helpers — no three, no DOM.
 
 import type { Module } from '../sim/types.ts'
+import { counterVariant, counterLength } from '../sim/counters.ts'
 import { shelfVariant } from '../sim/shelves.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { billboardSpec } from '../sim/billboards.ts'
@@ -96,6 +97,7 @@ export function sweepFamily(mod: Module): string | null {
   if (!SWEEP_TYPES.has(mod.type)) return null
   // The variant tables are the one place a variant's width and look are
   // described, so the family key is read from them rather than from the module.
+  if (mod.type === 'checkout') return `checkout:${counterVariant(mod.cfg.variant)}:${counterLength(mod.w)}`
   if (mod.type === 'shelf') return `shelf:${shelfVariant(mod.cfg.variant)}`
   if (mod.type === 'bench') return `bench:${benchSpec(mod.cfg.variant).variant}`
   if (mod.type === 'billboard') return `billboard:${billboardSpec(mod.cfg.variant).variant}`

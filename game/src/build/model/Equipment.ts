@@ -3,7 +3,8 @@ import { msg } from '../../sim/i18n.ts'
 // Sign-board repair lives here too: a 指示牌 is equipment with a document.
 
 import { extinguisherVariant } from '../../sim/extinguishers.ts';
-import { shelfVariant } from '../../sim/shelves.ts';
+import { counterVariant, counterLength, counterCells } from '../../sim/counters.ts';
+import { shelfVariant, shelfCells } from '../../sim/shelves.ts';
 import { benchSpec } from '../../sim/benches.ts';
 import { BILLBOARD_SPECS, billboardSpec, postersFor } from '../../sim/billboards.ts';
 import {
@@ -149,6 +150,8 @@ function createModuleRaw(
   const curtainHeight = settings.curtainHeight ?? 4
   const span = settings.escalatorSpan ?? 'single'
   const rampLength = settings.rampLength ?? defaultRampLength(storeyHeight, span)
+  if (type.startsWith('shelf-')) return { id, type: 'shelf', x, y, z, rot, cfg: { variant: shelfVariant(type.slice(6)) } };
+  if (type.startsWith('checkout-')) return { id, type: 'checkout', x, y, z, rot, w: counterLength(width), cfg: { variant: counterVariant(type.slice(9)) } };
   switch (type) {
     case 'sidewalk':
     case 'lawn':
@@ -203,17 +206,11 @@ function createModuleRaw(
       return { id, type: 'bench', x: ox, y: oy, z, rot, w: spec.w, cfg: { variant: spec.variant } };
     }
     case 'shelf':
-    case 'shelf-dark-tall':
-    case 'shelf-white-tall':
-    case 'shelf-white-short':
-    case 'shelf-wire':
-    case 'shelf-cooler':
-    case 'shelf-cooler-dark':
       return { id, type: 'shelf', x, y, z, rot, cfg: { variant: shelfVariant(type.slice(6)) } };
     case 'desk':
       return { id, type: 'desk', x, y, z, rot, cfg: {} };
     case 'checkout':
-      return { id, type: 'checkout', x, y, z, rot, cfg: {} };
+      return { id, type: 'checkout', x, y, z, rot, w: counterLength(width), cfg: {} };
     case 'cubicle':
     case 'cubicle-toilet':
       return { id, type: 'cubicle', x, y, z, rot, cfg: type === 'cubicle-toilet' ? { variant: 'toilet' } : {} };
@@ -595,6 +592,10 @@ export function footprintCellsOf(type: string, variant?: number, storeyHeight = 
     }
     case 'lift':
       return liftFootprintCells(mod);
+    case 'shelf':
+      return shelfCells(mod).map(([x,y]) => [x,y]);
+    case 'checkout':
+      return counterCells(mod).map(([x, y]) => [x, y]);
     case 'bench':
       return benchCells(mod).map(([x, y]) => [x, y] as [number, number]);
     case 'billboard':

@@ -69,3 +69,14 @@ test('action-row size families and all cut orientations remain in the manifest',
   for(const family of ['half-wall','tri-upper','tri-lower'])assert.deepEqual(cases.filter(c=>c.paletteId===family).map(c=>c.shape.side),['n','e','s','w'])
   assert.ok(cases.some(c=>c.ceiling),'suspended ceiling uses the block path too')
 })
+
+
+test('the production action manifest exercises all counter lengths', () => {
+  for (const option of MODULE_OPTIONS.filter(o => o.type === 'checkout')) {
+    const lengths = cases.filter(c => c.paletteId === option.id && c.width).map(c => c.width)
+    assert.deepEqual(lengths, [2, 3, 4])
+    for (const spec of cases.filter(c => c.paletteId === option.id)) {
+      assert.equal(caseModules(spec, 0, 0, 0, 'counter', station)[0].w, spec.width ?? 1)
+    }
+  }
+})

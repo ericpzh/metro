@@ -48,6 +48,7 @@ import {
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import type { Module } from '../../sim/types.ts'
+import { isCounterType } from '../store/catalog.ts'
 import { isDecorType, isFenceType, isStairType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
 import { dragCellCount, straightLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
@@ -678,7 +679,7 @@ export class EquipmentTool extends ToolController {
         cell[2],
         id,
         st.moduleRot,
-        type === 'curtain-wall' ? st.curtainWidth : type === 'hanger-roof' || type === 'hanger-post' ? st.hangerLength : st.stairWidth,
+        isCounterType(type) ? st.counterLength : type === 'curtain-wall' ? st.curtainWidth : type === 'hanger-roof' || type === 'hanger-post' ? st.hangerLength : st.stairWidth,
         st.escalatorDir,
         st.gateDoor,
         st.station,

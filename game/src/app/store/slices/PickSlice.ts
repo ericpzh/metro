@@ -60,6 +60,7 @@ export interface PickDraft {
   liftSize: LiftSize
   walkwayLength: WalkwayLength
   liftStyle: 'glass' | 'steel'
+  counterLength: AppState['counterLength']
   hangerLength: 4 | 6 | 8
   curtainWidth: 1 | 2 | 3 | 4
   curtainHeight: 2 | 3 | 4
@@ -122,6 +123,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
         liftSize: s.liftSize,
         walkwayLength: s.walkwayLength,
         liftStyle: s.liftStyle,
+        counterLength: s.counterLength,
         hangerLength: s.hangerLength,
         curtainWidth: s.curtainWidth,
         curtainHeight: s.curtainHeight,
@@ -163,6 +165,7 @@ export const createPickSlice: StateCreator<AppState, [], [], PickSlice> = (set, 
       liftSize: d.liftSize,
       walkwayLength: d.walkwayLength,
       liftStyle: d.liftStyle,
+      counterLength: d.counterLength,
       hangerLength: d.hangerLength,
       curtainWidth: d.curtainWidth,
       curtainHeight: d.curtainHeight,

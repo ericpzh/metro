@@ -1,6 +1,7 @@
 // Shared by the production-browser audit and its completeness regression.
 // Catalogue entries are automatic; finite action-row settings are explicit.
-import { MODULE_OPTIONS, isDecorType, isStairType } from '../store/catalog.ts'
+import { COUNTER_LENGTHS } from '../../sim/counters.ts'
+import { MODULE_OPTIONS, isCounterType, isDecorType, isStairType } from '../store/catalog.ts'
 import { createModule } from '../../build/model.ts'
 import type { ModuleBuildSettings } from '../../build/model/Equipment.ts'
 import { ROOF_WIDTHS, PILLAR_LENGTHS } from '../../sim/structures.ts'
@@ -46,6 +47,7 @@ export function editorActionCases(data?:StationData): EditorActionCase[] {
   const add=(base:EditorActionCase,suffix:string,patch:Partial<EditorActionCase>)=>cases.push({...base,...patch,id:`${base.id}/${suffix}`})
   for(const base of [...cases]){
     const id=base.paletteId
+    if(isCounterType(id))for(const width of COUNTER_LENGTHS)if(width>1)add(base,`length=${width}`,{width})
     if(id.startsWith('roof-'))for(const width of ROOF_WIDTHS)add(base,`width=${width}`,{width})
     if(id.startsWith('pillar-'))for(const height of PILLAR_LENGTHS)add(base,`height=${height}`,{cfg:{height}})
     if(id==='pillar-slim')for(let position=0;position<9;position++)add(base,`position=${position}`,{rot:position})

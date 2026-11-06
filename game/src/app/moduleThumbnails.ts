@@ -41,7 +41,7 @@ import { escalatorLengthSpec } from '../sim/escalators.ts'
 import { RAMP_LENGTH_DEFAULT } from '../sim/rampLengths.ts'
 import { STOREY_HEIGHT } from '../sim/constants.ts'
 import { BILLBOARD_SPECS, posterFor, type AdPoster } from '../sim/billboards.ts'
-import { shelfVariant } from '../sim/shelves.ts'
+import { counterLength } from '../sim/counters.ts'
 import { benchSpec } from '../sim/benches.ts'
 import { createModule } from '../build/model.ts'
 import type { BenchVariant, BillboardShape, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GlassVariant, LineMapVariant, Module, StationData, Vec3i } from '../sim/types.ts'
@@ -285,6 +285,7 @@ function syntheticStation(): StationData {
 
 /** One representative instance of each palette entry, placed at the origin. */
 function sampleModule(id: string, station: StationData): Module | null {
+  if (id === 'shelf' || id === 'checkout' || id.startsWith('shelf-') || id.startsWith('checkout-')) return createModule(id, 0, 0, 0, id)
   switch (id) {
     case 'pillar-slim':
     case 'pillar-thick':
@@ -329,18 +330,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       const spec = benchSpec(variant)
       return { id, type: 'bench', x: 0, y: 0, z: 0, rot: 0, w: spec.w, cfg: { variant: spec.variant } }
     }
-    case 'shelf':
-    case 'shelf-dark-tall':
-    case 'shelf-white-tall':
-    case 'shelf-white-short':
-    case 'shelf-wire':
-    case 'shelf-cooler':
-    case 'shelf-cooler-dark':
-      return { id, type: 'shelf', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: shelfVariant(id.slice(6)) } }
     case 'desk':
       return { id, type: 'desk', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
-    case 'checkout':
-      return { id, type: 'checkout', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
     case 'cubicle':
     case 'cubicle-toilet':
       return { id, type: 'cubicle', x: 0, y: 0, z: 0, rot: 0, cfg: id === 'cubicle-toilet' ? { variant: 'toilet' } : {} }
@@ -690,6 +681,8 @@ export interface PieceElevations {
  * it needs no angle of its own.
  */
 export interface PieceView {
+  /** A production counter's 1–4 m run, applied only to this capture document. */
+  counterLength?: number
   /** Authored sheet connections may differ from the current palette default. */
   ramp?: {rise: number; run: number}
   /** Capture the same model under another id, for independently turned views. */
@@ -1226,6 +1219,7 @@ export async function renderModulePieces(
       const sourceId = views?.[opt.id]?.modelId ?? opt.id
       station.modules = []
       let mod = sampleModule(sourceId === 'lift-car' || sourceId === 'lift-shaft' ? 'lift' : sourceId, station)
+      if (mod?.type === 'checkout') mod = { ...mod, w: counterLength(views?.[opt.id]?.counterLength ?? mod.w) }
       const psdCells = views?.[opt.id]?.psdCells ?? elevations?.psdCells
       if (mod && mod.type === 'platform-edge' && psdCells) mod = { ...mod, w: psdCells }
       if (!mod) continue

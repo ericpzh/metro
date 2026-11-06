@@ -81,12 +81,14 @@ Counts exclude textures and do not establish a draw-call or GPU-time pass.
 
 ### Equipment and decor
 
+Shop-fixture inventory refreshed with `node tools/model-triangle-inventory.mjs`: short/medium/long prep cabinets with distinct authored shelf and stock layouts and every checkout/café counter length use production builders and authored Low geometry. Counts below are geometry inventory, not frame-time measurements.
+
 Default Guangzhou catalogue. Shared limits live in
 `tools/equipment-low-budgets.mjs`: strict <10% unless an explicit minimum-shape
 exception applies. `model-detail` checks reduction, restoration and batching.
 Never raise a limit to conceal a regression.
 
-Ballfield inventory measured 2026-11-06 with `BENCH_OUTPUT=.preview/perf/ballfields/report.json
+Inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/ballfields/report.json
 node tools/model-triangle-inventory.mjs` (three.js r186); raw counts are in
 `.preview/perf/ballfields/model-triangles.json`, with source hashes in
 `.preview/perf/ballfields/source-hashes.json`. Ballfields use 88/192 triangles
@@ -103,20 +105,30 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | shelf-cooler | 420 | 9852 |
 | shelf-cooler-dark | 420 | 9852 |
 | bridge | 720 | 9576 |
+| checkout-cafe-pastry/4m | 116 | 8620 |
+| shelf-cafe-backbar-4 | 136 | 8488 |
 | shelf-white-tall | 240 | 7556 |
 | shelf-dark-tall | 240 | 7244 |
+| shelf-fruit-island | 364 | 7100 |
 | urinal | 648 | 6880 |
 | shelf-wire | 412 | 6524 |
+| checkout-cafe-pastry/3m | 108 | 6332 |
+| shelf-food-bakery | 80 | 5884 |
 | cubicle | 72 | 5688 |
+| shelf-fruit-tiered | 384 | 5672 |
 | cctv-dome | 336 | 5208 |
 | walkway | 290 | 5162 |
 | cctv-post | 352 | 5096 |
 | sink | 224 | 4972 |
 | cctv-ptz | 308 | 4924 |
 | shelf-white-short | 192 | 4420 |
+| checkout-cafe-pastry/2m | 100 | 4044 |
+| shelf-cafe-backbar-2 | 100 | 3712 |
 | escalator | 204 | 3410 |
-| cubicle-toilet | 1712 | 3052 |
+| cubicle-toilet | 256 | 3052 |
+| shelf-cafe-backbar | 116 | 2944 |
 | ac-unit | 140 | 2924 |
+| shelf-clothing-shoes | 40 | 2724 |
 | stair-leftForward | 232 | 2336 |
 | stair-rightForward | 232 | 2336 |
 | stair-left180 | 222 | 2288 |
@@ -124,21 +136,35 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | stair-centerForward | 212 | 2240 |
 | stair-left90 | 212 | 2240 |
 | stair-right90 | 212 | 2240 |
+| checkout-cafe/4m | 100 | 1972 |
 | clock | 188 | 1940 |
 | stair-straight | 150 | 1940 |
 | cctv | 124 | 1888 |
+| shelf-food-snacks | 80 | 1884 |
 | lift | 144 | 1776 |
+| checkout-cafe-pastry | 92 | 1756 |
+| checkout-cafe/3m | 92 | 1684 |
+| fence-steel-blue | 94 | 1668 |
+| checkout-cafe/2m | 84 | 1396 |
+| shelf-clothing-wall | 44 | 1372 |
 | electrical-cabinet | 36 | 1224 |
+| checkout-cafe | 60 | 928 |
 | extinguisher-glass | 86 | 918 |
 | exit-covered-1 | 68 | 902 |
 | exit | 68 | 902 |
 | exit-covered-3 | 68 | 902 |
+| shelf-ice-cream | 68 | 900 |
 | roof-canopy | 56 | 840 |
 | tactile-warning | 4 | 812 |
 | fence-iron | 72 | 768 |
+| checkout/2m | 68 | 762 |
+| checkout/3m | 68 | 762 |
+| checkout/4m | 68 | 762 |
 | checkout | 64 | 750 |
+| shelf-clothing-table | 48 | 732 |
 | gate-new | 68 | 720 |
 | rail-signal | 64 | 708 |
+| shelf-clothing-rail | 48 | 680 |
 | vending | 40 | 676 |
 | gate | 64 | 668 |
 | desk | 60 | 652 |
@@ -151,13 +177,17 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | tvm | 30 | 372 |
 | busstop-long | 30 | 372 |
 | fence | 26 | 360 |
+| checkout-generic/4m | 28 | 352 |
 | door-steel-1 | 20 | 324 |
 | door-glass-1 | 18 | 324 |
+| checkout-generic/3m | 28 | 304 |
 | roof-truss | 26 | 264 |
 | busstop-short | 24 | 260 |
+| checkout-generic/2m | 28 | 256 |
 | light-circular | 18 | 256 |
-| monitor-wall | 8 | 213 |
 | court-badminton | 100 | 228 |
+| monitor-wall | 8 | 213 |
+| checkout-generic | 28 | 208 |
 | lawn | 12 | 204 |
 | bin | 26 | 196 |
 | court-pickleball | 88 | 192 |
@@ -166,9 +196,9 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | extinguisher | 12 | 146 |
 | extinguisher-compact | 12 | 146 |
 | door-wood-1 | 20 | 144 |
+| court-divider | 52 | 132 |
 | sidewalk | 12 | 132 |
 | tv-double | 28 | 132 |
-| court-divider | 52 | 132 |
 | psd-end | 30 | 114 |
 | tv | 22 | 114 |
 | noise-barrier | 46 | 108 |
@@ -189,6 +219,10 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | exit-virtual | 46 | 60 |
 | road | 10 | 50 |
 | stair-block | 34 | 48 |
+| linemap-stand | 16 | 40 |
+| hanger-roof | 6 | 36 |
+| hanger-post | 14 | 36 |
+| pillar-slim | 16 | 36 |
 | billboard-wide | 4 | 26 |
 | billboard-standard | 4 | 26 |
 | billboard-large | 4 | 26 |
@@ -199,10 +233,6 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | billboard-16x9-4m | 4 | 26 |
 | billboard-4x3-3m | 4 | 26 |
 | billboard-4x3-4m | 4 | 26 |
-| linemap-stand | 16 | 40 |
-| hanger-roof | 6 | 36 |
-| hanger-post | 14 | 36 |
-| pillar-slim | 16 | 36 |
 | linemap-wall | 4 | 26 |
 | exit-doorway-1 | 10 | 26 |
 | exit-doorway-2 | 10 | 26 |

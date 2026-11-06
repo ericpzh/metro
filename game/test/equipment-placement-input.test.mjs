@@ -363,3 +363,32 @@ test('pillar lettering snaps in metre courses and refuses heights outside the sh
     assert.deepEqual(useStore.getState().station.modules.find(m => m.type === 'calligraphy'), expected)
   } finally { useStore.setState(before) }
 })
+
+
+test('counter length is identical in hover, click and undo for every style', () => {
+  const before = useStore.getState()
+  const hit = { cell: [0, 0, -5], place: [0, 0, -4], solid: true, point: [.5, .5, -4] }
+  const cells = Array.from({ length: 4 }, (_, x) => ({ x, y: 0, z: -5, fill: 'solid' }))
+  try {
+    for (const moduleType of ['checkout', 'checkout-generic', 'checkout-cafe', 'checkout-cafe-pastry']) for (const length of [1, 2, 3, 4]) {
+      let preview, refused
+      const tool = new EquipmentTool({
+        scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {} }),
+        pickModule: () => null, hover: { current: hit }, drag: { current: null },
+      })
+      useStore.setState({ station: toState({ name: 'counter', seed: 1, cells, modules: [], lines: [] }),
+        past: [], future: [], tool: 'module', moduleType, moduleRot: 0, counterLength: length })
+      tool.refreshHover()
+      assert.equal(refused, false)
+      assert.equal(preview.w, length)
+      assert.equal(useStore.getState().past.length, 0, 'hover leaves history alone')
+      tool.onDown({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
+      const placed = useStore.getState().station.modules.find(mod => mod.type === 'checkout')
+      assert.ok(placed, moduleType)
+      assert.equal(placed.w, length)
+      assert.deepEqual(placed.cfg, preview.cfg)
+      useStore.getState().undo()
+      assert.equal(useStore.getState().station.modules.length, 0)
+    }
+  } finally { useStore.setState(before, true) }
+})

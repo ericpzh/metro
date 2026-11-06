@@ -1683,8 +1683,15 @@ including the depth prepass, for all six appearances.
   `sim/benches.ts` — a plain stainless bench with no back and an upholstered seat with a back
   and arm rests — one tile per style, with **Tab** cycling each between its 1 m and 2 m
   run (`cycleBenchWidth`); the 2 m piece is a real two-cell run, and a pick arms its exact
-  `-2` id. 货架 is a six-variant family from `sim/shelves.ts` (tall/short, wire and cooler):
-  each variant is its own tile, and a pick copies the style.
+  `-2` id. 货架 is an eighteen-variant family from `sim/shelves.ts` (tall/short, wire, cooler, clothing, food, ice-cream, fruit and café back-bar storage):
+  each variant is its own tile, and a pick copies the style. 商店柜台 is a four-variant
+  family from `sim/counters.ts`: original checkout, generic white counter, espresso
+  bar and glazed pastry bay. `counterLength` cycles 1–4 m with Tab through
+  `builderAttributes`, labeled 短 / 中 / 长 / 超长 (no metre suffix). Reserve every
+  rotated cell and require floor under the full run; pick/cancel restores length.
+  Keep shared spec heights aligned with placement,
+  preview/factory config, picking, sweeping and save round trips. New stock is
+  instanced with scene-owned materials; the low-detail model omits merchandise.
   垃圾桶 is the stainless double bin (`buildBin`) and 灭火器 the red steel cabinet on four
   legs (`buildExtinguisher`); both are cosmetic — no server, no stop — and both count as
   room furniture. 门 (`sim/doors.ts`) is the folder's one **doorway**: a threshold, a post at
@@ -2720,3 +2727,5 @@ absolute compass with saved module rotations preserved; picking converts back
 to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
 Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mjs`
 and `pick-tool.test.mjs` pin stair direction, dragging and picking.
+
+Prep cabinets retain saved cafe-backbar / cafe-backbar-2 / cafe-backbar-4 ids, labeled 短备餐柜 / 中备餐柜 / 长备餐柜. Wide variants use one continuous cabinet/worktop and authored asymmetric shelf layouts, never repeated one-metre units. Pin bounds, roof clearance, stock variation and continuous worktop ownership in shelf tests.
