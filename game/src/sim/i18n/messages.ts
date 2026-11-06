@@ -1000,6 +1000,10 @@ export const messages = {
     "zh": "门",
     "en": "Door"
   },
+  "blue_steel_fence": {
+    "zh": "全高围栏",
+    "en": "Full-height fence"
+  },
   "iron_fence": {
     "zh": "铁围栏",
     "en": "Iron fence"

@@ -313,6 +313,7 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'noise-barrier-half':
     case 'noise-barrier-railing':
     case 'fence-gate':
+    case 'fence-steel-blue':
     case 'fence-iron':
       return createModule(id, 0, 0, 0, id)
     case 'tvm':

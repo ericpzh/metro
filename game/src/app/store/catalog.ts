@@ -88,6 +88,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'psd-end-cover', label: msg('screen_door_cover'), type: 'psd-end', w: 1, h: 1 },
   { id: 'fence', label: msg('glass_fence'), type: 'fence', w: 1, h: 1 },
   { id: 'fence-gate', label: msg('door'), type: 'fence', w: 1, h: 1 },
+  { id: 'fence-steel-blue', label: msg('blue_steel_fence'), type: 'fence', w: 1, h: 2 },
   { id: 'fence-iron', label: msg('iron_fence'), type: 'fence', w: 1, h: 1 },
   { id: 'noise-barrier', label: msg('full_height_noise_barrier'), type: 'fence', w: 1, h: 3 },
   { id: 'noise-barrier-half', label: msg('half_height_noise_barrier'), type: 'fence', w: 1, h: 1.5 },
@@ -346,7 +347,7 @@ export function isWallMountedType(type: string): boolean {
 
 /** True for the fence piece, which drags out a run like the wall tool. */
 export function isFenceType(type: string): boolean {
-  return type === 'fence' || type === 'fence-gate' || type === 'fence-iron' || isNoiseBarrierType(type)
+  return type === 'fence' || type === 'fence-gate' || type === 'fence-iron' || type === 'fence-steel-blue' || isNoiseBarrierType(type)
 }
 
 export function isNoiseBarrierType(type: string): boolean {
@@ -927,7 +928,7 @@ const ROOM_KIND_LABELS: Record<string, string> = {
 
 export function moduleLabel(type: string | Module, roomKind?: string): string {
   if (typeof type !== 'string') {
-    if (type.type === 'fence') return type.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : type.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : type.cfg.variant === 'bridge-railing' ? msg('railing') : type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
+    if (type.type === 'fence') return type.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : type.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : type.cfg.variant === 'bridge-railing' ? msg('railing') : type.cfg.variant === 'gate' ? msg('door') : type.cfg.variant === 'steel-blue' ? msg('blue_steel_fence') : type.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
     return moduleLabel(type.type, type.type === 'shop' || type.type === 'booth' ? type.cfg.kind : undefined)
   }
   if (type === 'shop') return ROOM_KIND_LABELS[roomKind ?? 'store'] ?? MODULE_LABELS.shop

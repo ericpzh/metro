@@ -1107,7 +1107,7 @@ export function ownedMaterial<T extends THREE.Material>(ctx: ModuleContext, mat:
 /* ----------------------------------------------------------------- fence */
 
 /** Round stainless tubes, as in the station railings (§5.2). */
-function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, number], to: [number, number, number], radius: number): THREE.Mesh {
+export function fenceTube(g: THREE.Group, mat: THREE.Material, from: [number, number, number], to: [number, number, number], radius: number): THREE.Mesh {
   const a = new THREE.Vector3(...from)
   const b = new THREE.Vector3(...to)
   const delta = b.clone().sub(a)

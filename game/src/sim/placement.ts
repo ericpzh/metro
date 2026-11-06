@@ -537,7 +537,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // overlaps a full-cell box in the same cell (same-cell stacking is
       // refused) while adjacent cells stay legal.
       const variant = noiseBarrierVariant(m)
-      const z1 = z0 + (variant ? noiseBarrierHeight(variant) : FLAT_HEIGHT.fence)
+      const z1 = z0 + (variant ? noiseBarrierHeight(variant) : m.cfg.variant === 'steel-blue' ? 2 : FLAT_HEIGHT.fence)
       const rot = (((m.rot ?? 0) % 4) + 4) % 4
       if (variant) {
         const [dx, dy] = noiseBarrierOffset(rot)
@@ -2507,7 +2507,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
  */
 export function moduleTypeLabel(m: Module): string {
   if (m.type === 'psd-end' && m.cfg.variant === 'cover') return msg('screen_door_cover')
-  if (m.type === 'fence') return m.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : m.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : m.cfg.variant === 'bridge-railing' ? msg('railing') : m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
+  if (m.type === 'fence') return m.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : m.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : m.cfg.variant === 'bridge-railing' ? msg('railing') : m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'steel-blue' ? msg('blue_steel_fence') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
   if (m.type === 'shop') {
     const kind = (m.cfg as { kind?: string } | undefined)?.kind
     if (kind === 'toilet') return msg('restroom')

@@ -137,7 +137,7 @@ export function paletteIdForModule(mod: Module): string | null {
       id = mod.cfg.variant === 'post' ? 'cctv-post' : mod.cfg.variant === 'ptz' ? 'cctv-ptz' : mod.cfg.variant === 'dome' ? 'cctv-dome' : 'cctv'
       break
     case 'fence':
-      id = mod.cfg.variant === 'sound-barrier' ? 'noise-barrier' : mod.cfg.variant === 'sound-barrier-half' ? 'noise-barrier-half' : mod.cfg.variant === 'bridge-railing' ? 'noise-barrier-railing' : mod.cfg.variant === 'gate' ? 'fence-gate' : mod.cfg.variant === 'iron' ? 'fence-iron' : 'fence'
+      id = mod.cfg.variant === 'sound-barrier' ? 'noise-barrier' : mod.cfg.variant === 'sound-barrier-half' ? 'noise-barrier-half' : mod.cfg.variant === 'bridge-railing' ? 'noise-barrier-railing' : mod.cfg.variant === 'gate' ? 'fence-gate' : mod.cfg.variant === 'steel-blue' ? 'fence-steel-blue' : mod.cfg.variant === 'iron' ? 'fence-iron' : 'fence'
       break
     case 'gate':
       id = mod.cfg.variant === 'new' ? 'gate-new' : 'gate'

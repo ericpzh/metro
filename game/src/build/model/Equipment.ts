@@ -182,8 +182,9 @@ function createModuleRaw(
     case 'noise-barrier-half':
     case 'noise-barrier-railing':
     case 'fence-gate':
+    case 'fence-steel-blue':
     case 'fence-iron':
-      return { id, type: 'fence', x, y, z, rot, cfg: { variant: type === 'noise-barrier' ? 'sound-barrier' : type === 'noise-barrier-half' ? 'sound-barrier-half' : type === 'noise-barrier-railing' ? 'bridge-railing' : type === 'fence-gate' ? 'gate' : type === 'fence-iron' ? 'iron' : 'glass' } };
+      return { id, type: 'fence', x, y, z, rot, cfg: { variant: type === 'noise-barrier' ? 'sound-barrier' : type === 'noise-barrier-half' ? 'sound-barrier-half' : type === 'noise-barrier-railing' ? 'bridge-railing' : type === 'fence-gate' ? 'gate' : type === 'fence-steel-blue' ? 'steel-blue' : type === 'fence-iron' ? 'iron' : 'glass' } };
     case 'tvm':
       return { id, type: 'tvm', x, y, z, rot, cfg: {} };
     case 'vending':

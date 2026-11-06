@@ -80,7 +80,7 @@ test('ground sound barriers match bridge profiles and reserve their full height 
 test('fence drag previews and places the selected variant, and deletion leaves decals behind', () => {
   const before = useStore.getState()
   try {
-    for (const type of ['fence', 'fence-gate', 'fence-iron', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
+    for (const type of ['fence', 'fence-gate', 'fence-iron', 'fence-steel-blue', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']) {
       // The decal as the document holds it: a five-metre station stamps its grid
       // onto every module on the way in, and the deletion must leave exactly these.
       const decals = type === 'fence-gate' ? toState({ ...emptyStation(), modules: [createModule('tactile-guide', 0, 0, 0, 'decal')] }).modules : []
@@ -433,4 +433,25 @@ test('a + junction is a full cross with no caps', () => {
   const plus = arms(0, true, true, true, true)
   assert.deepEqual([plus.x0, plus.x1, plus.y0, plus.y1], [-0.5, 0.5, -0.5, 0.5])
   assert.deepEqual([plus.capE, plus.capW, plus.capN, plus.capS], [false, false, false, false])
+})
+
+test('blue steel fence keeps its full two-metre height and saved variant', () => {
+  const owned = []
+  for (const rot of [0, 1, 2, 3]) {
+    const mod = createModule('fence-steel-blue', 2, 3, 0, 'blue', rot)
+    assert.equal(mod.cfg.variant, 'steel-blue')
+    const data = { ...emptyStation(), modules: [mod] }
+    const group = new FenceModel({ mats: {}, data, owned }).build(mod)
+    group.updateMatrixWorld(true)
+    const bounds = new THREE.Box3().setFromObject(group)
+    const envelope = moduleEnvelope(mod)
+    assert.ok(Math.abs(bounds.min.z - 1) < 1e-6)
+    assert.ok(Math.abs(bounds.max.z - 3) < 1e-6)
+    assert.equal(envelope.z1, 3)
+    assert.ok(bounds.min.x >= envelope.x0 - 1e-6 && bounds.max.x <= envelope.x1 + 1e-6)
+    assert.ok(bounds.min.y >= envelope.y0 - 1e-6 && bounds.max.y <= envelope.y1 + 1e-6)
+    assert.equal(parse(serialize(toState(data))).state.modules[0].cfg.variant, 'steel-blue')
+    group.traverse(o => { if (o.isMesh) o.geometry.dispose() })
+  }
+  owned.forEach(mat => mat.dispose())
 })

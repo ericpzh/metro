@@ -19,7 +19,7 @@ import { walkwayModule } from '../src/sim/walkways.ts'
 test('picking each fence variant copies it and Esc restores the previous piece', () => {
   const before = useStore.getState()
   try {
-    for (const type of ['fence', 'fence-gate', 'fence-iron']) {
+    for (const type of ['fence', 'fence-gate', 'fence-iron', 'fence-steel-blue']) {
       const m = createModule(type, 0, 0, 0, 'picked-fence', 1)
       useStore.setState({ station: { ...toState(emptyStation()), modules: [m] }, tool: 'module', moduleType: 'tvm' })
       ctxFor(m.id).onDown(press([0, 0, 0]))

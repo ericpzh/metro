@@ -6,6 +6,7 @@ import type { ModuleContext } from '../PieceBuilder.ts'
 import { fenceArms, fenceConnectionIndex } from '../../../sim/fences.ts'
 import type { Module } from '../../../sim/types.ts'
 import { noiseBarrierVariant } from '../../../sim/noiseBarriers.ts'
+import { drawBlueSteelFence } from './BlueSteelFence.ts'
 import { NoiseBarrierModel } from './NoiseBarrierModel.ts'
 
 /**
@@ -39,7 +40,8 @@ function buildFence(ctx: ModuleContext, mod: Extract<Module, { type: 'fence' }>)
   const w = joined(mod.x - 1, mod.y)
   const n = joined(mod.x, mod.y + 1)
   const s = joined(mod.x, mod.y - 1)
-  drawFence(g, mats, fenceArms(mod.rot, { e, w, n, s }), true, mod.cfg.variant === 'gate' || mod.cfg.variant === 'iron' ? mod.cfg.variant : 'glass')
+  if (mod.cfg.variant === 'steel-blue') drawBlueSteelFence(g, ctx, fenceArms(mod.rot, { e, w, n, s }))
+  else drawFence(g, mats, fenceArms(mod.rot, { e, w, n, s }), true, mod.cfg.variant === 'gate' || mod.cfg.variant === 'iron' ? mod.cfg.variant : 'glass')
   // The orientation is baked into the geometry (neighbour arms + caps), so the
   // group is positioned but never rotated — a 180° turn is the same panel.
   g.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
