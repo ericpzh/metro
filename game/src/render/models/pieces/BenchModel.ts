@@ -1,7 +1,8 @@
 // Bench (座椅) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { omitModelDetail, panelModelDetail, tubeModelDetail } from '../../modelDetail.ts'
+import { officeChair } from './OfficeChair.ts'
+import { omitModelDetail, panelModelDetail, tubeModelDetail, setModelDetail } from '../../modelDetail.ts'
 import { PieceBuilder, slab } from '../PieceBuilder.ts'
 import type { ModelMaterials, ModuleContext } from '../PieceBuilder.ts'
 import { benchSpec } from '../../../sim/benches.ts'
@@ -21,7 +22,12 @@ import type { Module } from '../../../sim/types.ts'
  */
 function buildBench(ctx: ModuleContext, mod: Extract<Module, { type: 'bench' }>): THREE.Group {
   const spec = benchSpec(mod.cfg.variant)
-  const g = spec.style === 'steel' ? steelBench(ctx.mats, spec.w) : seatBench(ctx.mats, spec.w)
+  const g = new THREE.Group()
+  const model = spec.style === 'steel' ? steelBench(ctx.mats, spec.w)
+    : spec.style === 'wood' ? woodBench(ctx.mats, spec.w)
+    : spec.style === 'office' ? officeChair(ctx.mats) : seatBench(ctx.mats, spec.w)
+  if (spec.style === 'office') model.rotation.z = Math.PI
+  g.add(model)
   const [dx, dy] = rotateLocal(mod.rot, (spec.w - 1) / 2, 0)
   // Keep the bench on the opposite edge so its front faces into the tile.
   const edgeInset = 0.5 - 0.85 / 2
@@ -70,6 +76,31 @@ function seatBench(mats: ModelMaterials, w: number): THREE.Group {
     omitModelDetail(slab(g, mats.darkSteel, bx, -0.04, 0.015, 0.14, 0.16, 0.03))
   }
   omitModelDetail(slab(g, mats.white, 0, -0.4, 1.08, span, 0.05, 0.05))
+  return g
+}
+
+/** Timber slats and rectangular steel end frames. */
+function woodBench(mats: ModelMaterials, w: number): THREE.Group {
+  const g = new THREE.Group(), span = w - 0.1
+  for (let i = 0; i < 5; i++) {
+    const slat = slab(g, i % 2 ? mats.wood : mats.woodLight, 0, -0.23 + i * 0.105, 0.46, span, 0.085, 0.055)
+    slat.name = 'wood-bench-slat'
+    const low = new THREE.BoxGeometry(span, 0.085, 0.055)
+    low.setIndex(Array.from(low.index!.array.slice(24, 30))); low.clearGroups()
+    setModelDetail(slat, low)
+  }
+  for (const y of [-0.31, 0.29]) omitModelDetail(slab(g, mats.darkSteel, 0, y, 0.445, span, 0.045, 0.09))
+  for (const x of [-span / 2 + 0.07, span / 2 - 0.07]) {
+    for (const y of [-0.285, 0.265]) omitModelDetail(slab(g, mats.darkSteel, x, y, 0.235, 0.065, 0.065, 0.43))
+    for (const z of [0.035, 0.42]) {
+      const rail = slab(g, mats.darkSteel, x, -0.01, z, 0.065, 0.61, 0.07)
+      if (z === 0.035) {
+        const low = new THREE.BoxGeometry(0.065, 0.61, 0.43).translate(0, 0, 0.18)
+        low.setIndex(Array.from(low.index!.array.slice(0, 6))); low.clearGroups()
+        setModelDetail(rail, low)
+      } else omitModelDetail(rail)
+    }
+  }
   return g
 }
 

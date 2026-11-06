@@ -190,7 +190,7 @@ export function paletteIdForModule(mod: Module): string | null {
   // (the 座椅 family anchor owns it, the 宽/窄 action tile names it, and
   // `createModule` builds it), so a pick arms it exactly rather than selecting
   // only.
-  if (id === null && mod.type === 'bench' && /^bench-(steel|seat)-2$/.test(`bench-${mod.cfg.variant ?? ''}`)) {
+  if (id === null && mod.type === 'bench' && /^bench-(steel|seat|wood)-2$/.test(`bench-${mod.cfg.variant ?? ''}`)) {
     id = `bench-${mod.cfg.variant}`
   }
   return id

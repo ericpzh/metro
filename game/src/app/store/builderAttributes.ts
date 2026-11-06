@@ -146,7 +146,7 @@ export function moduleBuilderAttributes(type: string, s: BuilderAttributeState):
   if (type.startsWith('pillar')) attrs.push(variant('length', pillarLengthLabel(s.pillarLength), s.cyclePillarLength))
   if (type === 'light-rectangular') attrs.push({ kind: 'position', label: msg('position_value_9', s.lightPosition + 1), shortcut: undefined, activate: s.cycleLightPosition, visual: 'grid-position' })
   if (isCounterType(type)) attrs.push(variant('length', counterLengthLabel(s.counterLength), s.cycleCounterLength))
-  if (isBenchType(type)) attrs.push(variant('width', msg(type.endsWith('-2') ? 'wide' : 'narrow'), s.cycleBenchWidth))
+  if (isBenchType(type) && type !== 'bench-office-1') attrs.push(variant('width', msg(type.endsWith('-2') ? 'wide' : 'narrow'), s.cycleBenchWidth))
   if (isStairType(type)) {
     attrs.push(variant(
       type === 'stair-block' ? 'height' : 'width',

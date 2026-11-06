@@ -325,6 +325,9 @@ function sampleModule(id: string, station: StationData): Module | null {
     case 'bench-steel-1':
     case 'bench-steel-2':
     case 'bench-seat-1':
+    case 'bench-wood-1':
+    case 'bench-wood-2':
+    case 'bench-office-1':
     case 'bench-seat-2': {
       const variant: BenchVariant = id === 'bench' ? 'steel-1' : (id.slice('bench-'.length) as BenchVariant)
       const spec = benchSpec(variant)

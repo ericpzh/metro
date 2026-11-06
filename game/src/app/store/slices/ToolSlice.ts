@@ -382,7 +382,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   setDoorWidth: (doorWide) => set({ doorWide }),
   setStairBlockHeight: (stairBlockHeight) => set({ stairBlockHeight }),
   cyclePillarLength: () => set((s) => ({ pillarLength: nextPillarLength(s.pillarLength) })),
-  cycleBenchWidth: () => set((s) => isBenchType(s.moduleType)
+  cycleBenchWidth: () => set((s) => isBenchType(s.moduleType) && s.moduleType !== 'bench-office-1'
     ? { moduleType: s.moduleType === 'bench' ? 'bench-steel-2' : s.moduleType.replace(/-[12]$/, s.moduleType.endsWith('-2') ? '-1' : '-2') }
     : {}),
   cycleRoofWidth: () => set((s) => ({ roofWidth: nextRoofWidth(s.roofWidth) })),

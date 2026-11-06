@@ -74,7 +74,7 @@ export function editorActionCases(data?:StationData): EditorActionCase[] {
       add(base,'steel',{cfg:{style:'steel'}})
     }
     if(id==='gate'||id==='gate-new')for(const door of GATE_DOORS)add(base,`door=${door}`,{door})
-    if(id.startsWith('bench-')||id.startsWith('door-'))add(base,'wide',{factoryId:id.replace(/-1$/,'-2')})
+    if((id.startsWith('bench-')&&id!=='bench-office-1')||id.startsWith('door-'))add(base,'wide',{factoryId:id.replace(/-1$/,'-2')})
     if(id==='stair-block')add(base,'half-height',{width:.5})
     if(id.startsWith('hanger-'))for(const width of [4,6,8])add(base,`length=${width}`,{width})
     if(id==='curtain-wall'){

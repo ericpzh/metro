@@ -99,6 +99,8 @@ top tape extend to both post centres in High and Low. The divider omits its four
 small foot pads in Low while retaining the fabric, frame and T-feet.
 These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 
+Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. The standalone office chair shares the workstation chair geometry; the wooden bench retains five seat slats and two end-frame silhouettes in Low. Both new palette options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
+
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
 | tree | 396 | 18432 |
@@ -177,6 +179,7 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | tvm | 30 | 372 |
 | busstop-long | 30 | 372 |
 | fence | 26 | 360 |
+| bench-office-1 | 16 | 360 |
 | checkout-generic/4m | 28 | 352 |
 | door-steel-1 | 20 | 324 |
 | door-glass-1 | 18 | 324 |
@@ -191,6 +194,7 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 | lawn | 12 | 204 |
 | bin | 26 | 196 |
 | court-pickleball | 88 | 192 |
+| bench-wood-1 | 14 | 180 |
 | vent | 32 | 168 |
 | bench-seat-1 | 20 | 156 |
 | extinguisher | 12 | 146 |

@@ -196,6 +196,9 @@ function createModuleRaw(
     case 'bench-steel-1':
     case 'bench-steel-2':
     case 'bench-seat-1':
+    case 'bench-wood-1':
+    case 'bench-wood-2':
+    case 'bench-office-1':
     case 'bench-seat-2': {
       // The palette id names the variant; a bare `bench` (an old caller, or the
       // room builder's staff seat) is the 1 m stainless piece. A two-cell run is

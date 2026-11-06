@@ -2716,3 +2716,21 @@ for(const id of ['exit','exit-covered-1','exit-covered-3','guidepost','exit-virt
   }
  }finally{original.forEach(([m,g])=>{m.geometry=g});disposeObject(root)}
 })
+
+
+test('wooden seating keeps five slats and office seating reuses the workstation chair', () => {
+  for (const id of ['bench-wood-1', 'bench-wood-2']) {
+    const g = build(createModule(id, 4, 4, 0, id, 0)).group
+    let slats = 0
+    g.traverse(o => { if (o.name === 'wood-bench-slat') slats++ })
+    assert.equal(slats, 5)
+    const size = box(g).getSize(new THREE.Vector3())
+    assert.ok(Math.abs(size.x - (id.endsWith('-2') ? 1.9 : .9)) < 1e-5)
+    assert.ok(size.z < .5)
+  }
+  const chair = build(palette('bench-office-1')).group
+  for (const name of ['chair-seat', 'chair-mesh', 'chair-caster', 'chair-armrest']) {
+    assert.ok(chair.getObjectByName(name), name)
+    assert.ok(build(palette('desk')).group.getObjectByName(name), `desk retains ${name}`)
+  }
+})

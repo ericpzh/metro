@@ -13,7 +13,7 @@ export function dimensionSelection(kind: string, type: string, s: BuilderAttribu
     if (type === 'road') return choice(s.roadWidth, [6, 12, 18, 24])
     if (type === 'curtain-wall') return choice(s.curtainWidth, [1, 2, 3, 4])
     if (type === 'escalator' || type === 'walkway') return choice(s.escalatorWidth, [1, 2, 3])
-    if (isBenchType(type)) return choice(type.endsWith('-2'), [false, true])
+    if (isBenchType(type) && type !== 'bench-office-1') return choice(type.endsWith('-2'), [false, true])
     if (isDoorType(type)) return choice(s.doorWide, [false, true])
     if (isStairType(type)) return choice(s.stairWidth, STAIR_WIDTHS)
     return choice(s.roofWidth, [4, 8, 12])

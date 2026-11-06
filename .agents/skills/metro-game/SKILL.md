@@ -2729,3 +2729,5 @@ Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mj
 and `pick-tool.test.mjs` pin stair direction, dragging and picking.
 
 Prep cabinets retain saved cafe-backbar / cafe-backbar-2 / cafe-backbar-4 ids, labeled 短备餐柜 / 中备餐柜 / 长备餐柜. Wide variants use one continuous cabinet/worktop and authored asymmetric shelf layouts, never repeated one-metre units. Pin bounds, roof clearance, stock variation and continuous worktop ownership in shelf tests.
+
+Seating also includes wood-1/wood-2 backless timber-slat benches with steel end frames and office-1, the shared DeskModel office chair (OfficeChair.ts). The office chair has fixed one-cell width; wooden benches use the existing width cycle and exact pick round-trip. Keep catalogue, factories, thumbnails and BENCH_SPECS aligned.

@@ -369,7 +369,7 @@ export type BillboardShape = 'landscape' | 'wide' | 'panorama' | 'portrait' | 's
  * into a row — each in a 1 m and a 2 m width, so one 座椅 tool offers four
  * pieces (`sim/benches.ts`).
  */
-export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2'
+export type BenchVariant = 'steel-1' | 'steel-2' | 'seat-1' | 'seat-2' | 'wood-1' | 'wood-2' | 'office-1'
 
 /**
  * A glass panel's size (装饰 玻璃板, §5.7): the run in cells by the height in

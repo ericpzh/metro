@@ -20,13 +20,13 @@ function flatStation() {
 
 const bench = (id, x, y, rot = 0, w = 1, variant = undefined) => ({ id, type: 'bench', x, y, z: 0, rot, w, cfg: { variant } })
 
-test('the bench table offers two families at two widths', () => {
-  assert.deepEqual([...BENCH_VARIANTS], ['steel-1', 'steel-2', 'seat-1', 'seat-2'])
+test('the bench table offers steel, upholstered and wooden runs plus an office chair', () => {
+  assert.deepEqual([...BENCH_VARIANTS], ['steel-1', 'steel-2', 'seat-1', 'seat-2', 'wood-1', 'wood-2', 'office-1'])
   assert.equal(BENCH_SPECS['steel-1'].style, 'steel')
   assert.equal(BENCH_SPECS['steel-2'].style, 'steel')
   assert.equal(BENCH_SPECS['seat-1'].style, 'seat')
   assert.equal(BENCH_SPECS['seat-2'].style, 'seat')
-  assert.deepEqual(BENCH_VARIANTS.map((v) => BENCH_SPECS[v].w), [1, 2, 1, 2])
+  assert.deepEqual(BENCH_VARIANTS.map((v) => BENCH_SPECS[v].w), [1, 2, 1, 2, 1, 2, 1])
   // An unknown or legacy variant falls back to the 1 m stainless bench.
   assert.equal(benchSpec(undefined).variant, 'steel-1')
   assert.equal(benchSpec('nope').variant, 'steel-1')
@@ -38,6 +38,9 @@ test('the factory builds every variant with the hover rotation', () => {
     ['bench-steel-2', 'steel-2'],
     ['bench-seat-1', 'seat-1'],
     ['bench-seat-2', 'seat-2'],
+    ['bench-wood-1', 'wood-1'],
+    ['bench-wood-2', 'wood-2'],
+    ['bench-office-1', 'office-1'],
   ]) {
     const mod = createModule(id, 4, 4, 0, 'b', 2)
     assert.equal(mod?.type, 'bench')

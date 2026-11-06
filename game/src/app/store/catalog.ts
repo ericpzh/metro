@@ -37,7 +37,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
   ]),
   floor: new Set([
     'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning',
-    'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1',
+    'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1', 'bench-wood-1', 'bench-office-1',
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'psd-end-cover', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
   ]),
@@ -100,6 +100,8 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'tvm', label: msg('ticket_machine'), type: 'tvm', w: 1, h: 1 },
   { id: 'vending', label: msg('vending_machine'), type: 'vending', w: 1, h: 1 },
   { id: 'bench-steel-1', label: msg('stainless_steel'), type: 'bench', w: 1, h: 1 },
+  { id: 'bench-wood-1', label: msg('wooden_bench'), type: 'bench', w: 1, h: 1 },
+  { id: 'bench-office-1', label: msg('office_chair'), type: 'bench', w: 1, h: 1 },
   { id: 'bench-seat-1', label: msg('backed_seats'), type: 'bench', w: 1, h: 1 },
   ...SHELF_VARIANTS.map((variant) => ({ id: `shelf-${variant}`, label: shelfSpec(variant).label, type: 'shelf', w: shelfWidth(variant), h: 1 })),
   { id: 'desk', label: msg('desk'), type: 'desk', w: 1, h: 1 },

@@ -16,12 +16,15 @@ export interface BenchSpec {
   /** Palette label shown in the 装饰 sub-menu. */
   label: string
   /** Which family the model draws: a plain steel bench or a backed seat. */
-  style: 'steel' | 'seat'
+  style: 'steel' | 'seat' | 'wood' | 'office'
   /** Run length in cells along the module's local +x (1 m or 2 m). */
   w: number
 }
 
 export const BENCH_SPECS: Record<BenchVariant, BenchSpec> = {
+  'wood-1': { variant: 'wood-1', label: msg('wooden_bench'), style: 'wood', w: 1 },
+  'wood-2': { variant: 'wood-2', label: msg('wooden_bench'), style: 'wood', w: 2 },
+  'office-1': { variant: 'office-1', label: msg('office_chair'), style: 'office', w: 1 },
   'steel-1': { variant: 'steel-1', label: msg('stainless_steel_1_m'), style: 'steel', w: 1 },
   'steel-2': { variant: 'steel-2', label: msg('stainless_steel_2_m'), style: 'steel', w: 2 },
   'seat-1': { variant: 'seat-1', label: msg('backed_seat_1_m'), style: 'seat', w: 1 },
@@ -29,7 +32,7 @@ export const BENCH_SPECS: Record<BenchVariant, BenchSpec> = {
 }
 
 /** Every variant, in palette order. */
-export const BENCH_VARIANTS: readonly BenchVariant[] = ['steel-1', 'steel-2', 'seat-1', 'seat-2']
+export const BENCH_VARIANTS: readonly BenchVariant[] = ['steel-1', 'steel-2', 'seat-1', 'seat-2', 'wood-1', 'wood-2', 'office-1']
 
 /** The spec for a variant, defaulting to the 1 m steel bench for a legacy value. */
 export function benchSpec(variant: BenchVariant | undefined): BenchSpec {
