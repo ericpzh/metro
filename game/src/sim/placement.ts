@@ -485,7 +485,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       // (竖排), so its slab is the band between `bottom` and `bottom + panelH` — the
       // same shape as the 广告牌's, at the height the inscription is written.
       const bottom = calligraphyBottom(m.cfg?.axis)
-      return wallPanelBox(m, calligraphyCells(m), z0 + bottom, z0 + bottom + m.panelH)
+      return wallPanelBox(m.cfg.pillarId ? { ...m, rot: ((m.rot ?? 0) + 2) % 4 } : m, calligraphyCells(m), z0 + bottom, z0 + bottom + m.panelH)
     }
     case 'monitor':
       return m.cfg.mount === 'wall'
@@ -949,7 +949,9 @@ export function wallDecorAnchorZ(mod: Module, course: number): number {
   if (!box) return course
   const height = box.z1 - box.z0
   const inset = mod.type === 'sign' && height < 1 ? (1 - height) / 2 : 0
-  return mod.z + course + inset - box.z0
+  const anchor = mod.z + course + inset - box.z0
+  // Station-name coordinates are integer metres, including in the move card.
+  return mod.type === 'calligraphy' ? Math.round(anchor) || 0 : anchor
 }
 
 /** Resolve a legacy wall anchor from the backing column and exposed floor. */
@@ -1172,6 +1174,23 @@ export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: rea
   return ceilingMountHeight(cells, m, modules) ?? resolvedFallback
 }
 
+/** Snap a vertical inscription to one cardinal side of a thick pillar. */
+export function calligraphyOnPillar(mod: Module, host: Module | undefined, point?: readonly [number, number, number?]): Module | null {
+  if (mod.type !== 'calligraphy' || mod.cfg.axis !== 'v' || host?.type !== 'pillar' || host.cfg.size !== 'thick' || !point) return null
+  const dx = point[0] - host.x - 0.5, dy = point[1] - host.y - 0.5
+  const rot = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 3 : 1) : (dy > 0 ? 0 : 2)
+  // The pointed metre course fixes the inscription's height, just like wall decor.
+  const z = point[2] === undefined ? host.z : Math.floor(point[2]) - 1
+  return { ...mod, x: host.x, y: host.y, z, rot, cfg: { ...mod.cfg, pillarId: host.id } }
+}
+
+function pillarSupportsCalligraphy(pillar: Module, ink: Module): boolean {
+  return pillar.type === 'pillar' && pillar.cfg.size === 'thick' && ink.type === 'calligraphy' && ink.cfg.axis === 'v'
+    && ink.cfg.pillarId === pillar.id && ink.x === pillar.x && ink.y === pillar.y
+    && ink.z + calligraphyBottom('v') >= pillar.z + 0.1 - 1e-8
+    && ink.z + calligraphyBottom('v') + ink.panelH <= pillar.z + pillar.cfg.height - 0.1 + 1e-8
+}
+
 /**
  * True when a wall-mounted decoration has no wall behind it. Every cell of the run
  * needs its own backing — three cells wide needs three — and so does **every
@@ -1189,6 +1208,7 @@ export function hangCeilingLocal(m: Module, cells: readonly Cell[], modules: rea
  */
 export function wallMountMissing(cells: readonly Cell[], candidate: Module, modules: readonly Module[] = []): boolean {
   if (!isWallMounted(candidate)) return false
+  if (candidate.type === 'calligraphy' && candidate.cfg.pillarId) return !modules.some(m => pillarSupportsCalligraphy(m, candidate))
   if (candidate.type === 'sign' && candidate.cfg.boothId) {
     return !modules.some((m) => boothSupportsSign(m, candidate))
   }
@@ -1817,6 +1837,8 @@ export function placementColliders(modules: readonly Module[], candidate: Module
     if (m.type === 'road' && candidate.type === 'road') continue
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (!isFenceGlassPair(m, candidate) && (!placedBounds || !boxesOverlap(bounds, placedBounds))) continue
+    if (pillarSupportsCalligraphy(m, candidate) || pillarSupportsCalligraphy(candidate, m)) continue
+    if (m.type === 'calligraphy' && candidate.type === 'calligraphy' && m.cfg.pillarId && m.cfg.pillarId === candidate.cfg.pillarId && m.rot !== candidate.rot) continue
     if (boothSupportsSign(m, candidate) || boothSupportsSign(candidate, m)) continue
     if (hangerSupports(m, candidate) || hangerSupports(candidate, m)) continue
     // The thin support is intentionally allowed to pass through a trussed roof.

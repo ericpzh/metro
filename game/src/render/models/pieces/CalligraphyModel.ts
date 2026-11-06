@@ -48,7 +48,27 @@ function buildCalligraphy(ctx: ModuleContext, mod: Extract<Module, { type: 'call
   // panel's size and its alpha is the strokes, so everything it does not cover is the
   // wall.
   const material = ctx.calligraphyFace?.(mod.id, { style, axis, panel, showEnglish: mod.cfg.showEnglish }).material ?? ctx.mats.calligraphyInk
-  const ink = plate(g, material, panel.w, panel.h, 0, -INK_OFFSET, zc, Math.PI)
+  let ink: THREE.Mesh
+  if (mod.cfg.pillarId && axis === 'v') {
+    // Project the flat artwork around the shaft, retaining its full UV width.
+    const radius = 0.493, segments = 32, positions: number[] = [], uvs: number[] = [], indices: number[] = []
+    for (let i = 0; i <= segments; i++) {
+      const u = i / segments, angle = (u - 0.5) * panel.w / radius
+      const x = -Math.sin(angle) * radius, y = Math.cos(angle) * radius
+      positions.push(x, y, zc - panel.h / 2, x, y, zc + panel.h / 2)
+      uvs.push(u, 0, u, 1)
+      if (i < segments) { const a = i * 2; indices.push(a, a + 2, a + 1, a + 2, a + 3, a + 1) }
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2))
+    geometry.setIndex(indices)
+    geometry.computeVertexNormals()
+    ink = new THREE.Mesh(geometry, material)
+    g.add(ink)
+  } else {
+    ink = plate(g, material, panel.w, panel.h, 0, -INK_OFFSET, zc, Math.PI)
+  }
   ink.renderOrder = 1
   ink.userData.calligraphy = true
   return g

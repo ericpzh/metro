@@ -634,3 +634,41 @@ test('English name repaint keeps the bilingual plate and its saved choice', asyn
   assert.equal(plates.makeCalligraphyPlate(mod.id, spec), face)
   plates.clearDecorPlates()
 })
+
+test('vertical inscription conforms to a thick pillar and supports four independent faces', async () => {
+  const { calligraphyOnPillar, equipmentReason } = await import('../src/sim/placement.ts')
+  const pillar = createModule('pillar-thick', 2, 2, 0, 'pillar')
+  const source = placed('海傍', 'calligraphy-kai-v')
+  const point = [2.5, 2.99, 2]
+  const ink = calligraphyOnPillar(source, pillar, point)
+  assert.equal(equipmentReason([], [pillar], ink), '')
+  assert.equal(equipmentReason([], [], ink), 'wall')
+  assert.equal(calligraphyOnPillar(placed('海傍', 'calligraphy-kai-h'), pillar, point), null)
+  assert.equal(calligraphyOnPillar(source, { ...pillar, cfg: { ...pillar.cfg, size: 'slim' } }, point), null)
+  const opposite = { ...calligraphyOnPillar(source, pillar, [2.5, 2.01, 2]), id: 'opposite' }
+  assert.equal(equipmentReason([], [pillar, ink], opposite), '')
+  assert.equal(equipmentReason([], [pillar, ink], { ...ink, id: 'duplicate' }), 'occupied')
+  const saved = parse(serialize({ name: '海傍', seed: 1, cells: [], modules: [pillar, ink], lines: [LINE] }))
+  assert.equal(saved.ok, true)
+  assert.equal(saved.state.modules[1].cfg.pillarId, pillar.id)
+  const { meshes } = build(ink)
+  const geometry = meshes[0].geometry
+  const pos = geometry.getAttribute('position')
+  for (let i = 0; i < pos.count; i++) assert.ok(Math.abs(Math.hypot(pos.getX(i), pos.getY(i)) - 0.493) < 1e-6)
+  assert.ok(geometry.getAttribute('normal').getY(32) > 0.99, 'ink faces out from the shaft')
+})
+
+test('pillar-mounted lettering moves with its pillar and is removed with it', async () => {
+  const { calligraphyOnPillar } = await import('../src/sim/placement.ts')
+  const { removeModule } = await import('../src/build/model.ts')
+  const pillar = createModule('pillar-thick', 2, 2, 0, 'pillar')
+  const ink = calligraphyOnPillar(placed('海傍', 'calligraphy-kai-v'), pillar, [2.5, 2.99, 2])
+  const data = station('海傍', [pillar, ink])
+  const moved = (await import('../src/build/model.ts')).moveEquipment(data, { ...pillar, x: 4, y: 5 })
+  assert.deepEqual([moved.modules[1].x, moved.modules[1].y, moved.modules[1].cfg.pillarId], [4, 5, pillar.id])
+  assert.equal(removeModule(data, pillar.id).modules.length, 0)
+  const bridge = { id: 'bridge', type: 'track', x: 0, y: 0, z: 4, rot: 0, w: 1, cfg: { line: '5', power: 'third-rail', bridge: true } }
+  const pier = { ...pillar, cfg: { ...pillar.cfg, bridgeId: bridge.id } }
+  const withBridge = { ...data, modules: [bridge, pier, ink] }
+  assert.equal(removeModule(withBridge, bridge.id).modules.length, 0, 'deleting a bridge also removes its pier lettering')
+})

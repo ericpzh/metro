@@ -56,7 +56,7 @@ function modelGhostKey(mod: Module): string {
                     : mod.type === 'door'
                       ? `:${mod.w}:${mod.cfg.variant}`
                     : mod.type === 'calligraphy'
-                      ? `:${mod.w}:${mod.panelH}:${mod.cfg.style}:${mod.cfg.axis}:${!!mod.cfg.showEnglish}`
+                      ? `:${mod.w}:${mod.panelH}:${mod.cfg.style}:${mod.cfg.axis}:${!!mod.cfg.showEnglish}:${mod.cfg.pillarId ?? ''}`
                       : mod.type === 'linemap'
                         ? `:${mod.w}:${mod.cfg.mount}`
                         : mod.type === 'sign'

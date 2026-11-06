@@ -125,7 +125,7 @@ test('wall decor snaps to whole-metre cell edges through preview, commit, move a
     const cells = originalCells.map(c => { const [x, y] = rotateLocal(rot, c.x - 45, c.y + 23); return { ...c, x: 45 + x, y: -23 + y } })
       const [dx, dy] = rotateLocal(rot, 0, -1)
       const station = toState({ name: 'wall aim', seed: 1, cells, modules: [], lines: [] })
-      for (const type of ['sign-wall', 'billboard-wide', 'calligraphy-kai-h', 'linemap-wall', 'glass-1x1', 'monitor-wall']) {
+      for (const type of ['sign-wall', 'billboard-wide', 'calligraphy-kai-h', 'calligraphy-kai-v', 'linemap-wall', 'glass-1x1', 'monitor-wall']) {
         for (const height of [-3.9, -3.1, -0.9, -0.1, 2.1, 2.9]) {
           useStore.setState({ station, moduleType: type, moduleRot: rot, past: [], future: [], signPreview: null })
           const tool = new EquipmentTool({})
@@ -136,7 +136,8 @@ test('wall decor snaps to whole-metre cell edges through preview, commit, move a
           assert.equal(useStore.getState().station, station, 'hover never commits a document')
           if (snappedHeight !== 0) assert.equal(equipmentReason([], [], preview), 'wall', 'missing backing remains refused')
           const box = moduleEnvelope(preview)
-          const inset = preview.type === 'sign' && box.z1 - box.z0 < 1 ? (1 - (box.z1 - box.z0)) / 2 : 0
+          const inset = preview.type === 'calligraphy' ? (preview.cfg.axis === 'v' ? .4 : .2) : preview.type === 'sign' && box.z1 - box.z0 < 1 ? (1 - (box.z1 - box.z0)) / 2 : 0
+          if (preview.type === 'calligraphy') assert.equal(Number.isInteger(preview.z), true)
           assert.ok(Math.abs(box.z0 - snappedHeight - inset) < 1e-8, type)
           if (preview.type === 'sign') assert.ok(Math.abs((box.z0 + box.z1) / 2 - (hit.cell[2] + .5)) < 1e-8, 'short wall sign has equal top and bottom margins within the cell')
           assert.equal(equipmentReason(cells, [], preview), '', type)

@@ -314,3 +314,52 @@ test('bridge hover and click use visible rail and screen surfaces above a lower 
   } finally { useStore.setState(before) }
 })
 
+
+test('vertical calligraphy previews and places on every thick pillar face', () => {
+  const before = useStore.getState()
+  try {
+    const pillar = createModule('pillar-thick', 4, 6, 0, 'pillar')
+    let preview, blocked
+    const scene = { setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {} }
+    const tool = new EquipmentTool({ scene: () => scene, facing: () => [0, -1], hover: { current: null }, drag: { current: null } })
+    for (const [point, rot] of [[[4.5, 6.99, 2], 0], [[4.01, 6.5, 2], 1], [[4.5, 6.01, 2], 2], [[4.99, 6.5, 2], 3]]) {
+      useStore.setState({ station: toState({ name: '海傍', seed: 1, cells: [], modules: [pillar], lines: [] }), past: [], future: [], tool: 'module', moduleType: 'calligraphy-kai-v', moduleRot: 0 })
+      const hit = { cell: [4, 6, 2], place: [4, 6, 2], solid: true, moduleId: pillar.id, point }
+      const info = { clientX: 10, clientY: 10, button: 0, buttons: 1, hit, preventDefault() {} }
+      tool.onMove(info)
+      assert.equal(blocked, false)
+      assert.equal(preview.cfg.pillarId, pillar.id)
+      assert.deepEqual([preview.x, preview.y, preview.z, preview.rot], [4, 6, 1, rot])
+      tool.onDown(info)
+      const placed = useStore.getState().station.modules.find(m => m.type === 'calligraphy')
+      assert.ok(placed)
+      assert.deepEqual(placed, preview)
+    }
+  } finally { useStore.setState(before) }
+})
+
+test('pillar lettering snaps in metre courses and refuses heights outside the shaft', () => {
+  const before = useStore.getState()
+  try {
+    const pillar = createModule('pillar-thick', 4, 6, 0, 'pillar')
+    pillar.cfg.height = 6
+    useStore.setState({ station: toState({ name: '海傍', seed: 1, cells: [], modules: [pillar], lines: [] }), past: [], future: [], tool: 'module', moduleType: 'calligraphy-kai-v', moduleRot: 0 })
+    let preview, blocked
+    const tool = new EquipmentTool({ scene: () => ({ setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {} }), facing: () => [0, -1], hover: { current: null }, drag: { current: null } })
+    const aim = z => {
+      const hit = { cell: [4, 6, Math.floor(z)], place: [4, 6, Math.floor(z)], solid: true, moduleId: pillar.id, point: [4.5, 6.99, z] }
+      const info = { clientX: 10, clientY: 10, button: 0, buttons: 1, hit, preventDefault() {} }
+      tool.onMove(info)
+      return info
+    }
+    for (const [height, anchor, refused] of [[1.1, 0, false], [1.9, 0, false], [2.01, 1, false], [3.1, 2, false], [5.1, 4, true], [0.5, -1, true]]) {
+      aim(height)
+      assert.equal(preview.z, anchor)
+      assert.equal(blocked, refused)
+    }
+    const info = aim(3.1)
+    const expected = preview
+    tool.onDown(info)
+    assert.deepEqual(useStore.getState().station.modules.find(m => m.type === 'calligraphy'), expected)
+  } finally { useStore.setState(before) }
+})

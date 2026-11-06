@@ -2,7 +2,7 @@
 // it on the next. An already-carried piece owns the pointer from either this tool
 // or the 信息 card flow (GAME-SPEC §9.5).
 
-import { isCeilingHung, isWallMounted, moveCandidate, placementColliders } from '../../sim/placement.ts'
+import { calligraphyOnPillar, isCeilingHung, isWallMounted, moveCandidate, moveDropReason, placementColliders } from '../../sim/placement.ts'
 import type { Vec3i } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
 import { ToolController } from './ToolController.ts'
@@ -33,7 +33,7 @@ export class MoveController extends ToolController {
       st.liftModule(id)
       const hit = info.hit
       if (useStore.getState().moveDraft && hit) {
-        this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1], hit.point[2]] }
+        this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, moduleId: hit.moduleId, point: [hit.point[0], hit.point[1], hit.point[2]] }
         this.refreshHover()
       }
       return
@@ -53,6 +53,7 @@ export class MoveController extends ToolController {
         cell: hit.cell,
         place: hit.place,
         solid: hit.solid,
+        moduleId: hit.moduleId,
         point: [hit.point[0], hit.point[1], hit.point[2]],
       }
       this.refreshHover()
@@ -79,7 +80,7 @@ export class MoveController extends ToolController {
     }
     scene.setHoverHighlight?.(null)
     if (!hit) return
-    this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1], hit.point[2]] }
+    this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, moduleId: hit.moduleId, point: [hit.point[0], hit.point[1], hit.point[2]] }
     this.refreshHover()
   }
 
@@ -168,7 +169,14 @@ export class MoveController extends ToolController {
         else if (dx === -1 && dy === 0) rot = 3
       }
     }
-    const { module: candidate, reason } = h || !d.candidate
+    if (current.type === 'calligraphy' && current.cfg.pillarId) {
+      const { pillarId: _pillarId, ...cfg } = current.cfg
+      current = { ...current, cfg }
+    }
+    const pillarCandidate = h ? calligraphyOnPillar(current, st.station.modules.find(m => m.id === h.moduleId), h.point) : null
+    const { module: candidate, reason } = pillarCandidate
+      ? { module: pillarCandidate, reason: moveDropReason(st.station.cells, st.station.modules, pillarCandidate) }
+      : h || !d.candidate
       ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point ? [h.point[0], h.point[1]] : undefined, aimedAtBlock ? undefined : this.facing())
       : { module: d.candidate, reason: d.reason }
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
@@ -179,6 +187,7 @@ export class MoveController extends ToolController {
     scene.setCursor(isWallMounted(candidate) || isCeilingHung(candidate) ? null : [at.x, at.y, at.z], reason === '')
     scene.setModulePreview({ ...candidate, id: MOVE_GHOST_ID }, reason !== '')
     scene.setCollisionHighlight(reason === '' ? null : placementColliders(st.station.modules, candidate).map((m) => m.id))
-    st.aimMove(at, candidate, reason)
+    const reportedAt = candidate.type === 'calligraphy' ? { x: candidate.x, y: candidate.y, z: candidate.z } : at
+    st.aimMove(reportedAt, candidate, reason)
   }
 }

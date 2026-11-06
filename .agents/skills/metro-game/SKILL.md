@@ -938,11 +938,10 @@ the four rules most changes trip over.
   its cell's floor top and rises its own height), so `wallMountFollowsCourse` sends it to the **course the
   pointer is on** — `wallMountStandCell`'s `followCourse` puts its cell one below the block that was hit,
   so the pane covers that block, while aiming at the wall's first course still lands on the storey floor.
-  Only a **wall course** counts (a block with a block over it): a floor slab's own edge keeps the storey
-  reading, so the pane is never sunk into a floor, and the pieces drawn at a `panelZ` of their own (广告牌,
-  站名, 线网图, the wall 指示牌) keep the storey floor as their anchor — which is what puts a poster at eye
-  height wherever on the wall it is aimed. Both tools pass the flag (`EquipmentTool.wallMountPlacement`,
-  `MoveController.moveAnchorAt`), so the ghost, a carried piece and the release agree. The **hanging**
+  Wall art snaps to the pointed block course through `wallDecorAnchorZ`: short signs are centred,
+  other panels align to the course edge, and station-name anchors use integer metres with their
+  authored ink inset. A vertical station name can also mount to the four sides of a thick pillar.
+  Both tools share the resolved target, so the ghost, a carried piece and the release agree. The **hanging**
   指示牌, the 电视, the 时钟, the 监控, the 灯具 (both tiles) and the 通风口 are instead *ceiling-hung*:
   `hungCeilingAim` takes every one of them to the free cell directly under the **first underside above
   the pointer** — `top block - 1` — wherever on that column the pointer is, so aiming at the block
@@ -1809,8 +1808,9 @@ including the depth prepass, for all six appearances.
   the frame connection. Keep both placement orders pinned in `test/glass-panel.test.mjs`.
   站名 (`sim/calligraphy.ts` + `render/calligraphyFace.ts`) is the
   **station's own name** as an ink inscription: the module carries only the hand (楷书 / 行书 /
-  隶书 / 魏碑 / 黑体 / 宋体) and the axis (横排 / 竖排), the plate is **transparent** and holds
-  the name and nothing else, and a rename reprints every inscription in place. A 横排 panel is
+  隶书 / 魏碑 / 黑体 / 宋体), axis (横排 / 竖排), and optional secondary-name choice.
+  The plate is **transparent**, prints the live station names, and is repainted on rename.
+  The secondary name appears below horizontal text or to the right of vertical text. A 横排 panel is
   always an **odd** number of cells wide (`calligraphyPanelCells`), because the run is centred
   on the cell under the pointer. 线网图 (`sim/linemaps.ts`, `render/lineMapArt.ts`) is the
   network **poster**: the supplied 广州地铁 线网示意图, saved as
@@ -2659,10 +2659,22 @@ ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and mod
 
 Fresh placement and moving share `wallDecorAnchorZ`: wall signs shorter than one
 metre are vertically centred within the pointed wall block; other wall decor
-aligns its bottom with that block's whole-metre edge. Pointer movement within one
+aligns its bottom with that block's whole-metre edge, except 站名 uses integer
+module coordinates and retains its authored ink inset. Pointer movement within one
 block never changes height, and crossing a course moves the panel by one metre.
 Keep the picked third coordinate in `HoverTile.point`; do not return to a fixed
 height above the floor. Booth headers retain their booth attachment policy.
+
+Vertical 站名 may also mount on the four cardinal sides of a thick round pillar.
+`calligraphyOnPillar` resolves the picked host, face and integer-metre course for
+fresh and moved pieces; support checks keep the inscription inside the shaft, and
+the model wraps its transparent texture around the cylinder. Different sides may
+coexist; the same face still collides. The move card reports the candidate anchor,
+not the raw pointer cell. Save the host id, move its inscriptions with the pillar,
+and remove them when the pillar (including a generated bridge pier) is deleted.
+Keep the shared per-event pick, wall placement, preview/commit and save behavior.
+`calligraphy`, `equipment-placement-input`, `move` and `geometry-snap` own these
+regressions.
 
 Wall artwork may carry a finite fractional anchor because authored panel offsets
 are measured from the anchor, even though the visible panel snaps to the block.

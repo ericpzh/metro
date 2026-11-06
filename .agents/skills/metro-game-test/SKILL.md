@@ -754,9 +754,17 @@ The restroom cubicle family regression spans
 ail-families.test.mjs (family ownership and decor rail anchor), menu-thumbnails.test.mjs (generated option thumbnails), and module-build.test.mjs (the toilet-only variant has fixture geometry and no enclosure or swing door). Run these focused tests when changing the family or its model.
 
 
+`calligraphy` pins thick-pillar face support, independent sides, curved geometry,
+save, and attachment move/delete. `equipment-placement-input` covers all four
+picked faces, integer-metre preview and click, and shaft height refusals. `move`
+checks wall/pillar transfer, integer position readout, vertical moves and save.
+`geometry-snap` covers integer 站名 anchors in both axes, including negative wall
+courses and preview/move/save agreement. Existing fractional wall-art saves remain
+valid; no real-browser pillar visual check is claimed by these unit tests.
+
 `geometry-snap` pins all four rotations, positive/negative wall courses, stationary
 snaps within a cell, one-metre transitions, centred short signs, edge-aligned other
-panels, hover document identity, missing backing refusal, move/save round trips,
+panels and integer station-name anchors, hover document identity, missing backing refusal, move/save round trips,
 and storey visibility. Its grid-repair checks scope fractional anchor acceptance
 to wall artwork. `preview-lod` pins glass preview/commit and rendered bounds.
 `sign-model` pins explicit board ownership despite stale legacy side flags;

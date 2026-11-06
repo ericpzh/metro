@@ -31,6 +31,7 @@ import { glassModuleSpec, glassStandsOnFloor } from '../../sim/glassPanels.ts'
 import { liftExtendedDown, liftExtendedUp, type LiftModule } from '../../sim/lifts.ts'
 import {
   autofaceWallMount,
+  calligraphyOnPillar,
   blockerLabels,
   equipmentReason,
   equipmentRefusalNotice,
@@ -265,7 +266,7 @@ export class EquipmentTool extends ToolController {
       st.setNotice(equipmentRefusalNotice('floor'))
       return
     }
-    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]], undefined, pickedCoverTarget)
+    this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]], undefined, pickedCoverTarget ?? st.station.modules.find(m => m.id === hit.moduleId))
   }
 
   onMove(info: PointerInfo): void {
@@ -398,7 +399,7 @@ export class EquipmentTool extends ToolController {
       solid: hit.solid,
       moduleId: st.moduleType === 'psd-end-cover'
         ? pickedCoverId
-        : isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : null,
+        : isHeadHouseExitType(st.moduleType) ? this.pickSnapRamp(info)?.id ?? null : hit.moduleId ?? null,
       point: [hit.point[0], hit.point[1], hit.point[2]],
     }
     this.refreshHover()
@@ -807,6 +808,7 @@ export class EquipmentTool extends ToolController {
     place: [number, number, number],
     id: string,
     near?: readonly [number, number, number?],
+    targetId?: string | null,
   ): Module | null {
     const st = useStore.getState()
     const groundExit = st.moduleType.startsWith('exit-doorway-')
@@ -838,6 +840,8 @@ export class EquipmentTool extends ToolController {
     )
     if (!draft) return null
     if (draft.type === 'calligraphy') draft.cfg.showEnglish = st.calligraphyEnglish && !!st.station.nameEn?.trim()
+    const pillarMounted = calligraphyOnPillar(draft, st.station.modules.find(m => m.id === targetId), near)
+    if (pillarMounted) return pillarMounted
     if (groundExit && hitBlock && draft.type === 'exit') draft.cfg.mountZ = cell[2]
     if (draft.type === 'billboard' && draft.cfg.poster === undefined) {
       draft.cfg.poster = randomAdSlug(draft)
@@ -951,6 +955,7 @@ export class EquipmentTool extends ToolController {
         h.place,
         nextModuleId(st.station.modules, st.moduleType),
         h.point,
+        h.moduleId,
       )
       const check = billboard ? checkModulePlacements(st.station, [{ id: billboard.id, module: billboard }]) : null
       // No wall at all is a refusal of its own: a panel has nowhere to bolt.
@@ -1046,7 +1051,7 @@ export class EquipmentTool extends ToolController {
     if (isWallMountedType(type)) {
       // The panel turns itself to face whatever wall backs it, so the only
       // failure left is "there is no wall here at all".
-      const mod = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near)
+      const mod = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near, directTarget?.id)
       if (!mod) {
         st.setNotice(type.startsWith('exit-doorway-')
           ? msg('ground_exits_need_a_solid_block_behind_their_wall_facing_side')

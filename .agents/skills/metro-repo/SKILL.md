@@ -15,7 +15,9 @@ the station either copes or it does not.
 Wall decor and sign previews route to `metro-game`, with regressions in
 `metro-game-test`: short wall signs centre in the pointed block, other panels
 snap their bottom edge to its course, and the sign editor uses production-sized
-board canvases. Preserve placement/move/save and single-pick agreement.
+board canvases. Station-name anchors use integer metres; vertical inscriptions can
+wrap any cardinal face of a thick pillar. Preserve placement/move/save and
+single-pick agreement.
 Sign-editor deletion, spacing and text-centering fixes belong to `metro-game`;
 `metro-game-test` owns deletion-order, stable-settling and browser preview regressions.
 
@@ -726,12 +728,11 @@ re-aims the ghost already under the pointer (`SceneRenderer.onCameraAim` →
 question, and the 玻璃板 answers it as a band of wall: it is the one wall piece that
 starts at its cell's floor top and rises its own height, so `wallMountFollowsCourse`
 hangs it over the course the pointer is on (`wallMountStandCell`'s `followCourse`) —
-aim at a wall's second course and the pane covers the second course, aim at the first
-and it is the storey floor it always was. A floor slab's own edge keeps the storey
-reading, and the pieces drawn at their own `panelZ` (广告牌, 站名, 线网图, wall 指示牌) keep
-the storey floor, which is what puts a poster at eye height wherever it is aimed. Pin
-all of it in `wall-ceiling-snap`, `equipment-placement-input`, `glass-panel`, `move`
-and `scene-wiring`.
+aim at a wall's second course and the pane covers the second course. Wall artwork
+uses the pointed course through `wallDecorAnchorZ`; 站名 uses integer module
+coordinates and its authored ink inset. Vertical 站名 also mounts on thick pillar
+faces. Pin the wall and pillar paths in `geometry-snap`, `calligraphy`,
+`equipment-placement-input`, `glass-panel`, `move` and `scene-wiring`.
 
 Floor decor drawn offset against a wall — 垃圾桶, 灭火器, 货架, 售票机, 自动售货机 —
 may back against a floor-standing 玻璃幕墙 in the same tile. The pair shares the tile

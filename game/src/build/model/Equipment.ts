@@ -791,7 +791,9 @@ export function removeModule(state: StationState, id: string): StationState {
       return m;
     }) };
   }
-  const modules = state.modules.filter((m) => m.id !== id && !(m.type === 'pillar' && m.cfg.bridgeId === id)).map((m): Module => {
+  const removedPillars = new Set(state.modules.filter(m => m.type === 'pillar' && (m.id === id || m.cfg.bridgeId === id)).map(m => m.id));
+  const modules = state.modules.filter((m) => m.id !== id && !(m.type === 'pillar' && m.cfg.bridgeId === id)
+    && !(m.type === 'calligraphy' && m.cfg.pillarId && removedPillars.has(m.cfg.pillarId))).map((m): Module => {
     if (gone?.type !== 'pillar' || gone.cfg.bridgeId !== m.id || m.type !== 'track') return m;
     // Deleting a generated pier is a persistent choice, carried by its bridge.
     // Otherwise the next edit or load would silently regenerate the same pier.
@@ -848,7 +850,14 @@ export function replaceEquipment(state: StationState, moved: Module): StationSta
  * A piece that had already left the document (an undo under a lift) is left alone.
  */
 export function moveEquipment(state: StationState, moved: Module): StationState {
-  if (!state.modules.some((m) => m.id === moved.id)) return state;
+  const original = state.modules.find((m) => m.id === moved.id);
+  if (!original) return state;
+  if (moved.type === 'pillar' && original.type === 'pillar') {
+    return { ...state, modules: state.modules.map(m => m.id === moved.id ? moved
+      : m.type === 'calligraphy' && m.cfg.pillarId === moved.id
+        ? { ...m, x: m.x + moved.x - original.x, y: m.y + moved.y - original.y, z: m.z + moved.z - original.z }
+        : m) };
+  }
   return moveRebuilds(moved) ? addEquipment(removeModule(state, moved.id), moved) : replaceEquipment(state, moved);
 }
 

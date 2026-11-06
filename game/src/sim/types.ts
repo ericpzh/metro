@@ -670,7 +670,7 @@ export type Module =
    * rebuilding a different wall behind a placed piece. Wall-mounted, on every
    * course the panel crosses.
    */
-  | (ModuleBase & { type: 'calligraphy'; w: number; panelH: number; cfg: { style: CalligraphyStyle; axis: CalligraphyAxis; showEnglish?: boolean } })
+  | (ModuleBase & { type: 'calligraphy'; w: number; panelH: number; cfg: { style: CalligraphyStyle; axis: CalligraphyAxis; showEnglish?: boolean; pillarId?: string } })
   /**
    * A line system map (线网图, 装饰): the network diagram drawn from the station's
    * **own lines** — one coloured band per line, its stations ticked along it, its

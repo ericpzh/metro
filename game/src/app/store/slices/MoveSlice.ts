@@ -143,6 +143,8 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     // nothing the player can see, so the card is not re-rendered for it.
     const samePosition = d.candidate?.type !== 'light' || candidate?.type !== 'light' || d.candidate.cfg.position === candidate.cfg.position
     const sameMount = exitMountZ(d.candidate) === exitMountZ(candidate)
+      && (d.candidate?.type !== 'calligraphy' || candidate?.type !== 'calligraphy'
+        || (d.candidate.cfg.pillarId === candidate.cfg.pillarId && d.candidate.x === candidate.x && d.candidate.y === candidate.y && d.candidate.z === candidate.z))
     if (samePosition && sameMount && sameAt && d.reason === reason && (d.candidate?.rot ?? 0) === (candidate?.rot ?? 0)) return
     if(candidate?.type==='walkway'&&!reason){
       const station=get().station
@@ -187,6 +189,12 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     // Only the aim is the draft's; the state is never a lift-time snapshot, so an
     // edit (or an undo) taken while the piece was in the air survives the move.
     let to = movedModule(from, d.at, d.candidate.rot ?? 0)
+    // Pillar attachment is part of the aim, including its host and its anchor.
+    if (to.type === 'calligraphy' && d.candidate.type === 'calligraphy') {
+      const { pillarId: _oldHost, ...cfg } = to.cfg
+      to = { ...to, x: d.candidate.x, y: d.candidate.y, z: d.candidate.z,
+        cfg: { ...cfg, ...(d.candidate.cfg.pillarId ? { pillarId: d.candidate.cfg.pillarId } : {}) } }
+    }
     // The attachment course is part of the pointer's aim, like position/rotation.
     // Reusing the old offset can move a legal wall mount down to street level.
     if (to.type === 'exit' && to.cfg.style === 'doorway' && d.candidate.type === 'exit') {
@@ -199,7 +207,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       set({ notice: reason })
       return
     }
-    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from)) {
+    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from) && (to.type !== 'calligraphy' || from.type !== 'calligraphy' || to.cfg.pillarId === from.cfg.pillarId)) {
       set({ moveDraft: null, notice: msg('position_unchanged') })
       return
     }
