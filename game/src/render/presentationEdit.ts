@@ -11,7 +11,7 @@ const RETAINED = new Set<Module['type']>([
   'walkway','stair','lift','tvm','vending','bench','shelf','desk','checkout',
   'cubicle','sink', 'urinal','road','bin','extinguisher','light','clock','cctv','billboard',
   'glass','door','calligraphy','linemap','monitor','traffic-light','rail-signal',
-  'tv','sign','retail','shop','booth','track','vent','ac-unit','electrical-cabinet','tactile',
+  'tv','sign','retail','shop','booth','track','vent','court', 'ac-unit','electrical-cabinet','tactile',
 ])
 
 export function signLineInk(layout: SignLayout, lines: StationData['lines']): string | null {

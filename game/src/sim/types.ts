@@ -584,6 +584,7 @@ export type Module =
    * is meaningless to a round dial and is kept only so it turns with every other
    * piece.
    */
+  | (ModuleBase & { type: 'court'; cfg: { variant: 'pickleball' | 'badminton' | 'divider' } })
   | (ModuleBase & { type: 'ac-unit'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'electrical-cabinet'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'tactile'; cfg: { variant: 'guide' | 'warning' } })

@@ -42,6 +42,7 @@ import {
   pillarAt,
   placementColliders,
   glassCells,
+  moduleFootprint,
   snapDoorToCurtain,
   topBlockOver,
 } from '../../sim/placement.ts'
@@ -177,7 +178,7 @@ export class EquipmentTool extends ToolController {
     // for a straight 90° line whose panels follow the drag direction, release
     // to lay one panel per cell. A quick tap stays a single panel with the R
     // rotation. Right-drag lifts the run back out, one panel at a time.
-    if (isFenceType(st.moduleType)) {
+    if (isFenceType(st.moduleType) || st.moduleType === 'court-divider') {
       const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
       // A fence stands on floor like any equipment: pressing void is a `floor`
       // refusal, not a silent no-op.
@@ -208,8 +209,15 @@ export class EquipmentTool extends ToolController {
       } else {
         scene.setFencePreview(null)
         scene.setCollisionHighlight(null)
-        scene.setGhost([hit.cell], 'remove')
-        scene.setCursor(hit.cell, true)
+        if (st.moduleType === 'court-divider') {
+          const mods = st.station.modules.filter(m => this.runModuleAt(m, ...hit.cell))
+          scene.setModulePreview(mods, true)
+          scene.setGhost([], 'remove')
+          scene.setCursor(null)
+        } else {
+          scene.setGhost([hit.cell], 'remove')
+          scene.setCursor(hit.cell, true)
+        }
       }
       return
     }
@@ -375,16 +383,24 @@ export class EquipmentTool extends ToolController {
         const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
         const seen = new Set<string>()
         const cells: Array<[number, number, number]> = []
+        const mods: Module[] = []
         for (const [x, y, z] of line) {
-          const mod = st.station.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
-          if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+          const mod = st.station.modules.find((m) => this.runModuleAt(m, x, y, z))
+          if (!mod || seen.has(mod.id)) continue
           seen.add(mod.id)
           cells.push([mod.x, mod.y, mod.z])
+          mods.push(mod)
         }
         scene.setFencePreview(null)
         scene.setCollisionHighlight(null)
-        scene.setGhost(cells, 'remove')
-        scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
+        if (st.moduleType === 'court-divider') {
+          scene.setModulePreview(mods, true)
+          scene.setGhost([], 'remove')
+          scene.setCursor(null)
+        } else {
+          scene.setGhost(cells, 'remove')
+          scene.setCursor(dragging ? line[line.length - 1] : d.anchor, true)
+        }
       }
       return
     }
@@ -449,7 +465,7 @@ export class EquipmentTool extends ToolController {
       // the piece already holding the space — a staircase's treads included).
       let why = ''
       const seen = new Set<string>()
-      for (const [x, y, z] of line) {
+      for (const [x, y, z] of this.runAnchors(line)) {
         const k = cellKey(x, y, z)
         if (seen.has(k)) continue
         seen.add(k)
@@ -480,8 +496,8 @@ export class EquipmentTool extends ToolController {
       let next = st.station
       let removed = 0
       for (const [x, y, z] of line) {
-        const mod = next.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
-        if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+        const mod = next.modules.find((m) => this.runModuleAt(m, x, y, z))
+        if (!mod || seen.has(mod.id)) continue
         seen.add(mod.id)
         next = removeModule(next, mod.id)
         removed++
@@ -502,6 +518,16 @@ export class EquipmentTool extends ToolController {
    * result drives the live fence preview; `blockedCells` identifies refused cells,
    * and `colliderIds` names the placed modules the refused panels hit.
    */
+  /** Portable screens span two metres; previews and commits share the same anchors. */
+  private runAnchors(line: Array<[number, number, number]>): Array<[number, number, number]> {
+    return useStore.getState().moduleType === 'court-divider' ? line.filter((_, i) => i % 2 === 0) : line
+  }
+
+  private runModuleAt(mod: Module, x: number, y: number, z: number): boolean {
+    if (useStore.getState().moduleType !== 'court-divider') return mod.type === 'fence' && mod.x === x && mod.y === y && mod.z === z
+    return mod.type === 'court' && mod.cfg.variant === 'divider' && mod.z === z && moduleFootprint(mod).some(([mx, my]) => mx === x && my === y)
+  }
+
   private fenceRunRotation(line: Array<[number, number, number]>): number {
     const st = useStore.getState()
     const axis = fenceRotForLine(line)
@@ -517,7 +543,7 @@ export class EquipmentTool extends ToolController {
     const blockedCells: Array<[number, number, number]> = []
     const colliderIds: string[] = []
     const seen = new Set<string>()
-    for (const [x, y, z] of line) {
+    for (const [x, y, z] of this.runAnchors(line)) {
       const k = cellKey(x, y, z)
       if (seen.has(k)) continue
       seen.add(k)

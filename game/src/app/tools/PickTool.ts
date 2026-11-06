@@ -151,6 +151,9 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'cubicle':
       id = mod.cfg.variant === 'toilet' ? 'cubicle-toilet' : 'cubicle'
       break
+    case 'court':
+      id = `court-${mod.cfg.variant}`
+      break
     case 'guidepost':
     case 'tvm':
     case 'vending':

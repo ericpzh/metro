@@ -6,11 +6,12 @@ import { PSD_FULL_DOOR_WIDTH_SCALE } from './constants.ts'
 
 export type TactileVariant = 'guide' | 'warning'
 export type FloorMarkVariant = 'boarding' | 'waiting' | 'direction'
-export type FloorDecorModule = Extract<Module, { type: 'ac-unit' | 'electrical-cabinet' | 'tactile' | 'floor-mark' }>
+export type FloorDecorModule = Extract<Module, { type: 'court' | 'ac-unit' | 'electrical-cabinet' | 'tactile' | 'floor-mark' }>
 
 /** Metre dimensions shared by the floor models and placement verdict (§9.5). */
 export function floorDecorSpec(m: FloorDecorModule): { w: number; d: number; h: number } {
   switch (m.type) {
+    case 'court': return m.cfg.variant === 'divider' ? { w: 2, d: 1, h: 1 } : { w: 14, d: 7, h: m.cfg.variant === 'badminton' ? 1.6 : 0.97 }
     case 'ac-unit': return { w: 3, d: 2, h: 2.7 }
     case 'electrical-cabinet': return { w: 3, d: 1, h: 2.2 }
     case 'tactile': return { w: 1, d: 1, h: 0.012 }

@@ -179,6 +179,21 @@
       "bytes": 4706
     },
     {
+      "id": "court-badminton",
+      "file": "court-badminton.png",
+      "bytes": 3044
+    },
+    {
+      "id": "court-divider",
+      "file": "court-divider.png",
+      "bytes": 2389
+    },
+    {
+      "id": "court-pickleball",
+      "file": "court-pickleball.png",
+      "bytes": 2922
+    },
+    {
       "id": "cubicle",
       "file": "cubicle.png",
       "bytes": 2504

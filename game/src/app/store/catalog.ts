@@ -40,7 +40,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'psd-end-cover', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
   ]),
-  outside: new Set(['cctv-post', 'sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
+  outside: new Set(['court-pickleball', 'court-badminton', 'court-divider', 'cctv-post', 'sidewalk', 'lawn', 'tree', 'traffic-light', 'road', 'ac-unit', 'guidepost', 'busstop-short', 'busstop-long']),
 }
 
 export function decorCategoryHasId(category: DecorCategory, id: string): boolean {
@@ -63,6 +63,9 @@ export function decorCategoryForId(id: string): DecorCategory | null {
  * a list that also has to keep each family's variants adjacent.
  */
 export const MODULE_OPTIONS: ModuleOption[] = [
+  { id: 'court-pickleball', label: msg('pickleball_court'), type: 'court', w: 14, h: 7 },
+  { id: 'court-badminton', label: msg('badminton_court'), type: 'court', w: 14, h: 7 },
+  { id: 'court-divider', label: msg('court_divider'), type: 'court', w: 2, h: 1 },
   ...(['sidewalk', 'lawn', 'tree'] as const).map(id => ({ id, label: msg(id), type: id, w: 1, h: 1 })),
   { id: 'road', label: msg('road'), type: 'road', w: 6, h: 12 },
   { id: 'hanger-roof', label: msg('roof_hanger'), type: 'hanger', w: 4, h: 1 },
@@ -259,7 +262,7 @@ export function isDecorType(type: string): boolean {
     type === 'tvm' || type === 'vending' ||
     type === 'hanger' || type.startsWith('hanger-') ||
     type === 'tactile' || type.startsWith('tactile-') || type === 'floor-mark' || type.startsWith('floor-mark-') ||
-    type === 'ac-unit' || type === 'electrical-cabinet' ||
+    type === 'court' || type.startsWith('court-') || type === 'ac-unit' || type === 'electrical-cabinet' ||
     isBenchType(type) ||
     type === 'curtain-wall' || type === 'psd-end' || type === 'psd-end-cover' ||
     isShelfType(type) ||
@@ -426,7 +429,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
+export type ModuleFamilyKey = 'court' | 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -453,6 +456,7 @@ export interface ModuleFamily {
 
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
+  { key: 'court', owns: id => id === 'court' || id.startsWith('court-') },
   { key: 'tv', owns: (id) => id === 'tv' || id === 'tv-double' },
   { key: 'monitor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'extinguisher', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
@@ -487,6 +491,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
  * family's parent tile actually sits in a folder's grid is `RAIL_ORDER` below.
  */
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
+  { key: 'court', label: msg('ballfield'), folder: 'decor', owns: id => id === 'court' || id.startsWith('court-') },
   { key: 'tv', label: msg('tv'), folder: 'decor', owns: (id) => id === 'tv' || id === 'tv-double' },
   { key: 'monitor', label: msg('monitor'), folder: 'decor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
@@ -652,7 +657,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'traffic-light',
     'guidepost',
     familyAnchor('busstop'),
-    'ac-unit', 'electrical-cabinet',
+    familyAnchor('court'), 'ac-unit', 'electrical-cabinet',
     'tvm', 'vending', familyAnchor('noise-barrier'),
   ],
 }

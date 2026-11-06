@@ -1,5 +1,9 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  ballfield: { zh: '球场', en: 'Ballfield' },
+  court_divider: { zh: '球场矮围栏', en: 'Court divider' },
+  pickleball_court: { zh: '匹克球场', en: 'Pickleball court' },
+  badminton_court: { zh: '羽毛球场', en: 'Badminton court' },
   "city_nanjing": { "zh": "南京", "en": "Nanjing" },
   "nanjing_metro": { "zh": "南京地铁", "en": "Nanjing Metro" },
   "printed_nanjing_metro": { "zh": "NANJING METRO", "en": "NANJING METRO" },

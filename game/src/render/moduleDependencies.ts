@@ -14,12 +14,12 @@ import { exitLandingHeight } from '../sim/exitLanding.ts'
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
 const EQUIPMENT_ONLY = new Set<Module['type']>([
-  'bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth', 'road', 'psd-end', 'walkway',
+  'bench', 'tvm', 'vending', 'gate', 'fence', 'court', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger', 'roof', 'booth', 'road', 'psd-end', 'walkway',
   'door', 'shelf', 'cubicle', 'sink', 'urinal',
 ])
 const STANDALONE = new Set<Module['type']>([
   'bench', 'tvm', 'vending', 'bin', 'extinguisher', 'shelf', 'desk', 'checkout', 'sink', 'urinal',
-  'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'door', 'calligraphy', 'linemap',
+  'court', 'ac-unit', 'electrical-cabinet', 'booth', 'roof', 'door', 'calligraphy', 'linemap',
   'billboard', 'busstop', 'floor-mark', 'traffic-light', 'rail-signal', 'shop', 'tree',
 ])
 const RAMPS = new Set<Module['type']>(['stair', 'escalator', 'walkway'])
@@ -114,7 +114,7 @@ const CELL_INDEPENDENT = new Set<Module['type']>([
   'sidewalk', 'lawn', 'tree', 'road', 'traffic-light', 'bench', 'fence', 'light', 'vent', 'bin', 'extinguisher', 'shelf', 'desk',
   'cubicle', 'sink', 'urinal', 'checkout', 'booth', 'gate', 'platform-edge', 'billboard', 'tvm', 'vending',
   'door', 'glass', 'calligraphy', 'linemap', 'tactile', 'floor-mark',
-  'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
+  'court', 'ac-unit', 'electrical-cabinet', 'pillar', 'roof', 'exit', 'guidepost', 'busstop', 'psd-end', 'rail-signal',
 ])
 
 const changedColumns = new WeakMap<readonly Cell[], Map<string, Cell[]>>()

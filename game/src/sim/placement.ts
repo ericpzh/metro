@@ -388,6 +388,7 @@ function flatEnvelope(m: Module): ModuleBox | null {
       return cellsAabb(extinguisherCells(m), z0, z0 + extinguisherSpec(m.cfg.variant).height)
     case 'shelf':
       return { x0: m.x, y0: m.y, z0, x1: m.x + 1, y1: m.y + 1, z1: z0 + shelfSpec(m.cfg.variant).height }
+    case 'court':
     case 'ac-unit':
     case 'electrical-cabinet':
     case 'tactile':
@@ -716,6 +717,7 @@ export function moduleFootprint(m: Module): Array<[number, number]> {
   switch (m.type) {
     case 'extinguisher': return extinguisherCells(m).map(([x, y]) => [x, y])
     case 'hanger': return hangerCells(m)
+    case 'court':
     case 'ac-unit':
     case 'electrical-cabinet':
     case 'tactile':
@@ -1834,6 +1836,19 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   for (const { module: m, boxes, bounds: placedBounds } of collisionCandidates(modules, collisionSearchBounds(candidate, bounds))) {
     if ((isOutdoorSurface(m) && !isOutdoorSurface(candidate) && candidate.type !== 'road')
       || (isOutdoorSurface(candidate) && !isOutdoorSurface(m) && m.type !== 'road')) continue
+    // Portable dividers can stand on the painted court, while its net/posts remain solid.
+    if (m.type === 'court' && candidate.type === 'court' &&
+      (m.cfg.variant === 'divider') !== (candidate.cfg.variant === 'divider')) {
+      const field = m.cfg.variant === 'divider' ? candidate : m
+      const divider = m.cfg.variant === 'divider' ? m : candidate
+      const fieldBox = moduleEnvelope(field, modules)!
+      const cx = (fieldBox.x0 + fieldBox.x1) / 2, cy = (fieldBox.y0 + fieldBox.y1) / 2
+      const acrossX = (field.rot ?? 0) % 2 === 1
+      const net = { ...fieldBox, x0: acrossX ? fieldBox.x0 : cx - 0.2,
+        x1: acrossX ? fieldBox.x1 : cx + 0.2, y0: acrossX ? cy - 0.2 : fieldBox.y0,
+        y1: acrossX ? cy + 0.2 : fieldBox.y1 }
+      if (!boxesOverlap(net, moduleEnvelope(divider, modules)!)) continue
+    }
     if (m.type === 'road' && candidate.type === 'road') continue
     if (m === candidate || (candidate.id && m.id === candidate.id)) continue
     if (!isFenceGlassPair(m, candidate) && (!placedBounds || !boxesOverlap(bounds, placedBounds))) continue
@@ -2139,7 +2154,7 @@ const MOVABLE_TYPES: ReadonlySet<string> = new Set([
   'tree',
   'monitor', 'traffic-light', 'rail-signal',
   'hanger',
-  'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
+  'court', 'ac-unit', 'electrical-cabinet', 'tactile', 'floor-mark',
   'gate',
   'psd-end',
   'fence',
@@ -2378,7 +2393,7 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
     if (placementOnTrack(cells, candidate, modules)) return 'track'
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
   }
-  if (candidate.type === 'traffic-light' || candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
+  if (candidate.type === 'traffic-light' || candidate.type === 'rail-signal' || candidate.type === 'shelf' || candidate.type === 'checkout' || candidate.type === 'desk' || candidate.type === 'court' || candidate.type === 'ac-unit' || candidate.type === 'electrical-cabinet' || isFloorSticker(candidate)) {
     const box = moduleEnvelope(candidate, modules)!
     if (cells.some((c) => c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 }))) return 'occupied'
   }
@@ -2507,6 +2522,7 @@ export function equipmentRefusalNotice(reason: EquipmentRefusal, blockers: reado
  */
 export function moduleTypeLabel(m: Module): string {
   if (m.type === 'psd-end' && m.cfg.variant === 'cover') return msg('screen_door_cover')
+  if (m.type === 'court') return msg(m.cfg.variant === 'divider' ? 'court_divider' : m.cfg.variant === 'badminton' ? 'badminton_court' : 'pickleball_court')
   if (m.type === 'fence') return m.cfg.variant === 'sound-barrier' ? msg('full_height_noise_barrier') : m.cfg.variant === 'sound-barrier-half' ? msg('half_height_noise_barrier') : m.cfg.variant === 'bridge-railing' ? msg('railing') : m.cfg.variant === 'gate' ? msg('door') : m.cfg.variant === 'steel-blue' ? msg('blue_steel_fence') : m.cfg.variant === 'iron' ? msg('iron_fence') : msg('glass_fence')
   if (m.type === 'shop') {
     const kind = (m.cfg as { kind?: string } | undefined)?.kind

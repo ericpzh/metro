@@ -243,6 +243,10 @@ function createModuleRaw(
       return { id, type: 'extinguisher', x, y, z, rot, cfg: { variant: extinguisherVariant(type.slice(13)) } };
     case 'extinguisher':
       return { id, type: 'extinguisher', x, y, z, rot, cfg: {} };
+    case 'court-pickleball':
+    case 'court-divider':
+    case 'court-badminton':
+      return { id, type: 'court', x, y, z, rot, cfg: { variant: type === 'court-divider' ? 'divider' : type === 'court-badminton' ? 'badminton' : 'pickleball' } };
     case 'ac-unit':
       return { id, type: 'ac-unit', x, y, z, rot, cfg: {} };
     case 'electrical-cabinet':

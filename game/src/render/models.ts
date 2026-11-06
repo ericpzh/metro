@@ -28,6 +28,7 @@ import { SinkModel } from './models/pieces/SinkModel.ts'
 import { GuidepostModel, BusstopModel } from './models/pieces/StreetDecorModel.ts'
 import { BinModel } from './models/pieces/BinModel.ts'
 import { ExtinguisherModel } from './models/pieces/ExtinguisherModel.ts'
+import { CourtModel } from './models/pieces/CourtModel.ts'
 import { AcUnitModel } from './models/pieces/AcUnitModel.ts'
 import { ElectricalCabinetModel } from './models/pieces/ElectricalCabinetModel.ts'
 import { TactileModel } from './models/pieces/TactileModel.ts'
@@ -73,7 +74,7 @@ export function buildModule(mod: Module, ctx: ModuleContext): THREE.Object3D | n
 }
 
 const primitiveDetailTypes = new Set<Module['type']>([
-  'pillar', 'roof', 'tvm', 'busstop', 'door', 'light', 'monitor', 'bin', 'vent',
+  'court', 'pillar', 'roof', 'tvm', 'busstop', 'door', 'light', 'monitor', 'bin', 'vent',
   'bench', 'psd-end', 'tv', 'traffic-light', 'sign', 'tactile', 'guidepost',
   'glass', 'road', 'billboard', 'linemap', 'hanger',
   'stair', 'escalator', 'walkway', 'lift', 'exit', 'desk', 'checkout', 'vending', 'gate', 'extinguisher',
@@ -87,6 +88,7 @@ function buildRawModule(mod: Module, ctx: ModuleContext): THREE.Object3D | null 
   switch (mod.type) {
     case 'sidewalk':
     case 'lawn': return new OutdoorSurfaceModel(ctx).build(mod)
+    case 'court': return new CourtModel(ctx).build(mod)
     case 'tree': return new TreeModel(ctx).build(mod)
     case 'road': return new RoadModel(ctx).build(mod)
     case 'hanger': return new HangerModel(ctx).build(mod)

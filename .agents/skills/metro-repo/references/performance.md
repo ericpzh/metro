@@ -86,6 +86,17 @@ Default Guangzhou catalogue. Shared limits live in
 exception applies. `model-detail` checks reduction, restoration and batching.
 Never raise a limit to conceal a regression.
 
+Ballfield inventory measured 2026-11-06 with `BENCH_OUTPUT=.preview/perf/ballfields/report.json
+node tools/model-triangle-inventory.mjs` (three.js r186); raw counts are in
+`.preview/perf/ballfields/model-triangles.json`, with source hashes in
+`.preview/perf/ballfields/source-hashes.json`. Ballfields use 88/192 triangles
+(pickleball), 100/228 (badminton), and 52/132 (portable divider), Low/High.
+The open nets use line primitives in addition to those triangles: 129 segments
+for pickleball and 127 for badminton, unchanged between detail levels. Mesh and
+top tape extend to both post centres in High and Low. The divider omits its four
+small foot pads in Low while retaining the fabric, frame and T-feet.
+These are geometry counts, not drag latency, draw-call or GPU-time measurements.
+
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
 | tree | 396 | 18432 |
@@ -146,8 +157,10 @@ Never raise a limit to conceal a regression.
 | busstop-short | 24 | 260 |
 | light-circular | 18 | 256 |
 | monitor-wall | 8 | 213 |
+| court-badminton | 100 | 228 |
 | lawn | 12 | 204 |
 | bin | 26 | 196 |
+| court-pickleball | 88 | 192 |
 | vent | 32 | 168 |
 | bench-seat-1 | 20 | 156 |
 | extinguisher | 12 | 146 |
@@ -155,6 +168,7 @@ Never raise a limit to conceal a regression.
 | door-wood-1 | 20 | 144 |
 | sidewalk | 12 | 132 |
 | tv-double | 28 | 132 |
+| court-divider | 52 | 132 |
 | psd-end | 30 | 114 |
 | tv | 22 | 114 |
 | noise-barrier | 46 | 108 |

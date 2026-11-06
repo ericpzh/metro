@@ -5,6 +5,7 @@ import { msg } from '../../sim/i18n.ts'
 // itself lives in app/sweep.ts; this file only owns the pointer gesture.
 
 import { removeFloor, removeLiftExtension, removeModule, sameCells } from '../../build/model.ts'
+import { moduleFootprint } from '../../sim/placement.ts'
 import { isOutdoorSurface } from '../../sim/outdoorSurfaces.ts'
 import { liftRises } from '../../sim/lifts.ts'
 import type { Module } from '../../sim/types.ts'
@@ -133,7 +134,8 @@ export class DeleteTool extends ToolController {
       // and an equipment (设备) or 装饰 piece starts a same-type sweep: hold
       // the button and drag across matching pieces, and each one the pointer
       // passes through is highlighted and joins the pending list (§9.5).
-      const fence = picked.type === 'fence'
+      const divider = picked.type === 'court' && picked.cfg.variant === 'divider'
+      const fence = picked.type === 'fence' || divider
       const family = fence ? null : sweepFamily(picked)
       const liftExtension = picked.type === 'lift' && point ? liftExtensionAtPoint(picked, point) : undefined
       this.ctx.drag.current = {
@@ -144,6 +146,7 @@ export class DeleteTool extends ToolController {
         z: picked.z,
         shift: true,
         fence: fence || undefined,
+        tileType: divider ? 'court-divider' : undefined,
         // A piece that may not be swept still rides the same list, so the
         // release has one path: a one-id sweep is the plain bulldoze.
         modules: fence ? undefined : [picked.id],
@@ -202,8 +205,10 @@ export class DeleteTool extends ToolController {
         const seen = new Set<string>()
         const modules: Module[] = []
         for (const [x, y, z] of line) {
-          const mod = st.station.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
-          if (!mod || mod.type !== 'fence' || seen.has(mod.id)) continue
+          const mod = st.station.modules.find((m) => d.tileType === 'court-divider'
+            ? m.type === 'court' && m.cfg.variant === 'divider' && m.z === z && moduleFootprint(m).some(([mx,my]) => mx === x && my === y)
+            : m.type === 'fence' && m.x === x && m.y === y && m.z === z)
+          if (!mod || seen.has(mod.id)) continue
           seen.add(mod.id)
           modules.push(mod)
         }
@@ -338,8 +343,10 @@ export class DeleteTool extends ToolController {
       let next = st.station
       let removed = 0
       for (const [x, y, z] of line) {
-        const mod = next.modules.find((m) => m.type === 'fence' && m.x === x && m.y === y && m.z === z)
-        if (!mod || mod.type !== 'fence' || seen.has(mod.id) || !this.visibleModule(mod)) continue
+        const mod = next.modules.find((m) => d.tileType === 'court-divider'
+            ? m.type === 'court' && m.cfg.variant === 'divider' && m.z === z && moduleFootprint(m).some(([mx,my]) => mx === x && my === y)
+            : m.type === 'fence' && m.x === x && m.y === y && m.z === z)
+        if (!mod || seen.has(mod.id) || !this.visibleModule(mod)) continue
         seen.add(mod.id)
         next = removeModule(next, mod.id)
         removed++
