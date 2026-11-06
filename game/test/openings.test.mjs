@@ -315,6 +315,23 @@ test('a run that lands on a floor does not carve the slab above it', () => {
   assert.ok(cell(6, 10)?.tags?.includes(OPENING_CEILING), 'the orphan over an opening is tagged as its ceiling')
 })
 
+test('restoring support under a ramp-carved plate clears its derived ceiling tag', async () => {
+  const { addCells, zoneFloorAt } = await import('../src/build/model.ts')
+  const cells = []
+  for (let y = 0; y <= 9; y++) {
+    cells.push({ x: 0, y, z: 0, fill: 'solid' })
+    cells.push({ x: 0, y, z: 5, fill: 'solid' })
+    cells.push({ x: 0, y, z: 10, fill: 'solid', finish: { top: 'floor.concrete' } })
+  }
+  const run = { id: 'e', type: 'escalator', x: 0, y: 0, z: 0,
+    from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 9, z: 5 }, cfg: { dir: 'up' } }
+  carveRampOpenings(cells, [run])
+  assert.ok(cells.find(c => c.y === 6 && c.z === 10).tags.includes(OPENING_CEILING))
+  const result = addCells(cells, [[0, 6, 9]], []) // after removing the run
+  assert.equal(result.changed, 1)
+  assert.equal(zoneFloorAt(result.cells, [], 0, 6, 10), true)
+})
+
 test('the reference station has no holes in its gate floor or concourse roof', () => {
   const d = scenarioStation()
   const solid = new Set(d.cells.filter((c) => c.fill === 'solid').map((c) => `${c.x},${c.y},${c.z}`))

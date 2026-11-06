@@ -587,3 +587,19 @@ test('an unpainted station has one fare side from the pavement down', () => {
   assert.ok(edge, 'two unpainted cells are one zone: no fare line between them')
 })
 
+
+
+test('filling under a carved ceiling restores its floor classification', async () => {
+  const { addCells, addWalls } = await import('../src/build/model.ts')
+  const plate = { x: 153, y: -104, z: -5, fill: 'solid', tags: ['opening-ceiling'], finish: { top: 'floor.concrete' } }
+  const other = { x: 154, y: -104, z: -5, fill: 'solid', tags: ['opening-ceiling'] }
+  const state = toState({ name: 'test', seed: 1, cells: [plate, other], modules: [], lines: [] })
+  const block = addCells(state.cells, [[153, -104, -6]], [])
+  assert.equal(block.changed, 1)
+  assert.equal(zoneFloorAt(block.cells, [], 153, -104, -5), true)
+  assert.ok(block.cells.find(c => c.x === 154).tags.includes('opening-ceiling'))
+  assert.ok(state.cells[0].tags.includes('opening-ceiling'), 'the prior document remains unchanged')
+  const wall = addWalls(state, [[153, -104, -6]], null, 1)
+  assert.equal(wall.changed, 1)
+  assert.equal(zoneFloorAt(wall.state.cells, [], 153, -104, -5), true)
+})

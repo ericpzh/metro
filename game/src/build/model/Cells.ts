@@ -4,6 +4,7 @@
 import { levelSteps, STOREY_HEIGHT, storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
+import { clearSupportedOpeningCeilings } from '../../sim/openingCeilings.ts';
 import { blockReason } from '../validation.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import type { StationState } from './State.ts';
@@ -152,7 +153,7 @@ export function addCells(
     changed++;
   }
   return {
-    cells: filledGroundHoles.size === 0 ? out : out.filter((c) => !filledGroundHoles.has(cellKey(c.x, c.y, c.z))),
+    cells: changed === 0 ? out : clearSupportedOpeningCeilings(filledGroundHoles.size === 0 ? out : out.filter((c) => !filledGroundHoles.has(cellKey(c.x, c.y, c.z))), addedKeys),
     changed,
     blocked,
   };

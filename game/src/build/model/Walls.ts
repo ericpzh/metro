@@ -1,6 +1,7 @@
 // Build model: walls — the 墙 tool, 半墙, and their tags (§5.1).
 // Owns the WALL/AUTO_WALL/AUTO_WALL_H vocabulary; Floors.ts imports it.
 
+import { clearSupportedOpeningCeilings } from '../../sim/openingCeilings.ts';
 import { storeyBand } from '../../sim/constants.ts';
 import { thinWallCells } from '../../sim/openings.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
@@ -317,7 +318,7 @@ export function addWalls(
     if (hole === undefined) grown.push(c);
     else next[hole] = c;
   }
-  return { state: { ...state, cells: [...next, ...grown] }, changed: added.length, blocked };
+  return { state: { ...state, cells: clearSupportedOpeningCeilings([...next, ...grown], addedKeys) }, changed: added.length, blocked };
 }
 
 /**

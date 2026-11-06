@@ -57,7 +57,8 @@ export const ESCALATOR_HEADROOM = 2.2
  * (`render/scene.ts`) cuts it with the rest of the ceiling instead of ghosting
  * it over the active storey.
  */
-export const OPENING_CEILING = 'opening-ceiling'
+export { OPENING_CEILING } from './openingCeilings.ts'
+import { OPENING_CEILING } from './openingCeilings.ts'
 /** A cell must clear the line by this much before it counts as an obstruction. */
 const EPS = 0.02
 /**
