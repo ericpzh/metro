@@ -397,6 +397,7 @@ export interface MaterialSet {
   retain: (inUse: ReadonlySet<FinishId>) => void
   outline: THREE.MeshBasicMaterial
   blob: THREE.MeshBasicMaterial
+  equipmentBlob: THREE.MeshBasicMaterial
   /** Transparent floor-decal layer — tactile strips, §4.2. */
   tactile: THREE.MeshBasicMaterial
   /** @deprecated kept for the lab; use `finish`. */
@@ -450,6 +451,18 @@ export function createMaterials(): MaterialSet {
     depthWrite: false,
     opacity: 0.9,
   })
+  // A feathered rectangular footprint for equipment; passengers keep the radial texture.
+  const pixels = new Uint8Array(64 * 64 * 4)
+  for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) {
+    const edge = Math.min(x, y, 63 - x, 63 - y) / 12
+    const alpha = Math.max(0, Math.min(1, edge))
+    pixels[(y * 64 + x) * 4 + 3] = Math.round(115 * alpha * alpha * (3 - 2 * alpha))
+  }
+  const equipmentTexture = new THREE.DataTexture(pixels, 64, 64, THREE.RGBAFormat)
+  equipmentTexture.magFilter = THREE.LinearFilter
+  equipmentTexture.minFilter = THREE.LinearFilter
+  equipmentTexture.needsUpdate = true
+  const equipmentBlob = new THREE.MeshBasicMaterial({ map: equipmentTexture, transparent: true, depthWrite: false, opacity: 0.9 })
   const tactile = new THREE.MeshBasicMaterial({
     map: tex(tactileCanvas(), 1, false),
     transparent: true,
@@ -458,6 +471,7 @@ export function createMaterials(): MaterialSet {
   })
   minted.add(outline)
   minted.add(blob)
+  minted.add(equipmentBlob)
   minted.add(tactile)
   /** Release one finish material and the canvas texture it wraps. */
   const drop = (m: THREE.MeshStandardMaterial): void => {
@@ -477,6 +491,7 @@ export function createMaterials(): MaterialSet {
     },
     outline,
     blob,
+    equipmentBlob,
     tactile,
     platform: finish('floor.granite'),
     dispose: () => {
@@ -487,6 +502,8 @@ export function createMaterials(): MaterialSet {
       outline.dispose()
       blob.map?.dispose()
       blob.dispose()
+      equipmentTexture.dispose()
+      equipmentBlob.dispose()
       tactile.map?.dispose()
       tactile.dispose()
     },

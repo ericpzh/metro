@@ -393,18 +393,25 @@ export class ModuleSystem extends SceneSystem {
       lineMapFace: (id, panel) => this.plates.makeLineMapPlate(id, panel),
       owned: this.ctx.ownedMats,
     }
-    const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number]>; ids: string[] }>()
+    const blobsByKey = new Map<string, { levelZ: number; ground: number | undefined; blobs: Array<[number, number, number, number, number?]>; ids: string[] }>()
     if (appendOnly) for (const [key, inst] of contactBlobs) {
       blobsByKey.set(key, { levelZ: inst.userData.levelZs[0], ground: inst.userData.groundBand,
         blobs: [...inst.userData.contactBlobValues], ids: [...inst.userData.contactBlobIds] })
     }
-    const addBlob = (mod: Module): void => {
+    const addBlob = (mod: Module, group: THREE.Object3D): void => {
       const r = isCeilingHung(mod) || isWallMounted(mod) ? 0 : blobRadius(mod.type)
       if (r <= 0) return
       const ground=this.ctx.groundOf.get(`${mod.x},${mod.y}`)
       // Match the model's foot plane. A blob sunk into the block becomes visible
       // through a triangular block's cut face instead of grounding the equipment.
-      const blob: [number,number,number,number]=[mod.x+.5,mod.y+.5,mod.z+1+.012,r]
+      // Follow the rendered footprint, including edge offsets and rotation.
+      group.updateWorldMatrix(true, true)
+      const bounds: THREE.Box3 = group.userData.contactShadowBounds ??= new THREE.Box3().setFromObject(group)
+      const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
+      const wide = Number.isFinite(width + depth) && Math.max(width, depth) > 1.1
+      const blob: [number,number,number,number,number?] = wide
+        ? [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + .35) / 1.24, (depth + .35) / 1.24]
+        : [mod.x+.5,mod.y+.5,mod.z+1+.012,r]
       const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
       if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
       else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
@@ -413,7 +420,7 @@ export class ModuleSystem extends SceneSystem {
       if (appendOnly && kept.has(mod.id)) continue
       const existing=kept.get(mod.id)
       if(existing&&this.retainedLevelRoots.has(existing)){
-        addBlob(mod)
+        addBlob(mod, existing)
         continue
       }
       const ownedStart = this.ctx.ownedMats.length
@@ -513,7 +520,7 @@ export class ModuleSystem extends SceneSystem {
       }
       this.crowd.activitySinks.push(...activity.sinks)
       this.crowd.swingDoors.push(...activity.doors)
-      addBlob(mod)
+      addBlob(mod, group)
     }
     this.plates.updateRailSignals?.()
     // Contact blobs under floor-standing modules (§11), one retained batch per
@@ -532,8 +539,8 @@ export class ModuleSystem extends SceneSystem {
         this.moduleMeshes.remove(inst)
         inst = undefined
       }
-      const previous = inst?.userData.contactBlobValues as Array<[number, number, number, number]> | undefined
-      if (!inst) inst = new THREE.InstancedMesh(new THREE.CircleGeometry(0.62, 12), this.ctx.mats.blob, THREE.MathUtils.ceilPowerOfTwo(Math.max(1, blobs.length)))
+      const previous = inst?.userData.contactBlobValues as Array<[number, number, number, number, number?]> | undefined
+      if (!inst) inst = new THREE.InstancedMesh(new THREE.PlaneGeometry(1.24, 1.24), this.ctx.mats.equipmentBlob ?? this.ctx.mats.blob, THREE.MathUtils.ceilPowerOfTwo(Math.max(1, blobs.length)))
       inst.renderOrder = 2
       inst.frustumCulled = false
       inst.userData.levelZs = [levelZ]
@@ -542,9 +549,9 @@ export class ModuleSystem extends SceneSystem {
       inst.userData.ground = levelZ === GROUND_Z
       let changed = false
       for (let i = 0; i < blobs.length; i++) {
-        const [x, y, z, r] = blobs[i]
-        if (previous?.[i]?.every((value, j) => value === blobs[i][j])) continue
-        m.compose(p.set(x, y, z), q, s.set(r, r, r))
+        const [x, y, z, r, ry = r] = blobs[i]
+        if (previous?.[i]?.length === blobs[i].length && previous[i].every((value, j) => value === blobs[i][j])) continue
+        m.compose(p.set(x, y, z), q, s.set(r, ry, 1))
         inst.setMatrixAt(i, m)
         // A new buffer uploads in full; ranges are only for subsequent edits.
         if (previous) inst.instanceMatrix.addUpdateRange(i * 16, 16)

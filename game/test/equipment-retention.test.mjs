@@ -478,6 +478,28 @@ test('moving hides only the picked contact shadow and restores it on cancel or d
   assert.deepEqual(matrix(1).elements, other.elements)
 }))
 
+test('multi-tile shelf shadows follow the rendered footprint in every rotation', () => withDrawing(({ modules }) => {
+  for (const type of ['shelf-books', 'shelf-bags', 'shelf-cafe-backbar-4']) for (let rot = 0; rot < 4; rot++) {
+    const shelf = { ...createModule(type, 3, 4, 0, 'books'), rot }
+    modules.buildModules(station([shelf]), new Set(), true)
+    const root = modules.moduleMeshes.children.find(g => g.userData.moduleId === 'books')
+    const shadow = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
+    const bounds = new THREE.Box3().setFromObject(root)
+    const matrix = new THREE.Matrix4(); shadow.getMatrixAt(0, matrix)
+    const e = matrix.elements
+    assert.ok(Math.abs(e[12] - (bounds.min.x + bounds.max.x) / 2) < 1e-5)
+    assert.ok(Math.abs(e[13] - (bounds.min.y + bounds.max.y) / 2) < 1e-5)
+    assert.ok(Math.abs(e[0] * 1.24 - (bounds.max.x - bounds.min.x + .35)) < 1e-5)
+    assert.ok(Math.abs(e[5] * 1.24 - (bounds.max.y - bounds.min.y + .35)) < 1e-5)
+    modules.setMovingModule('books')
+    const hidden = new THREE.Matrix4(); shadow.getMatrixAt(0, hidden)
+    assert.equal(hidden.elements[0], 0)
+    modules.setMovingModule(null)
+    const restored = new THREE.Matrix4(); shadow.getMatrixAt(0, restored)
+    assert.deepEqual(restored.elements, matrix.elements)
+  }
+}))
+
 test('contact shadows retain buffers, upload only changed instances and dispose exactly once', () => withDrawing(({ modules, ctx }) => {
   const benches = Array.from({ length: 3 }, (_, i) => createModule('bench', i * 2, 0, 0, `bench-${i}`))
   const upper = createModule('bench', 0, 0, 5, 'upper')
