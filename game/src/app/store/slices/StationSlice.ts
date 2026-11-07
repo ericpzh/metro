@@ -27,36 +27,24 @@ import type { AppState } from '../Store.ts'
 import { loadSim, rebuildSim } from './SimSlice.ts'
 import { openingLevel } from '../../openingLevel.ts'
 
-/** Most undo frames, and the most document they may hold between them. */
+/** Most undo frames. */
 const UNDO_MAX_FRAMES = 40
-const UNDO_BUDGET = 120_000
 
 /**
- * Roughly what one snapshot costs to keep: a cell is a small record, a module is a
- * whole piece with its own config (`cells + 4 x modules` is the shipped demo's
- * 11 627 + 1 576 ≈ 13 203, near enough to its ~2 MB in the heap — so the demo holds
- * **nine** frames of history, where a fresh 2 × 2 station holds all forty).
- */
-function snapshotCost(s: StationState): number {
-  return s.cells.length + s.modules.length * 4
-}
-
-/**
- * Push a snapshot onto the undo stack, dropping the oldest frames until the stack
- * fits both its depth limit and its memory budget.
+ * Push a snapshot onto the undo stack, dropping the oldest frame past the depth
+ * limit.
  *
- * A depth cap alone says nothing about a large station: forty snapshots of an
- * 11 000-cell build is tens of megabytes held for the session, and the clone is paid
- * on every commit. A small station still gets all forty frames; a large one trades
- * depth for a ceiling.
+ * Documents are immutable: `commit` retains the previous document rather than
+ * cloning it, so neighbouring frames share every untouched cell, module and line
+ * record. A frame costs its own wrapper plus the records an edit replaced, not a
+ * copy of the station — which is why a 14 000-cell demo keeps the same forty frames
+ * as a 2 × 2 slab. Charging each frame a full document here (the old
+ * `cells + 4 x modules` budget) dropped history on a large station until only one
+ * Ctrl+Z was left.
  */
 function pushPast(past: readonly StationState[], snap: StationState): StationState[] {
   const next = [...past, snap]
-  let held = next.reduce((n, s) => n + snapshotCost(s), 0)
-  while (next.length > 1 && (next.length > UNDO_MAX_FRAMES || held > UNDO_BUDGET)) {
-    held -= snapshotCost(next[0])
-    next.shift()
-  }
+  if (next.length > UNDO_MAX_FRAMES) next.splice(0, next.length - UNDO_MAX_FRAMES)
   return next
 }
 

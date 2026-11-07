@@ -2280,8 +2280,10 @@ including the depth prepass, for all six appearances.
   (`CrowdSystem.dropOverlay`), the 区域 map is rebuilt only when the picture changes
   (`setZoneOverlayVisible`, `zoneKeyRef`), the scene stops its own animation frame on `dispose`
   (`SceneRenderer.raf`), and a painted colour the document no longer names gives its canvas
-  texture back (`finishesInUse` / `MaterialSet.retain`). The undo stack is capped by frames
-  **and memory** (`StationSlice.pushPast`), `cloneState` uses `structuredClone`, and a **live**
+  texture back (`finishesInUse` / `MaterialSet.retain`). The undo stack keeps its last forty
+  frames (`StationSlice.pushPast`); a frame retains the previous immutable document instead of
+  cloning it, so a large station keeps the same depth as a small one. `cloneState` still makes
+  a fresh copy at a station switch, and a **live**
   指示牌 preview raises `signVersion` rather than the document's `version`, so a preview stops
   looking like a document edit. In the sim the worker stays quiet while paused with nothing
   `dirty`, and `AgentPool` drops a dead agent's id entry as it recycles the object.

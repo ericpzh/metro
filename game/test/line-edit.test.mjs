@@ -12,10 +12,10 @@
 //
 // `app/store/slices/StationSlice.ts` is the same story for the document itself —
 // 新建 / 打开示例车站 / 打开存档 (`newStation`, `loadReference`, `loadFromText`) and the
-// undo stack every edit pushes onto. `pushPast` is the memory cap: a depth limit alone
-// would hold forty snapshots of an 11 000-cell build for the session, so a large
-// document trades depth for a ceiling — and it must always drop the *oldest* frame,
-// never the newest, or the last Ctrl+Z would land somewhere the player has never been.
+// undo stack every edit pushes onto. `pushPast` keeps the last forty frames and
+// always drops the *oldest*, never the newest, or the last Ctrl+Z would land
+// somewhere the player has never been. Frames share the document's immutable
+// records, so a 14 000-cell demo keeps the same depth as a 2 × 2 slab.
 //
 // The worker is plumbing: `loadSim`/`rebuildSim` (`app/store/slices/SimSlice.ts`) reach
 // it through `ensureClient`, and Node has no `Worker` global, so the harness stands a
@@ -556,25 +556,32 @@ test('undo and redo with nothing to walk are not edits, and a new edit drops the
 
 test('a small station keeps all forty undo frames', () => {
   load({ name: '线路测试', seed: 7, cells: [...floorRow(0, 1, 0), ...floorRow(0, 1, 1)], modules: [], lines: [] })
-  const cost = st().station.cells.length + st().station.modules.length * 4
-  assert.equal(cost, 4, 'the snapshot cost is `cells + 4 x modules`: a 2 x 2 slab and no modules')
   for (let i = 1; i <= 50; i++) st().commit({ ...st().station, name: `step-${i}` })
-  assert.equal(st().past.length, 40, 'UNDO_MAX_FRAMES is the binding limit here, not the 120 000 budget')
+  assert.equal(st().past.length, 40, 'UNDO_MAX_FRAMES is the depth limit')
   assert.equal(st().past[0].name, 'step-10', 'the ten oldest frames were dropped')
   assert.equal(st().past[39].name, 'step-49', 'and the newest frame is kept')
 })
 
-test('a large station trades undo depth for the memory budget, and never drops the newest', () => {
-  load({ name: '线路测试', seed: 7, cells: [], modules: [], lines: [] })
-  st().loadReference()
-  const cost = st().station.cells.length + st().station.modules.length * 4
-  const frames = Math.min(40, Math.floor(120000 / cost))
-  assert.ok(frames > 1 && frames < 11, `the shipped demo costs ${cost} a snapshot, so the memory budget binds before eleven edits`)
+test('a large station keeps the same forty frames, and every Ctrl+Z is its own step', () => {
+  // The shipped demo is a large document; a per-frame full-document memory budget
+  // used to collapse its history to one frame, so the second Ctrl+Z did nothing.
+  load(referenceStation())
+  const original = st().station
+  const cells = original.cells.length
+  assert.ok(cells > 10_000, 'the shipped demo is a large document, not a tiny fixture')
   for (let i = 1; i <= 11; i++) st().commit({ ...st().station, name: `step-${i}` })
-  assert.equal(st().past.length, frames, 'the budget, not the forty-frame depth, is the binding limit')
-  assert.equal(st().past[frames - 1].name, 'step-10', 'the newest frame is the one the cap may never drop')
-  assert.equal(st().past[0].name, `step-${11 - frames}`, 'the oldest frames are the ones that go')
-  assert.equal(st().past[frames - 1].cells.length, st().station.cells.length, 'and a kept frame is the whole document')
+  assert.equal(st().past.length, 11, 'history depth counts frames, not document size')
+  for (let i = 11; i >= 1; i--) {
+    assert.equal(st().station.name, `step-${i}`, `undo ${12 - i} lands on the edit before it`)
+    st().undo()
+  }
+  assert.equal(st().station, original, 'and the last one lands on the loaded document itself')
+  assert.equal(st().station.cells.length, cells)
+  assert.equal(st().future.length, 11, 'all eleven edits are redoable')
+  for (let i = 1; i <= 50; i++) st().commit({ ...st().station, name: `cap-${i}` })
+  assert.equal(st().past.length, 40, 'a large station still fills the forty-frame depth')
+  assert.equal(st().past[0].name, 'cap-10', 'the oldest frames are the ones that go')
+  assert.equal(st().past.at(-1).name, 'cap-49', 'and the newest frame is kept')
 })
 
 /* ------------------------------------------------- 新建 / 打开 / 改名 / 存档 */

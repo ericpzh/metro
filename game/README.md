@@ -3459,7 +3459,8 @@ handrail returns with one continuous pane, in every width and every rotation/tra
   its screen doors resolves to that platform and re-derives only its doors; `removeLine` takes the
   line, its tracks, their
   doors and any tunnel shell as **one** `Ctrl+Z`; the undo stack pushes the document as it was, walks
-  both ways, and its memory cap trades depth on a large station without ever dropping the newest frame;
+  both ways, and keeps the same forty frames on a large station as on a small one (a frame retains
+  the previous immutable document, not a clone) without ever dropping the newest frame;
   and the station paths — 新建车站 asks for confirmation from both the top-bar button and Ctrl+N,
   with a reminder to save anything to keep (`new-station-confirmation.test.mjs`); 示例车站 (with the 打开 notice when a load had to be repaired), a
   rename that trims and never commits twice, and a save written and opened back — land on the document
