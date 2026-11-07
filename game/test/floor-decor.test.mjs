@@ -167,7 +167,7 @@ test('warning tiles connect perpendicular ribs, T joins and crosses without corn
 })
 
 test('boarding strip snaps to the real train-aligned opening in every rotation and side', () => {
-  const line = { id: '5', name: '5号线', colour: '#c8102e', stock: 'B', cars: 1 }
+  const line = { id: '5', name: '5号线', colour: '#c8102e', stock: 'B', cars: 1, modelScale: 0.98 }
   for (const psd of ['full', 'half', 'none']) for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
     const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side, psd } }
     const opening = doorRunOffsets(line, 20)[1] - 0.5
@@ -180,6 +180,30 @@ test('boarding strip snaps to the real train-aligned opening in every rotation a
     assert.ok(Math.abs((box.y0 + box.y1) / 2 - (0.5 + dy)) < 1e-8)
     assert.ok(Math.abs(Math.min(box.x1 - box.x0, box.y1 - box.y0) - 0.25) < 1e-8)
     assert.deepEqual(snapBoardingMark({ ...pointer, z: -4 }, [edge], [line]).cfg, pointer.cfg, 'does not snap across storeys')
+  }
+})
+
+test('a long scaled consist keeps every boarding strip on its drawn screen doorway', () => {
+  // Tianhe Park's line 11: eight A cars on a 173 m platform, which the five-metre
+  // profile draws at 0.98. The screen cuts its openings from the scaled cadence, so
+  // the strip must repeat that list; the unscaled one drifts a metre off mid-platform
+  // and misses the snap radius entirely at either end.
+  const line = { id: '11', name: '11号线', colour: '#f5bb17', stock: 'A', cars: 8, modelScale: 0.98 }
+  const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot: 0, w: 173, cfg: { line: '11', side: 'left', psd: 'full' } }
+  const openings = doorRunOffsets(line, 173)
+  const unscaled = doorRunOffsets({ stock: 'A', cars: 8 }, 173)
+  for (const index of [0, 1, 2, 19, 20, 37, 38, 39]) {
+    const opening = openings[index] - 0.5
+    const drift = Math.abs(opening - (unscaled[index] - 0.5))
+    if (index < 3 || index > 36) assert.ok(drift > 1.5, `door ${index} is beyond the old 1.5 m snap radius`)
+    else assert.ok(drift < 0.1, `door ${index} is near the consist centre`)
+    const [dx, dy] = rotateLocal(0, opening, 0.02)
+    const pointer = createModule('floor-mark-boarding', Math.floor(0.5 + dx), Math.floor(0.5 + dy), 0, 'mark')
+    const snapped = snapBoardingMark(pointer, [edge], [line])
+    assert.equal(snapped.cfg.edgeId, 'edge', `door ${index} snaps at all`)
+    const box = floorDecorBounds(snapped)
+    assert.ok(Math.abs((box.x0 + box.x1) / 2 - (0.5 + dx)) < 1e-8, `door ${index} centre sits on the drawn doorway`)
+    assert.ok(Math.abs((box.y0 + box.y1) / 2 - (0.5 + dy)) < 1e-8)
   }
 })
 
@@ -214,7 +238,7 @@ test('waiting lines prefer boarding ink and align behind it without overlapping 
 })
 
 test('waiting lines fall back to the screen door opening without boarding ink', () => {
-  const line = { id: '5', stock: 'B', cars: 1 }
+  const line = { id: '5', stock: 'B', cars: 1, modelScale: 0.98 }
   for (const psd of ['full', 'half', 'none']) for (const rot of [0, 1, 2, 3]) for (const side of ['left', 'right']) {
     const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, rot, w: 20, cfg: { line: '5', side, psd } }
     const [dx, dy] = rotateLocal(rot, doorRunOffsets(line, 20)[1] - 0.5, side === 'right' ? -0.02 : 0.02)

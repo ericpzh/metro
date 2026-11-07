@@ -1,7 +1,7 @@
 import { msg } from './i18n.ts'
 import type { Module, LineDef } from './types.ts'
 import { rotateLocal } from './track.ts'
-import { doorRunOffsets, doorWidthAt } from './stock.ts'
+import { doorRunOffsets, doorWidthAt, trainScaleForStorey } from './stock.ts'
 import { PSD_FULL_DOOR_WIDTH_SCALE } from './constants.ts'
 import { registerDocumentCache } from './documentCaches.ts'
 
@@ -106,13 +106,18 @@ export function snapBoardingMark(m: Extract<Module, { type: 'floor-mark' }>, mod
     const line = lines.find((l) => l.id === edge.cfg.line) ?? lines[0]
     const stock = line?.stock ?? 'B'
     const cars = line?.cars ?? 6
+    // The screen is cut open at the consist's *drawn* door centres, so the vinyl
+    // has to repeat that same five-metre-profile scale. Without it every opening
+    // drift grows with its distance from the consist centre (~1.7 m at either end
+    // of a 173 m, eight-car platform) while the doors themselves stay put.
+    const modelScale = line?.modelScale ?? trainScaleForStorey()
     const rail = modules.find((r) => r.id === edge.cfg.from)
     const bed = rail?.type === 'track' ? rail : undefined
     const width = bed?.w ?? edge.w
     const i0 = bed ? rotateLocal(-(bed.rot ?? 0), edge.x - bed.x, edge.y - bed.y)[0] : (width - edge.w) / 2
     const toward = edge.cfg.side === 'right' ? 1 : -1
-    for (const at of doorRunOffsets({ stock, cars }, width)) {
-      const doorWidth = doorWidthAt({ stock, cars }, at - width / 2) * ((edge.cfg.psd ?? line?.psd) === 'half' ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
+    for (const at of doorRunOffsets({ stock, cars, modelScale }, width)) {
+      const doorWidth = doorWidthAt({ stock, cars, modelScale }, at - width / 2) * ((edge.cfg.psd ?? line?.psd) === 'half' ? 1 : PSD_FULL_DOOR_WIDTH_SCALE)
       const dx = at - i0 - 0.5
       if (dx - doorWidth / 2 <= -0.4 || dx + doorWidth / 2 >= edge.w - 0.6) continue
       const [ox, oy] = rotateLocal(edge.rot, dx, toward * -0.02)

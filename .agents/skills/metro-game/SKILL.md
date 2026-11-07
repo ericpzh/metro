@@ -2593,6 +2593,13 @@ Both queries reuse the same per-event scene intersections.
 | Suspended-ceiling reattachment | Actual floor and existing ceiling delimit the room. Choose the nearest new slab within it; retain beam-supported fittings and the hanger itself. |
 | Doors, booth signs, exits, ramp bays, PSD ends/covers and boarding marks | Authored curtain, booth, backing block, landing, screen-door or rail geometry, including its own rotation and dimensions. These paths already use their actual hosts. |
 
+Boarding and waiting floor vinyl repeat the screen's own door list — `doorRunOffsets`
+with the line's `modelScale` (0.98 in the five-metre profile), exactly as `PsdModel`
+cuts its openings. Dropping the scale drifts the strip with its distance from the
+consist centre: about a metre off mid-platform and past the 1.5 m snap radius at
+either end of a long eight-car platform. Existing saved vinyl keeps its stored
+offsets; only fresh placement and moves re-snap.
+
 The module factory no longer infers `ceilingAnchored` from storey height or editing
 base. Placement and moving set/reset that flag from the actual surface directly
 above the candidate. This also prevents a carried slab-mounted piece from retaining
