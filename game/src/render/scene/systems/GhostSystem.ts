@@ -500,16 +500,13 @@ export class GhostSystem extends SceneSystem {
         pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
         q.setFromUnitVectors(FACE_UP, az.set(nx, ny, nz))
         scale.set(1, 1, 1)
-        if (shape?.kind === 'corner') {
-          const east = shape.side === 'e' || shape.side === 's'
-          const north = shape.side === 'n' || shape.side === 'e'
-          if (nx === 0) pos.x += east ? 0.25 : -0.25
-          if (ny === 0) pos.y += north ? 0.25 : -0.25
-          if ((nx > 0 && !east) || (nx < 0 && east)) pos.x -= nx * 0.5
-          if ((ny > 0 && !north) || (ny < 0 && north)) pos.y -= ny * 0.5
-          // The shortest rotation maps the plane’s local x axis to vertical on
-          // east/west faces; shrink the horizontal axis, whichever local axis it is.
-          scale.set(nx !== 0 ? 1 : 0.5, nx !== 0 || nz !== 0 ? 0.5 : 1, 1)
+        const bounds = wallShapeBounds(shape)
+        if (bounds) {
+          const width = bounds.x1 - bounds.x0, depth = bounds.y1 - bounds.y0
+          pos.x = x + (nx > 0 ? bounds.x1 + 0.005 : nx < 0 ? bounds.x0 - 0.005 : (bounds.x0 + bounds.x1) / 2)
+          pos.y = y + (ny > 0 ? bounds.y1 + 0.005 : ny < 0 ? bounds.y0 - 0.005 : (bounds.y0 + bounds.y1) / 2)
+          // The shortest rotation puts local x vertically on east/west faces.
+          scale.set(nx !== 0 ? 1 : width, nx !== 0 || nz !== 0 ? depth : 1, 1)
         }
       }
       mat.compose(pos, q, scale)

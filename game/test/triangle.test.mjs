@@ -946,3 +946,25 @@ test('right-click and B remove the same single course and dragged area', () => {
     }
   } finally { useStore.setState(before) }
 })
+
+
+test('thin wall material previews fit their actual face in every orientation', () => {
+  const expected = [[0,1,0.5,1], [0.5,1,0,1], [0,1,0,0.5], [0,0.5,0,1]]
+  for (const [i, side] of TRI_SIDES.entries()) for (const face of ['n', 'e', 's', 'w', 'top', 'bottom']) {
+    const scene = new THREE.Scene()
+    const sys = new GhostSystem({ scene, thinSides: new Map([[packKey(0, 0, 0), { kind: 'half', side }]]) })
+    sys.setFaceGhost([[0, 0, 0]], face, 0xffffff)
+    const matrix = new THREE.Matrix4()
+    sys.faceGhost.getMatrixAt(0, matrix)
+    const points = [[-0.5,-0.5,0],[-0.5,0.5,0],[0.5,-0.5,0],[0.5,0.5,0]].map(p => new THREE.Vector3(...p).applyMatrix4(matrix))
+    const [x0,x1,y0,y1] = expected[i]
+    const near = (actual, target) => assert.ok(Math.abs(actual - target) < 1e-5, `${side} ${face}: expected ${target}, got ${actual}`)
+    const min = axis => Math.min(...points.map(p => p[axis]))
+    const max = axis => Math.max(...points.map(p => p[axis]))
+    if (face === 'e' || face === 'w') near(min('x'), face === 'e' ? x1 + 0.005 : x0 - 0.005)
+    else { near(min('x'), x0); near(max('x'), x1) }
+    if (face === 'n' || face === 's') near(min('y'), face === 'n' ? y1 + 0.005 : y0 - 0.005)
+    else { near(min('y'), y0); near(max('y'), y1) }
+    if (face !== 'top' && face !== 'bottom') { near(min('z'), 0); near(max('z'), 1) }
+  }
+})
