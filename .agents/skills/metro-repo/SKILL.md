@@ -328,8 +328,10 @@ unlabelled legacy documents' existing floor fallback. Keep only access connected
 to retained room plans; keep the main rail/platform presentation. Pin Tanwei's
 absence of roomless 15/20 m trays and detached virtual entrance in `exploded-support`.
 Keep native
-game interpolation unchanged. The view has its own renderer and camera, shares the
-simulation controls, and suspends the editor renderer while open. The persistent
+game interpolation unchanged. The view has its own renderer and camera and shares the
+simulation controls. Entering disposes the editor renderer after the loading shell
+paints; leaving disposes the exploded renderer before rebuilding the editor. Preserve
+the editor camera and replay the latest simulation frame on return. The persistent
 edge-scrolling preference lives in `app/edgeScrolling.ts` and gates only the mouse
 edge-pan input in `render/scene/systems/CameraSystem.ts`; preserve it in the editor,
 but disable edge pan in the exploded arranger so dragging a floor cannot also

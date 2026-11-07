@@ -103,6 +103,11 @@ export function subscribeFrame(fn: FrameHandler): () => void {
   return () => { frameListeners.delete(fn) }
 }
 
+/** Replay the latest worker snapshot after the editor renderer is recreated. */
+export function replayFrameHandler(): void {
+  if (frameCb && latestFrame) frameCb(...latestFrame)
+}
+
 /**
  * The 选择 tool's route preview, as the worker sends it: xyz waypoints and the
  * passenger they belong to. It rides the frame callback rather than the store

@@ -37,6 +37,7 @@ import { useLanguage } from '../../i18n.ts'
 // pointer cannot say, which way the cut looks.
 
 import { useStore } from '../../store.ts'
+import { openExplodedWithLoading } from '../../gameLoading.ts'
 import { nextAzimuth } from '../../../render/section.ts'
 import { Block } from '../shared/Block.tsx'
 import { RotateTile } from '../shared/RotateTile.tsx'
@@ -87,7 +88,7 @@ export function ViewFolder(): React.ReactElement {
       <Block label={t('hide_roofs')} icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
       <Block label={t('zone_map')} icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label={t('heatmap')} icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
-      <Block label={t('exploded_view')} art={<FaExplosion />} onClick={() => st().setExplodedView(true)} />
+      <Block label={t('exploded_view')} art={<FaExplosion />} onClick={() => openExplodedWithLoading(() => st().setExplodedView(true))} />
       <Block label={t('statistics_charts')} art={<ImStatsBars />} onClick={() => st().setChartsPanel(true)} />
       <Block label={t('demand')} art={<TbCalendarStats />} onClick={() => st().setTimePanel(true)} />
     </div>

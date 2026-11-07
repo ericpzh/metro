@@ -54,3 +54,14 @@ export async function openExampleWithLoading(open: () => boolean, reportFailure:
     reportFailure()
   }
 }
+
+/** Paint the transition before releasing the editor renderer. */
+export function openExplodedWithLoading(open: () => void): void {
+  const english = document.documentElement.lang === 'en'
+  const title = document.getElementById('loading-title')
+  const detail = document.getElementById('loading-detail')
+  if (title) title.textContent = english ? 'Preparing exploded view' : '正在准备楼层爆炸图'
+  if (detail) detail.textContent = english ? 'Preparing the station floors. Please wait.' : '正在准备车站楼层，请稍候。'
+  showGameLoading(true)
+  requestAnimationFrame(() => requestAnimationFrame(open))
+}

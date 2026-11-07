@@ -9,7 +9,7 @@ const server = await serveDir(resolve('game/dist'), 0)
 const reports = []
 try {
   for (const id of process.env.BENCH_STATION ? ['station'] : ['zoo', 'tanwei']) {
-    const page = await withPage({url:`http://127.0.0.1:${server.address().port}/`, profile:resolve(output,`chrome-${id}-${process.pid}`),softwareGpu:false})
+    const page = await withPage({url:`http://127.0.0.1:${server.address().port}/`, profile:resolve(output,`chrome-${id}-${process.pid}`),debugPort: 12000 + process.pid % 20000,commandTimeoutMs:process.env.BENCH_STATION ? 240000 : 60000,softwareGpu:false})
     try {
       await waitFor(page.evaluate, '!!window.__scene && !!window.__metro', {what:'app'})
       if (process.env.BENCH_STATION) {
@@ -20,9 +20,12 @@ try {
       await page.evaluate(`__metro.getState().setPlaying(false);window.__explodeErrors=[];window.addEventListener('error',e=>__explodeErrors.push(e.message));window.addEventListener('unhandledrejection',e=>__explodeErrors.push(String(e.reason)))`)
       await page.evaluate(`const proto=__scene.constructor.prototype;const setup=proto.setStandalonePresentation;proto.setStandalonePresentation=function(){window.__explodedScene=this;return setup.call(this)}`)
       const runs = []
-      for (let n=0;n<2;n++) {
+      const runCount = Number(process.env.BENCH_RUNS ?? 2)
+      if (!Number.isInteger(runCount) || runCount < 1) throw Error('BENCH_RUNS must be a positive integer')
+      for (let n=0;n<runCount;n++) {
         const report = await page.evaluate(`(async()=>{
           const state=__metro.getState(),station=state.station,version=state.version,past=state.past;
+          window.__editorCamera={position:__scene.camera.position.toArray(),target:__scene.controls.target.toArray()};
           const start=performance.now();
           state.setExplodedView(true);
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -52,13 +55,12 @@ try {
           writeFileSync(resolve(output,`${id}.png`),Buffer.from(shot.data,'base64'))
           const live=await page.evaluate(`(async()=>{
             const scene=__explodedScene,version=__metro.getState().version,tick=__metro.getState().metrics.tick;
-            const editorTrains=__scene.trains.lastBuffer;
-            const editorModels=__scene.trains.trainGroup.children.slice();
+            if(window.__scene)throw Error('editor renderer was not released');
             document.querySelectorAll('.explodedToolbar .seg button')[3].click();
             await new Promise(r=>setTimeout(r,1800));
             if(!__metro.getState().playing||__metro.getState().speed!==16)throw Error('speed control did not resume');
             if(__metro.getState().metrics.tick<=tick)throw Error('simulation did not advance');
-            if(scene.crowd.agentCount<=0||scene.crowd.agentCount>__scene.crowd.agentCount)throw Error('viewer did not receive visible live passengers');
+            if(scene.crowd.agentCount<=0)throw Error('viewer did not receive visible live passengers');
             const rooms=scene.ctx.stationData.cells.filter(c=>c.z===0&&(c.room||c.zone==='restricted'));
             if(${JSON.stringify(id)}==='tanwei'&&rooms.length<500)throw Error('ground rooms were removed');
             if(scene.ctx.stationData.modules.some(m=>m.type==='pillar'&&m.z===0&&m.cfg.bridgeId))throw Error('outdoor bridge pillar remains');
@@ -68,19 +70,17 @@ try {
             document.querySelector('.explodedToolbar .seg button').click();
             if(__metro.getState().playing)throw Error('pause did not apply');
             if(__metro.getState().version!==version)throw Error('playback edited station');
-            if(__scene.trains.lastBuffer!==editorTrains||editorModels.some((model,i)=>__scene.trains.trainGroup.children[i]!==model))throw Error('suspended editor rebuilt trains');
-            if(!__scene.deferredTrains)throw Error('suspended editor lost latest train snapshot');
-            return {ticks:__metro.getState().metrics.tick-tick,agents:scene.crowd.agentCount,totalAgents:__scene.crowd.agentCount,trains:scene.trains.trainGroup.children.length};
+            window.__viewerAgentCount=scene.crowd.agentCount;
+            return {ticks:__metro.getState().metrics.tick-tick,agents:scene.crowd.agentCount,totalAgents:scene.crowd.agentCount,trains:scene.trains.trainGroup.children.length};
           })()`)
           Object.assign(report,{live})
-          const before=await page.evaluate('({viewer:__explodedScene.controls.target.toArray(),main:__scene.controls.target.toArray()})')
+          const before=await page.evaluate('({viewer:__explodedScene.controls.target.toArray()})')
           await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'w',code:'KeyW',windowsVirtualKeyCode:87})
           const held=await page.evaluate('({keys:[...__explodedScene.keys],suspended:__explodedScene.suspended,frame:__explodedScene.lastFrame,focus:document.activeElement?.outerHTML.slice(0,150)})')
           await page.evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
           await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'w',code:'KeyW',windowsVirtualKeyCode:87})
-          const after=await page.evaluate('({viewer:__explodedScene.controls.target.toArray(),main:__scene.controls.target.toArray()})')
+          const after=await page.evaluate('({viewer:__explodedScene.controls.target.toArray()})')
           assert.notDeepEqual(after.viewer,before.viewer,`W pans the viewer ${JSON.stringify(held)}`)
-          assert.deepEqual(after.main,before.main,'viewer input preserves the editor camera')
           const point=await page.evaluate(`(()=>{const r=document.querySelector('.explodedViewer canvas').getBoundingClientRect();return{x:r.left+r.width/2,y:r.top+r.height/2}})()`)
           for(const button of ['middle','right']) {
             const initial=await page.evaluate(`({position:__explodedScene.controls.object.position.toArray(),target:__explodedScene.controls.target.toArray()})`)
@@ -206,15 +206,18 @@ try {
           const positions=__explodedScene.explodedLayout.connections.lines.geometry.attributes.position.array;
           if(positions.some((v,i)=>v!==__guidePositions[i]))throw Error('guide reset failed');
         })()`)
-        const deferred=await page.evaluate('Array.from(__scene.deferredTrains??[])')
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'b',code:'KeyB',windowsVirtualKeyCode:66})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'b',code:'KeyB',windowsVirtualKeyCode:66})
         assert.equal(await page.evaluate('__metro.getState().tool'),tool)
+        await page.evaluate('window.__explodedScene = undefined')
         await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27})
         await waitFor(page.evaluate, '!document.querySelector(".explodedViewer")', {what:'return to editor'})
-        if(deferred.length) assert.deepEqual(await page.evaluate('Array.from(__scene.trains.lastBuffer)'),deferred,'returning applies the latest held train poses')
-        assert.equal(await page.evaluate('__scene.deferredTrains'),null)
+        await waitFor(page.evaluate, '!!window.__scene && document.getElementById("game-loading")?.hidden === true', {what:'editor rebuild'})
+        if(n===0) assert.equal(await page.evaluate('__scene.crowd.agentCount >= window.__viewerAgentCount'),true,'editor replays the latest paused simulation frame')
+        const restored=await page.evaluate('({position:__scene.camera.position.toArray(),target:__scene.controls.target.toArray()})')
+        const expected=await page.evaluate('__editorCamera')
+        for(const key of ['position','target']) assert.ok(restored[key].every((value,i)=>Math.abs(value-expected[key][i])<1e-6), 'editor camera is restored')
         runs.push(report)
       }
       const errors=await page.evaluate('__explodeErrors')

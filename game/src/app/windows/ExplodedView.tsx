@@ -1,4 +1,5 @@
 import {gameAudio} from '../gameAudio.ts'
+import { showGameLoading } from '../gameLoading.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from '../audioSettings.ts'
 import { getUiTheme, subscribeUiTheme, themeVoidColor } from '../uiTheme.ts'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -28,22 +29,42 @@ type Snapshot = ReturnType<typeof explodedView> & { source: ReturnType<typeof to
 function Viewer(): React.ReactElement {
   useLanguage()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  const closing = useRef(false)
   useEffect(() => {
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
+        if (closing.current) return
         const source = toData(useStore.getState().station)
         setSnapshot({ ...explodedView(source), source })
       })
     })
     return () => cancelAnimationFrame(frame)
   }, [])
-  return snapshot ? <PreparedViewer snapshot={snapshot} /> : <LoadingViewer />
+  return snapshot ? <PreparedViewer snapshot={snapshot} /> : <LoadingViewer onReturn={modal => {
+    if (closing.current) return
+    closing.current = true
+    returnToEditor(modal)
+  }} />
 }
 
-function LoadingViewer(): React.ReactElement {
+function returnToEditor(modal: HTMLDialogElement | null): void {
+  const title = document.getElementById('loading-title')
+  const detail = document.getElementById('loading-detail')
+  const english = document.documentElement.lang === 'en'
+  if (title) title.textContent = english ? 'Returning to your station' : '正在返回车站'
+  if (detail) detail.textContent = english ? 'Rebuilding the editor. Please wait.' : '正在重新构建编辑器，请稍候。'
+  modal?.close()
+  showGameLoading(true)
+  requestAnimationFrame(() => requestAnimationFrame(() => useStore.getState().setExplodedView(false)))
+}
+
+function LoadingViewer({ onReturn }: { onReturn: (modal: HTMLDialogElement | null) => void }): React.ReactElement {
   const dialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => { dialog.current?.showModal() }, [])
-  return <dialog ref={dialog} className="explodedViewer" aria-label={t('exploded_view')} onCancel={() => useStore.getState().setExplodedView(false)}><ExplodedLoading /></dialog>
+  useLayoutEffect(() => {
+    dialog.current?.showModal()
+    showGameLoading(false)
+  }, [])
+  return <dialog ref={dialog} className="explodedViewer" aria-label={t('exploded_view')} onCancel={event => { event.preventDefault(); onReturn(dialog.current) }}><ExplodedLoading /></dialog>
 }
 
 function ExplodedLoading(): React.ReactElement {
@@ -90,8 +111,13 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
     scene.requestRender()
     return()=>{scene.onExplodedFloorAnchor=null}
   },[selectedFloor])
-  const close = (): void => useStore.getState().setExplodedView(false)
-  useEffect(() => {
+  const closing = useRef(false)
+  const close = (): void => {
+    if (closing.current) return
+    closing.current = true
+    returnToEditor(dialog.current)
+  }
+  useLayoutEffect(() => {
     const modal = dialog.current!
     const previous = document.activeElement as HTMLElement | null
     modal.showModal()
@@ -103,7 +129,7 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
       }
       if (event.key === 'Escape') {
         event.preventDefault()
-        useStore.getState().setExplodedView(false)
+        close()
       }
       const key = event.key.toLowerCase()
       if((event.target as Element)?.closest?.('.explodedFloorPanel, .explodedLevels button') && [' ','Enter'].includes(event.key))return
@@ -192,12 +218,12 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
           })
         }, 0)
         const append = (): void => {
-          if (cancelled) return
+          if (cancelled || closing.current) return
           if (scene.appendExplodedEquipment()) setEquipped(true)
           else equipmentTimer = window.setTimeout(append, 16)
         }
         void artwork.then(() => {
-          if (!cancelled) equipmentTimer = window.setTimeout(append, 16)
+          if (!cancelled && !closing.current) equipmentTimer = window.setTimeout(append, 16)
         })
       }
     }, 50)
@@ -221,7 +247,7 @@ function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElemen
       previous?.focus()
     }
   }, [snapshot])
-  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} data-equipped={equipped} aria-label={t('exploded_view')} onCancel={close}
+  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} data-equipped={equipped} aria-label={t('exploded_view')} onCancel={event => { event.preventDefault(); close() }}
     onPointerDownCapture={event => {
       if(event.target !== canvas.current && !(event.target as Element).closest('.explodedFloorPanel'))selectFloor(null)
     }}>

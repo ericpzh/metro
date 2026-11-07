@@ -4,6 +4,7 @@ import {actionSound} from './audioActions.ts'
 import {getAudioVolumes,subscribeAudioVolumes} from './audioSettings.ts'
 import { getUiTheme, subscribeUiTheme, themeVoidColor } from './uiTheme.ts'
 import { showGameLoading } from './gameLoading.ts'
+import { replayFrameHandler } from './store/slices/SimSlice.ts'
 import { TouchZoom } from './touchZoom.ts'
 import { placementSurface } from './tools/placementSurface.ts'
 import { clearToolPreview } from './tools/clearPreview.ts'
@@ -84,6 +85,7 @@ export function Viewport(): React.ReactElement {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const pointerFrame = useRef(new FrameTask())
   const sceneRef = useRef<SceneRenderer | null>(null)
+  const savedEditorView = useRef<ReturnType<SceneRenderer['captureEditorView']> | null>(null)
   const overlayRef = useRef(false)
   const graphNodesRef = useRef<Float32Array>(new Float32Array(0))
   /** Solid cell keys, refreshed with the station, so a drag can tell blocks from void. */
@@ -267,7 +269,7 @@ export function Viewport(): React.ReactElement {
   const hideGround = useStore((s) => s.hideGround)
   const hideRoof = useStore((s) => s.hideRoof)
   const exploded = useStore((s) => s.explodedView)
-  useEffect(() => { sceneRef.current?.setSuspended(exploded) }, [exploded])
+
   const followAgentId = useStore((s) => s.followAgentId)
   const hideUI = useStore((s) => s.hideUI)
   const ortho = useStore((s) => s.ortho)
@@ -283,7 +285,7 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     overlayRef.current = overlayOn
     sceneRef.current?.setOverlayVisible(overlayOn)
-  }, [overlayOn])
+  }, [overlayOn, exploded])
 
   const buildZoneOverlay = (): void => {
     const scene = sceneRef.current
@@ -341,39 +343,39 @@ export function Viewport(): React.ReactElement {
 
   useEffect(() => {
     buildZoneOverlay()
-  }, [zoneOverlayOn, geometryVersion, activeZ])
+  }, [zoneOverlayOn, geometryVersion, activeZ, exploded])
 
   useEffect(() => {
     if (!graph) return
     graphNodesRef.current = graph.nodes
     sceneRef.current?.setDensity(graph.nodes, new Float32Array(graph.nodeCount), overlayRef.current)
-  }, [graph])
+  }, [graph, exploded])
 
   // 隐藏天花板 is a slice setting like the level itself: it is applied on mount
   // (the renderer's own default matches the store's) and on every change.
   useEffect(() => {
     sceneRef.current?.setAutoCeiling(autoCeiling)
-  }, [autoCeiling])
+  }, [autoCeiling, exploded])
 
   useEffect(() => {
     sceneRef.current?.setHideRoof(hideRoof)
-  }, [hideRoof])
+  }, [hideRoof, exploded])
 
   useEffect(() => {
     sceneRef.current?.setLevel(activeZ, ghostOther)
-  }, [activeZ, ghostOther])
+  }, [activeZ, ghostOther, exploded])
 
   useEffect(() => {
     sceneRef.current?.setGraphicsQuality(graphicsQuality)
-  }, [graphicsQuality])
+  }, [graphicsQuality, exploded])
 
   useEffect(() => {
     sceneRef.current?.setUpscalingMode(upscalingMode)
-  }, [upscalingMode])
+  }, [upscalingMode, exploded])
 
   useEffect(() => {
     sceneRef.current?.setEdgeScrolling(edgeScrolling)
-  }, [edgeScrolling])
+  }, [edgeScrolling, exploded])
 
   // 剖切 is the placed section surface plus the clip (`render/section.ts`): the
   // plane is written in place, so a slide costs two numbers and no rebuild. The
@@ -384,23 +386,23 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.setSection(section, cutaway)
     sceneRef.current?.setCutaway(cutaway)
-  }, [section, cutaway])
+  }, [section, cutaway, exploded])
 
   // 隐藏剖切面: the clip stays, the sheet and its direction arrow go.
   useEffect(() => {
     sceneRef.current?.setSectionSurface(!hideSectionSurface)
-  }, [hideSectionSurface])
+  }, [hideSectionSurface, exploded])
 
   useEffect(() => {
     sceneRef.current?.setHideWalls(hideWalls)
-  }, [hideWalls])
+  }, [hideWalls, exploded])
 
   // 隐藏地面: the street plane, out of the picture. It is the one surface with a
   // mesh pass of its own, so this is a visibility write on both ends — applied on
   // mount like 隐藏天花板, and on every change after.
   useEffect(() => {
     sceneRef.current?.setHideGround(hideGround)
-  }, [hideGround])
+  }, [hideGround, exploded])
 
   // 隐藏UI: the drawing lattice, its cell cursor, and the storey slice that puts
   // the ghost sheet over the floor under the camera. One flag, one effect: the
@@ -408,11 +410,11 @@ export function Viewport(): React.ReactElement {
   // (`SceneRenderer.setHideUI`).
   useEffect(() => {
     sceneRef.current?.setHideUI(hideUI)
-  }, [hideUI])
+  }, [hideUI, exploded])
 
   useEffect(() => {
     sceneRef.current?.setOrtho(ortho)
-  }, [ortho])
+  }, [ortho, exploded])
 
   /**
    * Drop any in-progress area drag without applying it (§9.5): a right-click or
@@ -474,7 +476,7 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     sceneRef.current?.followPassenger(followAgentId, () => useStore.getState().endPassengerView())
     return () => sceneRef.current?.followPassenger(null)
-  }, [followAgentId])
+  }, [followAgentId, exploded])
 
   useEffect(() => {
     const exitEyeView = (e: KeyboardEvent): void => {
@@ -510,21 +512,29 @@ export function Viewport(): React.ReactElement {
   useEffect(() => {
     tools.equipment.refreshHover()
     tools.block.refreshHover()
-  }, [placementKey, tools])
+  }, [placementKey, tools, exploded])
 
   // The same for the rail piece: R, the bound line and the direction all change
   // the pre-rendered ghost, so rebuild it in place.
   useEffect(() => {
     tools.platform.refreshHover()
-  }, [railRot, railLineId, railDir, tools])
+  }, [railRot, railLineId, railDir, tools, exploded])
 
   // The tunnel's length changes its ghost; the hovered rail does not.
   useEffect(() => {
     tools.tunnel.refreshHover()
-  }, [tunnelLength, tools])
+  }, [tunnelLength, tools, exploded])
 
-  // Boot the renderer.
+  // Music and audio subscriptions survive swapping the two renderers.
+  useEffect(() => {
+    const unmountAudio = gameAudio.mount()
+    const unmountMusic = gameMusic.mount()
+    return () => { unmountAudio(); unmountMusic() }
+  }, [])
+
+  // Boot only the active renderer. The worker and document stay mounted.
   useLayoutEffect(() => {
+    if (exploded) return
     const canvas = canvasRef.current
     if (!canvas) return
     const scene = new SceneRenderer(canvas)
@@ -534,8 +544,6 @@ export function Viewport(): React.ReactElement {
     updateVoid()
     const unsubscribeTheme = subscribeUiTheme(updateVoid)
     sceneRef.current = scene
-    const unmountAudio=gameAudio.mount()
-    const unmountMusic=gameMusic.mount()
     const updateAudio=():void=>{const volumes=getAudioVolumes();scene.onAudioFrame=volumes.master>0&&volumes.ambient>0?frame=>gameAudio.updateScene({...frame,speed:useStore.getState().speed}):null}
     updateAudio()
     const unsubscribeAudio=subscribeAudioVolumes(updateAudio)
@@ -671,8 +679,6 @@ export function Viewport(): React.ReactElement {
     return () => {
       unsubscribePlaying()
       unsubscribeAudio()
-      unmountAudio()
-      unmountMusic()
       setFrameHandler(null)
       setRouteHandler(null)
       window.removeEventListener('keydown', onKeyDown)
@@ -684,12 +690,13 @@ export function Viewport(): React.ReactElement {
       window.removeEventListener('metro:delete', onDelete)
       ro.disconnect()
       unsubscribeTheme()
+      if (useStore.getState().explodedView) savedEditorView.current = scene.captureEditorView()
       scene.dispose()
       sceneRef.current = null
-      framedRef.current = false
-      homeEpochRef.current = -1
+      window.__scene = undefined
+      renderedStationRef.current = null
     }
-  }, [])
+  }, [exploded])
 
   const renderedStationRef = useRef<{
     station: typeof station; stationEpoch: number; signVersion: number
@@ -758,7 +765,12 @@ export function Viewport(): React.ReactElement {
     // and a station switch (打开 / 示例车站 / 新建) returns to it against the
     // fresh bounds — iso in perspective through the default lens. A later edit
     // rebuilds the station but must not yank the camera.
-    if (!framedRef.current || switched) {
+    if (savedEditorView.current) {
+      scene.restoreEditorView(savedEditorView.current)
+      savedEditorView.current = null
+      framedRef.current = true
+      homeEpochRef.current = stationEpoch
+    } else if (!framedRef.current || switched) {
       framedRef.current = true
       homeEpochRef.current = stationEpoch
       goHomeView(scene)
@@ -767,12 +779,13 @@ export function Viewport(): React.ReactElement {
       scene.zoomBy(2 / 3)
       scene.prepareBuildViews()
     }
+    replayFrameHandler()
     const loading = document.getElementById('game-loading')
     if (loading && !loading.hidden) {
       scene.onNextFrame = () => showGameLoading(false)
       scene.requestRender()
     }
-  }, [version, station, stationEpoch, signPreviewId, signVersion, language])
+  }, [version, station, stationEpoch, signPreviewId, signVersion, language, exploded])
 
   // A lifted piece (移动) is drawn from its own ghost, so a fresh lift or an R while
   // it is in the air rebuilds that ghost at once instead of waiting for the next
@@ -791,13 +804,13 @@ export function Viewport(): React.ReactElement {
       // node handles after that cleanup and any station rebuild.
       if(st.tool==='module'&&st.moduleType==='road'&&!dragRef.current?.road) tools.equipment.refreshHover()
     }
-  }, [moveKey, moveId, geometryVersion, tools])
+  }, [moveKey, moveId, geometryVersion, tools, exploded])
 
   // Keep the 3D selection box in step with the inspector's selection. A rebuild
   // re-applies it inside setStation, so this only has to run on the id itself.
   useEffect(() => {
     sceneRef.current?.setSelection(selected?.kind === 'module' ? selected.key : null)
-  }, [selected])
+  }, [selected, exploded])
 
   // The 选择 tool's agent preview (§9.5): the selection names the passenger and the
   // worker answers with the walk still ahead of them. Leaving the tool puts the line

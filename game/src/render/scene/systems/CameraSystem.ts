@@ -199,6 +199,24 @@ export class CameraSystem extends SceneSystem {
     this.pointerInside = false
   }
 
+  captureView(): {position: THREE.Vector3; quaternion: THREE.Quaternion; target: THREE.Vector3; ortho: boolean; zoom: number} {
+    const view = this.eyeView
+    return { position: (view?.position ?? this.camera.position).clone(),
+      quaternion: (view?.quaternion ?? this.camera.quaternion).clone(),
+      target: (view?.target ?? this.controls.target).clone(), ortho: view?.ortho ?? this.orthoOn,
+      zoom: view?.zoom ?? this.orthoZoom }
+  }
+
+  restoreView(view: ReturnType<CameraSystem['captureView']>): void {
+    this.camera.position.copy(view.position)
+    this.camera.quaternion.copy(view.quaternion)
+    this.controls.target.copy(view.target)
+    this.orthoZoom = view.zoom
+    this.setOrtho(view.ortho)
+    this.controls.update()
+    this.syncOrtho()
+  }
+
   /** The block/module meshes the current station made pickable. */
   setPickables(pickables: THREE.Object3D[]): void {
     this.pickables = pickables

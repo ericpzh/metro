@@ -91,3 +91,9 @@ test('example station cards use the loading shell', () => {
   assert.match(source, /openExampleWithLoading\(\(\) =>/)
   assert.match(source, /station\.load\(\)/)
 })
+
+
+test('exploded transition paints the shared shell before opening the view', async () => {
+  const source = readFileSync(new URL('../src/app/gameLoading.ts', import.meta.url), 'utf8')
+  assert.match(source, /openExplodedWithLoading[\s\S]*showGameLoading\(true\)[\s\S]*requestAnimationFrame\(\(\) => requestAnimationFrame\(open\)\)/)
+})

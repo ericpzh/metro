@@ -184,6 +184,12 @@ export class SceneRenderer {
   private suspended = false
   private deferredTrains: Float32Array | null = null
 
+  captureEditorView(): ReturnType<CameraSystem['captureView']> { return this.cameraSys.captureView() }
+  restoreEditorView(view: ReturnType<CameraSystem['captureView']>): void {
+    this.cameraSys.restoreView(view)
+    this.requestRender()
+  }
+
   setSuspended(on: boolean): void {
     this.requestRender()
     this.suspended = on

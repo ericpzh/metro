@@ -155,3 +155,30 @@ test('Ctrl+H, the ⌂ button and the metro:home hand-over are one action', () =>
   assert.match(cube, /const goHome = \(\): void => \{\s*goHomeView\(sceneRef\.current\)/, 'the ⌂ button calls the same action')
   assert.doesNotMatch(cube, /setPreset\('iso'\)/, 'and does not keep its own copy of the home view')
 })
+
+test('the view cube has its own projection toggle', () => {
+  const cube = fs.readFileSync(new URL('../src/app/ViewCube.tsx', import.meta.url), 'utf8')
+  assert.match(cube, /PiVectorThreeDuotone/, 'the button wears the requested vector icon')
+  assert.match(cube, /className="viewNavBtn viewOrthoBtn"/, 'it is a widget button in the projection slot')
+  assert.match(cube, /aria-pressed=\{ortho\}/, 'and reports the projection it is in')
+  assert.match(cube, /const next = !useStore\.getState\(\)\.ortho/, 'the press flips the current flag')
+  assert.match(cube, /sceneRef\.current\?\.setOrtho\(next\)/, 'the live scene takes the projection immediately')
+  assert.match(cube, /useStore\.getState\(\)\.setOrtho\(next\)/, 'and the store stays the truth for the next preset')
+})
+
+test('editor camera view survives a renderer rebuild, including orthographic zoom', () => {
+  const {cam} = cameraRig()
+  cam.setPreset('plan')
+  cam.zoomBy(0.5)
+  cam.controls.target.set(7, 8, -4)
+  cam.camera.position.set(7, 8.01, 45)
+  cam.controls.update()
+  const saved = cam.captureView()
+  const restored = cameraRig().cam
+  restored.restoreView(saved)
+  assert.ok(restored.camera.position.distanceTo(saved.position) < 1e-8)
+  assert.ok(restored.controls.target.distanceTo(saved.target) < 1e-8)
+  assert.equal(restored.captureView().ortho, true)
+  assert.equal(restored.captureView().zoom, saved.zoom)
+  cam.dispose(); restored.dispose()
+})

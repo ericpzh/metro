@@ -823,14 +823,14 @@ translate the selected group without extra picks, document commits or vertex
 rewrites. Opening and dragging are different workloads. The snapshot measurement
 below does not validate full viewer generation or the latest models.
 
-Tianhe Park user save, 2026-11-07: 130,158 cells and 75,950 modules
+Tianhe Park snapshot: 130,158 cells and 75,950 modules
 (SHA-256 `fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`),
 Windows / i7-14700KF / Node 24.15.0, source at `f604ef78` with the local
 working tree. A Node CPU sample of five snapshot preparations identified
 `packFloors` and its collision probes among the hot paths. Six alternating,
 GC-before-sample runs after one warmup measured the original string keys at
 522–664 ms (median 571 ms) and numeric keys at 348–486 ms (median 389 ms).
-The final guarded key implementation measured 330–399 ms (median 376 ms) in a
+The guarded key implementation measured 330–399 ms (median 376 ms) in a
 separate six-run capture. Reproduce the current snapshot-only measurement with
 `node --expose-gc tools/bench-explode-snapshot.mjs <save.metro.json>`; these
 numbers exclude parsing, WebGL, model building and the first rendered frame.
@@ -839,7 +839,7 @@ limit before completing and did not yield a comparable viewer timing; do
 not infer an end-to-end speedup from the snapshot result. Other applications
 were running, so treat these as diagnostic measurements rather than a budget.
 
-Full browser investigation of the same save, 2026-11-07: production build, Chrome
+Full browser investigation of the same save: production build, Chrome
 headless with hardware rendering requested, 1400 × 900 window (1384 × 690
 canvas, pixel ratio 1), paused, default graphics quality. The fixture hash and
 CPU are above. `node tools/bench-explode-generation.mjs <save.metro.json>` saves
@@ -854,7 +854,7 @@ geometry counters before instancing recorded 148,868 baked instances / 24.0m
 vertices and 134,932 merge inputs; after retaining complete instances, 43,991
 bakes / 16.0m vertices and 42,018 merge inputs remained.
 
-The changed viewer skips equipment batches that its rigid trays immediately
+The viewer skips equipment batches that its rigid trays immediately
 hide, decodes the selected map before building, keeps whole instances in their
 floor, and flushes temporary merge inputs at 131,072 vertices or 1,024 meshes.
 The bounded-batch diagnostic run reached the rendered viewer in 39.7 s:
@@ -866,7 +866,7 @@ opening, and only one run of each build was captured. The timed explode runs
 themselves did not overlap a build. GPU backend was requested, not independently
 identified. Train preparation and first-frame GPU work remain material costs on
 this save and this does not establish a latency target.
-A subsequent unprofiled full-save browser check (`BENCH_STATION=<save> node tools/check-exploded-view.mjs`) (production source hash
+An unprofiled full-save browser check (`BENCH_STATION=<save> node tools/check-exploded-view.mjs`) (production source hash
 `cde4b3477d52af1e828faca262d4b93975d198bd4d201425b2ae6d9499505f11`)
 opened in 25.9 s and 54.7 s across two successive openings; the real-pointer
 drag checks took 816 and 691 ms, including rendered feedback. Raw results and
@@ -874,21 +874,21 @@ screenshots: `.preview/perf/exploded-view/report.json` and
 `station-arranged.png`. The second opening and interaction latency remain
 performance gaps; the two observations are not a stable percentile.
 
-Structure-first follow-up, same Tianhe save and Chrome 156 hardware requested,
+Structure-first capture, same Tianhe save and Chrome 156 hardware requested,
 1384 × 690 canvas. One unprofiled generation capture (source hash
 `f82150dabd6114271db2040f46dba6c1c3eedb1784f36f687dc5ca97635ee755`)
 reported **8.33 s** from open to the rendered and interactive structure,
 and **23.30 s** to all equipment attached. Initial scene setup took 3.16 s,
 ramp sections 0.71 s and structural layout 1.97 s. The browser benchmark reports
 both `structureMs` and `equipmentMs`; raw capture in
-`.preview/perf/explode-structure-first/report.json`. The prior 25.9/54.7 s
-opened a fully furnished viewer, so compare those with equipment completion
-only as separate diagnostic runs under varying system load. The first-frame
-metric measures the earlier usability milestone.
+`.preview/perf/explode-structure-first/report.json`. The separate 25.9/54.7 s
+full-save openings measured a fully furnished viewer, so compare those with
+equipment completion only as separate diagnostic runs under varying system load.
+The first-frame metric measures the first-frame usability milestone.
 
 ### Exploded viewer memory, Tianhe Park
 
-2026-11-07, Chrome 156 headless with hardware requested, Windows, i7-14700KF,
+Chrome 156 headless with hardware requested, Windows, i7-14700KF,
 1384 × 690 canvas, paused, the user save SHA-256
 `fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`,
 production source hash `25e3f0f460d5a4e203b29dac996bf99189ed19d90427e626195d14280e5f6a72`
@@ -916,8 +916,28 @@ run were 6.21 GiB renderer and 4.84 GiB GPU process. Reproduce with
 `./tools/bench-explode-memory.ps1 <save.metro.json>` after a production build.
 The benchmark writes milestone timestamps and CDP heap figures to
 `.preview/perf/explode-memory/report.json`, and process samples to
-`.preview/perf/explode-memory/processes.json`. The exploratory second-run raw
-process samples were saved at `.preview/perf/explode-memory-processes.json`.
+`.preview/perf/explode-memory/processes.json`. Raw process samples: `.preview/perf/explode-memory-processes.json`.
+
+### Exploded/editor renderer handoff
+
+Windows, i7-14700KF, Chrome 156 headless with hardware requested,
+1384 × 690 canvas, paused. A production build with source hash
+`469e09ae2fee531fa6f28d81b724da20f1b70f2b402cc12ac8f1962555d74c42` and the
+Tianhe save SHA-256
+`724a40de061c6d9edfae938224a70124bf19fcb00d7ae613627a8e5e30a5252b` measured
+renderer working sets of 5.11 GiB before opening, 3.19 GiB at structural ready,
+3.14 GiB after equipment, and 5.96 GiB after returning to the rebuilt editor.
+GPU process working sets at the same milestones were 3.65, 0.95, 2.18 and
+3.87 GiB. CDP V8 backing storage was 2.38, 1.08, 1.39 and 3.10 GiB respectively
+(the returned figure is before forced GC); after an explicit GC it was 2.62 GiB.
+Chrome process samples are approximate and include shared pages, and GPU working
+set is not dedicated VRAM. Structure-ready was 16.47 s, equipment completion
+32.76 s, and returning to the rendered editor took 39.00 s in this one run.
+The save hash differs from the memory-table capture above, so the two are not a
+controlled before/after comparison. Source includes unrelated worktree changes.
+Run `./tools/bench-explode-memory.ps1 <save.metro.json>` after a build to capture
+milestones, return time, optional post-return GC and Chrome process samples;
+raw files are under `.preview/perf/explode-memory/`.
 
 ## Collect comparable evidence
 
