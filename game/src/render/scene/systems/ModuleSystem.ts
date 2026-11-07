@@ -410,8 +410,9 @@ export class ModuleSystem extends SceneSystem {
         group.updateWorldMatrix(true, true)
         const bounds: THREE.Box3 = group.userData.contactShadowBounds ??= new THREE.Box3().setFromObject(group)
         const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
-        if (Number.isFinite(width + depth) && (mod.type === 'shelf' || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
-          const padding = mod.type === 'shelf' ? .12 : .35
+        const tightFootprint = mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
+        if (Number.isFinite(width + depth) && (tightFootprint || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
+          const padding = tightFootprint ? .12 : .35
           blob = [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + padding) / 1.24, (depth + padding) / 1.24]
         }
       }
