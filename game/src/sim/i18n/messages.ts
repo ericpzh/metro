@@ -1793,6 +1793,10 @@ export const messages = {
     "zh": "视场角",
     "en": "Field of view"
   },
+  "orthographic_view": {
+    "zh": "正交投影",
+    "en": "Orthographic projection"
+  },
   "height": {
     "zh": "高度",
     "en": "Height"

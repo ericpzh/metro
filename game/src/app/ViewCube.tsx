@@ -9,13 +9,16 @@ import { useLanguage } from './i18n.ts'
 // moves the camera: the level slicing (显示其他层 / 隐藏天花板) is the player's
 // own setting, so a face or corner click leaves it exactly as it was. The
 // vertical depth rail beside it mirrors the Q/E layer step and names the level
-// you are standing on. Two more camera moves sit on the widget itself: the ⌂
-// button (回到默认视角, also Ctrl+H, `app/viewHome.ts`) and the pair of arrows under
-// it — the vertical pan the Ctrl+Q / Ctrl+E keys hold, which the arrows hold too
-// for as long as the pointer is down, under the same held token
-// (`SceneSystem.ts` `PAN_UP` / `PAN_DOWN`), so button and key cannot drift apart.
+// you are standing on. Three more camera moves sit on the widget itself: the ⌂
+// button (回到默认视角, also Ctrl+H, `app/viewHome.ts`), the 透视/正交 button
+// under it — the projection toggle the face and corner clicks set implicitly —
+// and the pair of arrows under that — the vertical pan the Ctrl+Q / Ctrl+E keys
+// hold, which the arrows hold too for as long as the pointer is down, under the
+// same held token (`SceneSystem.ts` `PAN_UP` / `PAN_DOWN`), so button and key
+// cannot drift apart.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { PiVectorThreeDuotone } from 'react-icons/pi'
 import * as THREE from 'three'
 import { DEFAULT_FOV, FOV_MAX_DEG, FOV_MIN_DEG, PAN_DOWN, PAN_UP, type SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
@@ -258,6 +261,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   /** The lens in whole degrees, for the slider — the camera is the truth. */
   const [fovDeg, setFovDeg] = useState(DEFAULT_FOV)
   const [hover, setHover] = useState<string | null>(null)
+  const ortho = useStore((s) => s.ortho)
   const press = useRef<{ x: number; y: number; moved: boolean; action: string | null } | null>(null)
 
   // Track the main camera's orientation; only re-render the widget when it
@@ -367,6 +371,21 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
   const goHome = (): void => {
     goHomeView(sceneRef.current)
     syncNow()
+  }
+
+  /**
+   * 透视 / 正交: flip the projection without moving the camera or its aim. The
+   * face and edge clicks already choose a projection as a side effect of the
+   * view they snap to; this is the one control that changes only the projection,
+   * so a player can keep the current angle and look at it flat. It writes the
+   * live scene immediately (the store effect in `Viewport` would follow anyway)
+   * and keeps the store flag in step so a later preset or home view starts from
+   * the truth.
+   */
+  const toggleOrtho = (): void => {
+    const next = !useStore.getState().ortho
+    sceneRef.current?.setOrtho(next)
+    useStore.getState().setOrtho(next)
   }
 
   /**
@@ -535,6 +554,16 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
               <path d="M5 9.5V21h14V9.5" />
               <path d="M9 21v-6h6v6" />
             </svg>
+          </button>
+          <button
+            type="button"
+            className="viewNavBtn viewOrthoBtn"
+            aria-label={t('orthographic_view')}
+            aria-pressed={ortho}
+            title={t('orthographic_view')}
+            onClick={toggleOrtho}
+          >
+            <PiVectorThreeDuotone aria-hidden="true" />
           </button>
           <div className="viewPanBtns">
             <button

@@ -1359,6 +1359,25 @@ html[lang="en"] .bpBlockLabel {
   height: 14px !important;
   flex: none;
 }
+/* 透视 / 正交: the projection toggle sits in the empty middle of the widget's
+   right edge, between the ⌂ button above it and the two pan arrows below, so it
+   changes only the lens and never reads as another way to move the camera. The
+   arrows are 60 px tall (two 28 px buttons and their gap) against the ⌂'s 28, so
+   the true midpoint of the free gap is 16 px above the stage's own centre. */
+.viewOrthoBtn {
+  position: absolute;
+  top: calc(50% - 16px);
+  right: 0;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+/* A latched toggle is lit, not just hovered: the projection is a state the player
+   can leave the view in, so the button reads as pressed until the next click. */
+.viewNavBtn[aria-pressed="true"] {
+  color: #dff0ff;
+  border-color: rgba(150, 200, 255, 0.75);
+  background: rgba(var(--ui-accent-rgb, 85, 182, 255), 0.26);
+}
 .viewHomeBtn {
   position: absolute;
   top: 0;
