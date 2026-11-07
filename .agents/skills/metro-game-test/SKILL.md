@@ -3,6 +3,13 @@ name: metro-game-test
 description: Run, extend or fix the game's test suite in game/test/ of the ericpzh/metro repo. Use when adding tests for game/src behaviour, when `npm test` / a suite fails, when a new sim rule needs a pin, or when deciding what the suite does and does not cover.
 ---
 
+## Contact materials
+
+`contact-finishes.test.mjs` covers full and cut block faces, partial contact,
+inset faces and triangle slopes, suspended-ceiling exclusions, immutable load,
+commit and undo. Run it alongside `triangle`, `covered-clearance` and `demo`
+when changing face cleanup or save repair.
+
 ## Station equipment models
 
 `shelf` covers shop fixtures, including clothing, food, fruit, café prep

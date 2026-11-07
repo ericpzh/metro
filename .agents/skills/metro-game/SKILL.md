@@ -2677,6 +2677,16 @@ The restroom decor family includes cubicle (partition, door and toilet) and cubi
 ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and model geometry in module-build.test.mjs.
 
 
+## Contact materials
+
+`sim/contactFinishes.ts` clears a face finish on load and commit only when an
+ordinary solid neighbour completely covers the actual face. Full blocks, thin
+walls, corners and triangle bases and ends participate; partial contact, inset
+faces and triangle slopes retain their finishes. Suspended-ceiling cells never
+participate on either side of this cleanup, including ceiling-to-ceiling joins.
+Keep document inputs immutable and undo restoring earlier finishes. The
+`contact-finishes` suite pins geometry, load, commit and undo.
+
 ## Wall decor and sign faces
 
 Fresh placement and moving share `wallDecorAnchorZ`: wall signs shorter than one
