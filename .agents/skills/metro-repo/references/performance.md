@@ -12,7 +12,7 @@ belong in their owning code, tests or reports, not in this reference.
 
 Measure from the first real input through visible feedback, including cold work.
 Keep preview work separate from document commits. Preserve accepted/refused
-outcomes and add a deterministic regression for the measured cause.
+outcomes.
 
 ## Current performance state
 
@@ -46,17 +46,13 @@ builds, tests or profiles. No percentile or controlled speedup is claimed.
 | zoo | 490.0 ms | 88.1 ms | 313.2 ms |
 | tanwei | 789.2 ms | 228.0 ms | 743.5 ms |
 
-Five of six observations miss the target. Both demos retain train roots/textures
-and benches, perform zero chunk remeshes/raycasts, and send only population patches.
-Badge recolouring, undo/redo, autosave reload, bilingual controls and 1024 px menu
-fit pass. Costs remain unprofiled. Theme appearance and Low geometry need their
-own visual/geometry checks; this capture does not prove them.
+Five of six observations miss the target. Both demos retain train roots/textures,
+perform zero chunk remeshes/raycasts, and send only population patches. Costs
+remain unprofiled.
 
-City poster images decode on demand per selected city and share pending requests.
+City poster images decode on demand per selected city and share pending requests;
 Beijing's 6564 × 6537 source is kept whole and is not decoded when opening another
-city. `line-map` guards request coalescing/retry/disposal;
-`tools/check-beijing-style.mjs` verifies selected-city loading and retained sign
-repaints in production. These functional checks do not establish latency or FPS.
+city.
 
 Chongqing production observation (2026-11-04): source
 `c0e862b5f777e8971a65d6d90899ab4126a306b98f3f6a2110f6256e1e999ae9`, raw evidence
@@ -67,10 +63,8 @@ maps, doorway and four prepared B consists for two lines. One Guangzhou →
 Chongqing DOM tile click took **155.5 ms to first render submission**, missing the
 strict <100 ms target. This single observation is not a percentile, real-pointer
 latency or GPU/display completion measurement. No concurrent builds/tests/profiles
-ran during capture. It retained train roots and badge textures, performed zero
-chunk remeshes/raycasts, and verified live recolouring, undo and saved reload.
-The capture does not attribute the remaining cost. High/Low and theme screenshots
-in the same directory are functional evidence, not timing samples.
+ran during capture. It retained train roots and badge textures and performed zero
+chunk remeshes/raycasts, and the capture does not attribute the remaining cost.
 
 ## Per-model geometry detail inventory
 
@@ -81,25 +75,24 @@ Counts exclude textures and do not establish a draw-call or GPU-time pass.
 
 ### Equipment and decor
 
-Shop-fixture inventory refreshed with `node tools/model-triangle-inventory.mjs`: short/medium/long prep cabinets with distinct authored shelf and stock layouts and every checkout/café counter length use production builders and authored Low geometry. Counts below are geometry inventory, not frame-time measurements.
+Palette inventories were refreshed with
+`node tools/model-triangle-inventory.mjs` using production builders and authored
+Low geometry. Counts are geometry inventory, not frame-time measurements.
 
 Default Guangzhou catalogue. Shared limits live in
 `tools/equipment-low-budgets.mjs`: strict <10% unless an explicit minimum-shape
-exception applies. `model-detail` checks reduction, restoration and batching.
-Never raise a limit to conceal a regression.
+exception applies. Never raise a limit to conceal a regression.
 
 Inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/ballfields/report.json
 node tools/model-triangle-inventory.mjs` (three.js r186); raw counts are in
 `.preview/perf/ballfields/model-triangles.json`, with source hashes in
 `.preview/perf/ballfields/source-hashes.json`. Ballfields use 88/192 triangles
-(pickleball), 100/228 (badminton), and 52/132 (portable divider), Low/High.
-The open nets use line primitives in addition to those triangles: 129 segments
-for pickleball and 127 for badminton, unchanged between detail levels. Mesh and
-top tape extend to both post centres in High and Low. The divider omits its four
-small foot pads in Low while retaining the fabric, frame and T-feet.
-These are geometry counts, not drag latency, draw-call or GPU-time measurements.
+(pickleball), 100/228 (badminton) and 52/132 (portable divider), Low/High. The open
+nets use line primitives in addition: 129 segments for pickleball and 127 for
+badminton. These are geometry counts, not drag latency, draw-call or GPU-time
+measurements.
 
-Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. The standalone office chair shares the workstation chair geometry; the wooden bench retains five seat slats and two end-frame silhouettes in Low. Both new palette options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
+Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. Both new palette options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
 
 Tactile trim inventory refreshed 2026-11-07 with `BENCH_OUTPUT=.preview/perf/tactile-strip/report.json INVENTORY_REPORT_ONLY=1 node tools/model-triangle-inventory.mjs` (three.js r186). 圆点提示条 (`tactile-warning-strip`) is 4 / 1932 Low/High: Low keeps the one-metre top sheet and omits its 60 instanced dots, while High adds 32 triangles per dot. A crosswise junction arm adds one sheet and 15 dots, giving 8 / 2424 with one arm and 12 / 2916 with two. Raw counts: `.preview/perf/tactile-strip/model-triangles.json`.
 
@@ -288,19 +281,12 @@ Tactile trim inventory refreshed 2026-11-07 with `BENCH_OUTPUT=.preview/perf/tac
 | exit-doorway-3 | 10 | 26 |
 | exit-doorway-4 | 10 | 26 |
 
-Covered-exit Low uses four roof/soffit sections and one-section glazed bays;
-tiny lights and the sign bracket are omitted. Pylon Low retains one open
-eight-segment annulus visible from both sides, emblem and upright labels, omitting rear ring/panel trim.
-High geometry is unchanged. City-specific `model-detail` cases enforce the same
-limits as the default catalogue and restore the exact original geometry.
+All 14 Shenzhen variants meet the existing budgets; no limit was raised.
 
 #### Shanghai variants
 
-Shanghai's flat grey entrance uses a bevelled High roof and box-based Low roof;
-the lantern pylon keeps its four correctly oriented logo faces at both detail
-levels. Counts use the same production inventory and budget checks as other cities.
-The portrait map changes panel framing width, not its triangle count. Records:
-`.preview/perf/current-models-shanghai/model-triangles.json`.
+All 14 Shanghai variants meet the same budgets.
+Records: `.preview/perf/current-models-shanghai/model-triangles.json`.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
@@ -322,13 +308,8 @@ The portrait map changes panel framing width, not its triangle count. Records:
 
 #### Beijing variants
 
-The stainless canopy retains real diamond holes at both detail levels. Low uses
-flat cut-out panels, inset glass faces and box roof geometry; roof-top/doorway
-signs retain their shared artwork. Low keeps the front columns and blue pylon
-opaque from all four directions, with a closed four-sided logo drum, both emblem
-faces and all four live label faces. All 14 city
-variants pass the existing budgets; no limit was raised. Records:
-`.preview/perf/current-models-beijing/model-triangles.json`.
+All 14 Beijing variants pass the existing budgets; no limit was raised.
+Records: `.preview/perf/current-models-beijing/model-triangles.json`.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
@@ -349,10 +330,8 @@ variants pass the existing budgets; no limit was raised. Records:
 
 #### Chengdu variants
 
-Low reduces the covered entrance, guidepost/virtual-exit prisms and doorway
-headers; High keeps the authored detail. All 14 city variants pass the existing
-budgets; no limit was raised. Counts include authored surfaces and readable label
-faces; they do not establish FPS or GPU cost. Records:
+All 14 Chengdu variants pass the existing budgets; no limit was raised. Counts
+do not establish FPS or GPU cost. Records:
 `.preview/perf/model-triangles.json`.
 
 | Equipment / decor model name | Low triangles | High triangles |
@@ -374,15 +353,9 @@ faces; they do not establish FPS or GPU cost. Records:
 
 #### Chongqing variants
 
-The silver entrance keeps its two side panes and rear glass sealed against the
-roof, stone bases and inclined front columns in High/Low. Low shares the fitted
-two-section roof/glass profile. The guidepost and virtual exit retain an open
-eleven-segment ring, round-shaft approximation, two logo faces and a fully closed
-green housing. All 14 city variants meet the existing budgets; no limit was raised.
-Production-path inventory (three.js r186):
-`.preview/perf/current-models-chongqing/model-triangles.json`, generated with
-`MODEL_CITY=chongqing` and `tools/model-triangle-inventory.mjs`. Counts include
-authored readable surfaces; guideposts are separate modules. These counts do not
+Production-path inventory (three.js r186, `MODEL_CITY=chongqing`):
+`.preview/perf/current-models-chongqing/model-triangles.json`. All 14 Chongqing
+variants meet the existing budgets; no limit was raised. These counts do not
 establish FPS or GPU cost.
 
 | Equipment / decor model name | Low triangles | High triangles |
@@ -407,9 +380,8 @@ establish FPS or GPU cost.
 Production-path inventory (three.js r186):
 `.preview/perf/current-models-wuhan/model-triangles.json`, generated with
 `MODEL_CITY=wuhan BENCH_OUTPUT=.preview/perf/current-models-wuhan/report.json node tools/model-triangle-inventory.mjs`.
-Counts include label faces and shutter perforations; guideposts are separate modules.
-Low retains three glass sides and closed guide shaft/cube housings; all 14
-variants meet existing budgets. These are geometry counts, not FPS measurements.
+All 14 Wuhan variants meet existing budgets. These are geometry counts, not FPS
+measurements.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
@@ -432,9 +404,8 @@ variants meet existing budgets. These are geometry counts, not FPS measurements.
 
 Production-path inventory (three.js r186):
 `.preview/perf/current-models-nanjing/model-triangles.json`, generated with
-`MODEL_CITY=nanjing` and `tools/model-triangle-inventory.mjs`. Includes thick
-side-labeled entrance columns, the raised blossom/Metro sign and three glass
-sides. All 14 variants meet existing budgets; counts do not establish FPS.
+`MODEL_CITY=nanjing` and `tools/model-triangle-inventory.mjs`. All 14 Nanjing
+variants meet existing budgets; counts do not establish FPS.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
@@ -531,8 +502,7 @@ Current budget violations remain failures:
 | cubicle-toilet | 1712 | 3052 | 305 |
 
 `INVENTORY_REPORT_ONLY=1` exposes the full inventory despite violations; it does
-not waive them. Default inventory generation and tests remain strict. Ramp
-wall-input retention is a separate unresolved regression.
+not waive them. Default inventory generation remains strict.
 
 ### Train models (车辆)
 
@@ -549,26 +519,11 @@ wall-input retention is a separate unresolved regression.
 | B-4 | 33708 | 381948 |
 | L-4 | 30716 | 347100 |
 
-Standard, Beijing and Chengdu emblems share a retained three-slot texture atlas.
-Beijing's larger decal is fitted before batching, so switching cities never
-rebuilds prepared trains. The additional fitted decals are included in these
-actual counts. Chengdu adds one retained lower decal per cab. `train-cab`
-pins scale and separate UV slots at both ends and detail levels; `train-lod` pins
-the regenerated counts. Transparent atlas pixels discard before depth writes so
-the overlapping unused decal cannot occlude active ink. `check-beijing-style`
-compares rendered glyph pixels at three angles in High/Low against a zero-cutoff
-negative control. The same alpha-discard policy applies to Chengdu; the counts
-above include its retained lower decals.
-
-The table also includes Chongqing's retained, per-consist line-badge decals at
-both cab ends. Their separate 512 × 128 texture is repainted on city/line changes;
-Nanjing adds four retained side quads using a separate shared cutout texture;
-its nose atlas stays transparent. Other city marks keep the existing shared atlas.
-Current inventory:
-`.preview/perf/current-models-nanjing/train-triangles.json` (three.js r186,
-production static/door/transparent batching and detail swaps). `train-preparation`
-pins same-colour line identity and texture/root reuse; `train-cab` pins paint
-behind the badge in High/Low. Counts remain below the existing 10% train budget.
+Counts include retained city decals and use production static/door/transparent
+batching plus detail swaps. City decals are fitted before batching, so city switches
+do not rebuild prepared trains. All classes remain inside the 10% train budget.
+Current inventory: `.preview/perf/current-models-nanjing/train-triangles.json`
+(three.js r186).
 
 ### Passenger models (乘客)
 
@@ -704,47 +659,22 @@ remain in `.preview/perf/current-models/passenger-triangles.json`.
 
 ### Ambient road vehicles
 
-Use authored car/bus/bike/scooter Low meshes and bounded instance pools. Road
-catalogue counts describe surface geometry, not the fleet. Keep traffic behavior
-independent of graphics quality.
-
-### Five-metre clearance and other geometry
-
-Preserve five-metre train/platform/catenary alignment, PSDs, ramp cuts and openings
-at both detail levels. Outward Metro signs are decorative: never enlarge sim
-collision for their rendered overhang. Low must preserve silhouettes and joints.
+Authored Low car/bus/bike/scooter meshes use bounded instance pools. Road
+catalogue counts describe surface geometry, not the fleet.
 
 ## Keep interactive work bounded
 
 ### Pointer picking and geometry snapping
 
 Resolve at most one scene pick per event and share it across tools, surface aims,
-selection and audio. Snap to actual visible geometry/supports, not editing levels.
-Preserve `tool-picking`, `ramp-targeting`, `geometry-snap` and `placement-surface`.
+selection and audio.
 
-### Exact wall decor and sign preview validation
-
-`node tools/check-geometry-snapping.mjs` now aims posters at the pointed wall-cell edge
-height instead of asserting a fixed floor anchor. The production hardware-browser
-capture in `.preview/perf/geometry-snapping/browser.json` covers 12 fixtures and
-111 pointer events: maximum one scene raycast per event, no browser errors. Its
-synchronous dispatch maximum was 16.4 ms; this excludes queued hover work, render
-submission and display and does **not** establish the <100 ms visible-response
-budget. Keep the build identifier and timing boundary in the raw report.
-`geometry-snap` pins whole-metre wall-cell edges, fractional-anchor save round trips and
-preview/commit/move agreement in all four rotations. Short wall signs centre
-within the pointed cell, while other panels align to its edge. Wall artwork
-visibility follows its panel centre.
-
-`node tools/check-sign-preview.mjs` compares both editor row canvases byte-for-byte
-with their production sign textures for hanging and wall mounts, including a
-bilingual line badge and a shorter back on the front's wider panel. It also checks
-that every printed mark hits its own drag target. Use retained canvases rather than PNG encoding during drags. This is a
-functional pixel comparison, not a timing claim. `node tools/check-sign-save.mjs
-<save-path>` captures the reported Tianhe signs at `(191,-106,-16)` and their
-neighbour from front/back in High/Low and at −20/−15 m. The supplied save's fronts
-rendered after fresh loading; its stored backs are empty. The intermittent blank
-front from the screenshot was not reproduced in that capture.
+`node tools/check-geometry-snapping.mjs` production capture in
+`.preview/perf/geometry-snapping/browser.json` covers 12 fixtures and 111 pointer
+events: maximum one scene raycast per event, no browser errors. Its synchronous
+dispatch maximum was 16.4 ms; this excludes queued hover work, render submission
+and display and does **not** establish the <100 ms visible-response budget. Keep
+the build identifier and timing boundary in the raw report.
 
 ### Placement invalidation and model retention
 
@@ -770,8 +700,7 @@ harness calling `equipmentReason` on each kept version retained 44.2 MB per fram
 including `blockIndex` 4.7 MB, plus blocked levels, ground, fences and outdoor
 surfaces). Multiplied by the forty-frame depth that is ~1.2 GB of derived-index
 retention above the load baseline, which is what pushes an already-large tab over
-its heap limit; ceiling props are not otherwise special, they simply run the heavy
-placement validation and commit once per click.
+its heap limit.
 
 `sim/documentCaches.ts` now releases a retired document's derived indexes from
 `StationSlice` (`commit`, `undo`, `redo`, `newStation`, `loadFromText`,
@@ -795,22 +724,17 @@ fresh production load (headless Chrome 156 / SwiftShader, 1440 × 1000, paused)
 measured 1,087.8 MB page heap, 200,438 scene objects, 18,321 draws and 3.80 M
 triangles.
 
-`render/surfaceBatches.ts` now builds the paving directly from the document:
-each visible tile keeps a bare `Object3D` root for the level slice and selection,
-and one `StaticInstances` per finish × 64 m bucket draws it. Pointer picks
-raycast the instanced meshes and resolve `hit.instanceId` through the bucket's
-`surfaceModuleIds`; selection/hover fall back to the tile footprint; paving
-allocates no contact blob and caches its open/unsupported verdict on the bare
-root. After the change the same load measures **691.1 MB page heap
+`render/surfaceBatches.ts` now draws paving directly from the document: one
+`StaticInstances` per finish × 64 m bucket, with no per-tile mesh or contact blob;
+the bare root caches its open/unsupported verdict, and pointer picks resolve
+`hit.instanceId` through the bucket's module table. After the change the same load
+measures **691.1 MB page heap
 (−396.7 MB, 36.5%)**, 129,879 scene objects (−70,559), 52 surface buckets,
 69,857 instances, 17,729 draws and 4.11 M triangles (the coarser buckets keep
-more pavers on their near detail at this camera; 3.80 M before). A real-pointer
-pick returned the correct `lawn-19557`; deleting it removed exactly one instance
-(69,856) and undo restored it; a storey switch still changes what is drawn. A
-one-tile delete committed in 80.7 ms and retained 51 of the 52 bucket
-allocations, replacing only the touched bucket. A storey switch's paving sync
-(after the cached hidden flag) measured 9.6–11.1 ms. Reports:
-`.preview/perf/memory/surface-check-*.json` (ignored).
+more pavers on their near detail at this camera; 3.80 M before). A one-tile delete
+committed in 80.7 ms and retained 51 of the 52 bucket allocations, replacing only
+the touched bucket. A storey switch's paving sync (after the cached hidden flag)
+measured 9.6–11.1 ms. Reports: `.preview/perf/memory/surface-check-*.json` (ignored).
 
 Limits: software GPU and headless; chunk geometry and canvas textures are
 unchanged by this layer, and hardware-GPU memory is not measured. The remaining
@@ -822,32 +746,31 @@ come back.
 
 ### Settings and presentation edits
 
-City switches preserve existing colours and walking topology. Repaint cab textures
-in place; replace city-specific exit/pylon shells and map roots. Cache map artwork
-by city. Ordinary label edits repaint retained artwork; invisible settings do not
-dirty geometry. Preserve live rigs and ownership on every retention path.
+City switches repaint cab textures in place, replace city-specific exit/pylon
+shells and map roots, and cache map artwork by city. Ordinary label edits repaint
+retained artwork; invisible settings do not dirty geometry. Preserve live rigs
+and ownership on retention paths.
 
 ### Build-rail thumbnails
 
-Use checked-in, lazy-loaded 132 px PNGs. Exits, pylons and line maps select city
-caches. Build, generate with the real renderer, inspect images, then build again.
-Never restore startup WebGL thumbnails or commit synthetic preview fixtures.
+Checked-in, lazy-loaded 132 px PNGs avoid startup WebGL rendering. Generate them
+with the real renderer after a build, then rebuild. Never restore startup WebGL
+thumbnails.
 
 ### Suspended ceilings
 
-Separate ceiling plates from ordinary floor and zone paint. Preserve mounted
-fixtures, exact supports, local invalidation and floor/ceiling visibility rules.
+Ceiling edits keep local invalidation.
 
 ### Shared interactive previews
 
-Reuse bounded materials, geometry and the event's pick. Process the newest target;
-refused previews stay refused until footprint/inputs change. Preserve cancel/release.
+Reuse bounded materials, geometry and the event's pick. Process only the newest
+target; refused previews stay refused until footprint/inputs change.
 
 ### Drag previews and collision
 
 Use 50 ms latest-target scheduling. Block drags cap at 10,000 cells including
 walls; refuse oversized gestures whole before allocating their footprint. Cache
-occupancy/verdicts against immutable inputs and exercise blocked demo footprints.
+occupancy/verdicts against immutable inputs.
 
 ### Fence drags and equipment placement
 
@@ -858,17 +781,14 @@ Chrome 156 / SwiftShader, two RAFs after real pointer events. Cold down was
 Single samples are noisy and do not establish a speedup or hardware performance.
 Raw reports: `.preview/perf/fence-drag-cell-before.json` and
 `.preview/perf/fence-drag-cell-after.json`. This fixture has no blocked cell,
-so it does not measure the extra red-box rendering; `fence.test.mjs` pins the
-mixed pillar collision, preview and release contract deterministically.
+so it does not measure the extra red-box rendering.
 
-
-Bound neighbour discovery and retain unrelated preview/batch contributions. Keep
-occupied/unsupported cases, cancellation and disposal covered deterministically.
+Bound neighbour discovery and retain unrelated preview/batch contributions.
 
 ### Block collision in demo stations
 
-Include blocked and partial-support cases; preserve original refusal priority,
-cell ownership and immutable array reuse when introducing indexes.
+Cache blocked and partial-support cases with original refusal priority, cell
+ownership and immutable array reuse when introducing indexes.
 
 ## Simulation playback frame tails
 
@@ -882,12 +802,12 @@ No fresh playback measurement validates the latest models.
 ### Tanwei Low at 1×
 
 Target 30 average and 15 FPS 1% low. Guard equipment batch sizing and active-storey
-shadow behavior with deterministic retention and performance tests.
+shadow behavior.
 
 ### Contact shadows on the active storey
 
-Only floor-standing equipment on the active storey gets contact blobs; exclude
-ceiling fixtures and fixed PSD infill/covers. Preserve visibility transitions.
+Only floor-standing equipment on the active storey allocates contact blobs;
+ceiling fixtures and fixed PSD infill/covers allocate none.
 
 ### Live TV atlas uploads and 1% lows
 
@@ -900,9 +820,8 @@ repaints can stall independently of train construction; use plate/atlas ablation
 
 Prepare geometry once per opening, reuse tray transforms and pose buffers. Drags
 translate the selected group without extra picks, document commits or vertex
-rewrites. Preserve solid infill, clipped ramp sections, source hiding, reset and
-live/paused behavior. Opening and dragging are different workloads. The snapshot
-measurement below does not validate full viewer generation or the latest models.
+rewrites. Opening and dragging are different workloads. The snapshot measurement
+below does not validate full viewer generation or the latest models.
 
 Tianhe Park user save, 2026-11-07: 130,158 cells and 75,950 modules
 (SHA-256 `fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`),
@@ -912,8 +831,7 @@ working tree. A Node CPU sample of five snapshot preparations identified
 GC-before-sample runs after one warmup measured the original string keys at
 522–664 ms (median 571 ms) and numeric keys at 348–486 ms (median 389 ms).
 The final guarded key implementation measured 330–399 ms (median 376 ms) in a
-separate six-run capture. The same six offsets and `[1,1]` direction resulted.
-Reproduce the current snapshot-only measurement with
+separate six-run capture. Reproduce the current snapshot-only measurement with
 `node --expose-gc tools/bench-explode-snapshot.mjs <save.metro.json>`; these
 numbers exclude parsing, WebGL, model building and the first rendered frame.
 A full browser attempt on this machine exceeded the harness's 60-second CDP
@@ -941,22 +859,18 @@ hide, decodes the selected map before building, keeps whole instances in their
 floor, and flushes temporary merge inputs at 131,072 vertices or 1,024 meshes.
 The bounded-batch diagnostic run reached the rendered viewer in 39.7 s:
 `setStation` 18.7 s (including 6.8 s modules, 9.0 s train preparation),
-ramp sections 1.2 s, floor layout 11.2 s (4.5 s merge). The output retains six
-levels. Compare these captures as diagnostic, not a controlled speedup: system
-load varied substantially (the regular station build ranged from 15 to 27 s),
-tests overlapped the last run's station opening, and only one run of each build
-was captured. The timed explode runs themselves did not overlap a build. GPU
-backend was requested, not independently identified. The floor batch thresholds,
-clipped-instance treatment, picking and disposal are pinned in
-`game/test/exploded-layout.test.mjs`; the full-save browser route exercises real
-floor dragging and visibility. Train preparation and first-frame GPU work remain
-material costs on this save and this does not establish a latency target.
+ramp sections 1.2 s, floor layout 11.2 s (4.5 s merge). Compare these captures as
+diagnostic, not a controlled speedup: system load varied substantially (the regular
+station build ranged from 15 to 27 s), tests overlapped the last run's station
+opening, and only one run of each build was captured. The timed explode runs
+themselves did not overlap a build. GPU backend was requested, not independently
+identified. Train preparation and first-frame GPU work remain material costs on
+this save and this does not establish a latency target.
 A subsequent unprofiled full-save browser check (`BENCH_STATION=<save> node tools/check-exploded-view.mjs`) (production source hash
 `cde4b3477d52af1e828faca262d4b93975d198bd4d201425b2ae6d9499505f11`)
 opened in 25.9 s and 54.7 s across two successive openings; the real-pointer
-drag checks took 816 and 691 ms, including rendered feedback. It passed live
-simulation, visibility, reset and editor return with no browser errors. Raw
-results and screenshots: `.preview/perf/exploded-view/report.json` and
+drag checks took 816 and 691 ms, including rendered feedback. Raw results and
+screenshots: `.preview/perf/exploded-view/report.json` and
 `station-arranged.png`. The second opening and interaction latency remain
 performance gaps; the two observations are not a stable percentile.
 
@@ -965,23 +879,52 @@ Structure-first follow-up, same Tianhe save and Chrome 156 hardware requested,
 `f82150dabd6114271db2040f46dba6c1c3eedb1784f36f687dc5ca97635ee755`)
 reported **8.33 s** from open to the rendered and interactive structure,
 and **23.30 s** to all equipment attached. Initial scene setup took 3.16 s,
-ramp sections 0.71 s and structural layout 1.97 s. The exploded renderer
-does not prepare the parked train pool. After the structural frame it
-replays the latest simulation frame, including trains already present in a
-paused save, and attaches equipment in short batches to the existing trays.
-The regular editor still prepares its fleet. The browser benchmark reports
+ramp sections 0.71 s and structural layout 1.97 s. The browser benchmark reports
 both `structureMs` and `equipmentMs`; raw capture in
 `.preview/perf/explode-structure-first/report.json`. The prior 25.9/54.7 s
 opened a fully furnished viewer, so compare those with equipment completion
 only as separate diagnostic runs under varying system load. The first-frame
 metric measures the earlier usability milestone.
 
+### Exploded viewer memory, Tianhe Park
+
+2026-11-07, Chrome 156 headless with hardware requested, Windows, i7-14700KF,
+1384 × 690 canvas, paused, the user save SHA-256
+`fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`,
+production source hash `25e3f0f460d5a4e203b29dac996bf99189ed19d90427e626195d14280e5f6a72`
+(including the current uncommitted worktree). Process working sets sampled about
+once per second within four seconds of each browser milestone; Chrome CDP heap
+figures are immediate, without forced garbage collection. Values are GiB.
+
+| Milestone | Renderer working set | GPU process working set | JS used heap | V8 backing storage |
+| --- | ---: | ---: | ---: | ---: |
+| Editor loaded, before explode | 5.51 | 3.66 | 1.23 | 2.53 |
+| Structure ready | 5.76 | 4.20 | 1.00 | 2.87 |
+| Equipment attached | 6.39 | 5.58 | 1.11 | 3.21 |
+
+Structure was ready at 8.91 s and equipment attached at 25.38 s in this run.
+The process working sets include all Chrome pages/processes associated with this
+benchmark profile and shared pages can appear in multiple working sets. GPU
+working set is not a direct measurement of dedicated GPU VRAM. CDP backing
+storage includes ArrayBuffers and other backing allocations, not just geometry.
+The non-monotonic used heap reflects normal garbage collection, not negative
+allocation. The editor and exploded renderer coexist; the growth is consistent
+with copied meshes, buffers and GPU resources, but these measurements do not
+attribute retained bytes to specific object classes or establish release after
+closing. Peak observed individual process working sets in the first exploratory
+run were 6.21 GiB renderer and 4.84 GiB GPU process. Reproduce with
+`./tools/bench-explode-memory.ps1 <save.metro.json>` after a production build.
+The benchmark writes milestone timestamps and CDP heap figures to
+`.preview/perf/explode-memory/report.json`, and process samples to
+`.preview/perf/explode-memory/processes.json`. The exploratory second-run raw
+process samples were saved at `.preview/perf/explode-memory-processes.json`.
+
 ## Collect comparable evidence
 
 Keep source/build hash, fixture, hardware, GPU mode, quality, camera, canvas,
 pixel ratio, sample count and timing boundary in raw reports. Never combine
-profiled/clean runs or compare different scenes as a speedup. Preserve failures
-and deterministic work-count/lifecycle regressions. No fabricated V8 percentages.
+profiled/clean runs or compare different scenes as a speedup. Preserve failures.
+No fabricated V8 percentages.
 
 ### Repeatable editor action matrix
 
@@ -1013,6 +956,6 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | Exploded viewer | `node tools/check-exploded-view.mjs`, `npm run bench:explode` |
 | Playback tails | `npm run bench:sim-stalls` |
 | Actual model counts | `node tools/model-triangle-inventory.mjs` |
-| City-specific counts | Set `MODEL_CITY=shenzhen`, `shanghai`, `beijing` or `chengdu`, then run the inventory command |
+| City-specific counts | Set `MODEL_CITY=<city>`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
