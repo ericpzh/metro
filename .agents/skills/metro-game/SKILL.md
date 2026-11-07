@@ -2168,7 +2168,10 @@ including the depth prepass, for all six appearances.
   used/unused swatch rule. Whole-surface finish and zone bucket floods run to the actual
   connected boundary without a cell-count cutoff; `surfaces.test.mjs` and `zones.test.mjs` pin
   floors larger than 20,000 cells. Wall floods count virtual street ground as an occluder,
-  honor openings, and join inset half-wall faces only to matching surfaces. The Tianhe Park
+  honor openings, and join inset half-wall faces only to matching surfaces. Vertical wall
+  floods reach the course behind a suspended ceiling but stay on the starting side
+  of its height in each contacted wall column; adjacent open columns remain connected.
+  The Tianhe Park
   `(184,-117,-2)` / `(194,-117,-2)` floor-separated walls are pinned in `surfaces.test.mjs`.
   `P` 吸取 (the 工具 folder's eyedropper) lifts
   a bare face's finish into the brush and a placed piece into the placement; a **指示牌** is

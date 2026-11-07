@@ -191,6 +191,52 @@ test('whole-wall fill stops at floors and does not bridge the Tianhe Park wall g
   assert.equal(throughOpening.cells.find(c => c.x === 194 && c.y === -117 && c.z === -2).finish?.n, 'wall.tile')
 })
 
+test('whole-wall fill reaches behind suspended ceilings but stops above them', () => {
+  for (const [face, dx, dy] of [['n',0,1], ['s',0,-1], ['e',1,0], ['w',-1,0]]) {
+    const cells = []
+    for (let t = 0; t < 3; t++) for (let z = -5; z <= -1; z++) {
+      const x = dx ? 0 : t, y = dy ? 0 : t
+      cells.push({ x, y, z, fill:'solid' })
+      if (z === -3) cells.push({ x:x+dx, y:y+dy, z, fill:'solid', tags:['suspended-ceiling'], finish:{bottom:'ceil.baffle'} })
+    }
+    const base = toState({ name:'t', seed:1, cells, modules:[], lines:[] })
+    const painted = fillSurface(base, 0, 0, -5, face, 'wall.tile')
+    for (let t = 0; t < 3; t++) for (let z = -5; z <= -1; z++) {
+      const x = dx ? 0 : t, y = dy ? 0 : t
+      assert.equal(painted.cells.find(c => c.x === x && c.y === y && c.z === z).finish?.[face], z <= -3 ? 'wall.tile' : undefined, `${face} ${t} ${z}`)
+    }
+    assert.ok(painted.cells.filter(c => c.tags?.includes('suspended-ceiling')).every(c => c.finish?.bottom === 'ceil.baffle'))
+    assert.equal(base.cells.find(c => c.x === 0 && c.y === 0 && c.z === -3).finish, undefined)
+    const fromAbove = fillSurface(base, 0, 0, -2, face, 'wall.tile')
+    assert.equal(fromAbove.cells.find(c => c.x === 0 && c.y === 0 && c.z === -3).finish?.[face], undefined, 'ceiling separates the wall above from the room below')
+  }
+})
+
+test('whole-wall fill stays between two suspended-ceiling levels', () => {
+  const cells = []
+  for (let z = -9; z <= -3; z++) cells.push({ x:0, y:0, z, fill:'solid' })
+  for (const z of [-7,-5]) cells.push({ x:0, y:1, z, fill:'solid', tags:['suspended-ceiling'] })
+  const base = toState({ name:'t', seed:1, cells, modules:[], lines:[] })
+  const painted = fillSurface(base, 0, 0, -6, 'n', 'wall.tile')
+  for (let z = -9; z <= -3; z++) {
+    const cell = painted.cells.find(c => c.x === 0 && c.y === 0 && c.z === z)
+    assert.equal(cell.finish?.n, z === -6 || z === -5 ? 'wall.tile' : undefined, `wall course ${z}`)
+  }
+})
+
+test('whole-wall fill keeps a ceiling boundary when an adjacent column has no ceiling', () => {
+  const cells = []
+  for (let x = 0; x <= 1; x++) for (let z = -5; z <= -2; z++)
+    cells.push({ x, y:0, z, fill:'solid', ...(x === 0 ? { tags:['half-wall:n'] } : {}) })
+  cells.push({ x:0, y:1, z:-3, fill:'solid', tags:['suspended-ceiling'] })
+  const base = toState({ name:'t', seed:1, cells, modules:[], lines:[] })
+  const painted = fillSurface(base, 0, 0, -5, 'n', 'wall.tile')
+  const finish = (x,z) => painted.cells.find(c => c.x === x && c.y === 0 && c.z === z).finish?.n
+  assert.equal(finish(0,-3), 'wall.tile', 'thin wall receives paint behind its ceiling')
+  assert.equal(finish(0,-2), undefined, 'another path cannot climb back above that ceiling')
+  assert.equal(finish(1,-2), 'wall.tile', 'an uncovered adjacent column remains connected')
+})
+
 test('whole-wall fill joins inset half-wall faces only when their surfaces meet', () => {
   const cells = [0, 1, 2].map(x => ({ x, y: 0, z: 1, fill: 'solid', ...(x < 2 ? { tags: ['half-wall:s'] } : {}) }))
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })

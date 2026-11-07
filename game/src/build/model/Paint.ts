@@ -266,9 +266,27 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
   const thin = thinWallSideMap(state.cells, state.modules);
   // Authored faces are the only flood targets, but generated street ground still
   // occludes them. Treating it as air lets a wall flood bridge a buried row at z=0.
+  const step = FACE_STEP[face];
+  const vertical = step[2] === 0;
+  const ceilings = new Set<string>();
+  const ceilingLevels = new Map<string, number[]>();
+  if (vertical) for (const c of state.cells) {
+    if (c.fill !== 'solid' || !c.tags?.includes('suspended-ceiling')) continue;
+    ceilings.add(cellKey(c.x, c.y, c.z));
+    // Index the wall column facing this ceiling. Its ceiling course may be
+    // painted, but the flood cannot travel to the other side of that course.
+    const column = cellKey(c.x - step[0], c.y - step[1], 0);
+    const levels = ceilingLevels.get(column) ?? [];
+    levels.push(c.z);
+    ceilingLevels.set(column, levels);
+  }
   const occupied = (px: number, py: number, pz: number): boolean =>
-    solid.has(cellKey(px, py, pz)) || index.ground(px, py, pz);
-  const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face, occupied);
+    (!ceilings.has(cellKey(px, py, pz)) && solid.has(cellKey(px, py, pz))) || index.ground(px, py, pz);
+  const exposed = (px: number, py: number, pz: number): boolean => {
+    const levels = ceilingLevels.get(cellKey(px, py, 0));
+    if (levels?.some(level => z <= level ? pz > level : pz <= level)) return false;
+    return facePresent(solid, thin, px, py, pz, face, occupied);
+  };
   const inset = (px: number, py: number, pz: number): boolean => {
     const shape = thin.get(cellKey(px, py, pz));
     return (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) || (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face);

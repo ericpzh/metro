@@ -3,6 +3,11 @@ name: metro-game-test
 description: Run, extend or fix the game's test suite in game/test/ of the ericpzh/metro repo. Use when adding tests for game/src behaviour, when `npm test` / a suite fails, when a new sim rule needs a pin, or when deciding what the suite does and does not cover.
 ---
 
+Whole-wall paint in `surfaces.test.mjs` reaches the course behind a suspended
+ceiling, stops above it in the contacted column, and preserves boundaries at
+multiple levels and all four cardinal faces. Open neighbouring columns remain
+connected; ordinary floor occlusion is unchanged.
+
 ## Contact materials
 
 `contact-finishes.test.mjs` covers full and cut block faces, partial contact,
