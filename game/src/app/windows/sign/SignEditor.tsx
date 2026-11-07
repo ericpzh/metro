@@ -75,6 +75,7 @@ import {
 import { BinStrip } from './BinStrip.tsx'
 import { GroupTile, MarkTile, PaletteRow } from './palette.tsx'
 import { TextFields } from './TextFields.tsx'
+import { readSignTextHistory, saveSignTextHistory } from './textHistory.ts'
 import { makeDragGhost, moveDragGhost } from './dragGhost.ts'
 import { usePictogramsReady } from './tileArt.tsx'
 import {
@@ -145,6 +146,16 @@ export function SignEditor(): React.ReactElement | null {
   // The editor's own boards: taken once, when the editor opens, and written back on
   // ✓. `opened` is what a ✕ goes back to.
   const [boards, setBoards] = useState<SignBoards>(stored)
+  const [textHistory, setTextHistory] = useState(readSignTextHistory)
+  const textHistoryRef = useRef(textHistory)
+  const editedHistory = useRef<{ face: SignFaceName; id: string; text: string } | null>(null)
+  const rememberText = (text: string, replace?: string): void => {
+    const next = saveSignTextHistory(textHistoryRef.current, text, replace)
+    textHistoryRef.current = next
+    setTextHistory(next)
+  }
+  const rememberTextRef = useRef(rememberText)
+  rememberTextRef.current = rememberText
   // **箭头 is open on a fresh session.** The library is a well of tiles, and a well that starts
   // empty says the editor has nothing to put on a board — which is the opposite of true. It is
   // also the group a sign is most often built out of, and a group is only ever *open*, never
@@ -176,6 +187,7 @@ export function SignEditor(): React.ReactElement | null {
     boardsRef.current = compact
     previewSignLayout(compact)
     setSelection(null)
+    editedHistory.current = null
     setGroup('arrow')
     setFocusedFace('front')
     setDragMark(null)
@@ -647,6 +659,7 @@ export function SignEditor(): React.ReactElement | null {
       // over in hand, that "does this board have room" is a question about anything.
       if (comp && signMarkFits(list, comp)) {
         applyRef.current({ ...boardsRef.current, [place.face]: signLayoutInserted(list, { ...comp, id: nextId(list) }, place.index) })
+        if (comp.kind === 'text') rememberTextRef.current(comp.text)
       } else if (comp) {
         noticeRef.current(SIGN_FULL_NOTICE)
       }
@@ -859,6 +872,11 @@ export function SignEditor(): React.ReactElement | null {
    */
   const setText = (text: string): void => {
     if (selected?.kind !== 'text') return
+    const previous = editedHistory.current
+    const replace = previous?.face === focusedFace && previous.id === selected.id && previous.text === selected.text
+      ? previous.text : undefined
+    rememberText(text, replace)
+    editedHistory.current = { face: focusedFace, id: selected.id, text }
     apply({ ...boards, [focusedFace]: layout.map((c) => (c.id === selected.id ? ({ ...c, text } as SignComponent) : c)) })
   }
 
@@ -992,7 +1010,7 @@ export function SignEditor(): React.ReactElement | null {
                 what it holds, so switching group is the old palette folding away while the
                 new one folds out, in one movement — the same fold the build rail's folders
                 use, turned to the library's width instead of its depth. */}
-            <div className="signPalette">
+            <div className={group === 'text' ? 'signPalette signPaletteText' : 'signPalette'}>
               <PaletteRow open={group === 'arrow'}>
                 {SIGN_ARROWS.map((a) => (
                   <MarkTile
@@ -1048,6 +1066,24 @@ export function SignEditor(): React.ReactElement | null {
                   onArmDrag={(text, e) => armPaletteDrag(`text:${text}`, e)}
                   onPick={pickExisting}
                 />
+                {textHistory.length > 0 && <div className="signRecentLabel">{t('recent_sign_text')}</div>}
+                {textHistory.map((text) => (
+                  <MarkTile
+                    key={text}
+                    mark={paletteMark({ kind: 'text', text })}
+                    lines={lines}
+                    active={false}
+                    label={text.replace('\n', ' / ')}
+                    onPointerDown={(e) => armPaletteDrag(`text:${text}`, e)}
+                    onClick={() => {
+                      const comp: SignComponent = { id: nextId(layout), kind: 'text', text, x: 0, y: 0, scale: 1, side: 'both' }
+                      if (noticeFull(comp)) return
+                      apply({ ...boards, [focusedFace]: signLayoutInserted(layout, comp, insertIndex) })
+                      rememberText(text)
+                      setSelection({ face: focusedFace, id: comp.id })
+                    }}
+                  />
+                ))}
               </PaletteRow>
             </div>
           </div>

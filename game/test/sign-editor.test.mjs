@@ -35,6 +35,32 @@ import { drawSignPanel } from '../src/render/signFace.ts'
 import { signBoardsPanel, signPlate } from '../src/sim/sign.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { DRAG_MARK_ID, withHover } from '../src/app/windows/sign/tokens.ts'
+import { readSignTextHistory, recentSignTexts, saveSignTextHistory } from '../src/app/windows/sign/textHistory.ts'
+
+test('recent sign text persists placed bilingual tiles, deduplicated and limited to eight', () => {
+  const previous = globalThis.localStorage
+  let saved = null
+  globalThis.localStorage = { getItem: () => saved, setItem: (_key, value) => { saved = value } }
+  try {
+    let history = []
+    for (let i = 0; i < 11; i++) history = saveSignTextHistory(history, `Label ${i}`)
+    history = saveSignTextHistory(history, '出口\nExit')
+    history = saveSignTextHistory(history, 'Label 10')
+    assert.equal(history.length, 8)
+    assert.deepEqual(history.slice(0, 2), ['Label 10', '出口\nExit'])
+    assert.deepEqual(readSignTextHistory(), history)
+    history = saveSignTextHistory(history, 'New', 'Label 10')
+    history = saveSignTextHistory(history, 'New text', 'New')
+    assert.equal(history.includes('New'), false)
+    assert.equal(history[0], 'New text')
+    assert.deepEqual(recentSignTexts([null, '', 'A', 'A', 2, 'B']), ['A', 'B'])
+    saved = '{bad json'
+    assert.deepEqual(readSignTextHistory(), [])
+  } finally {
+    if (previous === undefined) delete globalThis.localStorage
+    else globalThis.localStorage = previous
+  }
+})
 
 test('a full board rejects the tenth arrow before changing its hover preview', () => {
   const arrow = (id) => ({ id, kind: 'arrow', arrow: 'right', x: 0, y: 0.2, scale: 1, side: 'both' })

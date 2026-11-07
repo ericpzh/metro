@@ -2724,6 +2724,11 @@ paired panel size and resolution as the production textures. Transparent bins
 handle dragging and meet halfway between printed mark centres, rather than
 proportionally to ink widths. Opening the editor compacts its draft and scene
 preview together; keep the original for cancellation and commit only on ✓.
+The text palette retains eight distinct recent bilingual text tiles in local browser
+storage as they are placed or edited; click or drag one to reuse it. The editor fits
+both rows at normal window heights, with a compact English field and scrolling on
+short screens. `sign-editor.test.mjs` pins history and `tools/check-sign-history.mjs`
+checks the live two-row layout and insertion before confirmation.
 Normalise a hover insertion through the same write policy. Do not resize each mark independently or
 encode PNGs per drag.
 Preview artwork shares the scale at which `PANEL_MAX_W` fits the workspace;

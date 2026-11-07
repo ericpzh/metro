@@ -2005,28 +2005,9 @@ html[lang="en"] .depthTag {
   /* Library + gap + workspace + the panel's own 2 × 14 px padding — and on a window too
      narrow for that, the whole window with a hair to spare. */
   width: min(calc(var(--sign-lib) + 14px + var(--sign-work) + 30px), 96vw);
-  /* The height is a constant, and one of the two things that used to jump: the library's shelf
-     is as tall as the group that is open, so `auto` made the modal resize at every tab press.
-     It is also **sized to the tallest shelf there is**, and to nothing more: a row of four
-     group tabs, then the three rows the arrow palette needs — ten arrows are 4 + 4 + 2, so its
-     shelf is 3 × 56 + 2 × 6 tall. Anything past that is empty paper, and the library is where
-     it showed: the column stretches to whatever the panel's height is, so a panel a few pixels
-     too tall left a strip of nothing under the shelves. The sum is written out because nothing
-     here can measure it, and every term is a box that is already in this file:
-       30px  the panel's own padding (2 × 14) and its frame (2 × 1)
-       23px  the header's grid **track** — its own 37 px band (2 × 5 of padding, the 26 px
-             close, its 1 px rule) less the 14 px it hangs up over the padding above it, which
-             is what makes the band run edge to edge
-       10px  the gap between the header and the body
-       18px  the library's border and padding (2 × 1 + 2 × 8)
-        2px  the well's border (2 × 1)
-     4 --tile  the four rows of tiles: the group tabs and the shelf's three
-     6 --sign-gap  the six gaps around them: the one under the tabs, the two between the
-             shelf's rows, the shelf's own pad above them, and the well's own 2 × 6 of padding
-     Get it a pixel short and the third row is clipped by the well it folds out in.
-     `min(…, 90vh)` folds it back to almost the whole window on a short one. */
+  /* Leave room for both rows of recent text; short screens retain the shelf scroller. */
   height: min(
-    calc(30px + 23px + 10px + 18px + 2px + 4 * var(--tile) + 6 * var(--sign-gap)),
+    calc(30px + 23px + 10px + 18px + 2px + 4 * var(--tile) + 9 * var(--sign-gap) + 44px),
     90vh
   );
   padding: 14px;
@@ -2170,6 +2151,11 @@ html[lang="en"] .depthTag {
 }
 .signPalette::-webkit-scrollbar {
   width: 8px;
+}
+.signPaletteText {
+  --tile: 54px;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .signPalette::-webkit-scrollbar-thumb {
   background: var(--ui-1e4a72, #1e4a72);
@@ -2671,6 +2657,13 @@ html[lang="en"] .depthTag {
 .signCaption {
   grid-column: 1 / -1;
   color: var(--muted);
+  height: 30px;
+  font-size: 12px;
+}
+.signRecentLabel {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
 }
 .signText,
 .signCaption {

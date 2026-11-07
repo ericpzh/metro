@@ -1,5 +1,6 @@
 // Shared UI, catalogue, validation and display copy. Keep both locales together.
 export const messages = {
+  recent_sign_text: { zh: '最近使用的文字', en: 'Recent text' },
   book_shelves: { zh: '书架', en: 'Bookshelves' },
   bag_shelves: { zh: '包袋展示架', en: 'Bag display shelves' },
   "wooden_bench": { "zh": "木制长凳", "en": "Wooden bench" },
