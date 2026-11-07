@@ -73,6 +73,7 @@ test('coupled candidate overlays preserve TV housing, tactile arms, stair lanes,
   const pairs = [
     [createModule('tv', 0, 0, 0, 'a'), createModule('tv', 0, 0, 0, 'b', 2)],
     [createModule('tactile-warning', 0, 0, 0, 'a'), createModule('tactile-guide', 1, 0, 0, 'b')],
+    [createModule('tactile-warning-strip', 0, 0, 0, 'a'), createModule('tactile-guide', 0, 1, 0, 'b', 1)],
     [stair, secondStair],
     [createModule('curtain-wall', 0, 0, 0, 'a'), createModule('curtain-wall', 0, 0, 0, 'b', 1)],
     [createModule('bridge', 0, 0, 0, 'a'), createModule('pillar', 0, 0, 0, 'b')],

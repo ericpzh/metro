@@ -21,6 +21,7 @@ export {
   moveEquipment,
   removeModule,
   replaceEquipment,
+  tactileVariantForPalette,
   type SignLineInput,
 } from './model/Equipment.ts';
 export { extendLift, liftInColumn, removeLiftExtension } from './model/Lifts.ts';

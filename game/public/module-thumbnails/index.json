@@ -709,6 +709,11 @@
       "bytes": 3280
     },
     {
+      "id": "tactile-warning-strip",
+      "file": "tactile-warning-strip.png",
+      "bytes": 3450
+    },
+    {
       "id": "traffic-light",
       "file": "traffic-light.png",
       "bytes": 2031

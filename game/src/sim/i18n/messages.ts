@@ -965,6 +965,10 @@ export const messages = {
     "zh": "圆点提示",
     "en": "Tactile warning"
   },
+  "tactile_warning_strip": {
+    "zh": "圆点提示条",
+    "en": "Warning strip"
+  },
   "door_arrows": {
     "zh": "屏蔽门箭头",
     "en": "Door arrows"

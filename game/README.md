@@ -3200,7 +3200,7 @@ approximated); neither needs WebGL.
   slab with a recessed dark backing and nine blades turned by R; model and collision agree at every
   rotation; ceiling support, furniture clearance and structural clashes as hung; movable, sweepable,
   and round-trips the save.
-* `floor-decor.test.mjs` — industrial floor equipment, two tactile tiles and three floor markings:
+* `floor-decor.test.mjs` — industrial floor equipment, three tactile tiles and three floor markings:
   rotated model/placement bounds, floor support and wall collisions, machinery blocking the walk
   graph while floor vinyl stays walkable, screen-door clearance, straight tactile drag placement
   and deletion in one undo step, variant-safe removal, printed markings and save round trips.
@@ -3955,10 +3955,11 @@ Ceiling vent: 装饰 → 通风口 is a separate square metal grille with recess
 Floor equipment and vinyl: the final two 装饰 tiles are stainless-steel 空调风机, a 3×2 m industrial central AC unit with twin top fans,
 coil grilles and service panels; 设备柜 is a 3×1 m electrical switchboard with meters, breakers,
 status lamps and red fascia. Both stand on floors, rotate with R, move and block pedestrian access
-through their footprint. 装饰 → 盲道 offers 条形导向 and 圆点提示: thin yellow strips laid by click or
+through their footprint. 装饰 → 盲道 offers 条形导向, 圆点提示 and 圆点提示条: thin yellow strips laid by click or
 straight line drag, with the guide ribs following the drag axis. Right drag or 删除 removes a run of
 the pressed variant; each release is one undo step and preserves the floor. 圆点提示 automatically
-connects to adjoining strips, forming L, T and cross junctions. 盲道 and 地面指示 sit immediately
+connects to adjoining strips, forming L, T and cross junctions; 圆点提示条 covers its whole one-metre
+run and grows a crosswise arm only where a perpendicular band meets it. 盲道 and 地面指示 sit immediately
 below the 座椅 / 站名 row. The station-name previews have light backings for legibility. 地面指示 offers
 屏蔽门箭头, 排队等候线 and 方向指引, printed flush on the floor and rotatable with R. Boarding strips
 are 0.25 m deep and snap their green central arrow to train-aligned screen-door openings on the

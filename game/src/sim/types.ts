@@ -602,7 +602,7 @@ export type Module =
   | (ModuleBase & { type: 'court'; cfg: { variant: 'pickleball' | 'badminton' | 'divider' } })
   | (ModuleBase & { type: 'ac-unit'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'electrical-cabinet'; cfg: Record<string, never> })
-  | (ModuleBase & { type: 'tactile'; cfg: { variant: 'guide' | 'warning' } })
+  | (ModuleBase & { type: 'tactile'; cfg: { variant: 'guide' | 'warning' | 'warning-strip' } })
   | (ModuleBase & { type: 'floor-mark'; cfg: { variant: 'boarding' | 'waiting' | 'direction'; line?: string; edgeId?: string; offset?: { x: number; y: number } } })
   | (ModuleBase & { type: 'vent'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number } })

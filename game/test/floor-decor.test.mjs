@@ -22,7 +22,7 @@ import { ElectricalCabinetModel } from '../src/render/models/pieces/ElectricalCa
 import { TactileModel } from '../src/render/models/pieces/TactileModel.ts'
 import { FloorMarkModel } from '../src/render/models/pieces/FloorMarkModel.ts'
 
-const ids = ['ac-unit', 'electrical-cabinet', 'tactile-guide', 'tactile-warning', 'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction']
+const ids = ['ac-unit', 'electrical-cabinet', 'tactile-guide', 'tactile-warning', 'tactile-warning-strip', 'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction']
 
 test('floor decorations preserve variants and rotation through save/load', () => {
   let state = toState(emptyStation())
@@ -34,6 +34,7 @@ test('floor decorations preserve variants and rotation through save/load', () =>
   assert.deepEqual(loaded.state.modules, toState(state).modules)
   assert.equal(moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'a')), moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'b')))
   assert.notEqual(moduleGhostKey(createModule('tactile-guide', 0, 0, 0, 'a')), moduleGhostKey(createModule('tactile-warning', 0, 0, 0, 'a')))
+  assert.notEqual(moduleGhostKey(createModule('tactile-warning', 0, 0, 0, 'a')), moduleGhostKey(createModule('tactile-warning-strip', 0, 0, 0, 'a')))
   assert.notEqual(moduleGhostKey(createModule('floor-mark-boarding', 0, 0, 0, 'a')), moduleGhostKey(createModule('floor-mark-waiting', 0, 0, 0, 'a')))
 })
 
@@ -125,6 +126,21 @@ test('delete tool drags only the pressed tactile variant and leaves the other ti
   assert.deepEqual(useStore.getState().station.cells, [])
 })
 
+test('a warning-strip drag removes only strips and leaves the square junctions', () => {
+  const h = harness('tactile-warning-strip')
+  const square = createModule('tactile-warning', 0, 1, 0, 'square')
+  const strips = [0, 2].map((x) => createModule('tactile-warning-strip', x, 0, 0, `strip-${x}`))
+  useStore.setState({ tool: 'delete', station: { ...useStore.getState().station, modules: [strips[0], square, strips[1]] } })
+  h.deleteTool.onDown(h.event(0, 0))
+  h.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+  h.deleteTool.onMove(h.event(2, 0))
+  h.deleteTool.multiPlace.flushPreview()
+  assert.equal(h.ghost().length, 2)
+  h.deleteTool.onUp(h.event(2, 0))
+  assert.deepEqual(useStore.getState().station.modules, [square])
+  assert.deepEqual(useStore.getState().station.cells, [])
+})
+
 test('a floor marking right-click removes only the ink beside a screen door', () => {
   const h = harness('floor-mark-boarding')
   const mark = createModule('floor-mark-boarding', 0, 0, 0, 'mark')
@@ -165,6 +181,45 @@ test('warning tiles connect perpendicular ribs, T joins and crosses without corn
   }
   mats.tactile.dispose()
 })
+
+test('warning strips fill their run and bridge only a crosswise band', () => {
+  const strip = createModule('tactile-warning-strip', 0, 0, 0, 'strip')
+  assert.deepEqual(strip.cfg, { variant: 'warning-strip' })
+  const guide = (x, y, rot = 0) => createModule('tactile-guide', x, y, 0, `guide-${x}-${y}`, rot)
+  const endSquare = createModule('tactile-warning', 1, 0, 0, 'end-square')
+  // The full one-metre top already meets a run neighbour at both cell ends.
+  assert.deepEqual(tactileArms(strip, [guide(1, 0)]), [])
+  // A crosswise band reaches the shared edge, so the strip bridges its own side.
+  assert.deepEqual(tactileArms(strip, [guide(0, 1, 1)]), [[0, 1]])
+  // A parallel band and a junction square beside it leave that edge open.
+  assert.deepEqual(tactileArms(strip, [guide(0, 1)]), [])
+  assert.deepEqual(tactileArms(strip, [createModule('tactile-warning', 0, 1, 0, 'side-square')]), [])
+  // A square at the strip's end joins through its own arm, not the strip's.
+  assert.deepEqual(tactileArms(strip, [endSquare]), [])
+  assert.deepEqual(tactileArms(endSquare, [strip]), [[-1, 0]])
+  // A turned strip's arm follows its crosswise axis.
+  const turned = createModule('tactile-warning-strip', 0, 0, 0, 'turned', 1)
+  assert.deepEqual(tactileArms(turned, [guide(1, 0)]), [[0, -1]])
+  assert.deepEqual(tactileArms(turned, [guide(0, 1, 1)]), [], 'a run joined end to end needs no arm')
+  const mats = { tactile: new THREE.MeshStandardMaterial() }
+  const build = (modules) => new TactileModel({ mats, data: { modules } }).build(strip)
+  for (const [name, modules, y1, dots] of [
+    ['plain strip', [strip], 0.725, 60],
+    ['T join', [strip, guide(0, 1, 1)], 1, 75],
+    ['run join', [strip, guide(1, 0)], 0.725, 60],
+  ]) {
+    const model = build(modules), bounds = new THREE.Box3().setFromObject(model)
+    assert.ok(Math.abs(bounds.min.x) < 1e-6 && Math.abs(bounds.max.x - 1) < 1e-6, `${name}: spans the full cell width`)
+    assert.ok(Math.abs(bounds.min.y - 0.275) < 1e-6 && Math.abs(bounds.max.y - y1) < 1e-6, `${name}: depth`)
+    assert.ok(Math.abs(bounds.max.z - 1.012) < 1e-6, `${name}: sits on the floor`)
+    let count = 0
+    model.traverse((o) => { if (o.isInstancedMesh) count += o.count })
+    assert.equal(count, dots, `${name}: dots cover the top and any arm`)
+    model.traverse((o) => { o.geometry?.dispose(); if (o.isInstancedMesh) o.dispose() })
+  }
+  mats.tactile.dispose()
+})
+
 
 test('boarding strip snaps to the real train-aligned opening in every rotation and side', () => {
   const line = { id: '5', name: '5号线', colour: '#c8102e', stock: 'B', cars: 1, modelScale: 0.98 }

@@ -36,7 +36,7 @@ const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
     'calligraphy-song-h', 'calligraphy-song-v', 'linemap-wall', 'sign-wall',
   ]),
   floor: new Set([
-    'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning',
+    'tvm', 'vending', 'hanger-post', 'electrical-cabinet', 'tactile-guide', 'tactile-warning', 'tactile-warning-strip',
     'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction', 'bench-steel-1', 'bench-seat-1', 'bench-wood-1', 'bench-office-1',
     'desk', 'checkout', 'cubicle', 'sink', 'bin', 'extinguisher', 'extinguisher-compact', 'extinguisher-glass', 'curtain-wall', 'psd-end', 'psd-end-cover', 'rail-signal',
     'linemap-stand', 'door-steel-1', 'door-wood-1', 'door-glass-1', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing',
@@ -75,6 +75,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'electrical-cabinet', label: msg('equipment_cabinet'), type: 'electrical-cabinet', w: 3, h: 1 },
   { id: 'tactile-guide', label: msg('tactile_guide'), type: 'tactile', w: 1, h: 1 },
   { id: 'tactile-warning', label: msg('tactile_warning'), type: 'tactile', w: 1, h: 1 },
+  { id: 'tactile-warning-strip', label: msg('tactile_warning_strip'), type: 'tactile', w: 1, h: 1 },
   { id: 'floor-mark-boarding', label: msg('door_arrows'), type: 'floor-mark', w: 3, h: 1 },
   { id: 'floor-mark-waiting', label: msg('queue_lines'), type: 'floor-mark', w: 3, h: 2 },
   { id: 'floor-mark-direction', label: msg('direction_guide'), type: 'floor-mark', w: 1, h: 2 },

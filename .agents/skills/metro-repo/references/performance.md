@@ -101,6 +101,8 @@ These are geometry counts, not drag latency, draw-call or GPU-time measurements.
 
 Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. The standalone office chair shares the workstation chair geometry; the wooden bench retains five seat slats and two end-frame silhouettes in Low. Both new palette options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
 
+Tactile trim inventory refreshed 2026-11-07 with `BENCH_OUTPUT=.preview/perf/tactile-strip/report.json INVENTORY_REPORT_ONLY=1 node tools/model-triangle-inventory.mjs` (three.js r186). 圆点提示条 (`tactile-warning-strip`) is 4 / 1932 Low/High: Low keeps the one-metre top sheet and omits its 60 instanced dots, while High adds 32 triangles per dot. A crosswise junction arm adds one sheet and 15 dots, giving 8 / 2424 with one arm and 12 / 2916 with two. Raw counts: `.preview/perf/tactile-strip/model-triangles.json`.
+
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
 | tree | 396 | 18432 |
@@ -143,6 +145,7 @@ Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/
 | checkout-cafe/4m | 100 | 1972 |
 | clock | 188 | 1940 |
 | stair-straight | 150 | 1940 |
+| tactile-warning-strip | 4 | 1932 |
 | cctv | 124 | 1888 |
 | shelf-food-snacks | 80 | 1884 |
 | lift | 144 | 1776 |

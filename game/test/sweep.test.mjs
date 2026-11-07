@@ -99,6 +99,7 @@ test('a sweep collects the floor equipment by variant, and never the tactile', (
   // by its own drag, so a delete sweep must not collect it.
   assert.equal(sweepFamily(strip('guide')), null)
   assert.equal(sweepFamily(strip('warning')), null)
+  assert.equal(sweepFamily(strip('warning-strip')), null)
   assert.equal(sameSweepFamily(strip('guide', 'a'), strip('guide', 'b')), false)
 })
 

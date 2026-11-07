@@ -681,7 +681,7 @@ test('equipment shadow matrices stay above the support block instead of intersec
 }))
 
 test('tactile paving and floor markings never allocate equipment shadows', () => withDrawing(({ modules }) => {
-  const tiles = ['tactile-guide', 'tactile-warning', 'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction'].map((type, i) => createModule(type, i, 0, 1, `tile-${i}`))
+  const tiles = ['tactile-guide', 'tactile-warning', 'tactile-warning-strip', 'floor-mark-boarding', 'floor-mark-waiting', 'floor-mark-direction'].map((type, i) => createModule(type, i, 0, 1, `tile-${i}`))
   const blobs = () => modules.moduleMeshes.children.filter(root => root.userData.contactBlobKey !== undefined)
   modules.buildModules(station(tiles), new Set())
   assert.equal(blobs().length, 0, 'floor decoration creates no dark blobs along the paving')

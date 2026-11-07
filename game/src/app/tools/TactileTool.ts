@@ -1,5 +1,5 @@
 import { msg } from '../../sim/i18n.ts'
-import { addEquipment, createModule, fenceRotForLine, nextModuleId, removeModule } from '../../build/model.ts'
+import { addEquipment, createModule, fenceRotForLine, nextModuleId, removeModule, tactileVariantForPalette } from '../../build/model.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import { tactileAt } from '../../sim/floorDecor.ts'
 import { equipmentReason, equipmentRefusalNotice, placementColliders } from '../../sim/placement.ts'
@@ -87,7 +87,7 @@ export class TactileTool extends ToolController {
     const st = useStore.getState()
     const d = this.ctx.drag.current
     const type = d?.tileType ?? st.moduleType
-    const variant = type === 'tactile-warning' ? 'warning' : 'guide'
+    const variant = tactileVariantForPalette(type)
     const rot = fenceRotForLine(cells) ?? st.moduleRot
     return cells.flatMap(([x, y, z]) => {
       if (d?.mode === 'remove') {

@@ -41,6 +41,7 @@ import { STAIR_WIDTH_NARROW, stairBuildWidth, stairFlightsFor, stairLandings, st
 import { STOREY_HEIGHT } from '../../sim/constants.ts';
 import { makeSignBoards, normalizeSignLayout, signBoardsOf, signMountSpec, DEFAULT_SIGN_MOUNT, type SignBoardsDraft, type SignLineSource, type SignMount } from '../../sim/sign.ts';
 import type { BenchVariant, BillboardVariant, CalligraphyAxis, CalligraphyStyle, DoorVariant, ExitBays, GateDoor, GlassVariant, LineMapVariant, Module, StairStyle, StationData, Vec3i } from '../../sim/types.ts';
+import type { TactileVariant } from '../../sim/floorDecor.ts';
 import { cellKey } from './Cells.ts';
 import type { StationState } from './State.ts';
 
@@ -121,6 +122,11 @@ export interface ModuleBuildSettings {
   liftSize?: LiftSize
   /** A 自动步道: which of the three level lengths (30 / 60 / 90 m) it is built at. */
   walkwayLength?: WalkwayLength
+}
+
+/** The tactile variant a palette id builds; placement and variant-safe removal share it. */
+export function tactileVariantForPalette(type: string): TactileVariant {
+  return type === 'tactile-warning' ? 'warning' : type === 'tactile-warning-strip' ? 'warning-strip' : 'guide';
 }
 
 /** Build the authored piece. Support flags are explicit geometry results from the caller. */
@@ -253,7 +259,8 @@ function createModuleRaw(
       return { id, type: 'electrical-cabinet', x, y, z, rot, cfg: {} };
     case 'tactile-guide':
     case 'tactile-warning':
-      return { id, type: 'tactile', x, y, z, rot, cfg: { variant: type === 'tactile-warning' ? 'warning' : 'guide' } };
+    case 'tactile-warning-strip':
+      return { id, type: 'tactile', x, y, z, rot, cfg: { variant: tactileVariantForPalette(type) } };
     case 'floor-mark-boarding':
     case 'floor-mark-waiting':
     case 'floor-mark-direction':

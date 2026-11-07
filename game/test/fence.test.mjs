@@ -180,7 +180,7 @@ test('fence variants keep their save and preview identity, including legacy glas
 test('the raised fence gate admits tactile paving and floor decals in either placement order', () => {
   for (const rot of [0, 1, 2, 3]) {
     const gate = createModule('fence-gate', 0, 0, 0, 'fg', rot)
-    for (const id of ['tactile-guide', 'tactile-warning', 'floor-mark-direction', 'floor-mark-boarding', 'floor-mark-waiting']) {
+    for (const id of ['tactile-guide', 'tactile-warning', 'tactile-warning-strip', 'floor-mark-direction', 'floor-mark-boarding', 'floor-mark-waiting']) {
       const decal = createModule(id, 0, 0, 0, 'decal', rot)
       assert.equal(equipmentReason([], [gate], decal), '', `${id} beneath gate, rotation ${rot}`)
       assert.equal(equipmentReason([], [decal], gate), '', `gate over ${id}, rotation ${rot}`)

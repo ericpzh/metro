@@ -5,7 +5,7 @@ import { doorRunOffsets, doorWidthAt, trainScaleForStorey } from './stock.ts'
 import { PSD_FULL_DOOR_WIDTH_SCALE } from './constants.ts'
 import { registerDocumentCache } from './documentCaches.ts'
 
-export type TactileVariant = 'guide' | 'warning'
+export type TactileVariant = 'guide' | 'warning' | 'warning-strip'
 export type FloorMarkVariant = 'boarding' | 'waiting' | 'direction'
 export type FloorDecorModule = Extract<Module, { type: 'court' | 'ac-unit' | 'electrical-cabinet' | 'tactile' | 'floor-mark' }>
 
@@ -55,15 +55,28 @@ export function floorDecorBounds(m: FloorDecorModule): { x0: number; y0: number;
     y1: m.y + 0.5 + (offset?.y ?? 0) + Math.max(...corners.map(([, y]) => y)), z0: m.z + 1, z1: m.z + 1 + h }
 }
 
-/** Warning squares extend to every connected neighbor: L, T and cross need no separate tiles. */
+/**
+ * The warning square extends to every connected neighbor: L, T and cross need no
+ * separate tiles. A warning strip already reaches both ends of its own run, so it
+ * only grows a crosswise arm — and only toward a neighbor whose band really crosses
+ * that shared edge. A junction square beside a strip stays unjoined for the same
+ * reason it stays unjoined beside a guide: the square's arm would meet no band.
+ */
 export function tactileArms(m: Extract<Module, { type: 'tactile' }>, modules: readonly Module[]): Array<[number, number]> {
   const out: Array<[number, number]> = []
+  const strip = m.cfg.variant === 'warning-strip'
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
     const neighbor = tactileAt(modules, m.x + dx, m.y + dy, m.z)
     if (neighbor?.type !== 'tactile') continue
-    if (neighbor.cfg.variant === 'warning' || ((neighbor.rot ?? 0) % 2 === 0 ? dy === 0 : dx === 0)) {
-      out.push(rotateLocal(-(m.rot ?? 0), dx, dy))
-    }
+    const junction = neighbor.cfg.variant === 'warning'
+    // A band crosses the shared edge only along its own spine; a junction square
+    // reaches every edge with its own arm.
+    const continues = (neighbor.rot ?? 0) % 2 === 0 ? dy === 0 : dx === 0
+    if (strip ? junction || !continues : !junction && !continues) continue
+    const [lx, ly] = rotateLocal(-(m.rot ?? 0), dx, dy)
+    // The strip's own one-metre top already covers the run's shared edges.
+    if (strip && ly === 0) continue
+    out.push([lx, ly])
   }
   return out
 }
