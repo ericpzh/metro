@@ -1915,10 +1915,11 @@ including the depth prepass, for all six appearances.
   a thin edge or triangular end leaves the neighbour's side drawn, so a wedge beside a
   block never punches a black hole in it, while a hugged full–full seam and a continuing
   ridge run (shared ends culled, outer ends kept) stay shut. Pin the line, the seam and
-  the join in `test/triangle.test.mjs`. The structure grid places 墙 / 半墙 together,
-  followed by separate 吊顶 / 半墙转角 tiles and the two wedge tiles. 吊顶 uses its own
+  the join in `test/triangle.test.mjs`. The structure grid places 墙 / 薄墙 together,
+  followed by separate 吊顶 / 薄墙角 tiles and the two wedge tiles. Their English
+  labels are Thin wall and Thin wall corner; `rail-families` pins both locales. 吊顶 uses its own
   panel icon, closes the block action row, and has no block Tab toggle. Shift+Tab
-  still controls generated walls on the plain block. 半墙转角 is a quarter-cell wall
+  still controls generated walls on the plain block. 薄墙角 is a quarter-cell wall
   tagged `half-corner:<side>`; its four absolute positions connect perpendicular
   half walls. Its position tile and Tab or R cycle the positions. Preview, release,
   saved geometry and material face ghosts must agree, including the east/west

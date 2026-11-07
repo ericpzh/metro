@@ -32,6 +32,7 @@ import {
   isFacilityBrush,
   isFamilyOption,
 } from '../src/app/store.ts'
+import { getLanguage, setLanguage, translate } from '../src/sim/i18n.ts'
 import { ZONE_LIST, ZONE_PAINT_LIST } from '../src/sim/zones.ts'
 import {
   armedActionsAnchor,
@@ -44,6 +45,16 @@ import {
   toolsFolderTiles,
   zoneFolderTiles,
 } from '../src/app/rail/helpers.ts'
+
+test('thin wall tile labels follow the selected language', () => {
+  const labels = ['half', 'corner'].map(id => CUT_MODES.find(c => c.id === id).label)
+  assert.deepEqual(labels, ['薄墙', '薄墙角'])
+  const original = getLanguage()
+  try {
+    setLanguage('en')
+    assert.deepEqual(labels.map(translate), ['Thin wall', 'Thin wall corner'])
+  } finally { setLanguage(original) }
+})
 
 test('every family is one row: a key, a label, a folder and the ids it owns', () => {
   assert.equal(MODULE_FAMILIES.length, 28)

@@ -801,7 +801,7 @@ to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
 Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls, the corner footprint,
 placement and all four positions, paint-preview faces, removal bounds and right-click/B
 agreement for single courses and dragged areas. `rail-families` pins the
-separate ceiling and corner anchors; `storey-height` pins the ceiling tile and
+separate ceiling and corner anchors and the 薄墙 / 薄墙角 bilingual labels; `storey-height` pins the ceiling tile and
 keyboard behavior. `editor-action-benchmark` lists every corner position.
 `roof-tool.test.mjs`
 and `pick-tool.test.mjs` pin stair direction, dragging and picking.
