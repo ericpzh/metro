@@ -405,13 +405,16 @@ export class ModuleSystem extends SceneSystem {
       // Match the model's foot plane. A blob sunk into the block becomes visible
       // through a triangular block's cut face instead of grounding the equipment.
       // Follow the rendered footprint, including edge offsets and rotation.
-      group.updateWorldMatrix(true, true)
-      const bounds: THREE.Box3 = group.userData.contactShadowBounds ??= new THREE.Box3().setFromObject(group)
-      const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
-      const wide = Number.isFinite(width + depth) && Math.max(width, depth) > 1.1
-      const blob: [number,number,number,number,number?] = wide
-        ? [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + .35) / 1.24, (depth + .35) / 1.24]
-        : [mod.x+.5,mod.y+.5,mod.z+1+.012,r]
+      let blob: [number,number,number,number,number?] = [mod.x+.5,mod.y+.5,mod.z+1+.012,r]
+      if (mod.type !== 'tree') {
+        group.updateWorldMatrix(true, true)
+        const bounds: THREE.Box3 = group.userData.contactShadowBounds ??= new THREE.Box3().setFromObject(group)
+        const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
+        if (Number.isFinite(width + depth) && (mod.type === 'shelf' || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
+          const padding = mod.type === 'shelf' ? .12 : .35
+          blob = [(bounds.min.x + bounds.max.x) / 2, (bounds.min.y + bounds.max.y) / 2, mod.z + 1 + .012, (width + padding) / 1.24, (depth + padding) / 1.24]
+        }
+      }
       const key=`${mod.z}|${ground??'x'}`,entry=blobsByKey.get(key)
       if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
       else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
@@ -427,6 +430,15 @@ export class ModuleSystem extends SceneSystem {
       const group = kept.get(mod.id) ?? this.buildModel(mod, ctx)
       if (!group) continue
       if (!kept.has(mod.id)) {
+        // Capture the actual foot before static batching merges it into the upper geometry.
+        const footName = mod.type === 'hanger' ? 'hanger-base' : mod.type === 'cctv' ? 'cctv-post-base'
+          : mod.type === 'traffic-light' ? 'traffic-light-base' : mod.type === 'rail-signal' ? 'signal-concrete-base' : undefined
+        const foot = footName && group.getObjectByName(footName)
+        if (foot) {
+          group.updateWorldMatrix(true, true)
+          group.userData.contactShadowBounds = new THREE.Box3().setFromObject(foot)
+          group.userData.contactShadowBase = true
+        }
         prepareArtwork(group)
         batchStaticModule(group, mod.type)
         group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)

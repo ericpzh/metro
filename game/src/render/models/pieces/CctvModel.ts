@@ -183,7 +183,7 @@ function buildDome(mats: ModelMaterials, ceiling = 3): THREE.Group {
 /** Ground-standing camera: the 4 m guidepost height, with the PTZ below its top arm. */
 function buildPost(mats: ModelMaterials): THREE.Group {
   const g = buildPtz(mats, 4)
-  slab(g, mats.darkSteel, 0.18, 0.07, 0.06, 0.38, 0.38, 0.12)
+  slab(g, mats.darkSteel, 0.18, 0.07, 0.06, 0.38, 0.38, 0.12).name = 'cctv-post-base'
   housing(g, mats.steel, 0.065, 0.085, 3.84, 0.18, 0.07, 2.04)
   return g
 }

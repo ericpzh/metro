@@ -339,6 +339,10 @@ export function moduleLevels(mod: Module, base = 0, height = STOREY_HEIGHT): num
 export function blobRadius(type: Module['type']): number {
   switch (type) {
     case 'roof': return 0
+    // Fence panels are thin or open; a filled footprint darkens the whole aisle.
+    case 'fence':
+    case 'door':
+    case 'court': return 0
     // Flush floor decoration must not cast an equipment contact blob over itself.
     case 'tactile':
     case 'floor-mark':
@@ -349,6 +353,7 @@ export function blobRadius(type: Module['type']): number {
     case 'walkway':
     case 'stair':
       return 0
+    case 'tree': return 0.4
     case 'exit':
     case 'lift':
       return 1.5
@@ -359,8 +364,7 @@ export function blobRadius(type: Module['type']): number {
     // The wall pieces are bolted to a wall or, for the 线网图 totem, stand on a
     // plinth; a room and a booth are their own walls and counter, and the hung 电视 and
     // both 指示牌 mounts (the board on its rods, the board on the wall) hang or bolt
-    // rather than stand: none of them wants a floor contact blob under it. (A 门 is a
-    // floor-standing piece like a 货架, so it takes the default blob below.)
+    // rather than stand: none of them wants a floor contact blob under it.
     case 'glass':
     case 'calligraphy':
     case 'linemap':

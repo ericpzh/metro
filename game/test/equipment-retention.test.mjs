@@ -20,6 +20,7 @@ import { defaultLine } from '../src/build/rail.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SINGLE_MODEL_OPTIONS } from './support/palette-models.mjs'
 import { isCeilingHung, isWallMounted } from '../src/sim/placement.ts'
+import { SHELF_VARIANTS } from '../src/sim/shelves.ts'
 
 const equipment = ['bench', 'tvm', 'vending', 'gate', 'fence', 'ac-unit', 'electrical-cabinet', 'pillar', 'hanger-post', 'roof-canopy']
 
@@ -478,9 +479,52 @@ test('moving hides only the picked contact shadow and restores it on cancel or d
   assert.deepEqual(matrix(1).elements, other.elements)
 }))
 
-test('multi-tile shelf shadows follow the rendered footprint in every rotation', () => withDrawing(({ modules }) => {
-  for (const type of ['shelf-books', 'shelf-bags', 'shelf-cafe-backbar-4']) for (let rot = 0; rot < 4; rot++) {
-    const shelf = { ...createModule(type, 3, 4, 0, 'books'), rot }
+test('fence runs and corners do not allocate broad contact shadows', () => withDrawing(({ modules }) => {
+  const types = ['fence', 'fence-steel-blue', 'fence-iron', 'fence-gate', 'noise-barrier', 'noise-barrier-half', 'noise-barrier-railing']
+  const bench = createModule('bench', 8, 0, 0, 'bench')
+  for (const type of types) {
+    const fence = [createModule(type, 0, 0, 0, 'a'), createModule(type, 1, 0, 0, 'b'), createModule(type, 1, 1, 0, 'c')]
+    modules.buildModules(station([...fence, bench]), new Set(), true)
+    const shadows = modules.moduleMeshes.children.filter(g => g.userData.contactBlobKey)
+    assert.deepEqual(shadows.flatMap(g => g.userData.contactBlobIds), ['bench'], type)
+    modules.setMovingModule('b')
+    modules.setMovingModule(null)
+    modules.buildModules(station([fence[0], bench]), new Set(), true)
+    assert.deepEqual(modules.moduleMeshes.children.filter(g => g.userData.contactBlobKey).flatMap(g => g.userData.contactBlobIds), ['bench'], type)
+  }
+}))
+
+test('thin fixtures use their feet for contact shadows rather than their upper geometry', () => withDrawing(({ modules }) => {
+  for (const type of ['hanger-post', 'cctv-post', 'traffic-light', 'rail-signal']) for (let rot = 0; rot < 4; rot++) {
+    const mod = createModule(type, 3, 4, 0, 'fixture', rot, 8)
+    modules.buildModules(station([mod]), new Set(), true)
+    const root = modules.moduleMeshes.children.find(g => g.userData.moduleId === 'fixture')
+    const shadow = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
+    const bounds = root.userData.contactShadowBounds
+    assert.ok(root.userData.contactShadowBase, type)
+    const matrix = new THREE.Matrix4(); shadow.getMatrixAt(0, matrix)
+    assert.ok(Math.abs(matrix.elements[12] - (bounds.min.x + bounds.max.x) / 2) < 1e-5, type)
+    assert.ok(Math.abs(matrix.elements[13] - (bounds.min.y + bounds.max.y) / 2) < 1e-5, type)
+    assert.ok(Math.abs(matrix.elements[0] * 1.24 - (bounds.max.x - bounds.min.x + .35)) < 1e-5, type)
+    assert.ok(Math.abs(matrix.elements[5] * 1.24 - (bounds.max.y - bounds.min.y + .35)) < 1e-5, type)
+  }
+}))
+
+test('trees cast a small trunk contact shadow and doors and courts cast none', () => withDrawing(({ modules }) => {
+  const tree = createModule('tree', 3, 4, 0, 'tree')
+  for (const type of ['door-glass-1', 'court-divider', 'court-badminton', 'court-pickleball']) {
+    modules.buildModules(station([tree, createModule(type, 10, 10, 0, 'fixture')]), new Set(), true)
+    const shadow = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
+    assert.deepEqual(shadow.userData.contactBlobIds, ['tree'], type)
+    const matrix = new THREE.Matrix4(); shadow.getMatrixAt(0, matrix)
+    assert.ok(Math.abs(matrix.elements[0] - .4) < 1e-5)
+    assert.ok(Math.abs(matrix.elements[5] - .4) < 1e-5)
+  }
+}))
+
+test('shelf shadows follow the rendered footprint in every rotation', () => withDrawing(({ modules }) => {
+  for (const variant of SHELF_VARIANTS) for (let rot = 0; rot < 4; rot++) {
+    const shelf = { ...createModule(`shelf-${variant}`, 3, 4, 0, 'books'), rot }
     modules.buildModules(station([shelf]), new Set(), true)
     const root = modules.moduleMeshes.children.find(g => g.userData.moduleId === 'books')
     const shadow = modules.moduleMeshes.children.find(g => g.userData.contactBlobKey)
@@ -489,8 +533,8 @@ test('multi-tile shelf shadows follow the rendered footprint in every rotation',
     const e = matrix.elements
     assert.ok(Math.abs(e[12] - (bounds.min.x + bounds.max.x) / 2) < 1e-5)
     assert.ok(Math.abs(e[13] - (bounds.min.y + bounds.max.y) / 2) < 1e-5)
-    assert.ok(Math.abs(e[0] * 1.24 - (bounds.max.x - bounds.min.x + .35)) < 1e-5)
-    assert.ok(Math.abs(e[5] * 1.24 - (bounds.max.y - bounds.min.y + .35)) < 1e-5)
+    assert.ok(Math.abs(e[0] * 1.24 - (bounds.max.x - bounds.min.x + .12)) < 1e-5)
+    assert.ok(Math.abs(e[5] * 1.24 - (bounds.max.y - bounds.min.y + .12)) < 1e-5)
     modules.setMovingModule('books')
     const hidden = new THREE.Matrix4(); shadow.getMatrixAt(0, hidden)
     assert.equal(hidden.elements[0], 0)
