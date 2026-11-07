@@ -16,8 +16,8 @@ test('approved ambient policies keep voices natural, accelerate light traffic an
  }
 })
 test('audio asset paths work at root, English/demo routes and deployed /game prefix',()=>{
- for(const path of ['/','/en','/en/','/en/zoo','/tanwei','/lab'])assert.equal(audioAssetBase(path),'/audio/')
- for(const path of ['/game','/game/','/game/en/','/game/en/tanwei','/game/lab'])assert.equal(audioAssetBase(path),'/game/audio/')
+ for(const path of ['/','/en','/en/','/en/zoo','/tanwei','/tianhe','/en/tianhe','/lab'])assert.equal(audioAssetBase(path),'/audio/')
+ for(const path of ['/game','/game/','/game/en/','/game/en/tanwei','/game/en/tianhe','/game/tianhe','/game/lab'])assert.equal(audioAssetBase(path),'/game/audio/')
 })
 test('accepted gestures produce one outcome; hover, cancellation and no-op remain silent',()=>{
  assert.equal(actionSound(state,{...state,version:2},0,false),'place')

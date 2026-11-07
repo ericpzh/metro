@@ -4,9 +4,9 @@ import type { UpscalingMode } from '../../render/upscaling.ts'
 import { App } from '../App.tsx'
 import { useStore } from '../store.ts'
 import { useLanguage } from '../i18n.ts'
-import type { ExampleStationId } from '../../data/reference-station.ts'
+import { EXAMPLE_STATION_IDS, type ExampleStationId } from '../../data/reference-station.ts'
 import { summarizeFrameIntervals } from './benchmarkStats.ts'
-import { benchmarkCopy } from './benchmarkCopy.ts'
+import { BENCHMARK_COPY, benchmarkCopy } from './benchmarkCopy.ts'
 import './benchmark.css'
 
 type Quality = 'low' | 'high'
@@ -45,8 +45,8 @@ const LOCKED_GAME_EVENTS = [
 ] as const
 
 function stationLabel(id: ExampleStationId, language: string): string {
-  if (language === 'en') return id === 'tanwei' ? 'Tanwei' : 'Zoo'
-  return id === 'tanwei' ? '坦尾站' : '动物园站'
+  const copy = BENCHMARK_COPY[language === 'en' ? 'en' : 'zh']
+  return copy[id]
 }
 function browserLabel(userAgent: string): string {
   if (/Edg\/(\d+)/.test(userAgent)) return `Edge ${userAgent.match(/Edg\/(\d+)/)?.[1]}`
@@ -361,7 +361,7 @@ export function BenchmarkRoute(): React.ReactElement {
       <div className="benchmarkEyebrow">{copy.eyebrow}</div>
       <h1>{copy.title}</h1>
       <p>{copy.intro}</p>
-      <label>{copy.station}<select value={stationId} onChange={(event) => setStationId(event.target.value as ExampleStationId)}><option value="zoo">{copy.zoo}</option><option value="tanwei">{copy.tanwei}</option></select></label>
+      <label>{copy.station}<select value={stationId} onChange={(event) => setStationId(event.target.value as ExampleStationId)}>{EXAMPLE_STATION_IDS.map(id => <option key={id} value={id}>{copy[id]}</option>)}</select></label>
       <fieldset><legend>{copy.graphics}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={quality === 'low'} onClick={() => setQuality('low')}>{copy.low}</button>
         <button type="button" aria-pressed={quality === 'high'} onClick={() => setQuality('high')}>{copy.high}</button>
@@ -381,7 +381,7 @@ export function BenchmarkRoute(): React.ReactElement {
     {phase === 'preparing' && <section className="benchmarkLoadingScreen" role="status" aria-live="polite">
       <div className="benchmarkLoadingCard">
         <div className="benchmarkEyebrow">{copy.preparing}</div>
-        <h1>{stationId === 'zoo' ? copy.zoo : copy.tanwei}</h1>
+        <h1>{copy[stationId]}</h1>
         <p>{loadingStep || copy.loading}</p>
         <div className="benchmarkProgressTrack" role="progressbar" aria-label={copy.preparing} aria-valuemin={0} aria-valuemax={100} aria-valuenow={loadingProgress}>
           <span style={{ width: `${loadingProgress}%` }}/>

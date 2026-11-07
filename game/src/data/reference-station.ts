@@ -31,10 +31,23 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // 68 树木, seven 道路 and a 公交站. `demo.test.mjs` pins its authored counts and
 // that opening it repairs nothing.
 //
-// The raw documents live beside this file as `demo-station.json` and
-// `tanwei-station.json` so they are not hand-edited; `referenceStation()` hands
-// back a fresh clone each call, because the app mutates its station (undo, edits)
-// and one shared object would leak those edits back into the demo.
+// 天河公园 (Tianhe Park) is the third, baked from the author's `天河公园.metro.json`
+// (metro-save v1, game 0.2.0, saved 2026-11-07 21:49Z): a 333 × 287 m surface
+// interchange with 151,852 cells and 76,436 modules — three lines (11号线,
+// 13号线, 21号线), eight 站台门 platform edges on six track runs, six street
+// head-houses (B口/C口/D口/F口/E1口/E2口), five lifts, fourteen 楼梯 and forty-seven
+// 扶梯, over the author's street pass of 55,545 草坪, 14,312 人行道, 282 球场,
+// 1,306 站台门端, 974 盲道, 842 围栏 and their other props. Its head-houses stand
+// on the unpaved street: the graph walks the concrete pad each one draws
+// (`exitFloorCells`, `sim/station.ts`), which is what gives a ground-level
+// entrance its node. `demo.test.mjs` pins its authored counts, and the two -20 m
+// platform faces its author left off the entrance route stay off it.
+//
+// The raw documents live beside this file as `demo-station.json`,
+// `tanwei-station.json` and `tianhe-station.json` so they are not hand-edited;
+// `referenceStation()` hands back a fresh clone each call, because the app mutates
+// its station (undo, edits) and one shared object would leak those edits back into
+// the demo.
 //
 // The old hand-built "Wusi Square" rig is kept for the sim tests as
 // `test/support/scenario-station.ts`.
@@ -43,14 +56,19 @@ import type { StationData } from '../sim/types.ts'
 import { DEFAULT_SIM_TIME } from '../sim/constants.ts'
 import demo from './demo-station.json' with { type: 'json' }
 import tanwei from './tanwei-station.json' with { type: 'json' }
+import tianhe from './tianhe-station.json' with { type: 'json' }
 
-const DEMO = demo as unknown as StationData
-export const EXAMPLE_STATION_IDS = ['zoo', 'tanwei'] as const
+const DOCUMENTS = {
+  zoo: demo as unknown as StationData,
+  tanwei: tanwei as unknown as StationData,
+  tianhe: tianhe as unknown as StationData,
+} as const
+export const EXAMPLE_STATION_IDS = ['zoo', 'tanwei', 'tianhe'] as const
 export type ExampleStationId = typeof EXAMPLE_STATION_IDS[number]
 
 /** A fresh copy of the demo station, safe to mutate. */
 export function referenceStation(id: ExampleStationId = 'zoo'): StationData {
-  return structuredClone(id === 'tanwei' ? tanwei as unknown as StationData : DEMO)
+  return structuredClone(DOCUMENTS[id])
 }
 
 /**

@@ -1299,8 +1299,9 @@ contributing asset (`F`), a day report and CSV export.
   station and its authored day; movement restarts. See §9.4 and §10.5.
 * **Language** = bilingual: Simplified Chinese (default) and English at `/game/en/`, with a
   toggle in the gear menu. See §9.2.
-* **Onboarding / demos / stats** — an 18-step interactive tutorial, two shipped example
-  stations (`/game/zoo`, `/game/tanwei`), and the anonymous global-stats submission (§10.6).
+* **Onboarding / demos / stats** — an 18-step interactive tutorial, three shipped example
+  stations (`/game/zoo`, `/game/tanwei`, `/game/tianhe`), and the anonymous global-stats
+  submission (§10.6).
 
 ### 9.1 Camera and views
 
@@ -1570,10 +1571,12 @@ examples). It highlights the real controls, asks for a practice block/delete/rai
 and can be dismissed; the step and hidden flag persist in `localStorage["metro-game.tutorial.v1"]`.
 It never blocks the simulation and has no failure state.
 
-Two authored stations ship as examples:
+Three authored stations ship as examples:
 
 * **动物园 (Zoo)** at `/game/zoo` (English `/game/en/zoo`), a five-level Line 5 station;
-* **坦尾 (Tanwei)** at `/game/tanwei` (English `/game/en/tanwei`), an elevated 5/6 interchange.
+* **坦尾 (Tanwei)** at `/game/tanwei` (English `/game/en/tanwei`), an elevated 5/6 interchange;
+* **天河公园 (Tianhe Park)** at `/game/tianhe` (English `/game/en/tianhe`), a three-line
+  11/13/21 surface interchange with six street entrances.
 
 Opening a demo loads it, then rewrites the address to the plain game path so a refresh does
 not re-load the example. A plain `/game/` load restores the local autosave, or starts empty if

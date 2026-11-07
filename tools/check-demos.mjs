@@ -8,7 +8,7 @@
 //   * the nav button (left of 看图) and the hero button (between 开始游戏 and
 //     浏览概念图) open the one picker, in the page's language;
 //   * each card shows the game's own preview and links the game's own demo route
-//     (/game/zoo, /game/tanwei, /game/en/…);
+//     (/game/zoo, /game/tanwei, /game/tianhe, /game/en/…);
 //   * following a card opens that station in the game and leaves the plain game
 //     path behind, without touching the autosave;
 //   * the trailing-slash form of a demo route is redirected, like the Worker;
@@ -55,7 +55,10 @@ const PREVIEWS_LOADED = `[...document.querySelectorAll('.demos__card img')].ever
 const server = createPreview()
 await new Promise((ok) => server.listen(0, '127.0.0.1', ok))
 const origin = `http://127.0.0.1:${server.address().port}`
-const page = await withPage({ url: `${origin}/`, profile: PROFILE })
+// The largest demo (天河公园, 151,852 cells) holds the main thread through the
+// bundle parse and its first station build; a 60 s CDP command budget was not
+// enough in a software-rendered headless browser.
+const page = await withPage({ url: `${origin}/`, profile: PROFILE, commandTimeoutMs: 180000 })
 
 const navigate = async (path) => {
   const loaded = page.waitForEvent('Page.loadEventFired')
@@ -85,13 +88,16 @@ try {
   await waitFor(page.evaluate, `!!document.querySelector('.demos__panel')`, { what: 'the nav picker' })
   const zh = await page.evaluate(READ_PICKER)
   assert.equal(zh.title, '示例车站')
-  assert.deepEqual(zh.cards.map((c) => c.id), ['zoo', 'tanwei'])
-  assert.deepEqual(zh.cards.map((c) => c.href), ['/game/zoo', '/game/tanwei'])
+  assert.deepEqual(zh.cards.map((c) => c.id), ['zoo', 'tanwei', 'tianhe'])
+  assert.deepEqual(zh.cards.map((c) => c.href), ['/game/zoo', '/game/tanwei', '/game/tianhe'])
   assert.ok(zh.cards[0].image.endsWith('/stations/zoo.webp'), zh.cards[0].image)
   assert.ok(zh.cards[1].image.endsWith('/stations/tanwei.webp'), zh.cards[1].image)
+  assert.ok(zh.cards[2].image.endsWith('/stations/tianhe.webp'), zh.cards[2].image)
   assert.match(zh.cards[0].text, /动物园/)
   assert.match(zh.cards[0].text, /广州地铁/)
   assert.match(zh.cards[1].text, /坦尾/)
+  assert.match(zh.cards[2].text, /天河公园/)
+  assert.match(zh.cards[2].text, /广州地铁/)
   assert.equal(zh.focused, 'zoo', 'the first card takes focus')
   await waitFor(page.evaluate, PREVIEWS_LOADED, { what: 'the station previews' })
   await shot('picker-zh')
@@ -105,7 +111,7 @@ try {
   await page.evaluate(`(() => { const b = document.querySelector('[data-demos="hero"]'); b.focus(); b.click(); return true })()`)
   await waitFor(page.evaluate, `!!document.querySelector('.demos__panel')`, { what: 'the hero picker' })
   const hero = await page.evaluate(READ_PICKER)
-  assert.deepEqual(hero.cards.map((c) => c.href), ['/game/zoo', '/game/tanwei'])
+  assert.deepEqual(hero.cards.map((c) => c.href), ['/game/zoo', '/game/tanwei', '/game/tianhe'])
   console.log('demos: the hero button opens the same cards')
 
   // --- following a card starts the zoo, then leaves the plain game path ----
@@ -152,9 +158,10 @@ try {
   await waitFor(page.evaluate, `!!document.querySelector('.demos__panel')`, { what: 'the English picker' })
   const en = await page.evaluate(READ_PICKER)
   assert.equal(en.title, 'Demo stations')
-  assert.deepEqual(en.cards.map((c) => c.href), ['/game/en/zoo', '/game/en/tanwei'])
+  assert.deepEqual(en.cards.map((c) => c.href), ['/game/en/zoo', '/game/en/tanwei', '/game/en/tianhe'])
   assert.equal(en.cards[0].text.includes('Zoo'), true)
   assert.equal(en.cards[1].text.includes('Tanwei'), true)
+  assert.equal(en.cards[2].text.includes('Tianhe Park'), true)
   await waitFor(page.evaluate, PREVIEWS_LOADED, { what: 'the English previews' })
   await shot('picker-en')
   console.log(`demos: English picker — ${en.cards.map((c) => c.href).join(', ')}`)
@@ -176,6 +183,15 @@ try {
   assert.equal(slashed.name, '动物园')
   assert.equal(slashed.path, '/game/', '/game/zoo/ redirects to /game/zoo, then opens the plain path')
   console.log('demos: /game/zoo/ redirects and opens the zoo')
+
+  // --- the third demo: the author's 天河公园 document ----------------------
+  await navigate('/game/tianhe')
+  await waitFor(page.evaluate, `window.__metro?.getState().station.name === '天河公园'`, { tries: 240, what: 'the Tianhe Park document' })
+  const tianhe = await page.evaluate(READ_GAME)
+  assert.equal(tianhe.name, '天河公园')
+  assert.equal(tianhe.path, '/game/', 'the demo segment is replaced by the plain game path')
+  assert.equal(tianhe.cells, 151852, 'the third demo is the author’s 151,852-cell document')
+  console.log(`demos: /game/tianhe opened ${tianhe.name} (${tianhe.cells} cells) at ${tianhe.path}`)
 
   // --- the nav still fits a phone -----------------------------------------
   await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })

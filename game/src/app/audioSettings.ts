@@ -2,7 +2,7 @@ export interface AudioVolumes { master: number; effects: number; ambient: number
 /** Preserve the deployed /game prefix while keeping language/demo routes out of asset paths. */
 export function audioAssetBase(pathname:string):string {
   const segments=pathname.split('/').filter(Boolean)
-  if(['lab','zoo','tanwei'].includes(segments.at(-1)??''))segments.pop()
+  if(['lab','zoo','tanwei','tianhe'].includes(segments.at(-1)??''))segments.pop()
   if(segments.at(-1)==='en')segments.pop()
   return `/${segments.length?segments.join('/')+'/':''}audio/`
 }

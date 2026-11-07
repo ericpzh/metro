@@ -650,7 +650,9 @@ code {
 
 .demos__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Three shipped demos share one row at the dialog's full width; the auto-fit
+     track keeps the middle widths at two columns instead of squeezing a caption. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px;
 }
 

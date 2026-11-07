@@ -102,6 +102,11 @@ const zh = {
       line: '广州地铁 · 5号线 / 6号线',
       note: '高架换乘站，出入口开在地面',
     },
+    tianhe: {
+      name: '天河公园',
+      line: '广州地铁 · 11号线 / 13号线 / 21号线',
+      note: '三线换乘大站，站前广场铺开球场',
+    },
   },
   rail: {
     label: '概念图阅读进度',
@@ -223,6 +228,11 @@ const en = {
       name: 'Tanwei',
       line: 'Guangzhou Metro · Lines 5 / 6',
       note: 'Elevated interchange opening at street level',
+    },
+    tianhe: {
+      name: 'Tianhe Park',
+      line: 'Guangzhou Metro · Lines 11 / 13 / 21',
+      note: 'Three-line interchange with courts across the surface plaza',
     },
   },
   rail: {

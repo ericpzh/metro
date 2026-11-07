@@ -93,7 +93,9 @@ separate profile runs traceable in the shared performance guide.
 Completed unprofiled hardware runs automatically update `references/editor-action-matrix.md`
 and `references/editor-action-matrix.jsonl`: focused captures replace only matching
 demo/case/actions, with each capture attributed, and a newer full capture removes
-obsolete cases. The tables sort maximum first-render times into >100 ms and ≤100 ms;
+obsolete cases. A full inventory measures every shipped example station
+(`EXAMPLE_STATION_IDS`: zoo, tanwei, tianhe); a focused capture names the demo it
+measured. The reference lists the measured demos at the top. The tables sort maximum first-render times into >100 ms and ≤100 ms;
 exactly 100 ms still misses the strict <100 ms budget. Resumed checkpoints retain
 their original observation times, so an older case cannot overwrite a newer focused
 measurement. Unsupported/failed timings
@@ -537,7 +539,7 @@ The soft-human preview never feeds the game crowd or passenger bake. See
 | Path | What it is |
 |---|---|
 | `GAME-SPEC.md` | The design specification — the source of truth for *what* the game does. Cite its sections in code comments. |
-| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`), served at `stationdesigner.com/game/`. Bilingual: Chinese by default, English at `/game/en/`; the top-right gear menu contains the quality controls and the opposite-language action. A demo station can be opened from the URL (`/game/zoo`, `/game/tanwei`, `/game/en/…`), which loads that example and then rewrites the address to the plain game path. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
+| `game/` | **The game** — React 19 + three.js + a Web Worker sim. Own `package.json`, Vite config, tests, and Cloudflare Worker (`metro-game`), served at `stationdesigner.com/game/`. Bilingual: Chinese by default, English at `/game/en/`; the top-right gear menu contains the quality controls and the opposite-language action. A demo station can be opened from the URL (`/game/zoo`, `/game/tanwei`, `/game/tianhe`, `/game/en/…`), which loads that example and then rewrites the address to the plain game path. Game copy lives in `game/src/sim/i18n/messages.ts`. Rolling stock classes A/B/C/D/L share the ordering in `game/src/sim/stock.ts`; D is the eight-car, 3.3 m Guangzhou 18/22 type with a dedicated swept cab and rounded shell. See `metro-game` for model, door and test contracts. |
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
@@ -880,7 +882,7 @@ commands.
 | `sheet-i18n.mjs` | The English copy table for the sheets: every Chinese `<text>` string (plus sheet 06's slider `aria-label`s and live-readout script literals) mapped to terse English; `{ t, size }` pulls a long label's font-size down. Embedded game captures stay Chinese. |
 | `sheet-png.mjs <nn>` | Rasterises one sheet in a headless browser so the composition can be **looked at** (`--at <s>` freezes an animated sheet). |
 | `serve.mjs [port]` | The static sheet viewer (default 4173). |
-| `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
+| `preview.mjs` | `npm run preview:local`: serves the built site at `/` (English `/en/`) and the built game at `/game/` (English `/game/en/`, with its demo routes `/game/zoo`, `/game/tanwei`, `/game/tianhe`), over one origin. Exports `createPreview()` for `check-demos.mjs`. Stands in for `wrangler dev`, with the Workers' pins and trailing-slash redirects. |
 | `audit-i18n.mjs` | TS-AST check for inline player-facing copy: walks `game/src` + `web/src`, flags JSX text, `title`/`aria-label`/`placeholder`/`alt`, and `fillText`/`strokeText`/`drawModelText` sinks. Run as `npm run audit:i18n` after copy/render changes. Direct sinks only — review indirect data paths by hand. |
 | `bake-soft-passengers.mjs` | Bakes selected-base outfits/bags, walks and activities into the shared game assets. Run `npm run bake:passengers`; see `metro-model`. |
 | `bake-approved-passenger.mjs` | Historical 232-export baker; no longer the active crowd source. |

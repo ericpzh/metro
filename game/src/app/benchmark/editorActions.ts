@@ -78,7 +78,12 @@ let original:StationState,origin={x:0,y:0}
 export async function initialize(){
   instrument()
   original=useStore.getState().station
-  origin={x:Math.max(...original.cells.map(c=>c.x),...original.modules.map(m=>m.x))+24,y:0}
+  // A shipped demo can hold 150k cells and 76k modules (天河公园): spreading them
+  // into Math.max overflows the call stack, so scan instead.
+  let maxX=-Infinity
+  for(const c of original.cells)if(c.x>maxX)maxX=c.x
+  for(const m of original.modules)if(m.x>maxX)maxX=m.x
+  origin={x:maxX+24,y:0}
   useStore.getState().setPlaying(false)
   return {cases:editorActionCases(original),fixture:{name:original.name,seed:original.seed,cells:original.cells.length,modules:original.modules.length},origin}
 }

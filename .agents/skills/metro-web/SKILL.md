@@ -47,14 +47,16 @@ English-copy change must preserve the Chinese catalogue and default captures.
   above the image; the gallery does not open a lightbox. `DemoPicker` is the
   shared demo-station dialog: the nav button left of 看图 and the hero button
   between 开始游戏 and 浏览概念图 both open it, Escape/backdrop/× close it, and a
-  card is a link to the game's own route (`/game/zoo`, `/game/en/tanwei`).
+  card is a link to the game's own route (`/game/zoo`, `/game/en/tanwei`,
+  `/game/tianhe`).
 * `web/src/artworks.js` — the sheets as data: spec id, title, player-facing
   introduction, alt text, section and order. The four paths are the station
   (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
   passenger flow and interface (06, 07). Section notes introduce each group.
-* `web/src/stations.js` — the two example stations the game ships (ids and
+* `web/src/stations.js` — the three example stations the game ships (ids and
   preview files) and `demoPath(lang, id)`; its copy lives in `i18n.js` under
-  `demos`, keyed by station id, with the authored names (动物园 / 坦尾) kept.
+  `demos`, keyed by station id, with the authored names (动物园 / 坦尾 / 天河公园)
+  kept.
 * `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
   `BASE_URL`-aware), `stationPreview(file)`, and the game URLs: `gameRoot` =
   `VITE_GAME_URL`, else the dev server `http://localhost:5174/`, else `/game/`,

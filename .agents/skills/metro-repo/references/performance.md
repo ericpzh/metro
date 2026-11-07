@@ -933,6 +933,14 @@ settings. Complete unprofiled hardware captures update the matrix; focused runs
 replace only matching cases. Incomplete, profiled and software-GPU captures must
 not publish. Use `BENCH_MATRIX_UPDATE=0` for exploration.
 
+天河公园 (tianhe) is the largest shipped example (151,852 cells, 76,436 modules).
+Its first focused capture (guidepost, 1 sample, unprofiled hardware, 2026-11-07)
+misses the strict 100 ms budget for the structural actions — 478.30 ms place,
+292.20 ms drop, 153.90 ms move-preview and 1,572.60 ms delete — while preview
+(45.40 ms) and pickup (79.70 ms) pass. The measured rows live in
+[editor-action-matrix.md](editor-action-matrix.md); they are this document's
+cost, not a target for the two smaller demos.
+
 ### Benchmark protocol
 
 Build first; benchmark without concurrent builds, tests or profilers. API-to-render

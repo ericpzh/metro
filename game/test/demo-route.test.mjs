@@ -1,7 +1,8 @@
-// Demo deep links: `/game/zoo`, `/game/tanwei` (and their `/game/en/…` twins)
-// open the game on that example station, then leave the plain game URL behind so
-// a reload restores the player's own autosave. The Worker serves those paths with
-// no trailing slash; the app turns the segment into a document.
+// Demo deep links: `/game/zoo`, `/game/tanwei` and `/game/tianhe` (and their
+// `/game/en/…` twins) open the game on that example station, then leave the plain
+// game URL behind so a reload restores the player's own autosave. The Worker
+// serves those paths with no trailing slash; the app turns the segment into a
+// document.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -13,10 +14,13 @@ test('a demo URL names its station in any game path', () => {
     ['/game/zoo', 'zoo'],
     ['/game/zoo/', 'zoo'],
     ['/game/tanwei', 'tanwei'],
+    ['/game/tianhe', 'tianhe'],
     ['/game/en/zoo', 'zoo'],
     ['/game/en/tanwei/', 'tanwei'],
+    ['/game/en/tianhe/', 'tianhe'],
     ['/zoo', 'zoo'],
     ['/en/tanwei', 'tanwei'],
+    ['/en/tianhe', 'tianhe'],
   ]) {
     assert.equal(demoStationForPath(path), id, path)
   }
@@ -30,8 +34,11 @@ test('taking a demo link leaves the plain game path behind, keeping the language
   assert.equal(gamePathFor('/game/zoo/'), '/game/')
   assert.equal(gamePathFor('/game/en/zoo'), '/game/en/')
   assert.equal(gamePathFor('/game/en/tanwei/'), '/game/en/')
+  assert.equal(gamePathFor('/game/tianhe'), '/game/')
+  assert.equal(gamePathFor('/game/en/tianhe/'), '/game/en/')
   assert.equal(gamePathFor('/zoo'), '/')
   assert.equal(gamePathFor('/en/tanwei'), '/en/')
+  assert.equal(gamePathFor('/en/tianhe'), '/en/')
 })
 
 test('the game Worker serves demo routes and drops their trailing slash', async () => {
@@ -44,7 +51,7 @@ test('the game Worker serves demo routes and drops their trailing slash', async 
   const game = (path) => worker.fetch(new Request(`https://stationdesigner.com${path}`), env)
 
   // A demo path has no file behind it: the SPA fallback serves the document.
-  for (const path of ['/game/zoo', '/game/tanwei', '/game/en/zoo', '/game/en/tanwei']) {
+  for (const path of ['/game/zoo', '/game/tanwei', '/game/tianhe', '/game/en/zoo', '/game/en/tanwei', '/game/en/tianhe']) {
     const response = await game(path)
     assert.equal(response.status, 200, path)
     assert.equal(await response.text(), '/', `${path} serves the game document`)
@@ -55,8 +62,10 @@ test('the game Worker serves demo routes and drops their trailing slash', async 
   for (const [path, location] of [
     ['/game/zoo/', 'https://stationdesigner.com/game/zoo'],
     ['/game/tanwei/', 'https://stationdesigner.com/game/tanwei'],
+    ['/game/tianhe/', 'https://stationdesigner.com/game/tianhe'],
     ['/game/en/zoo/', 'https://stationdesigner.com/game/en/zoo'],
     ['/game/en/tanwei/', 'https://stationdesigner.com/game/en/tanwei'],
+    ['/game/en/tianhe/', 'https://stationdesigner.com/game/en/tianhe'],
     ['/game/lab/', 'https://stationdesigner.com/game/lab'],
   ]) {
     const response = await game(path)

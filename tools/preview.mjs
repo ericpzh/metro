@@ -9,11 +9,11 @@
 //   /                  web/dist    — the art site          (English: /en/)
 //   /game/             game/dist   — the game              (English: /game/en/)
 //
-// The game's demo routes (`/game/zoo`, `/game/tanwei`, and their `/game/en/…`
-// twins) are client routes like `/game/lab`: the shell is served and the app
-// reads the path. Both builds spell their assets relatively, and the game sits a
-// level down, so each request has its language segment — and, for the game, its
-// prefix — stripped before the file is looked up. Nothing is rebuilt here: run
+// The game's demo routes (`/game/zoo`, `/game/tanwei`, `/game/tianhe`, and their
+// `/game/en/…` twins) are client routes like `/game/lab`: the shell is served and
+// the app reads the path. Both builds spell their assets relatively, and the game
+// sits a level down, so each request has its language segment — and, for the game,
+// its prefix — stripped before the file is looked up. Nothing is rebuilt here: run
 // `npm run build` and `npm run build:game` first.
 import { createServer } from 'node:http'
 import { readFile, stat } from 'node:fs/promises'
@@ -97,8 +97,8 @@ export function createPreview({ site = DEFAULT_SITE, game = DEFAULT_GAME } = {})
       // Workers.
       const rest = under === '/en' || under.startsWith('/en/') ? under.slice(3) || '/' : under
 
-      // A client route (/lab, /zoo, /tanwei) is served without a trailing slash:
-      // with one, its relative `./assets/...` would resolve inside the route.
+      // A client route (/lab, /zoo, /tanwei, /tianhe) is served without a trailing
+      // slash: with one, its relative `./assets/...` would resolve inside the route.
       if (rest.length > 1 && rest.endsWith('/') && !rest.slice(1, -1).includes('/')) {
         res.writeHead(308, { location: url.slice(0, -1) })
         res.end()
@@ -132,6 +132,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   createPreview().listen(port, '127.0.0.1', () => {
     console.log(`preview:  http://127.0.0.1:${port}/`)
     console.log(`  site  <- ${DEFAULT_SITE}   (/ and /en/)`)
-    console.log(`  game  <- ${DEFAULT_GAME}   (/game/, /game/en/, /game/zoo, /game/tanwei)`)
+    console.log(`  game  <- ${DEFAULT_GAME}   (/game/, /game/en/, /game/zoo, /game/tanwei, /game/tianhe)`)
   })
 }

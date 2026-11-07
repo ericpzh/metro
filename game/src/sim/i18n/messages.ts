@@ -2315,6 +2315,14 @@ export const messages = {
     "zh": "广州地铁 · 5号线 / 6号线",
     "en": "Guangzhou Metro · Lines 5 / 6"
   },
+  "tianhe": {
+    "zh": "天河公园",
+    "en": "Tianhe Park"
+  },
+  "guangzhou_metro_lines_11_13_21": {
+    "zh": "广州地铁 · 11号线 / 13号线 / 21号线",
+    "en": "Guangzhou Metro · Lines 11 / 13 / 21"
+  },
   "value_station_preview": {
     "zh": "{0}站预览",
     "en": "{0} station preview"

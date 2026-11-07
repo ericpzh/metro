@@ -10,19 +10,21 @@ import { ui } from '../../web/src/i18n.js'
 
 const read = (rel) => readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')
 
-test('the site offers exactly the game\'s two example stations', () => {
+test('the site offers exactly the game\'s example stations', () => {
   const previews = readdirSync(new URL('../../game/src/assets/stations/', import.meta.url))
     .filter((f) => f.endsWith('.webp'))
     .sort()
   assert.deepEqual(stations.map((s) => s.preview).sort(), previews)
-  assert.deepEqual(stations.map((s) => s.id), ['zoo', 'tanwei'])
+  assert.deepEqual(stations.map((s) => s.id), ['zoo', 'tanwei', 'tianhe'])
 })
 
 test('a demo link is the game route, with the language pin in front', () => {
   assert.equal(demoPath('zh', 'zoo'), 'zoo')
   assert.equal(demoPath('zh', 'tanwei'), 'tanwei')
+  assert.equal(demoPath('zh', 'tianhe'), 'tianhe')
   assert.equal(demoPath('en', 'zoo'), 'en/zoo')
   assert.equal(demoPath('en', 'tanwei'), 'en/tanwei')
+  assert.equal(demoPath('en', 'tianhe'), 'en/tianhe')
   const site = read('web/src/site.js')
   assert.match(site, /demoHref = \(lang, id\) => .*gameRoot.*demoPath\(lang, id\)/, 'the game root owns the href')
 })
@@ -61,4 +63,5 @@ test('the picker copy exists in both languages', () => {
   }
   assert.equal(ui.zh.demos.zoo.name, '动物园', 'authored station names stay as the game prints them')
   assert.equal(ui.zh.demos.tanwei.name, '坦尾')
+  assert.equal(ui.zh.demos.tianhe.name, '天河公园')
 })

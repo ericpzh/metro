@@ -40,6 +40,7 @@ fifth way in:
 |---|---|
 | `/game/zoo`, `/game/en/zoo` | 动物园, 广州地铁 5号线 — the five-level station with a surface plaza |
 | `/game/tanwei`, `/game/en/tanwei` | 坦尾, 广州地铁 5/6号线 — the elevated interchange |
+| `/game/tianhe`, `/game/en/tianhe` | 天河公园, 广州地铁 11/13/21号线 — the three-line surface interchange |
 
 The path opens that example station instead of the local autosave, then rewrites
 the URL to the plain game path (`/game/`, `/game/en/`), so a reload restores what
@@ -48,10 +49,10 @@ that through `app/demoRoute.ts`.
 
 The site's **示例车站** picker is the shop window for those routes: the nav button
 left of 看图 and the hero button between 开始游戏 and 浏览概念图 open the same
-two-card dialog, and each card is a plain link to one of the demo URLs. The cards'
+three-card dialog, and each card is a plain link to one of the demo URLs. The cards'
 pictures are the game's own previews (`game/src/assets/stations/*.webp`), copied
 into the site at build time by `web/scripts/sync-stations.mjs` — the site never
-imports game code, only the two pictures and the URL.
+imports game code, only the pictures and the URL.
 
 `game/wrangler.jsonc` declares the game's route pair, so `npm run deploy:game`
 creates them along with the Worker — there is no dashboard step and nothing to
@@ -63,7 +64,7 @@ npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run dev:stats     # http://localhost:5176/ (local D1 filled by the game at :5174)
 npm run test:game     # node --test: determinism, tick budgets, capacity ladder
-npm run check:demos   # builds both apps, then walks the picker and all four demo URLs in Chrome
+npm run check:demos   # builds both apps, then walks the picker and all six demo URLs in Chrome
 npm run deploy:game   # build, deploy metro-game, and attach its route pair
 npm run deploy:stats  # migrate the remote stats D1, deploy metro-stats, verify the live API
 ```
@@ -150,7 +151,7 @@ A dark, single scrolling page: every concept sheet runs edge to edge, and its de
 translucent glass panel floating over the drawing. Click any sheet to open it at full resolution.
 
 Two buttons — 示例车站 in the nav, left of 看图, and the one between 开始游戏 and 浏览概念图 in the
-hero — open a picker of the game's two example stations. Each card is that game's own preview
+hero — open a picker of the game's three example stations. Each card is that game's own preview
 render and a link to the station's demo route, so choosing one starts the game on it. The dialog is
 [`web/src/components/DemoPicker.jsx`](web/src/components/DemoPicker.jsx); its copy is in
 [`web/src/i18n.js`](web/src/i18n.js) and the previews are published from the game at build time.
@@ -264,7 +265,7 @@ the production D1 database before deploying.
 When wrangler is not available — no Cloudflare account, no network, or a machine that will not let
 it spawn — `npm run preview:local` serves the same two builds from `.dist` on one origin instead:
 the site at `/`, the game at `/game/`, each with its `/en/` pin and the game's demo routes
-(`/game/zoo`, `/game/tanwei`). It is plain Node with no children, so it starts anywhere:
+(`/game/zoo`, `/game/tanwei`, `/game/tianhe`). It is plain Node with no children, so it starts anywhere:
 
 ```bash
 npm run build && npm run build:game    # it only reads build output
@@ -292,9 +293,9 @@ served by its SPA fallback:
 
 | URL | Result |
 |---|---|
-| `/game/zoo`, `/game/tanwei` | the game document; the app opens that example station |
-| `/game/en/zoo`, `/game/en/tanwei` | the same, in English |
-| `/game/zoo/`, `/game/tanwei/` | `308` to the slash-less URL (a directory form would break the relative assets) |
+| `/game/zoo`, `/game/tanwei`, `/game/tianhe` | the game document; the app opens that example station |
+| `/game/en/zoo`, `/game/en/tanwei`, `/game/en/tianhe` | the same, in English |
+| `/game/zoo/`, `/game/tanwei/`, `/game/tianhe/` | `308` to the slash-less URL (a directory form would break the relative assets) |
 
 All three Workers are attached with **routes**, not as a Custom Domain: a Custom Domain claims the
 whole hostname for one Worker and would hide the others. The zone must hold `stationdesigner.com`,
@@ -340,6 +341,7 @@ reproducible locally with `npm run preview:local`:
 | `/game/lab` | `200` game `index.html` — the SPA fallback |
 | `/game/zoo` | `200` game `index.html` — the zoo demo opens |
 | `/game/en/tanwei` | `200` game `index.html`, English — the Tanwei demo opens |
+| `/game/tianhe` | `200` game `index.html` — the Tianhe Park demo opens |
 | `/game/zoo/` | `308` → `/game/zoo` |
 | `/stats` | `308` → `/stats/` |
 | `/stats/` | `200` stats page |

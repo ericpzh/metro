@@ -641,6 +641,15 @@ the four rules most changes trip over.
   into 73 walk-only islands and left **one** platform→exit route for the whole
   station, with 12 of its 30 ramps carrying nobody. `wayfinding.test.mjs` pins both
   directions.
+* **A head-house's pad is graph floor, and so is the street at grade.**
+  `generatedGround` leaves a head-house footprint out of the street plane because
+  `buildExit` draws its concrete pad, so `buildGraph` adds that pad as virtual walk
+  cells (`exitFloorCells`, `sim/station.ts`). The street is valid floor at grade, so
+  a ground-level entrance must not need an authored block to get a node — without
+  this the 天河公园 save's six street head-houses built **no exits** at all. Authored
+  records win (a dug void stays a hole) and a run's wellway stays open
+  (`rampOpeningsInWindow`). `wayfinding.test.mjs` pins the doorway node and the dug
+  hole; `demo.test.mjs` pins the six live entrances.
 * **The fare line is off by default.** A cell with no `zone` reads **`none` —
   无分区** (`DEFAULT_ZONE`, `zoneOf` in `sim/zones.ts`), which sits on the *unpaid*
   side of the line (`isUnpaidZone('none')`) without pretending to be a fare zone the
@@ -1471,8 +1480,8 @@ Examples are explicit loads; `initialStation()` remains a reference
 fixture helper, not the startup document. Keep browser fixture loaders explicit.
 
 `app/demoRoute.ts` plus `boot.tsx` also answer a demo link — `/game/zoo`,
-`/game/tanwei`, and their `/game/en/…` twins, which the concept site's 示例车站
-picker links. The named example is loaded **before** the autosave is read, the
+`/game/tanwei`, `/game/tianhe`, and their `/game/en/…` twins, which the concept
+site's 示例车站 picker links. The named example is loaded **before** the autosave is read, the
 worker is initialised once (not again after the load), and the URL is replaced
 with the plain game path (`/game/`, `/game/en/`) so a reload restores the player's
 own station. `game/worker/index.js` serves the route as a client route and 308s a

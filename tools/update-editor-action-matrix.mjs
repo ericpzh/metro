@@ -53,6 +53,7 @@ function render(captures,rows) {
   const lines=['# Editor action matrix: latest measurements','',
     'Each row is the latest completed capture for that demo, case and action. Times are the maximum across its samples, rounded to 0.01 ms and sorted by first-render time. Groups use the displayed precision. A focused capture replaces only the actions it actually measured; capture labels show which rows came from different runs. Older reports without per-case timestamps show the run start time. The 100 ms budget is strictly less than 100 ms, so a value exactly equal to 100 ms is in the ≤100 ms group but does not pass the budget.','',
     `Latest index: **${rows.length} actions**, ${above.length} above 100 ms, ${within.length} at or below 100 ms, and ${other.length} without a complete timing. API-to-first-render measurements do not include pointer dispatch, compositor presentation or GPU completion. See [performance.md](performance.md) for methodology and historical analysis.`, '',
+    `Measured demos: **${[...new Set(rows.map(r=>r.demo))].sort().join(', ')}**. A full inventory captures every shipped example station (\`EXAMPLE_STATION_IDS\`); a focused capture replaces only the demo/case/actions it measured.`,'',
     '## Captures','', '| Capture | Generated (UTC) | Scope | Samples per case | Source SHA-256 | Build SHA-256 | Raw report |','| --- | --- | --- | ---: | --- | --- | --- |',
     ...active.map(c=>`| ${labels.get(c.id)} | ${escape(c.generatedAt)} | ${escape(c.label)} | ${c.samples} | \`${c.sourceHash}\` | \`${c.buildHash}\` | ${escape(c.report)} |`),'',
     'The machine-readable [latest index](editor-action-matrix.jsonl) includes individual samples, statuses, capture metadata, fixture and environment details. Earlier full inventories remain available in benchmark reports and repository history.','',
@@ -71,7 +72,8 @@ export function updateEditorActionMatrix(report,reportPath) {
   if(report.reports.some(r=>typeof r.environment?.gpu!=='string'||/swiftshader|llvmpipe|software rasterizer/i.test(r.environment.gpu)))
     throw Error('The latest matrix requires a hardware-rendered capture')
   const state=readIndex(),id=`${report.generatedAt}|${report.sourceHash}|${report.buildHash}|${report.scriptHash}`
-  const label=report.scope.fullMatrix?'Full inventory':`Focused: ${(report.scope.caseFilter??[]).join(', ')||report.scope.demos.join(', ')}`
+  const label=report.scope.fullMatrix?'Full inventory'
+    : `Focused: ${report.scope.caseFilter?.length?`${report.scope.demos.join(', ')} — ${report.scope.caseFilter.join(', ')}`:report.scope.demos.join(', ')}`
   const capture={id,generatedAt:report.generatedAt,sourceHash:report.sourceHash,buildHash:report.buildHash,scriptHash:report.scriptHash,
     updaterHash:report.matrixUpdaterHash,samples:report.samples,label,report:reportPath,scope:report.scope,host:report.host,
     environments:report.reports.map(({demo,demoHash,fixture,origin,environment})=>({demo,demoHash,fixture,origin,...environment}))}

@@ -38,13 +38,14 @@ import { escalatorRun, escalatorBalustradeWidth, escalatorWidthOf } from './esca
 import { walkwayCoveredCells } from './walkways.ts'
 import { gateAllows, gateHasLane } from './gates.ts'
 import { withGround } from './ground.ts'
-import { exitDoorCell, exitWallPlanes, EXIT_H, type ExitWall } from './exits.ts'
+import { rampOpeningsInWindow } from './openings.ts'
+import { exitDoorCell, exitFloorBounds, exitFootprintCells, exitWallPlanes, isExitHeadHouse, EXIT_H, type ExitWall } from './exits.ts'
 import { STOCK, doorCentres, doorRunOffsets, type StockClass } from './stock.ts'
 import { edgeCells, rotateLocal } from './track.ts'
 import { STAIR_WIDTH_NARROW, stairTreadWidth, stairFlightSlides, stairFlights, stairLaneMates, stairTurnConnectors } from './stairs.ts'
 import { liftFootprintCells, liftLandingRows, liftLevels, liftSizeOf, type LiftDoorConfig } from './lifts.ts'
 import { rampMoveClear, type RampWall } from './rampCollision.ts'
-import { ZONES, type GateDir, type GateMode, type StationData } from './types.ts'
+import { ZONES, type Cell, type GateDir, type GateMode, type Module, type StationData } from './types.ts'
 import { crossingDir, zoneIndexOf } from './zones.ts'
 import { activityStopPlaces, type ActivityStop } from './activityStops.ts'
 import { benchSpec } from './benches.ts'
@@ -205,6 +206,43 @@ interface EdgeDraft {
 }
 
 /**
+ * The concrete pad an exit head-house lays under itself, as graph-only cells.
+ *
+ * `generatedGround` leaves the head-house footprint out of the street plane
+ * because the model draws that pad (`buildExit`), so the graph has to walk the
+ * same floor the player sees. At grade every street cell is valid floor — the
+ * pad is not an authored block, and a ground-level entrance must not need one:
+ * without these cells an exit standing on the unpaved street had no node at all,
+ * so a save's six street entrances built no exits (天河公园). A turning stair's
+ * platform gets the same treatment. Authored records win — a solid already walks
+ * and a dug void stays a hole — and a run's wellway stays open
+ * (`rampOpeningsInWindow`), including the landing cell the run keeps.
+ */
+function exitFloorCells(cells: readonly Cell[], modules: readonly Module[]): Cell[] {
+  if (!modules.some((m) => m.type === 'exit' && isExitHeadHouse(m))) return []
+  const authored = new Set(cells.map((c) => cellKey(c.x, c.y, c.z)))
+  const out: Cell[] = []
+  const added = new Set<string>()
+  for (const m of modules) {
+    if (m.type !== 'exit' || !isExitHeadHouse(m)) continue
+    const b = exitFloorBounds(m)
+    const openings = rampOpeningsInWindow(modules, m.z, {
+      x0: Math.floor(b.x0),
+      x1: Math.ceil(b.x1),
+      y0: Math.floor(b.y0),
+      y1: Math.ceil(b.y1),
+    })
+    for (const [x, y, z] of exitFootprintCells(m)) {
+      const key = cellKey(x, y, z)
+      if (authored.has(key) || added.has(key) || openings.has(`${x},${y}`)) continue
+      added.add(key)
+      out.push({ x, y, z, fill: 'solid', zone: 'outside' })
+    }
+  }
+  return out
+}
+
+/**
  * Build the walk graph.
  *
  * `zoneBarriers` is §4.5's fare line: with it on, a zone boundary is a movement
@@ -223,8 +261,9 @@ export function buildGraph(data: StationData, zoneBarriers = ZONE_LINES_BLOCK): 
   // A turning stair's middle platform is the stair's own model: it lays no block
   // in the document, so its landing cells are handed to the graph as virtual
   // walkable cells, including the five-metre stair's 2.5 m internal landings.
+  // An exit head-house's concrete pad is the same kind of model-owned floor.
   const virtualLandings = data.modules.flatMap(m => (m.type === 'stair' && !m.cfg.block ? stairTurnCells(m) : [])).map(p => ({...p,fill:'solid' as const}))
-  const all: import('./types.ts').Cell[] = [...withGround(data.cells, data.modules), ...virtualLandings]
+  const all: Cell[] = [...withGround(data.cells, data.modules), ...virtualLandings, ...exitFloorCells(data.cells, data.modules)]
   const solid = new Set<string>()
   for (const c of all) if (c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
   // Cells that host a gate, and the direction each gate passes. Only a gate

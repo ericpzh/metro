@@ -167,13 +167,14 @@ while reading each step. Progress and “Don’t show automatically” are store
 finishing returns its progress to the first step. Example stations remain available
 from the top bar.
 
-A link can name an example station too: `https://stationdesigner.com/game/zoo` and
-`…/game/tanwei` (English `/game/en/zoo`, `/game/en/tanwei`) open that station before the
-autosave is read, then rewrite the URL to the plain game path, so a reload restores the
-player's own station instead of the demo. `app/demoRoute.ts` owns the matching and
-`app/boot.tsx` the one-shot load; `demo-route.test.mjs` pins the paths, the Worker's
-trailing-slash redirect and that boot order, and `npm run check:demos` walks the site's two
-buttons and all four links in the production browser.
+A link can name an example station too: `https://stationdesigner.com/game/zoo`,
+`…/game/tanwei` and `…/game/tianhe` (English `/game/en/zoo`, `/game/en/tanwei`,
+`/game/en/tianhe`) open that station before the autosave is read, then rewrite the
+URL to the plain game path, so a reload restores the player's own station instead
+of the demo. `app/demoRoute.ts` owns the matching and `app/boot.tsx` the one-shot
+load; `demo-route.test.mjs` pins the paths, the Worker's trailing-slash redirect
+and that boot order, and `npm run check:demos` walks the site's two buttons and all
+six links in the production browser.
 
 `test/tutorial.test.mjs` pins empty paused startup and tutorial preference
 round-trips, malformed/stale values and blocked storage. `npm run check:tutorial`
@@ -3916,8 +3917,8 @@ swallow `/gameplay`. The art site's Worker answers the rest of the hostname on t
 `stationdesigner.com/*` route, so this pair wins by specificity. The Worker's own `workers.dev` root
 keeps working at the same time.
 
-The demo links (`/game/zoo`, `/game/tanwei`, and their `/game/en/…` twins) are client routes, not
-directories: the Worker drops a trailing slash before the asset layer sees it, so the document's
+The demo links (`/game/zoo`, `/game/tanwei`, `/game/tianhe`, and their `/game/en/…` twins) are client
+routes, not directories: the Worker drops a trailing slash before the asset layer sees it, so the document's
 relative `./assets/...` resolve at the game root and the app's own `demoRoute.ts` reads the segment.
 `demo-route.test.mjs` pins that rule.
 

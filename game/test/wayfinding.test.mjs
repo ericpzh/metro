@@ -20,7 +20,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { LIFT_AVOID_LUGGAGE_S, LIFT_AVOID_S, STAIR_AVOID_S, GATE_LOOKAHEAD, GATE_REPLAN_PER_TICK, REROUTE_REPLAN_PER_TICK, CONGESTION_CAP, CONGESTION_S } from '../src/sim/constants.ts'
 import { escalatorModule } from '../src/sim/escalators.ts'
-import { exitWallPlanes } from '../src/sim/exits.ts'
+import { exitDoorCell, exitWallPlanes } from '../src/sim/exits.ts'
 import { liftExtendedUp, liftModule } from '../src/sim/lifts.ts'
 import { buildGraph, congestionCost, EDGE_KIND, liftPenalty, PathFinder } from '../src/sim/station.ts'
 import { World } from '../src/sim/world.ts'
@@ -268,6 +268,45 @@ test('an exit head-house walls its own storey, not the concourse underneath it',
   }
   assert.ok(blockedAbove > 0, 'the head-house blocked nothing on the storey it stands on')
   assert.equal(blockedBelow, 0, 'a head-house walled off the concourse beneath it')
+})
+
+/* ------------------------------------- the street is floor under a head-house */
+
+/** A bare street with one ground-level head-house, and nothing else built. */
+function streetExitStation(cells = []) {
+  return {
+    name: 't',
+    seed: 1,
+    cells,
+    modules: [{ id: 'exit-1', type: 'exit', x: 0, y: 0, z: 0, rot: 0, cfg: { name: 'A口', inRate: 0, open: true } }],
+    lines: [],
+  }
+}
+
+const nodeAt = (g, x, y, z) => g.nodeIndex.get(`${x},${y},${z}`)
+
+test('a ground-level head-house stands on the street it is placed on', () => {
+  // §4.1: at grade the whole street is valid floor, so an exit placed on the
+  // unpaved street must build a live exit — its node is the head-house's street
+  // doorway (the model draws the floor pad over the carved footprint).
+  const exit = streetExitStation().modules[0]
+  const g = buildGraph(streetExitStation())
+  assert.equal(g.exits.length, 1, 'a ground-level entrance built no exit')
+  assert.equal(g.exits[0].name, 'A口')
+  const door = exitDoorCell(exit)
+  assert.equal(g.exits[0].node, nodeAt(g, ...door), 'the exit node is the head-house street doorway')
+  assert.ok(nodeAt(g, 0, 0, 0) !== undefined, 'the pad the model draws is walkable')
+  // The doorway is not an island: it reaches the street outside the footprint.
+  assert.equal(edgeBetween(g, [door[0], door[1], door[2]], [door[0], door[1] + 1, door[2]]), true)
+})
+
+test('a dug void under a head-house stays a hole', () => {
+  // The authored record wins over the model-owned pad: a player can dig through
+  // the street under a head-house, and the graph must not pave it back over.
+  const cells = [{ x: 0, y: 0, z: 0, fill: 'void' }]
+  const g = buildGraph(streetExitStation(cells))
+  assert.equal(g.exits.length, 1, 'the doorway still exists')
+  assert.equal(nodeAt(g, 0, 0, 0), undefined, 'the dug cell must not be a walk node')
 })
 
 /* ----------------------------------------------- re-choosing at the fare line */

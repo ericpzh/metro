@@ -514,6 +514,15 @@ test('a surface exit is rooted at the street (z = 0)', () => {
   assert.equal(GROUND_Z, 0)
 })
 
+test('a ground-level head-house needs no authored floor under it', () => {
+  // §4.1: at grade the street is valid floor, so the placement path (and a move,
+  // which asks the same `equipmentReason`) must accept a head-house on it; the
+  // graph then walks the pad the model draws (`exitFloorCells`, `sim/station.ts`).
+  assert.equal(equipmentReason([], [], exit(0, 0, 0)), '')
+  assert.equal(equipmentReason([], [], { ...exit(0, 0, 0), cfg: { name: 'A', inRate: 900, open: true, style: 'virtual' } }), '')
+  assert.equal(equipmentReason([{ x: 0, y: 0, z: 0, fill: 'void' }], [], exit(0, 0, 0)), 'floor', 'a dug hole still needs filling')
+})
+
 test('a fresh id is never one already in use', () => {
   const state = toState({
     name: 't',

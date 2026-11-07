@@ -1,12 +1,14 @@
-// The shipped demo station (动物园, Line 5) — a regression guard for the save
-// that replaced the old hand-built reference rig. It must build a connected
-// graph (passengers enter at an exit, reach a platform, board, alight and leave)
-// and it must actually move a crowd.
+// The shipped demo stations (动物园 Line 5, 坦尾 5/6, 天河公园 11/13/21) — a
+// regression guard for the saves that replaced the old hand-built reference rig.
+// 动物园 must build a connected graph (passengers enter at an exit, reach a
+// platform, board, alight and leave) and it must actually move a crowd; the other
+// two are pinned to their authored counts and to the graph rules their documents
+// rely on.
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { World } from '../src/sim/world.ts'
 import { buildGraph } from '../src/sim/station.ts'
-import { referenceStation, emptyStation, REFERENCE_BOOT } from '../src/data/reference-station.ts'
+import { referenceStation, emptyStation, EXAMPLE_STATION_IDS, REFERENCE_BOOT } from '../src/data/reference-station.ts'
 import { toData, toStateRepairing } from '../src/build/model.ts'
 import { clearContactFinishes } from '../src/sim/contactFinishes.ts'
 
@@ -24,8 +26,8 @@ function reachable(g, starts) {
   return seen
 }
 
-test('both authored demos load without dropping or moving cells and modules', () => {
-  for (const [id, cells, modules] of [['zoo', 14066, 4290], ['tanwei', 16725, 9697]]) {
+test('the authored demos load without dropping or moving cells and modules', () => {
+  for (const [id, cells, modules] of [['zoo', 14066, 4290], ['tanwei', 16725, 9697], ['tianhe', 151852, 76436]]) {
     const data = referenceStation(id)
     const loaded = toStateRepairing(data)
     assert.equal(data.cells.length, cells, id)
@@ -44,7 +46,7 @@ test('no demo carries a zone label on a ceiling plate', () => {
   // and the 无分区 brush could not reach. `referenceStation()` hands the file out
   // raw, so the file itself has to be clean, not just the loaded copy.
   const ceiling = (c) => c.tags?.includes('suspended-ceiling') || c.tags?.includes('opening-ceiling')
-  for (const id of ['zoo', 'tanwei']) {
+  for (const id of EXAMPLE_STATION_IDS) {
     const data = referenceStation(id)
     const labelled = data.cells.filter((c) => ceiling(c) && (c.zone !== undefined || c.room !== undefined))
     assert.deepEqual(labelled, [], `${id}: ${labelled.length} ceiling plates still carry a zone label`)
@@ -90,7 +92,26 @@ test('the demo boots at the authored time with a fresh floor', () => {
   assert.equal(w.simTime, REFERENCE_BOOT.startSeconds, 'the demo should open at its authored time')
 })
 
-test('the shipped demo carries no cell off the 1 m grid', () => {
+test('the third demo builds its six ground-level entrances', () => {
+  // 天河公园's head-houses stand on the unpaved street: the graph walks the
+  // concrete pad each one draws (`exitFloorCells` in `sim/station.ts`), so the
+  // entrances are live without a block of authored floor under them. The two
+  // -20 m platform faces the author left off the entrance route stay off it.
+  const g = buildGraph(referenceStation('tianhe'))
+  assert.deepEqual(g.exits.map((e) => e.name).sort(), ['B口', 'C口', 'D口', 'E1口', 'E2口', 'F口'])
+  const fromExits = reachable(g, g.exits.map((e) => e.node))
+  const reachableEdges = g.platforms.filter((p) => p.cells.every((c) => fromExits[c])).map((p) => p.id).sort()
+  assert.deepEqual(reachableEdges, [
+    'edge-track-11-left',
+    'edge-track-13-right',
+    'edge-track-53-left',
+    'edge-track-54-right',
+    'edge-track-55-right',
+    'edge-track-57-left',
+  ])
+})
+
+test('the shipped demos carry no cell off the 1 m grid', () => {
   // The author's own save arrived with 19 (fractional coordinates, no tags, no
   // module standing on them). No tool in the game can mint one — or remove one,
   // since a pick names whole cells (`render/pickCell.ts`) and `removeCells` matches
@@ -98,10 +119,12 @@ test('the shipped demo carries no cell off the 1 m grid', () => {
   // not be shipped.
   // `toState` drops them on load (`save.test.mjs`); this is the guard on the file
   // itself, which `referenceStation()` hands out raw.
-  const stray = referenceStation().cells.filter(
-    (c) => !Number.isInteger(c.x) || !Number.isInteger(c.y) || !Number.isInteger(c.z),
-  )
-  assert.deepEqual(stray, [], `${stray.length} off-grid cells in the demo save`)
+  for (const id of EXAMPLE_STATION_IDS) {
+    const stray = referenceStation(id).cells.filter(
+      (c) => !Number.isInteger(c.x) || !Number.isInteger(c.y) || !Number.isInteger(c.z),
+    )
+    assert.deepEqual(stray, [], `${id}: ${stray.length} off-grid cells in the demo save`)
+  }
 })
 
 test('the demo hands out a fresh document every time, on the seed it boots with', () => {

@@ -234,7 +234,7 @@ export async function loadExampleStation(page, id = 'zoo') {
 
 /** Apply the same per-demo view presets as the in-game /benchmark route. */
 export async function configureBenchmarkView(page, stationId, mode = 'regular') {
-  if (!['zoo', 'tanwei'].includes(stationId) || !['regular', 'explode'].includes(mode)) {
+  if (!['zoo', 'tanwei', 'tianhe'].includes(stationId) || !['regular', 'explode'].includes(mode)) {
     throw new Error(`Invalid benchmark view: ${stationId}/${mode}`)
   }
   await page.evaluate(`(() => {
