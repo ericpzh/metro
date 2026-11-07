@@ -13,7 +13,7 @@ import { buildSolidSet, CHUNK, meshChunk } from '../../chunkMesher.ts'
 import type { ChunkGeometry } from '../../chunkMesher.ts'
 import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
-import { GROUND_Z, withGround, groundWindow } from '../../../sim/ground.ts'
+import { GROUND_Z, withGround, groundWindow, isPaintedGround } from '../../../sim/ground.ts'
 import { trackBedKeys, moduleEnvelope } from '../../../sim/placement.ts'
 import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
@@ -646,7 +646,7 @@ export class ChunkSystem extends SceneSystem {
       const levels=this.localBands?this.localBands.get(chunkColumn(c.x,c.y)):this.localLevels
       if(local&&levels&&!levels.has(this.groundWindowOnly?storeyBand(c.z,this.ctx.levelBase,this.ctx.storeyHeight):bandOfCell.get(k)!))continue
       const fill = this.ctx.slopeFills.has(packKey(c.x, c.y, c.z + 1))
-      if (this.groundKeys.has(k)) {
+      if (this.groundKeys.has(k) || isPaintedGround(c)) {
         groundCells.push({ x: c.x, y: c.y, z: c.z })
         if (fill) groundCells.push({ x: c.x, y: c.y, z: c.z + 1 })
         continue

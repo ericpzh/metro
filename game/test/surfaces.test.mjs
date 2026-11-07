@@ -13,6 +13,10 @@ import { buildSolidSet, meshChunk } from '../src/render/chunkMesher.ts'
 import { buildModule } from '../src/render/models.ts'
 import { STAIR_WIDTH_NARROW } from '../src/sim/stairs.ts'
 import { packKey } from '../src/sim/types.ts'
+import { groundWindow, PAINTED_GROUND, withGround } from '../src/sim/ground.ts'
+import { StationGeometry } from '../src/app/stationGeometry.ts'
+import { PaintTool } from '../src/app/tools/PaintTool.ts'
+import { useStore } from '../src/app/store.ts'
 import { createModule, eraseFace, eraseFaces, faceFinish, fillSurface, paintFace, paintFaces, paintStairSurface, toData, toState } from '../src/build/model.ts'
 
 function corridor() {
@@ -26,6 +30,90 @@ function corridor() {
     lines: [],
   })
 }
+
+test('the material brush paints the street underside over the −5 m floor beneath outdoor tiles', () => {
+  const cells = [0, 1, 2, 3, 4].map(x => ({ x, y: 0, z: -5, fill: 'solid' }))
+  cells.push({ x: 2, y: 0, z: 0, fill: 'void' }, { x: 3, y: 0, z: -1, fill: 'solid' })
+  const modules = [createModule('lawn', 0, 0, 0, 'lawn'), createModule('sidewalk', 1, 0, 0, 'paving')]
+  const station = toState({ name: 'Tianhe ceiling fixture', seed: 1, cells, modules, lines: [] })
+  const geometry = new StationGeometry().resolve(toData(station))
+  const finish = 'ceil.steel'
+  const targets = []
+  const commits = []
+  const tool = new PaintTool({
+    scene: () => ({ setFaceGhost: (cells, face) => targets.push({ cells, face }), clearFaceGhost() {} }),
+    pickModule: () => null,
+    solids: () => geometry.solids,
+    thins: () => geometry.thins,
+    paint: { current: null },
+  })
+  const click = { button: 0, clientX: 0, clientY: 0, preventDefault() {},
+    hit: { cell: [0, 0, 0], place: [0, 0, -1], normal: [0, 0, -1], solid: true } }
+  const previous = useStore.getState()
+  try {
+    useStore.setState({ station, paintFinish: finish, paintMode: 'single', commit: next => commits.push(next) })
+    tool.onDown(click)
+    assert.deepEqual(targets.at(-1), { cells: [[0, 0, 0]], face: 'bottom' })
+    tool.onUp(click)
+    assert.deepEqual(commits[0].cells.filter(c => c.finish?.bottom === finish).map(c => c.x), [0])
+
+    useStore.setState({ paintMode: 'surface' })
+    tool.onDown(click)
+    tool.onUp(click)
+    const painted = commits[1]
+    assert.deepEqual(painted.cells.filter(c => c.y === 0 && (c.x === 0 || c.x === 1) && c.finish?.bottom === finish).sort((a, b) => a.x - b.x), [0, 1].map(x => ({
+      x, y: 0, z: 0, fill: 'solid', zone: 'outside', tags: [PAINTED_GROUND], finish: { bottom: finish },
+    })))
+    assert.equal(painted.modules, station.modules)
+    assert.equal(fillSurface(painted, 0, 0, 0, 'bottom', finish), painted, 'repainting the ceiling is a no-op')
+    assert.equal(paintFace(station, 0, 0, 0, 'top', finish), station, 'street-side placement rules still apply')
+    assert.equal(paintFaces(station, [[2, 0, 0]], 'bottom', finish), station, 'a drag cannot fill the opening')
+    assert.equal(faceFinish(painted.cells, 0, 1, 0, 'bottom'), finish, 'the underside does not need a floor below')
+
+    const loaded = parse(serialize(painted))
+    assert.equal(loaded.ok, true)
+    const effective = withGround(loaded.state.cells, loaded.state.modules)
+    const chunk = meshChunk(buildSolidSet(effective), finishMapOf(effective), 0, 0, 0)
+    const part = chunk.parts.find(p => p.finish === finish)
+    assert.ok(part?.indices.length, 'the ceiling finish survives reload and is meshed')
+    for (let i = 2; i < part.normals.length; i += 3) assert.equal(part.normals[i], -1)
+  } finally {
+    useStore.setState(previous, true)
+  }
+})
+
+test('whole-surface ceiling paint follows exposed ground even where there is no floor below', () => {
+  const cells = []
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) {
+    if (x >= 2 && x <= 3 && y >= 2 && y <= 3) continue // Stairwell through the floor.
+    if (x === 1 && y <= 1) continue // A notch that leads outdoors.
+    cells.push({ x, y, z: -5, fill: 'solid' })
+  }
+  cells.push({ x: 2, y: 2, z: 0, fill: 'void' })
+  cells.push({ x: 3, y: 3, z: -1, fill: 'solid' })
+  for (let x = 7; x <= 9; x++) for (let y = 1; y <= 3; y++) {
+    if (x !== 8 || y !== 2) cells.push({ x, y, z: -1, fill: 'solid' })
+  }
+  const station = toState({ name: 'Stairwell', seed: 1, cells, modules: [], lines: [] })
+  const window = groundWindow(station.cells, station.modules)
+  const finish = 'ceil.baffle'
+  for (const [x, y] of [[4, 2], [3, 2], [window.x0, window.y0]]) {
+    const painted = fillSurface(station, x, y, 0, 'bottom', finish)
+    assert.equal(faceFinish(painted.cells, 3, 2, 0, 'bottom'), finish)
+    assert.equal(faceFinish(painted.cells, 2, 3, 0, 'bottom'), finish)
+    assert.equal(faceFinish(painted.cells, 2, 2, 0, 'bottom'), 'floor.concrete', 'an opening in the ceiling stays open')
+    assert.equal(faceFinish(painted.cells, 3, 3, 0, 'bottom'), 'floor.concrete', 'a covered ceiling face stays bare')
+    assert.equal(faceFinish(painted.cells, 1, 1, 0, 'bottom'), finish, 'the fill crosses a notch open to the exterior')
+    assert.equal(faceFinish(painted.cells, 6, 2, 0, 'bottom'), finish, 'the connected ground extends beyond the floor below')
+    assert.equal(faceFinish(painted.cells, 8, 2, 0, 'bottom'), 'floor.concrete', 'covered neighbours separate this exposed face')
+    assert.equal(painted.cells.filter(c => c.finish?.bottom === finish).length, (window.x1 - window.x0 + 1) * (window.y1 - window.y0 + 1) - 11)
+    assert.deepEqual(groundWindow(painted.cells, painted.modules), window, 'painting to the edge does not expand the generated ground')
+    const loaded = parse(serialize(painted))
+    assert.equal(loaded.ok, true)
+    assert.deepEqual(groundWindow(loaded.state.cells, loaded.state.modules), window)
+    assert.equal(fillSurface(loaded.state, x, y, 0, 'bottom', finish), loaded.state)
+  }
+})
 
 test('the material palette lists each finish once in stone, metal, wood and other', () => {
   const groups = finishPaletteGroups()

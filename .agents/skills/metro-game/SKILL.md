@@ -584,9 +584,13 @@ the four rules most changes trip over.
   `z = 0` in the document/save. `addFloor` replaces the hole with its tagged
   `auto-floor` record, which is meaningful authored structure. Both count
   **blocks** rather than records;
-  the 材质 brush materialises the pavement it paints, refused by the same
-  `blockReason` the 方块 brush asks and refused outright on a `void`, because a hole
-  is not a surface. Two things deliberately stay on the **document's** cells:
+  the 材质 brush materialises the pavement it paints. Street-facing paint follows
+  the 方块 brush's `blockReason`, while an exposed underside accepts paint beneath
+  street fixtures. A `void` is not a surface. Whole-surface underside paint floods
+  connected exposed ground in the rendered window, including over stair openings
+  and without a floor below. `painted-ground` records preserve the outside zone,
+  stay in the ground render pass, and do not expand the ground window on repaint.
+  Two things deliberately stay on the **document's** cells:
   `build/model/Floors.ts`'s 生成墙壁 ring at grade (the plane is one continuous
   floor, so a patch drawn on virgin ground has no outer edge to wall — and
   `BlockTool` hands `addFloor` the preview's own `acceptedCells`, so the release

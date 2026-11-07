@@ -8,6 +8,12 @@ ceiling, stops above it in the contacted column, and preserves boundaries at
 multiple levels and all four cardinal faces. Open neighbouring columns remain
 connected; ordinary floor occlusion is unchanged.
 
+Ground underside paint in `surfaces.test.mjs` covers single and whole-surface
+strokes beneath outdoor fixtures, open stairwells and areas without a floor below.
+It stops at covered or disconnected faces, survives save and reload, and keeps
+the generated ground window stable. `ground-visibility.test.mjs` checks that
+painted ground remains in the hideable ground pass.
+
 ## Contact materials
 
 `contact-finishes.test.mjs` covers full and cut block faces, partial contact,

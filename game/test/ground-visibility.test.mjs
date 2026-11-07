@@ -28,6 +28,7 @@ import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { useStore } from '../src/app/store.ts'
 import { createViewSlice } from '../src/app/store/slices/ViewSlice.ts'
+import { PAINTED_GROUND } from '../src/sim/ground.ts'
 
 test('ceiling hiding starts off in both the view store and scene', () => {
   const view = createViewSlice(() => {}, () => ({}), {})
@@ -128,6 +129,15 @@ test('an empty document is the street alone, and the street is the ground pass',
   assert.ok(chunks.chunkMeshes.length > 0, 'the street window meshed nothing')
   assert.equal(streetMeshes(chunks).length, chunks.chunkMeshes.length, 'the street is not the whole of an empty station')
   assert.deepEqual(drawnBy(chunks, 10, 10, 0), ['g'], 'the street cell is drawn by the ground pass and nothing else')
+})
+
+test('painting the underside of generated pavement keeps it in the street pass', () => {
+  const { chunks, level } = rig(station([
+    { x: 10, y: 10, z: 0, fill: 'solid', tags: [PAINTED_GROUND], finish: { bottom: 'ceil.baffle' } },
+  ]))
+  assert.deepEqual(drawnBy(chunks, 10, 10, 0), ['g'])
+  level.setHideGround(true)
+  assert.ok(streetMeshes(chunks).every(mesh => !mesh.visible))
 })
 
 test('ceiling-attached decor on the active storey stays visible when ceilings are hidden', () => {

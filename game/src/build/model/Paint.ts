@@ -1,7 +1,7 @@
 // Build model: paint — face finishes, the 材质 brush and its floods (§4.3).
 
 import { DEFAULT_FINISH, finishOf } from '../../sim/finishes.ts';
-import { groundHoleAt } from '../../sim/ground.ts';
+import { GROUND_Z, PAINTED_GROUND, withGround } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
 import { contactFaceCovered } from '../../sim/contactFinishes.ts';
 import { blockReason } from '../validation.ts';
@@ -100,16 +100,10 @@ export function paintFace(state: StationState, x: number, y: number, z: number, 
   // block that later fills the hole back (`addCells`) then dropped on the floor
   // with the record it replaced.
   if (i >= 0 && state.cells[i].fill !== 'solid') return state;
-  // Virgin street takes paint by materialising: the brush lays the block the
-  // plane was standing in for, wearing the new finish. A hole the modules derive
-  // takes none — and neither does a cell the one placement rule set refuses, or
-  // the 材质 brush would pour a block into a 闸机 or a 售票机 the 方块 brush is
-  // told to keep out of (`addCells` asks the same `blockReason` before it lays
-  // one).
+  // Use the same materialisation and opening rules as a rectangle stroke.
   if (i < 0) {
-    if (z !== 0 || groundHoleAt(state.cells, state.modules, x, y)) return state;
-    if (!blockReason(state.cells, state.modules, x, y, z).ok) return state;
-    return { ...state, cells: [...state.cells, { x, y, z, fill: 'solid', finish: { [face]: finish } }] };
+    if (z !== GROUND_Z) return state;
+    return paintFaces(state, [[x, y, z]], face, finish);
   }
   const cur = state.cells[i];
   if (cur.finish?.[face] === finish) return state;
@@ -136,8 +130,7 @@ export function eraseFace(state: StationState, x: number, y: number, z: number, 
 
 /**
  * Paint one face across many cells at once — the `N`/`M` drag rectangle (§9.5).
- * Cells absent from the list, a `void` record, or a cell already wearing the
- * finish are left untouched.
+ * Untargeted cells, openings and cells already wearing the finish stay as they are.
  */
 export function paintFaces(state: StationState, cells: Array<[number, number, number]>, face: Face, finish: FinishId): StationState {
   const keys = new Set(cells.map(([x, y, z]) => cellKey(x, y, z)));
@@ -152,15 +145,18 @@ export function paintFaces(state: StationState, cells: Array<[number, number, nu
     changed = true;
     return { ...c, finish: { ...c.finish, [face]: finish } };
   });
-  // Virgin street in the drag materialises wearing the finish, like `paintFace` —
-  // and, like it, only where the one placement rule set lets a block stand at all.
+  // The underside already exists beneath street fixtures. Materialising it
+  // records a finish without introducing new volume or changing its outside zone.
   const level = blockIndex(state.cells, state.modules);
   for (const [x, y, z] of cells) {
     const k = cellKey(x, y, z);
     if (!missing.delete(k) || !level.ground(x, y, z)) continue;
-    if (!blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
+    if (face !== 'bottom' && !blockReason(state.cells, state.modules, x, y, z, level).ok) continue;
     changed = true;
-    next.push({ x, y, z, fill: 'solid', finish: { [face]: finish } });
+    next.push({
+      x, y, z, fill: 'solid', finish: { [face]: finish },
+      ...(face === 'bottom' ? { zone: 'outside', tags: [PAINTED_GROUND] } : {}),
+    });
   }
   return changed ? { ...state, cells: next } : state;
 }
@@ -242,20 +238,26 @@ export function paintPillarSurface(state: StationState, id: string, finish: Fini
  * leans to are one surface to the brush, which is the only reading the palette has of
  * "the same face".
  *
- * The region is bounded by the authored cells themselves, so the flood runs to the
- * true edge of the surface. It used to stop at 20,000 cells as a work budget, but a
- * depth-first walk spends that budget in an order the player cannot see: a large
+ * The region is bounded by the connected surface. A fixed cell budget would
+ * cut off a depth-first walk in an order the player cannot see: a large
  * floor could lose cells beside the one that was clicked while the rest painted.
  */
 export function fillSurface(state: StationState, x: number, y: number, z: number, face: Face, finish: FinishId): StationState {
-  // Explicit cells only: the 整面 flood paints the surfaces a player built, and
-  // must not spill onto the infinite street — the plane is uniform, so there is
-  // nothing there to fill, and materialising the horizon would bloat the save.
   const index = blockIndex(state.cells, state.modules);
-  const solid = index.solid;
+  let solid = index.solid;
+  if (z === GROUND_Z && face === 'bottom') {
+    // Include the same generated pavement the editor meshes. A floor below is
+    // irrelevant to whether this ceiling is present or connected.
+    const effective = withGround(state.cells, state.modules);
+    solid = new Set(solid);
+    for (let i = state.cells.length; i < effective.length; i++) {
+      const c = effective[i];
+      solid.add(cellKey(c.x, c.y, c.z));
+    }
+  }
   const thin = thinWallSideMap(state.cells, state.modules);
-  // Authored faces are the only flood targets, but generated street ground still
-  // occludes them. Treating it as air lets a wall flood bridge a buried row at z=0.
+  // Generated street outside the flood still occludes other faces. Treating it
+  // as air lets a wall flood bridge a buried row at z=0.
   const step = FACE_STEP[face];
   const vertical = step[2] === 0;
   const ceilings = new Set<string>();
@@ -299,15 +301,7 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
       queue.push([nx, ny, nz]);
     }
   }
-  const inRegion = new Set(region.map(([rx, ry, rz]) => cellKey(rx, ry, rz)));
-  let changed = false;
-  const cells = state.cells.map((c) => {
-    if (!inRegion.has(cellKey(c.x, c.y, c.z))) return c;
-    if (c.finish?.[face] === finish) return c;
-    changed = true;
-    return { ...c, finish: { ...c.finish, [face]: finish } };
-  });
-  return changed ? { ...state, cells } : state;
+  return paintFaces(state, region, face, finish);
 }
 
 /** The finish a face currently wears — used by the eyedropper. */

@@ -28,6 +28,13 @@ import type { Cell, Module } from './types.ts'
 
 /** The street storey: the one plane the document stores inverted. */
 export const GROUND_Z = 0
+/** A finish stored on existing pavement, rather than newly built ground. */
+export const PAINTED_GROUND = 'painted-ground'
+
+export function isPaintedGround(cell: Cell): boolean {
+  return cell.z === GROUND_Z && cell.fill === 'solid' && cell.tags?.includes(PAINTED_GROUND) === true
+}
+
 /**
  * How far past the station's content the materialised window reaches, metres.
  * Past the fog's near plane the edge is never read as geometry — and a drag
@@ -36,7 +43,16 @@ export const GROUND_Z = 0
  */
 export const GROUND_MARGIN = 16
 type GroundBounds={x0:number;x1:number;y0:number;y1:number}
-const groundBounds=new WeakMap<readonly Cell[],WeakMap<readonly Module[],GroundBounds>>()
+const groundBounds=new WeakMap<readonly Cell[],WeakMap<readonly Module[],{content:GroundBounds;painted:GroundBounds}>>()
+
+function paddedGroundBounds(content: GroundBounds, painted: GroundBounds, margin: number): GroundBounds {
+  return {
+    x0: Math.min(content.x0 - margin, painted.x0),
+    x1: Math.max(content.x1 + margin, painted.x1),
+    y0: Math.min(content.y0 - margin, painted.y0),
+    y1: Math.max(content.y1 + margin, painted.y1),
+  }
+}
 
 interface GroundInputs { next:WeakMap<Module,GroundInputs>; windows:Map<string,Cell[]> }
 const groundInputs=new WeakMap<readonly Cell[],GroundInputs>()
@@ -71,7 +87,7 @@ export function groundWindow(
   let byModules=groundBounds.get(cells)
   if(!byModules)groundBounds.set(cells,byModules=new WeakMap())
   const cached=byModules.get(modules)
-  if(cached)return {x0:cached.x0-margin,x1:cached.x1+margin,y0:cached.y0-margin,y1:cached.y1+margin}
+  if(cached)return paddedGroundBounds(cached.content, cached.painted, margin)
   let minX = Infinity
   let minY = Infinity
   let maxX = -Infinity
@@ -83,7 +99,16 @@ export function groundWindow(
     if (x > maxX) maxX = x
     if (y > maxY) maxY = y
   }
-  for (const c of cells) eat(c.x, c.y)
+  // Paint at the edge of the generated window must not push the edge outward.
+  const painted = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity }
+  for (const c of cells) {
+    if (isPaintedGround(c)) {
+      painted.x0 = Math.min(painted.x0, c.x)
+      painted.x1 = Math.max(painted.x1, c.x)
+      painted.y0 = Math.min(painted.y0, c.y)
+      painted.y1 = Math.max(painted.y1, c.y)
+    } else eat(c.x, c.y)
+  }
   for (const m of modules) {
     eat(m.x, m.y)
     if (m.type === 'road') eat(m.x + m.w - 1, m.y + m.d - 1)
@@ -97,8 +122,9 @@ export function groundWindow(
     // ground is built from, not an empty set no tool can address.
     minX=minY=maxX=maxY=0
   }
-  byModules.set(modules,{x0:minX,x1:maxX,y0:minY,y1:maxY})
-  return { x0: minX - margin, x1: maxX + margin, y0: minY - margin, y1: maxY + margin }
+  const content = { x0: minX, x1: maxX, y0: minY, y1: maxY }
+  byModules.set(modules, { content, painted })
+  return paddedGroundBounds(content, painted, margin)
 }
 
 /**
