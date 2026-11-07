@@ -170,7 +170,7 @@ test('glass previews and commits use the same aimed course and rendered height a
       for (let z = base + 1; z <= base + 5; z++) cells.push({ x: dx, y: dy, z, fill: 'solid', tags: ['wall'] })
       cells.push({ x: 0, y: 0, z: base, fill: 'solid' })
       const station = toState({ ...emptyStation(), levelBase: 1, cells }), previews = []; let committed
-      const scene = { setFencePreview() {}, setCursor() {}, setCollisionHighlight() {}, setModulePreview(mod) { if (mod) previews.push(mod) } }
+      const scene = { setFencePreview() {}, setCursor() {}, setCollisionHighlight() {}, setGhost() {}, setModulePreview(mod) { if (mod) previews.push(mod) } }
       const tool = new EquipmentTool({ scene: () => scene, facing: () => [-dx, -dy], drag: { current: null }, hover: { current: null }, pickModule: () => null })
       useStore.setState({ station, tool: 'module', moduleType: `glass-1x${height}`, moduleRot: rot, commit: next => { committed = next }, setNotice() {} })
       const z = base + course, info = { clientX: 10, clientY: 10, button: 0, buttons: 0, shiftKey: false, preventDefault() {}, hit: {
@@ -189,6 +189,7 @@ test('glass previews and commits use the same aimed course and rendered height a
         assert.equal(envelope.z0, bottom); assert.equal(envelope.z1, bottom + height)
       } finally { disposeObject(group) }
       tool.onDown(info)
+      tool.onUp(info)
       if (bottom >= (base === 0 ? 0 : base + 1) && bottom + height <= base + 6) {
         assert.ok(committed, 'a supported preview commits')
         const placed = committed.modules.at(-1)

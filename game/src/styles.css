@@ -888,6 +888,40 @@ a.ghost:hover {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
 }
+/* The line-placement 间隔 tile is a normal square action tile like 旋转 / 窄; its
+   label carries the current mark beside the tile name and is allowed a second
+   line for the longer English names. */
+[data-tile="__spacing"] .bpBlockLabel {
+  font-size: 9px;
+  line-height: 1.1;
+  white-space: pre-line;
+  text-overflow: clip;
+  word-break: keep-all;
+}
+/* `html[lang="en"] .bpBlockLabel` is more specific than the attribute rule above
+   and turns wrapping back on. Keep this tile's two-line English label centred
+   on its own line boxes instead. */
+html[lang="en"] [data-tile="__spacing"] .bpBlockLabel {
+  display: block;
+  min-height: 0;
+  padding: 3px 2px 4px;
+  line-height: 1.1;
+  white-space: pre-line;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  text-align: center;
+}
+[data-tile="__spacing"] .bpBlockArt svg {
+  width: 58px;
+  height: 34px;
+}
+/* The two active pieces are the tile's one piece of colour: everything else is
+   the outlined line they sit in. */
+[data-tile="__spacing"] .spacingBoxOn {
+  fill: var(--accent);
+  stroke: none;
+  opacity: 1;
+}
 .bpBlockArt svg {
   width: 34px;
   height: 34px;

@@ -59,6 +59,40 @@ export interface AreaDrag {
   wallDirs?: WallDir[]
   /** True for the 围栏 tool's drag, which lays one fence panel per cell. */
   fence?: boolean
+  /**
+   * A **line** drag of a 装饰 / 设备 piece: press, drag along one axis, release to
+   * lay (or lift) every piece on the row. `linePress` keeps the cell the pointer
+   * pressed before wall/ceiling aim moved the anchor, so the row can be measured
+   * from the surface the player is actually pointing at; `lineTarget` is the last
+   * pointer cell, kept for an R/Tab redraw while the button stays down.
+   */
+  decorLine?: boolean
+  linePress?: [number, number, number]
+  lineTarget?: [number, number, number]
+  /** True once the press has become a line drag; before that the hover ghost stands. */
+  lineDrag?: boolean
+  /** The palette piece the row is laying, captured at the press. */
+  lineType?: string
+  /**
+   * A wall-mounted row keeps the wall face and course the press aimed at, so a
+   * dragged line of posters or glass stays at the same height and side instead
+   * of re-aiming each tile from scratch.
+   */
+  lineWall?: { rot: number; course: number; normal: [number, number] }
+  /** The pointed piece a right-drag line delete always includes. */
+  lineRemoveId?: string
+  /**
+   * The press's **resolved** surface (a booth header for a 墙面指示牌, the
+   * pointed board for a sign), kept so a release without a drag places the same
+   * piece the hover showed instead of re-reading the raw floor cell.
+   */
+  lineHit?: {
+    cell: [number, number, number]
+    place: [number, number, number]
+    solid: boolean
+    point: [number, number, number]
+    moduleId?: string
+  }
   /** A tactile paving run, placed or deleted along a straight floor line. */
   tactile?: boolean
   /** Roof tiles or small stair blocks laid/removed on the pressed plane. */
@@ -140,6 +174,13 @@ export interface PointerInfo {
   shiftKey: boolean
   hit: PickResult | null
   preventDefault: () => void
+  /**
+   * The DOM pointer kind. A touch tap is dispatched as a **press only** (the
+   * viewport never sends a matching up), so a deferred-release gesture must
+   * commit its single piece on the press there instead of waiting for a release
+   * that will never come.
+   */
+  pointerType?: string
 }
 
 /**

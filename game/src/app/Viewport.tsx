@@ -849,6 +849,7 @@ export function Viewport(): React.ReactElement {
     shiftKey: e.shiftKey,
     hit,
     preventDefault: () => e.preventDefault(),
+    pointerType: e.pointerType,
   })
 
   /**
@@ -1040,7 +1041,7 @@ export function Viewport(): React.ReactElement {
    * Which controller owns an in-progress area-drag release. The press promised
    * the gesture, so the flags on the drag — not the current tool — decide:
    * module sweeps and delete-side fence lines to 删除, 围栏 runs to 设备,
-   * wall runs to 墙, and
+   * wall runs to 墙, 装饰 / 设备 line runs to 设备, and
    * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {
@@ -1049,6 +1050,7 @@ export function Viewport(): React.ReactElement {
     if (d.modules !== undefined) return tools.delete
     if (d.tactile === true) return current === 'delete' ? tools.delete : tools.equipment
     if (d.fence === true) return current === 'delete' ? tools.delete : tools.equipment
+    if (d.decorLine === true) return tools.equipment
     if (d.wall === true) return d.single === true ? tools.block : tools.wall
     return current === 'delete' ? tools.delete : tools.block
   }

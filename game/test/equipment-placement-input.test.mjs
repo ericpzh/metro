@@ -80,7 +80,7 @@ test('urinal hover and click mount on the aimed wall', () => {
   try {
     let preview, refused
     const tool = new EquipmentTool({
-      scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {} }),
+      scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {}, setGhost() {} }),
       facing: () => [0, -1], hover: { current: hit }, drag: { current: null },
     })
     useStore.setState({ station: toState({ name: 'urinal', seed: 1, cells, modules: [], lines: [] }),
@@ -89,6 +89,7 @@ test('urinal hover and click mount on the aimed wall', () => {
     assert.equal(refused, false)
     assert.deepEqual([preview.x, preview.y, preview.z, preview.rot], [0, 0, 0, 2])
     tool.onDown({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
+    tool.onUp({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
     const placed = useStore.getState().station.modules.find(mod => mod.type === 'urinal')
     assert.ok(placed, 'click commits the previewed wall fixture')
     assert.deepEqual([placed.x, placed.y, placed.z, placed.rot], [0, 0, 0, 2])
@@ -322,7 +323,7 @@ test('vertical calligraphy previews and places on every thick pillar face', () =
   try {
     const pillar = createModule('pillar-thick', 4, 6, 0, 'pillar')
     let preview, blocked
-    const scene = { setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {} }
+    const scene = { setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {}, setGhost() {} }
     const tool = new EquipmentTool({ scene: () => scene, facing: () => [0, -1], hover: { current: null }, drag: { current: null } })
     for (const [point, rot] of [[[4.5, 6.99, 2], 0], [[4.01, 6.5, 2], 1], [[4.5, 6.01, 2], 2], [[4.99, 6.5, 2], 3]]) {
       useStore.setState({ station: toState({ name: '海傍', seed: 1, cells: [], modules: [pillar], lines: [] }), past: [], future: [], tool: 'module', moduleType: 'calligraphy-kai-v', moduleRot: 0 })
@@ -332,10 +333,12 @@ test('vertical calligraphy previews and places on every thick pillar face', () =
       assert.equal(blocked, false)
       assert.equal(preview.cfg.pillarId, pillar.id)
       assert.deepEqual([preview.x, preview.y, preview.z, preview.rot], [4, 6, 1, rot])
+      const aimed = preview
       tool.onDown(info)
+      tool.onUp(info)
       const placed = useStore.getState().station.modules.find(m => m.type === 'calligraphy')
       assert.ok(placed)
-      assert.deepEqual(placed, preview)
+      assert.deepEqual(placed, aimed)
     }
   } finally { useStore.setState(before) }
 })
@@ -347,7 +350,7 @@ test('pillar lettering snaps in metre courses and refuses heights outside the sh
     pillar.cfg.height = 6
     useStore.setState({ station: toState({ name: '海傍', seed: 1, cells: [], modules: [pillar], lines: [] }), past: [], future: [], tool: 'module', moduleType: 'calligraphy-kai-v', moduleRot: 0 })
     let preview, blocked
-    const tool = new EquipmentTool({ scene: () => ({ setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {} }), facing: () => [0, -1], hover: { current: null }, drag: { current: null } })
+    const tool = new EquipmentTool({ scene: () => ({ setFencePreview() {}, setModulePreview(m, b) { preview = m; blocked = b }, setCursor() {}, setCollisionHighlight() {}, setGhost() {} }), facing: () => [0, -1], hover: { current: null }, drag: { current: null } })
     const aim = z => {
       const hit = { cell: [4, 6, Math.floor(z)], place: [4, 6, Math.floor(z)], solid: true, moduleId: pillar.id, point: [4.5, 6.99, z] }
       const info = { clientX: 10, clientY: 10, button: 0, buttons: 1, hit, preventDefault() {} }
@@ -362,6 +365,7 @@ test('pillar lettering snaps in metre courses and refuses heights outside the sh
     const info = aim(3.1)
     const expected = preview
     tool.onDown(info)
+    tool.onUp(info)
     assert.deepEqual(useStore.getState().station.modules.find(m => m.type === 'calligraphy'), expected)
   } finally { useStore.setState(before) }
 })
@@ -375,7 +379,7 @@ test('counter length is identical in hover, click and undo for every style', () 
     for (const moduleType of ['checkout', 'checkout-generic', 'checkout-cafe', 'checkout-cafe-pastry']) for (const length of [1, 2, 3, 4]) {
       let preview, refused
       const tool = new EquipmentTool({
-        scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {} }),
+        scene: () => ({ setModulePreview(mods, blocked) { preview = Array.isArray(mods) ? mods[0] : mods; refused = blocked }, setCursor() {}, setCollisionHighlight() {}, setGhost() {} }),
         pickModule: () => null, hover: { current: hit }, drag: { current: null },
       })
       useStore.setState({ station: toState({ name: 'counter', seed: 1, cells, modules: [], lines: [] }),
@@ -384,11 +388,13 @@ test('counter length is identical in hover, click and undo for every style', () 
       assert.equal(refused, false)
       assert.equal(preview.w, length)
       assert.equal(useStore.getState().past.length, 0, 'hover leaves history alone')
+      const hovered = preview
       tool.onDown({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
+      tool.onUp({ clientX: 10, clientY: 10, button: 0, hit, preventDefault() {} })
       const placed = useStore.getState().station.modules.find(mod => mod.type === 'checkout')
       assert.ok(placed, moduleType)
       assert.equal(placed.w, length)
-      assert.deepEqual(placed.cfg, preview.cfg)
+      assert.deepEqual(placed.cfg, hovered.cfg)
       useStore.getState().undo()
       assert.equal(useStore.getState().station.modules.length, 0)
     }
@@ -409,9 +415,11 @@ test('right-click deletes the drawn shelf or counter even when its floor hit lie
         { cell: [8, 8, 0], place: [8, 8, 1], solid: true, point: [8.5, 8.5, 1] }]) {
         useStore.setState({ station, past: [], future: [], tool: Tool === EquipmentTool ? 'module' : 'select', moduleType: id })
         let picks = 0
-        const tool = new Tool({ scene: () => ({ setModulePreview() {}, setCollisionHighlight() {}, setHoverHighlight() {} }),
+        const tool = new Tool({ scene: () => ({ setModulePreview() {}, setCollisionHighlight() {}, setHoverHighlight() {}, setGhost() {}, setCursor() {} }),
           pickModule: () => { picks++; return target.id }, facing: () => [0, -1], drag: { current: null }, hover: { current: null } })
-        tool.onDown({ button: 2, clientX: 10, clientY: 10, hit, preventDefault() {} })
+        const info = { button: 2, clientX: 10, clientY: 10, hit, preventDefault() {} }
+        tool.onDown(info)
+        tool.onUp(info)
         assert.equal(picks, 1)
         assert.deepEqual(useStore.getState().station.modules.map(m => m.id), ['other'])
         assert.equal(useStore.getState().station.cells.length, 1)

@@ -3094,6 +3094,18 @@ approximated); neither needs WebGL.
   turning-stair landing and every landing column of a wide or extra-wide escalator included, while a 楼梯块
   has no handrail connection. The equipment preview
   refresh also stays silent after 方块 takes over shared placement settings.
+* `decor-line.test.mjs` — the press-drag-release row for every loose 装饰 / 设备 piece (§5.4):
+  the seven 间隔 marks **超短 / 短 / 中短 / 中 / 中长 / 长 / 超长** are 0–6 empty blocks with
+  超短 (continuous) as the default. The pitch is the piece's own footprint plus the 间隔, so a
+  2 m bench dragged across its short axis turns onto the drag and abuts its neighbour at 0
+  without overlapping. A 1.56 m 电视 screen also takes a two-cell pitch at 超短, so a TV row
+  never overlaps its neighbour. A drag places the whole row in one commit and one undo; wall decor keeps
+  the aimed face and course, ceiling fittings find their own slab, and a right-drag line delete
+  lifts every loose piece the line crosses — whatever spacing it was laid at — in one undo.
+  `supportsLinePlacement` keeps multi-storey runs, surfaces, lifts, bridges, 屏蔽门盖板
+  and exits on their own gestures; 支柱, 屏蔽端门 and 球场 line up like the rest, and
+  the rail's single square 间隔 tile cycles the same seven options over one eight-box row
+  with its two active pieces filled. Switching the armed piece resets the 间隔 to 超短.
 * `storey.test.mjs` — the renderer's storey bands key every cell to the fixed 5 m grid line at or
   below it (`storeyBand`), so a floor and its 5 m auto walls share a storey while a second floor one
   storey down stays its own; a lower floor's wall reaching the floor above must not merge the two

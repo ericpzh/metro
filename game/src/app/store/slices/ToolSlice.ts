@@ -14,6 +14,7 @@ import { WALKWAY_LENGTH_DEFAULT, nextWalkwayLength, type WalkwayLength } from '.
 import { STAIR_WIDTH_NARROW, nextStairWidth } from '../../../sim/stairs.ts'
 import { nextTrackRunLength, supportedTrackRunLength } from '../../../sim/track.ts'
 import { nextPillarLength, nextRoofWidth, supportedRoofWidth, PILLAR_LENGTH_DEFAULT, type PillarLength } from '../../../sim/structures.ts'
+import { LINE_SPACING_DEFAULT, lineSpacing as lineSpacingValue, nextLineSpacing, type LineSpacing } from '../../../sim/lineSpacing.ts'
 import { DEFAULT_ZONE_BRUSH, isBenchType, isRotatableType, isStairType, type CutMode, type ZoneBrush } from '../catalog.ts'
 import type { AppState } from '../Store.ts'
 
@@ -42,6 +43,19 @@ export interface ToolSlice {
   toggleRoadDirection: () => void
   /** Quarter-turn applied to the equipment being placed: 0..3. */
   moduleRot: number
+  /**
+   * The number of **empty blocks** a line drag leaves between two pieces,
+   * 0 (超短, the default: continuous) … 6 (超长). It is a tool setting, not a
+   * document field: the run it produces is the only thing saved. Switching the
+   * armed decor / equipment resets it, so a distance is never remembered for the
+   * next piece. See `sim/lineSpacing.ts` for the seven names and
+   * `app/tools/geometry/linePlacement.ts` for how it becomes a pitch.
+   */
+  lineSpacing: LineSpacing
+  /** Arm one of the seven 间隔 marks from the rail's spacing tile. */
+  setLineSpacing: (spacing: number) => void
+  /** Step the 间隔 on, wrapping 超长 → 超短. */
+  cycleLineSpacing: () => void
   calligraphyEnglish: boolean
   toggleCalligraphyEnglish: () => void
   guideExitId: string | null
@@ -293,6 +307,9 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   roadDirection: 'two-way',
   toggleRoadDirection: () => set(s => ({ roadDirection: s.roadDirection === 'one-way' ? 'two-way' : 'one-way' })),
   moduleRot: 0,
+  lineSpacing: LINE_SPACING_DEFAULT,
+  setLineSpacing: (spacing) => set({ lineSpacing: lineSpacingValue(spacing) }),
+  cycleLineSpacing: () => set((s) => ({ lineSpacing: nextLineSpacing(s.lineSpacing) })),
   calligraphyEnglish: false,
   toggleCalligraphyEnglish: () => set(s => ({ calligraphyEnglish: !s.calligraphyEnglish })),
   guideExitId: null,
@@ -353,7 +370,10 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // 三角 is what the patch grows instead of the ring, so either one refuses the
   // toggle while it owns the tool.
   setAutoWalls: (on) => set((s) => (s.halfWall || s.triangles || s.suspendedCeiling ? {} : { autoWalls: on })),
-  setModuleType: (t) => set({ moduleType: t }),
+  // The 间隔 is a property of the piece being laid **now**, not a remembered
+  // preference: switching the armed decor / equipment resets it to 超短, so the
+  // next piece never starts with the last one's distance.
+  setModuleType: (t) => set((s) => (t === s.moduleType ? s : { moduleType: t, lineSpacing: LINE_SPACING_DEFAULT })),
   // Clockwise on screen: the world turns +x toward −y in the isometric view.
   // A fixed-angle piece simply ignores the turn, so the guard lives here as well
   // as on the rail button.

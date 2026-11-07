@@ -147,6 +147,7 @@ test('a floor marking right-click removes only the ink beside a screen door', ()
   const psd = { id: 'psd', type: 'platform-edge', x: 0, y: 0, z: 0, rot: 0, w: 3, cfg: { line: '5' } }
   useStore.setState({ station: { ...useStore.getState().station, modules: [mark, psd] } })
   h.tool.onDown(h.event(0, 0, 2))
+  h.tool.onUp(h.event(0, 0, 2))
   assert.deepEqual(useStore.getState().station.modules, [psd])
   assert.deepEqual(useStore.getState().station.cells, [])
 })

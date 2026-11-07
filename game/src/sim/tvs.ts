@@ -29,6 +29,16 @@ import type { Module } from './types.ts'
 
 type Tv = Extract<Module, { type: 'tv' }>
 
+/**
+ * The drawn 电视 is **wider than its cell** (`TvModel`'s screen and open bezel).
+ * The placement itself reserves one cell, but a line of them at one-cell pitch
+ * would overlap the screens; the line pitch reads this width instead of the
+ * footprint, the same way a 指示牌's board width is read.
+ */
+export const TV_SCREEN_WIDTH = 1.42
+export const TV_BEZEL = 0.07
+export const TV_MODEL_WIDTH = TV_SCREEN_WIDTH + TV_BEZEL * 2
+
 /** The pair has no 180° axis: the two look the same way, or across each other. */
 export const TV_PAIR_AXIS_NONE = -1
 

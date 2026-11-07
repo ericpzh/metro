@@ -191,10 +191,12 @@ test('pointing at the visible booth uses its frame instead of the floor behind i
     tool.onMove(info)
     assert.equal(blocked, false)
     assert.ok(boothSupportsSign(b, preview), 'preview follows the visible booth, not the far floor cell')
+    const hovered = preview
     tool.onDown(info)
+    tool.onUp(info)
     const placed = useStore.getState().station.modules.find((m) => m.type === 'sign')
     assert.ok(placed)
-    assert.deepEqual({ ...placed, id: preview.id }, preview, 'click places exactly the snapped preview')
+    assert.deepEqual({ ...placed, id: hovered.id }, hovered, 'click places exactly the snapped preview')
     const boards = { front: placed.cfg.front, back: [] }
     const edited = signModuleWithPreview(placed, { moduleId: placed.id, boards })
     assert.ok(boothSupportsSign(b, edited), 'live sign editing keeps the header attachment')
@@ -234,6 +236,7 @@ test('aiming at the board already on a booth names that booth, never a missing w
     assert.equal(blocked, true, 'the face the board is on is already taken')
     assert.equal(preview.cfg.boothId, b.id, 'the ghost is bolted to the same booth, not floating over a far floor')
     tool.onDown(info)
+    tool.onUp(info)
     assert.match(useStore.getState().notice, /指示牌/, 'the refusal names the board in the way, not a wall')
   } finally {
     useStore.setState(previous)

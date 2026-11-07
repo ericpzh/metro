@@ -29,6 +29,7 @@ import {
   actionRowOpen,
   moduleBuilderAttributes,
   isSignType,
+  supportsLinePlacement,
   useStore,
   type ModuleFamilyKey,
 } from '../../store.ts'
@@ -42,6 +43,7 @@ import { dimensionSelection } from '../shared/dimensionSelection.ts'
 import { Block } from '../shared/Block.tsx'
 import { PositionTile, RotateTile } from '../shared/RotateTile.tsx'
 import { InlineExpand } from '../shared/InlinePanel.tsx'
+import { SpacingTile } from '../shared/SpacingTile.tsx'
 
 import type { AppState } from '../../store/Store.ts'
 import { builderAttributeState } from '../../store/builderAttributes.ts'
@@ -112,6 +114,7 @@ function ActionTiles({state}:{state:ActionTileState}): React.ReactElement {
         cut === 'corner' ? <PositionTile position={state.wallSnapCycle} corners shortcut="Tab" onClick={() => st().rotateWallSnap()} /> : <RotateTile rotation={state.wallSnapCycle} label={t('rotate')} onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null ? moduleBuilderAttributes(piece, state).map((attribute, index) => <BuilderAttributeTile key={`${attribute.kind}-${index}`} attribute={attribute} moduleType={piece} state={state} />) : null}
+      {piece !== null && supportsLinePlacement(piece) ? <SpacingTile spacing={state.lineSpacing} onCycle={state.cycleLineSpacing} /> : null}
       {piece?.startsWith('calligraphy') && state.station.nameEn?.trim() ? (
         <Block label={t(state.calligraphyEnglish ? 'english_name_on' : 'english_name_off')} active={state.calligraphyEnglish} onClick={() => st().toggleCalligraphyEnglish()} art={<svg viewBox="0 0 100 70" fill="none" stroke="currentColor" strokeWidth="4"><rect x="8" y="12" width="84" height="30" rx="15" fill="currentColor"/><rect x="24" y="53" width="52" height="9" rx="2" fill={state.calligraphyEnglish ? "currentColor" : "none"} /></svg>} />
       ) : null}

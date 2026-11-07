@@ -540,10 +540,12 @@ test('the corner hover is accepted and the click commits the same snapped pose',
     tool.onMove(pointer())
     assert.equal(refused, false)
     assert.equal(ghost.cfg.corner, s.id)
+    const hovered = ghost
     tool.onDown(pointer())
+    tool.onUp(pointer())
     const placed = useStore.getState().station.modules.find((m) => m.type === 'psd-end')
     assert.ok(placed, 'the shared corner must be placeable')
-    assert.deepEqual(placed.cfg, ghost.cfg)
+    assert.deepEqual(placed.cfg, hovered.cfg)
     assert.equal(useStore.getState().past.length, 1)
     const restored = parse(serialize(useStore.getState().station))
     assert.deepEqual(restored.state.modules.find((m) => m.id === placed.id).cfg, placed.cfg)
@@ -658,10 +660,12 @@ test('hover and click extend the snapped return, and undo removes only the exten
     event.hit = { ...event.hit, cell: [0, 1, 0], place: [0, 1, 1], point: [0.5, 1.5, 1] }
     tool.onMove(event)
     assert.equal(refused, false, 'the next panel must not show a red overlap ghost')
+    const hovered = ghost
     tool.onDown(event)
+    tool.onUp(event)
     const modules = useStore.getState().station.modules
     assert.equal(modules.length, 3)
-    assert.deepEqual(modules[2].cfg, ghost.cfg)
+    assert.deepEqual(modules[2].cfg, hovered.cfg)
     useStore.getState().undo()
     assert.deepEqual(useStore.getState().station.modules, [s, first])
   } finally { useStore.setState(before) }

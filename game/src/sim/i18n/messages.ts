@@ -3317,5 +3317,33 @@ export const messages = {
   "train_curve_now_about_value_people_h": {
     "zh": "列车客流，当前约{0}人/时",
     "en": "Train demand, now about {0} people/h"
+  },
+  "line_spacing": {
+    "zh": "间隔",
+    "en": "Spacing"
+  },
+  "medium_short": {
+    "zh": "中短",
+    "en": "Medium-short"
+  },
+  "medium_long": {
+    "zh": "中长",
+    "en": "Medium-long"
+  },
+  "placed_value_line_pieces_value_blockedvalue": {
+    "zh": "已沿直线放置 {0} 件，{1} 处被阻挡{2}",
+    "en": "Placed {0} pieces along the line; {1} blocked{2}"
+  },
+  "cannot_place_along_this_line_value": {
+    "zh": "无法沿此直线放置：{0}",
+    "en": "Cannot place along this line: {0}"
+  },
+  "removed_value_line_pieces": {
+    "zh": "已沿直线拆除 {0} 件",
+    "en": "Removed {0} pieces along the line"
+  },
+  "nothing_to_remove_along_this_line": {
+    "zh": "此线上没有可拆除的装饰或设备",
+    "en": "No decor or equipment to remove along this line"
   }
 } as const

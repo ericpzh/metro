@@ -45,18 +45,23 @@ import {
   moduleFootprint,
   snapDoorToCurtain,
   topBlockOver,
+  wallSide,
+  type EquipmentRefusal,
 } from '../../sim/placement.ts'
 import { checkModulePlacements } from '../../build/validation.ts'
 import type { Module } from '../../sim/types.ts'
 import { isCounterType } from '../store/catalog.ts'
-import { isDecorType, isFenceType, isStairType, isWallMountedType, signModuleWithPreview, useStore } from '../store.ts'
-import { dragCellCount, straightLineCells } from './geometry/cells.ts'
+import { isDecorType, isFenceType, isStairType, isWallMountedType, signModuleWithPreview, supportsLinePlacement, useStore } from '../store.ts'
+import { straightLineCells } from './geometry/cells.ts'
+import { lineAnchorCount, lineAnchors, lineAxis, lineRunRotation, lineSpan, lineStep, type LineCell } from './geometry/linePlacement.ts'
+import { isLineDeletable } from '../../sim/lineDeletion.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { TactileTool } from './TactileTool.ts'
 import { TileEquipmentTool } from './TileEquipmentTool.ts'
 import { snapBoardingMark } from '../../sim/floorDecor.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
+import type { AreaDrag } from './ToolContext.ts'
 import { deletionTarget } from './deletionTarget.ts'
 import { canPlaceWithoutFloorHit } from './placementInput.ts'
 import { snapSignToBooth } from '../../sim/boothSigns.ts'
@@ -78,6 +83,9 @@ function isHeadHouseExitType(type: string): boolean {
 function isSnapRamp(mod: Module | undefined): mod is Extract<Module, { type: 'stair' | 'escalator' }> {
   return !!mod && (mod.type === 'escalator' || (mod.type === 'stair' && !mod.cfg.block && (!mod.cfg.style || mod.cfg.style === 'straight')))
 }
+
+/** The immutable station document the shared placement verdict reads. */
+type StationDoc = ReturnType<typeof useStore.getState>['station']
 
 export class EquipmentTool extends ToolController {
   readonly tool = 'module' as const
@@ -134,15 +142,6 @@ export class EquipmentTool extends ToolController {
         const picked = st.station.modules.find(m => m.id === pickedId)
         if (picked?.type === 'shelf' || picked?.type === 'checkout') this.removePlacedModule(picked)
       }
-      return
-    }
-    if (info.button === 2 && st.moduleType.startsWith('floor-mark-')) {
-      // Vinyl can share a screen-door strip: erase the print the ray hits,
-      // rather than tearing down the screen standing over that floor (§9.5).
-      const pickedId = this.pickModuleAt(info)
-      const picked = st.station.modules.find((m) => m.id === pickedId)
-      if (picked?.type === 'floor-mark') this.removePlacedModule(picked)
-      else st.setNotice(msg('no_floor_marking_to_erase_here'))
       return
     }
     if (st.moduleType === 'bridge') {
@@ -243,6 +242,13 @@ export class EquipmentTool extends ToolController {
       else st.setNotice(equipmentRefusalNotice('lift-footprint'))
       return
     }
+    // Every loose 装饰 / 设备 piece lays a line: press, drag along one axis and
+    // release to place the row at the rail's 间隔. Right-drag lifts the same row
+    // back out (a quick right click still removes just the pointed piece).
+    if (supportsLinePlacement(st.moduleType) && info.button === 2) {
+      this.beginLineRemove(info, hit)
+      return
+    }
     if (info.button === 2) {
       // Use the drawn module under the pointer first. Wall/ceiling fixtures and
       // tall equipment often sit above a void, wall, or rail cell, where the
@@ -282,6 +288,12 @@ export class EquipmentTool extends ToolController {
       st.setNotice(equipmentRefusalNotice('floor'))
       return
     }
+    // A loose 装饰 / 设备 piece is deferred to release so a drag can lay its line:
+    // the click is still one piece, and the whole row is one commit (one undo).
+    if (supportsLinePlacement(st.moduleType)) {
+      this.beginLineAdd(info, hit)
+      return
+    }
     this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]], undefined, pickedCoverTarget ?? st.station.modules.find(m => m.id === hit.moduleId))
   }
 
@@ -300,6 +312,8 @@ export class EquipmentTool extends ToolController {
       : signAim
       ? boothSignHitOf(signAim)
       : info.hit
+    const activeDrag = this.ctx.drag.current
+    if (activeDrag?.decorLine) { this.moveLine(info, activeDrag, hit); return }
     const st = useStore.getState()
     const pickedCoverId = st.moduleType === 'psd-end-cover'
       ? this.ctx.pickModule(info.clientX, info.clientY, true)
@@ -345,10 +359,12 @@ export class EquipmentTool extends ToolController {
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const cursor = dragging ? target : d.anchor
       if (d.mode === 'add') {
-        const count = dragging ? dragCellCount(d.anchor, target, true) : 1
+        const step = this.fenceLineStep(st.moduleType)
+        const anchors = dragging ? lineAnchors(d.anchor, target, step) : [d.anchor]
+        const count = anchors.length
         const over = this.multiPlace.check(count)
         scene.setCursor(cursor, !over)
-        const lineKey = [...d.anchor, ...target, d.z, st.moduleType, st.moduleRot, st.stationEpoch].join(':')
+        const lineKey = [...d.anchor, ...target, d.z, st.moduleType, st.moduleRot, st.lineSpacing, st.stationEpoch].join(':')
         if (over) {
           // Count first, then build the red run on the shared 50 ms cadence.
           // The accepted fence preview is cleared immediately so the
@@ -357,8 +373,7 @@ export class EquipmentTool extends ToolController {
             if (this.ctx.drag.current !== d) return
             const sceneNow = this.ctx.scene()
             if (!sceneNow) return
-            const line = dragging ? straightLineCells(d.anchor, target, d.z) : [d.anchor]
-            this.multiPlace.refuse(sceneNow, line, cursor)
+            this.multiPlace.refuse(sceneNow, anchors, cursor)
           })
           return
         }
@@ -366,21 +381,19 @@ export class EquipmentTool extends ToolController {
         if (count > 1) {
           this.multiPlace.deferPreview(scene, lineKey, () => {
             if (this.ctx.drag.current !== d) return
-            const line = straightLineCells(d.anchor, target, d.z)
-            const rot = this.fenceRunRotation(line)
-            const { mods, blockedCells, colliderIds } = this.fenceRunPreview(line, rot)
+            const rot = this.fenceRunRotation(anchors)
+            const { mods, blockedCells, colliderIds } = this.fenceRunPreview(anchors, rot)
             const sceneNow = this.ctx.scene()
             sceneNow?.setGhost([], 'add', undefined, undefined, blockedCells)
             sceneNow?.setFencePreview(mods)
             sceneNow?.setCollisionHighlight(colliderIds.length ? colliderIds : null)
-            sceneNow?.setCursor(line[line.length - 1] ?? cursor, blockedCells.length === 0)
+            sceneNow?.setCursor(anchors[anchors.length - 1] ?? cursor, blockedCells.length === 0)
           })
           return
         }
         this.cancelPreview()
-        const line = [d.anchor]
-        const rot = this.fenceRunRotation(line)
-        const { mods, blockedCells, colliderIds } = this.fenceRunPreview(line, rot)
+        const rot = this.fenceRunRotation(anchors)
+        const { mods, blockedCells, colliderIds } = this.fenceRunPreview(anchors, rot)
         scene.setGhost([], 'add', undefined, undefined, blockedCells)
         scene.setModulePreview(null)
         scene.setFencePreview(mods)
@@ -434,6 +447,7 @@ export class EquipmentTool extends ToolController {
     if (useStore.getState().moduleType === 'road' || this.ctx.drag.current?.road) { new RoadTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).onUp(info); return }
     if (this.ctx.drag.current?.roof) { new TileEquipmentTool(this.ctx).onUp(info); return }
+    if (this.ctx.drag.current?.decorLine) { this.finishLine(info); return }
     // The viewport routes only 围栏 runs here; any other drag release belongs
     // to its own tool. A fence run lays (or lifts) one panel per cell.
     const d = this.ctx.drag.current
@@ -447,14 +461,16 @@ export class EquipmentTool extends ToolController {
     const hit = info.hit
     const rect = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
     const st = useStore.getState()
-    // A 围栏 drag lays one panel per cell along a straight axis-aligned run;
-    // a quick press is one panel with the R rotation. The run's panels follow
-    // the drag direction, and the right drag lifts the same run back out.
+    // A 围栏 drag lays one panel per cell (or one every 间隔 + 1 cells) along a
+    // straight axis-aligned run; a quick press is one panel with the R rotation.
+    // The run's panels follow the drag direction, and the right drag lifts the
+    // same run back out — every cell it crosses, whatever spacing it was laid at.
     const lineTarget: [number, number, number] = hit ? [hit.cell[0], hit.cell[1], d.z] : d.anchor
+    const step = this.fenceLineStep(st.moduleType)
+    const anchors = rect ? lineAnchors(d.anchor, lineTarget, step) : [d.anchor]
     // Count the run before allocating its cells. An over-budget fence is
     // refused whole: no panel on the line is laid and nothing is clipped.
-    const panels = rect ? dragCellCount(d.anchor, lineTarget, true) : 1
-    if (d.mode === 'add' && panels > this.multiPlace.limit) {
+    if (d.mode === 'add' && anchors.length > this.multiPlace.limit) {
       this.multiPlace.setNotice(true)
       return
     }
@@ -464,7 +480,7 @@ export class EquipmentTool extends ToolController {
       // The panel follows the run's own span. Using the run cells (not the
       // press cell against the sorted end) keeps a run laid toward −x/−y from
       // turning crosswise; a single cell keeps the R rotation.
-      const rot = this.fenceRunRotation(line)
+      const rot = this.fenceRunRotation(anchors)
       let next = st.station
       let placed = 0
       let blocked = 0
@@ -473,7 +489,7 @@ export class EquipmentTool extends ToolController {
       // the piece already holding the space — a staircase's treads included).
       let why = ''
       const seen = new Set<string>()
-      for (const [x, y, z] of this.runAnchors(line)) {
+      for (const [x, y, z] of anchors) {
         const k = cellKey(x, y, z)
         if (seen.has(k)) continue
         seen.add(k)
@@ -520,15 +536,465 @@ export class EquipmentTool extends ToolController {
     }
   }
 
+  // ---------------------------------------------------------------- line runs
+
   /**
-   * The fence panels a drag run would place: one 1 m panel per cell, all at the
-   * run's rotation, skipping cells that are not floor or already occupied. The
-   * result drives the live fence preview; `blockedCells` identifies refused cells,
-   * and `colliderIds` names the placed modules the refused panels hit.
+   * Start the deferred line gesture for a loose 装饰 / 设备 piece. The click no
+   * longer commits on the press: a release without a drag still places exactly
+   * one piece, while a press-and-drag lays the row at the armed 间隔 — and
+   * because the whole row is built on release, it is one commit and one undo.
+   *
+   * A **touch tap** never receives a release in this viewport, so touch keeps
+   * the old press-to-place behaviour (one piece) instead of waiting for an up
+   * that will not arrive.
    */
-  /** Portable screens span two metres; previews and commits share the same anchors. */
-  private runAnchors(line: Array<[number, number, number]>): Array<[number, number, number]> {
-    return useStore.getState().moduleType === 'court-divider' ? line.filter((_, i) => i % 2 === 0) : line
+  private beginLineAdd(info: PointerInfo, hit: NonNullable<PointerInfo['hit']>): void {
+    const st = useStore.getState()
+    if (info.pointerType === 'touch') {
+      this.placeModule(hit.cell, hit.place, hit.solid, st.moduleType, [hit.point[0], hit.point[1], hit.point[2]])
+      return
+    }
+    const anchor = moduleAim(st.station, st.moduleType, {
+      cell: hit.cell,
+      place: hit.place,
+      solid: hit.solid,
+      point: [hit.point[0], hit.point[1], hit.point[2]],
+    })
+    // A press on a wall **face** carries a course to keep along the row. A floor
+    // cell in front of the wall does not: the panel keeps its authored height,
+    // exactly as the same click does.
+    const wallFace = hit.cell[0] !== hit.place[0] || hit.cell[1] !== hit.place[1]
+    const lineWall = isWallMountedType(st.moduleType) && wallFace
+      ? this.lineWallAim(st.moduleType, anchor, st.moduleRot, hit.cell[2])
+      : undefined
+    info.preventDefault()
+    this.ctx.drag.current = {
+      active: true,
+      button: info.button,
+      mode: 'add',
+      anchor,
+      z: anchor[2],
+      shift: false,
+      decorLine: true,
+      lineType: st.moduleType,
+      lineDrag: false,
+      lineWall,
+      linePress: [hit.cell[0], hit.cell[1], hit.cell[2]],
+      lineTarget: anchor,
+      lineHit: {
+        cell: [hit.cell[0], hit.cell[1], hit.cell[2]],
+        place: [hit.place[0], hit.place[1], hit.place[2]],
+        solid: hit.solid,
+        point: [hit.point[0], hit.point[1], hit.point[2]],
+        ...(hit.moduleId ? { moduleId: hit.moduleId } : {}),
+      },
+      sx: info.clientX,
+      sy: info.clientY,
+      downTime: performance.now(),
+    }
+    // Until the press becomes a drag, the piece keeps the hover ghost the player
+    // was already reading — the same aim, snap and course the click will use.
+    this.ctx.hover.current = {
+      cell: hit.cell,
+      place: hit.place,
+      solid: hit.solid,
+      moduleId: hit.moduleId ?? null,
+      point: [hit.point[0], hit.point[1], hit.point[2]],
+    }
+    this.refreshHover()
+  }
+
+  /**
+   * Start a right-drag line delete. A quick right click removes the pointed
+   * piece (as it always has); a drag lifts every loose 装饰 / 设备 piece whose
+   * footprint crosses the line, whatever 间隔 it was laid at, in one commit.
+   *
+   * Pieces that own their own teardown (a room, a rail, a structure) keep their
+   * single delete: the row never silently folds a 商店's walls or a 楼梯's
+   * carved opening into a sweep.
+   */
+  private beginLineRemove(info: PointerInfo, hit: NonNullable<PointerInfo['hit']>): void {
+    const st = useStore.getState()
+    const scene = this.ctx.scene()
+    if (!scene) return
+    const pointed = deletionTarget(st.station.modules, this.pickModuleAt(info), hit.cell, this.facing(), st.station.levelBase, st.station.storeyHeight)
+    if (pointed && (pointed.type === 'shop' || pointed.type === 'booth' || pointed.type === 'retail')) {
+      // A room is not a loose piece: the decor tool has always said to remove
+      // its shelves one at a time, while the equipment tool removed the room
+      // itself. Keep each tool's single-click answer here.
+      if (isDecorType(st.moduleType)) {
+        st.setNotice(msg('remove_shelves_one_at_a_time_point_at_a_shelf_and_right_click'))
+        return
+      }
+      this.removePlacedModule(pointed)
+      return
+    }
+    if (pointed && !isLineDeletable(pointed)) {
+      this.removePlacedModule(pointed)
+      return
+    }
+    const anchor: LineCell = pointed ? [pointed.x, pointed.y, pointed.z] : [hit.cell[0], hit.cell[1], hit.cell[2]]
+    info.preventDefault()
+    this.ctx.drag.current = {
+      active: true,
+      button: 2,
+      mode: 'remove',
+      anchor,
+      z: anchor[2],
+      shift: false,
+      decorLine: true,
+      linePress: [hit.cell[0], hit.cell[1], hit.cell[2]],
+      lineTarget: anchor,
+      lineRemoveId: pointed?.id,
+      sx: info.clientX,
+      sy: info.clientY,
+      downTime: performance.now(),
+    }
+    this.drawLineRemove(anchor, false)
+  }
+
+  /** The pointer cell translated into the run's own anchor row. */
+  private lineTargetFrom(drag: AreaDrag, cell: readonly [number, number, number]): LineCell {
+    const press = drag.linePress ?? drag.anchor
+    return [cell[0] + drag.anchor[0] - press[0], cell[1] + drag.anchor[1] - press[1], drag.anchor[2]]
+  }
+
+  /** A press has become a deliberate drag, matching the fence and wall runs. */
+  private lineDragging(info: PointerInfo): boolean {
+    const drag = this.ctx.drag.current
+    return !!drag && performance.now() - drag.downTime >= LONG_PRESS_MS && isMoved(drag, info)
+  }
+
+  /**
+   * The wall face a row mounts on, captured at the press: the panel's own turn
+   * from the first candidate and the course the pointer aimed at. A wall row
+   * keeps both, so a dragged poster line does not climb or flip at every tile.
+   */
+  private lineWallAim(type: string, anchor: LineCell, baseRot: number, course: number): AreaDrag['lineWall'] {
+    const probe = this.buildLineModules(type, anchor, 'line-wall-probe', baseRot)
+    const rot = probe[0]?.rot ?? baseRot
+    const [nx, ny] = wallSide(rot)
+    return { rot, course, normal: [nx, ny] }
+  }
+
+  /**
+   * One anchor's modules through the same path its single click takes: wall
+   * pieces autoface their backing, hung pieces find their slab, and a floor
+   * piece asks `moduleAim` for its cell. `rot` overrides R only for the run's
+   * long-axis alignment; a wall mount still answers for itself.
+   */
+  private buildLineModules(type: string, cell: LineCell, id: string, rot?: number, wall?: AreaDrag['lineWall']): Module[] {
+    const st = useStore.getState()
+    // A 屏蔽端门's single click snaps to a screen corner, which is the right
+    // answer for one piece but would fold every cell of a row onto the same
+    // corner. The row lays plain metre-grid end panels; a click still uses the
+    // snapped `placeModule` path.
+    if (type === 'psd-end') {
+      const mod = createModule(type, cell[0], cell[1], cell[2], id, rot)
+      if (mod?.type !== 'psd-end') return []
+      mod.cfg.psd = st.psdEndHeight
+      return [mod]
+    }
+    if (isWallMountedType(type)) {
+      if (wall) {
+        // The line anchor is the stand cell; the wall is one step out along the
+        // captured face, and the pointed course is what keeps the row at height.
+        const wallCell: LineCell = [cell[0] + wall.normal[0], cell[1] + wall.normal[1], wall.course]
+        const standCell: LineCell = [cell[0], cell[1], wall.course]
+        const near: [number, number, number] = [cell[0] + 0.5, cell[1] + 0.5, wall.course]
+        const mod = this.wallMountPlacement(wallCell, standCell, id, near, undefined, type, wall.rot)
+        return mod ? [mod] : []
+      }
+      const mod = this.wallMountPlacement(cell, [cell[0], cell[1], cell[2] + 1], id, undefined, undefined, type, rot)
+      return mod ? [mod] : []
+    }
+    if (isCeilingHung({ type })) {
+      return this.ceilingPlacement(cell, [cell[0], cell[1], cell[2] + 1], id, type, rot)
+    }
+    const at = moduleAim(st.station, type, { cell, place: [cell[0], cell[1], cell[2] + 1], solid: true })
+    return this.buildPlacementModules(type, at, id, undefined, rot)
+  }
+
+  /**
+   * The run's own rotation and pitch. The first piece is built at the R
+   * rotation so its footprint can say which way it is long; a piece wider than
+   * one tile turns so that long axis follows the drag, and the pitch is that
+   * footprint plus the 间隔 (never less than one cell).
+   */
+  private lineRunSpec(type: string, anchor: LineCell, target: LineCell, wall?: AreaDrag['lineWall']): { rot: number; step: number } {
+    const st = useStore.getState()
+    const axis = lineAxis(anchor, target)
+    const baseRot = wall?.rot ?? st.moduleRot
+    const base = this.buildLineModules(type, anchor, 'line-probe', baseRot, wall)
+    const rotated = isWallMountedType(type) ? baseRot : lineRunRotation(baseRot, axis, lineSpan(base, 0), lineSpan(base, 1))
+    const first = rotated === baseRot ? base : this.buildLineModules(type, anchor, 'line-probe-aligned', rotated, wall)
+    return { rot: rotated, step: lineStep(first, axis, st.lineSpacing) }
+  }
+
+  /** Build one module list per anchor, with ids unique for the preview and for posters. */
+  private lineCandidates(anchors: readonly LineCell[], type: string, rot: number, prefix: string, wall?: AreaDrag['lineWall']): Module[] {
+    const out: Module[] = []
+    anchors.forEach((cell, index) => {
+      const built = this.buildLineModules(type, cell, `${prefix}-${index}`, rot, wall)
+      built.forEach((mod, slot) => out.push({ ...mod, id: `${prefix}-${index}-${slot}` }))
+    })
+    return out
+  }
+
+  /**
+   * The candidates that may land, in drag order. Each is asked of the same
+   * shared verdict the release uses. Candidates are also refused when they
+   * overlap a **previously accepted** one: an autofaced row can turn at a wall
+   * corner, so a pitch that is right for the first piece is not proof for the
+   * rest.
+   */
+  private lineAccepted(mods: readonly Module[], station: StationDoc): {
+    accepted: Module[]
+    blockedCells: LineCell[]
+    reason: EquipmentRefusal | ''
+    colliderIds: string[]
+  } {
+    const check = checkModulePlacements(station, mods.map((module) => ({ id: module.id, module, layer: true })))
+    const used = new Set<string>()
+    const blocked = new Set<string>()
+    const accepted: Module[] = []
+    let reason: EquipmentRefusal | '' = ''
+    const block = (module: Module): void => {
+      for (const [x, y] of moduleFootprint(module)) blocked.add(`${x},${y},${module.z}`)
+    }
+    for (const module of mods) {
+      const refused = check.refused.get(module.id)
+      if (refused !== undefined) {
+        reason ||= refused as EquipmentRefusal
+        block(module)
+        continue
+      }
+      const cells = moduleFootprint(module).map(([x, y]) => `${x},${y},${module.z}`)
+      if (cells.some((key) => used.has(key))) {
+        block(module)
+        continue
+      }
+      for (const key of cells) used.add(key)
+      accepted.push(module)
+    }
+    return {
+      accepted,
+      blockedCells: [...blocked].map((key) => {
+        const [x, y, z] = key.split(',').map(Number)
+        return [x, y, z] as LineCell
+      }),
+      reason,
+      colliderIds: [...check.colliderIds],
+    }
+  }
+
+  /** Preview a live add run. `target` is already in the anchor's own row. */
+  private drawLineAdd(target: LineCell, dragging: boolean): void {
+    const drag = this.ctx.drag.current
+    const scene = this.ctx.scene()
+    if (!drag?.decorLine || !scene) return
+    const st = useStore.getState()
+    const type = drag.lineType ?? st.moduleType
+    let anchors: LineCell[] = [drag.anchor]
+    let rot = st.moduleRot
+    if (dragging && (target[0] !== drag.anchor[0] || target[1] !== drag.anchor[1])) {
+      const spec = this.lineRunSpec(type, drag.anchor, target, drag.lineWall)
+      rot = spec.rot
+      anchors = lineAnchors(drag.anchor, target, spec.step)
+    }
+    const mods = this.lineCandidates(anchors, type, rot, 'line-preview', drag.lineWall)
+    const { accepted, blockedCells, colliderIds } = this.lineAccepted(mods, st.station)
+    const mounted = isWallMountedType(type) || isCeilingHung({ type })
+    scene.setGhost([], 'add', undefined, undefined, blockedCells)
+    scene.setModulePreview(accepted.length ? accepted : null, false)
+    scene.setCollisionHighlight(colliderIds.length ? colliderIds : null)
+    scene.setCursor(mounted ? null : anchors[anchors.length - 1] ?? drag.anchor, blockedCells.length === 0)
+  }
+
+  /** The pieces a right-drag line would lift: the pressed one plus every footprint on the line. */
+  private lineRemoveModules(drag: AreaDrag, target: LineCell, dragging: boolean): Module[] {
+    const st = useStore.getState()
+    const cells = dragging ? straightLineCells(drag.anchor, target, drag.anchor[2]) : [drag.anchor]
+    const keys = new Set(cells.map(([x, y]) => `${x},${y}`))
+    const out: Module[] = []
+    const seen = new Set<string>()
+    const first = drag.lineRemoveId ? st.station.modules.find((mod) => mod.id === drag.lineRemoveId) : undefined
+    if (first && isLineDeletable(first)) {
+      out.push(first)
+      seen.add(first.id)
+    }
+    for (const mod of st.station.modules) {
+      if (seen.has(mod.id) || !isLineDeletable(mod) || mod.z !== drag.anchor[2]) continue
+      if (!moduleFootprint(mod).some(([x, y]) => keys.has(`${x},${y}`))) continue
+      out.push(mod)
+      seen.add(mod.id)
+    }
+    return out
+  }
+
+  private drawLineRemove(target: LineCell, dragging: boolean): void {
+    const drag = this.ctx.drag.current
+    const scene = this.ctx.scene()
+    if (!drag?.decorLine || !scene) return
+    const modules = this.lineRemoveModules(drag, target, dragging)
+    scene.setGhost([], 'remove')
+    scene.setModulePreview(modules.length ? modules : null, true)
+    scene.setCollisionHighlight(null)
+    scene.setCursor(null)
+  }
+
+  /** The line drag's move: preview the row, or the row it would lift. */
+  private moveLine(info: PointerInfo, drag: AreaDrag, hit: PointerInfo['hit']): void {
+    const scene = this.ctx.scene()
+    if (!scene) return
+    if (!hit) {
+      scene.setGhost([], 'add')
+      scene.setModulePreview(null)
+      scene.setCursor(null)
+      return
+    }
+    const st = useStore.getState()
+    const type = drag.lineType ?? st.moduleType
+    const target = this.lineTargetFrom(drag, hit.cell)
+    drag.lineTarget = target
+    const dragged = this.lineDragging(info) && (target[0] !== drag.anchor[0] || target[1] !== drag.anchor[1])
+    drag.lineDrag = dragged
+    if (drag.mode === 'remove') {
+      this.drawLineRemove(target, dragged)
+      return
+    }
+    if (!dragged) {
+      this.cancelPreview()
+      this.multiPlace.setNotice(false)
+      this.ctx.hover.current = {
+        cell: hit.cell,
+        place: hit.place,
+        solid: hit.solid,
+        moduleId: hit.moduleId ?? null,
+        point: [hit.point[0], hit.point[1], hit.point[2]],
+      }
+      this.refreshHover()
+      return
+    }
+    const spec = this.lineRunSpec(type, drag.anchor, target, drag.lineWall)
+    const count = lineAnchorCount(drag.anchor, target, spec.step)
+    const key = [...drag.anchor, ...target, type, st.moduleRot, st.lineSpacing, spec.step, spec.rot, st.stationEpoch].join(':')
+    if (this.multiPlace.check(count)) {
+      scene.setCursor(target, false)
+      this.multiPlace.deferRefusal(scene, key, () => {
+        if (this.ctx.drag.current !== drag) return
+        this.multiPlace.refuse(this.ctx.scene(), lineAnchors(drag.anchor, target, spec.step), target)
+      })
+      return
+    }
+    this.multiPlace.setNotice(false)
+    this.multiPlace.deferPreview(scene, key, () => {
+      if (this.ctx.drag.current !== drag) return
+      this.drawLineAdd(target, true)
+    })
+  }
+
+  /** Release the line: place the whole row, or lift the whole row, in one commit. */
+  private finishLine(info: PointerInfo): void {
+    const drag = this.ctx.drag.current
+    if (!drag?.decorLine) return
+    const st = useStore.getState()
+    const scene = this.ctx.scene()
+    const target = drag.lineTarget ?? (info.hit ? this.lineTargetFrom(drag, info.hit.cell) : drag.anchor)
+    const dragged = this.lineDragging(info) && (target[0] !== drag.anchor[0] || target[1] !== drag.anchor[1])
+    this.ctx.drag.current = null
+    this.cancelPreview()
+    scene?.setGhost([], 'add')
+    scene?.setModulePreview(null)
+    scene?.setCollisionHighlight(null)
+    scene?.setCursor(null)
+    if (drag.mode === 'remove') {
+      const modules = this.lineRemoveModules(drag, target, dragged)
+      if (modules.length === 0) {
+        const removeType = drag.lineType ?? st.moduleType
+        // A quick click on a rail or another non-swept target keeps the old
+        // single-target bulldoze; a decor-armed click keeps its own notice.
+        if (!dragged && !isDecorType(removeType) && drag.lineHit) {
+          this.bulldoze(drag.lineHit.cell, drag.lineHit.place, this.facing())
+          return
+        }
+        st.setNotice(dragged
+          ? msg('nothing_to_remove_along_this_line')
+          : msg(isDecorType(removeType) ? 'no_decoration_to_remove_here' : 'nothing_to_remove_here'))
+        return
+      }
+      const gone = new Set(modules.map((mod) => mod.id))
+      const pillars = new Set(modules.filter((mod) => mod.type === 'pillar').map((mod) => mod.id))
+      // A pillar owns its bridge-pier choice and any inscription on it; use its
+      // own teardown when the line contains one. Everything else is one list
+      // filter, which keeps a long row linear rather than N document copies.
+      let next = pillars.size
+        ? { ...st.station, modules: st.station.modules.filter((mod) => !gone.has(mod.id) || pillars.has(mod.id)) }
+        : { ...st.station, modules: st.station.modules.filter((mod) => !gone.has(mod.id)) }
+      for (const id of pillars) next = removeModule(next, id)
+      st.commit(next)
+      st.select(null)
+      st.setNotice(msg('removed_value_line_pieces', modules.length))
+      return
+    }
+    const type = drag.lineType ?? st.moduleType
+    // A click is still the piece's own single placement: it keeps every special
+    // notice and snap (a wall with no backing, a sign on a booth, a course the
+    // pointer aimed at) instead of the run's generic refusal.
+    if (!dragged) {
+      const click = drag.lineHit
+      if (!click) return
+      this.placeModule(
+        click.cell,
+        click.place,
+        click.solid,
+        type,
+        [click.point[0], click.point[1], click.point[2]],
+        undefined,
+        st.station.modules.find((mod) => mod.id === click.moduleId),
+      )
+      return
+    }
+    const spec = this.lineRunSpec(type, drag.anchor, target, drag.lineWall)
+    const anchors = lineAnchors(drag.anchor, target, spec.step)
+    const rot = spec.rot
+    this.multiPlace.setNotice(anchors.length > this.multiPlace.limit)
+    if (anchors.length > this.multiPlace.limit) return
+    const mods = this.lineCandidates(anchors, type, rot, 'line-new', drag.lineWall)
+    const { accepted, blockedCells, reason, colliderIds } = this.lineAccepted(mods, st.station)
+    const blockers = colliderIds
+      .map((id) => st.station.modules.find((mod) => mod.id === id))
+      .filter((mod): mod is Module => mod !== undefined)
+    const why = reason ? equipmentRefusalNotice(reason, blockers) : ''
+    if (accepted.length === 0) {
+      st.setNotice(msg('cannot_place_along_this_line_value', why || msg('choose_another_location')))
+      return
+    }
+    // Mint the saved ids after the verdict, so the run the player saw is the
+    // run appended. Provisional ids already gave each poster its own campaign.
+    const taken = new Set(st.station.modules.map((mod) => mod.id))
+    let seed = st.station.modules.length
+    const final = accepted.map((mod) => {
+      let n = ++seed
+      while (taken.has(`${mod.type}-${n}`)) n++
+      const id = `${mod.type}-${n}`
+      taken.add(id)
+      return { ...mod, id }
+    })
+    st.commit({ ...st.station, modules: [...st.station.modules, ...final] })
+    if (blockedCells.length > 0) {
+      st.setNotice(msg('placed_value_line_pieces_value_blockedvalue', final.length, mods.length - final.length, why ? `（${why}）` : ''))
+    }
+  }
+
+
+  /**
+   * The anchor pitch of a fence / court-divider run: one 1 m panel per cell, or
+   * one every `间隔 + 1` cells. A 球场分隔网 spans two cells, so its own pitch
+   * starts at two and adds the same empty blocks after it.
+   */
+  private fenceLineStep(type: string): number {
+    return (type === 'court-divider' ? 2 : 1) + useStore.getState().lineSpacing
   }
 
   private runModuleAt(mod: Module, x: number, y: number, z: number): boolean {
@@ -551,7 +1017,7 @@ export class EquipmentTool extends ToolController {
     const blockedCells: Array<[number, number, number]> = []
     const colliderIds: string[] = []
     const seen = new Set<string>()
-    for (const [x, y, z] of this.runAnchors(line)) {
+    for (const [x, y, z] of line) {
       const k = cellKey(x, y, z)
       if (seen.has(k)) continue
       seen.add(k)
@@ -637,8 +1103,11 @@ export class EquipmentTool extends ToolController {
    * the pointer positions the run on the top floor the exit opens onto rather
    * than the floor it climbs from. Everywhere else the cell is the base.
    */
-  private buildPlacementModule(type: string, cell: [number, number, number], id: string, targetRamp?: Module, psdCoverSupport?: Module): Module | null {
+  private buildPlacementModule(type: string, cell: [number, number, number], id: string, targetRamp?: Module, psdCoverSupport?: Module, rot?: number): Module | null {
     const st = useStore.getState()
+    // A line drag asks for the piece at its own run rotation; a click keeps the
+    // R setting. Nothing else in the build reads this instead of `st.moduleRot`.
+    const placementRot = rot ?? st.moduleRot
     const placementType = type.startsWith('door-')
       ? type.replace(/-[12]$/, st.doorWide ? '-2' : '-1')
       : type === 'tv-double' ? 'tv'
@@ -651,7 +1120,7 @@ export class EquipmentTool extends ToolController {
       // direction are the shared escalator settings.
       mod = walkwayModule(
         { x: cell[0], y: cell[1], z: cell[2] },
-        st.moduleRot,
+        placementRot,
         st.escalatorDir,
         id,
         st.escalatorWidth,
@@ -667,10 +1136,10 @@ export class EquipmentTool extends ToolController {
       const spec = this.rampSnapSpec(type)
       const snap = exitRunSnap(st.station.modules, cell[0], cell[1], cell[2], spec.run, spec.rise)
       mod = type === 'escalator'
-        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : st.moduleRot, st.escalatorDir, id, st.escalatorWidth, length, st.station.storeyHeight, st.escalatorSpan)
+        ? escalatorModule(snap ? snap.base : { x: cell[0], y: cell[1], z: cell[2] }, snap ? snap.rot : placementRot, st.escalatorDir, id, st.escalatorWidth, length, st.station.storeyHeight, st.escalatorSpan)
         : snap
           ? createModule(type, snap.base.x, snap.base.y, snap.base.z, id, snap.rot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
-          : createModule(type, cell[0], cell[1], cell[2], id, st.moduleRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
+          : createModule(type, cell[0], cell[1], cell[2], id, placementRot, width, st.escalatorDir, 'lane', [], undefined, { rampLength: length, storeyHeight: st.station.storeyHeight, escalatorSpan: st.escalatorSpan })
     } else {
       // `st.gateDoor` rides along like the escalator direction: the 闸机's door
       // side is a tool setting, cycled with Tab, and lands in the piece's
@@ -685,7 +1154,7 @@ export class EquipmentTool extends ToolController {
         cell[1],
         cell[2],
         id,
-        st.moduleRot,
+        placementRot,
         isCounterType(type) ? st.counterLength : type === 'curtain-wall' ? st.curtainWidth : type === 'hanger-roof' || type === 'hanger-post' ? st.hangerLength : st.stairWidth,
         st.escalatorDir,
         st.gateDoor,
@@ -790,17 +1259,17 @@ export class EquipmentTool extends ToolController {
   }
 
   /** Preview and commit both place one complete module at every stair width. */
-  private buildPlacementModules(type: string, cell: [number, number, number], id: string, targetRamp?: Module): Module[] {
+  private buildPlacementModules(type: string, cell: [number, number, number], id: string, targetRamp?: Module, rot?: number): Module[] {
     if (type === 'tv-double') {
-      const first = this.buildPlacementModule('tv-double', cell, id, targetRamp)
+      const first = this.buildPlacementModule('tv-double', cell, id, targetRamp, undefined, rot)
       if (first?.type !== 'tv') return []
       const secondId = nextModuleId([...useStore.getState().station.modules, first], 'tv-double')
-      const second = this.buildPlacementModule('tv-double', cell, secondId, targetRamp)
+      const second = this.buildPlacementModule('tv-double', cell, secondId, targetRamp, undefined, rot)
       if (second?.type !== 'tv') return []
       second.rot = ((first.rot ?? 0) + 2) % 4
       return [first, second]
     }
-    const one = this.buildPlacementModule(type, cell, id, targetRamp)
+    const one = this.buildPlacementModule(type, cell, id, targetRamp, undefined, rot)
     return one ? [one] : []
   }
 
@@ -843,13 +1312,15 @@ export class EquipmentTool extends ToolController {
     id: string,
     near?: readonly [number, number, number?],
     targetId?: string | null,
+    type: string = useStore.getState().moduleType,
+    rot?: number,
   ): Module | null {
     const st = useStore.getState()
-    const groundExit = st.moduleType.startsWith('exit-doorway-')
+    const groundExit = type.startsWith('exit-doorway-')
     // A 玻璃板 is cladding from its base, so it **hangs over the course the pointer is
     // on** rather than always at the storey floor (`wallMountFollowsCourse`): aim at a
     // wall's third course and the window covers the third course.
-    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true, point: near ? [...near] : undefined })
+    const at = moduleAim(st.station, type, { cell, place, solid: true, point: near ? [...near] : undefined })
     const hitBlock = st.station.cells.some((block) => block.fill === 'solid'
       && block.x === cell[0] && block.y === cell[1] && block.z === cell[2])
     const snappedRot = groundExit && hitBlock
@@ -860,12 +1331,12 @@ export class EquipmentTool extends ToolController {
     // its editor is open carries what is on screen and a bare one still wears the
     // player's 1号线 shield.
     const draft = createModule(
-      st.moduleType,
+      type,
       at[0],
       at[1],
       at[2],
       id,
-      snappedRot ?? st.moduleRot,
+      snappedRot ?? rot ?? st.moduleRot,
       st.stairWidth,
       st.escalatorDir,
       st.gateDoor,
@@ -916,10 +1387,12 @@ export class EquipmentTool extends ToolController {
     cell: [number, number, number],
     place: [number, number, number],
     id: string,
+    type: string = useStore.getState().moduleType,
+    rot?: number,
   ): Module[] {
     const st = useStore.getState()
-    const at = moduleAim(st.station, st.moduleType, { cell, place, solid: true })
-    return this.buildPlacementModules(st.moduleType, at, id)
+    const at = moduleAim(st.station, type, { cell, place, solid: true })
+    return this.buildPlacementModules(type, at, id, undefined, rot)
   }
 
   /**
@@ -934,6 +1407,20 @@ export class EquipmentTool extends ToolController {
     // can refresh this effect after the tool switch, so never rebuild an
     // equipment ghost unless the equipment tool still owns the pointer (§9.5).
     if (st.tool !== 'module') return
+    const activeLine = this.ctx.drag.current
+    if (activeLine?.decorLine) {
+      const target = activeLine.lineTarget ?? activeLine.anchor
+      if (activeLine.mode === 'remove') {
+        this.drawLineRemove(target, activeLine.lineDrag === true)
+        return
+      }
+      if (activeLine.lineDrag) {
+        this.drawLineAdd(target, true)
+        return
+      }
+      // Before the line starts, the piece's own hover ghost is the preview; the
+      // ordinary hover path below draws it from the press's real aim.
+    }
     if (st.moduleType === 'road') { new RoadTool(this.ctx).refreshHover(); return }
     if (useStore.getState().moduleType.startsWith('tactile-') || this.ctx.drag.current?.tactile) { new TactileTool(this.ctx).refreshHover(); return }
     if ((useStore.getState().moduleType.startsWith('roof') || useStore.getState().moduleType === 'stair-block' || useStore.getState().moduleType === 'sidewalk' || useStore.getState().moduleType === 'lawn')) { new TileEquipmentTool(this.ctx).refreshHover(); return }
@@ -1085,7 +1572,7 @@ export class EquipmentTool extends ToolController {
     if (isWallMountedType(type)) {
       // The panel turns itself to face whatever wall backs it, so the only
       // failure left is "there is no wall here at all".
-      const mod = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near, directTarget?.id)
+      const mod = this.wallMountPlacement(cell, place, nextModuleId(st.station.modules, type), near, directTarget?.id, type)
       if (!mod) {
         st.setNotice(type.startsWith('exit-doorway-')
           ? msg('ground_exits_need_a_solid_block_behind_their_wall_facing_side')
@@ -1103,7 +1590,7 @@ export class EquipmentTool extends ToolController {
     // Aim builds the candidate; the same shared verdict used by the hover
     // decides whether its ceiling and occupied space permit the commit.
     if (isCeilingHung({ type })) {
-      const mods = this.ceilingPlacement(cell, place, nextModuleId(st.station.modules, type))
+      const mods = this.ceilingPlacement(cell, place, nextModuleId(st.station.modules, type), type)
       if (mods.length === 0) {
         st.setNotice(equipmentRefusalNotice('ceiling'))
         return

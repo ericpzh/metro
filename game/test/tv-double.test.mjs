@@ -55,6 +55,7 @@ test('double-sided TV previews and places an opposite-facing pair in one commit'
     assert.deepEqual(preview.map(({ rot }) => rot).sort(), [1, 3])
 
     tool.onDown(pointer)
+    tool.onUp(pointer)
     const placed = useStore.getState().station.modules.filter((module) => module.type === 'tv')
     assert.equal(placed.length, 2)
     assert.deepEqual(placed.map(({ rot }) => rot).sort(), [1, 3])

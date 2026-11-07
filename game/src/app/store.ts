@@ -60,6 +60,7 @@ export {
   isDecorType,
   isWallMountedType,
   isFenceType,
+  supportsLinePlacement,
   isExitType,
   isEscalatorType,
   isGateType,

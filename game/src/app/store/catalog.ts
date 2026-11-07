@@ -365,6 +365,49 @@ export function isNoiseBarrierType(type: string): boolean {
   return type === 'noise-barrier' || type === 'noise-barrier-half' || type === 'noise-barrier-railing'
 }
 
+/**
+ * True for a piece the 设备 / 装饰 tool lays **in a line**: press and drag along
+ * one axis and the piece repeats at the rail's 间隔, so a row of benches, a wall
+ * of posters or a run of ceiling lights is one gesture (and one undo step).
+ *
+ * This is the whole decor/equipment catalogue except the pieces that already own
+ * a **different multi-cell gesture** or have nowhere meaningful to repeat:
+ *
+ *  * 围栏 and the 球场分隔网 keep their own line path (they are joined panels and
+ *    already drag out a run); they accept the same 间隔 there.
+ *  * 楼梯 / 扶梯 / 自动步道 / 电梯 / 轨道桥 / 道岔 track pieces are multi-storey
+ *    structures whose placement is one deliberate run, never a repeated tile.
+ *  * 人行道 / 草坪 / 屋顶 / 楼梯块 / 盲道 / 道路 are laid by their own tile tools.
+ *  * 出入口 is a head-house snapped into a bay; 屏蔽门盖板 (the cover over an
+ *    existing screen run) is one run-wide action. The **屏蔽端门 itself**, the
+ *    支柱 and the **球场** do line up, as does every loose 设备 / 装饰 piece.
+ *  * 座椅等宽于 1 m 的件 are allowed and keep their long axis on the drag (see
+ *    `lineRunRotation`); a square tile keeps the R rotation.
+ *
+ * Read from the **palette id**, because the tool holds the id before a module
+ * exists (`bench-wood-2`, `sign-wall`, `billboard-wide`), and from a placed
+ * module's own type where the tool asks late.
+ */
+export function supportsLinePlacement(type: string): boolean {
+  if (!type) return false
+  if (type === 'court-divider' || isFenceType(type)) return true
+  if (LINE_PLACEMENT_EXCLUDED.has(type)) return false
+  if (isStairType(type) || isEscalatorType(type) || isWalkwayType(type) || isExitType(type)) return false
+  if (type === 'roof' || type.startsWith('roof-') || type.startsWith('tactile-')) return false
+  return true
+}
+
+/** Pieces the generic line gesture must leave to their own tool or gesture. */
+const LINE_PLACEMENT_EXCLUDED: ReadonlySet<string> = new Set([
+  'road',
+  'bridge',
+  'track',
+  'lift',
+  'sidewalk',
+  'lawn',
+  'psd-end-cover',
+])
+
 function isStandardFenceType(type: string): boolean {
   return isFenceType(type) && !isNoiseBarrierType(type)
 }
@@ -722,6 +765,7 @@ export function folderOptions(folder: ModuleFolder, category?: DecorCategory): M
 export function hasModuleActions(moduleType: string): boolean {
   return (
     isRotatableType(moduleType) ||
+    supportsLinePlacement(moduleType) ||
     moduleType === 'hanger-roof' || moduleType === 'hanger-post' ||
     isSignType(moduleType) ||
     isStairType(moduleType) ||

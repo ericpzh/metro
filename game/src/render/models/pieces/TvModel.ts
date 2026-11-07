@@ -5,7 +5,7 @@ import { omitModelDetail, setModelDetail, tubeModelDetail } from '../../modelDet
 import { PieceBuilder, ownedMaterial, slab, plate, plateOf, placeLocal } from '../PieceBuilder.ts'
 import type { ModuleContext } from '../PieceBuilder.ts'
 import { posterFor } from '../../../sim/billboards.ts'
-import type { TvPairSlot } from '../../../sim/tvs.ts'
+import { TV_BEZEL, TV_SCREEN_WIDTH, type TvPairSlot } from '../../../sim/tvs.ts'
 import type { Module } from '../../../sim/types.ts'
 import { TV_POSTER_RECT } from '../../stationDisplay.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
@@ -86,7 +86,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   const mats = ctx.mats
   // The screen is wider than one cell is deep, which is fine for hung hardware —
   // `ceilingMountMissing` only asks for a ceiling, and the piece is decor.
-  const sw = 1.42
+  const sw = TV_SCREEN_WIDTH
   const sh = 0.8
   // The screen rides **just under** the surface it hangs from (`hangCeilingLocal`): the slab over
   // its cell, or the line the player aimed at — its own 0.85 m of rod, so it hugs the ceiling the
@@ -125,7 +125,7 @@ function buildTv(ctx: ModuleContext, mod: Extract<Module, { type: 'tv' }>): THRE
   // hardware rather than a floating image. Drawn once for the pair: a second frame
   // in the same cell would be coplanar with this one on all six faces.
   if (!paired || slot.hangs) {
-    const bw = 0.07
+    const bw = TV_BEZEL
     const bezel = slab(g, mats.darkSteel, 0, 0, zc + sh / 2 + bw / 2, sw + 2 * bw, depth, bw)
     bezel.userData.coherentModelDetail = true
     const low = new THREE.BoxGeometry(sw + 2 * bw, depth, sh + 2 * bw).translate(0, 0, -sh / 2 - bw / 2)

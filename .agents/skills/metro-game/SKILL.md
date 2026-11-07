@@ -13,6 +13,24 @@ fence is a connected 2 m-high fence variant with a solid kick panel and mesh;
 keep its rendered bounds, collision height, save and preview identity aligned.
 See `court.test.mjs` and `fence.test.mjs` for these contracts.
 
+Every loose 装饰 / 设备 piece also lays a **line**: press, drag along one axis and
+release (right-drag lifts the same line). `supportsLinePlacement` in
+`app/store/catalog.ts` owns the catalogue scope — stairs, ramps, lifts, tracks,
+surfaces and exits keep their own gestures, while 支柱, 屏蔽端门 and 球场 line up
+like the rest (the 屏蔽门盖板 stays one run-wide action on its picked PSD).
+`sim/lineSpacing.ts` owns the seven 间隔 marks **超短 / 短 / 中短 / 中 / 中长 / 长 /
+超长** = 0–6 empty blocks, with 超短 continuous and the default; switching the
+armed piece resets it to 超短 rather than remembering the last distance.
+`app/tools/geometry/linePlacement.ts` turns a piece's footprint plus that gap
+into the anchor pitch: a piece wider than one tile turns its long axis onto the
+drag, so 0 leaves no overlap; a 电视's 1.56 m screen (`TV_MODEL_WIDTH` in
+`sim/tvs.ts`) takes a two-cell pitch even though its placement reserves one cell. The whole row is one commit and one undo; wall rows
+keep the aimed face/course, ceiling rows find their own slab, and the rail's
+single square 间隔 tile cycles the same option table over an eight-box row,
+filling the two active pieces and outlining the blocks between them.
+`decor-line.test.mjs` pins it; keep `game/README.md` and `game/test/README.md`
+aligned.
+
 ## City identity
 
 Use [city styles: contracts and verification](references/city-styles.md) for saved

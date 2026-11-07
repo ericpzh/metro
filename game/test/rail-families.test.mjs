@@ -292,9 +292,9 @@ test('every piece with an action row anchors to a tile its folder really draws',
       assert.equal(anchor, option.id)
     }
     // The row only opens at all when the piece has something to put in it: every piece
-    // the palette offers has one (everything rotates), and a family option is no
-    // exception — the 旋转 tile is the whole orientation of a wall-mounted piece.
-    assert.equal(hasModuleActions(option.id), option.id !== 'light-circular', `${option.id} opens an action row of its own`)
+    // the palette offers has one — 旋转 on nearly all of them, and the 间隔 strip on every
+    // line-capable piece (which is why even the fixed-angle 圆灯 opens its row).
+    assert.equal(hasModuleActions(option.id), true, `${option.id} opens an action row of its own`)
   }
 })
 
