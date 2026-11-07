@@ -218,6 +218,18 @@ export type CellShape =
   | { kind: 'corner'; side: WallSide }
   | { kind: 'triangle'; triangle: TriangleKind; side: TriSide }
 
+/** Horizontal bounds of a rectangular cut piece, in cell coordinates. */
+export function wallShapeBounds(shape: CellShape | null | undefined): { x0: number; x1: number; y0: number; y1: number } | null {
+  if (!shape || shape.kind === 'triangle') return null
+  if (shape.kind === 'half') return {
+    x0: shape.side === 'e' ? 0.5 : 0, x1: shape.side === 'w' ? 0.5 : 1,
+    y0: shape.side === 'n' ? 0.5 : 0, y1: shape.side === 's' ? 0.5 : 1,
+  }
+  const east = shape.side === 'e' || shape.side === 's'
+  const north = shape.side === 'n' || shape.side === 'e'
+  return { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 }
+}
+
 /** The cut shape of a block, or null when it fills its whole cell. */
 export function shapeOf(c: { tags?: string[] }): CellShape | null {
   for (const side of WALL_SIDES) if (c.tags?.includes(`half-corner:${side}`)) return { kind: 'corner', side }

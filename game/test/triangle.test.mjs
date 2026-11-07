@@ -42,6 +42,8 @@ import {
   WALL,
 } from '../src/build/model.ts'
 import { GhostSystem } from '../src/render/scene/systems/GhostSystem.ts'
+import { GridSystem } from '../src/render/scene/systems/GridSystem.ts'
+import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { faceTargets } from '../src/app/tools/geometry/faces.ts'
 import { triangleLineCells, triangleRidgeAxis } from '../src/app/tools/geometry/cells.ts'
 import { placementPreviewKey, useStore } from '../src/app/store.ts'
@@ -697,7 +699,7 @@ test('a 三角 drag line travels its ridge, never across its cut', () => {
 test('a 三角 line lays one shape on every cell, so the slopes join smooth', () => {
   // The release lays the ridge line with the press's own side on each course —
   // the same side the ghost drew — so a dragged run is one ramp, not a row of
-  // steps. Delete lifts the same line back out (wallColumnsAt over it).
+  // steps. The delete tool can remove the resulting courses individually or by area.
   const st = addWalls(empty(), [[0, 0, 1], [0, 1, 1], [0, 2, 1]], null, 1, { kind: 'upper', side: 'w' }).state
   for (const y of [0, 1, 2]) {
     const c = st.cells.find((c) => c.x === 0 && c.y === y && c.z === 1)
@@ -884,4 +886,63 @@ test('corner click previews and commits the same position without editing during
     assert.equal(useStore.getState().past.length, 1)
   }
   useStore.getState().setCutMode(null)
+})
+
+
+test('delete ghosts and cursors fit every half-wall and corner footprint', () => {
+  for (const kind of ['half', 'corner']) for (const [i, side] of TRI_SIDES.entries()) {
+    const shape = { kind, side }
+    const scene = new THREE.Scene()
+    const ctx = { scene, thinSides: new Map([[packKey(0, 0, 1), shape]]) }
+    const ghost = new GhostSystem(ctx), grid = new GridSystem(ctx)
+    ghost.setGhost([[0, 0, 1]], 'remove')
+    grid.setCursor([0, 0, 1], true, true)
+    const matrix = new THREE.Matrix4()
+    ghost.ghostMesh.getMatrixAt(0, matrix)
+    const half = kind === 'corner' || i % 2 === 1
+    const verticalHalf = kind === 'corner' || i % 2 === 0
+    assert.equal(matrix.elements[0], half ? 0.5 : 1, `${kind} ${side} width`)
+    assert.equal(matrix.elements[5], verticalHalf ? 0.5 : 1, `${kind} ${side} depth`)
+    const expectedCenters = kind === 'half' ? [[0.5,0.75],[0.75,0.5],[0.5,0.25],[0.25,0.5]] : [[0.25,0.75],[0.75,0.75],[0.75,0.25],[0.25,0.25]]
+    assert.deepEqual([matrix.elements[12], matrix.elements[13]], expectedCenters[i])
+    assert.equal(grid.cursor.scale.x, matrix.elements[0])
+    assert.equal(grid.cursor.scale.y, matrix.elements[5])
+    assert.equal(grid.cursor.position.x, matrix.elements[12])
+    assert.equal(grid.cursor.position.y, matrix.elements[13])
+    grid.setCursor([0, 0, 1], true)
+    assert.equal(grid.cursor.scale.x, 1, 'ordinary placement cursor resets')
+    assert.equal(grid.cursor.scale.y, 1)
+    grid.dispose()
+  }
+})
+
+test('right-click and B remove the same single course and dragged area', () => {
+  const before = useStore.getState()
+  try {
+    for (const kind of ['half', 'corner']) for (const mode of ['click', 'rectangle', 'shift-line']) {
+      const drag = mode !== 'click'
+      const results = []
+      for (const deleteMode of [false, true]) {
+        station('upper', 0)
+        const original = useStore.getState().station
+        const tag = kind === 'half' ? halfWallTag('n') : 'half-corner:n'
+        const wall = [1, 2, 3].flatMap(z => [0, 1].flatMap(x => [0, 1].map(y => ({ x, y, z, fill: 'solid', tags: ['wall', tag] }))))
+        useStore.setState({ station: { ...original, cells: [...original.cells, ...wall] }, tool: deleteMode ? 'delete' : 'block', halfWall: true, halfCorner: kind === 'corner', triangles: false })
+        const { tool: block, ghosts } = ctxFor()
+        const tool = deleteMode ? new DeleteTool(block.ctx) : block
+        const first = { ...press([0, 0, 2], true), button: deleteMode ? 0 : 2 }
+        const last = { ...press([1, 1, 2], true), clientX: 100, button: first.button, shiftKey: mode === 'shift-line' }
+        tool.onDown(first)
+        if (drag) { block.ctx.drag.current.downTime -= 1000; tool.onMove(last) }
+        const preview = ghosts.at(-1).cells
+        assert.deepEqual(preview, mode === 'rectangle' ? [[0,0,2],[0,1,2],[1,0,2],[1,1,2]] : mode === 'shift-line' ? [[0,0,2],[1,1,2]] : [[0,0,2]])
+        tool.onUp(drag ? last : first)
+        assert.equal(useStore.getState().past.length, 1)
+        results.push(useStore.getState().station.cells.map(c => [c.x,c.y,c.z,c.fill]))
+        assert.ok(useStore.getState().station.cells.some(c => c.x === 0 && c.y === 0 && c.z === 1))
+        assert.ok(useStore.getState().station.cells.some(c => c.x === 0 && c.y === 0 && c.z === 3))
+      }
+      assert.deepEqual(results[0], results[1], `${kind} ${mode}`)
+    }
+  } finally { useStore.setState(before) }
 })

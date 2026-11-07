@@ -1909,7 +1909,7 @@ including the depth prepass, for all six appearances.
   mesher, the build ghost, the chunk hash and `facePresent` all read. A dragged 三角 run
   travels its **ridge only** (`triangleLineCells`: the off-axis extent is dropped, so the line
   can never step the run), lays the press's side on every course through `addWalls`, and
-  deletes through the same line (`wallColumnsAt` over it) — a tap stays one wedge. The
+  removes individual courses or an area with right-click, matching B — a tap stays one wedge. The
   mesher culls a side only against a **covering** neighbour (`coversSide` / `sideOpen` in
   `render/chunkMesher.ts`): a full block or a wedge whose full-height face is the interface;
   a thin edge or triangular end leaves the neighbour's side drawn, so a wedge beside a
@@ -1922,7 +1922,9 @@ including the depth prepass, for all six appearances.
   tagged `half-corner:<side>`; its four absolute positions connect perpendicular
   half walls. Its position tile and Tab or R cycle the positions. Preview, release,
   saved geometry and material face ghosts must agree, including the east/west
-  ghost axes. `triangle`, `storey-height`, `rail-families` and
+  ghost axes. Removal ghosts and cursors match half-wall/corner footprints; block-tool
+  right-click removes the same course or area as B, while G keeps story-column removal.
+  `triangle`, `storey-height`, `rail-families` and
   `editor-action-benchmark` pin these contracts.
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel per cell with
   the panels following the drag direction (R turns a single); a right-drag lifts the run.

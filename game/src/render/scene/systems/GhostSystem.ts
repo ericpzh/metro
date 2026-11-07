@@ -19,7 +19,7 @@ import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T, ROAD_NODE_HANDLE_CAPACITY } from '../../../sim/constants.ts'
 import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
-import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace } from '../../../sim/types.ts'
+import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace, wallShapeBounds } from '../../../sim/types.ts'
 import type { CellShape, Face, Module, StationData } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
 import { ModulePreviewDocument } from '../../modulePreviewDocument.ts'
@@ -201,7 +201,9 @@ export class GhostSystem extends SceneSystem {
     mesh.count = n
     for (let i = 0; i < n; i++) {
       const [x, y, z] = cells[i]
-      m.makeTranslation(x + 0.5, y + 0.5, z + 0.5)
+      const bounds = wallShapeBounds(this.ctx.thinSides.get(packKey(x, y, z)))
+      m.makeScale(bounds ? bounds.x1 - bounds.x0 : 1, bounds ? bounds.y1 - bounds.y0 : 1, 1)
+      m.setPosition(x + (bounds ? (bounds.x0 + bounds.x1) / 2 : 0.5), y + (bounds ? (bounds.y0 + bounds.y1) / 2 : 0.5), z + 0.5)
       mesh.setMatrixAt(i, m)
       mesh.setColorAt(i, col)
     }

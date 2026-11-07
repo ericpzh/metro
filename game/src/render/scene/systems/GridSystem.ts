@@ -7,6 +7,7 @@
 
 import * as THREE from 'three'
 import { SceneSystem } from './SceneSystem.ts'
+import { packKey, wallShapeBounds } from '../../../sim/types.ts'
 import type { SceneContext } from './SceneSystem.ts'
 
 export class GridSystem extends SceneSystem {
@@ -88,7 +89,7 @@ export class GridSystem extends SceneSystem {
     this.setGridVisible(!on)
   }
 
-  setCursor(cell: [number, number, number] | null, valid = true): void {
+  setCursor(cell: [number, number, number] | null, valid = true, matchShape = false): void {
     // Nothing to aim at while the lattice is hidden, so a pick under the pointer
     // does not put the ring back: 隐藏UI draws no editing furniture at all.
     if (!cell || this.hideUI) {
@@ -96,7 +97,9 @@ export class GridSystem extends SceneSystem {
       return
     }
     this.cursor.visible = true
-    this.cursor.position.set(cell[0] + 0.5, cell[1] + 0.5, cell[2] + 1.02)
+    const bounds = matchShape ? wallShapeBounds(this.ctx.thinSides.get(packKey(...cell))) : null
+    this.cursor.position.set(cell[0] + (bounds ? (bounds.x0 + bounds.x1) / 2 : 0.5), cell[1] + (bounds ? (bounds.y0 + bounds.y1) / 2 : 0.5), cell[2] + 1.02)
+    this.cursor.scale.set(bounds ? bounds.x1 - bounds.x0 : 1, bounds ? bounds.y1 - bounds.y0 : 1, 1)
     const mat = this.cursor.material as THREE.MeshBasicMaterial
     mat.color.setHex(valid ? 0x6ee7ff : 0xff5d5d)
   }

@@ -2,8 +2,8 @@ import { msg } from '../../sim/i18n.ts'
 // The 方块 (block) tool: click for one block, long-press + drag for a rectangle
 // patch (with an auto-wall ring when 生成墙壁 is on, which **Shift+Tab** and the ring's
 // own tile raise), a direction-locked **半墙** or **三角** line
-// when a cut piece is armed, right-press on a wall for a whole-column lift.
-// right-press on a wall for a whole-column lift. Moved verbatim
+// when a cut piece is armed, right-press to remove cells as with the delete tool.
+// Moved verbatim
 // from app/Viewport.tsx (GAME-SPEC §4).
 
 import {
@@ -14,15 +14,12 @@ import {
   plannedAutoWalls,
   removeFloor,
   sameCells,
-  wallColumnAt,
-  wallColumnsAt,
 } from '../../build/model.ts'
 import { checkBlockCells, newPreview, previewNotice } from '../../build/validation.ts'
 import type { PlacementPreview } from '../../build/validation.ts'
-import type { Cell, CellShape } from '../../sim/types.ts'
-import { triangleOf } from '../../sim/types.ts'
+import type { CellShape } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
-import { cutLineCellCount, dragCellCount, pendingCells, rectCells, straightLineCells, triangleLineCells } from './geometry/cells.ts'
+import { cutLineCellCount, dragCellCount, pendingCells, rectCells, triangleLineCells } from './geometry/cells.ts'
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { cutShapeFor, shapeWallSide, thinGhost } from './geometry/walls.ts'
 import { ToolController } from './ToolController.ts'
@@ -55,30 +52,6 @@ export class BlockTool extends ToolController {
     info.preventDefault()
     const mode: 'add' | 'remove' = info.button === 2 ? 'remove' : 'add'
     let anchor = mode === 'add' ? (hit.solid ? hit.place : hit.cell) : hit.cell
-    // A right-press on a tagged wall lifts the whole column, exactly as the 墙 tool's
-    // own right-drag does — what the mode builds, it takes back in one action rather
-    // than a course at a time. Anywhere else the 方块 tool's ordinary dig stands, so
-    // a misplaced floor block is still dug without leaving the mode.
-    if (mode === 'remove') {
-      const column = wallColumnAt(st.station, anchor[0], anchor[1], anchor[2])
-      if (column.length > 0) {
-        this.ctx.drag.current = {
-          active: true,
-          button: info.button,
-          mode,
-          anchor,
-          z: anchor[2],
-          shift: false,
-          wall: true,
-          sx: info.clientX,
-          sy: info.clientY,
-          downTime: performance.now(),
-        }
-        scene.setGhost(column, 'remove')
-        scene.setCursor(anchor, true)
-        return
-      }
-    }
     if (mode === 'add' && (st.halfWall || st.triangles)) {
       // Resolve the absolute direction once for preview and release.
       const shape = cutShapeFor([anchor], [], st)
@@ -112,6 +85,7 @@ export class BlockTool extends ToolController {
       downTime: performance.now(),
     }
     scene.setGhost(pendingCells([anchor], mode, this.ctx.solids(), st.station), mode)
+    if (mode === 'remove') scene.setCursor(anchor, true, true)
     this.ctx.showMeasure(info.clientX, info.clientY, msg('length_1_m_width_1_m'))
   }
 
@@ -127,20 +101,6 @@ export class BlockTool extends ToolController {
     // ghost in place instead of waiting for the next move.
     this.ctx.hover.current = { cell: hit.cell, place: hit.place, solid: hit.solid, point: [hit.point[0], hit.point[1]] }
     const d = this.ctx.drag.current
-    // A wall remove drag — the right-press that landed on a 半墙 or any other
-    // tagged column — previews the columns the release lifts, exactly as the 墙
-    // tool's own right-drag does. A 三角 column drags a ridge-locked line, so the
-    // run it lifts is the run its slopes join.
-    if (d?.active && d.wall === true && d.mode === 'remove') {
-      this.cancelPreview()
-      const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const rawLine = dragging ? straightLineCells(d.anchor, hit.cell, d.z) : [d.anchor]
-      const line = dragging ? this.wallRemoveLine(st.station.cells, d.anchor, hit.cell, d.z, rawLine) : rawLine
-      scene.setGhost(wallColumnsAt(st.station, line), 'remove')
-      scene.setCursor(dragging ? hit.cell : d.anchor, true)
-      this.ctx.clearMeasure()
-      return
-    }
     // Half walls and triangles drag along their panel/ridge axis. Every piece
     // uses the same absolute side, independent of neighbouring cells.
     if ((st.halfWall || st.triangles) && d?.mode !== 'remove') {
@@ -226,7 +186,7 @@ export class BlockTool extends ToolController {
         valid = this.showAddGhost(cells).blockedCells.length === 0
         scene.setCursor(dragging ? target : d.anchor, valid)
       }
-      if (d.mode === 'remove') scene.setCursor(dragging ? target : d.anchor, valid)
+      if (d.mode === 'remove') scene.setCursor(dragging ? target : d.anchor, valid, true)
       // The patch's own footprint, in metres (1 cell = 1 m), pinned to the
       // pointer so the player can size a foundation before releasing.
       const dx = dragging ? Math.abs(target[0] - d.anchor[0]) + 1 : 1
@@ -493,24 +453,6 @@ export class BlockTool extends ToolController {
     scene.setGhost(check.acceptedCells, 'add', undefined, thinGhost(check.acceptedCells, shape), check.blockedCells)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
     return check
-  }
-
-  /**
-   * A wall-remove line through the pressed column: the dominant-axis run, unless
-   * the column is a 三角 — then the ridge-locked line its slopes join along, so a
-   * delete drag can never take half a ramp and leave the rest stepped.
-   */
-  private wallRemoveLine(
-    cells: readonly Cell[],
-    anchor: [number, number, number],
-    target: [number, number, number],
-    z: number,
-    fallback: Array<[number, number, number]>,
-  ): Array<[number, number, number]> {
-    const found = cells.find((c) => c.x === anchor[0] && c.y === anchor[1] && c.z === anchor[2])
-    const tri = found ? triangleOf(found) : null
-    if (!tri) return fallback
-    return triangleLineCells(anchor, [target[0], target[1], z], z, tri.side)
   }
 
   /**

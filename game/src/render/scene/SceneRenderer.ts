@@ -923,9 +923,9 @@ export class SceneRenderer {
 
   /* -------------------------------------------------------------- ghosts */
 
-  setCursor(cell: [number, number, number] | null, valid = true): void {
+  setCursor(cell: [number, number, number] | null, valid = true, matchShape = false): void {
     this.requestRender()
-    this.grid.setCursor(cell, valid)
+    this.grid.setCursor(cell, valid, matchShape)
   }
 
   setGhost(

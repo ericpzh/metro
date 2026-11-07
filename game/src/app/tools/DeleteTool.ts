@@ -181,7 +181,7 @@ export class DeleteTool extends ToolController {
     }
     scene.setGhost(pendingCells([hit.cell], 'remove', this.ctx.solids()), 'remove')
     scene.setCollisionHighlight(null)
-    scene.setCursor(hit.cell, true)
+    scene.setCursor(hit.cell, true, true)
     this.ctx.showMeasure?.(info.clientX, info.clientY, msg('length_1_m_width_1_m'))
   }
 
@@ -257,7 +257,7 @@ export class DeleteTool extends ToolController {
       const dragging = performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
       const line = dragging ? rectCells(d.anchor, hit.cell, d.z, info.shiftKey) : [d.anchor]
       scene.setGhost(pendingCells(line, 'remove', this.ctx.solids()), 'remove')
-      scene.setCursor(dragging ? hit.cell : d.anchor, true)
+      scene.setCursor(dragging ? hit.cell : d.anchor, true, true)
       const dx = dragging ? Math.abs(hit.cell[0] - d.anchor[0]) + 1 : 1
       const dy = dragging ? Math.abs(hit.cell[1] - d.anchor[1]) + 1 : 1
       this.ctx.showMeasure?.(info.clientX, info.clientY, msg('length_value_m_width_value_m', dx, dy))
@@ -283,7 +283,7 @@ export class DeleteTool extends ToolController {
       scene.setModulePreview(null)
       scene.setCollisionHighlight(null)
       scene.setGhost(pendingCells([hit.cell], 'remove', this.ctx.solids()), 'remove')
-      scene.setCursor(hit.cell, hit.solid)
+      scene.setCursor(hit.cell, hit.solid, true)
     }
   }
 

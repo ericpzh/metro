@@ -1040,7 +1040,7 @@ export function Viewport(): React.ReactElement {
    * Which controller owns an in-progress area-drag release. The press promised
    * the gesture, so the flags on the drag — not the current tool — decide:
    * module sweeps and delete-side fence lines to 删除, 围栏 runs to 设备,
-   * wall runs (including the 方块 tool's right-press column lift) to 墙, and
+   * wall runs to 墙, and
    * plain block rectangles to 方块 — or to 删除 for its line-remove drag.
    */
   const ownerForRelease = (d: AreaDrag, current: Tool): ToolController => {

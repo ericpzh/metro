@@ -799,7 +799,8 @@ course along their panel/ridge axis. Stair-block tile directions use the same
 absolute compass with saved module rotations preserved; picking converts back
 to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
 Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls, the corner footprint,
-placement and all four positions and paint-preview faces. `rail-families` pins the
+placement and all four positions, paint-preview faces, removal bounds and right-click/B
+agreement for single courses and dragged areas. `rail-families` pins the
 separate ceiling and corner anchors; `storey-height` pins the ceiling tile and
 keyboard behavior. `editor-action-benchmark` lists every corner position.
 `roof-tool.test.mjs`
