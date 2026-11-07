@@ -237,13 +237,17 @@ export class ModuleSystem extends SceneSystem {
     this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation, view)
     for (const root of this.moduleMeshes.children) {
       if(this.batches.isFullyBatched(root))continue
-      const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
-        this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
-      this.sourceDetail.apply(root, reduced)
+      this.applySourceDetail(root)
     }
     this.applyMovingModule()
     this.ghost?.refreshFencePreviewLevels?.()
   }
+  applySourceDetail(root: THREE.Object3D): void {
+    const reduced = this.ctx.detailEnabled !== false && detailHeight(root.userData.levelZs,
+      this.ctx.activeZ, this.ctx.hideUI, this.ctx.graphicsQuality ?? 'high', 1) === 0
+    this.sourceDetail.apply(root, reduced)
+  }
+
   /** The selected module's id and its highlight box, kept across a rebuild. */
   private selectedModuleId: string | null = null
   private selectionHelper: THREE.Box3Helper | null = null
@@ -290,6 +294,11 @@ export class ModuleSystem extends SceneSystem {
    * to rebuild one board's model while retaining everything else.
    */
   buildModules(data: StationData, _trackCells: Set<number>, reuse = false, keepIds?: Set<string>): void {
+    this.buildModuleStages(data, reuse, keepIds).next()
+  }
+
+  *buildModuleStages(data: StationData, reuse = false, keepIds?: Set<string>,
+    structure?: (module: Module) => boolean): Generator<void> {
     this.restoreMovingModule()
     this.retainedBatches=false
     // Prepare once while opening/editing the immutable document, never on the
@@ -420,7 +429,14 @@ export class ModuleSystem extends SceneSystem {
       if(entry){entry.blobs.push(blob);entry.ids.push(mod.id)}
       else blobsByKey.set(key,{levelZ:mod.z,ground,blobs:[blob],ids:[mod.id]})
     }
-    for (const mod of data.modules) {
+    const initial = structure ? data.modules.filter(structure) : data.modules
+    const deferred = structure ? data.modules.filter(module => !structure(module)) : []
+    let batchStart = 0
+    for (const [index, mod] of (structure ? [...initial, ...deferred] : initial).entries()) {
+      if (structure && index >= initial.length && (index === initial.length || performance.now() - batchStart >= 8)) {
+        yield
+        batchStart = performance.now()
+      }
       if (appendOnly && kept.has(mod.id)) continue
       const existing=kept.get(mod.id)
       if(existing&&this.retainedLevelRoots.has(existing)){

@@ -17,7 +17,7 @@ import { populationEdit, hasPresentationEdit } from '../../sim/populationEdit.ts
 import { STOREY_HEIGHT } from '../../sim/constants.ts'
 import { trainOriginForScale, trainScaleForStorey } from '../../sim/stock.ts'
 import { RenderDemand } from '../renderDemand.ts'
-import { EXPLODED_LIFT_ABSENT } from '../explodedView.ts'
+import { EXPLODED_LIFT_ABSENT, isExplodedStructure } from '../explodedView.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
 import type { GraphicsQuality } from '../detailPolicy.ts'
 import type { UpscalingMode } from '../upscaling.ts'
@@ -59,6 +59,26 @@ export type { PickResult, SceneStats }
 
 export class SceneRenderer {
   private explodedLayout: ExplodedLayout | null = null
+  private explodedModuleStages: Generator<void> | null = null
+
+  /** Add one batch at its packed coordinates. The existing tray supplies any drag offset. */
+  appendExplodedEquipment(): boolean {
+    const layout = this.explodedLayout, stages = this.explodedModuleStages
+    if (!layout || !stages) return true
+    const roots = this.modules.moduleMeshes.children
+    const start = roots.length
+    const done = stages.next().done === true
+    const added = roots.slice(start)
+    for (const root of added) {
+      this.level.applyGroupLevel(root, 'module')
+      this.modules.applySourceDetail(root)
+    }
+    layout.generate(added, [], this.ctx.levelBase)
+    if (layout.selected !== null) layout.select(layout.selected)
+    this.requestRender()
+    if (done) this.explodedModuleStages = null
+    return done
+  }
   private layoutAgents: {buffer:Float32Array;count:number;intervalMs:number}|null=null
   private layoutTrains: Float32Array|null=null
   private readonly layoutPassengerFloors=new Map<number,number>()
@@ -183,6 +203,7 @@ export class SceneRenderer {
   private readonly demand = new RenderDemand()
   private playing = true
   private artReady = false
+  private readonly artworkReady: Promise<void>
   private pendingBuildViews: StationData | null = null
   private readonly restoreFrame = (): void => { this.requestRender() }
   /** Actual GL submissions, independent of RAF cadence while retaining a still frame. */
@@ -205,10 +226,24 @@ export class SceneRenderer {
     this.demand.continuous = on
   }
 
+  /** Wait for artwork before attaching the viewer's deferred equipment. */
+  async prepareStandaloneArtwork(data: StationData): Promise<void> {
+    await Promise.all([
+      this.artworkReady,
+      data.modules.some(module => module.type === 'linemap')
+        ? this.ctx.lineMaps?.load(undefined, normalizeCityStyle(data.cityStyle))
+        : undefined,
+    ])
+  }
+
   /** Independent read-only viewer; its controls never dispatch editor picks. */
   setStandalonePresentation(): void {
     this.requestRender()
     this.standalonePresentation = true
+    // The floor layout consumes the original module meshes and hides the
+    // equipment batches. Building those batches here duplicates the geometry
+    // and atlas just before throwing them away, particularly on large stations.
+    this.modules.batches.enabled = false
     this.crowd.teleportBetweenStoreys = true
     this.ctx.scene.background = new THREE.Color(0x192532)
     this.ctx.scene.fog = null
@@ -308,7 +343,7 @@ export class SceneRenderer {
     // callbacks rebuilt the entire station up to three times and could discard
     // views just prepared during opening.
     let artChanged = false
-    void Promise.all([
+    this.artworkReady = Promise.all([
       this.ctx.ads.load(() => { artChanged = true }),
       loadPictograms(),
       geometryDetailReady,
@@ -316,7 +351,7 @@ export class SceneRenderer {
       if (this.ctx.disposed) return
       this.artReady = true
       if (icons.size > 0) refreshSignFaceMaterial(this.ctx.modelMats)
-      if (this.ctx.stationData) {
+      if (this.ctx.stationData && !this.standalonePresentation) {
         if (artChanged || icons.size > 0) this.modules.buildModules(this.ctx.stationData, new Set())
         else this.modules.batches.invalidateViews()
         this.ctx.levelKey = ''; this.level.applyLevel()
@@ -475,7 +510,10 @@ export class SceneRenderer {
     if (signOnly === null && !equipmentOnly) {
       this.chunks.meshStation(groundOnly)
     }
-    if (!retainedModules) {
+    if (this.standalonePresentation && !previousData) {
+      const stages = this.modules.buildModuleStages(data, false, undefined, isExplodedStructure)
+      if (!stages.next().done) this.explodedModuleStages = stages
+    } else if (!retainedModules) {
       this.modules.buildModules(
         data,
         trackCells,
@@ -501,8 +539,10 @@ export class SceneRenderer {
     this.modules.refreshSelection()
     this.modules.refreshCollisionHighlight()
     this.modules.refreshHoverHighlight()
-    this.ensureCityMap(data)
-    if (!this.suspended) this.trains.prepareForStation(data)
+    if (!this.standalonePresentation) {
+      this.ensureCityMap(data)
+      if (!this.suspended) this.trains.prepareForStation(data)
+    }
   }
 
   /** Nonstructural edits keep cache metadata current. Visible artwork repaints
@@ -1140,6 +1180,8 @@ export class SceneRenderer {
   }
 
   dispose(): void {
+    this.explodedModuleStages?.return(undefined)
+    this.explodedModuleStages = null
     this.explodedLayout?.dispose()
     this.explodedRamps?.dispose()
     this.ctx.disposed = true

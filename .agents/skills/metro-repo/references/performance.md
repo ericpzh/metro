@@ -833,6 +833,78 @@ rewrites. Preserve solid infill, clipped ramp sections, source hiding, reset and
 live/paused behavior. Opening and dragging are different workloads. No fresh
 exploded-view measurement validates the latest models.
 
+Tianhe Park user save, 2026-11-07: 130,158 cells and 75,950 modules
+(SHA-256 `fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`),
+Windows / i7-14700KF / Node 24.15.0, source at `f604ef78` with the local
+working tree. A Node CPU sample of five snapshot preparations identified
+`packFloors` and its collision probes among the hot paths. Six alternating,
+GC-before-sample runs after one warmup measured the original string keys at
+522–664 ms (median 571 ms) and numeric keys at 348–486 ms (median 389 ms).
+The final guarded key implementation measured 330–399 ms (median 376 ms) in a
+separate six-run capture. The same six offsets and `[1,1]` direction resulted.
+Reproduce the current snapshot-only measurement with
+`node --expose-gc tools/bench-explode-snapshot.mjs <save.metro.json>`; these
+numbers exclude parsing, WebGL, model building and the first rendered frame.
+A full browser attempt on this machine exceeded the harness's 60-second CDP
+limit before completing and did not yield a comparable viewer timing; do
+not infer an end-to-end speedup from the snapshot result. Other applications
+were running, so treat these as diagnostic measurements rather than a budget.
+
+Full browser investigation of the same save, 2026-11-07: production build, Chrome
+headless with hardware rendering requested, 1400 × 900 window (1384 × 690
+canvas, pixel ratio 1), paused, default graphics quality. The fixture hash and
+CPU are above. `node tools/bench-explode-generation.mjs <save.metro.json>` saves
+stage timings and separate Chrome CPU profiles under `.preview/perf/explode-generation/`;
+`BENCH_PROFILE=0` skips the explode CPU profile. Baseline unprofiled explode
+(open action through ready plus two animation frames) was 166.3 s: `setStation`
+58.0 s, of which `applyLevel` was 17.6 s; `enableExplodedLayout` 53.5 s; a
+late artwork rebuild 19.7 s plus another 27.1 s visibility pass. These are
+nested stage times, not additive independent measurements. The CPU-profiled
+intermediate capture showed a large garbage-collector contribution. Diagnostic
+geometry counters before instancing recorded 148,868 baked instances / 24.0m
+vertices and 134,932 merge inputs; after retaining complete instances, 43,991
+bakes / 16.0m vertices and 42,018 merge inputs remained.
+
+The changed viewer skips equipment batches that its rigid trays immediately
+hide, decodes the selected map before building, keeps whole instances in their
+floor, and flushes temporary merge inputs at 131,072 vertices or 1,024 meshes.
+The bounded-batch diagnostic run reached the rendered viewer in 39.7 s:
+`setStation` 18.7 s (including 6.8 s modules, 9.0 s train preparation),
+ramp sections 1.2 s, floor layout 11.2 s (4.5 s merge). The output retains six
+levels. Compare these captures as diagnostic, not a controlled speedup: system
+load varied substantially (the regular station build ranged from 15 to 27 s),
+tests overlapped the last run's station opening, and only one run of each build
+was captured. The timed explode runs themselves did not overlap a build. GPU
+backend was requested, not independently identified. The floor batch thresholds,
+clipped-instance treatment, picking and disposal are pinned in
+`game/test/exploded-layout.test.mjs`; the full-save browser route exercises real
+floor dragging and visibility. Train preparation and first-frame GPU work remain
+material costs on this save and this does not establish a latency target.
+A subsequent unprofiled full-save browser check (`BENCH_STATION=<save> node tools/check-exploded-view.mjs`) (production source hash
+`cde4b3477d52af1e828faca262d4b93975d198bd4d201425b2ae6d9499505f11`)
+opened in 25.9 s and 54.7 s across two successive openings; the real-pointer
+drag checks took 816 and 691 ms, including rendered feedback. It passed live
+simulation, visibility, reset and editor return with no browser errors. Raw
+results and screenshots: `.preview/perf/exploded-view/report.json` and
+`station-arranged.png`. The second opening and interaction latency remain
+performance gaps; the two observations are not a stable percentile.
+
+Structure-first follow-up, same Tianhe save and Chrome 156 hardware requested,
+1384 × 690 canvas. One unprofiled generation capture (source hash
+`f82150dabd6114271db2040f46dba6c1c3eedb1784f36f687dc5ca97635ee755`)
+reported **8.33 s** from open to the rendered and interactive structure,
+and **23.30 s** to all equipment attached. Initial scene setup took 3.16 s,
+ramp sections 0.71 s and structural layout 1.97 s. The exploded renderer
+does not prepare the parked train pool. After the structural frame it
+replays the latest simulation frame, including trains already present in a
+paused save, and attaches equipment in short batches to the existing trays.
+The regular editor still prepares its fleet. The browser benchmark reports
+both `structureMs` and `equipmentMs`; raw capture in
+`.preview/perf/explode-structure-first/report.json`. The prior 25.9/54.7 s
+opened a fully furnished viewer, so compare those with equipment completion
+only as separate diagnostic runs under varying system load. The first-frame
+metric measures the earlier usability milestone.
+
 ## Collect comparable evidence
 
 Keep source/build hash, fixture, hardware, GPU mode, quality, camera, canvas,

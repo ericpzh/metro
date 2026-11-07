@@ -243,3 +243,16 @@ test('live lift cabin belongs to one tray, including the terminal landing', () =
     assert.equal(across[1],23)
   }
 })
+
+test('furnishings cannot create a floor or affect the structure packing', () => {
+  const cells = [...slab(-10), ...slab(-5)]
+  const bare = explodedView(station(cells))
+  const furnished = explodedView(station(cells, [
+    { id: 'on-floor', type: 'bench', x: 2, y: 2, z: -10 },
+    { id: 'remote', type: 'bench', x: 100, y: 100, z: -20 },
+  ]))
+  assert.deepEqual(furnished.levels, bare.levels)
+  assert.deepEqual(furnished.offsets, bare.offsets)
+  assert.deepEqual(furnished.direction, bare.direction)
+  assert.ok(furnished.data.modules.some(module => module.id === 'on-floor'))
+})

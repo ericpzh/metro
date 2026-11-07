@@ -23,13 +23,41 @@ export function ExplodedView(): React.ReactElement | null {
   return open ? <Viewer /> : null
 }
 
+type Snapshot = ReturnType<typeof explodedView> & { source: ReturnType<typeof toData> }
+
 function Viewer(): React.ReactElement {
+  useLanguage()
+  const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
+  useEffect(() => {
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const source = toData(useStore.getState().station)
+        setSnapshot({ ...explodedView(source), source })
+      })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  return snapshot ? <PreparedViewer snapshot={snapshot} /> : <LoadingViewer />
+}
+
+function LoadingViewer(): React.ReactElement {
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(() => { dialog.current?.showModal() }, [])
+  return <dialog ref={dialog} className="explodedViewer" aria-label={t('exploded_view')} onCancel={() => useStore.getState().setExplodedView(false)}><ExplodedLoading /></dialog>
+}
+
+function ExplodedLoading(): React.ReactElement {
+  return <div className="explodedLoading" role="status" aria-live="polite"><div className="explodedLoadingCard"><div className="explodedLoadingBrand">Station Designer</div><h1>{t('exploded_loading')}</h1><p>{t('exploded_loading_detail')}</p><div className="explodedLoadingTrack" aria-hidden="true" /></div></div>
+}
+
+function PreparedViewer({ snapshot }: { snapshot: Snapshot }): React.ReactElement {
   useLanguage()
   const dialog = useRef<HTMLDialogElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const renderer = useRef<SceneRenderer | null>(null)
   const floorPanel=useRef<HTMLElement>(null)
   const [ready, setReady] = useState(false)
+  const [equipped, setEquipped] = useState(false)
   const [selectedFloor, setSelectedFloor] = useState<number | null>(null)
   const drag = useRef<{ id: number; x: number; y: number; floor: number } | null>(null)
   const playing = useStore(s => s.playing)
@@ -38,11 +66,6 @@ function Viewer(): React.ReactElement {
   useEffect(() => { renderer.current?.setPlaying(playing) }, [playing])
   useEffect(() => { if(renderer.current)renderer.current.audioSpeed=speed }, [speed])
   useEffect(() => { renderer.current?.setUpscalingMode(upscalingMode) }, [upscalingMode])
-  // Capture once on opening: simulation ticks and UI state cannot remesh it.
-  const [snapshot] = useState(() => {
-    const source=toData(useStore.getState().station)
-    return {...explodedView(source),source}
-  })
   const visibilityRef=useRef(snapshot.levels.map(()=>({floor:true,walls:true})))
   const [visibility,setVisibility]=useState(visibilityRef.current)
   const selectFloor=(index:number|null):void=>{renderer.current?.selectExplodedFloor(index);setSelectedFloor(index)}
@@ -111,8 +134,11 @@ function Viewer(): React.ReactElement {
     const onBlur = (): void => { renderer.current?.keys.clear() }
     window.addEventListener('blur', onBlur)
     // Let the modal and loading state paint before preparing a large station.
+    let cancelled = false
+    let equipmentTimer: number | undefined
+    let simulationTimer: number | undefined
     const timer = window.setTimeout(() => {
-      if (snapshot.levels.length === 0) { setReady(true); return }
+      if (snapshot.levels.length === 0) { setReady(true); setEquipped(true); return }
       const scene = new SceneRenderer(canvas.current!)
       renderer.current = scene
       window.__benchmarkScene = scene
@@ -134,6 +160,7 @@ function Viewer(): React.ReactElement {
       scene.setHideGround(true)
       scene.setHideRoof(true)
       scene.setAutoCeiling(true)
+      const artwork = scene.prepareStandaloneArtwork(snapshot.data)
       // Supply only owned cells: no infinite street window between separated floors.
       scene.setStation(snapshot.data, undefined, snapshot.data.cells)
       scene.setExplodedRampSections(snapshot.offsets, snapshot.direction)
@@ -147,23 +174,40 @@ function Viewer(): React.ReactElement {
       scene.frameStandalonePresentation()
       scene.enableExplodedLayout(snapshot.levels,snapshot.source,snapshot.offsets,snapshot.direction,snapshot.frontWalls)
       scene.setPlaying(useStore.getState().playing)
-      let agentPoses: Float32Array = new Float32Array(0), trainPoses: Float32Array = new Float32Array(0)
-      const passengerSupport=explodedPassengerSupport(snapshot.data,snapshot.offsets,snapshot.direction)
-      unsubscribe = subscribeFrame((count, agents, _density, trains, lifts, intervalMs, simTime, services) => {
-        agentPoses = explodedPoses(agents, 6, snapshot.offsets, snapshot.data.levelBase ?? 0, 0, agentPoses, false, snapshot.direction)
-        trainPoses = explodedPoses(trains, 10, snapshot.offsets, snapshot.data.levelBase ?? 0,
-          trainOriginForScale(trainScaleForStorey()), trainPoses, true, snapshot.direction)
-        scene.setAgents(agentPoses, filterExplodedPassengers(agentPoses,count,passengerSupport), intervalMs)
-        scene.setTrains(trainPoses)
-        scene.setLifts(explodedLiftPoses(lifts, snapshot.offsets, snapshot.direction))
-        scene.setSimClock(simTime, services)
-      })
-      setReady(true)
+      scene.onNextFrame = () => {
+        setReady(true)
+        // Leave the structural frame visible and interactive before replaying
+        // the latest simulation snapshot or constructing equipment.
+        simulationTimer = window.setTimeout(() => {
+          let agentPoses: Float32Array = new Float32Array(0), trainPoses: Float32Array = new Float32Array(0)
+          const passengerSupport=explodedPassengerSupport(snapshot.data,snapshot.offsets,snapshot.direction)
+          unsubscribe = subscribeFrame((count, agents, _density, trains, lifts, intervalMs, simTime, services) => {
+            agentPoses = explodedPoses(agents, 6, snapshot.offsets, snapshot.data.levelBase ?? 0, 0, agentPoses, false, snapshot.direction)
+            trainPoses = explodedPoses(trains, 10, snapshot.offsets, snapshot.data.levelBase ?? 0,
+              trainOriginForScale(trainScaleForStorey()), trainPoses, true, snapshot.direction)
+            scene.setAgents(agentPoses, filterExplodedPassengers(agentPoses,count,passengerSupport), intervalMs)
+            scene.setTrains(trainPoses)
+            scene.setLifts(explodedLiftPoses(lifts, snapshot.offsets, snapshot.direction))
+            scene.setSimClock(simTime, services)
+          })
+        }, 0)
+        const append = (): void => {
+          if (cancelled) return
+          if (scene.appendExplodedEquipment()) setEquipped(true)
+          else equipmentTimer = window.setTimeout(append, 16)
+        }
+        void artwork.then(() => {
+          if (!cancelled) equipmentTimer = window.setTimeout(append, 16)
+        })
+      }
     }, 50)
     return () => {
       window.removeEventListener('keydown', onKey, true)
       window.removeEventListener('keyup', onKey, true)
+      cancelled = true
       window.clearTimeout(timer)
+      window.clearTimeout(equipmentTimer)
+      window.clearTimeout(simulationTimer)
       window.removeEventListener('blur', onBlur)
       unsubscribe?.()
       unsubscribeAudio?.()
@@ -177,7 +221,7 @@ function Viewer(): React.ReactElement {
       previous?.focus()
     }
   }, [snapshot])
-  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} aria-label={t('exploded_view')} onCancel={close}
+  return <dialog ref={dialog} className="explodedViewer" data-ready={ready} data-equipped={equipped} aria-label={t('exploded_view')} onCancel={close}
     onPointerDownCapture={event => {
       if(event.target !== canvas.current && !(event.target as Element).closest('.explodedFloorPanel'))selectFloor(null)
     }}>
@@ -220,7 +264,7 @@ function Viewer(): React.ReactElement {
       }}
       onLostPointerCapture={() => { drag.current = null }}
       onPointerCancel={() => { drag.current = null }} />
-    {(!ready || snapshot.levels.length === 0) && <p className="explodedEmpty" role="status">{t(!ready ? 'exploded_loading' : 'exploded_empty')}</p>}
+    {!ready ? <ExplodedLoading /> : snapshot.levels.length === 0 && <p className="explodedEmpty" role="status">{t('exploded_empty')}</p>}
     {selectedFloor!==null && <aside ref={floorPanel} className="explodedFloorPanel" aria-label={t('exploded_layers')} onKeyDown={event=>event.stopPropagation()}>
       <strong>{t('exploded_layers')} · {snapshot.levels[selectedFloor]} m</strong>
       <div className="selected">

@@ -43,6 +43,9 @@ try {
           if(__explodedScene.controls.mouseButtons.LEFT!==0||__explodedScene.controls.mouseButtons.MIDDLE!==0)throw Error('incorrect orbit/pan controls');
           return {shellMs,openMs:performance.now()-start,levels:dialog.querySelector('footer').textContent,width:canvas.width,height:canvas.height};
         })()`)
+        if (await page.evaluate("document.querySelector('.explodedViewer')?.hasAttribute('data-equipped')")) {
+          await waitFor(page.evaluate, "document.querySelector('.explodedViewer')?.dataset.equipped === 'true'", {what:'exploded equipment'})
+        }
         await page.evaluate('new Promise(r=>setTimeout(r,1500))')
         if(n===0) {
           const shot=await page.send('Page.captureScreenshot',{format:'png'})
@@ -168,7 +171,9 @@ try {
         report.crossStoreyTeleportMs=await page.evaluate(`(()=>{
           const scene=__explodedScene,layout=scene.explodedLayout,saved=scene.layoutAgents;
           const lower=layout.levels[0],upper=layout.levels[1],oldShift=layout.shifts[1].clone();
-          const geometry=layout.floors[0].children[0].geometry;
+          const owner=layout.floors.find(floor=>floor.children.length);
+          if(!owner)throw Error('no generated floor geometry');
+          const geometry=owner.children[0].geometry;
           try {
             layout.shifts[1].z=lower+layout.shifts[0].z-upper;
             const before=performance.now();
@@ -179,7 +184,7 @@ try {
               const rendered=crowd.prev[axis]+(crowd.cur[axis]-crowd.prev[axis])*alpha;
               if(rendered!==crowd.cur[axis])throw Error('passenger flies through exploded floor gap');
             }
-            if(layout.floors[0].children[0].geometry!==geometry)throw Error('passenger transition rebuilt floor');
+            if(owner.children[0].geometry!==geometry)throw Error('passenger transition rebuilt floor');
             return elapsed;
           }finally{
             layout.shifts[1].copy(oldShift);

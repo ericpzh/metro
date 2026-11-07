@@ -107,7 +107,26 @@ export class ExplodedLayout {
 
   generate(sources: readonly THREE.Object3D[], hidden: readonly THREE.Object3D[], base = 0, frontWalls?: readonly Cell[]): void {
     const frontKeys=frontWalls && new Set(frontWalls.map(c=>packKey(c.x,c.y,c.z)))
-    const buckets = new Map<string, {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]}>()
+    type Bucket = {owner:number; wall:boolean; material:THREE.Material; geometries:THREE.BufferGeometry[]; vertices:number}
+    const buckets = new Map<string, Bucket>()
+    const flush = (bucket: Bucket): void => {
+      if(!bucket.geometries.length)return
+      const geometry=mergeGeometries(bucket.geometries)!
+      for(const part of bucket.geometries)part.dispose()
+      bucket.geometries=[];bucket.vertices=0
+      geometry.computeBoundingBox();geometry.computeBoundingSphere()
+      const material=bucket.material.clone()
+      material.onBeforeCompile=bucket.material.onBeforeCompile
+      material.clippingPlanes=null
+      const color=(material as THREE.MeshBasicMaterial).color
+      const emissive=(material as THREE.MeshStandardMaterial).emissive
+      this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
+      const mesh=new THREE.Mesh(geometry,material)
+      mesh.userData.wall=bucket.wall
+      this.floorBounds[bucket.owner].union(geometry.boundingBox!)
+      this.floors[bucket.owner].add(mesh)
+    }
+    const instanceBuckets = new Map<string, {owner:number; material:THREE.Material; geometry:THREE.BufferGeometry; matrices:THREE.Matrix4[]}>()
     const seen = new Set<THREE.Object3D>()
     for (const source of sources) {
       source.updateWorldMatrix(true,true)
@@ -127,9 +146,40 @@ export class ExplodedLayout {
           const owner = this.levels.indexOf(plane ? -plane.constant : level ?? storeyBand(mesh.getWorldPosition(new THREE.Vector3()).z,base,STOREY_HEIGHT))
           if (owner<0) continue
           const instances = mesh instanceof THREE.InstancedMesh ? mesh.count : 1
+          // Whole instances inside a ramp slice remain instanced; only the
+          // ones crossing a clipping plane need individual triangle cuts.
+          const canInstance = mesh instanceof THREE.InstancedMesh && materials.length === 1 &&
+            typeof mesh.userData.wall !== 'boolean'
+          const planes = material.clippingPlanes ?? []
+          if(canInstance && planes.length && !mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
+          const instanceBox = canInstance && planes.length ? new THREE.Box3() : null
+          const local = mesh instanceof THREE.InstancedMesh ? new THREE.Matrix4() : null
           for (let instance=0;instance<instances;instance++) {
             const matrix=mesh.matrixWorld.clone()
-            if(mesh instanceof THREE.InstancedMesh) { const local=new THREE.Matrix4();mesh.getMatrixAt(instance,local);matrix.multiply(local) }
+            if(mesh instanceof THREE.InstancedMesh) {
+              mesh.getMatrixAt(instance,local!)
+              matrix.multiply(local!)
+            }
+            let inside = canInstance && matrix.determinant() >= 0
+            let outside = false
+            if(inside && instanceBox) {
+              instanceBox.copy(mesh.geometry.boundingBox!).applyMatrix4(matrix)
+              for(const plane of planes) {
+                const n=plane.normal, min=instanceBox.min, max=instanceBox.max
+                const low=plane.constant+n.x*(n.x>=0?min.x:max.x)+n.y*(n.y>=0?min.y:max.y)+n.z*(n.z>=0?min.z:max.z)
+                const high=plane.constant+n.x*(n.x>=0?max.x:min.x)+n.y*(n.y>=0?max.y:min.y)+n.z*(n.z>=0?max.z:min.z)
+                if(high < -1e-6){outside=true;break}
+                if(low < -1e-6)inside=false
+              }
+            }
+            if(outside)continue
+            if(inside) {
+              const key=`${owner}:${material.uuid}:${mesh.geometry.uuid}`
+              let bucket=instanceBuckets.get(key)
+              if(!bucket){bucket={owner,material,geometry:mesh.geometry,matrices:[]};instanceBuckets.set(key,bucket)}
+              bucket.matrices.push(matrix)
+              continue
+            }
             let geometry=bakedGeometry(mesh.geometry,matrix)
             if (materials.length>1) {
               const groups=(mesh.geometry as THREE.BufferGeometry).groups.filter(group=>group.materialIndex===materialIndex)
@@ -147,26 +197,30 @@ export class ExplodedLayout {
             for(const {geometry,wall} of parts) {
               const key=`${owner}:${wall}:${material.uuid}:${attributeKey(geometry)}`
               let bucket=buckets.get(key)
-              if(!bucket){bucket={owner,wall,material,geometries:[]};buckets.set(key,bucket)}
+              if(!bucket){bucket={owner,wall,material,geometries:[],vertices:0};buckets.set(key,bucket)}
               bucket.geometries.push(geometry)
+              bucket.vertices+=geometry.getAttribute('position').count
+              // Bound the temporary inputs retained before each merge. Large
+              // stations otherwise keep every baked mesh alive at once.
+              if(bucket.vertices>=131072 || bucket.geometries.length>=1024)flush(bucket)
             }
           }
         }
       })
     }
-    for (const bucket of buckets.values()) {
-      const geometry=mergeGeometries(bucket.geometries)!
-      for(const part of bucket.geometries)part.dispose()
-      geometry.computeBoundingBox();geometry.computeBoundingSphere()
+    for (const bucket of buckets.values()) flush(bucket)
+    for(const bucket of instanceBuckets.values()) {
       const material=bucket.material.clone()
       material.onBeforeCompile=bucket.material.onBeforeCompile
       material.clippingPlanes=null
       const color=(material as THREE.MeshBasicMaterial).color
       const emissive=(material as THREE.MeshStandardMaterial).emissive
       this.materials.set(material,{color:color?.clone(),emissive:emissive?.clone()})
-      const mesh=new THREE.Mesh(geometry,material)
-      mesh.userData.wall=bucket.wall
-      this.floorBounds[bucket.owner].union(geometry.boundingBox!)
+      const mesh=new THREE.InstancedMesh(bucket.geometry.clone(),material,bucket.matrices.length)
+      bucket.matrices.forEach((matrix,index)=>mesh.setMatrixAt(index,matrix))
+      mesh.instanceMatrix.needsUpdate=true
+      mesh.computeBoundingBox();mesh.computeBoundingSphere()
+      this.floorBounds[bucket.owner].union(mesh.boundingBox!)
       this.floors[bucket.owner].add(mesh)
     }
     for(const object of hidden)this.hidden.push([object,object.visible])
@@ -231,7 +285,10 @@ export class ExplodedLayout {
   dispose():void {
     this.connections?.dispose()
     for(const [object,visible]of this.hidden)object.visible=visible
-    this.root.traverse(object=>{if(object instanceof THREE.Mesh)object.geometry.dispose()})
+    this.root.traverse(object=>{
+      if(object instanceof THREE.InstancedMesh)object.dispose()
+      if(object instanceof THREE.Mesh)object.geometry.dispose()
+    })
     for(const material of this.materials.keys())material.dispose()
     this.root.removeFromParent();this.root.clear();this.materials.clear()
   }

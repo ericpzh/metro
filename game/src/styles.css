@@ -3662,3 +3662,12 @@ input.tileSlider {
 .signBoardPreview { position: relative; min-width: 0; }
 .signBoardPreview > canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .signBoardPreview .bin { min-height: 100%; }
+
+.explodedLoading { position:absolute; inset:0; z-index:10; display:grid; place-items:center; padding:24px; background:var(--ui-192532, #192532); }
+.explodedLoadingCard { width:min(390px,100%); box-sizing:border-box; padding:28px; border:1px solid var(--border, #426078); background:var(--panel, #202e3d); box-shadow:0 20px 70px #0005; }
+.explodedLoadingBrand { color:var(--accent, #80cfff); font-size:11px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; }
+.explodedLoadingCard h1 { margin:20px 0 8px; font-size:25px; line-height:1.2; }
+.explodedLoadingCard p { margin:0; line-height:1.6; color:var(--muted, #b7c5d1); }
+.explodedLoadingTrack { height:3px; overflow:hidden; margin-top:24px; background:var(--border, #426078); }
+.explodedLoadingTrack::after { content:''; display:block; width:38%; height:100%; background:var(--accent, #80cfff); animation:loading-sweep 1.5s ease-in-out infinite alternate; }
+@media (prefers-reduced-motion:reduce) { .explodedLoadingTrack::after { animation:none; } }

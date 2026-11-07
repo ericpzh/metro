@@ -257,3 +257,80 @@ test('front-wall presentation data reaches the layout without applying editor wa
   assert.doesNotMatch(viewer,/setHideWalls\(/)
   assert.match(scene,/generate\(sources,\[\.\.\.sources,this.modules.batches.root\],this.ctx.stationData\?\.levelBase\?\?0,frontWalls\)/)
 })
+
+
+test('unclipped instances remain under their floor and follow its translation',()=>{
+  const scene=new THREE.Group(), material=new THREE.MeshBasicMaterial(), geometry=new THREE.BoxGeometry(1,1,1)
+  const root=new THREE.Group();root.userData.levelZ=-10;root.position.set(3,0,0);scene.add(root)
+  const source=new THREE.InstancedMesh(geometry,material,2), matrix=new THREE.Matrix4()
+  source.setMatrixAt(0,matrix.makeTranslation(0,0,-9));source.setMatrixAt(1,matrix.makeTranslation(5,0,-9));root.add(source)
+  const layout=new ExplodedLayout([-10]);layout.generate([scene],[scene])
+  const batch=layout.floors[0].children[0]
+  assert.ok(batch instanceof THREE.InstancedMesh);assert.equal(batch.count,2)
+  batch.getMatrixAt(1,matrix);assert.deepEqual(new THREE.Vector3().setFromMatrixPosition(matrix).toArray(),[8,0,-9])
+  const camera=new THREE.OrthographicCamera(-15,15,10,-10,.1,100);camera.position.set(0,0,30);camera.lookAt(0,0,0);camera.updateMatrixWorld()
+  assert.equal(layout.pick(8/15,0,camera),0)
+  layout.shifts[0].x=2;assert.equal(layout.pick(10/15,0,camera),0);assert.equal(layout.pick(8/15,0,camera),null)
+  let disposed=false;batch.addEventListener('dispose',()=>disposed=true)
+  layout.dispose();assert.equal(disposed,true);source.dispose();geometry.dispose();material.dispose()
+})
+
+
+test('ramp instances wholly inside a slice stay instanced while crossing instances are cut',()=>{
+  const scene=new THREE.Group(),material=new THREE.MeshBasicMaterial(),geometry=new THREE.BoxGeometry(1,1,1)
+  material.clippingPlanes=[new THREE.Plane(new THREE.Vector3(0,0,1),10),new THREE.Plane(new THREE.Vector3(0,0,-1),-5)]
+  const source=new THREE.InstancedMesh(geometry,material,3),matrix=new THREE.Matrix4()
+  source.setMatrixAt(0,matrix.makeTranslation(0,0,-9));source.setMatrixAt(1,matrix.makeTranslation(2,0,-5));source.setMatrixAt(2,matrix.makeTranslation(4,0,-3));scene.add(source)
+  const layout=new ExplodedLayout([-10]);layout.generate([scene],[scene])
+  const batch=layout.floors[0].children.find(o=>o instanceof THREE.InstancedMesh)
+  const cut=layout.floors[0].children.find(o=>!(o instanceof THREE.InstancedMesh))
+  assert.ok(batch);assert.equal(batch.count,1);assert.ok(cut)
+  cut.geometry.computeBoundingBox();assert.ok(cut.geometry.boundingBox.max.z<=-5+1e-6);assert.ok(cut.geometry.boundingBox.min.z>=-10-1e-6)
+  layout.dispose();source.dispose();geometry.dispose();material.dispose()
+})
+
+
+test('large floor batches bound temporary merge inputs without losing geometry',()=>{
+  const scene=new THREE.Group(),root=new THREE.Group(),material=new THREE.MeshBasicMaterial(),geometry=new THREE.BoxGeometry(1,1,1)
+  root.userData.levelZ=-10;scene.add(root)
+  for(let i=0;i<1025;i++){const mesh=new THREE.Mesh(geometry,material);mesh.position.set(i*2,0,-9);root.add(mesh)}
+  const layout=new ExplodedLayout([-10]);layout.generate([scene],[scene])
+  assert.equal(layout.floors[0].children.length,2)
+  assert.equal(layout.floors[0].children.reduce((sum,mesh)=>sum+mesh.geometry.attributes.position.count,0),1025*36)
+  layout.select(0);layout.select(null);layout.dispose();geometry.dispose();material.dispose()
+})
+
+
+test('standalone viewer skips equipment batches and awaits map art before construction',()=>{
+  const scene=readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
+  const component=readFileSync(new URL('../src/app/windows/ExplodedView.tsx',import.meta.url),'utf8')
+  assert.match(scene,/setStandalonePresentation\(\)[\s\S]*?this\.modules\.batches\.enabled = false/)
+  assert.match(scene,/prepareStandaloneArtwork[\s\S]*?lineMaps\?\.load/)
+  assert.match(component, /scene.onNextFrame = \(\) => \{\s*setReady\(true\)/)
+  assert.ok(component.indexOf('scene.prepareStandaloneArtwork(snapshot.data)')<component.indexOf('scene.setStation(snapshot.data'))
+  assert.match(component, /artwork\.then\(\(\) => \{[\s\S]*?setTimeout\(append, 16\)/)
+})
+
+test('equipment added after a floor drag inherits its current shift and visibility', () => {
+  const {layout, scene, material} = fixture()
+  layout.shifts[0].set(20, 3, 1)
+  layout.setVisibility(0, false, true)
+  const decor = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), material)
+  decor.userData.levelZ = -10
+  decor.position.set(-6, 0, -8)
+  scene.add(decor)
+  layout.generate([decor], [])
+  layout.root.updateMatrixWorld(true)
+  const floor = layout.floors[0]
+  const added = floor.children.at(-1)
+  assert.equal(added.parent, floor)
+  assert.equal(floor.visible, false)
+  const center = added.geometry.boundingBox.getCenter(new THREE.Vector3())
+  assert.deepEqual(added.localToWorld(center).toArray(), [14, 3, -7])
+  layout.reset()
+  layout.root.updateMatrixWorld(true)
+  assert.deepEqual(added.localToWorld(added.geometry.boundingBox.getCenter(center)).toArray(), [-6, 0, -8])
+  layout.dispose()
+  decor.geometry.dispose()
+  material.dispose()
+})

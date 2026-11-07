@@ -861,6 +861,7 @@ export const messages = {
   "statistics_charts": { "zh": "统计图", "en": "Statistics charts" },
   "exploded_hint": { "zh": "拖动旋转 · 滚轮缩放 · 右键拖动平移 · Esc 返回", "en": "Drag to orbit · Scroll to zoom · Right-drag to pan · Esc to return" },
   "exploded_empty": { "zh": "建造车站后即可查看楼层爆炸图", "en": "Build a station to see its exploded view" },
+  "exploded_loading_detail": { "zh": "正在构建并排列楼层，请稍候。", "en": "Building and arranging the floors. Please wait." },
   "exploded_loading": { "zh": "正在准备楼层爆炸图…", "en": "Preparing exploded view…" },
   "zoom_in": { "zh": "放大", "en": "Zoom in" },
   "zoom_out": { "zh": "缩小", "en": "Zoom out" },

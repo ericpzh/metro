@@ -74,7 +74,7 @@ export function serveDir(root, port) {
  * directory open, and the next run's `rmSync` then fails with EPERM on Windows
  * before it draws anything.
  */
-export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware' }) {
+export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware', commandTimeoutMs = 60000 }) {
   const chromePath = findChrome()
   rmSync(profile, { recursive: true, force: true })
   // The profile's parent is often a gitignored scratch directory (`.preview/`)
@@ -148,8 +148,10 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
     let next = 1
     const pending = new Map()
     const eventWaiters = new Map()
+    const eventListeners = new Map()
     ws.addEventListener('message', (e) => {
       const m = JSON.parse(e.data)
+      if (m.method) for (const listener of eventListeners.get(m.method) ?? []) listener(m.params)
       if (m.method && eventWaiters.has(m.method)) {
         for (const waiter of eventWaiters.get(m.method)) { clearTimeout(waiter.timer); waiter.resolve(m.params) }
         eventWaiters.delete(m.method)
@@ -164,7 +166,7 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
     const send = (method, params = {}) =>
       new Promise((r, j) => {
         const id = next++
-        const timer = setTimeout(() => { pending.delete(id); j(new Error(`CDP ${method} timed out`)) }, 60000)
+        const timer = setTimeout(() => { pending.delete(id); j(new Error(`CDP ${method} timed out`)) }, commandTimeoutMs)
         pending.set(id, { resolve: r, reject: j, timer })
         ws.send(JSON.stringify({ id, method, params }))
       })
@@ -194,7 +196,12 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
       eventWaiters.clear()
       await close()
     }
-    return { evaluate, send, waitForEvent, close: closeSession, chromePath }
+    const onEvent = (method, listener) => {
+      if (!eventListeners.has(method)) eventListeners.set(method, new Set())
+      eventListeners.get(method).add(listener)
+      return () => eventListeners.get(method)?.delete(listener)
+    }
+    return { evaluate, send, waitForEvent, onEvent, close: closeSession, chromePath }
   } catch (err) {
     await close()
     throw err

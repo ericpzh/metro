@@ -1,10 +1,14 @@
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 import type { Cell, Module, StationData } from '../sim/types.ts'
 import { isWallBlock, packKey, shapeOf } from '../sim/types.ts'
-import { moduleFootprint } from '../sim/placement.ts'
+import { isWallMounted, moduleEnvelope, moduleFootprint } from '../sim/placement.ts'
 import { GROUND_Z } from '../sim/ground.ts'
 
 const hiddenTypes = new Set(['roof', 'road', 'sidewalk', 'lawn', 'tree', 'traffic-light'])
+export function isExplodedStructure(module: Module): boolean {
+  return structureTypes.has(module.type) || module.type === 'pillar'
+}
+
 const structureTypes = new Set(['exit', 'stair', 'escalator', 'walkway', 'lift', 'track', 'platform-edge', 'shop', 'retail', 'booth'])
 const ceiling = (c: Cell): boolean => !!c.tags?.some(t => t === 'suspended-ceiling' || t === 'opening-ceiling')
 
@@ -21,7 +25,11 @@ function packFloors(plans: ReadonlyArray<ReadonlyArray<{x:number;y:number}>>, pr
   const candidates: ReadonlyArray<readonly [number,number]> = concave ?
     [preferred, [preferred[1],preferred[0]], [1,1], [1,-1]] : [preferred]
   for (const direction of candidates) {
-    const [dx,dy] = direction, occupied = new Set<string>(), shifts:number[] = []
+    // Pair integer coordinates without allocating a string for every collision probe.
+    // Station coordinates and their tray shifts are far inside the exact integer range.
+    const key = (x:number,y:number):number | string => Number.isInteger(x) && Number.isInteger(y) &&
+      Math.abs(x) < 1048576 && Math.abs(y) < 2147483648 ? x * 4294967296 + y : `${x},${y}`
+    const [dx,dy] = direction, occupied = new Set<number | string>(), shifts:number[] = []
     let previous = 0, edge = -Infinity, x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity
     for (const plan of plans) {
       let offset = previous
@@ -30,14 +38,14 @@ function packFloors(plans: ReadonlyArray<ReadonlyArray<{x:number;y:number}>>, pr
         for (const p of plan) near = Math.min(near, dx*p.x+dy*p.y)
         const stop = Math.max(offset, Math.ceil((edge-near+1)/(dx*dx+dy*dy)))
         for (;offset<=stop;offset++) {
-          if (!plan.some(p=>occupied.has(`${p.x+dx*offset},${p.y+dy*offset}`))) break
+          if (!plan.some(p=>occupied.has(key(p.x+dx*offset,p.y+dy*offset)))) break
         }
       }
       shifts.push(offset)
       previous = offset
       for (const p of plan) {
         const x=p.x+dx*offset, y=p.y+dy*offset
-        occupied.add(`${x},${y}`)
+        occupied.add(key(x,y))
         edge=Math.max(edge,dx*x+dy*y)
         // Screen-space extents for the viewer's +x/-1.2y isometric eye.
         const sx=1.2*x+y, sy=-x+1.2*y
@@ -105,7 +113,7 @@ export function explodedView(data: StationData): { data: StationData; frontWalls
   const groundRooms = new Set(data.cells.filter(c => c.fill === 'solid' && c.z === GROUND_Z && !ceiling(c) &&
     (c.room || ['paid','unpaid','platform','restricted'].includes(c.zone ?? '') || c.tags?.includes('auto-floor')))
     .map(c => packKey(c.x,c.y,c.z)))
-  const floorUse = new Set(data.modules.filter(m => ['gate','tvm','vending','booth','shop','retail','platform-edge','track','bench'].includes(m.type)).map(m => m.z))
+  const floorUse = new Set(data.modules.filter(m => ['booth','shop','retail','platform-edge','track'].includes(m.type)).map(m => m.z))
   const tunnelCaps = new Set(data.modules.filter(m => m.type === 'track' && m.cfg.tunnel).map(m => m.z + STOREY_HEIGHT))
   const landings = new Set<number>()
   for (const m of data.modules) if (m.type === 'stair' || m.type === 'escalator' || m.type === 'walkway' || m.type === 'lift') {
@@ -192,7 +200,8 @@ export function explodedView(data: StationData): { data: StationData; frontWalls
     (structureTypes.has(m.type) || m.z !== GROUND_Z ||
       moduleFootprint(m).some(([x,y]) => groundRooms.has(packKey(x,y,GROUND_Z)))))
   const modulePoints = new Map<number, Array<{ x: number; y: number }>>()
-  for (const m of modules) {
+  const structuralModules = modules.filter(isExplodedStructure)
+  for (const m of structuralModules) {
     const points = modulePoints.get(band(m.z)) ?? []
     for (const [x, y] of moduleFootprint(m)) points.push({ x, y })
     modulePoints.set(band(m.z), points)
@@ -206,9 +215,9 @@ export function explodedView(data: StationData): { data: StationData; frontWalls
   }
   // A top slab without walls or equipment is the cap of the room below.
   const top = Math.max(...byLevel.keys())
-  if (byLevel.size > 1 && !modules.some(m => band(m.z) === top) &&
+  if (byLevel.size > 1 && !structuralModules.some(m => band(m.z) === top) &&
     byLevel.get(top)?.every(c => c.z === top && c.tags?.some(t => t.startsWith('tunnel-shell:')))) byLevel.delete(top)
-  for (const m of modules) if (!byLevel.has(band(m.z))) byLevel.set(band(m.z), [])
+  for (const m of structuralModules) if (!byLevel.has(band(m.z))) byLevel.set(band(m.z), [])
   const levels = [...byLevel.keys()].sort((a, b) => a - b)
   const floorsByLevel = new Map<number, Cell[]>()
   for (const z of levels) {
@@ -295,7 +304,11 @@ export function explodedView(data: StationData): { data: StationData; frontWalls
     })
   })
   const moved = pieces.map((m): Module => {
-    const offset = offsets.get(band(m.z)) ?? 0
+    // Wall artwork is owned by the storey containing its visible panel, which
+    // can differ from the saved mounting anchor. Match ModuleSystem's slicing.
+    const box = isWallMounted(m) && ['sign', 'billboard', 'calligraphy', 'linemap', 'glass', 'monitor'].includes(m.type) ? moduleEnvelope(m) : null
+    const owner = box ? band((box.z0 + box.z1) / 2) : band(m.z)
+    const offset = offsets.get(owner) ?? 0
     const result = { ...m, x: m.x + dx * offset, y: m.y + dy * offset }
     // Endpoints are world coordinates; both ends move together so ramps retain
     // their authored rise, length and rotation instead of stretching between trays.
