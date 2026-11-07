@@ -36,6 +36,14 @@ function boundaryFace(shape: CellShape | null, face: Face): Point[] {
   return points.length >= 3 ? points : []
 }
 
+/** Whether the adjacent convex block covers the whole boundary face. */
+export function contactFaceCovered(shape: CellShape | null, neighbour: CellShape | null, face: Face): boolean {
+  const direction = neighbours.find(([name]) => name === face)!
+  const [, dx, dy, dz] = direction
+  const points = boundaryFace(shape, face)
+  return points.length > 0 && points.every(([x, y, z]) => contains(neighbour, [x - dx, y - dy, z - dz]))
+}
+
 /** Clear wholly covered solid faces; suspended ceilings retain finishes on both sides. */
 export function clearContactFinishes(cells: Cell[]): Cell[] {
   const solids = new Map<string, CellShape | null>()
@@ -49,8 +57,7 @@ export function clearContactFinishes(cells: Cell[]): Cell[] {
       if (finish[face] === undefined) continue
       const neighbourKey = key(c.x + dx, c.y + dy, c.z + dz)
       if (!solids.has(neighbourKey)) continue
-      const points = boundaryFace(shape, face)
-      if (!points.length || !points.every(([x, y, z]) => contains(solids.get(neighbourKey)!, [x - dx, y - dy, z - dz]))) continue
+      if (!contactFaceCovered(shape, solids.get(neighbourKey)!, face)) continue
       if (finish === c.finish) finish = { ...finish }
       delete finish[face]
     }

@@ -237,6 +237,25 @@ test('whole-wall fill keeps a ceiling boundary when an adjacent column has no ce
   assert.equal(finish(1,-2), 'wall.tile', 'an uncovered adjacent column remains connected')
 })
 
+test('whole-wall color reaches the full-block strip partly covered by a thin wall', () => {
+  for (const [face, dx, dy, side] of [['n',0,1,'w'], ['s',0,-1,'w'], ['e',1,0,'s'], ['w',-1,0,'s']]) {
+    const tangent = dx ? [0,1] : [1,0]
+    const exposed = { x:0, y:0, z:-5, fill:'solid' }
+    const corner = { x:tangent[0], y:tangent[1], z:-5, fill:'solid' }
+    const panel = { x:corner.x+dx, y:corner.y+dy, z:-5, fill:'solid', tags:[`half-wall:${side}`] }
+    const state = toState({ name:'t', seed:1, cells:[exposed,corner,panel], modules:[], lines:[] })
+    for (const start of [exposed,corner]) {
+      const filled = fillSurface(state, start.x, start.y, start.z, face, 'wall.tile')
+      for (const target of [exposed,corner])
+        assert.equal(filled.cells.find(c => c.x === target.x && c.y === target.y).finish?.[face], 'wall.tile', `${face}: both coplanar surfaces`)
+      assert.equal(filled.cells.find(c => c.tags?.includes(`half-wall:${side}`)).finish?.[face], undefined)
+    }
+    const solidPanel = { ...panel, tags:undefined }
+    const covered = toState({ name:'t', seed:1, cells:[exposed,corner,solidPanel], modules:[], lines:[] })
+    assert.equal(fillSurface(covered, 0, 0, -5, face, 'wall.tile').cells[1].finish?.[face], undefined, `${face}: full obstruction still stops the flood`)
+  }
+})
+
 test('whole-wall fill joins inset half-wall faces only when their surfaces meet', () => {
   const cells = [0, 1, 2].map(x => ({ x, y: 0, z: 1, fill: 'solid', ...(x < 2 ? { tags: ['half-wall:s'] } : {}) }))
   const state = toState({ name: 't', seed: 1, cells, modules: [], lines: [] })

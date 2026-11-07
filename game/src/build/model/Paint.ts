@@ -3,6 +3,7 @@
 import { DEFAULT_FINISH, finishOf } from '../../sim/finishes.ts';
 import { groundHoleAt } from '../../sim/ground.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
+import { contactFaceCovered } from '../../sim/contactFinishes.ts';
 import { blockReason } from '../validation.ts';
 import {
   halfWallInnerFace,
@@ -78,21 +79,10 @@ export function facePresent(
   const neighbourKey = cellKey(x + step[0], y + step[1], z + step[2]);
   if (!occupied(x + step[0], y + step[1], z + step[2])) return true;
 
-  // Match the mesher's cap culling: a triangular neighbour only covers the
-  // horizontal face when its flat base is against it. Its sloping half leaves
-  // the rest of the adjacent block's cap visible, and that surface must remain
-  // available to the 材质 brush too.
-  if (face === 'top' || face === 'bottom') {
-    const neighbour = thin.get(neighbourKey);
-    if (neighbour?.kind === 'corner' && !(shape?.kind === 'corner' && shape.side === neighbour.side)) return true;
-    if (isTriangleShape(neighbour)) {
-      const covers = face === 'top'
-        ? neighbour.triangle === 'upper'
-        : neighbour.triangle === 'lower';
-      if (!covers) return true;
-    }
-  }
-  return false;
+  // Cut neighbours can cover only part of this face. Keep the exposed part
+  // paintable, using the same geometric contact rule as finish cleanup.
+  const neighbour = thin.get(neighbourKey);
+  return neighbour !== undefined && !contactFaceCovered(shape ?? null, neighbour, face);
 }
 
 /* ---------------------------------------------------------- surfaces (§4.3) */
