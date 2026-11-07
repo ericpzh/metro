@@ -125,6 +125,36 @@ test('a tap on a floor tile paints it', () => {
   assert.equal(zoneAt(useStore.getState().station.cells, 0, 0, 0), 'paid')
 })
 
+test('hover and click zone the exposed floor below a thin wall', () => {
+  station()
+  const state = useStore.getState().station
+  const cells = state.cells.map(c => c.x === 1 && c.y === 1 && c.z === 1 ? { ...c, tags:['wall','half-wall:n'] } : c)
+  useStore.setState({ station:{...state,cells} })
+  const { tool, faceGhosts, zoneDrag } = ctxFor()
+  tool.onMove(press([1,1,0]))
+  assert.deepEqual(faceGhosts.at(-1).cells, [[1,1,0]])
+  tool.onDown(press([1,1,0]))
+  assert.ok(zoneDrag.current)
+  tool.onUp(press([1,1,0]))
+  assert.equal(zoneAt(useStore.getState().station.cells, 1,1,0), 'paid')
+})
+
+test('zone preview and click reject thin-wall courses above the real floor', () => {
+  station()
+  const state = useStore.getState().station
+  const cells = state.cells.map(c => c.x === 1 && c.y === 1 && c.z === 1 ? { ...c, tags:['wall','half-wall:n'] } : c)
+  cells.push({x:1,y:1,z:2,fill:'solid',tags:['wall','half-wall:n']})
+  useStore.setState({ station:{...state,cells} })
+  const { tool, faceGhosts, zoneDrag } = ctxFor()
+  tool.onMove(press([1,1,1]))
+  assert.equal(faceGhosts.length, 0)
+  tool.onDown(press([1,1,1]))
+  assert.equal(zoneDrag.current, null)
+  assert.equal(zoneAt(useStore.getState().station.cells, 1,1,1), 'none')
+  tool.onDown(press([1,1,0]))
+  assert.ok(zoneDrag.current, 'the floor underneath is still zoneable')
+})
+
 test('a press on a tile that is not floor paints nothing, and says why', () => {
   station()
   const { tool, zoneDrag } = ctxFor()

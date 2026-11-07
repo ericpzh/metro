@@ -6,11 +6,12 @@ import { finishOf, floorSpeed } from '../../sim/finishes.ts';
 import { STOREY_HEIGHT, storeyBand } from '../../sim/constants.ts';
 import { GROUND_Z, groundHoleAt } from '../../sim/ground.ts';
 import { zoneDisplayIndexOf, zoneOf, type ZonePaint } from '../../sim/zones.ts';
-import { DEFAULT_ZONE, type Cell, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
+import { DEFAULT_ZONE, shapeOf, type Cell, type CellShape, type Module, type RoomKind, type Zone } from '../../sim/types.ts';
 import { trackCells } from '../../sim/track.ts';
 import { OPENING_CEILING } from '../../sim/openings.ts';
 import { SUSPENDED_CEILING } from './Ceilings.ts';
 import { cellKey, NEIGH4 } from './Cells.ts';
+import { thinWallSideMap } from './Walls.ts';
 import type { StationState } from './State.ts';
 
 /* ----------------------------------------------------------- zones (§4.5) */
@@ -35,7 +36,7 @@ function isCeilingPlate(cell: Pick<Cell, 'tags'>): boolean {
 }
 
 /**
- * True when a cell is **floor**: a solid whose top face is exposed and walkable
+ * True when a cell is **floor**: a solid whose top face is at least partly exposed and walkable
  * — or the bed of a track at the foot of its column, which is the `restricted`
  * zone's own floor. One definition, read by the 分区 brush and by the 分区 map
  * alike, so the ground a brush accepts is exactly the ground the overlay can
@@ -43,14 +44,37 @@ function isCeilingPlate(cell: Pick<Cell, 'tags'>): boolean {
  * ceiling, or the earth roof over a tunnel, where the paint would be a label
  * nothing on screen could show.
  *
+ * Thin walls and corners are not floors themselves. A thin wall, corner, or
+ * lower wedge above a real floor leaves part of that floor exposed.
+ * A full block or upper wedge covers the floor.
+ *
  * A **吊顶** — and any other ceiling plate over a shaft — is the ceiling, not
  * floor, even where its own top face is the only exposed one (`isCeilingPlate`).
  */
-function isFloorCell(cell: Cell, solid: ReadonlySet<string>): boolean {
+function openAbove(x: number, y: number, z: number, solid: ReadonlySet<string>, shapes: ReadonlyMap<string, CellShape>): boolean {
+  const key = cellKey(x, y, z + 1);
+  if (!solid.has(key)) return true;
+  const shape = shapes.get(key);
+  return shape?.kind === 'half' || shape?.kind === 'corner' || (shape?.kind === 'triangle' && shape.triangle === 'lower');
+}
+
+function cellShapes(cells: readonly Cell[]): Map<string, CellShape> {
+  const shapes = new Map<string, CellShape>();
+  for (const c of cells) {
+    if (c.fill !== 'solid') continue;
+    const shape = shapeOf(c);
+    if (shape) shapes.set(cellKey(c.x, c.y, c.z), shape);
+  }
+  return shapes;
+}
+
+function isFloorCell(cell: Cell, solid: ReadonlySet<string>, shapes: ReadonlyMap<string, CellShape>): boolean {
   return (
     cell.fill === 'solid' &&
     !isCeilingPlate(cell) &&
-    !solid.has(cellKey(cell.x, cell.y, cell.z + 1)) &&
+    shapes.get(cellKey(cell.x, cell.y, cell.z))?.kind !== 'half' &&
+    shapes.get(cellKey(cell.x, cell.y, cell.z))?.kind !== 'corner' &&
+    openAbove(cell.x, cell.y, cell.z, solid, shapes) &&
     (floorSpeed(cell) > 0 || (finishOf(cell, 'top') === 'floor.track' && !solid.has(cellKey(cell.x, cell.y, cell.z - 1))))
   );
 }
@@ -101,6 +125,7 @@ function solidKeys(cells: readonly Cell[]): Set<string> {
 function floorOf(
   solid: ReadonlySet<string>,
   byKey: ReadonlyMap<string, Cell>,
+  shapes: ReadonlyMap<string, CellShape>,
   cells: readonly Cell[],
   modules: readonly Module[],
   x: number,
@@ -108,8 +133,8 @@ function floorOf(
   z: number,
 ): boolean {
   const cell = byKey.get(cellKey(x, y, z));
-  if (cell) return isFloorCell(cell, solid);
-  return z === GROUND_Z && !groundHoleAt(cells, modules, x, y);
+  if (cell) return isFloorCell(cell, solid, shapes);
+  return z === GROUND_Z && openAbove(x, y, z, solid, shapes) && !groundHoleAt(cells, modules, x, y);
 }
 
 /**
@@ -121,18 +146,19 @@ function floorOf(
 export function zoneFloorAt(cells: readonly Cell[], modules: readonly Module[], x: number, y: number, z: number): boolean {
   const byKey = new Map<string, Cell>();
   for (const c of cells) byKey.set(cellKey(c.x, c.y, c.z), c);
-  return floorOf(solidKeys(cells), byKey, cells, modules, x, y, z);
+  return floorOf(solidKeys(cells), byKey, thinWallSideMap(cells, modules), cells, modules, x, y, z);
 }
 
 /**
  * Every key of `cells` the 分区 brush may paint, as an O(1) set a whole drag
  * rectangle can be filtered through. The caller passes the **effective** cell
  * list (`withGround`), because the street a zone may be painted onto is a plane
- * the document never stores.
+ * the document never stores. Incremental callers pass the full shape index so a
+ * changed floor sees a cut block just outside the candidate list.
  */
-export function zoneFloorKeys(cells: readonly Cell[], solid: ReadonlySet<string> = solidKeys(cells)): Set<string> {
+export function zoneFloorKeys(cells: readonly Cell[], solid: ReadonlySet<string> = solidKeys(cells), shapes: ReadonlyMap<string, CellShape> = cellShapes(cells)): Set<string> {
   const out = new Set<string>();
-  for (const c of cells) if (isFloorCell(c, solid)) out.add(cellKey(c.x, c.y, c.z));
+  for (const c of cells) if (isFloorCell(c, solid, shapes)) out.add(cellKey(c.x, c.y, c.z));
   return out;
 }
 
@@ -169,9 +195,10 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
   // the flood stops at every cell that is not — a wall column stands *in* the
   // floor cell under it, so that cell's top is buried and takes no zone.
   const floors = solidKeys(state.cells);
+  const shapes = thinWallSideMap(state.cells, state.modules);
   const targets = new Set<number>();
   const start = solid.get(cellKey(x, y, z));
-  if (start === undefined || !isFloorCell(state.cells[start], floors)) return state;
+  if (start === undefined || !isFloorCell(state.cells[start], floors, shapes)) return state;
   if (!bucket) {
     targets.add(start);
   } else {
@@ -185,7 +212,7 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
       return (
         idx !== undefined &&
         zoneOf(state.cells[idx]) === startZone &&
-        isFloorCell(state.cells[idx], floors)
+        isFloorCell(state.cells[idx], floors, shapes)
       );
     };
     const seen = new Set<string>([cellKey(x, y, z)]);
@@ -193,7 +220,7 @@ export function paintZone(state: StationState, x: number, y: number, z: number, 
     while (queue.length > 0) {
       const [cx, cy, cz] = queue.pop() as [number, number, number];
       const idx = solid.get(cellKey(cx, cy, cz));
-      if (idx === undefined || !isFloorCell(state.cells[idx], floors)) continue;
+      if (idx === undefined || !isFloorCell(state.cells[idx], floors, shapes)) continue;
       targets.add(idx);
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
         const k = cellKey(cx + dx, cy + dy, cz);
@@ -235,10 +262,11 @@ export function paintZoneCells(
   const byKey = new Map<string, Cell>();
   for (const c of state.cells) byKey.set(cellKey(c.x, c.y, c.z), c);
   const solid = solidKeys(state.cells);
+  const shapes = thinWallSideMap(state.cells, state.modules);
   const keys = new Set<string>();
   for (const [x, y, z] of cells) {
     if (keys.has(cellKey(x, y, z))) continue;
-    if (floorOf(solid, byKey, state.cells, state.modules, x, y, z)) keys.add(cellKey(x, y, z));
+    if (floorOf(solid, byKey, shapes, state.cells, state.modules, x, y, z)) keys.add(cellKey(x, y, z));
   }
   if (keys.size === 0) return state;
   const isRoom = zone === 'store' || zone === 'toilet' || zone === 'office';
@@ -341,7 +369,8 @@ export function zoneMapFloors(cells: readonly Cell[], modules: readonly Module[]
   // plane that is one uniform, unlabelled zone already.
   const all = cells;
   const solid = solidKeys(all);
-  const out = all.filter((c) => isFloorCell(c, solid));
+  const shapes = thinWallSideMap(all, modules);
+  const out = all.filter((c) => isFloorCell(c, solid, shapes));
   // A placed rail digs its bed, so those cells are gone from `cells`. Add the
   // module footprint back as a synthetic restricted cell, so the zone map still
   // tints and names the track.

@@ -56,6 +56,38 @@ test('live tool indexes match fresh occupancy and floor rules through local edit
   assert.equal(JSON.stringify(before),source,'derived index changes never mutate the station')
 })
 
+test('floor eligibility tracks thin wall placement, replacement and removal', () => {
+  const cache = new StationGeometry(), base = fixture()
+  const floor = { x:0,y:0,z:-9,fill:'solid' }
+  const empty = { ...base, cells:[...base.cells,floor] }
+  const states = [empty,
+    { ...empty,cells:[...empty.cells,{x:0,y:0,z:-8,fill:'solid',tags:['half-wall:n']}] },
+    { ...empty,cells:[...empty.cells,{x:0,y:0,z:-8,fill:'solid',tags:['half-corner:e']}] },
+    { ...empty,cells:[...empty.cells,{x:0,y:0,z:-8,fill:'solid'}] }, empty]
+  for (const [i,state] of states.entries()) {
+    const actual = cache.resolve(state)
+    assert.deepEqual(actual,new StationGeometry().resolve(state))
+    assert.equal(actual.floors.has('0,0,-9'), i !== 3, `step ${i}`)
+  }
+})
+
+test('stacked thin wall courses never become live zone floors', () => {
+  const cache = new StationGeometry(), base = fixture()
+  const floor = {x:0,y:0,z:-9,fill:'solid'}
+  const lower = {x:0,y:0,z:-8,fill:'solid',tags:['wall','half-wall:n']}
+  const upper = {x:0,y:0,z:-7,fill:'solid',tags:['wall','half-corner:n']}
+  const clean = {...base,cells:[...base.cells,floor]}
+  const states = [clean, {...clean,cells:[...clean.cells,lower]},
+    {...clean,cells:[...clean.cells,lower,upper]}, {...clean,cells:[...clean.cells,upper]}, clean]
+  for (const state of states) {
+    const result = cache.resolve(state)
+    assert.deepEqual(result, new StationGeometry().resolve(state))
+    assert.ok(result.floors.has('0,0,-9'), 'the real floor stays zoneable')
+    assert.ok(!result.floors.has('0,0,-8'), 'the lower wall course is not floor')
+    assert.ok(!result.floors.has('0,0,-7'), 'the upper wall course is not floor')
+  }
+})
+
 test('structural tool-index deltas match fresh preparation across holes, duplicates, ground expansion and undo',async()=>{
   const {addEquipment,removeModule}=await import('../src/build/model.ts')
   const cache=new StationGeometry(),base=fixture()

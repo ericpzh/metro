@@ -14,6 +14,13 @@ It stops at covered or disconnected faces, survives save and reload, and keeps
 the generated ground window stable. `ground-visibility.test.mjs` checks that
 painted ground remains in the hideable ground pass.
 
+## Zoning beneath thin walls
+
+`zones` and `zonetool` verify the exposed floor under thin walls and corners is
+zoneable, while stacked or floating wall courses never become floors. Check the
+zone map and `local-cell-edit` live indexes after placement, replacement and undo.
+Ceiling plates and floors fully covered by ordinary blocks remain excluded.
+
 ## Contact materials
 
 `contact-finishes.test.mjs` covers full and cut block faces, partial contact,

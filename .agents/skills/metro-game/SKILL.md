@@ -2686,6 +2686,16 @@ The restroom decor family includes cubicle (partition, door and toilet) and cubi
 ail-families.test.mjs, generated thumbnails in menu-thumbnails.test.mjs, and model geometry in module-build.test.mjs.
 
 
+## Zoning partially covered floors
+
+The exposed part of a real floor under a thin wall, corner or lower wedge remains
+zoneable; the thin-wall and corner cells themselves never create floor zones,
+including stacked or floating courses. A full block or an upper wedge above covers the floor; suspended and
+opening ceiling plates are never themselves floors. `Zones.ts` shares this rule
+between the brush, bucket and zone map. `StationGeometry` must pass its complete
+shape index when refreshing only affected floors, including on undo or replacement.
+`zones`, `zonetool` and `local-cell-edit` pin these behaviors.
+
 ## Contact materials
 
 `sim/contactFinishes.ts` clears a face finish on load and commit only when an

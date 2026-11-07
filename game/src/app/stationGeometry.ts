@@ -14,7 +14,7 @@ function geometryOf(data: StationData, thins = thinWallSideMap(data.cells, data.
   return {
     ground,
     solids,
-    floors: zoneFloorKeys(ground, solids),
+    floors: zoneFloorKeys(ground, solids, thins),
     thins,
   }
 }
@@ -75,7 +75,7 @@ export class StationGeometry {
     }
     for(const c of ground)if(candidates.has(packKey(c.x,c.y,c.z)))affected.push(c)
     for(const c of affected)if(c.fill==='solid')solids.add(cellKey(c.x,c.y,c.z))
-    for(const key of zoneFloorKeys(affected,solids))floors.add(key)
+    for(const key of zoneFloorKeys(affected,solids,thins))floors.add(key)
     return {ground,solids,floors,thins}
   }
 
@@ -96,10 +96,10 @@ export class StationGeometry {
       const affected=data.cells.filter(c=>numericCandidates.has(packKey(c.x,c.y,c.z)))
       for(const c of [...edit.removed,...edit.added])if(c.z===1&&solids.has(cellKey(c.x,c.y,0))&&!affected.some(a=>a.x===c.x&&a.y===c.y&&a.z===0))
         affected.push({x:c.x,y:c.y,z:0,fill:'solid',zone:'outside'})
-      for(const k of zoneFloorKeys(affected,solids))floors.add(k)
       const thins=this.geometry.thins
       for(const c of edit.removed)thins.delete(cellKey(c.x,c.y,c.z))
       for(const c of thinWallCells(edit.added,data.modules))thins.set(cellKey(c.x,c.y,c.z),c.shape)
+      for(const k of zoneFloorKeys(affected,solids,thins))floors.add(k)
       this.geometry={ground,solids,floors,thins}
       this.data=data
       return this.geometry

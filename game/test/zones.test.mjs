@@ -406,6 +406,50 @@ test('the 分区 map tints exactly the floor the 分区 brush accepts', () => {
   for (const k of keys) assert.ok(drawnKeys.has(k), `${k} is paintable but never drawn`)
 })
 
+test('floor under a partial wall remains zoneable and appears on the zone map', () => {
+  for (const tag of ['half-wall:n','half-wall:e','half-wall:s','half-wall:w','half-corner:n','half-corner:e','half-corner:s','half-corner:w','tri-lower:n']) {
+    const cells = [
+      { x:0,y:0,z:-5,fill:'solid' }, { x:1,y:0,z:-5,fill:'solid' },
+      { x:1,y:0,z:-4,fill:'solid',tags:[tag] },
+    ]
+    const state = toState({ name:'partial',seed:1,cells,modules:[],lines:[] })
+    assert.equal(zoneFloorAt(state.cells, state.modules, 1,0,-5), true, tag)
+    assert.ok(zoneFloorKeys(state.cells).has('1,0,-5'), tag)
+    assert.ok(zoneMapFloors(state.cells).some(c => c.x === 1 && c.y === 0 && c.z === -5), tag)
+    const painted = paintZoneCells(state, [[1,0,-5]], 'paid')
+    assert.equal(zoneAt(painted.cells, 1,0,-5), 'paid', tag)
+    const bucket = paintZone(state, 0,0,-5, 'paid')
+    assert.equal(zoneAt(bucket.cells, 1,0,-5), 'paid', `${tag}: bucket`)
+  }
+  for (const tags of [undefined, ['tri-upper:n'], ['suspended-ceiling']]) {
+    const cells = [{x:0,y:0,z:-5,fill:'solid'}, {x:0,y:0,z:-4,fill:'solid',tags}]
+    assert.equal(zoneFloorAt(cells, [], 0,0,-5), false, String(tags))
+  }
+  const streetWall = [{x:0,y:0,z:1,fill:'solid',tags:['half-wall:n']}]
+  assert.equal(zoneFloorAt(streetWall, [], 0,0,0), true, 'implicit street beneath a thin wall')
+  const streetFull = [{x:0,y:0,z:1,fill:'solid'}]
+  assert.equal(zoneFloorAt(streetFull, [], 0,0,0), false, 'implicit street below a full block is covered')
+})
+
+test('stacked and floating thin walls never create floor zones in midair', () => {
+  for (const tag of ['half-wall:n','half-wall:e','half-wall:s','half-wall:w','half-corner:n','half-corner:e','half-corner:s','half-corner:w']) {
+    const cells = [{x:0,y:0,z:-8,fill:'solid'}, ...[-7,-6,-5].map(z => ({x:0,y:0,z,fill:'solid',tags:['wall',tag]})),
+      {x:2,y:0,z:-6,fill:'solid',tags:['wall',tag]}]
+    const state = toState({ name:'wall',seed:1,cells,modules:[],lines:[] })
+    const keys = zoneFloorKeys(state.cells)
+    const map = zoneMapFloors(state.cells)
+    assert.equal(keys.has('0,0,-8'), true, `${tag}: real floor under wall`)
+    assert.ok(map.some(c => c.x === 0 && c.z === -8), `${tag}: real floor appears`)
+    for (const [x,z] of [[0,-7],[0,-6],[0,-5],[2,-6]]) {
+      assert.equal(zoneFloorAt(state.cells, [], x,0,z), false, `${tag}: ${x},${z} is not floor`)
+      assert.equal(keys.has(`${x},0,${z}`), false)
+      assert.ok(!map.some(c => c.x === x && c.z === z))
+      assert.equal(paintZoneCells(state, [[x,0,z]], 'paid'), state)
+    }
+    assert.equal(zoneAt(paintZoneCells(state, [[0,0,-8]], 'paid').cells, 0,0,-8), 'paid')
+  }
+})
+
 test('a ceiling plate carries no zone: not painted, not tinted, not labelled', () => {
   // A room with a real floor and a ceiling across it — one hanging 吊顶 tile set and
   // one plate a ramp carve left over its shaft (`opening-ceiling`). Both are
