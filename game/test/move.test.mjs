@@ -30,6 +30,7 @@ import {
   outdoorSurfaceLift,
   moveCandidate,
   moveDropReason,
+  equipmentReason,
   moveRebuilds,
   movedModule,
 } from '../src/sim/placement.ts'
@@ -72,6 +73,18 @@ const ceilingSlab = { x: 3, y: 3, z: 5, fill: 'solid' }
 /** The same, one cell along: enough ceiling for a sign moved from (3,3) to (4,3). */
 const ceilingRun = [ceilingSlab, { x: 4, y: 3, z: 5, fill: 'solid' }]
 const at = (x, y, z = 0) => ({ x, y, z })
+
+test('floor equipment cannot be placed or moved into a wall', () => {
+  const floor = [0, 1].map(x => ({ x, y: 0, z: 0, fill: 'solid' }))
+  const wall = { x: 1, y: 0, z: 1, fill: 'solid' }
+  for (const type of ['gate', 'tvm', 'bench', 'bin']) {
+    const original = createModule(type, 0, 0, 0, type)
+    const target = movedModule(original, at(1, 0), 0)
+    assert.equal(equipmentReason([...floor, wall], [], target), 'occupied', `${type} placement`)
+    assert.notEqual(moveDropReason([...floor, wall], [original], target), '', `${type} move`)
+    assert.equal(moveDropReason(floor, [original], target), '', `${type} can move onto clear floor`)
+  }
+})
 
 test('Tanwei D exit commits the west-facing block course shown by its move preview', () => {
   const source = piece('exit-doorway-2', 30, 40, 4, 1)

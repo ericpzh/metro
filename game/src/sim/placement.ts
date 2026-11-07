@@ -2357,6 +2357,12 @@ export type EquipmentRefusal =
  * face its wall (`autofaceWallMount`), a run snapped into an exit bay — because
  * those produce the piece, not the verdict.
  */
+const FLOOR_EQUIPMENT_BLOCK_CHECK = new Set([
+  'gate', 'tvm', 'vending', 'bench', 'cubicle', 'sink', 'urinal',
+  'bin', 'extinguisher', 'guidepost', 'busstop', 'clock', 'cctv',
+  'tv', 'sign', 'linemap', 'door',
+])
+
 export function equipmentReason(cells: readonly Cell[], modules: readonly Module[], candidate: Module, layer = false): EquipmentRefusal {
   if (candidate.type === 'psd-end' && candidate.cfg.variant === 'cover' &&
     !modules.some((m) => isPsdEndCoverSupport(candidate, m))) return 'floor'
@@ -2449,6 +2455,15 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
       return 'wall'
     }
     return placementColliders(modules, candidate).length > 0 ? 'occupied' : ''
+  }
+  // Free-standing equipment occupies space above its supporting floor. Check
+  // that space against blocks as well as other modules, for both new pieces
+  // and moved ones. Wall and ceiling mounts have their own support rules.
+  if (!isCeilingHung(candidate) && FLOOR_EQUIPMENT_BLOCK_CHECK.has(candidate.type)) {
+    const box = moduleEnvelope(candidate, modules)
+    if (box) for (const c of solidCellsInBounds(cells, box)) {
+      if (boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
+    }
   }
   // A **hung** 装饰 — a 指示牌, 电视, 时钟 or 监控 — is the wall panel's twin one step
   // higher: its rods bolt to the slab overhead, so the floor cell it is anchored to
