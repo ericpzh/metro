@@ -829,3 +829,59 @@ test('Tianhe floor under a half wall retains its top face in every direction', (
     assert.ok(top >= 4, `floor cap survives under ${side} panel`)
   }
 })
+
+
+test('half-wall corner positions round-trip and mesh as quarter cells', () => {
+  const expected = [[0, 0.5, 0.5, 1], [0.5, 1, 0.5, 1], [0.5, 1, 0, 0.5], [0, 0.5, 0, 0.5]]
+  for (const [i, side] of TRI_SIDES.entries()) {
+    const result = addWalls(empty(), [[0, 0, 0]], null, 1, null, side)
+    const cell = result.state.cells[0]
+    assert.deepEqual(shapeOf(cell), { kind: 'corner', side })
+    const thin = new Map([[packKey(0, 0, 0), shapeOf(cell)]])
+    const chunk = meshChunk(buildSolidSet([cell]), new Map(), 0, 0, 0, 15, undefined, undefined, [cell], thin)
+    const positions = chunk.parts.flatMap(p => Array.from(p.positions))
+    const xs = positions.filter((_, j) => j % 3 === 0)
+    const ys = positions.filter((_, j) => j % 3 === 1)
+    assert.deepEqual([Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)], expected[i])
+  }
+  const st = useStore.getState()
+  st.setCutMode('corner')
+  assert.equal(useStore.getState().halfCorner, true)
+  useStore.getState().setCutMode(null)
+})
+
+
+test('corner paint preview fits every face in all four positions', () => {
+  for (const side of TRI_SIDES) for (const face of ['n', 'e', 's', 'w', 'top', 'bottom']) {
+    const scene = new THREE.Scene()
+    const sys = new GhostSystem({ scene, thinSides: new Map([[packKey(0, 0, 0), { kind: 'corner', side }]]) })
+    sys.setFaceGhost([[0, 0, 0]], face, 0xffffff)
+    const matrix = new THREE.Matrix4()
+    sys.faceGhost.getMatrixAt(0, matrix)
+    const points = [[-0.5,-0.5,0],[-0.5,0.5,0],[0.5,-0.5,0],[0.5,0.5,0]].map(p => new THREE.Vector3(...p).applyMatrix4(matrix))
+    const extent = axis => Math.max(...points.map(p => p[axis])) - Math.min(...points.map(p => p[axis]))
+    const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-6, `${side} ${face}: expected ${expected}, got ${actual}`)
+    near(extent('x'), face === 'e' || face === 'w' ? 0 : 0.5)
+    near(extent('y'), face === 'n' || face === 's' ? 0 : 0.5)
+    near(extent('z'), face === 'top' || face === 'bottom' ? 0 : 1)
+  }
+})
+
+
+test('corner click previews and commits the same position without editing during preview', () => {
+  for (const [cycle, side] of TRI_SIDES.entries()) {
+    station('upper', cycle)
+    useStore.setState({ halfWall: true, halfCorner: true, triangles: false })
+    const { tool, ghosts } = ctxFor()
+    const event = press([0, 0, 0], true)
+    tool.onDown(event)
+    const preview = ghosts.at(-1)
+    assert.deepEqual(preview.thin.get(packKey(0, 0, 1)), { kind: 'corner', side })
+    assert.equal(useStore.getState().past.length, 0)
+    tool.onUp(event)
+    const placed = useStore.getState().station.cells.find(c => c.x === 0 && c.y === 0 && c.z === 1)
+    assert.deepEqual(shapeOf(placed), { kind: 'corner', side })
+    assert.equal(useStore.getState().past.length, 1)
+  }
+  useStore.getState().setCutMode(null)
+})

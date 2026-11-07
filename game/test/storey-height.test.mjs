@@ -116,7 +116,7 @@ test('suspended ceiling is a normal block with decor support and an independent 
  assert.ok(chunks.chunkMeshes.some(m=>m.geometry===geometry),'the ceiling pass reuses unchanged chunk geometry')
 })
 
-test('block Tab variant and Shift+Tab wall toggle are exposed by the standard tools',()=>{
+test('ceiling has its own tile and Shift+Tab controls block wall generation',()=>{
  useStore.getState().setSuspendedCeiling(true)
  assert.equal(useStore.getState().suspendedCeiling,true)
  assert.equal(useStore.getState().autoWalls,false)
@@ -125,9 +125,13 @@ test('block Tab variant and Shift+Tab wall toggle are exposed by the standard to
  assert.equal(useStore.getState().autoWalls,true)
  const keys=readFileSync(new URL('../src/app/windows/AppShell.tsx',import.meta.url),'utf8')
  assert.match(keys,/if \(e\.shiftKey\) st\.setAutoWalls/)
- assert.match(keys,/else st\.setSuspendedCeiling/)
+ assert.doesNotMatch(keys,/st\.setSuspendedCeiling\(!st\.suspendedCeiling\)/)
  const ui=readFileSync(new URL('../src/app/rail/folders/RailFolder.tsx',import.meta.url),'utf8')
  assert.match(ui,/shortcut="Shift\+Tab"/)
+ assert.match(ui,/anchor: '__ceiling'/)
+ assert.match(ui,/label=\{t\('suspended_ceiling'\)\} icon="ceiling"/)
+ assert.match(ui,/cut === null && !suspendedCeiling/)
+ assert.doesNotMatch(ui,/shortcut="Tab" tile="__ceiling"/)
  useStore.getState().setAutoWalls(false)
 })
 

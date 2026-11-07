@@ -20,9 +20,10 @@ export function RotateTile({
 }
 
 /** Plan view of a slim pillar's 3×3 in-cell positions, with the armed spot highlighted. */
-export function PositionTile({ position, onClick, shortcut = 'R' }: { position: number; onClick: () => void; shortcut?: string }): React.ReactElement {
+export function PositionTile({ position, onClick, shortcut = 'R', corners = false }: { position: number; onClick: () => void; shortcut?: string; corners?: boolean }): React.ReactElement {
   useLanguage()
-  const [x, y] = IN_CELL_POSITIONS[((position % 9) + 9) % 9]
+  const index = ((position % (corners ? 4 : 9)) + (corners ? 4 : 9)) % (corners ? 4 : 9)
+  const [x, y] = corners ? ([[-1, 1], [1, 1], [1, -1], [-1, -1]] as const)[index] : IN_CELL_POSITIONS[index]
   const offsetX = x * 0.35
   const offsetY = y * 0.35
   const pillarSize = 4.8
@@ -30,7 +31,7 @@ export function PositionTile({ position, onClick, shortcut = 'R' }: { position: 
   const pillarY = 10 - offsetY * 16 - pillarSize / 2
   return (
     <Block
-      label={t('position_value_9', position + 1)}
+      label={t(corners ? 'position_value_4' : 'position_value_9', index + 1)}
       art={
         <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="0.8">
           <rect x="2" y="2" width="16" height="16" rx="0.6" opacity="0.45" />

@@ -76,7 +76,7 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
           [
             {
               anchor: 'block',
-              node: <Block key="block" label={t('block')} icon="block" shortcut="F" tile="block" active={tool === 'block' && cut === null} onClick={() => { setTool('block'); if (cut !== null) st().setCutMode(null) }} />,
+              node: <Block key="block" label={t('block')} icon="block" shortcut="F" tile="block" active={tool === 'block' && cut === null && !suspendedCeiling} onClick={() => { setTool('block'); st().setCutMode(null) }} />,
             },
             {
               anchor: '__platform',
@@ -94,16 +94,20 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
               ),
             },
             { anchor: 'wall', node: <Block key="wall" label={t('wall')} icon="wall" shortcut="G" tile="wall" active={tool === 'wall'} onClick={() => setTool('wall')} /> },
-            ...CUT_MODES.map((c) => ({
+            ...CUT_MODES.slice(0, 1).map((c) => ({
+              anchor: cutAnchor(c.id),
+              node: <Block key={cutAnchor(c.id)} label={translate(c.label)} icon={c.icon} tile={cutAnchor(c.id)} active={tool === 'block' && cut === c.id} onClick={() => { setTool('block'); st().setCutMode(c.id) }} />,
+            })),
+            { anchor: '__ceiling', node: <Block key="__ceiling" label={t('suspended_ceiling')} icon="ceiling" tile="__ceiling" active={tool === 'block' && suspendedCeiling} onClick={() => { st().setSuspendedCeiling(true); setTool('block') }} /> },
+            ...CUT_MODES.slice(1).map((c) => ({
               anchor: cutAnchor(c.id),
               node: <Block key={cutAnchor(c.id)} label={translate(c.label)} icon={c.icon} tile={cutAnchor(c.id)} active={tool === 'block' && cut === c.id} onClick={() => { setTool('block'); st().setCutMode(c.id) }} />,
             })),
           ],
           (anchor) => {
             if (anchor === 'block') return [
-              <InlineExpand key="auto-walls" open={tool === 'block' && cut === null}>
-                <Block label={suspendedCeiling ? t('block') : t('suspended_ceiling')} icon="block" shortcut="Tab" active={suspendedCeiling} onClick={() => st().setSuspendedCeiling(!suspendedCeiling)} />
-                {!suspendedCeiling && <Block label={t('generate_walls')} icon="wall" shortcut="Shift+Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />}
+              <InlineExpand key="auto-walls" open={tool === 'block' && cut === null && !suspendedCeiling}>
+                <Block label={t('generate_walls')} icon="wall" shortcut="Shift+Tab" active={autoWalls} onClick={() => st().setAutoWalls(!autoWalls)} />
               </InlineExpand>,
             ]
             if (anchor.startsWith('__cut-')) return [

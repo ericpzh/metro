@@ -49,7 +49,7 @@ import { builderAttributeState } from '../../store/builderAttributes.ts'
 function actionTileState(state:AppState){
   return {...builderAttributeState(state),tool:state.tool,moduleType:state.moduleType,
     railLineId:state.railLineId,guideExitId:state.guideExitId,wallSnapCycle:state.wallSnapCycle,
-    halfWall:state.halfWall,triangles:state.triangles,triKind:state.triKind,
+    halfWall:state.halfWall,halfCorner:state.halfCorner,triangles:state.triangles,triKind:state.triKind,
     calligraphyEnglish:state.calligraphyEnglish, station:{nameEn:state.station.nameEn,lines:state.station.lines,modules:state.station.modules.filter(m=>m.type==='exit')}}
 }
 type ActionTileState=ReturnType<typeof actionTileState>
@@ -109,7 +109,7 @@ function ActionTiles({state}:{state:ActionTileState}): React.ReactElement {
   return (
     <>
       {cut !== null ? (
-        <RotateTile rotation={state.wallSnapCycle} label={t('rotate')} onClick={() => st().rotateWallSnap()} />
+        cut === 'corner' ? <PositionTile position={state.wallSnapCycle} corners shortcut="Tab" onClick={() => st().rotateWallSnap()} /> : <RotateTile rotation={state.wallSnapCycle} label={t('rotate')} onClick={() => st().rotateWallSnap()} />
       ) : null}
       {piece !== null ? moduleBuilderAttributes(piece, state).map((attribute, index) => <BuilderAttributeTile key={`${attribute.kind}-${index}`} attribute={attribute} moduleType={piece} state={state} />) : null}
       {piece?.startsWith('calligraphy') && state.station.nameEn?.trim() ? (

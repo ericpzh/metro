@@ -351,6 +351,10 @@ test('生成墙壁 is not drawn while a cut piece owns the 方块 tool', () => {
   assert.equal(cutModeOf(false, true, 'lower'), 'lower')
   assert.equal(cutModeOf(true, true, 'lower'), 'half', 'the two cut modes are exclusive, and 半墙 wins')
   assert.equal(armedCut(armedState({ triangles: true, triKind: 'lower' })), 'lower', 'the rail asks the same question one way')
+  const corner = armedState({ tool: 'block', halfWall: true, halfCorner: true })
+  assert.deepEqual(armedTiles(corner), { tile: cutAnchor('corner'), actions: cutAnchor('corner') })
+  assert.deepEqual(armedTiles(armedState({ tool: 'block', suspendedCeiling: true })), { tile: '__ceiling', actions: null })
+  assert.deepEqual(CUT_MODES.map(c => c.id), ['half', 'corner', 'upper', 'lower'])
 
   for (const cut of CUT_MODES) {
     assert.equal(showsAutoWalls('block', cut.id), false, `${cut.id}: the ring's tile is not in the folder`)
@@ -371,7 +375,7 @@ test('a cut piece owns a 旋转 row, anchored to its own tile — the same row a
   // piece is its own tile and its own anchor (`cutAnchor`), its 旋转 arrives through the
   // one `ActionRow` a 座椅's does, and nothing in the folder asks whether a cut is on.
   for (const cut of CUT_MODES) {
-    const armed = armedState({ tool: 'block', halfWall: cut.id === 'half', triangles: cut.id !== 'half', triKind: cut.id === 'lower' ? 'lower' : 'upper' })
+    const armed = armedState({ tool: 'block', halfWall: cut.id === 'half' || cut.id === 'corner', halfCorner: cut.id === 'corner', triangles: cut.id === 'upper' || cut.id === 'lower', triKind: cut.id === 'lower' ? 'lower' : 'upper' })
     const { tile, actions } = armedTiles(armed)
     assert.equal(tile, cutAnchor(cut.id), `${cut.id}: the armed cut is its own tile`)
     assert.equal(actions, cutAnchor(cut.id), `${cut.id}: and its row folds out under it`)

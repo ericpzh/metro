@@ -280,6 +280,7 @@ export function addWalls(
   side: WallDir | null = null,
   height?: number,
   triangle: { kind: TriangleKind; side: TriSide } | null = null,
+  corner: WallSide | null = null,
 ): { state: StationState; changed: number; blocked: number } {
   // "Already there" means already **solid**, exactly as `addCells` reads it: a
   // `void` record is the street's own dug hole, and a wall course laid over it
@@ -292,7 +293,7 @@ export function addWalls(
   const at = new Map<string, number>();
   state.cells.forEach((c, i) => { if(c.fill !== 'solid') at.set(cellKey(c.x, c.y, c.z), i) });
   const tags =
-    triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
+    corner !== null ? [WALL, `half-corner:${corner}`] : triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
   let blocked = 0;
   const run = height === undefined ? storeyWallRun(baseCells, state.levelBase, state.storeyHeight) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));

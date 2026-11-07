@@ -787,7 +787,7 @@ export function actionRowOpen(anchor: string, pieceAnchor: string | null, openFa
  * The order is the order the tiles are drawn in. Each piece is armed on its own tile —
  * the row the player clicks — and no key walks the list: **Tab** is the 生成墙壁 ring's.
  */
-export type CutMode = 'half' | 'upper' | 'lower'
+export type CutMode = 'half' | 'corner' | 'upper' | 'lower'
 
 export interface CutModeSpec {
   id: CutMode
@@ -798,6 +798,7 @@ export interface CutModeSpec {
 
 export const CUT_MODES: readonly CutModeSpec[] = [
   { id: 'half', label: msg('half_wall'), icon: 'halfwall' },
+  { id: 'corner', label: msg('half_wall_corner'), icon: 'halfcorner' },
   { id: 'upper', label: msg('upper_wedge'), icon: 'triUpper' },
   { id: 'lower', label: msg('lower_wedge'), icon: 'triLower' },
 ]
@@ -812,8 +813,8 @@ export function cutSpec(cut: CutMode): CutModeSpec {
  * keeps the mode as the two fields the click reads (`halfWall` / `triangles` +
  * `triKind`); this is the one place they are read as the single thing they mean.
  */
-export function cutModeOf(halfWall: boolean, triangles: boolean, triKind: TriangleKind): CutMode | null {
-  return halfWall ? 'half' : triangles ? triKind : null
+export function cutModeOf(halfWall: boolean, triangles: boolean, triKind: TriangleKind, halfCorner = false): CutMode | null {
+  return halfWall ? (halfCorner ? 'corner' : 'half') : triangles ? triKind : null
 }
 
 /**
@@ -970,8 +971,8 @@ export function moduleLabel(type: string | Module, roomKind?: string): string {
 export function placementPreviewKey(
   s: Pick<
     AppState,
-    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'counterLength' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'calligraphyEnglish' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWidth' | 'rampLength' | 'escalatorSpan' | 'doubleRampLength' | 'tripleRampLength' | 'liftInterval' | 'liftSize' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'suspendedCeiling' | 'halfWall' | 'triangles' | 'triKind' | 'wallSnapCycle'
+    'roadWidth' | 'roadDirection' | 'railLineId' | 'railCatenaryStyle' | 'counterLength' | 'hangerLength' | 'curtainWidth' | 'curtainHeight' | 'psdEndHeight' | 'guideExitId' | 'bridgeLength' | 'bridgeRailing' | 'moduleType' | 'moduleRot' | 'calligraphyEnglish' | 'lightPosition' | 'stairWidth' | 'stairBlockHeight' | 'pillarLength' | 'roofWidth' | 'roofPlateSnap' | 'escalatorDir' | 'escalatorWidth' | 'rampLength' | 'escalatorSpan' | 'doubleRampLength' | 'tripleRampLength' | 'liftInterval' | 'liftSize' | 'walkwayLength' | 'liftStyle' | 'gateDoor' | 'doorWide' | 'suspendedCeiling' | 'halfWall' | 'halfCorner' | 'triangles' | 'triKind' | 'wallSnapCycle'
   >,
 ): string {
-  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.counterLength}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.calligraphyEnglish}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWidth}|${s.rampLength}|${s.escalatorSpan}|${s.doubleRampLength}|${s.tripleRampLength}|${s.liftInterval}|${s.liftSize}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.suspendedCeiling}|${s.halfWall}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
+  return `${s.roadWidth}|${s.roadDirection}|${s.railLineId}|${s.railCatenaryStyle}|${s.counterLength}|${s.hangerLength}|${s.curtainWidth}|${s.curtainHeight}|${s.psdEndHeight}|${s.guideExitId ?? ''}|${s.bridgeLength}|${s.bridgeRailing}|${s.moduleType}|${s.moduleRot}|${s.calligraphyEnglish}|${s.lightPosition}|${s.stairWidth}|${s.stairBlockHeight}|${s.pillarLength}|${s.roofWidth}|${s.roofPlateSnap}|${s.escalatorDir}|${s.escalatorWidth}|${s.rampLength}|${s.escalatorSpan}|${s.doubleRampLength}|${s.tripleRampLength}|${s.liftInterval}|${s.liftSize}|${s.walkwayLength}|${s.liftStyle}|${s.gateDoor}|${s.doorWide}|${s.suspendedCeiling}|${s.halfWall}|${s.halfCorner}|${s.triangles}|${s.triKind}|${s.wallSnapCycle}`
 }

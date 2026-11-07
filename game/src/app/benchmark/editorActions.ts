@@ -106,7 +106,7 @@ function addPiece(spec:EditorActionCase,p:ReturnType<typeof coordinates>,mods:Mo
   const cells=pieceCells(spec,p)
   if(spec.autoWalls)return addFloor(state,cells)
   if(spec.ceiling)return addSuspendedCeiling(state,cells).state
-  if(spec.shape||spec.height)return addWalls(state,[[p.x,p.y,p.z]],spec.shape?.side??null,spec.height??1,spec.shape?.kind==='triangle'?{kind:spec.shape.triangle,side:spec.shape.side}:null).state
+  if(spec.shape||spec.height)return addWalls(state,[[p.x,p.y,p.z]],spec.shape?.side??null,spec.height??1,spec.shape?.kind==='triangle'?{kind:spec.shape.triangle,side:spec.shape.side}:null,spec.shape?.kind==='corner'?spec.shape.side:null).state
   return {...state,cells:addCells(state.cells,cells,state.modules).cells}
 }
 

@@ -298,7 +298,7 @@ export class GhostSystem extends SceneSystem {
         // The family and the hugged side both change the piece, and **R** steps the
         // side without the pending cell moving: a ghost that skipped that rebuild
         // would show the cut the player just turned away from.
-        h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.triangle === 'upper' ? 1 : 2), 16777619)
+        h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.kind === 'corner' ? 3 : shape.triangle === 'upper' ? 1 : 2), 16777619)
         for (let i = 0; i < shape.side.length; i++) h = Math.imul(h ^ shape.side.charCodeAt(i), 16777619)
       }
       h = this.mixCut(h, this.ctx.slopeCuts.get(k))
@@ -498,6 +498,17 @@ export class GhostSystem extends SceneSystem {
         pos.set(x + 0.5 + nx * off, y + 0.5 + ny * off, z + 0.5 + nz * off)
         q.setFromUnitVectors(FACE_UP, az.set(nx, ny, nz))
         scale.set(1, 1, 1)
+        if (shape?.kind === 'corner') {
+          const east = shape.side === 'e' || shape.side === 's'
+          const north = shape.side === 'n' || shape.side === 'e'
+          if (nx === 0) pos.x += east ? 0.25 : -0.25
+          if (ny === 0) pos.y += north ? 0.25 : -0.25
+          if ((nx > 0 && !east) || (nx < 0 && east)) pos.x -= nx * 0.5
+          if ((ny > 0 && !north) || (ny < 0 && north)) pos.y -= ny * 0.5
+          // The shortest rotation maps the plane’s local x axis to vertical on
+          // east/west faces; shrink the horizontal axis, whichever local axis it is.
+          scale.set(nx !== 0 ? 1 : 0.5, nx !== 0 || nz !== 0 ? 0.5 : 1, 1)
+        }
       }
       mat.compose(pos, q, scale)
       this.faceGhost.setMatrixAt(i, mat)

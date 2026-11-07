@@ -389,7 +389,7 @@ export class BlockTool extends ToolController {
         this.multiPlace.setNotice(false)
         const line =
           rect && shape ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side) : [d.anchor]
-        const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle)
+        const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle, shape?.kind === 'corner' ? shape.side : null)
         if (changed > 0) st.commit(next)
         // The cut piece answers to the same block verdict, so name the same
         // conflict the red ghost boxed rather than a bare `equipment`. A cell

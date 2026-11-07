@@ -658,6 +658,7 @@ export function meshChunk(
     if (slope?.has(key(nx, ny, nz))) return false
     if (shape === undefined) return true
     if (shape.kind === 'triangle') return shape.side === facing
+    if (shape.kind === 'corner') return false
     if (shape.side === facing) return true
     // A panel hugs `side`; a facing across the run is along its ridge. Two
     // courses of one run share that plane through their own thickness, so it is
@@ -714,11 +715,11 @@ export function meshChunk(
     const ownShape = thin?.get(key(x, y, z))
     if (!up) {
       const over = thin?.get(above)
-      if ((over?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === over.side)) || (over?.kind === 'triangle' && over.triangle !== 'upper')) up = true
+      if ((over?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === over.side)) || (over?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === over.side)) || (over?.kind === 'triangle' && over.triangle !== 'upper')) up = true
     }
     if (!down) {
       const under = thin?.get(key(x, y, z - 1))
-      if ((under?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === under.side)) || (under?.kind === 'triangle' && under.triangle !== 'lower')) down = true
+      if ((under?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === under.side)) || (under?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === under.side)) || (under?.kind === 'triangle' && under.triangle !== 'lower')) down = true
     }
     // Sides cull only against a covering block (`coversSide`): a full block, or
     // a wedge whose full-height face is the interface. A wedge's thin edge or
@@ -802,6 +803,10 @@ export function meshChunk(
     let built: Profile
     if (filled && cut !== undefined && cut.half !== undefined) {
       built = buildTrussProfile(cut.axis, cut.half)
+    } else if (thinShape?.kind === 'corner') {
+      const east = thinShape.side === 'e' || thinShape.side === 's'
+      const north = thinShape.side === 'n' || thinShape.side === 'e'
+      built = buildProfile({ e: E, w: W, n: N, s: S }, { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 })
     } else if (isHalfWallShape(thinShape)) {
       built = buildThinProfile(thinShape.side, E, W, N, S)
     } else {

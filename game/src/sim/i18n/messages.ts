@@ -225,6 +225,8 @@ export const messages = {
     "zh": "相邻的面不画，九个顶面是一整片",
     "en": "Shared faces are hidden; nine top faces form one surface"
   },
+  "half_wall_corner": { "zh": "半墙转角", "en": "Half-wall corner" },
+  "position_value_4": { "zh": "位置 {0}/4", "en": "Position {0}/4" },
   "half_wall": {
     "zh": "半墙",
     "en": "Half wall"

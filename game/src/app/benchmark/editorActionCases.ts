@@ -104,6 +104,7 @@ export function editorActionCases(data?:StationData): EditorActionCase[] {
   for(const line of data?.lines??[])add(platform,`line=${line.id}`,{lineId:line.id})
   for(const run of TRACK_RUN_LENGTHS)add(tunnel,`length=${run}`,{run})
   for(const side of ['n','e','s','w'] as const){
+    cases.push({id:`half-corner/${side}`,paletteId:'half-corner',kind:'cell',category:'structural',shape:{kind:'corner',side}})
     cases.push({id:`half-wall/${side}`,paletteId:'half-wall',kind:'cell',category:'structural',shape:{kind:'half',side}})
     for(const triangle of ['upper','lower'] as const)cases.push({id:`tri-${triangle}/${side}`,paletteId:`tri-${triangle}`,kind:'cell',category:'structural',shape:{kind:'triangle',triangle,side}})
   }

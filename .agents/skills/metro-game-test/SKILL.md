@@ -793,10 +793,14 @@ and checks one scene raycast per event. `tools/check-sign-save.mjs <save-path>`
 captures the reported Tianhe sign in High/Low and both view directions; captures
 alone do not establish a fix for an intermittent failure that did not reproduce.
 
-Half-wall and triangle cut tiles use absolute clockwise A=N, B=E, C=S, D=W,
-independent of neighbouring blocks and pointer/camera position. Both drag one
+Half-wall, corner and triangle cut tiles use absolute clockwise A=N, B=E, C=S, D=W,
+independent of neighbouring blocks and pointer/camera position. Dragged cuts lay one
 course along their panel/ridge axis. Stair-block tile directions use the same
 absolute compass with saved module rotations preserved; picking converts back
 to the tile direction. `triangle.test.mjs` pins half-wall preview/release and
-Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls; `roof-tool.test.mjs`
+Tianhe `(5,-76,-10)` floor-cap visibility beneath half walls, the corner footprint,
+placement and all four positions and paint-preview faces. `rail-families` pins the
+separate ceiling and corner anchors; `storey-height` pins the ceiling tile and
+keyboard behavior. `editor-action-benchmark` lists every corner position.
+`roof-tool.test.mjs`
 and `pick-tool.test.mjs` pin stair direction, dragging and picking.

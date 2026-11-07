@@ -140,7 +140,7 @@ export function App(): React.ReactElement {
           // clearing any cut piece (半墙 / 三角) the tool was left in — the same
           // thing clicking the 方块 tile does.
           st.setTool('block')
-          if (st.halfWall || st.triangles) st.setCutMode(null)
+          if (st.halfWall || st.triangles || st.suspendedCeiling) st.setCutMode(null)
           break
         case 'g':
           st.setTool('wall')
@@ -174,8 +174,7 @@ export function App(): React.ReactElement {
           else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, 'R')
           break
         case 'tab':
-          // 方块: Tab switches the normal block / suspended ceiling variant;
-          // Shift+Tab toggles generated walls for normal block patches.
+          // 方块: Shift+Tab toggles generated walls for normal block patches.
           // 材质 uses Tab to cycle 单块 / 整面; elsewhere Tab keeps its own meaning
           // for the piece being placed: rail direction, stair or roof width, escalator
           // direction, the 闸机's lane or fence.
@@ -184,8 +183,8 @@ export function App(): React.ReactElement {
           else if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
           else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, e.shiftKey ? 'Shift+Tab' : 'Tab')
           else if (st.tool === 'block') {
-            if (e.shiftKey) st.setAutoWalls(!st.autoWalls)
-            else st.setSuspendedCeiling(!st.suspendedCeiling)
+            if (st.halfCorner && !e.shiftKey) st.rotateWallSnap()
+            else if (e.shiftKey) st.setAutoWalls(!st.autoWalls)
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
           break

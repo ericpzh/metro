@@ -164,7 +164,9 @@ export interface ArmedState {
   moduleType: string
   zoneBrush: ZoneBrush
   paintFinish: string
+  suspendedCeiling?: boolean
   halfWall: boolean
+  halfCorner: boolean
   triangles: boolean
   triKind: TriangleKind
 }
@@ -178,8 +180,8 @@ export interface ArmedState {
  * folds their 旋转 out, and the shell that counts the folder's tiles. None of them reads
  * `halfWall` / `triangles` / `triKind` for itself.
  */
-export function armedCut(s: { halfWall: boolean; triangles: boolean; triKind: TriangleKind }): CutMode | null {
-  return cutModeOf(s.halfWall, s.triangles, s.triKind)
+export function armedCut(s: { halfWall: boolean; halfCorner?: boolean; triangles: boolean; triKind: TriangleKind }): CutMode | null {
+  return cutModeOf(s.halfWall, s.triangles, s.triKind, s.halfCorner)
 }
 
 /**
@@ -222,7 +224,7 @@ export function armedTiles(s: ArmedState): ArmedTiles {
       // A cut piece owns its own action row; the plain block reveals its main
       // structure tile, while its generated-wall setting folds out beneath it.
       const cut = armedCut(s)
-      const anchor = cut === null ? 'block' : cutAnchor(cut)
+      const anchor = cut === null ? (s.suspendedCeiling ? '__ceiling' : 'block') : cutAnchor(cut)
       return { tile: anchor, actions: cut === null ? null : anchor }
     }
     case 'wall':

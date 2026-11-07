@@ -35,6 +35,7 @@ export function halfWallSideFor(line: Array<[number, number, number]>, open: rea
 /** What the 方块 tool's cut modes hold: which piece a click lays, and its shape. */
 export interface CutMode {
   halfWall: boolean
+  halfCorner?: boolean
   triangles: boolean
   triKind: TriangleKind
   wallSnapCycle: number
@@ -51,7 +52,7 @@ export interface CutMode {
  */
 export function cutShapeFor(_line: Array<[number, number, number]>, _open: readonly WallDir[], st: CutMode): CellShape | null {
   const side = (['n', 'e', 's', 'w'] as const)[((st.wallSnapCycle % 4) + 4) % 4]
-  if (st.halfWall) return { kind: 'half', side }
+  if (st.halfWall) return { kind: st.halfCorner ? 'corner' : 'half', side }
   if (st.triangles) return { kind: 'triangle', triangle: st.triKind, side }
   return null
 }

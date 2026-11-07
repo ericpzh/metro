@@ -1915,11 +1915,15 @@ including the depth prepass, for all six appearances.
   a thin edge or triangular end leaves the neighbour's side drawn, so a wedge beside a
   block never punches a black hole in it, while a hugged full–full seam and a continuing
   ridge run (shared ends culled, outer ends kept) stay shut. Pin the line, the seam and
-  the join in `test/triangle.test.mjs`. The three cut pieces are
-  **three rail tiles** — **半墙**, **上三角块**, **下三角块** — and an armed one folds out a
-  **旋转 row under its own tile** (`cutAnchor` is the cut's tile *and* its action anchor, so
-  the row arrives through the very `ActionRow` a 座椅's 旋转 does), which steps the counter
-  **R** turns (`rotateWallSnap`).
+  the join in `test/triangle.test.mjs`. The structure grid places 墙 / 半墙 together,
+  followed by separate 吊顶 / 半墙转角 tiles and the two wedge tiles. 吊顶 uses its own
+  panel icon, closes the block action row, and has no block Tab toggle. Shift+Tab
+  still controls generated walls on the plain block. 半墙转角 is a quarter-cell wall
+  tagged `half-corner:<side>`; its four absolute positions connect perpendicular
+  half walls. Its position tile and Tab or R cycle the positions. Preview, release,
+  saved geometry and material face ghosts must agree, including the east/west
+  ghost axes. `triangle`, `storey-height`, `rail-families` and
+  `editor-action-benchmark` pin these contracts.
 * The **围栏 tool** (设备) drags out a straight run like 墙, but lays one 1 m panel per cell with
   the panels following the drag direction (R turns a single); a right-drag lifts the run.
   `app/Viewport.tsx` drives a live fence preview that rebuilds only orthogonally
@@ -2601,8 +2605,8 @@ maintain a 4 m save/grid profile or move demo-station blocks as part of this wor
 Turning stairs may store half-metre internal landing Z coordinates; editable cells
 and outer endpoints remain integer-grid. Grid repair admits fractional internal
 landings without depending on module tags. The graph synthesizes their nodes.
-The block tool's Tab variant is 吊顶 (ordinary tagged blocks that can be placed
-anywhere like a standard block); Shift+Tab controls wall generation. Placing one
+The separate 吊顶 tile places ordinary tagged blocks that can be placed
+anywhere like a standard block; Shift+Tab controls wall generation. Placing one
 triggers ceiling snapping for decor in the actual room below its underface;
 other rooms and hanger-supported props remain attached to their own supports.
 Ceiling decor uses the normal tools and `ceilingAnchored` below

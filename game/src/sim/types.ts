@@ -215,10 +215,12 @@ export function triangleOf(c: { tags?: string[] }): { kind: TriangleKind; side: 
  */
 export type CellShape =
   | { kind: 'half'; side: WallSide }
+  | { kind: 'corner'; side: WallSide }
   | { kind: 'triangle'; triangle: TriangleKind; side: TriSide }
 
 /** The cut shape of a block, or null when it fills its whole cell. */
 export function shapeOf(c: { tags?: string[] }): CellShape | null {
+  for (const side of WALL_SIDES) if (c.tags?.includes(`half-corner:${side}`)) return { kind: 'corner', side }
   const half = halfWallSide(c)
   if (half !== null) return { kind: 'half', side: half }
   const tri = triangleOf(c)

@@ -66,7 +66,7 @@ test('action-row size families and all cut orientations remain in the manifest',
     assert.deepEqual(widths.map(c=>c.width),ESCALATOR_WIDTHS.filter(w=>w>1))
     for(const spec of widths)assert.equal(caseModules(spec,0,0,0,'width',station)[0].cfg.width,spec.width,spec.id+' reaches the production factory')
   }
-  for(const family of ['half-wall','tri-upper','tri-lower'])assert.deepEqual(cases.filter(c=>c.paletteId===family).map(c=>c.shape.side),['n','e','s','w'])
+  for(const family of ['half-wall','half-corner','tri-upper','tri-lower'])assert.deepEqual(cases.filter(c=>c.paletteId===family).map(c=>c.shape.side),['n','e','s','w'])
   assert.ok(cases.some(c=>c.ceiling),'suspended ceiling uses the block path too')
 })
 

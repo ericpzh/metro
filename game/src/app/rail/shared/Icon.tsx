@@ -39,6 +39,13 @@ export function Icon({ name }: { name: string }): React.ReactElement {
           <path {...s} d="M4 6.4l6 3.4 6-3.4M10 9.8V17" />
         </>,
       )
+    // A suspended ceiling panel and its two short hangers.
+    case 'ceiling':
+      return svg(
+        <>
+          <path {...s} d="M5 3v3M15 3v3M3 7h14v9H3zM3 10h14M8 7v9M13 7v9" />
+        </>,
+      )
     // A thin roof plate, using the same outlined volume as the block tile.
     case 'roof':
       return svg(
@@ -79,6 +86,11 @@ export function Icon({ name }: { name: string }): React.ReactElement {
       )
     // A 半墙: the same courses at half the thickness, with the clear half of the
     // tile beside it left as dashed lines — the space the wall keeps usable.
+    case 'halfcorner':
+      return svg(<>
+        <rect {...s} strokeDasharray="2 2" x="3.4" y="4" width="13.2" height="12" rx="0.6" />
+        <rect {...s} x="3.4" y="4" width="6.6" height="6" fill="currentColor" />
+      </>)
     case 'halfwall':
       return svg(
         <>

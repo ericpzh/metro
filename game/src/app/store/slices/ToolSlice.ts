@@ -69,6 +69,7 @@ export interface ToolSlice {
    * `addWalls`'s `side` (`build/model.ts`).
    */
   halfWall: boolean
+  halfCorner: boolean
   /**
    * The 方块 tool's 三角 mode: instead of a whole block it lays a single **三角** — the
    * cell cut on a 45° plane in *elevation*, so the piece is a wedge with one flat 1 m
@@ -284,7 +285,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   // Off when the game opens: a 方块 drag lays bare floor unless the player asks for
   // the ring on its own tile.
   suspendedCeiling: false,
-  setSuspendedCeiling: (on) => set({ suspendedCeiling: on, halfWall: false, triangles: false, autoWalls: false }),
+  setSuspendedCeiling: (on) => set({ suspendedCeiling: on, halfWall: false, halfCorner: false, triangles: false, autoWalls: false }),
   autoWalls: false,
   moduleType: 'gate',
   roadWidth: 6,
@@ -301,6 +302,7 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   cycleLightPosition: () => set((s) => ({ lightPosition: (s.lightPosition + 1) % 9 })),
   wallSnapCycle: 0,
   halfWall: false,
+  halfCorner: false,
   triangles: false,
   triKind: 'upper',
   stairWidth: STAIR_WIDTH_NARROW,
@@ -358,16 +360,17 @@ export const createToolSlice: StateCreator<AppState, [], [], ToolSlice> = (set, 
   rotateModule: () =>
     set((s) => (isRotatableType(s.moduleType) ? { moduleRot: (s.moduleType.startsWith('pillar-slim') ? (s.moduleRot + 1) % 9 : s.moduleType === 'road' ? (s.moduleRot + 2) % 4 : s.moduleType === 'light-rectangular' ? (s.moduleRot + 1) % 2 : (s.moduleRot + 3) % 4) } : {})),
   rotateWallSnap: () => set((s) => ({ wallSnapCycle: s.wallSnapCycle + 1 })),
-  setHalfWall: (on) => set({ suspendedCeiling: false, halfWall: on, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
+  setHalfWall: (on) => set({ suspendedCeiling: false, halfWall: on, halfCorner: false, triangles: false, autoWalls: false, wallSnapCycle: 0 }),
   toggleHalfWall: () => get().setHalfWall(!get().halfWall),
-  setTriangles: (on, kind) => set({ suspendedCeiling: false, triangles: on, halfWall: false, autoWalls: false, wallSnapCycle: 0, ...(kind ? { triKind: kind } : {}) }),
+  setTriangles: (on, kind) => set({ suspendedCeiling: false, triangles: on, halfWall: false, halfCorner: false, autoWalls: false, wallSnapCycle: 0, ...(kind ? { triKind: kind } : {}) }),
   // One cut piece, one call. `halfWall` / `triangles` stay the fields the click reads
   // (and the ones the older setters above write); this is the rail's own way in, so
   // the 工具 folder's tiles carry no per-piece branching.
   setCutMode: (cut) =>
     set({
       suspendedCeiling: false,
-      halfWall: cut === 'half',
+      halfWall: cut === 'half' || cut === 'corner',
+      halfCorner: cut === 'corner',
       triangles: cut === 'upper' || cut === 'lower',
       ...(cut === 'upper' || cut === 'lower' ? { triKind: cut } : {}),
       autoWalls: false,

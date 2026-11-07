@@ -71,6 +71,7 @@ export function facePresent(
   const k = cellKey(x, y, z);
   if (!solid.has(k)) return false;
   const shape = thin.get(k);
+  if (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) return true;
   if (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face) return true;
   if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) return true;
   const step = FACE_STEP[face];
@@ -83,6 +84,7 @@ export function facePresent(
   // available to the 材质 brush too.
   if (face === 'top' || face === 'bottom') {
     const neighbour = thin.get(neighbourKey);
+    if (neighbour?.kind === 'corner' && !(shape?.kind === 'corner' && shape.side === neighbour.side)) return true;
     if (isTriangleShape(neighbour)) {
       const covers = face === 'top'
         ? neighbour.triangle === 'upper'
@@ -269,7 +271,7 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
   const exposed = (px: number, py: number, pz: number): boolean => facePresent(solid, thin, px, py, pz, face, occupied);
   const inset = (px: number, py: number, pz: number): boolean => {
     const shape = thin.get(cellKey(px, py, pz));
-    return isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face;
+    return (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) || (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face);
   };
   if (!exposed(x, y, z)) return state;
   const seen = new Set<string>([cellKey(x, y, z)]);

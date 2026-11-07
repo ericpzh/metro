@@ -163,7 +163,7 @@ and `ramp-block-placement.test.mjs`; reproduce fit and real pointer placement
 with `tools/check-ramp-fit.mjs` and `tools/check-ramp-block-placement.mjs`.
 Route implementation to `metro-game`, regressions to `metro-game-test`, and keep
 the measured browser timings and limits in the [performance reference](references/performance.md).
-The 方块 tool's 吊顶 variant follows the same `checkBlockCells` preview and release
+The separate 吊顶 tile follows the same `checkBlockCells` preview and release
 path as ordinary blocks. Keep the original station arrays intact during hover so
 the block index and verdict cache remain reusable; never prepare a copied module
 list or relocate existing hung fixtures. `addSuspendedCeiling` tags and finishes

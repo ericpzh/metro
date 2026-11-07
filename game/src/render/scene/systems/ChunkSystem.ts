@@ -34,7 +34,7 @@ import { changedCellRecords } from '../../cellChanges.ts'
  * wedges, so a chunk whose cell is re-tagged at the same coordinates must re-mesh.
  */
 function shapeKey(shape: CellShape): number {
-  const family = shape.kind === 'half' ? 0 : shape.triangle === 'upper' ? 1 : 2
+  const family = shape.kind === 'half' ? 0 : shape.kind === 'corner' ? 3 : shape.triangle === 'upper' ? 1 : 2
   const corner = shape.side.charCodeAt(0) * 31 + (shape.side.length > 1 ? shape.side.charCodeAt(1) : 0)
   return family * 1000 + corner
 }
