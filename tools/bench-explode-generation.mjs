@@ -25,6 +25,7 @@ try {
   console.log('Save parsed:',JSON.stringify(loaded),'wall ms',openSaveWallMs)
   await waitFor(page.evaluate,`window.__scene.ctx.stationData && window.__scene.ctx.stationData !== window.__oldStationData && window.__scene.framesRendered>0`,{tries:1200,every:500,what:'installed station'})
   const loadProfile=await page.send('Profiler.stop');writeFileSync(resolve(output,'load.cpuprofile'),JSON.stringify(loadProfile.profile))
+  const memoryBefore = await page.evaluate(`(()=>{const m=performance.memory;return m?{used:m.usedJSHeapSize,total:m.totalJSHeapSize,limit:m.jsHeapSizeLimit}:null})()` )
   console.log('Station installed; starting explode...')
   await page.evaluate('window.__stageTimings=[]')
   if(process.env.BENCH_PROFILE !== '0') await page.send('Profiler.start')
@@ -46,16 +47,18 @@ try {
   await waitFor(page.evaluate,`document.querySelector('.explodedViewer')?.dataset.ready==='true'`,{tries:1200,every:500,what:'exploded view'})
   await page.evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))')
   const durationMs=Date.now()-explodeStart
+  const memoryStructure = await page.evaluate(`(()=>{const m=performance.memory;return m?{used:m.usedJSHeapSize,total:m.totalJSHeapSize,limit:m.jsHeapSizeLimit}:null})()`)
   if (await page.evaluate("document.querySelector('.explodedViewer')?.hasAttribute('data-equipped')")) {
     await waitFor(page.evaluate, "document.querySelector('.explodedViewer')?.dataset.equipped==='true'", {tries:1200,every:500,what:'exploded equipment'})
   }
   const milestones = await page.evaluate('window.__explodeMilestones')
+  const memoryEquipped = await page.evaluate(`(()=>{const m=performance.memory;return m?{used:m.usedJSHeapSize,total:m.totalJSHeapSize,limit:m.jsHeapSizeLimit}:null})()`)
   if(process.env.BENCH_PROFILE !== '0') {const profile=await page.send('Profiler.stop');writeFileSync(resolve(output,'explode.cpuprofile'),JSON.stringify(profile.profile))}
   const screenshot=await page.send('Page.captureScreenshot',{format:'png'})
   writeFileSync(resolve(output,'exploded.png'),Buffer.from(screenshot.data,'base64'))
   const stages=await page.evaluate(`({stages:window.__stageTimings,canvas:[...document.querySelector('.explodedViewer canvas')? [document.querySelector('.explodedViewer canvas').width,document.querySelector('.explodedViewer canvas').height]:[]],ready:document.querySelector('.explodedViewer')?.dataset.ready})`)
   const browser=await page.send('Browser.getVersion')
   const sourceHash=JSON.parse(readFileSync(resolve('game/dist/editor-benchmark-build.json'),'utf8')).sourceHash
-  const report={fixture:resolve(path),fixtureSha256:createHash('sha256').update(raw).digest('hex'),sourceHash,cpu:cpus()[0]?.model,platform:process.platform,node:process.version,browser:browser.product,mode:'Chrome headless, hardware requested',profiledExplode:process.env.BENCH_PROFILE !== '0',openSave:loaded,openSaveWallMs,explodeWallMs:durationMs,...milestones,...stages}
+  const report={fixture:resolve(path),fixtureSha256:createHash('sha256').update(raw).digest('hex'),sourceHash,cpu:cpus()[0]?.model,platform:process.platform,node:process.version,browser:browser.product,mode:'Chrome headless, hardware requested',profiledExplode:process.env.BENCH_PROFILE !== '0',openSave:loaded,openSaveWallMs,explodeWallMs:durationMs,jsHeap:{before:memoryBefore,structure:memoryStructure,equipped:memoryEquipped},...milestones,...stages}
   writeFileSync(resolve(output,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2))
 } finally {await page.close();server.close()}
