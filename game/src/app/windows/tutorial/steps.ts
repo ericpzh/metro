@@ -7,7 +7,7 @@ interface TutorialStep {
   folders?: string[]
   closedFolders?: string[]
   keys?: string[]
-  practice?: { tool: 'block' | 'delete' | 'rail'; key: string }
+  practice?: { tool: 'block' | 'delete' | 'rail'; key?: string }
 }
 
 const tile = (id: string): string => `[data-tile="${id}"]`
@@ -24,7 +24,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   { title: 'tutorial_palette', body: 'tutorial_palette_body', targets: ['#leftMenu'] },
   { title: 'tutorial_blocks', body: 'tutorial_blocks_body', targets: [tile('block')], folders: ['rail'], keys: ['F'], practice: { tool: 'block', key: 'f' } },
   { title: 'tutorial_delete', body: 'tutorial_delete_body', targets: ['[data-tutorial="delete-tool"]', '[aria-keyshortcuts="Control+Z"]', '[aria-keyshortcuts="Control+Y"]'], folders: ['tools'], keys: ['B', 'Ctrl+Z', 'Ctrl+Shift+Z'], practice: { tool: 'delete', key: 'b' } },
-  { title: 'tutorial_platform', body: 'tutorial_platform_body', targets: [tile('__platform')], folders: ['rail'], keys: ['L', 'R'], practice: { tool: 'rail', key: 'l' } },
+  { title: 'tutorial_platform', body: 'tutorial_platform_body', targets: [tile('__platform')], folders: ['rail'], keys: ['R'], practice: { tool: 'rail' } },
   { title: 'tutorial_extend', body: 'tutorial_extend_body', targets: [tile('__tunnel'), tile('bridge')], folders: ['rail'] },
   { title: 'tutorial_equipment', body: 'tutorial_equipment_body', targets: [folder('equipment'), folder('decorCeiling'), folder('decorWall'), folder('decorFloor'), folder('decorOutside')], closedFolders: ['equipment', 'decorCeiling', 'decorWall', 'decorFloor', 'decorOutside'] },
   { title: 'tutorial_paint', body: 'tutorial_paint_body', targets: [folder('surfaces')], keys: ['Tab'] },

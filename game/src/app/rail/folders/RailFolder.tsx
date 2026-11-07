@@ -87,7 +87,6 @@ export function RailFolder({ subMenu, onToggleSubMenu }: { subMenu: SubMenuKey |
                   icon="rail"
                   tile={PLATFORM_TILE}
                   active={tool === 'rail'}
-                  shortcut="L"
                   submenu={platformOpen}
                   onClick={() => setTool('rail')}
                 />

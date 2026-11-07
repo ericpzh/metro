@@ -45,6 +45,7 @@ export function Tutorial({ reveal }: { reveal: () => void }): React.ReactElement
       })
     }
     const onKey = (event: KeyboardEvent): void => {
+      if (!practice.key) return
       if (event.key.toLowerCase() === practice.key && !event.ctrlKey && !event.metaKey && !event.altKey && !isTypingTarget(event.target)) activate()
     }
     const onClick = (event: MouseEvent): void => {

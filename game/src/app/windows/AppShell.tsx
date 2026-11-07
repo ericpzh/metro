@@ -24,7 +24,6 @@ export function App(): React.ReactElement {
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
   const revealTutorial = useCallback(() => { setLeftOpen(true); setRightOpen(true) }, [])
-  const setTool = useStore((s) => s.setTool)
   const notice = useStore((s) => s.notice)
 
   useEffect(() => {
@@ -58,8 +57,8 @@ export function App(): React.ReactElement {
       // column, so the same numbers can serve both stacks without a clash. Each shell
       // owns which of its folders are open, so this only names the folder and hands it over.
       // Both run before the switch below because every unmodified key already means
-      // something unmodified — Q/E step the storey, R turns, U hides the UI, P 吸取,
-      // T 分区 — and a held key repeats, which would flicker the folder it names.
+      // something unmodified — Q/E step the storey, R turns, U hides the UI, P 吸取
+      // — and a held key repeats, which would flicker the folder it names.
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) {
         const folder = folderForShiftKey(e.code.startsWith('Digit') ? e.code.slice(5) : ck)
         if (folder) {
@@ -107,8 +106,8 @@ export function App(): React.ReactElement {
         }
         // 回到默认视角: the nav cube's own ⌂ button, on the keyboard. It is the one
         // camera key with a modifier — a plain H is 隐藏天花板 — and the Viewport owns
-        // the scene, so the press is handed over as `metro:home` exactly as the
-        // presets and 框选 use `metro:preset` / `metro:frame`.
+        // the scene, so the press is handed over as `metro:home` exactly as 框选
+        // uses `metro:frame`.
         if (ck === 'h') {
           e.preventDefault()
           window.dispatchEvent(new CustomEvent('metro:home'))
@@ -129,9 +128,6 @@ export function App(): React.ReactElement {
           if ((e.target as HTMLElement)?.tagName === 'BUTTON') (e.target as HTMLElement).blur()
           st.setPlaying(!st.playing)
           break
-        case 'v':
-          setTool('select' as const)
-          break
         case 'b':
           st.setTool(st.tool === 'delete' ? st.previousTool : 'delete')
           break
@@ -144,9 +140,6 @@ export function App(): React.ReactElement {
           break
         case 'g':
           st.setTool('wall')
-          break
-        case 'j':
-          st.setTool('module')
           break
         case 'r':
           if (e.ctrlKey || e.metaKey || e.altKey) break
@@ -188,17 +181,8 @@ export function App(): React.ReactElement {
           } else if (st.tool === 'rail') st.cycleRailDir()
           else if (st.tool === 'tunnel') st.cycleTunnelLength()
           break
-        case 'n':
-          st.setTool('paint')
-          st.setPaintMode('single')
-          break
         case 'm':
           st.setTool(st.tool === 'move' ? st.previousTool : 'move')
-          break
-        case 'i':
-          // `I` is the old 取色 key, kept as an alias: eyedropping moved to the
-          // 工具 folder's 吸取 (`P`), which lifts equipment as well as finishes.
-          st.setTool('pick')
           break
         case 'q':
           st.stepLevel(-1)
@@ -230,16 +214,6 @@ export function App(): React.ReactElement {
           if (e.ctrlKey || e.metaKey) st.redo()
           else st.setHideSectionSurface(!st.hideSectionSurface)
           break
-        case 'o':
-          st.setOrtho(!st.ortho)
-          break
-        case '1':
-        case '2':
-        case '3':
-        case '4':
-        case '5':
-          window.dispatchEvent(new CustomEvent('metro:preset', { detail: e.key }))
-          break
         case 'home':
           window.dispatchEvent(new CustomEvent('metro:frame'))
           break
@@ -252,24 +226,18 @@ export function App(): React.ReactElement {
             if (e.shiftKey) st.redo()
             else st.undo()
           } else {
-            // Z is the 选择 tool now; 分区 moved to T (吸取 took P).
+            // Z is the 选择 tool (吸取 is P; 分区 is chosen from the rail).
             st.setTool('select')
           }
           break
         case 'p':
           st.setTool(st.tool === 'pick' ? st.previousTool : 'pick')
           break
-        case 't':
-          st.setTool('zone')
-          break
-        case 'l':
-          st.setTool('rail')
-          break
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [setTool])
+  }, [])
 
   return (
     <div className="app">
