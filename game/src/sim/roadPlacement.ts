@@ -6,6 +6,7 @@ import { rampOpeningsInWindow } from './openings.ts'
 import { exitFootprintCells, isExitHeadHouse } from './exits.ts'
 import { trackCells } from './track.ts'
 import type { Road } from './roads.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 interface RoadPlacementIndex {
   solid: Set<number>
@@ -58,3 +59,9 @@ export function roadSurfaceReason(cells: readonly Cell[], modules: readonly Modu
   }
   return track ? 'track' : occupied ? 'occupied' : ''
 }
+
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (cells === liveCells && modules === liveModules) return
+  if (cells !== liveCells) cache.delete(cells)
+  else if (modules !== liveModules) cache.get(cells)?.delete(modules)
+})

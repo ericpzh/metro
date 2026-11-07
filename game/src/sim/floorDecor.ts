@@ -3,6 +3,7 @@ import type { Module, LineDef } from './types.ts'
 import { rotateLocal } from './track.ts'
 import { doorRunOffsets, doorWidthAt } from './stock.ts'
 import { PSD_FULL_DOOR_WIDTH_SCALE } from './constants.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 export type TactileVariant = 'guide' | 'warning'
 export type FloorMarkVariant = 'boarding' | 'waiting' | 'direction'
@@ -142,3 +143,7 @@ export function tactileAt(modules: readonly Module[], x: number, y: number, z: n
   }
   return index.get(`${x},${y},${z}`)?.find(module => !variant || module.cfg.variant === variant)
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) tactileIndexes.delete(modules)
+})

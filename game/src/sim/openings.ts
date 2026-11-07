@@ -32,6 +32,7 @@ import { ESCALATOR_BAND, ESCALATOR_RAIL_PROUD, ESCALATOR_CASING_PROUD, STAIR_RAI
 import { escalatorInclineRun, escalatorBandWidth, escalatorBodyWidth, escalatorRun, escalatorLandings } from './escalators.ts'
 import { exitLandingHeight } from './exitLanding.ts'
 import { RAMP_FOOT, STAIR_BODY_DROP, rampSurfaceRetainsVolume, type RampSurfacePatch } from './rampSurface.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 export { RAMP_FOOT, STAIR_BODY_DROP } from './rampSurface.ts'
 import { exitFloorAt } from './exits.ts'
 import { virtualSolidAt } from './ground.ts'
@@ -1180,3 +1181,9 @@ export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]
   byModules.set(modules,out)
   return out
 }
+
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (modules !== liveModules) rampListCache.delete(modules)
+  if (cells !== liveCells) thinCellCache.delete(cells)
+  else if (modules !== liveModules) thinCellCache.get(cells)?.delete(modules)
+})

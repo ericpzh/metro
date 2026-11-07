@@ -35,6 +35,8 @@ import { lineColourFor } from '../src/data/line-colours.ts'
 import { SAVE_VERSION, serialize } from '../src/persistence/save.ts'
 import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
 import { SIM_DAY } from '../src/sim/constants.ts'
+import { blockIndex } from '../src/sim/blockIndex.ts'
+import { documentCacheReleases } from '../src/sim/documentCaches.ts'
 
 /* --------------------------------------------------------------- the harness */
 
@@ -582,6 +584,36 @@ test('a large station keeps the same forty frames, and every Ctrl+Z is its own s
   assert.equal(st().past.length, 40, 'a large station still fills the forty-frame depth')
   assert.equal(st().past[0].name, 'cap-10', 'the oldest frames are the ones that go')
   assert.equal(st().past.at(-1).name, 'cap-49', 'and the newest frame is kept')
+})
+
+test('a commit releases the retired document indexes and undo rebuilds them', () => {
+  // Frames share immutable records, but a frame must not also pin the
+  // station-sized placement/collision/occupancy indexes the hover built for it:
+  // on a large station one retained frame measured ~30 MB of derived caches.
+  load(referenceStation())
+  const before = st().station
+  const prepared = blockIndex(before.cells, before.modules)
+  assert.equal(blockIndex(before.cells, before.modules), prepared)
+  const releases = documentCacheReleases()
+
+  st().commit({ ...before, modules: [...before.modules, createModule('light-circular', 0, 0, 3, 'ceiling-probe')] })
+  const after = st().station
+  assert.equal(st().past.at(-1), before, 'the frame still holds the immutable document')
+  assert.equal(documentCacheReleases(), releases + 1, 'one document was retired')
+  assert.notEqual(blockIndex(before.cells, before.modules), prepared, 'the retired frame no longer pins its prepared index')
+  const live = blockIndex(after.cells, after.modules)
+  assert.equal(blockIndex(after.cells, after.modules), live, 'the live document keeps its prepared index')
+
+  // Settings-only edits share both arrays; they retire nothing and must not evict
+  // the live index.
+  st().commit({ ...st().station, name: '改名' })
+  assert.equal(blockIndex(after.cells, after.modules), live, 'a settings-only edit keeps the live index')
+
+  st().undo()
+  assert.equal(st().station.name, referenceStation().name, 'undo lands on the loaded document')
+  st().redo()
+  assert.equal(st().station.name, '改名', 'and redo returns to the rename')
+  assert.ok(st().past.length > 0, 'the history itself stays intact')
 })
 
 /* ------------------------------------------------- 新建 / 打开 / 改名 / 存档 */

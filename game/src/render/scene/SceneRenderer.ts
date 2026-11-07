@@ -698,6 +698,7 @@ export class SceneRenderer {
         const camera = this.cameraSys.activeCamera()
         camera.updateMatrixWorld()
         this.modules.batches.updateDetail(camera, this.renderer.domElement.clientHeight)
+        this.modules.surfaces.updateDetail(camera, this.renderer.domElement.clientHeight)
         this.modules.batches.withHiddenSources(camera, () => this.renderer.render(this.ctx.scene, camera))
         this.framesRendered++
       })
@@ -1118,6 +1119,7 @@ export class SceneRenderer {
       const anchor=this.onExplodedFloorAnchor?this.getExplodedFloorAnchor():null
       if(anchor)this.onExplodedFloorAnchor?.(anchor)
       this.modules.batches.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
+      this.modules.surfaces.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.explodedLayout?.hideSources()
       this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
@@ -1198,6 +1200,7 @@ export class SceneRenderer {
     // first (teardown keeps nothing), then the shared kit, then the finish set —
     // whose every material wraps a canvas texture of its own.
     this.modules.clearModules()
+    this.modules.surfaces.dispose()
     disposeModelMaterials(this.ctx.modelMats)
     this.ctx.ads.dispose()
     this.ctx.lineMaps?.dispose()

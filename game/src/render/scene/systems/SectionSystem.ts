@@ -309,6 +309,12 @@ export class SectionSystem extends SceneSystem {
         apply(mat)
       })
     }
+    // Instanced paving is drawn outside the module roots; clip its material too.
+    for (const mesh of this.modules.surfaceMeshes?.() ?? []) {
+      const mat = mesh.material as THREE.Material | THREE.Material[]
+      if (Array.isArray(mat)) for (const one of mat) apply(one)
+      else apply(mat)
+    }
     // **The slice walk clips the materials it derives, not only the ones it was
     // handed.** A ghost clone is cached, so one made before the cut was switched on
     // carries no planes of its own and comes back unclipped on the next walk; giving

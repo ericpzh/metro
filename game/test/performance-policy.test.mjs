@@ -4,6 +4,9 @@ import * as THREE from 'three'
 import { referenceStation } from '../src/data/reference-station.ts'
 import { blockIndex } from '../src/sim/blockIndex.ts'
 import { blockReason, placementColliders } from '../src/sim/placement.ts'
+import { forgetDocumentCaches, documentCacheOwners } from '../src/sim/documentCaches.ts'
+import { surfaceBuckets, visibleSurfaceSources } from '../src/render/surfaceBatches.ts'
+import { equipmentBatchTileSize } from '../src/render/equipmentBatches.ts'
 import { virtualSolidAt } from '../src/sim/ground.ts'
 import { isCosmeticStationEdit } from '../src/sim/cosmeticEdit.ts'
 import { retainedModuleIds, signBoardsOnlyChange } from '../src/render/moduleDependencies.ts'
@@ -51,6 +54,92 @@ test('placement indexes distinguish document identity, virgin street, explicit h
     assert.equal(index.opening(x, y, z), true, 'head-house floor holes cannot be filled by indexed bulk placement')
     assert.equal(index.ground(x, y, z), virtualSolidAt(cells, modules, x, y, z))
   }
+})
+
+test('paving instance buckets group by tile size and skip hidden or sliced tiles', () => {
+  const tile = (id, x, y, z = 0, visible = true) => {
+    const root = new THREE.Object3D()
+    root.position.set(x + 0.5, y + 0.5, z + 1)
+    root.userData.surfaceTile = true
+    root.userData.module = { id, type: 'lawn', x, y, z, rot: 0, cfg: {} }
+    root.visible = visible
+    return root
+  }
+  const roots = [tile('a', 0, 0), tile('b', 2, 0), tile('c', 18, 0), tile('d', 0, 0, 0, false)]
+  const data = { cells: [], modules: roots.map(root => root.userData.module) }
+  const sources = visibleSurfaceSources(roots, data)
+  assert.deepEqual(sources.map(source => source.id), ['a', 'b', 'c'], 'invisible tiles are not drawn or pickable')
+  assert.equal(equipmentBatchTileSize('high'), 16)
+  assert.equal(equipmentBatchTileSize('low'), 64)
+  const buckets = surfaceBuckets(sources, 16)
+  assert.deepEqual([...buckets.keys()].sort(), ['lawn|0,0', 'lawn|1,0'], '16 m buckets hold the tiles that draw together')
+  assert.deepEqual(buckets.get('lawn|0,0')?.map(source => source.id), ['a', 'b'])
+})
+
+test('paving draws from instances and keeps no per-tile mesh or contact blob', () => {
+  const previousDocument = globalThis.document
+  globalThis.document = { createElement: () => canvasNode() }
+  let mats
+  try {
+    mats = createModelMaterials()
+    const lawn = { id: 'lawn-probe', type: 'lawn', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    const station = { name: 'paving', seed: 1, lines: [], modules: [lawn], cells: [] }
+    const blob = { apply() {} }
+    const ctx = {
+      scene: new THREE.Scene(), mats: { blob, finish: () => mats.white }, modelMats: mats, ads: {},
+      groundOf: new Map(), levelBase: 0, storeyHeight: 5, ownedMats: [],
+      activeZ: 0, ghost: false, hideGround: false, hideUI: false, cutaway: false,
+      autoCeiling: false, hideWalls: false, hideRoof: false, graphicsQuality: 'high', detailEnabled: true,
+      stationData: station,
+    }
+    const modules = new ModuleSystem(ctx)
+    modules.ghost = { clearFencePreview() {} }
+    modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
+    modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
+    modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
+
+    modules.buildModules(station, new Set())
+    const root = modules.moduleMeshes.children.find(child => child.userData.moduleId === 'lawn-probe')
+    assert.ok(root, 'the tile keeps a bare root for the level slice and selection')
+    assert.equal(root.children.length, 0, 'the tile carries no mesh of its own')
+    assert.equal(root.userData.surfaceTile, true)
+    assert.ok(!modules.moduleMeshes.children.some(child => child.userData.contactBlobKey !== undefined), 'paving allocates no contact blob')
+
+    modules.syncBatches()
+    const meshes = modules.surfaceMeshes()
+    assert.equal(meshes.length, 1, 'one 16 m bucket for one tile')
+    assert.equal(meshes[0].isInstancedMesh, true)
+    assert.deepEqual(meshes[0].userData.surfaceModuleIds, ['lawn-probe'], 'the instance table resolves picking')
+    assert.equal(meshes[0].userData.surfaceModuleType, 'lawn')
+    modules.surfaces.dispose()
+  } finally {
+    mats && disposeModelMaterials(mats)
+    globalThis.document = previousDocument
+  }
+})
+
+test('a retired document releases its station-sized derived indexes', () => {
+  const cells = [{ x: 0, y: 0, z: 0, fill: 'solid' }]
+  const first = createModule('light-circular', 0, 0, 3, 'first')
+  const modules = [first]
+  const retired = blockIndex(cells, modules)
+  assert.equal(blockIndex(cells, modules), retired, 'a live document owns one prepared occupancy')
+  assert.ok(documentCacheOwners() >= 10, 'the station-sized caches keep their release registration')
+
+  // The next edit retires `modules` and keeps `cells`; the retired frame must no
+  // longer pin the index its hover built, while the live pair stays cached.
+  const nextModules = [...modules, createModule('light-circular', 1, 0, 3, 'second')]
+  forgetDocumentCaches(cells, modules, cells, nextModules)
+  const rebuilt = blockIndex(cells, modules)
+  assert.notEqual(rebuilt, retired, 'the retired frame rebuilds instead of pinning its derived index')
+  assert.equal(rebuilt.ground(0, 0, 0), true, 'and the rebuilt index still answers the same')
+  const live = blockIndex(cells, nextModules)
+  forgetDocumentCaches(cells, modules, cells, nextModules)
+  assert.equal(blockIndex(cells, nextModules), live, 'releasing a frame leaves the live document cached')
+
+  // Settings-only edits share both arrays, so nothing may be released.
+  forgetDocumentCaches(cells, nextModules, cells, nextModules)
+  assert.equal(blockIndex(cells, nextModules), live, 'the current document is never evicted by its own commit')
 })
 
 test('bulk painting deduplicates targets, preserves holes and leaves the source document unchanged', () => {

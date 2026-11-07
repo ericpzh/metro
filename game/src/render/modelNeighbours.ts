@@ -1,4 +1,5 @@
 import { packKey, type Cell, type Module } from '../sim/types.ts'
+import { registerDocumentCache } from '../sim/documentCaches.ts'
 
 const cellIndexes = new WeakMap<readonly Cell[], Map<number, Cell>>()
 
@@ -62,3 +63,11 @@ export function modelNeighbours(
   queries.set(key, result)
   return result
 }
+
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (cells !== liveCells) cellIndexes.delete(cells)
+  if (modules !== liveModules) {
+    indexes.delete(modules)
+    overlays.delete(modules)
+  }
+})

@@ -749,6 +749,74 @@ Use immutable inputs and complete dependency keys. Retain remote roots, animatio
 registrations and Low resources. Unknown inputs take the conservative rebuild path.
 Commit accepted edits only; never scan all equipment per candidate tile.
 
+### Undo history and derived placement indexes
+
+2026-11-06, the reported interaction: open the supplied 天河公园 save and place
+ceiling-hung lights with the real pointer. Production build, headless Chrome 156 /
+SwiftShader, 1440 × 1000, paused, no concurrent runs. The 13.8 MB save holds
+130 150 cells, 75 454 modules and 2 674 suspended-ceiling cells; it opens at a
+1.15 GB main-isolate heap, 18 095 draws and 1.8 GB of texture pixel data. Eight
+placements, four forced GCs after each, raised the heap **29.7 MB per placement**
+(1 152.9 → 1 362.2 MB; `past` 2 → 9). Clearing `past`/`future` after each commit
+held the same run to 8.9 MB per placement.
+
+The frames were not copying documents: each retained frame's immutable `modules`
+array kept the station-sized derived indexes the hover built against it. A Node
+harness calling `equipmentReason` on each kept version retained 44.2 MB per frame
+(collision bodies and their spatial index 14.6 MB, ceiling support 11.8 MB
+including `blockIndex` 4.7 MB, plus blocked levels, ground, fences and outdoor
+surfaces). Multiplied by the forty-frame depth that is ~1.2 GB of derived-index
+retention above the load baseline, which is what pushes an already-large tab over
+its heap limit; ceiling props are not otherwise special, they simply run the heavy
+placement validation and commit once per click.
+
+`sim/documentCaches.ts` now releases a retired document's derived indexes from
+`StationSlice` (`commit`, `undo`, `redo`, `newStation`, `loadFromText`,
+`loadReference`) and the autosave restore. Frames keep their immutable records and
+rebuild on demand if an undo makes them current. The same eight placements then
+measured **5.5–6.0 MB per placement** with history retained (1 123.7 → 1 165.7 MB
+before the fixture was re-saved; 1 130.5 → 1 169.2 MB after); the residual is each
+frame's own 75 k-element module array. Raw reports: `.preview/perf/ceiling-oom/`
+(ignored). Limits: software GPU and headless Chrome; this is a JS-heap slope, not a
+hardware-GPU OOM reproduction, and it does not measure first-render latency.
+`ChunkSystem.authoredKeys` remains keyed by the cells array and is not registered;
+it matters only for cell edits, not equipment edits.
+
+### Outdoor paving instances
+
+2026-11-07: paving was one `Group` + `Mesh` + `EquipmentBatches` source and one
+contact blob per 1 m tile. On the supplied 天河公园 save (130,158 cells; 55,545
+lawn + 14,312 sidewalk modules) that was **~8 KB of page heap and two scene
+objects per square metre**, while the drawing itself was already instanced. A
+fresh production load (headless Chrome 156 / SwiftShader, 1440 × 1000, paused)
+measured 1,087.8 MB page heap, 200,438 scene objects, 18,321 draws and 3.80 M
+triangles.
+
+`render/surfaceBatches.ts` now builds the paving directly from the document:
+each visible tile keeps a bare `Object3D` root for the level slice and selection,
+and one `StaticInstances` per finish × 64 m bucket draws it. Pointer picks
+raycast the instanced meshes and resolve `hit.instanceId` through the bucket's
+`surfaceModuleIds`; selection/hover fall back to the tile footprint; paving
+allocates no contact blob and caches its open/unsupported verdict on the bare
+root. After the change the same load measures **691.1 MB page heap
+(−396.7 MB, 36.5%)**, 129,879 scene objects (−70,559), 52 surface buckets,
+69,857 instances, 17,729 draws and 4.11 M triangles (the coarser buckets keep
+more pavers on their near detail at this camera; 3.80 M before). A real-pointer
+pick returned the correct `lawn-19557`; deleting it removed exactly one instance
+(69,856) and undo restored it; a storey switch still changes what is drawn. A
+one-tile delete committed in 80.7 ms and retained 51 of the 52 bucket
+allocations, replacing only the touched bucket. A storey switch's paving sync
+(after the cached hidden flag) measured 9.6–11.1 ms. Reports:
+`.preview/perf/memory/surface-check-*.json` (ignored).
+
+Limits: software GPU and headless; chunk geometry and canvas textures are
+unchanged by this layer, and hardware-GPU memory is not measured. The remaining
+~170 MB attributable to paving is the bare per-tile root plus its buckets —
+removing those roots (with a document-driven level/selection path) is the next
+lever. Keep the generic `EquipmentBatches` capable of static tiles as a unit, but
+`ModuleSystem` must not route paving through it, or the per-tile source records
+come back.
+
 ### Settings and presentation edits
 
 City switches preserve existing colours and walking topology. Repaint cab textures
@@ -830,8 +898,8 @@ repaints can stall independently of train construction; use plate/atlas ablation
 Prepare geometry once per opening, reuse tray transforms and pose buffers. Drags
 translate the selected group without extra picks, document commits or vertex
 rewrites. Preserve solid infill, clipped ramp sections, source hiding, reset and
-live/paused behavior. Opening and dragging are different workloads. No fresh
-exploded-view measurement validates the latest models.
+live/paused behavior. Opening and dragging are different workloads. The snapshot
+measurement below does not validate full viewer generation or the latest models.
 
 Tianhe Park user save, 2026-11-07: 130,158 cells and 75,950 modules
 (SHA-256 `fba82a60372be7bef50dac120239d37ecbd39d5c68dc40beefe2e1e4a3fe8e95`),

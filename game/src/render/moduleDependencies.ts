@@ -10,6 +10,7 @@ import { fenceConnectionIndex } from '../sim/fences.ts'
 import { localCellEdit } from './localCellEdit.ts'
 import { changedCellRecords } from './cellChanges.ts'
 import { exitLandingHeight } from '../sim/exitLanding.ts'
+import { registerDocumentCache } from '../sim/documentCaches.ts'
 
 // These pieces change equipment geometry and possibly pedestrian routing, but
 // never carve floors or derive chunk walls. Keep this separate from sim-inert.
@@ -347,3 +348,8 @@ export function signBoardsOnlyChange(before: StationData, after: StationData): s
   }
   return changed
 }
+
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (modules !== liveModules) moduleChanges.delete(modules)
+  if (cells !== liveCells) changedColumns.delete(cells)
+})

@@ -1,5 +1,6 @@
 import { groundWindow } from '../sim/ground.ts'
 import { packKey, type Cell, type Module, type StationData } from '../sim/types.ts'
+import { registerDocumentCache } from '../sim/documentCaches.ts'
 
 export interface LocalCellEdit { removed: Cell[]; added: Cell[] }
 const cache = new WeakMap<readonly Module[], WeakMap<readonly Cell[], WeakMap<readonly Cell[], LocalCellEdit | null>>>()
@@ -45,3 +46,7 @@ export function localCellEdit(before: StationData, after: StationData): LocalCel
   }
   const result=compute();entries.set(after.cells,result);return result
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) cache.delete(modules)
+})

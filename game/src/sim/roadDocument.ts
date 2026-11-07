@@ -3,6 +3,7 @@
 import type { Module } from './types.ts'
 import { roadLayout, type Road } from './roads.ts'
 import { ROAD_NODE_SNAP_RADIUS } from './constants.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 export type RoadPosition = [number,number]
 export interface RoadNode { id:string; x:number; y:number; z:number; segments:string[] }
@@ -107,3 +108,7 @@ export function roadSegmentAt(graph:RoadDocument,p:RoadPosition,z:number,sourceI
   }
   return result
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) cache.delete(modules)
+})

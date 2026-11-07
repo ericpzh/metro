@@ -10,6 +10,7 @@ import { ESCALATOR_CASING_PROUD, STAIR_RAIL_PROUD } from './constants.ts'
 import { escalatorBodyWidth, escalatorRun } from './escalators.ts'
 import { liftSizeOf } from './lifts.ts'
 import { STAIR_RISE, STAIR_RUN, stairTreadWidth, stairRotFor, stairFlightSlides } from './stairs.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 /**
  * Width of the reference 双向 head-house, metres: four blocks — two runs standing
@@ -419,3 +420,7 @@ export function exitFloorAt(modules: readonly Module[], x: number, y: number, z:
   for (const m of exits) if (exitCoversCell(m as Extract<Module,{type:'exit'}>,x,y,z)) return true
   return false
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) exitFloorReaders.delete(modules)
+})

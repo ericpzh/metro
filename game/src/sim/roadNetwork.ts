@@ -4,6 +4,7 @@ import { roadHash, roadLayout, roadPoint, type Road } from './roads.ts'
 import { ROAD_SIGNAL_GREEN, ROAD_SIGNAL_AMBER, ROAD_SIGNAL_CLEAR, ROAD_NETWORK_CACHE_LIMIT } from './constants.ts'
 import { roadDriverLaneOrder, roadLaneMovements, roadTurn, type RoadTurn } from './roadLaneMovements.ts'
 import { getRoadDocument } from './roadDocument.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 export type Point = [number, number]
 export interface RoadJunction { x0: number; y0: number; x1: number; y1: number; z: number; id: string; uncontrolled?:boolean }
@@ -191,3 +192,7 @@ export function roadEdgePoint(e:RoadEdge,t:number):Point {
   const u=1-t,c=e.control
   return c?[u*u*e.start[0]+2*u*t*c[0]+t*t*e.end[0],u*u*e.start[1]+2*u*t*c[1]+t*t*e.end[1]]:[e.start[0]+(e.end[0]-e.start[0])*t,e.start[1]+(e.end[1]-e.start[1])*t]
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) cache.delete(modules)
+})

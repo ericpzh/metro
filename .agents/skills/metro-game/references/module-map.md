@@ -43,6 +43,9 @@ head-house, navy plate and square cube/column with live bilingual labels.
 
 Performance additions: `blockIndex.ts` caches occupancy, track keys, per-level ramp/
 exit openings and virtual-ground membership by immutable cell/module arrays;
+`documentCaches.ts` is the release registry those station-sized indexes register
+with, so a document retired into undo history stops pinning them (the frame keeps
+only its immutable records and rebuilds on demand);
 `cosmeticEdit.ts` classifies appearance-only edits without skipping any routing
 input (geometry, speed/cover/track, zones/tags, metadata and future fields fail closed);
 `decorInert.ts` names the sim-inert decor modules (floor stickers, wall panels, hanging
@@ -109,6 +112,7 @@ station-wide repaints while machines, barriers, stops and future types fail clos
 | `batchGeometry.ts` | Winding-correct transform baking, complete geometry identity and original-surface picking layer 31. |
 | `trainBatches.ts` | Repeated opaque door instances, sorted glass/strap batches and bank-motion synchronization; render/shadow/culling policies and mutable geometry exclusions. |
 | `staticInstances.ts`, `renderDemand.ts` | Retained outdoor chunk instances, source-centre transparency sorting, screen-size detail and paused framebuffer invalidation; source meshes remain the picking model. |
+| `surfaceBatches.ts` | The 草坪 / 人行道 paving layer: visible tiles from the document, one `StaticInstances` per finish × 64 m bucket, an `instanceId → module id` table for picking, per-bucket LOD and disposal. Tiles keep a bare root (level slice, selection, cached open/unsupported verdict) but no mesh, batch source or contact blob; surface edits bump `ModuleSystem.surfaceRevision`, and supporting-cell edits rebuild the affected roots through `retainedModuleIds`. |
 | `equipmentBatches.ts` | Cross-module material/16 m batches, exact geometry instancing versus merging/sorting, immutable revision/local allocation reuse, live rig exclusions and owned teardown. `setHiddenModules` masks only the local buckets containing replaceable roots; unreplaced members of a masked bucket keep drawing from their source meshes, and restoring returns every source to the batch layer without rebuilding allocations. |
 | `panelAtlas.ts` | Full-resolution canvas panel pages, UV remapping/gutters, live texture versions, recycled slots and rendering/clipping-plane identity boundaries. |
 | `moduleDependencies.ts` | Model retention by declared inputs, independent of simulation routing: station/cell guards, equipment-only chunk classification, local fence/gate/tactile/glass/door/cubicle/TV/hanger and structural family invalidation; unknown types fail closed. Also the one-sign printed-board-only keep-set verdict. |

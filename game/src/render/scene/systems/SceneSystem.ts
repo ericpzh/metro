@@ -352,6 +352,9 @@ export function blobRadius(type: Module['type']): number {
     case 'escalator':
     case 'walkway':
     case 'stair':
+    case 'sidewalk': // Raised paving is a floor finish, never equipment.
+    case 'lawn':
+    case 'road':
       return 0
     case 'tree': return 0.4
     case 'exit':

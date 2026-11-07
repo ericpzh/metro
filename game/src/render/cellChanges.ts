@@ -1,4 +1,5 @@
 import type { Cell } from '../sim/types.ts'
+import { registerDocumentCache } from '../sim/documentCaches.ts'
 const comparisons = new WeakMap<readonly Cell[], WeakMap<readonly Cell[], readonly Cell[]>>()
 
 /** Keep duplicate imported records in order: readers may use the first record,
@@ -39,3 +40,7 @@ export function changedCellRecords(before: readonly Cell[], after: readonly Cell
   nextDocuments.set(after,changed)
   return changed
 }
+
+registerDocumentCache((cells, _modules, liveCells) => {
+  if (cells !== liveCells) comparisons.delete(cells)
+})

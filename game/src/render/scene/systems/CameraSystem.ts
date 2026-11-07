@@ -548,7 +548,10 @@ export class CameraSystem extends SceneSystem {
     ), this.activeCamera())
     const blocks = new Set(this.pickables.filter(visibleThroughParents))
     const groups = this.modules?.moduleMeshes.children.filter(visibleThroughParents) ?? []
-    const roots = new Set<THREE.Object3D>([...blocks, ...groups])
+    // Outdoor paving is instanced: its meshes are the pick targets, and a hit's
+    // `instanceId` names the tile through the bucket's id table.
+    const surfaceMeshes = this.modules?.surfaceMeshes?.().filter(visibleThroughParents) ?? []
+    const roots = new Set<THREE.Object3D>([...blocks, ...groups, ...surfaceMeshes])
     // A lift surface can be both a block target and a descendant of a module.
     // Traverse overlapping roots once, then classify their shared intersections.
     const independent = [...roots].filter(root => {
@@ -579,8 +582,17 @@ export class CameraSystem extends SceneSystem {
           if (blocks.has(node)) block = true
           if (typeof node.userData.moduleId === 'string') module = node
         }
+        let moduleId = typeof module?.userData.moduleId === 'string' ? module.userData.moduleId as string : null
+        let moduleType = module?.userData.moduleType as string | undefined
+        if (moduleId === null && hit.object.userData.surfaceInstance === true && hit.instanceId !== undefined) {
+          const ids = hit.object.userData.surfaceModuleIds as string[] | undefined
+          if (ids && ids[hit.instanceId] !== undefined) {
+            moduleId = ids[hit.instanceId]
+            moduleType = hit.object.userData.surfaceModuleType as string | undefined
+          }
+        }
         if (block) blockHits.push(hit)
-        if (module) moduleHits.push({ hit, moduleId: module.userData.moduleId, moduleType: module.userData.moduleType })
+        if (moduleId !== null) moduleHits.push({ hit, moduleId, moduleType: moduleType ?? '' })
       }
       return intersections = { blockHits, moduleHits }
     }

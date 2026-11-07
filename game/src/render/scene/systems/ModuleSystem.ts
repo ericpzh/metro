@@ -31,10 +31,12 @@ import {
   disposeObject,
 } from '../../models.ts'
 import type { ClockRig, EscalatorRoll, ModuleContext } from '../../models.ts'
-import { isCeilingHung, isWallMounted, outdoorSurfaceLift, trackBedKeys } from '../../../sim/placement.ts'
+import { isCeilingHung, isOutdoorSurface, isWallMounted, outdoorSurfaceHidden, outdoorSurfaceLift, trackBedKeys } from '../../../sim/placement.ts'
 import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
+import { OUTDOOR_SURFACE_HEIGHT } from '../../../sim/constants.ts'
+import { SurfaceBatches, SURFACE_BUCKET_SIZE } from '../../surfaceBatches.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
 import type { TrainSystem } from './TrainSystem.ts'
@@ -140,6 +142,10 @@ export class ModuleSystem extends SceneSystem {
     this.classifiedEquipment = this.classifiedContent && JSON.stringify(groundWindow(this.builtData.cells, this.builtData.modules)) === JSON.stringify(groundWindow(data.cells, data.modules))
   }
   moduleMeshes: THREE.Group = new THREE.Group()
+  /** The instanced 草坪 / 人行道 layer: no per-tile mesh, source or contact blob. */
+  readonly surfaces = new SurfaceBatches()
+  /** Bumped when a paving tile root is built or dropped. */
+  private surfaceRevision = 0
   readonly retainedLevelRoots = new Set<THREE.Object3D>()
   readonly batches = new EquipmentBatches()
   private readonly sourceDetail = new SourceGeometryDetail()
@@ -212,7 +218,7 @@ export class ModuleSystem extends SceneSystem {
   }
 
   syncBatches(): void {
-    const batchView=`${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}`
+    const batchView=`${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality}|${this.ctx.detailEnabled}|${this.surfaceRevision}`
     if(this.retainedBatches&&this.batchView===batchView){
       this.restoreMovingModule()
       this.applyMovingModule()
@@ -235,6 +241,18 @@ export class ModuleSystem extends SceneSystem {
     // global appearance toggles and clipping invalidate every dormant slice.
     const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
     this.batches.sync(this.moduleMeshes, `${view}|${visibility}|${roots}`, generation, view)
+    // Paving is drawn from its own instanced buckets: the bare tile roots above
+    // carry only their storey/selection state.
+    const data = this.ctx.stationData
+    if (data) {
+      this.surfaces.sync(
+        this.moduleMeshes.children,
+        data,
+        this.ctx.modelMats.outdoorSurface,
+        SURFACE_BUCKET_SIZE,
+        `${view}|${this.surfaceRevision}`,
+      )
+    }
     for (const root of this.moduleMeshes.children) {
       if(this.batches.isFullyBatched(root))continue
       this.applySourceDetail(root)
@@ -272,6 +290,30 @@ export class ModuleSystem extends SceneSystem {
     super(ctx)
     this.ctx.scene.add(this.moduleMeshes)
     this.ctx.scene.add(this.batches.root)
+    this.ctx.scene.add(this.surfaces.root)
+  }
+
+  /** Instance meshes of the paving layer: the pointer, clip and teardown walk them. */
+  surfaceMeshes(): THREE.Mesh[] {
+    return this.surfaces.meshes()
+  }
+
+  /** Bare tile root: position and turn only, no geometry of its own. */
+  private buildSurfaceRoot(mod: Module): THREE.Object3D {
+    const root = new THREE.Object3D()
+    root.position.set(mod.x + 0.5, mod.y + 0.5, mod.z + 1)
+    if (mod.rot) root.rotation.z = (mod.rot * Math.PI) / 2
+    root.userData.surfaceTile = true
+    return root
+  }
+
+  /** The box a bare paving tile occupies, for selection and hover highlights. */
+  private bareSurfaceBox(root: THREE.Object3D): THREE.Box3 {
+    const p = root.position
+    return new THREE.Box3(
+      new THREE.Vector3(p.x - 0.5, p.y - 0.5, p.z),
+      new THREE.Vector3(p.x + 0.5, p.y + 0.5, p.z + OUTDOOR_SURFACE_HEIGHT),
+    )
   }
 
   /** Whether level slicing currently draws this placed module. */
@@ -304,6 +346,11 @@ export class ModuleSystem extends SceneSystem {
     // Prepare once while opening/editing the immutable document, never on the
     // first pointer-down of a fence drag (§9.5).
     fenceConnectionIndex(data.modules)
+    // A new or rebuilt tile root is the only thing that invalidates the paving
+    // layer by itself. A cell edit that changes a tile's support/opening input
+    // rebuilds that root through `retainedModuleIds`; a remote cell edit leaves
+    // the retained roots and their instances untouched.
+    let surfaceChanged = false
     const retained = keepIds ?? (reuse ? this.retainedIds(data) : new Set<string>())
     const translated=reuse&&!keepIds&&this.builtData&&this.builtLanguage===getLanguage()?translatedWalkwayIds(this.builtData,data):new Set<string>()
     const relocated=reuse&&!keepIds&&this.builtData&&this.builtLanguage===getLanguage()?movedGuidepostIds(this.builtData,data):new Set<string>()
@@ -440,13 +487,16 @@ export class ModuleSystem extends SceneSystem {
       if (appendOnly && kept.has(mod.id)) continue
       const existing=kept.get(mod.id)
       if(existing&&this.retainedLevelRoots.has(existing)){
+        if (existing.userData.surfaceTile === true) existing.userData.module = mod
         addBlob(mod, existing)
         continue
       }
       const ownedStart = this.ctx.ownedMats.length
-      const group = kept.get(mod.id) ?? this.buildModel(mod, ctx)
+      const surface = isOutdoorSurface(mod)
+      const group = kept.get(mod.id) ?? (surface ? this.buildSurfaceRoot(mod) : this.buildModel(mod, ctx))
       if (!group) continue
       if (!kept.has(mod.id)) {
+        if (surface) surfaceChanged = true
         // Capture the actual foot before static batching merges it into the upper geometry.
         const footName = mod.type === 'hanger' ? 'hanger-base' : mod.type === 'cctv' ? 'cctv-post-base'
           : mod.type === 'traffic-light' ? 'traffic-light-base' : mod.type === 'rail-signal' ? 'signal-concrete-base' : undefined
@@ -462,6 +512,12 @@ export class ModuleSystem extends SceneSystem {
       }
       group.userData.moduleId = mod.id
       group.userData.moduleType = mod.type
+      if (surface) {
+        group.userData.module = mod
+        // Cached until this tile's own root is rebuilt: its supporting cell or an
+        // opening over it is exactly what `retainedModuleIds` compares.
+        group.userData.surfaceHidden = outdoorSurfaceHidden(data.cells, data.modules, mod)
+      }
       group.userData.roof = mod.type === 'roof'
       // Ceiling-attached decor is never hidden by 隐藏天花板 (see LevelSystem): only the
       // ceiling tiles themselves (pass 'c' meshes) are. Keep the field for compatibility.
@@ -551,6 +607,7 @@ export class ModuleSystem extends SceneSystem {
       this.crowd.swingDoors.push(...activity.doors)
       addBlob(mod, group)
     }
+    if (surfaceChanged) this.surfaceRevision++
     this.plates.updateRailSignals?.()
     // Contact blobs under floor-standing modules (§11), one retained batch per
     // level. Equipment edits update changed matrices, rather than recreating all
@@ -671,6 +728,7 @@ export class ModuleSystem extends SceneSystem {
     this.ctx.ownedMats = this.ctx.ownedMats.filter(m => keptMaterials.has(m))
     for (const child of [...this.moduleMeshes.children]) {
       if (kept.has(child)) continue
+      if (child.userData.surfaceTile === true) this.surfaceRevision++
       disposeObject(child)
       this.moduleMeshes.remove(child)
     }
@@ -684,6 +742,7 @@ export class ModuleSystem extends SceneSystem {
     this.ghost.clearFencePreview()
     const gone=new Set(this.moduleMeshes.children.filter(root=>typeof root.userData.moduleId==='string'&&!kept.has(root.userData.moduleId)))
     if(!gone.size)return
+    if([...gone].some(root=>root.userData.surfaceTile===true))this.surfaceRevision++
     const types=new Set([...gone].map(root=>root.userData.moduleType))
     if(types.has('tv'))this.plates.retainTvPlates(data)
     if(types.has('sign'))this.plates.retainSignPlates(data)
@@ -747,6 +806,13 @@ export class ModuleSystem extends SceneSystem {
     this.refreshHoverHighlight()
   }
 
+  /** A bare paving tile has no mesh to box; its document footprint stands in. */
+  private moduleBox(group: THREE.Object3D): THREE.Box3 {
+    const box = new THREE.Box3().setFromObject(group)
+    if (!box.isEmpty()) return box
+    return group.userData.surfaceTile === true ? this.bareSurfaceBox(group) : box
+  }
+
   refreshHoverHighlight(): void {
     if (this.hoverHelper) {
       this.ctx.scene.remove(this.hoverHelper)
@@ -758,7 +824,7 @@ export class ModuleSystem extends SceneSystem {
     if (!id || id === this.selectedModuleId) return
     const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
     if (!group) return
-    const box = new THREE.Box3().setFromObject(group)
+    const box = this.moduleBox(group)
     if (box.isEmpty()) return
     box.expandByScalar(0.06)
     const helper = new THREE.Box3Helper(box, 0x55b6ff)
@@ -791,7 +857,7 @@ export class ModuleSystem extends SceneSystem {
       if (id === this.selectedModuleId) continue
       const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
       if (!group) continue
-      const box = new THREE.Box3().setFromObject(group)
+      const box = this.moduleBox(group)
       if (box.isEmpty()) continue
       box.expandByScalar(0.06)
       const helper = new THREE.Box3Helper(box, 0xff5d5d)
@@ -810,7 +876,7 @@ export class ModuleSystem extends SceneSystem {
     if (!id || id === this.movingModuleId) return
     const group = this.moduleMeshes.children.find((c) => c.userData.moduleId === id)
     if (!group) return
-    const box = new THREE.Box3().setFromObject(group)
+    const box = this.moduleBox(group)
     if (box.isEmpty()) return
     box.expandByScalar(0.06)
     const helper=this.ensureSelectionHelper()

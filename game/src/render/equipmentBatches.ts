@@ -20,6 +20,8 @@ const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 
 // Low quality is also the game's performance mode. Larger buckets reduce draw
 // submission cost there; High retains finer culling and preview locality.
 const BATCH_TILE_SIZE: Record<GraphicsQuality, number> = { high: 16, low: 64 }
+/** The batch/instance bucket width; the paving layer uses the same buckets. */
+export function equipmentBatchTileSize(quality: GraphicsQuality): number { return BATCH_TILE_SIZE[quality] }
 interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; signature: string; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets: Buckets | null; roots: Map<THREE.Object3D, RootSources> }
@@ -248,6 +250,9 @@ export class EquipmentBatches {
     const textures = new Set<THREE.Texture>()
     const prepared = new Map<THREE.Object3D, RootSources>()
     for (const root of modules.children) {
+      // Paving tiles are drawn by `SurfaceBatches`; their bare roots carry no
+      // mesh, source, texture or batch record.
+      if (root.userData.surfaceTile === true) continue
       // The shared parent chain was updated once above. Rewalking it for each
       // of thousands of roots repeats the same station/scene matrix work.
       root.updateWorldMatrix(false, false)
@@ -291,7 +296,7 @@ export class EquipmentBatches {
     // contributions and merge their replacements; remote source lists and
     // geometry signatures remain exact without another station-wide walk.
     const retainedOrder = [...this.sourceRoots.keys()].filter(root=>prepared.get(root)===this.sourceRoots.get(root))
-    const nextOrder = modules.children.filter(root=>prepared.get(root)===this.sourceRoots.get(root))
+    const nextOrder = modules.children.filter(root=>root.userData.surfaceTile !== true&&prepared.get(root)===this.sourceRoots.get(root))
     const incremental = sourceView !== undefined && this.sourceBuckets !== null &&
       retainedOrder.every((root,i)=>root===nextOrder[i])
     const unchanged = new Set<THREE.Object3D>()
@@ -336,6 +341,7 @@ export class EquipmentBatches {
     }
     for (const root of modules.children) {
       if (unchanged.has(root)) continue
+      if (root.userData.surfaceTile === true) continue
       if (!STATIC_TYPES.has(root.userData.moduleType) || !root.visible || root.userData.explodedRamp) continue
       const record = prepared.get(root)!
       if (record.buckets) {

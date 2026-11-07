@@ -3,6 +3,7 @@ import { blockedCellsByLevel, trackBedKeys, type BlockCheck } from './placement.
 import { rampOpeningsInWindow } from './openings.ts'
 import { exitFootprintCells, isExitHeadHouse } from './exits.ts'
 import { trackCells } from './track.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 export interface BlockIndex {
   (z: number): Set<string>
@@ -49,3 +50,10 @@ export function blockIndex(cells: readonly Cell[], modules: readonly Module[]): 
   byModules.set(modules, index)
   return index
 }
+
+// A retired undo frame must not keep its 130 000-key occupancy set alive.
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (cells === liveCells && modules === liveModules) return
+  if (modules !== liveModules) cache.get(cells)?.delete(modules)
+  if (cells !== liveCells) cache.delete(cells)
+})

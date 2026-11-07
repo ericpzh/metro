@@ -13,6 +13,7 @@ import { startGlobalStats } from './globalStats.ts'
 import { BenchmarkRoute } from './benchmark/BenchmarkRoute.tsx'
 import { initUiTheme } from './uiTheme.ts'
 import { openingLevel } from './openingLevel.ts'
+import { forgetDocumentCaches } from '../sim/documentCaches.ts'
 
 const path = location.pathname.replace(/\/+$/, '')
 const isLab = path.endsWith('/lab')
@@ -57,7 +58,9 @@ export function renderGame(root: Root): void {
       if (!demo) {
         const restored = readAutosave(storage)
         if (restored) {
+          const previous = useStore.getState().station
           useStore.setState({ station: restored, activeZ: openingLevel(restored) })
+          forgetDocumentCaches(previous.cells, previous.modules, restored.cells, restored.modules)
         }
       }
       const autosave = watchAutosave(useStore, storage)

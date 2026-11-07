@@ -15,6 +15,7 @@ import { escalatorLandings } from './escalators.ts'
 import { walkwayLandings } from './walkways.ts'
 import { gateSolidFaces } from './gates.ts'
 import type { Module } from './types.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 type Fence = Extract<Module, { type: 'fence' }>
 export interface FenceConnectionIndex {
@@ -165,3 +166,7 @@ export function fenceArms(rot: number | undefined, nb: FenceNeighbours): FenceAr
     capS,
   }
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) connectionIndexes.delete(modules)
+})

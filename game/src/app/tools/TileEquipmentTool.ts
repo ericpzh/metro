@@ -21,6 +21,7 @@ import { rectCells, stairBlockLineCellCount, stairBlockLineCells } from './geome
 import { isMoved, LONG_PRESS_MS } from './geometry/pointer.ts'
 import { ToolController } from './ToolController.ts'
 import type { PointerInfo } from './ToolContext.ts'
+import { registerDocumentCache } from '../../sim/documentCaches.ts'
 
 const tileIndexes = new WeakMap<readonly Module[], Map<string, Module>>()
 function tileIndex(modules: readonly Module[]): Map<string, Module> {
@@ -360,3 +361,7 @@ export class TileEquipmentTool extends ToolController {
       : drag.mode === 'remove' && removed === 0 ? msg('no_roof_to_remove_here') : msg('cannot_place_a_roof_here_choose_another_location'))
   }
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) tileIndexes.delete(modules)
+})

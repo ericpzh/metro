@@ -1,4 +1,5 @@
 import type { Module } from './types.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 export const isOutdoorSurface = (m: { type: string }): boolean => m.type === 'sidewalk' || m.type === 'lawn'
 export const surfaceKey = (x: number, y: number, z: number): string => `${x},${y},${z}`
@@ -18,3 +19,7 @@ export function outdoorSurfaceIndex(modules: readonly Module[]) {
   }
   return index
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) cache.delete(modules)
+})

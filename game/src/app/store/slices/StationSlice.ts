@@ -20,6 +20,7 @@ import {
   type StationState,
 } from '../../../build/model.ts'
 import { parse as parseSave, serialize as serializeSave } from '../../../persistence/save.ts'
+import { forgetDocumentCaches } from '../../../sim/documentCaches.ts'
 import { normalizePeaks, normalizeService } from '../../../sim/clock.ts'
 import { normalizeDayDemand, type DayDemand, type DemandKnobs } from '../../../sim/demand.ts'
 import type { PeakWindows } from '../../../sim/constants.ts'
@@ -125,9 +126,13 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       set({ notice: r.error })
       return
     }
+    const previous = get().station
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s))
+    // The retired document's derived indexes are rebuilt if undo brings it back;
+    // keeping them would hold one station-sized index set per history frame.
+    forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
     // so, because those blocks are gone and no tool could ever have removed them.
@@ -202,6 +207,9 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     // cloning every module/cell adds work and discards reusable derived indexes.
     set({ station: next, version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), past: pushPast(get().past, cur), future: [] })
     rebuildSim(toData(next), toData(cur))
+    // The frame just retired keeps its immutable records, not the station-sized
+    // placement/collision/ground indexes the hover built against it.
+    forgetDocumentCaches(cur.cells, cur.modules, next.cells, next.modules)
   },
   undo: () => {
     const { past, station, future } = get()
@@ -210,6 +218,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const settingsOnly = populationEdit(station, prev)
     set({ station: prev, past: past.slice(0, -1), future: [...future, station], version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + prev.levelBase, prev.levelBase, prev.storeyHeight) })
     rebuildSim(toData(prev), toData(station))
+    forgetDocumentCaches(station.cells, station.modules, prev.cells, prev.modules)
   },
   redo: () => {
     const { future, station, past } = get()
@@ -218,19 +227,24 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const settingsOnly = populationEdit(station, next)
     set({ station: next, future: future.slice(0, -1), past: pushPast(past, station), version: get().version + 1, geometryVersion: get().geometryVersion + (settingsOnly ? 0 : 1), activeZ: nearestLevel(get().activeZ - station.levelBase + next.levelBase, next.levelBase, next.storeyHeight) })
     rebuildSim(toData(next), toData(station))
+    forgetDocumentCaches(station.cells, station.modules, next.cells, next.modules)
   },
   newStation: () => {
+    const previous = get().station
     const s = toState(emptyStation())
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
+    forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
   },
   loadReference: (id = 'zoo') => {
     // The demo file is guarded clean by `demo.test.mjs`, but the same repair runs
     // here: an off-grid block would be dropped rather than loaded, not refused.
     const repaired = toStateRepairing(referenceStation(id))
+    const previous = get().station
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(get().station)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
+    forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
     if (repaired.droppedCells + repaired.droppedModules > 0) {
       set({ notice: msg('example_station_repair_removed_value_blocks_outside_the_grid', repaired.droppedCells + repaired.droppedModules) })
     }

@@ -11,6 +11,7 @@ import { getRoadNetwork, roadEdgeMovements, roadJunctionSides } from '../sim/roa
 import { ROAD_CROSSWALK_DEPTH } from '../sim/constants.ts'
 import { stairFlights, stairFlightSlides, stairTreadWidth, stairWallSides, stairLandingWalls } from '../sim/stairs.ts'
 import { DEFAULT_MATERIAL } from '../sim/finishes.ts'
+import { registerDocumentCache } from '../sim/documentCaches.ts'
 
 const stairInputs = new WeakMap<StationData, Map<string, unknown>>()
 /** Cell inputs read by StairModel and the stair side of RampJoinModel. Modules
@@ -89,3 +90,7 @@ export function roadModelInputs(data: StationData, mod: Extract<Module, { type: 
         network.junctions[connector.junction], roadEdgeMovements(network, e)] : null
     })]
 }
+
+registerDocumentCache((_cells, modules, _liveCells, liveModules) => {
+  if (modules !== liveModules) bridgeReaders.delete(modules)
+})

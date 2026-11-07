@@ -25,6 +25,7 @@ import { exitFloorAt, exitFootprintCells, isExitHeadHouse } from './exits.ts'
 import { rampOpeningAt, rampOpeningsInWindow } from './openings.ts'
 import { trackCellAt, trackCells } from './track.ts'
 import type { Cell, Module } from './types.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 /** The street storey: the one plane the document stores inverted. */
 export const GROUND_Z = 0
@@ -246,3 +247,10 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
   if(!exclude)rememberGround(inputs,w,out)
   return out
 }
+
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (cells !== liveCells) {
+    groundBounds.delete(cells)
+    groundInputs.delete(cells)
+  } else if (modules !== liveModules) groundBounds.get(cells)?.delete(modules)
+})

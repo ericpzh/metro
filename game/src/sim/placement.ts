@@ -5,6 +5,7 @@ import { solidCellsInBounds } from './solidCellIndex.ts'
 import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
 import { blockIndex, type BlockIndex } from './blockIndex.ts'
 import { isOutdoorSurface, outdoorSurfaceIndex, surfaceKey } from './outdoorSurfaces.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 export { isOutdoorSurface } from './outdoorSurfaces.ts'
 // Equipment footprints and collision, GAME-SPEC §5.
 //
@@ -2690,3 +2691,20 @@ export function moveCandidate(
     : snapPsdEnd(moved, modules)
   return { module: moved, reason: moveDropReason(cells, modules, moved) }
 }
+
+// A retired undo frame keeps its immutable records, never its station-sized
+// collision, ceiling and verdict indexes. Arrays shared with the live document
+// stay cached because settings-only edits and cell edits reuse one of them.
+registerDocumentCache((cells, modules, liveCells, liveModules) => {
+  if (modules !== liveModules) {
+    blockedLevelCache.delete(modules)
+    blockBodyCache.delete(modules)
+    collisionCache.delete(modules)
+    collisionSpatialCache.delete(modules)
+    ceilingModules.delete(modules)
+  }
+  if (cells !== liveCells) {
+    ceilingCells.delete(cells)
+    moveVerdicts.delete(cells)
+  } else if (modules !== liveModules) moveVerdicts.get(cells)?.delete(modules)
+})

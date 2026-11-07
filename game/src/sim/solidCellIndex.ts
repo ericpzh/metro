@@ -1,4 +1,5 @@
 import type { Cell } from './types.ts'
+import { registerDocumentCache } from './documentCaches.ts'
 
 interface Bounds { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }
 const SIZE = 16
@@ -32,3 +33,7 @@ export function* solidCellsInBounds(cells: readonly Cell[], box: Bounds): Iterab
     if (bucket) yield* bucket
   }
 }
+
+registerDocumentCache((cells, _modules, liveCells) => {
+  if (cells !== liveCells) indexes.delete(cells)
+})
