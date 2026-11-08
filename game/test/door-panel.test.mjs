@@ -185,9 +185,11 @@ test('a door is found from its own cell, and the palette files it under 装饰',
     assert.equal(isDecorType(`door-${v}`), true, 'the rail files it under 装饰')
   }
   assert.equal(moduleLabel('door'), '门')
-  // A doorway standing on the floor is furniture, so it wants the same contact blob a
-  // 货架 or a 座椅 does — unlike the wall-mounted pieces, which want none.
-  assert.ok(blobRadius('door') > 0, 'a standing door casts a floor contact blob')
+  // A doorway is an opening: the player walks through the cell a filled footprint would
+  // darken, so it allocates no contact blob — `equipment-retention.test.mjs` owns that
+  // rule and asserts it on a built door. A 玻璃板 is bolted to a wall and takes none
+  // either.
+  assert.equal(blobRadius('door'), 0, 'a doorway allocates no floor contact blob')
   assert.equal(blobRadius('glass'), 0, 'a 玻璃板, bolted to a wall, does not')
 })
 

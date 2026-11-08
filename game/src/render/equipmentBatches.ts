@@ -54,6 +54,10 @@ export class EquipmentBatches {
   graphicsQuality: GraphicsQuality = 'high'
   readonly root = new THREE.Group()
   readonly atlas = new PanelAtlas()
+  /** Deterministic work counts of the last traversal (audit and tests read them;
+   * they are counts, never timings): the roots considered, and those whose bucket
+   * records had to be re-derived from their meshes. */
+  readonly lastSync = { roots: 0, rebuilt: 0 }
   private atlasMappingVersion = 0
   private entries = new Map<string, Entry>()
   private sources = new Set<THREE.Mesh>()
@@ -247,6 +251,8 @@ export class EquipmentBatches {
     }
     this.entries = new Map(this.entries)
     modules.updateWorldMatrix(true, sourceView === undefined)
+    this.lastSync.roots = modules.children.length
+    this.lastSync.rebuilt = 0
     const textures = new Set<THREE.Texture>()
     const prepared = new Map<THREE.Object3D, RootSources>()
     for (const root of modules.children) {
@@ -280,17 +286,17 @@ export class EquipmentBatches {
     }
     this.atlas.retain(textures)
     if (this.atlasMappingVersion !== this.atlas.mappingVersion) {
-      // Root/view caches also contain baked atlas regions. A released slot may
-      // now belong to a different sign even if its old mesh stayed unchanged.
-      this.invalidateViews()
-      for (const [root, record] of prepared) {
-        const fresh = { ...record, buckets: null }
-        prepared.set(root, fresh)
-        if (sourceView !== undefined) this.rootSources.set(root, new Map([[record.key, fresh]]))
-      }
+      // A freed rect is never re-used by a surviving panel: `retain` only pushes
+      // the released slot onto its page's free list, so every root still in the
+      // document keeps the exact region it baked, and a later panel that takes
+      // the freed rect carries its own map/material UUID in its entry signature.
+      // Re-deriving the station is therefore unnecessary — it used to re-walk and
+      // re-bake every equipment bucket, which made deleting one 指示牌 (or any
+      // 电视 / 出入口 / 线网图) cost 1.2–2.0 s on 天河公园's 76 k modules. Only the
+      // dormant storey views hold baked regions beyond the live entries, so they
+      // are the one cache a release still drops.
+      this.views.clear()
       this.atlasMappingVersion = this.atlas.mappingVersion
-      this.generation = generation
-      this.revision = revision
     }
     // Immutable edits replace only affected roots. Remove their old bucket
     // contributions and merge their replacements; remote source lists and
@@ -348,6 +354,7 @@ export class EquipmentBatches {
         merge(record.buckets)
         continue
       }
+      this.lastSync.rebuilt++
       const local: Buckets = new Map()
       const screen = root.userData.adScreen
       const moving = new Set<THREE.Object3D>()
@@ -383,7 +390,13 @@ export class EquipmentBatches {
       if (incremental && !changed.has(key)) continue
       if (incremental) sources.sort((a,b)=>rootOrder.get(a.root)!-rootOrder.get(b.root)!)
       const coarse = sources.map(s => modelDetailGeometry(s.mesh))
-      if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) continue
+      // A bucket that no longer pays for a merge draws from its sources again. The
+      // last panel of a deleted pair kept the batch-only layer and went missing
+      // until something re-discovered the station.
+      if (sources.length < 2 && !sources[0].mesh.userData.staticInstances && !coarse[0]) {
+        for (const source of sources) { source.mesh.layers.set(0); this.sources.delete(source.mesh) }
+        continue
+      }
       alive.add(key)
       const signature = `${material.transparent}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
       const old = this.entries.get(key)

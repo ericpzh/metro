@@ -28,8 +28,10 @@ test('paused rendering drains live panel uploads through demand frames', () => {
 
 test('population edits return before scene invalidation and tool geometry preparation', () => {
   const viewport = fs.readFileSync(new URL('app/Viewport.tsx', SRC), 'utf8')
-  assert.match(viewport,/\[zoneOverlayOn, geometryVersion, activeZ\]/)
-  assert.match(viewport,/\[moveKey, moveId, geometryVersion, tools\]/)
+  // `exploded` repaints both overlays too: leaving that view rebuilds the editor
+  // renderer, and a fresh scene owns no zone map and no move glow.
+  assert.match(viewport,/\[zoneOverlayOn, geometryVersion, activeZ, exploded\]/)
+  assert.match(viewport,/\[moveKey, moveId, geometryVersion, tools, exploded\]/)
   const effect = viewport.slice(viewport.indexOf('const renderedStationRef'), viewport.indexOf('// A lifted piece'))
   assert.match(effect, /previous\.signVersion === signVersion && previous\.language === language/)
   assert.match(effect, /if \(scene.updatePopulationData\(data\)\) \{\s*geometryRef.current.resolve\(data\)\s*return/)

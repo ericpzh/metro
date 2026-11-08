@@ -305,7 +305,9 @@ test('cab emblem repaints one existing texture, no geometry or texture replaceme
 test('both demo documents explicitly load Guangzhou', async () => {
   for (const name of ['demo-station','tanwei-station']) {
     const { default: data } = await import(`../src/data/${name}.json`, { with: { type: 'json' } })
-    assert.equal(data.city, 'guangzhou')
+    // `city` is the legacy key `serialize` still writes; the refreshed demo saves carry
+    // `cityStyle`. Either one has to name the city — nothing may fall back to the default.
+    assert.equal(data.city ?? data.cityStyle, 'guangzhou', `${name} names its city`)
     assert.equal(toState(data).cityStyle, 'guangzhou')
   }
 })

@@ -105,15 +105,18 @@ Use `node tools/update-editor-action-matrix.mjs <report.json>` to apply an exist
 complete production capture; never erase older unrelated results with a focused run.
 Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
 Chrome/GPU traces in separate runs. The playback scripts share
-`configureBenchmarkView`: regular Tanwei uses Hide UI at its default level and
-regular Zoo hides the ground at −15 m from the TOP/N/W corner; both use the same
-50%-closer distance as `/benchmark`. Exploded runs keep their standalone camera.
+`configureBenchmarkView`: regular Tanwei uses Hide UI at its default level,
+regular Zoo hides the ground at −15 m from the TOP/N/W corner, and regular
+Tianhe Park keeps its default opening level and isometric camera; all three use
+the same 50%-closer distance as `/benchmark`. Exploded runs keep their standalone camera.
 Keep train-model preparation in station opening, reuse the bounded prepared fleet
 on arrival, and retain only the latest train frame while the editor is suspended.
 Compare submitted-frame intervals as well as RAFs; see
 [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
-For both demos at Low / normal view / 16×, target at least 15 FPS 1% low over
-the first 30 seconds. Match canvas size and pixel ratio as well as the view;
+For the three demos at Low / normal view / 16×, target at least 15 FPS 1% low over
+the first 30 seconds. Zoo and Tanwei clear it; Tianhe Park is a measured miss —
+see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+Match canvas size and pixel ratio as well as the view;
 `BENCH_CANVAS_SIZE` and `BENCH_PIXEL_RATIO` reproduce the reported workload.
 Arrival-correlated stalls can come from TV service-card uploads; periodic stalls
 also follow simulated-minute clock repaints. Use the `plates` and `atlas`
@@ -205,7 +208,11 @@ module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local
 equipment-only edits, skip chunk preparation when cells and street bounds are
 unchanged, and repaint cached plates only when their inputs change. Keep contact
-shadow batches and buffers alive across local edits. Functional worker builds can
+shadow batches and buffers alive across local edits. A freed panel-atlas slot is
+not an equipment input change: keep the prepared roots and rebuild only the panel
+that owned it, because dropping them re-bakes every equipment bucket in the
+station. A retained bucket that shrinks below the merge threshold hands its
+sources back to layer 0 instead of leaving them on the batch-only layer. Functional worker builds can
 install the latest document asynchronously in a coalesced job, but keep the old
 document and routing graph coherent until installation, let ticks continue on
 that pair, and cancel pending edits when loading another station. Initial station
@@ -907,7 +914,7 @@ commands.
 | `demand-animation.mjs` | Builds sheet 06's demand-curve preview from the game's demand and calendar rules. In an embedded SVG document, its time-boundary handles can be dragged or adjusted with arrow keys. |
 | `render-view-shots.mjs` | Photographs the demo station from each of the game's own camera presets (sheet 09's subject) into `.preview/view-shots/`, for looking at rather than asserting. |
 | `game-tiles.mjs` | Starts the built game in headless Chrome and saves the build rail's real preview tiles, for checking an art change against it. |
-| `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on both shipped examples, Zoo and Tanwei, sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see the [performance reference](references/performance.md) for controls and interpretation. These are local diagnostics, not CI thresholds. |
+| `bench-demos.mjs`, `bench-sim.mjs`, `bench-browser.mjs`, `perf-stats.mjs` | Run simulation/build CPU and production browser FPS, draw-call and edit-latency benchmarks on every shipped example — Zoo, Tanwei and Tianhe Park — sequentially. Set `BENCH_STATION` to run one external save. Reports go under `.preview/perf/`; see the [performance reference](references/performance.md) for controls and interpretation. These are local diagnostics, not CI thresholds. |
 | `bench-level-switch.mjs` | Real paused Q/E input on both demos: first/repeated latency, slice/batch/model/save work, exact cached GPU allocation reuse and initial prewarming cost. `--uncached` compares the same code without retained level views; `--no-multi-draw` checks fallback rendering. |
 | `bench-fence-drag.mjs` | Production fence hover/press/move/cancel/release preview timings, event-through-frame latency, group counts, equipment rebatch calls and hidden-source leaks. `BENCH_CLOSE=1` captures the close view. |
 | `bench-tree-placement.mjs` | Production first hover/press/release of a placed model or equipment piece. `BENCH_EQUIPMENT_FIXTURE=1 SKIP_LAWN=1 COUNT=1 PIECE=bench` (or `PIECE=tvm`) measures retention against 128 untouched fences; other pieces use the demo station. |

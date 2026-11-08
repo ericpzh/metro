@@ -683,6 +683,59 @@ Use immutable inputs and complete dependency keys. Retain remote roots, animatio
 registrations and Low resources. Unknown inputs take the conservative rebuild path.
 Commit accepted edits only; never scan all equipment per candidate tile.
 
+### Atlas slot release and equipment batches
+
+天河公园, the largest example (151,852 cells, 76,436 modules), production
+API-to-render capture (`node tools/bench-editor-actions.mjs`, `BENCH_DEMO=tianhe
+BENCH_CASE=guidepost BENCH_SAMPLES=1`, headless Chrome 156 / RTX 4080 SUPER via
+ANGLE D3D11, 1440 × 1000 window, 892 × 815 canvas, pixel ratio 1, High quality,
+paused, one sample per action). Deleting one 指示牌 measured **1,973.1 ms**, of
+which `scene.setStation` was 1,787.4 ms and `modules.syncBatches` **1,590.7 ms**;
+deleting one 电视 in a separate session measured 2,402.8 ms with `syncBatches`
+1,985.7 ms, while deleting a 座椅 on the same station measured 384.2 ms with
+`syncBatches` 77.5 ms. Guidepost place (515.0 ms) and drop (334.5 ms) in the same
+paired session were unaffected. Raw reports:
+`.preview/perf/editor-actions/run-2026-11-08T00-04-21-927Z-61648/report.json`
+(the pre-fix build snapshot paired with its own source),
+`run-2026-11-08T00-03-14-655Z-61060/report.json` (the fixed build, same protocol)
+and `run-2026-11-08T00-01-41-355Z-74064/report.json` (the 座椅 / 电视 session).
+
+Cause: `EquipmentBatches.sync` collects the atlas textures of every surviving root
+and calls `PanelAtlas.retain`. A panel that left the document frees its slot and
+bumps `mappingVersion`, and that bump was treated as "every baked UV may be
+stale": the batch cache dropped every prepared root and rebuilt all buckets — a
+full station-wide re-walk over 76 k roots, per-source atlas resolution and a
+geometry re-bake of each merged bucket. A Chrome CPU profile of that delete
+(`--profile`, `.preview/perf/editor-actions/profiles/`) attributed ~1.1 s under
+`EquipmentBatches.sync` to `bakedGeometry`/`mergeGeometries`/`BatchedMesh`
+insertion (`toNonIndexed`, `applyMatrix4`, `addGeometry`, `computeBoundingBox`),
+so any deleted piece that owns printed artwork — a 指示牌, 电视, 出入口, 线网图,
+匾额 or 广告牌 — paid it.
+
+A release cannot make a surviving root's UVs wrong: `retain` only pushes the freed
+rect onto its page's free list (a live slot never moves), and a panel that later
+takes the freed rect carries its own map/material UUID in the entry signature. A
+release now drops only the dormant storey views. The same paired capture then
+measured the same delete at **547.9 ms** (`syncBatches` **113.9 ms**), i.e. the
+cost of deleting an unprinted 座椅. A bucket that shrinks below the merge
+threshold also puts its surviving sources back on layer 0; before, the last panel
+of a deleted pair kept the batch-only layer and stopped drawing. Guard both rules
+with the deterministic work counts in `batching-lifecycle.test.mjs`
+(`EquipmentBatches.lastSync`).
+
+Limits: one sample per row and API-to-first-render only (no pointer dispatch,
+compositor presentation or GPU completion). The two captures above are the same
+protocol back to back on the same host, and their sources differ by this fix plus
+three UI-only commits (view cube, shortcut removal) that touch no render or
+equipment path; their `pickup` control rows matched (101.7 vs 100.0 ms). The
+row-to-row spread on this host is otherwise large (see
+[the action-matrix note](#repeatable-editor-action-matrix)), so only that paired
+comparison is a speedup. The remaining ~350–550 ms
+of a 天河公园 equipment edit is the shared `setStation` rebuild —
+`modules.retainedIds` (~30–60 ms dependency scan), `buildModules` (~100–240 ms,
+whose contact-blob prepass walks all 76 k modules) and `syncBatches` (~80–160 ms)
+— plus a ~60–120 ms commit/React/frame gap that no audited stage covers.
+
 ### Undo history and derived placement indexes
 
 The reported heap-growth interaction opens the supplied 天河公园 save and places
@@ -795,11 +848,47 @@ Measure submitted frames separately from RAFs using `bench:sim-stalls`. The shar
 benchmark-view presets are: Regular Zoo, ground hidden at −15 m from the TOP/N/W
 corner; Regular Tanwei, default opening level with Hide UI; Regular Tianhe, default
 opening level and isometric camera. All three use the 2/3 camera-distance factor.
-`bench:sim-stalls` accepts Zoo and Tanwei; the in-game `/benchmark` route covers
-all three. Match canvas, pixel ratio, population, speed and quality; separate clean
-timings, CPU sampling and GPU traces. Low / normal view / 16× targets at least
-15 FPS 1% low over the first 30 seconds. No current playback measurement validates
-the latest models.
+`bench:sim-stalls` accepts all three shipped demos, and so does the in-game
+`/benchmark` route. Match canvas, pixel ratio, population, speed and quality;
+separate clean timings, CPU sampling and GPU traces. Low / normal view / 16×
+targets at least 15 FPS 1% low over the first 30 seconds.
+
+Measured 2026-11-07 at Low / normal view / 16× for 30 s, DPR 1, 852 × 715 canvas,
+headless Chrome 156 on an i7-14700KF with an RTX 4080 SUPER (hardware ANGLE),
+production build from commit `e55b2956`,
+`BENCH_MODE=regular BENCH_QUALITY=low BENCH_SPEED=16 BENCH_SECONDS=30
+BENCH_DEMO=<demo> node tools/bench-sim-stalls.mjs`:
+
+| Demo | Cells | Station load | Submitted frames | Average FPS | 1% low FPS | Worst frame |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 14,066 | 8.4 s | 1,349 | 44.92 | 20.40 | 64.7 ms |
+| Tanwei | 16,725 | 12.6 s | 921 | 30.68 | 16.19 | 71.1 ms |
+| Tianhe Park | 151,852 | 37.7 s | 150 | 4.97 | 3.38 | 320.7 ms |
+
+Zoo and Tanwei clear the 15 FPS 1% low target. Tianhe Park is a measured miss:
+all 150 of its submitted frames ran over 100 ms, and slow-frame attribution is
+`editor.animate` / `editor.renderFrame` (183–278 ms in the worst frames) with
+`editor.roads.update` at 14–32 ms and clock-plate repaint bursts, not the crowd
+update (4–8 ms). Its station load is also 3–4.5× the other demos. These are
+single-run numbers on one host: they are the cost of the 151k-cell document,
+not a target for the smaller demos.
+
+### Production browser benchmark, all three demos
+
+`npm run bench:browser` (production build, default High LOD, the editor's home
+view, 6 s phases) now measures Zoo, Tanwei and Tianhe Park sequentially. Measured
+2026-11-07 on the same host and build (DPR 1, 1384 × 805 window, hardware ANGLE):
+
+| Demo | Example load | Paused FPS | 16× FPS | Draws (paused / 16×) | 16× triangles |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo | boot document | 25.65 | 23.48 | 3,526 / 3,575 | 2.96 M |
+| Tanwei | 11.0 s | 16.89 | 15.94 | 5,145 / 5,206 | 4.15 M |
+| Tianhe Park | 37.6 s | 4.32 | 5.11 | 19,820 / 19,822 | 5.30 M |
+
+The Tianhe draw count is the outlier: almost four times Tanwei's and over five
+times Zoo's, with render submission at 170–325 ms per frame while the 16× crowd
+update itself stays at 0.4 ms. The 76k-module document's draw submission, not the
+crowd, is what holds the demo at single-digit FPS.
 
 ### Tanwei Low at 1×
 
@@ -956,12 +1045,19 @@ replace only matching cases. Incomplete, profiled and software-GPU captures must
 not publish. Use `BENCH_MATRIX_UPDATE=0` for exploration.
 
 天河公园 (tianhe) is the largest shipped example (151,852 cells, 76,436 modules).
-A focused guidepost capture (1 sample, unprofiled hardware) misses the strict
-100 ms budget for the structural actions — 478.30 ms place, 292.20 ms drop,
-153.90 ms move-preview and 1,572.60 ms delete — while preview (45.40 ms) and
-pickup (79.70 ms) pass. The measured rows live in
+Focused 1-sample guidepost captures on this host miss the strict 100 ms budget for
+the structural actions — 537.10 ms place, 525.20 ms drop, 177.20 ms move-preview
+and 547.90 ms delete — while preview (66.20 ms) and pickup (100.00 ms) sit close
+to it. The edit cost is dominated by the `setStation` rebuild every document
+commit performs (321–352 ms for place, 142–287 ms for drop), not by the piece
+being edited. The measured rows live in
 [editor-action-matrix.md](editor-action-matrix.md); they are this document's
-cost, not a target for Zoo and Tanwei.
+cost, not a target for Zoo and Tanwei. This host's run-to-run spread on unchanged
+code paths is large: the `pickup` row, which does ~1 ms of work, measured 79.70,
+101.70 and 100.00 ms across sessions, and place/drop moved 478.30/292.20 →
+537.10/525.20 while their measured stages stayed flat (`syncBatches` 113.0 →
+131.5 ms for place and 4.9 → 5.3 ms for drop). Compare same-day paired captures,
+never rows from different sessions, as a speedup.
 
 ### Benchmark protocol
 

@@ -3690,11 +3690,12 @@ handrail returns with one continuous pane, in every width and every rotation/tra
 
 ## Performance benchmarks
 
-From the repository root, `npm run bench:sim` measures the shipped demo's simulation
+From the repository root, `npm run bench:sim` measures each shipped demo's simulation
 at opening, settled service and the morning peak, with tick-stage percentiles, actual
 population ranges, undo cloning, paint helpers, ground generation, live graph rebuilds
 and worker snapshot construction/copying. `npm run bench:browser` builds production
-and runs the actual React app and worker in a fresh headless Chrome profile. It measures
+and runs the actual React app and worker in a fresh headless Chrome profile, on Zoo,
+Tanwei and Tianhe Park sequentially. It measures
 paused and 16× FPS/frame intervals, draw calls, triangles, long tasks, render submission,
 paint and structural block commits, scene rebuild stages and edit-to-frame delay.
 

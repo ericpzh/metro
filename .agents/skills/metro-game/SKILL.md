@@ -358,7 +358,15 @@ and bakes mirrored static parts with corrected winding. EquipmentBatches keeps
 original module surfaces on picking layer 31 and draws local material batches on
 layer 0; moving door/wing/hand/cabin subtrees and cycling artwork windows remain
 independent. ModuleSystem's revision key skips unchanged equipment walks, and
-PanelAtlas preserves panel pixel sizes and refreshes changed source textures.
+PanelAtlas preserves panel pixel sizes and refreshes changed source textures. A
+freed panel-atlas slot is not an input change: a release never moves a live slot
+and a reused rect carries its own map/material UUID, so keep the prepared roots and
+rebuild only the panel that owned it — dropping them re-bakes every equipment
+bucket in the station (deleting one 指示牌 cost 1.59 s of a 1.97 s edit on
+天河公园 before this). A retained bucket that shrinks below the merge threshold
+hands its surviving sources back to layer 0 instead of leaving them unbatched and
+undrawn; `batching-lifecycle.test.mjs` pins both rules through
+`EquipmentBatches.lastSync`.
 Use `bench:browser -- --compare-batching --investigate` for an enabled/disabled
 comparison on the same scene and test consist; inspect its drawInventory and
 multiDraw support instead of comparing reports from changed demo/assets.

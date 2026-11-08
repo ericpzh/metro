@@ -251,6 +251,35 @@ test('mapped equipment shares page materials and bakes distinct panel UVs withou
   } finally { batches.clear(); cleanup(modules); textures.forEach(t => t.dispose()); materials.forEach(m => m.dispose()); globalThis.document = previous }
 })
 
+test('a freed atlas slot re-derives no surviving root and keeps unrelated batch allocations', () => {
+  const previous = globalThis.document; globalThis.document = { createElement: () => canvas() }
+  const modules = new THREE.Group(), batches = new EquipmentBatches()
+  const textures = [new THREE.CanvasTexture(canvas()), new THREE.CanvasTexture(canvas())]
+  const panels = textures.map((map, i) => { const mesh = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.MeshBasicMaterial({ map })); mesh.position.x = i * 2; return mesh })
+  const plain = new THREE.MeshBasicMaterial()
+  const boxes = [4, 6].map(x => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(), plain); mesh.position.x = x; return mesh })
+  const panelB = root([panels[1]], 'b', 'sign')
+  modules.add(root([panels[0]], 'a', 'sign'), root([boxes[0]], 'c'), panelB, root([boxes[1]], 'd'))
+  try {
+    batches.sync(modules, 'station/view|1', 'station', 'station/view')
+    assert.equal(batches.lastSync.roots, 4)
+    assert.equal(batches.lastSync.rebuilt, 4, 'a cold sync derives every root')
+    const drawn = batches.root.children, plainBatch = drawn.find(mesh => !mesh.material.map)
+    assert.equal(drawn.length, 2, 'the panel pair and the box pair are two draws')
+    assert.ok(plainBatch instanceof THREE.InstancedMesh)
+    // Deleting the second 指示牌 releases its page slot — the path that used to
+    // discard every prepared root and re-bake the whole station.
+    modules.remove(panelB); cleanup(panelB)
+    const atlasVersion = batches.atlas.mappingVersion
+    batches.sync(modules, 'station/view|2', 'station', 'station/view')
+    assert.ok(batches.atlas.mappingVersion > atlasVersion, 'the removed panel really did free an atlas slot')
+    assert.equal(batches.lastSync.rebuilt, 0, 'a slot release re-derives no surviving root')
+    assert.equal(batches.root.children.find(mesh => !mesh.material.map), plainBatch, 'an unrelated batch keeps its allocation')
+    assert.equal(batches.root.children.length, 1, 'the panel left alone can no longer be batched alone')
+    assert.equal(panels[0].layers.isEnabled(0), true, 'it draws from its own picking mesh again')
+  } finally { batches.clear(); cleanup(modules); textures.forEach(t => t.dispose()); plain.dispose(); globalThis.document = previous }
+})
+
 test('equipment cache skips unchanged revisions and releases only batch-owned buffers on disable/teardown', () => {
   const material = new THREE.MeshBasicMaterial(), modules = new THREE.Group(), batches = new EquipmentBatches()
   const sources = [new THREE.Mesh(new THREE.BoxGeometry(), material), new THREE.Mesh(new THREE.BoxGeometry(), material)]
