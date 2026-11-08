@@ -25,7 +25,24 @@ export async function prepareAuthored(page,shot,language,{full=false}={}){
  })()`)
  await page.evaluate(frames)
 }
-const point=(page,m,anchor=null)=>page.evaluate(`(()=>{const x=${Math.floor(m.x)},y=${Math.floor(m.y)},z=${m.z},anchor=${JSON.stringify(anchor)},candidates=[];for(const u of [.5,.15,.85,.3,.7])for(const v of [.5,.15,.85,.3,.7]){const p=__videoInteriorPoint(x+u,y+v,z+1);if(p.x<4||p.y<4||p.x>innerWidth-4||p.y>innerHeight-4)continue;const h=__scene.pickPlacement(p.x,p.y,z);if(h?.solid&&h.cell[0]===x&&h.cell[1]===y&&h.cell[2]===z)return p;if(h&&anchor){const dx=Math.abs(x-anchor.x),dy=Math.abs(y-anchor.y);if((dx>=dy&&h.cell[0]===x&&Math.abs(h.cell[1]-anchor.y)<=dx)||(dy>dx&&h.cell[1]===y&&Math.abs(h.cell[0]-anchor.x)<dy))candidates.push(p)}}return candidates[0]??null})()`)
+const point=(page,m,anchor=null)=>page.evaluate(`(()=>{
+ const {x,y,z}=${JSON.stringify({x:Math.floor(m.x),y:Math.floor(m.y),z:m.z})};
+ const anchor=${JSON.stringify(anchor)}, tactile=${m.type==='tactile'}, candidates=[];
+ const onFloor=h=>h?.solid&&h.cell[0]===x&&h.cell[1]===y&&h.cell[2]===z&&(!tactile||h.normal?.[2]>.5);
+ for(const u of [.5,.15,.85,.3,.7])for(const v of [.5,.15,.85,.3,.7]){
+  const projected=__videoInteriorPoint(x+u,y+v,z+1);
+  const p=tactile?{x:Math.round(projected.x),y:Math.round(projected.y)}:projected;
+  if(p.x<4||p.y<4||p.x>innerWidth-4||p.y>innerHeight-4)continue;
+  const h=__scene.pickPlacement(p.x,p.y,z);
+  // Leave a few pixels of clearance for the camera motion between pick and press.
+  if(onFloor(h)&&(!tactile||[-2,2].every(d=>onFloor(__scene.pickPlacement(p.x+d,p.y,z))&&onFloor(__scene.pickPlacement(p.x,p.y+d,z)))))return p;
+  if(h&&anchor){
+   const dx=Math.abs(x-anchor.x),dy=Math.abs(y-anchor.y);
+   if((dx>=dy&&h.cell[0]===x&&Math.abs(h.cell[1]-anchor.y)<=dx)||(dy>dx&&h.cell[1]===y&&Math.abs(h.cell[0]-anchor.x)<dy))candidates.push(p);
+  }
+ }
+ return candidates[0]??null;
+})()`)
 const pointer=(page,type,p,extra={})=>page.send('Input.dispatchMouseEvent',{type,...p,...extra})
 export async function extendAuthoredLift(page){
  const before=await page.evaluate("__metro.getState().station.modules.find(m=>m.type==='lift')");
@@ -39,15 +56,34 @@ export async function extendAuthoredLift(page){
 export async function dragAuthored(page,step,seconds=1.3){
  const state=await page.evaluate('__metro.getState().station'),m=step.modules[0];
  let a=step.modules.reduce((a,b)=>b.x<a.x||b.x===a.x&&b.y<a.y?b:a),b=step.modules.reduce((a,b)=>b.x>a.x||b.x===a.x&&b.y>a.y?b:a);
- if(step.kind==='drag'&&a.x!==b.x)[a,b]=[b,a];
+ if(step.kind==='drag'&&a.x!==b.x&&m.type!=='tactile')[a,b]=[b,a];
  await page.evaluate(`(()=>{const s=__metro.getState();s.setActiveZ(${m.z});s.setModuleType(${JSON.stringify(modulePalette(m))});s.setModuleRot(${m.rot??0});s.setTool('module');__scene.setModulePreview(null)})()`);await page.evaluate(frames)
- if(!await point(page,a)&&step.kind==='drag')[a,b]=[b,a];const begin=await point(page,a);if(!begin)throw Error(`No visible drag anchor ${a.id}`);
- await pointer(page,'mouseMoved',begin);await sleep(100)
- const down=await point(page,a);if(!down)throw Error(`Drag anchor occluded ${a.id}`);await pointer(page,'mousePressed',down,{button:'left',buttons:1,clickCount:1});await sleep(100)
- for(let i=1;i<=24;i++){await sleep(seconds*1000/24);const t=i/24;await pointer(page,'mouseMoved',await page.evaluate(`__videoInteriorPoint(${a.x+.5+(b.x-a.x)*t},${a.y+.5+(b.y-a.y)*t},${a.z+1})`),{button:'left',buttons:1})}
- const end=await point(page,b,step.kind==='drag'?a:null);if(!end)throw Error(`No visible drag endpoint ${b.id}`);await pointer(page,'mouseMoved',end,{button:'left',buttons:1});await sleep(50);await pointer(page,'mouseReleased',end,{button:'left',buttons:0,clickCount:1});await page.evaluate(frames)
- const after=await page.evaluate('__metro.getState().station'),ids=new Set(state.modules.map(m=>m.id)),added=after.modules.filter(m=>!ids.has(m.id));
- if(added.length!==step.modules.length||step.modules.some(e=>!added.some(m=>m.type===e.type&&m.x===e.x&&m.y===e.y&&m.z===e.z)))throw Error(`Authored drag ${m.type} expected ${step.modules.length}, got ${JSON.stringify(added)}; endpoints ${JSON.stringify([await point(page,a),await point(page,b)])}; notice ${JSON.stringify(await page.evaluate('__metro.getState().notice'))}`)
+ const ids=new Set(state.modules.map(m=>m.id));
+ let added=[];
+ for(let attempt=0;attempt<(step.kind==='drag'?2:1);attempt++){
+  const begin=await point(page,a);
+  if(begin){
+   await pointer(page,'mouseMoved',begin);await sleep(100);
+   const down=await point(page,a);
+   if(down){
+    await pointer(page,'mousePressed',down,{button:'left',buttons:1,clickCount:1});await sleep(180);
+    for(let i=1;i<=24;i++){
+     await sleep(seconds*1000/24);const t=i/24;
+     await pointer(page,'mouseMoved',await page.evaluate(`__videoInteriorPoint(${a.x+.5+(b.x-a.x)*t},${a.y+.5+(b.y-a.y)*t},${a.z+1})`),{button:'left',buttons:1});
+    }
+    const end=await point(page,b,step.kind==='drag'?a:null);
+    if(!end)throw Error(`No visible drag endpoint ${b.id}`);
+    await pointer(page,'mouseMoved',end,{button:'left',buttons:1});await sleep(50);
+    const release=m.type==='tactile'?(await point(page,b,a)??end):end;
+    await pointer(page,'mouseReleased',release,{button:'left',buttons:0,clickCount:1});await page.evaluate(frames);
+    const after=await page.evaluate('__metro.getState().station');
+    added=after.modules.filter(m=>!ids.has(m.id));
+    if(added.length)break;
+   }
+  }
+  [a,b]=[b,a];
+ }
+ if(added.length!==step.modules.length||step.modules.some(e=>!added.some(m=>m.type===e.type&&m.x===e.x&&m.y===e.y&&m.z===e.z)))throw Error(`Authored drag ${a.id} → ${b.id} expected ${step.modules.length}, got ${JSON.stringify(added)}; notice ${JSON.stringify(await page.evaluate('__metro.getState().notice'))}`)
  // Retain original save IDs and all authored subtype/configuration fields.
  const normalized={...state,modules:[...state.modules,...step.modules]};await install(page,normalized);await page.evaluate("__metro.getState().setTool('select')")
  return{state:normalized,gesture:'native-pointer-drag',nativeModuleIds:added.map(m=>m.id),points:24}

@@ -85,7 +85,7 @@ dev-server path.
 places where the vertical slice deliberately diverges from the spec.
 
 Regenerate the 72-second, 2560×1440 gameplay demo with `npm run video:demo`; use
-`npm run video:plan` to inspect its scene plan first. It records both shipped
+`npm run video:plan` to inspect its scene plan first. It records all three shipped
 stations, coloured walls, close-up station furnishing and real building at 8×. The closing montage run combines furnishing, city styles and a four-second train sequence, then mixes the game's
 approved music and sounds. See [the video runbook](tools/demo-video/README.md)
 for capture requirements, individual retakes, bilingual titles and output files.

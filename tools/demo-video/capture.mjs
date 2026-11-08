@@ -28,7 +28,7 @@ body[data-video-clean] .explodedViewer { padding:0!important;gap:0!important }
 body[data-video-locale="zh"] .stationNameEnglish { display:none!important }
 body[data-video-locale="zh"] .bottombar>.metric:nth-last-child(2) { display:none!important }
 body[data-video-cube] .viewNavShell { transform:scale(1.7);transform-origin:top right;z-index:8 }
-body[data-video-cube] .viewOrthoBtn { display:none!important }
+body[data-video-locale] .viewOrthoBtn { display:none!important }
 `
 
 export async function prepareShot(page, shot,settings={language:'zh'}) {

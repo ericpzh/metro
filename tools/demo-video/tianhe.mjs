@@ -11,6 +11,8 @@ export async function prepareTianheFlythrough(page, shot) {
     state.setActiveZ(-10);
     state.setOrtho(false);
     state.setHideWalls(false);
+    state.setHideRoof(false);
+    state.setHideUI(true);
     state.setAutoCeiling(false);
     c.setOrtho(false);
     c.setFov(58);
@@ -67,7 +69,7 @@ export async function flyTianhePlatform(page, shot, recordStart) {
     state.setPlaying(true);
     function fly(now) {
       if (token !== __videoMotionToken) return;
-      const t = Math.min(1, (now - start) / duration);
+      const t = Math.max(0, Math.min(1, (now - start) / duration));
       __tianheFlyPose(t);
       if (now - lastSample >= 180 || t === 1) {
         const traffic = __tianheTraffic();

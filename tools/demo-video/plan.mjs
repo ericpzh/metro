@@ -19,7 +19,7 @@ export const shots = [
   { id: '04-boarding', station: 'zoo', seconds: 4, kind: 'train', section: 'trains', copy: '12', view: 'platform', orbit: .035 },
   { id: '05-rolling', station: 'tanwei', seconds: 3, kind: 'train', section: 'trains', copy: '11', view: 'platform', orbit: -.04 },
   { id: '05-tianhe-flythrough', station: 'tianhe', seconds: 8.1, kind: 'train', section: 'trains', copy: '12', view: 'flythrough', simSpeed: 4 },
-  { id: '08-section-tianhe', station: 'tianhe', seconds: 6, kind: 'section', section: 'building', copy: '09', view: 'section' },
+  { id: '08-section-tianhe', station: 'tianhe', seconds: 6, playbackRate: 4, kind: 'section', section: 'building', copy: '09', view: 'section' },
   { id: '08-cube',station:'zoo',seconds:4.8,kind:'cube',section:'building',copy:'09',view:'cube',orbit:0 },
   { id: '09-demand', station: 'tanwei', seconds: 3, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', orbit: 0 },
   { id:'montage-placement',station:'empty',stage:'placement',seconds:23.5,playbackRate:8,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },

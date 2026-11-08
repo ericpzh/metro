@@ -135,6 +135,7 @@ try {
       const take = JSON.parse(readFileSync(metaPath, 'utf8'))
       if (take.seconds !== shot.seconds) throw new Error(`Take duration changed; recapture ${shot.id}`)
       if((take.playbackRate??1)!==shot.playbackRate||(take.fixture.stage??null)!==(shot.stage??null))throw Error(`Take stage/playback changed; recapture ${shot.id}`)
+      if(shot.simSpeed&&!take.events.some(e=>e.action==='platform-flythrough'&&e.simSpeed===shot.simSpeed))throw Error(`Simulation speed changed; recapture ${shot.id}`)
       if(shot.spin&&(take.fixture.orbit?.from!==shot.spin.from||take.fixture.orbit?.to!==shot.spin.to))throw Error(`Take camera arc changed; recapture ${shot.id}`)
       if(shot.panels&&JSON.stringify(take.panels?.map(p=>p.catalogueId))!==JSON.stringify(shot.panels.map(p=>p.catalogueId)))throw Error(`Paired models changed; recapture ${shot.id}`)
       if(take.settings.language!==settings.language||take.fixture.theme!==settings.theme||take.settings.width!==settings.width||take.settings.height!==settings.height)throw new Error(`Take language/theme/resolution changed; recapture ${shot.id}`)

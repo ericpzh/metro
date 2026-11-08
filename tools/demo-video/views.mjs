@@ -1,6 +1,6 @@
 import {setTimeout as sleep} from 'node:timers/promises'
 
-const section = { anchor: [50,-108,-8], from: -4, to: 15, target: [45,-67,-8], camera: [-48,-239,65] }
+const section = { anchor: [50,-108,-8], from: -4, to: 15, target: [55,-89,-7], camera: [6,-200,34] }
 
 export async function prepareExtraView(page,shot){
  if(shot.kind==='section')await page.evaluate(`(()=>{
@@ -8,7 +8,7 @@ export async function prepareExtraView(page,shot){
   s.setOrtho(false);s.setCutaway(true);s.setHideGround(true);s.setHideRoof(true);s.setHideWalls(false);s.setHideSectionSurface(true);
   s.placeSection(section.anchor);for(let i=0;i<4&&__metro.getState().section.orientation.azimuth!==0;i++)s.rotateSection();
   s.setSectionOffset(section.from);
-  const c=__scene.cameraSys;c.setOrtho(false);c.setFov(39);c.controls.enableDamping=false;
+  const c=__scene.cameraSys;c.setOrtho(false);c.setFov(44);c.controls.enableDamping=false;
   c.controls.target.set(...section.target);c.camera.position.set(...section.camera);c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender();
  })()`)
  else await page.evaluate(`(()=>{
@@ -23,7 +23,7 @@ export async function extraViewAction(page,shot,start){
    window.__videoMotionLog=[];
    function slide(now){
     if(token!==__videoMotionToken)return;
-    const t=Math.min(1,(now-start)/duration),ease=t*t*(3-2*t),offset=${section.from}+${section.to-section.from}*ease;
+    const t=Math.max(0,Math.min(1,(now-start)/duration)),ease=t*t*(3-2*t),offset=${section.from}+${section.to-section.from}*ease;
     __metro.getState().setSectionOffset(offset);__videoMotionLog.push({t,offset});
     if(t<1)requestAnimationFrame(slide);
    }

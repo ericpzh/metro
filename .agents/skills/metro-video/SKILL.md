@@ -19,7 +19,10 @@ the default Blueprint theme. Music is **monoliths by SpringySpringo**, from the
 game's approved music manifest, with credit in the ending and exported credits.
 Keep these choices unless the user changes the brief.
 
-The main tour follows the website's four sections and uses Zoo and Tanwei.
+The main tour follows the website's four sections and uses Zoo, Tanwei and
+Tianhe Park. Tianhe Park has the sole moving section and an 8.1-second Line 11
+platform fly-through at 4× simulation speed. The take records evidence of
+passenger and train movement. The view cube stays in perspective.
 Immediately before the ending: one continuous 23.5-second build at 8×, eight
 cities at 0.4 seconds each, then five train types at 0.8 seconds each. City cuts
 share a continuous 180° orbit; train cuts share 150° (30° per type). Trains really
