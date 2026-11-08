@@ -1,5 +1,12 @@
 # 演示车站工作存档
 
+## 成片与缩略图
+
+- `station-designer-demo-zh.mp4`：最终成片（70.2 秒，2560 × 1440，30 fps，H.264/AAC）。MP4 不入库，仓库统一忽略 `*.mp4`。
+- `station-designer-thumbnail-zh.jpg`：中文视频缩略图（3840 × 2160），随仓库提交。
+
+## 工作存档
+
 - `demo-station.metro.json`：用户可在游戏中打开、修改并重新保存的真实存档。
 - `demo-camera.json`：参考图一到参考图二的连续低角度运镜及建造阶段时长。
 - `demo-station-layout.json`：第五版旧布局的原始对应关系，仅作历史记录。

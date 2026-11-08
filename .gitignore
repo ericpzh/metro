@@ -41,8 +41,8 @@ npm-debug.log*
 .preview/
 slope-cut-preview/
 
-# Local finished demo deliverable (large MP4 plus its review page)
-/demo/
+# Rendered video deliverables (kept beside the editable save and thumbnail)
+*.mp4
 
 # Captured command output (npm test, tsc) accidentally saved to the repo root
 /testout*.txt
