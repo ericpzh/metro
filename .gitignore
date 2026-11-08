@@ -54,3 +54,6 @@ tools/_probe-sweep.mjs
 
 # npm is this repo's manager; package-lock.json files are tracked for every app
 web/pnpm-lock.yaml
+
+# unity
+unity/
