@@ -41,6 +41,9 @@ npm-debug.log*
 .preview/
 slope-cut-preview/
 
+# Local finished demo deliverable (large MP4 plus its review page)
+/demo/
+
 # Captured command output (npm test, tsc) accidentally saved to the repo root
 /testout*.txt
 /tscout.txt
