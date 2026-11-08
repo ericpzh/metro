@@ -6,10 +6,10 @@
   "description": "Station Designer — the game. Playable vertical slice: build a station, watch the crowd break it.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc --noEmit && vite build",
     "render:menu-thumbnails": "node ../tools/render-menu-thumbnails.mjs",
     "start": "npm run build && npm run preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc --noEmit",
     "preview": "vite preview",
     "test": "node --test \"test/**/*.test.mjs\"",
     "coverage:global-stats": "node --test --test-isolation=none --experimental-test-coverage --test-coverage-include=\"src/sim/globalStats.ts\" --test-coverage-include=\"src/app/globalStats.ts\" --test-coverage-include=\"src/app/statsSettings.ts\" --test-coverage-include=\"src/app/store/slices/StatsSlice.ts\" test/global-stats.test.mjs",
