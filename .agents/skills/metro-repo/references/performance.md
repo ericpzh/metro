@@ -903,12 +903,12 @@ BENCH_DEMO=<demo> node tools/bench-sim-stalls.mjs`:
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Zoo | 14,066 | 5.7 s | 1,795 | 59.81 | 35.55 | 45.2 ms |
 | Tanwei | 16,725 | 8.9 s | 1,252 | 41.70 | 23.65 | 53.2 ms |
-| Tianhe Park (−5 m preset) | 151,852 | 26.8 s | 320 | 10.64 | 5.79 | 205.4 ms |
+| Tianhe Park (−5 m preset) | 151,852 | 32.2 s | 215 | 7.16 | 5.37 | 191.3 ms |
 
 Zoo and Tanwei clear the 15 FPS 1% low target comfortably, up from 20.40 and
 16.19 before the occupied-storey rule. Tianhe Park's benchmark preset is its
 −5 m concourse — the representative public floor — and that workload is far
-below the target: 10.64 FPS average, 5.79 1% low, 83 of 320 frames over 100 ms.
+below the target: 7.16 FPS average, 5.37 1% low, 215 of 215 frames over 100 ms.
 At the −20 m opening platform the same build measured 25.00 / 11.38, so the
 preset, not the rule, is the main difference: the concourse carries the courts,
 shop fittings and their door families, plus the ghosted −10 m storey. The
@@ -1057,7 +1057,7 @@ view, 6 s phases) now measures Zoo, Tanwei and Tianhe Park sequentially. Measure
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Zoo | boot document | 59.95 (cap) | 59.95 (cap) | 1,071 / 1,103 | 2.29 M |
 | Tanwei | 9.6 s | 59.95 (cap) | 56.29 | 1,853 / 1,915 | 3.37 M |
-| Tianhe Park | 20.1 s | 26.17 | 20.76 | 4,743 / 4,745 | 1.36 M |
+| Tianhe Park | 28.4 s | 14.86 | 12.36 | 4,743 / 4,745 | 1.47 M |
 
 All three were re-captured after the occupied-storey rule; the earlier,
 above-included build measured 25.65 / 23.48 (Zoo), 16.89 / 15.94 (Tanwei) and
