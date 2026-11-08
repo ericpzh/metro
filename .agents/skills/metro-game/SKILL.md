@@ -1945,8 +1945,14 @@ including the depth prepass, for all six appearances.
   mesher's cap coverage: its flat base covers the adjacent block's cap, while the sloping half
   leaves that cap paintable; `triangle.test.mjs` pins the face target and stored finish.
   `thinWallCells` / `thinWallSideMap` hand out a `CellShape`
-  (`{kind:'half'}` | `{kind:'triangle'}`) rather than a bare `WallSide`, which is the type the
-  mesher, the build ghost, the chunk hash and `facePresent` all read. A dragged 三角 run
+  (`{kind:'half'}` | `{kind:'corner'}` | `{kind:'triangle'}` | the compound
+  `{kind:'cuts', mask}`) rather than a bare `WallSide`, which is the type the
+  mesher, the build ghost, the chunk hash and `facePresent` all read. A cell may
+  hold several **non-overlapping** cut pieces as tags on the one record: up to
+  four 薄墙角, two half walls on opposite sides, or one half wall and the two
+  corners of its clear half (`wallCutMask` / `shapeFromCutMask`). `addWalls`
+  merges a compatible cut and refuses an overlap; `checkCutCells` is the preview
+  that accepts the merge. A dragged 三角 run
   travels its **ridge only** (`triangleLineCells`: the off-axis extent is dropped, so the line
   can never step the run), lays the press's side on every course through `addWalls`, and
   removes individual courses or an area with right-click, matching B — a tap stays one wedge. The
@@ -1963,7 +1969,13 @@ including the depth prepass, for all six appearances.
   tagged `half-corner:<side>`; its four absolute positions connect perpendicular
   half walls. Its position tile and Tab or R cycle the positions. Preview, release,
   saved geometry and material face ghosts must agree, including the east/west
-  ghost axes. Removal ghosts and cursors match half-wall/corner footprints; block-tool
+  ghost axes. A corner whose quarter is free may **join a cut cell** — the 半墙
+  already there plus the corner is an L — while an overlapping quarter is refused.
+  The mesher draws a three-quarter L and two opposite corners as the row rectangles
+  they are, and a full union (four corners / two opposite halves) as a whole block;
+  `wall-cuts.test.mjs` owns the masks, merge, preview, meshes, paint, zones and
+  save round trip, and `tools/check-wall-cuts.mjs` reproduces the real click.
+  Removal ghosts and cursors match half-wall/corner footprints; block-tool
   right-click removes the same course or area as B, while G keeps story-column removal.
   `triangle`, `storey-height`, `rail-families` and
   `editor-action-benchmark` pin these contracts.

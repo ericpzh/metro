@@ -6,7 +6,21 @@ import { storeyBand } from '../../sim/constants.ts';
 import { thinWallCells } from '../../sim/openings.ts';
 import { blockIndex } from '../../sim/blockIndex.ts';
 import { blockReason } from '../validation.ts';
-import { halfWallTag, shapeOf, TRI_SIDES, triangleTag, type CellShape, type TriangleKind, type TriSide, type WallSide } from '../../sim/types.ts';
+import {
+  halfCornerMask,
+  halfCornerTag,
+  halfWallMask,
+  halfWallTag,
+  shapeOf,
+  triangleOf,
+  TRI_SIDES,
+  triangleTag,
+  wallCutMask,
+  type CellShape,
+  type TriangleKind,
+  type TriSide,
+  type WallSide,
+} from '../../sim/types.ts';
 import type { Cell, Module } from '../../sim/types.ts';
 import { cellKey, hasTag } from './Cells.ts';
 import type { StationState } from './State.ts';
@@ -269,6 +283,14 @@ export function wallSnap(
  * one block at a time like its 半墙 — a cut is a shape being placed, not a wall being
  * run.
  *
+ * A **半墙** or a **薄墙角** may join an existing cut cell instead of adding a second
+ * record at the coordinate: the two pieces share the cell when their quarters do
+ * not overlap (`wallCutMask`). That is what lets a thin wall turn a corner — a
+ * half wall plus the free corner of its clear half — and what keeps a cell to
+ * four corners, two opposite halves, or one half and the two corners of its free
+ * half. An overlapping piece is refused; a full block or a 三角 is simply already
+ * there.
+ *
  * With no explicit `height`, each column ends at its story boundary. The
  * 方块 tool's 半墙 / 三角 modes lay one
  * block at a time, so they pass 1 — a single tagged course per click that the
@@ -290,36 +312,72 @@ export function addWalls(
   // Share the preview index, while keeping this commit's additions private.
   const level = blockIndex(state.cells, state.modules);
   const addedKeys = new Set<string>();
-  const at = new Map<string, number>();
-  state.cells.forEach((c, i) => { if(c.fill !== 'solid') at.set(cellKey(c.x, c.y, c.z), i) });
+  const holes = new Map<string, number>();
+  const solids = new Map<string, number[]>();
+  state.cells.forEach((c, i) => {
+    const k = cellKey(c.x, c.y, c.z);
+    if (c.fill !== 'solid') holes.set(k, i);
+    else {
+      const list = solids.get(k);
+      if (list) list.push(i);
+      else solids.set(k, [i]);
+    }
+  });
+  const cutMask = corner !== null ? halfCornerMask(corner) : side !== null ? halfWallMask(side) : 0;
   const tags =
-    corner !== null ? [WALL, `half-corner:${corner}`] : triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
+    corner !== null ? [WALL, halfCornerTag(corner)] : triangle !== null ? [WALL, triangleTag(triangle.kind, triangle.side)] : side === null ? [WALL] : [WALL, halfWallTag(side)];
   const added: Cell[] = [];
+  const merged: Array<{ index: number; cell: Cell }> = [];
   let blocked = 0;
   const run = height === undefined ? storeyWallRun(baseCells, state.levelBase, state.storeyHeight) : baseCells.flatMap(([x, y, z]) => Array.from({ length: height }, (_, dz) => [x, y, z + dz] as [number, number, number]));
   for (const [x, y, z] of run) {
     const k = cellKey(x, y, z);
-    if (level.solid.has(k) || addedKeys.has(k)) continue;
+    if (addedKeys.has(k)) continue;
     // One rule set for every course, whatever laid it: a wall may no more fill a
     // reserved opening or a cell a piece of equipment holds than a block may.
     if (!blockReason(state.cells, state.modules, x, y, z, level).ok) {
       blocked++;
       continue;
     }
+    if (level.solid.has(k)) {
+      // A full wall and a 三角 are one-piece courses: a solid cell is already
+      // taken. A cut piece asks the existing record whether its quarters are free.
+      if (cutMask === 0) continue;
+      const records = solids.get(k);
+      const existing = records !== undefined && records.length === 1 ? state.cells[records[0]] : undefined;
+      const existingMask = existing === undefined ? 0 : wallCutMask(existing);
+      // A full wall, a ring course, a 三角 or a duplicated record is simply
+      // already there: nothing to add and nothing to complain about, exactly as a
+      // cut over any other held cell has always behaved. Only a cut cell whose
+      // quarters overlap this piece is a collision.
+      if (existing !== undefined && existingMask !== 0 && triangleOf(existing) === null) {
+        if ((existingMask & cutMask) !== 0) {
+          blocked++;
+          continue;
+        }
+        const nextTags = existing.tags === undefined ? [...tags] : [...existing.tags];
+        for (const t of tags) if (!nextTags.includes(t)) nextTags.push(t);
+        merged.push({ index: records![0], cell: { ...existing, tags: nextTags } });
+        addedKeys.add(k);
+      }
+      continue;
+    }
     addedKeys.add(k);
     added.push({ x, y, z, fill: 'solid', tags: [...tags] });
   }
-  if (added.length === 0) return { state, changed: 0, blocked };
+  if (added.length === 0 && merged.length === 0) return { state, changed: 0, blocked };
   // One record per coordinate: a course over a dug hole replaces the `void`, it
-  // does not shadow it.
+  // does not shadow it. A merge keeps the existing record's finish, zone and room
+  // and only appends the piece's tag.
   const next = state.cells.slice();
+  for (const m of merged) next[m.index] = m.cell;
   const grown: Cell[] = [];
   for (const c of added) {
-    const hole = at.get(cellKey(c.x, c.y, c.z));
+    const hole = holes.get(cellKey(c.x, c.y, c.z));
     if (hole === undefined) grown.push(c);
     else next[hole] = c;
   }
-  return { state: { ...state, cells: clearSupportedOpeningCeilings([...next, ...grown], addedKeys) }, changed: added.length, blocked };
+  return { state: { ...state, cells: clearSupportedOpeningCeilings([...next, ...grown], addedKeys) }, changed: added.length + merged.length, blocked };
 }
 
 /**

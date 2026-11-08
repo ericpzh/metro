@@ -287,7 +287,7 @@ cell = {
   finish?: { top?, bottom?, n?, e?, s?, w? },   // ASCII finish ids; absent = family default
   zone?: 'outside' | 'unpaid' | 'paid' | 'platform' | 'restricted',
   room?: 'store' | 'toilet' | 'office',         // purpose tint, not a fare zone
-  tags?: string[],             // e.g. 'half-wall:n', 'tri-upper:ne'
+  tags?: string[],             // e.g. 'half-wall:n'; a cut cell may carry several, e.g. also 'half-corner:w'
 }
 ```
 
@@ -319,6 +319,11 @@ keeps the build model small and the save files sparse.
   wall, tagged `half-wall:<side>`) or a **三角** (45° wedge, tagged `tri-upper:<corner>` /
   `tri-lower:<corner>`). They are courses with a cut, not a second mesh family: the renderer
   draws the cut, collision reads the cell, and the placement contract is the 方块 tool's own.
+  A cell may hold several **non-overlapping** cut pieces. Each keeps a quarter of the tile, so
+  the pieces a cell admits are exactly the packings of four quarters: up to four **薄墙角**
+  corners, two half walls on opposite sides, or one half wall plus the two corners of its free
+  half. An overlapping piece is refused; the pieces are tags on the same tagged cell, so a thin
+  wall can turn a corner without a second record at the coordinate.
 * **A cut top.** A block a 楼梯 / 扶梯 takes its volume out of — the ground under a run, which its
   truss or soffit hangs into — is not a full cube. Its top is the run's own **underside**, a plane
   sloping along the run, so the block reads as the filling under the slope and the run's truss sits

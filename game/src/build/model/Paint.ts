@@ -6,6 +6,7 @@ import { blockIndex } from '../../sim/blockIndex.ts';
 import { contactFaceCovered } from '../../sim/contactFinishes.ts';
 import { blockReason } from '../validation.ts';
 import {
+  cutInnerFaces,
   halfWallInnerFace,
   isHalfWallShape,
   isTriangleShape,
@@ -73,6 +74,10 @@ export function facePresent(
   if (!solid.has(k)) return false;
   const shape = thin.get(k);
   if (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) return true;
+  // A compound cut has one inner face per direction a filled quarter looks into
+  // an empty one; those surfaces are inside its own cell, so a solid neighbour
+  // never covers them.
+  if (shape?.kind === 'cuts' && cutInnerFaces(shape.mask).includes(face)) return true;
   if (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face) return true;
   if (isTriangleShape(shape) && triangleSlopeFace(shape.triangle) === face) return true;
   const step = FACE_STEP[face];
@@ -281,7 +286,9 @@ export function fillSurface(state: StationState, x: number, y: number, z: number
   };
   const inset = (px: number, py: number, pz: number): boolean => {
     const shape = thin.get(cellKey(px, py, pz));
-    return (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) || (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face);
+    return (shape?.kind === 'corner' && ((shape.side === 'n' || shape.side === 'w' ? face === 'e' : face === 'w') || (shape.side === 'n' || shape.side === 'e' ? face === 's' : face === 'n'))) ||
+      (shape?.kind === 'cuts' && cutInnerFaces(shape.mask).includes(face)) ||
+      (isHalfWallShape(shape) && halfWallInnerFace(shape.side) === face);
   };
   if (!exposed(x, y, z)) return state;
   const seen = new Set<string>([cellKey(x, y, z)]);

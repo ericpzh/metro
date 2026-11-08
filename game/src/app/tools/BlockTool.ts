@@ -15,7 +15,7 @@ import {
   removeFloor,
   sameCells,
 } from '../../build/model.ts'
-import { checkBlockCells, newPreview, previewNotice } from '../../build/validation.ts'
+import { checkBlockCells, checkCutCells, newPreview, previewNotice } from '../../build/validation.ts'
 import type { PlacementPreview } from '../../build/validation.ts'
 import type { CellShape } from '../../sim/types.ts'
 import { useStore } from '../store.ts'
@@ -111,20 +111,21 @@ export class BlockTool extends ToolController {
       if (held) d.shape = shape
       // A deliberate drag grows a line along the selected panel/ridge axis.
       const target: [number, number, number] = hit.solid ? hit.place : hit.cell
+      const side = shape !== null && shape.kind !== 'cuts' ? shape.side : null
       const dragging = held && performance.now() - d.downTime >= LONG_PRESS_MS && isMoved(d, info)
-      const cutDrag = dragging && shape !== null
+      const cutDrag = dragging && shape !== null && side !== null
       // A run over the drag budget is refused whole: every wedge is drawn red
       // and the release lays none of them, rather than the ghost promising a
       // shorter run than the pointer drew.
       const tooLarge = cutDrag
-        && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > this.multiPlace.limit
+        && cutLineCellCount(d.anchor, [target[0], target[1], d.z], side!) > this.multiPlace.limit
       const cursor: [number, number, number] = cutDrag ? [target[0], target[1], d.z] : base
       if (tooLarge) {
         this.multiPlace.setNotice(true)
-        const key = [...d.anchor, ...target, d.z, shape.side, st.stationEpoch].join(':')
+        const key = [...d.anchor, ...target, d.z, side, st.stationEpoch].join(':')
         this.multiPlace.deferRefusal(scene, key, () => {
           if (this.ctx.drag.current !== d) return
-          const line = triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side)
+          const line = triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, side!)
           this.multiPlace.refuse(this.ctx.scene(), line, cursor)
         })
         scene.setCursor(cursor, false)
@@ -134,13 +135,13 @@ export class BlockTool extends ToolController {
       this.multiPlace.setNotice(false)
       const draw = () => {
         const line = cutDrag
-          ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape!.side)
+          ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, side!)
           : [base]
         const blocked = this.drawCutGhost(line, shape).blockedCells.length > 0
         scene.setCursor(cursor, !blocked)
       }
       if (cutDrag) {
-        const key = [...d.anchor, ...target, d.z, shape!.side, st.stationEpoch].join(':')
+        const key = [...d.anchor, ...target, d.z, side, st.stationEpoch].join(':')
         this.multiPlace.deferPreview(scene, key, () => { if (this.ctx.drag.current === d) draw() })
       } else {
         this.cancelPreview()
@@ -342,22 +343,29 @@ export class BlockTool extends ToolController {
       if ((st.halfWall || st.triangles) && d.single === true && d.wall === true) {
         const shape = d.shape ?? null
         const triangle = shape?.kind === 'triangle' ? { kind: shape.triangle, side: shape.side } : null
-        if (rect && shape && cutLineCellCount(d.anchor, [target[0], target[1], d.z], shape.side) > this.multiPlace.limit) {
+        const side = shape !== null && shape.kind !== 'cuts' ? shape.side : null
+        if (rect && shape && side !== null && cutLineCellCount(d.anchor, [target[0], target[1], d.z], side) > this.multiPlace.limit) {
           this.multiPlace.setNotice(true)
           return
         }
         this.multiPlace.setNotice(false)
         const line =
-          rect && shape ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, shape.side) : [d.anchor]
-        const { state: next, changed, blocked } = addWalls(st.station, line, shapeWallSide(shape), 1, triangle, shape?.kind === 'corner' ? shape.side : null)
+          rect && shape && side !== null ? triangleLineCells(d.anchor, [target[0], target[1], d.z], d.z, side) : [d.anchor]
+        const station = st.station
+        const { state: next, changed, blocked } = addWalls(station, line, shapeWallSide(shape), 1, triangle, shape?.kind === 'corner' ? shape.side : null)
         if (changed > 0) st.commit(next)
         // The cut piece answers to the same block verdict, so name the same
-        // conflict the red ghost boxed rather than a bare `equipment`. A cell
-        // the station already holds is neither accepted nor refused — the ghost
-        // stays blue over it — so a click that lays nothing there says so
-        // instead of dropping the press in silence.
-        if (blocked > 0) st.setNotice(previewNotice(st.station, checkBlockCells(st.station, line)))
-        else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', triangle ? msg('wedge') : msg('half_wall')))
+        // conflict the red ghost boxed rather than a bare `equipment`. A cut cell
+        // whose quarters are free is a merge, not a refusal; only overlapping
+        // pieces are `occupied`. A full wall or a 三角 is simply already there, and
+        // the `changed === 0` branch below says so.
+        const label = triangle ? msg('wedge') : shape?.kind === 'corner' ? msg('half_wall_corner') : msg('half_wall')
+        if (blocked > 0 && shape !== null) {
+          const check = checkCutCells(station, line, shape)
+          const reason = [...check.refused.values()][0]
+          if (reason === 'occupied') st.setNotice(msg('cannot_place_value_here_a_block_already_exists', label))
+          else st.setNotice(previewNotice(station, check))
+        } else if (changed === 0) st.setNotice(msg('cannot_place_value_here_a_block_already_exists', label))
       } else {
         // The patch a release lays, with its generated wall courses counted
         // against the same budget. Over the budget it is refused whole, so a
@@ -446,10 +454,14 @@ export class BlockTool extends ToolController {
     const scene = this.ctx.scene()
     if (!scene) return newPreview()
     const st = useStore.getState()
-    // A cut piece is a course like any other, so it answers to the same rule: the
+    // A cut piece is a course like any other, so it answers to the same rules: the
     // cell a 闸机 holds, a ramp corridor or a rail bed refuses it, and the ghost says
-    // so with the red box rather than laying a panel nobody asked for.
-    const check = checkBlockCells(st.station, bases)
+    // so with the red box rather than laying a panel nobody asked for. Unlike a
+    // block, a cut may **join** a cut cell whose quarters it leaves free, which is
+    // how a 薄墙角 turns a 半墙 it shares a cell with — the preview accepts that cell
+    // and draws only the new piece, because the old one is already standing there.
+    if (shape === null) return this.showAddGhost(bases)
+    const check = checkCutCells(st.station, bases, shape)
     scene.setGhost(check.acceptedCells, 'add', undefined, thinGhost(check.acceptedCells, shape), check.blockedCells)
     scene.setCollisionHighlight(check.colliderIds.length > 0 ? check.colliderIds : null)
     return check
@@ -478,8 +490,9 @@ export class BlockTool extends ToolController {
       const d = this.ctx.drag.current
       if (d?.active === true && d.wall === true && d.single === true) d.shape = shape
       const held = d?.active === true && d.wall === true && d.single === true
-      const line = held && shape && performance.now() - d.downTime >= LONG_PRESS_MS
-        ? triangleLineCells(d.anchor, base, d.z, shape.side) : [held ? d.anchor : base]
+      const side = shape !== null && shape.kind !== 'cuts' ? shape.side : null
+      const line = held && shape && side !== null && performance.now() - d.downTime >= LONG_PRESS_MS
+        ? triangleLineCells(d.anchor, base, d.z, side) : [held ? d.anchor : base]
       if (line.length > this.multiPlace.limit) {
         this.multiPlace.setNotice(true)
         this.multiPlace.refuse(scene, line, base)

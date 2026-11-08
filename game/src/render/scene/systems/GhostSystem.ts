@@ -19,7 +19,7 @@ import type { ModuleContext } from '../../models.ts'
 import { HALF_WALL_T, ROAD_NODE_HANDLE_CAPACITY } from '../../../sim/constants.ts'
 import { rampFillKeys, type SlopeCut } from '../../../sim/openings.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
-import { halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace, wallShapeBounds } from '../../../sim/types.ts'
+import { cutInnerFaces, cutRectangles, halfWallInnerFace, isHalfWallShape, isTriangleShape, packKey, triangleSlopeFace, wallShapeBounds } from '../../../sim/types.ts'
 import type { CellShape, Face, Module, StationData } from '../../../sim/types.ts'
 import { moduleGhostKey } from '../../moduleGhostKey.ts'
 import { ModulePreviewDocument } from '../../modulePreviewDocument.ts'
@@ -57,6 +57,49 @@ const FACE_NORMAL: Record<Face, [number, number, number]> = {
   s: [0, -1, 0],
   e: [1, 0, 0],
   w: [-1, 0, 0],
+}
+
+interface CutPaintPatch {
+  inner: boolean
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+/**
+ * Every surface a compound cut presents in one finish slot, for the paint ghost.
+ * A cut may have both an outer boundary face and an inner half-cell face under the
+ * same slot, and a three-quarter L has boundary faces on two rows of one side; the
+ * brush paints the slot, so the preview shows every surface it will colour.
+ */
+function cutPaintPatches(mask: number, face: Face): CutPaintPatch[] {
+  if (face === 'top' || face === 'bottom') {
+    return cutRectangles(mask).map(r => ({ inner: false, x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1 }))
+  }
+  const patches: CutPaintPatch[] = []
+  for (const r of cutRectangles(mask)) {
+    if (face === 'e' && r.x1 === 1) patches.push({ inner: false, x0: r.y0, x1: r.y1, y0: 0, y1: 1 })
+    else if (face === 'w' && r.x0 === 0) patches.push({ inner: false, x0: r.y0, x1: r.y1, y0: 0, y1: 1 })
+    else if (face === 'n' && r.y1 === 1) patches.push({ inner: false, x0: r.x0, x1: r.x1, y0: 0, y1: 1 })
+    else if (face === 's' && r.y0 === 0) patches.push({ inner: false, x0: r.x0, x1: r.x1, y0: 0, y1: 1 })
+  }
+  if (cutInnerFaces(mask).includes(face)) {
+    // The quarter beside the empty one presents the face on the half-cell line.
+    for (let row = 0; row < 2; row++) {
+      const west = row === 0 ? 1 : 8, east = row === 0 ? 2 : 4
+      const y0 = row === 0 ? 0.5 : 0, y1 = row === 0 ? 1 : 0.5
+      if (face === 'e' && (mask & west) !== 0 && (mask & east) === 0) patches.push({ inner: true, x0: y0, x1: y1, y0: 0, y1: 1 })
+      if (face === 'w' && (mask & east) !== 0 && (mask & west) === 0) patches.push({ inner: true, x0: y0, x1: y1, y0: 0, y1: 1 })
+    }
+    for (let col = 0; col < 2; col++) {
+      const north = col === 0 ? 1 : 2, south = col === 0 ? 8 : 4
+      const x0 = col === 0 ? 0 : 0.5, x1 = col === 0 ? 0.5 : 1
+      if (face === 'n' && (mask & south) !== 0 && (mask & north) === 0) patches.push({ inner: true, x0, x1, y0: 0, y1: 1 })
+      if (face === 's' && (mask & north) !== 0 && (mask & south) === 0) patches.push({ inner: true, x0, x1, y0: 0, y1: 1 })
+    }
+  }
+  return patches
 }
 
 /** The plane geometry's own normal, so a quad can be turned to face a wall. */
@@ -300,8 +343,13 @@ export class GhostSystem extends SceneSystem {
         // The family and the hugged side both change the piece, and **R** steps the
         // side without the pending cell moving: a ghost that skipped that rebuild
         // would show the cut the player just turned away from.
-        h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.kind === 'corner' ? 3 : shape.triangle === 'upper' ? 1 : 2), 16777619)
-        for (let i = 0; i < shape.side.length; i++) h = Math.imul(h ^ shape.side.charCodeAt(i), 16777619)
+        if (shape.kind === 'cuts') {
+          h = Math.imul(h ^ 4, 16777619)
+          h = Math.imul(h ^ shape.mask, 16777619)
+        } else {
+          h = Math.imul(h ^ (shape.kind === 'half' ? 0 : shape.kind === 'corner' ? 3 : shape.triangle === 'upper' ? 1 : 2), 16777619)
+          for (let i = 0; i < shape.side.length; i++) h = Math.imul(h ^ shape.side.charCodeAt(i), 16777619)
+        }
       }
       h = this.mixCut(h, this.ctx.slopeCuts.get(k))
       // A block under a run carries the ground up to the truss, and that filling is
@@ -441,14 +489,29 @@ export class GhostSystem extends SceneSystem {
    * panel itself, half a block in — the same place the brush will paint. A
    * **三角**'s slope is the other: it is a face of the piece, so the quad goes on
    * the sawn diagonal (`wedgeSlope`) rather than a metre above it on the cell's
-   * ceiling, where it would promise a surface that is not there.
+   * ceiling, where it would promise a surface that is not there. A compound cut
+   * may present two surfaces in one slot (an outer face and an inner one, or two
+   * rows), so it takes one quad per surface.
    */
   setFaceGhost(cells: Array<[number, number, number]>, face: Face, colour: number): void {
     if (cells.length === 0) {
       if (this.faceGhost) this.faceGhost.visible = false
       return
     }
-    const n = cells.length
+    // A compound cut can present two surfaces in one finish slot, so the instance
+    // list is built first and the pool is sized for every quad, not every cell.
+    const entries: Array<{ cell: [number, number, number]; shape: CellShape | undefined; patch: CutPaintPatch | null }> = []
+    for (const cell of cells) {
+      const shape = this.ctx.thinSides.get(packKey(cell[0], cell[1], cell[2]))
+      if (shape?.kind === 'cuts') {
+        for (const patch of cutPaintPatches(shape.mask, face)) entries.push({ cell, shape, patch })
+      } else entries.push({ cell, shape, patch: null })
+    }
+    if (entries.length === 0) {
+      if (this.faceGhost) this.faceGhost.visible = false
+      return
+    }
+    const n = entries.length
     if (this.faceGhost && n > this.faceGhostCapacity) {
       this.faceGhost.removeFromParent()
       this.faceGhost.geometry.dispose()
@@ -476,8 +539,7 @@ export class GhostSystem extends SceneSystem {
     const ay = new THREE.Vector3()
     const az = new THREE.Vector3()
     for (let i = 0; i < n; i++) {
-      const [x, y, z] = cells[i]
-      const shape = this.ctx.thinSides.get(packKey(x, y, z))
+      const { cell: [x, y, z], shape, patch } = entries[i]
       // A 半墙's panel turns its inner face into its own cell, half a block in, so the
       // paint ghost sits on the panel rather than on the boundary. A 三角's faces are
       // its own geometry, not the cell's, so its slope takes the diagonal itself (the
@@ -494,6 +556,23 @@ export class GhostSystem extends SceneSystem {
         q.setFromRotationMatrix(mat.makeBasis(ax, ay, az))
         // √2 across the fall, 1 m along the ridge: the slope's own 1 × √2 m.
         scale.set(Math.SQRT2, 1, 1)
+      } else if (patch !== null) {
+        // A compound cut: each surface sits on its own plane — the cell boundary
+        // for an outer face, the half-cell line for an inner one.
+        const off = patch.inner ? 0.005 : 0.505
+        q.setFromUnitVectors(FACE_UP, az.set(nx, ny, nz))
+        if (face === 'top' || face === 'bottom') {
+          pos.set(x + (patch.x0 + patch.x1) / 2, y + (patch.y0 + patch.y1) / 2, z + 0.5 + nz * off)
+          scale.set(patch.x1 - patch.x0, patch.y1 - patch.y0, 1)
+        } else if (nx !== 0) {
+          // East/west: local x runs vertically, local y along the cell's y.
+          pos.set(x + 0.5 + nx * off, y + (patch.x0 + patch.x1) / 2, z + 0.5)
+          scale.set(1, patch.x1 - patch.x0, 1)
+        } else {
+          // North/south: local x runs along the cell's x, local y vertically.
+          pos.set(x + (patch.x0 + patch.x1) / 2, y + 0.5 + ny * off, z + 0.5)
+          scale.set(patch.x1 - patch.x0, 1, 1)
+        }
       } else {
         const inset = isHalfWallShape(shape) && face === halfWallInnerFace(shape.side) ? HALF_WALL_T : 0
         const off = 0.505 - inset

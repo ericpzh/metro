@@ -55,7 +55,7 @@ function openAbove(x: number, y: number, z: number, solid: ReadonlySet<string>, 
   const key = cellKey(x, y, z + 1);
   if (!solid.has(key)) return true;
   const shape = shapes.get(key);
-  return shape?.kind === 'half' || shape?.kind === 'corner' || (shape?.kind === 'triangle' && shape.triangle === 'lower');
+  return shape?.kind === 'half' || shape?.kind === 'corner' || shape?.kind === 'cuts' || (shape?.kind === 'triangle' && shape.triangle === 'lower');
 }
 
 function cellShapes(cells: readonly Cell[]): Map<string, CellShape> {
@@ -74,6 +74,7 @@ function isFloorCell(cell: Cell, solid: ReadonlySet<string>, shapes: ReadonlyMap
     !isCeilingPlate(cell) &&
     shapes.get(cellKey(cell.x, cell.y, cell.z))?.kind !== 'half' &&
     shapes.get(cellKey(cell.x, cell.y, cell.z))?.kind !== 'corner' &&
+    shapes.get(cellKey(cell.x, cell.y, cell.z))?.kind !== 'cuts' &&
     openAbove(cell.x, cell.y, cell.z, solid, shapes) &&
     (floorSpeed(cell) > 0 || (finishOf(cell, 'top') === 'floor.track' && !solid.has(cellKey(cell.x, cell.y, cell.z - 1))))
   );

@@ -23,11 +23,11 @@ import { msg } from '../sim/i18n.ts'
 //
 // Pure data — no three, no DOM, no store.
 
-import { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
+import { blockReason, blockerLabels, cutCourseReason, equipmentReason, equipmentRefusalNotice, placementColliders } from '../sim/placement.ts'
 import type { BlockRefusal, EquipmentRefusal } from '../sim/placement.ts'
 import { blockIndex } from '../sim/blockIndex.ts'
 import type { BlockIndex } from '../sim/blockIndex.ts'
-import type { Cell, Module } from '../sim/types.ts'
+import { type Cell, type CellShape, type Module } from '../sim/types.ts'
 
 export type { BlockRefusal, EquipmentRefusal }
 export { blockReason, blockerLabels, equipmentReason, equipmentRefusalNotice } from '../sim/placement.ts'
@@ -112,6 +112,47 @@ export function checkBlockCells(station: PlacementDoc, cells: Array<[number, num
     addPreview(out, k, check.ok, check.reason, [x, y, z], check.blockers)
   }
   lastBlockPreview.set(occupied, { key, preview: out })
+  return out
+}
+
+/**
+ * The cut tool's preview: a 半墙 or 薄墙角 click may land on **empty** ground or
+ * **join** a cut cell whose quarters it leaves free, so unlike `checkBlockCells`
+ * a held cut cell is a real candidate. The merge and the refusal come from
+ * `cutCourseReason`, the same verdict `addWalls` applies on release.
+ */
+const lastCutPreview = new WeakMap<BlockIndex, { key: string; preview: PlacementPreview }>()
+
+export function checkCutCells(station: PlacementDoc, cells: Array<[number, number, number]>, shape: CellShape): PlacementPreview {
+  const occupied = blockIndex(station.cells, station.modules)
+  const shapeKey = `${shape.kind}:${shape.kind === 'triangle' ? `${shape.triangle}:${shape.side}` : shape.kind === 'cuts' ? shape.mask : shape.side}`
+  const key = `${shapeKey}|${cells.map(c => c.join(',')).join('|')}`
+  const cached = lastCutPreview.get(occupied)
+  if (cached?.key === key) return cached.preview
+  const out = newPreview()
+  const seen = new Set<string>()
+  for (const [x, y, z] of cells) {
+    const k = `${x},${y},${z}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    // The street is already floor. A cut stands on top of it (the tool's anchor
+    // is the air cell above the hit), so a cell the street itself holds is no
+    // candidate — the same rule the block preview uses.
+    if (occupied.ground(x, y, z) && !occupied.solid.has(k)) continue
+    const check = cutCourseReason(station.cells, station.modules, x, y, z, shape, occupied)
+    if (check.verdict === 'skip') continue
+    if (check.verdict === 'refuse') {
+      out.cells.push([x, y, z])
+      out.refused.set(k, check.reason)
+      out.blockedCells.push([x, y, z])
+      for (const b of check.blockers) if (!out.colliderIds.includes(b.id)) out.colliderIds.push(b.id)
+    } else {
+      out.accepted.push(k)
+      out.acceptedCells.push([x, y, z])
+      out.cells.push([x, y, z])
+    }
+  }
+  lastCutPreview.set(occupied, { key, preview: out })
   return out
 }
 

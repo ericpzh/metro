@@ -2189,6 +2189,23 @@ itself, which is a control the player cannot use taking a place among the ones t
 never becomes a patch or a run: one block, exactly where the click landed, whatever the pointer does
 afterwards. A *run* of walls is still the 墙 tool's job.
 
+**A cell may hold more than one cut piece, as long as their quarters do not overlap.** Each
+piece keeps a quarter of the tile — a 薄墙角 one, a 半墙 the two of its side — so the pieces a cell
+admits are exactly the packings of four quarters: up to four 薄墙角, two half walls on opposite
+sides, or one half wall and the two corners of its clear half. This is what lets a thin wall
+turn a corner: the north half wall plus the south-west corner is an L, with no second record at
+the coordinate. The pieces stay **tags on the one cell** (`wallCutMask` is the geometry), so a
+merge keeps the cell's finish, zone and room. `addWalls` merges a compatible cut, refuses an
+overlapping one (`blocked`), and leaves a full wall, a 三角 or a duplicated record alone — a
+solid non-cut cell is simply already there. The 方块 tool's preview asks the same
+`cutCourseReason` through `checkCutCells`: a free corner is accepted and drawn at the cell that
+already holds the wall (the old piece is already on screen), an overlapping corner is boxed red.
+The chunk mesher draws a three-quarter **L** and two opposite corners as the row rectangles they
+are (`shapeRectangles`), and a full union — four corners, or two opposite halves — as the whole
+block it has become. Paint offers the L's inner half-cell faces, and the zone rule still treats
+the exposed floor below it as floor. `wall-cuts.test.mjs` pins the packings, the merge/refusal,
+the preview, the meshes, paint and the save round trip.
+
 **生成墙壁 is off when the game opens.** The ring is the one thing the 方块 tool does that the player did
 not draw — it stands a 4 m wall around a surface they only laid the floor of — so it is no longer assumed:
 a dragged patch grows bare floor, and the ring is asked for on its own tile or with **Tab**, the key that

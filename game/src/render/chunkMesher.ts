@@ -19,7 +19,7 @@ import { HALF_WALL_T } from '../sim/constants.ts'
 import { DEFAULT_FINISH, FINISH_LIST, RAMP_SOFFIT_FINISH } from '../sim/finishes.ts'
 import { rampSurfaceRegions, rampSurfaceHeight } from './rampSurfaceMesh.ts'
 import type { SlopeCut } from '../sim/openings.ts'
-import { isHalfWallShape, isTriangleShape, packKey as key, triangleSlopeFace } from '../sim/types.ts'
+import { isHalfWallShape, isTriangleShape, packKey as key, shapeRectangles, triangleSlopeFace } from '../sim/types.ts'
 import type { Cell, CellShape, Face, FinishId, TriangleKind, TriSide, WallSide } from '../sim/types.ts'
 
 /** Finish id -> a small dense index, so a hot loop never does a string Map get. */
@@ -272,6 +272,9 @@ function buildProfile(look: Look, inset?: BlockInset): Profile {
   if(!inset)blockProfiles[mask]=profile
   return profile
 }
+
+/** Scratch for the one or two cross-sections a cell draws; the mesher is synchronous. */
+const sectionScratch: Profile[] = []
 
 /** The outline a profile walks, for a caller that needs the polygon rather than the sides. */
 const profileOutlines = new WeakMap<Profile, Pt[]>()
@@ -659,6 +662,10 @@ export function meshChunk(
     if (shape === undefined) return true
     if (shape.kind === 'triangle') return shape.side === facing
     if (shape.kind === 'corner') return false
+    // A compound cut covers at most the quarters it keeps, never the whole face:
+    // leave the neighbour's face drawn. Where the two pieces do meet, both faces
+    // are inside the union and invisible.
+    if (shape.kind === 'cuts') return false
     if (shape.side === facing) return true
     // A panel hugs `side`; a facing across the run is along its ridge. Two
     // courses of one run share that plane through their own thickness, so it is
@@ -715,11 +722,11 @@ export function meshChunk(
     const ownShape = thin?.get(key(x, y, z))
     if (!up) {
       const over = thin?.get(above)
-      if ((over?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === over.side)) || (over?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === over.side)) || (over?.kind === 'triangle' && over.triangle !== 'upper')) up = true
+      if (over?.kind === 'cuts' || (over?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === over.side)) || (over?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === over.side)) || (over?.kind === 'triangle' && over.triangle !== 'upper')) up = true
     }
     if (!down) {
       const under = thin?.get(key(x, y, z - 1))
-      if ((under?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === under.side)) || (under?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === under.side)) || (under?.kind === 'triangle' && under.triangle !== 'lower')) down = true
+      if (under?.kind === 'cuts' || (under?.kind === 'corner' && !(ownShape?.kind === 'corner' && ownShape.side === under.side)) || (under?.kind === 'half' && !(ownShape?.kind === 'half' && ownShape.side === under.side)) || (under?.kind === 'triangle' && under.triangle !== 'lower')) down = true
     }
     // Sides cull only against a covering block (`coversSide`): a full block, or
     // a wedge whose full-height face is the interface. A wedge's thin edge or
@@ -800,20 +807,28 @@ export function meshChunk(
       })
       continue
     }
-    let built: Profile
+    /**
+     * The cross-sections this cell draws. A whole block, a 半墙 and a 薄墙角 are one
+     * profile. A compound cut (`cuts`) is the union of whole quarter-rows, and each
+     * row is a rectangle the same profile builder already knows: the shared edge
+     * between two rows lies inside the union, so drawing both of their profiles is
+     * exact — the faces they share are hidden inside the piece.
+     */
+    const sections = sectionScratch
+    sections.length = 0
     if (filled && cut !== undefined && cut.half !== undefined) {
-      built = buildTrussProfile(cut.axis, cut.half)
+      sections.push(buildTrussProfile(cut.axis, cut.half))
     } else if (thinShape?.kind === 'corner') {
       const east = thinShape.side === 'e' || thinShape.side === 's'
       const north = thinShape.side === 'n' || thinShape.side === 'e'
-      built = buildProfile({ e: E, w: W, n: N, s: S }, { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 })
+      sections.push(buildProfile({ e: E, w: W, n: N, s: S }, { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 }))
     } else if (isHalfWallShape(thinShape)) {
-      built = buildThinProfile(thinShape.side, E, W, N, S)
+      sections.push(buildThinProfile(thinShape.side, E, W, N, S))
+    } else if (thinShape?.kind === 'cuts') {
+      for (const rect of shapeRectangles(thinShape)) sections.push(buildProfile({ e: E, w: W, n: N, s: S }, rect))
     } else {
-      built = buildProfile({ e: E, w: W, n: N, s: S }, insets?.get(k))
+      sections.push(buildProfile({ e: E, w: W, n: N, s: S }, insets?.get(k)))
     }
-    const edges = built.edges
-    const shape = profileOutline(built)
 
     const nearSlope = cut !== undefined || slope?.has(key(x + 1, y, z)) || slope?.has(key(x - 1, y, z)) || slope?.has(key(x, y + 1, z)) || slope?.has(key(x, y - 1, z))
     const neighbours = (nearSlope ? [[1, 0], [-1, 0], [0, 1], [0, -1]] : []).flatMap(([dx, dy]) => {
@@ -830,71 +845,80 @@ export function meshChunk(
     if (cut !== undefined || neighbours.length > 0) {
       const topAo=topAoAt(isSolid,x,y,z)
       const surface: SlopeCut = cut ?? { axis: 'x', lo: 1, hi: 1, patches: [] }
-      const regions = rampSurfaceRegions(shape, surface, neighbours)
-      for (const region of regions) {
-        const poly = region.polygon
-        const height = region.height
-        const cxm = poly.reduce((v, p) => v + p.x, 0) / poly.length
-        const cym = poly.reduce((v, p) => v + p.y, 0) / poly.length
-        if (height(cxm, cym) <= 1e-9) continue
-        const gx = height(cxm + 1e-5, cym) - height(cxm - 1e-5, cym)
-        const gy = height(cxm, cym + 1e-5) - height(cxm, cym - 1e-5)
-        const norm = Math.hypot(gx, gy, 2e-5)
-        const normal: [number, number, number] = [-gx / norm, -gy / norm, 2e-5 / norm]
-        for (let i = 0; i < poly.length; i++) {
-          const p = poly[i], q = poly[(i + 1) % poly.length]
-          const hp = height(p.x, p.y), hq = height(q.x, q.y)
-          // A cut exposes its cap even if the uncut cell above is solid.
-          if (up || height(cxm, cym) < 1 - 1e-9) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + height(cxm, cym)], [x + p.x, y + p.y, z + hp], [x + q.x, y + q.y, z + hq], normal, topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
-          if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
-          const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy)
-          if (len < 1e-9) continue
-          // Profiles are counterclockwise; the right normal points outside.
-          const nx = dy / len, ny = -dx / len
-          const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2
-          const cellBoundary = mx < 1e-8 || mx > 1 - 1e-8 || my < 1e-8 || my > 1 - 1e-8
-          const profileEdge = edges.find(e => {
-            const ex = e.to.x - e.from.x, ey = e.to.y - e.from.y
-            return Math.abs(ex * (my - e.from.y) - ey * (mx - e.from.x)) < 1e-8 &&
-              mx >= Math.min(e.from.x, e.to.x) - 1e-8 && mx <= Math.max(e.from.x, e.to.x) + 1e-8 &&
-              my >= Math.min(e.from.y, e.to.y) - 1e-8 && my <= Math.max(e.from.y, e.to.y) + 1e-8
-          })
-          const external = profileEdge !== undefined
-          if (external && !profileEdge.exposed) continue
-          const otherHeight = (px: number, py: number): number => {
-            if (!external) return rampSurfaceHeight(surface, px, py)
-            if (!cellBoundary) return 0
-            const dx = Math.round(nx), dy = Math.round(ny)
-            if (!isSolid(x + dx, y + dy, z)) return 0
-            const other = slope?.get(key(x + dx, y + dy, z))
-            return other ? rampSurfaceHeight(other, px - dx, py - dy) : 1
+      for (const built of sections) {
+        const edges = built.edges
+        const regions = rampSurfaceRegions(profileOutline(built), surface, neighbours)
+        for (const region of regions) {
+          const poly = region.polygon
+          const height = region.height
+          const cxm = poly.reduce((v, p) => v + p.x, 0) / poly.length
+          const cym = poly.reduce((v, p) => v + p.y, 0) / poly.length
+          if (height(cxm, cym) <= 1e-9) continue
+          const gx = height(cxm + 1e-5, cym) - height(cxm - 1e-5, cym)
+          const gy = height(cxm, cym + 1e-5) - height(cxm, cym - 1e-5)
+          const norm = Math.hypot(gx, gy, 2e-5)
+          const normal: [number, number, number] = [-gx / norm, -gy / norm, 2e-5 / norm]
+          for (let i = 0; i < poly.length; i++) {
+            const p = poly[i], q = poly[(i + 1) % poly.length]
+            const hp = height(p.x, p.y), hq = height(q.x, q.y)
+            // A cut exposes its cap even if the uncut cell above is solid.
+            if (up || height(cxm, cym) < 1 - 1e-9) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + height(cxm, cym)], [x + p.x, y + p.y, z + hp], [x + q.x, y + q.y, z + hq], normal, topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
+            if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
+            const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy)
+            if (len < 1e-9) continue
+            // Profiles are counterclockwise; the right normal points outside.
+            const nx = dy / len, ny = -dx / len
+            const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2
+            const cellBoundary = mx < 1e-8 || mx > 1 - 1e-8 || my < 1e-8 || my > 1 - 1e-8
+            const profileEdge = edges.find(e => {
+              const ex = e.to.x - e.from.x, ey = e.to.y - e.from.y
+              return Math.abs(ex * (my - e.from.y) - ey * (mx - e.from.x)) < 1e-8 &&
+                mx >= Math.min(e.from.x, e.to.x) - 1e-8 && mx <= Math.max(e.from.x, e.to.x) + 1e-8 &&
+                my >= Math.min(e.from.y, e.to.y) - 1e-8 && my <= Math.max(e.from.y, e.to.y) + 1e-8
+            })
+            const external = profileEdge !== undefined
+            if (external && !profileEdge.exposed) continue
+            const otherHeight = (px: number, py: number): number => {
+              if (!external) return rampSurfaceHeight(surface, px, py)
+              if (!cellBoundary) return 0
+              const dx = Math.round(nx), dy = Math.round(ny)
+              if (!isSolid(x + dx, y + dy, z)) return 0
+              const other = slope?.get(key(x + dx, y + dy, z))
+              return other ? rampSurfaceHeight(other, px - dx, py - dy) : 1
+            }
+            const outside = otherHeight(mx + nx * 1e-7, my + ny * 1e-7)
+            if (height(mx, my) <= outside + 1e-8) continue
+            const lp = otherHeight(p.x + nx * 1e-7 + dx * 1e-7, p.y + ny * 1e-7 + dy * 1e-7)
+            const lq = otherHeight(q.x + nx * 1e-7 - dx * 1e-7, q.y + ny * 1e-7 - dy * 1e-7)
+            pushQuad(builderForIndex(sideI[sideOf(nx, ny)]), [x + p.x, y + p.y, z + Math.min(hp, lp)], [x + q.x, y + q.y, z + Math.min(hq, lq)], [x + q.x, y + q.y, z + hq], [x + p.x, y + p.y, z + hp], [nx, ny, 0], [0.8, 0.8, 0.8, 0.8], 0, 0, len, Math.max(hp, hq))
           }
-          const outside = otherHeight(mx + nx * 1e-7, my + ny * 1e-7)
-          if (height(mx, my) <= outside + 1e-8) continue
-          const lp = otherHeight(p.x + nx * 1e-7 + dx * 1e-7, p.y + ny * 1e-7 + dy * 1e-7)
-          const lq = otherHeight(q.x + nx * 1e-7 - dx * 1e-7, q.y + ny * 1e-7 - dy * 1e-7)
-          pushQuad(builderForIndex(sideI[sideOf(nx, ny)]), [x + p.x, y + p.y, z + Math.min(hp, lp)], [x + q.x, y + q.y, z + Math.min(hq, lq)], [x + q.x, y + q.y, z + hq], [x + p.x, y + p.y, z + hp], [nx, ny, 0], [0.8, 0.8, 0.8, 0.8], 0, 0, len, Math.max(hp, hq))
         }
       }
       continue
     }
 
-    // Ordinary uncut cells keep the original profile and face culling path.
-    for (let i = 0; i < edges.length; i++) {
-      const e = edges[i]
-      if (!e.exposed) continue
-      const p = shape[i], q = shape[(i + 1) % shape.length]
-      const ao = wallAo(isSolid, x, y, z, e.nx, e.ny)
-      pushQuad(builderForIndex(sideI[sideOf(e.nx, e.ny)]), [x + p.x, y + p.y, z], [x + q.x, y + q.y, z], [x + q.x, y + q.y, z + 1], [x + p.x, y + p.y, z + 1], [e.nx, e.ny, 0], [ao, ao, ao, ao], 0, 0, Math.hypot(q.x - p.x, q.y - p.y), 1)
-    }
-    const cxm = cxCenter(shape), cym = cyCenter(shape)
-    // Every triangle in this cap uses the same cell-local AO value. The
-    // sixteen neighbour votes must not be repeated for each fan triangle.
-    const topAo=up?topAoAt(isSolid,x,y,z):0
-    for (let i = 0; i < shape.length; i++) {
-      const p = shape[i], q = shape[(i + 1) % shape.length]
-      if (up) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + 1], [x + p.x, y + p.y, z + 1], [x + q.x, y + q.y, z + 1], [0, 0, 1], topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
-      if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
+    // Ordinary uncut cells keep the original profile and face culling path. A
+    // compound cut walks its rows here: each row is an exact rectangle of the
+    // union, and their shared edge is inside the piece.
+    for (const built of sections) {
+      const edges = built.edges
+      const shape = profileOutline(built)
+      for (let i = 0; i < edges.length; i++) {
+        const e = edges[i]
+        if (!e.exposed) continue
+        const p = shape[i], q = shape[(i + 1) % shape.length]
+        const ao = wallAo(isSolid, x, y, z, e.nx, e.ny)
+        pushQuad(builderForIndex(sideI[sideOf(e.nx, e.ny)]), [x + p.x, y + p.y, z], [x + q.x, y + q.y, z], [x + q.x, y + q.y, z + 1], [x + p.x, y + p.y, z + 1], [e.nx, e.ny, 0], [ao, ao, ao, ao], 0, 0, Math.hypot(q.x - p.x, q.y - p.y), 1)
+      }
+      const cxm = cxCenter(shape), cym = cyCenter(shape)
+      // Every triangle in this cap uses the same cell-local AO value. The
+      // sixteen neighbour votes must not be repeated for each fan triangle.
+      const topAo=up?topAoAt(isSolid,x,y,z):0
+      for (let i = 0; i < shape.length; i++) {
+        const p = shape[i], q = shape[(i + 1) % shape.length]
+        if (up) pushTri(builderForIndex(topI), [x + cxm, y + cym, z + 1], [x + p.x, y + p.y, z + 1], [x + q.x, y + q.y, z + 1], [0, 0, 1], topAo, [[cxm, cym], [p.x, p.y], [q.x, q.y]])
+        if (down) pushTri(builderForIndex(bottomI), [x + cxm, y + cym, z], [x + q.x, y + q.y, z], [x + p.x, y + p.y, z], [0, 0, -1], 0.6, [[cxm, cym], [q.x, q.y], [p.x, p.y]])
+      }
     }
   }
 

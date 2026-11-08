@@ -125,6 +125,19 @@ export function halfWallTag(side: WallSide): string {
   return `${HALF_WALL}:${side}`
 }
 
+/**
+ * Tag prefix on a **薄墙角** course: `half-corner:n`. The corner keeps the quarter
+ * of its cell at that compass point — `n` is the north-west quarter, `e` the
+ * north-east, `s` the south-east and `w` the south-west — so a run of them turns a
+ * thin wall through 90° against a 半墙 or another corner, without the two panels
+ * having to overlap.
+ */
+export const HALF_CORNER = 'half-corner'
+
+export function halfCornerTag(side: WallSide): string {
+  return `${HALF_CORNER}:${side}`
+}
+
 const WALL_SIDES: readonly WallSide[] = ['n', 'e', 's', 'w']
 
 /** The side a 半墙 cell's panel hugs, or null for any other block. */
@@ -208,33 +221,186 @@ export function triangleOf(c: { tags?: string[] }): { kind: TriangleKind; side: 
   return null
 }
 
+/* ------------------------------------------- cut pieces sharing one cell (§4.1) */
+
+/**
+ * One cut piece laid into a cell: a **半墙** panel keeping half of the tile, or a
+ * **薄墙角** keeping one quarter.
+ *
+ * A cell used to hold exactly one cut piece. It may now hold several, as long as
+ * their quarters do not overlap (`wallCutMask`): a 半墙 and the two corners of its
+ * free half, four corners, or two half walls on opposite sides. Two pieces that
+ * would share a quarter collide and are refused. The mask is the geometry; the
+ * tags are what the document stores, so a save keeps the pieces it was given.
+ */
+export type WallCut = { kind: 'half' | 'corner'; side: WallSide }
+
+/**
+ * The four quarters of a cell, as a four-bit mask, running clockwise from the
+ * north-west quarter: **NW (n corner), NE (e corner), SE (s corner), SW (w
+ * corner)**. A 半墙 keeps the two quarters of the half its side names; a 薄墙角
+ * keeps the one its side names.
+ */
+const CORNER_MASK: Record<WallSide, number> = { n: 0b0001, e: 0b0010, s: 0b0100, w: 0b1000 }
+const HALF_MASK: Record<WallSide, number> = { n: 0b0011, e: 0b0110, s: 0b1100, w: 0b1001 }
+
+/** The quarters a **半墙** keeps on `side`: the half of the tile it is flush to. */
+export function halfWallMask(side: WallSide): number {
+  return HALF_MASK[side]
+}
+
+/** The quarter a **薄墙角** keeps on `side` (north-west, north-east, south-east, south-west). */
+export function halfCornerMask(side: WallSide): number {
+  return CORNER_MASK[side]
+}
+
+/** Every cut piece a cell's tags name, in tag order and de-duplicated. */
+export function wallCutPieces(c: { tags?: string[] }): WallCut[] {
+  const tags = c.tags
+  if (!tags) return []
+  const out: WallCut[] = []
+  for (const t of tags) {
+    const kind = t.startsWith(`${HALF_WALL}:`) ? 'half' : t.startsWith(`${HALF_CORNER}:`) ? 'corner' : null
+    if (kind === null) continue
+    const at = t.indexOf(':')
+    const side = t.slice(at + 1) as WallSide
+    if (!WALL_SIDES.includes(side)) continue
+    if (!out.some(p => p.kind === kind && p.side === side)) out.push({ kind, side })
+  }
+  return out
+}
+
+/** The quarters a cell's cut tags fill, as a four-bit mask. Zero for a cell with no cut tags. */
+export function wallCutMask(c: { tags?: string[] }): number {
+  const tags = c.tags
+  if (!tags) return 0
+  let mask = 0
+  for (const t of tags) {
+    if (t.startsWith(`${HALF_WALL}:`)) {
+      const side = t.slice(HALF_WALL.length + 1) as WallSide
+      if (WALL_SIDES.includes(side)) mask |= HALF_MASK[side]
+    } else if (t.startsWith(`${HALF_CORNER}:`)) {
+      const side = t.slice(HALF_CORNER.length + 1) as WallSide
+      if (WALL_SIDES.includes(side)) mask |= CORNER_MASK[side]
+    }
+  }
+  return mask
+}
+
+/**
+ * A mask's shape, normalized so the renderer and the brush see the simplest piece:
+ * one quarter is a **薄墙角**, two adjacent quarters are the **半墙** they make,
+ * all four quarters are a whole block (null), and the two genuinely compound
+ * arrangements — three quarters (an L) and two opposite quarters (two separate
+ * columns) — are `cuts`.
+ */
+export function shapeFromCutMask(mask: number): CellShape | null {
+  if (mask === 0 || mask === 0b1111) return null
+  if (mask === HALF_MASK.n || mask === HALF_MASK.e || mask === HALF_MASK.s || mask === HALF_MASK.w) {
+    const side = mask === HALF_MASK.n ? 'n' : mask === HALF_MASK.e ? 'e' : mask === HALF_MASK.s ? 's' : 'w'
+    return { kind: 'half', side }
+  }
+  if ((mask & (mask - 1)) === 0) {
+    const side = mask === CORNER_MASK.n ? 'n' : mask === CORNER_MASK.e ? 'e' : mask === CORNER_MASK.s ? 's' : 'w'
+    return { kind: 'corner', side }
+  }
+  return { kind: 'cuts', mask }
+}
+
 /**
  * Every block that is **not** a full cell, by packed cell key → the shape it draws
- * (`render/chunkMesher.ts`): a 半墙 panel or a 三角 wedge. One list, so the mesher,
- * the build ghost and the paint brush cannot disagree about which cells are cut.
+ * (`render/chunkMesher.ts`): a 半墙 panel, a 薄墙角 quarter, the compound `cuts`
+ * arrangement, or a 三角 wedge. One list, so the mesher, the build ghost and the
+ * paint brush cannot disagree about which cells are cut.
  */
 export type CellShape =
   | { kind: 'half'; side: WallSide }
   | { kind: 'corner'; side: WallSide }
+  /** Two or three quarters with no rectangle to normalize to (see `shapeFromCutMask`). */
+  | { kind: 'cuts'; mask: number }
   | { kind: 'triangle'; triangle: TriangleKind; side: TriSide }
 
-/** Horizontal bounds of a rectangular cut piece, in cell coordinates. */
+/** The quarters a shape fills. A triangle is measured in elevation, not quarters. */
+export function shapeCutMask(shape: CellShape | null | undefined): number {
+  if (!shape) return 0
+  if (shape.kind === 'half') return HALF_MASK[shape.side]
+  if (shape.kind === 'corner') return CORNER_MASK[shape.side]
+  if (shape.kind === 'cuts') return shape.mask
+  return 0
+}
+
+/** A rectangle in a cell's own 1 m plan, in cell-local coordinates. */
+export interface CutRect {
+  x0: number
+  x1: number
+  y0: number
+  y1: number
+}
+
+/**
+ * A mask as whole rows of quarters: at most two rectangles, north row then south
+ * row. Each row is contiguous because a row only has two quarters, so this is the
+ * exact union — no seam, no overlap — and the renderer can draw every compound
+ * arrangement with rectangles it already understands.
+ */
+export function cutRectangles(mask: number): CutRect[] {
+  const out: CutRect[] = []
+  const north = mask & HALF_MASK.n
+  if (north !== 0) out.push({ x0: north & CORNER_MASK.n ? 0 : 0.5, x1: north & CORNER_MASK.e ? 1 : 0.5, y0: 0.5, y1: 1 })
+  const south = mask & HALF_MASK.s
+  if (south !== 0) out.push({ x0: south & CORNER_MASK.w ? 0 : 0.5, x1: south & CORNER_MASK.s ? 1 : 0.5, y0: 0, y1: 0.5 })
+  return out
+}
+
+/** The rectangles a shape draws, or none for a wedge. A full cell is one rectangle. */
+export function shapeRectangles(shape: CellShape | null | undefined): CutRect[] {
+  if (!shape) return [{ x0: 0, x1: 1, y0: 0, y1: 1 }]
+  if (shape.kind === 'triangle') return []
+  return cutRectangles(shapeCutMask(shape))
+}
+
+/** Horizontal bounds of a cut piece's quarters, in cell coordinates. */
 export function wallShapeBounds(shape: CellShape | null | undefined): { x0: number; x1: number; y0: number; y1: number } | null {
   if (!shape || shape.kind === 'triangle') return null
   if (shape.kind === 'half') return {
     x0: shape.side === 'e' ? 0.5 : 0, x1: shape.side === 'w' ? 0.5 : 1,
     y0: shape.side === 'n' ? 0.5 : 0, y1: shape.side === 's' ? 0.5 : 1,
   }
-  const east = shape.side === 'e' || shape.side === 's'
-  const north = shape.side === 'n' || shape.side === 'e'
-  return { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 }
+  if (shape.kind === 'corner') {
+    const east = shape.side === 'e' || shape.side === 's'
+    const north = shape.side === 'n' || shape.side === 'e'
+    return { x0: east ? 0.5 : 0, x1: east ? 1 : 0.5, y0: north ? 0.5 : 0, y1: north ? 1 : 0.5 }
+  }
+  const rects = cutRectangles(shape.mask)
+  return {
+    x0: Math.min(...rects.map(r => r.x0)), x1: Math.max(...rects.map(r => r.x1)),
+    y0: Math.min(...rects.map(r => r.y0)), y1: Math.max(...rects.map(r => r.y1)),
+  }
+}
+
+/**
+ * The directions a cut mask looks into a quarter of its **own** cell: a filled
+ * quarter beside an empty one presents a face on the half-cell line. These are
+ * real surfaces of the piece, not of the cell — the same reason a 半墙's inner face
+ * is paint even when the next cell is solid.
+ */
+export function cutInnerFaces(mask: number): Face[] {
+  const out: Face[] = []
+  if (((mask & CORNER_MASK.n) !== 0 && (mask & CORNER_MASK.e) === 0) ||
+      ((mask & CORNER_MASK.w) !== 0 && (mask & CORNER_MASK.s) === 0)) out.push('e')
+  if (((mask & CORNER_MASK.e) !== 0 && (mask & CORNER_MASK.n) === 0) ||
+      ((mask & CORNER_MASK.s) !== 0 && (mask & CORNER_MASK.w) === 0)) out.push('w')
+  if (((mask & CORNER_MASK.w) !== 0 && (mask & CORNER_MASK.n) === 0) ||
+      ((mask & CORNER_MASK.s) !== 0 && (mask & CORNER_MASK.e) === 0)) out.push('n')
+  if (((mask & CORNER_MASK.n) !== 0 && (mask & CORNER_MASK.w) === 0) ||
+      ((mask & CORNER_MASK.e) !== 0 && (mask & CORNER_MASK.s) === 0)) out.push('s')
+  return out
 }
 
 /** The cut shape of a block, or null when it fills its whole cell. */
 export function shapeOf(c: { tags?: string[] }): CellShape | null {
-  for (const side of WALL_SIDES) if (c.tags?.includes(`half-corner:${side}`)) return { kind: 'corner', side }
-  const half = halfWallSide(c)
-  if (half !== null) return { kind: 'half', side: half }
+  const mask = wallCutMask(c)
+  if (mask !== 0) return shapeFromCutMask(mask)
   const tri = triangleOf(c)
   if (tri !== null) return { kind: 'triangle', triangle: tri.kind, side: tri.side }
   return null

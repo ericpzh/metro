@@ -54,7 +54,7 @@ import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
 import { OUTDOOR_SURFACE_HEIGHT } from './constants.ts'
-import { halfWallSide, isWallBlock, type Cell, type GlassVariant, type LineDef, type Module, type Vec3i, type WallSide } from './types.ts'
+import { HALF_WALL, halfWallMask, halfWallSide, isWallBlock, shapeCutMask, triangleOf, wallCutMask, type Cell, type CellShape, type GlassVariant, type LineDef, type Module, type Vec3i, type WallSide } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -1245,6 +1245,16 @@ export function wallMountMissing(cells: readonly Cell[], candidate: Module, modu
       // itself — the slab edge the panel bolts to — unless it is a dug hole.
       if (back === undefined && (nz !== GROUND_Z || groundHoleAt(cells, modules, bx + dx, by + dy))) return true
       if (back === undefined) continue
+      // A cut cell backs the panel only where it keeps the half the panel's back
+      // plane touches. A 半墙 facing away is not a backing; a full cell, or two
+      // corners filling that half, is. A lone 薄墙角 stays permissive, as it always
+      // was — it is a solid wall course, just not a whole cell wide.
+      const cut = wallCutMask(back)
+      if (cut !== 0) {
+        const neededHalf = halfWallMask(needed)
+        if ((cut & neededHalf) !== neededHalf && back.tags?.some(t => t.startsWith(`${HALF_WALL}:`))) return true
+        continue
+      }
       const side = halfWallSide(back)
       if (side !== null && side !== needed) return true
     }
@@ -1633,6 +1643,84 @@ export function blockReason(
     index.checks.set(key, check)
   }
   return check
+}
+
+/* --------------------------------------------------------- cut-piece courses */
+
+/** One solid cell record per coordinate, for the cut merge's own lookup. */
+const solidRecordCache = new WeakMap<readonly Cell[], Map<string, Cell[]>>()
+
+function solidRecordMap(cells: readonly Cell[]): Map<string, Cell[]> {
+  let map = solidRecordCache.get(cells)
+  if (!map) {
+    map = new Map()
+    for (const c of cells) {
+      if (c.fill !== 'solid') continue
+      const key = `${c.x},${c.y},${c.z}`
+      const list = map.get(key)
+      if (list) list.push(c)
+      else map.set(key, [c])
+    }
+    solidRecordCache.set(cells, map)
+  }
+  return map
+}
+
+/** What laying one cut course will do to its cell: build, merge, or refuse. */
+export interface CutCourseCheck {
+  cell: [number, number, number]
+  /**
+   * `skip` is a cell already filled by something that is not a cut piece — a full
+   * wall, an auto-wall ring course, a 三角 or a duplicate record. It is neither a
+   * candidate nor a refusal, exactly as a solid cell is for the block tool.
+   */
+  verdict: 'add' | 'merge' | 'skip' | 'refuse'
+  /** The block refusal, or `occupied` when a cut cell's quarters are in the way. */
+  reason: BlockRefusal | 'occupied' | ''
+  blockers: Module[]
+}
+
+/**
+ * May this **半墙** or **薄墙角** course be laid at `(x, y, z)`?
+ *
+ * A cut is still an ordinary solid cell, so it answers `blockReason` first: a
+ * reserved opening, a piece of equipment or a rail bed refuses it like any block.
+ * An **empty** cell is an ordinary add. A solid cell that already holds one cut
+ * record may instead **merge** when the new piece's quarters are free
+ * (`wallCutMask`): that is how a corner joins the half wall already standing in
+ * the cell, and how a cell comes to hold four corners, two opposite halves, or one
+ * half and the two corners of its clear half. Overlapping quarters are an
+ * `occupied` refusal; a wedge, a full block or a duplicated record is `skip` —
+ * already there, with nothing to add and nothing to complain about.
+ *
+ * The preview (`checkCutCells`) and the release (`addWalls`) both read this, so the
+ * cell the ghost draws the piece into is the cell the release tags.
+ */
+export function cutCourseReason(
+  cells: readonly Cell[],
+  modules: readonly Module[],
+  x: number,
+  y: number,
+  z: number,
+  shape: CellShape,
+  level?: ((z: number) => Set<string>) | BlockIndex,
+): CutCourseCheck {
+  const cell: [number, number, number] = [x, y, z]
+  const base = blockReason(cells, modules, x, y, z, level)
+  if (!base.ok) return { cell, verdict: 'refuse', reason: base.reason, blockers: base.blockers }
+  const key = `${x},${y},${z}`
+  const index = level && 'opening' in level ? level : undefined
+  const solid = index ? index.solid.has(key) : cells.some(c => c.fill === 'solid' && c.x === x && c.y === y && c.z === z)
+  if (!solid) return { cell, verdict: 'add', reason: '', blockers: [] }
+  const records = solidRecordMap(cells).get(key) ?? []
+  const existing = records.length === 1 ? records[0] : undefined
+  const existingMask = existing === undefined ? 0 : wallCutMask(existing)
+  const mask = shapeCutMask(shape)
+  if (existing === undefined || existingMask === 0 || triangleOf(existing) !== null || mask === 0) {
+    return { cell, verdict: 'skip', reason: '', blockers: [] }
+  }
+  if ((existingMask & mask) === 0) return { cell, verdict: 'merge', reason: '', blockers: [] }
+  return { cell, verdict: 'refuse', reason: 'occupied', blockers: [] }
 }
 
 /**
