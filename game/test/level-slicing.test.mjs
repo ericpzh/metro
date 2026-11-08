@@ -7,7 +7,8 @@
 // disappeared.
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { contactShadowVisible, crowdVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
+import { boundedLevelVisible, contactShadowVisible, crowdVisible, levelSide, levelVisible, sliceOptions, storeyNear, trainVisible, unsupportedAbove } from '../src/render/levelSlicing.ts'
+import { DENSE_STATION_MODULES, isDenseStation } from '../src/render/detailPolicy.ts'
 import { storeyBand } from '../src/sim/constants.ts'
 
 test('contact shadows use actual floor bands, including shifted editing grids', () => {
@@ -57,10 +58,61 @@ test('显示其他层 on ghosts the neighbours and keeps every unsupported plate
   assert.equal(levelVisible('above', { ...on, unsupported: true }), true)
 })
 
+test('an occupied storey hides every storey above it', () => {
+  // 天河公园 at -5 m: the -5 concourse is built, so nothing at 0 m (the street)
+  // or above may draw — not even the street outside the building. The crowd and
+  // trains already follow "active + below only"; this makes geometry match.
+  const occupied = { ghost: true, autoCeiling: false, hideAbove: true }
+  assert.equal(levelVisible('above', occupied), false, 'the floor over the room is its ceiling and is not drawn')
+  assert.equal(levelVisible('above', { ...occupied, unsupported: true }), false, 'the street outside is the same storey')
+  assert.equal(levelVisible('below', occupied), true, 'storeys below still ghost')
+  assert.equal(levelVisible('active', occupied), true)
+  // An empty storey keeps the ghost of the storeys above, so the editor can show
+  // where they are; 隐藏天花板 still lifts their ceilings there.
+  assert.equal(levelVisible('above', { ...occupied, hideAbove: false }), true)
+})
+
+test('only an occupied storey asks the slice to hide what is above it', () => {
+  const base = { ghost: true, autoCeiling: false, hideUI: false, cutaway: false }
+  assert.equal(sliceOptions({ ...base, built: true }).hideAbove, true)
+  assert.equal(sliceOptions({ ...base, built: false }).hideAbove, false)
+  assert.equal(sliceOptions({ ...base, built: undefined }).hideAbove, false)
+  assert.equal(sliceOptions({ ...base, built: true, ghost: false }).hideAbove, false, '显示其他层 off hides them anyway')
+  assert.equal(sliceOptions({ ...base, built: true, hideUI: true }).hideAbove, false, '隐藏UI draws every storey')
+  assert.equal(sliceOptions({ ...base, built: true, cutaway: true }).hideAbove, false, '剖切 only lets the plane hide')
+})
+
 test('隐藏天花板 off draws the ceiling of the storey above as well', () => {
   const noHide = { ghost: true, autoCeiling: false }
   assert.equal(levelVisible('above', { ...noHide, unsupported: false }), true)
   assert.equal(levelVisible('above', { ...noHide, unsupported: true }), true)
+})
+
+test('a dense station draws only the storeys next to the active one', () => {
+  // 天河公园's storeys are -20/-15/-10/-5/0. The ghost slice had no bound on
+  // document size, so from the -20 platform it drew four extra storeys (19,820
+  // draws at home). The rule: on a dense document the ghost slice is the active
+  // storey's neighbours, structure and furniture alike. Zoo and Tanwei are under
+  // the budget and keep the full ghost.
+  assert.equal(storeyNear([-15], -20), true)
+  assert.equal(storeyNear([-20], -20), true)
+  assert.equal(storeyNear([0], -20), false)
+  assert.equal(storeyNear([-20, -15], -20), true, 'a shaft that reaches a neighbour counts as near')
+  assert.equal(storeyNear([-10, 0], -20), false)
+  assert.equal(storeyNear(undefined, -20), true, 'an untagged piece belongs to the active storey')
+
+  const ghosted = { ghost: true, autoCeiling: false, hideAbove: false }
+  assert.equal(boundedLevelVisible('above', [-15], -20, ghosted, true), true, 'an empty storey\'s above-neighbour stays')
+  assert.equal(boundedLevelVisible('above', [-5], -20, ghosted, true), false, 'a far storey above is dropped')
+  assert.equal(boundedLevelVisible('below', [0], -20, ghosted, true), false, 'a far storey below is dropped')
+  assert.equal(boundedLevelVisible('active', [-20], -20, ghosted, true), true, 'the active storey is never bounded')
+  // A normal document keeps the full ghost slice it always had.
+  assert.equal(boundedLevelVisible('above', [-5], -20, ghosted, false), true)
+
+  assert.equal(DENSE_STATION_MODULES, 20_000)
+  assert.equal(isDenseStation(4_290), false, 'zoo')
+  assert.equal(isDenseStation(9_697), false, 'tanwei')
+  assert.equal(isDenseStation(76_436), true, 'tianhe')
 })
 
 test('a fixture above the active storey is unsupported when its column starts there', () => {
@@ -126,8 +178,8 @@ test('隐藏UI and 剖切 ask for a slice with every storey drawn, no ceiling li
   // `applyLevel` skips the 35% ghost for it (and paints no ghost at all when a cut
   // is on — see `LevelSystem.applyLevel`).
   const plain = { ghost: true, autoCeiling: true, hideUI: false, cutaway: false }
-  assert.deepEqual(sliceOptions(plain), { ghost: true, autoCeiling: true }, 'untouched, the slice is the rail\'s')
-  const putAway = { ghost: true, autoCeiling: false }
+  assert.deepEqual(sliceOptions(plain), { ghost: true, autoCeiling: true, hideAbove: false }, 'untouched, the slice is the rail\'s')
+  const putAway = { ghost: true, autoCeiling: false, hideAbove: false }
   assert.deepEqual(sliceOptions({ ...plain, hideUI: true }), putAway)
   assert.deepEqual(sliceOptions({ ghost: true, autoCeiling: true, hideUI: true, cutaway: false }), putAway)
   // **剖切 puts the slice away too**, and that is the point of Q/E no longer

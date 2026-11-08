@@ -509,3 +509,33 @@ export function createMaterials(): MaterialSet {
     },
   }
 }
+
+/**
+ * A 35% ghost of `base` for 显示其他层, cached by the scene's material set.
+ * `depthWrite` is off so a ghost never occludes another ghost — the layers stack
+ * as translucent sheets and the active storey, drawn opaque and first, still
+ * wins every pixel it covers.
+ *
+ * Shared by the per-mesh level walk (`LevelSystem.dimOf`) and the instanced
+ * paving layer (`SurfaceBatches`): paving has no per-tile mesh for that walk to
+ * dress, so its batch asks here for the same ghost.
+ */
+export function ghostMaterial(base: THREE.Material, cache: Map<THREE.Material, THREE.Material>): THREE.Material {
+  let ghost = cache.get(base)
+  if (!ghost) {
+    ghost = base.clone()
+    const anyMat = ghost as THREE.MeshStandardMaterial
+    anyMat.transparent = true
+    anyMat.opacity = 0.35
+    anyMat.depthWrite = false
+    if (anyMat.color) anyMat.color = anyMat.color.clone().lerp(new THREE.Color(0x6b7480), 0.7)
+    if (anyMat.onBeforeCompile !== base.onBeforeCompile) anyMat.onBeforeCompile = base.onBeforeCompile
+    cache.set(base, ghost)
+  }
+  // **A clone follows its original.** The cache is keyed by the material it came
+  // from and is handed out again on later walks, so it has to take the current
+  // clipping planes with it: left holding the planes it was cloned with, it is a
+  // ghost that stays cut after the cut is switched off, or one that never is.
+  ghost.clippingPlanes = base.clippingPlanes ?? null
+  return ghost
+}

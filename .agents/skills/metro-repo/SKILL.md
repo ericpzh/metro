@@ -115,14 +115,14 @@ fleet on arrival, build one on demand when it arrives earlier, and retain only t
 latest train frame while the editor is suspended. Compare submitted-frame intervals
 as well as RAFs; see
 [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
-
 Use `npm run bench:demo-load` to measure opening each demo and its 爆炸视图, with
 per-milestone JS heap and OS working sets; keep the boundary, held milestones and
 deferred-opening note aligned with
 [opening a station and its exploded view](references/performance.md#opening-a-station-and-its-exploded-view-per-demo).
 For the three demos at Low / normal view / 16×, target at least 15 FPS 1% low over
-the first 30 seconds. Zoo and Tanwei clear it; Tianhe Park is a measured miss —
-see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+the first 30 seconds. Zoo and Tanwei clear it; Tianhe Park averages ~25 FPS but its
+tail still misses the 1% low target — see
+[simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
 Match canvas size and pixel ratio as well as the view;
 `BENCH_CANVAS_SIZE` and `BENCH_PIXEL_RATIO` reproduce the reported workload.
 Arrival-correlated stalls can come from TV service-card uploads; periodic stalls
@@ -143,7 +143,12 @@ Tanwei `(16,6,-1)` and `(18,14,-3)` gaps in `floor-geometry.test.mjs` and exerci
 the production scene with `tools/check-ceiling-wall-faces.mjs`; see the measured
 validation and limits in the [performance guide](references/performance.md).
 Hide ceiling is off by default in both the view store and scene; pin both defaults
-in `ground-visibility.test.mjs`. An untagged block one course below a plain upper floor remains in its own
+in `ground-visibility.test.mjs`. **显示其他层 ghosts only the storeys below the
+active one, and an occupied active storey hides everything above it** (the floor
+over a built room is its ceiling; 隐藏天花板 only has something to lift on an empty
+storey). On a dense document (20,000+ modules) the below-storey ghost is also
+bounded to the next storey (`boundedLevelVisible`, `DENSE_STATION_MODULES`); the
+small demos keep the full below ghost. An untagged block one course below a plain upper floor remains in its own
 five-metre storey, including where the upper floor is opened by a stair. Keep the
 ceiling classification and cache halo votes aligned; `ceiling-cells.test.mjs` and
 the `(79, -101, -11)` seam edit in `floor-geometry.test.mjs` pin its visibility

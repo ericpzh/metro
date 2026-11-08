@@ -72,8 +72,9 @@ test('paving instance buckets group by tile size and skip hidden or sliced tiles
   assert.equal(equipmentBatchTileSize('high'), 16)
   assert.equal(equipmentBatchTileSize('low'), 64)
   const buckets = surfaceBuckets(sources, 16)
-  assert.deepEqual([...buckets.keys()].sort(), ['lawn|0,0', 'lawn|1,0'], '16 m buckets hold the tiles that draw together')
-  assert.deepEqual(buckets.get('lawn|0,0')?.map(source => source.id), ['a', 'b'])
+  assert.deepEqual([...buckets.keys()].sort(), ['lawn|0|0,0', 'lawn|0|1,0'], '16 m buckets hold the tiles that draw together')
+  assert.deepEqual(buckets.get('lawn|0|0,0')?.map(source => source.id), ['a', 'b'])
+  assert.equal(sources.every(source => source.level === 0), true, 'each tile carries the storey its ghost material is chosen from')
 })
 
 test('paving draws from instances and keeps no per-tile mesh or contact blob', () => {
@@ -88,6 +89,7 @@ test('paving draws from instances and keeps no per-tile mesh or contact blob', (
     const ctx = {
       scene: new THREE.Scene(), mats: { blob, finish: () => mats.white }, modelMats: mats, ads: {},
       groundOf: new Map(), levelBase: 0, storeyHeight: 5, ownedMats: [],
+      dimMats: new Map(), clearMats: new Map(),
       activeZ: 0, ghost: false, hideGround: false, hideUI: false, cutaway: false,
       autoCeiling: false, hideWalls: false, hideRoof: false, graphicsQuality: 'high', detailEnabled: true,
       stationData: station,
@@ -111,6 +113,20 @@ test('paving draws from instances and keeps no per-tile mesh or contact blob', (
     assert.equal(meshes[0].isInstancedMesh, true)
     assert.deepEqual(meshes[0].userData.surfaceModuleIds, ['lawn-probe'], 'the instance table resolves picking')
     assert.equal(meshes[0].userData.surfaceModuleType, 'lawn')
+
+    // A ghosted storey's paving has no per-tile mesh for the level walk to dress:
+    // the instanced bucket itself has to wear the 35% ghost, or the street carpet
+    // covers the concourse below at full opacity.
+    ctx.activeZ = -5; ctx.ghost = true
+    modules.syncBatches()
+    const ghosted = modules.surfaceMeshes()[0]
+    assert.notEqual(ghosted.material, mats.outdoorSurface, 'the ghosted street is not the opaque base material')
+    assert.equal(ghosted.material.opacity, 0.35)
+    assert.equal(ghosted.material.depthWrite, false, 'a ghost paving sheet never occludes the active storey')
+    assert.equal(mats.outdoorSurface.opacity, 1, 'the base paving stays opaque')
+    ctx.activeZ = 0
+    modules.syncBatches()
+    assert.equal(modules.surfaceMeshes()[0].material, mats.outdoorSurface, 'the active storey keeps the base paving')
     modules.surfaces.dispose()
   } finally {
     mats && disposeModelMaterials(mats)

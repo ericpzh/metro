@@ -854,41 +854,94 @@ separate clean timings, CPU sampling and GPU traces. Low / normal view / 16×
 targets at least 15 FPS 1% low over the first 30 seconds.
 
 Measured 2026-11-07 at Low / normal view / 16× for 30 s, DPR 1, 852 × 715 canvas,
-headless Chrome 156 on an i7-14700KF with an RTX 4080 SUPER (hardware ANGLE),
-production build from commit `e55b2956`,
+headless Chrome 156 on an i7-14700KF with an RTX 4080 SUPER (hardware ANGLE), on
+a production build of the working tree with the occupied-storey rule and the
+dense-station below bound (the build predates `cf2d9770`'s opening-instrumentation
+commit; the three demos were measured back to back on it),
 `BENCH_MODE=regular BENCH_QUALITY=low BENCH_SPEED=16 BENCH_SECONDS=30
 BENCH_DEMO=<demo> node tools/bench-sim-stalls.mjs`:
 
 | Demo | Cells | Station load | Submitted frames | Average FPS | 1% low FPS | Worst frame |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| Zoo | 14,066 | 8.4 s | 1,349 | 44.92 | 20.40 | 64.7 ms |
-| Tanwei | 16,725 | 12.6 s | 921 | 30.68 | 16.19 | 71.1 ms |
-| Tianhe Park | 151,852 | 37.7 s | 150 | 4.97 | 3.38 | 320.7 ms |
+| Zoo | 14,066 | 5.7 s | 1,795 | 59.81 | 35.55 | 45.2 ms |
+| Tanwei | 16,725 | 8.9 s | 1,252 | 41.70 | 23.65 | 53.2 ms |
+| Tianhe Park | 151,852 | 19.5 s | 750 | 25.00 | 11.38 | 103.1 ms |
 
-Zoo and Tanwei clear the 15 FPS 1% low target. Tianhe Park is a measured miss:
-all 150 of its submitted frames ran over 100 ms, and slow-frame attribution is
-`editor.animate` / `editor.renderFrame` (183–278 ms in the worst frames) with
-`editor.roads.update` at 14–32 ms and clock-plate repaint bursts, not the crowd
-update (4–8 ms). Its station load is also 3–4.5× the other demos. These are
-single-run numbers on one host: they are the cost of the 151k-cell document,
-not a target for the smaller demos.
+Zoo and Tanwei clear the 15 FPS 1% low target comfortably, up from 20.40 and
+16.19 before the occupied-storey rule. Tianhe Park's average is ~25 FPS but it
+still misses the strict 1% low target (11.38, one 103 ms frame in this run): its
+remaining cost is the active storey's platform-screen doors (about 2.7k of its
+~4.7k High-LOD draws, with per-module header and sticker textures that defeat the
+equipment batcher) and a 60–100 ms tail. The reports are
+`.preview/perf/sim-stalls/{zoo,tanwei,tianhe}-hide-above.json`; tail figures at
+this sample size are not a stable ranking.
+
+### Occupied storeys hide what is above them
+
+`显示其他层` used to ghost **every** storey above the active one. That covered
+the room being edited — at 天河公园's −5 m concourse the whole level-0 street
+(grass, paving, courts) drew over it, and 隐藏天花板 could not remove it because
+the street is a "plate with nothing under it" (its own exception). The crowd and
+the trains already followed "active + below only"; geometry now matches.
+
+Rules (`render/levelSlicing.ts`, `SliceOptions.hideAbove`):
+
+* **An occupied storey draws nothing above it.** `LevelSystem.applyLevel` derives
+  "occupied" from the chunk level's meshes (the generated street pass does not
+  count, so an empty level 0 still shows a canopy placed above it). The whole
+  storey above is hidden: structure, fixtures, roofs, unsupported street plates.
+* **An empty storey still ghosts the storeys above it**, so the editor can show
+  where they are; that is the only state where 隐藏天花板 has something to lift.
+* Below storeys keep ghosting — bounded to the next storey down on a dense
+  document (`DENSE_STATION_MODULES`).
+* 隐藏UI and 剖切 still draw the station whole.
+
+Measured effect on the same build: at −5 m with 显示其他层 on, draws fell from
+14,395 to 13,388 (the level-0 layer is ~1,000 of them; most street paving is one
+instanced draw, so the visual change is larger than the count). The default views
+improved far more: at High, home view, Zoo paused went 3,526 → 1,071 draws and
+25.65 → 60 FPS (capped), Tanwei 5,145 → 1,853 and 16.89 → 60 FPS, Tianhe Park
+5,272 → 4,743 and 24.80 → 26.2 FPS. At Low / 16× the targets moved 44.92/20.40 →
+59.81/35.55 (Zoo), 30.68/16.19 → 41.70/23.65 (Tanwei) and 24.7/11.9 → 25.00/11.38
+(Tianhe Park, within its tail noise — its active storey dominates). The rule is
+pinned in `test/level-slicing.test.mjs`; the scene walk is
+`LevelSystem.applyLevel`.
+
+### Dense-station below-storey budget
+
+`显示其他层` also had no bound on document size: a dense station ghosted every
+other storey's structure and furniture, and 天河公园's five storeys (from its
+−20 m platform home) drew 19,820 calls at High / 6.7 FPS (paused, home view,
+RTX 4080 SUPER). Probing the same scene with the ghosted storeys removed gave
+4,743 calls / 25.6 FPS, and with only neighbouring storeys kept 6,815 / 19.2 FPS.
+
+`DENSE_STATION_MODULES` (20,000, `render/detailPolicy.ts`) now bounds the ghost
+slice to the next storey for a document that large; `boundedLevelVisible`
+applies it to chunk meshes, fixture roots and the paving buckets, while 隐藏UI
+and 剖切 still draw every storey. Zoo and Tanwei (4,290 and 9,697 modules) keep
+the full below ghost they had. With the occupied-storey rule now removing
+everything above, the budget only limits distant **below** storeys; the 19,820 →
+5,272 numbers above were the earlier, above-included capture.
 
 ### Production browser benchmark, all three demos
 
 `npm run bench:browser` (production build, default High LOD, the editor's home
 view, 6 s phases) now measures Zoo, Tanwei and Tianhe Park sequentially. Measured
-2026-11-07 on the same host and build (DPR 1, 1384 × 805 window, hardware ANGLE):
+2026-11-07 back to back on the same build and host as the Low table (DPR 1,
+1384 × 805 window, hardware ANGLE). FPS is vsync-capped at 60:
 
 | Demo | Example load | Paused FPS | 16× FPS | Draws (paused / 16×) | 16× triangles |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Zoo | boot document | 25.65 | 23.48 | 3,526 / 3,575 | 2.96 M |
-| Tanwei | 11.0 s | 16.89 | 15.94 | 5,145 / 5,206 | 4.15 M |
-| Tianhe Park | 37.6 s | 4.32 | 5.11 | 19,820 / 19,822 | 5.30 M |
+| Zoo | boot document | 59.95 (cap) | 59.95 (cap) | 1,071 / 1,103 | 2.29 M |
+| Tanwei | 9.6 s | 59.95 (cap) | 56.29 | 1,853 / 1,915 | 3.37 M |
+| Tianhe Park | 20.1 s | 26.17 | 20.76 | 4,743 / 4,745 | 1.36 M |
 
-The Tianhe draw count is the outlier: almost four times Tanwei's and over five
-times Zoo's, with render submission at 170–325 ms per frame while the 16× crowd
-update itself stays at 0.4 ms. The 76k-module document's draw submission, not the
-crowd, is what holds the demo at single-digit FPS.
+All three were re-captured after the occupied-storey rule; the earlier,
+above-included build measured 25.65 / 23.48 (Zoo), 16.89 / 15.94 (Tanwei) and
+24.80 / 20.50 (Tianhe Park). The home view no longer draws the storeys over the
+opening level, which is why Zoo and Tanwei now cap on the paused and 16× phases
+and Tianhe Park lost ~530 of its draws. Load is dominated by the demo bundle and
+graph build, not by the slice.
 
 ### Tanwei Low at 1×
 

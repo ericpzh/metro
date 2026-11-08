@@ -13,8 +13,10 @@
 
 import * as THREE from 'three'
 import { levelSteps, STOREY_HEIGHT } from '../../../sim/constants.ts'
-import { contactShadowVisible, levelSide, levelVisible, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
+import { boundedLevelVisible, contactShadowVisible, levelSide, sliceOptions, trainVisible, unsupportedAbove } from '../../levelSlicing.ts'
 import type { SliceOptions } from '../../levelSlicing.ts'
+import { isDenseStation } from '../../detailPolicy.ts'
+import { ghostMaterial } from '../../materials.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { ChunkSystem } from './ChunkSystem.ts'
@@ -39,6 +41,8 @@ export class LevelSystem extends SceneSystem {
   /** The cut's plane while a cut is on, shared by every material this walk dresses. */
   private clip: THREE.Plane | null = null
   private lastAppliedView = ''
+  /** 显示其他层 on a dense document: distant storeys keep structure, not fixtures. */
+  private denseGhost = false
 
   private mapMaterials(
     materials: THREE.Material | THREE.Material[],
@@ -123,17 +127,30 @@ export class LevelSystem extends SceneSystem {
     if (key === this.ctx.levelKey) return
     const sameView = key === this.lastAppliedView
     this.lastAppliedView = key
+    this.denseGhost = isDenseStation(this.ctx.stationData?.modules?.length ?? 0)
     this.modules.restoreMovingModule()
     this.ctx.levelKey = key
+    // An occupied storey hides every storey above it (`SliceOptions.hideAbove`).
+    // The chunk groups are the built geometry of each storey: a level with no
+    // meshes has nothing in it, so its storeys above still ghost as context. The
+    // generated street pass does not count — the ground is everywhere, and an
+    // empty level 0 must still show a canopy or roof placed above it.
+    const activeGroup = this.chunks.levelGroups.get(this.ctx.activeZ)
+    const activeBuilt = activeGroup !== undefined && activeGroup.children.some(child => {
+      const mesh = child as THREE.Mesh
+      return mesh.isMesh && mesh.userData.ground !== true
+    })
     // One record for the whole walk: what the view asks of the slice this frame.
     const slice = sliceOptions({
       ghost: this.ctx.ghost,
       autoCeiling: this.ctx.autoCeiling,
       hideUI: this.ctx.hideUI,
       cutaway: this.ctx.cutaway,
+      built: activeBuilt,
     })
     this.slice.ghost = slice.ghost
     this.slice.autoCeiling = slice.autoCeiling
+    this.slice.hideAbove = slice.hideAbove
     // **隐藏UI and 剖切 draw everything opaque**: they put the slice away, which is
     // the one thing a visibility flag could not do on its own — the 35% ghost
     // *material* the slice assigned a piece has to be undone. While a cut is on
@@ -188,7 +205,7 @@ export class LevelSystem extends SceneSystem {
         // A plate with nothing under it (the street outside, a canopy on its own
         // columns) survives 隐藏天花板; a supported slab is that room's ceiling.
         this.slice.unsupported = mesh.userData.float === true
-        mesh.visible = levelVisible(side, this.slice)
+        mesh.visible = boundedLevelVisible(side, [lz], this.ctx.activeZ, this.slice, this.denseGhost)
         if (!mesh.visible) continue
         // **A wall takes its `visible` flag from this branch, not from the walk
         // before it** — and the walk may have been the one that hid it (隐藏墙壁 with
@@ -267,7 +284,7 @@ export class LevelSystem extends SceneSystem {
       // that is itself above it — the fixture's `float`, so 隐藏天花板 keeps it.
       const ground = root.userData.groundBand as number | undefined
       this.slice.unsupported = unsupportedAbove(this.ctx.activeZ, ground)
-      root.visible = levelVisible(side, roof ? { ...this.slice, autoCeiling: false } : this.slice)
+      root.visible = boundedLevelVisible(side, zs, this.ctx.activeZ, roof ? { ...this.slice, autoCeiling: false } : this.slice, this.denseGhost)
     }
     if (!root.visible) return
     const clip = this.ctx.cutaway ? this.clip : null
@@ -373,23 +390,7 @@ export class LevelSystem extends SceneSystem {
    */
   dimOf(base: THREE.Material | THREE.Material[]): THREE.Material | THREE.Material[] {
     if (Array.isArray(base)) return this.mapMaterials(base, material => this.dimOf(material) as THREE.Material)
-    let d = this.ctx.dimMats.get(base)
-    if (!d) {
-      d = base.clone()
-      const anyMat = d as THREE.MeshStandardMaterial
-      anyMat.transparent = true
-      anyMat.opacity = 0.35
-      anyMat.depthWrite = false
-      if (anyMat.color) anyMat.color = anyMat.color.clone().lerp(new THREE.Color(0x6b7480), 0.7)
-      if (anyMat.onBeforeCompile !== base.onBeforeCompile) anyMat.onBeforeCompile = base.onBeforeCompile
-      this.ctx.dimMats.set(base, d)
-    }
-    // **A clone follows its original.** The cache is keyed by the material it came
-    // from and is handed out again on later walks, so it has to take the current
-    // clipping planes with it: left holding the planes it was cloned with, it is a
-    // ghost that stays cut after the cut is switched off, or one that never is.
-    d.clippingPlanes = base.clippingPlanes ?? null
-    return d
+    return ghostMaterial(base, this.ctx.dimMats)
   }
 
   /**

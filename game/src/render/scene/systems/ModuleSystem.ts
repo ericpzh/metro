@@ -19,6 +19,7 @@ import { batchStaticModule } from '../../batchStaticModule.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
 import { detailHeight } from '../../detailPolicy.ts'
+import { ghostMaterial } from '../../materials.ts'
 import { canRetainPaintedModules } from '../../retainPaintedModules.ts'
 import { retainedModuleIds, sameModuleMetadata, signBoardsOnlyChange, isEquipmentContentEdit } from '../../moduleDependencies.ts'
 import { groundWindow } from '../../../sim/ground.ts'
@@ -251,6 +252,12 @@ export class ModuleSystem extends SceneSystem {
         this.ctx.modelMats.outdoorSurface,
         SURFACE_BUCKET_SIZE,
         `${view}|${this.surfaceRevision}`,
+        {
+          activeZ: this.ctx.activeZ,
+          ghost: this.ctx.ghost,
+          straight: this.ctx.hideUI || this.ctx.cutaway,
+          ghostMaterial: base => ghostMaterial(base, this.ctx.dimMats),
+        },
       )
     }
     for (const root of this.moduleMeshes.children) {

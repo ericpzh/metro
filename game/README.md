@@ -1179,20 +1179,34 @@ four corners. The screen is closed by a mullion post standing on each seam.
 (on by default) is the slice: off, the edited storey is the *only* thing drawn — blocks, equipment,
 crowd and trains alike — in a plan, an elevation and a corner isometric; nothing from another storey
 leaks in through a "plate
-hanging in space" rule any more. With it on, the active storey stays crisp and every other storey is
-drawn as a 35% ghost that keeps its real depth, so a storey the active one covers is simply behind it
-and the depth test drops it: the ghost shows exactly where it does not block the depth being edited.
+hanging in space" rule any more. With it on, the active storey stays crisp and the storeys **below**
+it draw as a 35% ghost that keeps their real depth, which is how a lower floor shows through an
+opening or a stairwell. **Once the active storey has built geometry, nothing above it is drawn at
+all**: the floor over an occupied room is its ceiling, and a ghost of the street or plaza above
+covers the room being edited. That is the rule the crowd and the trains already followed
+(`crowdVisible` / `trainVisible`), now shared by every mesh and by the paving instances. An
+**empty** storey still ghosts the storeys above it, so the editor can show where they are; that is
+the only state where **隐藏天花板** (`H`, off by default) still lifts ceilings, keeping a plate with
+nothing under it (the street outside, a canopy on its own columns). On a **dense** document
+(20,000+ modules) the below-storey ghost is bounded to the storey next to the active one —
+`boundedLevelVisible` in that module — because a five-storey, 76k-module station otherwise drew
+four extra storeys by default (see the performance reference's dense-station ghost budget).
+隐藏UI and 剖切 still draw the station whole. The instanced 草坪 / 人行道 layer follows the same
+slice: `SurfaceBatches` keys each bucket by its storey and gives a ghosted storey's paving the
+35% ghost material, because those tiles are bare roots and the per-mesh material walk never reached
+their instanced mesh (the level-0 street used to cover a −5 m concourse as opaque grass).
 The pointer tools use that same slice: select, delete, move and 吸取 cannot target a module whose
 storey is hidden, including when a rail or fixture is found by its footprint instead of its drawn mesh.
 `CameraSystem` filters ray hits through every visible ancestor because Three's raycaster still tests
 objects marked invisible; coordinate-based select/picker/delete fallbacks ask the module system's
 current visibility before resolving a document module. `batching-lifecycle`, `delete-tool`, `move`,
 `pick-tool` and `select-agent` pin those paths.
-**隐藏天花板** (`H`, on by default) is the one piece of a storey *above* the active one that always
-draws, and only when nothing stands under it, so a room never wears its own ceiling and a top view
-looks into the room rather than onto its roof. The crowd follows the same `crowdVisible` rule — never
-one floating on a hidden floor — and the 剖切 clip applies to it too, so people no longer show
-through a slab. A consist is tagged with the storey its floor block is in (`storeyBand` of the rounded
+**隐藏天花板** (`H`, off by default) only comes into play on an **empty** storey: there the storeys
+above still ghost, and the toggle lifts the ceiling plates over the room while keeping a plate with
+nothing under it (the street outside, a canopy on its own columns). On an occupied storey the whole
+storey above is hidden outright, so the toggle has nothing to lift. The crowd follows the same
+`crowdVisible` rule — never one floating on a hidden floor — and the 剖切 clip applies to it too, so
+people no longer show through a slab. A consist is tagged with the storey its floor block is in (`storeyBand` of the rounded
 track surface), so a train berthed at the platform disappears with the platform and never hangs in the
 air above it. The nav cube only ever moves the camera: no face, corner, **Home** click, arrow or slider
 drag rewrites the slice behind the player's back.

@@ -22,20 +22,36 @@ export const SURFACE_BUCKET_SIZE = 64
 export interface SurfaceSource {
   id: string
   type: SurfaceType
+  /** The storey the tile stands on: 显示其他层 dresses a ghosted storey's paving. */
+  level: number
   matrix: THREE.Matrix4
+}
+
+/** The slice the paving layer dresses its buckets for. */
+export interface SurfaceSlice {
+  activeZ: number
+  /** 显示其他层, as the slice resolved it; 隐藏UI/剖切 pass `straight`. */
+  ghost: boolean
+  straight: boolean
+  /** The 35% ghost of a base material, cached by the scene's material set. */
+  ghostMaterial: (base: THREE.Material) => THREE.Material
 }
 
 interface Entry {
   ids: string[]
+  level: number
+  material: THREE.Material
   mesh: StaticInstances
 }
 
-/** Group visible tiles by finish and bucket width, in document order. */
+/** Group visible tiles by finish, storey and bucket width, in document order. */
 export function surfaceBuckets(sources: readonly SurfaceSource[], bucketSize: number): Map<string, SurfaceSource[]> {
   const buckets = new Map<string, SurfaceSource[]>()
   for (const source of sources) {
     const x = source.matrix.elements[12], y = source.matrix.elements[13]
-    const key = `${source.type}|${Math.floor(x / bucketSize)},${Math.floor(y / bucketSize)}`
+    // The storey is part of the key: one bucket wears one material, and a ghosted
+    // storey's paving needs the 35% ghost while the active storey's needs its own.
+    const key = `${source.type}|${source.level}|${Math.floor(x / bucketSize)},${Math.floor(y / bucketSize)}`
     const bucket = buckets.get(key)
     if (bucket) bucket.push(source)
     else buckets.set(key, [source])
@@ -66,7 +82,7 @@ export function visibleSurfaceSources(
     // matrix here is cheaper than walking the parent chain per tile, and a bare
     // tile root never carries a parent transform of its own.
     root.updateMatrix()
-    sources.push({ id: mod.id, type: mod.type, matrix: root.matrix })
+    sources.push({ id: mod.id, type: mod.type, level: (root.userData.levelZs as number[] | undefined)?.[0] ?? mod.z, matrix: root.matrix })
   }
   return sources
 }
@@ -77,6 +93,7 @@ export class SurfaceBatches {
   private entries = new Map<string, Entry>()
   private key: string | null = null
   private material: THREE.Material | null = null
+  private sliceKey = ''
 
   /** Instance meshes the pointer and the section clip walk. */
   meshes(): THREE.Mesh[] {
@@ -85,7 +102,9 @@ export class SurfaceBatches {
 
   /**
    * Rebuild only when the view key moves: surface edits bump the caller's
-   * revision, and a level/hide/quality change moves the key.
+   * revision, and a level/hide/quality change moves the key. `slice` decides the
+   * material per storey — a ghosted storey's paving is the 35% ghost, matching
+   * the per-mesh walk; a tile has no mesh of its own for that walk to dress.
    */
   sync(
     roots: Iterable<THREE.Object3D>,
@@ -93,28 +112,34 @@ export class SurfaceBatches {
     material: THREE.Material,
     bucketSize: number,
     key: string,
+    slice: SurfaceSlice,
   ): void {
-    if (this.key === key && this.material === material) return
+    const sliceKey = `${slice.activeZ}|${slice.ghost}|${slice.straight}`
+    if (this.key === key && this.material === material && this.sliceKey === sliceKey) return
     const materialChanged = this.material !== material
     const previous = this.entries
     this.key = key
     this.material = material
+    this.sliceKey = sliceKey
     const buckets = surfaceBuckets(visibleSurfaceSources(roots, data), bucketSize)
     const next = new Map<string, Entry>()
     const reused = new Set<Entry>()
     for (const [bucketKey, sources] of buckets) {
       const ids = sources.map(source => source.id)
+      const level = sources[0].level
+      const bucketMaterial = slice.straight || level === slice.activeZ ? material
+        : slice.ghost ? slice.ghostMaterial(material) : material
       // A tile edit touches one bucket; an unchanged composition keeps its
       // instance buffers and geometry instead of rebuilding every bucket.
       const old = materialChanged ? undefined : previous.get(bucketKey)
-      if (old && old.ids.length === ids.length && old.ids.every((id, i) => id === ids[i])) {
+      if (old && old.level === level && old.material === bucketMaterial && old.ids.length === ids.length && old.ids.every((id, i) => id === ids[i])) {
         next.set(bucketKey, old)
         reused.add(old)
         continue
       }
       const mesh = new StaticInstances(
         outdoorSurfaceGeometry(sources[0].type),
-        material,
+        bucketMaterial,
         sources.map(source => source.matrix),
         outdoorSurfaceCoarseGeometry(sources[0].type),
         1,
@@ -124,7 +149,7 @@ export class SurfaceBatches {
       mesh.userData.surfaceInstance = true
       mesh.userData.surfaceModuleType = sources[0].type
       mesh.userData.surfaceModuleIds = ids
-      next.set(bucketKey, { ids, mesh })
+      next.set(bucketKey, { ids, level, material: bucketMaterial, mesh })
     }
     for (const old of previous.values()) if (!reused.has(old)) this.release(old.mesh)
     this.entries = next

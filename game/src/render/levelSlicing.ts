@@ -6,17 +6,26 @@
 // * **显示其他层 OFF is absolute.** Only the storey being edited is drawn — at
 //   *any* camera angle. A side elevation, a top-down plan and a corner
 //   isometric all show the same storey and nothing else.
-// * **显示其他层 ON** draws the active storey crisp and every other storey as a
-//   35% ghost. Ghosts keep their true depth and are drawn as translucent
-//   geometry, so a storey the active one covers simply loses the depth test:
-//   the ghost shows wherever it does not block the depth you are working on.
-// * **隐藏天花板** (off by default) is the single exception, and only for storeys
-//   *above* the active one. A slab one storey up is the active room's ceiling,
-//   so it is the nearest thing to a top-down camera and the one thing that
-//   hides the room you are building. With the toggle on, a storey above keeps
-//   only the pieces with nothing under them — the street outside, a canopy on
-//   its own columns — and loses its ceilings. With it off, the ceilings draw
-//   with the rest of the storey.
+// * **显示其他层 ON** draws the active storey crisp and the storeys **below** it
+//   as 35% ghosts. Ghosts keep their true depth and are drawn as translucent
+//   geometry, so a storey the active one covers simply loses the depth test.
+//   **Nothing above the active storey is drawn once that storey has geometry**:
+//   the floor over an occupied room is its ceiling, and ghosting the storeys over
+//   it covers the room being edited (the crowd and trains already follow this
+//   rule). An empty storey still ghosts the storeys above it, so the editor can
+//   show where they are; `SliceOptions.hideAbove` carries the decision.
+//   On a **dense** document (`DENSE_STATION_MODULES`, `detailPolicy.ts`) the
+//   ghost slice is also bounded to the storey next to the active one: drawing
+//   every distant storey had no cost bound and made a five-storey, 76k-module
+//   station cost four extra storeys' draws.
+// * **隐藏天花板** (off by default) only matters while the active storey is
+//   **empty**: there the storeys above still ghost, and a slab one storey up is
+//   the room's ceiling — the nearest thing to a top-down camera and the one thing
+//   that hides the room you are about to build. With the toggle on, a storey
+//   above keeps only the pieces with nothing under them — the street outside, a
+//   canopy on its own columns — and loses its ceilings. With it off, the ceilings
+//   draw with the rest of the storey. Once the active storey has geometry the
+//   whole storey above is hidden, so the toggle has nothing to lift.
 
 import { STOREY_HEIGHT, storeyBand } from '../sim/constants.ts'
 
@@ -53,6 +62,13 @@ export interface SliceOptions {
   /** 隐藏天花板: drop the ceilings of the storey above the active one. */
   autoCeiling: boolean
   /**
+   * The active storey has geometry of its own. When it does, **nothing above it
+   * is drawn**: an occupied room's floor above is its ceiling, and a ghost of the
+   * storeys over it covers the room instead of giving context. An empty storey
+   * still ghosts them, so the editor can show where the floors above are.
+   */
+  hideAbove?: boolean
+  /**
    * True for a piece with nothing under it — the chunk mesher's `float` plate,
    * a fixture whose column's lowest storey is above the active one. Only read
    * for a piece *above* the active storey.
@@ -70,6 +86,8 @@ export interface SliceToggles {
   hideUI: boolean
   /** 剖切: a surface is cutting the station, so nothing else may hide anything. */
   cutaway: boolean
+  /** The active storey has any built geometry (see `SliceOptions.hideAbove`). */
+  built?: boolean
 }
 
 /**
@@ -98,8 +116,8 @@ export interface SliceToggles {
  * (`test/level-slicing.test.mjs`).
  */
 export function sliceOptions(toggles: SliceToggles): SliceOptions {
-  if (toggles.hideUI || toggles.cutaway) return { ghost: true, autoCeiling: false }
-  return { ghost: toggles.ghost, autoCeiling: toggles.autoCeiling }
+  if (toggles.hideUI || toggles.cutaway) return { ghost: true, autoCeiling: false, hideAbove: false }
+  return { ghost: toggles.ghost, autoCeiling: toggles.autoCeiling, hideAbove: toggles.ghost && toggles.built === true }
 }
 
 /**
@@ -116,7 +134,41 @@ export function levelVisible(side: LevelSide, opts: SliceOptions): boolean {
   if (side === 'active') return true
   if (!opts.ghost) return false
   if (side === 'below') return true
+  // An occupied storey hides everything above it: the floor over the room is its
+  // ceiling, and ghosting the storeys above would cover the room being edited
+  // (crowd and trains already follow this rule). An empty storey still ghosts
+  // them so the editor can show where the floors above are.
+  if (opts.hideAbove === true) return false
   return !opts.autoCeiling || opts.unsupported === true
+}
+
+/**
+ * True when any storey a piece occupies is next to the active one. A ramp that
+ * spans several storeys counts when one of them is a neighbour, so a lift or a
+ * stair still ghosts from the storey above the room it serves.
+ */
+export function storeyNear(levelsZ: readonly number[] | undefined, activeZ: number, height = STOREY_HEIGHT): boolean {
+  if (levelsZ === undefined || levelsZ.length === 0) return true
+  for (const z of levelsZ) if (Math.abs(z - activeZ) <= height) return true
+  return false
+}
+
+/**
+ * Whether a slice **piece** (a chunk mesh or a fixture root) draws on its side.
+ * It is `levelVisible` plus the dense-station bound: on a large document, 显示其他层
+ * keeps the storeys next to the active one and drops the distant ones
+ * (`DENSE_STATION_MODULES`, `detailPolicy.ts`). Hidden UI and 剖切 bypass
+ * the bound — they draw every storey as itself, which is their whole point.
+ */
+export function boundedLevelVisible(
+  side: LevelSide,
+  levelsZ: readonly number[] | undefined,
+  activeZ: number,
+  opts: SliceOptions,
+  dense: boolean,
+): boolean {
+  if (dense && side !== 'active' && !storeyNear(levelsZ, activeZ)) return false
+  return levelVisible(side, opts)
 }
 
 /**
