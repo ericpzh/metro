@@ -1536,7 +1536,7 @@ Run `npm run check:tutorial` for the production browser regression and the
   `test/grid.test.mjs` is the guard on the commands downstream of the pick — extend it if you add
   a tool that writes cells — and `save.test.mjs` pins both boundaries.
 * **The demo is the author's real 动物园 (广州地铁 5号线) save**, shipped as
-  `data/demo-station.json` (12,075 cells, 727 modules, seed `7654321`) and handed out by
+  `data/demo-station.json` (14,066 cells, 4,299 modules, seed `7654321`) and handed out by
   `referenceStation()` as a `structuredClone` so an edit never leaks back into the shared
   document. It opens cold at 06:30 sim time, warmup 0 (`REFERENCE_BOOT` in
   `data/reference-station.ts`, pinned to `DEFAULT_SIM_TIME`). Loading it seeds the world from
@@ -1547,9 +1547,10 @@ Run `npm run check:tutorial` for the production browser regression and the
   keep their controlled knobs; `demo.test.mjs` guards that the shipped save is one connected
   circulation that actually boards and clears a crowd. **Refreshing it** (the author keeps editing
   the station): `node tools/bake-demo-station.mjs [动物园.metro.json]` parses the author's save
-  envelope with the game's own loader and writes `toData(toState(…))` — the document the open path
-  builds — as one line with no trailing newline, so the demo cannot carry anything a load would
-  have repaired away. After a refresh, re-check `data/reference-station.ts`'s header comment and
+  envelope with the game's own loader, writes `toData(toState(…))` — the document the open path
+  builds — as one line with no trailing newline, then runs `realignSavedFloorMarks` so floor vinyl
+  a pre-`modelScale` save left on the old cadence lands on the doorways this build draws. After a
+  refresh, re-check `data/reference-station.ts`'s header comment and
   the demo facts `placement.test.mjs` pins, and make sure `demo.test.mjs` still passes.
   The five shipped stairs are complete current-catalogue pieces: three straight
   runs explicitly store 0.79 m fitted treads and two medium switchbacks store
@@ -2644,7 +2645,10 @@ either end of a long eight-car platform. A move re-snaps too: `moveCandidate` st
 the carried `cfg.offset`/`edgeId`, snaps the bare piece with the station's lines and
 `confirmMove` lands the ghost's anchor (cleared, not carried, when no doorway is in
 reach) — which is also how a player re-aligns ink a pre-fix save stored off its door.
-Existing saved vinyl keeps its stored offsets until it is moved.
+`tools/bake-demo-station.mjs` runs `realignSavedFloorMarks` over each baked demo, so
+re-loading an author save written by the older build cannot reinstate the legacy
+layout; it moves only ink still on that cadence and leaves authored offsets alone.
+Existing saved vinyl keeps its stored offsets until it is moved or re-baked.
 
 The module factory no longer infers `ceilingAnchored` from storey height or editing
 base. Placement and moving set/reset that flag from the actual surface directly

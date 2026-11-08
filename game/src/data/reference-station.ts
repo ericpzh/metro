@@ -3,7 +3,9 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
 // 2026-11-08 02:13Z) by `tools/bake-demo-station.mjs`, which parses the envelope
-// with `persistence/save.ts` and writes the loader's own output, so the demo is
+// with `persistence/save.ts` and writes the loader's own output, then re-aligns
+// the saved floor vinyl onto the screen doorways the current build draws, so the
+// demo is
 // already the document the game builds when a player opens the file: 14,066
 // cells and 4,299 modules. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked

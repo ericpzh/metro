@@ -145,6 +145,97 @@ export function snapBoardingMark(m: Extract<Module, { type: 'floor-mark' }>, mod
   return { ...m, rot: best.rot, cfg: { ...m.cfg, edgeId: best.edgeId, offset: { x: best.x - (m.x + 0.5) - dx, y: best.y - (m.y + 0.5) - dy } } }
 }
 
+/** `realignSavedFloorMarks` tolerances, in metres. */
+const DOOR_ALIGNED = 0.02
+const LEGACY_CADENCE = 0.3
+
+/**
+ * Re-align a saved station's floor vinyl onto the screen's current doorways.
+ *
+ * The authors' demo saves were written by builds that cut their screen openings
+ * without the line's `modelScale`, so their boarding strips still sit on the old
+ * cadence: about a metre off mid-platform and past the 1.5 m snap radius at the
+ * ends. `tools/bake-demo-station.mjs` runs this over the baked document, so a
+ * re-load cannot undo the on-screen fix. Only ink that provably still sits on
+ * the legacy cadence moves (within {@link LEGACY_CADENCE} of a legacy doorway);
+ * ink already on a current doorway, or deliberately placed away from every
+ * doorway, is left exactly where the save put it. Waiting lines are then
+ * re-snapped behind their boarding strip, since a queue follows the ink.
+ *
+ * This is a data-curation step for the shipped examples, not a load-time repair:
+ * the game still opens a save with the offsets it stored.
+ */
+export function realignSavedFloorMarks(
+  modules: readonly Module[],
+  lines: readonly LineDef[],
+): { modules: readonly Module[]; boarding: number; waiting: number } {
+  type DoorRun = { current: Array<[number, number]>; legacy: Array<[number, number]> }
+  const runs = new Map<string, DoorRun>()
+  for (const edge of modules) {
+    if (edge.type !== 'platform-edge') continue
+    const line = lines.find((l) => l.id === edge.cfg.line) ?? lines[0]
+    if (!line) continue
+    const rail = modules.find((r) => r.id === edge.cfg.from)
+    const bed = rail?.type === 'track' ? rail : undefined
+    const width = bed?.w ?? edge.w
+    const i0 = bed ? rotateLocal(-(bed.rot ?? 0), edge.x - bed.x, edge.y - bed.y)[0] : (width - edge.w) / 2
+    const toward = edge.cfg.side === 'right' ? 1 : -1
+    const world = (offsets: number[]): Array<[number, number]> => offsets.map((at) => {
+      const [ox, oy] = rotateLocal(edge.rot, at - i0 - 0.5, toward * -0.02)
+      return [edge.x + 0.5 + ox, edge.y + 0.5 + oy]
+    })
+    runs.set(edge.id, {
+      current: world(doorRunOffsets(line, width)),
+      legacy: world(doorRunOffsets({ stock: line.stock, cars: line.cars }, width)),
+    })
+  }
+  const nearest = (doors: ReadonlyArray<[number, number]>, centre: [number, number]): { index: number; distance: number } => {
+    let index = -1, distance = Infinity
+    doors.forEach((p, i) => {
+      const d = Math.hypot(p[0] - centre[0], p[1] - centre[1])
+      if (d < distance) { distance = d; index = i }
+    })
+    return { index, distance }
+  }
+  const centreOf = (m: Extract<Module, { type: 'floor-mark' }>): [number, number] => {
+    const b = floorDecorBounds(m)
+    return [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]
+  }
+  const next = modules.slice()
+  let boarding = 0
+  modules.forEach((mod, i) => {
+    if (mod.type !== 'floor-mark' || mod.cfg.variant !== 'boarding') return
+    const edge = mod.cfg.edgeId ? modules.find((m) => m.id === mod.cfg.edgeId) : undefined
+    if (!edge || edge.type !== 'platform-edge' || edge.z !== mod.z) return
+    const run = runs.get(edge.id)
+    if (!run) return
+    const centre = centreOf(mod)
+    if (nearest(run.current, centre).distance <= DOOR_ALIGNED) return
+    const legacy = nearest(run.legacy, centre)
+    const target = run.current[legacy.index]
+    if (!target || legacy.distance > LEGACY_CADENCE) return
+    const toward = edge.cfg.side === 'right' ? 1 : -1
+    const rot = ((edge.rot ?? 0) + (toward < 0 ? 2 : 0)) % 4
+    const [dx, dy] = rotateLocal(rot, 1, 0)
+    next[i] = {
+      ...mod,
+      rot,
+      cfg: { ...mod.cfg, edgeId: edge.id, offset: { x: target[0] - (mod.x + 0.5) - dx, y: target[1] - (mod.y + 0.5) - dy } },
+    }
+    boarding++
+  })
+  let waiting = 0
+  modules.forEach((mod, i) => {
+    if (mod.type !== 'floor-mark' || mod.cfg.variant !== 'waiting') return
+    const snapped = snapBoardingMark(mod, next, lines)
+    if (snapped === mod) return
+    if ((snapped.rot ?? 0) === (mod.rot ?? 0) && JSON.stringify(snapped.cfg) === JSON.stringify(mod.cfg)) return
+    next[i] = snapped
+    waiting++
+  })
+  return { modules: boarding + waiting > 0 ? next : modules, boarding, waiting }
+}
+
 const tactileIndexes = new WeakMap<readonly Module[], Map<string, Extract<Module, { type: 'tactile' }>[]>>()
 
 export function tactileAt(modules: readonly Module[], x: number, y: number, z: number, variant?: TactileVariant): Module | undefined {

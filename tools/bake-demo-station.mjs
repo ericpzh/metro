@@ -9,6 +9,11 @@
 // what the loader dropped and materialised, and refuses to finish quietly if the
 // result would not round-trip through the loader again.
 //
+// One curation pass runs after the load: `realignSavedFloorMarks` puts floor
+// vinyl that still sits on the pre-modelScale door cadence onto the doorway the
+// screen draws now. The author saves were made with that older build, so without
+// it every re-bake would drop the strips ~a metre off their doors again.
+//
 //   node tools/bake-demo-station.mjs [input.metro.json] [output.json]
 //
 // Run from the repo root. The default input is the save this demo came from; the
@@ -28,6 +33,7 @@ const text = readFileSync(input, 'utf8')
 
 const { parse } = await import('../game/src/persistence/save.ts')
 const { toData, toState } = await import('../game/src/build/model/State.ts')
+const { realignSavedFloorMarks } = await import('../game/src/sim/floorDecor.ts')
 
 const result = parse(text)
 if (!result.ok) {
@@ -39,17 +45,22 @@ const raw = JSON.parse(text)
 const rawStatic = raw.static
 const baked = toData(result.state)
 
+// The one curation pass: put vinyl that a pre-modelScale build snapped on the old
+// cadence back onto the openings the screen draws now (see floorDecor.ts).
+const aligned = realignSavedFloorMarks(baked.modules, baked.lines)
+const shipped = aligned.modules === baked.modules ? baked : { ...baked, modules: aligned.modules }
+
 console.log(`input           ${input}`)
 console.log(`envelope        ${raw.format} v${raw.formatVersion} game ${raw.gameVersion} savedAt ${raw.savedAt}`)
 console.log(`name / seed     ${result.state.name} / ${result.state.seed}`)
 console.log(`loader repaired ${result.droppedCells} cells, ${result.droppedModules} modules`)
-console.log(`cells           raw ${rawStatic.cells.length} -> shipped ${baked.cells.length}`)
-console.log(`modules         raw ${rawStatic.modules.length} -> shipped ${baked.modules.length}`)
-console.log(`lines           ${baked.lines.length}`)
+console.log(`cells           raw ${rawStatic.cells.length} -> shipped ${shipped.cells.length}`)
+console.log(`modules         raw ${rawStatic.modules.length} -> shipped ${shipped.modules.length}`)
+console.log(`lines           ${shipped.lines.length}`)
 
 // What the bake itself adds on top of the envelope's `static` block, beyond the
 // grid repair: ad posters, sign layouts, room furniture, termini defaults.
-const added = baked.modules.filter((m) => !rawStatic.modules.some((r) => r.id === m.id))
+const added = shipped.modules.filter((m) => !rawStatic.modules.some((r) => r.id === m.id))
 console.log(`modules the loader materialised: ${added.length} ${JSON.stringify(added.map((m) => m.id))}`)
 
 // Zone labels the load path takes off ceiling plates (§4.5): a 吊顶 tile or the
@@ -58,14 +69,15 @@ console.log(`modules the loader materialised: ${added.length} ${JSON.stringify(a
 const isCeiling = (c) => c.tags?.includes('suspended-ceiling') || c.tags?.includes('opening-ceiling')
 const ceilingLabels = (list) => list.filter((c) => isCeiling(c) && (c.zone !== undefined || c.room !== undefined)).length
 const before = ceilingLabels(rawStatic.cells)
-const after = ceilingLabels(baked.cells)
+const after = ceilingLabels(shipped.cells)
 console.log(`zone labels cleared from ceiling plates: ${before - after}${before ? ` (${before} in the save)` : ''}`)
+console.log(`floor vinyl re-aligned onto the drawn doorways: ${aligned.boarding} boarding, ${aligned.waiting} queue`)
 
 // Idempotence: the demo must already be in the state the loader would produce,
 // because `referenceStation()` hands it out raw.
-const again = toData(toState(baked))
-console.log(`idempotent      ${JSON.stringify(again) === JSON.stringify(baked) ? 'yes' : 'NO'}`)
-if (JSON.stringify(again) !== JSON.stringify(baked)) throw new Error('Demo must round-trip before shipping')
+const again = toData(toState(shipped))
+console.log(`idempotent      ${JSON.stringify(again) === JSON.stringify(shipped) ? 'yes' : 'NO'}`)
+if (JSON.stringify(again) !== JSON.stringify(shipped)) throw new Error('Demo must round-trip before shipping')
 
-writeFileSync(OUT, JSON.stringify(baked), 'utf8')
-console.log(`wrote           ${OUT} (${JSON.stringify(baked).length} bytes)`)
+writeFileSync(OUT, JSON.stringify(shipped), 'utf8')
+console.log(`wrote           ${OUT} (${JSON.stringify(shipped).length} bytes)`)

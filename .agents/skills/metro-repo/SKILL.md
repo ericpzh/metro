@@ -952,7 +952,7 @@ output and keep the coverage map in sync.
 | `train-cards.mjs`, `piece-views.mjs` | The two placement helpers the sheets share: a captured car / run and the metres it covers, so a sheet stands the game's picture on its own line at its own scale. |
 | `zoom.mjs` | Crops a detail out of a sheet and writes a `*-zoom.svg` beside it (`sync-art.mjs` skips those). |
 | `render-sign-panel.mjs`, `render-tv-plate.mjs` | Render the real sign / TV draw functions to PNG for looking at, rather than asserting. |
-| `bake-demo-station.mjs` | Re-bakes the shipped demo save from an author's `metro-save` envelope (see `metro-game`). |
+| `bake-demo-station.mjs` | Re-bakes the shipped demo save from an author's `metro-save` envelope, then re-aligns saved floor vinyl onto the screen's current doorways (see `metro-game`). |
 | `prep-sign-icons.py`, `sign-icons-sheet.py` | Turn the supplied 指示牌 photographs into `game/src/assets/pictograms/` and print a contact sheet (see `metro-game`). |
 | `_crop.mjs`, `_fill.mjs`, `_poly.mjs`, `_strings.mjs` | Underscore-prefixed dev helpers (an arbitrary crop, a fill, a polygon probe, every `<text>` string in the sheets). Scratch, but tracked. |
 

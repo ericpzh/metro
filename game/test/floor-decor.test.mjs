@@ -12,7 +12,7 @@ import { DeleteTool } from '../src/app/tools/DeleteTool.ts'
 import { LONG_PRESS_MS } from '../src/app/tools/geometry/pointer.ts'
 import { useStore, placementPreviewKey } from '../src/app/store.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
-import { floorDecorBounds, floorMarkLine, snapBoardingMark, tactileArms } from '../src/sim/floorDecor.ts'
+import { floorDecorBounds, floorMarkLine, snapBoardingMark, tactileArms, realignSavedFloorMarks } from '../src/sim/floorDecor.ts'
 import { doorRunOffsets } from '../src/sim/stock.ts'
 import { rotateLocal } from '../src/sim/track.ts'
 import * as THREE from 'three'
@@ -261,6 +261,46 @@ test('a long scaled consist keeps every boarding strip on its drawn screen doorw
     assert.ok(Math.abs((box.x0 + box.x1) / 2 - (0.5 + dx)) < 1e-8, `door ${index} centre sits on the drawn doorway`)
     assert.ok(Math.abs((box.y0 + box.y1) / 2 - (0.5 + dy)) < 1e-8)
   }
+})
+
+test('a demo bake re-aligns legacy vinyl onto the drawn doorways and leaves authored ink alone', () => {
+  // The authors' demo saves were made by a build that snapped without the line's
+  // `modelScale`, so their strips sit on the old cadence. The bake re-aligns only
+  // that ink: a strip already on a current doorway, or one placed away from every
+  // doorway, keeps exactly the offset the save stored.
+  const line = { id: '5', name: '5号线', colour: '#c8102e', stock: 'L', cars: 6, modelScale: 0.98 }
+  const edge = { id: 'edge', type: 'platform-edge', x: 0, y: 0, z: 0, w: 40, rot: 0, cfg: { line: '5', side: 'left', psd: 'full' } }
+  const legacyDoors = doorRunOffsets({ stock: 'L', cars: 6 }, 40)
+  const currentDoors = doorRunOffsets(line, 40)
+  // The snap's own anchor maths for side 'left' at rot 0: the vinyl faces rot 2 and
+  // its centre lands on the door, 2 cm off the screen line.
+  const markAt = (doors, index, cfg = {}) => {
+    const target = doors[index]
+    const x = Math.floor(target)
+    return { id: `mark-${index}`, type: 'floor-mark', x, y: 0, z: 0, rot: 2,
+      cfg: { variant: 'boarding', edgeId: 'edge', offset: { x: target - x + 0.5, y: 0.02 }, ...cfg } }
+  }
+  const stale = markAt(legacyDoors, 7)
+  const aligned = markAt(currentDoors, 9)
+  const manual = { id: 'manual', type: 'floor-mark', x: 20, y: 2, z: 0, rot: 0, cfg: { variant: 'boarding', offset: { x: 0, y: 0 } } }
+  const waiting = { id: 'waiting', type: 'floor-mark', x: stale.x, y: 1, z: 0, rot: 2,
+    cfg: { variant: 'waiting', edgeId: 'edge', offset: { x: 0.9, y: 1.2 } } }
+  const modules = [edge, stale, aligned, manual, waiting]
+  const realigned = realignSavedFloorMarks(modules, [line])
+  assert.equal(realigned.boarding, 1, 'only the legacy strip moves')
+  assert.equal(realigned.waiting, 1, 'its queue follows the ink')
+  assert.equal(realigned.modules[2], aligned, 'ink already on a current doorway is untouched')
+  assert.equal(realigned.modules[3], manual, 'ink placed away from every doorway is untouched')
+  const staleAfter = floorDecorBounds(realigned.modules[1])
+  assert.ok(Math.abs((staleAfter.x0 + staleAfter.x1) / 2 - currentDoors[7]) < 1e-8, 'the strip lands on its own doorway')
+  assert.ok(Math.abs((staleAfter.y0 + staleAfter.y1) / 2 - 0.52) < 1e-8)
+  const boarding = floorDecorBounds(realigned.modules[1])
+  const queue = floorDecorBounds(realigned.modules[4])
+  const displacement = rotateLocal(-2, (queue.x0 + queue.x1 - boarding.x0 - boarding.x1) / 2, (queue.y0 + queue.y1 - boarding.y0 - boarding.y1) / 2)
+  assert.ok(Math.abs(displacement[1] + 1.15) < 1e-8, 'the queue sits 1.15 m behind the corrected strip')
+  const second = realignSavedFloorMarks(realigned.modules, [line])
+  assert.equal(second.boarding + second.waiting, 0, 'the pass is idempotent')
+  assert.equal(second.modules, realigned.modules)
 })
 
 test('direction stickers resolve the saved line live, including renamed and recolored lines', () => {
