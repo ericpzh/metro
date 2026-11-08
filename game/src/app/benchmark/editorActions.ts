@@ -187,7 +187,7 @@ export async function runCase(id:string,count=3){
       let candidate=source,reason=''
       const moveInput:{at:typeof at;candidate?:Module;reason?:string}={at}
       await addRow('move-preview',()=>{
-        const state=useStore.getState(),aim=moveCandidate(state.station.cells,state.station.modules,source,at,source.rot??0)
+        const state=useStore.getState(),aim=moveCandidate(state.station.cells,state.station.modules,source,at,source.rot??0,undefined,undefined,state.station.lines)
         candidate=aim.module;reason=aim.reason;moveInput.candidate=candidate;moveInput.reason=reason
         scene().setModulePreview({...candidate,id:'move-preview'},reason!=='')
         useStore.getState().aimMove(at,candidate,reason)

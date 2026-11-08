@@ -177,7 +177,7 @@ export class MoveController extends ToolController {
     const { module: candidate, reason } = pillarCandidate
       ? { module: pillarCandidate, reason: moveDropReason(st.station.cells, st.station.modules, pillarCandidate) }
       : h || !d.candidate
-      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point ? [h.point[0], h.point[1]] : undefined, aimedAtBlock ? undefined : this.facing())
+      ? moveCandidate(st.station.cells, st.station.modules, current, at, rot, h?.point ? [h.point[0], h.point[1]] : undefined, aimedAtBlock ? undefined : this.facing(), st.station.lines)
       : { module: d.candidate, reason: d.reason }
     // A ghost carries a private id: a 指示牌's printed plate and a 电视's station
     // plate are cached per module id, and a preview must never mint into the copy a

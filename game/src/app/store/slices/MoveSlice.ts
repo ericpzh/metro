@@ -18,6 +18,11 @@ function exitMountZ(module: Module | null): number | undefined {
   return module?.type === 'exit' && module.cfg.style === 'doorway' ? module.cfg.mountZ : undefined
 }
 
+/** The ink's sub-cell anchor: which doorway it snapped to, and its exact offset. */
+function floorMarkAnchor(module: Module | null): string {
+  return module?.type === 'floor-mark' ? JSON.stringify([module.cfg.edgeId ?? '', module.cfg.offset ?? null]) : ''
+}
+
 /**
  * A placed 设备 / 装饰 / 出入口 / 楼梯 / 扶梯 piece the 信息 card's **移动** has picked up (§9.5).
  *
@@ -200,6 +205,17 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     if (to.type === 'exit' && to.cfg.style === 'doorway' && d.candidate.type === 'exit') {
       to = { ...to, cfg: { ...to.cfg, mountZ: d.candidate.cfg.mountZ } }
     }
+    // A floor sticker's doorway anchor is the pointer's aim, exactly like a wall
+    // mount's course: the ghost re-snaps to the opening under the pointer, so the
+    // commit has to land that same ink rather than the offset it was lifted with.
+    if (to.type === 'floor-mark' && d.candidate.type === 'floor-mark') {
+      const { offset: _offset, edgeId: _edgeId, ...cfg } = to.cfg
+      to = { ...to, cfg: {
+        ...cfg,
+        ...(d.candidate.cfg.offset ? { offset: d.candidate.cfg.offset } : {}),
+        ...(d.candidate.cfg.edgeId ? { edgeId: d.candidate.cfg.edgeId } : {}),
+      } }
+    }
     // Ask the drop rules again of that exact piece, so a station that changed under
     // the lift cannot commit a stale aim.
     const reason = moveDropReason(st.station.cells, st.station.modules, to)
@@ -207,7 +223,7 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       set({ notice: reason })
       return
     }
-    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from) && (to.type !== 'calligraphy' || from.type !== 'calligraphy' || to.cfg.pillarId === from.cfg.pillarId)) {
+    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from) && floorMarkAnchor(to) === floorMarkAnchor(from) && (to.type !== 'calligraphy' || from.type !== 'calligraphy' || to.cfg.pillarId === from.cfg.pillarId)) {
       set({ moveDraft: null, notice: msg('position_unchanged') })
       return
     }

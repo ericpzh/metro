@@ -36,6 +36,8 @@ import {
 } from '../src/sim/placement.ts'
 import { createModule, moveEquipment, addEquipment, replaceEquipment, toState } from '../src/build/model.ts'
 import { STAIR_WIDTH_DOUBLE, STAIR_WIDTH_NARROW, STAIR_WIDTH_TRIPLE, stairTurnCells } from '../src/sim/stairs.ts'
+import { doorRunOffsets } from '../src/sim/stock.ts'
+import { floorDecorBounds } from '../src/sim/floorDecor.ts'
 import { useStore } from '../src/app/store.ts'
 import { MoveController } from '../src/app/tools/MoveController.ts'
 
@@ -631,6 +633,68 @@ test('a 指示牌 keeps its printed boards through a move', () => {
   const after = held('sign-1')
   assert.deepEqual([after.x, after.y], [4, 3])
   assert.deepEqual({ front: after.cfg.front, back: after.cfg.back }, boards, 'the text is the same text')
+})
+
+/* ------------------------------------------------------- floor vinyl anchors */
+
+const doorLine = { id: '5', name: '5号线', colour: '#c8102e', stock: 'L', cars: 6, modelScale: 0.98 }
+
+/** A 40 m screen run, its platform floor and one authored vinyl strip. */
+function platform(mark) {
+  const cells = []
+  for (let x = 0; x < 40; x++) for (let y = 0; y < 4; y++) cells.push({ x, y, z: 0, fill: 'solid' })
+  const edge = { id: 'edge-1', type: 'platform-edge', x: 0, y: 0, z: 0, w: 40, rot: 0, cfg: { name: '站台门', line: '5', dir: 'up', side: 'left', psd: 'full' } }
+  const stale = { id: 'mark-1', type: 'floor-mark', x: 3, y: 0, z: 0, rot: 2, cfg: { variant: 'boarding', edgeId: 'edge-1', offset: { x: 0.9, y: 0.3 } } }
+  return { cells, modules: [edge, mark ?? stale], lines: [doorLine] }
+}
+
+const doorsOn = (line, width) => doorRunOffsets(line, width).filter((x) => x > 3 && x < 37)
+
+test('a carried boarding strip re-snaps to the doorway under the pointer', () => {
+  const { cells, modules, lines } = platform()
+  const door = doorsOn(doorLine, 40)[3]
+  const aim = at(Math.floor(door), 0, 0)
+  const { module: candidate, reason } = moveCandidate(cells, modules, modules[1], aim, 0, undefined, undefined, lines)
+  assert.equal(reason, '', 'the screen still takes its vinyl')
+  assert.equal(candidate.cfg.edgeId, 'edge-1')
+  const b = floorDecorBounds(candidate)
+  assert.ok(Math.abs((b.x0 + b.x1) / 2 - door) < 1e-9, 'the ink centres on the drawn opening')
+  assert.ok(Math.abs((b.y0 + b.y1) / 2 - 0.52) < 1e-9, 'and keeps its stand-off from the screen')
+  assert.notDeepEqual(candidate.cfg.offset, modules[1].cfg.offset, 'the old spot’s sub-cell anchor is gone')
+})
+
+test('a carried sticker dropped away from every doorway lands on the aimed cell', () => {
+  const { cells, modules, lines } = platform()
+  const { module: away, reason } = moveCandidate(cells, modules, modules[1], at(20, 3, 0), 0, undefined, undefined, lines)
+  assert.equal(reason, '')
+  assert.equal(away.cfg.edgeId, undefined, 'no doorway claimed')
+  assert.equal(away.cfg.offset, undefined, 'and no stale sub-cell anchor')
+  const b = floorDecorBounds(away)
+  assert.ok(Math.abs((b.x0 + b.x1) / 2 - 21.5) < 1e-9, 'the ink sits under the pointer, not a metre off')
+  assert.ok(Math.abs((b.y0 + b.y1) / 2 - 3.5) < 1e-9)
+})
+
+test('the 移动 commit lands the doorway the ghost showed, including a stale strip dropped in place', () => {
+  const probe = platform()
+  const door = doorsOn(doorLine, 40)[2]
+  const stale = { ...probe.modules[1], x: Math.floor(door), cfg: { variant: 'boarding', edgeId: 'edge-1', offset: { x: 0.4, y: 0.35 } } }
+  const { cells, modules, lines } = platform(stale)
+  useStore.setState({
+    station: toState({ name: '移动测试', seed: 1, cells, modules, lines: lines.map((l) => ({ ...l })) }),
+    moveDraft: null, selected: null, past: [], future: [], notice: null, version: 0,
+  })
+  const aim = at(stale.x, stale.y, stale.z)
+  st().liftModule('mark-1')
+  const { module: candidate, reason } = moveCandidate(st().station.cells, st().station.modules, held('mark-1'), aim, 0, undefined, undefined, st().station.lines)
+  assert.equal(reason, '')
+  st().aimMove(aim, candidate, reason)
+  st().confirmMove()
+  assert.equal(st().moveDraft, null, 'the piece is down')
+  const after = held('mark-1')
+  assert.equal(after.cfg.edgeId, 'edge-1')
+  assert.deepEqual(after.cfg.offset, candidate.cfg.offset, 'the committed ink is the ghost’s ink')
+  assert.ok(Math.abs((floorDecorBounds(after).x0 + floorDecorBounds(after).x1) / 2 - door) < 1e-9)
+  assert.equal(st().past.length, 1, 're-aligning the stale strip in place is one commit')
 })
 
 test('what lands is the live piece, not a snapshot taken at the lift', () => {

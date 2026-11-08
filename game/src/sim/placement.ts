@@ -31,7 +31,7 @@ import { DESK_HEIGHT } from './constants.ts'
 import { hangerBoxes, hangerCells, hangerPostCells, hangerRoofMissing, hangerSupports } from './hangers.ts'
 import { fenceArms, fenceConnectionIndex, type FenceNeighbours } from './fences.ts'
 import { isPsdCornerPair, isPsdEndCoverSupport, isPsdEndJoin, psdEndOffset, psdEndSpan, snapPsdEnd, snapPsdEndCover } from './psdEnds.ts'
-import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker } from './floorDecor.ts'
+import { floorDecorCells, floorDecorSpec, floorDecorBounds, isFloorSticker, snapBoardingMark } from './floorDecor.ts'
 import { VENT_WIDTH, VENT_DEPTH, ventCeilingZ } from './vents.ts'
 import { LIGHT_DEPTH, lightCeilingZ, lightOffset, lightSpec } from './lights.ts'
 import { canopyBodyBoxes, canopyPostCells, CANOPY_ROOF_DROP, pillarSupportsBridge, pillarWidth, pillarOffset, ROOF_THICKNESS, TRUSS_ROOF_BASE, trussRoofTop, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z, bridgeBarrierTop } from './structures.ts'
@@ -54,7 +54,7 @@ import { monitorCells } from './monitors.ts'
 import { RAIL_SIGNAL_HEIGHT, RAIL_SIGNAL_SCALE } from './constants.ts'
 import { tvBackToBack, tvFacing } from './tvs.ts'
 import { OUTDOOR_SURFACE_HEIGHT } from './constants.ts'
-import { halfWallSide, isWallBlock, type Cell, type GlassVariant, type Module, type Vec3i, type WallSide } from './types.ts'
+import { halfWallSide, isWallBlock, type Cell, type GlassVariant, type LineDef, type Module, type Vec3i, type WallSide } from './types.ts'
 
 /** An axis-aligned world-space box, half-open: [x0,x1) × [y0,y1) × [z0,z1). */
 export interface ModuleBox {
@@ -2677,6 +2677,7 @@ export function moveCandidate(
   rot: number,
   near?: readonly [number, number],
   facing?: readonly [number, number],
+  lines: readonly LineDef[] = [],
 ): { module: Module; reason: string } {
   let moved = movedModule(mod, at, rot)
   if (moved.type !== 'hanger' && isCeilingHung(moved)) moved = {
@@ -2686,6 +2687,14 @@ export function moveCandidate(
     moved = snapSignToBooth(modules, moved, near ?? [at.x + 0.5, at.y + 0.5], at.z)
   }
   moved = autofaceWallMount(cells, moved, near, modules, facing)
+  if (moved.type === 'floor-mark' && lines.length > 0) {
+    // A carried sticker's `cfg.offset` belongs to the doorway it came from. Snap the
+    // bare piece the same way a fresh placement does, so it lands on the opening
+    // under the pointer (or, with no doorway in reach, exactly on the aimed cell)
+    // instead of keeping a metre of travel from its old spot.
+    const { offset: _offset, edgeId: _edgeId, ...cfg } = moved.cfg
+    moved = snapBoardingMark({ ...moved, cfg }, modules, lines)
+  }
   if (moved.type === 'psd-end') moved = moved.cfg.variant === 'cover'
     ? snapPsdEndCover(moved, modules) ?? moved
     : snapPsdEnd(moved, modules)

@@ -2640,8 +2640,11 @@ Boarding and waiting floor vinyl repeat the screen's own door list — `doorRunO
 with the line's `modelScale` (0.98 in the five-metre profile), exactly as `PsdModel`
 cuts its openings. Dropping the scale drifts the strip with its distance from the
 consist centre: about a metre off mid-platform and past the 1.5 m snap radius at
-either end of a long eight-car platform. Existing saved vinyl keeps its stored
-offsets; only fresh placement and moves re-snap.
+either end of a long eight-car platform. A move re-snaps too: `moveCandidate` strips
+the carried `cfg.offset`/`edgeId`, snaps the bare piece with the station's lines and
+`confirmMove` lands the ghost's anchor (cleared, not carried, when no doorway is in
+reach) — which is also how a player re-aligns ink a pre-fix save stored off its door.
+Existing saved vinyl keeps its stored offsets until it is moved.
 
 The module factory no longer infers `ceilingAnchored` from storey height or editing
 base. Placement and moving set/reset that flag from the actual surface directly
