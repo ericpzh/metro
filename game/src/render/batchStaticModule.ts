@@ -10,7 +10,7 @@ import { setModelDetail } from './modelDetail.ts'
 const STATIC_TYPES = new Set<Module['type']>([
   'bench', 'fence', 'light', 'vent', 'cctv', 'bin', 'extinguisher', 'shelf',
   'desk', 'cubicle', 'sink', 'urinal', 'stair', 'track', 'pillar', 'roof',
-  'hanger', 'tactile', 'door', 'shop', 'exit', 'guidepost', 'busstop',
+  'hanger', 'tactile', 'door', 'shop', 'exit', 'guidepost', 'busstop', 'checkout',
 ])
 
 /** Collapse same-material opaque siblings into one draw, without changing art. */

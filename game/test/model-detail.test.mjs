@@ -9,6 +9,7 @@ import { planarArtworkDetail } from '../src/render/planarArtworkDetail.ts'
 import { batchStaticModule, batchStaticParts } from '../src/render/batchStaticModule.ts'
 import { EquipmentBatches } from '../src/render/equipmentBatches.ts'
 import { SourceGeometryDetail } from '../src/render/sourceGeometryDetail.ts'
+import { BATCH_SOURCE_LAYER } from '../src/render/batchGeometry.ts'
 import { reposeClockHands } from '../src/render/models/pieces/ClockModel.ts'
 import { setGateWing } from '../src/render/models/pieces/GateModel.ts'
 import { buildBridgeNoiseBarrier } from '../src/render/models/pieces/BridgeNoiseBarrier.ts'
@@ -433,13 +434,17 @@ for (const [id, name] of [['shelf-cooler', 'stock-bottles'], ['checkout', 'check
   const ray = new THREE.Raycaster(centre.clone().add(new THREE.Vector3(0, -2, 0)), new THREE.Vector3(0, 1, 0))
   const before = ray.intersectObject(stock).map(hit => [hit.instanceId, hit.distance])
   assert.ok(before.length)
-  const geometry = stock.geometry, matrices = stock.instanceMatrix, detail = new SourceGeometryDetail()
+  const geometry = stock.geometry, matrices = stock.instanceMatrix, detail = new SourceGeometryDetail(true)
   try {
     detail.apply(root, true)
     assert.equal(triangles(stock.geometry), 0)
+    assert.equal(stock.layers.isEnabled(0), false, 'omitted stock does not submit an empty draw')
     assert.equal(stock.instanceMatrix, matrices)
+    ray.layers.enable(BATCH_SOURCE_LAYER)
     assert.deepEqual(ray.intersectObject(stock).map(hit => [hit.instanceId, hit.distance]), before)
-    detail.restore(); assert.equal(stock.geometry, geometry)
+    detail.restore()
+    assert.equal(stock.geometry, geometry)
+    assert.equal(stock.layers.mask, 1, 'restoring detail returns the original render layer')
   } finally { detail.restore() }
 }))
 

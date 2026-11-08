@@ -920,6 +920,7 @@ export class ChunkSystem extends SceneSystem {
         let group = this.levelGroups.get(levelZ)
         if (!group) {
           group = new THREE.Group(); group.userData.levelZ = levelZ
+          group.matrixAutoUpdate = false
           this.levelGroups.set(levelZ, group); this.ctx.scene.add(group)
         }
         group.add(mesh)
@@ -980,6 +981,7 @@ export class ChunkSystem extends SceneSystem {
           geo.computeBoundingBox()
           if (geo.boundingBox) box.union(geo.boundingBox)
           const mesh = new THREE.Mesh(geo, this.ctx.mats.finish(part.finish))
+          mesh.matrixAutoUpdate = false
           mesh.userData.levelZ = levelZ
           mesh.userData.cells = chunkCells.length
           // Tag wall faces so 隐藏墙壁 can fade them (and their outline) alone.
@@ -1012,6 +1014,7 @@ export class ChunkSystem extends SceneSystem {
       let group = this.levelGroups.get(levelZ)
       if (!group) {
         group = new THREE.Group()
+        group.matrixAutoUpdate = false
         group.userData.levelZ = levelZ
         this.levelGroups.set(levelZ, group)
         this.ctx.scene.add(group)
@@ -1056,6 +1059,7 @@ export class ChunkSystem extends SceneSystem {
       let group = this.levelGroups.get(groundBand)
       if (!group) {
         group = new THREE.Group()
+        group.matrixAutoUpdate = false
         group.userData.levelZ = groundBand
         this.levelGroups.set(groundBand, group)
         this.ctx.scene.add(group)

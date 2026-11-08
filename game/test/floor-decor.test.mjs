@@ -17,6 +17,7 @@ import { doorRunOffsets } from '../src/sim/stock.ts'
 import { rotateLocal } from '../src/sim/track.ts'
 import * as THREE from 'three'
 import { buildModule } from '../src/render/models.ts'
+import { prepareArtwork, repaintArtwork } from '../src/render/artwork.ts'
 import { AcUnitModel } from '../src/render/models/pieces/AcUnitModel.ts'
 import { ElectricalCabinetModel } from '../src/render/models/pieces/ElectricalCabinetModel.ts'
 import { TactileModel } from '../src/render/models/pieces/TactileModel.ts'
@@ -401,6 +402,35 @@ test('the dispatcher routes the four floor-decor types to their own models', () 
   } finally {
     globalThis.document = previous
     for (const m of Object.values(mats)) m.dispose()
+  }
+})
+
+test('floor markings share artwork by selector and repaint one retained texture', () => {
+  const previous = globalThis.document
+  globalThis.document = { createElement: () => ({ getContext: () => stubCanvas(768, 512).g }) }
+  const mats = {}, data = emptyStation()
+  const mod = createModule('floor-mark-direction', 0, 0, 0, 'first')
+  const bound = { ...mod, cfg: { ...mod.cfg, line: 'future' } }
+  const builder = new FloorMarkModel({ mats, data })
+  const roots = [builder.build(bound), builder.build({ ...bound, id: 'second', x: 2 }), builder.build(mod)]
+  try {
+    const [first, second, fallback] = roots.map(root => root.children[0].material)
+    assert.equal(first, second)
+    assert.notEqual(first, fallback, 'a missing line selector must be able to resolve later')
+    const original = first.map.version, fallbackVersion = fallback.map.version
+    const updated = { ...data, lines: [{ id: 'future', name: 'New line', colour: '#0e9999' }] }
+    roots.slice(0, 2).forEach(root => { prepareArtwork(root); repaintArtwork(root, updated) })
+    assert.equal(first.map.version, original + 1)
+    assert.equal(fallback.map.version, fallbackVersion)
+    let releases = 0
+    first.addEventListener('dispose', () => releases++)
+    roots[0].children[0].geometry.dispose()
+    assert.equal(releases, 0, 'the other model still draws from the shared material')
+    roots[1].children[0].geometry.dispose()
+    assert.equal(releases, 1, 'removing the final model releases the shared artwork')
+  } finally {
+    roots.forEach(root => root.children[0].geometry.dispose())
+    globalThis.document = previous
   }
 })
 

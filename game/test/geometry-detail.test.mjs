@@ -14,8 +14,9 @@ test('a solitary reducible fixture receives other-floor detail without a neighbo
   const batches=new EquipmentBatches();batches.sync(roots,'single','generation')
   const entry=[...batches.entries.values()][0];assert.ok(entry?.detail)
   const near=entry.mesh.geometry
+  const drawCount = geometry => geometry.index?.count ?? geometry.getAttribute('position').count
   const camera=new THREE.PerspectiveCamera(60,1,.1,1000);camera.position.z=5;camera.updateMatrixWorld()
-  batches.updateDetail(camera,800);assert.ok(entry.mesh.geometry.index.count<near.index.count)
+  batches.updateDetail(camera,800);assert.ok(drawCount(entry.mesh.geometry)<drawCount(near))
   batches.hideUI=true;batches.updateDetail(camera,800);assert.equal(entry.mesh.geometry,near)
   batches.clear();geometry.dispose();material.dispose()
 })

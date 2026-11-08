@@ -9,6 +9,43 @@ export interface AtlasRegion {
 }
 interface Slot { source: THREE.Texture; x: number; y: number; w: number; h: number; version: number }
 interface Page { canvas: HTMLCanvasElement; context: CanvasRenderingContext2D; texture: THREE.CanvasTexture | THREE.DataTexture; live: boolean; slots: Slot[]; free: Array<{ x: number; y: number; w: number; h: number }>; x: number; y: number; row: number }
+interface LivePatch { data: Uint8Array; x: number; y: number; width: number; height: number }
+
+/** The atlas backing uses bottom-up rows. Compare in pixel units to keep
+ * clock-only repaints from transferring the unchanged poster and cards. */
+function copyLivePixels(
+  pixels: Uint8ClampedArray, backing: Uint8Array, size: number,
+  x: number, y: number, width: number, height: number, full: boolean,
+): LivePatch | null {
+  let left = 0, right = width - 1, top = 0, bottom = height - 1
+  if (!full) {
+    const previous = new Uint32Array(backing.buffer, backing.byteOffset, backing.length / 4)
+    const current = new Uint32Array(pixels.buffer, pixels.byteOffset, pixels.length / 4)
+    left = width; right = -1; top = height; bottom = -1
+    for (let row = 0; row < height; row++) {
+      const source = row * width
+      const target = (y + height - 1 - row) * size + x
+      let first = 0
+      while (first < width && current[source + first] === previous[target + first]) first++
+      if (first === width) continue
+      let last = width - 1
+      while (last > first && current[source + last] === previous[target + last]) last--
+      left = Math.min(left, first); right = Math.max(right, last)
+      top = Math.min(top, row); bottom = row
+    }
+    if (right < left) return null
+  }
+  const patchWidth = right - left + 1, patchHeight = bottom - top + 1
+  const patchX = x + left, patchY = y + height - 1 - bottom
+  const data = full ? null : new Uint8Array(patchWidth * patchHeight * 4)
+  for (let row = 0; row < patchHeight; row++) {
+    const start = ((bottom - row) * width + left) * 4
+    const line = pixels.subarray(start, start + patchWidth * 4)
+    backing.set(line, ((patchY + row) * size + patchX) * 4)
+    data?.set(line, row * patchWidth * 4)
+  }
+  return data ? { data, x: patchX, y: patchY, width: patchWidth, height: patchHeight } : null
+}
 
 /** Full-resolution lit panels share pages. Sources remain owned by their systems;
  * a TV/countdown repaint refreshes only its atlas region and keeps its UVs. */
@@ -82,7 +119,7 @@ export class PanelAtlas {
     return page.x + w + 4 <= this.size ? page.y + h + 4 <= this.size : page.y + page.row + h + 4 <= this.size
   }
 
-  private draw(page: Page, slot: Slot, upload = true): Uint8Array | null {
+  private draw(page: Page, slot: Slot, upload = true): LivePatch | null {
     const { x, y, w, h, source } = slot, g = page.context
     g.clearRect(x - 2, y - 2, w + 4, h + 4)
     const image = source.image as CanvasImageSource
@@ -95,20 +132,15 @@ export class PanelAtlas {
       [0, h - 1, 1, 1, x - 2, y + h, 2, 2], [w - 1, h - 1, 1, 1, x + w, y + h, 2, 2],
     ]) g.drawImage(image, sx, sy, sw, sh, dx, dy, dw, dh)
     slot.version = source.version
-    let data: Uint8Array | null = null
+    let patch: LivePatch | null = null
     if (page.live) {
       const width = w + 4, height = h + 4
       const pixels = g.getImageData(x - 2, y - 2, width, height).data
-      data = new Uint8Array(pixels.length)
       const backing = (page.texture as THREE.DataTexture).image.data as Uint8Array
-      for (let row = 0; row < height; row++) {
-        const line = pixels.subarray(row * width * 4, (row + 1) * width * 4)
-        data.set(line, (height - row - 1) * width * 4)
-        backing.set(line, ((this.size - y + 1 - row) * this.size + x - 2) * 4)
-      }
+      patch = copyLivePixels(pixels, backing, this.size, x - 2, this.size - y - h - 2, width, height, upload)
     }
     if (upload) page.texture.needsUpdate = true
-    return data
+    return patch
   }
 
   update(renderer?: THREE.WebGLRenderer): void {
@@ -123,7 +155,8 @@ export class PanelAtlas {
     for (const [slot, page] of this.pending) {
       this.pending.delete(slot)
       if (slot.source.version === slot.version) continue
-      const data = this.draw(page, slot, false)
+      const patch = this.draw(page, slot, false)
+      if (!patch) break
       // Keep the complete CPU page for first upload/context restoration, but a
       // live countdown must not re-upload its entire 16 MB atlas page.
       // The scratch buffer includes the gutters and never becomes a GPU texture:
@@ -131,11 +164,9 @@ export class PanelAtlas {
       if (!this.patch) {
         this.patch = new THREE.DataTexture()
       }
-      const w = slot.w + 4, h = slot.h + 4
-      this.patch.image = { data: data!, width: w, height: h }
-      renderer.initTexture(page.texture)
+      this.patch.image = { data: patch.data, width: patch.width, height: patch.height }
       renderer.copyTextureToTexture(this.patch, page.texture, null,
-        new THREE.Vector2(slot.x - 2, this.size - slot.y - slot.h - 2))
+        new THREE.Vector2(patch.x, patch.y))
       break
     }
   }

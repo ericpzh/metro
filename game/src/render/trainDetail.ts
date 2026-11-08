@@ -28,10 +28,17 @@ export interface TrainDetail {
  */
 export function trainDetails(group: THREE.Group): TrainDetail[] {
   const details: TrainDetail[] = []
-  const swap = (mesh: THREE.Mesh, near: THREE.BufferGeometry, far: THREE.BufferGeometry): TrainDetail => ({
-    mesh, near, far,
-    apply(reduced: boolean) { mesh.geometry = reduced ? far : near },
-  })
+  const swap = (mesh: THREE.Mesh, near: THREE.BufferGeometry, far: THREE.BufferGeometry): TrainDetail => {
+    const drawsFar = (far.index?.count ?? far.getAttribute('position').count) > 0
+    return {
+      mesh, near, far,
+      apply(reduced: boolean) {
+        mesh.geometry = reduced ? far : near
+        if (!drawsFar && reduced) mesh.layers.disable(0)
+        else mesh.layers.enable(0)
+      },
+    }
+  }
   group.traverse((object) => {
     if (!(object instanceof THREE.Mesh) || object instanceof THREE.BatchedMesh || object instanceof THREE.InstancedMesh ||
         object instanceof THREE.SkinnedMesh || Array.isArray(object.material) || object.layers.mask !== 1) return
@@ -57,10 +64,14 @@ export function trainDetails(group: THREE.Group): TrainDetail[] {
     const detail = batch.mesh.userData.trainGlassDetail as { nearIds: number[]; farIds: number[] } | undefined
     if (!detail) continue
     const mesh = batch.mesh
+    const drawsFar = detail.farIds.map(id => (mesh.getGeometryRangeAt(id)?.count ?? 0) > 0)
     details.push({
       apply(reduced: boolean) {
         const ids = reduced ? detail.farIds : detail.nearIds
-        for (let i = 0; i < ids.length; i++) mesh.setGeometryIdAt(i, ids[i])
+        for (let i = 0; i < ids.length; i++) {
+          mesh.setGeometryIdAt(i, ids[i])
+          mesh.setVisibleAt(i, !reduced || drawsFar[i])
+        }
       },
     })
   }

@@ -13,6 +13,7 @@ import * as THREE from 'three'
 import { nearestTrainService } from '../../stationDisplay.ts'
 import { setRailSignal } from '../../models/pieces/RailSignalModel.ts'
 import { signLineInk } from '../../presentationEdit.ts'
+import { modelNeighbours } from '../../modelNeighbours.ts'
 import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
 import { canvasTexture, litPanelMaterial } from '../../models.ts'
@@ -486,7 +487,7 @@ export class PlateSystem extends SceneSystem {
   makeTvPlate(id: string, x: number, y: number): THREE.Texture {
     const existing = this.tvPlates.get(id)
     if (existing) return existing
-    const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
+    const mod = modelNeighbours({ data: this.ctx.stationData ?? undefined }, 'tv').find(m => m.id === id)
     const status = this.tvStatus(x, y, mod?.z ?? 0)
     // Live atlas patches read these pixels on the CPU; keep the source there too
     // so a clock change never waits for a GPU-backed canvas readback.
@@ -508,8 +509,10 @@ export class PlateSystem extends SceneSystem {
     const stamp = stampAt(simTime, data?.calendar)
     this.ctx.clockText = stamp.clock
     this.dateText = translate(stamp.dateLabel)
+    if (!this.tvPlates.size) return
+    const tvs = modelNeighbours({ data: data ?? undefined }, 'tv')
     for (const [id, tex] of this.tvPlates) {
-      const mod = data?.modules.find((m) => m.id === id)
+      const mod = tvs.find(m => m.id === id)
       const status = this.tvStatus(mod ? mod.x + 0.5 : 0.5, mod ? mod.y + 0.5 : 0.5, mod?.z ?? 0)
       const ink = JSON.stringify([status, data?.name, stamp.clock, stamp.dateLabel])
       if (this.tvInk.get(id) === ink) continue

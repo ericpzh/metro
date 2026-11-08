@@ -61,16 +61,31 @@ interface GlassBatch { mesh: THREE.BatchedMesh; sources: THREE.Mesh[]; local: TH
 
 /** Transparent glass/straps use per-surface depth sorting, including moving panes. */
 export function batchTrainTransparent(root: THREE.Group): void {
+  const transparent: THREE.Mesh[] = []
+  root.traverseVisible(object => {
+    if (object instanceof THREE.Mesh && !Array.isArray(object.material) && object.material.transparent) transparent.push(object)
+  })
+  batchSortedMovingParts(root, transparent)
+}
+
+/** Group a platform run's sliding leaves without baking their open/closed pose. */
+export function batchPlatformDoors(root: THREE.Object3D): void {
+  const leaves = root.userData.doors as THREE.Mesh[] | undefined
+  if (!leaves?.length) return
+  for (const { mesh } of batchSortedMovingParts(root, leaves)) mesh.raycast = () => {}
+}
+
+function batchSortedMovingParts(root: THREE.Object3D, candidates: readonly THREE.Mesh[]): GlassBatch[] {
   root.updateWorldMatrix(true, true)
   const inverse = root.matrixWorld.clone().invert()
   const buckets = new Map<string, THREE.Mesh[]>()
-  root.traverseVisible(o => {
-    if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh || o instanceof THREE.InstancedMesh || o instanceof THREE.BatchedMesh || Array.isArray(o.material)) return
-    if (!o.material.transparent || !o.visible || o.children.length || o.layers.mask !== 1) return
-    if (Object.keys(o.geometry.morphAttributes).length || o.geometry.drawRange.start !== 0 || o.geometry.drawRange.count !== Infinity) return
-    const key = `${o.material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}`
+  for (const o of candidates) {
+    if (o instanceof THREE.SkinnedMesh || o instanceof THREE.InstancedMesh || o instanceof THREE.BatchedMesh || Array.isArray(o.material)) continue
+    if (!o.visible || o.children.length || o.layers.mask !== 1) continue
+    if (Object.keys(o.geometry.morphAttributes).length || o.geometry.drawRange.start !== 0 || o.geometry.drawRange.count !== Infinity) continue
+    const key = `${o.material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${o.userData.wall === true}`
     const sources = buckets.get(key) ?? []; sources.push(o); buckets.set(key, sources)
-  })
+  }
   const batches: GlassBatch[] = []
   for (const sources of buckets.values()) {
     if (sources.length < 2) continue
@@ -98,9 +113,11 @@ export function batchTrainTransparent(root: THREE.Group): void {
     }
     mesh.computeBoundingBox(); mesh.computeBoundingSphere()
     mesh.userData.trainGlassBatch = true
+    if (sources[0].userData.wall === true) mesh.userData.wall = true
     root.add(mesh); batches.push({ mesh, sources, local })
   }
   root.userData.trainGlassBatches = batches
+  return batches
 }
 
 /** Called only when a door pose changes, never when a consist merely translates. */
@@ -118,7 +135,7 @@ export function syncTrainDoorBatches(root: THREE.Object3D): void {
   for (const batch of glass ?? []) {
     for (let i = 0; i < batch.sources.length; i++) {
       const source = batch.sources[i]
-      if (!source.parent?.userData.openSign) continue
+      if (!source.userData.openSign && !source.parent?.userData.openSign) continue
       batch.mesh.setMatrixAt(i, inverse.clone().multiply(source.matrixWorld))
     }
     batch.mesh.computeBoundingBox(); batch.mesh.computeBoundingSphere()

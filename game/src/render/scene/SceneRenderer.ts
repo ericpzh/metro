@@ -19,6 +19,7 @@ import { trainOriginForScale, trainScaleForStorey } from '../../sim/stock.ts'
 import { RenderDemand } from '../renderDemand.ts'
 import { EXPLODED_LIFT_ABSENT, isExplodedStructure } from '../explodedView.ts'
 import { geometryDetailReady } from '../geometryDetail.ts'
+import { isDenseStation } from '../detailPolicy.ts'
 import type { GraphicsQuality } from '../detailPolicy.ts'
 import type { UpscalingMode } from '../upscaling.ts'
 import { FsrUpscaler } from './FsrUpscaler.ts'
@@ -211,7 +212,11 @@ export class SceneRenderer {
   private artReady = false
   private readonly artworkReady: Promise<void>
   private pendingBuildViews: StationData | null = null
-  private readonly restoreFrame = (): void => { this.requestRender() }
+  private trainPrograms = new WeakMap<THREE.Object3D, boolean>()
+  private readonly restoreFrame = (): void => {
+    this.trainPrograms = new WeakMap()
+    this.requestRender()
+  }
   /** Actual GL submissions, independent of RAF cadence while retaining a still frame. */
   framesRendered = 0
   onNextFrame?: () => void
@@ -327,6 +332,9 @@ export class SceneRenderer {
     this.renderer.localClippingEnabled = true
 
     const scene = new THREE.Scene()
+    // The scene is the station's world origin. Recomputing its identity
+    // matrix forces even baked static descendants to update every frame.
+    scene.matrixAutoUpdate = false
     scene.fog = new THREE.Fog(STATION_CLEAR, 120, 320)
     this.sky = new SkySystem(scene)
 
@@ -728,7 +736,8 @@ export class SceneRenderer {
         camera.updateMatrixWorld()
         this.modules.batches.updateDetail(camera, this.renderer.domElement.clientHeight)
         this.modules.surfaces.updateDetail(camera, this.renderer.domElement.clientHeight)
-        this.modules.batches.withHiddenSources(camera, () => this.renderer.render(this.ctx.scene, camera))
+        this.modules.batches.withHiddenSources(camera, () =>
+          this.modules.moduleMeshes.withVisibleRoots(() => this.renderer.render(this.ctx.scene, camera)))
         this.framesRendered++
       })
     } finally {
@@ -1092,6 +1101,46 @@ export class SceneRenderer {
 
   /* --------------------------------------------------------------- loop */
 
+  private drawFrame(camera: THREE.Camera): void {
+    const render = () => this.renderer.render(this.ctx.scene, camera)
+    if (this.standalonePresentation || this.ctx.graphicsQuality !== 'low' ||
+        !isDenseStation(this.ctx.stationData?.modules.length ?? 0) ||
+        !this.renderer.extensions.has('KHR_parallel_shader_compile')) {
+      render()
+      return
+    }
+    const hidden: THREE.Object3D[] = []
+    let started = false
+    try {
+      for (const train of this.trains.trainGroup.children) {
+        if (!train.visible || this.trainPrograms.get(train) === true) continue
+        if (!started && !this.trainPrograms.has(train)) {
+          started = true
+          const programs = this.trainPrograms
+          programs.set(train, false)
+          const drawing = new THREE.Group()
+          train.traverseVisible(object => {
+            if (object instanceof THREE.Mesh && object.layers.test(camera.layers)) drawing.children.push(object)
+          })
+          // compileAsync traverses even non-rendering source leaves. Prepare
+          // the draw meshes only, with the actual scene lighting and fog.
+          void this.renderer.compileAsync(drawing, camera, this.ctx.scene).then(() => {
+            if (this.ctx.disposed || programs !== this.trainPrograms || !train.parent) return
+            programs.set(train, true)
+            this.requestRender()
+          })
+        }
+        // A newly visible train continues to receive poses. Its draw joins
+        // the scene once the GPU can use its first shader programs.
+        hidden.push(train)
+        train.visible = false
+      }
+      render()
+    } finally {
+      for (const train of hidden) train.visible = true
+    }
+  }
+
   followPassenger(id: number | null, onLost?: () => void): void {
     this.requestRender()
     this.crowd.followAgentId = id
@@ -1136,7 +1185,7 @@ export class SceneRenderer {
       this.modules.batches.atlas.update(this.renderer)
       if (this.modules.batches.atlas.pendingUpdates) this.requestRender()
       this.clocks.updateClocks(now)
-      this.roads.update(now, this.modules.moduleMeshes, this.sectionSys.on ? this.sectionSys.plane : null)
+      this.roads.update(now, this.modules.roadTrafficRoots, this.sectionSys.on ? this.sectionSys.plane : null)
       this.cameraSys.syncOrtho()
       this.explodedRamps?.update()
       this.notifyCameraAim()
@@ -1151,7 +1200,8 @@ export class SceneRenderer {
       this.modules.surfaces.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.ghostSys.updateDetail(drawCamera, this.renderer.domElement.height / this.renderer.getPixelRatio())
       this.explodedLayout?.hideSources()
-      this.modules.batches.withHiddenSources(drawCamera, () => this.upscaler.render(() => this.renderer.render(this.ctx.scene, drawCamera)))
+      this.modules.batches.withHiddenSources(drawCamera, () => this.modules.moduleMeshes.withVisibleRoots(() =>
+        this.upscaler.render(() => this.drawFrame(drawCamera))))
       this.framesRendered++
       const afterFrame = this.onNextFrame
       this.onNextFrame = undefined

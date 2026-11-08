@@ -66,23 +66,10 @@ export function buildPsd(ctx: ModuleContext, mod: Extract<Module, { type: 'platf
   const glassMid = z0 + glassH / 2
   const leafMid = z0 + doorH / 2
   // Single glass surfaces avoid competing front/back faces at grazing angles.
-  const fixedGlass = housingOnly ? mats.glass : ownedMaterial(ctx, mats.glass.clone())
-  const movingGlass = housingOnly ? mats.tintedGlass : ownedMaterial(ctx, mats.tintedGlass.clone())
-  const fullHeightIndicator = housingOnly ? mats.glow : ownedMaterial(ctx, new THREE.MeshStandardMaterial({
-    color: 0xffd21c, emissive: 0xffd21c, emissiveIntensity: 0.7, roughness: 0.23,
-  }))
-  if (!housingOnly) {
-    fixedGlass.depthWrite = false
-    movingGlass.depthWrite = false
-    // PSDs can sit flush with a platform wall. Keep their transparent panes just
-    // ahead in the depth buffer so the wall behind does not shimmer through them.
-    fixedGlass.polygonOffset = true
-    fixedGlass.polygonOffsetFactor = -1
-    fixedGlass.polygonOffsetUnits = -1
-    movingGlass.polygonOffset = true
-    movingGlass.polygonOffsetFactor = -1
-    movingGlass.polygonOffsetUnits = -1
-  }
+  // The shared pane finishes keep the same offset against flush platform walls.
+  const fixedGlass = housingOnly ? mats.glass : mats.psdFixedGlass
+  const movingGlass = housingOnly ? mats.tintedGlass : mats.psdMovingGlass
+  const fullHeightIndicator = housingOnly ? mats.glow : mats.psdIndicator
   const platYaw = toward < 0 ? Math.PI : 0
   // Openings that actually fall on this run, ascending. The cadence is measured
   // from the *consist* centre, which is the rail's run centre — not this edge's,

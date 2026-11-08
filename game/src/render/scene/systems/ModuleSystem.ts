@@ -16,6 +16,7 @@ import * as THREE from 'three'
 import { movedGuidepostIds, translatedWalkwayIds } from '../../moduleDependencies.ts'
 
 import { batchStaticModule } from '../../batchStaticModule.ts'
+import { batchPlatformDoors } from '../../trainBatches.ts'
 import { EquipmentBatches } from '../../equipmentBatches.ts'
 import { SourceGeometryDetail } from '../../sourceGeometryDetail.ts'
 import { detailHeight } from '../../detailPolicy.ts'
@@ -49,6 +50,16 @@ import { TV_FIRST_SWAP_MS, TV_SWAP_JITTER_MS } from './PlateSystem.ts'
 import type { GhostSystem } from './GhostSystem.ts'
 import { fenceConnectionIndex } from '../../../sim/fences.ts'
 import { GROUND_Z } from '../../../sim/ground.ts'
+
+class ModuleRenderGroup extends THREE.Group {
+  withVisibleRoots(draw: () => void): void {
+    // Prune both the renderer's matrix walk and its render-list walk. Keep
+    // ownership and the original picking list outside the synchronous draw.
+    const roots = this.children
+    this.children = this.visible ? roots.filter(root => root.visible) : []
+    try { draw() } finally { this.children = roots }
+  }
+}
 
 export class ModuleSystem extends SceneSystem {
   private retainedIds(data: StationData): Set<string> {
@@ -142,14 +153,15 @@ export class ModuleSystem extends SceneSystem {
     this.classifiedContent = isEquipmentContentEdit(this.builtData, data)
     this.classifiedEquipment = this.classifiedContent && JSON.stringify(groundWindow(this.builtData.cells, this.builtData.modules)) === JSON.stringify(groundWindow(data.cells, data.modules))
   }
-  moduleMeshes: THREE.Group = new THREE.Group()
+  readonly moduleMeshes = new ModuleRenderGroup()
+  readonly roadTrafficRoots = new Set<THREE.Object3D>()
   /** The instanced 草坪 / 人行道 layer: no per-tile mesh, source or contact blob. */
   readonly surfaces = new SurfaceBatches()
   /** Bumped when a paving tile root is built or dropped. */
   private surfaceRevision = 0
   readonly retainedLevelRoots = new Set<THREE.Object3D>()
   readonly batches = new EquipmentBatches()
-  private readonly sourceDetail = new SourceGeometryDetail()
+  private readonly sourceDetail = new SourceGeometryDetail(true)
   private retainedBatches = false
   private batchView = ''
   private movingModuleId: string | null = null
@@ -295,7 +307,12 @@ export class ModuleSystem extends SceneSystem {
 
   constructor(ctx: SceneContext) {
     super(ctx)
+    this.moduleMeshes.addEventListener('childadded', ({ child }) => {
+      if (child.userData.moduleType === 'road' || child.userData.roadSignals?.length) this.roadTrafficRoots.add(child)
+    })
+    this.moduleMeshes.addEventListener('childremoved', ({ child }) => this.roadTrafficRoots.delete(child))
     this.ctx.scene.add(this.moduleMeshes)
+    this.batches.root.matrixAutoUpdate = false
     this.ctx.scene.add(this.batches.root)
     this.ctx.scene.add(this.surfaces.root)
   }
@@ -515,6 +532,7 @@ export class ModuleSystem extends SceneSystem {
         }
         prepareArtwork(group)
         batchStaticModule(group, mod.type)
+        if (mod.type === 'platform-edge' && !structure) batchPlatformDoors(group)
         group.userData.ownedMaterials = this.ctx.ownedMats.slice(ownedStart)
       }
       group.userData.moduleId = mod.id

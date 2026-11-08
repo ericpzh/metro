@@ -44,12 +44,15 @@ export class RoadTraffic {
     const {edges,junctions}=this.network
     for(const b of this.buckets) b.length=0
     for(const c of this.cars) { c.previousEdge=c.edge;c.previousDistance=c.distance;this.buckets[c.edge].push(c) }
-    for(const b of this.buckets) b.sort((a,c)=>c.distance-a.distance)
+    for(const b of this.buckets) if(b.length>1) b.sort((a,c)=>c.distance-a.distance)
     const dead=new Set<RoadCar>()
     const processed=new Set<number>()
     for(const b of this.buckets) {
       let leader:RoadCar|undefined
-      for(const c of [...b]) {
+      // Cars arriving during this bucket's turn are appended. Visit the same
+      // original range without copying the lane queue.
+      for(let i=0,count=b.length;i<count;i++) {
+        const c=b[i]
         if(processed.has(c.id)) continue
         processed.add(c.id)
         const e=edges[c.edge],old=c.distance
@@ -58,7 +61,10 @@ export class RoadTraffic {
         const next=edges[choice]
         let canLeave=!next
         if(next) {
-          const tail=this.buckets[choice].filter(a=>a.edge===choice && !dead.has(a)).sort((a,b)=>a.distance-b.distance)[0]
+          let tail: RoadCar | undefined
+          for (const car of this.buckets[choice]) {
+            if (car.edge===choice && !dead.has(car) && (!tail || car.distance<tail.distance)) tail=car
+          }
           const room=!tail || tail.distance-tail.size/2>c.size/2+ROAD_FOLLOW_GAP
           const j=next.junction
           if(j>=0) limit-=ROAD_CROSSWALK_DEPTH+1.5
@@ -77,7 +83,7 @@ export class RoadTraffic {
           tail.remaining-=moved
           if(tail.remaining<=0 && this.locks.get(tail.junction)===c.id) this.locks.delete(tail.junction)
         }
-        c.tails=c.tails.filter(t=>t.remaining>0)
+        if(c.tails.length) c.tails=c.tails.filter(t=>t.remaining>0)
         if(c.distance>=e.length && canLeave) {
           if(!next) {
             dead.add(c);if(c.held>=0)this.locks.delete(c.held)
@@ -92,7 +98,7 @@ export class RoadTraffic {
         } else leader=c
       }
     }
-    this.cars=this.cars.filter(c=>!dead.has(c))
+    if(dead.size) this.cars=this.cars.filter(c=>!dead.has(c))
     // Spawns occur at network boundaries only; interior road seams never emit cars.
     const period=Math.round(ROAD_TRAFFIC_SPACING/(ROAD_TRAFFIC_SPEED*ROAD_STEP)/ROAD_TRAFFIC_DENSITY)
     const entryCount=Math.max(1,this.network.entries.length)

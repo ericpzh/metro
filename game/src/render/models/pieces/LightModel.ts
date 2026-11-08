@@ -9,7 +9,7 @@ export class LightModel extends PieceBuilder {
   readonly kind = 'light'
   build(mod: LightModule): THREE.Group {
     const g = new THREE.Group()
-    const diffuserMat = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0xfff8e8, emissive: 0xfff4d8, emissiveIntensity: 1.5, roughness: 0.4, side: THREE.DoubleSide }))
+    const diffuserMat = this.ctx.mats.lightDiffuser
     const { width, depth } = lightSpec(mod)
     const offset = lightOffset(mod)
     // The line the housing hangs from: the **top block** over its own cell (`hangCeilingLocal`),

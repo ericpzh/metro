@@ -106,7 +106,8 @@ test('road gesture previews without commits, uses one press pick, commits once, 
 test('traffic instances stop while paused, advance with sim snapshots, follow visibility, and dispose', async () => {
   const { RoadTrafficSystem } = await import('../src/render/scene/systems/RoadTrafficSystem.ts')
   const ctx={scene:new THREE.Scene(),stationData:{modules:[road(12,120)],seed:42},lastStateTime:0,stateIntervalMs:1000,activeZ:0,ghost:false,hideGround:false,cutaway:false}
-  const roots=new THREE.Group(),root=new THREE.Group();root.userData.moduleId='road-a';roots.add(root)
+  const root=new THREE.Group();root.userData.moduleId='road-a'
+  const roots=new Set([root])
   const traffic=new RoadTrafficSystem(ctx)
   traffic.setSimTime(100);traffic.update(1000,roots)
   const meshes=ctx.scene.children[0].children

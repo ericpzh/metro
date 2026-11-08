@@ -103,7 +103,8 @@ test('seeded appearance includes both variants per traffic family, and actual in
   assert.equal(roadVehicleVariant('bike',1,42),'bicycle')
   const road={id:'street',type:'road',x:0,y:0,z:0,rot:0,w:24,d:1000,cfg:{direction:'two-way'}}
   const ctx={scene:new THREE.Scene(),stationData:{modules:[road],seed:42},lastStateTime:0,stateIntervalMs:1000,activeZ:0,ghost:false,hideGround:false,cutaway:false}
-  const roots=new THREE.Group(),root=new THREE.Group();root.userData.moduleId=road.id;roots.add(root)
+  const root=new THREE.Group();root.userData.moduleId=road.id
+  const roots=new Set([root])
   const system=new RoadTrafficSystem(ctx)
   try {
     system.setSimTime(100);system.update(1000,roots)

@@ -918,6 +918,87 @@ draws) are less of the −5 m cost. Reports:
 `tianhe-hide-above.json` (the −20 m reference) and `tianhe-minus5.json`; tail
 figures at this sample size are not a stable ranking.
 
+### Tianhe Park concourse profiling
+
+The November 8 capture used the shipped Tianhe fixture (151,852 cells, source
+SHA-256 `4f15bab9154fe48cb3293d55854a6e267d6f89a02d49c34390c7d302b92ca395`),
+Chrome 156 hardware ANGLE/D3D11 on an i7-14700KF and RTX 4080 SUPER. Keep the
+regular −5 m isometric preset, adjacent storey ghost, Low quality, 16× speed,
+852 × 715 canvas and DPR 1. The first-Play timer runs for 30 seconds and the
+1% low is the inverse mean interval of the slowest 1% of submitted frames.
+
+```powershell
+npm --prefix game run build
+$env:BENCH_DEMO = 'tianhe'
+$env:BENCH_MODE = 'regular'
+$env:BENCH_QUALITY = 'low'
+$env:BENCH_SPEED = '16'
+$env:BENCH_SECONDS = '30'
+$env:BENCH_CANVAS_SIZE = '852,715'
+$env:BENCH_PIXEL_RATIO = '1'
+node tools/bench-sim-stalls.mjs
+```
+
+The baseline at `c7c854c0` submitted 10,083 calls in its final frame and measured
+12.91 FPS average, 6.78 FPS 1% low and a 171.6 ms worst interval. Render
+submission took a median 62.0 ms and reached 142.6 ms. The separate 30-second
+CPU profile sampled 4.87 seconds in `updateMatrixWorld` and 1.65 seconds in
+`multiplyMatrices`. The draw inventory attributed roughly 1,700 calls per
+frame to checkout counters and 2,200 to platform-screen doors. Chrome exposed
+`WEBGL_multi_draw` in that inventory. The road pass rebuilt a station-wide
+visibility set and signature every frame and reached 15.7 ms in the baseline.
+
+The final production build was isolated at `c7c854c0` with the playback changes
+applied, so concurrent workspace edits did not enter the comparison. Vite
+source hash `1eb06eb4b487eb767f32dbe3fc4de9696af0fa108411c8f6edc0af1fbe27923c`.
+The last capture ran after the test suite exited. The 15 FPS target was met
+in two of the three clean captures.
+
+| Capture | Submitted frames | Average FPS | 1% low FPS | Worst interval | Final-frame draws | Median render submission |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `baseline` | 388 | 12.91 | 6.78 | 171.6 ms | 10,083 | 62.0 ms |
+| `final-1` | 872 | 29.06 | 12.89 | 111.4 ms | 2,531 | 27.5 ms |
+| `final-2` | 1,110 | 36.99 | 16.37 | 94.6 ms | 2,531 | 21.2 ms |
+| `final-3` | 1,045 | 34.80 | 17.03 | 64.1 ms | 2,531 | 22.7 ms |
+
+The final captures had zero runtime and WebGL errors and reused the prepared
+train fleet. `final-1` still had a 105.8 ms render submission on a frame
+carrying an early train snapshot. The table reports submitted frames and
+browser-side render durations.
+
+The build batches checkout fittings, platform-door leaves and fixed billboard
+art. It shares repeated light, court and floor-mark finishes, collapses uniform
+track-face materials and skips empty Low draws. Render traversal excludes
+hidden module roots and leaves baked chunk and equipment transforms alone.
+Road traffic uses the road and signal registry and continues its fixed steps
+while the street is hidden. TV clock refresh uses the station's type index.
+Dense Low equipment buckets are 256 m wide, a tradeoff between submission
+count and spatial culling. Their static transparent geometry retains
+per-surface culling and back-to-front order in an indexed draw.
+
+The separate 12-second equipment ablation reached 59.70 FPS average and
+27.43 FPS 1% low with 683 calls in the final frame. It removed both equipment
+draw trees and retained the simulation and chunk geometry. The result
+isolates the equipment cost. The full-scene captures also showed individual
+live-atlas updates taking up to 62.2 ms. In the separate 30-second
+`ordered-tail-trace` run, four synchronous `GetProgramiv` calls occupied
+about 68 ms during the first-train frame. A later atlas update spent 35.4 ms
+waiting for a GL command-buffer token. These waits measure submission
+backpressure and do not time GPU execution.
+
+On dense Low stations with `KHR_parallel_shader_compile`, compile at most
+one newly visible train per frame, using its actual draw meshes. The train
+receives poses immediately and draws after the programs are ready. A separate
+`final-probe` capture measured 6.5 ms to submit the first compilation and
+133 ms for readiness. The first train drew 139 ms after submission began.
+That probe also measured a median live atlas patch of 33,024 pixels, compared
+with 524,416 pixels for the former full patch. One 4,064-pixel patch still
+waited 34.4 ms in the copy call. Dirty rectangles reduce transfer size while
+the command queue can still stall a small copy.
+
+Raw frame intervals, CPU profiles, draw inventory and traces are under
+`.preview/perf/tianhe-tail/`.
+
 ### Occupied storeys hide what is above them
 
 `显示其他层` used to ghost **every** storey above the active one. That covered

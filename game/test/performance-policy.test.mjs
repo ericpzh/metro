@@ -71,6 +71,9 @@ test('paving instance buckets group by tile size and skip hidden or sliced tiles
   assert.deepEqual(sources.map(source => source.id), ['a', 'b', 'c'], 'invisible tiles are not drawn or pickable')
   assert.equal(equipmentBatchTileSize('high'), 16)
   assert.equal(equipmentBatchTileSize('low'), 64)
+  assert.equal(equipmentBatchTileSize('high', 20_000), 16)
+  assert.equal(equipmentBatchTileSize('low', 19_999), 64)
+  assert.equal(equipmentBatchTileSize('low', 20_000), 256)
   const buckets = surfaceBuckets(sources, 16)
   assert.deepEqual([...buckets.keys()].sort(), ['lawn|0|0,0', 'lawn|0|1,0'], '16 m buckets hold the tiles that draw together')
   assert.deepEqual(buckets.get('lawn|0|0,0')?.map(source => source.id), ['a', 'b'])
@@ -458,7 +461,7 @@ test('train shell batching keeps bounds, triangle count and moving door/window r
   }
 })
 
-test('retained equipment keeps geometry and owned materials until invalidation or teardown', () => {
+test('retained ceiling lights share their scene-owned diffuser until scene teardown', () => {
   const previousDocument = globalThis.document
   globalThis.document = { createElement: () => canvasNode() }
   let mats, modules
@@ -471,17 +474,24 @@ test('retained equipment keeps geometry and owned materials until invalidation o
     modules.plates = { retainTvPlates() {}, retainSignPlates() {}, retainDecorPlates() {}, clearTvPlates() {}, clearSignPlates() {}, clearDecorPlates() {}, ownsTexture: () => false, adScreens: [], tvScreens: [] }
     modules.trains = { psdGroups: [] }; modules.lifts = { escalatorRolls: [], liftRigs: [], liftPickMeshes: [] }
     modules.clocks = { clockRigs: [] }; modules.crowd = { gateWings: [], swingDoors: [], activitySinks: [] }
-    const station = { name: 'test', seed: 1, lines: [], modules: [createModule('bench', 0, 0, 0, 'bench'), createModule('light-circular', 4, 0, 0, 'light')], cells: [] }
+    const station = { name: 'test', seed: 1, lines: [], modules: [
+      createModule('light-circular', 4, 0, 0, 'first'),
+      createModule('light-rectangular', 6, 0, 0, 'second'),
+    ], cells: [] }
     modules.buildModules(station, new Set())
-    const light = modules.moduleMeshes.children.find(g => g.userData.moduleId === station.modules[1].id)
+    const lights = modules.moduleMeshes.children.filter(g => g.userData.moduleType === 'light')
+    assert.equal(lights.length, 2)
+    assert.ok(lights.every(light => light.children.some(mesh => mesh.material === mats.lightDiffuser)))
     let disposed = 0
-    const owned = light.userData.ownedMaterials[0]
-    owned.addEventListener('dispose', () => disposed++)
+    mats.lightDiffuser.addEventListener('dispose', () => disposed++)
     modules.buildModules({ ...station, cells: [{ x: 100, y: 0, z: 0, fill: 'solid' }] }, new Set(), true)
-    assert.ok(modules.moduleMeshes.children.includes(light), 'a local block edit keeps the original group')
+    assert.ok(lights.every(light => modules.moduleMeshes.children.includes(light)), 'a local block edit keeps the original groups')
     assert.equal(disposed, 0, 'retained lighting material remains live')
     modules.clearModules()
-    assert.equal(disposed, 1, 'teardown releases retained owned material once')
+    assert.equal(disposed, 0, 'clearing modules leaves shared material live')
+    disposeModelMaterials(mats)
+    mats = undefined
+    assert.equal(disposed, 1, 'scene teardown releases the shared material once')
     assert.equal(ctx.ownedMats.length, 0)
   } finally { modules?.clearModules(); if (mats) disposeModelMaterials(mats); blob.dispose(); globalThis.document = previousDocument }
 })

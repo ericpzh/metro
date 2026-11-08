@@ -774,13 +774,14 @@ test('panel atlas retains full resolution, correct UV orientation and live scree
 test('live panel repaints upload one guttered rectangle and retain complete context-restore pixels', () => {
   const previous = globalThis.document
   let ink = 20
+  let accent = false
   globalThis.document = { createElement: () => {
     const c = canvas(), g = c.getContext('2d')
     g.getImageData = (x, y, w, h) => {
       const data = new Uint8ClampedArray(w * h * 4)
       for (let row = 0; row < h; row++) for (let col = 0; col < w; col++) {
         const i = (row * w + col) * 4
-        data.set([ink, y + row, x + col, 255], i)
+        data.set([accent && row === 3 && col === 5 ? 220 : ink, y + row, x + col, 255], i)
       }
       return { data }
     }
@@ -818,14 +819,22 @@ test('live panel repaints upload one guttered rectangle and retain complete cont
     assert.deepEqual(Array.from(copy.pixels.slice(0, 4)), [70, 19, 0, 255], 'canvas bottom row becomes the first GPU row')
     assert.equal(page.version, version, 'live update never schedules a full-page upload')
     assert.equal(fixed.material.map.version, fixedVersion)
-    atlas.update(renderer); assert.equal(copies.length, 1, 'unchanged display uploads nothing')
+    accent = true; textures[0].needsUpdate = true; atlas.update(renderer)
+    assert.equal(copies.length, 2)
+    assert.deepEqual([copies[1].width, copies[1].height], [1, 1], 'a localized repaint transfers only changed pixels')
+    assert.deepEqual(copies[1].position.toArray(), [x + 5, y + height - 4])
+    const accentOffset = ((y + height - 4) * 128 + x + 5) * 4
+    assert.equal(page.image.data[accentOffset], 220, 'context restoration includes the partial update')
+    textures[0].needsUpdate = true; atlas.update(renderer)
+    assert.equal(copies.length, 2, 'a repaint with identical pixels uploads nothing')
     atlas.retain(new Set([textures[1]])); textures[0].needsUpdate = true; atlas.update(renderer)
-    assert.equal(copies.length, 1, 'removed panels stop updating')
+    assert.equal(copies.length, 2, 'removed panels stop updating')
     const replacement = panel(true)
     assert.equal(replacement.u, live.u); assert.equal(replacement.v, live.v)
     ink = 90; textures[2].needsUpdate = true; atlas.update()
     assert.ok(page.version > version, 'headless/structural fallback retains a complete upload')
     const other = panel(true)
+    ink = 100
     textures[2].needsUpdate = true; textures[3].needsUpdate = true
     const start = copies.length
     atlas.update(renderer)

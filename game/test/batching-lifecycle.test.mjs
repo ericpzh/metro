@@ -8,8 +8,10 @@ import { ModuleSystem } from '../src/render/scene/systems/ModuleSystem.ts'
 import { LevelSystem } from '../src/render/scene/systems/LevelSystem.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { createModule } from '../src/build/model.ts'
-import { createModelMaterials, disposeModelMaterials, disposeObject } from '../src/render/models.ts'
-import { batchTrainDoors, batchTrainTransparent } from '../src/render/trainBatches.ts'
+import { createModelMaterials, disposeModelMaterials, disposeObject, setDoors } from '../src/render/models.ts'
+import { batchPlatformDoors, batchTrainDoors, batchTrainTransparent } from '../src/render/trainBatches.ts'
+import { omitModelDetail } from '../src/render/modelDetail.ts'
+import { sortedEquipmentGeometry } from '../src/render/sortedEquipmentGeometry.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
 import { cameraRig } from './support/camera-rig.mjs'
 
@@ -71,6 +73,131 @@ test('batched static picking leaves skip local matrix composition and restore tr
     batches.clear()
     assert.equal(a.matrixAutoUpdate, true, 'teardown restores the source transform policy')
   } finally { batches.clear(); cleanup(group); material.dispose() }
+})
+
+test('platform-door batches keep exact source leaves and follow their direct slide poses', () => {
+  const material = new THREE.MeshBasicMaterial()
+  const make = (x, sign) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material)
+    mesh.position.x = x
+    mesh.userData = { closedX: x, openSign: sign, travel: 1.25, wall: true }
+    return mesh
+  }
+  const leaves = [make(-.5, -1), make(.5, 1)]
+  const group = root(leaves, 'edge', 'platform-edge')
+  group.userData.doors = leaves
+  group.position.set(30, 20, -10); group.rotation.z = Math.PI / 2
+  try {
+    batchPlatformDoors(group)
+    const batches = group.children.filter(mesh => mesh.isBatchedMesh)
+    assert.equal(batches.length, 1)
+    const [batch] = batches
+    assert.equal(batch.userData.wall, true)
+    assert.ok(leaves.every(leaf => leaf.layers.isEnabled(BATCH_SOURCE_LAYER)))
+    const ray = new THREE.Raycaster(new THREE.Vector3(30, 20, -5), new THREE.Vector3(0, 0, -1))
+    assert.equal(ray.intersectObject(batch).length, 0, 'editor hits use only the original leaves')
+    for (const t of [0, 1, .25, 0]) {
+      setDoors(group, t)
+      leaves.forEach((leaf, i) => {
+        const local = new THREE.Matrix4()
+        batch.getMatrixAt(i, local)
+        assert.ok(new THREE.Vector3().setFromMatrixPosition(local).distanceTo(leaf.position) < 1e-6)
+      })
+    }
+  } finally { cleanup(group); material.dispose() }
+})
+
+test('static transparent batches reuse their sorted draw list until the view or detail changes', () => {
+  const material = new THREE.MeshBasicMaterial({ transparent: true })
+  const a = new THREE.Mesh(new THREE.BoxGeometry(), material)
+  const b = new THREE.Mesh(new THREE.BoxGeometry(), material)
+  b.position.x = 1
+  omitModelDetail(b)
+  const group = new THREE.Group(), batches = new EquipmentBatches()
+  group.add(root([a, b]))
+  const camera = new THREE.PerspectiveCamera(60, 1, .1, 100)
+  camera.position.z = 5; camera.updateMatrixWorld()
+  try {
+    batches.sync(group)
+    const [mesh] = batches.root.children
+    const draw = () => {
+      mesh.onBeforeRender(null, null, camera, mesh.geometry, material, null)
+      return mesh._indirectTexture.version
+    }
+    const initial = draw()
+    assert.equal(draw(), initial, 'a stationary camera needs no indirection upload')
+    camera.position.x = 1; camera.updateMatrixWorld()
+    assert.equal(draw(), initial + 1)
+    batches.graphicsQuality = 'low'; batches.updateDetail(camera, 800)
+    assert.equal(draw(), initial + 2)
+    assert.equal(mesh._multiDrawCount, 1, 'an omitted Low surface consumes no subdraw')
+    batches.graphicsQuality = 'high'; batches.updateDetail(camera, 800)
+    assert.equal(draw(), initial + 3)
+    assert.equal(mesh._multiDrawCount, 2, 'High restores both subdraws')
+  } finally { batches.clear(); cleanup(group); material.dispose() }
+})
+
+test('indexed equipment preserves per-surface frustum culling and back-to-front order', () => {
+  const parts = [[0, 2], [0, 0], [8, 0]].map(([x, z]) => {
+    const plane = new THREE.PlaneGeometry()
+    const baked = plane.toNonIndexed().translate(x, 0, z)
+    plane.dispose()
+    return baked
+  })
+  const ordered = sortedEquipmentGeometry(parts)
+  const mesh = new THREE.Mesh(ordered.geometry)
+  const camera = new THREE.PerspectiveCamera(45, 1, .1, 100)
+  const index = mesh.geometry.getIndex()
+  const draw = () => {
+    camera.updateMatrixWorld()
+    ordered.update(camera, mesh)
+    return Array.from(index.array.slice(0, mesh.geometry.drawRange.count))
+  }
+  try {
+    camera.position.z = 10
+    assert.deepEqual(draw(), [6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 4, 5])
+    const version = index.version
+    draw()
+    assert.equal(index.version, version)
+    camera.position.z = -10
+    camera.lookAt(0, 0, 0)
+    assert.deepEqual(draw(), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  } finally { parts.forEach(part => part.dispose()); mesh.geometry.dispose(); mesh.material.dispose() }
+})
+
+test('render matrix updates skip hidden module trees while explicit world updates reach them', () => {
+  const modules = new ModuleSystem({ scene: new THREE.Scene() })
+  const group = modules.moduleMeshes
+  const visible = new THREE.Group(), hidden = new THREE.Group()
+  hidden.visible = false
+  visible.position.x = 1; hidden.position.x = 2
+  group.position.x = 3
+  group.add(visible, hidden)
+  const roots = group.children
+  assert.throws(() => group.withVisibleRoots(() => {
+    assert.deepEqual(group.children, [visible])
+    group.updateMatrixWorld()
+    throw new Error('draw failed')
+  }), /draw failed/)
+  assert.equal(group.children, roots)
+  assert.equal(visible.matrixWorld.elements[12], 4)
+  assert.equal(hidden.matrixWorld.elements[12], 0)
+  hidden.updateWorldMatrix(true, true)
+  assert.equal(hidden.matrixWorld.elements[12], 5)
+  hidden.visible = true
+  hidden.position.x = 4
+  group.withVisibleRoots(() => group.updateMatrixWorld())
+  assert.equal(hidden.matrixWorld.elements[12], 7)
+})
+
+test('road traffic registry follows road and signal roots through replacement', () => {
+  const modules = new ModuleSystem({ scene: new THREE.Scene() })
+  const road = root([], 'road', 'road'), light = root([], 'light', 'traffic-light')
+  light.userData.roadSignals = [{}]
+  modules.moduleMeshes.add(root([]), road, light)
+  assert.deepEqual([...modules.roadTrafficRoots], [road, light])
+  modules.moduleMeshes.remove(road, light)
+  assert.equal(modules.roadTrafficRoots.size, 0)
 })
 
 test('local batch edits reuse retained source discovery and invalidate it on transform/view changes', () => {

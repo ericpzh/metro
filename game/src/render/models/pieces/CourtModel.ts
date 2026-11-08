@@ -9,7 +9,7 @@ export class CourtModel extends PieceBuilder {
   private buildDivider(mod: Extract<Module, { type: 'court' }>): THREE.Group {
     const g = new THREE.Group()
     const frame = this.ctx.mats.darkSteel
-    const fabric = new THREE.MeshStandardMaterial({ color: '#343344', roughness: 0.96 })
+    const fabric = this.ctx.mats.courtDivider
     // A portable 2 m fabric screen with broad, stable T-feet; no brand artwork.
     slab(g, fabric, 0.5, 0, 0.53, 1.9, 0.045, 0.86).name = 'divider-fabric'
     for (const x of [-0.42, 1.42]) {
@@ -29,8 +29,8 @@ export class CourtModel extends PieceBuilder {
     const cx = 6.5, cy = 3
     const left = cx - length / 2, right = cx + length / 2
     const bottom = cy - width / 2, top = cy + width / 2
-    const surface = new THREE.MeshStandardMaterial({ color: badminton ? '#237d59' : '#235ba0', roughness: 0.92 })
-    const kitchen = new THREE.MeshStandardMaterial({ color: '#68afc3', roughness: 0.92 })
+    const surface = badminton ? this.ctx.mats.badmintonCourt : this.ctx.mats.pickleballCourt
+    const kitchen = this.ctx.mats.pickleballKitchen
     const ink = this.ctx.mats.white
     const steel = this.ctx.mats.darkSteel
     slab(g, surface, cx, cy, 0.012, 14, 7, 0.024).name = 'court-surface'

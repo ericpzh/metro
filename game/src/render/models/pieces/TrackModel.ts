@@ -146,7 +146,7 @@ function buildThirdRail(g: THREE.Group, mats: ModelMaterials, w: number, cx: num
 export class TrackModel extends PieceBuilder {
   readonly kind = 'track'
   build(mod: Extract<Module, { type: 'track' }>): THREE.Group {
-    const railWeb = this.ownedMaterial(new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }))
+    const railWeb = this.ctx.mats.trackRailWeb
     const data = this.ctx.data
     const edges = modelNeighbours(this.ctx, 'platform-edge').filter((m): m is Extract<Module, { type: 'platform-edge' }> => m.type === 'platform-edge')
     const line = data?.lines.find((l) => l.id === mod.cfg.line)

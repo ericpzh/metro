@@ -4,24 +4,27 @@ import { attributeKey, bakedGeometry, BATCH_SOURCE_LAYER, equalGeometry } from '
 import { PanelAtlas, atlasUV } from './panelAtlas.ts'
 import type { AtlasRegion } from './panelAtlas.ts'
 import { sortedBatch } from './trainBatches.ts'
+import { sortedEquipmentGeometry } from './sortedEquipmentGeometry.ts'
 import { StaticInstances } from './staticInstances.ts'
 import { EQUIPMENT_VIEW_CACHE_SIZE } from '../sim/constants.ts'
 import { GeometryDetail } from './geometryDetail.ts'
 import { modelDetailGeometry } from './modelDetail.ts'
-import { detailHeight } from './detailPolicy.ts'
+import { detailHeight, isDenseStation } from './detailPolicy.ts'
 import type { GraphicsQuality } from './detailPolicy.ts'
 
 // No moving rigs: their screens, wings, hands and cabins keep live references.
 // Static TV surrounds/sign faces can batch; the artwork window stays independent.
 const STATIC_TYPES = new Set(['bench', 'fence', 'light', 'vent', 'cctv', 'bin', 'extinguisher', 'shelf',
   'desk', 'cubicle', 'sink', 'urinal', 'stair', 'track', 'pillar', 'roof', 'hanger', 'tactile', 'door', 'shop',
-  'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'court', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
+  'exit', 'guidepost', 'busstop', 'tvm', 'vending', 'court', 'checkout', 'ac-unit', 'electrical-cabinet', 'sign', 'tv', 'billboard',
   'calligraphy', 'linemap', 'monitor', 'clock', 'gate', 'platform-edge', 'psd-end', 'lift', 'escalator', 'walkway', 'booth', 'rail-signal', 'floor-mark', 'glass', 'sidewalk', 'lawn', 'tree'])
 // Low quality is also the game's performance mode. Larger buckets reduce draw
 // submission cost there; High retains finer culling and preview locality.
 const BATCH_TILE_SIZE: Record<GraphicsQuality, number> = { high: 16, low: 64 }
-/** The batch/instance bucket width; the paving layer uses the same buckets. */
-export function equipmentBatchTileSize(quality: GraphicsQuality): number { return BATCH_TILE_SIZE[quality] }
+/** Dense Low views trade finer equipment culling for fewer submissions. */
+export function equipmentBatchTileSize(quality: GraphicsQuality, moduleCount = 0): number {
+  return quality === 'low' && isDenseStation(moduleCount) ? 256 : BATCH_TILE_SIZE[quality]
+}
 interface Source { mesh: THREE.Mesh; root: THREE.Object3D; matrix: THREE.Matrix4; signature: string; region: AtlasRegion | null; levels?: number[] }
 interface Entry { signature: string; mesh: THREE.Mesh; sources: Source[]; detail?: GeometryDetail }
 interface View { entries: Map<string, Entry>; sources: Set<THREE.Mesh>; buckets: Buckets | null; roots: Map<THREE.Object3D, RootSources> }
@@ -43,8 +46,26 @@ function combinedDetailBounds(near: THREE.BufferGeometry, far: THREE.BufferGeome
   return near.boundingSphere!
 }
 
+/** Static surfaces only need to rebuild Three's sorted draw list when the
+ * camera, batch transform, or selected detail changes. */
+function cacheBatchOrder(batch: THREE.BatchedMesh): () => void {
+  const draw = batch.onBeforeRender
+  const view = new THREE.Matrix4(), projection = new THREE.Matrix4(), world = new THREE.Matrix4()
+  let camera: THREE.Camera | null = null
+  batch.onBeforeRender = function (renderer, scene, next, geometry, material, group) {
+    if (camera === next && view.equals(next.matrixWorldInverse) &&
+      projection.equals(next.projectionMatrix) && world.equals(this.matrixWorld)) return
+    draw.call(this, renderer, scene, next, geometry, material, group)
+    camera = next
+    view.copy(next.matrixWorldInverse)
+    projection.copy(next.projectionMatrix)
+    world.copy(this.matrixWorld)
+  }
+  return () => { camera = null }
+}
+
 /** Cross-module rendering; original surfaces and IDs remain the picking model.
- * Buckets are local to 16 m in High and 64 m in Low. Unchanged buckets keep their GPU allocations. */
+ * Unchanged spatial buckets keep their GPU allocations. */
 export class EquipmentBatches {
   enabled = true
   detailEnabled = true
@@ -97,7 +118,10 @@ export class EquipmentBatches {
       }
     }
     this.setHiddenModule(null)
-    for(const [entry,delta]of moved)entry.mesh.position.add(delta)
+    for(const [entry,delta]of moved) {
+      entry.mesh.position.add(delta)
+      entry.mesh.updateMatrix()
+    }
     for(const {root}of updates){
       this.translatedRoots.set(root,root.matrixWorld.clone())
       this.rootSources.delete(root)
@@ -201,7 +225,12 @@ export class EquipmentBatches {
     if (camera.layers.isEnabled(BATCH_SOURCE_LAYER)) { draw(); return }
     const hidden: THREE.Object3D[] = []
     for (const root of this.sourceOnlyRoots) {
-      if (!root.visible || [...this.entriesByRoot.get(root)!].some(entry => this.masked.has(entry))) continue
+      if (!root.visible) continue
+      let masked = false
+      if (this.masked.size) for (const entry of this.entriesByRoot.get(root)!) {
+        if (this.masked.has(entry)) { masked = true; break }
+      }
+      if (masked) continue
       root.visible = false; hidden.push(root)
     }
     try { draw() } finally { for (const root of hidden) root.visible = true }
@@ -230,7 +259,7 @@ export class EquipmentBatches {
     if (this.atlasMappingVersion !== this.atlas.mappingVersion) this.invalidateViews()
     if (revision !== undefined && revision === this.revision && generation === this.generation) return
     this.translatedRoots=new WeakMap()
-    const batchTileSize = BATCH_TILE_SIZE[this.graphicsQuality]
+    const batchTileSize = equipmentBatchTileSize(this.graphicsQuality, modules.children.length)
     this.restoreSourceTransforms()
     this.detailView = []
     this.setHiddenModule(null)
@@ -356,7 +385,7 @@ export class EquipmentBatches {
       }
       this.lastSync.rebuilt++
       const local: Buckets = new Map()
-      const screen = root.userData.adScreen
+      const screen = root.userData.moduleType === 'billboard' ? undefined : root.userData.adScreen
       const moving = new Set<THREE.Object3D>()
       root.traverse(o => {
         if (o.userData.signalAspect) moving.add(o)
@@ -375,7 +404,10 @@ export class EquipmentBatches {
         const material = region?.material ?? o.material
         const p = new THREE.Vector3().setFromMatrixPosition(o.matrixWorld)
         const instanceKey = o.userData.staticInstances ? `|static:${o.geometry.uuid}` : ''
-        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}|${root.userData.levelZs}|${root.userData.groundBand}${instanceKey}|coherent:${o.userData.coherentModelDetail === true}`
+        // The slice already resolved visibility and materials. Dense Low uses
+        // the same detail for every level span and coherent model part.
+        const detailKey = batchTileSize === 256 ? '' : `|${root.userData.levelZs}|coherent:${o.userData.coherentModelDetail === true}`
+        const key = `${Math.floor(p.x / batchTileSize)},${Math.floor(p.y / batchTileSize)}|${material.uuid}|${attributeKey(o.geometry)}|${o.renderOrder}|${o.castShadow}|${o.receiveShadow}|${o.frustumCulled}${instanceKey}${detailKey}`
         const bucket = local.get(key) ?? { material, sources: [] as Source[] }
         const matrix = o.matrixWorld.clone()
         const artwork = region ? `${(o.material as THREE.MeshBasicMaterial).map?.uuid}:${region.material.uuid}:${region.u},${region.v},${region.w},${region.h}` : ''
@@ -398,21 +430,24 @@ export class EquipmentBatches {
         continue
       }
       alive.add(key)
-      const signature = `${material.transparent}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
+      const indexed = material.transparent && batchTileSize === 256 && !(material as THREE.MeshBasicMaterial).wireframe
+      const signature = `${material.transparent}|${indexed}|${coarse.map(g => g?.uuid ?? '').join(',')}|` + sources.map(s => s.signature).join('|')
       const old = this.entries.get(key)
       if (old?.signature !== signature) {
         if (old) this.entries.delete(key)
         let mesh: THREE.Mesh
         let detail: GeometryDetail | undefined
         const hasCoarse = coarse.some(Boolean)
-        const size = Math.max(...sources.map(s => {
+        let size = 0
+        for (const s of sources) {
           s.mesh.geometry.computeBoundingSphere()
-          return s.mesh.geometry.boundingSphere!.radius * 2 * s.matrix.getMaxScaleOnAxis()
-        }))
+          size = Math.max(size, s.mesh.geometry.boundingSphere!.radius * 2 * s.matrix.getMaxScaleOnAxis())
+        }
         // Repeated identical geometry can instance without duplicating vertex data.
         // Reflections and atlas regions use the baked path to retain their winding/UV.
         const staticInstances = sources.every(s => s.mesh.userData.staticInstances === true)
-        const identical = (!material.transparent || staticInstances) && sources.every((s, i) => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry) &&
+        const identical = (sources.length > 1 || staticInstances) && (!material.transparent || staticInstances) &&
+          sources.every((s, i) => !s.region && s.matrix.determinant() > 0 && equalGeometry(s.mesh.geometry, sources[0].mesh.geometry) &&
           (!!coarse[i] === !!coarse[0]) && (!coarse[i] || equalGeometry(coarse[i]!, coarse[0]!)))
         if (identical) {
           if (staticInstances) {
@@ -426,7 +461,11 @@ export class EquipmentBatches {
             if (hasCoarse && coarse[0]) {
               const near = instance.geometry, far = coarse[0].clone()
               combinedDetailBounds(near, far); instance.computeBoundingBox(); instance.computeBoundingSphere()
-              detail = new GeometryDetail(instance, size, distant => { instance.geometry = distant ? far : near }, () => far.dispose(), instance.boundingSphere!)
+              detail = new GeometryDetail(instance, size, distant => {
+                instance.geometry = distant ? far : near
+                if ((instance.geometry.index?.count ?? instance.geometry.getAttribute('position').count) === 0) instance.layers.disable(0)
+                else instance.layers.enable(0)
+              }, () => far.dispose(), instance.boundingSphere!)
             }
           }
         } else {
@@ -440,10 +479,28 @@ export class EquipmentBatches {
             if (s.region) atlasUV(g, s.region)
             return g
           }) : []
-          if (material.transparent) {
-            mesh = sortedBatch(sources.map(s => s.mesh), geometries, material, distant)
+          if (indexed) {
+            // These large static buckets can submit many sorted surfaces as one
+            // indexed draw, including on drivers that split multi-draw calls.
+            const near = sortedEquipmentGeometry(geometries)
+            const far = hasCoarse ? sortedEquipmentGeometry(distant) : null
+            mesh = new THREE.Mesh(near.geometry, material)
+            let drawing = near
+            mesh.onBeforeRender = (_renderer, _scene, camera) => drawing.update(camera, mesh)
+            if (far) {
+              const bounds = combinedDetailBounds(near.geometry, far.geometry)
+              detail = new GeometryDetail(mesh, size, useFar => {
+                drawing = useFar ? far : near
+                mesh.geometry = drawing.geometry
+                if (useFar && !far.geometry.getAttribute('position').count) mesh.layers.disable(0)
+                else mesh.layers.enable(0)
+              }, () => far.geometry.dispose(), bounds)
+            }
+          } else if (material.transparent) {
+            const batch = sortedBatch(sources.map(s => s.mesh), geometries, material, distant)
+            mesh = batch
+            const invalidateOrder = cacheBatchOrder(batch)
             if (hasCoarse) {
-              const batch = mesh as THREE.BatchedMesh
               const near = sources.map((_, i) => batch.getGeometryIdAt(i))
               const far = distant.map(g => batch.addGeometry(g))
               batch.computeBoundingBox(); batch.computeBoundingSphere()
@@ -451,8 +508,16 @@ export class EquipmentBatches {
                 geometry.computeBoundingBox(); geometry.computeBoundingSphere()
                 batch.boundingBox!.union(geometry.boundingBox!); batch.boundingSphere!.union(geometry.boundingSphere!)
               }
+              const farVisible = distant.map(geometry => geometry.getAttribute('position').count > 0)
+              const farDraws = farVisible.some(Boolean)
               detail = new GeometryDetail(batch, size, useFar => {
-                for (let i = 0; i < sources.length; i++) batch.setGeometryIdAt(i, (useFar ? far : near)[i])
+                for (let i = 0; i < sources.length; i++) {
+                  batch.setGeometryIdAt(i, (useFar ? far : near)[i])
+                  batch.setVisibleAt(i, !useFar || farVisible[i])
+                }
+                if (useFar && !farDraws) batch.layers.disable(0)
+                else batch.layers.enable(0)
+                invalidateOrder()
               }, undefined, batch.boundingSphere!)
             }
           }
@@ -464,13 +529,18 @@ export class EquipmentBatches {
               const far = mergeGeometries(distant)!
               const bounds = combinedDetailBounds(geometry, far)
               const drawn = mesh
-              detail = new GeometryDetail(drawn, size, useFar => { drawn.geometry = useFar ? far : geometry }, () => far.dispose(), bounds)
+              detail = new GeometryDetail(drawn, size, useFar => {
+                drawn.geometry = useFar ? far : geometry
+                if (drawn.geometry.getAttribute('position').count === 0) drawn.layers.disable(0)
+                else drawn.layers.enable(0)
+              }, () => far.dispose(), bounds)
             }
           }
           distant.forEach(g => g.dispose())
           geometries.forEach(g => g.dispose())
         }
         mesh.renderOrder = sources[0].mesh.renderOrder
+        mesh.matrixAutoUpdate = false
         mesh.castShadow = sources[0].mesh.castShadow; mesh.receiveShadow = sources[0].mesh.receiveShadow
         mesh.frustumCulled = sources[0].mesh.frustumCulled
         if (mesh instanceof THREE.BatchedMesh) mesh.perObjectFrustumCulled = mesh.frustumCulled

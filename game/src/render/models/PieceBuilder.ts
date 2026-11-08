@@ -110,6 +110,15 @@ export interface ModelMaterials {
   exitRed: THREE.MeshStandardMaterial
   glass: THREE.MeshStandardMaterial
   tintedGlass: THREE.MeshStandardMaterial
+  lightDiffuser: THREE.MeshStandardMaterial
+  courtDivider: THREE.MeshStandardMaterial
+  badmintonCourt: THREE.MeshStandardMaterial
+  pickleballCourt: THREE.MeshStandardMaterial
+  pickleballKitchen: THREE.MeshStandardMaterial
+  trackRailWeb: THREE.MeshStandardMaterial
+  psdFixedGlass: THREE.MeshStandardMaterial
+  psdMovingGlass: THREE.MeshStandardMaterial
+  psdIndicator: THREE.MeshStandardMaterial
   /** The 门 piece's timber: the frame, its paler leaf and a dark tone for fittings. */
   wood: THREE.MeshStandardMaterial
   woodLight: THREE.MeshStandardMaterial
@@ -634,6 +643,11 @@ export function createModelMaterials(): ModelMaterials {
     opacity: 0.4,
     side: THREE.DoubleSide,
   })
+  const psdGlass = (base: THREE.MeshStandardMaterial) => {
+    const pane = base.clone()
+    pane.setValues({ depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 })
+    return pane
+  }
   const treeLeafMap = typeof document !== 'undefined' && typeof document.createElementNS === 'function'
     ? new THREE.TextureLoader().load(new URL('../../assets/trees/ash-leaves.png', import.meta.url).href) : null
   if (treeLeafMap) treeLeafMap.colorSpace = THREE.SRGBColorSpace
@@ -665,6 +679,15 @@ export function createModelMaterials(): ModelMaterials {
     exitRed: new THREE.MeshStandardMaterial({ color: C.exitRed, roughness: 0.4, metalness: 0.35 }),
     glass,
     tintedGlass,
+    lightDiffuser: new THREE.MeshStandardMaterial({ color: 0xfff8e8, emissive: 0xfff4d8, emissiveIntensity: 1.5, roughness: 0.4, side: THREE.DoubleSide }),
+    courtDivider: new THREE.MeshStandardMaterial({ color: '#343344', roughness: 0.96 }),
+    badmintonCourt: new THREE.MeshStandardMaterial({ color: '#237d59', roughness: 0.92 }),
+    pickleballCourt: new THREE.MeshStandardMaterial({ color: '#235ba0', roughness: 0.92 }),
+    pickleballKitchen: new THREE.MeshStandardMaterial({ color: '#68afc3', roughness: 0.92 }),
+    trackRailWeb: new THREE.MeshStandardMaterial({ color: 0x62564c, roughness: 0.82, metalness: 0.25 }),
+    psdFixedGlass: psdGlass(glass),
+    psdMovingGlass: psdGlass(tintedGlass),
+    psdIndicator: new THREE.MeshStandardMaterial({ color: 0xffd21c, emissive: 0xffd21c, emissiveIntensity: 0.7, roughness: 0.23 }),
     // The 门's three tones: a walnut frame, a paler leaf, a dark pull. Wood is matte
     // and slightly rough — the one place in the kit that is not metal, enamel or
     // screen — so it reads as timber from the isometric camera.
@@ -1229,7 +1252,10 @@ export function finishSlab(parent: THREE.Object3D, mat: THREE.Material | THREE.M
   metreUv(geo, sx, sy, sz)
   const n = geo.attributes.position.count
   geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 3).fill(1), 3))
-  const m = new THREE.Mesh(geo, mat)
+  // A uniform finish covers the entire box. A six-entry material array would
+  // submit each face separately and keep the slab out of equipment batching.
+  const uniform = Array.isArray(mat) && mat.length === 6 && mat.every(face => face === mat[0])
+  const m = new THREE.Mesh(geo, uniform ? mat[0] : mat)
   m.position.set(x, y, z)
   parent.add(m)
   return m

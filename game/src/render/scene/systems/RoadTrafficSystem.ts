@@ -30,13 +30,28 @@ export class RoadTrafficSystem extends SceneSystem {
     this.from = this.have && time >= this.to && time - this.to <= 60 ? this.to : time
     this.to = time; this.have = true
   }
-  update(now: number, moduleRoots: THREE.Group, clip: THREE.Plane | null = null): void {
+  update(now: number, roadRoots: ReadonlySet<THREE.Object3D>, clip: THREE.Plane | null = null): void {
     const data = this.ctx.stationData
     if (!data) return
     const network=getRoadNetwork(data.modules)
     if(!this.traffic || this.traffic.network!==network || this.traffic.seed!==data.seed) this.traffic=new RoadTraffic(network,data.seed)
     if (!network.roads.length) { this.audioCount=0; this.root.visible = false; return }
-    this.root.visible = !this.ctx.hideGround
+    const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
+    const time = this.from + (this.to - this.from) * alpha
+    const visible = new Set<string>()
+    const rootIds: string[] = []
+    for (const root of roadRoots) if (root.visible) {
+      visible.add(root.userData.moduleId)
+      rootIds.push(root.uuid)
+    }
+    this.root.visible = !this.ctx.hideGround && visible.size > 0
+    if (!this.root.visible) {
+      if (this.root.userData.key !== undefined) for (const mesh of this.root.children as THREE.InstancedMesh[]) mesh.count = 0
+      this.audioCount = 0
+      this.root.userData.key = undefined
+      this.traffic.advance(time)
+      return
+    }
     if (!this.meshes.size) for (const kind of ROAD_VEHICLE_VARIANTS) {
       const details = {} as Record<RoadVehicleDetail, THREE.InstancedMesh[]>
       for (const detail of ['high', 'low'] as const) {
@@ -63,17 +78,14 @@ export class RoadTrafficSystem extends SceneSystem {
     for(const mat of [...this.signalMats,this.unlit]) if(!!mat.clippingPlanes?.length!==!!clip) {
       mat.clippingPlanes=clip?[clip]:[];mat.needsUpdate=true
     }
-    const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
-    const time = this.from + (this.to - this.from) * alpha
     // Once interpolation settles, paused views require no further buffer uploads.
     const key = `${data.seed}|${time}|${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.hideGround}|${this.ctx.cutaway}|${detail}`
-    const visible = new Set(moduleRoots.children.filter(g => g.visible).map(g => g.userData.moduleId))
-    const visibility = moduleRoots.children.filter(g=>g.visible).map(g=>g.uuid).join('|')
+    const visibility = rootIds.join('|')
     if (this.roads === data.modules && this.root.userData.key === key && this.root.userData.visibility === visibility) return
     this.roads = data.modules; this.root.userData.key = key; this.root.userData.visibility = visibility
     const counts = new Map<RoadVehicleVariant, number>()
     this.traffic.advance(time)
-    for(const root of moduleRoots.children) for(const signal of root.userData.roadSignals??[]) {
+    for(const root of roadRoots) if (root.visible) for(const signal of root.userData.roadSignals??[]) {
       const phase=roadSignal(signal.junction,signal.axis,time),active=phase==='red'?0:phase==='amber'?1:2
       signal.lenses.forEach((lens:THREE.Mesh,i:number)=>{lens.material=i===active?this.signalMats[i]:this.unlit})
     }
