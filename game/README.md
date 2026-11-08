@@ -2685,8 +2685,8 @@ approximated); neither needs WebGL.
   covers while the bucket leaves the plane alone, and `moduleFloorOk` / `ceilingMountMissing` read it
   — a machine stands on the street, and a fitting in a basement hangs from the slab above it.
   `blocktool.test.mjs` drives the other end: a right-press on the pavement digs it and leaves the one
-  `void` record the plane keeps, and the document's own blocks are still the only ones the seed guard
-  counts.
+  `void` record the plane keeps, and a right-press may delete the station's last block — there is
+  no minimum block count.
 * `grid.test.mjs` — nothing in the game can put a cell off the 1 m grid. Every palette piece is
   placed at every rotation, width, direction and 闸机 door mode, every staircase shape at
   fractional legacy widths (1.2, 1.6 m), and 方块 / 墙 / 房间 / 电梯 / 站台 / 隧道 / 材质 / 分区 /

@@ -100,6 +100,23 @@ test('block deletion previews and commits a rectangle, while Shift keeps the dra
   }
 })
 
+test('a delete rectangle may empty the station: no minimum block count', () => {
+  const before = useStore.getState()
+  try {
+    const fixture = setup()
+    fixture.tool.onDown(fixture.event(0, 0))
+    fixture.drag.current.downTime = performance.now() - LONG_PRESS_MS - 1
+    fixture.tool.onMove(fixture.event(5, 5))
+    fixture.tool.onUp(fixture.event(5, 5))
+    const state = useStore.getState()
+    assert.deepEqual(state.station.cells, [], 'the last block is removable; the station may be emptied')
+    assert.equal(state.notice, null, 'the release is not refused with a minimum-count notice')
+    assert.equal(state.past.length, 1, 'the whole teardown is one undo step')
+  } finally {
+    useStore.setState(before)
+  }
+})
+
 test('delete starts a block deletion when the module on the cell is hidden by the level slice', () => {
   const before = useStore.getState()
   try {

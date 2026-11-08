@@ -363,17 +363,7 @@ export class DeleteTool extends ToolController {
     // A deliberate press draws the area of blocks the release removes — a
     // rectangle like the 方块 tool's right-drag (a line with Shift).
     const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
-    // Only the document's own blocks count against the seed's integrity (§4.1):
-    // the implicit street at z = 0 is in the live solid set, and counting it would
-    // refuse every dig at grade — the gesture the hole records exist for. An area
-    // that takes none of the document's blocks is not the guard's business.
     const remove = pendingCells(cells, 'remove', this.ctx.solids())
-    const authored = remove.filter(([x, y, z]) => st.station.cells.some((c) => c.x === x && c.y === y && c.z === z))
-    // The seed guard refuses rather than digs: say why instead of silence.
-    if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
-      st.setNotice(msg('cannot_delete_more_keep_at_least_4_blocks_in_the_station'))
-      return
-    }
     // A dug auto-floor brings its wall ring along; a hand-placed block is
     // just removed. The change is read by content, not by length: digging a
     // block at grade swaps a `solid` for the street's `void` hole record, so

@@ -538,9 +538,11 @@ the panel on release — the ghost and the click disagreeing about the same wall
 Two grade-level traps this rule has already paid for, at `z = 0` where a `solid`
 and its dug `void` share one coordinate: `addWalls` must fill a `void` back by
 *replacing* the record exactly as `addCells` / `addFloor` do (its `have` set is
-solids-only), or the ghost promises a 半墙 / 三角 the release drops; and a delete
+solids-only), or the ghost promises a 半墙 / 三角 the release drops; a delete
 commit is gated on `sameCells`, never on `cells.length`, or a dug-out block can
-never be dug again.
+never be dug again; and there is **no minimum block count** — the 方块 / 删除
+tools may empty a station, so do not reintroduce a “keep N blocks” guard
+(`blocktool`, `delete-tool`).
 
 ## The sim
 

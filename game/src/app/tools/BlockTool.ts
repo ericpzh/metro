@@ -412,25 +412,9 @@ export class BlockTool extends ToolController {
         }
       }
     } else {
-      // Only the document's **own** blocks count against the seed's integrity
-      // (§4.1). The street at z = 0 is implicit (`sim/ground.ts`) and is in the
-      // live solid set, so counting it would make the arithmetic negative for any
-      // drag at grade and refuse every dig — the one gesture the hole records
-      // exist for. A drag that takes none of the document's blocks is not the
-      // guard's business at all, which is what keeps a brand-new station (no cells
-      // of its own) diggable. A rectangle drawn across void counts for nothing, as
-      // before.
+      // A rectangle drawn across void counts for nothing, as before.
       const cells = rect ? rectCells(d.anchor, target, d.z, d.shift) : [d.anchor]
       const remove = pendingCells(cells, 'remove', this.ctx.solids())
-      const authored = remove.filter(([x, y, z]) =>
-        st.station.cells.some((c) => c.x === x && c.y === y && c.z === z),
-      )
-      // The seed guard refuses rather than digs: say why instead of dropping the
-      // gesture in silence — the station keeps at least four blocks.
-      if (authored.length > 0 && st.station.cells.length - authored.length < 4) {
-        st.setNotice(msg('cannot_delete_more_keep_at_least_4_blocks_in_the_station'))
-        return
-      }
       // A dug auto-floor brings its wall ring along; a hand-placed block is
       // just removed. The change is read by content, not by length: digging a
       // block at grade swaps a `solid` for the street's `void` hole record, so

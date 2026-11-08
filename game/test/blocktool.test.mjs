@@ -451,6 +451,24 @@ test('a right-press on the pavement digs it, and the hole is recorded', () => {
 })
 
 
+test('a right-press may delete the last blocks: the station has no minimum size', () => {
+  // The old seed guard refused any deletion that left fewer than four authored
+  // blocks, so a small station could never be emptied or reshaped. Deleting one
+  // of four is the first press the guard used to swallow.
+  emptyStation()
+  const cells = [[1, 1, 5], [2, 1, 5], [1, 2, 5], [2, 2, 5]].map(([x, y, z]) => ({ x, y, z, fill: 'solid' }))
+  useStore.setState({ station: toState({ name: 't', seed: 1, cells, modules: [], lines: [] }) })
+  const { tool } = ctxFor()
+  for (const cell of cells.map(({ x, y, z }) => [x, y, z])) {
+    tool.onDown(press(cell, true, 2))
+    tool.onUp(press(cell, true, 2))
+  }
+  const state = useStore.getState()
+  assert.deepEqual(state.station.cells, [], 'every block is removable, down to none')
+  assert.equal(state.notice, null, 'no minimum-count refusal is raised')
+  assert.equal(state.past.length, 4, 'each press is its own undo step')
+})
+
 test('a remembered block witness keeps the cursor red until the footprint or snapshot clears it', () => {
   const blocker = createModule('gate',3,3,0,'blocker')
   emptyStation({station:toState({name:'witness',seed:1,cells:[],modules:[blocker],lines:[]})})

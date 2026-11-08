@@ -1573,10 +1573,6 @@ export const messages = {
     "zh": "此处无法放置方块：已有方块",
     "en": "Cannot place a block here: a block already exists"
   },
-  "cannot_delete_more_keep_at_least_4_blocks_in_the_station": {
-    "zh": "无法继续删除：车站至少保留 4 格方块",
-    "en": "Cannot delete more: keep at least 4 blocks in the station"
-  },
   "no_block_to_delete_here": {
     "zh": "此处没有可删除的方块",
     "en": "No block to delete here"
