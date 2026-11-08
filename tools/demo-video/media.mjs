@@ -25,8 +25,12 @@ export async function encodeTake(directory, shot, { width, height, fps }) {
   const cadence=shot.view==='flythrough'
     ? `tpad=stop_mode=clone:stop_duration=0.4,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1`
     : `fps=${fps}`
+  // Placement has no usable first second: retime first, then trim delivered
+  // seconds, so the build starts on its wall and ends when its camera does.
+  const trim=shot.trimStart??0
+  const trimFilter=trim?`trim=start=${trim},setpts=PTS-STARTPTS,`:''
   await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-safe', '0', '-f', 'concat', '-i', resolve(directory, 'frames.ffconcat'),
-    '-vf', `settb=AVTB,setpts=(PTS-STARTPTS)/${shot.playbackRate},scale=${width}:${height}:flags=lanczos,setsar=1,${cadence}`, '-t', String(shot.seconds), '-an',
+    '-vf', `settb=AVTB,setpts=(PTS-STARTPTS)/${shot.playbackRate},${trimFilter}scale=${width}:${height}:flags=lanczos,setsar=1,${cadence}`, '-t', String(shot.seconds), '-an',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '16', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', resolve(directory, 'raw.mp4')])
 }
 
@@ -54,16 +58,14 @@ export async function editVideo(output, plan, takes, settings) {
     const rapid=['city','stock','decor'].includes(shot.kind)
     const fade=rapid?`[1:v]format=rgba[graphics]`:`[1:v]format=rgba,fade=t=in:st=0:d=0.14:alpha=1,fade=t=out:st=${shot.seconds-.12}:d=0.12:alpha=1[graphics]`
     const bookends=shot.kind==='hero'?',fade=t=in:d=0.35':shot.kind==='cta'?`,fade=t=out:st=${shot.seconds-.5}:d=0.5`:''
-    // Trim only the empty opening of the build, then hold the completed frame
-    // for the same time so the 72-second schedule stays unchanged.
-    const trimFilter=trim?`[0:v]trim=start=${trim},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${trim}[trimmed];`:''
-    const source=trim?'[trimmed]':'[0:v]'
-    const base=placementCard?`${source}[graphics]overlay=x=0:y=0:shortest=1:format=auto[base];[base][2:v]overlay=x=${Math.round(settings.width-896*settings.width/2560)}:y=${Math.round(1100*settings.height/1440)}:shortest=1:format=auto`:`${source}[graphics]overlay=x=0:y=0:shortest=1:format=auto`
+    // Placement is already trimmed in its raw take; the trim start only shifts
+    // its phase cards and audio cues onto the shorter picture.
+    const base=placementCard?`[0:v][graphics]overlay=x=0:y=0:shortest=1:format=auto[base];[base][2:v]overlay=x=${Math.round(settings.width-896*settings.width/2560)}:y=${Math.round(1100*settings.height/1440)}:shortest=1:format=auto`:'[0:v][graphics]overlay=x=0:y=0:shortest=1:format=auto'
     const compose=`${base}${bookends},scale=in_range=auto:out_range=tv:out_color_matrix=bt709,format=yuv420p[picture]`
     console.log(`Designing ${shot.id}`)
     await command('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',resolve(output,'takes',shot.id,'raw.mp4'),'-loop','1','-framerate',String(settings.fps),'-i',resolve(graphics,`${shot.id}.png`),
       ...(placementCard?['-i',placementCard]:[]),
-      '-filter_complex',`${trimFilter}${fade};${compose}`,'-map','[picture]','-an','-t',String(shot.seconds),'-c:v','libx264','-preset','medium','-crf','18','-pix_fmt','yuv420p',
+      '-filter_complex',`${fade};${compose}`,'-map','[picture]','-an','-t',String(shot.seconds),'-c:v','libx264','-preset','medium','-crf','18','-pix_fmt','yuv420p',
       '-color_range','tv','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709','-movflags','+faststart',resolve(styled,`${shot.id}.mp4`)])
   }
   const rawList = resolve(edit, 'takes.ffconcat')

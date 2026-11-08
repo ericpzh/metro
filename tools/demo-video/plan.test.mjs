@@ -11,7 +11,7 @@ import {authoredState,authoredSteps,authoredFrameSteps,validateAuthoredReplay,is
 import {serialize,parse} from '../../game/src/persistence/save.ts'
 import {decorCatalogue} from './catalogue.mjs'
 
-test('both locales produce the same contiguous 72-second recording schedule', () => {
+test('both locales produce the same contiguous 70.2-second recording schedule', () => {
   const en = timeline('en'), zh = timeline('zh')
   for (const plan of [en, zh]) {
     validatePlan(plan)
@@ -25,7 +25,7 @@ test('both locales produce the same contiguous 72-second recording schedule', ()
     assert.equal(demand.station, 'tianhe')
     assert.equal(demand.level, -5)
     assert.equal(demand.playbackRate, 4)
-    assert.equal(demand.captureSeconds, 12)
+    assert.equal(demand.captureSeconds, 8.8)
     assert.ok(!plan.some(s => s.kind === 'views'))
     for (let i = 1; i < plan.length; i++) assert.equal(plan[i].start, plan[i - 1].end)
     assert.deepEqual(plan.filter(s => s.stock).map(s => s.stock), [...STOCK_CLASSES])
@@ -55,7 +55,7 @@ test('montage angles carry forward at constant speed across every cut',()=>{
 
 test('authored save is reproduced exactly, with continuous tool groups',()=>{
  const construction=timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))
- assert.equal(construction.length,1);assert.equal(construction[0].kind,'placement');assert.equal(construction[0].seconds,23.5);assert.equal(construction[0].trimStart,1)
+ assert.equal(construction.length,1);assert.equal(construction[0].kind,'placement');assert.equal(construction[0].seconds,22.5);assert.equal(construction[0].trimStart,1)
  for(const shot of timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))){
   assert.equal(shot.station,'empty');assert.equal(shot.playbackRate,8);assert.equal(shot.captureSeconds,shot.seconds*8)
  }

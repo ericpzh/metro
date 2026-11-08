@@ -70,9 +70,11 @@ export async function renderGraphics(output,plan,language='zh',{review=false,wid
    const labels=[ui[language].video.placementStart,...(cards??[...Object.values(ui[language].video.buildPhases),...authoredSteps.map(i=>authoredLabel(i,language)),ui[language].video.placementComplete])],total=labels.length-1
    for(let i=0;i<labels.length;i++){
     const count=Math.min(total,i)
-    await page.evaluate(`(()=>{document.getElementById('placement-name').textContent=${JSON.stringify(labels[i])};document.getElementById('placement-count').textContent='${count} / ${total}';document.getElementById('placement-progress').style.width='${count/total*100}%';return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})()`)
+    // The card names the family, not the variant chosen inside it.
+    const name=String(labels[i]).split(' · ')[0]
+    await page.evaluate(`(()=>{document.getElementById('placement-name').textContent=${JSON.stringify(name)};document.getElementById('placement-count').textContent='${count} / ${total}';document.getElementById('placement-progress').style.width='${count/total*100}%';return new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))})()`)
     const valid=await page.evaluate("(()=>{const e=document.getElementById('placement-name');return e.scrollWidth<=e.clientWidth})()")
-    if(!valid)throw Error(`Placement card overflows: ${labels[i]}`)
+    if(!valid)throw Error(`Placement card overflows: ${name}`)
     const {data}=await page.send('Page.captureScreenshot',{format:'png'});writeFileSync(resolve(directory,`placement-card-${String(i).padStart(2,'0')}.png`),Buffer.from(data,'base64'))
    }
   }

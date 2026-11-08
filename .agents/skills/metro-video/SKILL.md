@@ -13,7 +13,7 @@ site's translation infrastructure; this skill owns the video pipeline.
 
 ## Accepted baseline
 
-The current film is 72 seconds, 2560 × 1440, 30 fps, H.264/AAC. All editorial copy
+The current film is 70.2 seconds, 2560 × 1440, 30 fps, H.264/AAC. All editorial copy
 is Chinese with designed Studio cards and navigation. Actual editor controls use
 the default Blueprint theme. Music is **Sunset Plains by Yoiyami**, from the
 game's approved music manifest, with credit in the ending and exported credits.
@@ -28,10 +28,10 @@ waits until 06:34:00 or later. Record it at 1× for 12 seconds and retime by 4×
 the crowd reads at 4× in the film, while the chart knob is preview-only so the
 population is not rebuilt mid-drag. The perspective cube shot keeps the
 station walls and hides ghosted levels.
-Immediately before the ending: one continuous 23.5-second build at 8×, eight
+Immediately before the ending: one continuous 22.5-second build at 8×, eight
 cities at 0.4 seconds each, then five train types at 0.8 seconds each. The build
-opens at its 1-second mark, when the first 1 m wall course is rising; the removed
-opening is held at the completed end so the 23.5-second slot is unchanged.
+opens at its 1-second mark, when the first 1 m wall course is rising, and ends
+as the camera completes; there is no hold on the finished frame.
 City cuts share a continuous 180° orbit; train cuts share a continuous 50°
 front-3/4 orbit (10° per type), with the train running at 0.18× simulation so it
 does not whip past the chase point. Trains really
@@ -62,7 +62,7 @@ on future user edits.
   not overwrite an existing working save.
 - `video/demo-camera.json` holds P1/P2 poses, lens, westward pan and frame/hold
   durations. Those durations are raw recording seconds (188 seconds at present),
-  not the delivered 23.5 seconds. Do not depend on clipboard screenshots remaining
+  not the delivered 22.5 seconds. Do not depend on clipboard screenshots remaining
   available: the numeric camera endpoints are committed here.
 - `authored-layout.mjs` reads the native save, groups consecutive runs, bundles
   booth children/signs, separates the frame and sorts the remaining equipment east to west.
@@ -113,7 +113,7 @@ Inspect them; fixed-angle checks do not replace a full moving-camera take.
 Inspect the actual final film, build start/middle/end, all city/train cuts,
 contact sheet and `graphics/layout-audit.json`. Check no caption overlap or
 overflow, visible objects, smooth camera continuity, rapid cuts and readable
-credits. The renderer checks 72 seconds, 2K/30 fps, 8-bit yuv420p, H.264/AAC,
+credits. The renderer checks 70.2 seconds, 2K/30 fps, 8-bit yuv420p, H.264/AAC,
 approximately −18 LUFS and true peak ≤ −1 dBTP. Playback must decode and seek
 all scenes. Verify `after-stage.json` matches the working save and inspect
 `take.json` for real gestures, lift extension, east-to-west actions and no errors.

@@ -29,7 +29,7 @@ const zh = {
     buildPhases:{floor:'铺设站厅与站外地面',wall:'建立墙面与空间骨架',deck:'搭建楼层平台',materials:'浅绿搪瓷墙面 · 混凝土与街道'},
     equipmentCatalogue:'车站设备',speedBuild:'建造',trainLine:'',
     storyboard: {
-      title: '七十二秒游戏演示 · 分镜计划',
+      title: '七十秒游戏演示 · 分镜计划',
       intro: '使用当前游戏的真实录屏与浅色 Studio 版式。主体沿用网站四段顺序；建造、八城风格与五种车型集中安排在片尾之前。城市每种零点四秒，列车每种零点八秒。建造以作者存档为准：先完成骨架，成组铺设设施，再从东往西布置其余设备与装饰。',
       columns: ['时间', '车站与视图', '画面主题', '内容'], unit: '秒',
       views: {exterior:'全景',exploded:'楼层展开',entrance:'出入口',platform:'站台',flythrough:'站台穿行',editor:'建造界面',detail:'装饰细节',floor:'楼层视图',demand:'客流窗口',bridge:'长桥追踪',showcase:'环绕展示',section:'动态剖切',cube:'视图方块'},
@@ -159,7 +159,7 @@ const en = {
     buildPhases:{floor:'Lay the hall and forecourt floors',wall:'Build the station frame',deck:'Build the landing decks',materials:'Pale green enamel · Concrete and street'},
     equipmentCatalogue:'Station equipment',speedBuild:'Build',trainLine:'',
     storyboard: {
-      title: '72-second gameplay demo · Scene plan',
+      title: '70-second gameplay demo · Scene plan',
       intro: 'The main tour follows the four website sections. Building, city styles and train types form one closing montage run. Cities last 0.4 seconds each and trains 0.8 seconds each. The user-authored station is built frame first, then furnished in tool groups. One low camera moves continuously from the west-facing exterior reference to the east-facing hall reference.',
       columns: ['Time','Station and view','On-screen title','Action'], unit: 's',
       views: {exterior:'Exterior',exploded:'Exploded floors',entrance:'Entrance',platform:'Platform',flythrough:'Platform fly-through',editor:'Editor',detail:'Decor detail',floor:'Floor view',demand:'Demand window',bridge:'Bridge tracking',showcase:'Orbit showcase',section:'Section sweep',cube:'View cube'},

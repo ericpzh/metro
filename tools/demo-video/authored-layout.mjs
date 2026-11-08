@@ -5,7 +5,7 @@ import {resolve} from 'node:path'
 import {parse} from '../../game/src/persistence/save.ts'
 import {checkModulePlacements} from '../../game/src/build/validation.ts'
 import {paletteIdForModule} from '../../game/src/app/tools/PickTool.ts'
-import {MODULE_OPTIONS,moduleLabel,supportsLinePlacement} from '../../game/src/app/store/catalog.ts'
+import {moduleLabel,supportsLinePlacement} from '../../game/src/app/store/catalog.ts'
 import {lineRunRotation,lineSpan} from '../../game/src/app/tools/geometry/linePlacement.ts'
 import {getLanguage,setLanguage,translate} from '../../game/src/sim/i18n.ts'
 
@@ -136,7 +136,8 @@ export function authoredSchedule(captureSeconds) {
 }
 export function authoredLabel(step,language){
  const m=step.modules[0],previous=getLanguage()
- try{setLanguage(language==='en'?'en':'zh-CN');const id=modulePalette(m),option=MODULE_OPTIONS.find(o=>o.id===id),family=translate(moduleLabel(m)),detail=option?translate(option.label):family;return family===detail||detail.includes(family)?detail:`${family} · ${detail}`}finally{setLanguage(previous)}
+ // The card names the family, not the variant chosen inside it.
+ try{setLanguage(language==='en'?'en':'zh-CN');return translate(moduleLabel(m))}finally{setLanguage(previous)}
 }
 export function validateAuthoredReplay(){
  let state={...structuredClone(authoredState),modules:authoredState.modules.filter(isFrameModule)},validated=0

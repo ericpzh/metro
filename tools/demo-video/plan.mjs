@@ -7,7 +7,7 @@ import { CITY_STYLE_IDS } from '../../game/src/sim/cityStyles.ts'
 import {GUANGZHOU_LINE_COLOURS} from '../../game/src/sim/cityStyles.ts'
 import {decorCatalogue,catalogueLabel} from './catalogue.mjs'
 
-export const VIDEO_SECONDS=72
+export const VIDEO_SECONDS=70.2
 export const montageSweep=(index,count,degrees,origin=0)=>({from:origin+index*degrees/count,to:origin+(index+1)*degrees/count})
 export const decorShots=decorCatalogue
 export const decorPairs=Array.from({length:decorCatalogue.length/2},(_,i)=>decorCatalogue.slice(i*2,i*2+2))
@@ -23,9 +23,10 @@ export const shots = [
   { id: '08-section-tianhe', station: 'tianhe', seconds: 6, playbackRate: 4, kind: 'section', section: 'building', copy: '09', view: 'section' },
   { id: '08-cube',station:'zoo',seconds:4.8,kind:'cube',section:'building',copy:'09',view:'cube',orbit:0 },
   // Record at 1× for 12 s and retime 4×: the background crowd reads at 4× in
-  // the film, while the chart edit is only previewed and never rebuilds it.
-  { id: '09-demand', station: 'tianhe', seconds: 3, playbackRate: 4, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', level: -5, orbit: 0 },
-  { id:'montage-placement',station:'empty',stage:'placement',seconds:23.5,playbackRate:8,trimStart:1,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },
+  // the film, while the chart edit is only previewed and never rebuilds it. The
+  // delivered cut ends as the panel closes, not on the empty editor behind it.
+  { id: '09-demand', station: 'tianhe', seconds: 2.2, playbackRate: 4, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', level: -5, orbit: 0 },
+  { id:'montage-placement',station:'empty',stage:'placement',seconds:22.5,playbackRate:8,trimStart:1,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },
   ...CITY_STYLE_IDS.map((city,i) => ({ id: `city-${city}`, station: 'empty', stage:'city',seconds: .4, kind: 'city', section: 'overview', copy: '01', city, view: 'entrance', spin:montageSweep(i,8,180,-90) })),
   ...['A', 'B', 'C', 'D', 'L'].map((stock,i) => ({ id: `stock-${stock}`, station: 'empty',stage:'bridge', seconds: .8, kind: 'stock', section: 'trains', copy: '11', stock,lineNumber:String(i+1),colour:GUANGZHOU_LINE_COLOURS[String(i+1)], view: 'bridge', spin:montageSweep(i,5,50,15) })),
   { id: '10-play', station: 'tanwei', seconds: 3.6, kind: 'cta', section: 'simulation', copy: 'footer', view: 'exterior', orbit: .22,zoomEnd:1.45 },

@@ -41,11 +41,12 @@ under `.preview/demo-video/zh-studio-2k-refined` and
 fly-through speed ramp. The prior 1× take recorded 27 compositor frames in
 2.90 s (median 83 ms, maximum 400 ms); its 90-frame delivery retained only 27
 distinct frames at full resolution and 24 in the 640 × 360 duplicate test.
-The current take records the same three-second edit at 1× for 11.88 s (227
-frames, median 50 ms, maximum 117 ms), then retimes it 4×. The delivery has 90
-of 90 distinct full-resolution frames and 90 of 90 in the coarser duplicate
-test; the 117 ms capture interval becomes 29 ms after retiming, so a capture
-hitch no longer holds a delivered frame. The dragged knob is a preview only: station
+The current source capture records the three-second edit at 1× for 11.88 s
+(227 frames, median 50 ms, maximum 117 ms), then retimes it 4×. The delivered
+2.2-second demand cut uses its first 66 frames: 66 of 66 are distinct at full
+resolution and in the coarser duplicate test. The 117 ms capture interval
+becomes 29 ms after retiming, so a capture hitch no longer holds a delivered
+frame. The dragged knob is a preview only: station
 demand stayed `[1, 0.35]` while the visible morning peak moved to 2.07, so the
 crowd is not rebuilt mid-drag. This is capture and delivery cadence, not a
 change in simulation or renderer frame rate; the report is
