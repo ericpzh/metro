@@ -547,8 +547,31 @@ export class SceneRenderer {
     this.modules.refreshHoverHighlight()
     if (!this.standalonePresentation) {
       this.ensureCityMap(data)
-      if (!this.suspended) this.trains.prepareForStation(data)
+      // The bounded service fleet is opening preparation, not station drawing:
+      // no consist can arrive while the station opens paused (`loadSim` reports
+      // `playing: false`), and building it here keeps the loading shell up for
+      // 1.6–4.9 s on the shipped demos. Prepare it once the browser is idle
+      // after this install — an idle callback runs after the station's first
+      // paint, so the player sees the station before the fleet walk starts. The
+      // 2 s timeout keeps the fleet ready even on a busy thread, and `setTrains`
+      // still builds any consist that arrives before it.
+      if (!this.suspended) this.scheduleFleetPreparation(data)
     }
+  }
+
+  /** Prepare the bounded service fleet after the station is on screen. */
+  private scheduleFleetPreparation(data: StationData): void {
+    const run = (): void => {
+      if (this.ctx.disposed || this.suspended || data !== this.ctx.stationData) return
+      // A fleet that did not change must not request a frame: invisible edits
+      // still open normally and stay frameless.
+      if (this.trains.prepareForStation(data)) this.requestRender()
+    }
+    // A repeat for the same document (an edit) only needs the early-out in
+    // `prepareForStation`; a newer install supersedes an older pending one
+    // because `run` compares the document identity.
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, { timeout: 2000 })
+    else window.setTimeout(run, 0)
   }
 
   /** Nonstructural edits keep cache metadata current. Visible artwork repaints

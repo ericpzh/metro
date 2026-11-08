@@ -907,6 +907,91 @@ pixels, retain CPU pages for context restoration, remove deleted pending slots
 and request frames until uploads drain. Train-arrival cards and minute-clock
 repaints can stall independently of train construction; use plate/atlas ablations.
 
+## Opening a station and its exploded view, per demo
+
+`node tools/bench-demo-load.mjs` (root `npm run bench:demo-load`) opens each
+shipped demo in a fresh profile and measures both workflows on one build. Source
+`4e789c4237e68247dacfebdaa93f783e8f8d140d3d3a3c9bdf51b6bddddb13a2`, i7-14700KF /
+RTX 4080 SUPER, headless Chrome 156 with hardware ANGLE requested, 1400 × 900
+window (852 × 715 editor canvas, 1384 × 690 exploded canvas), default High
+quality, paused, one sample per phase in each of two back-to-back runs. Raw
+reports: `.preview/perf/demo-load/record-1/` and `record-2/`.
+
+Boundaries: **save** runs from the `loadReference` call (what an example-station
+card executes once its shell paints) to the first presented frame — the same
+`onNextFrame` signal that dismisses the loading shell. **Explode** runs from
+`setExplodedView(true)` to the snapshot commit (`toData` + `explodedView` +
+React), the viewer's own renderer existing, `data-ready` (structural frame) and
+`data-equipped` (last equipment batch). All times end at renderer submission; they
+exclude compositor presentation, display and pointer dispatch. Memory is CDP JS
+heap without forced GC plus the OS working set of that run's Chrome processes,
+sampled at 1 Hz and averaged over a 2.6 s idle hold at the save and equipped
+milestones. Working sets include shared pages and a GPU process working set is not
+dedicated VRAM.
+
+| Demo | Cells | Modules | Save to first frame | Explode snapshot | Viewer built | Explode structure | Explode equipped |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 14,066 | 4,290 | 4.71 / 4.49 s | 0.27 s | 2.42 s | 3.63 / 3.69 s | 4.93 / 5.28 s |
+| Tanwei | 16,725 | 9,697 | 6.61 / 7.02 s | 0.34 s | 2.50 s | 3.82 / 4.18 s | 5.90 / 6.57 s |
+| Tianhe Park | 151,852 | 76,436 | 16.97 / 17.05 s | 3.00 s | 10.13 s | 11.64 / 10.67 s | 26.37 / 23.66 s |
+
+The exploded viewer is a second `SceneRenderer`: while it is open the editor
+renders no frame and is torn down, which is why "viewer built" (10.1 s on
+天河公园) is much larger than the snapshot it follows. These are single-run
+diagnostics on one host, not percentiles.
+
+| Demo | JS heap empty → save → explode | Renderer WS save / explode | GPU process WS save / explode | Editor draws / geometry / textures (save) | Exploded draws / geometry / textures (equipped) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 83 → 250 → 158 MB | 1.98 / 1.44 GiB | 1.17 / 1.04 GiB | 3,526 / 4,282 / 2,665 | 1,517 / 1,416 / 231 |
+| Tanwei | 56 → 564 → 190 MB | 2.79 / 1.73 GiB | 1.53 / 1.02 GiB | 5,145 / 5,675 / 4,475 | 2,251 / 2,082 / 271 |
+| Tianhe Park | 83 → 776 → 468 MB | 5.04 / 2.90 GiB | 2.74 / 2.47 GiB | 5,272 / 10,884 / 6,157 | 7,766 / 7,191 / 947 |
+
+The second run measured 281 / 355 / 774 MB at save; its Tanwei exploded sample
+(508 MB JS heap, 3.21 GiB renderer working set) is an outlier of the no-forced-GC
+and process-sampling boundaries. Editor triangles at save are
+0.84 / 1.12 / 1.25 M; the exploded viewer draws all storeys at once, so it reaches
+0.77 / 1.54 / 8.14 M. Textures, not geometry, drive the working sets: the editor
+holds 2.7–6.2 k textures against the viewer's 231–947.
+
+Cost attribution on the same build: 天河公园's save is 8.6 s of `scene.setStation`
+(2.1 s `meshStation`, 5.1 s module models, 3.2 s level slicing including 2.7 s
+batch sync) plus a first frame whose shader compile and texture upload dominate —
+a mapped CPU profile of the same workflow put 1.8 s in `getProgramInfoLog` and
+1.7 s in `texSubImage2D`. Zoo and Tanwei are the same shape an order smaller.
+The exploded viewer's cost is its snapshot, the editor teardown plus the new
+renderer, 0.2–2.9 s `setStation`, 0.1–0.6 s ramp sections, 0.5–2.2 s floor
+layout, and then equipment streamed in 38–312 batches: 0.4–3.7 s of append work
+spread over 1.3–14.7 s while the viewer also draws up to 8.1 M triangles.
+
+### Deferred opening preparation
+
+Two opening stages ran before the station was drawn and did not need to. Measured
+by stubbing each on the same build (`BENCH_ABLATE=trains` / `buildViews`, diagnostic
+only, older source): the bounded train fleet cost **1.6 / 3.0 / 4.9 s** of the
+loading screen across Zoo / Tanwei / Tianhe, and the Q/E neighbour prewarm
+**1.0 / 1.35 / 0.8 s**.
+
+`SceneRenderer.setStation` now hands the fleet to `requestIdleCallback` with a
+2 s timeout (`scheduleFleetPreparation`): the station opens paused, so no consist
+can arrive first, and `setTrains` still builds one on demand. `Viewport` chains the
+Q/E prewarm to the `onNextFrame` that dismisses the loading shell. The fleet
+measurement moved with it — the same stage now starts at or just after the first
+frame (4,718 ms against a 4,714 ms frame for Zoo; 16,973 against 16,970 for Tianhe)
+and no longer appears inside `setStation`. A capture on this host with the change
+reverted (an earlier tree revision, which also carries unrelated work in progress)
+measured 6.82 / 10.44 / 23.79 s to the first frame, so only the moved stage is a
+controlled comparison.
+
+This is a move, not a removal: the deferred walks now block the main thread for
+1.8–6.2 s immediately after the station appears. Keep that in the interaction
+budget when measuring the first pan, edit or storey switch; the Q/E prewarm still
+runs before any realistic keypress.
+
+Remaining levers, in measured order: the first frame's shader compile (71–85
+programs in the editor against 24 in the exploded viewer; parallel compilation is
+untested); the editor's per-module printed textures (6,157 on 天河公园); and the
+equipment streaming schedule, which yields after every batch.
+
 ## Exploded floor arrangement
 
 Prepare geometry once per opening, reuse tray transforms and pose buffers. Drags
@@ -1080,6 +1165,7 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | Preview / LOD | `node tools/bench-preview-audit.mjs`, `node tools/check-preview-lod.mjs` |
 | Equipment retention | `node tools/bench-tree-placement.mjs` |
 | Exploded viewer | `node tools/check-exploded-view.mjs`, `npm run bench:explode` |
+| Station opening + explode, per demo | `npm run bench:demo-load`; `BENCH_DEMOS=zoo`, `BENCH_ABLATE=trains\|buildViews`, `BENCH_PROFILE=1` |
 | Playback tails | `npm run bench:sim-stalls` |
 | Actual model counts | `node tools/model-triangle-inventory.mjs` |
 | City-specific counts | Set `MODEL_CITY=<city>`, then run the inventory command |

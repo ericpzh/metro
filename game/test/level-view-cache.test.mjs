@@ -160,7 +160,10 @@ test('opening prewarm restores the active slice on failure and runs once per doc
     assert.equal(f.ctx.activeZ,0,'temporary prewarm levels never become editing state')
     assert.equal(f.ctx.levelKey.split('|')[0],'0')
     const viewport=readFileSync(new URL('../src/app/Viewport.tsx',import.meta.url),'utf8')
-    assert.match(viewport,/if \(!framedRef.current \|\| switched\)\s*\{[^}]*scene.prepareBuildViews\(\)/)
+    assert.match(viewport,/if \(!framedRef\.current \|\| switched\)\s*\{[^}]*prepareViews = true/,
+      'framing a fresh or switched station is what asks for the Q/E prewarm')
+    assert.match(viewport,/if \(prepareViews\)[\s\S]*?scene\.onNextFrame = \(\) => \{ presented\?\.\(\); scene\.prepareBuildViews\(\) \}/,
+      'the prewarm runs after the first presented frame, so it does not extend the loading shell')
     const renderer=readFileSync(new URL('../src/render/scene/SceneRenderer.ts',import.meta.url),'utf8')
     const artwork=renderer.slice(renderer.indexOf('let artChanged ='),renderer.indexOf('// Light rig:'))
     assert.match(artwork,/Promise.all\(/)

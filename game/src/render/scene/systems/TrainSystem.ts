@@ -102,12 +102,14 @@ export class TrainSystem extends SceneSystem {
   }
 
   /** Prepare the bounded service fleet during station opening, before playback.
-   * Parked models carry no live service or pose until the worker reports one. */
-  prepareForStation(data: StationData): void {
+   * Parked models carry no live service or pose until the worker reports one.
+   * Returns false when the fleet is already prepared for this document, so an
+   * edit that changes nothing the fleet depends on requests no frame. */
+  prepareForStation(data: StationData): boolean {
     this.repaintPresentation(data)
     const buffer = trainPreparationFleet(data, TRAIN_PARKED_LIMIT)
     const key = Array.from(buffer).join(',')
-    if (key === this.preparationKey) return
+    if (key === this.preparationKey) return false
     this.preparationKey = key
     const occurrences = new Map<string, number>(), wanted = new Set<string>()
     const modelScale = trainScaleForStorey(this.ctx.storeyHeight)
@@ -142,6 +144,7 @@ export class TrainSystem extends SceneSystem {
       this.dropConsist(entry.group); this.trainSlots.delete(entry.sig)
     }
     this.updateGeometryDetail()
+    return true
   }
 
   private createEntry(sig: string, shapeKey: string, pose: TrainPose): TrainEntry {

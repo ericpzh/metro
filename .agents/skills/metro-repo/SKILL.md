@@ -109,10 +109,17 @@ Chrome/GPU traces in separate runs. The playback scripts share
 regular Zoo hides the ground at −15 m from the TOP/N/W corner, and regular
 Tianhe Park keeps its default opening level and isometric camera; all three use
 the same 50%-closer distance as `/benchmark`. Exploded runs keep their standalone camera.
-Keep train-model preparation in station opening, reuse the bounded prepared fleet
-on arrival, and retain only the latest train frame while the editor is suspended.
-Compare submitted-frame intervals as well as RAFs; see
+Keep train-model preparation after the station's first presented frame (an idle
+callback with a 2 s timeout, never inside `setStation`), reuse the bounded prepared
+fleet on arrival, build one on demand when it arrives earlier, and retain only the
+latest train frame while the editor is suspended. Compare submitted-frame intervals
+as well as RAFs; see
 [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).
+
+Use `npm run bench:demo-load` to measure opening each demo and its 爆炸视图, with
+per-milestone JS heap and OS working sets; keep the boundary, held milestones and
+deferred-opening note aligned with
+[opening a station and its exploded view](references/performance.md#opening-a-station-and-its-exploded-view-per-demo).
 For the three demos at Low / normal view / 16×, target at least 15 FPS 1% low over
 the first 30 seconds. Zoo and Tanwei clear it; Tianhe Park is a measured miss —
 see [simulation playback frame tails](references/performance.md#simulation-playback-frame-tails).

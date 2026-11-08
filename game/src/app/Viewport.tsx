@@ -765,6 +765,7 @@ export function Viewport(): React.ReactElement {
     // and a station switch (打开 / 示例车站 / 新建) returns to it against the
     // fresh bounds — iso in perspective through the default lens. A later edit
     // rebuilds the station but must not yank the camera.
+    let prepareViews = false
     if (savedEditorView.current) {
       scene.restoreEditorView(savedEditorView.current)
       savedEditorView.current = null
@@ -777,12 +778,24 @@ export function Viewport(): React.ReactElement {
       // Open stations at the same 50%-closer distance used by the regular
       // benchmark view. `zoomBy` uses a 2/3 distance factor for that framing.
       scene.zoomBy(2 / 3)
-      scene.prepareBuildViews()
+      prepareViews = true
     }
     replayFrameHandler()
     const loading = document.getElementById('game-loading')
     if (loading && !loading.hidden) {
       scene.onNextFrame = () => showGameLoading(false)
+      scene.requestRender()
+    }
+    if (prepareViews) {
+      // `prepareBuildViews` renders both Q/E neighbours offscreen so a storey
+      // switch is warm. That is opening work the station does not need in order
+      // to be drawn: it costs about a second on the larger demos and otherwise
+      // sits inside the loading shell. Run it after the first station frame —
+      // `onNextFrame` is exactly that signal (it is also what dismisses the
+      // shell), so the neighbours are still prepared before the player can
+      // sensibly press Q or E. Chain whatever the shell just installed.
+      const presented = scene.onNextFrame
+      scene.onNextFrame = () => { presented?.(); scene.prepareBuildViews() }
       scene.requestRender()
     }
   }, [version, station, stationEpoch, signPreviewId, signVersion, language, exploded])
