@@ -27,7 +27,7 @@ function reachable(g, starts) {
 }
 
 test('the authored demos load without dropping or moving cells and modules', () => {
-  for (const [id, cells, modules] of [['zoo', 14066, 4290], ['tanwei', 16725, 9697], ['tianhe', 151852, 76436]]) {
+  for (const [id, cells, modules] of [['zoo', 14066, 4299], ['tanwei', 16725, 9678], ['tianhe', 151852, 76436]]) {
     const data = referenceStation(id)
     const loaded = toStateRepairing(data)
     assert.equal(data.cells.length, cells, id)

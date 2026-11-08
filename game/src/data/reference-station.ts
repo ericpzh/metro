@@ -2,10 +2,10 @@ import { msg } from '../sim/i18n.ts'
 import { STOREY_HEIGHT } from '../sim/constants.ts'
 // The shipped demo station — 动物园 (Zoo), 广州地铁 5号线. Converted from the
 // author's `动物园.metro.json` save (metro-save v1, game 0.2.0, saved
-// 2026-11-06 03:57Z) by `tools/bake-demo-station.mjs`, which parses the envelope
+// 2026-11-08 02:13Z) by `tools/bake-demo-station.mjs`, which parses the envelope
 // with `persistence/save.ts` and writes the loader's own output, so the demo is
 // already the document the game builds when a player opens the file: 14,066
-// cells and 4,290 modules. It is a
+// cells and 4,299 modules. It is a
 // real five-level station: surface plaza, a concourse/mezzanine, and a stacked
 // two-level platform (up track at z = -20, down at z = -15) served by two lifts,
 // five stairs and fourteen escalators, with two ticket booths, a gated
@@ -24,12 +24,16 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // reachability through door servers.
 //
 // 坦尾 (Tanwei) ships beside it as the second example, baked the same way from the
-// author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-11-06 03:59Z):
+// author's `坦尾.metro.json` (metro-save v1, game 0.2.0, saved 2026-11-08 02:20Z):
 // an elevated 5号线 / 6号线 interchange on the five-metre storey grid (`levelBase`
-// 0) with 16,725 cells and 9,694 modules — sixty-nine 楼梯, eight 扶梯, two lifts
+// 0) with 16,725 cells and 9,678 modules — sixty-nine 楼梯, eight 扶梯, two lifts
 // and seven exits, over the author's own street pass of 6,252 人行道, 686 草坪,
 // 68 树木, seven 道路 and a 公交站. `demo.test.mjs` pins its authored counts and
 // that opening it repairs nothing.
+//
+// The 2026-11-08 re-bake of the two updated saves moved only tactile paving —
+// Zoo 68 → 77 盲道, Tanwei 257 → 238; cells, lines and every other authored
+// family are unchanged.
 //
 // 天河公园 (Tianhe Park) is the third, baked from the author's `天河公园.metro.json`
 // (metro-save v1, game 0.2.0, saved 2026-11-07 21:49Z): a 333 × 287 m surface

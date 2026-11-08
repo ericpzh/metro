@@ -1183,7 +1183,7 @@ as a deterministic test fixture (`game/test/support/scenario-station.ts`).
 
 | | Zoo | Tanwei |
 |---|---|---|
-| Cells / modules | 14,073 / 4,291 | 16,869 / 9,694 |
+| Cells / modules | 14,066 / 4,299 | 16,725 / 9,678 |
 | Exits | 2 (B口, C口), 900 pax/h each | 7 |
 | Lines | one L-stock 6-car line, 150 / 240 / 480 s | two lines, elevated interchange |
 | Alighting per train | 200 agents | 200 agents |
