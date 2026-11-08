@@ -25,16 +25,16 @@ cold renderer preparation and structural worker rebuilds remain costs to measure
 
 The complete current action records live in
 [editor-action-matrix.md](editor-action-matrix.md) and
-[editor-action-matrix.jsonl](editor-action-matrix.jsonl). Do not duplicate older
+[editor-action-matrix.jsonl](editor-action-matrix.jsonl). Do not duplicate
 case tables here. Keep failures, refusals and unsupported actions separate.
 
 ### City style selection
 
-Latest available production observation: source `85d6fe412d63e2ba3a990e3373eba65b0c6d40a6397a587e86e82838bc31b6c6`, raw evidence at
-`.preview/city-styles/current-audit/`. i7-14700KF / RTX 4080 SUPER, ANGLE D3D11,
+City-switch production capture: source `792ea8f73aafba37c8803a9b7b2f97118355551660b3cbfb40ccaa9c2aa7126d`, raw report at
+`.preview/city-styles/tianhe-current/report.json`. i7-14700KF / RTX 4080 SUPER, ANGLE D3D11,
 High quality, paused normal opening view, 1440 × 1000 window, 892 × 815 canvas,
-pixel ratio 1. This High-quality capture predates the Low-only simplifications
-in the inventories below and does not validate their GPU cost.
+pixel ratio 1. This High-quality capture uses full-detail models, so it does not
+validate the Low-only inventories below.
 
 The checker uses DOM `.click()` on popover tiles and ends at first render
 submission. It does not measure actual pointer latency or GPU/display completion.
@@ -43,18 +43,19 @@ builds, tests or profiles. No percentile or controlled speedup is claimed.
 
 | Demo | First Shenzhen | Return Guangzhou | Repeat Shenzhen |
 | --- | --- | --- | --- |
-| zoo | 490.0 ms | 88.1 ms | 313.2 ms |
-| tanwei | 789.2 ms | 228.0 ms | 743.5 ms |
+| zoo | 531.8 ms | 125.1 ms | 198.6 ms |
+| tanwei | 752.8 ms | 267.0 ms | 670.1 ms |
+| tianhe | 1424.1 ms | 1090.4 ms | 927.8 ms |
 
-Five of six observations miss the target. Both demos retain train roots/textures,
-perform zero chunk remeshes/raycasts, and send only population patches. Costs
-remain unprofiled.
+All nine observations miss the strict <100 ms target. All three demos perform
+zero chunk remeshes/raycasts and send only population patches. Costs remain
+unprofiled.
 
 City poster images decode on demand per selected city and share pending requests;
 Beijing's 6564 × 6537 source is kept whole and is not decoded when opening another
 city.
 
-Chongqing production observation (2026-11-04): source
+Chongqing production observation: source
 `c0e862b5f777e8971a65d6d90899ab4126a306b98f3f6a2110f6256e1e999ae9`, raw evidence
 at `.preview/city-styles/chongqing-browser/report.json`. i7-14700KF / RTX 4080
 SUPER, ANGLE D3D11, paused normal view, 1440 × 1000 window, 892 × 815 canvas,
@@ -75,7 +76,7 @@ Counts exclude textures and do not establish a draw-call or GPU-time pass.
 
 ### Equipment and decor
 
-Palette inventories were refreshed with
+Palette inventories come from
 `node tools/model-triangle-inventory.mjs` using production builders and authored
 Low geometry. Counts are geometry inventory, not frame-time measurements.
 
@@ -83,7 +84,7 @@ Default Guangzhou catalogue. Shared limits live in
 `tools/equipment-low-budgets.mjs`: strict <10% unless an explicit minimum-shape
 exception applies. Never raise a limit to conceal a regression.
 
-Inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/ballfields/report.json
+Ballfield inventory: `BENCH_OUTPUT=.preview/perf/ballfields/report.json
 node tools/model-triangle-inventory.mjs` (three.js r186); raw counts are in
 `.preview/perf/ballfields/model-triangles.json`, with source hashes in
 `.preview/perf/ballfields/source-hashes.json`. Ballfields use 88/192 triangles
@@ -92,9 +93,9 @@ nets use line primitives in addition: 129 segments for pickleball and 127 for
 badminton. These are geometry counts, not drag latency, draw-call or GPU-time
 measurements.
 
-Seating inventory refreshed 2026-11-06 with `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. Both new palette options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
+Seating inventory: `BENCH_OUTPUT=.preview/perf/seating/report.json node tools/model-triangle-inventory.mjs` (three.js r186). Raw counts: `.preview/perf/seating/model-triangles.json`. Both seating options meet the strict <10% triangle budget. These are generated geometry counts, not frame-time measurements.
 
-Tactile trim inventory refreshed 2026-11-07 with `BENCH_OUTPUT=.preview/perf/tactile-strip/report.json INVENTORY_REPORT_ONLY=1 node tools/model-triangle-inventory.mjs` (three.js r186). 圆点提示条 (`tactile-warning-strip`) is 4 / 1932 Low/High: Low keeps the one-metre top sheet and omits its 60 instanced dots, while High adds 32 triangles per dot. A crosswise junction arm adds one sheet and 15 dots, giving 8 / 2424 with one arm and 12 / 2916 with two. Raw counts: `.preview/perf/tactile-strip/model-triangles.json`.
+Tactile trim inventory: `BENCH_OUTPUT=.preview/perf/tactile-strip/report.json INVENTORY_REPORT_ONLY=1 node tools/model-triangle-inventory.mjs` (three.js r186). 圆点提示条 (`tactile-warning-strip`) is 4 / 1932 Low/High: Low keeps the one-metre top sheet and omits its 60 instanced dots, while High adds 32 triangles per dot. A crosswise junction arm adds one sheet and 15 dots, giving 8 / 2424 with one arm and 12 / 2916 with two. Raw counts: `.preview/perf/tactile-strip/model-triangles.json`.
 
 | Equipment / decor model name | Low triangles | High triangles |
 |---|---:|---:|
@@ -669,9 +670,9 @@ catalogue counts describe surface geometry, not the fleet.
 Resolve at most one scene pick per event and share it across tools, surface aims,
 selection and audio.
 
-`node tools/check-geometry-snapping.mjs` production capture in
+The production capture from `node tools/check-geometry-snapping.mjs` in
 `.preview/perf/geometry-snapping/browser.json` covers 12 fixtures and 111 pointer
-events: maximum one scene raycast per event, no browser errors. Its synchronous
+events: at most one scene raycast per event, no browser errors. Its synchronous
 dispatch maximum was 16.4 ms; this excludes queued hover work, render submission
 and display and does **not** establish the <100 ms visible-response budget. Keep
 the build identifier and timing boundary in the raw report.
@@ -684,7 +685,7 @@ Commit accepted edits only; never scan all equipment per candidate tile.
 
 ### Undo history and derived placement indexes
 
-2026-11-06, the reported interaction: open the supplied 天河公园 save and place
+The reported heap-growth interaction opens the supplied 天河公园 save and places
 ceiling-hung lights with the real pointer. Production build, headless Chrome 156 /
 SwiftShader, 1440 × 1000, paused, no concurrent runs. The 13.8 MB save holds
 130 150 cells, 75 454 modules and 2 674 suspended-ceiling cells; it opens at a
@@ -702,12 +703,12 @@ surfaces). Multiplied by the forty-frame depth that is ~1.2 GB of derived-index
 retention above the load baseline, which is what pushes an already-large tab over
 its heap limit.
 
-`sim/documentCaches.ts` now releases a retired document's derived indexes from
+`sim/documentCaches.ts` releases a retired document's derived indexes from
 `StationSlice` (`commit`, `undo`, `redo`, `newStation`, `loadFromText`,
 `loadReference`) and the autosave restore. Frames keep their immutable records and
-rebuild on demand if an undo makes them current. The same eight placements then
+rebuild on demand if an undo makes them current. The same eight placements
 measured **5.5–6.0 MB per placement** with history retained (1 123.7 → 1 165.7 MB
-before the fixture was re-saved; 1 130.5 → 1 169.2 MB after); the residual is each
+and 1 130.5 → 1 169.2 MB on the two fixture revisions); the residual is each
 frame's own 75 k-element module array. Raw reports: `.preview/perf/ceiling-oom/`
 (ignored). Limits: software GPU and headless Chrome; this is a JS-heap slope, not a
 hardware-GPU OOM reproduction, and it does not measure first-render latency.
@@ -716,22 +717,20 @@ it matters only for cell edits, not equipment edits.
 
 ### Outdoor paving instances
 
-2026-11-07: paving was one `Group` + `Mesh` + `EquipmentBatches` source and one
-contact blob per 1 m tile. On the supplied 天河公园 save (130,158 cells; 55,545
-lawn + 14,312 sidewalk modules) that was **~8 KB of page heap and two scene
-objects per square metre**, while the drawing itself was already instanced. A
-fresh production load (headless Chrome 156 / SwiftShader, 1440 × 1000, paused)
-measured 1,087.8 MB page heap, 200,438 scene objects, 18,321 draws and 3.80 M
-triangles.
+The per-tile paving source cost **~8 KB of page heap and two scene objects per
+square metre** on the supplied 天河公园 save (130,158 cells; 55,545 lawn + 14,312
+sidewalk modules), while its drawing was already instanced. That path loaded at
+1,087.8 MB page heap, 200,438 scene objects, 18,321 draws and 3.80 M triangles
+(headless Chrome 156 / SwiftShader, 1440 × 1000, paused).
 
-`render/surfaceBatches.ts` now draws paving directly from the document: one
+`render/surfaceBatches.ts` draws paving directly from the document: one
 `StaticInstances` per finish × 64 m bucket, with no per-tile mesh or contact blob;
 the bare root caches its open/unsupported verdict, and pointer picks resolve
-`hit.instanceId` through the bucket's module table. After the change the same load
-measures **691.1 MB page heap
+`hit.instanceId` through the bucket's module table. The same load measures
+**691.1 MB page heap
 (−396.7 MB, 36.5%)**, 129,879 scene objects (−70,559), 52 surface buckets,
 69,857 instances, 17,729 draws and 4.11 M triangles (the coarser buckets keep
-more pavers on their near detail at this camera; 3.80 M before). A one-tile delete
+more pavers on their near detail at this camera; 3.80 M in the baseline). A one-tile delete
 committed in 80.7 ms and retained 51 of the 52 bucket allocations, replacing only
 the touched bucket. A storey switch's paving sync (after the cached hidden flag)
 measured 9.6–11.1 ms. Reports: `.preview/perf/memory/surface-check-*.json` (ignored).
@@ -774,8 +773,8 @@ occupancy/verdicts against immutable inputs.
 
 ### Fence drags and equipment placement
 
-2026-11-03: `tools/bench-fence-drag.mjs` production builds before and after the
-per-cell refusal preview, on the 256-fence fixture at 1424 × 905 in headless
+`tools/bench-fence-drag.mjs` measures production builds with and without the
+per-cell refusal preview on the 256-fence fixture at 1424 × 905 in headless
 Chrome 156 / SwiftShader, two RAFs after real pointer events. Cold down was
 157.9 / 260.6 ms and warm down 32.6 / 32.5 ms; warm move 2 was 48.9 / 50.9 ms.
 Single samples are noisy and do not establish a speedup or hardware performance.
@@ -792,12 +791,15 @@ ownership and immutable array reuse when introducing indexes.
 
 ## Simulation playback frame tails
 
-Measure submitted frames separately from RAFs using `bench:sim-stalls`. Regular
-Zoo: ground hidden, -15 m, TOP/N/W corner. Regular Tanwei: default opening level,
-Hide UI. Both use the 2/3 camera-distance factor. Match canvas, pixel ratio,
-population, speed and quality; separate clean timings, CPU sampling and GPU traces.
-Low / normal view / 16× targets at least 15 FPS 1% low over the first 30 seconds.
-No fresh playback measurement validates the latest models.
+Measure submitted frames separately from RAFs using `bench:sim-stalls`. The shared
+benchmark-view presets are: Regular Zoo, ground hidden at −15 m from the TOP/N/W
+corner; Regular Tanwei, default opening level with Hide UI; Regular Tianhe, default
+opening level and isometric camera. All three use the 2/3 camera-distance factor.
+`bench:sim-stalls` accepts Zoo and Tanwei; the in-game `/benchmark` route covers
+all three. Match canvas, pixel ratio, population, speed and quality; separate clean
+timings, CPU sampling and GPU traces. Low / normal view / 16× targets at least
+15 FPS 1% low over the first 30 seconds. No current playback measurement validates
+the latest models.
 
 ### Tanwei Low at 1×
 
@@ -828,8 +830,8 @@ Tianhe Park snapshot: 130,158 cells and 75,950 modules
 Windows / i7-14700KF / Node 24.15.0, source at `f604ef78` with the local
 working tree. A Node CPU sample of five snapshot preparations identified
 `packFloors` and its collision probes among the hot paths. Six alternating,
-GC-before-sample runs after one warmup measured the original string keys at
-522–664 ms (median 571 ms) and numeric keys at 348–486 ms (median 389 ms).
+GC-before-sample runs after one warmup measured the string-key version at
+522–664 ms (median 571 ms) and the numeric-key version at 348–486 ms (median 389 ms).
 The guarded key implementation measured 330–399 ms (median 376 ms) in a
 separate six-run capture. Reproduce the current snapshot-only measurement with
 `node --expose-gc tools/bench-explode-snapshot.mjs <save.metro.json>`; these
@@ -848,9 +850,9 @@ stage timings and separate Chrome CPU profiles under `.preview/perf/explode-gene
 (open action through ready plus two animation frames) was 166.3 s: `setStation`
 58.0 s, of which `applyLevel` was 17.6 s; `enableExplodedLayout` 53.5 s; a
 late artwork rebuild 19.7 s plus another 27.1 s visibility pass. These are
-nested stage times, not additive independent measurements. The CPU-profiled
-intermediate capture showed a large garbage-collector contribution. Diagnostic
-geometry counters before instancing recorded 148,868 baked instances / 24.0m
+nested stage times, not additive independent measurements. A CPU-profiled capture
+showed a large garbage-collector contribution. Diagnostic geometry counters before
+instancing recorded 148,868 baked instances / 24.0m
 vertices and 134,932 merge inputs; after retaining complete instances, 43,991
 bakes / 16.0m vertices and 42,018 merge inputs remained.
 
@@ -861,7 +863,7 @@ The bounded-batch diagnostic run reached the rendered viewer in 39.7 s:
 `setStation` 18.7 s (including 6.8 s modules, 9.0 s train preparation),
 ramp sections 1.2 s, floor layout 11.2 s (4.5 s merge). Compare these captures as
 diagnostic, not a controlled speedup: system load varied substantially (the regular
-station build ranged from 15 to 27 s), tests overlapped the last run's station
+station build ranged from 15 to 27 s), tests overlapped one run's station
 opening, and only one run of each build was captured. The timed explode runs
 themselves did not overlap a build. GPU backend was requested, not independently
 identified. Train preparation and first-frame GPU work remain material costs on
@@ -911,8 +913,8 @@ The non-monotonic used heap reflects normal garbage collection, not negative
 allocation. The editor and exploded renderer coexist; the growth is consistent
 with copied meshes, buffers and GPU resources, but these measurements do not
 attribute retained bytes to specific object classes or establish release after
-closing. Peak observed individual process working sets in the first exploratory
-run were 6.21 GiB renderer and 4.84 GiB GPU process. Reproduce with
+closing. Peak observed individual process working sets in an exploratory run
+were 6.21 GiB renderer and 4.84 GiB GPU process. Reproduce with
 `./tools/bench-explode-memory.ps1 <save.metro.json>` after a production build.
 The benchmark writes milestone timestamps and CDP heap figures to
 `.preview/perf/explode-memory/report.json`, and process samples to
@@ -954,12 +956,12 @@ replace only matching cases. Incomplete, profiled and software-GPU captures must
 not publish. Use `BENCH_MATRIX_UPDATE=0` for exploration.
 
 天河公园 (tianhe) is the largest shipped example (151,852 cells, 76,436 modules).
-Its first focused capture (guidepost, 1 sample, unprofiled hardware, 2026-11-07)
-misses the strict 100 ms budget for the structural actions — 478.30 ms place,
-292.20 ms drop, 153.90 ms move-preview and 1,572.60 ms delete — while preview
-(45.40 ms) and pickup (79.70 ms) pass. The measured rows live in
+A focused guidepost capture (1 sample, unprofiled hardware) misses the strict
+100 ms budget for the structural actions — 478.30 ms place, 292.20 ms drop,
+153.90 ms move-preview and 1,572.60 ms delete — while preview (45.40 ms) and
+pickup (79.70 ms) pass. The measured rows live in
 [editor-action-matrix.md](editor-action-matrix.md); they are this document's
-cost, not a target for the two smaller demos.
+cost, not a target for Zoo and Tanwei.
 
 ### Benchmark protocol
 
@@ -971,7 +973,7 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 
 | Question | Command |
 | --- | --- |
-| Demo workflow | `npm run bench:usage-tour` |
+| Demo workflow | `npm run bench:usage-tour`; set `BENCH_DEMO=tianhe` for the third example |
 | Pointer placement | `npm run bench:placement` |
 | Action/settings matrix | `npm run bench:editor-actions` |
 | Picking | `node tools/check-tool-picking.mjs` |
