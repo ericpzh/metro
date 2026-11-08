@@ -27,7 +27,9 @@ try {
     const stationPath = resolve(process.env.BENCH_STATION)
     const builtIn = stationPath === resolve('game/src/data/tanwei-station.json')
       ? 'tanwei'
-      : stationPath === resolve('game/src/data/demo-station.json') ? 'zoo' : null
+      : stationPath === resolve('game/src/data/tianhe-station.json')
+        ? 'tianhe'
+        : stationPath === resolve('game/src/data/demo-station.json') ? 'zoo' : null
     if (builtIn) {
       const start = performance.now()
       await loadExampleStation(page, builtIn)
@@ -347,9 +349,16 @@ try {
     }
   `)
   await capture('paintEdits', `
-    const cell = store.getState().station.cells.find(c => c.fill === 'solid' && c.z === store.getState().activeZ && !c.tags?.length
-      && !store.getState().station.modules.some(m => m.type === 'stair' &&
-        ((m.x === c.x && m.y === c.y && m.z === c.z) || (m.from?.x === c.x && m.from?.y === c.y && m.from?.z === c.z))));
+    const station = store.getState().station, activeZ = store.getState().activeZ;
+    // One pass over the modules: asking "is a stair here?" per cell is O(cells × modules)
+    // on the 151k-cell Tianhe demo and never finishes.
+    const stairCells = new Set();
+    for (const m of station.modules) if (m.type === 'stair') {
+      stairCells.add(m.x + ',' + m.y + ',' + m.z);
+      if (m.from) stairCells.add(m.from.x + ',' + m.from.y + ',' + m.from.z);
+    }
+    const cell = station.cells.find(c => c.fill === 'solid' && c.z === activeZ && !c.tags?.length
+      && !stairCells.has(c.x + ',' + c.y + ',' + c.z));
     if (!cell) throw Error('no demo paint target');
     for (let i = 0; i < ${edits}; i++) {
       const state = store.getState();
@@ -362,7 +371,7 @@ try {
   `)
   await capture('blockEdits', `
     const original = store.getState().station;
-    const maxX = Math.max(...original.cells.map(c => c.x));
+    const maxX = original.cells.reduce((max, c) => c.x > max ? c.x : max, -Infinity);
     const block = { x: maxX + 2, y: 0, z: store.getState().activeZ, fill: 'solid' };
     for (let i = 0; i < ${edits}; i++) {
       await b.commit({ ...original, cells: i % 2 ? original.cells : [...original.cells, block] });
@@ -384,7 +393,7 @@ try {
     `)
     await capture('bulk8x8Edits', `
       const original = store.getState().station;
-      const maxX = Math.max(...original.cells.map(c => c.x));
+      const maxX = original.cells.reduce((max, c) => c.x > max ? c.x : max, -Infinity);
       const patch = Array.from({ length: 64 }, (_, i) => ({
         x: maxX + 2 + i % 8, y: Math.floor(i / 8), z: store.getState().activeZ, fill: 'solid' }));
       for (let i = 0; i < ${edits}; i++) {
@@ -404,7 +413,7 @@ try {
     await page.send('Tracing.start', { categories: 'devtools.timeline,blink.user_timing', transferMode: 'ReturnAsStream' })
     await capture('traceStructuralEdits', `
       const original = store.getState().station;
-      const maxX = Math.max(...original.cells.map(c => c.x));
+      const maxX = original.cells.reduce((max, c) => c.x > max ? c.x : max, -Infinity);
       const block = { x: maxX + 2, y: 0, z: store.getState().activeZ, fill: 'solid' };
       for (let i = 0; i < ${edits}; i++) {
         await b.commit({ ...original, cells: i % 2 ? original.cells : [...original.cells, block] });

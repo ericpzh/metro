@@ -16,7 +16,7 @@ if (canvasSize && (canvasSize.length !== 2 || canvasSize.some(value => !Number.i
 const profile = process.env.BENCH_PROFILE === '1'
 const trace = process.env.BENCH_TRACE === '1'
 const ablation = process.env.BENCH_ABLATE ?? ''
-if (!['zoo','tanwei'].includes(demo) || !['regular','explode'].includes(mode) || !['low','high'].includes(quality) ||
+if (!['zoo','tanwei','tianhe'].includes(demo) || !['regular','explode'].includes(mode) || !['low','high'].includes(quality) ||
     ![1,4,16,64].includes(speed) || !Number.isFinite(seconds) || seconds < 1 || !Number.isFinite(pixelRatio) || pixelRatio <= 0 || pixelRatio > 2) throw new Error('Invalid playback benchmark configuration')
 if (profile && trace) throw new Error('Collect CPU profiles and traces in separate runs')
 const output = resolve(process.env.BENCH_OUTPUT ?? `.preview/perf/sim-stalls/${demo}-${mode}-${quality}.json`)

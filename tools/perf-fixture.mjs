@@ -9,6 +9,7 @@ export function perfFixture() {
   const path = resolve(process.env.BENCH_STATION)
   if (path === resolve('game/src/data/demo-station.json')) return referenceStation('zoo')
   if (path === resolve('game/src/data/tanwei-station.json')) return referenceStation('tanwei')
+  if (path === resolve('game/src/data/tianhe-station.json')) return referenceStation('tianhe')
   const result = parse(readFileSync(process.env.BENCH_STATION, 'utf8'))
   if (!result.ok) throw new Error(result.error)
   if (result.droppedCells || result.droppedModules) throw new Error('Benchmark fixture needs repair')

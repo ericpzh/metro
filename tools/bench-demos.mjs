@@ -1,4 +1,4 @@
-// Run the same benchmark workload on both shipped examples, sequentially.
+// Run the same benchmark workload on every shipped example, sequentially.
 // A caller-provided BENCH_STATION remains a single-fixture override.
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -18,7 +18,7 @@ const extension = extname(outputBase) || '.json'
 const outputStem = extname(outputBase) ? outputBase.slice(0, -extension.length) : outputBase
 const fixtures = process.env.BENCH_STATION
   ? [{ path: resolve(process.env.BENCH_STATION), output: outputBase, station: resolve(process.env.BENCH_STATION) }]
-  : ['demo-station.json', 'tanwei-station.json'].map((file) => {
+  : ['demo-station.json', 'tanwei-station.json', 'tianhe-station.json'].map((file) => {
       const path = resolve(root, 'game/src/data', file)
       const station = JSON.parse(readFileSync(path, 'utf8'))
       const slug = String(station.nameEn ?? station.name ?? file.replace(/\.json$/, ''))

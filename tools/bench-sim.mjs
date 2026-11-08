@@ -35,7 +35,8 @@ if (!cell) throw new Error('demo has no paint target')
 const editZ = state.cells.reduce((minimum, candidate) => Math.min(minimum, candidate.z), cell.z)
 measure('build.cloneUndo.ms', () => cloneState(state))
 measure('build.paintOneCell.ms', (i = 0) => paintFaces(state, [[cell.x, cell.y, cell.z]], 'top', i % 2 ? 'floor.concrete' : 'floor.tile'))
-const maxX = Math.max(...state.cells.map((c) => c.x))
+// A shipped demo can hold 150k cells: a spread into Math.max overflows the call stack.
+const maxX = state.cells.reduce((max, c) => c.x > max ? c.x : max, -Infinity)
 const block = [[maxX + 2, 0, editZ]]
 const patch = Array.from({ length: 64 }, (_, i) => [maxX + 2 + i % 8, Math.floor(i / 8), editZ])
 const largePatch = Array.from({ length: 1024 }, (_, i) => [maxX + 2 + i % 32, Math.floor(i / 32), editZ])
