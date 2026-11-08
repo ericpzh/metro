@@ -125,6 +125,14 @@ test('a wall a wide stair reaches is still kept and marked for a half panel', ()
   assert.equal(at.side, 'e')
 })
 
+test('ramp broad phase includes legacy overhangs across bucket boundaries', () => {
+  const west = createModule('stair-straight', -17, 4, -2, 'west', 2, 1.6)
+  const east = createModule('stair-straight', -15, 4, -2, 'east', 2, 1.6)
+  const wall = { x: -16, y: 2, z: 0, fill: 'solid', tags: ['auto-wall'] }
+  assert.equal(rampThinCells([wall], [west, east])[0]?.side, 'e', 'the first ramp can reach across the bucket boundary')
+  assert.equal(rampThinCells([wall], [east, west])[0]?.side, 'w', 'the first overlapping ramp still owns the thin side')
+})
+
 test('a 双跑楼梯 pushed against a wall keeps it whole: its runs fill their own blocks', () => {
   // The report this fixes: a switchback laid flush against a wall ate half of it. A
   // 双跑楼梯's run is built to the width of the blocks it fills

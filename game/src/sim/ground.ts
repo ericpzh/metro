@@ -23,7 +23,7 @@ import { exitFloorAt, exitFootprintCells, isExitHeadHouse } from './exits.ts'
 // escalator landings): both sides only call across at runtime, never at module
 // evaluation, so the bindings are settled by the first call.
 import { rampOpeningAt, rampOpeningsInWindow } from './openings.ts'
-import { trackCellAt, trackCells } from './track.ts'
+import { trackCellAt, trackCells, type TrackModule } from './track.ts'
 import type { Cell, Module } from './types.ts'
 import { registerDocumentCache } from './documentCaches.ts'
 
@@ -73,10 +73,6 @@ function preparedGround(cells:readonly Cell[],modules:readonly Module[]):GroundI
 function rememberGround(inputs:GroundInputs,w:ReturnType<typeof groundWindow>,cells:Cell[]):void{
   const key=windowKey(w);inputs.windows.delete(key);inputs.windows.set(key,cells)
   if(inputs.windows.size>4)inputs.windows.delete(inputs.windows.keys().next().value!)
-}
-
-function key(x: number, y: number, z: number): string {
-  return `${x},${y},${z}`
 }
 
 /** The plan rect the window covers: explicit cells and module anchors, plus margin. */
@@ -138,6 +134,23 @@ export function groundHoleAt(cells: readonly Cell[], modules: readonly Module[],
     if (c.x === x && c.y === y && c.z === GROUND_Z && c.fill !== 'solid') return true
   }
   return modules.some((m) => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge && trackCellAt(m, x, y, GROUND_Z)) || rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
+}
+
+const groundHoleReaders = new WeakMap<readonly Cell[], WeakMap<readonly Module[], (x: number, y: number) => boolean>>()
+
+/** Prepare the same point rule for a multi-cell footprint on immutable input. */
+export function groundHoleReader(cells: readonly Cell[], modules: readonly Module[]): (x: number, y: number) => boolean {
+  let readers = groundHoleReaders.get(cells)
+  if (!readers) groundHoleReaders.set(cells, readers = new WeakMap())
+  const cached = readers.get(modules)
+  if (cached) return cached
+  const explicit = new Set<string>()
+  for (const c of cells) if (c.z === GROUND_Z && c.fill !== 'solid') explicit.add(`${c.x},${c.y}`)
+  const tracks = modules.filter((m): m is TrackModule => m.type === 'track' && !m.cfg.tunnel && !m.cfg.bridge)
+  const read = (x: number, y: number): boolean => explicit.has(`${x},${y}`) || tracks.some(m => trackCellAt(m, x, y, GROUND_Z)) ||
+    rampOpeningAt(modules, x, y, GROUND_Z) || exitFloorAt(modules, x, y, GROUND_Z)
+  readers.set(modules, read)
+  return read
 }
 
 /** True for a generated ground cell: z = 0 with neither a record nor a hole. */
@@ -204,9 +217,14 @@ export function primeGroundResize(cells:readonly Cell[],before:readonly Module[]
 function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: ReturnType<typeof groundWindow>,exclude?: ReturnType<typeof groundWindow>): Cell[] {
   const inputs=preparedGround(cells,modules),cached=inputs.windows.get(windowKey(w))
   if(cached)return exclude?cached.filter(c=>c.x<exclude.x0||c.x>exclude.x1||c.y<exclude.y0||c.y>exclude.y1):cached
-  const explicit = new Set<string>()
+  const holes = new Map<number, Set<number>>()
+  const omit = (x: number, y: number): void => {
+    let row = holes.get(x)
+    if (!row) holes.set(x, row = new Set())
+    row.add(y)
+  }
   // Only authored records at grade can suppress generated pavement.
-  for (const c of cells) if(c.z===GROUND_Z)explicit.add(key(c.x, c.y, c.z))
+  for (const c of cells) if (c.z === GROUND_Z) omit(c.x, c.y)
   // The street's derived holes, enumerated by run and by head-house instead of
   // asked per street cell: `rampOpeningAt` rebuilds the run list per call, so a
   // window-wide loop over it was O(window × runs) — most of this function's
@@ -214,26 +232,29 @@ function generatedGround(cells: readonly Cell[],modules: readonly Module[],w: Re
   // `buildGraph`, the viewport's live sets). Same predicates, asked once each:
   // `rampOpeningsInWindow` scans each run's own bounding box with `intrudes`,
   // and an exit's footprint is exactly the cells `exitCoversCell` names.
-  const openings = rampOpeningsInWindow(modules, GROUND_Z, w)
+  for (const opening of rampOpeningsInWindow(modules, GROUND_Z, w)) {
+    const [x, y] = opening.split(',').map(Number)
+    omit(x, y)
+  }
   for (const m of modules) {
     if (m.type === 'track' && m.z === GROUND_Z && !m.cfg.tunnel && !m.cfg.bridge) {
       for (const [x, y] of trackCells(m)) {
-        if (x >= w.x0 && x <= w.x1 && y >= w.y0 && y <= w.y1) openings.add(`${x},${y}`)
+        if (x >= w.x0 && x <= w.x1 && y >= w.y0 && y <= w.y1) omit(x, y)
       }
       continue
     }
     if (m.type !== 'exit' || !isExitHeadHouse(m) || m.z !== GROUND_Z) continue
     for (const [x, y] of exitFootprintCells(m)) {
       if (x < w.x0 || x > w.x1 || y < w.y0 || y > w.y1) continue
-      openings.add(`${x},${y}`)
+      omit(x, y)
     }
   }
   const out: Cell[] = []
   for (let x = w.x0; x <= w.x1; x++) {
+    const omitted = holes.get(x)
     for (let y = w.y0; y <= w.y1; y++) {
       if(exclude&&x>=exclude.x0&&x<=exclude.x1&&y>=exclude.y0&&y<=exclude.y1){y=exclude.y1;continue}
-      if (explicit.has(key(x, y, GROUND_Z))) continue
-      if (openings.has(`${x},${y}`)) continue
+      if (omitted?.has(y)) continue
       // The street is the **outside** zone, not `unpaid`: `outside`↔`unpaid` is
       // not a fare crossing (`crossingDir`), so the plane never invents an
       // ungated fare line around an unpaid concourse — while a painted `paid`
@@ -252,5 +273,9 @@ registerDocumentCache((cells, modules, liveCells, liveModules) => {
   if (cells !== liveCells) {
     groundBounds.delete(cells)
     groundInputs.delete(cells)
-  } else if (modules !== liveModules) groundBounds.get(cells)?.delete(modules)
+    groundHoleReaders.delete(cells)
+  } else if (modules !== liveModules) {
+    groundBounds.get(cells)?.delete(modules)
+    groundHoleReaders.get(cells)?.delete(modules)
+  }
 })

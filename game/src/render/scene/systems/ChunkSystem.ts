@@ -15,7 +15,7 @@ import { finishDef, finishMapOf } from '../../../sim/finishes.ts'
 import { storeyBand } from '../../../sim/constants.ts'
 import { GROUND_Z, withGround, groundWindow, isPaintedGround } from '../../../sim/ground.ts'
 import { trackBedKeys, moduleEnvelope } from '../../../sim/placement.ts'
-import { OPENING_CEILING, rampFillKeys, rampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
+import { OPENING_CEILING, rampFillKeys, stationRampSlopeCuts, thinWallCells } from '../../../sim/openings.ts'
 import { stairTurnCells } from '../../../sim/stairs.ts'
 import { liftFootprintCells, liftLevels } from '../../../sim/lifts.ts'
 import { facilityWallCells } from '../../../build/model.ts'
@@ -27,6 +27,7 @@ import { coarseGeometry } from '../../geometryDetail.ts'
 import { ceilingCells } from '../../ceilingCells.ts'
 import { localCellEdit } from '../../localCellEdit.ts'
 import { changedCellRecords } from '../../cellChanges.ts'
+import { changedModules, isBridgeModelEdit } from '../../moduleDependencies.ts'
 
 /**
  * A small order-stable number for one cut shape, for the chunk content hash: the
@@ -231,6 +232,12 @@ export class ChunkSystem extends SceneSystem {
     this.localBands = null
     this.groundWindowOnly=false
     const previous=this.ctx.stationData
+    if (previous && this.chunkCache.size && effective === this.effectiveCells && isBridgeModelEdit(previous, data)) {
+      this.ctx.stationData = data
+      this.ctx.trackCellSet = trackBedKeys(data.cells, data.modules)
+      this.localChunks = new Set()
+      return
+    }
     // Structural edits still prepare the exact complete derived state. Afterwards
     // compare those inputs so remote chunk caches need no station-wide rehash.
     const structural = !groundOnly && previous && this.chunkCache.size > 0 &&
@@ -370,19 +377,51 @@ export class ChunkSystem extends SceneSystem {
     // generated ground. The two consumers that walk every cell — this and the
     // walk graph — read the same list, so what is drawn is what is walked.
     this.effectiveCells = effective ?? withGround(data.cells, data.modules)
+    const ordinaryGround = (all: readonly Cell[], authored: readonly Cell[], owned: ReadonlySet<number>): boolean => {
+      if (all.length < authored.length || !authored.every((c,i)=>all[i]===c)) return false
+      for (let i = authored.length; i < all.length; i++) {
+        const c = all[i]
+        if (c.fill !== 'solid' || c.z !== GROUND_Z || c.finish || c.tags || owned.has(packKey(c.x,c.y,c.z))) return false
+      }
+      return true
+    }
+    const owned = this.ownedKeys(data.cells)
+    const plainGround = structural && ordinaryGround(structural.cells, previous!.cells, this.ownedKeys(previous!.cells)) &&
+      ordinaryGround(this.effectiveCells, data.cells, owned)
+    const authoredChanges = plainGround ? changedCellRecords(previous!.cells, data.cells) : null
     if(!structural)this.indexEffectiveCells()
     // Which of them are the **street** and which are the document's: everything
     // `withGround` added. `meshStation` meshes that set on its own pass, so the
     // generated plane is one thing the view can hide (`隐藏地面`) and one thing
     // that is built once.
     this.groundKeys = new Set<number>()
-    const owned = this.ownedKeys(data.cells)
-    for (const c of this.effectiveCells) {
+    for (let i = plainGround ? data.cells.length : 0; i < this.effectiveCells.length; i++) {
+      const c = this.effectiveCells[i]
       const k = packKey(c.x, c.y, c.z)
-      if (!owned.has(k)) this.groundKeys.add(k)
+      if (plainGround || !owned.has(k)) this.groundKeys.add(k)
     }
-    this.ctx.solid = buildSolidSet(this.effectiveCells)
-    this.ctx.finishes = finishMapOf(this.effectiveCells)
+    if (structural && authoredChanges) {
+      // Keep the prepared indexes. Authored records at a dirty coordinate
+      // are read in order, including duplicate solids and explicit finishes.
+      const dirty = new Set(authoredChanges.map(c => packKey(c.x,c.y,c.z)))
+      for (const key of dirty) {
+        this.ctx.solid.delete(key)
+        this.ctx.finishes.delete(key)
+      }
+      for (const key of structural.ground) if (!this.groundKeys.has(key)) this.ctx.solid.delete(key)
+      for (const key of this.groundKeys) if (!structural.ground.has(key)) this.ctx.solid.add(key)
+      if (dirty.size) for (const c of data.cells) {
+        const key = packKey(c.x,c.y,c.z)
+        if (!dirty.has(key)) continue
+        if (c.fill === 'solid') this.ctx.solid.add(key)
+        if (c.finish) this.ctx.finishes.set(key, c.finish)
+      }
+      // A removed authored cell can become generated street at the same key.
+      for (const key of dirty) if (this.groundKeys.has(key)) this.ctx.solid.add(key)
+    } else {
+      this.ctx.solid = buildSolidSet(this.effectiveCells)
+      this.ctx.finishes = finishMapOf(this.effectiveCells)
+    }
     this.ctx.stationData = data
     this.ctx.trackCellSet = trackBedKeys(data.cells, data.modules)
     // A stair's turn landing is drawn by the stair model, not the block mesher.
@@ -403,7 +442,7 @@ export class ChunkSystem extends SceneSystem {
     // read their cut from the same map.
     const ramps=data.modules.filter(m=>m.type==='stair'||m.type==='escalator'||m.type==='exit')
     if(!this.preparedRamps || ramps.length!==this.preparedRamps.length || ramps.some((m,i)=>m!==this.preparedRamps![i])) {
-      this.ctx.slopeCuts = rampSlopeCuts(data.modules)
+      this.ctx.slopeCuts = stationRampSlopeCuts(data.modules)
       this.preparedRamps=ramps
     }
     // The filling those cuts leave open where the player has laid no block: the
@@ -471,11 +510,7 @@ export class ChunkSystem extends SceneSystem {
         // generated ground. Its membership is compared below, so share the
         // authored-record diff with model retention rather than diffing the
         // whole street twice. Custom effective inputs retain the complete path.
-        const ordinaryGround = (all: readonly Cell[], authored: readonly Cell[]): boolean =>
-          all.length >= authored.length && authored.every((c,i)=>all[i]===c) &&
-          all.slice(authored.length).every(c=>c.fill==='solid'&&c.z===GROUND_Z&&!c.finish&&!c.tags)
-        const records = ordinaryGround(structural.cells,previous!.cells) && ordinaryGround(this.effectiveCells,data.cells)
-          ? changedCellRecords(previous!.cells,data.cells) : changedCellRecords(structural.cells,this.effectiveCells)
+        const records = authoredChanges ?? changedCellRecords(structural.cells,this.effectiveCells)
         for(const c of records)changed.add(packKey(c.x,c.y,c.z))
         diffSet(structural.ground,this.groundKeys)
         diffSet(structural.solid,this.ctx.solid)
@@ -511,21 +546,12 @@ export class ChunkSystem extends SceneSystem {
   }
 
   private onlyPreparedModulesChanged(before: StationData, after: StationData): boolean {
-    const remaining = new Map(before.modules.map(m => [m.id,m]))
-    let changed = false
     // Each of these builders' chunk inputs is completely represented by the
     // prepared maps above. Unknown module kinds retain the full hash path.
     const known = (m: typeof after.modules[number]): boolean =>
       ['stair', 'escalator', 'walkway', 'track', 'pillar', 'platform-edge', 'psd-end', 'lift', 'exit', 'door', 'shelf', 'cubicle', 'sink', 'shop'].includes(m.type)
-    for (const m of after.modules) {
-      const old = remaining.get(m.id)
-      remaining.delete(m.id)
-      if (old === m || old && JSON.stringify(old) === JSON.stringify(m)) continue
-      if (!known(m) || old && !known(old)) return false
-      changed = true
-    }
-    for (const m of remaining.values()) { if (!known(m)) return false; changed = true }
-    return changed
+    const changes = changedModules(before, after)
+    return changes.length > 0 && changes.every(known)
   }
 
   /**

@@ -373,6 +373,7 @@ export function rampFillKeys(solid: ReadonlySet<number>, slopes: ReadonlyMap<num
  */
 export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut> {
   const out = new Map<number, SlopeCut>()
+  const exits = modules.filter(m => m.type === 'exit')
   const protect = new Set<string>()
   const protectPoint = (p: Vec3i): void => {
     protect.add(`${p.x},${p.y}`)
@@ -393,7 +394,7 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
   for (const m of modules) {
     if (m.type !== 'stair' && m.type !== 'escalator') continue
     const segs = m.type === 'escalator'
-      ? [{ ...escalatorInclineRun(m, exitLandingHeight(modules, m.to) - exitLandingHeight(modules, m.from)), bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m), coreHalf: rampLaneHalf(m) }]
+      ? [{ ...escalatorInclineRun(m, exitLandingHeight(exits, m.to) - exitLandingHeight(exits, m.from)), bodyHalf: rampBodyHalf(m), railHalf: rampCorridorHalf(m), coreHalf: rampLaneHalf(m) }]
       : rampSegments(m)
     if (!segs) continue
     // A stair's **outer lower landing** is the floor the piece stands on: the block
@@ -404,8 +405,8 @@ export function rampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut>
     const outerLow = m.type === 'stair' && m.from.z !== m.to.z ? (m.from.z < m.to.z ? m.from : m.to) : undefined
     const standsOnOuterBase = segs.map((s) => !!outerLow && [s.from, s.to].some((p) => p.x === outerLow.x && p.y === outerLow.y && p.z === outerLow.z))
     for (const s of segs) {
-      s.from = { ...s.from, z: s.from.z + exitLandingHeight(modules, m.type === 'escalator' ? m.from : s.from) }
-      s.to = { ...s.to, z: s.to.z + exitLandingHeight(modules, m.type === 'escalator' ? m.to : s.to) }
+      s.from = { ...s.from, z: s.from.z + exitLandingHeight(exits, m.type === 'escalator' ? m.from : s.from) }
+      s.to = { ...s.to, z: s.to.z + exitLandingHeight(exits, m.type === 'escalator' ? m.to : s.to) }
     }
     const trimLandings = m.type === 'stair'
     // How deep the body under the line really hangs: an escalator's truss box, or a
@@ -819,6 +820,18 @@ function stairSegments(m: Extract<Module, { type: 'stair' }>): Ramp[] {
  * for equipment (`rampBodyBoxes`) — but the slab under it stays whole.
  */
 const rampListCache = new WeakMap<readonly Module[], Ramp[]>()
+const slopeCutCache = new WeakMap<readonly Module[], Map<number, SlopeCut>>()
+const ownCutCache = new WeakMap<Module, { landingHeights: string; keys: number[] }>()
+
+/** The carve and scene share the station's exact combined underside patches. */
+export function stationRampSlopeCuts(modules: readonly Module[]): Map<number, SlopeCut> {
+  let cuts = slopeCutCache.get(modules)
+  if (!cuts) {
+    cuts = rampSlopeCuts(modules)
+    slopeCutCache.set(modules, cuts)
+  }
+  return cuts
+}
 interface RampInputs { next:WeakMap<Module,RampInputs>; ramps?:Ramp[] }
 const rampInputs:RampInputs={next:new WeakMap()}
 function rampList(modules: readonly Module[]): Ramp[] {
@@ -835,7 +848,7 @@ function rampList(modules: readonly Module[]): Ramp[] {
   }
   if(inputs.ramps){rampListCache.set(modules,inputs.ramps);return inputs.ramps}
   const ramps: Ramp[] = []
-  const cuts = rampSlopeCuts(structural)
+  const cuts = stationRampSlopeCuts(modules)
   const retained = new Set([...cuts].filter(([, cut]) => rampSurfaceRetainsVolume(cut.patches ?? [])).map(([key]) => key))
   const exits = structural.filter(m => m.type === 'exit')
   for (const m of structural) {
@@ -843,8 +856,20 @@ function rampList(modules: readonly Module[]): Ramp[] {
     const segs = rampSegments(m)
     if (!segs) continue
     // A cut belonging to a different run cannot excuse blocking this run's corridor.
-    const ownCuts = m.type === 'lift' ? [] : rampSlopeCuts([m, ...exits]).keys()
-    const groundCells = new Set([...ownCuts].filter(key => retained.has(key)))
+    let ownCuts: readonly number[] = []
+    if (m.type !== 'lift') {
+      // An unchanged run's own cut depends on other pieces only through
+      // its visual exit-landing heights. Combined cuts still use every run.
+      const points = m.type === 'escalator' ? [m.from, m.to] : segs.flatMap(s => [s.from, s.to])
+      const landingHeights = points.map(p => exitLandingHeight(exits, p)).join(',')
+      let cached = ownCutCache.get(m)
+      if (cached?.landingHeights !== landingHeights) {
+        cached = { landingHeights, keys: [...rampSlopeCuts([m, ...exits]).keys()] }
+        ownCutCache.set(m, cached)
+      }
+      ownCuts = cached.keys
+    }
+    const groundCells = new Set(ownCuts.filter(key => retained.has(key)))
     for (const s of segs) ramps.push({ ...s, groundCells, ...(m.type === 'escalator' ? { headroom: ESCALATOR_HEADROOM } : {}) })
   }
   rampListCache.set(modules, ramps)
@@ -921,6 +946,42 @@ function overlaps(c: Cell, r: Ramp, wall: boolean): boolean {
   return within(c, r, wall ? r.railHalf : r.bodyHalf)
 }
 
+const RAMP_BUCKET_SIZE = 16
+const rampBuckets = new WeakMap<readonly Ramp[], Map<string, Ramp[]> | null>()
+
+/** Broad phase for authored-cell scans. Preserve run order within each bucket
+ * because the first overlapping run decides which side a thin cell keeps. */
+function nearbyRamps(ramps: readonly Ramp[]): (x: number, y: number) => readonly Ramp[] {
+  let buckets = rampBuckets.get(ramps)
+  if (buckets === undefined) {
+    buckets = new Map()
+    for (const r of ramps) {
+      // A projected point is on the slid segment plus a perpendicular reach
+      // of at most the widest tested half-width and the cell's half-width.
+      const reach = Math.max(r.coreHalf, r.railHalf, r.bodyHalf) + 0.5
+      const x0 = Math.floor((Math.min(r.from.x, r.to.x) + (r.sx ?? 0) - reach) / RAMP_BUCKET_SIZE)
+      const x1 = Math.floor((Math.max(r.from.x, r.to.x) + (r.sx ?? 0) + reach) / RAMP_BUCKET_SIZE)
+      const y0 = Math.floor((Math.min(r.from.y, r.to.y) + (r.sy ?? 0) - reach) / RAMP_BUCKET_SIZE)
+      const y1 = Math.floor((Math.max(r.from.y, r.to.y) + (r.sy ?? 0) + reach) / RAMP_BUCKET_SIZE)
+      if (![x0, x1, y0, y1].every(Number.isSafeInteger) || (x1 - x0 + 1) * (y1 - y0 + 1) > 1024) {
+        buckets = null
+        break
+      }
+      for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+        const key = `${x},${y}`
+        const bucket = buckets.get(key)
+        if (bucket) bucket.push(r)
+        else buckets.set(key, [r])
+      }
+    }
+    rampBuckets.set(ramps, buckets)
+  }
+  const empty: readonly Ramp[] = []
+  return buckets
+    ? (x, y) => buckets.get(`${Math.floor(x / RAMP_BUCKET_SIZE)},${Math.floor(y / RAMP_BUCKET_SIZE)}`) ?? empty
+    : () => ramps
+}
+
 /**
  * True when a hand-built solid block at `(x, y, z)` would sit inside a ramp's
  * opening — the corridor `carveRampOpenings` clears for a stair, escalator or
@@ -935,7 +996,7 @@ function overlaps(c: Cell, r: Ramp, wall: boolean): boolean {
 export function rampOpeningAt(modules: readonly Module[], x: number, y: number, z: number): boolean {
   if (modules.length === 0) return false
   const cell: Cell = { x, y, z, fill: 'solid' }
-  for (const r of rampList(modules)) {
+  for (const r of nearbyRamps(rampList(modules))(x, y)) {
     if (intrudes(cell, r)) return true
   }
   return false
@@ -1002,16 +1063,18 @@ export function carveRampOpenings(cells: Cell[], modules: readonly Module[]): nu
     }
   }
   if (ramps.length === 0) return 0
+  const at = nearbyRamps(ramps)
   const kill = new Set<number>()
   for (let i = 0; i < cells.length; i++) {
     const c = cells[i]
     if (c.fill !== 'solid') continue
-    if (protect.has(`${c.x},${c.y},${c.z}`)) continue
+    const nearby = at(c.x, c.y)
+    if (!nearby.length || protect.has(`${c.x},${c.y},${c.z}`)) continue
     // A wall is never carved: the ramp's rail is allowed to touch it. It is
     // drawn half a metre thick instead (`rampThinWalls`), so the wall stays
     // solid and the run still fits beside it.
     if (isWallBlock(c)) continue
-    for (const r of ramps) {
+    for (const r of nearby) {
       if (intrudes(c, r)) {
         kill.add(i)
         break
@@ -1130,6 +1193,7 @@ function outwardSide(c: Cell, r: Ramp): WallSide | null {
 export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]): RampThin[] {
   const ramps = rampList(modules)
   if (ramps.length === 0) return []
+  const at = nearbyRamps(ramps)
   const out: RampThin[] = []
   for (const cell of cells) {
     if (cell.fill !== 'solid') continue
@@ -1140,7 +1204,7 @@ export function rampThinCells(cells: readonly Cell[], modules: readonly Module[]
     // run is never opened up.)
     if (shapeOf(cell) !== null) continue
     const wall = isWallBlock(cell)
-    for (const r of ramps) {
+    for (const r of at(cell.x, cell.y)) {
       // A retained core is a slope-cut block, not a side panel. The carve used
       // to remove these cells before thinning ever saw them.
       if (!wall && r.groundCells?.has(packKey(cell.x, cell.y, cell.z)) && within(cell, r, r.coreHalf)) continue
@@ -1183,7 +1247,10 @@ export function thinWallCells(cells: readonly Cell[], modules: readonly Module[]
 }
 
 registerDocumentCache((cells, modules, liveCells, liveModules) => {
-  if (modules !== liveModules) rampListCache.delete(modules)
+  if (modules !== liveModules) {
+    rampListCache.delete(modules)
+    slopeCutCache.delete(modules)
+  }
   if (cells !== liveCells) thinCellCache.delete(cells)
   else if (modules !== liveModules) thinCellCache.get(cells)?.delete(modules)
 })

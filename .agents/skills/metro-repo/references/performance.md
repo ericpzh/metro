@@ -1320,6 +1320,86 @@ code paths is large: the `pickup` row, which does ~1 ms of work, measured 79.70,
 131.5 ms for place and 4.9 → 5.3 ms for drop). Compare same-day paired captures,
 never rows from different sessions, as a speedup.
 
+#### Tianhe Park structural edits over one second
+
+The November 8 Tianhe capture had 610 timings above 1,000 ms across 214
+cases. Every row was a place, drop or delete. A matched two-sample
+API-to-first-render comparison used the shipped 151,852-cell, 76,438-module
+fixture on an i7-14700KF, RTX 4080 SUPER (ANGLE D3D11), headless Chrome 156,
+High quality, 892 × 815 canvas at pixel ratio 1, paused. The following
+values are the maximum of the two samples in milliseconds.
+
+| Case | Place before → after | Drop before → after | Delete before → after |
+| --- | ---: | ---: | ---: |
+| Bridge | 1,604 → 681 | — | 1,085 → 513 |
+| Exit | 1,140 → 632 | 1,202 → 622 | 1,105 → 513 |
+| Escalator | 1,586 → 503 | 1,604 → 536 | 1,303 → 425 |
+| Lift | 1,259 → 563 | — | 819 → 510 |
+| Right-forward stair | 1,629 → 505 | 1,492 → 440 | 1,139 → 387 |
+| Platform | 1,684 → 532 | — | 985 → 526 |
+| Tunnel | 1,315 → 634 | — | 1,363 → 660 |
+
+The authored-cell carve and thinning passes now query nearby runs in
+document order, then apply the existing exact volume rules. Stair models read
+their wall probes from the shared cell index. Rail validation and platform
+edge derivation prepare only the needed courses. The renderer reuses the
+prepared solid and finish indexes at unchanged coordinates and keeps paving
+out of the equipment batch key. Compact worker messages send bounded
+splices for large documents, applying them to the newest received snapshot
+while the old simulation graph stays coherent until the next install.
+
+The comparison cleared 500 ms in 16 of 34 individual structural samples.
+Bridge and tunnel edits still have the largest remaining gaps. In the
+slower bridge placement, synchronous commit work was 149 ms and the tools
+and scene stages were 57 ms and 384 ms. The measurement ends at the first
+matching render call and excludes pointer dispatch, compositor presentation
+and GPU completion.
+
+Reproduce from the repo root with `BENCH_DEMO=tianhe`, `BENCH_SAMPLES=2`
+and `BENCH_CASE=stair-rightForward,escalator,exit,platform,bridge,lift,tunnel`
+using `npm run bench:editor-actions -- --record-only`. The paired reports
+are `.preview/perf/tianhe-structural-before/report.json` and
+`.preview/perf/tianhe-structural-worker/report.json`. The latter overlays the
+editor changes on the baseline source snapshot to exclude concurrent
+renderer work. Both reports include their exact source, build and fixture hashes.
+
+The one-sample sweep of all 214 affected cases is in
+`.preview/perf/tianhe-structural-over-1s/report.json`. A separate two-sample
+bridge follow-up reused tool and chunk preparation when an elevated deck and its
+piers stayed inside the existing street window. Its compact rail occupancy
+indexes preserve the first authored record at a duplicate coordinate and the
+exact solid support rules. For the 128 m bridge, the sweep's 1,293 ms placement
+became a 579 ms maximum in the follow-up
+(`.preview/perf/tianhe-structural-bridges/report.json`).
+
+The next focused runs removed repeated artwork lookups when the artwork
+inputs stayed fixed, avoided temporary arrays for retained roots, and bounded
+bridge support validation to one support scan plus local cell queries. The
+64 m and 128 m bridge placements then took at most 324.2 and 315.1 ms,
+respectively, across three samples
+(`.preview/perf/tianhe-structural-piers/report.json`). The 1,158.2 ms
+left-turn stair deletion from the broad sweep was at most 300.0 ms in the
+three-sample artwork follow-up
+(`.preview/perf/tianhe-structural-tail-after/report.json`).
+
+The 93-case retest
+(`.preview/perf/tianhe-structural-recheck/report.json`) revisited cases
+with one-sample misses at 500 ms. Across the original 610 actions, the
+latest measurements at that point had 560 below 500 ms and none above
+one second. The median fell from 2,546 to 403 ms and the slowest row was
+799.2 ms. The merged index uses the maximum of each action's latest
+capture, which may have one, two or three samples. Individual timings
+varied between runs.
+
+A final focused capture reused individual ramp cuts when their exit landing
+heights stayed fixed and skipped filtering authored cells for a tunnel that
+removed none. Across the original 610 slow actions, the merged matrix now
+has **564 below 500 ms**, 46 at or above 500 ms, and none above one second.
+The median is 402.7 ms versus 2,545.5 ms in the original capture. The slowest
+remaining row is 128 m tunnel placement at 864.5 ms, with its other two
+samples at 603.5 and 605.6 ms. The isolated final report is
+`.preview/perf/tianhe-structural-final-check/report.json`.
+
 ### Benchmark protocol
 
 Build first; benchmark without concurrent builds, tests or profilers. API-to-render

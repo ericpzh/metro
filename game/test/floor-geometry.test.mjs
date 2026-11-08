@@ -31,6 +31,32 @@ const triangleSnapshot = chunks => chunks.chunkMeshes.map(m => {
   return JSON.stringify([m.userData.levelZ,!!m.userData.ground,!!m.userData.suspendedCeiling,!!m.userData.float,hash.digest('hex')])
 }).sort()
 
+test('a bridge inside the street window retains chunk preparation and refreshes rail occupancy', async () => {
+  const { emptyStation } = await import('../src/data/reference-station.ts')
+  const { StationGeometry } = await import('../src/app/stationGeometry.ts')
+  const { makeTrack } = await import('../src/build/rail.ts')
+  const material = new THREE.MeshBasicMaterial()
+  const ctx = new SceneContextData(new THREE.Scene(), { finish: () => material, outline: material }, {}, {})
+  const chunks = new ChunkSystem(ctx), tools = new StationGeometry()
+  const base = { ...emptyStation(), cells: [{ x: -8, y: -8, z: 0, fill: 'solid' }, { x: 8, y: 8, z: 0, fill: 'solid' }] }
+  const track = makeTrack({ id: 'bridge', x: 0, y: 0, z: 5, w: 4, d: 1, rot: 0, lineId: '1', dir: 'up', power: 'third-rail', bridge: true })
+  try {
+    const prepared = tools.resolve(base)
+    chunks.prepareStation(base, prepared.ground)
+    chunks.meshStation()
+    const solid = ctx.solid, meshes = [...chunks.chunkMeshes]
+    for (const data of [{ ...base, modules: [track] }, base]) {
+      assert.equal(tools.resolve(data), prepared)
+      chunks.prepareStation(data, prepared.ground)
+      chunks.meshStation()
+      assert.equal(ctx.solid, solid)
+      assert.equal(chunks.chunkMeshes.length, meshes.length)
+      assert.ok(meshes.every(mesh => chunks.chunkMeshes.includes(mesh)))
+      assert.equal(ctx.trackCellSet.has('0,0,5'), data !== base)
+    }
+  } finally { chunks.disposeChunks(); material.dispose() }
+})
+
 test('rail, shaft and furniture edits match fresh geometry through street expansion and undo',async()=>{
   const { referenceStation }=await import('../src/data/reference-station.ts')
   const { toState,toData,addEquipment,removeModule,createModule }=await import('../src/build/model.ts')

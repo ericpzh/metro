@@ -3,7 +3,7 @@ import { populationEdit } from '../sim/populationEdit.ts'
 import { groundWindow, resizeGround, withGround } from '../sim/ground.ts'
 import { packKey, type StationData } from '../sim/types.ts'
 import { thinWallCells } from '../sim/openings.ts'
-import { isEquipmentContentEdit, isEquipmentModelEdit, signBoardsOnlyChange } from '../render/moduleDependencies.ts'
+import { isBridgeModelEdit, isEquipmentContentEdit, isEquipmentModelEdit, signBoardsOnlyChange } from '../render/moduleDependencies.ts'
 import { localCellEdit } from '../render/localCellEdit.ts'
 import { changedCellRecords } from '../render/cellChanges.ts'
 import type { Cell } from '../sim/types.ts'
@@ -107,7 +107,8 @@ export class StationGeometry {
     if (!this.geometry || !this.data || (this.data !== data &&
       !(this.data.cells === data.cells && this.data.modules === data.modules) &&
       !populationEdit(this.data, data) &&
-      !isEquipmentModelEdit(this.data, data) && signBoardsOnlyChange(this.data, data) === null)) {
+      !isEquipmentModelEdit(this.data, data) && !isBridgeModelEdit(this.data, data) &&
+      signBoardsOnlyChange(this.data, data) === null)) {
       const thins = this.geometry && this.data && this.data.cells === data.cells && isEquipmentContentEdit(this.data, data)
         ? this.geometry.thins : undefined
       const preparedThins=thins??thinWallSideMap(data.cells,data.modules)

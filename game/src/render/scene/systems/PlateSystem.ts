@@ -13,6 +13,7 @@ import * as THREE from 'three'
 import { nearestTrainService } from '../../stationDisplay.ts'
 import { setRailSignal } from '../../models/pieces/RailSignalModel.ts'
 import { signLineInk } from '../../presentationEdit.ts'
+import { changedModules } from '../../moduleDependencies.ts'
 import { modelNeighbours } from '../../modelNeighbours.ts'
 import { getLanguage, translate } from '../../../sim/i18n.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
@@ -242,12 +243,14 @@ export class PlateSystem extends SceneSystem {
    */
   redrawSignPlates(previous?: StationData): void {
     if (this.signPlates.size === 0) return
-    const lines = this.ctx.stationData?.lines ?? []
+    const data = this.ctx.stationData
+    const lines = data?.lines ?? []
+    const sameLines = previous && (previous.lines === lines || JSON.stringify(previous.lines) === JSON.stringify(lines))
+    if (previous && data && sameLines && !changedModules(previous, data).some(m => m.type === 'sign')) return
     const old = new Map(previous?.modules.map(m => [m.id, m]))
-    const sameLines = previous && JSON.stringify(previous.lines) === JSON.stringify(lines)
     for (const [key, entry] of this.signPlates) {
       const id = key.slice(0, key.indexOf('|'))
-      const mod = this.ctx.stationData?.modules.find((m) => m.id === id)
+      const mod = data?.modules.find((m) => m.id === id)
       if (!mod || mod.type !== 'sign') continue
       if (sameLines && JSON.stringify(old.get(id)) === JSON.stringify(mod)) continue
       const boards = mountedSignBoards(mod.cfg.mount, signBoardsOf(mod.cfg, this.ctx.stationData))
@@ -445,9 +448,11 @@ export class PlateSystem extends SceneSystem {
     if (this.decorPlates.size === 0) return
     const data = this.ctx.stationData
     if (!data) return
-    const old = new Map(previous?.modules.map(m => [m.id, m]))
     const mapInk = (d: StationData) => d.lines.map(l=>[l.id,l.name,l.colour,l.stations])
-    const sameWords = previous && previous.name === data.name && previous.nameEn === data.nameEn && JSON.stringify(mapInk(previous)) === JSON.stringify(mapInk(data))
+    const sameWords = previous && previous.name === data.name && previous.nameEn === data.nameEn &&
+      (previous.lines === data.lines || JSON.stringify(mapInk(previous)) === JSON.stringify(mapInk(data)))
+    if (previous && sameWords && !changedModules(previous, data).some(m => m.type === 'calligraphy' || m.type === 'linemap')) return
+    const old = new Map(previous?.modules.map(m => [m.id, m]))
     for (const [key, entry] of this.decorPlates) {
       if (!entry.owned || !entry.face.texture) continue
       const id = key.slice(0, key.indexOf('|'))

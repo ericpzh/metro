@@ -36,6 +36,13 @@ test('all six directions are cleaned, while partial and void neighbours preserve
   assert.equal(clearContactFinishes(partial), partial)
 })
 
+test('contact cleanup does not alias a remote imported cell at the packed-grid edge', () => {
+  const edge = { x: 0, y: 0, z: 4095, fill: 'solid', finish: { top: 'a' } }
+  const remote = { x: 0, y: 1, z: -4096, fill: 'solid' }
+  const cells = [edge, remote]
+  assert.equal(clearContactFinishes(cells), cells)
+})
+
 
 test('covered thin-wall and corner faces clear without losing exposed inset faces', () => {
   for (const [side, dx, dy, inner] of [['n',0,1,'s'], ['e',1,0,'w'], ['s',0,-1,'n'], ['w',-1,0,'e']]) {

@@ -17,6 +17,7 @@ import { msg } from './i18n.ts'
 import { ESCALATOR_BAND, STAIR_RAIL_PROUD, STOREY_HEIGHT } from './constants.ts'
 import { defaultRampLength, rampLengthOf, stairLengthSpec, type RampLength, type RampSpan, rampSpanOf } from './rampLengths.ts'
 import type { Cell, Module, StairFlight, StairStyle, Vec3i } from './types.ts'
+import { hasAuthoredSolid } from './solidCellIndex.ts'
 
 export type { StairFlight, StairStyle } from './types.ts'
 
@@ -412,7 +413,6 @@ export function stairWallSides(
   // course is interpolated and clamped to the flight's own landing — never taken
   // from the base, or a wall only beside the bottom steps would read as a wall
   // the whole way up.
-  const key = (x: number, y: number, z: number): string => `${x},${y},${z}`
   const half = width / 2
   const reach = half + STAIR_RAIL_PROUD
   const sx = slide?.dx ?? 0
@@ -423,9 +423,8 @@ export function stairWallSides(
   const acrossX = ux === 0
   const right = acrossX ? uy : -ux
   const n = Math.max(1, Math.round(run))
-  const left = new Set<string>()
-  const rightSet = new Set<string>()
-  for (let i = 0; i < n; i++) {
+  let leftWall = true, rightWall = true
+  for (let i = 0; i < n && (leftWall || rightWall); i++) {
     // The cell the flight's **treads** pass through, and the run of whole cells they fill
     // there — not the column its walking line is in: a switchback's run is laid on the
     // block grid, so the cells beside it are the ones past its own blocks, and an older
@@ -440,32 +439,24 @@ export function stairWallSides(
     // The whole cells whose centre the treads cover.
     const lo = Math.ceil(centre - half - 0.5)
     const hi = Math.floor(centre + half - 0.5)
-    const probe = (side: 1 | -1): void => {
-      const set = side > 0 ? rightSet : left
+    const solid = (k: number): boolean =>
+      hasAuthoredSolid(cells, acrossX ? k : along, acrossX ? along : k, z)
+    const probe = (side: 1 | -1): boolean => {
       // Every cell the **rail** reaches over the tread edge, ...
       const a = centre + side * right * half
       const b = centre + side * right * reach
       for (let k = Math.floor(Math.min(a, b)); k <= Math.ceil(Math.max(a, b)) - 1; k++) {
         if (k >= lo && k <= hi) continue // the run's own blocks are not a wall beside it
-        set.add(acrossX ? key(k, along, z) : key(along, k, z))
+        if (!solid(k)) return false
       }
       // ... and the cell a wall stands in when the rail ends exactly on the cell edge,
       // which is where a run on the block grid puts it.
-      const beyond = side * right > 0 ? hi + 1 : lo - 1
-      set.add(acrossX ? key(beyond, along, z) : key(along, beyond, z))
+      return solid(side * right > 0 ? hi + 1 : lo - 1)
     }
-    probe(1)
-    probe(-1)
+    rightWall = rightWall && probe(1)
+    leftWall = leftWall && probe(-1)
   }
-  const heldLeft = new Set<string>()
-  const heldRight = new Set<string>()
-  for (const c of cells) {
-    if (c.fill !== 'solid') continue
-    const k = key(c.x, c.y, c.z)
-    if (left.has(k)) heldLeft.add(k)
-    if (rightSet.has(k)) heldRight.add(k)
-  }
-  return { left: heldLeft.size === left.size, right: heldRight.size === rightSet.size }
+  return { left: leftWall, right: rightWall }
 }
 
 /**
@@ -1051,8 +1042,7 @@ export interface StairLandingWalls {
 export function stairLandingWalls(cells: readonly Cell[], m: StairModule, i: number): StairLandingWalls {
   const shape = stairLandingShape(m, i)
   const z = Math.floor(shape.z)
-  const solid = (x: number, y: number): boolean =>
-    cells.some((c) => c.fill === 'solid' && c.x === x && c.y === y && c.z === z)
+  const solid = (x: number, y: number): boolean => hasAuthoredSolid(cells, x, y, z)
   /** The whole cells the platform itself stands in, along one axis. */
   const span = (lo: number, hi: number): number[] => {
     const out: number[] = []

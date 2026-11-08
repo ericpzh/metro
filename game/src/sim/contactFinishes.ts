@@ -2,6 +2,7 @@ import {
   cutInnerFaces,
   cutRectangles,
   halfCornerMask,
+  packKey,
   shapeOf,
   triangleSlopeFace,
   wallShapeBounds,
@@ -85,8 +86,12 @@ export function contactFaceCovered(shape: CellShape | null, neighbour: CellShape
 
 /** Clear wholly covered solid faces; suspended ceilings retain finishes on both sides. */
 export function clearContactFinishes(cells: Cell[]): Cell[] {
-  const solids = new Map<string, CellShape | null>()
-  for (const c of cells) if (c.fill === 'solid' && !c.tags?.includes('suspended-ceiling')) solids.set(key(c.x, c.y, c.z), shapeOf(c))
+  // Leave one course for neighbour probes. Imported coordinates outside the
+  // packed grid still need exact, non-aliasing keys.
+  const packable = (n: number): boolean => Number.isInteger(n) && n >= -4095 && n <= 4094
+  const keyOf = cells.every(c => packable(c.x) && packable(c.y) && packable(c.z)) ? packKey : key
+  const solids = new Map<number | string, CellShape | null>()
+  for (const c of cells) if (c.fill === 'solid' && !c.tags?.includes('suspended-ceiling')) solids.set(keyOf(c.x, c.y, c.z), shapeOf(c))
   let changed = false
   const result = cells.map(c => {
     if (c.fill !== 'solid' || !c.finish || c.tags?.includes('suspended-ceiling')) return c
@@ -94,7 +99,7 @@ export function clearContactFinishes(cells: Cell[]): Cell[] {
     let finish = c.finish
     for (const [face, dx, dy, dz] of neighbours) {
       if (finish[face] === undefined) continue
-      const neighbourKey = key(c.x + dx, c.y + dy, c.z + dz)
+      const neighbourKey = keyOf(c.x + dx, c.y + dy, c.z + dz)
       if (!solids.has(neighbourKey)) continue
       if (!contactFaceCovered(shape, solids.get(neighbourKey)!, face)) continue
       if (finish === c.finish) finish = { ...finish }

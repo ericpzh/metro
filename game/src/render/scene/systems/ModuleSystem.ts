@@ -37,7 +37,7 @@ import { isCeilingHung, isOutdoorSurface, isWallMounted, outdoorSurfaceHidden, o
 import { rotateLocal, trackFacing } from '../../../sim/track.ts'
 import { tvPairSlot } from '../../../sim/tvs.ts'
 import { blobRadius, moduleLevels, SceneSystem } from './SceneSystem.ts'
-import { OUTDOOR_SURFACE_HEIGHT } from '../../../sim/constants.ts'
+import { OUTDOOR_SURFACE_HEIGHT, STOREY_HEIGHT } from '../../../sim/constants.ts'
 import { SurfaceBatches, SURFACE_BUCKET_SIZE } from '../../surfaceBatches.ts'
 import type { SceneContext } from './SceneSystem.ts'
 import type { Module, StationData } from '../../../sim/types.ts'
@@ -247,9 +247,12 @@ export class ModuleSystem extends SceneSystem {
     // Immutable module builds replace affected roots; view changes dress them.
     // A cell-only edit with identical roots/slice need not walk or copy them again.
     const view = `${this.ctx.activeZ}|${this.ctx.ghost}|${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${this.ctx.cutaway}|${this.ctx.graphicsQuality ?? 'high'}`
-    const roots = this.moduleMeshes.children.filter(g => typeof g.userData.moduleId === 'string')
+    // Paving has its own revision and visibility key in SurfaceBatches.
+    // Empty tile roots contribute no equipment source or atlas texture.
+    const equipmentRoots = this.moduleMeshes.children.filter(g => g.userData.surfaceTile !== true)
+    const roots = equipmentRoots.filter(g => typeof g.userData.moduleId === 'string')
       .map(g => `${g.uuid}:${g.position.toArray()}:${g.rotation.toArray()}:${g.scale.toArray()}:${g.userData.levelZs}:${g.userData.groundBand}`).join('|')
-    const visibility = this.moduleMeshes.children.map(g => +g.visible).join('')
+    const visibility = equipmentRoots.map(g => +g.visible).join('')
     // Only pure storey changes may reuse prepared views. New roots, transforms,
     // global appearance toggles and clipping invalidate every dormant slice.
     const generation = this.ctx.cutaway ? undefined : `${this.ctx.autoCeiling}|${this.ctx.hideWalls}|${this.ctx.hideGround}|${this.ctx.hideRoof}|${this.ctx.hideUI}|${roots}`
@@ -406,15 +409,22 @@ export class ModuleSystem extends SceneSystem {
         retained.add(mod.id)
       }
     }
-    const kept = new Map(this.moduleMeshes.children.filter(g => retained.has(g.userData.moduleId)).map(g => [g.userData.moduleId as string, g]))
+    const kept = new Map<string, THREE.Object3D>()
+    const contactBlobs = new Map<string, THREE.InstancedMesh>()
+    for (const root of this.moduleMeshes.children) {
+      const id = root.userData.moduleId
+      const blob = root.userData.contactBlobKey
+      if (retained.has(id)) kept.set(id, root)
+      if (typeof blob === 'string') contactBlobs.set(blob, root as THREE.InstancedMesh)
+    }
     this.retainedLevelRoots.clear()
     // A remote cell edit can leave every model and its slice inputs intact.
     // Preserve the already dressed roots, animation registries and batch views;
     // a changed ground band still takes the ordinary registration/style path.
     const translationOnly=!!this.builtData&&data.cells===this.builtData.cells&&(translated.size>0||relocated.size>0)&&data.modules.length===this.builtData.modules.length&&
       this.builtData.modules.every((mod,i)=>mod===data.modules[i]||(translated.has(mod.id)||relocated.has(mod.id))&&mod.id===data.modules[i].id)
-    if (this.builtData && (translationOnly||sameModuleMetadata(this.builtData, data)) &&
-      retained.size === data.modules.length && data.modules.every(mod => {
+    if (this.builtData && retained.size === data.modules.length &&
+      (translationOnly||sameModuleMetadata(this.builtData, data)) && data.modules.every(mod => {
         // A rigid equipment-only move leaves every other anchor, authored
         // floor and opening fixed. Street-window edges cannot reach those
         // anchors, which remain inside the content bounds plus its margin.
@@ -434,9 +444,16 @@ export class ModuleSystem extends SceneSystem {
     // across cell edits too; rebuilt roots get fresh records and removed roots
     // leave the aggregate on the next sync.
     this.batches.invalidateViews(kept.size > 0)
+    const sameLevelGrid = keepIds === undefined && this.builtData &&
+      (this.builtData.levelBase ?? 0) === this.ctx.levelBase &&
+      (this.builtData.storeyHeight ?? STOREY_HEIGHT) === this.ctx.storeyHeight
     for (const mod of data.modules) {
       const root = kept.get(mod.id)
       if (!root || root.userData.groundBand !== this.ctx.groundOf.get(`${mod.x},${mod.y}`)) continue
+      if (sameLevelGrid && !translated.has(mod.id) && !relocated.has(mod.id)) {
+        this.retainedLevelRoots.add(root)
+        continue
+      }
       const levels = moduleLevels(mod, this.ctx.levelBase, this.ctx.storeyHeight)
       if (levels.length === root.userData.levelZs?.length && levels.every((z, i) => z === root.userData.levelZs[i]))
         this.retainedLevelRoots.add(root)
@@ -447,12 +464,10 @@ export class ModuleSystem extends SceneSystem {
     const liftRigs = new Map(this.lifts.liftRigs.map(r => [r.group, r]))
     const gateWings = new Map(this.crowd.gateWings.map(r => [r.root, r]))
     const tvScreens = new Map(this.plates.tvScreens.map(r => [r.moduleId, r]))
-    const contactBlobs = new Map(this.moduleMeshes.children
-      .filter(g => typeof g.userData.contactBlobKey === 'string')
-      .map(g => [g.userData.contactBlobKey as string, g as THREE.InstancedMesh]))
     if (appendOnly) this.ghost.clearFencePreview()
-    else if(this.equipmentContentChanged(data)&&this.retainedLevelRoots.size===kept.size)
-      this.clearChangedEquipment(data,kept)
+    else if (kept.size && this.retainedLevelRoots.size === kept.size &&
+      (this.equipmentContentChanged(data) || keepIds === undefined))
+      this.clearChangedRoots(data, kept)
     else this.clearModules(data, new Set([...kept.values(), ...contactBlobs.values()]), this.retainedLevelRoots)
     // The plates belong to the module groups just dropped, so they go with them —
     // otherwise every edit would leak one texture per 电视 or 指示牌.
@@ -487,8 +502,11 @@ export class ModuleSystem extends SceneSystem {
       // Follow the rendered footprint, including edge offsets and rotation.
       let blob: [number,number,number,number,number?] = [mod.x+.5,mod.y+.5,mod.z+1+.012,r]
       if (mod.type !== 'tree') {
-        group.updateWorldMatrix(true, true)
-        const bounds: THREE.Box3 = group.userData.contactShadowBounds ??= new THREE.Box3().setFromObject(group)
+        let bounds = group.userData.contactShadowBounds as THREE.Box3 | undefined
+        if (!bounds) {
+          group.updateWorldMatrix(true, true)
+          bounds = group.userData.contactShadowBounds = new THREE.Box3().setFromObject(group)
+        }
         const width = bounds.max.x - bounds.min.x, depth = bounds.max.y - bounds.min.y
         const tightFootprint = mod.type === 'shelf' || mod.type === 'bin' || mod.type === 'extinguisher'
         if (Number.isFinite(width + depth) && (tightFootprint || group.userData.contactShadowBase || Math.max(width, depth) > 1.1)) {
@@ -512,7 +530,7 @@ export class ModuleSystem extends SceneSystem {
       const existing=kept.get(mod.id)
       if(existing&&this.retainedLevelRoots.has(existing)){
         if (existing.userData.surfaceTile === true) existing.userData.module = mod
-        addBlob(mod, existing)
+        else addBlob(mod, existing)
         continue
       }
       const ownedStart = this.ctx.ownedMats.length
@@ -760,10 +778,9 @@ export class ModuleSystem extends SceneSystem {
     this.filterRegistrations(registered,true)
   }
 
-  /** A local equipment replacement retires only its former owners. Keeping the
-   * registered remote roots avoids preparing every plate/material registry for
-   * a move of one piece. Cell/metadata and changed slice inputs fail closed. */
-  private clearChangedEquipment(data:StationData,kept:ReadonlyMap<string,THREE.Object3D>):void {
+  /** Retire only owners that the dependency check could not retain. Remote
+   * roots with unchanged slice inputs keep their animation registrations. */
+  private clearChangedRoots(data:StationData,kept:ReadonlyMap<string,THREE.Object3D>):void {
     this.ghost.clearFencePreview()
     const gone=new Set(this.moduleMeshes.children.filter(root=>typeof root.userData.moduleId==='string'&&!kept.has(root.userData.moduleId)))
     if(!gone.size)return
@@ -773,13 +790,15 @@ export class ModuleSystem extends SceneSystem {
     if(types.has('sign'))this.plates.retainSignPlates(data)
     if(types.has('calligraphy')||types.has('linemap'))this.plates.retainDecorPlates(data)
     const materials=new Set<THREE.Material>([...gone].flatMap(root=>root.userData.ownedMaterials??[]))
-    for(const root of kept.values())for(const material of (root.userData.ownedMaterials??[]) as THREE.Material[])materials.delete(material)
-    for(const material of materials){
-      const map=(material as THREE.MeshBasicMaterial).map
-      if(map&&!this.plates.ownsTexture(map))map.dispose()
-      material.dispose()
+    if (materials.size) {
+      for(const root of kept.values())for(const material of (root.userData.ownedMaterials??[]) as THREE.Material[])materials.delete(material)
+      for(const material of materials){
+        const map=(material as THREE.MeshBasicMaterial).map
+        if(map&&!this.plates.ownsTexture(map))map.dispose()
+        material.dispose()
+      }
+      this.ctx.ownedMats=this.ctx.ownedMats.filter(material=>!materials.has(material))
     }
-    this.ctx.ownedMats=this.ctx.ownedMats.filter(material=>!materials.has(material))
     for(const root of gone){disposeObject(root);this.moduleMeshes.remove(root)}
     this.filterRegistrations(gone,false)
   }

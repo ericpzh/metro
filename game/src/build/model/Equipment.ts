@@ -733,13 +733,6 @@ export function addEquipment(state: StationState, mod: Module): StationState {
   // mutates a retained Cell or its finish/tags. Preserve those identities so
   // one stair does not invalidate every cell-dependent cache in the station.
   const cells = state.cells.slice();
-  const have = new Set(cells.filter((c) => c.fill === 'solid').map((c) => cellKey(c.x, c.y, c.z)));
-  const lay = (p: Vec3i): void => {
-    const k = cellKey(p.x, p.y, p.z);
-    if (have.has(k)) return;
-    have.add(k);
-    cells.push({ x: p.x, y: p.y, z: p.z, fill: 'solid' });
-  };
   // Landings on exit floor count even as holes: lay the cell so the graph can
   // stand on it. Laid before the carve, which protects landing cells.
   const landings: Vec3i[] =
@@ -751,10 +744,13 @@ export function addEquipment(state: StationState, mod: Module): StationState {
           ? liftLevels(mod).map((z) => ({ x: mod.x, y: mod.y, z }))
           : [];
   for (const p of landings) {
-    if (!have.has(cellKey(p.x, p.y, p.z)) && exitFloorAt(modules, p.x, p.y, p.z)) lay(p);
+    if (exitFloorAt(modules, p.x, p.y, p.z) &&
+        !cells.some(c => c.x === p.x && c.y === p.y && c.z === p.z && c.fill === 'solid')) {
+      cells.push({ x: p.x, y: p.y, z: p.z, fill: 'solid' });
+    }
   }
-  carveRampOpenings(cells, modules);
-  return { ...state, cells, modules };
+  const carved = carveRampOpenings(cells, modules);
+  return { ...state, cells: carved || cells.length !== state.cells.length ? cells : state.cells, modules };
 }
 
 /**
@@ -816,6 +812,10 @@ export function removeModule(state: StationState, id: string): StationState {
   if (!gone) return { ...state, modules };
   const landings = stairLandingCells(gone);
   if (!landings.length) return { ...state, modules };
+  // Current turn landings belong to the stair model. Only a legacy authored
+  // landing needs the full scan for other modules sharing its support.
+  if (!state.cells.some(c => landings.some(p => p.x === c.x && p.y === c.y && p.z === c.z)))
+    return { ...state, modules };
   const keep = cellsInUse(modules);
   const kill = new Set(
     landings

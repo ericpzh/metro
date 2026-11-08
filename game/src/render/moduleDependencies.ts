@@ -35,7 +35,7 @@ function sameStationFields(before: StationData, after: StationData): boolean {
   return equal(a, b)
 }
 const moduleChanges = new WeakMap<readonly Module[], WeakMap<readonly Module[], Module[]>>()
-function changedModules(before: StationData, after: StationData): Module[] {
+export function changedModules(before: StationData, after: StationData): readonly Module[] {
   if(before.modules===after.modules)return []
   let documents=moduleChanges.get(before.modules)
   if(!documents)moduleChanges.set(before.modules,documents=new WeakMap())
@@ -55,14 +55,24 @@ function changedModules(before: StationData, after: StationData): Module[] {
 
 /** Chunk-only classification. Functional equipment must still reach the worker. */
 export function isEquipmentContentEdit(before: StationData, after: StationData): boolean {
-  if (!sameStationFields(before, after) || !equal(before.cells, after.cells)) return false
+  if (!sameStationFields(before, after) || before.cells.length !== after.cells.length) return false
   const changed = changedModules(before, after)
   if (!changed.length || changed.some(m => !isSimInertDecorModule(m) && !EQUIPMENT_ONLY.has(m.type) && !(m.type==='stair'&&m.cfg.block))) return false
-  return true
+  return before.cells === after.cells || before.cells.every((cell, i) => equal(cell, after.cells[i]))
 }
 
 export function isEquipmentModelEdit(before: StationData, after: StationData): boolean {
   return isEquipmentContentEdit(before, after) && equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
+}
+
+/** A bridge deck and its supports affect rail/model occupancy, never block
+ * cuts. Inside the same street window the prepared cell geometry survives. */
+export function isBridgeModelEdit(before: StationData, after: StationData): boolean {
+  if (before.cells !== after.cells || !sameStationFields(before, after)) return false
+  const changes = changedModules(before, after)
+  return changes.some(m => m.type === 'track') &&
+    changes.every(m => m.type === 'pillar' || m.type === 'track' && m.cfg.bridge === true) &&
+    equal(groundWindow(before.cells, before.modules), groundWindow(after.cells, after.modules))
 }
 
 /** A guidepost's geometry and ink are local to its root. Moving it must not
@@ -229,7 +239,6 @@ function onlyAddedStairBlocks(before: StationData, after: StationData): boolean 
 function equipmentRetainedIds(before: StationData, after: StationData): Set<string> {
   const retained = new Set<string>()
   if (!sameStationFields(before, after)) return retained
-  const afterById = new Map(after.modules.map((mod) => [mod.id, mod]))
   const beforeById = new Map(before.modules.map((mod) => [mod.id, mod]))
   const changes = changedModules(before, after)
   const types = new Set(changes.map(m => m.type))
@@ -258,9 +267,24 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
   }
   const fenceBefore = rampChanged ? fenceConnectionIndex(before.modules) : null
   const fenceAfter = rampChanged ? fenceConnectionIndex(after.modules) : null
+  const openingBoxes = changes.filter(m => isOpening(m) &&
+    (m.type !== 'track' || m.z === 0 && !m.cfg.bridge && !m.cfg.tunnel)).map(m => {
+    const box = boxOf(m)
+    return box && [box.x0, box.x1, box.y0, box.y1].every(Number.isFinite) ? box : null
+  })
   for (const mod of after.modules) {
-    if (!equal(beforeById.get(mod.id), afterById.get(mod.id))) continue
+    if (!equal(beforeById.get(mod.id), mod)) continue
     if (!known(mod) || dependsOnCells(mod, cellChanges)) continue
+    if (isOutdoorSurface(mod)) {
+      // Paving is a one-cell instance. Test the changed openings against
+      // that tile directly, without constructing envelopes for the city.
+      if (openingBoxes.some(box => !box || !Number.isFinite(mod.x) || !Number.isFinite(mod.y) ||
+        mod.x <= box.x1 + 3 && mod.x + 1 >= box.x0 - 3 &&
+        mod.y <= box.y1 + 3 && mod.y + 1 >= box.y0 - 3) &&
+        !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
+      retained.add(mod.id)
+      continue
+    }
     if (mod.type === 'escalator' && changes.some(m => nearby(mod, m))) continue
     if(flatBeltsOnly&&!['fence','exit','guidepost','platform-edge','psd-end'].includes(mod.type)){
       retained.add(mod.id);continue
@@ -290,7 +314,6 @@ function equipmentRetainedIds(before: StationData, after: StationData): Set<stri
     if (mod.type === 'pillar' && types.has('track') && !equal(pillarModelInputs(before, mod), pillarModelInputs(after, mod))) continue
     if (mod.type === 'hanger' && mod.cfg.mount === 'roof' && types.has('roof') && !equal(hangerModelInputs(before, mod), hangerModelInputs(after, mod))) continue
     if ((RAMPS.has(mod.type) || mod.type === 'lift') && openingChanged && changes.some(m => isOpening(m) && nearbyOpening(mod, m))) continue
-    if (isOutdoorSurface(mod) && openingChanged && changes.some(m=>isOpening(m)&&nearby(mod,m)) && !equal(surfaceModelInputs(before, mod), surfaceModelInputs(after, mod))) continue
     if (mod.type === 'exit' && changes.some(m => isRamp(m) && nearbyOpening(mod, m))) continue
     if (mod.type === 'guidepost' && changes.some(m => m.id === mod.cfg.exitId)) continue
     retained.add(mod.id)
@@ -318,35 +341,22 @@ export function sameModuleMetadata(before: StationData, after: StationData): boo
  * and takes the full rebuild.
  */
 export function signBoardsOnlyChange(before: StationData, after: StationData): string | null {
-  if (before.cells.length !== after.cells.length) return null
-  for (let i = 0; i < before.cells.length; i++) {
-    const old = before.cells[i], next = after.cells[i]
-    if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) return null
-  }
-  if (before.modules.length !== after.modules.length) return null
+  if (before.cells.length !== after.cells.length || before.modules.length !== after.modules.length) return null
   // Lines included: a shield prints its line's colour and number, so a line
   // edit reprints every board and is not a boards-only change.
-  const { cells: _bc, modules: _bm, ...beforeMeta } = before
-  const { cells: _ac, modules: _am, ...afterMeta } = after
-  if (JSON.stringify(beforeMeta) !== JSON.stringify(afterMeta)) return null
-  const previous = new Map(before.modules.map((m) => [m.id, m]))
-  let changed: string | null = null
-  for (const mod of after.modules) {
-    const old = previous.get(mod.id)
-    if (!old) return null
-    if (old === mod || JSON.stringify(old) === JSON.stringify(mod)) continue
-    // Exactly one sign, and only its two boards: a mount or booth change moves
-    // the steel, not the print, and takes the full path with it.
-    if (changed !== null || mod.type !== 'sign' || old.type !== 'sign') return null
-    const { cfg: nextCfg, ...nextRest } = mod
-    const { cfg: oldCfg, ...oldRest } = old
-    if (JSON.stringify(nextRest) !== JSON.stringify(oldRest)) return null
-    const { front: _nf, back: _nb, ...nextMount } = nextCfg
-    const { front: _of, back: _ob, ...oldMount } = oldCfg
-    if (JSON.stringify(nextMount) !== JSON.stringify(oldMount)) return null
-    changed = mod.id
-  }
-  return changed
+  if (!sameStationFields(before, after)) return null
+  const changes = changedModules(before, after)
+  if (changes.length !== 2) return null
+  const [old, mod] = changes
+  // Exactly one sign, with its mount and identity intact.
+  if (old.type !== 'sign' || mod.type !== 'sign') return null
+  const { cfg: nextCfg, ...nextRest } = mod
+  const { cfg: oldCfg, ...oldRest } = old
+  if (!equal(nextRest, oldRest)) return null
+  const { front: _nf, back: _nb, ...nextMount } = nextCfg
+  const { front: _of, back: _ob, ...oldMount } = oldCfg
+  if (!equal(nextMount, oldMount)) return null
+  return before.cells === after.cells || before.cells.every((cell, i) => equal(cell, after.cells[i])) ? mod.id : null
 }
 
 registerDocumentCache((cells, modules, liveCells, liveModules) => {

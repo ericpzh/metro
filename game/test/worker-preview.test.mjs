@@ -12,6 +12,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { DEFAULT_CALENDAR, simTimeAtDate } from '../src/sim/clock.ts'
+import { stationEdit } from '../src/sim/stationEdit.ts'
 
 const frames = []
 const listeners = []
@@ -273,5 +274,32 @@ test('functional edit bursts install only the latest snapshot without advancing 
     const count = installed.length
     flushBuild()
     assert.equal(installed.length, count, 'loading cancels stale queued edits')
+  } finally { World.prototype.rebuild = original }
+})
+
+test('compact station edits apply in order against a pending build and cancel on load', async () => {
+  const { World } = await import('../src/sim/world.ts')
+  const data = { name: 'base', seed: 1, modules: [], lines: [], cells: [] }
+  const original = World.prototype.rebuild
+  const installed = []
+  World.prototype.rebuild = function (...args) { installed.push(this.data); return original.apply(this, args) }
+  try {
+    post({ type: 'init', data, seed: 1, playing: false, speed: 1 })
+    installed.length = 0
+    const first = { ...data, cells: [{ x: 1, y: 0, z: -5, fill: 'solid' }] }
+    const second = { ...first, cells: [...first.cells, { x: 2, y: 0, z: -5, fill: 'solid' }] }
+    post({ type: 'build', data: first })
+    post({ type: 'build-edit', edit: stationEdit(first, second) })
+    assert.equal(builds.size, 1)
+    assert.deepEqual(installed, [], 'the graph still belongs to the installed snapshot')
+    flushBuild()
+    assert.deepEqual(installed, [second], 'the splice retained the pending first cell')
+
+    post({ type: 'build-edit', edit: stationEdit(second, first) })
+    post({ type: 'init', data, seed: 1, playing: false, speed: 1 })
+    const count = installed.length
+    flushBuild()
+    assert.equal(installed.length, count)
+    assert.deepEqual(installed.at(-1), data)
   } finally { World.prototype.rebuild = original }
 })

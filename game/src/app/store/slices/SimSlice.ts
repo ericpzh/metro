@@ -1,5 +1,6 @@
 import { msg } from '../../../sim/i18n.ts'
 import { populationEdit } from '../../../sim/populationEdit.ts'
+import { stationEdit } from '../../../sim/stationEdit.ts'
 // The sim slice: the worker plumbing and the live readouts it feeds. The station
 // document lives in the store; the sim lives in the worker and is driven by the
 // messages in `sim/protocol.ts`. Panels only — no sim logic.
@@ -78,6 +79,8 @@ function sendControl(playing: boolean, speed: number): void {
 }
 
 let client: Worker | null = null
+let sentStation: StationData | null = null
+const LARGE_WORKER_DOCUMENT = 20_000
 let frameCb:
   | ((
       count: number,
@@ -208,12 +211,19 @@ export function initSim(data: StationData, seed: number, opts: { startSeconds?: 
   // world's own `selectedAgent` is cleared with the crowd it belonged to.
   agentSelected = -1
   ensureClient().postMessage({ type: 'init', data, seed, playing: false, speed: 1, ...opts })
+  sentStation = data
 }
 
 export function rebuildSim(data: StationData, previous?: StationData): void {
+  if (!client) return
   const edit = previous ? populationEdit(previous, data) : null
-  if (edit) client?.postMessage({ type: 'population', edit })
-  else client?.postMessage({ type: 'build', data })
+  if (edit) client.postMessage({ type: 'population', edit })
+  else {
+    const delta = previous && sentStation?.cells === previous.cells && sentStation.modules === previous.modules &&
+      data.cells.length + data.modules.length >= LARGE_WORKER_DOCUMENT ? stationEdit(previous, data) : null
+    client.postMessage(delta ? { type: 'build-edit', edit: delta } : { type: 'build', data })
+  }
+  sentStation = data
 }
 
 /**
@@ -228,6 +238,7 @@ export function loadSim(data: StationData, opts: { startSeconds?: number; warmup
   // not one of the new station's agents.
   agentSelected = -1
   ensureClient().postMessage({ type: 'init', data, seed: data.seed, playing: st.playing, speed: st.speed, ...opts })
+  sentStation = data
 }
 
 export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, get) => ({

@@ -9,6 +9,7 @@ import type { StationData } from './types.ts'
 import { World } from './world.ts'
 import { applyPopulationEdit } from './populationEdit.ts'
 import { isCosmeticStationEdit } from './cosmeticEdit.ts'
+import { applyStationEdit } from './stationEdit.ts'
 
 const ctx = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void
@@ -204,12 +205,16 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       run()
       break
     }
-    case 'build': {
+    case 'build':
+    case 'build-edit': {
       if (world) {
-        pendingBuild = msg.data
+        // Worker messages are ordered. A splice follows the most recent
+        // received edit even if its graph has yet to be installed.
+        const data = msg.type === 'build' ? msg.data : applyStationEdit(pendingBuild ?? world.data, msg.edit)
+        pendingBuild = data
         // Inert edits remain cheap when no topology edit is waiting. Otherwise
         // they join it, rather than publishing data against an obsolete graph.
-        if (buildTimer === null && isCosmeticStationEdit(world.data, msg.data)) applyBuild()
+        if (buildTimer === null && isCosmeticStationEdit(world.data, data)) applyBuild()
         else if (buildTimer === null) buildTimer = ctx.setTimeout(applyBuild, BUILD_COALESCE_MS)
       }
       break

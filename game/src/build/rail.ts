@@ -10,11 +10,11 @@ import { msg } from '../sim/i18n.ts'
 // including across to the other axis. Pure document edits — no React, no three.
 
 import { pillarSupportsBridge, BRIDGE_DECK_DEPTH, BRIDGE_MIN_Z } from '../sim/structures.ts'
-import { GROUND_Z, virtualSolidAt } from '../sim/ground.ts'
+import { GROUND_Z, groundHoleReader } from '../sim/ground.ts'
 import { bridgePillarCandidates, syncBridgePillars } from './model/BridgePillars.ts'
 import { floorSpeed } from '../sim/finishes.ts'
 import { STOREY_HEIGHT } from '../sim/constants.ts'
-import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
+import { boxesOverlap, blockerLabels, equipmentReason, isCeilingHung, isOutdoorSurface, moduleEnvelope, trackAt, type ModuleBox } from '../sim/placement.ts'
 import { rampBodyBoxes } from '../sim/openings.ts'
 import { STOCK, doorCentres, trainLength, trainScaleForStorey } from '../sim/stock.ts'
 import { rotateLocal, trackCellAt, trackCells, trackHeadroom, type TrackModule } from '../sim/track.ts'
@@ -209,11 +209,23 @@ export function derivePlatformEdges(state: StationState, track: Module): Platfor
     { side: 'right', j: -1 },
     { side: 'left', j: d },
   ]
+  const floor = new Map<string, Cell>()
+  const above = new Set<string>()
+  for (const cell of state.cells) {
+    if (cell.z === track.z) {
+      const key = cellKey(cell.x, cell.y, cell.z)
+      // Match isPlatformCell's first authored record at duplicate coordinates.
+      if (!floor.has(key)) floor.set(key, cell)
+    }
+    if (cell.z === track.z + 1 && cell.fill === 'solid') above.add(cellKey(cell.x, cell.y, cell.z))
+  }
   for (const { side, j } of sides) {
     const xs: number[] = []
     for (let i = 0; i < track.w; i++) {
       const [dx, dy] = rotateLocal(rot, i, j)
-      if (isPlatformCell(state.cells, track.x + dx, track.y + dy, track.z)) xs.push(i)
+      const x = track.x + dx, y = track.y + dy
+      const cell = floor.get(cellKey(x, y, track.z))
+      if (cell?.fill === 'solid' && floorSpeed(cell) > 0 && !above.has(cellKey(x, y, track.z + 1))) xs.push(i)
     }
     for (const [i0, i1] of runsOf(xs)) {
       const [ox, oy] = rotateLocal(rot, i0, j)
@@ -280,13 +292,6 @@ export function railOverlaps(state: StationState, rect: RailRect): boolean {
   return trackOverlaps(state, makeTrack({ id: 'rect', lineId: '', dir: 'up', power: 'third-rail', rot: 0, x: rect.x0, y: rect.y0, z: rect.z, w, d }))
 }
 
-/** Every solid cell of a state, keyed for O(1) lookups. */
-function solidKeys(state: StationState): Set<string> {
-  const out = new Set<string>()
-  for (const c of state.cells) if (c.fill === 'solid') out.add(cellKey(c.x, c.y, c.z))
-  return out
-}
-
 /**
  * True when a platform run would have a wall crossing its headroom. A platform
  * is open air, so it refuses to be laid through an obstruction (a tunnel bores
@@ -294,12 +299,11 @@ function solidKeys(state: StationState): Set<string> {
  */
 export function trackClearanceBlocked(state: StationState, track: TrackModule): boolean {
   if (track.cfg.tunnel) return false
-  const solid = solidKeys(state)
-  for (const [x, y, z] of trackCells(track)) {
-    if (track.cfg.bridge && solid.has(cellKey(x, y, z - BRIDGE_DECK_DEPTH))) return true
-    for (let dz = 1; dz <= trackHeadroom(track); dz++) if (solid.has(cellKey(x, y, z + dz))) return true
-  }
-  return false
+  const bed = new Set(trackCells(track).map(([x, y, z]) => cellKey(x, y, z)))
+  const courses = new Set<number>()
+  if (track.cfg.bridge) courses.add(track.z - BRIDGE_DECK_DEPTH)
+  for (let dz = 1; dz <= trackHeadroom(track); dz++) courses.add(track.z + dz)
+  return state.cells.some(c => courses.has(c.z) && c.fill === 'solid' && bed.has(cellKey(c.x, c.y, track.z)))
 }
 
 /** The axis-aligned volume a track needs clear: its bed plus its headroom. */
@@ -327,6 +331,7 @@ export function trackColliders(state: StationState, track: TrackModule): Module[
   const box = trackSpace(track)
   const out: Module[] = []
   for (const m of state.modules) {
+    if (isOutdoorSurface(m) && (m.x + 1 < box.x0 || m.x > box.x1 || m.y + 1 < box.y0 || m.y > box.y1)) continue
     if (m.id === track.id || pillarSupportsBridge(m, track)) continue
     // A hung fitting below the new bed will hang from its deck, so it never
     // blocks the rail — the release lets the fitting hang under a 站台 or 轨道桥.
@@ -354,12 +359,14 @@ export function trackInterferenceBlocked(state: StationState, track: TrackModule
 
 /** True when a platform run is not fully supported by solid floor. */
 export function trackFloorMissing(state: StationState, track: TrackModule): boolean {
-  const solid = solidKeys(state)
+  const solid = new Set<string>()
+  for (const c of state.cells) if (c.z === track.z && c.fill === 'solid') solid.add(cellKey(c.x, c.y, c.z))
+  let groundHole: ReturnType<typeof groundHoleReader> | undefined
   for (const [x, y, z] of trackCells(track)) {
     if (solid.has(cellKey(x, y, z))) continue
     // The street is an infinite implicit plane. Treat it as footing for a
     // surface platform, while respecting saved digs and module openings (§4.1).
-    if (z === GROUND_Z && virtualSolidAt(state.cells, state.modules, x, y, z)) continue
+    if (z === GROUND_Z && !(groundHole ??= groundHoleReader(state.cells, state.modules))(x, y)) continue
     return true
   }
   return false
@@ -409,8 +416,11 @@ export function trackBlockReason(state: StationState, track: TrackModule): Track
 function commitTrackRaw(state: StationState, track: TrackModule): StationState {
   if (trackOverlaps(state, track)) return state
   const dug = new Set(trackCells(track).flatMap(([x, y, z]) => [cellKey(x, y, z), cellKey(x, y, z - 1)]))
-  const cells = state.cells.filter((c) => !dug.has(cellKey(c.x, c.y, c.z)))
-  const modules = state.modules.filter((m) => !dug.has(cellKey(m.x, m.y, m.z)))
+  const inBed = (c: Pick<Cell, 'x' | 'y' | 'z'>): boolean =>
+    (c.z === track.z || c.z === track.z - 1) && dug.has(cellKey(c.x, c.y, c.z))
+  const remaining = state.cells.filter(c => !inBed(c))
+  const cells = remaining.length === state.cells.length ? state.cells : remaining
+  const modules = state.modules.filter(m => !inBed(m))
   track = {...track,storeyHeight:STOREY_HEIGHT}
   let next: StationState = { ...state, cells, modules: [...modules, track] }
   if (track.cfg.tunnel) next = boreTunnel(next, track)

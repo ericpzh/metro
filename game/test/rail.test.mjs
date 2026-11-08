@@ -45,6 +45,16 @@ test('placing a rail digs the bed, lays the track and derives the screen doors',
   assert.equal(edges[0].cfg.from, track.id, 'the edge remembers its rail')
 })
 
+test('platform edge derivation keeps the first floor record and any solid overhead', () => {
+  const track = { id: 'rail', type: 'track', x: 0, y: 1, z: 0, w: 4, d: 1, cfg: { line: '1', power: 'third-rail' } }
+  const cells = [
+    { x: 0, y: 0, z: 0, fill: 'void' }, ...floorRow(0, 3, 0),
+    { x: 2, y: 0, z: 1, fill: 'void' }, { x: 2, y: 0, z: 1, fill: 'solid' },
+  ]
+  const edges = derivePlatformEdges(station(cells), track)
+  assert.deepEqual(edges.map(edge => [edge.x, edge.w]), [[1, 1], [3, 1]])
+})
+
 test('an island platform beside both sides yields two edges', () => {
   const cells = [...floorRow(0, 4, 0), ...floorRow(0, 4, 1), ...floorRow(0, 4, 2)]
   const s1 = placeRail(station(cells), { x0: 0, y0: 1, x1: 4, y1: 1, z: 0 }, { lineId: '1', dir: 'up', power: 'third-rail' })

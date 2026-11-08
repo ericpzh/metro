@@ -1,7 +1,7 @@
 import { roadSurfaceReason } from './roadPlacement.ts'
 import { MAX_DRAG_CELLS, ROAD_LANE_WIDTH, STOREY_HEIGHT, TRAFFIC_LIGHT_HEIGHT } from './constants.ts'
 import { msg } from './i18n.ts'
-import { solidCellsInBounds } from './solidCellIndex.ts'
+import { firstAuthoredCell, hasAuthoredSolid, solidCellsInBounds } from './solidCellIndex.ts'
 import { noiseBarrierVariant, noiseBarrierHeight, noiseBarrierOffset } from './noiseBarriers.ts'
 import { blockIndex, type BlockIndex } from './blockIndex.ts'
 import { isOutdoorSurface, outdoorSurfaceIndex, surfaceKey } from './outdoorSurfaces.ts'
@@ -39,7 +39,7 @@ import { EXIT_L, exitSpan, exitBays, exitFloorAt, exitWidth, isExitHeadHouse } f
 import { calligraphyBottom, calligraphyCourses } from './calligraphy.ts'
 import { GLASS_FRAME, glassModuleSpec, glassSpec, glassStandsOnFloor, glassWallCourses } from './glassPanels.ts'
 import { doorSpec } from './doors.ts'
-import { GROUND_Z, groundHoleAt, virtualSolidAt } from './ground.ts'
+import { GROUND_Z, groundHoleAt, groundHoleReader, virtualSolidAt } from './ground.ts'
 import { lineMapSpec, LINE_MAP_FRAME_PAD, lineMapWallCourses } from './linemaps.ts'
 import { liftFootprintCells, liftSizeOf } from './lifts.ts'
 import { billboardSpec } from './billboards.ts'
@@ -667,7 +667,7 @@ function liftEnvelope(m: Extract<Module, { type: 'lift' }>): ModuleBox {
  * same rule, equipment must not be laid over it.
  */
 export function isTrackBed(cells: readonly Cell[], x: number, y: number, z: number): boolean {
-  const c = cells.find((cc) => cc.x === x && cc.y === y && cc.z === z)
+  const c = firstAuthoredCell(cells, x, y, z)
   return c?.fill === 'solid' && c.finish?.top === 'floor.track'
 }
 
@@ -678,11 +678,14 @@ export function trackBedCells(m: Module): Array<[number, number, number]> {
 
 /** The track module whose bed covers `(x, y, z)`, if any. */
 export function trackAt(modules: readonly Module[], x: number, y: number, z: number): Module | undefined {
-  for (const m of modules) {
-    if (m.type === 'track' && trackCellAt(m, x, y, z)) return m
+  let tracks = trackReaders.get(modules)
+  if (!tracks) {
+    tracks = modules.filter(m => m.type === 'track')
+    trackReaders.set(modules, tracks)
   }
-  return undefined
+  return tracks.find(m => trackCellAt(m, x, y, z))
 }
+const trackReaders = new WeakMap<readonly Module[], Extract<Module, { type: 'track' }>[]>()
 
 /**
  * Keys of every track-bed cell, from the finish OR a track module's bed. A
@@ -1851,7 +1854,6 @@ export function placementBlocked(modules: readonly Module[], candidate: Module):
  * them alongside the red ghost (§9.5).
  */
 interface PlacedCollision { module: Module; boxes: ModuleBox[]; bounds: ModuleBox | null; order: number }
-const collisionCache = new WeakMap<readonly Module[], PlacedCollision[]>()
 
 function collisionBounds(boxes: ModuleBox[]): ModuleBox | null {
   if (!boxes.length) return null
@@ -1864,19 +1866,6 @@ function collisionBounds(boxes: ModuleBox[]): ModuleBox | null {
   return bounds
 }
 
-function placedCollisionBoxes(modules: readonly Module[]): PlacedCollision[] {
-  let entries = collisionCache.get(modules)
-  if (!entries) {
-    entries = modules.map((module, order) => {
-      const envelope = moduleEnvelope(module, modules)
-      const boxes = envelope ? collisionBoxes(module, envelope) : []
-      return { module, boxes, bounds: collisionBounds(boxes), order }
-    })
-    collisionCache.set(modules, entries)
-  }
-  return entries
-}
-
 /** Fence joints can leave the nominal rotated strip, but never their tile. */
 function collisionSearchBounds(module: Module, bounds: ModuleBox): ModuleBox {
   if (module.type !== 'fence') return bounds
@@ -1885,19 +1874,32 @@ function collisionSearchBounds(module: Module, bounds: ModuleBox): ModuleBox {
     z0: Math.min(bounds.z0, module.z + 1), z1: Math.max(bounds.z1, module.z + 1 + FLAT_HEIGHT.fence) }
 }
 
-const collisionSpatialCache = new WeakMap<readonly Module[], {
-  buckets: Map<string, PlacedCollision[]>; broad: PlacedCollision[]; order: Map<Module, number>
-}>()
+interface CollisionIndex {
+  entries: PlacedCollision[]
+  buckets: Map<string, PlacedCollision[]>
+  broad: PlacedCollision[]
+  order: Map<Module, number>
+}
+const collisionSpatialCache = new WeakMap<readonly Module[], CollisionIndex>()
+const pavingCollisionCache = new WeakMap<readonly Module[], CollisionIndex>()
 
 /** All equipment previews and release checks share this immutable broad phase.
  * Huge imported pieces use a bounded overflow list instead of huge bucket grids. */
-function collisionCandidates(modules: readonly Module[], bounds: ModuleBox): PlacedCollision[] {
-  let index = collisionSpatialCache.get(modules)
-  const entries = placedCollisionBoxes(modules)
+function collisionCandidates(modules: readonly Module[], bounds: ModuleBox, includePaving = false): PlacedCollision[] {
+  const cache = includePaving ? pavingCollisionCache : collisionSpatialCache
+  let index = cache.get(modules)
   if (!index) {
-    index = { buckets: new Map(), broad: [], order: new Map() }
-    for (const entry of entries) {
-      index.order.set(entry.module, entry.order)
+    index = { entries: [], buckets: new Map(), broad: [], order: new Map() }
+    for (let order = 0; order < modules.length; order++) {
+      const module = modules[order]
+      // Ordinary equipment already ignores paving in the narrow phase.
+      // Roads and paving tools still get the complete collision index.
+      if (!includePaving && isOutdoorSurface(module)) continue
+      const envelope = moduleEnvelope(module, modules)
+      const boxes = envelope ? collisionBoxes(module, envelope) : []
+      const entry = { module, boxes, bounds: collisionBounds(boxes), order }
+      index.entries.push(entry)
+      index.order.set(module, order)
       if (!entry.bounds) continue
       const box = collisionSearchBounds(entry.module, entry.bounds)
       const x0 = Math.floor(box.x0 / BLOCK_BODY_BUCKET), x1 = Math.ceil(box.x1 / BLOCK_BODY_BUCKET) - 1
@@ -1909,8 +1911,9 @@ function collisionCandidates(modules: readonly Module[], bounds: ModuleBox): Pla
         bucket.push(entry); index.buckets.set(key, bucket)
       }
     }
-    collisionSpatialCache.set(modules, index)
+    cache.set(modules, index)
   }
+  const { entries } = index
   const x0 = Math.floor(bounds.x0 / BLOCK_BODY_BUCKET), x1 = Math.ceil(bounds.x1 / BLOCK_BODY_BUCKET) - 1
   const y0 = Math.floor(bounds.y0 / BLOCK_BODY_BUCKET), y1 = Math.ceil(bounds.y1 / BLOCK_BODY_BUCKET) - 1
   const count = (x1 - x0 + 1) * (y1 - y0 + 1)
@@ -1929,7 +1932,8 @@ export function placementColliders(modules: readonly Module[], candidate: Module
   const candidateBoxes = collisionBoxes(candidate, c)
   const bounds = collisionBounds(candidateBoxes)
   if (!bounds) return out
-  for (const { module: m, boxes, bounds: placedBounds } of collisionCandidates(modules, collisionSearchBounds(candidate, bounds))) {
+  const includePaving = isOutdoorSurface(candidate) || candidate.type === 'road'
+  for (const { module: m, boxes, bounds: placedBounds } of collisionCandidates(modules, collisionSearchBounds(candidate, bounds), includePaving)) {
     if ((isOutdoorSurface(m) && !isOutdoorSurface(candidate) && candidate.type !== 'road')
       || (isOutdoorSurface(candidate) && !isOutdoorSurface(m) && m.type !== 'road')) continue
     // Portable dividers can stand on the painted court, while its net/posts remain solid.
@@ -2402,9 +2406,11 @@ export function moduleFloorOk(cells: readonly Cell[], modules: readonly Module[]
         : moduleFootprint(candidate)
   for (const [bx, by] of footprint) {
     const floor =
-      cells.some((c) => c.fill === 'solid' && c.x === bx && c.y === by && c.z === candidate.z) ||
+      hasAuthoredSolid(cells, bx, by, candidate.z) ||
       exitFloorAt(modules, bx, by, candidate.z) ||
-      virtualSolidAt(cells, modules, bx, by, candidate.z)
+      (candidate.z === GROUND_Z && (candidate.type === 'pillar'
+        ? !groundHoleReader(cells, modules)(bx, by)
+        : virtualSolidAt(cells, modules, bx, by, candidate.z)))
     if (!floor) return false
   }
   return true
@@ -2516,8 +2522,8 @@ export function equipmentReason(cells: readonly Cell[], modules: readonly Module
   }
   if (candidate.type === 'pillar') {
     const box = moduleEnvelope(candidate, modules)!
-    for (const c of cells) {
-      if (c.fill === 'solid' && boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
+    for (const c of solidCellsInBounds(cells, box)) {
+      if (boxesOverlap(box, { x0: c.x, y0: c.y, z0: c.z, x1: c.x + 1, y1: c.y + 1, z1: c.z + 1 })) return 'occupied'
     }
   }
   if (layer && candidate.type === 'exit') {
@@ -2796,9 +2802,10 @@ registerDocumentCache((cells, modules, liveCells, liveModules) => {
   if (modules !== liveModules) {
     blockedLevelCache.delete(modules)
     blockBodyCache.delete(modules)
-    collisionCache.delete(modules)
     collisionSpatialCache.delete(modules)
+    pavingCollisionCache.delete(modules)
     ceilingModules.delete(modules)
+    trackReaders.delete(modules)
   }
   if (cells !== liveCells) {
     ceilingCells.delete(cells)

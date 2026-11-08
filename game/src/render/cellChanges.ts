@@ -11,10 +11,33 @@ export function changedCellRecords(before: readonly Cell[], after: readonly Cell
   if(!nextDocuments)comparisons.set(before,nextDocuments=new WeakMap())
   const cached=nextDocuments.get(after)
   if(cached)return cached
+  let prefix = 0, suffix = 0
+  const common = Math.min(before.length, after.length)
+  while (prefix < common && before[prefix] === after[prefix]) prefix++
+  while (suffix < common - prefix && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++
+  const keyOf = (c: Cell) => `${c.x},${c.y},${c.z}`
+  // A local append or carve shares most records. Shared records matter only
+  // at affected coordinates, where they can be duplicates of changed records.
+  const changedSpan = before.length + after.length - 2 * (prefix + suffix)
+  const candidates = changedSpan <= 4096 ? new Map<number, Set<string>>() : null
+  if (candidates) {
+    for (const cells of [before, after]) {
+      for (let i = prefix; i < cells.length - suffix; i++) {
+        const c = cells[i]
+        let keys = candidates.get(c.x)
+        if (!keys) candidates.set(c.x, keys = new Set())
+        keys.add(keyOf(c))
+      }
+    }
+  }
   const bucket = (cells: readonly Cell[]): Map<string, Cell[]> => {
     const result = new Map<string, Cell[]>()
     for (const c of cells) {
-      const key=`${c.x},${c.y},${c.z}`,list=result.get(key)
+      const keys = candidates?.get(c.x)
+      if (candidates && !keys) continue
+      const key = keyOf(c)
+      if (keys && !keys.has(key)) continue
+      const list=result.get(key)
       if(list)list.push(c);else result.set(key,[c])
     }
     return result
