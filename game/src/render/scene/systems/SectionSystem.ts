@@ -22,6 +22,7 @@ import { planeConstant, sectionNormal, sectionPoint, sectionRight, sectionUp, se
 import type { Section, Vec3 } from '../../section.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
+import { isSurfaceObject } from './renderable.ts'
 import type { ChunkSystem } from './ChunkSystem.ts'
 import type { CrowdSystem } from './CrowdSystem.ts'
 import type { LevelSystem } from './LevelSystem.ts'
@@ -299,9 +300,13 @@ export class SectionSystem extends SceneSystem {
     for (const root of this.modules.moduleMeshes.children) {
       if(retainedView&&this.modules.retainedLevelRoots?.has(root))continue
       root.traverse((o) => {
-        const mesh = o as THREE.Mesh
-        if (!mesh.isMesh) return
-        const mat = mesh.material as THREE.Material
+        // Equipment is not all meshes: the ball-court net is a `LineSegments`
+        // (and points/sprites are no different to the shader). Three's basic
+        // shader clips lines too, so skipping anything that is not a `Mesh`
+        // left the net uncut while its posts and tape disappeared — a net
+        // floating in the half the player cut away.
+        if (!isSurfaceObject(o)) return
+        const mat = o.material as THREE.Material
         if (Array.isArray(mat)) {
           for (const one of mat) apply(one)
           return

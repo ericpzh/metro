@@ -19,6 +19,8 @@ import { isDenseStation } from '../../detailPolicy.ts'
 import { ghostMaterial } from '../../materials.ts'
 import { SceneSystem } from './SceneSystem.ts'
 import type { SceneContext } from './SceneSystem.ts'
+import { isSurfaceObject } from './renderable.ts'
+import type { SurfaceObject } from './renderable.ts'
 import type { ChunkSystem } from './ChunkSystem.ts'
 import type { ModuleSystem } from './ModuleSystem.ts'
 import type { TrainSystem } from './TrainSystem.ts'
@@ -289,8 +291,11 @@ export class LevelSystem extends SceneSystem {
     if (!root.visible) return
     const clip = this.ctx.cutaway ? this.clip : null
     root.traverse((o) => {
-      const mesh = o as THREE.Mesh
-      if (!mesh.isMesh) return
+      if (!isSurfaceObject(o)) return
+      const mesh = o
+      // The ball-court net is a `LineSegments`: skipping anything that is not a
+      // `Mesh` left it out of the slice walk, so it kept the wrong material (and
+      // no cut plane) while the rest of its court was dressed.
       const base = this.baseOf(mesh)
       // 隐藏墙壁: a wall panel or a platform screen door reads through — and goes
       // altogether while a cut is on (`dressWall`).
@@ -310,7 +315,7 @@ export class LevelSystem extends SceneSystem {
    * without this the geometry in the half that should be gone comes back at full
    * strength — a cut where nothing is really cut.
    */
-  private clipMesh(mesh: THREE.Mesh, plane: THREE.Plane | null): void {
+  private clipMesh(mesh: SurfaceObject, plane: THREE.Plane | null): void {
     const planes = plane ? [plane] : null
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
     for (const mat of materials) {
@@ -336,7 +341,7 @@ export class LevelSystem extends SceneSystem {
     this.applyLevel()
   }
 
-  baseOf(mesh: THREE.Mesh): THREE.Material | THREE.Material[] {
+  baseOf(mesh: SurfaceObject): THREE.Material | THREE.Material[] {
     if (!mesh.userData.base) mesh.userData.base = mesh.material
     return mesh.userData.base as THREE.Material | THREE.Material[]
   }
@@ -358,7 +363,7 @@ export class LevelSystem extends SceneSystem {
    * Returns true when the mesh was taken over (hidden, or given the see-through
    * clone), so the caller knows not to dress it again.
    */
-  private dressWall(mesh: THREE.Mesh, base: THREE.Material | THREE.Material[], isOutline: boolean, clip: THREE.Plane | null): boolean {
+  private dressWall(mesh: SurfaceObject, base: THREE.Material | THREE.Material[], isOutline: boolean, clip: THREE.Plane | null): boolean {
     const wall = mesh.userData.wall === true
     // Leaving 隐藏墙壁: put the wall back as the building rather than as a
     // see-through clone. This has to happen here and not only in the walk, because

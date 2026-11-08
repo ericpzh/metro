@@ -72,6 +72,62 @@ test('unchanged clipping and storey views skip retained module trees but dress n
   }finally{geometry.dispose();material.dispose()}
 })
 
+test('the cut clips line equipment, not only meshes (the ball-court net)', () => {
+  // `SectionSystem.applyClip` used to walk module roots looking only for
+  // `isMesh`. The net is a `LineSegments`, so it never received the plane while
+  // its posts, tape and court surface did — the net alone survived the cut and
+  // hung in the half the player had removed.
+  const ctx = new SceneContextData(new THREE.Scene(), {}, {}, {})
+  const section = new SectionSystem(ctx)
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0], 3))
+  const material = new THREE.LineBasicMaterial()
+  const net = new THREE.LineSegments(geometry, material)
+  const root = new THREE.Group()
+  root.add(net)
+  section.chunks = { chunkMeshes: [], outlineMeshes: [] }
+  section.crowd = { clipMaterials: () => [] }
+  section.modules = { moduleMeshes: root }
+  try {
+    section.on = true
+    section.applyClip()
+    assert.equal(material.clippingPlanes?.[0], section.plane, 'the net wears the cut plane')
+    section.on = false
+    section.applyClip()
+    assert.equal(material.clippingPlanes, null, 'and gives it back when the cut is off')
+  } finally {
+    section.dispose()
+    geometry.dispose()
+    material.dispose()
+  }
+})
+
+test('the slice walk dresses line equipment with its storey, and clips it while cutting', () => {
+  const { level } = station()
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0], 3))
+  const material = new THREE.LineBasicMaterial()
+  const net = new THREE.LineSegments(geometry, material)
+  net.userData.levelZs = [B2]
+  level.modules.moduleMeshes.add(net)
+  try {
+    // Below the edited storey with 显示其他层 on: the net is a ghost like its court.
+    level.setLevel(B1, true)
+    assert.equal(net.material.opacity, 0.35, 'the line ghosts with its storey')
+    // A cut draws everything as itself and puts the plane on the line material.
+    const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0)
+    level.setCutaway(true)
+    level.setClip(plane)
+    assert.equal(net.material, material, 'the cut hands the line its base material')
+    assert.equal(net.material.clippingPlanes?.[0], plane, 'and the plane reaches the line')
+    level.setClip(null)
+    assert.equal(net.material.clippingPlanes, null, 'leaving the cut clears the line too')
+  } finally {
+    geometry.dispose()
+    material.dispose()
+  }
+})
+
 const B2 = -8
 const B1 = -4
 

@@ -79,7 +79,8 @@ windows, duplicate records and above/below floor dependencies. `line-edit` pins 
 immutable structural history through repeated undo/redo, and that every station
 switch clears both history directions. `batching-lifecycle` checks
 replacement/deletion/reordering against fresh batches and zero remote geometry reads;
-`cut-clipping` checks retained roots, new materials and plane/view invalidation.
+`cut-clipping` checks retained roots, new materials, line equipment such as the
+ball-court net, and plane/view invalidation.
 `builder-attributes` guards inactive action rows against live store subscriptions
 and retaining full document/history/graph snapshots;
 the production tutorial checker exercises the bilingual builder controls.
