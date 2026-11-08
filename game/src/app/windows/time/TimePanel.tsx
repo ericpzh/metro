@@ -1,6 +1,11 @@
 import { Slider } from '../../Slider.tsx'
 import { translate, t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
+
+/** Video-recorder hook: move the curve without rebuilding the crowd. */
+const videoDemandPreview = (): boolean =>
+  (window as Window & { __videoDemandPreview?: boolean }).__videoDemandPreview === true
+
 // The floating **时刻** window (§9.6C 时刻 / 客流输入, sheet 06's panels A, B and D): what the
 // 信息栏's clock card opens when it is pressed.
 //
@@ -176,6 +181,9 @@ export function TimePanel(): React.ReactElement | null {
    */
   const commitSpans = (draft: { service: TimeSpan; peaks: PeakWindows } | null = spanDraft): void => {
     if (draft === null) return
+    // The demo recorder can hold the chart as a preview while the crowd keeps
+    // running: the line moves, the population curve does not rebuild the world.
+    if (videoDemandPreview()) return
     setServiceWindow(draft.service.from, draft.service.to)
     setPeakWindow(0, draft.peaks[0].from, draft.peaks[0].to)
     setPeakWindow(1, draft.peaks[1].from, draft.peaks[1].to)
@@ -191,6 +199,7 @@ export function TimePanel(): React.ReactElement | null {
 
   const commitKnobs = (): void => {
     if (knobDraft === null) return
+    if (videoDemandPreview()) return
     setDemandKnobs(shown, knobDraft)
     setKnobDraft(null)
   }

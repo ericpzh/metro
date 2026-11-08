@@ -12,7 +12,8 @@ export async function prepareExtraView(page,shot){
   c.controls.target.set(...section.target);c.camera.position.set(...section.camera);c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender();
  })()`)
  else await page.evaluate(`(()=>{
-  document.body.setAttribute('data-video-cube','');const s=__metro.getState();s.setOrtho(false);s.setActiveZ(-15);s.setHideWalls(true);s.setHideGround(true);s.setGhostOther(true);
+  // The cube drag is a viewing-angle change, not a cutaway: keep the walls.
+  document.body.setAttribute('data-video-cube','');const s=__metro.getState();s.setOrtho(false);s.setActiveZ(-15);s.setHideWalls(false);s.setHideGround(true);s.setGhostOther(false);
   const c=__scene.cameraSys;c.setOrtho(false);c.controls.target.set(68,15,-12);c.camera.position.set(120,-55,45);c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender();
  })()`)
 }

@@ -2,7 +2,7 @@ import {mkdirSync,writeFileSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {serveDir,withPage,waitFor} from '../browser-harness.mjs'
 import {authoredState,authoredPath,authoredFrameSteps,authoredSteps,authoredSchedule} from './authored-layout.mjs'
-import {prepareAuthored,dragAuthored,extendAuthoredLift} from './authored-shot.mjs'
+import {prepareAuthored,buildAuthoredFrame,dragAuthored,extendAuthoredLift} from './authored-shot.mjs'
 import {prepareShot} from './capture.mjs'
 import {timeline} from './plan.mjs'
 import {setTimeout as sleep} from 'node:timers/promises'
@@ -20,15 +20,17 @@ try{
   const i=authoredSteps.findIndex(s=>s.kind==='drag'&&s.modules[0].type==='fence'&&s.modules.length===4),state={...authoredState,modules:[...authoredState.modules.filter(m=>authoredFrameSteps().some(s=>s.modules?.some(n=>n.id===m.id))),...authoredSteps.slice(0,i).filter(s=>s.kind!=='extend').flatMap(s=>s.modules)]};await page.evaluate(`__metro.getState().commit(${JSON.stringify(state)});__videoInteriorPose(${.26+i/authoredSteps.length*.65})`);await dragAuthored(page,authoredSteps[i],.65);console.log('last fence passed')
  }
  if(process.argv.includes('--gestures')){
-  const steps=authoredFrameSteps().filter(s=>s.modules),gestures=[];let state={...authoredState,modules:[]};
+  const gestures=[];
+  await prepareAuthored(page,shot,'zh');
+  let state=await buildAuthoredFrame(page,{
+   at:when=>page.evaluate(`__videoInteriorPose(${(when+.5)/shot.captureSeconds})`),
+   caption:()=>{},
+   log:event=>{gestures.push(event);console.log(event.action,event.columns?.length??event.moduleIds?.length??event.cells)}
+  });
   const install=async()=>page.evaluate(`__metro.getState().commit(${JSON.stringify(state)})`);
-  for(const [i,step] of steps.entries()){
-   await install();await page.evaluate(`__videoInteriorPose(${(31+i*16/steps.length+.5)/shot.captureSeconds})`);
-   if(['rectangle','surface-override'].includes(step.kind)){const r=await dragAuthored(page,step,.65);state=r.state;gestures.push({kind:step.kind,ids:step.modules.map(m=>m.id),gesture:r.gesture});console.log(step.kind,step.modules[0].type,step.modules.length)}else state.modules.push(...step.modules)
-  }
   for(const {step,when} of authoredSchedule(shot.captureSeconds)){
    await install();await page.evaluate(`__videoInteriorPose(${(when+.5)/shot.captureSeconds})`);
-   if(step.kind==='drag'){const r=await dragAuthored(page,step,.65);state=r.state;gestures.push({ids:step.modules.map(m=>m.id),gesture:r.gesture});console.log('drag',step.modules[0].type,step.modules.length)}
+   if(step.kind==='drag'){const r=await dragAuthored(page,step);state=r.state;gestures.push({ids:step.modules.map(m=>m.id),gesture:r.gesture});console.log('drag',step.modules[0].type,step.modules.length)}
    else if(step.kind==='extend'){const r=await extendAuthoredLift(page);state=r.state;gestures.push({id:r.moduleId,gesture:r.gesture,rises:r.rises});console.log('lift extended')}
    else state={...state,modules:[...state.modules,...step.modules]}
   }

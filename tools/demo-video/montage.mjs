@@ -15,6 +15,9 @@ export async function prepareMontage(page,shot,bridgeStartX=82){
     if (!train) return false;
     const Box = scene.ctx.bounds.constructor, Vector = train.position.constructor;
     const box = new Box().setFromObject(train,true);
+    // Track the rendered nose, but keep the whole montage on the front 3/4 side.
+    // The old 150° sweep crossed the nose and made each new livery read as a
+    // front/back teleport; a 50° sweep stays with the cab and the track.
     const offset = new Vector(box.max.x,train.position.y,box.min.z + (box.max.z-box.min.z)*.52).sub(train.position);
     window.__videoBridgeNose = () => train.position.clone().add(offset);
     return true;
@@ -65,7 +68,7 @@ export async function startMontage(page,shot){
   __videoMotionLog.push({progress:0,...__videoPose(__videoOrbit.from)});
   if(__videoOrbit.follow){
    const state=__metro.getState();
-   state.setSpeed(.45);
+   state.setSpeed(.18);
    state.setPlaying(true);
   }
   requestAnimationFrame(animate);

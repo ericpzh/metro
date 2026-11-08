@@ -1,5 +1,5 @@
 import {setTimeout as sleep} from 'node:timers/promises'
-import {authoredState,authoredCamera,emptyAuthoredState,authoredFrameSteps,authoredSchedule,authoredLabel,modulePalette,validateAuthoredReplay} from './authored-layout.mjs'
+import {authoredState,authoredCamera,emptyAuthoredState,authoredFrameSteps,authoredWallRuns,authoredDragSeconds,authoredSchedule,authoredLabel,modulePalette,validateAuthoredReplay} from './authored-layout.mjs'
 import {ui} from '../../web/src/i18n.js'
 import {isDeepStrictEqual} from 'node:util'
 
@@ -22,7 +22,9 @@ export async function prepareAuthored(page,shot,language,{full=false}={}){
    target[0]-=${authoredCamera.westwardPan??0}*Math.sin(Math.PI*panPhase)**2;
    const fencePhase=Math.max(0,Math.min(1,(t-.45)/.29));
    c.setFov(${authoredCamera.fov}+7*Math.sin(Math.PI*fencePhase)**2);
-   c.controls.target.set(...target);c.camera.position.set(target[0]+Math.sin(a)*r,target[1]+Math.cos(a)*r,target[2]+mix(from.height,to.height));c.camera.lookAt(c.controls.target);c.controls.update();__scene.setGridVisible(false);__scene.requestRender();
+   const framePhase=Math.max(0,Math.min(1,t/.20));
+   const frameLift=15*Math.sin(Math.PI*framePhase)**2;
+   c.controls.target.set(...target);c.camera.position.set(target[0]+Math.sin(a)*r,target[1]+Math.cos(a)*r,target[2]+mix(from.height,to.height)+frameLift);c.camera.lookAt(c.controls.target);c.controls.update();__scene.setGridVisible(false);__scene.requestRender();
    return{progress:t,degrees,camera:c.camera.position.toArray(),target:c.controls.target.toArray(),fov:c.camera.fov};
   };
   window.__videoInteriorPoint=(x,y,z)=>{const r=__scene.renderer.domElement.getBoundingClientRect(),p=new Vector(x,y,z).project(c.activeCamera());return{x:r.left+(p.x+1)*r.width/2,y:r.top+(1-p.y)*r.height/2}};
@@ -69,12 +71,12 @@ export async function extendAuthoredLift(page){
  const state=await page.evaluate('__metro.getState().station'),after=state.modules.find(m=>m.id===before.id);if(after.to.z!==before.to.z+5||after.from.z!==before.from.z||state.modules.filter(m=>m.type==='lift').length!==1)throw Error(`Authored lift extension failed: ${JSON.stringify(after)}`);
  await page.evaluate("__metro.getState().setTool('select');__metro.getState().setActiveZ(1)");return{state,moduleId:after.id,beforeTop:before.to.z,afterTop:after.to.z,rises:after.cfg.rises,gesture:'native-pointer-click'};
 }
-export async function dragAuthored(page,step,seconds=1.3){
+export async function dragAuthored(page,step,seconds=step.kind==='drag'?authoredDragSeconds(step):1.3){
  const state=await page.evaluate('__metro.getState().station'),m=step.modules[0];
  const override=step.kind==='surface-override';
  let a=step.modules.reduce((a,b)=>b.x<a.x||b.x===a.x&&b.y<a.y?b:a),b=step.modules.reduce((a,b)=>b.x>a.x||b.x===a.x&&b.y>a.y?b:a);
  if(step.kind==='drag'&&a.x!==b.x&&m.type!=='tactile')[a,b]=[b,a];
- const points=override?0:step.batch?8:24;
+ const points=override?0:step.kind==='drag'?Math.max(6,Math.ceil(seconds*24)):24;
  await page.evaluate(`(()=>{const s=__metro.getState();s.setActiveZ(${m.z});s.setModuleType(${JSON.stringify(modulePalette(m))});s.setModuleRot(${m.rot??0});s.setLineSpacing(0);s.setGateDoor(${JSON.stringify(m.type==='gate'?(m.cfg.door??'lane'):'lane')});s.setTool('module');__scene.setModulePreview(null)})()`);await page.evaluate(frames)
  const ids=new Set(state.modules.map(m=>m.id));
  const complete=added=>added.length===step.modules.length&&step.modules.every(e=>added.some(m=>m.type===e.type&&m.x===e.x&&m.y===e.y&&m.z===e.z));
@@ -114,35 +116,96 @@ export async function dragAuthored(page,step,seconds=1.3){
  const normalized={...state,modules:[...state.modules.filter(m=>m.id!==step.replaces),...step.modules]};await install(page,normalized);await page.evaluate("__metro.getState().setTool('select')")
  return{state:normalized,gesture:override?'native-pointer-click':'native-pointer-drag',nativeModuleIds:added.map(m=>m.id),points}
 }
+
+const cellKey=c=>`${c.x},${c.y},${c.z}`
+const wallPoint=(page,column,remove)=>page.evaluate(`(()=>{
+ const [x,y,z]=${JSON.stringify(column)},remove=${remove},s=__metro.getState();
+ for(const dz of remove?[.5,1.5,2.5,3.5]:[0])
+  for(const u of [.5,.82,.18,.97,.03])for(const v of [.5,.82,.18,.97,.03]){
+   const p=__videoInteriorPoint(x+u,y+v,z+dz);
+   if(p.x<4||p.y<4||p.x>innerWidth-4||p.y>innerHeight-4)continue;
+   const hit=__scene.pick(p.x,p.y,s.activeZ);
+   if(!hit)continue;
+   const [hx,hy,hz]=remove?hit.cell:hit.solid?hit.place:hit.cell;
+   if(hx===x&&hy===y&&(remove?hit.solid&&hz>=z:hz===z))return p;
+  }
+ return null;
+})()`)
+
+async function dragWall(page,step,state){
+ const remove=step.kind==='wall-carve',button=remove?'right':'left',buttons=remove?2:1
+ const a=step.columns[0], b=step.columns.at(-1);
+ const start=await wallPoint(page,a,remove)
+ if(!start)throw Error(`Wall tool cannot see ${a} for ${step.kind}`)
+ await pointer(page,'mouseMoved',start);await sleep(80)
+ const down=await wallPoint(page,a,remove)??start
+ await pointer(page,'mousePressed',down,{button,buttons,clickCount:1})
+ if(step.columns.length>1){
+  await sleep(190)
+  for(const column of step.columns.slice(1)){
+   const p=await wallPoint(page,column,remove)
+   if(p)await pointer(page,'mouseMoved',p,{button,buttons})
+   await sleep(30)
+  }
+ }
+ const end=await wallPoint(page,b,remove)
+ if(!end)throw Error(`Wall tool cannot see ${b} for ${step.kind}`)
+ await pointer(page,'mouseReleased',end,{button,buttons:0,clickCount:1});await page.evaluate(frames)
+ const after=await page.evaluate('__metro.getState().station')
+ const beforeKeys=new Set(state.cells.map(cellKey)),afterKeys=new Set(after.cells.map(cellKey))
+ const changes=[...(remove?beforeKeys:afterKeys)].filter(k=>!(remove?afterKeys:beforeKeys).has(k))
+ const height=state.storeyHeight-1
+ const expected=step.columns.flatMap(([x,y,z])=>Array.from({length:height},(_,i)=>`${x},${y},${z+i}`))
+ if(changes.length!==expected.length||!expected.every(k=>changes.includes(k)))throw Error(`${step.kind} ${a} → ${b}: expected ${expected.length} courses, changed ${changes.length} (${changes.slice(0,12)})`)
+ return after
+}
+
+export async function buildAuthoredFrame(page,{at,caption,log}){
+ const [floor,wall,deck,...other]=authoredFrameSteps()
+ let state={...emptyAuthoredState(),cells:floor.cells}
+ await at(.5);await caption('floor');await install(page,state);log({action:'frame-built',cells:floor.cells.length})
+ await at(5);await caption('wall')
+ await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'g',code:'KeyG',windowsVirtualKeyCode:71})
+ await page.send('Input.dispatchKeyEvent',{type:'keyUp',key:'g',code:'KeyG',windowsVirtualKeyCode:71})
+ if(!await page.evaluate("__metro.getState().tool==='wall'"))throw Error('Wall tool shortcut G did not activate')
+ for(const [i,step] of authoredWallRuns(wall.cells).entries()){
+  await at(7+3.2*i)
+  state=await dragWall(page,step,state)
+  log({action:step.kind,gesture:step.columns.length===1?'native-pointer-click':'native-pointer-drag',columns:step.columns})
+ }
+ // Restore the saved lintels, deck and finishes after carving the openings.
+ await at(28);await caption('deck')
+ await page.evaluate("__metro.getState().setTool('select')")
+ state={...state,cells:[...floor.cells,...wall.cells,...deck.cells]};await install(page,state)
+ log({action:'frame-built',cells:deck.cells.length})
+ await caption('materials')
+ for(let i=0;i<other.length;i++){
+  const step=other[i];await at(31+i*16/other.length)
+  if(['rectangle','surface-override'].includes(step.kind)){const {state:after,...gesture}=await dragAuthored(page,step);state=after;log({action:step.kind==='rectangle'?'frame-dragged':'surface-overridden',moduleIds:step.modules.map(m=>m.id),...gesture})}
+  else{state={...state,modules:[...state.modules,...step.modules]};await install(page,state);log({action:'frame-built',moduleIds:step.modules.map(m=>m.id)})}
+ }
+ return state
+}
+
 export async function authoredAction(page,shot,start,language){
  validateAuthoredReplay();const events=[],elapsed=()=> (performance.now()-start)/1000,at=async t=>sleep(Math.max(0,start+t*1000-performance.now()));
  const log=e=>events.push({at:elapsed(),...e});
  const caption=async card=>{events.push({at:elapsed(),action:'build-card',card});await page.evaluate(`document.getElementById('video-placement-label').textContent=${JSON.stringify(card)}`)};
  await page.evaluate(`(()=>{const token=++__videoInteriorToken,start=performance.now();window.__videoMotionLog=[];function step(now){if(token!==__videoInteriorToken)return;const t=Math.min(1,(now-start)/${shot.captureSeconds*1000});__videoMotionLog.push(__videoInteriorPose(t));if(t<1)requestAnimationFrame(step)}requestAnimationFrame(step)})()`)
- let state=emptyAuthoredState(),previous='';const frame=authoredFrameSteps(),cellSteps=frame.filter(s=>s.kind==='cells'),other=frame.filter(s=>s.kind!=='cells');
- for(let i=0;i<cellSteps.length;i++){
-  await at(.5+i*30/cellSteps.length);const step=cellSteps[i],key=step.cells[0].z===1?'floor':step.cells[0].z===6?'deck':'wall';if(key!==previous){await caption(ui[language].video.buildPhases[key]);previous=key}
-  state={...state,cells:[...state.cells,...step.cells]};await install(page,state);if(i%3===0)log({action:'frame-built',cells:step.cells.length})
- }
- await caption(ui[language].video.buildPhases.materials)
- for(let i=0;i<other.length;i++){
-  const step=other[i];await at(31+i*16/other.length)
-  if(['rectangle','surface-override'].includes(step.kind)){const {state:after,...gesture}=await dragAuthored(page,step,1.3);state=after;log({action:step.kind==='rectangle'?'frame-dragged':'surface-overridden',moduleIds:step.modules.map(m=>m.id),...gesture})}
-  else{state={...state,modules:[...state.modules,...step.modules]};await install(page,state);log({action:'frame-built',moduleIds:step.modules.map(m=>m.id)})}
- }
+ let state=await buildAuthoredFrame(page,{at,log,caption:key=>caption(ui[language].video.buildPhases[key])})
  let previousBatch;
  for(const {step,when,duration} of authoredSchedule(shot.captureSeconds)){
   const m=step.modules[0];await at(when);
   if(!step.batch||step.batch!==previousBatch)await caption(step.batch?ui[language].video.placementGroups[step.batch]:step.kind==='extend'?ui[language].video.extendLift:authoredLabel(step,language));
   let gesture='native-preview-and-commit',extra={};
   const drag=step.kind==='drag'
-   ? await dragAuthored(page,step,step.batch ? .32 : Math.max(.5,duration-.7))
+   ? await dragAuthored(page,step)
    : null;
   if(drag){state=drag.state;gesture=drag.gesture;extra={nativeModuleIds:drag.nativeModuleIds,points:drag.points}}
   else if(step.kind==='extend'){const r=await extendAuthoredLift(page);state={...state,modules:state.modules.map(n=>n.id===m.id?m:n)};await install(page,state);gesture=r.gesture;extra={beforeTop:r.beforeTop,afterTop:r.afterTop,rises:r.rises}}
   else{
    await page.evaluate(`__scene.setModulePreview(${JSON.stringify(m)})`);
-   await at(when+duration*.25);
+   await at(when+duration*.14);
    state={...state,modules:[...state.modules,...step.modules]};await install(page,state);await page.evaluate('__scene.setModulePreview(null)');
   }
   const action=step.kind==='extend'?'lift-extended':drag?'run-dragged':'interior-placed';

@@ -2,7 +2,6 @@
 import {readFileSync} from 'node:fs'
 import {resolve} from 'node:path'
 import {emptyStation} from '../../game/src/data/reference-station.ts'
-import {STOCK} from '../../game/src/sim/stock.ts'
 import {createModule} from '../../game/src/build/model.ts'
 import {ui} from '../../web/src/i18n.js'
 import {structuralBase,colouredBase} from './interior.mjs'
@@ -27,11 +26,20 @@ export function stageDocument(shot,name,brand){
   doc.name=ui.zh.demos.zoo.name;doc.nameEn=ui.en.demos.zoo.name
   doc.modules=[{id:'video-focus',type:'exit',x:0,y:0,z:0,rot:0,cfg:{name:'A口',covered:true,bays:2,inRate:0,open:false}},
    {id:'video-guide',type:'guidepost',x:4,y:3,z:0,rot:0,cfg:{exitId:'video-focus'}}]
+  // The head-house is built around the runs under it: two down escalators,
+  // one per bay, descend through the opened wellway toward the mouth. Their
+  // lower landings are below the plaza, so only the top of each run reads
+  // through the glass — the entrance looks inhabited rather than an empty box.
+  for(const [i,column] of [0,1].entries())doc.modules.push({
+   id:`video-escalator-${i}`,type:'escalator',storeyHeight:5,x:column,y:-9,z:-5,rot:0,
+   from:{x:column,y:0,z:0},to:{x:column,y:-9,z:-5},cfg:{incline:30,dir:'down'}
+  })
   doc.cityStyle=shot.city
  }else if(shot.stage==='bridge'){
-  const stock=STOCK[shot.stock],line={...structuredClone(zoo.lines[0]),id:shot.lineNumber,name,stock:shot.stock,cars:shot.stock==='D'?8:6,power:stock.power,colour:shot.colour,alightPerTrain:0,travelSign:1,headwayProfile:{peak:90,offpeak:90,late:90}}
+  const power=['D','L'].includes(shot.stock)?'catenary':'third-rail'
+  const line={...structuredClone(zoo.lines[0]),id:shot.lineNumber,name,stock:shot.stock,cars:shot.stock==='D'?8:6,power,colour:shot.colour,alightPerTrain:0,travelSign:1,headwayProfile:{peak:90,offpeak:90,late:90}}
   doc.lines=[line]
-  doc.modules=[{id:'video-bridge',type:'track',x:-600,y:-1,z:15,rot:0,w:1200,d:3,cfg:{line:shot.lineNumber,dir:'up',power:stock.power,bridge:true,bridgeRailing:'railing',catenaryStyle:'gantry'}}]
+  doc.modules=[{id:'video-bridge',type:'track',x:-600,y:-1,z:15,rot:0,w:1200,d:3,cfg:{line:shot.lineNumber,dir:'up',power,bridge:true,bridgeRailing:'railing',catenaryStyle:'gantry'}}]
  }else if(shot.stage==='equipment'){
   if(shot.panels)return stageDocument({...shot,...shot.panels[0],panels:undefined},name,brand)
   if(shot.catalogueId){

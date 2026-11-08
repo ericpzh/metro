@@ -21,17 +21,29 @@ Keep these choices unless the user changes the brief.
 
 The main tour follows the website's four sections and uses Zoo, Tanwei and
 Tianhe Park. Tianhe Park has the sole moving section, a 4-second Line 11
-platform fly-through and a 4.1-second concourse fly-through at 4× simulation
-speed. The population-flow shot uses the −5 m concourse. The view cube stays
-in perspective.
+platform fly-through and a 4.1-second concourse fly-through. Record both at 1×
+simulation with a quarter-speed camera path, then retime by 4× and interpolate
+for delivery. The population-flow shot keeps the −5 m concourse walls and
+waits until 06:34:00 or later. Record it at 1× for 12 seconds and retime by 4×:
+the crowd reads at 4× in the film, while the chart knob is preview-only so the
+population is not rebuilt mid-drag. The perspective cube shot keeps the
+station walls and hides ghosted levels.
 Immediately before the ending: one continuous 23.5-second build at 8×, eight
-cities at 0.4 seconds each, then five train types at 0.8 seconds each. City cuts
-share a continuous 180° orbit; train cuts share 150° (30° per type). Trains really
-run on a 1200 m bridge in an empty map, in Guangzhou line 1–5 colours. City
+cities at 0.4 seconds each, then five train types at 0.8 seconds each. The build
+opens at its 1-second mark, when the first 1 m wall course is rising; the removed
+opening is held at the completed end so the 23.5-second slot is unchanged.
+City cuts share a continuous 180° orbit; train cuts share a continuous 50°
+front-3/4 orbit (10° per type), with the train running at 0.18× simulation so it
+does not whip past the chase point. Trains really
+run on a 1200 m bridge in an empty map, in Guangzhou line 1–5 colours. A/B/C
+use third rail and D/L use overhead wires. The city head-house fixture holds two
+down escalators in its wellways. City
 entrances say 动物园 / Zoo. Exploded views retain the walls and tighten the
 framing. Hide the −5 m and 0 m levels at Zoo and the −5 m level at Tanwei.
 
-The build starts with the user's station frame, then places the roadside fences,
+The build starts with the user's station frame. The native Wall tool (G) draws
+full-storey runs and carves openings. All equipment rows drag at the same
+speed per block. Then the build places the roadside fences,
 tactile paths and gates. Drag in the ticket-machine row before closing the
 concourse with glass fences. The low camera moves continuously from P1
 (east/south exterior looking west) to P2
@@ -64,7 +76,8 @@ on future user edits.
 - `plan.mjs` owns durations/order; `capture.mjs`, `montage.mjs` and `views.mjs`
   own framing and native interactions. `fixtures.mjs` owns independent stages.
   In `capture.mjs`, the exploded-view offsets are viewport-relative native
-  floor drags. Tianhe Park's demand shot waits for visible concourse passengers.
+  floor drags. Tianhe Park's demand shot waits for visible concourse passengers,
+  records at 1× for 12 seconds and retimes 4×; its chart edit is preview-only.
   Re-record the five bridge takes together when changing their staging or pace.
   The camera tracks the rendered nose and the next take starts at the prior cut.
 - `design.mjs` owns Studio layouts; copy stays in `web/src/i18n.js` under `video`.

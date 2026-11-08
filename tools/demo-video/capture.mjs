@@ -32,7 +32,7 @@ body[data-video-locale] .viewOrthoBtn { display:none!important }
 `
 
 export async function prepareShot(page, shot,settings={language:'zh'}) {
-  await page.evaluate(`(()=>{window.__videoMotionToken=(window.__videoMotionToken??0)+1;window.__videoOrbit=null;window.__videoFocus=null;document.body.dataset.videoLocale=${JSON.stringify(settings.language)};document.body.removeAttribute('data-video-clean');document.body.removeAttribute('data-video-cube');__metro.getState().setExplodedView(false)})()`)
+  await page.evaluate(`(()=>{window.__videoMotionToken=(window.__videoMotionToken??0)+1;window.__videoOrbit=null;window.__videoFocus=null;window.__videoDemandPreview=false;document.body.dataset.videoLocale=${JSON.stringify(settings.language)};document.body.removeAttribute('data-video-clean');document.body.removeAttribute('data-video-cube');__metro.getState().setExplodedView(false)})()`)
   await page.evaluate("window.__videoInteriorToken=(window.__videoInteriorToken??0)+1;document.getElementById('video-placement-label')?.remove()")
   if(!settings.reuseStation){
     if(shot.station==='empty'){
@@ -136,7 +136,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   } else if (shot.view === 'demand' && shot.station === 'tianhe') {
     await page.evaluate(`(() => {
       const s=__metro.getState(),c=__scene.cameraSys;
-      s.setActiveZ(-5);s.setHideWalls(true);s.setOrtho(false);
+      s.setActiveZ(-5);s.setHideWalls(false);s.setOrtho(false);
       c.setOrtho(false);c.setFov(46);c.controls.enableDamping=false;
       c.controls.target.set(-2,-44,-4);c.camera.position.set(27,-96,32);
       c.controls.update();__scene.requestRender();
@@ -148,11 +148,13 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   }
   if (!shot.stage&&shot.view!=='flythrough'&&!['blocks', 'equipment', 'train', 'stock', 'decor','cube','section'].includes(shot.kind)) {
     await page.evaluate(`__metro.getState().setSpeed(${settings.reuseStation?4:64});__metro.getState().setPlaying(true)`)
-    if(shot.kind==='demand'&&shot.station==='tianhe')await waitForTianheConcourseCrowd(page)
-    else if(!settings.reuseStation)await sleep(4500)
-    await page.evaluate(`__metro.getState().setSpeed(4)`)
+    if(shot.kind==='demand'&&shot.station==='tianhe')await waitForTianheConcourseCrowd(page,1)
+    else {
+      if(!settings.reuseStation)await sleep(4500)
+      await page.evaluate(`__metro.getState().setSpeed(4)`)
+    }
   }
-  if (shot.kind === 'demand') await page.evaluate(`__metro.getState().setTimePanel(true)`)
+  if (shot.kind === 'demand') await page.evaluate(`window.__videoDemandPreview=true;__metro.getState().setTimePanel(true)`)
   if (shot.kind==='equipment') await prepareEmptyEditing(page, shot)
   await sleep(600)
   if(!['blocks','equipment','demand'].includes(shot.kind))await page.evaluate('__videoScene.setVoidColor(0xf4f3ed,0xf4f3ed)')
@@ -160,7 +162,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   await page.evaluate(twoFrames)
   return page.evaluate(`(()=>{const s=__metro.getState(),v=__videoScene,gl=v.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');
     return {station:s.station.name,activeZ:s.activeZ,stage:${JSON.stringify(shot.stage??null)},city:s.station.cityStyle,seed:s.station.seed,cells:s.station.cells.length,modules:s.station.modules.length,
-      stock:s.station.lines.map(l=>l.stock),quality:s.graphicsQuality,simTime:s.metrics?.simTime,population:s.metrics?.population,theme:document.documentElement.dataset.uiTheme,
+      stock:s.station.lines.map(l=>l.stock),quality:s.graphicsQuality,simTime:s.metrics?.simTime,population:s.metrics?.population,simSpeed:s.speed,playing:s.playing,theme:document.documentElement.dataset.uiTheme,
       gpu:gl.getParameter(ext?ext.UNMASKED_RENDERER_WEBGL:gl.RENDERER),browser:navigator.userAgent,
       camera:v.cameraSys.camera.position.toArray(),target:v.cameraSys.controls.target.toArray(),orbit:window.__videoOrbit??null,focus:window.__videoFocus??null,
       documentVersion:s.version,framesRendered:v.framesRendered,trainPoses:Array.from(v.trains.lastBuffer),
@@ -173,7 +175,7 @@ async function frameExploded(page, station) {
   const hidden = zoo ? [-5,0] : [-5]
   // Offsets are fractions of the viewport in the exploded view's drag plane.
   const offsets = zoo ? { '-20': [.045,-.015], '-15': [.05,0], '-10': [-.32,-.095] }
-    : { '-10': [.04,-.045], 0:[-.02,.065], 5:[-.02,.025], 10:[-.02,-.085] }
+    : { '-10': [.07,-.12], 0:[-.02,-.015], 5:[-.08,-.035], 10:[-.055,-.02] }
   await page.evaluate(`(() => {
     const view = window.__videoScene = __benchmarkScene, c = view.cameraSys, layout = view.explodedLayout;
     const Vector = c.camera.position.constructor, canvas = view.renderer.domElement;
@@ -243,11 +245,14 @@ export async function shotAction(page, shot, recordStart) {
   if(['cube','section'].includes(shot.kind))return extraViewAction(page,shot,recordStart)
   if(shot.view==='flythrough')return flyTianhe(page,shot,recordStart)
   const events = []
-  const at = async seconds => sleep(Math.max(0, recordStart + seconds * 1000 - performance.now()))
+  // Cue positions are authored in delivered seconds. A slow capture has to spread
+  // them across playbackRate times as many recording seconds.
+  const captureRate = shot.playbackRate ?? 1
+  const at = async seconds => sleep(Math.max(0, recordStart + seconds * 1000 * captureRate - performance.now()))
   const cue = file => events.push({ at: (performance.now() - recordStart) / 1000, file })
   const mouse = (type, point, extra = {}) => page.send('Input.dispatchMouseEvent', { type, ...point, ...extra })
   if (shot.orbit) await page.evaluate(`(()=>{
-    const scene=__videoScene,c=scene.cameraSys,start=performance.now(),duration=${shot.seconds * 1000},angle=${shot.orbit};
+    const scene=__videoScene,c=scene.cameraSys,start=performance.now(),duration=${shot.captureSeconds * 1000},angle=${shot.orbit};
     const p=c.camera.position.clone().sub(c.controls.target),target=c.controls.target.clone(),axis=new p.constructor(0,0,1);
     function animate(now){const t=Math.min(1,(now-start)/duration),ease=t*t*(3-2*t);c.camera.position.copy(p).applyAxisAngle(axis,angle*ease).multiplyScalar(1+${(shot.zoomEnd??.975)-1}*ease).add(target);c.camera.lookAt(target);c.controls.update();scene.requestRender();if(t<1)requestAnimationFrame(animate)}
     requestAnimationFrame(animate);
@@ -286,13 +291,17 @@ export async function shotAction(page, shot, recordStart) {
   } else if (shot.kind === 'demand') {
     const slider = await page.evaluate(`(()=>{const e=document.querySelector('.knob input[type=range]'),r=e?.getBoundingClientRect();return r?{x:r.x,y:r.y,w:r.width,h:r.height,value:Number(e.value)}:null})()`)
     if (!slider) throw new Error('Demand slider missing')
+    const demandBefore = await page.evaluate('Object.values(__metro.getState().station.demand).map(v=>v.amPeak)')
     await at(.35)
     const p = { x: slider.x + slider.w * .58, y: slider.y + slider.h / 2 }
     await mouse('mouseMoved', p); await mouse('mousePressed', p, { button: 'left', buttons: 1, clickCount: 1 })
     for (let i = 1; i <= 15; i++) { await at(.35 + i / 16); await mouse('mouseMoved', { x: p.x + slider.w * .22 * i / 15, y: p.y }, { button: 'left', buttons: 1 }) }
     await mouse('mouseReleased', { x: p.x + slider.w * .22, y: p.y }, { button: 'left', buttons: 0, clickCount: 1 }); cue('select.wav')
-    await at(2.15); await page.evaluate('__metro.getState().setTimePanel(false)')
-    events.push({ at: 2.15, action: 'demand-adjusted', value: await page.evaluate('Object.values(__metro.getState().station.demand).map(v=>v.amPeak)') })
+    await at(2.15)
+    const preview = await page.evaluate(`(()=>{const e=document.querySelector('.knob input[type=range]');return {slider:Number(e?.value),demand:Object.values(__metro.getState().station.demand).map(v=>v.amPeak)}})()`)
+    await page.evaluate('__metro.getState().setTimePanel(false)')
+    if (JSON.stringify(preview.demand) !== JSON.stringify(demandBefore)) throw new Error('Demand preview changed the station demand')
+    events.push({ at: (performance.now() - recordStart) / 1000, action: 'demand-curve-preview', value: preview.slider, stationDemand: preview.demand })
   }
   return events
 }

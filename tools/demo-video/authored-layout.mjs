@@ -46,14 +46,50 @@ function tileRectangles(modules){
  return runs
 }
 export function authoredFrameSteps(){
- const buckets=new Map()
- for(const c of authoredState.cells){const key=`${c.z}/${Math.floor(c.x/4)}`;if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(c)}
- const cells=[...buckets.values()].sort((a,b)=>a[0].z-b[0].z||Math.max(...b.map(c=>c.x))-Math.max(...a.map(c=>c.x))).map(cells=>({kind:'cells',cells}))
+ const base=authoredState.levelBase, top=base+authoredState.storeyHeight
+ const cells=[
+  {kind:'floor',cells:authoredState.cells.filter(c=>c.z<=base)},
+  {kind:'wall',cells:authoredState.cells.filter(c=>c.z>base&&c.z<top)},
+  {kind:'deck',cells:authoredState.cells.filter(c=>c.z>=top)},
+ ]
  const structure=authoredState.modules.filter(m=>isFrameModule(m)&&!['sidewalk','lawn'].includes(m.type)).sort(moduleOrder).map(m=>({kind:'place',modules:[m],east:m.x}))
  const overrides=authoredState.modules.filter(m=>m.type==='lawn').sort(moduleOrder)
  const temporary=overrides.map(m=>({...m,id:`video-paving-${m.id}`,type:'sidewalk',cfg:{}}))
  const paving=tileRectangles([...authoredState.modules.filter(m=>m.type==='sidewalk'),...temporary])
  return [...cells,...structure,...paving,...overrides.map((m,i)=>({kind:'surface-override',modules:[m],replaces:temporary[i].id}))]
+}
+
+export function authoredWallRuns(walls) {
+ if(!walls.length)return []
+ const columns=new Map(), z=authoredState.levelBase+1, height=authoredState.storeyHeight-1
+ for(const c of walls){
+  const key=`${c.x},${c.y}`
+  columns.set(key,(columns.get(key)??0)+1)
+ }
+ const points=walls.map(c=>[c.x,c.y])
+ const [west,east]=[Math.min(...points.map(p=>p[0])),Math.max(...points.map(p=>p[0]))]
+ const [south,north]=[Math.min(...points.map(p=>p[1])),Math.max(...points.map(p=>p[1]))]
+ const line=(first,last,make)=>Array.from({length:last-first+1},(_,i)=>make(first+i))
+ const sides=[line(south,north,y=>[west,y]),line(west+1,east-1,x=>[x,north]),
+  line(south,north,y=>[east,y]),line(west+1,east-1,x=>[x,south])]
+ const occupied=sides.filter(run=>run.filter(p=>columns.has(p.join(','))).length>run.length/2)
+ const build=occupied.map(run=>({kind:'wall-drag',columns:run.map(p=>[...p,z])}))
+ const carve=[]
+ for(const side of occupied){
+  let opening=[]
+  for(const p of side){
+   if(columns.get(p.join(','))!==height)opening.push([...p,z])
+   else if(opening.length){carve.push({kind:'wall-carve',columns:opening});opening=[]}
+  }
+  if(opening.length)carve.push({kind:'wall-carve',columns:opening})
+ }
+ return [...build,...carve]
+}
+
+export function authoredDragSeconds(step) {
+ const first=step.modules[0],last=step.modules.at(-1)
+ const blocks=1+Math.max(Math.abs(last.x-first.x),Math.abs(last.y-first.y))
+ return .32*blocks/3
 }
 export function authoredEquipmentSteps(){
  const all=authoredState.modules.filter(m=>!isFrameModule(m)),claimed=new Set(),steps=[]

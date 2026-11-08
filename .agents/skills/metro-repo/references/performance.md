@@ -16,6 +16,41 @@ outcomes.
 
 ## Current performance state
 
+### Tianhe Park demo-video cadence
+
+This measures the encoded walkthroughs, not editor or simulation performance.
+The 2560 × 1440, 30 fps footage uses the High-quality game renderer on an
+RTX 4080 SUPER with ANGLE D3D11. The two 1× simulation captures yielded
+221 compositor frames in 15.94 s on the platform and 152 in 16.26 s in the
+concourse. Capture alone therefore does not provide 30 distinct frames per
+second after a 4× speed-up.
+
+Record `05-tianhe-flythrough,05-tianhe-concourse` with
+`node tools/demo-video.mjs --scene 05-tianhe-flythrough,05-tianhe-concourse --output .preview/demo-video/tianhe-cadence`.
+Compare `take.json` recording timestamps and run
+`ffmpeg -v error -i raw.mp4 -vf scale=640:360,mpdecimate -an -f framemd5 -`
+in each take directory. The prior 4× live captures retained 66 of 120
+platform frames and 45 of 123 concourse frames after this duplicate test.
+The retimed, motion-interpolated exports retained 120 of 120 and 123 of 123.
+These counts measure delivered cadence, including synthesized frames, and do
+not establish an improvement in native game frame rate. The take reports are
+under `.preview/demo-video/zh-studio-2k-refined` and
+`.preview/demo-video/zh-studio-2k-retake`.
+
+`09-demand` is a static-camera chart adjustment, so it cannot use the
+fly-through speed ramp. The prior 1× take recorded 27 compositor frames in
+2.90 s (median 83 ms, maximum 400 ms); its 90-frame delivery retained only 27
+distinct frames at full resolution and 24 in the 640 × 360 duplicate test.
+The current take records the same three-second edit at 1× for 11.88 s (227
+frames, median 50 ms, maximum 117 ms), then retimes it 4×. The delivery has 90
+of 90 distinct full-resolution frames and 90 of 90 in the coarser duplicate
+test; the 117 ms capture interval becomes 29 ms after retiming, so a capture
+hitch no longer holds a delivered frame. The dragged knob is a preview only: station
+demand stayed `[1, 0.35]` while the visible morning peak moved to 2.07, so the
+crowd is not rebuilt mid-drag. This is capture and delivery cadence, not a
+change in simulation or renderer frame rate; the report is
+`.preview/demo-video/zh-studio-2k-polish/takes/09-demand`.
+
 ### Response budget and placement state
 
 Editor feedback targets strictly <100 ms; exactly 100 ms misses. Renderer

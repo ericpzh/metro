@@ -17,13 +17,15 @@ test('both locales produce the same contiguous 72-second recording schedule', ()
     validatePlan(plan)
     assert.equal(plan[0].start, 0)
     assert.equal(plan.at(-1).end, VIDEO_SECONDS)
-    assert.deepEqual(plan.filter(s => s.view === 'flythrough').map(s => [s.station, s.level, s.seconds, s.simSpeed]), [
-      ['tianhe', -10, 4, 4],
-      ['tianhe', -5, 4.1, 4],
+    assert.deepEqual(plan.filter(s => s.view === 'flythrough').map(s => [s.station, s.level, s.seconds, s.simSpeed, s.playbackRate, s.captureSeconds]), [
+      ['tianhe', -10, 4, 1, 4, 16],
+      ['tianhe', -5, 4.1, 1, 4, 16.4],
     ])
     const demand = plan.find(s => s.kind === 'demand')
     assert.equal(demand.station, 'tianhe')
     assert.equal(demand.level, -5)
+    assert.equal(demand.playbackRate, 4)
+    assert.equal(demand.captureSeconds, 12)
     assert.ok(!plan.some(s => s.kind === 'views'))
     for (let i = 1; i < plan.length; i++) assert.equal(plan[i].start, plan[i - 1].end)
     assert.deepEqual(plan.filter(s => s.stock).map(s => s.stock), [...STOCK_CLASSES])
@@ -41,7 +43,7 @@ test('both locales produce the same contiguous 72-second recording schedule', ()
 
 test('montage angles carry forward at constant speed across every cut',()=>{
  const plan=timeline('zh')
- for(const [kind,total,step] of [['city',180,22.5],['stock',150,30]]){
+ for(const [kind,total,step] of [['city',180,22.5],['stock',50,10]]){
   const group=plan.filter(s=>s.kind===kind)
   assert.equal(group.at(-1).spin.to-group[0].spin.from,total)
   for(let i=0;i<group.length;i++){
@@ -53,7 +55,7 @@ test('montage angles carry forward at constant speed across every cut',()=>{
 
 test('authored save is reproduced exactly, with continuous tool groups',()=>{
  const construction=timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))
- assert.equal(construction.length,1);assert.equal(construction[0].kind,'placement');assert.equal(construction[0].seconds,23.5)
+ assert.equal(construction.length,1);assert.equal(construction[0].kind,'placement');assert.equal(construction[0].seconds,23.5);assert.equal(construction[0].trimStart,1)
  for(const shot of timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))){
   assert.equal(shot.station,'empty');assert.equal(shot.playbackRate,8);assert.equal(shot.captureSeconds,shot.seconds*8)
  }
@@ -93,10 +95,14 @@ test('city identity and the five train liveries use the requested station and ga
    assert.equal(doc.modules.filter(m=>m.type==='track').length,1)
    assert.ok(doc.modules[0].cfg.bridge&&doc.modules[0].w>=1000)
    assert.equal(doc.lines[0].stock,shot.stock)
+    assert.equal(doc.lines[0].power,['D','L'].includes(shot.stock)?'catenary':'third-rail')
+    assert.equal(doc.modules[0].cfg.power,doc.lines[0].power)
    assert.equal(doc.lines[0].colour,GUANGZHOU_LINE_COLOURS[shot.lineNumber]);assert.equal(doc.modules[0].cfg.line,shot.lineNumber)
   }
   if(shot.stage==='city'){
    assert.equal(doc.name,'动物园');assert.equal(doc.nameEn,'Zoo')
+   assert.equal(doc.modules.filter(m=>m.type==='escalator').length,2)
+   assert.ok(doc.modules.filter(m=>m.type==='escalator').every(m=>m.from.z===0&&m.to.z===-5))
   }
  }
 })

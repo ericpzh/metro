@@ -66,7 +66,7 @@ export async function prepareTianheFlythrough(page, shot) {
   })()`, { tries: 260, every: 250, what: platform ? 'Line 11 departure window' : 'passengers in the Tianhe concourse' })
 }
 
-export async function waitForTianheConcourseCrowd(page) {
+export async function waitForTianheConcourseCrowd(page, speed = 1) {
   await waitFor(page.evaluate, `(() => {
     const scene = __scene, state = __metro.getState(), crowd = scene.crowd;
     const camera = scene.cameraSys.activeCamera(), point = new camera.position.constructor();
@@ -78,10 +78,10 @@ export async function waitForTianheConcourseCrowd(page) {
       if (Math.abs(point.x) < .85 && Math.abs(point.y) < .8 && Math.abs(point.z) < 1) visible++;
     }
     window.__videoConcoursePassengers = visible;
-    if (visible < 45) return false;
-    state.setSpeed(4);
+    if ((state.metrics?.simTime ?? 0) < 23640 || visible < 45) return false;
+    state.setSpeed(${speed});
     return true;
-  })()`, { tries: 320, every: 250, what: '45 visible passengers on Tianhe Park’s −5 m concourse' })
+  })()`, { tries: 420, every: 250, what: 'Tianhe Park at 06:34:00 with at least 45 passengers on the −5 m concourse' })
 }
 
 export async function flyTianhe(page, shot, recordStart) {

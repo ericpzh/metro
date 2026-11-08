@@ -18,14 +18,16 @@ export const shots = [
   { id: '03-interchange', station: 'tanwei', seconds: 3.2, kind: 'scenic', section: 'overview', copy: '13', view: 'exploded', orbit: -.06 },
   { id: '04-boarding', station: 'zoo', seconds: 4, kind: 'train', section: 'trains', copy: '12', view: 'platform', orbit: .035 },
   { id: '05-rolling', station: 'tanwei', seconds: 3, kind: 'train', section: 'trains', copy: '11', view: 'platform', orbit: -.04 },
-  { id: '05-tianhe-flythrough', station: 'tianhe', seconds: 4, kind: 'train', section: 'trains', copy: '12', view: 'flythrough', level: -10, simSpeed: 4 },
-  { id: '05-tianhe-concourse', station: 'tianhe', seconds: 4.1, kind: 'scenic', section: 'trains', copy: '12', view: 'flythrough', level: -5, simSpeed: 4 },
+  { id: '05-tianhe-flythrough', station: 'tianhe', seconds: 4, playbackRate: 4, kind: 'train', section: 'trains', copy: '12', view: 'flythrough', level: -10, simSpeed: 1 },
+  { id: '05-tianhe-concourse', station: 'tianhe', seconds: 4.1, playbackRate: 4, kind: 'scenic', section: 'trains', copy: '12', view: 'flythrough', level: -5, simSpeed: 1 },
   { id: '08-section-tianhe', station: 'tianhe', seconds: 6, playbackRate: 4, kind: 'section', section: 'building', copy: '09', view: 'section' },
   { id: '08-cube',station:'zoo',seconds:4.8,kind:'cube',section:'building',copy:'09',view:'cube',orbit:0 },
-  { id: '09-demand', station: 'tianhe', seconds: 3, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', level: -5, orbit: 0 },
-  { id:'montage-placement',station:'empty',stage:'placement',seconds:23.5,playbackRate:8,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },
+  // Record at 1× for 12 s and retime 4×: the background crowd reads at 4× in
+  // the film, while the chart edit is only previewed and never rebuilds it.
+  { id: '09-demand', station: 'tianhe', seconds: 3, playbackRate: 4, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', level: -5, orbit: 0 },
+  { id:'montage-placement',station:'empty',stage:'placement',seconds:23.5,playbackRate:8,trimStart:1,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },
   ...CITY_STYLE_IDS.map((city,i) => ({ id: `city-${city}`, station: 'empty', stage:'city',seconds: .4, kind: 'city', section: 'overview', copy: '01', city, view: 'entrance', spin:montageSweep(i,8,180,-90) })),
-  ...['A', 'B', 'C', 'D', 'L'].map((stock,i) => ({ id: `stock-${stock}`, station: 'empty',stage:'bridge', seconds: .8, kind: 'stock', section: 'trains', copy: '11', stock,lineNumber:String(i+1),colour:GUANGZHOU_LINE_COLOURS[String(i+1)], view: 'bridge', spin:montageSweep(i,5,150,15) })),
+  ...['A', 'B', 'C', 'D', 'L'].map((stock,i) => ({ id: `stock-${stock}`, station: 'empty',stage:'bridge', seconds: .8, kind: 'stock', section: 'trains', copy: '11', stock,lineNumber:String(i+1),colour:GUANGZHOU_LINE_COLOURS[String(i+1)], view: 'bridge', spin:montageSweep(i,5,50,15) })),
   { id: '10-play', station: 'tanwei', seconds: 3.6, kind: 'cta', section: 'simulation', copy: 'footer', view: 'exterior', orbit: .22,zoomEnd:1.45 },
 ]
 

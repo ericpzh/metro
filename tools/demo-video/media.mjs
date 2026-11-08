@@ -19,8 +19,14 @@ export function command(executable, args, { capture = false } = {}) {
 export async function encodeTake(directory, shot, { width, height, fps }) {
   const recorded=JSON.parse((await command('ffprobe',['-v','error','-show_streams','-of','json',resolve(directory,'frame-00000.jpg')],{capture:true})).stdout).streams[0]
   if(recorded.width!==width||recorded.height!==height)throw new Error(`Native capture dimensions differ in ${shot.id}: ${recorded.width}×${recorded.height}`)
+  // Preserve the captured camera timing and synthesize in-between frames after
+  // the 4× retime. A plain fps filter would hold a 1× capture frame for several
+  // output frames on crowded stations.
+  const cadence=shot.view==='flythrough'
+    ? `tpad=stop_mode=clone:stop_duration=0.4,minterpolate=fps=${fps}:mi_mode=mci:mc_mode=aobmc:vsbmc=1`
+    : `fps=${fps}`
   await command('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-safe', '0', '-f', 'concat', '-i', resolve(directory, 'frames.ffconcat'),
-    '-vf', `setpts=(PTS-STARTPTS)/${shot.playbackRate},scale=${width}:${height}:flags=lanczos,setsar=1,fps=${fps}`, '-t', String(shot.seconds), '-an',
+    '-vf', `settb=AVTB,setpts=(PTS-STARTPTS)/${shot.playbackRate},scale=${width}:${height}:flags=lanczos,setsar=1,${cadence}`, '-t', String(shot.seconds), '-an',
     '-c:v', 'libx264', '-preset', 'fast', '-crf', '16', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', resolve(directory, 'raw.mp4')])
 }
 
@@ -30,13 +36,17 @@ export async function editVideo(output, plan, takes, settings) {
   const graphics=await renderGraphics(output,plan,settings.language,{width:settings.width,height:settings.height})
   const styled=resolve(edit,'styled');mkdirSync(styled,{recursive:true})
   for(const shot of plan){
+    const trim=shot.trimStart??0
     let placementCard=null
     if(shot.kind==='placement'){
       const events=takes.find(t=>t.id===shot.id).events.filter(e=>e.card)
-      const ends=[0,...events.map(e=>e.at),shot.seconds]
+      let first=0
+      for(let i=0;i<events.length;i++)if(events[i].at<=trim)first=i
+      const shown=events.slice(first)
+      const ends=[0,...shown.map(e=>Math.max(0,e.at-trim)),shot.seconds]
       const rows=[]
-      for(let i=0;i<ends.length-1;i++)rows.push(`file '${resolve(graphics,`placement-card-${String(i).padStart(2,'0')}.png`).replaceAll('\\','/')}'`,`duration ${(ends[i+1]-ends[i]).toFixed(6)}`)
-      rows.push(`file '${resolve(graphics,`placement-card-${String(ends.length-2).padStart(2,'0')}.png`).replaceAll('\\','/')}'`)
+      for(let i=0;i<ends.length-1;i++)rows.push(`file '${resolve(graphics,`placement-card-${String(first+i).padStart(2,'0')}.png`).replaceAll('\\','/')}'`,`duration ${(ends[i+1]-ends[i]).toFixed(6)}`)
+      rows.push(`file '${resolve(graphics,`placement-card-${String(first+Math.max(0,shown.length-1)).padStart(2,'0')}.png`).replaceAll('\\','/')}'`)
       const list=resolve(edit,'placement-cards.ffconcat');writeFileSync(list,'ffconcat version 1.0\n'+rows.join('\n')+'\n')
       placementCard=resolve(edit,'placement-cards.mov')
       await command('ffmpeg',['-v','error','-y','-safe','0','-f','concat','-i',list,'-vf',`fps=${settings.fps}`,'-t',String(shot.seconds),'-c:v','qtrle','-pix_fmt','argb',placementCard])
@@ -44,12 +54,16 @@ export async function editVideo(output, plan, takes, settings) {
     const rapid=['city','stock','decor'].includes(shot.kind)
     const fade=rapid?`[1:v]format=rgba[graphics]`:`[1:v]format=rgba,fade=t=in:st=0:d=0.14:alpha=1,fade=t=out:st=${shot.seconds-.12}:d=0.12:alpha=1[graphics]`
     const bookends=shot.kind==='hero'?',fade=t=in:d=0.35':shot.kind==='cta'?`,fade=t=out:st=${shot.seconds-.5}:d=0.5`:''
-    const base=placementCard?`[0:v][graphics]overlay=x=0:y=0:shortest=1:format=auto[base];[base][2:v]overlay=x=${Math.round(settings.width-896*settings.width/2560)}:y=${Math.round(1100*settings.height/1440)}:shortest=1:format=auto`:'[0:v][graphics]overlay=x=0:y=0:shortest=1:format=auto'
+    // Trim only the empty opening of the build, then hold the completed frame
+    // for the same time so the 72-second schedule stays unchanged.
+    const trimFilter=trim?`[0:v]trim=start=${trim},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=${trim}[trimmed];`:''
+    const source=trim?'[trimmed]':'[0:v]'
+    const base=placementCard?`${source}[graphics]overlay=x=0:y=0:shortest=1:format=auto[base];[base][2:v]overlay=x=${Math.round(settings.width-896*settings.width/2560)}:y=${Math.round(1100*settings.height/1440)}:shortest=1:format=auto`:`${source}[graphics]overlay=x=0:y=0:shortest=1:format=auto`
     const compose=`${base}${bookends},scale=in_range=auto:out_range=tv:out_color_matrix=bt709,format=yuv420p[picture]`
     console.log(`Designing ${shot.id}`)
     await command('ffmpeg',['-hide_banner','-loglevel','error','-y','-i',resolve(output,'takes',shot.id,'raw.mp4'),'-loop','1','-framerate',String(settings.fps),'-i',resolve(graphics,`${shot.id}.png`),
       ...(placementCard?['-i',placementCard]:[]),
-      '-filter_complex',`${fade};${compose}`,'-map','[picture]','-an','-t',String(shot.seconds),'-c:v','libx264','-preset','medium','-crf','18','-pix_fmt','yuv420p',
+      '-filter_complex',`${trimFilter}${fade};${compose}`,'-map','[picture]','-an','-t',String(shot.seconds),'-c:v','libx264','-preset','medium','-crf','18','-pix_fmt','yuv420p',
       '-color_range','tv','-colorspace','bt709','-color_primaries','bt709','-color_trc','bt709','-movflags','+faststart',resolve(styled,`${shot.id}.mp4`)])
   }
   const rawList = resolve(edit, 'takes.ffconcat')
@@ -68,7 +82,8 @@ export async function editVideo(output, plan, takes, settings) {
       if(last?.file===file&&Math.abs(last.at+last.duration-shot.start)<.001)last.duration+=shot.seconds
       else layers.push({file,at:shot.start,duration:shot.seconds,gain:.16})
     }
-    for (const e of takes.find(t => t.id === shot.id).events ?? []) if (e.file) layers.push({ file: resolve(audioRoot, e.file), at: shot.start + e.at, duration: .8, gain:shot.playbackRate>=4?.35:.55, cue: true })
+    const trim = shot.trimStart ?? 0
+    for (const e of takes.find(t => t.id === shot.id).events ?? []) if (e.file && e.at >= trim) layers.push({ file: resolve(audioRoot, e.file), at: shot.start + e.at - trim, duration: .8, gain:shot.playbackRate>=4?.35:.55, cue: true })
   }
   for (const l of layers) if (!existsSync(l.file)) throw new Error(`Missing audio asset ${l.file}`)
   const args = ['-hide_banner', '-y']
