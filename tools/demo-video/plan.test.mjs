@@ -17,10 +17,13 @@ test('both locales produce the same contiguous 72-second recording schedule', ()
     validatePlan(plan)
     assert.equal(plan[0].start, 0)
     assert.equal(plan.at(-1).end, VIDEO_SECONDS)
-    const flythrough = plan.find(s => s.view === 'flythrough')
-    assert.equal(flythrough.station, 'tianhe')
-    assert.equal(flythrough.seconds, 8.1)
-    assert.equal(flythrough.simSpeed, 4)
+    assert.deepEqual(plan.filter(s => s.view === 'flythrough').map(s => [s.station, s.level, s.seconds, s.simSpeed]), [
+      ['tianhe', -10, 4, 4],
+      ['tianhe', -5, 4.1, 4],
+    ])
+    const demand = plan.find(s => s.kind === 'demand')
+    assert.equal(demand.station, 'tianhe')
+    assert.equal(demand.level, -5)
     assert.ok(!plan.some(s => s.kind === 'views'))
     for (let i = 1; i < plan.length; i++) assert.equal(plan[i].start, plan[i - 1].end)
     assert.deepEqual(plan.filter(s => s.stock).map(s => s.stock), [...STOCK_CLASSES])
@@ -48,7 +51,7 @@ test('montage angles carry forward at constant speed across every cut',()=>{
  }
 })
 
-test('authored save is reproduced exactly, frame first then east to west',()=>{
+test('authored save is reproduced exactly, with continuous tool groups',()=>{
  const construction=timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))
  assert.equal(construction.length,1);assert.equal(construction[0].kind,'placement');assert.equal(construction[0].seconds,23.5)
  for(const shot of timeline('zh').filter(s=>['blocks','colours','placement'].includes(s.kind))){
@@ -56,9 +59,23 @@ test('authored save is reproduced exactly, frame first then east to west',()=>{
  }
  const {state}=validateAuthoredReplay();assert.equal(state.modules.length,authoredState.modules.length);assert.equal(state.cells.length,authoredState.cells.length)
  const byId=ms=>[...ms].sort((a,b)=>a.id.localeCompare(b.id));assert.deepEqual(byId(state.modules),byId(authoredState.modules));assert.deepEqual(state.cells,authoredState.cells)
- for(let i=1;i<authoredSteps.length;i++)assert.ok(authoredSteps[i].east<=authoredSteps[i-1].east)
+ for(const batch of ['roadside-fence','tactile','gate','fence']){
+  const grouped=authoredSteps.filter(s=>s.batch===batch)
+  const first=authoredSteps.indexOf(grouped[0]);assert.deepEqual(authoredSteps.slice(first,first+grouped.length),grouped)
+  assert.ok(grouped.some(s=>s.kind==='drag'))
+ }
+ assert.equal(authoredSteps[0].batch,'roadside-fence')
+ assert.equal(authoredSteps.filter(s=>['roadside-fence','fence'].includes(s.batch)).flatMap(s=>s.modules).length,state.modules.filter(m=>m.type==='fence').length)
+ for(const type of ['tvm','bench','vending'])assert.ok(authoredSteps.some(s=>s.kind==='drag'&&s.modules[0].type===type))
+ const remaining=authoredSteps.filter(s=>!s.batch&&s.modules[0].type!=='tvm')
+ for(let i=1;i<remaining.length;i++)assert.ok(remaining[i].east<=remaining[i-1].east)
  const frame=authoredFrameSteps();assert.equal(frame.flatMap(s=>s.cells??[]).length,authoredState.cells.length)
- assert.deepEqual(byId(frame.flatMap(s=>s.modules??[])),byId(authoredState.modules.filter(isFrameModule)))
+ const paving=frame.filter(s=>s.kind==='rectangle'),overrides=frame.filter(s=>s.kind==='surface-override')
+ assert.equal(paving.length,1)
+ assert.equal(paving[0].modules.length,189)
+ assert.ok(overrides.every(s=>frame.indexOf(s)>frame.indexOf(paving[0])&&paving[0].modules.some(m=>m.id===s.replaces)))
+ const replaced=new Set(overrides.map(s=>s.replaces))
+ assert.deepEqual(byId(frame.flatMap(s=>s.modules??[]).filter(m=>!replaced.has(m.id))),byId(authoredState.modules.filter(isFrameModule)))
  assert.ok(authoredSteps.filter(s=>s.kind==='drag').length>=10)
  const finishes=new Set(state.cells.flatMap(c=>Object.values(c.finish??{})));assert.ok(finishes.has('wall.enamel#bdffee'))
  assert.equal(state.modules.filter(m=>m.type==='roof').length,0)

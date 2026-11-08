@@ -5,7 +5,8 @@ import {resolve} from 'node:path'
 import {parse} from '../../game/src/persistence/save.ts'
 import {checkModulePlacements} from '../../game/src/build/validation.ts'
 import {paletteIdForModule} from '../../game/src/app/tools/PickTool.ts'
-import {MODULE_OPTIONS,moduleLabel} from '../../game/src/app/store/catalog.ts'
+import {MODULE_OPTIONS,moduleLabel,supportsLinePlacement} from '../../game/src/app/store/catalog.ts'
+import {lineRunRotation,lineSpan} from '../../game/src/app/tools/geometry/linePlacement.ts'
 import {getLanguage,setLanguage,translate} from '../../game/src/sim/i18n.ts'
 
 export const authoredPath=resolve('video/demo-station.metro.json')
@@ -14,7 +15,7 @@ if(!loaded.ok||loaded.droppedCells||loaded.droppedModules)throw Error('Authored 
 export const authoredState=loaded.state
 export const authoredCamera=JSON.parse(readFileSync(resolve('video/demo-camera.json'),'utf8'))
 export const emptyAuthoredState=()=>({...structuredClone(authoredState),cells:[],modules:[]})
-export const isFrameModule=m=>['sidewalk','road','glass','exit'].includes(m.type)||(m.type==='fence'&&m.z>1)
+export const isFrameModule=m=>['sidewalk','lawn','road','glass','exit'].includes(m.type)
 export function modulePalette(m){return paletteIdForModule(m)??m.type}
 const east=m=>m.x
 const moduleOrder=(a,b)=>east(b)-east(a)||a.y-b.y||a.z-b.z||a.id.localeCompare(b.id)
@@ -25,8 +26,10 @@ function linearGroups(modules){
  const grouped=[],buckets=new Map()
  for(const m of modules){const alongY=(m.rot??0)%2===1,key=JSON.stringify([m.type,m.z,m.rot,m.cfg,alongY?m.x:m.y]);if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(m)}
  for(const list of buckets.values()){
-  const y=(list[0].rot??0)%2===1,axis=y?'y':'x';list.sort((a,b)=>a[axis]-b[axis]);let run=[]
-  for(const m of list){if(run.length&&m[axis]!==run.at(-1)[axis]+1){grouped.push(run);run=[]}run.push(m)}
+  const first=list[0],alongY=(first.rot??0)%2===1,axis=alongY?'y':'x';list.sort((a,b)=>a[axis]-b[axis]);let run=[]
+  const tile=['fence','tactile'].includes(first.type),pitch=tile?1:lineSpan([first],alongY?1:0)
+  const turns=!tile&&lineRunRotation(first.rot??0,alongY?1:0,lineSpan([first],0),lineSpan([first],1))!==(first.rot??0)
+  for(const m of list){if(run.length&&(turns||m[axis]!==run.at(-1)[axis]+pitch)){grouped.push(run);run=[]}run.push(m)}
   if(run.length)grouped.push(run)
  }
  return grouped.map(modules=>({kind:modules.length>1?'drag':'place',modules,east:Math.max(...modules.map(east))}))
@@ -46,22 +49,36 @@ export function authoredFrameSteps(){
  const buckets=new Map()
  for(const c of authoredState.cells){const key=`${c.z}/${Math.floor(c.x/4)}`;if(!buckets.has(key))buckets.set(key,[]);buckets.get(key).push(c)}
  const cells=[...buckets.values()].sort((a,b)=>a[0].z-b[0].z||Math.max(...b.map(c=>c.x))-Math.max(...a.map(c=>c.x))).map(cells=>({kind:'cells',cells}))
- const structure=authoredState.modules.filter(m=>isFrameModule(m)&&!['sidewalk','fence'].includes(m.type)).sort(moduleOrder).map(m=>({kind:'place',modules:[m],east:m.x}))
- const paving=tileRectangles(authoredState.modules.filter(m=>m.type==='sidewalk'))
- const railings=linearGroups(authoredState.modules.filter(m=>m.type==='fence'&&m.z>1))
- return [...cells,...structure,...paving,...railings.sort((a,b)=>b.east-a.east)]
+ const structure=authoredState.modules.filter(m=>isFrameModule(m)&&!['sidewalk','lawn'].includes(m.type)).sort(moduleOrder).map(m=>({kind:'place',modules:[m],east:m.x}))
+ const overrides=authoredState.modules.filter(m=>m.type==='lawn').sort(moduleOrder)
+ const temporary=overrides.map(m=>({...m,id:`video-paving-${m.id}`,type:'sidewalk',cfg:{}}))
+ const paving=tileRectangles([...authoredState.modules.filter(m=>m.type==='sidewalk'),...temporary])
+ return [...cells,...structure,...paving,...overrides.map((m,i)=>({kind:'surface-override',modules:[m],replaces:temporary[i].id}))]
 }
 export function authoredEquipmentSteps(){
  const all=authoredState.modules.filter(m=>!isFrameModule(m)),claimed=new Set(),steps=[]
- const runs=linearGroups(all.filter(m=>['fence','tactile'].includes(m.type)))
- for(const run of runs){run.modules.forEach(m=>claimed.add(m.id));steps.push(run)}
  for(const m of all.filter(m=>m.type==='booth')){
   const children=all.filter(n=>n.id!==m.id&&((n.cfg?.auto&&n.x>=m.x&&n.x<m.x+m.w&&n.y>=m.y&&n.y<m.y+m.h)||n.cfg?.boothId===m.id))
   const modules=[m,...children];modules.forEach(n=>claimed.add(n.id));steps.push({kind:'place',modules,east:Math.max(...modules.map(east))})
  }
+ const groupedTypes=['tactile','gate','fence']
+ const rows=linearGroups(all.filter(m=>!claimed.has(m.id)&&(groupedTypes.includes(m.type)||supportsLinePlacement(modulePalette(m)))))
+ for(const row of rows){
+  const type=row.modules[0].type
+  row.batch=type==='fence'&&row.modules[0].cfg?.variant==='iron'?'roadside-fence':groupedTypes.includes(type)?type:undefined
+  row.modules.forEach(m=>claimed.add(m.id))
+  steps.push(row)
+ }
  for(const m of all){if(claimed.has(m.id))continue;claimed.add(m.id);steps.push({kind:'place',modules:[m],east:m.x})}
- const rank=s=>s.modules[0].type==='tactile'?0:s.modules[0].type==='fence'?2:1
- steps.sort((a,b)=>b.east-a.east||rank(a)-rank(b)||a.modules[0].y-b.modules[0].y||a.modules[0].z-b.modules[0].z)
+ // Leave the ticket machines exposed for their drag before closing the concourse with glass.
+ const groupRank={'roadside-fence':0,tactile:1,gate:2,fence:5}
+ const rank=step=>{
+  if(step.batch)return groupRank[step.batch]
+  if(step.modules[0].type==='tvm')return 4
+  return step.east>=21?3:6
+ }
+ const westFence=s=>s.batch==='fence'&&s.east<5
+ steps.sort((a,b)=>rank(a)-rank(b)||Number(westFence(b))-Number(westFence(a))||b.east-a.east||a.modules[0].y-b.modules[0].y||a.modules[0].z-b.modules[0].z)
  // Keep the real lift extension demonstration in its east-to-west position.
  return steps.flatMap(step=>{
   const m=step.modules[0]
@@ -71,6 +88,16 @@ export function authoredEquipmentSteps(){
  })
 }
 export const authoredSteps=authoredEquipmentSteps()
+export function authoredSchedule(captureSeconds) {
+ const weight=s=>s.batch ? .58 : s.kind==='extend' ? 2.5 : s.kind==='drag' ? 1.5 : 1
+ let when=authoredCamera.frameSeconds
+ const unit=(captureSeconds-when-authoredCamera.endingHoldSeconds)/authoredSteps.reduce((n,s)=>n+weight(s),0)
+ return authoredSteps.map(step=>{
+  const duration=unit*weight(step), slot={step,when,duration}
+  when+=duration
+  return slot
+ })
+}
 export function authoredLabel(step,language){
  const m=step.modules[0],previous=getLanguage()
  try{setLanguage(language==='en'?'en':'zh-CN');const id=modulePalette(m),option=MODULE_OPTIONS.find(o=>o.id===id),family=translate(moduleLabel(m)),detail=option?translate(option.label):family;return family===detail||detail.includes(family)?detail:`${family} · ${detail}`}finally{setLanguage(previous)}

@@ -7,7 +7,7 @@ import {stageDocument} from './fixtures.mjs'
 import {prepareMontage,startMontage} from './montage.mjs'
 import {prepareEditing as prepareEmptyEditing,editingAction} from './editing.mjs'
 import {prepareExtraView,extraViewAction} from './views.mjs'
-import {prepareTianheFlythrough,flyTianhePlatform} from './tianhe.mjs'
+import {prepareTianheFlythrough,flyTianhe,waitForTianheConcourseCrowd} from './tianhe.mjs'
 import {ui} from '../../web/src/i18n.js'
 import {prepareInterior,interiorAction} from './interior.mjs'
 import {prepareAuthored,authoredAction} from './authored-shot.mjs'
@@ -53,7 +53,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
     const s=__metro.getState();s.setPlaying(false);s.setSpeed(1);s.setGraphicsQuality('high');s.setUpscalingMode('native');
     s.setEdgeScrolling(false);s.setTool('select');s.select(null);s.setNotice(null);s.setTimePanel(false);s.setChartsPanel(false);
     s.setHideUI(false);s.setGhostOther(false);s.setAutoCeiling(true);s.setHideRoof(true);s.setHideGround(true);s.setHideWalls(false);
-    s.setCutaway(false);s.setHideSectionSurface(true);s.setActiveZ(${shot.station === 'zoo' ? -15 : 10});
+    s.setCutaway(false);s.setHideSectionSurface(true);s.setActiveZ(${shot.level ?? (shot.station === 'zoo' ? -15 : 10)});
     let style=document.getElementById('video-presentation');if(!style){style=document.createElement('style');style.id='video-presentation';document.head.append(style)}
     style.textContent=${JSON.stringify(cinematicCSS)};
     if(!${['blocks', 'equipment', 'demand','cube'].includes(shot.kind)})document.body.setAttribute('data-video-clean','');
@@ -72,13 +72,13 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   }
   if(shot.kind==='placement')await prepareAuthored(page,shot,settings.language)
   else if(['blocks','colours'].includes(shot.kind))await prepareInterior(page,shot,settings.language)
-  else if(shot.stage)await prepareMontage(page,shot)
+  else if(shot.stage)await prepareMontage(page,shot,settings.bridgeStartX)
   else if(['section','cube'].includes(shot.kind))await prepareExtraView(page,shot)
   else if(shot.view==='flythrough')await prepareTianheFlythrough(page,shot)
   else if (shot.view === 'exploded') {
     await page.evaluate(`__metro.getState().setExplodedView(true)`)
-    await waitFor(page.evaluate, `document.querySelector('.explodedViewer')?.dataset.ready==='true'&&!!window.__benchmarkScene?.explodedLayout`, { what: 'live exploded view' })
-    await page.evaluate(`(()=>{window.__videoScene=__benchmarkScene;const v=__videoScene,c=v.cameraSys;v.settleExplodedCamera();c.controls.enableDamping=false;c.zoomBy(${shot.station==='tanwei' ? .50 : .65});v.setHideWalls(true);v.explodedLayout.floors.forEach((_,i)=>v.setExplodedFloorVisibility(i,true,false));c.camera.updateMatrixWorld(true);const up=new c.camera.position.constructor().setFromMatrixColumn(c.camera.matrixWorld,1).multiplyScalar(${shot.station==='tanwei'?20:-5});c.controls.target.add(up);c.camera.position.add(up);c.controls.update();c.syncOrtho();v.setVoidColor(0xf4f3ed,0xf4f3ed);v.requestRender()})()`)
+    await waitFor(page.evaluate, `document.querySelector('.explodedViewer')?.dataset.equipped==='true'&&!!window.__benchmarkScene?.explodedLayout`, { tries: 200, what: 'fully equipped exploded view' })
+    await frameExploded(page,shot.station)
   } else if (shot.view === 'exterior') {
     await page.evaluate(`(()=>{const s=__metro.getState();s.setHideUI(true);s.setHideGround(false);s.setHideRoof(false);const c=__scene.cameraSys;c.setOrtho(false);c.setFov(55);c.controls.enableDamping=false;c.controls.target.set(12,2,8);c.camera.position.copy(c.controls.target).add(new c.camera.position.constructor(32,-38,72));c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender()})()`)
   } else if (shot.view === 'entrance') {
@@ -91,7 +91,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
       c.camera.position.set(m.x+11,m.y+16,m.z+9);c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender();
     })()`)
   } else if (shot.view === 'platform') {
-    await page.evaluate(`(()=>{const s=__metro.getState();s.setActiveZ(${shot.station === 'zoo' ? -15 : 10});s.setGhostOther(false);s.setHideUI(false);s.setHideRoof(true);s.setHideWalls(true);s.setAutoCeiling(true);s.setSpeed(64);s.setPlaying(true)})()`)
+    await page.evaluate(`(()=>{const s=__metro.getState();s.setActiveZ(${shot.station === 'zoo' ? -15 : 10});s.setGhostOther(false);s.setHideUI(false);s.setHideRoof(true);s.setHideWalls(${shot.station !== 'zoo'});s.setAutoCeiling(true);s.setSpeed(64);s.setPlaying(true)})()`)
     const z = shot.station === 'zoo' ? -15 : 11
     await waitFor(page.evaluate, `(()=>{if((__metro.getState().metrics?.population??0)<150)return false;const b=__scene.trains.lastBuffer;for(let i=0;i<b.length;i+=10)if(Math.abs(b[i+2]-(${z}))<1&&b[i+5]>.5)return true;return false})()`, { tries: 180, every: 250, what: `${shot.id} real train at open doors` })
     await page.evaluate(`__metro.getState().setPlaying(false);__metro.getState().setSpeed(${shot.kind === 'stock' ? 1 : 4})`)
@@ -133,14 +133,23 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
       if(['sign','clock','tv'].includes(type)&&m.ceilingAnchored){s.setActiveZ(Math.floor((m.z-1)/5)*5)}
       c.camera.lookAt(c.controls.target);c.controls.update();__scene.requestRender();
     })()`)
+  } else if (shot.view === 'demand' && shot.station === 'tianhe') {
+    await page.evaluate(`(() => {
+      const s=__metro.getState(),c=__scene.cameraSys;
+      s.setActiveZ(-5);s.setHideWalls(true);s.setOrtho(false);
+      c.setOrtho(false);c.setFov(46);c.controls.enableDamping=false;
+      c.controls.target.set(-2,-44,-4);c.camera.position.set(27,-96,32);
+      c.controls.update();__scene.requestRender();
+    })()`)
   } else if (shot.view === 'floor' || shot.view === 'demand') {
     await page.evaluate(`(()=>{const s=__metro.getState();s.setActiveZ(${shot.station === 'zoo' ? -15 : 5});s.setHideUI(false);s.setGhostOther(false);s.setHideWalls(true);
       const c=__scene.cameraSys;c.setPreset('iso');c.controls.target.set(${shot.station === 'zoo' ? '65,15,-14' : '0,4,6'});c.camera.position.set(${shot.station === 'zoo' ? '95,-20,25' : '35,-40,38'});c.camera.lookAt(c.controls.target);c.controls.update();__scene.setGridVisible(false);__scene.requestRender();
     })()`)
   }
-  if (!shot.stage&&!['blocks', 'equipment', 'train', 'stock', 'decor','cube','section'].includes(shot.kind)) {
+  if (!shot.stage&&shot.view!=='flythrough'&&!['blocks', 'equipment', 'train', 'stock', 'decor','cube','section'].includes(shot.kind)) {
     await page.evaluate(`__metro.getState().setSpeed(${settings.reuseStation?4:64});__metro.getState().setPlaying(true)`)
-    if(!settings.reuseStation)await sleep(4500)
+    if(shot.kind==='demand'&&shot.station==='tianhe')await waitForTianheConcourseCrowd(page)
+    else if(!settings.reuseStation)await sleep(4500)
     await page.evaluate(`__metro.getState().setSpeed(4)`)
   }
   if (shot.kind === 'demand') await page.evaluate(`__metro.getState().setTimePanel(true)`)
@@ -150,11 +159,53 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   await page.evaluate('__videoScene.setGridVisible(false);__videoScene.requestRender()')
   await page.evaluate(twoFrames)
   return page.evaluate(`(()=>{const s=__metro.getState(),v=__videoScene,gl=v.renderer.getContext(),ext=gl.getExtension('WEBGL_debug_renderer_info');
-    return {station:s.station.name,stage:${JSON.stringify(shot.stage??null)},city:s.station.cityStyle,seed:s.station.seed,cells:s.station.cells.length,modules:s.station.modules.length,
+    return {station:s.station.name,activeZ:s.activeZ,stage:${JSON.stringify(shot.stage??null)},city:s.station.cityStyle,seed:s.station.seed,cells:s.station.cells.length,modules:s.station.modules.length,
       stock:s.station.lines.map(l=>l.stock),quality:s.graphicsQuality,simTime:s.metrics?.simTime,population:s.metrics?.population,theme:document.documentElement.dataset.uiTheme,
       gpu:gl.getParameter(ext?ext.UNMASKED_RENDERER_WEBGL:gl.RENDERER),browser:navigator.userAgent,
       camera:v.cameraSys.camera.position.toArray(),target:v.cameraSys.controls.target.toArray(),orbit:window.__videoOrbit??null,focus:window.__videoFocus??null,
-      documentVersion:s.version,framesRendered:v.framesRendered,trainPoses:Array.from(v.trains.lastBuffer),wallsVisible:v.explodedLayout?.wallsVisible??null}})()`)
+      documentVersion:s.version,framesRendered:v.framesRendered,trainPoses:Array.from(v.trains.lastBuffer),
+      exploded:v.explodedLayout?.levels.map((level,i)=>({level,visible:v.explodedLayout.floorVisible[i],walls:v.explodedLayout.wallsVisible[i],shift:v.explodedLayout.shifts[i].toArray()}))??null,
+      hideWalls:s.hideWalls,concoursePassengers:${shot.kind==='demand'}?window.__videoConcoursePassengers??null:null}})()`)
+}
+
+async function frameExploded(page, station) {
+  const zoo = station === 'zoo'
+  const hidden = zoo ? [-5,0] : [-5]
+  // Offsets are fractions of the viewport in the exploded view's drag plane.
+  const offsets = zoo ? { '-20': [.045,-.015], '-15': [.05,0], '-10': [-.32,-.095] }
+    : { '-10': [.04,-.045], 0:[-.02,.065], 5:[-.02,.025], 10:[-.02,-.085] }
+  await page.evaluate(`(() => {
+    const view = window.__videoScene = __benchmarkScene, c = view.cameraSys, layout = view.explodedLayout;
+    const Vector = c.camera.position.constructor, canvas = view.renderer.domElement;
+    view.settleExplodedCamera();
+    c.controls.enableDamping = false;
+    view.setHideWalls(false);
+    const offsets = ${JSON.stringify(offsets)};
+    layout.levels.forEach((level, i) => {
+      view.setExplodedFloorVisibility(i, !${JSON.stringify(hidden)}.includes(level), true);
+      const [dx,dy] = offsets[level] ?? [0,0];
+      if (dx || dy) view.moveExplodedFloor(i, dx * canvas.clientWidth, dy * canvas.clientHeight);
+    });
+    const camera = c.activeCamera();
+    camera.updateMatrixWorld(true);
+    const projected = new view.ctx.bounds.constructor();
+    layout.floorBounds.forEach((bounds, i) => {
+      if (!layout.floorVisible[i] || bounds.isEmpty()) return;
+      for (const x of [bounds.min.x, bounds.max.x])
+        for (const y of [bounds.min.y, bounds.max.y])
+          for (const z of [bounds.min.z, bounds.max.z])
+            projected.expandByPoint(new Vector(x,y,z).add(layout.shifts[i]).project(camera));
+    });
+    const center = projected.getCenter(new Vector());
+    const size = projected.getSize(new Vector());
+    const pan = new Vector(center.x,center.y,0).unproject(camera).sub(new Vector(0,0,0).unproject(camera));
+    c.controls.target.add(pan);
+    c.camera.position.add(pan);
+    c.controls.update();
+    c.syncOrtho();
+    c.zoomBy(Math.max(size.x / ${zoo ? 2.62 : 2.72}, size.y / ${zoo ? 2.16 : 2.25}));
+    view.requestRender();
+  })()`)
 }
 
 async function prepareEditing(page, shot) {
@@ -190,7 +241,7 @@ export async function shotAction(page, shot, recordStart) {
   if(shot.spin){await startMontage(page,shot);return []}
   if(['blocks','equipment'].includes(shot.kind))return editingAction(page,shot,recordStart)
   if(['cube','section'].includes(shot.kind))return extraViewAction(page,shot,recordStart)
-  if(shot.view==='flythrough')return flyTianhePlatform(page,shot,recordStart)
+  if(shot.view==='flythrough')return flyTianhe(page,shot,recordStart)
   const events = []
   const at = async seconds => sleep(Math.max(0, recordStart + seconds * 1000 - performance.now()))
   const cue = file => events.push({ at: (performance.now() - recordStart) / 1000, file })

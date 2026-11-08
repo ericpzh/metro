@@ -15,26 +15,30 @@ site's translation infrastructure; this skill owns the video pipeline.
 
 The current film is 72 seconds, 2560 × 1440, 30 fps, H.264/AAC. All editorial copy
 is Chinese with designed Studio cards and navigation. Actual editor controls use
-the default Blueprint theme. Music is **monoliths by SpringySpringo**, from the
+the default Blueprint theme. Music is **Sunset Plains by Yoiyami**, from the
 game's approved music manifest, with credit in the ending and exported credits.
 Keep these choices unless the user changes the brief.
 
 The main tour follows the website's four sections and uses Zoo, Tanwei and
-Tianhe Park. Tianhe Park has the sole moving section and an 8.1-second Line 11
-platform fly-through at 4× simulation speed. The take records evidence of
-passenger and train movement. The view cube stays in perspective.
+Tianhe Park. Tianhe Park has the sole moving section, a 4-second Line 11
+platform fly-through and a 4.1-second concourse fly-through at 4× simulation
+speed. The population-flow shot uses the −5 m concourse. The view cube stays
+in perspective.
 Immediately before the ending: one continuous 23.5-second build at 8×, eight
 cities at 0.4 seconds each, then five train types at 0.8 seconds each. City cuts
 share a continuous 180° orbit; train cuts share 150° (30° per type). Trains really
 run on a 1200 m bridge in an empty map, in Guangzhou line 1–5 colours. City
-entrances say 动物园 / Zoo. Exploded views hide walls; framing fills the screen.
+entrances say 动物园 / Zoo. Exploded views retain the walls and tighten the
+framing. Hide the −5 m and 0 m levels at Zoo and the −5 m level at Tanwei.
 
-The build uses the user's save: frame first, then equipment/decor east to west,
-with a continuous low camera from P1 (east/south exterior looking west) to P2
+The build starts with the user's station frame, then places the roadside fences,
+tactile paths and gates. Drag in the ticket-machine row before closing the
+concourse with glass fences. The low camera moves continuously from P1
+(east/south exterior looking west) to P2
 (west/south interior looking east). No roof; AC outdoors; retain indoor/outdoor
 separation. Drag continuous paving, railings and tactile paths; extend the same
 lift upward rather than placing separate shafts. The approved save currently
-has 1302 cells and 304 modules; these counts describe this revision, not a limit
+has 1303 cells and 309 modules; these counts describe this revision, not a limit
 on future user edits.
 
 ## Source of truth
@@ -49,14 +53,20 @@ on future user edits.
   not the delivered 23.5 seconds. Do not depend on clipboard screenshots remaining
   available: the numeric camera endpoints are committed here.
 - `authored-layout.mjs` reads the native save, groups consecutive runs, bundles
-  booth children/signs, separates the frame and sorts equipment east to west.
-  Tactile paths precede obstructing fences at the same east coordinate. It also
-  splits the two-stage lift demonstration and validates the exact replay.
+  booth children/signs, separates the frame and sorts the remaining equipment east to west.
+  It paves the full outside footprint in one drag and then restores the authored
+  lawn finishes. The roadside fences go first. Place the ticket-machine row
+  before the interior glass fencing to keep the native drag targets exposed.
+  The frame is silent and equipment cues follow actual placement.
 - `authored-shot.mjs` performs the build, real gestures and continuous camera.
   Do not copy new object positions into legacy `interior.mjs` or the old
   `demo-station-layout.json`; they are not the current authoring source.
 - `plan.mjs` owns durations/order; `capture.mjs`, `montage.mjs` and `views.mjs`
   own framing and native interactions. `fixtures.mjs` owns independent stages.
+  In `capture.mjs`, the exploded-view offsets are viewport-relative native
+  floor drags. Tianhe Park's demand shot waits for visible concourse passengers.
+  Re-record the five bridge takes together when changing their staging or pace.
+  The camera tracks the rendered nose and the next take starts at the prior cut.
 - `design.mjs` owns Studio layouts; copy stays in `web/src/i18n.js` under `video`.
   `audio.mjs` selects music; `media.mjs` composes picture and mixes audio.
 

@@ -11,6 +11,7 @@ import { command, encodeTake, editVideo, validateVideo } from './demo-video/medi
 import { renderGraphics } from './demo-video/design.mjs'
 import { ui } from '../web/src/i18n.js'
 import {exportDemoSave} from './demo-video/save.mjs'
+import {verifyBridgeCuts} from './demo-video/montage.mjs'
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 process.chdir(repo)
@@ -62,9 +63,9 @@ mkdirSync(resolve(output,'sources'),{recursive:true})
 writeFileSync(resolve(output,'sources',`${sourceHash}.json`),JSON.stringify({sourceHash,gitRevision,gameBuild,sources,settings},null,2))
 const takes = []
 let page, recorder, server
-async function captureOne(shot,directory,captureSettings,key,reuseStation=false){
+async function captureOne(shot,directory,captureSettings,key,reuseStation=false,bridgeStartX){
   mkdirSync(directory,{recursive:true})
-  const fixture=await prepareShot(page,shot,{...captureSettings,reuseStation})
+  const fixture=await prepareShot(page,shot,{...captureSettings,reuseStation,bridgeStartX})
   writeFileSync(resolve(directory,'fixture.json'),JSON.stringify(fixture,null,2))
   if(shot.station==='empty')writeFileSync(resolve(directory,'stage.json'),JSON.stringify(await page.evaluate('(()=>{const s=__metro.getState().station;return{name:s.name,nameEn:s.nameEn,seed:s.seed,storeyHeight:s.storeyHeight,levelBase:s.levelBase,cityStyle:s.cityStyle,cells:s.cells,modules:s.modules,lines:s.lines}})()'),null,2))
   await screenshot(page,resolve(directory,'before.png'),recorder,captureSettings)
@@ -135,7 +136,8 @@ try {
       const take = JSON.parse(readFileSync(metaPath, 'utf8'))
       if (take.seconds !== shot.seconds) throw new Error(`Take duration changed; recapture ${shot.id}`)
       if((take.playbackRate??1)!==shot.playbackRate||(take.fixture.stage??null)!==(shot.stage??null))throw Error(`Take stage/playback changed; recapture ${shot.id}`)
-      if(shot.simSpeed&&!take.events.some(e=>e.action==='platform-flythrough'&&e.simSpeed===shot.simSpeed))throw Error(`Simulation speed changed; recapture ${shot.id}`)
+      if(shot.simSpeed&&!take.events.some(e=>e.action==='tianhe-flythrough'&&e.simSpeed===shot.simSpeed&&e.level===shot.level))throw Error(`Fly-through settings changed; recapture ${shot.id}`)
+      if(shot.level!==undefined&&take.fixture.activeZ!==shot.level)throw Error(`Active level changed; recapture ${shot.id}`)
       if(shot.spin&&(take.fixture.orbit?.from!==shot.spin.from||take.fixture.orbit?.to!==shot.spin.to))throw Error(`Take camera arc changed; recapture ${shot.id}`)
       if(shot.panels&&JSON.stringify(take.panels?.map(p=>p.catalogueId))!==JSON.stringify(shot.panels.map(p=>p.catalogueId)))throw Error(`Paired models changed; recapture ${shot.id}`)
       if(take.settings.language!==settings.language||take.fixture.theme!==settings.theme||take.settings.width!==settings.width||take.settings.height!==settings.height)throw new Error(`Take language/theme/resolution changed; recapture ${shot.id}`)
@@ -143,7 +145,15 @@ try {
     }
     console.log(`Framing ${shot.id} (${shot.station}, ${shot.seconds}s)…`)
     const reuseStation=(previousShot?.stage==='city'&&shot.stage==='city')
-    const take=shot.panels?await capturePair(shot,directory,key):await captureOne(shot,directory,settings,key,reuseStation)
+    let bridgeStartX
+    if (shot.stage==='bridge' && shot.montageIndex>1) {
+      const predecessor = plan[plan.indexOf(shot)-1]
+      const priorFile = resolve(output,'takes',predecessor.id,'take.json')
+      const prior = takes.find(t=>t.id===predecessor.id) ?? (existsSync(priorFile) ? JSON.parse(readFileSync(priorFile,'utf8')) : null)
+      const cut = prior?.motion?.at(-1)
+      if (cut?.noseDistance) bridgeStartX = cut.target[0]
+    }
+    const take=shot.panels?await capturePair(shot,directory,key):await captureOne(shot,directory,settings,key,reuseStation,bridgeStartX)
     previousShot=shot
     if (has('stills')) { console.log(`Still: ${resolve(directory, 'before.png')}`); continue }
     takes.push(take)
@@ -154,6 +164,7 @@ try {
   if (server) await new Promise(r => server.close(r))
 }
 if (has('stills') || has('capture-only') || arg('scene', '')) process.exit(0)
+verifyBridgeCuts(takes)
 console.log('Editing picture and mixing music, ambience and action cues…')
 const final = await editVideo(output, plan, takes, settings)
 console.log('Checking delivery duration, codecs and audio levels…')

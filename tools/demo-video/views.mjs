@@ -1,6 +1,6 @@
 import {setTimeout as sleep} from 'node:timers/promises'
 
-const section = { anchor: [50,-108,-8], from: -4, to: 15, target: [55,-89,-7], camera: [6,-200,34] }
+const section = { anchor: [50,-120,-8], from: 0, to: 98, target: [55,-83,-7], camera: [6,-200,42] }
 
 export async function prepareExtraView(page,shot){
  if(shot.kind==='section')await page.evaluate(`(()=>{
@@ -20,11 +20,17 @@ export async function extraViewAction(page,shot,start){
  if(shot.kind==='section'){
   await page.evaluate(`(()=>{
    const start=performance.now(),duration=${shot.captureSeconds*1000},token=__videoMotionToken;
+   const scene=__scene,c=scene.cameraSys,position=c.camera.position.clone(),target=c.controls.target.clone();
    window.__videoMotionLog=[];
    function slide(now){
     if(token!==__videoMotionToken)return;
     const t=Math.max(0,Math.min(1,(now-start)/duration)),ease=t*t*(3-2*t),offset=${section.from}+${section.to-section.from}*ease;
-    __metro.getState().setSectionOffset(offset);__videoMotionLog.push({t,offset});
+    __metro.getState().setSectionOffset(offset);
+    const west=42*ease**2;
+    c.camera.position.set(position.x-west,position.y+offset*.82,position.z-7*ease);
+    c.controls.target.set(target.x-west,target.y+offset*.72,target.z);
+    c.controls.update();scene.requestRender();
+    __videoMotionLog.push({t,offset,camera:c.camera.position.toArray()});
     if(t<1)requestAnimationFrame(slide);
    }
    requestAnimationFrame(slide);
