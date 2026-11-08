@@ -92,6 +92,11 @@
 .benchmarkResultsPage { padding: 42px max(24px, calc((100vw - 1180px) / 2)); }
 .benchmarkResult { max-width: 1180px; margin: 0 auto; }
 .benchmarkResultHeader { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+/* The title block is free text (station name, then the long GPU/browser line), so
+   it takes the shrinking and the action keeps its label on one line: as a plain
+   flex item the action shrank and 再测一次 broke after 再测一. */
+.benchmarkResultHeader > div { min-width: 0; }
+.benchmarkResultHeader button { flex: 0 0 auto; white-space: nowrap; }
 .benchmarkResultHeader p { margin: 8px 0 0; color: #53616d; font-size: 16px; }
 .benchmarkMetricRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 28px 0 22px; }
 .benchmarkMetricRow > div { display: grid; gap: 7px; padding: 16px 18px; border: 1px solid #d9e0e5; border-radius: 10px; background: white; }

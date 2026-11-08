@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 
 const source = await readFile(new URL('../src/app/benchmark/BenchmarkRoute.tsx', import.meta.url), 'utf8')
+const styles = await readFile(new URL('../src/app/benchmark/benchmark.css', import.meta.url), 'utf8')
 
 test('the benchmark-selected graphics quality controls the renderer without changing the saved game preference', () => {
   const applyQuality = source.indexOf('useStore.setState({ graphicsQuality: quality, upscalingMode })')
@@ -14,4 +15,12 @@ test('the benchmark-selected graphics quality controls the renderer without chan
   assert.match(source, /upscalingMode, view, frames, arrivals, resources, stats/, 'results record the selected FSR mode and resource samples')
   assert.match(source, /'ultra', 'quality', 'balanced', 'performance', 'native'/, 'all four FSR modes and Off are selectable')
   assert.match(source, /benchmarkChoices benchmarkFsrModes/, 'FSR choices use one button row')
+})
+
+test('the result header action keeps its label on one line and the free-text title takes the shrinking', () => {
+  const header = styles.slice(styles.indexOf('.benchmarkResultHeader {'), styles.indexOf('.benchmarkResultHeader p {'))
+  assert.match(header, /> div \{ min-width: 0; \}/,
+    'the station name and long hardware line are what may shrink')
+  assert.match(header, /button \{ flex: 0 0 auto; white-space: nowrap; \}/,
+    '???? keeps its four characters on one line instead of breaking after ???')
 })
