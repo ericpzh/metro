@@ -11,7 +11,6 @@ import type { StateCreator } from 'zustand'
 import { emptyStation, REFERENCE_BOOT, referenceStation } from '../../../data/reference-station.ts'
 import type { ExampleStationId } from '../../../data/reference-station.ts'
 import {
-  cloneState,
   nearestLevel,
   toData,
   toState,
@@ -68,6 +67,7 @@ export interface StationSlice {
    * the 3D view draws as a light-blue line on the floor.
    */
   selected: { kind: 'cell' | 'module' | 'agent'; key: string; label: string } | null
+  /** Undo/redo frames for edits to the current station. A station switch clears both. */
   past: StationState[]
   future: StationState[]
   lab: boolean
@@ -126,12 +126,15 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
       set({ notice: r.error })
       return
     }
+    // Opening a file starts a new document, not an edit to the one that was open:
+    // its history does not survive the switch, so Ctrl+Z cannot bring back the
+    // previous station and there is no redo branch into this one.
     const previous = get().station
     const s = r.state
-    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: [], future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s))
-    // The retired document's derived indexes are rebuilt if undo brings it back;
-    // keeping them would hold one station-sized index set per history frame.
+    // The retired document is not on the new station's history, so release the
+    // station-sized derived indexes rather than keeping them alive with it.
     forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
     // A save that carried blocks off the 1 m grid (nothing in the game can mint one,
     // so they came from outside) is repaired by `toState` rather than refused — say
@@ -232,7 +235,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
   newStation: () => {
     const previous = get().station
     const s = toState(emptyStation())
-    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
+    set({ station: s, past: [], future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: s.levelBase, selected: null, moveDraft: null })
     loadSim(toData(s))
     forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
   },
@@ -242,7 +245,7 @@ export const createStationSlice: StateCreator<AppState, [], [], StationSlice> = 
     const repaired = toStateRepairing(referenceStation(id))
     const previous = get().station
     const s = repaired.state
-    set({ station: s, past: pushPast(get().past, cloneState(previous)), future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
+    set({ station: s, past: [], future: [], version: get().version + 1, geometryVersion: get().geometryVersion + 1, stationEpoch: get().stationEpoch + 1, activeZ: openingLevel(s), selected: null, moveDraft: null })
     loadSim(toData(s), REFERENCE_BOOT)
     forgetDocumentCaches(previous.cells, previous.modules, s.cells, s.modules)
     if (repaired.droppedCells + repaired.droppedModules > 0) {

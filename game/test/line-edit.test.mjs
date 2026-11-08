@@ -12,7 +12,9 @@
 //
 // `app/store/slices/StationSlice.ts` is the same story for the document itself —
 // 新建 / 打开示例车站 / 打开存档 (`newStation`, `loadReference`, `loadFromText`) and the
-// undo stack every edit pushes onto. `pushPast` keeps the last forty frames and
+// undo stack every edit pushes onto. A station switch replaces the document, so it
+// clears both history directions: no Ctrl+Z back into the previous station and no
+// redo branch into the opened one. `pushPast` keeps the last forty edit frames and
 // always drops the *oldest*, never the newest, or the last Ctrl+Z would land
 // somewhere the player has never been. Frames share the document's immutable
 // records, so a 14 000-cell demo keeps the same depth as a 2 × 2 slab.
@@ -617,8 +619,14 @@ test('a commit releases the retired document indexes and undo rebuilds them', ()
 })
 
 /* ------------------------------------------------- 新建 / 打开 / 改名 / 存档 */
-test('newStation opens an empty 未命名车站 and keeps the station that was open one Ctrl+Z away', () => {
+test('newStation opens an empty 未命名车站 and starts a fresh history', () => {
   load(twoLines(), { activeZ: -8 })
+  // Seed both sides of the history: a rename to undo, then undo it to leave a
+  // redo branch. Neither may survive the replacement.
+  st().renameStation('旧站')
+  st().undo()
+  assert.equal(st().past.length, 0)
+  assert.equal(st().future.length, 1)
   const before = workerInbox.length
   st().newStation()
   assert.equal(st().station.name, '未命名车站')
@@ -632,15 +640,17 @@ test('newStation opens an empty 未命名车站 and keeps the station that was o
   assert.equal(st().activeZ, 0, 'and the view comes up to grade')
   assert.equal(st().selected, null)
   assert.equal(st().notice, null, '新建 says nothing: the empty canvas is the message')
-  assert.equal(st().past.length, 1, 'the station that was open is one Ctrl+Z away')
-  assert.deepEqual(st().future, [], 'and there is no redo branch')
+  assert.equal(st().past.length, 0, '新建 starts a fresh history')
+  assert.deepEqual(st().future, [], 'and does not carry a redo branch across the switch')
   const boot = workerInbox[before]
   assert.equal(boot.type, 'init', 'a station switch re-initialises the worker rather than rebuilding into it')
   assert.deepEqual(boot.data.cells, [])
   assert.equal(boot.seed, 7654321)
   assert.equal(boot.playing, false, 'a new station opens paused')
   st().undo()
-  assert.deepEqual(st().station.lines.map((l) => l.id), ['1', '2'], 'Ctrl+Z brings the old document back')
+  assert.equal(st().station.name, '未命名车站', 'Ctrl+Z cannot bring the replaced station back')
+  st().redo()
+  assert.equal(st().station.name, '未命名车站', 'and there is no redo into it')
 })
 
 test('loadReference opens the shipped 动物园 demo un-repaired, at its own boot time', () => {  load({ name: '线路测试', seed: 7, cells: floorRow(0, 1, 0), modules: [], lines: [] })
@@ -655,7 +665,12 @@ test('loadReference opens the shipped 动物园 demo un-repaired, at its own boo
   assert.equal(st().activeZ, -20, 'it opens on the deepest built level, like a regular station')
   assert.equal(st().selected, null)
   assert.equal(st().notice, null, 'nothing was dropped, so there is no 修复 toast')
-  assert.equal(st().past.length, 1, 'the station that was open is one Ctrl+Z away')
+  assert.equal(st().past.length, 0, 'opening an example starts a fresh history')
+  assert.deepEqual(st().future, [], 'and carries no redo branch across the switch')
+  st().undo()
+  assert.equal(st().station.name, '动物园', 'Ctrl+Z cannot reopen the station the example replaced')
+  st().redo()
+  assert.equal(st().station.name, '动物园', 'and there is no redo into it')
   const boot = workerInbox[before]
   assert.equal(boot.type, 'init')
   assert.equal(boot.startSeconds, REFERENCE_BOOT.startSeconds, 'the demo boots at 06:30, the service opening — the same clock a fresh load gets')
@@ -667,8 +682,13 @@ test('loadReference opens the shipped 动物园 demo un-repaired, at its own boo
   assert.equal(st().activeZ, -20, 'the same document opened as a save lands on the same level')
 })
 
-test('Tanwei loads both authored lines, resets the view, and preserves undo across demo switches', () => {
+test('Tanwei loads both authored lines, resets the view, and starts a fresh history', () => {
   st().loadReference()
+  // Leave an edit behind and a redo branch ahead: switching demos must clear both.
+  st().renameStation('动物园改名')
+  st().undo()
+  assert.equal(st().past.length, 0)
+  assert.equal(st().future.length, 1)
   const epoch = st().stationEpoch
   const before = workerInbox.length
   const expected = referenceStation('tanwei')
@@ -681,13 +701,15 @@ test('Tanwei loads both authored lines, resets the view, and preserves undo acro
   assert.equal(st().stationEpoch, epoch + 1)
   assert.equal(st().selected, null)
   assert.equal(st().moveDraft, null)
+  assert.equal(st().past.length, 0, 'switching demos starts a fresh history')
+  assert.deepEqual(st().future, [], 'and drops the redo branch')
   assert.equal(workerInbox[before].type, 'init')
   assert.equal(workerInbox[before].warmup, 0)
   assert.equal(workerInbox[before].startSeconds, REFERENCE_BOOT.startSeconds)
   st().undo()
-  assert.equal(st().station.name, '动物园')
+  assert.equal(st().station.name, '坦尾', 'Ctrl+Z cannot reopen the previous demo')
   st().redo()
-  assert.equal(st().station.name, '坦尾')
+  assert.equal(st().station.name, '坦尾', 'and there is no redo into it')
   expected.cells.length = 0
   assert.ok(referenceStation('tanwei').cells.length > 0, 'edits cannot mutate the shipped document')
 })
@@ -769,8 +791,12 @@ test('saveToFile writes the live document, and loadFromText opens it back with t
   assert.equal(doc.static.cells.length, 2)
   assert.deepEqual(doc.static.lines.map((l) => l.id), ['1'], 'the lines travel with the cells')
 
-  // Open it into a different station: what was open goes onto the undo stack.
+  // Open it into a different station: what was open is not an undo step, and a
+  // pending redo branch does not survive either.
   load({ name: '别的车站', seed: 1, cells: [], modules: [], lines: [] })
+  st().renameStation('别的车站改名')
+  st().undo()
+  assert.equal(st().future.length, 1, 'a redo branch is pending before the load')
   st().setNotice('旧的提示')
   st().loadFromText(text)
   assert.equal(st().station.name, '存档测试')
@@ -778,8 +804,12 @@ test('saveToFile writes the live document, and loadFromText opens it back with t
   assert.deepEqual(st().station.lines.map((l) => l.id), ['1'])
   assert.equal(st().notice, '已打开（存档 v1）', 'the load replaces an earlier toast, and says which version it read')
   assert.equal(st().selected, null, 'nothing stays selected across a load')
-  assert.equal(st().past.length, 1, 'the station that was open is one Ctrl+Z away')
+  assert.equal(st().past.length, 0, 'opening a save starts a fresh history')
   assert.deepEqual(st().future, [], 'and a load drops the redo branch')
+  st().undo()
+  assert.equal(st().station.name, '存档测试', 'Ctrl+Z cannot reopen the station the save replaced')
+  st().redo()
+  assert.equal(st().station.name, '存档测试', 'and there is no redo into it')
 
   // `parse` accepts any string as a name, so a save can arrive carrying an empty
   // one: the download falls back to `station.metro.json` rather than `.metro.json`.

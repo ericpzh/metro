@@ -76,7 +76,8 @@ stair blocks, wall column erase and stair-block move.
 
 Structural tool-index comparisons also cover generated holes, expanded/shrunk street
 windows, duplicate records and above/below floor dependencies. `line-edit` pins exact
-immutable structural history through repeated undo/redo. `batching-lifecycle` checks
+immutable structural history through repeated undo/redo, and that every station
+switch clears both history directions. `batching-lifecycle` checks
 replacement/deletion/reordering against fresh batches and zero remote geometry reads;
 `cut-clipping` checks retained roots, new materials and plane/view invalidation.
 `builder-attributes` guards inactive action rows against live store subscriptions

@@ -3491,7 +3491,9 @@ handrail returns with one continuous pane, in every width and every rotation/tra
   and the station paths — 新建车站 asks for confirmation from both the top-bar button and Ctrl+N,
   with a reminder to save anything to keep (`new-station-confirmation.test.mjs`); 示例车站 (with the 打开 notice when a load had to be repaired), a
   rename that trims and never commits twice, and a save written and opened back — land on the document
-  and the notice they say they do, while a save that cannot be trusted is refused whole.
+  and the notice they say they do, while a save that cannot be trusted is refused whole. Every
+  station switch (新建 / 示例车站 / 打开存档) clears undo and redo, so Ctrl+Z cannot bring
+  the replaced station back.
 * `topbar-report-issue.test.mjs` and `report-issue-route.test.mjs` — the top bar's `FaBug`
   action opens the public stats report board between restart and the language switch, follows
   the active locale to `/stats/report` or `/stats/en/report`, uses the local stats Worker in
