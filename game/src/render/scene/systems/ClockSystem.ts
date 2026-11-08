@@ -1,15 +1,14 @@
-// ClockSystem — the station clocks' hands (时钟), turning on the simulation's own time.
-//
-// The dial is **geometry, not a printed plate** (`render/models/pieces/ClockModel.ts`), so
-// there is no canvas to repaint when the time moves: the piece hands this system one pivot
-// per hand and the system turns them. Nothing else in the scene reads the clock, so there is
-// nothing here to keep in step with — `clockHandAngles` is the derivation the 信息栏's clock
-// card, the 电视 plate and the crowd's demand already read, and the hands are the fourth
-// drawing of it.
+// Drive analogue hands and digital displays from the same interpolated station time.
 
 import { reposeClockHands } from '../../models.ts'
 import type { ClockRig } from '../../models.ts'
+import type { SimCalendar } from '../../../sim/clock.ts'
 import { SceneSystem } from './SceneSystem.ts'
+
+function updateRig(rig: ClockRig, seconds: number, calendar?: SimCalendar): void {
+  if (rig.updateDisplay) rig.updateDisplay(seconds, calendar)
+  else reposeClockHands(rig, seconds)
+}
 
 /**
  * How far the sim clock may advance between two snapshots and still be **swept** rather than
@@ -77,7 +76,8 @@ export class ClockSystem extends SceneSystem {
     if (!this.have || (this.clockRigs.length === 0 && this.previewRigs.length === 0)) return
     const alpha = Math.min(1, Math.max(0, (now - this.ctx.lastStateTime) / this.ctx.stateIntervalMs))
     const seconds = this.from + (this.to - this.from) * alpha
-    for (const rig of this.clockRigs) reposeClockHands(rig, seconds)
-    for (const rig of this.previewRigs) reposeClockHands(rig, seconds)
+    const calendar = this.ctx.stationData?.calendar
+    for (const rig of this.clockRigs) updateRig(rig, seconds, calendar)
+    for (const rig of this.previewRigs) updateRig(rig, seconds, calendar)
   }
 }

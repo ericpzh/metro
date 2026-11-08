@@ -180,6 +180,7 @@ Tactile trim inventory: `BENCH_OUTPUT=.preview/perf/tactile-strip/report.json IN
 | fence | 26 | 360 |
 | bench-office-1 | 16 | 360 |
 | checkout-generic/4m | 28 | 352 |
+| clock-digital | 28 | 352 |
 | door-steel-1 | 20 | 324 |
 | door-glass-1 | 18 | 324 |
 | checkout-generic/3m | 28 | 304 |

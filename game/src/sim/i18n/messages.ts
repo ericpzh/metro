@@ -1106,6 +1106,14 @@ export const messages = {
     "zh": "时钟",
     "en": "Clock"
   },
+  "analogue_clock": {
+    "zh": "指针时钟",
+    "en": "Analogue clock"
+  },
+  "digital_clock": {
+    "zh": "数字时钟",
+    "en": "Digital clock"
+  },
   "bullet_camera": {
     "zh": "枪机",
     "en": "Bullet camera"

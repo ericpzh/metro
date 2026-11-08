@@ -271,12 +271,9 @@ function createModuleRaw(
     case 'light-rectangular':
       return { id, type: 'light', x, y, z, rot, cfg: { variant: type === 'light-rectangular' ? 'rectangular' : 'circular' } };
     case 'clock':
-      // A station clock (时钟): no variant, no `cfg` —
-      // the clock is round, so its rotation is purely cosmetic, and the camera's
-      // rotation is the direction it watches. Unlike the bin and the cabinet these
-      // two hang from the ceiling rather than standing on the floor
-      // (`ceilingMountMissing`, `sim/placement.ts`).
       return { id, type: 'clock', x, y, z, rot, cfg: {} };
+    case 'clock-digital':
+      return { id, type: 'clock', x, y, z, rot, cfg: { variant: 'digital' } };
     case 'cctv':
     case 'cctv-ptz':
     case 'cctv-dome':

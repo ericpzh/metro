@@ -204,6 +204,11 @@
       "bytes": 4706
     },
     {
+      "id": "clock-digital",
+      "file": "clock-digital.png",
+      "bytes": 6568
+    },
+    {
       "id": "court-badminton",
       "file": "court-badminton.png",
       "bytes": 3044

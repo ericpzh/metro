@@ -24,7 +24,7 @@ export function placementSurface(
   }
   const type = typeof piece === 'string' ? piece : piece.type
   if (host.type !== 'hanger' || !isCeilingHung(typeof piece === 'string' ? { type } : piece)
-    || !['tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'sign', 'sign-ceiling'].includes(type)) return hit
+    || !['tv', 'clock', 'clock-digital', 'cctv', 'cctv-ptz', 'cctv-dome', 'sign', 'sign-ceiling'].includes(type)) return hit
   const cell: [number, number, number] = [Math.floor(hit.point[0]), Math.floor(hit.point[1]), host.z]
   return { ...hit, cell, place: [cell[0], cell[1], cell[2] + 1] }
 }

@@ -86,6 +86,7 @@ export interface ModelMaterials {
   /** Broad satin stainless panels; subtle grain under the station light rig. */
   binSteel: THREE.MeshStandardMaterial
   darkSteel: THREE.MeshStandardMaterial
+  clockDisplay: THREE.MeshBasicMaterial
   black: THREE.MeshStandardMaterial
   rubber: THREE.MeshStandardMaterial
   gateRed: THREE.MeshStandardMaterial
@@ -642,6 +643,7 @@ export function createModelMaterials(): ModelMaterials {
     treeLeaves: new THREE.MeshStandardMaterial({ map: treeLeafMap, color: 0xb7cf99, alphaTest: .5, side: THREE.DoubleSide, roughness: 1 }),
     steel,
     darkSteel: new THREE.MeshStandardMaterial({ color: C.darkSteel, roughness: 0.55, metalness: 0.4 }),
+    clockDisplay: new THREE.MeshBasicMaterial({ map: canvasTexture(384, 152, () => {}), toneMapped: false }),
     black: new THREE.MeshStandardMaterial({ color: C.black, roughness: 0.6, metalness: 0.2 }),
     rubber: new THREE.MeshStandardMaterial({ color: C.rubber, roughness: 0.8, metalness: 0.05 }),
     gateRed: new THREE.MeshStandardMaterial({ color: C.gateRed, roughness: 0.35, metalness: 0.1, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),

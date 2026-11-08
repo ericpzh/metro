@@ -753,18 +753,6 @@ export type Module =
    * An absent variant keeps the original steel box. Free-standing and rotatable.
    */
   | (ModuleBase & { type: 'extinguisher'; cfg: { variant?: ExtinguisherVariant } })
-  /**
-   * A station clock (时钟, 装饰): the white-faced analogue clock of the reference,
-   * hung by a rod from the storey ceiling. The dial is a **round** cylinder — face
-   * down, so the hall below reads it — in a dark bezel ring, with black hour
-   * markers and hands and no numerals or branding anywhere on it, which is what the
-   * reference face shows: marks alone.
-   *
-   * It is ceiling-mounted (`ceilingMountMissing`), not fixed to a wall and not
-   * standing on the floor, and purely cosmetic like every other 装饰 piece. `rot`
-   * is meaningless to a round dial and is kept only so it turns with every other
-   * piece.
-   */
   | (ModuleBase & { type: 'court'; cfg: { variant: 'pickleball' | 'badminton' | 'divider' } })
   | (ModuleBase & { type: 'ac-unit'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'electrical-cabinet'; cfg: Record<string, never> })
@@ -772,7 +760,8 @@ export type Module =
   | (ModuleBase & { type: 'floor-mark'; cfg: { variant: 'boarding' | 'waiting' | 'direction'; line?: string; edgeId?: string; offset?: { x: number; y: number } } })
   | (ModuleBase & { type: 'vent'; cfg: Record<string, never> })
   | (ModuleBase & { type: 'light'; cfg: { variant: 'circular' | 'rectangular'; position?: number } })
-  | (ModuleBase & { type: 'clock'; cfg: Record<string, never> })
+  /** Double-faced ceiling clock. Omitted variant is the original analogue dial. */
+  | (ModuleBase & { type: 'clock'; cfg: { variant?: 'digital' } })
   /**
    * A ceiling camera (监控, 装饰): the bracket-and-swivel housing of the reference,
    * a rounded white housing with a central dark optical panel, IR ring and curved sun hood,

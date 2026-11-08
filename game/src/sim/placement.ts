@@ -861,7 +861,7 @@ const WALL_MOUNTED: ReadonlySet<string> = new Set(['billboard', 'glass', 'callig
  * behind one type, so `isCeilingHung` answers a sign (and the bare `sign-ceiling` id)
  * from `cfg.mount` before this lookup.
  */
-const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome', 'light', 'light-circular', 'light-rectangular', 'vent'])
+const CEILING_MOUNTED: ReadonlySet<string> = new Set(['tv', 'clock', 'clock-digital', 'cctv', 'cctv-ptz', 'cctv-dome', 'light', 'light-circular', 'light-rectangular', 'vent'])
 
 /**
  * True when a piece is bolted flat to a wall. Every wall-mounted type is, except

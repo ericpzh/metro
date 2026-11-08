@@ -222,6 +222,7 @@ function viewDir(id: string): THREE.Vector3 {
   // below the piece. A 监控 reads from the front and slightly below, where its lens
   // and hood are.
   if (id === 'clock') return CLOCK
+  if (id === 'clock-digital') return new THREE.Vector3(0.25, -1, 0.18)
   if (id === 'cctv-post') return ISO
   if (id === 'cctv' || id.startsWith('cctv-')) return CCTV
   if (id === 'vent' || id.startsWith('light-')) return CEILING
@@ -361,6 +362,8 @@ function sampleModule(id: string, station: StationData): Module | null {
       return { id, type: 'light', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: id === 'light-rectangular' ? 'rectangular' : 'circular' } }
     case 'clock':
       return { id, type: 'clock', x: 0, y: 0, z: 0, rot: 0, cfg: {} }
+    case 'clock-digital':
+      return { id, type: 'clock', x: 0, y: 0, z: 0, rot: 0, cfg: { variant: 'digital' } }
     case 'cctv':
     case 'cctv-ptz':
     case 'cctv-dome':

@@ -24,7 +24,7 @@ export type DecorCategory = 'ceiling' | 'wall' | 'floor' | 'outside'
 /** Palette ids grouped by where the player mounts or places the decor. */
 const DECOR_CATEGORY_IDS: Record<DecorCategory, ReadonlySet<string>> = {
   ceiling: new Set([
-    'hanger-roof', 'monitor-ceiling', 'tv', 'tv-double', 'clock', 'cctv', 'cctv-ptz', 'cctv-dome',
+    'hanger-roof', 'monitor-ceiling', 'tv', 'tv-double', 'clock', 'clock-digital', 'cctv', 'cctv-ptz', 'cctv-dome',
     'light-circular', 'light-rectangular', 'vent', 'sign-ceiling',
   ]),
   wall: new Set([
@@ -122,6 +122,7 @@ export const MODULE_OPTIONS: ModuleOption[] = [
   { id: 'light-circular', label: msg('round'), type: 'light', w: 1, h: 1 },
   { id: 'light-rectangular', label: msg('strip'), type: 'light', w: 1, h: 1 },
   { id: 'clock', label: msg('clock'), type: 'clock', w: 1, h: 1 },
+  { id: 'clock-digital', label: msg('digital_clock'), type: 'clock', w: 1, h: 1 },
   { id: 'cctv', label: msg('bullet_camera'), type: 'cctv', w: 1, h: 1 },
   { id: 'cctv-ptz', label: msg('ptz_camera'), type: 'cctv', w: 1, h: 1 },
   { id: 'cctv-post', label: msg('post_camera'), type: 'cctv', w: 1, h: 1 },
@@ -283,7 +284,7 @@ export function isDecorType(type: string): boolean {
     type === 'extinguisher' || type.startsWith('extinguisher-') ||
     (type === 'light' || type.startsWith('light-')) ||
     type === 'vent' ||
-    type === 'clock' ||
+    isClockType(type) ||
     (type === 'cctv' || type.startsWith('cctv-')) ||
     isSignType(type) ||
     isBillboardType(type) ||
@@ -480,7 +481,7 @@ export function isRotatableType(type: string): boolean {
  * Pure data and predicates — no React, no DOM — so `test/rail-families.test.mjs` can
  * prove the four halves agree for every family, in Node.
  */
-export type ModuleFamilyKey = 'court' | 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'checkout' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
+export type ModuleFamilyKey = 'court' | 'monitor' | 'gate' | 'fence' | 'noise-barrier' | 'hanger' | 'clock' | 'cctv' | 'tactile' | 'floor-mark' | 'busstop' | 'light' | 'roof' | 'pillar' | 'stair' | 'exit' | 'bench' | 'shelf' | 'checkout' | 'cubicle' | 'extinguisher' | 'billboard' | 'glass' | 'door' | 'calligraphy' | 'linemap' | 'sign' | 'psd-end' | 'tv'
 
 /** Which folder a family's parent tile and its variants live in. */
 /** `rail` is the internal key of the player-facing 结构 folder. */
@@ -505,10 +506,15 @@ export interface ModuleFamily {
   tileLabel?: (option: ModuleOption) => string
 }
 
+function isClockType(id: string): boolean {
+  return id === 'clock' || id === 'clock-digital'
+}
+
 /** The family a palette id belongs to, or null for a piece that is its own tile. */
 const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) => boolean }> = [
   { key: 'court', owns: id => id === 'court' || id.startsWith('court-') },
   { key: 'tv', owns: (id) => id === 'tv' || id === 'tv-double' },
+  { key: 'clock', owns: isClockType },
   { key: 'monitor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'extinguisher', owns: (id) => id === 'extinguisher' || id.startsWith('extinguisher-') },
   { key: 'gate', owns: isGateType },
@@ -545,6 +551,7 @@ const FAMILY_OWNERS: ReadonlyArray<{ key: ModuleFamilyKey; owns: (id: string) =>
 export const MODULE_FAMILIES: readonly ModuleFamily[] = [
   { key: 'court', label: msg('ballfield'), folder: 'decor', owns: id => id === 'court' || id.startsWith('court-') },
   { key: 'tv', label: msg('tv'), folder: 'decor', owns: (id) => id === 'tv' || id === 'tv-double' },
+  { key: 'clock', label: msg('clock'), folder: 'decor', owns: isClockType, tileLabel: (option) => option.id === 'clock' ? msg('analogue_clock') : option.label },
   { key: 'monitor', label: msg('monitor'), folder: 'decor', owns: (id) => id === 'monitor' || id.startsWith('monitor-') },
   { key: 'gate', label: msg('fare_gate'), folder: 'equipment', owns: isGateType },
   { key: 'fence', label: msg('fence'), folder: 'equipment', owns: isStandardFenceType },
@@ -687,7 +694,7 @@ const RAIL_ORDER: Record<ModuleFolder, readonly string[]> = {
     'curtain-wall',
     'bin',
     familyAnchor('extinguisher'),
-    'clock',
+    familyAnchor('clock'),
     familyAnchor('cctv'),
     familyAnchor('shelf'),
     familyAnchor('checkout'),

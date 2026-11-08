@@ -29,6 +29,8 @@ import {
 import { createModule } from '../src/build/model.ts'
 import { parse, serialize } from '../src/persistence/save.ts'
 import { MODULE_OPTIONS, isDecorType, moduleLabel } from '../src/app/store.ts'
+import { paletteIdForModule } from '../src/app/tools/PickTool.ts'
+import { hangerSupports } from '../src/sim/hangers.ts'
 import { sameSweepFamily, sweepFamily } from '../src/app/sweep.ts'
 import { moduleGhostKey } from '../src/render/moduleGhostKey.ts'
 import { pickCells } from '../src/render/pickCell.ts'
@@ -120,6 +122,7 @@ test('the factory builds both pieces with the hover rotation', () => {
 test('the palette files both under 装饰, with their Chinese labels', () => {
   for (const [id, label] of [
     ['clock', '时钟'],
+    ['clock-digital', '数字时钟'],
     ['cctv', '枪机'],
     ['cctv-ptz', '球机'],
     ['cctv-dome', '半球机'],
@@ -303,8 +306,8 @@ test('a drag sweep collects a run of either piece, and nothing else', () => {
  * Neither builder draws to a canvas at build time, so there is no DOM and no
  * station behind this.
  */
-function build(mod) {
-  const mats = new Proxy({}, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
+function build(mod, materials = {}) {
+  const mats = new Proxy(materials, { get: (t, k) => (t[k] ??= new THREE.MeshStandardMaterial({ name: String(k) })) })
   const data = { name: 't', seed: 1, cells: [], modules: [], lines: [] }
   const group = buildModule(mod, { mats, data, trackCells: new Set(), finish: () => mats.steel, preview: false })
   const meshes = []
@@ -316,6 +319,63 @@ function build(mod) {
   const box = new THREE.Box3().setFromObject(group).translate(new THREE.Vector3(-0.5, -0.5, -1))
   return { mats, meshes, box, root: group }
 }
+
+test('the digital clock round-trips its variant and lines up both rods on a hanger', () => {
+  const digital = createModule('clock-digital', 2, 2, 0, 'digital', 0)
+  const hanger = createModule('hanger-roof', 2, 2, 0, 'beam', 0)
+  const station = { ...flatStation([ceilingAt(2, 2)]), modules: [digital] }
+  assert.deepEqual(parse(serialize(station)).state.modules, [digital])
+  assert.equal(paletteIdForModule(digital), 'clock-digital')
+  assert.equal(sameSweepFamily(digital, clock(2, 2)), false)
+  assert.notEqual(moduleGhostKey(digital), moduleGhostKey(clock(2, 2)))
+  assert.equal(hangerSupports(hanger, digital), true)
+  assert.equal(hangerSupports(hanger, { ...digital, rot: 1 }), false)
+})
+
+test('both digital faces share the upright time, date and weekday through midnight', () => {
+  const segments = [], text = []
+  const ink = {
+    fillRect: (...rect) => { if (ink.fillStyle === '#ff3424') segments.push(rect) },
+    fillText: (run) => text.push(run),
+    measureText: (run) => ({ width: run.length * 16 }),
+    save() {}, restore() {}, translate() {}, scale() {},
+  }
+  const map = new THREE.CanvasTexture({ getContext: () => ink })
+  const clockDisplay = new THREE.MeshBasicMaterial({ map })
+  const digital = createModule('clock-digital', 0, 0, 0, 'digital', 0)
+  const { meshes, root } = build(digital, { clockDisplay })
+  const faces = meshes.filter(mesh => mesh.material === clockDisplay)
+  assert.equal(faces.length, 2)
+  for (const [index, face] of faces.entries()) {
+    const sign = index === 0 ? 1 : -1
+    const rotation = face.getWorldQuaternion(new THREE.Quaternion())
+    assert.ok(new THREE.Vector3(1, 0, 0).applyQuaternion(rotation).distanceTo(new THREE.Vector3(sign, 0, 0)) < 1e-6)
+    assert.ok(new THREE.Vector3(0, 1, 0).applyQuaternion(rotation).distanceTo(new THREE.Vector3(0, 0, 1)) < 1e-6)
+    const center = face.getWorldPosition(new THREE.Vector3())
+    const ray = new THREE.Raycaster(center.clone().add(new THREE.Vector3(0, -sign, 0)), new THREE.Vector3(0, sign, 0))
+    assert.equal(ray.intersectObject(root)[0]?.object, face, 'display is visible in front of the housing')
+  }
+  const ctx = new SceneContextData()
+  ctx.stationData = { ...flatStation(), calendar: { epoch: { year: 2026, month: 10, day: 16 }, holidays: [] } }
+  const clocks = new ClockSystem(ctx)
+  clocks.clockRigs.push(root.userData.clockRig)
+  clocks.previewRigs.push(build(digital, { clockDisplay }).root.userData.clockRig)
+  segments.length = 0
+  text.length = 0
+  clocks.setSimTime(23 * 3600 + 59 * 60 + 59)
+  clocks.updateClocks(0)
+  assert.deepEqual(text, ['2026', '年 ', '10', '月 ', '16', '日 星期', '五'])
+  assert.equal(segments.filter(([x]) => x < 80).length, 5, '23:59:59 starts with a 2')
+  const unchanged = map.version
+  clocks.updateClocks(100)
+  assert.equal(map.version, unchanged, 'the same second does not repaint the shared face')
+  segments.length = 0
+  text.length = 0
+  clocks.setSimTime(24 * 3600)
+  clocks.updateClocks(1000)
+  assert.equal(segments.length, 6 * 6 + 4, 'midnight draws six zeroes and both colons once')
+  assert.deepEqual(text, ['2026', '年 ', '10', '月 ', '17', '日 星期', '六'])
+})
 
 test('camera variants keep their shape through save, ghost refresh and same-variant sweep', () => {
   const pieces = ['cctv', 'cctv-ptz', 'cctv-dome', 'cctv-post'].map((id) => createModule(id, 2, 2, 0, id, 3))

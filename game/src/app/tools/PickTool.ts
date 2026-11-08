@@ -158,6 +158,9 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'checkout':
       id = counterPaletteId(mod.cfg.variant)
       break
+    case 'clock':
+      id = mod.cfg?.variant === 'digital' ? 'clock-digital' : 'clock'
+      break
     case 'guidepost':
     case 'tvm':
     case 'vending':
@@ -166,7 +169,6 @@ export function paletteIdForModule(mod: Module): string | null {
     case 'sink':
     case 'bin':
     case 'vent':
-    case 'clock':
     case 'sidewalk':
     case 'lawn':
     case 'tree':

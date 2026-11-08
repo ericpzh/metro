@@ -11,6 +11,8 @@ export const HANGER_BAR_TOP = 4
 export const HANGER_POST_BAR_TOP = 3
 export const HANGER_BAR_DEPTH = 0.2
 export const HANGER_POST_WIDTH = 0.18
+export const DIGITAL_CLOCK_ROD_OFFSET = 0.32
+export const DIGITAL_CLOCK_MOUNT_WIDTH = 0.09
 // The post meets the rear of the bar, leaving the hanging panels clear of its shaft.
 export const HANGER_POST_OFFSET = 0.17
 export const HANGER_LENGTH_LABELS = [msg('short'), msg('medium'), msg('long')] as const
@@ -73,11 +75,12 @@ export function hangerSupports(hanger: Module, item: Module): boolean {
   if (hanger.type !== 'hanger' || hanger.z !== item.z) return false
   if (item.type !== 'tv' && item.type !== 'clock' && item.type !== 'cctv' && !(item.type === 'sign' && item.cfg.mount !== 'wall')) return false
   if (!hangerCells(hanger).some(([x, y]) => x === item.x && y === item.y)) return false
-  // A sign/TV uses two suspension rods across its face; keep both on the bar.
-  if (item.type !== 'clock' && ((item.rot ?? 0) - (hanger.rot ?? 0)) % 2 !== 0) return false
+  // The analogue clock's centre rod stays on the bar in every rotation.
+  const centredClock = item.type === 'clock' && item.cfg?.variant !== 'digital'
+  if (!centredClock && ((item.rot ?? 0) - (hanger.rot ?? 0)) % 2 !== 0) return false
   const [along] = rotateLocal(-(hanger.rot ?? 0), item.x - hanger.x, item.y - hanger.y)
   if (item.type === 'cctv' && item.cfg.variant === 'post') return false
-  const rodHalf = item.type === 'sign' ? Math.max(0.22, signBoardsPanel(signBoardsOf(item.cfg)).w / 2 - 0.35) + 0.08 : item.type === 'tv' ? 0.5 : item.type === 'cctv' ? 0.18 : 0.075
+  const rodHalf = item.type === 'sign' ? Math.max(0.22, signBoardsPanel(signBoardsOf(item.cfg)).w / 2 - 0.35) + 0.08 : item.type === 'tv' ? 0.5 : item.type === 'cctv' ? 0.18 : centredClock ? 0.075 : DIGITAL_CLOCK_ROD_OFFSET + DIGITAL_CLOCK_MOUNT_WIDTH / 2
   return along + 0.5 - rodHalf >= 0 && along + 0.5 + rodHalf <= hanger.w
 }
 

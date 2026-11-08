@@ -1,12 +1,16 @@
 // Station clock (时钟) builder. Lane E split of render/models.ts: moved verbatim, see PieceBuilder.ts.
 
 import * as THREE from 'three'
-import { PieceBuilder, slab, placeLocal } from '../PieceBuilder.ts'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
+import { PieceBuilder, plate, slab, placeLocal } from '../PieceBuilder.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
-import { clockHandAngles } from '../../../sim/clock.ts'
+import { clockHandAngles, clockTextOf, dayAt } from '../../../sim/clock.ts'
+import type { SimCalendar } from '../../../sim/clock.ts'
+import { SIM_DAY, timeOfDayOf } from '../../../sim/constants.ts'
+import { DIGITAL_CLOCK_MOUNT_WIDTH, DIGITAL_CLOCK_ROD_OFFSET } from '../../../sim/hangers.ts'
 import { hangCeilingLocal } from '../../../sim/placement.ts'
 import type { Module } from '../../../sim/types.ts'
-import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
+import { omitModelDetail, setModelDetail, tubeModelDetail } from '../../modelDetail.ts'
 
 /* ------------------------------------------------------ ceiling decoration */
 
@@ -33,6 +37,7 @@ export const CLOCK_POSE_SECONDS = 10 * 3600 + 9 * 60
 export interface ClockRig {
   hour: THREE.Object3D[]
   minute: THREE.Object3D[]
+  updateDisplay?: (seconds: number, calendar?: SimCalendar) => void
 }
 
 /**
@@ -272,10 +277,123 @@ function buildClock(mats: ModelMaterials, ceiling = 3): THREE.Group {
   return g
 }
 
+// Top, upper right, lower right, bottom, lower left, upper left, middle.
+const LED_SEGMENTS = [
+  [0, -34, 22, 5], [13, -17, 5, 26], [13, 17, 5, 26],
+  [0, 34, 22, 5], [-13, 17, 5, 26], [-13, -17, 5, 26], [0, 0, 22, 5],
+]
+const LED_DIGITS = [0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f]
+const LED_DIGIT_X = [61, 105, 170, 214, 279, 323]
+const CLOCK_LED_COLOR = '#ff3424'
+const WEEKDAY_INK = '日一二三四五六'
+
+interface DigitalClockState {
+  second?: number
+  day?: number
+  calendar?: SimCalendar
+}
+
+// The material kit owns one face texture for every clock in the scene, including previews.
+const digitalStates = new WeakMap<THREE.Texture, DigitalClockState>()
+
+function drawCalendarRow(ink: CanvasRenderingContext2D, seconds: number, calendar?: SimCalendar): void {
+  const { date, weekday } = dayAt(seconds, calendar)
+  const runs = [
+    String(date.year).padStart(4, '0'), '年 ',
+    String(date.month).padStart(2, '0'), '月 ',
+    String(date.day).padStart(2, '0'), '日 星期', WEEKDAY_INK[weekday],
+  ]
+  const fonts = runs.map((_, i) => i % 2 === 0 && i < 6
+    ? 'bold 30px monospace'
+    : 'bold 27px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif')
+  const widths = runs.map((text, i) => {
+    ink.font = fonts[i]
+    return ink.measureText(text).width
+  })
+  ink.fillStyle = '#101013'
+  ink.fillRect(0, 103, 384, 49)
+  ink.textBaseline = 'middle'
+  const total = widths.reduce((sum, width) => sum + width, 0)
+  const scale = Math.min(1, 356 / total)
+  ink.save()
+  ink.translate((384 - total * scale) / 2, 0)
+  ink.scale(scale, 1)
+  let x = 0
+  for (const [i, text] of runs.entries()) {
+    ink.font = fonts[i]
+    ink.fillStyle = i % 2 === 0 ? CLOCK_LED_COLOR : '#e5e3df'
+    ink.fillText(text, x, 126)
+    x += widths[i]
+  }
+  ink.restore()
+}
+
+function updateDigitalClock(map: THREE.Texture<HTMLCanvasElement>, seconds: number, calendar?: SimCalendar): void {
+  let state = digitalStates.get(map)
+  if (!state) {
+    state = {}
+    digitalStates.set(map, state)
+  }
+  const second = Math.floor(timeOfDayOf(seconds))
+  const day = Math.floor(seconds / SIM_DAY)
+  if (state.second === second && state.day === day && state.calendar === calendar) return
+  const ink = map.image.getContext('2d')!
+  if (state.second !== second) {
+    state.second = second
+    const time = clockTextOf(second).replace(':', '') + String(second % 60).padStart(2, '0')
+    ink.fillStyle = '#101013'
+    ink.fillRect(0, 0, 384, 103)
+    ink.fillStyle = CLOCK_LED_COLOR
+    for (const [digit, x] of LED_DIGIT_X.entries()) {
+      const mask = LED_DIGITS[Number(time[digit])]
+      for (const [segment, [dx, dy, w, h]] of LED_SEGMENTS.entries()) {
+        if (mask & (1 << segment)) ink.fillRect(x + dx - w / 2, 53 + dy - h / 2, w, h)
+      }
+    }
+    for (const x of [136, 245]) {
+      for (const y of [40, 66]) ink.fillRect(x, y, 6, 6)
+    }
+  }
+  if (state.day !== day || state.calendar !== calendar) {
+    state.day = day
+    state.calendar = calendar
+    drawCalendarRow(ink, seconds, calendar)
+  }
+  map.needsUpdate = true
+}
+
+function buildDigitalClock(mats: ModelMaterials, ceiling: number, calendar?: SimCalendar): THREE.Group {
+  const g = new THREE.Group()
+  const dialZ = ceiling - 0.53
+  const caseTop = dialZ + 0.20
+  const housing = new THREE.Mesh(new RoundedBoxGeometry(0.96, 0.17, 0.40, 2, 0.014), mats.darkSteel)
+  housing.position.z = dialZ
+  setModelDetail(housing, new THREE.BoxGeometry(0.96, 0.17, 0.40))
+  g.add(housing)
+  for (const x of [-DIGITAL_CLOCK_ROD_OFFSET, DIGITAL_CLOCK_ROD_OFFSET]) {
+    const rod = slab(g, mats.darkSteel, x, 0, (ceiling + caseTop) / 2, 0.028, 0.028, ceiling - caseTop)
+    tubeModelDetail(rod)
+    omitModelDetail(slab(g, mats.steel, x, 0, ceiling - 0.01, DIGITAL_CLOCK_MOUNT_WIDTH, DIGITAL_CLOCK_MOUNT_WIDTH, 0.02))
+  }
+  for (const side of [1, -1]) {
+    const face = plate(g, mats.clockDisplay, 0.91, 0.36, 0, -side * 0.086, dialZ, side === 1 ? 0 : Math.PI)
+    delete face.userData.sharedGeometry
+  }
+  const map = mats.clockDisplay.map as THREE.Texture<HTMLCanvasElement>
+  if (!digitalStates.has(map)) updateDigitalClock(map, CLOCK_POSE_SECONDS, calendar)
+  const updateDisplay = (seconds: number, calendar?: SimCalendar) => updateDigitalClock(map, seconds, calendar)
+  g.userData.clockRig = { hour: [], minute: [], updateDisplay } satisfies ClockRig
+  return g
+}
+
 export class ClockModel extends PieceBuilder {
   readonly kind = 'clock'
   build(mod: Extract<Module, { type: 'clock' }>): THREE.Group {
-    return placeLocal(buildClock(this.ctx.mats, hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)), mod)
+    const ceiling = hangCeilingLocal(mod, this.ctx.data.cells, this.ctx.data.modules)
+    const clock = mod.cfg?.variant === 'digital'
+      ? buildDigitalClock(this.ctx.mats, ceiling, this.ctx.data.calendar)
+      : buildClock(this.ctx.mats, ceiling)
+    return placeLocal(clock, mod)
   }
 }
 

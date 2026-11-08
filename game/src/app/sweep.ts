@@ -93,6 +93,7 @@ export function sweepFamily(mod: Module): string | null {
   if (mod.type === 'floor-mark') return `floor-mark:${mod.cfg.variant}`
   if (mod.type === 'busstop') return `busstop:${mod.cfg.variant}`
   if (mod.type === 'light') return `light-${mod.cfg.variant}`
+  if (mod.type === 'clock' && mod.cfg?.variant === 'digital') return 'clock-digital'
   if (mod.type === 'cctv') return `cctv:${mod.cfg.variant ?? 'bullet'}`
   if (!SWEEP_TYPES.has(mod.type)) return null
   // The variant tables are the one place a variant's width and look are
