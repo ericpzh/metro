@@ -38,8 +38,8 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // family are unchanged.
 //
 // 天河公园 (Tianhe Park) is the third, baked from the author's `天河公园.metro.json`
-// (metro-save v1, game 0.2.0, saved 2026-11-07 21:49Z): a 333 × 287 m surface
-// interchange with 151,852 cells and 76,436 modules — three lines (11号线,
+// (metro-save v1, game 0.2.0, saved 2026-11-08 04:32Z): a 333 × 287 m surface
+// interchange with 151,852 cells and 76,438 modules — three lines (11号线,
 // 13号线, 21号线), eight 站台门 platform edges on six track runs, six street
 // head-houses (B口/C口/D口/F口/E1口/E2口), five lifts, fourteen 楼梯 and forty-seven
 // 扶梯, over the author's street pass of 55,545 草坪, 14,312 人行道, 282 球场,
@@ -48,6 +48,8 @@ import { STOREY_HEIGHT } from '../sim/constants.ts'
 // (`exitFloorCells`, `sim/station.ts`), which is what gives a ground-level
 // entrance its node. `demo.test.mjs` pins its authored counts, and the two -20 m
 // platform faces its author left off the entrance route stay off it.
+// The 2026-11-08 save adds two clocks; its cells and other module families are
+// unchanged.
 //
 // The raw documents live beside this file as `demo-station.json`,
 // `tanwei-station.json` and `tianhe-station.json` so they are not hand-edited;
