@@ -211,10 +211,10 @@ export function BenchmarkRoute(): React.ReactElement {
     setLoadingStep(copy.loadingStation)
     setLoadingProgress(28)
     store.loadReference(stationId)
+    // The Regular preset fixes the storey each demo is measured at: the Zoo
+    // platform and the Tianhe Park concourse. Tanwei keeps its opening level.
     if (view === 'regular' && stationId === 'zoo') useStore.getState().setActiveZ(-15)
-    // loadReference selects the demo's opening/default level, including its
-    // lowest authored storey. Preserve it for normal-view measurements; ground
-    // level would change the visible workload.
+    if (view === 'regular' && stationId === 'tianhe') useStore.getState().setActiveZ(-5)
     try {
       await waitUntil(() => !!window.__metro?.getState().metrics, 30_000, copy.setupError)
       setLoadingStep(copy.preparingScene)

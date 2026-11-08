@@ -107,7 +107,7 @@ Use `npm run bench:sim-stalls` for first-Play frame tails, with CPU profiles and
 Chrome/GPU traces in separate runs. The playback scripts share
 `configureBenchmarkView`: regular Tanwei uses Hide UI at its default level,
 regular Zoo hides the ground at −15 m from the TOP/N/W corner, and regular
-Tianhe Park keeps its default opening level and isometric camera; all three use
+Tianhe Park runs at its −5 m concourse with the isometric camera; all three use
 the same 50%-closer distance as `/benchmark`. Exploded runs keep their standalone camera.
 Keep train-model preparation after the station's first presented frame (an idle
 callback with a 2 s timeout, never inside `setStation`), reuse the bounded prepared

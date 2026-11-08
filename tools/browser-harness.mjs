@@ -245,6 +245,7 @@ export async function configureBenchmarkView(page, stationId, mode = 'regular') 
     state.setHideGround(regular && station === 'zoo');
     state.setGhostOther(true);
     if (regular && station === 'zoo') state.setActiveZ(-15);
+    if (regular && station === 'tianhe') state.setActiveZ(-5);
   })()`)
   if (mode !== 'regular') {
     return page.evaluate(`(() => {
