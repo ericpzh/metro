@@ -7,6 +7,7 @@ import {stageDocument} from './fixtures.mjs'
 import {prepareMontage,startMontage} from './montage.mjs'
 import {prepareEditing as prepareEmptyEditing,editingAction} from './editing.mjs'
 import {prepareExtraView,extraViewAction} from './views.mjs'
+import {prepareTianheFlythrough,flyTianhePlatform} from './tianhe.mjs'
 import {ui} from '../../web/src/i18n.js'
 import {prepareInterior,interiorAction} from './interior.mjs'
 import {prepareAuthored,authoredAction} from './authored-shot.mjs'
@@ -27,6 +28,7 @@ body[data-video-clean] .explodedViewer { padding:0!important;gap:0!important }
 body[data-video-locale="zh"] .stationNameEnglish { display:none!important }
 body[data-video-locale="zh"] .bottombar>.metric:nth-last-child(2) { display:none!important }
 body[data-video-cube] .viewNavShell { transform:scale(1.7);transform-origin:top right;z-index:8 }
+body[data-video-cube] .viewOrthoBtn { display:none!important }
 `
 
 export async function prepareShot(page, shot,settings={language:'zh'}) {
@@ -72,6 +74,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
   else if(['blocks','colours'].includes(shot.kind))await prepareInterior(page,shot,settings.language)
   else if(shot.stage)await prepareMontage(page,shot)
   else if(['section','cube'].includes(shot.kind))await prepareExtraView(page,shot)
+  else if(shot.view==='flythrough')await prepareTianheFlythrough(page,shot)
   else if (shot.view === 'exploded') {
     await page.evaluate(`__metro.getState().setExplodedView(true)`)
     await waitFor(page.evaluate, `document.querySelector('.explodedViewer')?.dataset.ready==='true'&&!!window.__benchmarkScene?.explodedLayout`, { what: 'live exploded view' })
@@ -135,7 +138,7 @@ export async function prepareShot(page, shot,settings={language:'zh'}) {
       const c=__scene.cameraSys;c.setPreset('iso');c.controls.target.set(${shot.station === 'zoo' ? '65,15,-14' : '0,4,6'});c.camera.position.set(${shot.station === 'zoo' ? '95,-20,25' : '35,-40,38'});c.camera.lookAt(c.controls.target);c.controls.update();__scene.setGridVisible(false);__scene.requestRender();
     })()`)
   }
-  if (!shot.stage&&!['blocks', 'equipment', 'train', 'stock', 'decor','cube'].includes(shot.kind)) {
+  if (!shot.stage&&!['blocks', 'equipment', 'train', 'stock', 'decor','cube','section'].includes(shot.kind)) {
     await page.evaluate(`__metro.getState().setSpeed(${settings.reuseStation?4:64});__metro.getState().setPlaying(true)`)
     if(!settings.reuseStation)await sleep(4500)
     await page.evaluate(`__metro.getState().setSpeed(4)`)
@@ -186,7 +189,8 @@ export async function shotAction(page, shot, recordStart) {
   if(['blocks','colours'].includes(shot.kind))return interiorAction(page,shot,recordStart,await page.evaluate('document.body.dataset.videoLocale'))
   if(shot.spin){await startMontage(page,shot);return []}
   if(['blocks','equipment'].includes(shot.kind))return editingAction(page,shot,recordStart)
-  if(shot.kind==='cube')return extraViewAction(page,shot,recordStart)
+  if(['cube','section'].includes(shot.kind))return extraViewAction(page,shot,recordStart)
+  if(shot.view==='flythrough')return flyTianhePlatform(page,shot,recordStart)
   const events = []
   const at = async seconds => sleep(Math.max(0, recordStart + seconds * 1000 - performance.now()))
   const cue = file => events.push({ at: (performance.now() - recordStart) / 1000, file })
@@ -197,7 +201,6 @@ export async function shotAction(page, shot, recordStart) {
     function animate(now){const t=Math.min(1,(now-start)/duration),ease=t*t*(3-2*t);c.camera.position.copy(p).applyAxisAngle(axis,angle*ease).multiplyScalar(1+${(shot.zoomEnd??.975)-1}*ease).add(target);c.camera.lookAt(target);c.controls.update();scene.requestRender();if(t<1)requestAnimationFrame(animate)}
     requestAnimationFrame(animate);
   })()`)
-  if(shot.kind==='section')return extraViewAction(page,shot,recordStart)
   if (['train', 'stock'].includes(shot.kind)) await page.evaluate('__metro.getState().setPlaying(true)')
   if (shot.kind === 'blocks') {
     const points = await page.evaluate('__videoEditPoints')
@@ -239,8 +242,6 @@ export async function shotAction(page, shot, recordStart) {
     await mouse('mouseReleased', { x: p.x + slider.w * .22, y: p.y }, { button: 'left', buttons: 0, clickCount: 1 }); cue('select.wav')
     await at(2.15); await page.evaluate('__metro.getState().setTimePanel(false)')
     events.push({ at: 2.15, action: 'demand-adjusted', value: await page.evaluate('Object.values(__metro.getState().station.demand).map(v=>v.amPeak)') })
-  } else if (shot.kind === 'views') {
-    await at(1.4); await page.evaluate(`(()=>{__metro.getState().setOrtho(true);const c=__scene.cameraSys;c.setPreset('plan');c.orthoZoom=.24;c.syncOrtho();__scene.requestRender()})()`); cue('select.wav')
   }
   return events
 }

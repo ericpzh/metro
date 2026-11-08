@@ -54,7 +54,7 @@ function fileHashes(directory) {
   })
 }
 const sources = [...fileHashes(resolve('game/dist')), ...fileHashes(resolve('tools/demo-video')),
-  ...['tools/demo-video.mjs', 'video/demo-station.metro.json','video/demo-camera.json','web/src/artworks.js', 'web/src/i18n.js', 'game/src/data/demo-station.json', 'game/src/data/tanwei-station.json','.agents/skills/metro-repo/references/performance.md'].map(file => ({ file, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') }))]
+  ...['tools/demo-video.mjs', 'video/demo-station.metro.json','video/demo-camera.json','web/src/artworks.js', 'web/src/i18n.js', 'game/src/data/demo-station.json', 'game/src/data/tanwei-station.json','game/src/data/tianhe-station.json','.agents/skills/metro-repo/references/performance.md'].map(file => ({ file, sha256: createHash('sha256').update(readFileSync(file)).digest('hex') }))]
 const sourceHash = createHash('sha256').update(JSON.stringify(sources)).digest('hex')
 const gitRevision = (await command('git', ['rev-parse', 'HEAD'], { capture: true })).stdout.trim()
 const gameBuild=JSON.parse(readFileSync(resolve('game/dist/editor-benchmark-build.json'),'utf8'))
@@ -75,7 +75,7 @@ async function captureOne(shot,directory,captureSettings,key,reuseStation=false)
   let events
   const recording=await recorder.take({directory,seconds:shot.captureSeconds,width:captureSettings.width,height:captureSettings.height,action:async start=>{events=await shotAction(page,shot,start)}})
   events=events.map(e=>({...e,sourceAt:e.at,at:e.at/shot.playbackRate}))
-  const motion=shot.spin||shot.kind==='placement'?await page.evaluate('window.__videoMotionLog'):null
+  const motion=shot.spin||['placement','section'].includes(shot.kind)||shot.view==='flythrough'?await page.evaluate('window.__videoMotionLog'):null
   await screenshot(page,resolve(directory,'after.png'),recorder,captureSettings)
   if(shot.station==='empty')writeFileSync(resolve(directory,'after-stage.json'),JSON.stringify(await page.evaluate('(()=>{const s=__metro.getState().station;return{name:s.name,nameEn:s.nameEn,seed:s.seed,storeyHeight:s.storeyHeight,levelBase:s.levelBase,cityStyle:s.cityStyle,cells:s.cells,modules:s.modules,lines:s.lines}})()'),null,2))
   if(shot.kind==='placement')exportDemoSave(await page.evaluate('__metro.getState().station'),output,captureSettings.language)

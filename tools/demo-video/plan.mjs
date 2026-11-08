@@ -18,9 +18,8 @@ export const shots = [
   { id: '03-interchange', station: 'tanwei', seconds: 3.2, kind: 'scenic', section: 'overview', copy: '13', view: 'exploded', orbit: -.06 },
   { id: '04-boarding', station: 'zoo', seconds: 4, kind: 'train', section: 'trains', copy: '12', view: 'platform', orbit: .035 },
   { id: '05-rolling', station: 'tanwei', seconds: 3, kind: 'train', section: 'trains', copy: '11', view: 'platform', orbit: -.04 },
-  { id: '08-views', station: 'zoo', seconds: 3, kind: 'views', section: 'building', copy: '09', view: 'floor', orbit: .12 },
-  { id: '08-section-zoo',station:'zoo',seconds:6,kind:'section',section:'building',copy:'09',view:'section',orbit:.3 },
-  { id: '08-section-tanwei',station:'tanwei',seconds:5.1,kind:'section',section:'building',copy:'09',view:'section',orbit:-.25 },
+  { id: '05-tianhe-flythrough', station: 'tianhe', seconds: 8.1, kind: 'train', section: 'trains', copy: '12', view: 'flythrough', simSpeed: 4 },
+  { id: '08-section-tianhe', station: 'tianhe', seconds: 6, kind: 'section', section: 'building', copy: '09', view: 'section' },
   { id: '08-cube',station:'zoo',seconds:4.8,kind:'cube',section:'building',copy:'09',view:'cube',orbit:0 },
   { id: '09-demand', station: 'tanwei', seconds: 3, kind: 'demand', section: 'simulation', copy: '06', view: 'demand', orbit: 0 },
   { id:'montage-placement',station:'empty',stage:'placement',seconds:23.5,playbackRate:8,kind:'placement',section:'building',copy:'04',view:'showcase',orbit:0 },
@@ -54,7 +53,9 @@ export function timeline(language = 'zh') {
 export function validatePlan(plan) {
   if (plan.at(-1)?.end !== VIDEO_SECONDS) throw new Error(`The demo must be exactly ${VIDEO_SECONDS} seconds`)
   if (new Set(plan.map(s => s.id)).size !== plan.length) throw new Error('Duplicate scene ID')
-  if (!['zoo','tanwei'].every(id=>plan.some(s=>s.station===id))) throw new Error('Both shipped stations are required')
+  if (!['zoo','tanwei','tianhe'].every(id=>plan.some(s=>s.station===id))) throw new Error('All three demo stations are required')
+  const sectionsShots=plan.filter(shot=>shot.kind==='section')
+  if (sectionsShots.length!==1||sectionsShots[0].station!=='tianhe') throw new Error('The section shot must feature Tianhe Park')
   const sections = [...new Set(plan.map(s => s.section))]
   if (sections.join(',') !== gallery.en.sections.map(s => s.id).join(',')) throw new Error('Scene order drifted from the website')
   for (const shot of plan) if (!shot.title || !shot.label || shot.seconds <= 0) throw new Error(`Invalid scene ${shot.id}`)
