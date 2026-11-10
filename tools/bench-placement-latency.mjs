@@ -3,6 +3,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { loadExampleStation, serveDir, waitFor, withPage } from './browser-harness.mjs'
+import { selectPlacementTargets } from './placement-benchmark-targets.mjs'
 
 const output = resolve(process.env.BENCH_OUTPUT ?? '.preview/perf/placement-100ms/clean.json')
 const demos = process.env.BENCH_DEMO ? [process.env.BENCH_DEMO] : ['zoo', 'tanwei']
@@ -27,7 +28,9 @@ try {
       debugPort: 19000 + process.pid % 10000, windowSize: '1440,1000', softwareGpu })
     try {
       await loadExampleStation(page, demo)
-      await page.evaluate(`__metro.getState().setPlaying(false);new Promise(r=>setTimeout(r,1200))`)
+      // The pinned cells were captured on the ground with the pre-closer home
+      // framing. Restore that exact workload independently of opening level.
+      await page.evaluate(`__metro.getState().setPlaying(false);__metro.getState().setActiveZ(0);__scene.zoomBy(1.5);new Promise(r=>setTimeout(r,1200))`)
       const setup = await page.evaluate(`(() => {
         const store=__metro, scene=__scene, s=store.getState();
         const gl=scene.renderer.getContext(), ext=gl.getExtension('WEBGL_debug_renderer_info');
@@ -44,8 +47,9 @@ try {
         }
         if(!points.length)throw Error('No placement targets');
         const expected=${JSON.stringify(expectedTargets[demo])};
-        if(!expected||JSON.stringify(points.slice(0,Math.min(${count},5)).map(p=>p.cell))!==JSON.stringify(expected.slice(0,Math.min(${count},5))))
-          throw Error('Demo/camera placement targets changed; review the pinned interior/ground-edge workload');
+        const selectTargets=${selectPlacementTargets.toString()};
+        const ordered=selectTargets(points,expected,${count});
+        points.splice(0,points.length,...ordered);
         window.__placement={work:{},events:[],errors:[],acks:[],longTasks:[],phase:'idle',commits:0,renderEnds:[],reparentSkipped:0};
         const b=__placement;
         if(${retainParent}){
@@ -120,15 +124,17 @@ try {
         }
         const added=phases.flatMap(p=>p.added)
         if(added.length!==1||phases.some(p=>(p.work.raycast?.calls??0)>1||!p.cellsUnchanged||
-          p.commits!==(p.phase.endsWith(':down')?1:0)))
-          throw Error('Expected one press commit, unchanged authored cells, and at most one scene raycast per pointer event');
+          p.commits!==(p.phase.endsWith(':up')?1:0)))
+          throw Error('Expected one release commit, unchanged authored cells, and at most one scene raycast per pointer event');
         const sample={point,added,phases}
         samples.push(sample)
         if(added.length){
           await waitFor(page.evaluate,'__placement.commitAt==null',{every:20,tries:500,what:'paused worker edit response'})
-          const event=phases.flatMap(p=>p.events).find(e=>e.type==='pointerdown')
-          if(!event||!Number.isFinite(event.firstRenderMs))throw Error('Missing accepted-placement render measurement')
-          console.log(`${demo} #${samples.filter(s=>s.added.length).length}: click-to-render ${event.firstRenderMs.toFixed(1)} ms; two RAF ${event.twoRafMs.toFixed(1)} ms; handler ${event.handlerMs.toFixed(1)} ms`)
+          const events=phases.flatMap(p=>p.events), down=events.find(e=>e.type==='pointerdown'), up=events.find(e=>e.type==='pointerup')
+          if(!down||!up||!Number.isFinite(down.firstRenderMs)||!Number.isFinite(up.firstRenderMs))throw Error('Missing press or accepted-release render measurement')
+          // The harness waits two RAFs between events, so it must not report the
+          // wall time between press and release as a human gesture latency.
+          console.log(`${demo} #${samples.filter(s=>s.added.length).length}: press-to-render ${down.firstRenderMs.toFixed(1)} ms; release-to-render ${up.firstRenderMs.toFixed(1)} ms; release handler ${up.handlerMs.toFixed(1)} ms`)
         }
       }
       if(profiled){const profile=(await page.send('Profiler.stop')).profile;writeFileSync(output.replace(/\.json$/,`-${demo}.cpuprofile`),JSON.stringify(profile))}

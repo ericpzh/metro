@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto'
 import * as THREE from 'three'
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js'
 import human from '../src/assets/passenger-approved.json' with {type:'json'}
+import normalizedSources from '../src/assets/passenger-source-lf.json' with {type:'json'}
 import activity from '../src/assets/passenger-activities.json' with {type:'json'}
 import {passengerPose,PASSENGER_ADULT_OUTFITS,PASSENGER_CHILD_OUTFITS} from '../src/render/passengerModel.ts'
 import {decodePassengerBytes,restorePassengerFrames} from '../src/render/passengerAtlas.ts'
@@ -13,8 +14,14 @@ import {passengerBakePart,passengerVertexKey,passengerExteriorGeometry} from '..
 test('the game bake matches the selected FBX and every model recipe source',()=>{
  const hash=b=>createHash('sha256').update(b).digest('hex')
  assert.equal(hash(readFileSync(new URL('../../'+human.sourcePath,import.meta.url))),human.sourceSha256)
- for(const [path,expected] of Object.entries(human.sourceHashes))assert.equal(hash(readFileSync(new URL('../../'+path,import.meta.url))),expected,path+' changed: run npm run bake:passengers')
  assert.equal(hash(JSON.stringify(human.sourceHashes)),human.recipeSha256)
+ assert.equal(normalizedSources.algorithm,'sha256-utf8-lf')
+ assert.equal(normalizedSources.recipeSha256,human.recipeSha256,'normalized verification belongs to another bake')
+ assert.deepEqual(Object.keys(normalizedSources.sourceHashes),Object.keys(human.sourceHashes))
+ for(const [path,expected] of Object.entries(normalizedSources.sourceHashes)) {
+  const source=readFileSync(new URL('../../'+path,import.meta.url),'utf8').replace(/\r\n/g,'\n')
+  assert.equal(hash(source),expected,path+' changed: run npm run bake:passengers')
+ }
  assert.match(human.license,/no redistribution license/)
 })
 

@@ -55,5 +55,14 @@ tools/_probe-sweep.mjs
 # npm is this repo's manager; package-lock.json files are tracked for every app
 web/pnpm-lock.yaml
 
-# unity
-unity/
+# Unity source only; editor caches, local settings and build products stay local.
+/unity/*
+!/unity/README.md
+!/unity/plan/
+!/unity/Assets/
+!/unity/Packages/
+!/unity/ProjectSettings/
+!/unity/scripts/
+!/unity/tests/
+/unity/Assets/**/Build/
+/unity/Assets/**/Builds/

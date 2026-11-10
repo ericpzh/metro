@@ -3,7 +3,11 @@
 The active crowd uses the user-selected soft-human base, replacing the older
 232-export catalogue. `npm run bake:passengers` runs
 `tools/bake-soft-passengers.mjs` and generates both `passenger-approved.json`
-and `passenger-activities.json`. Never edit the generated assets by hand.
+and `passenger-activities.json`. It then runs `tools/passenger-source-lf.mjs`
+to generate `passenger-source-lf.json`, a line-ending-independent verification
+record tied to the baked recipe hash. The helper first requires every raw input
+hash to match the bake. If running the baker directly, run that helper after it;
+never edit the generated assets or verification record by hand.
 
 `model/src/soft-human/catalog.js` derives 440 recipes from the preview wardrobe:
 twenty outfits per male/female category × eleven bag choices. Both ages can use

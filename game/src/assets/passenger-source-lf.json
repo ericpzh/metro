@@ -1,0 +1,23 @@
+{
+  "algorithm": "sha256-utf8-lf",
+  "recipeSha256": "e2a692407b21e5c92a582af19eba449d9a22912e40c57f8fa0a17e2be7654843",
+  "sourceHashes": {
+    "game/src/sim/activities.ts": "ed0a7b7cf124d6099eff9d41a2e003a1d921794ca2de97e6288c8199f2d8386d",
+    "game/src/sim/constants.ts": "ee9795c7e58c70830da9f86426993e7c8f5720e003c30f5c448aced3dfc275c1",
+    "model/src/animation/interactions.js": "6a4eb48f2bc0419280fa5e9c5f8b503bc034dafb5af5b363d162586af9aa3975",
+    "model/src/soft-human/imported-base.js": "884d61f344d708b0bcdb10a16a9155e2746eeb3002e5bf766c718f8aeb8c480c",
+    "model/src/soft-human/character.js": "d7c4ef88355c8380fbb7d6fc237d70443fdeeb4160517faa2334141e9d3b1401",
+    "model/src/soft-human/activities.js": "d0070e87759d5553ed4de06c5bc3f06202ae16bbb3487d20e45c88da44c3d8ff",
+    "model/src/soft-human/relaxed-arms.js": "a53ad3dc738e088f9749406b39251478d87f6596e423790a8a91b44e22e76220",
+    "model/src/soft-human/wardrobe.js": "cfc97e80af14e1d065c99ff5311589c89f53fd77e9368e44c7cfa39ae7bee710",
+    "model/src/soft-human/skirt.js": "2a6118e18f4631a9b320a067a2a6d98741a9c95a8b126485cfbcb30d05e3ea5c",
+    "model/src/soft-human/torso-fit.js": "f0191848c08d6dc02b48d4c8e80e0eee176d5dd3807df9442b6bf81ad5bde074",
+    "model/src/soft-human/mathematical-strap.js": "e2683a26c9ae842d5c5bf43a340e355e7085b15f090afc61d9813b2e03e48a74",
+    "model/src/soft-human/carried-bags.js": "36e5a79f9a25bc8a1b6c42c555af073acbcfcbe9091980508e86c1474d937e35",
+    "model/src/soft-human/bag-shell.js": "68b111c49dff307bab480daf91ac341225db5da551355b8b6fb09212fd41f33b",
+    "model/src/soft-human/bag-connectors.js": "02bf89f353fc6be32427d29e77767fa1be6678975e1bb523582cbcaac590bf87",
+    "model/src/soft-human/catalog.js": "a5912fa97e95fb37d53c2afcffe589cdf28046240e827bfc162634f3dbbffc2f",
+    "tools/bake-soft-passengers.mjs": "b2fd4267cbfc8e93c9754d583e53340859a1d086c31fd4b70acde4eeeec685fa",
+    "tools/passenger-low-topology.mjs": "8cd27653b6691c0b4802ee86dce22fc033d9f63f0ebcac72d4ae04df1680e9c2"
+  }
+}

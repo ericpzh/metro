@@ -16,6 +16,58 @@ outcomes.
 
 ## Current performance state
 
+### Unity migration TypeScript simulation baseline
+
+At source `4c0fb66e071e2aee25cd3fc055a010871942004b`, three serial
+`npm run bench:sim` captures on Windows 11, Node 24.15.0 and i7-14700KF used
+the shipped fixtures, seed 7654321, 600 measured ticks per phase and 12 edits.
+For Tianhe's morning-peak tick, median values were 172.5, 170.9 and 176.3 ms;
+p95 values were 337.2, 338.1 and 351.8 ms. The full raw reports for all three
+stations are under `.preview/unity/baseline/sim-run-{1,2,3}-*.json`. Existing
+development services were running during capture, so these are shared-machine
+reference measurements, not an isolated hardware comparison. Match fixture,
+settings and load when comparing a later implementation.
+
+Three separate `npm run bench:browser` captures used headless Chrome 156,
+RTX 4080 SUPER / ANGLE D3D11, 1384 × 805 viewport and DPR 1. In Tianhe's
+`blockEdits` phase, the eight edit-to-frame samples per run had medians of
+1469, 1534 and 1872 ms. This is the harness's API-to-frame boundary, not
+physical display latency. Raw reports are `.preview/unity/baseline/browser-run-*`;
+the same shared-machine limitation applies.
+
+The serial three-sample editor-action matrix at the same source completed all
+1,359 demo/case combinations: 18,167 action samples passed, 4,180 exceeded the
+strict 100 ms target, nine reported errors and 2,106 were unsupported. The
+command exited nonzero. Its checkpointed report is
+`.preview/unity/baseline/editor-actions/report.json`; it was not published to
+the shared matrix because the workstation was not isolated. The separate
+real-pointer placement probe initially failed before timing because its pinned
+camera/level and press-time commit assumptions were stale. The harness now
+restores the original Z 0 and pre-closer camera, selects the same five pinned
+cells even when an extra cell is visible, and checks the current release commit.
+Three unprofiled shared-machine captures at the reference source gave maximum
+press-to-first-render / release-to-first-render times of 25.2/101.7,
+26.7/94.4 and 27.1/88.8 ms for Zoo, and 31.8/62.0, 17.7/59.0 and
+17.8/57.5 ms for Tanwei. Zoo's first release misses the strict <100 ms target.
+The harness waits two RAFs between synthetic press and release, so these are
+separate boundaries, not a combined physical gesture latency. Raw captures are
+`.preview/unity/baseline/placement-final-{1,2,3}.json`; the refactored target
+selector was separately exercised in `placement-helper-check.json`.
+
+Three additional cold/warm runs per station on the same shared workstation
+measured navigation through a real canvas click and two subsequent RAFs, while
+paused. Cold times were 13.1–14.5 s for Zoo, 18.0–18.9 s for Tanwei and
+28.0–31.2 s for Tianhe. These include fixture loading and are not physical
+presentation or proof that the click changed the document. The local static
+server sent uncompressed resources. Separate three-run cold/warm captures used
+a local gzip-level-6 server: encoded resource bodies were 52,671,229 bytes on
+cold loads and 52,663,008 bytes on warm loads. These are not production
+Cloudflare compression measurements. The per-run table and raw observations
+are in `.preview/unity/baseline/baseline-results.json`, `interaction-results.json`
+and `gzip-results.json`. Reproduce the startup/click workload after building the
+reference game with `node tools/unity-baseline/startup.mjs`; add `--gzip` for
+the local gzip transfer capture. Each command writes a fresh output directory.
+
 ### Tianhe Park demo-video cadence
 
 This measures the encoded walkthroughs, not editor or simulation performance.

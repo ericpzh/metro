@@ -26,7 +26,8 @@ and measured timings belong only in the shared performance reference.
 
 The active passenger source is the selected soft-human model. `passenger-library`
 requires 440 recipes (twenty outfits/category × eleven bags), both ages and all walks;
-`passenger-clothing` pins RGB colors, FBX/recipe hashes and source-body skirt bridge.
+`passenger-clothing` pins RGB colors, the raw FBX hash, LF-normalized recipe
+hashes tied to the baked provenance, and the source-body skirt bridge.
 `passenger-activity-assets` uses 16 bones, Hips index 15 and arms 9–14, with outward
 free arms. `passenger-view`, `passenger-size` and `passenger-lod` retain identity,
 scale, pause, picking, camera and one-draw-per-LOD contracts. Model tests pin single-skin
@@ -1327,7 +1328,8 @@ with fresh meshing and preserves authored GPU geometry. `line-edit` pins immutab
 equipment history; `cut-clipping` pins unchanged shader versions and actual clip
 transitions. `tools/bench-placement-latency.mjs` measures first/repeated real pointer
 placements on both demos, including generated-ground boundary changes; browser
-timings are evidence, never Node pass thresholds.
+timings are evidence, never Node pass thresholds. `placement-benchmark` keeps
+the pinned targets stable when extra visible cells change discovery order.
 
 `exploded-ramps.test.mjs` covers the separate render slices in `explodedRamps.ts`:
 bounded five-metre clips, per-tray offsets, restored clips after view dressing,
