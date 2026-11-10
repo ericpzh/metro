@@ -1,0 +1,9 @@
+{
+  "name": "metro-unity-assets",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@napi-rs/canvas": "1.1.0",
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}

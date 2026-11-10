@@ -544,24 +544,40 @@ not waive them. Default inventory generation remains strict.
 
 ### Train models (车辆)
 
-| Train model | Low triangles | High triangles |
-|---|---:|---:|
-| D-8 | 76772 | 1308368 |
-| D-6 | 60192 | 1011852 |
-| A-8 | 69864 | 735408 |
-| A-6 | 53828 | 577996 |
-| C-6 | 49732 | 538640 |
-| B-6 | 47840 | 519296 |
-| L-6 | 43488 | 468328 |
-| C-4 | 35200 | 398260 |
-| B-4 | 33708 | 381948 |
-| L-4 | 30716 | 347100 |
+| Train model | Third-rail Low | Third-rail High | Catenary Low | Catenary High |
+|---|---:|---:|---:|---:|
+| A-2 | 21756 | 263172 | 23412 | 276860 |
+| A-3 | 29774 | 341878 | 31430 | 355566 |
+| A-4 | 37792 | 420584 | 39448 | 434272 |
+| A-6 | 53828 | 577996 | 55484 | 591684 |
+| A-8 | 69864 | 735408 | 72348 | 755940 |
+| B-2 | 19576 | 244600 | 21232 | 258288 |
+| B-3 | 26642 | 313274 | 28298 | 326962 |
+| B-4 | 33708 | 381948 | 35364 | 395636 |
+| B-6 | 47840 | 519296 | 49496 | 532984 |
+| B-8 | 61972 | 656644 | 64456 | 677176 |
+| C-2 | 20668 | 257880 | 22324 | 271568 |
+| C-3 | 27934 | 328070 | 29590 | 341758 |
+| C-4 | 35200 | 398260 | 36856 | 411948 |
+| C-6 | 49732 | 538640 | 51388 | 552328 |
+| C-8 | 64264 | 679020 | 65920 | 692708 |
+| D-2 | 27032 | 418820 | 28624 | 431932 |
+| D-3 | 35178 | 566934 | 36770 | 580046 |
+| D-4 | 43612 | 715336 | 45204 | 728448 |
+| D-6 | 60192 | 1011852 | 61784 | 1024964 |
+| D-8 | 76772 | 1308368 | 78364 | 1321480 |
+| L-2 | 17944 | 225872 | 19600 | 239560 |
+| L-3 | 24330 | 286486 | 25986 | 300174 |
+| L-4 | 30716 | 347100 | 32372 | 360788 |
+| L-6 | 43488 | 468328 | 45972 | 488860 |
+| L-8 | 56260 | 589556 | 58744 | 610088 |
 
-Counts include retained city decals and use production static/door/transparent
-batching plus detail swaps. City decals are fitted before batching, so city switches
-do not rebuild prepared trains. All classes remain inside the 10% train budget.
-Current inventory: `.preview/perf/current-models-nanjing/train-triangles.json`
-(three.js r186).
+Counts cover all selectable formations for both roof power modes. They include
+retained city decals and use production static, door and transparent batching
+plus authored detail swaps. All 50 combinations meet the 10% Low triangle budget.
+Regenerate with `node tools/model-triangle-inventory.mjs`. This capture used
+`INVENTORY_REPORT_ONLY=1` for the separate equipment budget violation above.
+Results are in `.preview/perf/pantograph-layout/train-triangles.json` (three.js r186).
 
 ### Passenger models (乘客)
 

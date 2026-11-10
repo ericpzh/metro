@@ -1181,8 +1181,11 @@ the four rules most changes trip over.
   a twin carbon bow with downturned horns, articulated pivots, tension springs,
   bonding/power leads and four five-shed ceramic insulators. Tiny hardware is
   omitted at Low while the arms, bow and mounts retain authored geometry.
-  Keep all hardware below the shared contact plane. It places mirrored collectors at the inward end
-  of each cab car (one central collector on a one-car formation). Recessed mounts
+  Keep all hardware below the shared contact plane. The per-stock 2/3/4/6/8-car
+  layouts read from local −X to +X and mark the actual elbow direction
+  independently of travel. Cab mounts are inboard. Intermediate mounts sit 2 m
+  from the body end opposite the elbow. Standalone specimens keep a central
+  collector, and unlisted legacy counts retain their original cab mounts. Recessed mounts
   in `TrainModel.ts`/`DTrainShell.ts` keep the raised linkage above the cabin and
   its contact bars at `CONTACT_STRIP_Z`, accounting for the scaled train origin's
   0.3924 m elevation over the track origin. Keep the conductor constants shared with
@@ -1198,8 +1201,8 @@ the four rules most changes trip over.
   loading preserves authored cells. The tenth
   worker-pose value packs door banks into bits 0–1 and catenary into bit 2;
   `TrainSystem` masks the door bits and includes power in its cache signature.
-  `train-pantograph` covers all classes, inward placement, rotations, contact,
-  real roof recesses, independent doors and power-mode cache reuse.
+  `train-pantograph` covers all 25 layouts, elbow directions, rotations, contact,
+  real roof recesses, HVAC clearance, independent doors and power-mode cache reuse.
 * **Both ends of a train are cabs, and the doors follow the screens.** A/B/C/L `buildTrain`
   (`render/models/`) re-skins the last 2 m of each end car through `buildCab` — the dark face
   mask, centre windscreen and crew-door windows, the 广州地铁 mark (`drawMetroMark`, shared with

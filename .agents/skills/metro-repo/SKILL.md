@@ -475,7 +475,8 @@ cab cars use three double doors and a single door nearest the cab, mirrored at
 opposite ends. Route geometry to `metro-game` (`DTrainShell.ts`); keep the shared
 `stock.ts` door centres aligned with platform screens. `stock` and `draw-batching`
 pin the layout; the [train LOD table](references/performance.md#train-models-车辆)
-records D-8 and legacy D-6 counts through the production batching/detail path.
+records all selectable formations, including D-8 and D-6, in both power modes
+through the production batching/detail path.
 
 Every stock shares `TrainBogie.ts` underframes: two two-axle assemblies per car
 whose tread rests on `RAIL_HEAD_Z`, with the body kept below the cabin-floor
@@ -485,7 +486,8 @@ Cabs are cut with a ten-degree front rake that fades at the rear seam
 and every class wears surface-fitted wipers, pinned by `train-cab`.
 
 All A/B/C/D/L trains have an overhead-wire roof variant, selected by the line's
-`power`, with mirrored pantographs at the inward ends of the two cab cars.
+`power`. `TrainPantograph.ts` defines collector cars and elbow directions for
+each 2/3/4/6/8-car formation from the local −X end to the +X end.
 Catenary contact follows the compact collector: the wire centre is 3.903 m above
 the track anchor, with carbon contact at 3.891 m. Covered/tunnel runs leave 3 m
 above the platform floor, with flanged rigid conductor rail below the ceiling, and open platforms and bridges carry
@@ -498,6 +500,10 @@ L keeps its three-door shell with paired wide inter-door windows and small end
 panes in `LTrainWindows.ts`. For any train-model refresh, use `metro-web`'s
 “Refreshing train artwork” workflow: recapture static and animated poses before
 regenerating bilingual sheets 01/02/05/11/12/13 and their tracked PNG previews.
+The gameplay film uses the same train builder. Follow `metro-video` for affected
+takes. If the Unity Type A proof changes, run
+`tools/unity-assets/prove-bench.ps1 -Asset train -SkipWeb` and refresh its
+`unity/Assets/TrainProof/train.glb` while preserving the asset GUID.
 
 For every behaviour change, add or update deterministic regressions for each affected
 contract and run the complete owning test suite before calling the work covered. A

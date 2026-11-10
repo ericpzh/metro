@@ -3,7 +3,7 @@ import { normalizeCityStyle } from '../game/src/sim/cityStyles.ts'
 // `.agents/skills/metro-repo/references/performance.md`:
 //   * equipment/decor — one model per palette option, built and batched exactly as
 //     the renderer draws it (authored Low preferred, bounded-error fallback);
-//   * trains — one consist per stock class, batched through the real train path;
+//   * trains — every selectable formation and roof power, through the real train path;
 //   * passengers — the baked crowd atlas's own per-variant records.
 // Canvas stubs affect printed artwork only. The JSON and Markdown go to ignored
 // `.preview/perf/`; update the performance reference after changing models or the
@@ -22,6 +22,7 @@ import { batchTrainDoors, batchTrainTransparent } from '../game/src/render/train
 import { trainDetails, trainDrawnTriangles } from '../game/src/render/trainDetail.ts'
 import { tvPairSlot } from '../game/src/sim/tvs.ts'
 import { STOCK_CLASSES } from '../game/src/sim/stock.ts'
+import { FORMATION_OPTIONS } from '../game/src/sim/headway.ts'
 const canvas=()=>({width:0,height:0,getContext:()=>new Proxy({}, {get:(o,k)=>o[k]??(k==='measureText'?((s)=>({width:String(s??'').length*8})):()=>undefined),set:(o,k,v)=>(o[k]=v,true)})})
 globalThis.document={createElement:canvas}
 await geometryDetailReady
@@ -75,12 +76,11 @@ writeFileSync(output('equipment-lod-exceptions.md'),table(['Equipment / decor mo
 console.log(results.length+' palette models: '+out)
 
 /* ------------------------------------------------------------------ trains */
-const CAR_COUNTS={D:8,A:8,B:6,C:6,L:6}
 const trains=[]
 try{
  for(const stock of STOCK_CLASSES){
-  for(const cars of [CAR_COUNTS[stock],CAR_COUNTS[stock]-2]){
-   const group=buildTrain(mats,{x:0,y:0,z:0,cars,stock,doorsOpen:false,colour:'#c8102e',dirSign:1,yaw:0})
+  for(const cars of FORMATION_OPTIONS) for(const power of ['third-rail','catenary']){
+   const group=buildTrain(mats,{x:0,y:0,z:0,cars,stock,power,doorsOpen:false,colour:'#c8102e',dirSign:1,yaw:0})
    try{
     // The renderer's own path: static batching, door banks, sorted glass, then
     // every prepared detail swap applied at once.
@@ -92,18 +92,21 @@ try{
     for(const detail of details)detail.apply(true)
     const low=trainDrawnTriangles(group)
     for(const detail of details)detail.apply(false)
-    if(trainDrawnTriangles(group)!==high)throw new Error(`${stock}-${cars}: restoring full geometry changed the draw`)
-    trains.push({model:`${stock}-${cars}`,stock,cars,low,high,swaps:details.length})
+    if(trainDrawnTriangles(group)!==high)throw new Error(`${stock}-${cars} ${power}: restoring full geometry changed the draw`)
+    trains.push({model:`${stock}-${cars}`,stock,cars,power,low,high,swaps:details.length})
    } finally{disposeObject(group)}
   }
  }
 } catch(error){disposeModelMaterials(mats);throw error}
-trains.sort((a,b)=>b.high-a.high)
 if(trains.some(row=>!(row.low>0 && row.low<=Math.floor(row.high*.1))))throw new Error('Train inventory exceeds the 10% Low budget')
 out=output('train-triangles.json')
 writeFileSync(out,JSON.stringify({revision:THREE.REVISION,results:trains},null,2))
-writeFileSync(out.replace(/\.json$/,'.md'),table(['Train model','Low triangles','High triangles'],trains.map(r=>[r.model,r.low,r.high])))
-console.log(trains.length+' consists: '+out)
+const rows=trains.filter(row=>row.power==='third-rail').map((rail,i)=>{
+ const wire=trains[2*i+1]
+ return [rail.model,rail.low,rail.high,wire.low,wire.high]
+})
+writeFileSync(out.replace(/\.json$/,'.md'),table(['Train model','Third-rail Low','Third-rail High','Catenary Low','Catenary High'],rows))
+console.log(trains.length+' consist and power combinations: '+out)
 
 /* -------------------------------------------------------------- passengers */
 disposeModelMaterials(mats)

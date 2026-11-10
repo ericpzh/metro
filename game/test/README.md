@@ -401,10 +401,11 @@ and checks repeated services reuse train geometry
 with an eight-dormant-consist bound and exact disposal on eviction. `passenger-library`
 checks the native base64 decoder and the compatibility path preserve every byte.
 
-`train-pantograph` covers all five overhead-wire variants, mirrored inward cab-car
-placement at every rotation and direction, contact-wire height, one-car placement,
-third-rail absence, worker power flags, door-mask isolation and cached power changes.
-`train-lod` pins the published full triangle count of every consist (asset integrity),
+`train-pantograph` covers the car and elbow directions of all 25 overhead-wire
+formations, wire contact at every cardinal rotation, roof wells, HVAC clearance,
+legacy placements, third-rail absence, worker power flags, door-mask isolation
+and cached power changes.
+`train-lod` pins the published High and Low counts of selectable formations,
 its 10% Low budget for all five stocks, one through eight cars and both power systems
 through the real TrainSystem path, one prepared swap per drawn piece
 with full sources kept, door-bank and sorted-glass geometry swaps under Low, the

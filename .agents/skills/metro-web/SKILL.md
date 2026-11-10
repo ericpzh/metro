@@ -247,6 +247,8 @@ their animated trains stale. `captureTrains.ts` seeds catalogue frame power from
 `STOCK[show.scene.stock].power` (A/D overhead wire, B/C/L third rail); a frame's
 explicit `power` overrides it for variant reviews, and animation frames retain
 their base frame's power. Preserve all five classes and the shared stock order.
+Pantograph cars and elbow directions come from the game's formation layout, so
+both still and animated overhead-wire specimens pick up geometry changes.
 
 Before generation, select the reviewed passenger captures: set `PASSENGER_CARDS_DIR` to
 `.preview/model-art/passenger-cards` when using the latest `art:models` output

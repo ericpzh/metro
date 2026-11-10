@@ -5,8 +5,10 @@ import * as THREE from 'three'
 import { buildTrain, createModelMaterials, disposeModelMaterials, disposeObject } from '../src/render/models.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
 import { STOCK, STOCK_CLASSES } from '../src/sim/stock.ts'
+import { FORMATION_OPTIONS } from '../src/sim/headway.ts'
 import { CONTACT_STRIP_Z } from '../src/sim/constants.ts'
-import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z } from '../src/render/models/pieces/TrainPantograph.ts'
+import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from '../src/render/models/pieces/TrainPantograph.ts'
+import { CAR_GAP } from '../src/render/models/pieces/TrainGangway.ts'
 import { World } from '../src/sim/world.ts'
 import { scenarioStation } from './support/scenario-station.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
@@ -23,22 +25,47 @@ test('collector meets the raised wire in the five-metre profile', () => {
 
 const collectors = root => root.children.filter(child => child.name === 'train-pantograph')
 
-test('all stock classes have two mirrored inboard cab-car collectors only for overhead power', () => withMaterials(mats => {
-  for (const stock of STOCK_CLASSES) for (const cars of [2, STOCK[stock].consist[1]]) for (const dirSign of [-1, 1]) {
-    const yaw = dirSign < 0 ? Math.PI / 2 : 0
-    const pose = { x: 12, y: 8, z: -7.5, stock, cars, dirSign, yaw, colour: '#287db2', doorsOpen: false }
+const formations = {
+  A: ['><', '>.<', '.<>.', '.>..<.', '.<.<..>.'],
+  B: ['><', '>.<', '.<>.', '.>..<.', '.>.<..>.'],
+  C: ['><', '>.<', '.><.', '.>..<.', '..>..<..'],
+  D: ['><', '>.<', '.><.', '.>..<.', '.>....<.'],
+  L: ['><', '>.<', '.<>.', '>.>..<', '>.>...<.'],
+}
+
+test('every overhead formation matches the car and elbow table and fits its roof', () => withMaterials(mats => {
+  for (const stock of STOCK_CLASSES) for (const [index, cars] of FORMATION_OPTIONS.entries()) {
+    const pose = { x: 12, y: 8, z: -7.5, stock, cars, dirSign: 1, yaw: 0, colour: '#287db2', doorsOpen: false }
     const root = buildTrain(mats, { ...pose, power: 'catenary' })
     const bare = buildTrain(mats, { ...pose, power: 'third-rail' })
     try {
       const pans = collectors(root), length = STOCK[stock].length, half = cars * length / 2
-      assert.equal(pans.length, 2)
+      const expected = formations[stock][index]
+      const actual = Array(cars).fill('.')
       assert.equal(collectors(bare).length, 0)
-      assert.ok(pans[0].position.x > -half + length / 2 && pans[0].position.x < -half + length)
-      assert.ok(Math.abs(pans[0].position.x + pans[1].position.x) < 1e-9)
-      assert.equal(pans[0].rotation.z, 0)
-      assert.equal(pans[1].rotation.z, Math.PI)
       root.updateMatrixWorld(true)
+      const roofs = root.children.filter(part => ['car-roof', 'd-car-roof', 'pantograph-roof-well'].includes(part.name))
+      const acUnits = root.children.filter(part => part.name === 'train-roof-ac-housing')
+        .map(part => new THREE.Box3().setFromObject(part))
       for (const pan of pans) {
+        const x = pan.position.x
+        const car = Math.floor((x + half) / length)
+        const centre = (car + .5) * length - half
+        const axle = pan.getObjectByName('pantograph-base-axle')
+        const elbow = pan.getObjectByName('pantograph-elbow-pivot')
+        const elbowOffset = elbow.getWorldPosition(new THREE.Vector3()).x - axle.getWorldPosition(new THREE.Vector3()).x
+        const direction = Math.sign(elbowOffset)
+        assert.equal(actual[car], '.', `${stock}-${cars}: at most one collector per car`)
+        actual[car] = direction > 0 ? '>' : '<'
+        const mountEnd = car === 0 ? 1 : car === cars - 1 ? -1 : -direction
+        assert.ok(Math.abs(x - (centre + mountEnd * ((length - CAR_GAP) / 2 - 2))) < 1e-9)
+
+        const well = new THREE.Raycaster(new THREE.Vector3(pose.x + x, pose.y, pose.z + 4), new THREE.Vector3(0, 0, -1))
+        const hit = well.intersectObjects(roofs)[0]
+        assert.ok(hit && Math.abs(hit.point.z - (pose.z + PANTOGRAPH_MOUNT_Z)) < 1e-6, 'collector sits in a real roof recess')
+        assert.ok(acUnits.every(box => box.max.x < pose.x + x - PANTOGRAPH_WELL_HALF_LENGTH ||
+          box.min.x > pose.x + x + PANTOGRAPH_WELL_HALF_LENGTH), 'AC units clear the collector recess')
+
         const strips = pan.children.filter(child => child.name === 'pantograph-contact-strip')
         assert.equal(strips.length, 2)
         for (const strip of strips) {
@@ -50,6 +77,7 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
         assert.ok(new THREE.Box3().setFromObject(pan.getObjectByName('pantograph-upper-arm')).max.z > pose.z + 3.25, 'the upper arm clears the car roof with a compact reach')
         assert.equal(pan.getObjectByName('pantograph-tie-rod').userData.lowDetailGeometry.getAttribute('position').count, 0)
       }
+      assert.equal(actual.join(''), expected, `${stock}-${cars}: car positions and actual elbow directions`)
       for (const rotation of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
         root.rotation.z = rotation
         root.updateMatrixWorld(true)
@@ -57,16 +85,6 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
           const strip = pan.getObjectByName('pantograph-contact-strip')
           const bounds = new THREE.Box3().setFromObject(strip)
           assert.ok(Math.abs(bounds.max.z - (pose.z + PANTOGRAPH_CONTACT_Z)) < 1e-6)
-          const well = new THREE.Raycaster(new THREE.Vector3(pan.position.x, 0, 4), new THREE.Vector3(0, 0, -1))
-          root.rotation.z = 0
-          root.position.set(0, 0, 0)
-          root.updateMatrixWorld(true)
-          const roofs = []; root.traverse(mesh => { if (mesh.name === 'car-roof' || mesh.name === 'd-car-roof' || mesh.name === 'pantograph-roof-well') roofs.push(mesh) })
-          const hit = well.intersectObjects(roofs)[0]
-          assert.ok(hit && hit.point.z <= 2.851, 'the collector occupies a real roof recess above the cabin')
-          root.position.set(pose.x, pose.y, pose.z)
-          root.rotation.z = rotation
-          root.updateMatrixWorld(true)
         }
       }
       assert.equal(root.userData.doors.length, bare.userData.doors.length, 'power does not change doors')
@@ -77,6 +95,18 @@ test('all stock classes have two mirrored inboard cab-car collectors only for ov
 test('one-car overhead formation has one central collector, clear of both cabs', () => withMaterials(mats => {
   const root = buildTrain(mats, { x: 0, y: 0, z: 0, cars: 1, stock: 'D', power: 'catenary', colour: '#287db2', doorsOpen: false, dirSign: 1, yaw: 0 })
   try { assert.equal(collectors(root).length, 1); assert.equal(collectors(root)[0].position.x, 0) } finally { disposeObject(root) }
+}))
+
+test('legacy five- and seven-car render callers retain their original inboard cab mounts', () => withMaterials(mats => {
+  for (const cars of [5, 7]) {
+    const root = buildTrain(mats, { x: 0, y: 0, z: 0, cars, stock: 'A', power: 'catenary', colour: '#287db2', doorsOpen: false, dirSign: -1, yaw: 0 })
+    try {
+      const pans = collectors(root)
+      assert.deepEqual(pans.map(pan => pan.rotation.z), [0, Math.PI])
+      const x = (cars / 2 - 1) * STOCK.A.length + CAR_GAP / 2 + 2
+      assert.deepEqual(pans.map(pan => pan.position.x), [-x, x])
+    } finally { disposeObject(root) }
+  }
 }))
 
 test('worker sends line power independently of stock, preserving both door bits', () => {

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { PANTOGRAPH_CONTACT_Z } from '../../../sim/stock.ts'
+import { PANTOGRAPH_CONTACT_Z, type StockClass } from '../../../sim/stock.ts'
+import type { FORMATION_OPTIONS } from '../../../sim/headway.ts'
 import type { ModelMaterials } from '../PieceBuilder.ts'
 import { slab } from '../PieceBuilder.ts'
 import { omitModelDetail, setModelDetail } from '../../modelDetail.ts'
@@ -10,12 +11,35 @@ export const PANTOGRAPH_WELL_HALF_LENGTH = 1.12
 
 type Point = [number, number, number]
 
+// Read from the local −X end to the +X end, independently of travel direction.
+// Each arrow points from the base axle toward the elbow.
+const SHORT_FORMATIONS = { 2: '><', 3: '>.<' } as const
+const PANTOGRAPH_LAYOUT = {
+  A: { ...SHORT_FORMATIONS, 4: '.<>.', 6: '.>..<.', 8: '.<.<..>.' },
+  B: { ...SHORT_FORMATIONS, 4: '.<>.', 6: '.>..<.', 8: '.>.<..>.' },
+  C: { ...SHORT_FORMATIONS, 4: '.><.', 6: '.>..<.', 8: '..>..<..' },
+  D: { ...SHORT_FORMATIONS, 4: '.><.', 6: '.>..<.', 8: '.>....<.' },
+  L: { ...SHORT_FORMATIONS, 4: '.<>.', 6: '>.>..<', 8: '>.>...<.' },
+} satisfies Record<StockClass, Record<(typeof FORMATION_OPTIONS)[number], string>>
+
+export function pantographElbowDirection(stock: StockClass, cars: number, car: number): -1 | 0 | 1 {
+  const layout: Partial<Record<number, string>> = PANTOGRAPH_LAYOUT[stock]
+  switch (layout[cars]?.[car]) {
+    case '>': return 1
+    case '<': return -1
+    case '.': return 0
+    // Standalone specimens and legacy counts retain their original geometry.
+    default: return car === 0 ? -1 : car === cars - 1 ? 1 : 0
+  }
+}
+
 /** Single-arm collector with an insulated base and sprung bow (§1.12). */
-export function buildTrainPantograph(parent: THREE.Group, mats: ModelMaterials, x: number, inward: number, roof: number): void {
+export function buildTrainPantograph(parent: THREE.Group, mats: ModelMaterials, x: number, elbowDirection: -1 | 1, roof: number): void {
   const g = new THREE.Group()
   g.name = 'train-pantograph'
   g.position.x = x
-  g.rotation.z = inward < 0 ? Math.PI : 0
+  // The unrotated linkage points toward local −X.
+  g.rotation.z = elbowDirection > 0 ? Math.PI : 0
   parent.add(g)
   const contact = PANTOGRAPH_CONTACT_Z
   const mesh = (geometry: THREE.BufferGeometry, material: THREE.Material, name: string) => {

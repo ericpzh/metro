@@ -80,6 +80,9 @@ on future user edits.
   records at 1× for 12 seconds and retimes 4×; its chart edit is preview-only.
   Re-record the five bridge takes together when changing their staging or pace.
   The camera tracks the rendered nose and the next take starts at the prior cut.
+  Pantograph placement comes from the shared game builder. A roof geometry
+  refresh requires retakes wherever affected trains are visible, including the
+  D and L bridge takes. Keep all five bridge takes together for continuity.
 - `design.mjs` owns Studio layouts; copy stays in `web/src/i18n.js` under `video`.
   `audio.mjs` selects music; `media.mjs` composes picture and mixes audio.
 

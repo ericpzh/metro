@@ -289,6 +289,11 @@ equipment model retention, fence/curtain collision, one shared event raycast,
 ramp target/occlusion, geometry and low-angle beam snapping, and preview/placed LOD
 equivalence must stay in the performance gate.
 
+`train-pantograph` pins all 25 selectable formations by measuring the elbow
+against its base axle and checking real roof wells, HVAC clearance and wire
+contact. `train-lod` checks both power modes against the published geometry
+inventory and keeps the 10% Low budget for one through eight cars.
+
 ### Geometry snapping audit (2026-10-22)
 
 The snapping change follows actual geometry rather than storey bands; `metro-game`

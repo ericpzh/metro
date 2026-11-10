@@ -23,7 +23,7 @@ import { addCarSideSkin, curveCarDoor, openRoofUnderside, carRoofSection, smooth
 import { buildTrainBogie, carBogieCentres } from './TrainBogie.ts'
 import { buildTrainUnderframe } from './TrainUnderframe.ts'
 import { buildTrainRoofAc } from './TrainRoofAc.ts'
-import { buildTrainPantograph, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
+import { buildTrainPantograph, pantographElbowDirection, PANTOGRAPH_MOUNT_Z, PANTOGRAPH_WELL_HALF_LENGTH } from './TrainPantograph.ts'
 
 /* ------------------------------------------------------------------ trains */
 
@@ -109,10 +109,13 @@ export function buildTrain(mats: ModelMaterials, pose: TrainPose): THREE.Group {
     const bodyLen = s.length - CAR_GAP
     const halfLen = bodyLen / 2
     let pantographX: number | undefined
-    if (pose.power === 'catenary' && (c === 0 || c === pose.cars - 1)) {
-      const inward = c === 0 ? 1 : -1
-      pantographX = pose.cars === 1 ? carCentre : carCentre + inward * (halfLen - 2)
-      buildTrainPantograph(g, mats, pantographX, inward, PANTOGRAPH_MOUNT_Z)
+    const elbowDirection = pose.power === 'catenary' ? pantographElbowDirection(pose.stock, pose.cars, c) : 0
+    if (elbowDirection) {
+      // Keep cab mounts inboard. On intermediate cars the elbow points back
+      // over the roof from the mounting end.
+      const mountEnd = c === 0 ? 1 : c === pose.cars - 1 ? -1 : -elbowDirection
+      pantographX = pose.cars === 1 ? carCentre : carCentre + mountEnd * (halfLen - 2)
+      buildTrainPantograph(g, mats, pantographX, elbowDirection, PANTOGRAPH_MOUNT_Z)
     }
     const cabCut = (s.cabLength ?? 2) - 0.125
     const shellStart = carCentre - halfLen + (c === 0 ? cabCut : 0)

@@ -7,6 +7,7 @@
 // door-bank / sorted-glass swaps.
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import * as THREE from 'three'
 import { buildTrain, createModelMaterials, disposeModelMaterials, disposeObject, setDoorsSides } from '../src/render/models.ts'
 import { geometryDetailReady } from '../src/render/geometryDetail.ts'
@@ -17,6 +18,7 @@ import { gangwayGeometry } from '../src/render/models/pieces/TrainGangway.ts'
 import { SceneContextData } from '../src/render/scene/systems/SceneSystem.ts'
 import { TrainSystem } from '../src/render/scene/systems/TrainSystem.ts'
 import { STOCK, STOCK_CLASSES, TRAIN_ORIGIN_Z } from '../src/sim/stock.ts'
+import { FORMATION_OPTIONS } from '../src/sim/headway.ts'
 import { TRAIN_DETAIL_MAX_RADIUS } from '../src/sim/constants.ts'
 import { trainDrawnTriangles } from '../src/render/trainDetail.ts'
 import { stubCanvas } from './support/stub-canvas.mjs'
@@ -78,21 +80,15 @@ test('a live line recolour retains consist geometry, door banks, poses and detai
   } finally {trains.dispose()}
 }))
 
-// One row per consist the game can build, with the full count the performance
-// reference publishes. A changed full count means the inventory tool, that table
-// and this one must be regenerated together.
-const consists = [
-  ['D', 8, 1308368, .1],
-  ['D', 6, 1011852, .1],
-  ['A', 8, 735408, .1],
-  ['A', 6, 577996, .1],
-  ['B', 6, 519296, .1],
-  ['C', 6, 538640, .1],
-  ['L', 6, 468328, .1],
-  ['B', 4, 381948, .1],
-  ['C', 4, 398260, .1],
-  ['L', 4, 347100, .1],
-]
+const reference = readFileSync(new URL('../../.agents/skills/metro-repo/references/performance.md', import.meta.url), 'utf8')
+const trainTable = reference.split('### Train models (车辆)')[1].split('### Passenger models')[0]
+const publishedCounts = new Map(Array.from(
+  trainTable.matchAll(/^\| ([ABCDL]-\d+) \| (\d+) \| (\d+) \| (\d+) \| (\d+) \|$/gm),
+  ([, model, railLow, railHigh, wireLow, wireHigh]) => [model, {
+    'third-rail': [Number(railLow), Number(railHigh)],
+    catenary: [Number(wireLow), Number(wireHigh)],
+  }],
+))
 
 test('identical consists on separate five-metre floors retain distinct cached poses', () => withDocument(mats => {
   const ctx = new SceneContextData(new THREE.Scene(), {}, mats, {})
@@ -119,27 +115,17 @@ test('identical consists on separate five-metre floors retain distinct cached po
   } finally { trains.dispose() }
 }))
 
-test('every consist draws its published full count and a Low within budget', () => withDocument((mats) => {
-  for (const [stock, cars, full, ratio] of consists) {
-    const { ctx, trains, group } = trainSystem(mats, stock, cars)
-    try {
-      const high = trainDrawnTriangles(group)
-      ctx.graphicsQuality = 'low'
-      trains.updateGeometryDetail()
-      const low = trainDrawnTriangles(group)
-      assert.equal(high, full, `${stock}-${cars}: full geometry is unchanged`)
-      assert.ok(low > 0 && low <= full * ratio, `${stock}-${cars}: Low ${low}/${full} (${(low / full * 100).toFixed(1)}%)`)
-    } finally { trains.dispose() }
-  }
-}))
-
-test('one through eight cars, both roof powers and both door banks retain the 10% Low budget', () => withDocument(mats => {
+test('both roof powers match published LOD counts and retain the 10% Low budget', () => withDocument(mats => {
+  assert.equal(publishedCounts.size, STOCK_CLASSES.length * FORMATION_OPTIONS.length)
   for (const stock of STOCK_CLASSES) for (let cars = 1; cars <= 8; cars++) for (const power of ['third-rail', 'catenary']) {
     const { ctx, trains, group } = trainSystem(mats, stock, cars, 3, power)
     try {
       const high = trainDrawnTriangles(group)
       ctx.graphicsQuality = 'low'; trains.updateGeometryDetail()
       const low = trainDrawnTriangles(group)
+      if (FORMATION_OPTIONS.includes(cars)) {
+        assert.deepEqual([low, high], publishedCounts.get(`${stock}-${cars}`)?.[power], `${stock}-${cars} ${power}: published LOD counts`)
+      }
       assert.ok(low > 0 && low <= Math.floor(high * .1), `${stock}-${cars} ${power}: ${low}/${high} triangles`)
       setDoorsSides(group, 0, 1)
       assert.equal(trainDrawnTriangles(group), low, 'door motion cannot change the submitted triangle budget')
