@@ -89,7 +89,8 @@ const zh = {
     play: '开始游戏',
     demos: '示例车站',
     browse: '浏览概念图',
-    peekLabel: '前往第一张概念图',
+    videoLabel: '《车站设计师》实机演示',
+    videoTag: '实机演示 · B 站',
   },
   demos: {
     title: '示例车站',
@@ -219,7 +220,8 @@ const en = {
     play: 'Play the game',
     demos: 'Demo stations',
     browse: 'Browse the concept art',
-    peekLabel: 'Jump to the first concept sheet',
+    videoLabel: 'Station Designer gameplay demo',
+    videoTag: 'Gameplay demo · Bilibili',
   },
   demos: {
     title: 'Demo stations',

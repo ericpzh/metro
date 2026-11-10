@@ -13,6 +13,13 @@ export const sheet = (file) => `${import.meta.env.BASE_URL}art/${file}`
 /** Resolve an example-station preview, copied into public/stations at build time. */
 export const stationPreview = (file) => `${import.meta.env.BASE_URL}stations/${file}`
 
+/** The gameplay demo lives on Bilibili; the hero embeds its player. */
+export const demoVideoUrl = 'https://www.bilibili.com/video/BV1ErW76rEPZ'
+const demoVideoPlayer = 'https://player.bilibili.com/player.html?bvid=BV1ErW76rEPZ&page=1&high_quality=1&danmaku=0&as_wide=1&muted=1'
+export const demoVideoEmbed = `${demoVideoPlayer}&autoplay=1`
+/** Rewind to the first second and stay paused, ready for a manual replay. */
+export const demoVideoPausedEmbed = `${demoVideoPlayer}&autoplay=0&t=1`
+
 /**
  * The game is a separate Worker, served from https://stationdesigner.com/game/
  * with the English route at /game/en/. Development is the game's own Vite

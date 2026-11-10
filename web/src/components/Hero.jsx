@@ -1,7 +1,24 @@
-import { gameHref, sheet } from '../site.js'
+import { useEffect, useState } from 'react'
+import {
+  demoVideoEmbed,
+  demoVideoPausedEmbed,
+  demoVideoUrl,
+  gameHref,
+} from '../site.js'
+
+// The Bilibili player is cross-origin and exposes no ended/seek API, so the
+// hero uses the clip's known length (1:10) to swap to a fresh player paused at
+// 0:01 once it has finished playing.
+const demoSeconds = 71
 
 export default function Hero({ t, copy, lang, onOpenDemos }) {
-  const first = copy.artworks[0]
+  const [played, setPlayed] = useState(false)
+
+  useEffect(() => {
+    if (played) return undefined
+    const timer = setTimeout(() => setPlayed(true), demoSeconds * 1000)
+    return () => clearTimeout(timer)
+  }, [played])
 
   return (
     <section className="hero" id="top">
@@ -32,10 +49,26 @@ export default function Hero({ t, copy, lang, onOpenDemos }) {
             </div>
           </div>
 
-          <a className="hero__peek" href={`#sheet-${first.id}`} aria-label={t.hero.peekLabel}>
-            <img src={sheet(first.file)} alt="" loading="eager" decoding="async" aria-hidden="true" />
-            <span className="hero__peek-tag">{first.nav}</span>
-          </a>
+          <div className="hero__video-col">
+            <figure className="hero__video">
+              <iframe
+                key={played ? 'paused' : 'playing'}
+                src={played ? demoVideoPausedEmbed : demoVideoEmbed}
+                title={t.hero.videoLabel}
+                allow="autoplay; fullscreen; picture-in-picture"
+                allowFullScreen
+                loading="lazy"
+              />
+            </figure>
+            <a
+              className="hero__video-tag"
+              href={demoVideoUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {t.hero.videoTag}
+            </a>
+          </div>
         </div>
 
         <dl className="hero__facts">
