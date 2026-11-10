@@ -27,6 +27,11 @@ npm run deploy         # build + wrangler deploy (Worker `metro`)
 npm run preview:local  # tools/preview.mjs — the built site and game on one origin
 ```
 
+The root `build` runs `npm ci` in `web/`, which deletes `web/node_modules`. Stop a
+running dev server before building, or npm fails with `EPERM` on the native
+rolldown binding and leaves that dev server serving from a broken install. Run
+`npm --prefix web install` to repair it.
+
 `web/package.json`'s own `sync-art` and `sync-stations` scripts run automatically as
 `prestart` / `predev` / `prebuild`, so a build can never serve a stale sheet or a
 stale station preview.
@@ -48,7 +53,11 @@ English-copy change must preserve the Chinese catalogue and default captures.
   shared demo-station dialog: the nav button left of 看图 and the hero button
   between 开始游戏 and 浏览概念图 both open it, Escape/backdrop/× close it, and a
   card is a link to the game's own route (`/game/zoo`, `/game/en/tanwei`,
-  `/game/tianhe`).
+  `/game/tianhe`). `Hero`'s right column embeds the Bilibili gameplay demo in
+  place of the old first-sheet peek: muted autoplay, then a timer swap to a
+  player paused at 0:01 after the 1:10 clip. The cross-origin player exposes no
+  ended/seek API, so keep `demoSeconds` in `Hero.jsx` in step with the video;
+  the caption link opens the original Bilibili page.
 * `web/src/artworks.js` — the sheets as data: spec id, title, player-facing
   introduction, alt text, section and order. The four paths are the station
   (01, 02, 13), trains and boarding (11, 05, 12), building (03, 04, 09), and
@@ -58,7 +67,8 @@ English-copy change must preserve the Chinese catalogue and default captures.
   `demos`, keyed by station id, with the authored names (动物园 / 坦尾 / 天河公园)
   kept.
 * `web/src/site.js` — repo / spec / art links, `sheet(file)` (Vite
-  `BASE_URL`-aware), `stationPreview(file)`, and the game URLs: `gameRoot` =
+  `BASE_URL`-aware), `stationPreview(file)`, the Bilibili `demoVideoUrl` /
+  `demoVideoEmbed` / `demoVideoPausedEmbed`, and the game URLs: `gameRoot` =
   `VITE_GAME_URL`, else the dev server `http://localhost:5174/`, else `/game/`,
   with `gameHref(lang)` appending `en/` for English and `demoHref(lang, id)`
   appending the station (`en/zoo`) for a demo. The game is its own Worker at
