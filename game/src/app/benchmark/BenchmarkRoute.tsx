@@ -150,7 +150,7 @@ function BenchmarkChart({ result, copy }: { result: Result; copy: ReturnType<typ
 export function BenchmarkRoute(): React.ReactElement {
   const language = useLanguage()
   const copy = benchmarkCopy(language)
-  const [stationId, setStationId] = useState<ExampleStationId>('tanwei')
+  const [stationId, setStationId] = useState<ExampleStationId>('tianhe')
   const [quality, setQuality] = useState<Quality>('low')
   const [upscalingMode, setUpscalingMode] = useState<UpscalingMode>('native')
   const fsrLabels: Record<UpscalingMode, string> = { native: copy.fsrOff, ultra: copy.fsrUltra, quality: copy.fsrQuality, balanced: copy.fsrBalanced, performance: copy.fsrPerformance }
@@ -389,7 +389,7 @@ export function BenchmarkRoute(): React.ReactElement {
         <div className="benchmarkLoadingMeta"><span>{loadingProgress}%</span><span>{copy.controlsLocked}</span></div>
       </div>
     </section>}
-    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${stationId === 'zoo' ? copy.zoo : copy.tanwei} · ${quality === 'low' ? copy.low : copy.high} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
+    {phase === 'running' && <aside className="benchmarkHud"><div><b>{copy.running}</b><span>{`${remaining}${copy.seconds} · ${copy[stationId]} · ${quality === 'low' ? copy.low : copy.high} · ${copy.fsr}: ${fsrLabels[upscalingMode]} · ${view === 'explode' ? copy.explode : copy.normal} · ${copy.controlsLocked}`}</span></div></aside>}
     {(phase === 'error' || phase === 'result') && <main className="benchmarkPage benchmarkResultsPage">
       {phase === 'error' ? <section className="benchmarkSetup"><h1>{copy.couldNotFinish}</h1><p role="alert">{error}</p><button type="button" className="benchmarkStart" onClick={retry}>{copy.back}</button></section> : result && <article className="benchmarkResult">
         <header className="benchmarkResultHeader"><div><div className="benchmarkEyebrow">{copy.first30}</div><h1>{stationLabel(result.stationId, language)}</h1><p>{result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · 16× · {browserLabel(result.browser)} / {result.gpu}</p></div><button type="button" onClick={retry}>{copy.again}</button></header>

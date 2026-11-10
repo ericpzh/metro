@@ -17,6 +17,12 @@ test('the benchmark-selected graphics quality controls the renderer without chan
   assert.match(source, /benchmarkChoices benchmarkFsrModes/, 'FSR choices use one button row')
 })
 
+test('the benchmark opens on the demo station Tianhe Park and labels whichever station runs', () => {
+  assert.match(source, /useState<ExampleStationId>\('tianhe'\)/, 'Tianhe Park is the default demo station')
+  assert.match(source, /`\$\{remaining\}\$\{copy\.seconds\} · \$\{copy\[stationId\]\}/, 'the running HUD names the selected station')
+  assert.doesNotMatch(source, /stationId === 'zoo' \? copy\.zoo : copy\.tanwei/, 'the HUD does not fall back to Tanwei')
+})
+
 test('the result header action keeps its label on one line and the free-text title takes the shrinking', () => {
   const header = styles.slice(styles.indexOf('.benchmarkResultHeader {'), styles.indexOf('.benchmarkResultHeader p {'))
   assert.match(header, /> div \{ min-width: 0; \}/,
