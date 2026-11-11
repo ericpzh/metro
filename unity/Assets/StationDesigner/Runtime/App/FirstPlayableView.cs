@@ -13,7 +13,7 @@ namespace Metro.App {
         public Shader stationShader;
         FirstPlayableStation station = new FirstPlayableStation();
         FirstPlayableService service;
-        GameObject floor, secondFloor, gate, passenger, train, animatedTrain;
+        GameObject floor, secondFloor, detourApproach, detourFloor, gate, passenger, train, animatedTrain;
         Transform observedDoor;
         Vector3 closedDoorPosition;
         string tool = "Floor", message = "Place the missing floor, then the fare gate.";
@@ -27,11 +27,12 @@ namespace Metro.App {
         static void FirstPlayableOpen() { Debug.Log("File picker is available in Web."); }
         static void FirstPlayableState(string json) { }
 #endif
-        [Serializable] sealed class State { public bool floor, gate, secondFloor, secondGate, running; public string stage, message; public int boarded; public float doorMovement, passengerX, passengerY, secondFloorScreenX, secondFloorScreenY, secondGateScreenX, secondGateScreenY; }
+        [Serializable] sealed class State { public bool floor, gate, secondFloor, secondGate, detourApproach, detourFloor, detourGate, running; public string stage, message; public int boarded; public float doorMovement, passengerX, passengerY, secondFloorScreenX, secondFloorScreenY, secondGateScreenX, secondGateScreenY, detourApproachScreenX, detourApproachScreenY, detourFloorScreenX, detourFloorScreenY; }
         void Publish() {
             var floorPoint=Camera.main.WorldToScreenPoint(new Vector3(2.5f,0,1.5f));
             var gatePoint=Camera.main.WorldToScreenPoint(new Vector3(3.5f,0,1.5f));
-            FirstPlayableState(JsonUtility.ToJson(new State { secondFloorScreenX=floorPoint.x, secondFloorScreenY=Screen.height-floorPoint.y, secondGateScreenX=gatePoint.x, secondGateScreenY=Screen.height-gatePoint.y, floor=station.HasFloor, gate=station.HasGate,
+            var a=Camera.main.WorldToScreenPoint(new Vector3(2.5f,0,2.5f)); var b=Camera.main.WorldToScreenPoint(new Vector3(3.5f,0,2.5f));
+            FirstPlayableState(JsonUtility.ToJson(new State { detourApproachScreenX=a.x, detourApproachScreenY=Screen.height-a.y, detourFloorScreenX=b.x, detourFloorScreenY=Screen.height-b.y, detourApproach=station.HasDetourApproach, detourFloor=station.HasDetourFloor, detourGate=station.HasDetourGate, secondFloorScreenX=floorPoint.x, secondFloorScreenY=Screen.height-floorPoint.y, secondGateScreenX=gatePoint.x, secondGateScreenY=Screen.height-gatePoint.y, floor=station.HasFloor, gate=station.HasGate,
             secondFloor=station.HasSecondFloor, secondGate=station.HasSecondGate, passengerX=service==null?0:(float)service.X, passengerY=service==null?0:(float)service.Y, running=service!=null && !service.Finished, stage=service==null?"Paused":service.CurrentStage.ToString(),
             boarded=service==null?0:service.BoardedCount, message=message, doorMovement=observedDoor?Vector3.Distance(observedDoor.localPosition,closedDoorPosition):0 })); }
         GameObject Box(string name, Vector3 position, Vector3 scale, Color color) {
@@ -41,6 +42,7 @@ namespace Metro.App {
         void Start() {
             for(int x=0;x<6;x++) if(x!=2) Box("Floor "+x,new Vector3(x+.5f,-.1f,.5f),new Vector3(.98f,.2f,.98f),new Color(.72f,.76f,.77f));
             for(int x=0;x<5;x++) if(x!=2) Box("Second floor "+x,new Vector3(x+.5f,-.1f,1.5f),new Vector3(.98f,.2f,.98f),new Color(.72f,.76f,.77f));
+            for(int x=0;x<5;x++) if(x<2 || x==4) Box("Detour fixed floor "+x,new Vector3(x+.5f,-.1f,2.5f),new Vector3(.98f,.2f,.98f),new Color(.72f,.76f,.77f));
             Box("Entrance",new Vector3(.15f,1,.5f),new Vector3(.12f,2,1.4f),new Color(.1f,.55f,.5f));
             Box("Platform",new Vector3(4.8f,-.15f,1.4f),new Vector3(3,.3f,1),new Color(.65f,.66f,.62f));
             if(trainPrefab) { train=Instantiate(trainPrefab); train.name="Type A train"; train.transform.position=new Vector3(5,0,3);
@@ -52,7 +54,10 @@ namespace Metro.App {
             passenger.SetActive(false); Refresh(); Publish();
         }
         void Refresh() {
-            if(floor) Destroy(floor); if(secondFloor) Destroy(secondFloor); if(gate) Destroy(gate);
+            if(floor) Destroy(floor); if(secondFloor) Destroy(secondFloor); if(detourApproach) Destroy(detourApproach); if(detourFloor) Destroy(detourFloor); if(gate) Destroy(gate);
+            if(station.HasDetourApproach) detourApproach=Box("Detour approach",new Vector3(2.5f,-.1f,2.5f),new Vector3(.98f,.2f,.98f),new Color(.8f,.78f,.55f));
+            if(station.HasDetourFloor) detourFloor=Box("Detour floor",new Vector3(3.5f,-.1f,2.5f),new Vector3(.98f,.2f,.98f),new Color(.8f,.78f,.55f));
+            if(station.HasDetourGate) gate=Box("Detour gate",new Vector3(3.5f,.55f,2.5f),new Vector3(.25f,1.1f,.7f),new Color(.12f,.42f,.6f));
             if(station.HasFloor) floor=Box("Placed floor",new Vector3(2.5f,-.1f,.5f),new Vector3(.98f,.2f,.98f),new Color(.8f,.78f,.55f));
             if(station.HasSecondFloor) secondFloor=Box("Second placed floor",new Vector3(2.5f,-.1f,1.5f),new Vector3(.98f,.2f,.98f),new Color(.8f,.78f,.55f));
             if(station.HasSecondGate) gate=Box("Second fare gate",new Vector3(3.5f,.55f,1.5f),new Vector3(.25f,1.1f,.7f),new Color(.12f,.42f,.6f));
@@ -83,7 +88,7 @@ namespace Metro.App {
         void Run() {
             if(service!=null && !service.Finished) { message="Service is already running."; }
             else if(!station.CanRun) { message=station.RouteProblem; }
-            else { station.TryRoute(out int gateX, out int lane); service=new FirstPlayableService(gateX,lane); elapsed=0; passenger.SetActive(true); if(animatedTrain && platformDoors) platformDoors.SampleAnimation(animatedTrain,0); message="Service running."; }
+            else { station.TryPath(out var route, out int gateIndex); service=new FirstPlayableService(route,gateIndex); elapsed=0; passenger.SetActive(true); if(animatedTrain && platformDoors) platformDoors.SampleAnimation(animatedTrain,0); message="Service running."; }
             Publish();
         }
         void Update() {

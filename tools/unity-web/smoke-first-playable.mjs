@@ -6,7 +6,9 @@ import { withPage, waitFor } from '../browser-harness.mjs'
 
 const root=resolve(import.meta.dirname,'../..'), out=resolve(process.argv[2]??'')
 if (!process.argv[2] || !out.startsWith(resolve(root,'.preview/unity')+sep)) throw Error('Expected run directory under .preview/unity')
-const packed=join(out,'packed'), report={status:'running', stages:[], errors:[]}
+const requiredCases = new Set(process.argv.slice(3))
+for (const flag of requiredCases) if (!['--require-second','--require-detour'].includes(flag)) throw Error(`Unknown option ${flag}`)
+const packed=join(out,'packed'), report={status:'running', stages:[], errors:[], requiredCases:[...requiredCases]}
 const save=()=>writeFileSync(join(out,'first-playable-report.json'),JSON.stringify(report,null,2))
 save()
 async function port() { const s=createServer(); await new Promise(r=>s.listen(0,'127.0.0.1',r)); const p=s.address().port; await new Promise(r=>s.close(r)); return p }
@@ -32,14 +34,15 @@ try {
   const state=()=>page.evaluate('window.firstPlayableState')
   async function wait(expr,what) { await waitFor(page.evaluate,expr,{what,tries:180}) }
   async function run(expectedGate=0) {
-    const observed=[]; let queuePosition
+    const observed=[]; let queuePosition, detourApproach=false
     await click(237,32)
-    for(let i=0;i<200;i++) { const s=await state(); if(observed.at(-1)!==s.stage) observed.push(s.stage); if(s.stage==='Queuing') queuePosition={x:s.passengerX,y:s.passengerY}; if(s.boarded===1) {
+    for(let i=0;i<200;i++) { const s=await state(); if(observed.at(-1)!==s.stage) observed.push(s.stage); if(Math.abs(s.passengerX-2.5)<.15 && Math.abs(s.passengerY-2.5)<.15) detourApproach=true; if(s.stage==='Queuing') queuePosition={x:s.passengerX,y:s.passengerY}; if(s.boarded===1) {
       const required=['WalkingToGate','Queuing','ThroughGate','Platform','Boarded']; let next=0
       for(const stage of observed) if(stage===required[next]) next++
       if(next!==required.length) throw Error(`Missing ordered stages: ${observed.join(', ')}`)
       if(!(s.doorMovement>.01)) throw Error('Platform train door did not open')
-      if(expectedGate && (!queuePosition || Math.abs(queuePosition.x-3.5)>.6 || Math.abs(queuePosition.y-1.5)>.3)) throw Error(`Passenger queued away from selected gate: ${JSON.stringify(queuePosition)}`)
+      if(expectedGate===2 && !detourApproach) throw Error('Passenger did not walk the detour approach')
+      if(expectedGate && (!queuePosition || Math.abs(queuePosition.x-(expectedGate===2?2.5:2.5))>.6 || Math.abs(queuePosition.y-(expectedGate===2?2.5:1.5))>.3)) throw Error(`Passenger queued away from selected gate: ${JSON.stringify(queuePosition)}`)
       report.stages.push(observed); return queuePosition
     } await new Promise(r=>setTimeout(r,100)) }
     throw Error('Passenger did not board')
@@ -73,6 +76,7 @@ try {
   await wait("window.firstPlayableState.message.includes('Could not open')",'invalid import message')
   if(!(await state()).floor || !(await state()).gate) throw Error('Invalid import changed the station')
   report.invalidImportPreservedEdits=true
+  if (requiredCases.has('--require-second') && (await state()).secondFloorScreenX === undefined) throw Error('Required second layout bridge fields missing')
   if ((await state()).secondFloorScreenX !== undefined) {
   // A fresh station: put the second gate on its fixed slab without an
   // approach, proving that a disconnected gate cannot start service.
@@ -97,6 +101,26 @@ try {
   await page.send('DOM.setFileInputFiles',{files:[secondSave],backendNodeId:secondChosen.backendNodeId})
   await wait('window.firstPlayableState.secondFloor && window.firstPlayableState.secondGate','second layout restored')
   report.secondRestored=await state(); report.secondReopenedQueue=await run(1)
+  }
+  if (requiredCases.has('--require-detour')) {
+    const detourLoaded=page.waitForEvent('Page.loadEventFired'); await page.send('Page.navigate',{url:base+'/game/'}); await detourLoaded
+    await waitFor(page.evaluate,'!!window.firstPlayableState',{what:'detour ready',tries:360})
+    let d=await state(); if(d.detourApproachScreenX===undefined || d.detourFloorScreenX===undefined) throw Error('Required detour bridge fields missing')
+    await click(50,32); await click(d.detourFloorScreenX,d.detourFloorScreenY); await wait('window.firstPlayableState.detourFloor','detour gate floor')
+    await click(145,32); await click(d.detourFloorScreenX,d.detourFloorScreenY); await wait('window.firstPlayableState.detourGate','detour gate')
+    await click(237,32); await wait("window.firstPlayableState.message.includes('disconnected')",'detour disconnected explanation')
+    await click(50,32); await click(d.detourApproachScreenX,d.detourApproachScreenY); await wait('window.firstPlayableState.detourApproach','detour approach')
+    report.detourQueue=await run(2)
+    const shot=await page.send('Page.captureScreenshot',{format:'png'}); writeFileSync(join(out,'detour-boarding.png'),Buffer.from(shot.data,'base64'))
+    const dir=join(out,'detour-download'); mkdirSync(dir,{recursive:true}); await page.send('Browser.setDownloadBehavior',{behavior:'allow',downloadPath:dir}); await click(325,32)
+    const file=join(dir,'first-station.metro.json'); for(let i=0;i<100&&!existsSync(file);i++) await new Promise(r=>setTimeout(r,100))
+    if(!existsSync(file)) throw Error('Detour save missing')
+    const reload=page.waitForEvent('Page.loadEventFired'); await page.send('Page.navigate',{url:base+'/game/'}); await reload
+    await waitFor(page.evaluate,'!!window.firstPlayableState',{what:'detour reopen ready',tries:360})
+    const chooser=page.waitForEvent('Page.fileChooserOpened'); await click(415,32); const chosen=await chooser
+    await page.send('DOM.setFileInputFiles',{files:[file],backendNodeId:chosen.backendNodeId})
+    await wait('window.firstPlayableState.detourApproach && window.firstPlayableState.detourFloor && window.firstPlayableState.detourGate','detour restored')
+    report.detourRestored=await state(); report.detourReopenedQueue=await run(2); report.detourSave=file
   }
   if(report.errors.length) throw Error(report.errors.join('; '))
   report.status='passed'; report.save=download; report.final=await state(); save(); console.log(JSON.stringify(report))

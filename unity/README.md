@@ -24,7 +24,9 @@ folder under `.preview/unity`.
 For the first playable scene, pass `-Scene FirstPlayable` to `bootstrap` and
 `build-web`; the default remains `Bootstrap`. After packing, run
 `node tools/unity-web/smoke-first-playable.mjs <run-directory>` to exercise the
-controls, downloaded save, reopen, and boarding in a local browser. The full
+controls, downloaded save, reopen, and boarding in a local browser. Pass
+`--require-second --require-detour` to require both additional layout cases;
+omitting these flags keeps older builds reviewable. The full
 scratch-project sequence is in [the Phase 1 checklist](plan/05-first-playable.md).
 
 `-Help` lists flags. `doctor` does not prove licensing; the Editor invocations do.

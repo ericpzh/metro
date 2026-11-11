@@ -442,3 +442,22 @@ The packed manifest SHA-256 is
 The seven Node release/layering tests also passed. Tianhe heap investigation,
 performance targets, general pathfinding, multiple gates and full save parity
 remain expansion work; this small browser check is not a performance result.
+
+### Grid route and detour browser pass
+
+At dirty workspace HEAD `08750f2add35348c294b06f7f1aae6c5a1c4b4ab`, a fresh copy of the current source was exercised at `.preview/unity/detour-20261110-221721-536/` with Unity 6000.6.8f1 (237b6593792b) and Node 24.15.0. The station searches its committed, cardinally connected floor cells through the selected gate to the platform. The detour adds tiles (2,2) and (3,2), with the gate at (3,2); leaving (2,2) out blocks service with a disconnected explanation. The existing gate queue and train stop/boarding remain in use. The EditMode XML reports 26/26 and PlayMode 1/1; the deterministic detour test covers the missing connection, traversal and save round-trip. Runtime assembly and release contract Node tests passed 6/6.
+
+The fresh-copy bootstrap, EditMode, PlayMode, and first build used the sequence in [05-first-playable.md](05-first-playable.md#5-generate-test-and-build), with `$run` set to `.preview/unity/detour-20261110-221721-536`. The wrapper rejected the first build because the URP settings asset changed. Comparing every input hash against the scratch project showed that this asset alone changed: before `f074f70005181226c7614cbfb06b064e692c1032763bef94ccf334d91d0056d0`, after `de16216797b7d4212762916335811c880ff5e7f6a2bd066882137b949bd13af1`, equal to the source asset and the documented normalization above. The input snapshot and first build log remain in the run directory. The following retry used a fresh output folder:
+
+```powershell
+$run = '.preview/unity/detour-20261110-221721-536'
+$project = (Resolve-Path "$run/project").Path
+$out = "$run/final"
+./unity/scripts/metro-unity.ps1 build-web -Scene FirstPlayable -Configuration Release -ProjectPath $project -OutputDirectory $out
+./unity/scripts/metro-unity.ps1 pack-web -Configuration Release -ProjectPath $project -OutputDirectory $out
+node tools/unity-web/smoke-first-playable.mjs $out --require-second --require-detour
+```
+
+The verified release provenance SHA-256 is `c1047318acf6b216996bceb12b44f2a0a44ba5f697123fbe11f576b8fd8c0ed1`, and packed manifest SHA-256 is `c91c9493fd3acbf15fc6b6d20955abc60537254cba30b2ed31b128f679ef74cd`. Provenance records the dirty source, scene, Editor, and verified input hashes. The browser report is `final/first-playable-report.json`; the detour download is `final/detour-download/first-station.metro.json`, and its capture is `final/detour-boarding.png` (all under the run directory). It passed all three layouts before and after save/reopen, observed ordered queue, gate, platform and boarding stages, observed the detour approach and queue at (3,2.5), and refused disconnected layouts. Both explicit checker flags fail if their required bridge fields are missing; without them older builds remain reviewable.
+
+This is still a bounded station with one passenger and gate, fixed supports and train stop, not general station construction or crowd routing. The Tianhe heap investigation and expansion performance targets remain open as described above.

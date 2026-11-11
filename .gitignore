@@ -67,3 +67,4 @@ web/pnpm-lock.yaml
 !/unity/tests/
 /unity/Assets/**/Build/
 /unity/Assets/**/Builds/
+!/unity/Assets/StationDesigner/Runtime/Build/
