@@ -53,7 +53,7 @@ export default function Hero({ t, copy, lang, onOpenDemos }) {
             <figure className="hero__video">
               <iframe
                 key={played ? 'paused' : 'playing'}
-                src={played ? demoVideoPausedEmbed : demoVideoEmbed}
+                src={played ? demoVideoPausedEmbed(lang) : demoVideoEmbed(lang)}
                 title={t.hero.videoLabel}
                 allow="autoplay; fullscreen; picture-in-picture"
                 allowFullScreen
@@ -62,7 +62,7 @@ export default function Hero({ t, copy, lang, onOpenDemos }) {
             </figure>
             <a
               className="hero__video-tag"
-              href={demoVideoUrl}
+              href={demoVideoUrl(lang)}
               target="_blank"
               rel="noreferrer"
             >

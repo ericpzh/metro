@@ -4,6 +4,8 @@
 
 - `station-designer-demo-zh.mp4`：最终成片（70.2 秒，2560 × 1440，30 fps，H.264/AAC）。MP4 不入库，仓库统一忽略 `*.mp4`。
 - `station-designer-thumbnail-zh.jpg`：中文视频缩略图（3840 × 2160），随仓库提交。
+- `station-designer-demo-en.mp4`：英文版成片（70.2 秒，2560 × 1440，30 fps，H.264/AAC）。
+- `station-designer-thumbnail-en.jpg`：英文视频缩略图（3840 × 2160）。
 
 ## 工作存档
 

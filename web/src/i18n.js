@@ -221,7 +221,7 @@ const en = {
     demos: 'Demo stations',
     browse: 'Browse the concept art',
     videoLabel: 'Station Designer gameplay demo',
-    videoTag: 'Gameplay demo · Bilibili',
+    videoTag: 'Gameplay demo · YouTube',
   },
   demos: {
     title: 'Demo stations',

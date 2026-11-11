@@ -13,12 +13,27 @@ export const sheet = (file) => `${import.meta.env.BASE_URL}art/${file}`
 /** Resolve an example-station preview, copied into public/stations at build time. */
 export const stationPreview = (file) => `${import.meta.env.BASE_URL}stations/${file}`
 
-/** The gameplay demo lives on Bilibili; the hero embeds its player. */
-export const demoVideoUrl = 'https://www.bilibili.com/video/BV1ErW76rEPZ'
-const demoVideoPlayer = 'https://player.bilibili.com/player.html?bvid=BV1ErW76rEPZ&page=1&high_quality=1&danmaku=0&as_wide=1&muted=1'
-export const demoVideoEmbed = `${demoVideoPlayer}&autoplay=1`
+/** The gameplay demo lives on Bilibili (Chinese) or YouTube (English); the hero embeds its player. */
+export const demoVideoUrl = (lang = 'zh') =>
+  lang === 'en'
+    ? 'https://www.youtube.com/watch?v=yLM1jJ5SnXs'
+    : 'https://www.bilibili.com/video/BV1ErW76rEPZ'
+
+const demoVideoPlayer = (lang = 'zh') =>
+  lang === 'en'
+    ? 'https://www.youtube.com/embed/yLM1jJ5SnXs'
+    : 'https://player.bilibili.com/player.html?bvid=BV1ErW76rEPZ&page=1&high_quality=1&danmaku=0&as_wide=1&muted=1'
+
+export const demoVideoEmbed = (lang = 'zh') =>
+  lang === 'en'
+    ? `${demoVideoPlayer(lang)}?autoplay=1&mute=1&rel=0`
+    : `${demoVideoPlayer(lang)}&autoplay=1`
+
 /** Rewind to the first second and stay paused, ready for a manual replay. */
-export const demoVideoPausedEmbed = `${demoVideoPlayer}&autoplay=0&t=1`
+export const demoVideoPausedEmbed = (lang = 'zh') =>
+  lang === 'en'
+    ? `${demoVideoPlayer(lang)}?start=1&rel=0`
+    : `${demoVideoPlayer(lang)}&autoplay=0&t=1`
 
 /**
  * The game is a separate Worker, served from https://stationdesigner.com/game/
