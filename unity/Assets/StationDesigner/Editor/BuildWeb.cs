@@ -19,7 +19,10 @@ namespace Metro.Editor {
             if (!output.StartsWith(allowed, StringComparison.OrdinalIgnoreCase) || Directory.Exists(output))
                 throw new ArgumentException("Output must be a new directory beneath the isolated project parent");
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL) throw new Exception("Active build target is not WebGL");
-            if (!File.Exists(Bootstrap.ScenePath)) throw new Exception("Bootstrap scene missing");
+            var sceneIndex = Array.IndexOf(args, "-metroScene");
+            string sceneName = sceneIndex >= 0 && sceneIndex + 1 < args.Length ? args[sceneIndex + 1] : "Bootstrap";
+            string scenePath = sceneName == "Bootstrap" ? Bootstrap.ScenePath : sceneName == "FirstPlayable" ? FirstPlayable.ScenePath : throw new ArgumentException("Invalid scene");
+            if (!File.Exists(scenePath)) throw new Exception("Selected scene missing");
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
             PlayerSettings.WebGL.decompressionFallback = false;
             if (PlayerSettings.WebGL.compressionFormat != WebGLCompressionFormat.Disabled || PlayerSettings.WebGL.decompressionFallback)
@@ -27,7 +30,7 @@ namespace Metro.Editor {
             var configIndex = Array.IndexOf(args, "-metroConfiguration");
             string configuration = configIndex >= 0 && configIndex + 1 < args.Length ? args[configIndex + 1] : "Development";
             if (configuration != "Development" && configuration != "Release") throw new ArgumentException("Invalid build configuration");
-            var options = new BuildPlayerOptions { scenes = new[] { Bootstrap.ScenePath }, locationPathName = output, target = BuildTarget.WebGL, options = configuration == "Development" ? BuildOptions.Development : BuildOptions.None };
+            var options = new BuildPlayerOptions { scenes = new[] { scenePath }, locationPathName = output, target = BuildTarget.WebGL, options = configuration == "Development" ? BuildOptions.Development : BuildOptions.None };
             var report = BuildPipeline.BuildPlayer(options);
             File.WriteAllText(output + ".report.json", JsonUtility.ToJson(new Summary { result = report.summary.result.ToString(), totalSize = report.summary.totalSize, unityVersion = Application.unityVersion, output = output }, true));
             if (report.summary.result != BuildResult.Succeeded || !File.Exists(Path.Combine(output, "index.html"))) throw new Exception("Web build did not succeed");

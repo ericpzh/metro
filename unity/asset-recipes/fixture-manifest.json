@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "id": "station.bench.seat-2",
+      "source": "unity/Assets/StationDesigner/Generated/Models/bench.glb",
+      "sha256": "ab09d495b07d6bf6ab9ecb2d284d1e2f9bf485928da2dc5acf305c190f2f7477",
+      "kind": "bench",
+      "triangles": 252,
+      "min": [
+        -1.0200000003,
+        -0.4250000004,
+        0
+      ],
+      "max": [
+        1.0200000003,
+        0.2599999993,
+        1.1050000004
+      ],
+      "materials": [
+        "darkSteel",
+        "trainSeat",
+        "white"
+      ],
+      "anchors": [
+        "AxisX",
+        "Front",
+        "Up"
+      ],
+      "clips": []
+    },
+    {
+      "id": "train.A.two-car.catenary",
+      "source": "unity/Assets/TrainProof/train.glb",
+      "sha256": "1a294e45b19d97a1943228b3fc4e91a23e1ca3240178c18f3ec646115e31ad89",
+      "kind": "train",
+      "triangles": 0,
+      "materials": [
+        "glass",
+        "lineLivery"
+      ],
+      "anchors": [],
+      "clips": [
+        "OpenPlus",
+        "OpenMinus"
+      ],
+      "motionOracle": "unity/asset-recipes/train-A-motion.json",
+      "motionOracleSha256": "3cede0468c7feda469b690f75eb7d35bf2f3b203e53164615b5a374bae573597"
+    }
+  ]
+}

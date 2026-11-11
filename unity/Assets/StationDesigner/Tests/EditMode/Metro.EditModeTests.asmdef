@@ -1,1 +1,1 @@
-{"name":"Metro.EditModeTests","references":["Metro.Runtime","Unity.ugui"],"includePlatforms":["Editor"],"optionalUnityReferences":["TestAssemblies"],"autoReferenced":false}
+{"name":"Metro.EditModeTests","references":["Metro.Runtime","Metro.Sim","Metro.Build","Metro.Persistence","Unity.ugui"],"includePlatforms":["Editor"],"optionalUnityReferences":["TestAssemblies"],"autoReferenced":false}

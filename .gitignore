@@ -58,6 +58,7 @@ web/pnpm-lock.yaml
 # Unity source only; editor caches, local settings and build products stay local.
 /unity/*
 !/unity/README.md
+!/unity/asset-recipes/
 !/unity/plan/
 !/unity/Assets/
 !/unity/Packages/

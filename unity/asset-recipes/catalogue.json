@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "families": [
+    {
+      "id": "station.bin.double-stream",
+      "catalogueId": "bin",
+      "family": "station furniture",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/BinModel.ts",
+        "game/src/render/models/PieceBuilder.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural double-stream bin geometry, palette, and canvas label generator",
+      "licenseRecord": "Repository-authored procedural geometry and canvas artwork; no third-party assets",
+      "classification": "procedural",
+      "variants": [],
+      "anchors": {
+        "AxisX": [1, 0, 0],
+        "Front": [0, 1, 0],
+        "Up": [0, 0, 1],
+        "Approach": [0, -1, 0]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [-0.44, -0.21, 0],
+        "max": [0.44, 0.21, 0.95]
+      },
+      "triangles": 196,
+      "materials": ["binLabels", "binSteel", "black", "darkSteel"],
+      "alphaMaterials": ["binLabels"],
+      "textures": 2,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Bin.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/bin.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/Bin.prefab",
+        "scene": "Assets/StationDesigner/Generated/Review/Bin.unity",
+        "dependency": "com.unity.cloud.gltfast@6.19.0"
+      },
+      "exportCommand": "node tools/unity-assets/export-bin.mjs .preview/unity/bin-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-bench.ps1 -Asset bin"
+    },
+    {
+      "id": "station.bench.seat-2",
+      "catalogueId": "bench",
+      "family": "station furniture",
+      "category": "Reusable station pieces",
+      "sourcePaths": [
+        "game/src/render/models/pieces/BenchModel.ts",
+        "game/src/render/models/PieceBuilder.ts"
+      ],
+      "owner": "Station Designer game",
+      "provenance": "Repository procedural linked two-seat bench geometry and palette",
+      "licenseRecord": "Repository-authored procedural geometry; no third-party assets",
+      "classification": "procedural",
+      "variants": ["seat-2"],
+      "anchors": {
+        "AxisX": [1, 0, 0],
+        "Front": [0, 1, 0],
+        "Up": [0, 0, 1]
+      },
+      "expected": {
+        "units": "metres",
+        "min": [-1.02, -0.425, 0],
+        "max": [1.02, 0.26, 1.105]
+      },
+      "triangles": 252,
+      "materials": ["darkSteel", "trainSeat", "white"],
+      "alphaMaterials": [],
+      "textures": 0,
+      "lod": "full-detail source meshes; renderer LOD metadata stripped at export",
+      "validationScene": "Assets/StationDesigner/Generated/Review/Bench.unity",
+      "promoted": {
+        "model": "Assets/StationDesigner/Generated/Models/bench.glb",
+        "prefab": "Assets/StationDesigner/Generated/Prefabs/Bench.prefab",
+        "scene": "Assets/StationDesigner/Generated/Review/Bench.unity",
+        "dependency": "com.unity.cloud.gltfast@6.19.0"
+      },
+      "exportCommand": "node tools/unity-assets/export-bench.mjs .preview/unity/bench-proof/export",
+      "proofCommand": "./tools/unity-assets/prove-bench.ps1 -Asset bench"
+    }
+  ]
+}

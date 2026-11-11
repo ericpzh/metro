@@ -1,0 +1,27 @@
+import * as THREE from '/game/node_modules/three/build/three.module.js'
+import { mergeGeometries } from '/game/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js'
+const data=await (await fetch('/.preview/unity/feasibility/graph.bytes')).arrayBuffer(),dv=new DataView(data);let pos=0
+const readInt=()=>{let v=dv.getInt32(pos,true);pos+=4;return v}, readFloat=()=>{let v=dv.getFloat32(pos,true);pos+=4;return v}
+if(readInt()!==0x4d475231)throw Error('wrong graph');const n=readInt(),e=readInt(),servers=readInt()
+const readFloats=(count)=>Float32Array.from({length:count},readFloat), readInts=(count)=>Int32Array.from({length:count},readInt)
+const x=readFloats(n),y=readFloats(n),z=readFloats(n),starts=readInts(n+1),edges=readInts(e),serverNodes=new Int32Array(servers),rates=new Float32Array(servers)
+for(let i=0;i<servers;i++){serverNodes[i]=readInt();rates[i]=readFloat()}if(pos!==data.byteLength||starts[n]!==e)throw Error('graph layout')
+const population=5171,cap=128,floor=[];let sx=0,sy=0
+for(let i=0;i<n;i++)if(Math.abs(z[i]+5)<.01){floor.push(i);sx+=x[i];sy+=y[i]}
+const nodes=new Int32Array(population),agentQueue=new Int32Array(population).fill(-1),heads=new Int32Array(servers),lengths=new Int32Array(servers),credits=new Float32Array(servers),queue=new Int32Array(servers*cap)
+for(let i=0;i<population;i++)nodes[i]=floor[(Math.imul(i,2654435761)>>>0)%floor.length]
+const parts=[[0,.98,0,.42,.62,.22],[0,1.47,0,.26,.32,.24],[-.14,.34,0,.15,.68,.18],[.14,.34,0,.15,.68,.18],[-.29,.99,0,.14,.58,.16],[.29,.99,0,.14,.58,.16],[.37,1.22,.12,.10,.10,.08]].map(([a,b,c,w,h,d])=>{const g=new THREE.BoxGeometry(w,h,d);g.translate(a,b,c);return g})
+const geometry=mergeGeometries(parts);parts.forEach(g=>g.dispose());const material=new THREE.MeshStandardMaterial({color:new THREE.Color(.15,.55,.8),roughness:1})
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.outputColorSpace=THREE.LinearSRGBColorSpace;renderer.setPixelRatio(1);renderer.setSize(1384,805);renderer.setClearColor(new THREE.Color(.08,.11,.14));document.body.appendChild(renderer.domElement)
+const scene=new THREE.Scene(),camera=new THREE.OrthographicCamera(-65*1384/805,65*1384/805,65,-65,.3,400);camera.position.set(sx/floor.length,95,sy/floor.length-65);camera.lookAt(sx/floor.length,95-Math.sin(55*Math.PI/180)*100,sy/floor.length-65+Math.cos(55*Math.PI/180)*100);camera.updateProjectionMatrix();scene.add(new THREE.AmbientLight(0xffffff,1));const light=new THREE.DirectionalLight(0xffffff,1);light.position.set(1,2,-1);scene.add(light)
+const batches=[];for(let i=0;i<population;i+=1023){let batch=new THREE.InstancedMesh(geometry,material,Math.min(1023,population-i));batch.instanceMatrix.setUsage(THREE.DynamicDrawUsage);batch.frustumCulled=false;scene.add(batch);batches.push(batch)}
+const matrix=new THREE.Matrix4(),vector=new THREE.Vector3(),rotation=new THREE.Quaternion(),scale=new THREE.Vector3(1,1,1)
+function render(){for(let i=0;i<population;i++){let q=nodes[i];matrix.compose(vector.set(2*sx/floor.length-x[q],z[q],y[q]),rotation,scale);batches[Math.floor(i/1023)].setMatrixAt(i%1023,matrix)}for(const batch of batches)batch.instanceMatrix.needsUpdate=true;renderer.render(scene,camera)}
+let tick=0,queued=0,admitted=0,completed=0
+function step(){tick++;for(let s=0;s<servers;s++){credits[s]=Math.min(8,Math.fround(credits[s]+Math.max(0,rates[s])));let capacity=Math.min(8,Math.floor(credits[s]));credits[s]=Math.fround(credits[s]-capacity);while(capacity-->0&&lengths[s]>0){let id=queue[s*cap+heads[s]];heads[s]=(heads[s]+1)%cap;lengths[s]--;agentQueue[id]=-1;queued--;completed++}}for(let i=0;i<population;i++){if(agentQueue[i]>=0)continue;let node=nodes[i];if((i+tick)%97===0){let s=((Math.imul(i,2654435761)+tick)>>>0)%servers;if(serverNodes[s]>=0&&serverNodes[s]<n&&lengths[s]<cap){nodes[i]=serverNodes[s];queue[s*cap+(heads[s]+lengths[s])%cap]=i;lengths[s]++;agentQueue[i]=s;queued++;admitted++;continue}}let count=starts[node+1]-starts[node];if(count>0)nodes[i]=edges[starts[node]+(((Math.imul(i,1103515245)+Math.imul(tick,12345))>>>0)%count)]}}
+const speeds=[1,4,16,64],phases=[];let phase=0,acc=0,phaseStarted=performance.now(),previous=phaseStarted,frames=[],ticks=[],tickCount=0,discarded=0
+function pct(a,q){if(!a.length)return 0;const s=[...a].sort((a,b)=>a-b);return s[Math.floor((s.length-1)*q)]}
+function frame(now){let dt=(now-previous)/1000;previous=now;if(phase>=speeds.length){render();return}let elapsed=(now-phaseStarted)/1000;if(elapsed-dt>=2)frames.push(dt*1000);acc+=Math.min(dt,.25)*speeds[phase];let start=performance.now();while(acc>=1&&performance.now()-start<50){let before=performance.now();step();let ms=performance.now()-before;if(elapsed>=2){ticks.push(ms);tickCount++}acc--}if(acc>speeds[phase]*2){let drop=Math.trunc(acc-speeds[phase]*2);acc-=drop;discarded+=drop}render();if(elapsed>=12){let duration=elapsed-2;phases.push({speed:speeds[phase],frames:frames.length,ticks:tickCount,queued,admitted,completed,discardedBacklog:discarded,elapsed:duration,effectiveTicksPerSecond:tickCount/duration,frameMedianMs:pct(frames,.5),frameP95Ms:pct(frames,.95),frameMaxMs:pct(frames,1),tickMedianMs:pct(ticks,.5),tickP95Ms:pct(ticks,.95),tickMaxMs:pct(ticks,1)});phase++;if(phase===speeds.length){window.__metroTsFeasibility={status:'complete',nodes:n,edges:e,servers,population,phases};return}frames=[];ticks=[];tickCount=discarded=admitted=completed=0;acc=0;phaseStarted=performance.now()}requestAnimationFrame(frame)}
+requestAnimationFrame(frame)
+
+

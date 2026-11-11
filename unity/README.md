@@ -21,6 +21,12 @@ folder under `.preview/unity`.
 ./unity/scripts/metro-unity.ps1 smoke-web -OutputDirectory .preview/unity/my-run
 ```
 
+For the first playable scene, pass `-Scene FirstPlayable` to `bootstrap` and
+`build-web`; the default remains `Bootstrap`. After packing, run
+`node tools/unity-web/smoke-first-playable.mjs <run-directory>` to exercise the
+controls, downloaded save, reopen, and boarding in a local browser. The full
+scratch-project sequence is in [the Phase 1 checklist](plan/05-first-playable.md).
+
 `-Help` lists flags. `doctor` does not prove licensing; the Editor invocations do.
 The test task requires a nonzero test count and passing XML. Builds use a new
 output directory, an explicit scene and disabled compression; they write the Unity

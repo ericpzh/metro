@@ -28,11 +28,13 @@ The spike can proceed with the defaults for editor, desktop and placeholder art.
 
 ## Execution order
 
+Agents migrating models claim and update rows in the [shared model migration checklist](model-migration-checklist.md).
+
 | Phase | Work | Exit evidence |
 | --- | --- | --- |
 | 0. Baseline and toolchain | [Bootstrap and CLI](01-bootstrap.md). Capture the TS baseline, inventory Unity source, pin toolchain, run a clean Web smoke build. | Clean checkout reproduces a marker in a real browser at both locale paths through local Wrangler. Evidence includes version, build and test logs. |
-| 1. Feasibility | [Assets](02-assets.md) A1–A4, [C# and parity](03-runtime.md) R1–R2, [Web](04-web-release.md) W1–W3. Import asymmetric geometry, one gate or bench, one train segment and a cleared rig. Load fixture data and benchmark an original synthetic crowd and Tianhe-equivalent geometry and graph load. | One browser slice proves save parsing, scale and side orientation, stable fixture results, and representative main-thread cost. Resolve red feasibility gates before catalogue-wide porting. |
-| 2. Playable slice | Assets A5–A6 and runtime R3–R5. Wire empty station edits and the Zoo demo, walk → fare gate → platform → train, save/export, then reload. Add preview and section tools. | A player completes the slice on Web using the real input controls. Both engines pass the same slice fixtures. |
+| 1. First playable slice | Follow the [implementation checklist and commands](05-first-playable.md). Build on the existing save, asset and Web proofs. In a small station, let the player place a floor and gate, run passengers through the gate to a platform and train, and save and reopen the station. Use original placeholder art and the normal Unity Web controls. | A player completes that loop in a browser. Fix startup, memory and interaction defects that prevent this slice from being played. |
+| 2. Expand the playable game | Extend the slice to Zoo, more construction and view tools, and more of the asset catalogue. Measure the playable workload, address observed bottlenecks and expand toward Tianhe scale. | The expanded slice plays in Web and passes its behavior fixtures. Record performance and memory evidence at the scale exercised. |
 | 3. Parity | Finish asset inventory and runtime R6–R7. Add Tanwei, Tianhe, transit/roads/crowds, editor features, UI panels and bilingual text. | All selected parity rows have deterministic evidence and browser smoke coverage. Unsupported/deferred rows are explicit and owner-reviewed. |
 | 4. Release | Web W4–W7. Preview deploy, compare to baseline, rehearse rollback, then switch the existing `metro-game` Worker. | Stable URLs and save migration verified, production smoke passes, rollback ID and artifact retained. |
 

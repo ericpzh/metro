@@ -1,5 +1,7 @@
 # Subplan 02 · Three.js assets to Unity
 
+Use the [shared model migration checklist](model-migration-checklist.md) to claim work and record verified Unity deliveries.
+
 Read the metro game and model skills, `game/src/assets/PASSENGERS.md` and [B3](01-bootstrap.md#b3-approve-and-resolve-dependencies). Build a source-owned exporter with deterministic recipes. Exchange portable geometry in GLB, then import it in the Editor and build Unity prefabs and data. Unity Web consumes Unity's built assets.
 
 Start with the [runnable bench and Type A train examples](skill-drafts/metro-unity-assets/SKILL.md). They exercise static geometry, generated textures, transparent glass and independently articulated door banks in isolated URP projects before the shared catalogue and batch importer are implemented.

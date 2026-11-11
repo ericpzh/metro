@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "sourceSha": "7ad810fe1867fc85c1fdae21571949fddd943ce8",
+  "dirty": true,
+  "worldSha256": "a59a9de9ebfaec7618b74aedb3ce31e3e78448a3818dc26b9344983c38ebada2",
+  "stationSha256": "4f15bab9154fe48cb3293d55854a6e267d6f89a02d49c34390c7d302b92ca395",
+  "seed": 7654321,
+  "station": "tianhe",
+  "gateModule": "gate-new-574",
+  "gateId": 419,
+  "rate": 0.4166666666666667,
+  "passengerId": 1,
+  "speed": 1.0485860123275779,
+  "path": [
+    {
+      "x": 172.5,
+      "y": -111.5,
+      "z": -4,
+      "zone": 3,
+      "gate": false
+    },
+    {
+      "x": 173.5,
+      "y": -111.5,
+      "z": -4,
+      "zone": 3,
+      "gate": false
+    },
+    {
+      "x": 174.5,
+      "y": -111.5,
+      "z": -4,
+      "zone": 3,
+      "gate": true
+    },
+    {
+      "x": 175.5,
+      "y": -111.5,
+      "z": -4,
+      "zone": 2,
+      "gate": false
+    },
+    {
+      "x": 176.5,
+      "y": -111.5,
+      "z": -4,
+      "zone": 2,
+      "gate": false
+    }
+  ],
+  "trace": [
+    {
+      "tick": 1,
+      "x": 172.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 1,
+      "gateDir": 0,
+      "queue": [],
+      "lane": 0,
+      "cooldown": 0,
+      "waitAccum": 0,
+      "waitCount": 0,
+      "dead": false
+    },
+    {
+      "tick": 2,
+      "x": 173.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 2,
+      "gateDir": 0,
+      "queue": [],
+      "lane": 0,
+      "cooldown": 0,
+      "waitAccum": 0,
+      "waitCount": 0,
+      "dead": false
+    },
+    {
+      "tick": 3,
+      "x": 173.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 2,
+      "pathIndex": 2,
+      "gateDir": -1,
+      "queue": [
+        1
+      ],
+      "lane": 0,
+      "cooldown": 0,
+      "waitAccum": 0,
+      "waitCount": 0,
+      "dead": false
+    },
+    {
+      "tick": 4,
+      "x": 173.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 3,
+      "gateDir": -1,
+      "queue": [],
+      "lane": -1,
+      "cooldown": 1.4,
+      "waitAccum": 0,
+      "waitCount": 1,
+      "dead": false
+    },
+    {
+      "tick": 5,
+      "x": 174.54858601232758,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 3,
+      "gateDir": -1,
+      "queue": [],
+      "lane": -1,
+      "cooldown": 0.3999999999999999,
+      "waitAccum": 0,
+      "waitCount": 1,
+      "dead": false
+    },
+    {
+      "tick": 6,
+      "x": 175.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 4,
+      "gateDir": -1,
+      "queue": [],
+      "lane": -1,
+      "cooldown": 0,
+      "waitAccum": 0,
+      "waitCount": 1,
+      "dead": false
+    },
+    {
+      "tick": 7,
+      "x": 176.5,
+      "y": -111.5,
+      "z": -4,
+      "state": 1,
+      "pathIndex": 5,
+      "gateDir": -1,
+      "queue": [],
+      "lane": -1,
+      "cooldown": 0,
+      "waitAccum": 0,
+      "waitCount": 1,
+      "dead": true
+    }
+  ],
+  "limitations": "One injected passenger, TS graph/A* path; ambient spawning disabled; no other agents."
+}

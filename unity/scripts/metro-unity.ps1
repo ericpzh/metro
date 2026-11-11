@@ -3,15 +3,17 @@ param(
     [Parameter(Position=0)][ValidateSet('doctor','bootstrap','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [ValidateSet('Development','Release')][string]$Configuration = 'Development',
+    [ValidateSet('Bootstrap','FirstPlayable')][string]$Scene = 'Bootstrap',
     [string]$ProjectPath,
     [string]$OutputDirectory,
+    [string]$Manifest,
     [int]$TimeoutSeconds = 1800,
     [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
 if ($Help) {
-    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Configuration Development|Release] [-Help]'
-    Write-Output 'Tasks: doctor, bootstrap, test, build-web, pack-web, smoke-web. import-assets is not implemented yet.'
+    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Configuration Development|Release] [-Scene Bootstrap|FirstPlayable] [-Help]'
+    Write-Output 'Tasks: doctor, bootstrap, test, build-web, pack-web, smoke-web, import-assets.'
     Write-Output 'METRO_UNITY_EDITOR overrides the pinned Editor path; METRO_WRANGLER overrides the Wrangler JS entry for smoke-web.'
     exit 0
 }
@@ -38,7 +40,6 @@ if ($Task -eq 'doctor') {
     [pscustomobject]@{ Repo=$repo; Project=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Editor=$editor; EditorExists=(Test-Path -LiteralPath $editor); EditorProductVersion=$editorProductVersion; EditorMatchesPin=($editorProductVersion -eq $expectedProductVersion); WebGLModule=(Test-Path -LiteralPath $module); Node=$nodeVersion; NodePin=$nodePin; NodeMatchesPin=($nodeVersion -eq $nodePin); Output=$out; ProjectLock=(Test-Path (Join-Path $project 'Temp/UnityLockfile')); Packages=(Get-Content (Join-Path $project 'Packages/manifest.json') -Raw | ConvertFrom-Json).dependencies; ResolvedPackages=$locked } | ConvertTo-Json -Depth 8
     exit 0
 }
-if ($Task -eq 'import-assets') { throw 'import-assets is not implemented yet.' }
 if ($nodeVersion -ne $nodePin) { throw "Node version $nodeVersion does not match the pin $nodePin." }
 if ($Task -in @('pack-web','smoke-web')) {
     if ($Task -eq 'pack-web') { & node (Join-Path $repo 'tools/unity-web/pack.mjs') (Join-Path $out "web-$Configuration") (Join-Path $out 'packed') }
@@ -54,9 +55,16 @@ $headAtStart = (& git -C $repo rev-parse HEAD).Trim()
 $log = Join-Path $out "$Task-$Mode-$Configuration.log"
 $argsList = @('-batchmode','-nographics','-projectPath',('"'+$project+'"'),'-logFile',('"'+$log+'"'))
 switch ($Task) {
-    'bootstrap' { $argsList += @('-quit','-executeMethod','Metro.Editor.Bootstrap.Generate') }
+    'bootstrap' { $method = if ($Scene -eq 'FirstPlayable') { 'Metro.Editor.FirstPlayable.Generate' } else { 'Metro.Editor.Bootstrap.Generate' }; $argsList += @('-quit','-executeMethod',$method) }
+    'import-assets' {
+        if (!$Manifest) { throw 'import-assets requires -Manifest.' }
+        $manifestPath = (Resolve-Path -LiteralPath $Manifest).Path
+        $importReport = Join-Path $out 'import-report.json'
+        if (Test-Path -LiteralPath $importReport) { Remove-Item -LiteralPath $importReport }
+        $argsList += @('-quit','-executeMethod','Metro.Editor.ImportAssets.Run','-metroManifest',('"'+$manifestPath+'"'),'-metroImportReport',('"'+$importReport+'"'))
+    }
     'test' { $xml = Join-Path $out "$Mode.xml"; if(Test-Path $xml){ Remove-Item -LiteralPath $xml }; $argsList += @('-runTests','-testPlatform',$Mode,'-testResults',('"'+$xml+'"')) }
-    'build-web' { $build = Join-Path $out "web-$Configuration"; if(Test-Path $build){ throw 'Build output already exists; choose a fresh output directory.' }; $argsList += @('-quit','-buildTarget','WebGL','-executeMethod','Metro.Editor.BuildWeb.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration) }
+    'build-web' { $build = Join-Path $out "web-$Configuration"; if(Test-Path $build){ throw 'Build output already exists; choose a fresh output directory.' }; $argsList += @('-quit','-buildTarget','WebGL','-executeMethod','Metro.Editor.BuildWeb.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$Scene) }
 }
 function Get-InputSnapshot($root, $directories) {
     @($directories | ForEach-Object { Get-ChildItem -LiteralPath (Join-Path $root $_) -Recurse -File } | Sort-Object FullName | ForEach-Object {
@@ -89,6 +97,6 @@ if ($Task -eq 'build-web') {
     $head = (& git -C $repo rev-parse HEAD).Trim()
     if ($head -ne $headAtStart) { throw 'Repository HEAD changed during the build; preserve the output but rebuild for traceable provenance.' }
     $dirty = [bool]((& git -C $repo status --porcelain) | Select-Object -First 1)
-    [pscustomobject]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Compression='Disabled'; DecompressionFallback=$false; Scene='Assets/StationDesigner/Scenes/Bootstrap.unity'; Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
+    [pscustomobject]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Compression='Disabled'; DecompressionFallback=$false; Scene="Assets/StationDesigner/Scenes/$Scene.unity"; Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
 }
 Write-Output "$Task succeeded; log: $log"

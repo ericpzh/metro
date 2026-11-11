@@ -1,0 +1,1 @@
+{"name":"Metro.Persistence","references":["Metro.Sim","Metro.Build","Unity.Newtonsoft.Json"],"noEngineReferences":true}
