@@ -50,12 +50,12 @@ html = html.replace('var buildUrl = "Build"', 'var buildUrl = "/game/_unity/Buil
 writeFileSync(join(output, 'index.html'), html)
 writeFileSync(join(output,'build-report.json'),JSON.stringify(buildReport,null,2))
 writeFileSync(join(output,'provenance.json'),JSON.stringify(provenance,null,2))
-// Local-only Wrangler smoke: preserve raw bytes while respecting its per-file cap.
+// Local-only Wrangler smoke: preserve raw bytes while respecting its per-file cap for both code and scene data.
 const splitFiles = {}
 for (const name of readdirSync(join(output, 'Build'))) {
   const path = join(output, 'Build', name)
   if (statSync(path).size < 25 * 1024 * 1024) continue
-  if (!name.endsWith('.wasm')) throw Error(`Unexpected oversized file: ${name}`)
+  if (!/\.(wasm|data)$/.test(name)) throw Error(`Unexpected oversized file: ${name}`)
   const bytes = readFileSync(path), parts = []
   for (let offset = 0; offset < bytes.length; offset += 20 * 1024 * 1024) {
     const part = `Build/${name}.part${parts.length}`

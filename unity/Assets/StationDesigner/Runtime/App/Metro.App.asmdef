@@ -1,1 +1,1 @@
-{"name":"Metro.App","references":["Metro.Sim","Metro.Build","Metro.Persistence","Metro.View","Metro.Runtime"]}
+{"name":"Metro.App","references":["Metro.Sim","Metro.Build","Metro.Persistence","Metro.View","Metro.Runtime","Unity.InputSystem","Unity.ugui"]}

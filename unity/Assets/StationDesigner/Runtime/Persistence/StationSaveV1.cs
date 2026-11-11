@@ -35,6 +35,28 @@ namespace Metro.Persistence {
                 gates.Add(new RenderGate((string)value["id"],(int)value["x"],(int)value["y"],(int)value["z"],(int?)value["rot"]??0));
             return gates.ToArray();
         }
+        public JArray CopyCells() => (JArray)document["cells"].DeepClone();
+        public JArray CopyModules() => (JArray)document["modules"].DeepClone();
+
+        public void SetCell(int x, int y, int z, JObject replacement) {
+            var cells = (JArray)document["cells"];
+            var existing = System.Linq.Enumerable.FirstOrDefault(cells,
+                cell => (int)cell["x"] == x && (int)cell["y"] == y && (double)cell["z"] == z);
+            Replace(cells, existing, replacement);
+        }
+
+        public void SetModule(string id, JObject replacement) {
+            var modules = (JArray)document["modules"];
+            var existing = System.Linq.Enumerable.FirstOrDefault(modules, module => (string)module["id"] == id);
+            Replace(modules, existing, replacement);
+        }
+
+        static void Replace(JArray records, JToken existing, JObject replacement) {
+            if (replacement == null) existing?.Remove();
+            else if (existing == null) records.Add(replacement.DeepClone());
+            else existing.Replace(replacement.DeepClone());
+        }
+
         StationSaveV1(JObject document,int cells,int modules) { this.document=document; DroppedCells=cells; DroppedModules=modules; }
         public static StationSaveV1 Read(string input) {
             var candidate=StationSaveCandidate.InspectV1(input);

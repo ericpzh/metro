@@ -27,7 +27,7 @@ for (const file of manifest.files) {
  if(bytes.length!==file.bytes || digest!==file.sha256) throw Error(`Packed digest mismatch: ${file.path}`)
 }
 report.verifiedFiles=actual.length; saveReport()
-const wasm=Object.keys(manifest.splitFiles)[0] ?? manifest.files.find(x=>x.path.endsWith('.wasm'))?.path
+const wasm=Object.keys(manifest.splitFiles).find(path=>path.endsWith('.wasm')) ?? manifest.files.find(x=>x.path.endsWith('.wasm'))?.path
 if(!wasm) throw Error('WASM missing from manifest')
 const wrangler=process.env.METRO_WRANGLER ? resolve(process.env.METRO_WRANGLER) : join(root,'node_modules/wrangler/bin/wrangler.js')
 if(!existsSync(wrangler)) throw Error('Wrangler missing; run npm ci after stopping processes locking node_modules')

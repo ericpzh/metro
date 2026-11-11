@@ -13,7 +13,7 @@ export default {
       const manifest = await manifestResponse.json()
       const split = manifest.splitFiles?.[url.pathname.slice(1)]
       if (split) {
-        const headers = {'content-type':'application/wasm','content-length':String(split.bytes),'cache-control':'no-store'}
+        const headers = {'content-type':url.pathname.endsWith('.wasm')?'application/wasm':'application/octet-stream','content-length':String(split.bytes),'cache-control':'no-store'}
         if (request.method === 'HEAD') return new Response(null,{headers})
         if (request.method !== 'GET') return new Response('Method not allowed',{status:405})
         const parts = await Promise.all(split.parts.map(part => env.ASSETS.fetch(new Request(new URL('/'+part,url)))))

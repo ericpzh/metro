@@ -21,7 +21,7 @@ namespace Metro.Editor {
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL) throw new Exception("Active build target is not WebGL");
             var sceneIndex = Array.IndexOf(args, "-metroScene");
             string sceneName = sceneIndex >= 0 && sceneIndex + 1 < args.Length ? args[sceneIndex + 1] : "Bootstrap";
-            string scenePath = sceneName == "Bootstrap" ? Bootstrap.ScenePath : sceneName == "FirstPlayable" ? FirstPlayable.ScenePath : throw new ArgumentException("Invalid scene");
+            string scenePath = sceneName == "Bootstrap" ? Bootstrap.ScenePath : sceneName == "FirstPlayable" ? FirstPlayable.ScenePath : sceneName == "ZooPlayable" ? ZooPlayable.ScenePath : throw new ArgumentException("Invalid scene");
             if (!File.Exists(scenePath)) throw new Exception("Selected scene missing");
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
             PlayerSettings.WebGL.decompressionFallback = false;

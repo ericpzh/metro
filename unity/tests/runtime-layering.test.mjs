@@ -6,7 +6,7 @@ test('runtime assembly references follow the dependency boundary', () => {
   const base = new URL('../Assets/StationDesigner/Runtime/', import.meta.url)
   const allowed = {
     Sim: [], Build: ['Metro.Sim'], Persistence: ['Metro.Sim','Metro.Build','Unity.Newtonsoft.Json'],
-    View: ['Metro.Sim','Metro.Build'], App: ['Metro.Sim','Metro.Build','Metro.Persistence','Metro.View','Metro.Runtime'],
+    View: ['Metro.Sim','Metro.Build'], App: ['Metro.Sim','Metro.Build','Metro.Persistence','Metro.View','Metro.Runtime','Unity.InputSystem','Unity.ugui'],
   }
   for (const [layer, references] of Object.entries(allowed)) {
     const def = JSON.parse(readFileSync(new URL(`${layer}/Metro.${layer}.asmdef`,base),'utf8'))
