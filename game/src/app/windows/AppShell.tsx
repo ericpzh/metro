@@ -19,7 +19,7 @@ import { ChartsPanel } from './charts/ChartsPanel.tsx'
 import { Tutorial } from './tutorial/Tutorial.tsx'
 import { ExplodedView } from './ExplodedView.tsx'
 
-export function App(): React.ReactElement {
+export function App({ viewport, files, zooStatus }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number } } = {}): React.ReactElement {
   useLanguage()
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
@@ -241,21 +241,21 @@ export function App(): React.ReactElement {
 
   return (
     <div className="app">
-      <TopBar />
+      <TopBar files={files} />
       <div className={`main${leftOpen ? '' : ' leftClosed'}${rightOpen ? '' : ' rightClosed'}`}>
         <div className="sideShell leftShell">
           <div id="leftMenu" className="sideContent" inert={!leftOpen}><LeftRail /></div>
           <CollapseButton open={leftOpen} onToggle={() => setLeftOpen((open) => !open)} controls="leftMenu" label={t('build_palette')} direction="left" />
         </div>
         <div className="stage">
-          <Viewport />
+          {viewport ?? <Viewport />}
         </div>
         <div className="sideShell rightShell">
           <div id="rightMenu" className="sideContent" inert={!rightOpen}><Inspector /></div>
           <CollapseButton open={rightOpen} onToggle={() => setRightOpen((open) => !open)} controls="rightMenu" label={t('inspector')} direction="right" />
         </div>
       </div>
-      <BottomBar />
+      <BottomBar zooStatus={zooStatus} />
       {/* The 时刻 window floats over the game rather than covering it: the station it
           describes stays visible behind the panel (§9.6C). */}
       <TimePanel />

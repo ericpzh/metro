@@ -2,6 +2,7 @@ import { cpSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, 
 import { createHash } from 'node:crypto'
 import { resolve, join, relative, sep } from 'node:path'
 import { execFileSync } from 'node:child_process'
+import { buildUnityUI, attachUnityUI } from './unity-ui-pack.mjs'
 const root = resolve(import.meta.dirname, '../..')
 const source = resolve(process.argv[2] ?? '')
 const output = resolve(process.argv[3] ?? '')
@@ -47,6 +48,11 @@ for (const name of ['OFL.txt','PROVENANCE.txt']) cpSync(join(root,'unity/Assets/
 let html = readFileSync(join(source, 'index.html'), 'utf8')
 if (!html.includes('var buildUrl = "Build"') || !html.includes('TemplateData/')) throw Error('Unexpected Unity template')
 html = html.replace('var buildUrl = "Build"', 'var buildUrl = "/game/_unity/Build"').replaceAll('"TemplateData/', '"/game/_unity/TemplateData/')
+if (provenance.Scene?.endsWith('/ZooPlayable.unity')) {
+  const ui = buildUnityUI(root)
+  for (const [name, bytes] of ui.files) { const dest = join(output, name); mkdirSync(resolve(dest, '..'), { recursive: true }); writeFileSync(dest, bytes) }
+  html = attachUnityUI(html, ui, '/game/_unity')
+}
 writeFileSync(join(output, 'index.html'), html)
 writeFileSync(join(output,'build-report.json'),JSON.stringify(buildReport,null,2))
 writeFileSync(join(output,'provenance.json'),JSON.stringify(provenance,null,2))

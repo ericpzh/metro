@@ -23,7 +23,7 @@ async function freePort() {
 }
 const port = process.env.METRO_ZOO_PORT || await freePort()
 const base = 'http://127.0.0.1:' + port
-const url = base + '/game/'
+const url = base + '/game/en/'
 const temp = join(out, 'zoo-temp')
 mkdirSync(temp, { recursive: true })
 const config = join(out, 'zoo-wrangler.jsonc')
@@ -47,7 +47,7 @@ const screenshot = async (name) => {
   report.images.push(name + '.png')
 }
 const point = (x, y) => page.evaluate(`(() => {
-  const r = document.querySelector('canvas').getBoundingClientRect()
+  const r = document.querySelector('#unity-canvas').getBoundingClientRect()
   return { x: r.left + r.width * ${x}, y: r.top + r.height * ${y} }
 })()`)
 async function click(x, y) {
@@ -59,7 +59,40 @@ async function click(x, y) {
   await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...p, button: 'left', clickCount: 1 })
   await sleep(100)
 }
-const toolbar = x => click(x / 960, 22 / 600)
+async function control(name) {
+  await page.evaluate(`(() => {
+    const button = [...document.querySelectorAll('#metro-unity-ui button')].find(b => (b.getAttribute('aria-label') || b.querySelector('.bpBlockLabel, .folderName')?.textContent.trim() || b.textContent.trim()) === ${JSON.stringify(name)});
+    if (!button) throw Error('Missing control: ' + ${JSON.stringify(name)});
+    button.scrollIntoView({block:'nearest'});
+  })()`)
+  await sleep(300)
+  const rect = await page.evaluate(`(() => {
+    const button = [...document.querySelectorAll('#metro-unity-ui button')].find(b => (b.getAttribute('aria-label') || b.querySelector('.bpBlockLabel, .folderName')?.textContent.trim() || b.textContent.trim()) === ${JSON.stringify(name)});
+    if (!button || button.disabled) throw Error('Unavailable control: ' + ${JSON.stringify(name)});
+    const r = button.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...rect, buttons: 0 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...rect, button: 'left', buttons: 1, clickCount: 1 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...rect, button: 'left', clickCount: 1 })
+  await sleep(100)
+}
+async function selectLevel(level) {
+  const current = (await state()).level
+  for (let next = current; next !== level; next += next > level ? -5 : 5) {
+    const key = next > level ? 'q' : 'e', code = next > level ? 'KeyQ' : 'KeyE'
+    await page.send('Input.dispatchKeyEvent', {type:'keyDown', key, code, windowsVirtualKeyCode:key.toUpperCase().charCodeAt(0)})
+    await page.send('Input.dispatchKeyEvent', {type:'keyUp', key, code, windowsVirtualKeyCode:key.toUpperCase().charCodeAt(0)})
+    await sleep(100)
+  }
+}
+async function focusService() {
+  // The original shell has no service-area shortcut; frame the fixture for
+  // the canvas edits while exercising the actual shared construction tiles.
+  await page.evaluate(`window.metroUnityInstance.SendMessage('ZooPlayable', 'BrowserCommand', JSON.stringify({type:'focusService'}))`)
+}
+async function closeTutorial() {
+  await page.evaluate(`(() => { const skip = [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Skip'); if (skip) skip.click() })()`)
+}
 const clickSlot = async name => {
   const p = (await state())[name]
   await click(p.x, p.y)
@@ -123,6 +156,8 @@ try {
     await page.send('Page.enable')
     await navigate(url)
     await wait('zooPlayableState.connected || zooPlayableState.cells > 0', 'Zoo loaded')
+    await wait("!!document.querySelector('#metro-unity-ui .viewCube')", 'shared UI mounted')
+    await closeTutorial()
     const fixture = JSON.parse(readFileSync(join(root, 'unity/Assets/StationDesigner/Zoo/ZooSave.json'), 'utf8'))
     const generated = fixture.static.modules.filter(m => m.type !== 'bin' &&
       !(m.type === 'bench' && m.cfg?.variant === 'steel-2')).map(({ id, type }) => ({ id, type }))
@@ -133,6 +168,11 @@ try {
       [fixture.static.cells.length, fixture.static.modules.length, fixture.static.lines.length])
     assert.equal(initial.connected, true)
     await screenshot('unity-exterior')
+    // A wheel event over the rail belongs to the DOM, not the camera.
+    const railPoint = await page.evaluate(`(() => { const r = document.querySelector('.leftShell .rail').getBoundingClientRect(); return {x:r.left+20,y:r.top+100} })()`)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...railPoint, deltaX: 0, deltaY: -120 })
+    await sleep(250)
+    assert.equal((await state()).zoom, initial.zoom, 'rail scrolling changed the camera')
 
     const drag = async (button, buttons) => {
       const from = await point(.53, .48), to = await point(.59, .54)
@@ -148,27 +188,28 @@ try {
     await wait('zooPlayableState.targetX !== ' + initial.targetX, 'pointer pan')
     await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', ...await point(.5, .5), deltaX: 0, deltaY: -120 })
     await wait('zooPlayableState.zoom < ' + initial.zoom, 'wheel zoom')
-    await toolbar(652)
+    await control('Reset view')
     await wait('zooPlayableState.zoom === ' + initial.zoom, 'reset view')
     report.cameraControls = true
 
-    await toolbar(545)
+    await selectLevel(-5)
     await wait('zooPlayableState.level === -5', 'level cutaway')
     await screenshot('unity-concourse')
-    await toolbar(754)
+    await focusService()
     await wait('zooPlayableState.level === -15 && zooPlayableState.zoom === 15', 'service area')
     await screenshot('unity-platform')
 
-    await toolbar(239)
+    await control('Delete')
     await wait("zooPlayableState.tool === 'Delete'", 'delete tool')
     await clickSlot('floorPoint')
     await wait('!zooPlayableState.floor && !zooPlayableState.connected', 'remove approach')
-    await toolbar(318)
+    await control('Pause')
     await wait("!zooPlayableState.running && zooPlayableState.message.includes('Blocked')", 'blocked service')
     await screenshot('unity-blocked')
     await clickSlot('gatePoint')
     await wait('!zooPlayableState.gate', 'remove gate')
-    await toolbar(170)
+    await control('Equipment')
+    await control('Fare gate')
     await wait("zooPlayableState.tool === 'Gate'", 'gate tool')
     await clickSlot('gatePoint')
     await wait('zooPlayableState.gate', 'restore authored gate')
@@ -176,7 +217,7 @@ try {
     const downloads = join(out, 'zoo-download-' + process.pid)
     mkdirSync(downloads)
     await page.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads })
-    await toolbar(389)
+    await control('Save')
     const file = join(downloads, 'edited-zoo.metro.json')
     for (let i = 0; i < 120 && !existsSync(file); i++) await sleep(125)
     const edited = JSON.parse(readFileSync(file, 'utf8'))
@@ -191,15 +232,15 @@ try {
     report.saved = file
 
     async function restoreFloorAndRun(capture) {
-      await toolbar(112)
+      await control('Block')
       await wait("zooPlayableState.tool === 'Floor'", 'floor tool')
       await clickSlot('floorPoint')
       await wait('zooPlayableState.connected', 'restore approach')
-      await toolbar(318)
+      await control('Pause')
       await wait('zooPlayableState.running', 'service started')
-      await toolbar(318)
+      await control('Pause')
       await wait("!zooPlayableState.running && zooPlayableState.message.includes('paused')", 'service paused')
-      await toolbar(318)
+      await control('Pause')
       await wait('zooPlayableState.running', 'service resumed')
       await wait('zooPlayableState.queued > 0', 'passengers queue')
       if (capture) await screenshot('unity-queue')
@@ -211,14 +252,26 @@ try {
 
     await navigate(url)
     await wait('zooPlayableState.floor', 'fresh fixture')
+    await wait("!!document.querySelector('#metro-unity-ui .viewCube')", 'shared UI remounted')
+    await closeTutorial()
     await page.send('Page.setInterceptFileChooserDialog', { enabled: true })
+    const beforeInvalid = await state()
+    const invalidChooser = page.waitForEvent('Page.fileChooserOpened')
+    await control('Open')
+    const invalidSelection = await invalidChooser
+    await page.send('DOM.setFileInputFiles', { files: [join(root, 'unity/tests/fixtures/invalid-v1.metro.json')], backendNodeId: invalidSelection.backendNodeId })
+    await wait("zooPlayableState.message.includes('Could not open')", 'invalid save refused')
+    const afterInvalid = await state()
+    assert.deepEqual([afterInvalid.cells, afterInvalid.modules, afterInvalid.lines, afterInvalid.floor, afterInvalid.gate],
+      [beforeInvalid.cells, beforeInvalid.modules, beforeInvalid.lines, beforeInvalid.floor, beforeInvalid.gate])
+    report.invalidImportPreservedStation = true
     const chooser = page.waitForEvent('Page.fileChooserOpened')
-    await toolbar(451)
+    await control('Open')
     const selection = await chooser
     await page.send('DOM.setFileInputFiles', { files: [file], backendNodeId: selection.backendNodeId })
     await wait("!zooPlayableState.floor && zooPlayableState.message.includes('Zoo opened')", 'edited Zoo reopened')
     report.reopened = await state()
-    await toolbar(754)
+    await focusService()
     await wait('zooPlayableState.level === -15', 'reopened service area')
     report.reopenedService = await restoreFloorAndRun(false)
     if (report.errors.length) throw Error(report.errors.join('\n'))

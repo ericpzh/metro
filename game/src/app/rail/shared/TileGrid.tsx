@@ -89,12 +89,12 @@ export function TileGrid({
                 // what is behind it â€” the same rule for every family.
                 thumb={folder === 'rail' ? undefined : moduleThumbnail(familyOptions(tile.family)[0]?.id ?? '', city)}
                 icon={folder === 'rail' ? tile.family.key : undefined}
-                active={pieceFamily === tile.family}
+                active={tool === 'module' && pieceFamily === tile.family}
                 submenu={familyOpen(tile.family)}
                 onClick={() => {
                   // A parent tile arms its first variant, so the previous tile's
                   // highlight is released even before a variant is picked.
-                  if (pieceFamily !== tile.family) {
+                  if (tool !== 'module' || pieceFamily !== tile.family) {
                     const first = familyOptions(tile.family)[0]
                     if (first) {
                       setModuleType(first.id)

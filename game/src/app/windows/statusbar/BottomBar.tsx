@@ -8,7 +8,7 @@ import { LOS_LABELS } from '../../../sim/constants.ts'
 import { stampAt } from '../../../sim/clock.ts'
 import { Metric } from './Metric.tsx'
 
-export function BottomBar(): React.ReactElement {
+export function BottomBar({ zooStatus }: { zooStatus?: { queued: number; boarded: number } } = {}): React.ReactElement {
   useLanguage()
   const m = useStore((s) => s.metrics)
   const stats = useStore((s) => s.stats)
@@ -34,11 +34,11 @@ export function BottomBar(): React.ReactElement {
       >
         <Metric label={t('passengers_inside')} value={m ? m.population.toLocaleString() : '—'} />
         <Metric label={t('avg_crowd_level')} value={m ? `${m.crowdLos} ${LOS_LABELS[m.crowdLos]}` : '—'} tone={m?.crowdLos} />
-        <Metric label={t('gate_queue')} value={m ? m.gateQueue : '—'} />
+        <Metric label={t('gate_queue')} value={zooStatus ? zooStatus.queued : m ? m.gateQueue : '—'} />
         <Metric label={t('escalator_queue')} value={m ? m.escalatorQueue : '—'} />
         <Metric label={t('lift_queue')} value={m ? m.liftQueue : '—'} />
         <Metric label={t('platform_door_queue')} value={m ? m.doorQueue : '—'} />
-        <Metric label={t('boarded')} value={m ? m.boarded : '—'} />
+        <Metric label={t('boarded')} value={zooStatus ? zooStatus.boarded : m ? m.boarded : '—'} />
         <Metric label={t('exited')} value={m ? m.exited : '—'} />
         <Metric label={t('left_behind')} value={m ? m.leftBehind : '—'} warn={(m?.leftBehind ?? 0) > 0} />
         <Metric label={t('time_440')} value={m ? stampAt(m.simTime).clock : '—'} />

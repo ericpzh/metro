@@ -19,5 +19,11 @@ mergeInto(LibraryManager.library, {
   ZooPlayableState: function (ptr) {
     if (!window.zooPlayableState) Module.canvas.addEventListener('contextmenu', event => event.preventDefault());
     window.zooPlayableState = JSON.parse(UTF8ToString(ptr));
+    window.dispatchEvent(new CustomEvent('metro:zoo-state', {detail: window.zooPlayableState}));
+  },
+  ZooPlayablePointerOnCanvas: function (x, y, width, height) {
+    const canvas = Module.canvas, rect = canvas.getBoundingClientRect();
+    const element = document.elementFromPoint(rect.left + rect.width * x / width, rect.top + rect.height * (1 - y / height));
+    return element === canvas;
   }
 });

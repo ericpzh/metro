@@ -11,6 +11,7 @@ import { SettingsMenu } from './SettingsMenu.tsx'
 import { SimulationControls } from './SimulationControls.tsx'
 import { openSaveWithLoading } from '../../gameLoading.ts'
 import { CityStyleSelect } from './CityStyleSelect.tsx'
+import { FileButtons } from './FileButtons.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -54,7 +55,7 @@ function StationName(): React.ReactElement {
   )
 }
 
-export function TopBar(): React.ReactElement {
+export function TopBar({ files }: { files?: { save: () => void; open: (text: string) => void } } = {}): React.ReactElement {
   useLanguage()
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
@@ -83,30 +84,7 @@ export function TopBar(): React.ReactElement {
       <button className="ghost iconBtn" onClick={() => window.dispatchEvent(new Event('metro:tutorial'))} title={t('tutorial_title')} aria-label={t('tutorial_title')}>
         <IoIosBookmarks aria-hidden="true" />
       </button>
-      <button
-        className="ghost iconBtn"
-        onClick={saveToFile}
-        title={t('save_to_file_ctrl_s')}
-        aria-label={t('save')}
-        aria-keyshortcuts="Control+S"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 2h8l2 2v10H3z" />
-          <path d="M5 2v3.5h6V2" />
-          <rect x="5" y="9" width="6" height="5" />
-        </svg>
-      </button>
-      <button
-        className="ghost iconBtn"
-        onClick={() => fileRef.current?.click()}
-        title={t('open_save_ctrl_l')}
-        aria-label={t('open_490')}
-        aria-keyshortcuts="Control+L"
-      >
-        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M1.5 4.5h4.5L7.2 6H14.5v6.5h-13z" />
-        </svg>
-      </button>
+      <FileButtons onSave={files?.save ?? saveToFile} onOpen={() => fileRef.current?.click()} />
       <input
         ref={fileRef}
         type="file"
@@ -114,7 +92,8 @@ export function TopBar(): React.ReactElement {
         style={{ display: 'none' }}
         onChange={(e) => {
           const f = e.target.files?.[0]
-          if (f) void openSaveWithLoading(f, (text) => {
+          if (f && files) void f.text().then(files.open, () => useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the save file.' : '无法读取存档文件。'))
+          else if (f) void openSaveWithLoading(f, (text) => {
             const epoch = useStore.getState().stationEpoch
             loadFromText(text)
             return useStore.getState().stationEpoch !== epoch

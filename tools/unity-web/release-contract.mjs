@@ -6,7 +6,7 @@ const sha = /^[a-f0-9]{64}$/
 const sourceSha = /^[a-f0-9]{40}$/
 const knownTypes = new Map([
   ['.js','application/javascript'], ['.wasm','application/wasm'],
-  ['.data','application/octet-stream'], ['.json','application/json'],
+  ['.data','application/octet-stream'], ['.bin','application/octet-stream'], ['.json','application/json'],
   ['.html','text/html; charset=utf-8'], ['.css','text/css'],
   ['.png','image/png'], ['.jpg','image/jpeg'], ['.jpeg','image/jpeg'],
   ['.svg','image/svg+xml'], ['.ico','image/x-icon'], ['.txt','text/plain; charset=utf-8'],

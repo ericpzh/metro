@@ -13,9 +13,7 @@ import { useLanguage } from '../i18n.ts'
 // column and carries its own table with its own modifier — **Alt+1 … Alt+4** over
 // 信息 / 视图 / 出入口 / 线路 (`INSPECTOR_FOLDERS`), which is where 视图 went: it is a set
 // of look controls, so it lives beside the read-outs.
-// `Folder` stays here for now — Lane A will lift the shared chrome into
-// app/windows/shared/; until then the barrel at app/LeftRail.tsx keeps both
-// import paths working.
+// Folder chrome is shared with the Unity browser shell.
 
 import { useEffect, useRef, useState } from 'react'
 import { FACILITY_OPTIONS, decorCategoryForId, folderTiles, isDecorType, isFacilityBrush, useStore } from '../store.ts'
@@ -24,6 +22,8 @@ import type { Tool } from '../store.ts'
 import { FINISH_LIST } from '../../sim/finishes.ts'
 import { RAIL_FOLDERS, REVEAL_SETTLE_MS, armedRailTile, findSelectedTrack, revealScrollDelta, subMenuForModule, toolsFolderTiles, zoneFolderTiles } from './helpers.ts'
 import type { FolderKey, RailFolderKey, SubMenuKey } from './helpers.ts'
+import { Folder } from './shared/Folder.tsx'
+export { Folder } from './shared/Folder.tsx'
 import { ToolsFolder } from './folders/ToolsFolder.tsx'
 import { RailFolder } from './folders/RailFolder.tsx'
 import { EquipmentFolder } from './folders/EquipmentFolder.tsx'
@@ -31,52 +31,6 @@ import { DecorFolder } from './folders/DecorFolder.tsx'
 import { RoomFolder } from './folders/RoomFolder.tsx'
 import { ZoneFolder } from './folders/ZoneFolder.tsx'
 import { PaintFolder } from './folders/PaintFolder.tsx'
-
-interface FolderProps {
-  tutorialId?: string
-  title: string
-  count?: number
-  /** The Shift+number that folds this folder, badged on the header on hover. */
-  shortcut?: string
-  open: boolean
-  onToggle: () => void
-  children: React.ReactNode
-}
-
-export function Folder({ tutorialId, title, count, shortcut, open, onToggle, children }: FolderProps): React.ReactElement {
-  useLanguage()
-  return (
-    <section data-tutorial-folder={tutorialId} className={open ? 'folder open' : 'folder'}>
-      {/* The key is the ladder's (`RAIL_FOLDERS`), and it is worn the way a tile
-          wears its own: a badge on the right of the bar, drawn on hover or focus
-          (`styles.css` `.bpKey` / `.folderKey`), so a rail of closed folders stays
-          as quiet as it was before there was a ladder. Nothing here is a text
-          field, so pointing at the header and pressing the key still folds it
-          (`isTypingTarget`). */}
-      <button
-        type="button"
-        className="folderHead"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-keyshortcuts={shortcut}
-      >
-        <span className="folderName">{translate(title)}</span>
-        {typeof count === 'number' ? <span className="folderCount">{translate(count)}</span> : null}
-        <span className="folderCaret" aria-hidden="true" />
-        {shortcut ? (
-          <span className="folderKey" aria-hidden="true">
-            {translate(shortcut)}
-          </span>
-        ) : null}
-      </button>
-      <div className="folderBody" aria-hidden={!open} inert={!open}>
-        <div className="folderInner">
-          <div className="folderPad">{translate(children)}</div>
-        </div>
-      </div>
-    </section>
-  )
-}
 
 const FOLDER_FOR_TOOL: Record<Tool, RailFolderKey> = {
   select: 'tools',

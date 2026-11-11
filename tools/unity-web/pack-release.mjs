@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { brotliCompressSync, constants as zc } from 'node:zlib'
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, renameSync, rmSync, existsSync } from 'node:fs'
 import { resolve, join, relative, dirname, sep } from 'node:path'
+import { buildUnityUI, attachUnityUI } from './unity-ui-pack.mjs'
 import { artifactDigest, resourceType, validateReleaseManifest } from './release-contract.mjs'
 const root=resolve(import.meta.dirname,'../..'), source=resolve(process.argv[2]??''), output=resolve(process.argv[3]??'')
 const allowed=resolve(root,'.preview/unity')+sep
@@ -19,17 +20,21 @@ for(const path of actual){const bytes=readFileSync(join(source,path)),d=declared
 const files=[], payloads=new Map()
 for(const path of actual.filter(p=>p.startsWith('Build/')||p.startsWith('TemplateData/'))){
  let bytes=readFileSync(join(source,path)),name=path
- if(path.endsWith('.wasm')){bytes=brotliCompressSync(bytes,{params:{[zc.BROTLI_PARAM_QUALITY]:5}});name += '.br'}
+ if(path.endsWith('.wasm') || (path.endsWith('.data') && bytes.length >= 25 * 1024 * 1024)){bytes=brotliCompressSync(bytes,{params:{[zc.BROTLI_PARAM_QUALITY]:5}});name += '.br'}
  const file={path:name,bytes:bytes.length,sha256:sha(bytes),...resourceType(name)}
  files.push(file);payloads.set(name,bytes)
 }
+const ui = provenance.Scene?.endsWith('/ZooPlayable.unity') ? buildUnityUI(root) : null
+if (ui) for (const [name, bytes] of ui.files) { files.push({path:name,bytes:bytes.length,sha256:sha(bytes),...resourceType(name)}); payloads.set(name,bytes) }
 const artifactSha256=artifactDigest(files),sourceSha=provenance.Head.toLowerCase(),releaseId=`${sourceSha}-${artifactSha256.slice(0,16)}`
 const manifest={schemaVersion:1,sourceSha,artifactSha256,releaseId,files}
 validateReleaseManifest(manifest,p=>payloads.get(p))
 let html=readFileSync(join(source,'index.html'),'utf8')
 if(!html.includes('var buildUrl = "Build"')||!html.includes('TemplateData/')||!html.includes('.wasm"'))throw Error('Unexpected Unity template')
 html=html.replace('<html lang="en-us">','<html lang="__METRO_LOCALE__">').replaceAll('"TemplateData/','"__METRO_ASSET_BASE__/TemplateData/').replace('var buildUrl = "Build"','var buildUrl = "__METRO_ASSET_BASE__/Build"').replace('.wasm"','.wasm.br"')
+if (files.some(file => file.path.endsWith('.data.br'))) html = html.replace('.data"', '.data.br"')
 html=html.replace('<head>','<head>\n<script>window.metroLaunch = __METRO_CONFIG__;</script>')
+if (ui) html = attachUnityUI(html, ui, '__METRO_ASSET_BASE__')
 const temp=output+'.tmp-'+process.pid
 try {
  mkdirSync(join(temp,'_unity',releaseId),{recursive:true}); mkdirSync(join(temp,'_unity-shell'),{recursive:true})

@@ -31,6 +31,9 @@ namespace Metro.App {
             public float yaw, zoom, targetX, targetY, doorMovement;
             public Vector2 floorPoint, gatePoint;
         }
+        [Serializable] sealed class BrowserCommandData {
+            public string type, value;
+        }
 
         static readonly int[] Levels = { 0, -5, -10, -15, -20 };
         const int ServiceLevel = -15;
@@ -65,6 +68,7 @@ namespace Metro.App {
         [DllImport("__Internal")] static extern void ZooPlayableDownload(string json);
         [DllImport("__Internal")] static extern void ZooPlayableOpen();
         [DllImport("__Internal")] static extern void ZooPlayableState(string json);
+        [DllImport("__Internal")] static extern bool ZooPlayablePointerOnCanvas(float x, float y, float width, float height);
 #else
         static void ZooPlayableDownload(string json) => System.IO.File.WriteAllText("edited-zoo.metro.json", json);
         static void ZooPlayableOpen() => Debug.Log("Use Open in the Web preview.");
@@ -110,6 +114,9 @@ namespace Metro.App {
             closedDoorPosition = observedDoor.localPosition;
             train.transform.position += Vector3.right * ((float)board.x - (observedDoor.position.x + otherLeaf.position.x) / 2);
             BuildToolbar();
+#if UNITY_WEBGL && !UNITY_EDITOR
+            panel.parent.gameObject.SetActive(false);
+#endif
             Install(authored);
             ResetView();
         }
@@ -276,6 +283,9 @@ namespace Metro.App {
             if (mouse == null) return;
             var position = mouse.position.ReadValue();
             bool overToolbar = RectTransformUtility.RectangleContainsScreenPoint(panel, position);
+#if UNITY_WEBGL && !UNITY_EDITOR
+            overToolbar = !ZooPlayablePointerOnCanvas(position.x, position.y, Screen.width, Screen.height);
+#endif
             bool inCanvas = position.x >= 0 && position.x < Screen.width && position.y >= 0 && position.y < Screen.height;
             bool orbit = mouse.middleButton.isPressed;
             bool pan = mouse.rightButton.isPressed;
@@ -396,6 +406,33 @@ namespace Metro.App {
                 message = "Could not open Zoo. " + error.Message;
             }
             RefreshStatus();
+        }
+        // Single browser receiver: reject unknown commands and invalid arguments before
+        // touching the document. OpenFile installs only after validation succeeds.
+        public void BrowserCommand(string json) {
+            try {
+                var command = JsonUtility.FromJson<BrowserCommandData>(json);
+                if (command == null || document == null) return;
+                switch (command.type) {
+                    case "tool":
+                        if (command.value == "Inspect" || command.value == "Floor" || command.value == "Gate" || command.value == "Delete") SetTool(command.value);
+                        break;
+                    case "level":
+                        if (int.TryParse(command.value, out int level)) {
+                            int index = Array.IndexOf(Levels, level);
+                            if (index >= 0) SetLevel(index);
+                        }
+                        break;
+                    case "run": ToggleRun(); break;
+                    case "resetView": ResetView(); break;
+                    case "focusService": FocusService(); break;
+                    case "save": ZooPlayableDownload(document.Write(DateTimeOffset.UtcNow)); break;
+                    case "open": OpenFile(command.value); break;
+                }
+            } catch (Exception error) {
+                message = "Invalid browser command: " + error.Message;
+                RefreshStatus();
+            }
         }
         void RefreshStatus() {
             if (!status || document == null) return;
