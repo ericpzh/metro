@@ -49,6 +49,8 @@ The bench follows the same promotion layout: `Assets/StationDesigner/Generated/M
 
 ## Adapt the example
 
+When working from the [shared migration checklist](../../model-migration-checklist.md), claim related variants as a family before editing. For example, give one agent the stair variants so they can reuse the Unity generator and review scene. Record verification per variant and link the shared evidence from each completed row.
+
 Find the real source generator, catalogue ID, dimensions and provenance before writing an adapter. Reuse a stable local origin, material names and named anchors. Keep procedural station surfaces runtime-generated and use a representative snapshot for comparison. Use the game-pinned Three.js exporter and validate portable GLB before Unity import. For the bench, the exporter resets the placement root, rotates Z-up into glTF Y-up, and records the source-space bounds and anchors. glTFast reflects X. The Unity wrapper puts its 180° Y correction on a **parent** of the imported model to preserve the imported root rotation and obtain `(x,z,y)`. Verify basis and winding with asymmetric geometry before reusing it on another asset.
 
 Keep the imported model and wrapper prefab separate. Add validation for each asset's relevant materials, sockets, bounds, skin weights and clips. Use the matching Web review scene to inspect the finished import. The general catalogue and batch runner described in the migration plan are future work.
