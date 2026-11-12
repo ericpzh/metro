@@ -1,6 +1,11 @@
 import {spawn,spawnSync} from 'node:child_process';
 import {connect} from 'node:net';
 import {resolve} from 'node:path';
+if(process.argv[2]==='unity'){
+ const {runUnityDev}=await import('./unity-web/start-unity.mjs');
+ await runUnityDev(process.argv.slice(3));
+ process.exit(0);
+}
 const npmCli=process.env.npm_execpath;
 if(!npmCli)throw new Error('Run this launcher with npm start or npm run dev:all.');
 const services=[

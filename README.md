@@ -60,6 +60,7 @@ keep in sync by hand.
 
 ```bash
 npm start             # web 5173 + game 5174 + model 5175 + stats 5176
+npm start unity       # build/pack latest Unity WebGL preview + serve at http://127.0.0.1:8787/game/
 npm run setup:game    # install game/ deps
 npm run dev:game      # http://localhost:5174 (the site owns 5173)
 npm run dev:stats     # http://localhost:5176/ (local D1 filled by the game at :5174)

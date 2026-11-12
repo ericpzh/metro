@@ -4,6 +4,7 @@ import { App } from '../app/windows/AppShell.tsx'
 import { ViewCube } from '../app/ViewCube.tsx'
 import { useStore } from '../app/store.ts'
 import { initLanguage } from '../app/i18n.ts'
+import { showGameLoading } from '../app/gameLoading.ts'
 import { initUiTheme } from '../app/uiTheme.ts'
 import { toState } from '../build/model.ts'
 import { referenceStation } from '../data/reference-station.ts'
@@ -65,12 +66,25 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     if (tool !== previousTool) { previousTool = tool; zooBridge.send({ type: 'tool', value: tool }) }
   })
   let lastMessage = ''
+  let dismissedLoading = false
+  const dismissLoadingOnce = (): void => {
+    if (dismissedLoading) return
+    dismissedLoading = true
+    const hide = (): void => {
+      const screen = document.getElementById('game-loading')
+      if (screen?.dataset.failed === 'true') return
+      showGameLoading(false)
+    }
+    requestAnimationFrame(hide)
+    window.setTimeout(hide, 60)
+  }
   const receive = (snapshot: ZooSnapshot): void => {
     zooBridge.receive(snapshot)
     applyingSnapshot = true
     useStore.setState({ activeZ: snapshot.level, playing: snapshot.running, ...(snapshot.message !== lastMessage ? { notice: snapshot.message } : {}) })
     lastMessage = snapshot.message
     applyingSnapshot = false
+    dismissLoadingOnce()
   }
   const state = (event: Event): void => receive((event as CustomEvent<ZooSnapshot>).detail)
   window.addEventListener('metro:zoo-state', state)
