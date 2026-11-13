@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)..\..\.preview\unity\editor-ui-host\obj\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\.preview\unity\editor-ui-host\bin\</OutputPath>
+  </PropertyGroup>
+</Project>

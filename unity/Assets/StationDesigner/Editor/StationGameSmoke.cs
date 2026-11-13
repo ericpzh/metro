@@ -106,6 +106,7 @@ namespace Metro.Editor {
 
                 var baseline = CaptureBaseline(host);
                 pending = baseline;
+                StationEditorReactOverlay.SmokeSuppressed = true;
                 result["baseline"] = new JObject {
                     ["timeScale"] = baseline.TimeScale,
                     ["simulationPlaying"] = baseline.WasPlaying,
@@ -277,6 +278,7 @@ namespace Metro.Editor {
                 WriteResult(cmd, result, outputPath);
                 return ExitCode.Success;
             } catch (SmokeFailure failure) {
+                StationEditorReactOverlay.SmokeSuppressed = false;
                 result["status"] = "failed";
                 result["stage"] = failure.Stage;
                 result["error"] = failure.Message;
@@ -286,6 +288,7 @@ namespace Metro.Editor {
                 cmd.Log.Error("stage=" + failure.Stage + ": " + failure.Message);
                 return ExitCode.Failed;
             } catch (Exception error) {
+                StationEditorReactOverlay.SmokeSuppressed = false;
                 result["status"] = "failed";
                 result["stage"] = "editor";
                 result["error"] = error.GetType().Name + ": " + error.Message;
@@ -330,6 +333,7 @@ namespace Metro.Editor {
                 if (simulationHost != null && simulationHost.Session != null)
                     simulationHost.Session.SetPlaying(baseline.WasPlaying);
                 Time.timeScale = baseline.TimeScale;
+                StationEditorReactOverlay.SmokeSuppressed = false;
                 restored["timeScale"] = Time.timeScale;
                 restored["simulationPlaying"] = simulationHost != null && simulationHost.Session != null && simulationHost.Session.Playing;
                 restored["restored"] = true;

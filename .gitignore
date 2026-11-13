@@ -77,6 +77,7 @@ web/pnpm-lock.yaml
 
 # Generated C# / IDE solution and project files
 *.csproj
+!tools/unity-editor-ui/MetroEditorWebView.csproj
 *.unityproj
 *.sln
 *.slnx
