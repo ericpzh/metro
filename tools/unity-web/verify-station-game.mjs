@@ -20,7 +20,7 @@
 // Every case has its own timeout; on failure the report carries the last snapshot
 // (document elided), the browser errors and a PNG. Run:
 //   node tools/unity-web/verify-station-game.mjs <run-dir> [--demo zoo|tanwei|tianhe|all]
-//        [--locale both|zh|en] [--timeout-ms 90000] [--serve]
+//        [--locale both|zh|en] [--timeout-ms 90000] [--serve] [--only case[,case]]
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -40,6 +40,11 @@ const arg = (name, fallback) => {
 const demoArg = arg('--demo', 'zoo')
 const localeArg = arg('--locale', 'both')
 const timeoutMs = Number(arg('--timeout-ms', '120000'))
+// `--only` runs a subset (prefix match on the case name) so one case can be iterated
+// without paying for the whole pass; every case still cold-opens the demo URL itself.
+const onlyArg = arg('--only', '')
+const onlyCases = onlyArg ? onlyArg.split(',').map(name => name.trim()).filter(Boolean) : null
+const wanted = (name) => !onlyCases || onlyCases.some((pattern) => name.startsWith(pattern))
 // `--packed` may be absolute or relative to the invocation directory; the Worker
 // config needs a real directory, and resolving against the run dir silently produced
 // `<run>/station-game/.preview/...` which wrangler then refused.
@@ -150,6 +155,29 @@ async function screenshot(name) {
   report.images.push(name + '.png')
 }
 
+/**
+ * Capture just the Unity canvas, so a cross-engine comparison is canvas-to-canvas.
+ * `Page.captureScreenshot` clips in CSS pixels; the returned rect lets the report name
+ * the exact region the numbers came from.
+ */
+async function screenshotCanvas(name) {
+  await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height, pixels: [canvas.width, canvas.height] }
+  })()`)
+  if (!rect) return null
+  const shot = await page.send('Page.captureScreenshot', {
+    format: 'png',
+    clip: { x: rect.x, y: rect.y, width: rect.width, height: rect.height, scale: 1 },
+  })
+  writeFileSync(join(outDir, name + '.png'), Buffer.from(shot.data, 'base64'))
+  report.images.push(name + '.png')
+  return rect
+}
+
 function caseStart(name) {
   const record = { name, status: 'running', ms: 0 }
   report.cases.push(record)
@@ -174,6 +202,41 @@ async function finishCase(record, ok, detail) {
 function expectedCounts(id) {
   const demo = byId.get(id)
   return { cells: demo.counts.cells, modules: demo.counts.modules, lines: demo.counts.lines, sha256: demo.outputSha256 }
+}
+
+/**
+ * Observe what the UI actually asked the host for: wrap the shared port's `send`, the
+ * same public seam the React shell uses. This is an observation point, not a shortcut —
+ * the case still presses real keys and clicks real buttons, and only counts the commands
+ * those inputs produced. A page navigation drops the wrapper with the page.
+ */
+async function installCommandRecorder() {
+  return page.evaluate(`(() => {
+    const bridge = window.__metroStationBridge
+    if (!bridge) return false
+    if (bridge.__metroRecorder) return true
+    const original = bridge.send
+    bridge.__metroRecorder = []
+    bridge.send = function (...args) {
+      const id = original.apply(this, args)
+      bridge.__metroRecorder.push({ type: args[0], payload: args[1] ?? null, id: typeof id === 'string' ? id : null, at: performance.now() })
+      return id
+    }
+    return true
+  })()`)
+}
+
+async function recordedCommands() {
+  return page.evaluate('(window.__metroStationBridge.__metroRecorder ?? []).map(row => ({ type: row.type, payload: row.payload, id: row.id }))')
+}
+
+/** A real key press through the browser's own input path (`Input.dispatchKeyEvent`). */
+async function pressKey(key, code, virtualKeyCode, modifiers = 0) {
+  for (const type of ['rawKeyDown', 'keyUp']) {
+    await page.send('Input.dispatchKeyEvent', {
+      type, modifiers, key, code, windowsVirtualKeyCode: virtualKeyCode, nativeVirtualKeyCode: virtualKeyCode,
+    })
+  }
 }
 
 function committedCounts(documentText) {
@@ -368,6 +431,152 @@ async function runCameraCase() {
  * camera through the same gesture path a user drives, and Ctrl+H asks for home. The
  * basis is the published rendered basis, not a UI counter.
  */
+/**
+ * Plan 13 §2 — the frame the finish, lighting and glass work is measured on. One
+ * canvas-only capture at the home view (no React chrome), with the camera basis and the
+ * canvas rect recorded so the comparison against the TypeScript capture names the same
+ * region. The numbers themselves come from `tools/unity-parity/compare-captures.mjs`;
+ * this case only guarantees the frame exists and is the station's, not a loading screen.
+ */
+/**
+ * Plan 13 §5 — the two overlay toggles through the real command path. Turning each on must
+ * change the published view state and the rendered pixels; turning it off must restore
+ * them. A capability flag alone is not the acceptance.
+ */
+async function runOverlayCase() {
+  const record = caseStart('overlay-toggles')
+  const problems = []
+  const view = () => page.evaluate('(() => (window.__metroStationBridge.getSnapshot().state.view ?? null))()')
+  const render = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).render ?? null))()')
+  const capture = async () => (await page.send('Page.captureScreenshot', { format: 'png' })).data
+  const send = (payload) => page.evaluate(`window.__metroStationBridge.send('view.set', ${JSON.stringify(payload)})`)
+  // The view rig installs on commit; a command that lands before that is refused
+  // `no-session` (the shell keeps early view rejections silent), so retry until it sticks.
+  await waitForSnapshot('s.state.view != null', 'view rig installed')
+  const toggle = async (key, value) => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await send({ key, value })
+      await sleep(400)
+      const state = await view()
+      if (state && state[key] === value) return state
+    }
+    return null
+  }
+  const overlays = async () => (await render())?.overlays ?? null
+  const setLevel = async (level) => {
+    await send({ key: 'level', value: level })
+    await sleep(500)
+  }
+
+  // A zoned storey: walk the ladder until the overlay reports cells (the document opens on
+  // its lowest authored metre, and a zone map only paints floors that carry a zone).
+  let zoneLevel = null
+  let zoneState = null
+  for (const level of [-20, -15, -10, -5, 0]) {
+    await setLevel(level)
+    await toggle('zones', false)
+    zoneState = await toggle('zones', true)
+    if (!zoneState || zoneState.zones !== true) { problems.push('zones flag did not reach the view state at level ' + level); break }
+    await sleep(500)
+    const info = await overlays()
+    if (info && info.zoneCells > 0) { zoneLevel = level; break }
+  }
+  if (zoneLevel === null) problems.push('no storey drew a zone cell')
+  const zoneShot = await capture()
+  writeFileSync(join(outDir, 'station-game-overlay-zones.png'), Buffer.from(zoneShot, 'base64'))
+  report.images.push('station-game-overlay-zones.png')
+
+  // Density needs the simulation running with walkers on the storey: resume playback and
+  // wait for the crowd to publish poses at this level.
+  await toggle('zones', false)
+  await page.evaluate(`window.__metroStationBridge.send('sim.play', { playing: true })`)
+  const densityLevel = zoneLevel ?? -20
+  await setLevel(densityLevel)
+  const densityState = await toggle('density', true)
+  if (!densityState || densityState.density !== true) problems.push('density flag did not reach the view state')
+  let densityCells = 0
+  for (let attempt = 0; attempt < 24; attempt++) {
+    await sleep(500)
+    const info = await overlays()
+    if (info && info.densityCells > 0) { densityCells = info.densityCells; break }
+  }
+  if (densityCells === 0) problems.push('no density cell was painted on the storey with walkers')
+  const densityShot = await capture()
+  writeFileSync(join(outDir, 'station-game-overlay-density.png'), Buffer.from(densityShot, 'base64'))
+  report.images.push('station-game-overlay-density.png')
+  if (densityShot === zoneShot) problems.push('the density frame is identical to the zone frame')
+
+  await toggle('density', false)
+  await page.evaluate(`window.__metroStationBridge.send('sim.play', { playing: false })`)
+  const restored = await view()
+  if (restored && (restored.zones || restored.density)) problems.push('turning both overlays off left a flag set')
+  const final = await overlays()
+  return finishCase(record, problems.length === 0, { problems, zoneLevel, densityLevel, zoneCells: zoneLevel === null ? 0 : (final?.zoneCells ?? 0), densityCells, overlays: final, render: await render() })
+}
+
+async function runVisualCase() {
+  const record = caseStart('visual-home')
+  const problems = []
+  // The case may run alone (`--only visual-home`) against a URL that opens the demo, so
+  // wait for the commit and the loading shell rather than assuming a demo case ran first.
+  try {
+    await waitForSnapshot('s.revision >= 0', 'committed station')
+    await poll(`(() => {
+      const loading = document.getElementById('game-loading')
+      if (loading && !loading.hidden && getComputedStyle(loading).display !== 'none' && !loading.classList.contains('is-hidden')) return false
+      // The Unity template paints its "Made with Unity" logo as DOM over the canvas until
+      // the player presents its first frame; a canvas-only capture before that is a
+      // screenshot of the logo, not of the station.
+      const logo = document.getElementById('unity-logo')
+      if (logo && logo.offsetParent !== null && getComputedStyle(logo).display !== 'none') return false
+      const logoTitle = document.getElementById('unity-logo-title-footer')
+      if (logoTitle && logoTitle.offsetParent !== null && getComputedStyle(logoTitle).display !== 'none') return false
+      return true
+    })()`, 'player presented its first frame', Math.min(timeoutMs, 60000))
+  } catch (error) {
+    problems.push(String(error.message ?? error))
+  }
+  // A real click on the canvas: it focuses the player (a WebGL build with
+  // `runInBackground = 0` renders nothing until the page is interacted with) and gives the
+  // pointer router the same event a player produces before the frame is read.
+  const focusRect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    const r = canvas.getBoundingClientRect()
+    return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) }
+  })()`)
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: focusRect.x, y: focusRect.y, button: 'left', buttons: 1, clickCount: 1 })
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: focusRect.x, y: focusRect.y, button: 'left', buttons: 0, clickCount: 1 })
+  await page.evaluate(`window.__metroStationBridge.send('camera.home', {})`)
+  await sleep(1200)
+  // The player presents its first real frame only after a compositor frame has been
+  // requested; a capture taken before that is the built-in splash. Warm it up once and
+  // discard that frame, then take the measured one.
+  await page.send('Page.captureScreenshot', { format: 'png' })
+  await sleep(900)
+  const rect = await screenshotCanvas('station-game-visual-home')
+  if (!rect) problems.push('no Unity canvas to capture')
+  // The street is a storey above the opening level: step to the ground so the sidewalk,
+  // lawn, street furniture and the lattice are all in the frame (plan 13 §3/§4 evidence).
+  await page.evaluate(`window.__metroStationBridge.send('view.set', { key: 'level', value: 0 })`)
+  await sleep(900)
+  const street = await screenshotCanvas('station-game-visual-street')
+  await page.evaluate(`window.__metroStationBridge.send('view.set', { key: 'level', value: -20 })`)
+  // Second frame with the ghost/slice pass off: separates "the surface is missing" from
+  // "the storey policy hid it" when the two engines are compared.
+  await page.evaluate(`window.__metroStationBridge.send('view.set', { key: 'showLevels', value: false })`)
+  await sleep(900)
+  const flat = await screenshotCanvas('station-game-visual-home-flat')
+  await page.evaluate(`window.__metroStationBridge.send('view.set', { key: 'showLevels', value: true })`)
+  const camera = await page.evaluate('(() => (window.__metroStationBridge.getSnapshot().state.camera ?? null))()')
+  const snapshot = await currentSnapshot()
+  if (snapshot.revision < 0) problems.push('no committed station while capturing the frame')
+  if (!camera || !camera.back) problems.push('no camera basis published')
+  if (rect && rect.width < 400) problems.push('canvas is too small to compare')
+  return finishCase(record, problems.length === 0, { problems, revision: snapshot.revision, canvas: rect, flat, street,
+    render: (snapshot.state ?? {}).render ?? null,
+    camera: camera ? { back: camera.back, eye: camera.eye, zoom: camera.zoom } : null })
+}
+
 async function runPointerCameraCase() {
   const record = caseStart('pointer-camera')
   const problems = []
@@ -437,7 +646,10 @@ async function runClockCase() {
   const clockExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.clock ?? null })()`
   const first = await page.evaluate(clockExpr)
   if (!first || !Number.isFinite(first.simTimeSeconds)) { problems.push('no clock snapshot published'); return finishCase(record, false, { problems }) }
-  if (Math.abs(first.simTimeSeconds - 23400) > 1) problems.push('cold boot is not 06:30 (' + first.simTimeSeconds + ')')
+  // The session boots at 06:30 (`REFERENCE_BOOT`) and nothing seeks it backwards; the
+  // playback case may already have run this tab forward, so the cold-boot pin is "not
+  // before 06:30" here — the exact instant stays pinned by the EditMode clock suite.
+  if (first.simTimeSeconds < 23400 - 1) problems.push('the clock is before the 06:30 boot (' + first.simTimeSeconds + ')')
   await send('sim.play', { playing: true })
   await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true })()`, 'clock playing', Math.min(timeoutMs, 15000)).catch(() => problems.push('sim.play did not start the clock'))
   await sleep(2500)
@@ -451,6 +663,321 @@ async function runClockCase() {
   if (after.document && after.revision < 0) problems.push('clock state lost the station')
   await screenshot('station-game-clock')
   return finishCase(record, problems.length === 0, { problems, revision: after.revision })
+}
+
+/**
+ * Plan 13 §1: playback through ordinary input. The prior clock case called the bridge
+ * directly, which is exactly the path a player cannot use — the React adapter dropped
+ * the intent before it reached the transport. This case presses Space on the cold tab
+ * and clicks the real Play/Pause and speed buttons, then judges the published clock,
+ * the visible 信息栏 clock and the commands those inputs produced.
+ */
+async function runPlaybackCase(locale) {
+  const record = caseStart(`playback-input-${locale}`)
+  const problems = []
+  const clockExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.clock ?? null })()`
+  const visibleClockExpr = `(() => { const el = document.querySelector('.clockDigits'); return el ? el.textContent : null })()`
+  const pausedCardExpr = `(() => { const el = document.querySelector('.clockCard'); return el ? el.className.includes('paused') : null })()`
+  const first = await page.evaluate(clockExpr)
+  if (!first || !Number.isFinite(first.simTimeSeconds)) {
+    problems.push('no clock snapshot published')
+    return finishCase(record, false, { problems })
+  }
+  const capabilities = await page.evaluate(`(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.simulationCapabilities ?? null })()`)
+  if (!capabilities) problems.push('state.simulationCapabilities is not published beside state.clock')
+  else {
+    for (const flag of ['play', 'speed', 'seek', 'restart']) {
+      if (capabilities[flag] !== true) problems.push('the host does not advertise ' + flag + ' (' + JSON.stringify(capabilities) + ')')
+    }
+    if (typeof capabilities.sessionId !== 'string' || capabilities.sessionId.length === 0) problems.push('the capability block names no session')
+  }
+  if (first.playing !== false) problems.push('a cold tab opens playing')
+  const rejectsBefore = await page.evaluate('window.__metroStationBridge.getSnapshot().rejects.length')
+  const shownFirst = await page.evaluate(visibleClockExpr)
+  if (shownFirst !== first.clockSeconds) problems.push('the visible clock does not print the C# clock (' + shownFirst + ' != ' + first.clockSeconds + ')')
+
+  if (!(await installCommandRecorder())) return finishCase(record, false, { problems: ['the shared bridge port is not mounted'] })
+  // A player clicks the canvas before pressing a key: the canvas takes focus, and the
+  // key must still reach the shell's single handler.
+  const rectExpr = `(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  })()`
+  const rect = await page.evaluate(rectExpr).catch(() => null)
+  if (rect) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: rect.x, y: rect.y, button: 'left', buttons: 1, clickCount: 1 })
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: rect.x, y: rect.y, button: 'left', buttons: 0, clickCount: 1 })
+  } else {
+    problems.push('no Unity canvas to click')
+  }
+
+  const plays = async () => (await recordedCommands()).filter(row => row.type === 'sim.play')
+  const speeds = async () => (await recordedCommands()).filter(row => row.type === 'sim.speed')
+
+  // Space starts playback: exactly one toggle, and the host acknowledges it with a
+  // running clock and an advancing tick.
+  await pressKey(' ', 'Space', 32)
+  try {
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true })()`, locale + ' space play', Math.min(timeoutMs, 20000))
+  } catch { problems.push('Space did not start playback') }
+  const afterSpace = await page.evaluate(clockExpr)
+  const spacePlays = await plays()
+  if (spacePlays.length !== 1) problems.push('Space sent ' + spacePlays.length + ' sim.play commands, expected exactly one: ' + JSON.stringify(spacePlays))
+  else if (spacePlays[0].payload?.playing !== true) problems.push('Space sent ' + JSON.stringify(spacePlays[0].payload) + ' instead of playing:true')
+  if (afterSpace) {
+    if (afterSpace.playing !== true) problems.push('the clock was not acknowledged as playing')
+    const tickBefore = afterSpace.tick
+    const secondsBefore = afterSpace.simTimeSeconds
+    await sleep(2000)
+    const later = await page.evaluate(clockExpr)
+    if (!(later.tick > tickBefore)) problems.push('the tick did not advance while playing (' + tickBefore + ' -> ' + later.tick + ')')
+    if (!(later.simTimeSeconds > secondsBefore)) problems.push('sim seconds did not advance while playing')
+    const shown = await page.evaluate(visibleClockExpr)
+    if (shown !== later.clockSeconds) problems.push('the visible clock is stale while playing (' + shown + ' != ' + later.clockSeconds + ')')
+    if (await page.evaluate(pausedCardExpr) === true) problems.push('the clock card still says paused while the host is playing')
+    await screenshot('station-game-playback-playing')
+  }
+
+  // Space pauses again: one more toggle, and a paused station does not advance.
+  await pressKey(' ', 'Space', 32)
+  try {
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false })()`, locale + ' space pause', Math.min(timeoutMs, 20000))
+  } catch { problems.push('a second Space did not pause playback') }
+  const paused = await page.evaluate(clockExpr)
+  const pausedPlays = await plays()
+  if (pausedPlays.length !== 2) problems.push('two Space presses produced ' + pausedPlays.length + ' sim.play commands, expected exactly two')
+  await sleep(1200)
+  const stillPaused = await page.evaluate(clockExpr)
+  if (!(stillPaused.tick === paused.tick)) problems.push('the tick advanced while paused (' + paused.tick + ' -> ' + stillPaused.tick + ')')
+  if (await page.evaluate(pausedCardExpr) !== true) problems.push('the clock card does not say paused while the host is paused')
+
+  // Every speed button is a real click on the real control. A click on a *different*
+  // rate is one `sim.speed`, and any click while paused is one `sim.play`; the
+  // Play/Pause button then pauses again, so each rate is proven on its own.
+  let previousSpeed = paused && Number.isFinite(paused.speed) ? paused.speed : 1
+  for (const speed of [4, 1, 16, 64]) {
+    const clicks = await page.evaluate(`(() => {
+      const buttons = [...document.querySelectorAll('.topbar .seg button')]
+      const button = buttons.find(row => row.textContent.trim() === ${JSON.stringify(speed + '\u00d7')})
+      if (!button) return 'missing'
+      if (button.disabled) return 'disabled'
+      button.click()
+      return 'clicked'
+    })()`)
+    if (clicks !== 'clicked') { problems.push(`the ${speed}× speed button ${clicks}`); continue }
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.speed === ${speed} })()`, `${speed}x speed`, Math.min(timeoutMs, 15000))
+      .catch(() => problems.push('the ' + speed + '× click did not start the host at ' + speed + '×'))
+    if (speed !== previousSpeed) {
+      const speedCommands = (await speeds()).filter(row => row.payload && row.payload.speed === speed)
+      if (speedCommands.length !== 1) problems.push('the ' + speed + '× click sent ' + speedCommands.length + ' sim.speed commands, expected exactly one')
+    }
+    previousSpeed = speed
+    // Pause again through the real Play/Pause button before the next rate.
+    const toggled = await page.evaluate(`(() => {
+      const button = document.querySelector('.topbar .seg button')
+      if (!button) return 'missing'
+      if (button.disabled) return 'disabled'
+      button.click()
+      return 'clicked'
+    })()`)
+    if (toggled !== 'clicked') { problems.push('the Play/Pause button ' + toggled); continue }
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false })()`, 'play/pause button', Math.min(timeoutMs, 15000))
+      .catch(() => problems.push('the Play/Pause button did not pause the host'))
+  }
+  const playCommands = await plays()
+  if (playCommands.length !== 2 + 4 * 2) problems.push('the transport sent ' + playCommands.length + ' sim.play commands, expected ' + (2 + 4 * 2))
+
+  // Space after a speed button is still exactly one toggle: the AppShell blurs the
+  // button it dropped focus from, so the keyup cannot re-press it.
+  const beforeSpaceToggle = (await plays()).length
+  const speedClick = await page.evaluate(`(() => {
+    const button = [...document.querySelectorAll('.topbar .seg button')].find(row => row.textContent.trim() === '4\u00d7')
+    if (!button || button.disabled) return false
+    button.click()
+    return true
+  })()`)
+  if (speedClick) await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.speed === 4 })()`, '4x click playing', Math.min(timeoutMs, 15000)).catch(() => problems.push('clicking 4× did not start the run at 4×'))
+  const afterSpeedClick = (await plays()).length
+  await pressKey(' ', 'Space', 32)
+  try {
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false })()`, 'space after 4x', Math.min(timeoutMs, 20000))
+  } catch { problems.push('Space after clicking 4× did not pause') }
+  const afterSpaceToggle = (await plays()).length
+  const toggleDelta = afterSpaceToggle - afterSpeedClick
+  if (afterSpeedClick - beforeSpaceToggle !== 1) problems.push('the 4× click sent ' + (afterSpeedClick - beforeSpaceToggle) + ' sim.play commands, expected one')
+  if (toggleDelta !== 1) problems.push('Space after a speed click sent ' + toggleDelta + ' sim.play commands, expected exactly one toggle')
+  const rejectsAfter = await page.evaluate('window.__metroStationBridge.getSnapshot().rejects.length')
+  if (rejectsAfter !== rejectsBefore) problems.push('the transport was rejected ' + (rejectsAfter - rejectsBefore) + ' time(s)')
+  await screenshot('station-game-playback-paused')
+  const after = await currentSnapshot()
+  if (after.document && after.revision < 0) problems.push('playback lost the committed station')
+  // Evidence the plan asks for by name: the command ids the UI sent, the session they
+  // went to, and the C# clock/tick each press produced beside the visible readout.
+  const finalClock = await page.evaluate(clockExpr)
+  const finalShown = await page.evaluate(visibleClockExpr)
+  const transport = (await recordedCommands()).filter(row => row.type.startsWith('sim.'))
+  return finishCase(record, problems.length === 0, {
+    problems,
+    revision: after.revision,
+    session: capabilities ? capabilities.sessionId : null,
+    clock: {
+      boot: first.simTimeSeconds,
+      playing: afterSpace ? afterSpace.simTimeSeconds : null,
+      paused: paused ? paused.simTimeSeconds : null,
+      tick: finalClock ? finalClock.tick : null,
+      final: finalClock ? finalClock.simTimeSeconds : null,
+      visible: finalShown,
+      lastPlaying: finalClock ? finalClock.playing : null,
+      lastSpeed: finalClock ? finalClock.speed : null,
+    },
+    commands: transport.map(row => ({ type: row.type, id: row.id, payload: row.payload })),
+  })
+}
+
+/**
+ * Plan 13 §1: held keyboard navigation on the Unity canvas. WASD moves camera and aim
+ * together across the plan (the published basis is unchanged), Ctrl+E raises the view
+ * and Ctrl+Q lowers it (`panCameraVertical`'s own pair), plain Q stays the storey step,
+ * and a release or a lost focus stops the motion.
+ */
+async function runKeyboardNavigationCase() {
+  const record = caseStart('keyboard-navigation')
+  const problems = []
+  const cameraExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.camera ?? null })()`
+  const levelExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return (s.state.view ?? {}).level ?? null })()`
+  // The rig is configured by the commit and the camera pose is applied a frame later; a
+  // filtered run reaches this case right after the cold open, so wait for a real pose
+  // rather than measuring a zeroed one.
+  try {
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      const c = s.state.camera
+      if (!c || !Array.isArray(c.position)) return false
+      return Math.hypot(c.position[0], c.position[1], c.position[2]) > 1
+    })()`, 'configured camera', Math.min(timeoutMs, 30000))
+    await sleep(400)
+  } catch { problems.push('the host never published a configured camera') }
+  const start = await page.evaluate(cameraExpr)
+  if (!start || !start.position || !start.back) {
+    return finishCase(record, false, { problems: ['no camera snapshot published'] })
+  }
+  const before = await currentSnapshot()
+  const distanceOf = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
+  const sameBasis = (a, b) => Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) > 0.999
+  // What the shell asked the camera for, so a case failure names the failing hop.
+  await installCommandRecorder()
+
+  // Hold W: the view travels across the plan, the basis (the view angle) is preserved.
+  await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+  await sleep(900)
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+  // The release is itself a command: sample after it has landed, or the last frames of
+  // the hold read as "still moving after the key was released".
+  await sleep(400)
+  const moved = await page.evaluate(cameraExpr)
+  const planar = distanceOf(moved.position, start.position)
+  if (!(planar > 0.5)) problems.push('holding W moved the camera ' + planar.toFixed(3) + ' m across the plan')
+  if (Math.abs(moved.position[2] - start.position[2]) > 0.1) problems.push('the ground pan changed the eye elevation')
+  if (!sameBasis(moved.back, start.back)) problems.push('the ground pan changed the view angle (camera and aim did not move together)')
+  await screenshot('station-game-keyboard-w')
+  // A released key does not keep moving.
+  await sleep(700)
+  const stopped = await page.evaluate(cameraExpr)
+  const drift = distanceOf(stopped.position, moved.position)
+  if (drift > 0.05) problems.push('the camera kept moving ' + drift.toFixed(3) + ' m after the key was released')
+
+  // Ctrl+E raises the view along the elevation axis, at the same rate, without
+  // touching the plan; Ctrl+Q is the same pan the other way (`panCameraVertical`: the
+  // letter's own direction, not a key name).
+  const beforeLift = await page.evaluate(cameraExpr)
+  await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', modifiers: 2, key: 'e', code: 'KeyE', windowsVirtualKeyCode: 69, nativeVirtualKeyCode: 69 })
+  await sleep(900)
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, key: 'e', code: 'KeyE', windowsVirtualKeyCode: 69, nativeVirtualKeyCode: 69 })
+  const lifted = await page.evaluate(cameraExpr)
+  if (!(lifted.position[2] - beforeLift.position[2] > 0.5)) problems.push('Ctrl+E did not raise the view')
+  if (Math.hypot(lifted.position[0] - beforeLift.position[0], lifted.position[1] - beforeLift.position[1]) > 0.1) problems.push('Ctrl+E moved the plan as well as the elevation')
+  if (!sameBasis(lifted.back, beforeLift.back)) problems.push('Ctrl+E changed the view angle')
+  await screenshot('station-game-keyboard-ctrl-e')
+  const beforeDrop = await page.evaluate(cameraExpr)
+  await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', modifiers: 2, key: 'q', code: 'KeyQ', windowsVirtualKeyCode: 81, nativeVirtualKeyCode: 81 })
+  await sleep(700)
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', modifiers: 2, key: 'q', code: 'KeyQ', windowsVirtualKeyCode: 81, nativeVirtualKeyCode: 81 })
+  const dropped = await page.evaluate(cameraExpr)
+  if (!(beforeDrop.position[2] - dropped.position[2] > 0.5)) problems.push('Ctrl+Q did not lower the view')
+
+  // A plain Q is the storey step, not the vertical pan: the level moves and the eye
+  // does not keep climbing afterwards.
+  const levelBefore = await page.evaluate(levelExpr)
+  await pressKey('q', 'KeyQ', 81)
+  let levelAfter = levelBefore
+  try {
+    await poll(`(() => { const s = window.__metroStationBridge.getSnapshot(); return ((s.state.view ?? {}).level ?? null) !== ${Number(levelBefore)} })()`, 'plain Q storey step', Math.min(timeoutMs, 15000))
+    levelAfter = await page.evaluate(levelExpr)
+  } catch { problems.push('a plain Q did not step the storey') }
+  const afterStep = await page.evaluate(cameraExpr)
+  await sleep(600)
+  const afterStepSettled = await page.evaluate(cameraExpr)
+  if (distanceOf(afterStepSettled.position, afterStep.position) > 0.05) problems.push('a plain Q left the view still moving')
+
+  // Losing focus releases a held key: a player who alt-tabs must not come back to a
+  // camera still sliding. The blur is the event a real tab switch sends, and Unity's
+  // WebGL player reacts to it — so the page is focused again and the host proven live
+  // before the case ends. An earlier version of this case left the player paused and
+  // every later case read a frozen clock.
+  await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'd', code: 'KeyD', windowsVirtualKeyCode: 68, nativeVirtualKeyCode: 68 })
+  await sleep(400)
+  await page.evaluate(`window.dispatchEvent(new Event('blur'))`)
+  await sleep(400)
+  const blurred = await page.evaluate(cameraExpr)
+  await sleep(800)
+  const afterBlur = await page.evaluate(cameraExpr)
+  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'd', code: 'KeyD', windowsVirtualKeyCode: 68, nativeVirtualKeyCode: 68 })
+  const blurDrift = distanceOf(afterBlur.position, blurred.position)
+  if (blurDrift > 0.1) problems.push('blur did not release the held W/A/S/D pan (' + blurDrift.toFixed(3) + ' m)')
+
+  // Focus restored: the player must publish frames again, or the cases after this one
+  // would judge a frozen clock (`simulation-clock`, `road-traffic`, `tool-selection`).
+  await page.evaluate(`window.dispatchEvent(new Event('focus')); window.focus()`).catch(() => {})
+  await page.send('Page.bringToFront').catch(() => {})
+  const canvasExpr = `(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  })()`
+  const focusRect = await page.evaluate(canvasExpr).catch(() => null)
+  if (focusRect) {
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: focusRect.x, y: focusRect.y, button: 'left', buttons: 1, clickCount: 1 })
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: focusRect.x, y: focusRect.y, button: 'left', buttons: 0, clickCount: 1 })
+  }
+  const clockOf = `(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return { tick: c.tick ?? -1, playing: c.playing === true } })()`
+  const frozen = await page.evaluate(clockOf)
+  await page.evaluate(`window.__metroStationBridge.send('sim.play', { playing: true })`)
+  try {
+    await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.tick > ${Number(frozen.tick)} })()`, 'player resumed after focus', Math.min(timeoutMs, 25000))
+  } catch { problems.push('the player did not resume publishing state after focus returned') }
+  await page.evaluate(`window.__metroStationBridge.send('sim.play', { playing: false })`)
+  await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false })()`, 'player paused again', Math.min(timeoutMs, 15000))
+    .catch(() => problems.push('the player did not acknowledge the pause after focus returned'))
+
+  const after = await currentSnapshot()
+  if (after.revision !== before.revision) problems.push('keyboard navigation changed the document revision')
+  const cameraCommands = (await recordedCommands()).filter(row => row.type.startsWith('camera.'))
+  return finishCase(record, problems.length === 0, {
+    problems, revision: after.revision,
+    planarMetres: Number(planar.toFixed(2)),
+    liftedMetres: Number((lifted.position[2] - beforeLift.position[2]).toFixed(2)),
+    droppedMetres: Number((beforeDrop.position[2] - dropped.position[2]).toFixed(2)),
+    level: { before: levelBefore, after: levelAfter },
+    positions: {
+      start: start.position, moved: moved.position, stopped: stopped.position,
+      beforeLift: beforeLift.position, lifted: lifted.position, dropped: dropped.position,
+    },
+    commands: cameraCommands.map(row => ({ type: row.type, payload: row.payload })),
+    rejects: after.rejects ?? [],
+  })
 }
 
 /**
@@ -479,7 +1006,10 @@ async function runSignCommitCase() {
   const sign = await page.evaluate(signOf)
   if (!sign) return finishCase(record, false, { problems: ['no sign with an explicit front board'] })
   const before = await revision()
-  const probe = [{ id: 'probe-1', kind: 'text', text: 'ÃƒÆ’Ã‚Â¦Ãƒâ€šÃ‚ÂµÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚Â¨Ãƒâ€šÃ‚Â¯ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ PROBE', x: 0.5, y: 0.5, scale: 1, side: 'both' }]
+  // A short ASCII probe: a label row prints at most 24 characters, and this file's
+  // old fixture text had been double-encoded into a 70-character latin string, which the
+  // current label limit correctly refused.
+  const probe = [{ id: 'probe-1', kind: 'text', text: 'PROBE', x: 0.5, y: 0.5, scale: 1, side: 'both' }]
   await send({ signId: sign.id, face: 'front', content: probe }, before)
   try {
     await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'sign commit', Math.min(timeoutMs, 300000))
@@ -575,6 +1105,77 @@ async function runPassengerProfileCase() {
   const after = await currentSnapshot()
   return finishCase(record, problems.length === 0, {
     problems, revision: after.revision, profile: profile.bound ? 'soft-human' : 'public-stand-in',
+  })
+}
+
+/**
+ * Plan 13 §1, the service half: at a running service time the clock advances and real
+ * bodies move on a named motion channel — an escalator rider's own world position, the
+ * tread the station runs on — not a counter that merely changes. Reads only the
+ * published state frame.
+ */
+async function runServiceMotionCase() {
+  const record = caseStart('service-motion')
+  const problems = []
+  if (!(await ensureDemo('zoo'))) problems.push('could not commit the Zoo document before sampling service motion')
+  const send = (type, payload) => page.evaluate(`window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const sampleExpr = `(() => {
+    const s = window.__metroStationBridge.getSnapshot()
+    const clock = s.state.clock ?? null
+    const crowd = s.state.crowd ?? null
+    return {
+      clock: clock ? { simTimeSeconds: clock.simTimeSeconds, tick: clock.tick, playing: clock.playing, speed: clock.speed, clockSeconds: clock.clockSeconds, serviceOpen: clock.serviceOpen } : null,
+      queued: s.state.queued ?? null,
+      boarded: s.state.boarded ?? null,
+      published: crowd ? crowd.published : 0,
+      passengers: crowd && Array.isArray(crowd.passengers)
+        ? crowd.passengers.map(row => ({ id: row.id, x: row.x, y: row.y, z: row.z, activity: row.activity, state: row.state }))
+        : [],
+    }
+  })()`
+  await send('sim.speed', { speed: 16 })
+  await send('sim.play', { playing: true })
+  // A freshly committed station starts its crowding from one body: the earlier sign
+  // commits installed a new session, so let the street demand populate before the
+  // first sample, or the two samples share almost no ids.
+  await poll(`(() => { const c = window.__metroStationBridge.getSnapshot().state.crowd; return Boolean(c && c.published >= 8) })()`, 'crowd populated', Math.min(timeoutMs, 90000))
+    .catch(() => {})
+  const first = await page.evaluate(sampleExpr)
+  if (!first || !first.clock) {
+    problems.push('no clock snapshot published')
+    return finishCase(record, false, { problems })
+  }
+  if (!first.clock.serviceOpen) problems.push('the station is outside its service window at the sample (' + first.clock.clockSeconds + ')')
+  // 15 simulated seconds per real second at 16x.
+  await sleep(3500)
+  const later = await page.evaluate(sampleExpr)
+  const advanced = later.clock.simTimeSeconds - first.clock.simTimeSeconds
+  if (!(advanced > 20)) problems.push('the clock advanced ' + advanced.toFixed(1) + ' simulated seconds at 16x')
+  if (!(later.published > 0)) problems.push('the station published no passengers at a service time')
+  const before = new Map(first.passengers.map(row => [row.id, row]))
+  const moved = []
+  for (const row of later.passengers) {
+    const was = before.get(row.id)
+    if (!was) continue
+    const metres = Math.hypot(row.x - was.x, row.y - was.y, row.z - was.z)
+    if (metres > 0.5) moved.push({ id: row.id, metres: Number(metres.toFixed(2)), activity: row.activity, state: row.state })
+  }
+  if (!(moved.length >= 3)) problems.push('only ' + moved.length + ' passenger(s) moved while the station ran')
+  const channel = moved.find(row => /escalator|walkway/.test(row.activity)) ?? moved.find(row => row.state === 'riding')
+  if (!channel) problems.push('no moving body was riding an escalator or walkway (the motion channel)')
+  await screenshot('station-game-service-motion')
+  await send('sim.play', { playing: false })
+  await send('sim.speed', { speed: 1 })
+  await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false && c.speed === 1 })()`, 'service motion paused', Math.min(timeoutMs, 15000))
+    .catch(() => problems.push('the station did not settle back to paused at 1x'))
+  const after = await currentSnapshot()
+  return finishCase(record, problems.length === 0, {
+    problems,
+    revision: after.revision,
+    clock: { from: first.clock.clockSeconds, to: later.clock.clockSeconds, advancedSeconds: Number(advanced.toFixed(1)), speed: later.clock.speed },
+    passengers: { before: first.published, after: later.published, moved: moved.length },
+    channel: channel ?? null,
+    moved: moved.slice(0, 6),
   })
 }
 
@@ -782,26 +1383,38 @@ async function main() {
   page.onEvent('Log.entryAdded', rememberBrowserError('log'))
   await page.send('Runtime.enable')
   await page.send('Log.enable')
+  // A filtered run skips the demo cases that normally wait for the cold open, so wait
+  // for the initial commit here before the selected case reads the station.
+  if (onlyCases) await poll('window.__metroStationBridge && window.__metroStationBridge.getSnapshot().revision >= 0', 'initial commit')
   for (const locale of locales) {
-    for (const id of demos) await runDemoCase(id, locale)
+    for (const id of demos) if (wanted(`demo-${id}-${locale}`)) await runDemoCase(id, locale)
+    // Playback runs on the tab that just cold-opened this locale: a real Space press and
+    // real Play/Pause and speed clicks, which is the hop that was broken (plan 13 §1).
+    if (wanted(`playback-input-${locale}`)) await runPlaybackCase(locale)
   }
-  if (demoArg === 'all' || demos.length > 1) await runSwitchCase()
+  if (wanted('switch-all-demos') && (demoArg === 'all' || demos.length > 1)) await runSwitchCase()
   // The feature cases read and edit the committed demo, so they run before `new`
   // replaces it: reloading a 14 k-cell station is the expensive install path, and the
   // browser must not pay it twice in one run.
-  await runViewToolsCase()
-  await runCameraCase()
-  await runPointerCameraCase()
-  await runToolCase()
-  await runRoadGeometryCase()
-  await runClockCase()
-  await runTrafficCase()
-  await runSignCommitCase()
-  await runPassengerProfileCase()
-  await runPaintCase()
-  await runNewCase()
-  await runInvalidCase()
-  await runResyncCase()
+  if (wanted('view-tools')) await runViewToolsCase()
+  if (wanted('camera-cube')) await runCameraCase()
+  if (wanted('pointer-camera')) await runPointerCameraCase()
+    if (wanted('visual-home')) await runVisualCase()
+    if (wanted('overlay-toggles')) await runOverlayCase()
+  if (wanted('keyboard-navigation')) await runKeyboardNavigationCase()
+  if (wanted('tool-selection')) await runToolCase()
+  if (wanted('road-geometry')) await runRoadGeometryCase()
+  if (wanted('simulation-clock')) await runClockCase()
+  if (wanted('road-traffic')) await runTrafficCase()
+  if (wanted('sign-commit')) await runSignCommitCase()
+  if (wanted('passenger-profile')) await runPassengerProfileCase()
+  // Still on Zoo here (the paint case replaces the station), so the service sample does
+  // not pay for another 14 k-cell install.
+  if (wanted('service-motion')) await runServiceMotionCase()
+  if (wanted('material-paint')) await runPaintCase()
+  if (wanted('new-station')) await runNewCase()
+  if (wanted('invalid-document-rollback')) await runInvalidCase()
+  if (wanted('resync')) await runResyncCase()
   report.errors = browserErrors
   report.status = report.cases.every((test) => test.status === 'pass') ? 'passed' : 'failed'
   save()

@@ -35,6 +35,8 @@ export interface RejectRecord {
   id: string
   type: string
   code: string
+  /** The host's own sentence for the refusal, when it sent one (`payload.reason`). */
+  reason?: string
 }
 
 export interface StationSnapshot {
@@ -116,7 +118,10 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
     if (kind === 'reject') {
       const id = reply.id ?? ''
       const type = id ? pending.get(id)?.type ?? '' : ''
-      next.rejects = [...current.rejects, { id, type, code }].slice(-8)
+      const reason = typeof payload.reason === 'string' && payload.reason.length > 0 ? payload.reason : ''
+      const record: RejectRecord = { id, type, code }
+      if (reason) record.reason = reason
+      next.rejects = [...current.rejects, record].slice(-8)
     }
     return next
   }

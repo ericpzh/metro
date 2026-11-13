@@ -10,9 +10,12 @@
 //   both into `snapshot.state`, which is what this adapter reads.
 // * JS → C#: `camera.orbit{dx,dy}`, `camera.pan{dx,dy}`, `camera.zoom{delta}`,
 //   `camera.snap{face,direction,projection}`, `camera.home{}`, `camera.fov{deg}`,
-//   `camera.projection{ortho}`, `camera.panHeld{direction}` and
-//   `view.set{key,value}`. None carries `expectedRevision` and none changes the
-//   document revision — they are session-scoped camera/view commands.
+//   `camera.projection{ortho}`, `camera.panHeld{direction,fast?}`,
+//   `camera.panPlanarHeld{right,forward,fast?}` and `view.set{key,value}`. The two
+//   held pans are intents, not pixels: the C# rig integrates them per elapsed second
+//   (`keyboardNavigation.ts` is the keyboard's holder). None carries
+//   `expectedRevision` and none changes the document revision — they are
+//   session-scoped camera/view commands.
 //
 // No Three object is created or read here: the Unity entry must never route its view
 // state through a second Three camera.
@@ -31,7 +34,8 @@ export type CameraCommand =
   | { type: 'camera.home'; payload: Record<string, never> }
   | { type: 'camera.fov'; payload: { deg: number } }
   | { type: 'camera.projection'; payload: { ortho: boolean } }
-  | { type: 'camera.panHeld'; payload: { direction: -1 | 0 | 1 } }
+  | { type: 'camera.panHeld'; payload: { direction: -1 | 0 | 1; fast?: boolean } }
+  | { type: 'camera.panPlanarHeld'; payload: { right: number; forward: number; fast?: boolean } }
   | { type: 'view.set'; payload: { key: string; value: unknown } }
 
 /** The published camera state, in document axes, plus the eye/aim the C# side sent. */

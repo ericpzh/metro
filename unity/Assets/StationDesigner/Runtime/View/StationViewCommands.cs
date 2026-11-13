@@ -16,6 +16,8 @@ namespace Metro.View {
         Fov,
         Projection,
         PanHeld,
+        /// <summary>WASD: the held camera-relative ground pan (`camera.panPlanarHeld`).</summary>
+        PanPlanarHeld,
         ViewSet,
     }
 
@@ -54,6 +56,12 @@ namespace Metro.View {
         public float Factor;
         public float Degrees;
         public int HeldDirection;
+        /// <summary>For <see cref="StationViewCommandType.PanPlanarHeld"/>: the held ground pan, -1…1.</summary>
+        public float HeldRight;
+        public float HeldForward;
+        /// <summary>The Shift accelerator a held pan may carry; absent means "leave it".</summary>
+        public bool Fast;
+        public bool HasFast;
         public Vector3 Direction;
         public bool HasDirection;
         public StationProjection Projection = StationProjection.Perspective;
@@ -286,7 +294,28 @@ namespace Metro.View {
                         return false;
                     }
                     if (parsed.HeldDirection < -1 || parsed.HeldDirection > 1) { error = "bad-pan-held"; return false; }
+                    if (Bool(payload, "fast", out bool fast)) { parsed.Fast = fast; parsed.HasFast = true; }
                     parsed.Type = StationViewCommandType.PanHeld;
+                    break;
+                }
+                case "camera.panPlanarHeld": {
+                    // The held ground pan: two bounded intents, never a key name, so the
+                    // keyboard and the ViewCube's arrows hold one action (`Viewport.tsx`).
+                    if (!Number(payload, "right", out parsed.HeldRight) && !Number(payload, "x", out parsed.HeldRight)) {
+                        parsed.HeldRight = 0f;
+                    }
+                    if (!Number(payload, "forward", out parsed.HeldForward) && !Number(payload, "y", out parsed.HeldForward)) {
+                        parsed.HeldForward = 0f;
+                    }
+                    if (float.IsNaN(parsed.HeldRight) || float.IsInfinity(parsed.HeldRight) ||
+                        float.IsNaN(parsed.HeldForward) || float.IsInfinity(parsed.HeldForward)) {
+                        error = "bad-pan-planar-held";
+                        return false;
+                    }
+                    parsed.HeldRight = Mathf.Clamp(parsed.HeldRight, -1f, 1f);
+                    parsed.HeldForward = Mathf.Clamp(parsed.HeldForward, -1f, 1f);
+                    if (Bool(payload, "fast", out bool planarFast)) { parsed.Fast = planarFast; parsed.HasFast = true; }
+                    parsed.Type = StationViewCommandType.PanPlanarHeld;
                     break;
                 }
                 case "view.set":
@@ -550,6 +579,9 @@ namespace Metro.View {
         public StationLevelGrid Grid;
         public StationSectionPlane Section = StationSectionPlane.Default;
         public bool SectionSurfaceVisible = true;
+        /// <summary>The published 分区图 / 热力图 flags (plan 13 §5), for the overlay renderer.</summary>
+        public bool Zones => Visibility.State.Zones;
+        public bool Density => Visibility.State.Density;
         public float ViewportHeight = StationViewCommandParser.DefaultViewportHeight;
         public Camera ViewCamera;
         public StationViewCapabilities Capabilities;
@@ -570,8 +602,9 @@ namespace Metro.View {
             Capabilities = new StationViewCapabilities {
                 SectionBoundsCull = true,
                 SectionShaderPlane = false,
-                DensityOverlay = false,
-                ZoneOverlay = false,
+                // Plan 13 §5: both overlays are drawn now (`StationOverlayRenderer`).
+                DensityOverlay = true,
+                ZoneOverlay = true,
                 PassengerFollow = false,
                 ExplodedOffsets = true,
                 ExplodedDrag = false,
@@ -627,7 +660,10 @@ namespace Metro.View {
                     Camera.SetProjection(command.Projection);
                     break;
                 case StationViewCommandType.PanHeld:
-                    Camera.SetHeldVertical(command.HeldDirection);
+                    Camera.SetHeldVertical(command.HeldDirection, command.HasFast ? command.Fast : (bool?)null);
+                    break;
+                case StationViewCommandType.PanPlanarHeld:
+                    Camera.SetHeldPlanar(command.HeldRight, command.HeldForward, command.HasFast ? command.Fast : (bool?)null);
                     break;
                 case StationViewCommandType.ViewSet:
                     if (!ApplyViewSet(command, out code)) return false;

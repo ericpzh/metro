@@ -265,6 +265,49 @@ public class StationCameraTests {
     }
 
     [Test]
+    public void HeldPlanarPanIsThePointerPanIntegratedOverTime() {
+        var rig = Rig();
+        float speed = StationCameraMath.MoveSpeed(rig.State.Distance, false);
+        var before = rig.Snapshot();
+        var offset = before.Position - before.Target;
+
+        // One second of "W" is exactly the metres a pointer drag of the same size moves:
+        // one translation, camera and aim together, the view angle untouched.
+        rig.SetHeldPlanar(0f, 1f);
+        rig.Tick(1f);
+        var after = rig.Snapshot();
+        Assert.AreEqual(speed, (after.Position - before.Position).magnitude, 1e-3);
+        Assert.AreEqual(offset.x, after.Position.x - after.Target.x, 1e-4, "the orbit offset is preserved");
+        Assert.AreEqual(offset.y, after.Position.y - after.Target.y, 1e-4);
+        Assert.AreEqual(offset.z, after.Position.z - after.Target.z, 1e-4);
+
+        // The same distance through the pointer path is the same translation.
+        var dragged = Rig();
+        dragged.PanByMetres(new Vector2(0f, speed));
+        Assert.AreEqual(dragged.State.Position.x, after.Position.x, 1e-3, "the held pan and the pointer pan agree");
+        Assert.AreEqual(dragged.State.Position.y, after.Position.y, 1e-3);
+        Assert.AreEqual(dragged.State.Position.z, after.Position.z, 1e-3);
+
+        // Releasing stops it, and the axes are one bounded intent.
+        rig.SetHeldPlanar(0f, 0f);
+        var stopped = rig.State.Position;
+        rig.Tick(2f);
+        Assert.AreEqual(stopped, rig.State.Position, "a released hold does not move");
+        rig.SetHeldPlanar(9f, -9f);
+        Assert.AreEqual(1f, rig.HeldRight, 1e-5, "the intent is bounded to -1…1");
+        Assert.AreEqual(-1f, rig.HeldForward, 1e-5);
+        rig.SetHeldPlanar(0f, 0f);
+
+        // Shift triples the ground pan too, exactly as it triples the vertical one.
+        var fastRig = Rig();
+        var fastBefore = fastRig.State.Position;
+        fastRig.SetHeldPlanar(1f, 0f, fast: true);
+        fastRig.Tick(1f);
+        float fastSpeed = StationCameraMath.MoveSpeed(fastRig.State.Distance, true);
+        Assert.AreEqual(fastSpeed, (fastRig.State.Position - fastBefore).magnitude, 1e-3);
+    }
+
+    [Test]
     public void SnapshotJsonPublishesTheBridgeContract() {
         var rig = Rig();
         var snapshot = rig.Snapshot();
@@ -363,6 +406,41 @@ public class StationViewCommandParserTests {
         var held = Parse(Envelope("camera.panHeld", "{\"direction\":-1}"));
         Assert.AreEqual(StationViewCommandType.PanHeld, held.Type);
         Assert.AreEqual(-1, held.HeldDirection);
+        Assert.IsFalse(held.HasFast, "a cube arrow carries no Shift flag");
+    }
+
+    [Test]
+    public void ThePlanarHoldIsABoundedIntentWithTheShiftFlag() {
+        var planar = Parse(Envelope("camera.panPlanarHeld", "{\"right\":1,\"forward\":-1,\"fast\":true}"));
+        Assert.AreEqual(StationViewCommandType.PanPlanarHeld, planar.Type);
+        Assert.AreEqual(1f, planar.HeldRight, 1e-5);
+        Assert.AreEqual(-1f, planar.HeldForward, 1e-5);
+        Assert.IsTrue(planar.HasFast);
+        Assert.IsTrue(planar.Fast);
+
+        // Absent axes mean "not held"; out-of-range values are bounded, not refused.
+        var release = Parse(Envelope("camera.panPlanarHeld", "{}"));
+        Assert.AreEqual(StationViewCommandType.PanPlanarHeld, release.Type);
+        Assert.AreEqual(0f, release.HeldRight, 1e-5);
+        Assert.AreEqual(0f, release.HeldForward, 1e-5);
+        Assert.IsFalse(release.HasFast, "an omitted flag leaves the host's own state alone");
+
+        var bounded = Parse(Envelope("camera.panPlanarHeld", "{\"right\":3.5,\"forward\":-2}"));
+        Assert.AreEqual(1f, bounded.HeldRight, 1e-5);
+        Assert.AreEqual(-1f, bounded.HeldForward, 1e-5);
+
+        // The source's axes are also accepted as x/y for a caller that thinks in screen axes.
+        var axes = Parse(Envelope("camera.panPlanarHeld", "{\"x\":-0.5,\"y\":0.25}"));
+        Assert.AreEqual(-0.5f, axes.HeldRight, 1e-5);
+        Assert.AreEqual(0.25f, axes.HeldForward, 1e-5);
+
+        // Shift travels on the vertical hold too, so Ctrl+E with Shift is fast.
+        var fastVertical = Parse(Envelope("camera.panHeld", "{\"direction\":1,\"fast\":true}"));
+        Assert.IsTrue(fastVertical.HasFast && fastVertical.Fast);
+
+        var bad = "{\"schemaVersion\":2,\"id\":\"c-7\",\"type\":\"camera.panPlanarHeld\",\"payload\":{\"right\":\"left\"}}";
+        Assert.IsTrue(StationViewCommandParser.TryParse(bad, out var refused, out _), "a missing axis falls back to zero");
+        Assert.AreEqual(0f, refused.HeldRight, 1e-5);
     }
 
     [Test]

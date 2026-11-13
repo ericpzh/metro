@@ -622,7 +622,12 @@ namespace Metro.App {
                 case "cubicle": return true;
                 case "sign": return true;
                 case "road": return true;
-                default: return false;
+                default:
+                    // Plan 13 §3: surfaces, street furniture, equipment and live displays
+                    // are claimed by the four `StationModule*Renderer`s. Keep this in step
+                    // with `StationModuleClaims.AllTypes` — the coverage gate fails on a
+                    // type that has a renderer but is not listed here.
+                    return Metro.App.Views.StationModuleClaims.Owns(type);
             }
         }
 
@@ -634,6 +639,10 @@ namespace Metro.App {
                     case "openings": return "openings:OpeningModuleViews(" + (opening != null ? opening.Kind.ToString() : "opening") + ")";
                     case "signs": return "signs:StationSignView";
                     case "roads": return "roads:StationRoadView";
+                    case "surfaces": return "surfaces:StationSurfaceModuleRenderer";
+                    case "street": return "street:StationStreetModuleRenderer";
+                    case "equipment": return "equipment:StationEquipmentModuleRenderer";
+                    case "displays": return "displays:StationDisplayModuleRenderer";
                     default: return role + ":registered";
                 }
             }

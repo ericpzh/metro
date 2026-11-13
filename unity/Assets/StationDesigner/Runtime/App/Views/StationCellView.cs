@@ -625,11 +625,14 @@ namespace Metro.App.Views {
         /// <summary>The staged export if present: Resources first, then the recipe directory.</summary>
         public static StationFinishLibrary AcquireLibrary(Shader shader) {
             if (FinishLibraryFactory != null) return FinishLibraryFactory(shader);
+            // The finish library resolves its own shader (the station finish shader with
+            // vertex AO); `shader` is only the host's fallback.
+            var finishShader = StationFinishLibrary.FindShader() ?? shader;
             if (Resources.Load<TextAsset>("StationFinishes/finishes") != null)
-                return StationFinishLibrary.LoadFromResources("StationFinishes", shader);
+                return StationFinishLibrary.LoadFromResources("StationFinishes", finishShader);
             var directory = Path.GetFullPath(Path.Combine(Application.dataPath, "../asset-recipes/finishes"));
             if (File.Exists(Path.Combine(directory, "finishes.json")))
-                return StationFinishLibrary.LoadFromDirectory(directory, shader);
+                return StationFinishLibrary.LoadFromDirectory(directory, finishShader);
             return null;
         }
     }

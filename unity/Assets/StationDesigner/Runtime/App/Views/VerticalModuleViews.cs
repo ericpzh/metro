@@ -396,6 +396,7 @@ namespace Metro.App.Views {
             if (DefaultMaterials.TryGetValue(palette, out var existing) && existing) return existing;
             if (!defaultShader) defaultShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
             var material = new Material(defaultShader) { color = Palette[palette], name = "Vertical " + palette };
+            if (palette == PaletteGlass) StationGlass.MakeTransparent(material, .26f);
             DefaultMaterials[palette] = material;
             return material;
         }
@@ -1989,6 +1990,11 @@ namespace Metro.App.Views {
                 Materials = new Material[VerticalModuleViews.Palette.Length];
                 for (int i = 0; i < Materials.Length; i++) {
                     Materials[i] = new Material(shader) { color = VerticalModuleViews.Palette[i], name = "Vertical " + i };
+                }
+                // Shaft, cabin, portal and balustrade glass all use the palette's glass slot;
+                // the source renders them transparent (`PieceBuilder.glass`, opacity .26).
+                if (Materials.Length > VerticalModuleViews.PaletteGlass) {
+                    StationGlass.MakeTransparent(Materials[VerticalModuleViews.PaletteGlass], .26f);
                 }
                 MaterialFor = palette => Materials[Mathf.Clamp(palette, 0, Materials.Length - 1)];
             }

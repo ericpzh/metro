@@ -55,7 +55,14 @@ namespace Metro.App {
             get => smokeSuppressed;
             set {
                 smokeSuppressed = value;
-                if (activeInstance != null) activeInstance.RefreshCanvasVisibility();
+                // The canvas refresh only exists on the platforms that present the
+                // in-canvas UI; on WebGL the class compiles its input/presentation half
+                // out (see the #else below) and there is no canvas to refresh.
+                if (activeInstance != null) {
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+                    activeInstance.RefreshCanvasVisibility();
+#endif
+                }
             }
         }
 

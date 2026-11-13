@@ -1532,6 +1532,10 @@ namespace Metro.App {
             for (int i = 0; i < materials.Length; i++) {
                 materials[i] = new Material(shader) { name = "opening-" + i, color = OpeningColour.Values[i] };
             }
+            // PSD panes carry their own alpha in `OpeningColour.Values` (.30 fixed, .34
+            // moving); a Lit material would discard it, so both get the transparent surface.
+            StationGlass.MakeTransparent(materials[OpeningColour.Glass], OpeningColour.Values[OpeningColour.Glass].a);
+            StationGlass.MakeTransparent(materials[OpeningColour.MovingGlass], OpeningColour.Values[OpeningColour.MovingGlass].a);
         }
 
         /// <summary>How many combined meshes the palette currently owns (a report/test figure).</summary>

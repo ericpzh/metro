@@ -295,6 +295,11 @@ namespace Metro.App {
             payload["boarded"] = service != null ? service.Onboard : 0;
             var clock = SafeObject(Simulation?.ClockPayloadJson());
             if (clock != null) payload["clock"] = clock;
+            // The clock's sibling: the transports this session honours. A shell that
+            // offers Play/speed must read both from the same frame, because a clock
+            // alone cannot say whether the host can honour the action (plan 13 §1).
+            var simulationCapabilities = SafeObject(Simulation?.CapabilitiesPayloadJson());
+            if (simulationCapabilities != null) payload["simulationCapabilities"] = simulationCapabilities;
             for (int i = 0; i < contributors.Count; i++) {
                 try {
                     var value = contributors[i].BuildPayload(Document, Index);

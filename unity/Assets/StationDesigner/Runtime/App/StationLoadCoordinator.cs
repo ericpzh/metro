@@ -26,6 +26,12 @@ namespace Metro.App {
         /// <summary>Seconds since the station's day zero, for per-frame consumers.</summary>
         double SimTimeSeconds { get; }
         string ClockPayloadJson();
+        /// <summary>
+        /// Which simulation transports this install honours, as the `payload.simulationCapabilities`
+        /// object the shell reads beside the clock (session id + the capability booleans).
+        /// Empty when the host has no session to describe.
+        /// </summary>
+        string CapabilitiesPayloadJson();
     }
 
     /// <summary>Optional simulation-command support on top of <see cref="IStationSimulationHost"/>.</summary>
@@ -339,6 +345,7 @@ namespace Metro.App {
         public int Speed => session?.Speed ?? 1;
         public double SimTimeSeconds => session?.Clock?.SimTime ?? 0;
         public string ClockPayloadJson() => session?.ClockPayloadJson() ?? "{}";
+        public string CapabilitiesPayloadJson() => session?.CapabilitiesPayloadJson() ?? "";
 
         public bool ApplySimCommand(string type, JObject payload, out string rejectCode) {
             rejectCode = "";

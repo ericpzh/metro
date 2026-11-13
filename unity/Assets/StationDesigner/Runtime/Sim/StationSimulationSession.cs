@@ -1045,6 +1045,24 @@ namespace Metro.Sim {
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The capability block alone - exactly the `payload.simulationCapabilities` a
+        /// bridge `state` reply carries beside `payload.clock`, so the React shell can
+        /// offer only the transport this session actually honours. It is the same block
+        /// <see cref="SnapshotJson"/> publishes, serialized without building a frame:
+        /// no crowd, no services, no passengers. `sessionId` identifies the session the
+        /// flags describe, so a shell that switches stations cannot keep the old one's.
+        /// </summary>
+        public string CapabilitiesPayloadJson() {
+            var sb = new StringBuilder(384);
+            sb.Append("{\"sessionId\":");
+            Str(sb, sessionId);
+            sb.Append(',');
+            CapabilitiesBody(sb, StationSessionCapabilities.Current);
+            sb.Append('}');
+            return sb.ToString();
+        }
+
         /// The whole frame as JSON ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the payload the bridge publishes. Clock first, then
         /// services keyed by stable document id, then the capability block. Numbers are
         /// round-trip formatted so a consumer sees exactly the instantaneous value.
@@ -1143,6 +1161,12 @@ namespace Metro.Sim {
 
         static void CapabilitiesJson(StringBuilder sb, StationSessionCapabilities c) {
             sb.Append('{');
+            CapabilitiesBody(sb, c);
+            sb.Append('}');
+        }
+
+        /// <summary>The capability object's members, without the surrounding braces.</summary>
+        static void CapabilitiesBody(StringBuilder sb, StationSessionCapabilities c) {
             sb.Append("\"clock\":").Append(B(c.Clock));
             sb.Append(",\"play\":").Append(B(c.Play));
             sb.Append(",\"speed\":").Append(B(c.Speed));
@@ -1157,7 +1181,6 @@ namespace Metro.Sim {
             sb.Append(",\"gates\":").Append(B(c.Gates));
             sb.Append(",\"queues\":").Append(B(c.Queues));
             sb.Append(",\"boarding\":").Append(B(c.Boarding));
-            sb.Append('}');
         }
 
         static void TrainJson(StringBuilder sb, StationTrainFrame t) {

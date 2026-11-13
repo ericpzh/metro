@@ -470,6 +470,16 @@ namespace Metro.App {
             }
             Commands.Tick(deltaSeconds);
             Commands.ApplyCamera();
+            // The lattice is the active storey's, not the world's: it follows every Q/E step
+            // without a rebuild (the source moves its grid group the same way).
+            Metro.App.Views.StationGridRenderer.SetLevel(Commands.Camera.ActiveLevel);
+            // Plan 13 §5: the overlays follow the same flags the UI toggles; density
+            // refreshes a few times a second from the crowd renderer's published poses.
+            var overlays = Metro.App.Views.StationOverlayRenderer.Instance;
+            if (overlays != null) {
+                overlays.SetView(Commands.Zones, Commands.Density, Commands.Camera.ActiveLevel);
+                overlays.Tick(deltaSeconds);
+            }
             if (!dirty) return;
             dirty = false;
             RefreshSection();
@@ -517,7 +527,11 @@ namespace Metro.App {
 
         void Update() {
             if (!configured) return;
-            Tick(Time.unscaledDeltaTime);
+            // A stalled frame (a station install, a restored tab) must not become one huge
+            // camera step. The source scene clamps its frame delta to 50 ms before the
+            // camera systems see it (`SceneRenderer`: `Math.min(0.05, now - lastFrame)`),
+            // and the held pans integrate that same number.
+            Tick(Mathf.Min(Time.unscaledDeltaTime, 0.05f));
         }
 
         void OnDestroy() {
@@ -557,6 +571,7 @@ namespace Metro.App {
             rig = stationHost.GetComponent<StationViewRig>() ?? stationHost.gameObject.AddComponent<StationViewRig>();
             stationHost.RegisterStateContributor(new StationCameraStateContributor(rig));
             stationHost.RegisterStateContributor(new StationViewStateContributor(rig));
+            stationHost.RegisterStateContributor(new StationRenderStateContributor());
             stationHost.RegisterCommandHandler(new StationCameraCommandHandler(rig, stationHost));
             stationHost.RegisterCommandHandler(new StationViewCommandHandler(rig, stationHost));
             if (stationHost.Coordinator != null) stationHost.Coordinator.Committed += OnCommitted;
@@ -696,6 +711,75 @@ namespace Metro.App {
         public string Key => "camera";
         public JObject BuildPayload(StationDocument document, StationIndex index) =>
             rig != null && rig.Configured ? rig.SnapshotObject()["camera"] as JObject : null;
+    }
+
+    /// <summary>
+    /// `payload.render` — what the frame is actually made of: the cell mesher's groups and
+    /// triangles, the shader the finish library used, how many albedo maps bound, and the
+    /// light rig in effect. Plan 13 §2 asks for render diagnostics before any colour is
+    /// tuned; without them "the station is dark" cannot be told apart from "the cells were
+    /// never built".
+    /// </summary>
+    public sealed class StationRenderStateContributor : IStationStateContributor {
+        public string Key => "render";
+        public JObject BuildPayload(StationDocument document, StationIndex index) {
+            var payload = new JObject();
+            var cells = Views.StationCellRenderer.Current;
+            if (cells == null) {
+                payload["cells"] = JValue.CreateNull();
+            } else {
+                var library = cells.Finishes;
+                payload["cells"] = new JObject {
+                    ["groups"] = cells.Groups,
+                    ["triangles"] = cells.Triangles,
+                    ["shader"] = library != null && library.Shader != null ? library.Shader.name : "",
+                    ["shaderSupported"] = library != null && library.Shader != null && library.Shader.isSupported,
+                    ["finishes"] = library != null ? library.FinishCount : 0,
+                    ["textures"] = library != null ? library.TextureCount : 0,
+                    ["materials"] = library != null ? library.MaterialCount : 0,
+                    ["unknown"] = cells.View != null && cells.View.UnknownFinishes != null ? cells.View.UnknownFinishes.Count : 0,
+                };
+            }
+            // One row per registered module-group renderer: the coverage number the
+            // binding report gates on, visible without the Editor.
+            var groups = new JObject();
+            foreach (var renderer in StationRenderers.Snapshot()) {
+                if (renderer is Views.StationModuleGroupRenderer group && group.Current != null) {
+                    groups[group.Role] = group.Current.Count;
+                }
+            }
+            payload["groups"] = groups;
+            var overlays = Views.StationOverlayRenderer.Instance;
+            if (overlays != null && overlays.Current != null) {
+                payload["overlays"] = new JObject {
+                    ["zones"] = overlays.Current.Zones,
+                    ["density"] = overlays.Current.Density,
+                    ["zoneCells"] = overlays.Current.ZoneCells,
+                    ["densityCells"] = overlays.Current.DensityCells,
+                    ["level"] = overlays.Current.Level,
+                    ["drawCalls"] = overlays.Current.Meshes.Count,
+                };
+            }
+            var ambient = Shader.GetGlobalColor("_StationAmbient");
+            payload["ambient"] = new JArray(ambient.r, ambient.g, ambient.b);
+            payload["hemiSky"] = new JArray(Shader.GetGlobalColor("_StationHemiSky").r, Shader.GetGlobalColor("_StationHemiSky").g, Shader.GetGlobalColor("_StationHemiSky").b);
+            payload["fog"] = new JObject {
+                ["on"] = RenderSettings.fog,
+                ["start"] = RenderSettings.fogStartDistance,
+                ["end"] = RenderSettings.fogEndDistance,
+            };
+            var lights = new JArray();
+            foreach (var light in UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude)) {
+                if (light.type != LightType.Directional) continue;
+                lights.Add(new JObject {
+                    ["name"] = light.name,
+                    ["intensity"] = light.intensity,
+                    ["shadows"] = light.shadows.ToString(),
+                });
+            }
+            payload["lights"] = lights;
+            return payload;
+        }
     }
 
     /// <summary>`payload.view` for every `state` and `commit` reply.</summary>

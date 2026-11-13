@@ -451,18 +451,31 @@ namespace Metro.View {
             if (clone.HasProperty("_SrcBlend")) clone.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
             if (clone.HasProperty("_DstBlend")) clone.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
             if (clone.HasProperty("_ZWrite")) clone.SetFloat("_ZWrite", 0f);
+            // A ghost of an already-transparent material (glass) keeps its original
+            // opacity and fades *from* it; writing the constant would make a .26 pane
+            // more opaque than the solid one. Opaque materials use the ghost opacity.
+            var baseAlpha = source.HasProperty("_BaseColor") ? source.GetColor("_BaseColor").a
+                : source.HasProperty("_Color") ? source.GetColor("_Color").a : 1f;
+            var resolvedAlpha = baseAlpha < .999f ? baseAlpha * opacity : opacity;
             if (clone.HasProperty("_BaseColor")) {
                 var colour = clone.GetColor("_BaseColor");
-                colour.a = opacity;
+                // The source lerps a ghost 70% toward its grey (`ghostMaterial`); glass
+                // keeps its tint because that is what a paned surface reads as.
+                if (baseAlpha >= .999f) colour = Color.Lerp(colour, new Color(.42f, .455f, .502f, 1f), .7f);
+                colour.a = resolvedAlpha;
                 clone.SetColor("_BaseColor", colour);
             }
             if (clone.HasProperty("_Color")) {
                 var colour = clone.GetColor("_Color");
-                colour.a = opacity;
+                if (baseAlpha >= .999f) colour = Color.Lerp(colour, new Color(.42f, .455f, .502f, 1f), .7f);
+                colour.a = resolvedAlpha;
                 clone.SetColor("_Color", colour);
             }
             clone.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            clone.DisableKeyword("_ALPHATEST_ON");
+            // Alpha-cutout (foliage) keeps its cutout: a ghost is see-through, not a solid
+            // billboard. The keyword was previously *disabled* here, which is why ghosted
+            // trees rendered as opaque cards.
+            if (!source.IsKeywordEnabled("_ALPHATEST_ON")) clone.DisableKeyword("_ALPHATEST_ON");
             clone.SetOverrideTag("RenderType", "Transparent");
             clone.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             cache[source] = clone;
@@ -882,7 +895,10 @@ namespace Metro.View {
             var role = target.Role;
             // Hide UI's whole subject is the drawing furniture; a station piece never
             // disappears because the lattice did.
-            if (role == StationPartRole.Grid || role == StationPartRole.Cursor) {
+            // Grid, cursor and the information overlays are editing furniture: Hide UI is
+            // their only switch. The overlays clip themselves to the active storey (plan 13 §5),
+            // so the storey slice must not also hide them.
+            if (role == StationPartRole.Grid || role == StationPartRole.Cursor || role == StationPartRole.Overlay) {
                 return State.HideUi ? StationDrawMode.Hidden : StationDrawMode.Base;
             }
             bool wall = role == StationPartRole.Wall || role == StationPartRole.Psd;

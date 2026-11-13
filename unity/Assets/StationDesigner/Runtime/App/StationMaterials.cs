@@ -24,7 +24,14 @@ namespace Metro.App {
         public StationMaterials(Shader shader) {
             if (!shader) throw new ArgumentNullException(nameof(shader));
             materials = new Material[Colours.Length];
-            for (int i = 0; i < materials.Length; i++) materials[i] = new Material(shader) { color = Colours[i] };
+            for (int i = 0; i < materials.Length; i++) {
+                // One palette entry is glass. A Lit material discards alpha, so that slot
+                // gets the shared transparent glass surface instead (source
+                // `PieceBuilder.glass`: 0xa8d8e6, opacity .26, roughness .06, double sided).
+                materials[i] = i == Glass
+                    ? StationGlass.Create(shader, "glass", new Color32(168, 216, 230, 255), .26f, .94f, 0f, true)
+                    : new Material(shader) { color = Colours[i] };
+            }
         }
 
         public Material this[int colour] => materials[Mathf.Clamp(colour, 0, materials.Length - 1)];

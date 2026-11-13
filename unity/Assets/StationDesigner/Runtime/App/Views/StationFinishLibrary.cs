@@ -134,7 +134,12 @@ namespace Metro.App.Views {
     public sealed class StationFinishLibrary : IDisposable {
         public const string DefaultFallback = StationFinishIds.DefaultMaterial;
         public const string DefaultShaderName = "Universal Render Pipeline/Lit";
+        /// <summary>The station's own finish shader (Resources): vertex AO + no environment reflections.</summary>
+        public const string StationShaderName = "Metro/Station Finish";
+        public const string StationShaderResource = "StationFinish";
         public const string Version = "1";
+
+        static Shader resolvedShader;
 
         readonly Dictionary<string, StationFinishEntry> byId = new Dictionary<string, StationFinishEntry>(StringComparer.Ordinal);
         readonly Dictionary<string, Material> materials = new Dictionary<string, Material>(StringComparer.Ordinal);
@@ -207,7 +212,31 @@ namespace Metro.App.Views {
             }, shader ?? FindShader(), false);
         }
 
-        public static Shader FindShader() => Shader.Find(DefaultShaderName);
+        /// <summary>
+        /// The station finish shader. It lives in `Resources/StationFinish.shader` so the
+        /// player always ships it (a shader found only by name can be stripped from a
+        /// build), and it consumes the mesher's vertex AO exactly like the source's
+        /// `vertexColors: true`. Falls back to URP/Lit so a project without the staged
+        /// shader still draws (without AO) instead of failing.
+        /// </summary>
+        public static Shader FindShader() {
+            if (resolvedShader != null) return resolvedShader;
+            if (System.Environment.GetEnvironmentVariable("METRO_FINISH_LIT") == "1") {
+                resolvedShader = Shader.Find(DefaultShaderName);
+                return resolvedShader;
+            }
+            if (Shader.Find(StationShaderName) != null) {
+                resolvedShader = Shader.Find(StationShaderName);
+                return resolvedShader;
+            }
+            var staged = Resources.Load<Shader>(StationShaderResource);
+            if (staged != null) {
+                resolvedShader = staged;
+                return resolvedShader;
+            }
+            resolvedShader = Shader.Find(DefaultShaderName);
+            return resolvedShader;
+        }
 
         static Texture2D DecodePng(byte[] bytes, string name) {
             // linear:false = sRGB. The PNGs are authored in sRGB exactly as the browser
@@ -400,6 +429,9 @@ namespace Metro.App.Views {
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", resolved.Facts.Metalness);
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", Mathf.Clamp01(1f - resolved.Facts.Roughness));
             if (material.HasProperty("_SmoothnessTextureChannel")) material.SetFloat("_SmoothnessTextureChannel", 0f);
+            // The source supplies no environment map (`lightRig.ts` adds lights only), so a
+            // metallic finish must not pick up the Unity skybox as a reflection.
+            material.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
             if (resolved.Facts.DoubleSided) {
                 // `side: DoubleSide` for the ceiling family in `finishMaterial` - the
                 // grille / metal / steel soffit reads from below.

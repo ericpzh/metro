@@ -31,6 +31,17 @@ namespace Metro.View {
         /// <summary>The held vertical pan direction: +1 up, -1 down, 0 released.</summary>
         public int HeldVertical { get; private set; }
 
+        /// <summary>
+        /// The held ground pan, in the camera's own screen axes (right / forward,
+        /// each -1…1). It is the same translation <see cref="PanByMetres"/> applies,
+        /// integrated per elapsed second, so WASD and a pointer pan cannot drift apart.
+        /// </summary>
+        public float HeldRight { get; private set; }
+        public float HeldForward { get; private set; }
+
+        /// <summary>Shift: the held pan's fast multiplier, exactly as the source's keys.</summary>
+        public bool HeldFast { get; private set; }
+
         /// <summary>The last preset applied, for diagnostics and publish (custom after a free move).</summary>
         public StationCameraPreset Preset { get; private set; } = StationCameraPreset.Iso;
 
@@ -43,7 +54,7 @@ namespace Metro.View {
             State.Bounds = documentBounds;
             State.ActiveLevel = activeLevel;
             State.OrthoZoom = 1f;
-            HeldVertical = 0;
+            ClearHeld();
             HasStation = true;
             Home();
             // The source station open runs `goHomeView` then `zoomBy(2 / 3)`: the
@@ -82,9 +93,17 @@ namespace Metro.View {
         public void Home() {
             State.Projection = StationProjection.Perspective;
             State.Fov = StationCameraMath.DefaultFov;
-            HeldVertical = 0;
+            ClearHeld();
             ApplyPresetFrame(StationCameraPreset.Iso);
             Raise();
+        }
+
+        /// <summary>Drop every held pan: the house taking focus, a release, a new station.</summary>
+        public void ClearHeld() {
+            HeldVertical = 0;
+            HeldRight = 0f;
+            HeldForward = 0f;
+            HeldFast = false;
         }
 
         /// <summary>The source four presets; <c>custom</c> is a no-op.</summary>
@@ -200,8 +219,19 @@ namespace Metro.View {
         /// is preserved, exactly as the source WASD pan.
         /// </summary>
         public void PanByMetres(Vector2 screenMetres) {
-            if (!IsFinite(screenMetres.x) || !IsFinite(screenMetres.y)) return;
-            if (screenMetres.sqrMagnitude < 1e-12f) return;
+            if (!TranslatePlanar(screenMetres)) return;
+            Raise();
+        }
+
+        /// <summary>
+        /// The ground pan's one translation. Eye and aim move together, so the orbit
+        /// offset — the view angle and distance — is preserved. Returns false when the
+        /// move is zero or degenerate; the caller owns the change notification, because
+        /// <see cref="Tick"/> moves both axes in one frame and raises once.
+        /// </summary>
+        private bool TranslatePlanar(Vector2 screenMetres) {
+            if (!IsFinite(screenMetres.x) || !IsFinite(screenMetres.y)) return false;
+            if (screenMetres.sqrMagnitude < 1e-12f) return false;
             var forward = State.Target - State.Position;
             forward.z = 0f;
             if (forward.sqrMagnitude < 1e-6f) {
@@ -216,7 +246,7 @@ namespace Metro.View {
             var move = forward * screenMetres.y + right * screenMetres.x;
             State.Position += move;
             State.Target += move;
-            Raise();
+            return true;
         }
 
         /// <summary>
@@ -236,28 +266,56 @@ namespace Metro.View {
             PanByMetres(new Vector2(side, forward));
         }
 
-        /// <summary>Hold/release the Ctrl+Q / Ctrl+E and ViewCube-arrow vertical pan.</summary>
-        public void SetHeldVertical(int direction) {
+        /// <summary>Hold/release the Ctrl+Q / Ctrl+E vertical pan (and the ViewCube's arrows).</summary>
+        public void SetHeldVertical(int direction, bool? fast = null) {
             int next = direction > 0 ? 1 : direction < 0 ? -1 : 0;
-            if (HeldVertical == next) return;
+            bool changed = HeldVertical != next;
             HeldVertical = next;
-            Raise();
+            if (fast.HasValue && HeldFast != fast.Value) { HeldFast = fast.Value; changed = true; }
+            if (changed) Raise();
+        }
+
+        /// <summary>
+        /// Hold/release the camera-relative ground pan (WASD). Each axis is a bounded
+        /// -1…1 intent, not a key: the keyboard and any other holder send the same
+        /// pair, and a release is <c>(0, 0)</c>.
+        /// </summary>
+        public void SetHeldPlanar(float right, float forward, bool? fast = null) {
+            float nextRight = IsFinite(right) ? Mathf.Clamp(right, -1f, 1f) : 0f;
+            float nextForward = IsFinite(forward) ? Mathf.Clamp(forward, -1f, 1f) : 0f;
+            bool changed = !Mathf.Approximately(HeldRight, nextRight) || !Mathf.Approximately(HeldForward, nextForward);
+            HeldRight = nextRight;
+            HeldForward = nextForward;
+            if (fast.HasValue && HeldFast != fast.Value) { HeldFast = fast.Value; changed = true; }
+            if (changed) Raise();
         }
 
         /// <summary>The source <c>moveSpeed</c>: 4–45 m/s by orbit distance, Shift ×3.</summary>
         public float MoveSpeed(bool fast = false) => StationCameraMath.MoveSpeed(State.Distance, fast);
 
         /// <summary>
-        /// Advance the held vertical pan. Camera and aim move together, so the orbit
-        /// offset is preserved and no distance clamp interferes (source
-        /// <c>panCameraVertical</c>).
+        /// Advance every held pan by the elapsed real seconds: the vertical pair at
+        /// <see cref="MoveSpeed"/> and the ground pair at the same rate, camera and aim
+        /// moving together so the orbit offset (the view angle) is untouched. The two
+        /// axes share one speed and one frame, exactly as the source's
+        /// <c>panCamera</c>/<c>panCameraVertical</c> pair.
         /// </summary>
         public void Tick(float deltaSeconds, bool fast = false) {
-            if (!IsFinite(deltaSeconds) || deltaSeconds <= 0f || HeldVertical == 0) return;
-            float step = HeldVertical * MoveSpeed(fast) * deltaSeconds;
-            State.Position = new Vector3(State.Position.x, State.Position.y, State.Position.z + step);
-            State.Target = new Vector3(State.Target.x, State.Target.y, State.Target.z + step);
-            Raise();
+            if (!IsFinite(deltaSeconds) || deltaSeconds <= 0f) return;
+            if (HeldVertical == 0 && HeldRight == 0f && HeldForward == 0f) return;
+            float speed = MoveSpeed(fast || HeldFast);
+            float seconds = deltaSeconds;
+            bool moved = false;
+            if (HeldVertical != 0) {
+                float step = HeldVertical * speed * seconds;
+                State.Position = new Vector3(State.Position.x, State.Position.y, State.Position.z + step);
+                State.Target = new Vector3(State.Target.x, State.Target.y, State.Target.z + step);
+                moved = true;
+            }
+            if (HeldRight != 0f || HeldForward != 0f) {
+                moved |= TranslatePlanar(new Vector2(HeldRight * speed * seconds, HeldForward * speed * seconds));
+            }
+            if (moved) Raise();
         }
 
         /// <summary>Viewport aspect for both projections; the ortho frustum refits from it.</summary>

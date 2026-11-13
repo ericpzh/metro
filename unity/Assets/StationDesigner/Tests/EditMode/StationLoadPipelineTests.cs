@@ -431,6 +431,7 @@ namespace Metro.EditModeTests {
             public void Tick(double realSeconds) { }
             public void Release() { ReleaseCount++; }
             public string ClockPayloadJson() => "{\"simTimeSeconds\":23400,\"playing\":false}";
+            public string CapabilitiesPayloadJson() => "{\"sessionId\":\"sim-test\",\"clock\":true,\"play\":true,\"speed\":true}";
             public string ActiveClockJson() => ClockPayloadJson();
         }
 

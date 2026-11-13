@@ -20,8 +20,8 @@ import { openingLevel } from '../app/openingLevel.ts'
 import { parse } from '../persistence/save.ts'
 import { attachCanvasCameraGestures, attachViewStateBridge, createStationCameraPort, createUnityViewCubeAdapter } from './cameraAdapter.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
-import { applyUnityClock, createSimulationPort, simulationStoreActions } from './simulationAdapter.ts'
-import type { UnityClock } from './simulationAdapter.ts'
+import { attachKeyboardNavigation } from './keyboardNavigation.ts'
+import { applyUnityClock, bindSimulationPort, createSimulationPort, receiveHostState, simulationStoreActions } from './simulationAdapter.ts'
 import { stationBridge } from './stationBridge.ts'
 import type { StationSnapshot } from './stationBridge.ts'
 import { commitSignBoardsToHost, unityHostOwnsStation } from './signCommitAdapter.ts'
@@ -220,6 +220,19 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       } else if (latest.type === 'station.openDemo') {
         useStore.getState().setNotice(english ? 'Could not open the example station.' : '无法打开示例车站。')
       }
+    } else if (latest.type.startsWith('sim.')) {
+      // The host refused a transport command (`no-session`, `unsupported-speed`, …):
+      // say so, because the button that sent it otherwise looks like it did nothing.
+      const english = document.documentElement.lang === 'en'
+      useStore.getState().setNotice(english
+        ? `The simulation refused that command (${latest.code}).`
+        : `仿真拒绝了该操作（${latest.code}）。`)
+    } else if (latest.reason && /^(sign\.|road\.|face\.|tool\.)/.test(latest.type)) {
+      // An edit verb the player drove was refused, and the host said why: surface its
+      // sentence rather than leaving the control that sent it looking inert. Camera and
+      // view refusals during the first commit are the shell's own early sends, not the
+      // player's, so they stay silent.
+      useStore.getState().setNotice(latest.reason)
     }
   })
   const existing = stationBridge.getSnapshot()
@@ -230,6 +243,17 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   const cameraPort = createStationCameraPort()
   const cameraAdapter = createUnityViewCubeAdapter(cameraPort)
   const detachCanvas = attachCanvasCameraGestures(canvas, cameraPort)
+  // WASD and Ctrl+Q/E are the two keys the Three viewport's own scene owns; in the
+  // Unity player they become held intents on the bridge, and the C# rig integrates
+  // them (`keyboardNavigation.ts`). Space, plain Q/E, Ctrl+H and every tool key stay
+  // with `AppShell`'s single handler, so no key has two owners.
+  const detachKeyboard = attachKeyboardNavigation(cameraPort, {
+    blocked: () => {
+      const state = useStore.getState()
+      if (document.body.dataset.metroBenchmarkLocked === 'true') return true
+      return state.explodedView || state.signEditorFor !== null || state.signComposing || state.followAgentId !== null
+    },
+  })
   // The 视图 folder, section controls and overlays are store state; this bridge
   // turns their changes into `view.set` commands (level is sent above).
   const detachView = attachViewStateBridge(cameraPort)
@@ -241,10 +265,14 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     send: command => { stationBridge.send(command.type, command.payload) },
   })
   useStore.setState(simulationStoreActions(simulationPort, useStore))
+  // Bound before the first render so the shared playback controls can disable what
+  // this host cannot honour instead of binding a click that is only dropped.
+  bindSimulationPort(simulationPort)
+  // The clock and its capabilities arrive as one `state` payload: a clock without the
+  // transport flags made Play and every speed button dead (plan 13 §1).
   const applyClock = (): void => {
-    const clock = stationBridge.getSnapshot().state.clock as UnityClock | undefined
-    if (!clock || !Number.isFinite(clock.simTimeSeconds)) { simulationPort.disconnect(); return }
-    simulationPort.receiveClock(clock)
+    const clock = receiveHostState(simulationPort, stationBridge.getSnapshot().state)
+    if (!clock) { simulationPort.disconnect(); return }
     applyUnityClock(useStore, clock)
   }
   const unsubscribeClock = stationBridge.subscribe(applyClock)
@@ -277,6 +305,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     unsubscribeTool()
     unsubscribeLevel()
     unsubscribeClock()
+    bindSimulationPort(null)
     useStore.setState({
       setPlaying: previousActions.setPlaying, setSpeed: previousActions.setSpeed,
       restartSim: previousActions.restartSim, seekToDate: previousActions.seekToDate,
@@ -284,6 +313,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     window.removeEventListener('metro:station-state', onState)
     signFaces.dispose()
     detachCanvas()
+    detachKeyboard()
     detachView()
     cameraAdapter.dispose()
     cameraPort.dispose()

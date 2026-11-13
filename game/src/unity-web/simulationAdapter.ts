@@ -77,6 +77,12 @@ export interface UnitySimulationCapabilities {
     gates: boolean
     queues: boolean
     boarding: boolean
+    /**
+     * The simulation session these flags describe (`StationSimulationSession`'s own id).
+     * A different id on a later frame means a different session, so nothing the previous
+     * one advertised may be carried over.
+     */
+    sessionId?: string
 }
 
 /** A whole `kind:"state"` payload, as far as time is concerned. */
@@ -109,6 +115,8 @@ export interface SimulationPortState {
     connected: boolean
     clock: UnityClock | null
     capabilities: UnitySimulationCapabilities
+    /** The simulation session the capabilities were read from; `''` before the first reply. */
+    sessionId: string
     /** The last command the port sent, for ack correlation in the shell. */
     lastCommand: SimulationCommand | null
 }
@@ -145,7 +153,7 @@ export function createSimulationPort(transport: SimulationTransport, options: {
     hostCommitsDayEdits?: boolean
 } = {}): SimulationPort {
     let state: SimulationPortState = {
-        connected: false, clock: null, capabilities: { ...NO_CAPABILITIES }, lastCommand: null,
+        connected: false, clock: null, capabilities: { ...NO_CAPABILITIES }, sessionId: '', lastCommand: null,
     }
     const listeners = new Set<() => void>()
     const update = (next: Partial<SimulationPortState>): void => {
@@ -165,6 +173,7 @@ export function createSimulationPort(transport: SimulationTransport, options: {
                 connected: true,
                 clock,
                 capabilities: capabilities ?? state.capabilities,
+                sessionId: capabilities?.sessionId ?? state.sessionId,
             })
         },
         receiveFrame(frame) {
@@ -172,7 +181,7 @@ export function createSimulationPort(transport: SimulationTransport, options: {
             port.receiveClock(frame.clock, frame.capabilities)
         },
         disconnect() {
-            update({ connected: false, clock: null, capabilities: { ...NO_CAPABILITIES } })
+            update({ connected: false, clock: null, capabilities: { ...NO_CAPABILITIES }, sessionId: '' })
         },
         send(command) {
             if (!state.connected) return false
@@ -201,6 +210,65 @@ export function createSimulationPort(transport: SimulationTransport, options: {
 }
 
 /* ------------------------------------------------------------- store mapping */
+
+/**
+ * Read one host `state` payload into the port: the clock **and** the capability
+ * object beside it (`payload.simulationCapabilities`), from the same snapshot, so
+ * the shell can never hold a clock whose transports it does not know.
+ *
+ * This is the whole of `main.tsx`'s clock wiring, kept here so a Node test can
+ * apply an exact host-shaped frame without a browser. Returns the clock it applied,
+ * or `null` when the frame carries no usable clock (the caller then disconnects).
+ *
+ * **A new simulation session resets the old one's capabilities.** A station switch
+ * installs a new session; the flags the previous session advertised (and any clock
+ * it published) must not survive the switch. `disconnect()` before the new frame
+ * applies is what makes that a fact rather than a merge.
+ */
+export function receiveHostState(port: SimulationPort, state: Record<string, unknown> | null | undefined): UnityClock | null {
+    if (!state) return null
+    const clock = state.clock as UnityClock | undefined
+    if (!clock || typeof clock !== 'object' || !Number.isFinite(clock.simTimeSeconds)) return null
+    const raw = state.simulationCapabilities
+    const capabilities = raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? raw as UnitySimulationCapabilities
+        : undefined
+    const sessionId = capabilities?.sessionId
+    const previous = port.getState().sessionId
+    if (sessionId && previous && sessionId !== previous) port.disconnect()
+    port.receiveClock(clock, capabilities)
+    return clock
+}
+
+/**
+ * The one live port the mounted player installed, so a shared control can render
+ * the availability the adapter derives (`unavailableReason`) instead of binding a
+ * click the host would only drop. `null` in the ordinary browser game, where the
+ * worker always honours playback.
+ */
+let activePort: SimulationPort | null = null
+export function bindSimulationPort(port: SimulationPort | null): void { activePort = port }
+export function boundSimulationPort(): SimulationPort | null { return activePort }
+
+/** Which transport controls this port can honour right now. */
+export interface SimulationAvailability {
+    play: boolean
+    speed: boolean
+    seek: boolean
+    restart: boolean
+}
+
+/** Pure: the availability a control renders, from the adapter's own answers. */
+export function simulationAvailabilityOf(port: SimulationPort | null): SimulationAvailability {
+    if (!port) return { play: true, speed: true, seek: true, restart: true }
+    return {
+        play: port.unavailableReason('play') === null,
+        speed: port.unavailableReason('speed') === null,
+        seek: port.unavailableReason('seek') === null,
+        restart: port.unavailableReason('restart') === null,
+    }
+}
+
 
 /** The narrow slice of a zustand store this adapter reads and writes. */
 export interface SimulationStoreState {

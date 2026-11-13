@@ -110,6 +110,14 @@ namespace Metro.App {
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Register() {
             StationRenderers.Add(new OutdoorModuleRenderer());
+            // Plan 13 §3: the authored families the Zoo playtest could not see. Each claims
+            // its own saved types and reports every module it cannot resolve by name.
+            StationRenderers.Add(new Metro.App.Views.StationSurfaceModuleRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationStreetModuleRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationEquipmentModuleRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationDisplayModuleRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationGridRenderer());
+            StationRenderers.Add(new Metro.App.Views.StationOverlayRenderer());
             StationFrameSinks.Add(new RoadFrameSink());
         }
     }

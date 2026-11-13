@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Metro.App;
@@ -36,11 +36,12 @@ namespace Metro.Editor {
                 if (!existing.IsValid() || existingHost == null)
                     throw new InvalidOperationException("Existing StationGame scene has no StationGameHost");
                 bool changed = Assign(existingHost);
-                if (changed) {
-                    EditorSceneManager.MarkSceneDirty(existing);
-                    if (!EditorSceneManager.SaveScene(existing, ScenePath))
-                        throw new InvalidOperationException("Could not update StationGame scene");
-                }
+                // The light rig is code-owned (StationRenderRig): applying it here keeps a
+                // serialized scene in step with the source rig without regenerating it.
+                StationRenderRig.Apply(UnityEngine.Object.FindAnyObjectByType<Camera>());
+                EditorSceneManager.MarkSceneDirty(existing);
+                if (!EditorSceneManager.SaveScene(existing, ScenePath))
+                    throw new InvalidOperationException("Could not update StationGame scene");
                 var reopened = EditorSceneManager.OpenScene(ScenePath);
                 Validate(UnityEngine.Object.FindAnyObjectByType<StationGameHost>(), reopened);
                 return;
@@ -53,12 +54,9 @@ namespace Metro.Editor {
             camera.farClipPlane = 360;
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(.14f, .20f, .23f);
-            var light = new GameObject("Daylight", typeof(Light)).GetComponent<Light>();
-            light.type = LightType.Directional;
-            light.intensity = 0.72f;
-            light.transform.rotation = Quaternion.Euler(53, -36, 0);
-            RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(.40f, .43f, .46f);
+            // The source light rig (key + fill + hemisphere + ambient, no shadows, no
+            // environment map, linear fog). See StationRenderRig for the numbers.
+            StationRenderRig.Apply(camera);
             new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
 
             var host = new GameObject(StationGameHost.ObjectName).AddComponent<StationGameHost>();
