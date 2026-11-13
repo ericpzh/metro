@@ -68,6 +68,39 @@ and `gzip-results.json`. Reproduce the startup/click workload after building the
 reference game with `node tools/unity-baseline/startup.mjs`; add `--gzip` for
 the local gzip transfer capture. Each command writes a fresh output directory.
 
+### Unity Editor live-test workflow
+
+At dirty source `6409535b6ea9aabacc72d6a0744a4eb1f9bade2f` on Windows 11,
+Intel i7-14700KF / RTX 4080 SUPER, Unity `6000.6.8f1`, Unity CLI
+`1.0.0-beta.17` and `com.unity.pipeline@1.0.0`, the live-Editor loop was measured
+from a saved C# change to a filtered test verdict and a fresh Zoo Game view. One
+comment appended to `StationSimulationSession.cs` was followed by three serial
+runs of `unity/scripts/metro-editor.ps1 verify -TestFilter StationClockTests -Demo zoo`.
+Wall times were 56.1, 56.5 and 56.6 s; `run.json` durations were 55.3, 55.6 and
+55.9 s. Each run spent 10.9–11.5 s compiling/reloading, 7.5 s running 12 EditMode
+tests, and 36.3–36.6 s in the smoke. The smoke total is dominated by a
+25.8–26.0 s Editor-readiness wait after the test runner; the station load and the
+two fixed-tick/capture runs themselves were 3.5 + 3.4 s.
+
+After the measurement comment was removed, one warm no-change `verify` completed
+in 22.3 s (compile 5.7 s, test 4.5 s, smoke 11.7 s), so the 26 s post-test wait
+is intermittent rather than a fixed cost. The fixture rerun in an
+already-playing Editor is the relevant interactive number: three serial
+`smoke -Demo zoo -NoRepeat` runs took 8.5–8.6 s each,
+including 2.65–2.69 s readiness, 3.27–3.36 s load/fixed ticks/capture/restore,
+and the rest wrapper and Console work. All three produced state hash
+`186d0638f8b28c5bff346a926a64faed9ba1e916774c54577637696065b409b8` and a
+1280 × 720 PNG. The first capture after a fresh Play Mode entry can differ from
+the next run's screenshot because the view is still settling (about 221 KB
+versus 188 KB in these captures); the state hash is identical. Raw reports are
+under `.preview/unity/editor/`.
+
+The WebGL comparison is pending. A C# change invalidates the cached player, so
+`npm start unity` must include a full Unity build plus browser startup; do not
+compare a warm WebGL cache against the editor measurement. Keep domain reload at
+its default until that matched capture exists. This measurement does not
+establish that disabling reload improves the loop.
+
 ### Tianhe Park demo-video cadence
 
 This measures the encoded walkthroughs, not editor or simulation performance.
@@ -1495,3 +1528,29 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | City-specific counts | Set `MODEL_CITY=<city>`, then run the inventory command |
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
+
+### Unity Tianhe synthetic scale spike (unmatched workload)
+
+On 2026-11-10, three serial runs of `node tools/unity-feasibility/measure-web.mjs .preview/unity/feasibility .preview/unity/feasibility/visible-run-N` exercised a Unity 6000.6.8f1 Web Release player built from the dirty `7ad810fe1867fc85c1fdae21571949fddd943ce8` checkout, Windows 11, i7-14700KF, RTX 4080 SUPER, headless Chrome 157, DPR 1, 1384 × 805 canvas. Reports and screenshots are under `.preview/unity/feasibility/visible-run-{1,2,3}/`; each records the source/artifact digests. The graph digest is `52003505ee5da485bc74a375eac3b58bd7741f2fe81f2d52a7a01e40b30593e2` and WASM digest `e3dea0af59c2bd84e540057e45d04325383f6680ab3a3bc305ea975dc0fc1b89`. A prior attempt against the older `web-release-final` artifact failed its visual check (zero blue pixels); it is not a valid measurement.
+
+The spike uses the actual Tianhe graph (153,720 nodes, 1,172,121 edges), 943 synthetic servers, 5,171 original placeholder meshes, random adjacency walking and synthetic queues. At 1/4/16/64×, measured tick rates were approximately 0.90/4.10/16.09/64.04 per second in each 10-second phase; discrete 1× counts and the warm-up boundary limit the rate interpretation. Frame p95 was ~17 ms, and each first 1× phase included a 759–825 ms maximum frame and a browser long task of 762–829 ms near startup. The screenshot confirms visible placeholders, not the full station. Timer quantization produced 0–0.1 ms tick medians. These captures do **not** exercise TypeScript World, real routing, station geometry, matching camera/load, GPU completion or physical presentation. Chrome and viewport also differ from the TS baseline. Do not interpret this as a speedup or a passed parity/performance gate; matched traversal, queue and rendering workloads and startup-stall investigation remain open.
+
+A subsequent Three.js synthetic counterpart uses the same graph bytes, agent count, queue capacity, pseudo-random adjacency and queue algorithm, six instancing batches, viewport/canvas and analogous orthographic camera. Three serial `node tools/unity-feasibility/measure-ts-web.mjs .preview/unity/feasibility/ts-matched-N` runs (N=1,2,3) on the same machine produced ~1.10/4.10/16.09/64.04 ticks/s and 16.8 ms frame p95 at 1/4/16/64×; median tick samples were 0–0.2 ms with browser timer quantization. Reports and screenshots are in `.preview/unity/feasibility/ts-matched-{1,2,3}/`, and the workload SHA-256 is `0cf63726c02fc645403cea0a7e6ae1c745128dbabf4ded9846d5b6ee8bb16056`. The initial import-map and favicon attempts failed, and a first camera orientation was corrected before these runs. The 1× phase counts differed (Unity nine measured ticks, TS eleven) and the accumulated queue counts consequently differ; Three.js and Unity use distinct lighting, mesh construction and frame scheduling. These are related synthetic scale checks, **not proven identical simulations or a comparison to the TS World baseline**. Do not infer an engine speedup or a full feasibility pass from them. A fixed-tick state parity check, matched station geometry and a controlled explanation of the Unity startup long task are still required.
+
+A fixed-tick functional cross-check now uses the same synthetic graph and `Step` code: the Unity Editor invoked `Metro.Feasibility.Editor.CheckFixedTicks.Run` for 512 ticks in `.preview/unity/tianhe-feasibility-project`, writing `.preview/unity/feasibility/fixed-cs.json`; `node tools/unity-feasibility/check-fixed-ticks.mjs` passed and wrote `fixed-ts.json`. It asserts that the Node step function matches the browser workload source and compares SHA-256 of all agent nodes, agent queue assignments, queue contents, server heads, lengths and floating credits, plus counters. Both ended with 4,818 queued, 11,481 admitted and 6,663 completed. This validates fixed-step synthetic state for this fixture, not the TS World or equivalence of the timing windows, and does not eliminate the rendering and startup limitations above.
+
+A separate sampled diagnostic, `node tools/unity-feasibility/profile-startup.mjs`, saved `.preview/unity/feasibility/startup-profile/startup.cpuprofile`. Its CPU samples attributed approximately 723 ms to `_emscripten_glGetProgramiv` and 40 ms to `_emscripten_glGetShaderiv` over the captured startup, consistent with a synchronous WebGL program/shader query during initialization. This profile was collected separately from the three timing runs and is evidence of a likely shader-program initialization stall, not proof of a particular GPU-side cause or a resolved user-facing budget. Preserve the 759–825 ms first-phase misses above; investigate shader warm-up/variant strategy and remeasure the full production workload before treating the startup gate as passed.
+
+A material ablation rebuilt the same synthetic Unity workload with `-feasibilityShader unlit` and ran three serial `node tools/unity-feasibility/measure-web.mjs .preview/unity/feasibility .preview/unity/feasibility/unlit-run-N web-release-unlit` captures (N=1,2,3). The first 1× maximum frames were 390, 399 and 402 ms, with browser long tasks of 394, 403 and 406 ms near initialization; p95 stayed ~17 ms. The lit runs above were 759–825 ms, so the simpler shader materially reduced this synthetic startup cost, but every unlit run still exceeds the proposed 200 ms stall target. Reports and screenshots are `.preview/unity/feasibility/unlit-run-{1,2,3}/`; the Web data SHA-256 is `b532921ab8bb866ac77fd867217d38983e0b6b53e54cdaa58fcc117a661398b7`. Shader appearance differs and neither scene is a representative full station. An initial disposable-project build failed because a second copy of the editor class was present; the duplicate was disabled and the documented retry succeeded. Do not promote an unlit placeholder as a release fix or mark the startup gate passed.
+
+### Zoo single-passenger gate proxy, cold versus warm
+
+At dirty HEAD `7ad810fe1867fc85c1fdae21571949fddd943ce8`, the controlled Zoo `gate-243` fixture uses the actual TS World graph/A* path, seed 7654321, one passenger and seven explicit one-second click steps; ambient spawns are disabled. `node tools/unity-parity/check-zoo-gate.mjs .preview/unity/zoo-correctness-unlit .preview/unity/zoo-gate-unlit/web` and the corresponding `zoo-correctness-lit` command passed before timing: both engines queued on tick 3, served on tick 4, and finished on tick 7, matching positions, queue/lane/cooldown and wait counts. Viewport 1264 × 705, canvas 960 × 600 at the same position, DPR 1; proof screenshots are in those directories. This is a **proxy**: both sides render only simple cubes for Zoo solid cells and gates plus the original placeholder person; the C# runtime implements only this unobstructed single-passenger gate path and uses a TS-generated route. It is not the production TS station renderer or a full C# World.
+
+A separate `node tools/unity-parity/profile-zoo-startup.mjs .preview/unity/zoo-gate-unlit/web .preview/unity/zoo-profile-unlit` capture wrote `startup.cpuprofile`; self-sample aggregation attributed ~461 ms to `_emscripten_glGetProgramiv` plus unsymbolized WASM work. It is a diagnostic, not a timed run or proof of one root cause. The two disposable Unity builds differed in their placeholder/material shader (URP Unlit versus Lit) with identical scene and fixture; reports retain their source and artifact hashes.
+
+Three serial runs per build used `node tools/unity-parity/measure-zoo-proxy.mjs .preview/unity/zoo-gate-<unlit|lit>/web .preview/unity/zoo-perf-final-<unlit|lit>-N` for N=1,2,3, with the TS proxy then Unity proxy run sequentially. Unity unlit startup long tasks were 1,447/1,404/1,270 ms; lit were 1,758/1,984/1,902 ms. TypeScript startup long tasks in these runs were 314–363 ms. These are **cold startup**, not warmed interaction. After the readiness marker, two animation frames and three seconds of warm-up, no browser long task was recorded during the seven interactions. Across the runs the Unity pointer-down to C# acknowledgement ranged 1.8–22.8 ms and pointer-down to two subsequent animation frames ranged 34.8–50.7 ms; frame p95 was approximately 16.8–16.9 ms. Two-rAF timing is not physical presentation, seven samples are not a percentile, and the TS World does substantially more work per step than the C# slice, so do not infer a gameplay speedup or full-station budget pass. The proposed 200 ms interaction threshold applies after warm-up; the cold misses remain separately visible. A failed lit attempt due to a reused Chrome debugging port is retained in `.preview/unity/zoo-perf-lit-2/`; the final harness uses fresh ports. Raw evidence: `.preview/unity/zoo-perf-final-{unlit,lit}-{1,2,3}/`.
+
+### Tianhe full-document proxy startup failure
+
+At dirty HEAD `7ad810fe1867fc85c1fdae21571949fddd943ce8`, `node tools/unity-parity/check-tianhe-gate.mjs .preview/unity/tianhe-gate-correctness-retry` attempted the full normalized Tianhe save, simplified layer/gate geometry and 5,171 synthetic placeholder agents. Unity Web aborted with `OOM` while growing its WebAssembly heap; see `.preview/unity/tianhe-gate-correctness-retry/chrome-unity-29652.log` and `correctness-report.json`. The earlier `.preview/unity/tianhe-gate-correctness/` attempt also timed out. The TypeScript side completed seven gate interactions, but Unity produced no outcome or warm frame data. This is a cold-load failure, not an interaction-latency measurement, and no timing comparison or 200 ms gate result follows from it. The parser constructs and serializes several full JSON trees; investigate their peak allocations and preserve the existing cross-engine save/repair tests before reattempting. Build/input hashes and exact commands are in the handoff's Tianhe section.

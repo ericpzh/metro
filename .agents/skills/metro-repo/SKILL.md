@@ -1,6 +1,6 @@
 ---
 name: metro-repo
-description: Entry point for the ericpzh/metro repo — a React 19 + three.js metro-station building sandbox in game/ plus the concept-art site in web/. Use for repo-wide work (what lives where, root commands, conventions, Cloudflare deploy, the tools/ scripts) and to reach the subskills — metro-game (game/src and simulation), metro-game-test (game/test), metro-model (passenger assets and activity poses), metro-web (web/ and art/).
+description: Entry point for the ericpzh/metro repo — a React 19 + three.js metro-station building sandbox in game/ plus the Unity 6 URP port in unity/ and the concept-art site in web/. Use for repo-wide work (what lives where, root commands, conventions, Cloudflare deploy, the tools/ scripts) and to reach the subskills — metro-game (game/src and simulation), metro-game-test (game/test), metro-unity (unity/ C# port, shared WebGL bridge and Unity assets), metro-model (passenger assets and activity poses), metro-web (web/ and art/).
 ---
 
 # Station Designer — repo entry point
@@ -396,6 +396,7 @@ first and warmed interactions in the
 | Gameplay demo video planning, recordings, retakes, Studio captions, audio and regeneration (`tools/demo-video*`, `video/`) | [metro-video](../metro-video/SKILL.md) |
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
 | Adding, running or fixing tests under `game/test` | `metro-game-test` |
+| Anything under `unity/`, `game/src/unity-web/`, `tools/unity-web/`, `tools/unity-parity/` or `tools/unity-assets/` — the Unity 6 URP port, shared WebGL bridge, parity oracles and asset conversion | [metro-unity](../metro-unity/SKILL.md) ([assets](../metro-unity/references/assets.md)) |
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
 | `model/` characters, bag variants, walking exports, passenger activity previews and the approved game passenger atlas | `metro-model` |
 
@@ -501,9 +502,11 @@ panes in `LTrainWindows.ts`. For any train-model refresh, use `metro-web`'s
 “Refreshing train artwork” workflow: recapture static and animated poses before
 regenerating bilingual sheets 01/02/05/11/12/13 and their tracked PNG previews.
 The gameplay film uses the same train builder. Follow `metro-video` for affected
-takes. If the Unity Type A proof changes, run
-`tools/unity-assets/prove-bench.ps1 -Asset train -SkipWeb` and refresh its
-`unity/Assets/TrainProof/train.glb` while preserving the asset GUID.
+takes. If Unity rolling-stock or formation assets change, follow
+[metro-unity's asset guide](../metro-unity/references/assets.md) to re-prove and promote the
+`rolling` and `formations` families into `unity/Assets/StationDesigner/Generated/`
+while preserving asset GUIDs, and keep `unity/asset-recipes/train-A-motion.json`
+and `unity/asset-recipes/fixture-manifest.json` aligned with `train-a.glb`.
 
 For every behaviour change, add or update deterministic regressions for each affected
 contract and run the complete owning test suite before calling the work covered. A
@@ -570,6 +573,7 @@ The soft-human preview never feeds the game crowd or passenger bake. See
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
+| `unity/` | The Unity 6000.6.8f1 URP WebGL port: layered C# runtime (`Sim`, `Build`, `Persistence`, `View`, `App`), live Editor workflow (`unity/scripts/metro-editor.ps1`), isolated batch/WebGL runner (`unity/scripts/metro-unity.ps1`), Node contract tests (`unity/tests/`), and plans (`unity/plan/`). Paired with the shared React UI bridge in `game/src/unity-web/` and pipelines in `tools/unity-{web,parity,assets}/`. See [metro-unity](../metro-unity/SKILL.md) and its [asset sub-guide](../metro-unity/references/assets.md). |
 | `model/` | Reviewed character viewer and GLB library at 5175, plus the isolated `/soft-human.html` motion study; `metro-model` owns builders, cleanup, walking clips, soft-human preview, exports and game atlas regeneration. |
 | `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |
@@ -869,6 +873,9 @@ npm run build:model   # generate assets and build model/dist
 npm run art:models    # approved model exports → game atlas → bilingual art + verified previews
 npm run dev:all       # web 5173 + game 5174 + model 5175 + stats 5176
 npm run test:game     # node --test over game/test/**/*.test.mjs
+npm run test:unity    # node --test over unity/tests/*.test.mjs
+npm run build:unity   # sync .preview/unity/dev-workspace, build/reuse WebGL, pack React UI
+npm start unity       # build/reuse + serve packed Unity WebGL at http://127.0.0.1:8787/game/
 npm run test:stats    # Worker routing/validation against a fake D1
 npm run check:tutorial # production browser tutorial/input/i18n regressions
 npm run check:demos   # production browser: the site's demo picker and all four demo URLs
