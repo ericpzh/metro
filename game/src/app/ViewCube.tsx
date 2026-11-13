@@ -17,13 +17,14 @@ import { useLanguage } from './i18n.ts'
 // same held token (`SceneSystem.ts` `PAN_UP` / `PAN_DOWN`), so button and key
 // cannot drift apart.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PiVectorThreeDuotone } from 'react-icons/pi'
 import * as THREE from 'three'
-import { DEFAULT_FOV, FOV_MAX_DEG, FOV_MIN_DEG, PAN_DOWN, PAN_UP, type SceneRenderer } from '../render/scene.ts'
+import { FOV_MAX_DEG, FOV_MIN_DEG, type SceneRenderer } from '../render/scene.ts'
 import { useStore } from './store.ts'
-import { goHomeView } from './viewHome.ts'
 import { levelSteps, STOREY_HEIGHT } from '../sim/constants.ts'
+import { createThreeViewCubeAdapter, cubeViewEqual, DEFAULT_CUBE_VIEW } from './ViewCubeAdapter.ts'
+import type { CubeVector, CubeViewState, ViewCubeAdapter } from './ViewCubeAdapter.ts'
 
 /** Cube half-extent in world units; the cube spans -HALF..HALF on each axis. */
 const HALF = 0.5
@@ -135,12 +136,16 @@ interface CubeGeometry {
   axes: Array<{ key: string; color: string; x: number; y: number; lx: number; ly: number }>
 }
 
-/** Project the cube through the main camera's orientation into SVG space. */
-function buildCube(qt: [number, number, number, number]): CubeGeometry {
-  const q = new THREE.Quaternion(qt[0], qt[1], qt[2], qt[3])
-  const right = new THREE.Vector3(1, 0, 0).applyQuaternion(q)
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q)
-  const back = new THREE.Vector3(0, 0, 1).applyQuaternion(q)
+/**
+ * Project the cube through the rendered camera's document-space basis into SVG
+ * space. The basis is what the adapter publishes — `right`/`up` are the screen axes
+ * as they actually render and `back = -forward` is where the eye stands — so the
+ * Unity world's handedness never enters this function.
+ */
+function buildCube(rightDoc: CubeVector, upDoc: CubeVector, backDoc: CubeVector): CubeGeometry {
+  const right = new THREE.Vector3(rightDoc[0], rightDoc[1], rightDoc[2])
+  const up = new THREE.Vector3(upDoc[0], upDoc[1], upDoc[2])
+  const back = new THREE.Vector3(backDoc[0], backDoc[1], backDoc[2])
   const px = (v: THREE.Vector3): number => v.dot(right) * SCALE
   const py = (v: THREE.Vector3): number => -v.dot(up) * SCALE
 
@@ -254,73 +259,103 @@ function buildCube(qt: [number, number, number, number]): CubeGeometry {
   return { faces, edges, corners, axes }
 }
 
-export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer | null> }): React.ReactElement {
+/** Unit direction, or null for a degenerate vector. */
+function unit(v: CubeVector): CubeVector | null {
+  const length = Math.hypot(v[0], v[1], v[2])
+  if (!(length > 1e-9)) return null
+  return [v[0] / length, v[1] / length, v[2] / length]
+}
+
+/**
+ * The cube widget. It draws and interacts only; every camera fact and every camera
+ * move goes through a <see cref="ViewCubeAdapter"/>. The Three entry passes a
+ * `sceneRef` and gets the fallback adapter built over `SceneRenderer`; the Unity entry
+ * passes `adapter` (packet D2's `cameraAdapter.ts`) over the C# camera. Passing
+ * neither leaves the widget inert rather than crashing.
+ */
+export function ViewCube({ sceneRef, adapter }: {
+  sceneRef?: React.RefObject<SceneRenderer | null>
+  adapter?: ViewCubeAdapter
+}): React.ReactElement {
   useLanguage()
   const [open, setOpen] = useState(true)
-  const [qt, setQt] = useState<[number, number, number, number]>([0, 0, 0, 1])
+  const [view, setView] = useState<CubeViewState>(DEFAULT_CUBE_VIEW)
   /** The lens in whole degrees, for the slider — the camera is the truth. */
-  const [fovDeg, setFovDeg] = useState(DEFAULT_FOV)
+  const [fovDeg, setFovDeg] = useState(DEFAULT_CUBE_VIEW.fov)
   const [hover, setHover] = useState<string | null>(null)
-  const ortho = useStore((s) => s.ortho)
   const press = useRef<{ x: number; y: number; moved: boolean; action: string | null } | null>(null)
+  // One adapter for this widget: the explicit one wins; the Three path is the
+  // compatibility adapter so `Viewport.tsx` and the legacy Zoo entry keep their props.
+  const fallback = useMemo(() => (sceneRef ? createThreeViewCubeAdapter(sceneRef) : null), [sceneRef])
+  const cube = adapter ?? fallback
+  const heldDirection = useRef<-1 | 0 | 1>(0)
+  const heldFrame = useRef(0)
+  const heldLast = useRef(0)
+  const ortho = view.projection === 'orthographic'
 
-  // Track the main camera's orientation; only re-render the widget when it
-  // actually turns, so an idle orbit does not churn React. The lens goes with it: the
-  // slider **follows the camera**, so a preset that changes it (or a later caller of
-  // `setFov`) moves the thumb, and only a whole degree re-renders.
+  /** Take one adapter state without churning React when nothing visible changed. */
+  const accept = useCallback((state: CubeViewState | null): void => {
+    if (!state) return
+    setView((current) => (cubeViewEqual(current, state) ? current : state))
+    const deg = Math.round(state.fov)
+    setFovDeg((current) => (current === deg ? current : deg))
+  }, [])
+
+  // Track the rendered camera through the adapter. The adapter owns the cadence
+  // (Three polls the camera on `requestAnimationFrame`, Unity listens to bridge
+  // snapshots); the widget only re-renders when the basis, projection or whole lens
+  // degree actually changes, so an idle orbit does not churn React.
   useEffect(() => {
-    let raf = 0
-    let last = ''
-    const tick = (): void => {
-      raf = requestAnimationFrame(tick)
-      const scene = sceneRef.current
-      const q = scene?.camera.quaternion
-      if (!scene || !q) return
-      const key = `${q.x.toFixed(5)},${q.y.toFixed(5)},${q.z.toFixed(5)},${q.w.toFixed(5)}`
-      if (key !== last) {
-        last = key
-        setQt([q.x, q.y, q.z, q.w])
-      }
-      const deg = Math.round(scene.fov())
-      setFovDeg((cur) => (cur === deg ? cur : deg))
-    }
-    raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
-  }, [sceneRef])
+    if (!cube) return
+    accept(cube.read())
+    return cube.subscribe(accept)
+  }, [cube, accept])
 
-  const geo = useMemo(() => buildCube(qt), [qt])
+  // The Three fallback owns a frame poll; drop it with the widget.
+  useEffect(() => () => { fallback?.dispose() }, [fallback])
+
+  const stopHeld = useCallback((): void => {
+    heldDirection.current = 0
+    if (heldFrame.current) cancelAnimationFrame(heldFrame.current)
+    heldFrame.current = 0
+    cube?.endHeldPan()
+  }, [cube])
+
+  // Hold cleanup: a release, cancel, focus loss or unmount must all stop the climb.
+  useEffect(() => {
+    const release = (): void => { press.current = null; stopHeld() }
+    window.addEventListener('blur', release)
+    return () => { window.removeEventListener('blur', release); stopHeld() }
+  }, [stopHeld])
+
+  const geo = useMemo(() => buildCube(view.right, view.up, view.back), [view])
 
   /** Pull the current camera orientation into the widget without waiting a frame. */
-  const syncNow = (): void => {
-    const q = sceneRef.current?.camera.quaternion
-    if (q) setQt([q.x, q.y, q.z, q.w])
-  }
+  const syncNow = (): void => accept(cube?.read() ?? null)
 
   const apply = (action: string): void => {
-    const scene = sceneRef.current
-    if (!scene) return
-    const st = useStore.getState()
+    if (!cube) return
     if (action.startsWith('face:')) {
       const def = FACES.find((f) => f.key === action.slice(5))
       if (!def) return
       // A face click is only a camera move. It never touches 显示其他层: the
       // level slicing is the player's setting, and a view that quietly flipped
       // it is what made the button read as broken.
-      scene.setViewDirection(new THREE.Vector3(def.dir[0], def.dir[1], def.dir[2]), true)
-      st.setOrtho(true)
+      cube.snap(def.dir, 'orthographic')
     } else if (action.startsWith('corner:')) {
       const v = VERTICES[Number(action.slice(7))]
       if (!v) return
-      scene.setViewDirection(new THREE.Vector3(v[0], v[1], v[2]).normalize(), false)
-      st.setOrtho(false)
+      const direction = unit(v)
+      if (!direction) return
+      cube.snap(direction, 'perspective')
     } else if (action.startsWith('edge:')) {
       const parts = action.split(':')
-      const va = new THREE.Vector3(...VERTICES[Number(parts[1])])
-      const vb = new THREE.Vector3(...VERTICES[Number(parts[2])])
-      const dir = va.add(vb)
-      if (dir.lengthSq() < 1e-6) return
-      scene.setViewDirection(dir.normalize(), true)
-      st.setOrtho(true)
+      const va = VERTICES[Number(parts[1])]
+      const vb = VERTICES[Number(parts[2])]
+      if (!va || !vb) return
+      const direction = unit([va[0] + vb[0], va[1] + vb[1], va[2] + vb[2]])
+      if (!direction) return
+      cube.snap(direction, 'orthographic')
     }
     syncNow()
   }
@@ -345,7 +380,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
     p.x = e.clientX
     p.y = e.clientY
     setHover(null)
-    sceneRef.current?.orbitBy(dx, dy)
+    cube?.orbit(dx, dy)
   }
 
   const onUp = (e: React.PointerEvent<SVGSVGElement>): void => {
@@ -369,7 +404,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
    * Ctrl+H is the same button on the keyboard and the two may not drift apart.
    */
   const goHome = (): void => {
-    goHomeView(sceneRef.current)
+    cube?.home()
     syncNow()
   }
 
@@ -377,15 +412,13 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
    * 透视 / 正交: flip the projection without moving the camera or its aim. The
    * face and edge clicks already choose a projection as a side effect of the
    * view they snap to; this is the one control that changes only the projection,
-   * so a player can keep the current angle and look at it flat. It writes the
-   * live scene immediately (the store effect in `Viewport` would follow anyway)
-   * and keeps the store flag in step so a later preset or home view starts from
-   * the truth.
+   * so a player can keep the current angle and look at it flat. The adapter writes
+   * the live viewport (and, on the Three entry, the store flag the rail reads).
    */
   const toggleOrtho = (): void => {
-    const next = !useStore.getState().ortho
-    sceneRef.current?.setOrtho(next)
-    useStore.getState().setOrtho(next)
+    const next = view.projection === 'perspective' ? 'orthographic' : 'perspective'
+    cube?.setProjection(next)
+    syncNow()
   }
 
   /**
@@ -393,23 +426,35 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
    * **the very action Ctrl+E / Ctrl+Q hold from the keyboard**
    * (`CameraSystem.panCameraVertical`), under the same token, so button and key
    * cannot drift apart in direction or in rate. The token is cleared on release
-   * however the press ends (up, cancel, a lost capture), so a missed pointerup
+   * however the press ends (up, cancel, a lost capture, blur), so a missed pointerup
    * cannot leave the view climbing.
    *
-   * One holder at a time: a press clears both tokens before it sets its own, which
-   * is also what a release does. The button has **no `onClick`** on purpose — a
+   * One holder at a time: a press clears both directions before it sets its own,
+   * which is also what a release does. The button has **no `onClick`** on purpose — a
    * click would apply the same pan a second time, invisibly — and Space cannot be
    * used to hold it, because Space on a focused button is the play/pause key
    * (`AppShell` blurs the button and toggles the clock); Ctrl+E / Ctrl+Q are the
    * keyboard's way to the same pan.
    */
+  const startHeld = (dir: -1 | 1): void => {
+    if (!cube) return
+    heldDirection.current = dir
+    cube.beginHeldPan(dir)
+    if (heldFrame.current) cancelAnimationFrame(heldFrame.current)
+    heldLast.current = performance.now()
+    const tick = (now: number): void => {
+      if (heldDirection.current === 0) return
+      const seconds = Math.min(0.1, Math.max(0, (now - heldLast.current) / 1000))
+      heldLast.current = now
+      cube.updateHeldPan(seconds)
+      heldFrame.current = requestAnimationFrame(tick)
+    }
+    heldFrame.current = requestAnimationFrame(tick)
+  }
+
   const holdPan = (dir: -1 | 0 | 1): void => {
-    const keys = sceneRef.current?.keys
-    if (!keys) return
-    keys.delete(PAN_UP)
-    keys.delete(PAN_DOWN)
-    if (dir > 0) keys.add(PAN_UP)
-    if (dir < 0) keys.add(PAN_DOWN)
+    if (dir === 0) stopHeld()
+    else startHeld(dir)
   }
 
   const panDown = (e: React.PointerEvent<HTMLButtonElement>, dir: -1 | 1): void => {
@@ -433,7 +478,7 @@ export function ViewCube({ sceneRef }: { sceneRef: React.RefObject<SceneRenderer
    * "field of view" is its own frustum (the wheel zooms there).
    */
   const setFov = (deg: number): void => {
-    sceneRef.current?.setFov(deg)
+    cube?.setFov(deg)
     setFovDeg(deg)
   }
 

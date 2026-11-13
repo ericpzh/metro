@@ -150,20 +150,28 @@ test('Ctrl+H, the ⌂ button and the metro:home hand-over are one action', () =>
   assert.match(viewport, /window\.addEventListener\('metro:home', onHome\)/, 'and listens for the hand-over')
   assert.match(viewport, /window\.removeEventListener\('metro:home', onHome\)/, 'and lets it go on unmount')
   // Both ways in call the one definition, so neither can drift: the button does not
-  // keep a copy of "iso + perspective" beside it.
+  // keep a copy of "iso + perspective" beside it. The Three adapter is where the
+  // widget's scene calls now live (the Unity adapter is the other implementation of
+  // the same seam).
   const cube = src('app/ViewCube.tsx')
-  assert.match(cube, /const goHome = \(\): void => \{\s*goHomeView\(sceneRef\.current\)/, 'the ⌂ button calls the same action')
-  assert.doesNotMatch(cube, /setPreset\('iso'\)/, 'and does not keep its own copy of the home view')
+  const three = src('app/ViewCubeAdapter.ts')
+  assert.match(cube, /const goHome = \(\): void => \{\s*cube\?\.home\(\)/, 'the ⌂ button asks the adapter for home')
+  assert.match(three, /home\(\) \{\s*goHomeView\(sceneRef\.current\)/, 'the Three adapter is the one home action')
+  assert.doesNotMatch(three, /setPreset\('iso'\)/, 'and does not keep its own copy of the home view')
+  assert.doesNotMatch(cube, /setPreset\('iso'\)/, 'the widget itself never spells out the home view')
 })
 
 test('the view cube has its own projection toggle', () => {
-  const cube = fs.readFileSync(new URL('../src/app/ViewCube.tsx', import.meta.url), 'utf8')
+  const src = (p) => fs.readFileSync(new URL('../src/' + p, import.meta.url), 'utf8')
+  const cube = src('app/ViewCube.tsx')
+  const three = src('app/ViewCubeAdapter.ts')
   assert.match(cube, /PiVectorThreeDuotone/, 'the button wears the requested vector icon')
   assert.match(cube, /className="viewNavBtn viewOrthoBtn"/, 'it is a widget button in the projection slot')
   assert.match(cube, /aria-pressed=\{ortho\}/, 'and reports the projection it is in')
-  assert.match(cube, /const next = !useStore\.getState\(\)\.ortho/, 'the press flips the current flag')
-  assert.match(cube, /sceneRef\.current\?\.setOrtho\(next\)/, 'the live scene takes the projection immediately')
-  assert.match(cube, /useStore\.getState\(\)\.setOrtho\(next\)/, 'and the store stays the truth for the next preset')
+  assert.match(cube, /const next = view\.projection === 'perspective' \? 'orthographic' : 'perspective'/, 'the press flips the projection it read')
+  assert.match(cube, /cube\?\.setProjection\(next\)/, 'the adapter takes the projection')
+  assert.match(three, /scene\?\.setOrtho\(orthographic\)/, 'the Three scene takes it immediately')
+  assert.match(three, /useStore\.getState\(\)\.setOrtho\(orthographic\)/, 'and the store stays the truth for the next preset')
 })
 
 test('editor camera view survives a renderer rebuild, including orthographic zoom', () => {

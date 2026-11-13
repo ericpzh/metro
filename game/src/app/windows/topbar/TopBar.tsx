@@ -12,6 +12,7 @@ import { SimulationControls } from './SimulationControls.tsx'
 import { openSaveWithLoading } from '../../gameLoading.ts'
 import { CityStyleSelect } from './CityStyleSelect.tsx'
 import { FileButtons } from './FileButtons.tsx'
+import { useStationHost } from '../StationHost.tsx'
 
 // Speed multipliers: the play/pause toggle and the speeds are one segmented
 // group (暂停 | 1× | 4× | 16× | 64×). Exactly one is highlighted: paused ⇒ the
@@ -26,7 +27,7 @@ import { FileButtons } from './FileButtons.tsx'
 // because the step size never changes.
 
 /** Edit both station names as one undoable document change. */
-function StationName(): React.ReactElement {
+function StationName({ editable = true }: { editable?: boolean }): React.ReactElement {
   useLanguage()
   const name = useStore((s) => s.station.name)
   const nameEn = useStore((s) => s.station.nameEn ?? '')
@@ -34,7 +35,7 @@ function StationName(): React.ReactElement {
   const [draft, setDraft] = useState<{ name: string; nameEn: string } | null>(null)
   return (
     <div className="stationNameEditor">
-      <button className="stationName" onClick={() => setDraft({ name, nameEn })} aria-label={t('station_name_click_to_rename')}>
+      <button className="stationName" disabled={!editable} onClick={() => setDraft({ name, nameEn })} aria-label={t('station_name_click_to_rename')}>
         {name || t('unnamed_station')}{nameEn && <span className="stationNameEnglish">{nameEn}</span>}
       </button>
       {draft && (
@@ -57,6 +58,7 @@ function StationName(): React.ReactElement {
 
 export function TopBar({ files }: { files?: { save: () => void; open: (text: string) => void } } = {}): React.ReactElement {
   useLanguage()
+  const host = useStationHost()
   const saveToFile = useStore((s) => s.saveToFile)
   const loadFromText = useStore((s) => s.loadFromText)
   const undo = useStore((s) => s.undo)
@@ -75,7 +77,7 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
     <div className="topbar">
       <div className="brand">
         <span className="logo">{t('metro_station_designer')}</span>
-        <StationName />
+        <StationName editable={!files && !host} />
       </div>
       <div className="spacer" />
       <NewStationButton />
@@ -84,7 +86,7 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
       <button className="ghost iconBtn" onClick={() => window.dispatchEvent(new Event('metro:tutorial'))} title={t('tutorial_title')} aria-label={t('tutorial_title')}>
         <IoIosBookmarks aria-hidden="true" />
       </button>
-      <FileButtons onSave={files?.save ?? saveToFile} onOpen={() => fileRef.current?.click()} />
+      <FileButtons onSave={files?.save ?? (host ? () => host.save() : saveToFile)} onOpen={() => fileRef.current?.click()} />
       <input
         ref={fileRef}
         type="file"
@@ -93,6 +95,7 @@ export function TopBar({ files }: { files?: { save: () => void; open: (text: str
         onChange={(e) => {
           const f = e.target.files?.[0]
           if (f && files) void f.text().then(files.open, () => useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the save file.' : '无法读取存档文件。'))
+          else if (f && host) void f.text().then(host.openSave, () => useStore.getState().setNotice(document.documentElement.lang === 'en' ? 'Could not read the save file.' : '无法读取存档文件。'))
           else if (f) void openSaveWithLoading(f, (text) => {
             const epoch = useStore.getState().stationEpoch
             loadFromText(text)

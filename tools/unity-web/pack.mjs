@@ -48,10 +48,18 @@ for (const name of ['OFL.txt','PROVENANCE.txt']) cpSync(join(root,'unity/Assets/
 let html = readFileSync(join(source, 'index.html'), 'utf8')
 if (!html.includes('var buildUrl = "Build"') || !html.includes('TemplateData/')) throw Error('Unexpected Unity template')
 html = html.replace('var buildUrl = "Build"', 'var buildUrl = "/game/_unity/Build"').replaceAll('"TemplateData/', '"/game/_unity/TemplateData/')
-if (provenance.Scene?.endsWith('/ZooPlayable.unity')) {
-  const ui = buildUnityUI(root)
+// Each shell names its own scene: the station player (plan 11) and the legacy
+// Zoo slice share one UI bundle but not one bridge or one document owner. Any
+// `StationGame*` scene (the public scene and the local-only passenger profile)
+// mounts the station shell; the local profile must be served on loopback only.
+const scene = provenance.Scene ?? ''
+const shell = scene.endsWith('/ZooPlayable.unity') ? { entry: 'src/unity-web/zooUi.tsx', bridge: 'zooBridge' }
+  : /\/StationGame[^/]*\.unity$/.test(scene) ? { entry: 'src/unity-web/main.tsx', bridge: 'stationBridge' }
+  : null
+if (shell) {
+  const ui = buildUnityUI(root, shell.entry)
   for (const [name, bytes] of ui.files) { const dest = join(output, name); mkdirSync(resolve(dest, '..'), { recursive: true }); writeFileSync(dest, bytes) }
-  html = attachUnityUI(html, ui, '/game/_unity')
+  html = attachUnityUI(html, ui, '/game/_unity', shell.bridge)
 }
 writeFileSync(join(output, 'index.html'), html)
 writeFileSync(join(output,'build-report.json'),JSON.stringify(buildReport,null,2))

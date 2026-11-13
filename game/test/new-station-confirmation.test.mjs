@@ -15,7 +15,9 @@ test('the new-station button and Ctrl+N ask for confirmation before replacing th
   assert.match(button, /role="dialog" aria-modal="true"/, 'the prompt is an accessible modal dialog')
   assert.match(button, /t\('the_current_station_will_be_replaced_save_anything_you_want_to_k'\)/, 'the warning tells players to save without promising undo')
   assert.match(button, /onClick=\{cancel\}>\{t\('cancel'\)\}/, 'the dialog offers cancellation')
-  assert.match(button, /const confirm = \(\): void => \{\s*newStation\(\)/, 'only confirmation runs the station replacement action')
+  // Only confirmation replaces the station. When the Unity host owns the document the
+  // component asks the host (plan 11 A6); the TypeScript store keeps its own path.
+  assert.match(button, /const confirm = \(\): void => \{\s*if \(host\) host\.newStation\(\); else newStation\(\)/, 'only confirmation runs the station replacement action, through the host when Unity owns the station')
   assert.match(button, /onClick=\{confirm\}>\{t\('new_station_483'\)\}/, 'the replacement action is an explicit choice')
   assert.match(button, /if \(e\.key === 'Escape'\)[\s\S]{0,100}setOpen\(false\)/, 'Escape dismisses the prompt')
   assert.match(button, /e\.target === e\.currentTarget\) cancel\(\)/, 'clicking the backdrop dismisses the prompt')

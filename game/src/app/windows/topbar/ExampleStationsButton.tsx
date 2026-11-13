@@ -4,10 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { EXAMPLE_STATIONS } from './exampleStations.ts'
 import { openExampleWithLoading } from '../../gameLoading.ts'
 import { useStore } from '../../store.ts'
+import { useStationHost } from '../StationHost.tsx'
 
 /** The button and shortcut open the same chooser; only a card loads a station. */
 export function ExampleStationsButton(): React.ReactElement {
   useLanguage()
+  const host = useStationHost()
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -69,6 +71,7 @@ export function ExampleStationsButton(): React.ReactElement {
               className="exampleStationCard"
               onClick={() => {
                 menuRef.current?.hidePopover()
+                if (host) { host.openDemo(station.id); return }
                 void openExampleWithLoading(() => {
                   const epoch = useStore.getState().stationEpoch
                   station.load()

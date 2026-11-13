@@ -52,6 +52,14 @@ export interface SimSlice {
   playing: boolean
   speed: number
   metrics: Metrics | null
+  /**
+   * The Unity host's station clock, in seconds since the station's day zero — the
+   * fallback the time readers use after `metrics?.simTime` (`TimePanel`, `ClockCard`).
+   * The browser game never sets it, so the TS app is untouched; only
+   * `unity-web/simulationAdapter.ts` feeds it from the C# session's `payload.clock`
+   * (plan 11 C4). Null means "no Unity session has reported a clock".
+   */
+  unityClock: number | null
   stats: SceneStats | null
   graph: GraphInfo | null
   history: HistorySeries
@@ -61,6 +69,8 @@ export interface SimSlice {
   /** Clear every agent, train and queue, keeping the built station. */
   restartSim: () => void
   setMetrics: (m: Metrics) => void
+  /** Fold the Unity session's clock in, or clear it when the session goes away. */
+  setUnityClock: (seconds: number | null) => void
   setStats: (s: SceneStats) => void
   setGraph: (g: GraphInfo) => void
   /** Fold one frame's worth of the run's record in — replace on a reset, append otherwise. */
@@ -245,6 +255,7 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
   playing: false,
   speed: 1,
   metrics: null,
+  unityClock: null,
   stats: null,
   graph: null,
   history: EMPTY_HISTORY,
@@ -257,6 +268,7 @@ export const createSimSlice: StateCreator<AppState, [], [], SimSlice> = (set, ge
     sendControl(get().playing, s)
     set({ speed: s })
   },
+  setUnityClock: (seconds) => set({ unityClock: seconds }),
   restartSim: () => {
     client?.postMessage({ type: 'restart' })
     set({ notice: msg('all_passengers_cleared') })

@@ -3667,6 +3667,12 @@ handrail returns with one continuous pane, in every width and every rotation/tra
   as broken; a widened lens is driven back to 100% **through the real camera rig**, so the reset is the
   lens moving and not a call that happened to be made; a missing scene is a no-op; and `Ctrl+H`, the ⌂
   button and the `metro:home` hand-over are one definition rather than three copies.
+* `camera-adapter.test.mjs` — the `ViewCube` and view-state adapter over the Unity v2 bridge
+  (`app/ViewCubeAdapter.ts`, `unity-web/cameraAdapter.ts`): a C# document-space `camera` payload becomes
+  the cube's basis, projection, FOV and active storey; every cube action emits one session-scoped
+  `camera.*` command without a revision fence while held-pan frame ticks stay on the host; the six cube
+  faces take their canonical keys; identical state snapshots coalesce; and every shared view toggle reaches
+  the host as `view.set`.
 * `chunk-cache.test.mjs` — the chunk cache's **GPU** half (`render/scene/systems/ChunkSystem.ts`): a
   chunk whose content did not change comes back with the very geometry objects it had, its per-chunk
   outline material included (so no program recompile), a chunk whose content *did* change releases the
@@ -3683,6 +3689,10 @@ handrail returns with one continuous pane, in every width and every rotation/tra
   A rejected tenth arrow never enters the hover preview or shrinks its tiles. A live
   drag writes the bins locally and defers the scene redraw to a scheduled trailing
   sync, and the drop syncs it once — and a fast pointer is evaluated once per frame.
+* `unity-sign-commit.test.mjs` — committing 指示牌 edits through an owning station host
+  (`app/stationHostBridge.ts`, `unity-web/signCommitAdapter.ts`): both settled faces cross the bridge in
+  paint order inside one revision-fenced `sign.commit`, while an unready or absent host leaves `SignSlice`
+  on the TypeScript store's direct commit path.
 * `sign-model.test.mjs` — the 指示牌 board document path (`sim/sign.ts` `buildSign`): one lit
   face per composed board with a default-front/empty-back fallback, one vs two mounted faces,
   and the shared panel sized to the longer board. The two mounts are measured off the geometry: a

@@ -18,8 +18,9 @@ import { TimePanel } from './time/TimePanel.tsx'
 import { ChartsPanel } from './charts/ChartsPanel.tsx'
 import { Tutorial } from './tutorial/Tutorial.tsx'
 import { ExplodedView } from './ExplodedView.tsx'
+import { StationHostProvider, type StationHost } from './StationHost.tsx'
 
-export function App({ viewport, files, zooStatus }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number } } = {}): React.ReactElement {
+export function App({ viewport, files, zooStatus, host }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number }; host?: StationHost } = {}): React.ReactElement {
   useLanguage()
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(true)
@@ -240,8 +241,9 @@ export function App({ viewport, files, zooStatus }: { viewport?: React.ReactNode
   }, [])
 
   return (
-    <div className="app">
-      <TopBar files={files} />
+    <StationHostProvider value={host ?? null}>
+      <div className="app">
+        <TopBar files={files} />
       <div className={`main${leftOpen ? '' : ' leftClosed'}${rightOpen ? '' : ' rightClosed'}`}>
         <div className="sideShell leftShell">
           <div id="leftMenu" className="sideContent" inert={!leftOpen}><LeftRail /></div>
@@ -271,7 +273,10 @@ export function App({ viewport, files, zooStatus }: { viewport?: React.ReactNode
           as the window will allow. */}
       <SignEditor />
       <Tutorial reveal={revealTutorial} />
-      <ExplodedView />
-    </div>
+      {/* The Three exploded view is a second viewport; a station host renders the
+          exploded picture itself through `view.set exploded` (`11 D3`). */}
+      {!host && <ExplodedView />}
+      </div>
+    </StationHostProvider>
   )
 }

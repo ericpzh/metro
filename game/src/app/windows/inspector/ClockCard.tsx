@@ -34,7 +34,10 @@ function span(from: number, to: number): { left: string; width: string } {
 
 export function ClockCard(): React.ReactElement {
   useLanguage()
-  const simTime = useStore((s) => s.metrics?.simTime ?? null)
+  // The TS run's own clock, else the Unity host's station clock (plan 11 C4) — the
+  // same seconds-since-day-zero number, so the card, the 时刻 window and the world all
+  // print one clock.
+  const simTime = useStore((s) => s.metrics?.simTime ?? s.unityClock ?? null)
   const playing = useStore((s) => s.playing)
   const service = useStore((s) => s.station.service)
   const peaks = useStore((s) => s.station.peaks)

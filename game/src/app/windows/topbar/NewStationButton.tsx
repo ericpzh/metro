@@ -2,10 +2,12 @@ import { t } from '../../../sim/i18n.ts'
 import { useLanguage } from '../../i18n.ts'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store.ts'
+import { useStationHost } from '../StationHost.tsx'
 
 /** The button and Ctrl+N share one confirmation before replacing the current station. */
 export function NewStationButton(): React.ReactElement {
   useLanguage()
+  const host = useStationHost()
   const newStation = useStore((s) => s.newStation)
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -37,7 +39,7 @@ export function NewStationButton(): React.ReactElement {
     triggerRef.current?.focus()
   }
   const confirm = (): void => {
-    newStation()
+    if (host) host.newStation(); else newStation()
     setOpen(false)
     triggerRef.current?.focus()
   }

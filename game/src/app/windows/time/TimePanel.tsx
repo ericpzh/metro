@@ -97,7 +97,10 @@ export function TimePanel(): React.ReactElement | null {
   useLanguage()
   const open = useStore((s) => s.timePanel)
   const setTimePanel = useStore((s) => s.setTimePanel)
-  const simTime = useStore((s) => s.metrics?.simTime ?? null)
+  // The clock is the TS run's own when the browser worker is running, else the Unity
+  // host's station clock (plan 11 C4): both are seconds since the station's day zero,
+  // so `stampAt` below prints the one truth whichever engine is driving.
+  const simTime = useStore((s) => s.metrics?.simTime ?? s.unityClock ?? null)
   const station = useStore((s) => s.station)
   const setServiceWindow = useStore((s) => s.setServiceWindow)
   const setPeakWindow = useStore((s) => s.setPeakWindow)

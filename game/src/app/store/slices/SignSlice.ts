@@ -7,6 +7,7 @@ import type { StateCreator } from 'zustand'
 import { initialStation } from '../../../build/model.ts'
 import { makeSignBoards, settleSignBoards, signBoardsOf, type SignBoards } from '../../../sim/sign.ts'
 import type { Module } from '../../../sim/types.ts'
+import { stationHostCommit } from '../../stationHostBridge.ts'
 import type { AppState } from '../Store.ts'
 
 export interface SignSlice {
@@ -131,6 +132,14 @@ export const createSignSlice: StateCreator<AppState, [], [], SignSlice> = (set, 
     const mod = st.station.modules.find((m) => m.id === moduleId)
     if (!mod || mod.type !== 'sign') return
     const next = settleSignBoards(boards, st.station)
+    // Plan 11 F3: when a Unity host owns the committed document the ✓ is one
+    // `sign.commit`, not a store write. The host stages the whole normalized
+    // document, the reply carries the new revision, and this store adopts it
+    // (`main.tsx`); mutating the module here as well would make the UI and the
+    // document disagree the moment the player saves. In the Three/TS app no
+    // player is registered, so the adapter answers false and the original path
+    // below runs unchanged.
+    if (stationHostCommit()?.commitSignBoards(moduleId, next)) return
     const modules = st.station.modules.map((m) => {
       if (m.id !== moduleId || m.type !== 'sign') return m
       // The **mount** is the piece's own and is not the editor's to write: a wall

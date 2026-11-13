@@ -38,6 +38,7 @@ import { useLanguage } from '../../i18n.ts'
 
 import { useStore } from '../../store.ts'
 import { openExplodedWithLoading } from '../../gameLoading.ts'
+import { useStationHost } from '../../windows/StationHost.tsx'
 import { nextAzimuth } from '../../../render/section.ts'
 import { Block } from '../shared/Block.tsx'
 import { RotateTile } from '../shared/RotateTile.tsx'
@@ -45,6 +46,7 @@ import { InlineExpand } from '../shared/InlinePanel.tsx'
 
 export function ViewFolder(): React.ReactElement {
   useLanguage()
+  const host = useStationHost()
   const ghost = useStore((s) => s.ghostOtherLevels)
   const autoCeiling = useStore((s) => s.autoCeiling)
   const cutaway = useStore((s) => s.cutaway)
@@ -88,7 +90,9 @@ export function ViewFolder(): React.ReactElement {
       <Block label={t('hide_roofs')} icon="roof" active={hideRoof} onClick={() => st().setHideRoof(!hideRoof)} />
       <Block label={t('zone_map')} icon="zoneHeat" active={zoneOverlayOn} onClick={() => st().setZoneOverlay(!zoneOverlayOn)} />
       <Block label={t('heatmap')} icon="heat" active={overlayOn} onClick={() => st().setOverlay(!overlayOn)} />
-      <Block label={t('exploded_view')} art={<FaExplosion />} onClick={() => openExplodedWithLoading(() => st().setExplodedView(true))} />
+      <Block label={t('exploded_view')} art={<FaExplosion />} onClick={() => host
+        ? st().setExplodedView(!useStore.getState().explodedView)
+        : openExplodedWithLoading(() => st().setExplodedView(true))} />
       <Block label={t('statistics_charts')} art={<ImStatsBars />} onClick={() => st().setChartsPanel(true)} />
       <Block label={t('demand')} art={<TbCalendarStats />} onClick={() => st().setTimePanel(true)} />
     </div>
