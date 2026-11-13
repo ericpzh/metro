@@ -6,6 +6,39 @@ The project is pinned by `ProjectSettings/ProjectVersion.txt` to Unity
 `METRO_UNITY_EDITOR` can point at the matching Editor executable. The wrapper
 otherwise looks in the standard Windows Unity Hub installation directory.
 
+## Live Editor test workflow
+
+The Unity CLI and the project's `com.unity.pipeline@1.0.0` package drive the
+already-open Editor for day-to-day C# and scene work. This avoids rebuilding and
+starting the WebGL player for every edit. The CLI is `1.0.0-beta.17` on this
+workstation; the Editor stays pinned to `6000.6.8f1`. Every command passes
+`--project-path` so another open project cannot receive Station Designer's
+actions.
+
+```powershell
+./unity/scripts/metro-editor.ps1 status
+./unity/scripts/metro-editor.ps1 compile
+./unity/scripts/metro-editor.ps1 test -Mode EditMode -TestFilter StationClockTests
+./unity/scripts/metro-editor.ps1 test -Mode PlayMode -TestFilter BootstrapPlayTests
+./unity/scripts/metro-editor.ps1 smoke -Demo zoo
+./unity/scripts/metro-editor.ps1 verify -TestFilter StationClockTests -Demo zoo
+```
+
+`smoke` loads the Zoo demo through `StationGameHost` and its command router,
+proves Play Mode frames advance, steps fixed simulation ticks, applies the
+evidence cutaway, captures the Game view and restores the camera and time scale.
+It repeats in the same Play Mode session and requires both runs to produce the
+same state fingerprint. `compile` and `test` stop Play Mode first; `smoke` leaves
+it running. The first-milestone command is `verify`, which compiles, runs a
+filtered test and produces a fresh Zoo screenshot in one serialized operation.
+Evidence lands under `.preview/unity/editor/<run-id>/` with the fixture hash,
+source revision and dirty state, stage timings, Console delta and screenshots.
+The full design and measured turnaround are in
+[the live-editor workflow plan](plan/12-live-editor-workflow.md).
+
+For isolated batch tasks, use `metro-unity.ps1` against a separate project copy.
+It cannot open a project that the live Editor already has open.
+
 Run from the repository root in PowerShell. For day-to-day local WebGL previewing
 (even while Unity Editor is open on `unity/`), run:
 

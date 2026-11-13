@@ -12144,7 +12144,7 @@
     },
     {
       "id": "station.tv.double",
-      "catalogueId": "tv",
+      "catalogueId": "tv-double",
       "family": "display screens and clocks",
       "category": "Reusable station pieces",
       "sourcePaths": [
@@ -12222,7 +12222,7 @@
       "exportCommand": "node tools/unity-assets/export-display.mjs .preview/unity/display-proof/export",
       "proofCommand": "./tools/unity-assets/prove-model.ps1 -Family display",
       "parameters": {
-        "paletteId": "tv",
+        "paletteId": "tv-double",
         "variant": "pair",
         "modules": 2,
         "rotations": [

@@ -21,13 +21,19 @@ namespace Metro.Sim {
         }
         static bool Paid(int z) => z==3||z==4||z==5;
         static int Direction(int from,int to) => !Paid(from)&&Paid(to)?1:Paid(from)&&!Paid(to)?-1:0;
+        internal void Admit() {
+            QueueCount=0; Lane=GateDirection; WaitAccum+=waiting; waiting=0; WaitCount++; State=1;
+        }
         public void Step() {
             Tick++;
             // World.tickOnce services gates before advancing walkers.
             Cooldown-=1;
-            if(Cooldown<=0 && QueueCount>0) { QueueCount=0;Lane=GateDirection;WaitAccum+=waiting;waiting=0;WaitCount++;State=1;Cooldown+=1/rate; }
+            if(Cooldown<=0 && QueueCount>0) { Admit();Cooldown+=1/rate; }
             if(Cooldown<0&&QueueCount==0)Cooldown=0;
             if(Cooldown< -1)Cooldown=-1;
+            Move();
+        }
+        internal void Move() {
             if(Dead)return;
             if(State==2) { waiting+=1;return; }
             if(PathIndex>=path.Length)throw new InvalidOperationException("Path already exhausted");

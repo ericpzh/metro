@@ -1,4 +1,5 @@
 mergeInto(LibraryManager.library, {
+  ZooPlayableDownload__sig: 'vp',
   ZooPlayableDownload: function (ptr) {
     const url = URL.createObjectURL(new Blob([UTF8ToString(ptr)], {type:'application/json'}));
     const link = document.createElement('a');
@@ -7,6 +8,7 @@ mergeInto(LibraryManager.library, {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
+  ZooPlayableOpen__sig: 'v',
   ZooPlayableOpen: function () {
     const input = document.createElement('input');
     input.type = 'file';
@@ -16,11 +18,13 @@ mergeInto(LibraryManager.library, {
     };
     input.click();
   },
+  ZooPlayableState__sig: 'vp',
   ZooPlayableState: function (ptr) {
     if (!window.zooPlayableState) Module.canvas.addEventListener('contextmenu', event => event.preventDefault());
     window.zooPlayableState = JSON.parse(UTF8ToString(ptr));
     window.dispatchEvent(new CustomEvent('metro:zoo-state', {detail: window.zooPlayableState}));
   },
+  ZooPlayablePointerOnCanvas__sig: 'iffff',
   ZooPlayablePointerOnCanvas: function (x, y, width, height) {
     const canvas = Module.canvas, rect = canvas.getBoundingClientRect();
     const element = document.elementFromPoint(rect.left + rect.width * x / width, rect.top + rect.height * (1 - y / height));

@@ -7,6 +7,11 @@ namespace Metro.Persistence {
     /// <summary>
     /// Transactional v1 reader for the currently ported save subset. Unsupported
     /// module migrations fail closed before a station can be returned.
+    ///
+    /// The module repairs the TypeScript load path performs on the way in —
+    /// advertising posters, room furniture and bridge-owned pillars — live in
+    /// <see cref="StationModuleRepair"/> (packet A). They run here, before the
+    /// normalized state is handed to <see cref="StationDocumentReader"/>.
     /// </summary>
     public sealed class StationSaveV1 {
         public readonly struct RenderCell {
@@ -20,6 +25,8 @@ namespace Metro.Persistence {
         readonly JObject document;
         public int DroppedCells { get; }
         public int DroppedModules { get; }
+        /// <summary>What the module repairs changed, so a load can report them.</summary>
+        public StationRepairReport Repairs { get; }
         public int CellCount => ((JArray)document["cells"]).Count;
         public int ModuleCount => ((JArray)document["modules"]).Count;
         public int LineCount => ((JArray)document["lines"]).Count;
@@ -37,12 +44,20 @@ namespace Metro.Persistence {
         }
         public JArray CopyCells() => (JArray)document["cells"].DeepClone();
         public JArray CopyModules() => (JArray)document["modules"].DeepClone();
+        public JArray CopyLines() => (JArray)document["lines"].DeepClone();
 
         public void SetCell(int x, int y, int z, JObject replacement) {
             var cells = (JArray)document["cells"];
             var existing = System.Linq.Enumerable.FirstOrDefault(cells,
                 cell => (int)cell["x"] == x && (int)cell["y"] == y && (double)cell["z"] == z);
             Replace(cells, existing, replacement);
+        }
+        public void RemoveCell(int x,int y,int z) => SetCell(x,y,z,null);
+        public void RestoreCellFrom(StationSaveV1 source,int x,int y,int z) {
+            var cell=System.Linq.Enumerable.FirstOrDefault((JArray)source.document["cells"],
+                c => (int)c["x"]==x && (int)c["y"]==y && (double)c["z"]==z) as JObject;
+            if (cell==null) throw new ArgumentException("Source has no cell at this coordinate.");
+            SetCell(x,y,z,cell);
         }
 
         public void SetModule(string id, JObject replacement) {
@@ -57,26 +72,26 @@ namespace Metro.Persistence {
             else existing.Replace(replacement.DeepClone());
         }
 
-        StationSaveV1(JObject document,int cells,int modules) { this.document=document; DroppedCells=cells; DroppedModules=modules; }
+        StationSaveV1(JObject document,int cells,int modules,StationRepairReport repairs) {
+            this.document=document; DroppedCells=cells; DroppedModules=modules; Repairs=repairs;
+        }
+
+        /// <summary>The normalized, repaired state object, for the typed document reader.</summary>
+        public string StateJson() => document.ToString(Formatting.None);
+
         public static StationSaveV1 Read(string input) {
             var candidate=StationSaveCandidate.InspectV1(input);
             var state=JObject.Parse(candidate.InspectJson());
             var modules=(JArray)state["modules"];
             for (int i=0;i<modules.Count;i++) {
                 var mod=modules[i] as JObject ?? throw new FormatException("Invalid module");
-                string type=(string)mod["type"]; var cfg=mod["cfg"] as JObject;
+                string type=(string)mod["type"];
                 if (type=="sign") { modules[i]=JObject.Parse(StationSignRepair.NormalizeJson(mod.ToString(Formatting.None))); continue; }
-                if ((type=="billboard" || type=="tv" || type=="busstop") && cfg?.Property("poster")==null)
-                    throw new NotSupportedException("Ad poster backfill has not yet been ported");
-                if ((type=="shop" || type=="retail" || type=="booth") && cfg?["stocked"]?.Type != JTokenType.Boolean)
-                    throw new NotSupportedException("Room furniture backfill has not yet been ported");
-                if ((type=="shop" || type=="retail" || type=="booth") && !(bool)cfg["stocked"])
-                    throw new NotSupportedException("Room furniture backfill has not yet been ported");
-                if ((type=="track" && cfg?["bridge"]?.Type==JTokenType.Boolean && (bool)cfg["bridge"]) ||
-                    (type=="pillar" && cfg?.Property("bridgeId") != null && cfg["bridgeId"].Type != JTokenType.Null))
-                    throw new NotSupportedException("Bridge support repair has not yet been ported");
             }
-            return new StationSaveV1(state,candidate.DroppedCells,candidate.DroppedModules);
+            // The three migrations the TypeScript load path applies after the grid
+            // repair: ad posters, room furniture and bridge-owned pillar support.
+            var repairs=StationModuleRepair.RepairDocument(state);
+            return new StationSaveV1(state,candidate.DroppedCells,candidate.DroppedModules,repairs);
         }
         public string Write(DateTimeOffset savedAt) {
             var data=new JObject {
@@ -93,7 +108,3 @@ namespace Metro.Persistence {
         }
     }
 }
-
-
-
-

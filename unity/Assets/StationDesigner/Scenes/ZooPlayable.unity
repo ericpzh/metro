@@ -312,10 +312,18 @@ MonoBehaviour:
   m_EditorClassIdentifier: Metro.App::Metro.App.ZooPlayableView
   fixture: {fileID: 4900000, guid: 1fa750dcc98f2e449953452a2af569a7, type: 3}
   layout: {fileID: 4900000, guid: 98a5f5267b9a9024b95c27b6f3f03e5f, type: 3}
-  benchPrefab: {fileID: 9050203858002658578, guid: 8f498aa8822e83e4890de514dbff6b04, type: 3}
-  binPrefab: {fileID: 7726718407700497194, guid: 65be75bffc8dee549b36719c0a1ce915, type: 3}
-  trainPrefab: {fileID: 6278457141649737115, guid: c1e01b4236021fe42822e69b79d7e3c2, type: 3}
-  platformDoors: {fileID: -8760358294300514539, guid: f1ab344c4aaae4a4d90b8c6c614c3283, type: 3}
+  catalogue: {fileID: 11400000, guid: 32b62d90130805044abb05cbf7d8ab77, type: 2}
+  trainCatalogue: {fileID: 11400000, guid: ccd50eda632c28e449235348dadaf9fa, type: 2}
+  passengerPrefab: {fileID: -9082714141454833429, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  passengerClips:
+  - {fileID: 1412084336650027537, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: 5177060322043962647, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: 6241282103961292582, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: 8513874004014098567, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: 6610210330558344313, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: 6897437832067368785, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: -8703373971143921010, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
+  - {fileID: -1881101361428871385, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
   stationShader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
   font: {fileID: 12800000, guid: 14fd7164262e3fd4c83cc2d1957d3e07, type: 3}
 --- !u!4 &1274435892

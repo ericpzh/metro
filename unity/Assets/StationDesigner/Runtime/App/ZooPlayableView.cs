@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Metro.Feasibility;
+using Metro.Build;
 using Metro.Persistence;
 using Metro.Sim;
+using Metro.View;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -13,8 +15,10 @@ using UnityEngine.UI;
 namespace Metro.App {
     public sealed class ZooPlayableView : MonoBehaviour {
         public TextAsset fixture, layout;
-        public GameObject benchPrefab, binPrefab, trainPrefab;
-        public AnimationClip platformDoors;
+        public RuntimeCatalogue catalogue;
+        public TrainCatalogue trainCatalogue;
+        public GameObject passengerPrefab;
+        public AnimationClip[] passengerClips = Array.Empty<AnimationClip>();
         public Shader stationShader;
         public Font font;
 
@@ -23,14 +27,22 @@ namespace Metro.App {
             public GatePathSlice.Waypoint[] path;
             public int[] approach;
             public string exit, gate, platform;
+            public ZooWalkGraph.Node[] nodes;
+            public GatePathSlice.Waypoint[] prefix;
+            public int start, gateNode, door;
         }
         [Serializable] sealed class BrowserState {
-            public int cells, modules, lines, level, queued, boarded;
+            public int cells, modules, lines, level, queued, boarded, revision, speed, routeWaypoints, tick, simTime;
+            public int prefabViews, liveViews, generatedViews, batchedViews, fallbackViews, unresolvedViews;
             public bool floor, gate, running, connected, doorsOpen;
-            public string tool, message;
-            public float yaw, zoom, targetX, targetY, doorMovement;
-            public Vector2 floorPoint, gatePoint;
+            public string tool, message, document, formation, trainDoorSide;
+            public string[] visualKeys = Array.Empty<string>();
+            public string[] unresolved = Array.Empty<string>();
+            public float yaw, zoom, targetX, targetY, doorMovement, trainScale, passengerHeight;
+            public Vector2 floorPoint, gatePoint, alternatePoint, connectorPoint;
+            public MissingFloor[] missingFloor;
         }
+        [Serializable] sealed class MissingFloor { public int x,y,z; }
         [Serializable] sealed class BrowserCommandData {
             public string type, value;
         }
@@ -38,31 +50,53 @@ namespace Metro.App {
         static readonly int[] Levels = { 0, -5, -10, -15, -20 };
         const int ServiceLevel = -15;
         const int GroupSize = 5;
-        const float StepSeconds = .20f;
         StationSaveV1 document;
         Layout route;
-        JObject authoredFloor, authoredGate;
+        JObject authoredGate;
+        LineFacts line;
+        Dictionary<(int,int,int), JObject> authoredCells;
+        Dictionary<string, JObject> authoredModules;
+        JArray authoredLines;
+        ZooWalkGraph walkGraph;
+        ZooFloorEdits edits;
+        GatePathSlice.Waypoint[] activePath;
+        HashSet<(int,int,int)> committedSolids;
+        MissingFloor[] missingFloor;
+        int revision, acknowledgedRevision = -1;
+        string documentSnapshot;
+        bool documentOpenPending;
+        float nextDocumentSend;
         Dictionary<string, ZooGeometry.Footprint> footprints;
         Vector3Int floorSlot, gateSlot;
         ZooGeometry geometry;
-        Mesh cube, personMesh;
-        Material floorMaterial, gateMaterial, personMaterial, cursorMaterial;
-        GameObject floorObject, gateObject, cursor, train, animatedTrain;
+        Mesh cube;
+        StationMaterials materials;
+        Material floorMaterial, cursorMaterial;
+        GameObject floorObject, cursor, train;
+        TrainCatalogue.Entry trainEntry;
+        Transform trainModel;
+        TrainDoorRig trainDoors;
         readonly List<GameObject> editMarkers = new List<GameObject>();
-        readonly List<(GatePathSlice sim, GameObject model, int delay)> passengers =
-            new List<(GatePathSlice, GameObject, int)>();
+        readonly List<(GatePathSlice sim, PassengerActor view, int delay)> passengers =
+            new List<(GatePathSlice, PassengerActor, int)>();
         RectTransform panel;
         Text status, runLabel, levelLabel;
-        int levelIndex, ticks, queued, boarded;
+        int levelIndex, ticks, queued, boarded, speed = 1;
         bool floor, gate, running, doorsOpen;
-        float elapsed, yaw, pitch, zoom;
+        float yaw, pitch, zoom;
+        readonly SimulationScheduler scheduler = new SimulationScheduler();
         Vector3 target;
         string tool = "Inspect", message = "Entrance B to Line 5 down platform";
         bool dragging;
         Camera cameraView;
-        Transform observedDoor;
-        Vector3 closedDoorPosition;
-        int doorOpenTick;
+        ZooPassengerWorld world;
+
+        [Serializable] public sealed class LineFacts {
+            public string id, stock, power, direction, city;
+            public int cars;
+            public float modelScale = 1;
+            public string colour;
+        }
 
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")] static extern void ZooPlayableDownload(string json);
@@ -80,7 +114,13 @@ namespace Metro.App {
             footprints = route.footprints.ToDictionary(f => f.id);
             floorSlot = new Vector3Int(route.approach[0], route.approach[1], route.approach[2]);
             var authored = StationSaveV1.Read(fixture.text);
-            authoredFloor = (JObject)authored.CopyCells().Single(c => At(c, floorSlot) && (string)c["fill"] == "solid");
+            walkGraph = new ZooWalkGraph(route.nodes);
+            authoredCells = authored.CopyCells().Cast<JObject>().ToDictionary(c => ((int)c["x"], (int)c["y"], (int)c["z"]));
+            authoredModules = authored.CopyModules().Cast<JObject>().ToDictionary(m => (string)m["id"]);
+            authoredLines = authored.CopyLines();
+            line = ReadLine(authoredLines);
+            edits = new ZooFloorEdits(authoredCells.Where(pair => (string)pair.Value["fill"] == "solid" &&
+                walkGraph.Contains(pair.Key.Item1,pair.Key.Item2,pair.Key.Item3)).Select(pair => pair.Key));
             authoredGate = (JObject)authored.CopyModules().Single(m => (string)m["id"] == route.gate);
             gateSlot = new Vector3Int((int)authoredGate["x"], (int)authoredGate["y"], (int)authoredGate["z"]);
 
@@ -89,36 +129,32 @@ namespace Metro.App {
             cube = primitive.GetComponent<MeshFilter>().sharedMesh;
             primitive.SetActive(false);
             Destroy(primitive);
-            personMesh = PlaceholderCrowdMesh.Create();
+            materials = new StationMaterials(stationShader);
             floorMaterial = MakeMaterial(new Color(.96f, .76f, .36f));
-            gateMaterial = MakeMaterial(new Color(.15f, .65f, .65f));
-            personMaterial = MakeMaterial(new Color(.98f, .35f, .17f));
             cursorMaterial = MakeMaterial(new Color(.95f, .46f, .12f));
             floorObject = Model("Editable approach floor", cube, floorMaterial, World(floorSlot, .5f), Vector3.one);
-            gateObject = Model(route.gate, cube, gateMaterial, World(gateSlot, 1.52f), new Vector3(.78f, 1.04f, .32f));
-            gateObject.transform.rotation = Quaternion.Euler(0, (int)authoredGate["rot"] * 90, 0);
             cursor = Model("Placement preview", cube, cursorMaterial, Vector3.zero, new Vector3(.78f, .035f, .78f));
             cursor.SetActive(false);
             MarkSlot(floorSlot, floorMaterial);
-            MarkSlot(gateSlot, gateMaterial);
-            train = Instantiate(trainPrefab, transform);
-            train.name = "Line 5 down train proxy";
-            var board = route.path[route.path.Length - 1];
-            train.transform.position = new Vector3((float)board.x, (float)board.z - .42f, -2.5f);
-            var basis = train.transform.Find("Unity basis");
-            if (basis && basis.childCount > 0) animatedTrain = basis.GetChild(0).gameObject;
-            if (animatedTrain && !animatedTrain.GetComponent<Animator>()) animatedTrain.AddComponent<Animator>();
-            observedDoor = animatedTrain.GetComponentsInChildren<Transform>().Single(node => node.name == "TypeADoor18");
-            var otherLeaf = animatedTrain.GetComponentsInChildren<Transform>().Single(node => node.name == "TypeADoor19");
-            platformDoors.SampleAnimation(animatedTrain, 0);
-            closedDoorPosition = observedDoor.localPosition;
-            train.transform.position += Vector3.right * ((float)board.x - (observedDoor.position.x + otherLeaf.position.x) / 2);
+            MarkSlot(gateSlot, MakeMaterial(new Color(.15f, .65f, .65f)));
+            BuildTrain();
             BuildToolbar();
 #if UNITY_WEBGL && !UNITY_EDITOR
             panel.parent.gameObject.SetActive(false);
 #endif
             Install(authored);
             ResetView();
+        }
+
+        static LineFacts ReadLine(JArray lines) {
+            var record = lines?.FirstOrDefault() as JObject;
+            if (record == null) return new LineFacts { stock = "A", cars = 2, power = "overhead" };
+            return new LineFacts {
+                id = (string)record["id"], stock = (string)record["stock"] ?? "A",
+                cars = (int?)record["cars"] ?? 2, power = (string)record["power"] ?? "overhead",
+                direction = (string)record["direction"] ?? "down", colour = (string)record["colour"],
+                modelScale = (float?)record["modelScale"] ?? 1f,
+            };
         }
 
         Material MakeMaterial(Color colour) => new Material(stationShader) { color = colour };
@@ -144,9 +180,64 @@ namespace Metro.App {
             (int)record["x"] == slot.x && (int)record["y"] == slot.y && (double)record["z"] == slot.z;
         static Vector3 World(Vector3Int slot, float rise) => new Vector3(slot.x + .5f, slot.z + rise, slot.y + .5f);
 
+        void BuildTrain() {
+            var key = TrainFormations.Select(line.stock, line.cars, line.power, trainCatalogue);
+            trainEntry = null;
+            trainCatalogue?.TryGet(key, out trainEntry);
+            var prefab = trainEntry?.prefab;
+            if (!prefab) {
+                Debug.LogWarning($"No promoted formation for {key}; the Line 5 train stays hidden.");
+                return;
+            }
+            train = Instantiate(prefab, transform);
+            train.name = "Line 5 down train";
+            // The promoted consist bakes the line's model scale; applying it again would
+            // shrink the train a second time (`09-train-parity`).
+            train.transform.localScale = Vector3.one;
+            var basis = train.transform.Find("Unity basis");
+            trainModel = basis && basis.childCount > 0 ? basis.GetChild(0) : train.transform;
+            var board = route.path[route.path.Length - 1];
+            train.transform.position = new Vector3((float)board.x, (float)board.z - .42f, -2.5f);
+            AlignTrainDoor(board);
+            // Door-side bindings come from this formation, not from a fixture's leaf names.
+            trainDoors = new TrainDoorRig(train, trainEntry != null && trainEntry.bakedScale > 0f ? trainEntry.bakedScale : 1f);
+            trainDoors.Apply(0f);
+        }
+
+        /// <summary>Shift the consist along the track so a door centre meets the platform stop.</summary>
+        void AlignTrainDoor(GatePathSlice.Waypoint board) {
+            var centres = train.GetComponentsInChildren<Transform>(true)
+                .Where(node => node.name.StartsWith("DoorCentre-", StringComparison.Ordinal)).ToArray();
+            if (centres.Length == 0) return;
+            Transform nearest = null;
+            float best = float.MaxValue;
+            foreach (var centre in centres) {
+                float distance = Mathf.Abs(centre.position.x - (float)board.x);
+                if (distance >= best) continue;
+                best = distance; nearest = centre;
+            }
+            if (!nearest) return;
+            train.transform.position += Vector3.right * ((float)board.x - nearest.position.x);
+        }
+
         void Install(StationSaveV1 candidate) {
             var cells = candidate.CopyCells();
             var modules = candidate.CopyModules();
+            if (!JToken.DeepEquals(authoredLines,candidate.CopyLines())) throw new FormatException("Unsupported Zoo line edit.");
+            var currentCells = cells.Cast<JObject>().ToDictionary(c => ((int)c["x"], (int)c["y"], (int)c["z"]));
+            var currentModules = modules.Cast<JObject>().ToDictionary(m => (string)m["id"]);
+            foreach (var pair in authoredCells) {
+                bool exists = currentCells.TryGetValue(pair.Key, out var cell);
+                if (!exists && edits.CanSet(pair.Key.Item1,pair.Key.Item2,pair.Key.Item3,true,false)) continue;
+                if (!exists || !JToken.DeepEquals(pair.Value,cell)) throw new FormatException("Unsupported Zoo cell edit outside the walkable floor slice.");
+            }
+            if (currentCells.Keys.Any(key => !authoredCells.ContainsKey(key))) throw new FormatException("Unsupported new Zoo cell.");
+            foreach (var pair in authoredModules) {
+                if (pair.Key == route.gate && !currentModules.ContainsKey(pair.Key)) continue;
+                if (!currentModules.TryGetValue(pair.Key,out var module) || !JToken.DeepEquals(pair.Value,module))
+                    throw new FormatException("Unsupported Zoo module edit.");
+            }
+            if (currentModules.Keys.Any(key => !authoredModules.ContainsKey(key))) throw new FormatException("Unsupported new Zoo module.");
             if (!modules.Any(m => (string)m["id"] == route.exit && (string)m["type"] == "exit") ||
                 !modules.Any(m => (string)m["id"] == route.platform && (string)m["type"] == "platform-edge") ||
                 !modules.Any(m => (string)m["id"] == "track-5" && (string)m["type"] == "track"))
@@ -156,21 +247,37 @@ namespace Metro.App {
             if (savedGate != null && (!At(savedGate, gateSlot) || (string)savedGate["type"] != "gate" ||
                 (int?)savedGate["rot"] != (int)authoredGate["rot"]))
                 throw new FormatException("The Zoo service gate has moved.");
-            var nextGeometry = new ZooGeometry(transform, stationShader, cube);
-            try { nextGeometry.Build(cells, modules, footprints, benchPrefab, binPrefab, route.gate, floorSlot); }
+            var facts = ModuleFactsReader.Read(modules);
+            var nextGeometry = new ZooGeometry(transform, materials, cube);
+            var filled = new HashSet<(int,int,int)>(candidate.SolidCells().Select(c => (c.X,c.Y,c.Z)));
+            var consist = new TrainFacts {
+                Stock = line.stock, Cars = line.cars, Power = line.power, Direction = line.direction, ModelScale = line.modelScale,
+            };
+            try { nextGeometry.Build(cells, facts, footprints, catalogue, route.gate, floorSlot, (x,y,z) => edits.CanSet(x,y,z,true,false), (x,y,z) => filled.Contains((x,y,z)), consist); }
             catch { nextGeometry.Dispose(); throw; }
             geometry?.Dispose();
             geometry = nextGeometry;
             document = candidate;
+            committedSolids = new HashSet<(int,int,int)>(candidate.SolidCells().Select(c => (c.X,c.Y,c.Z)));
+            missingFloor = authoredCells.Where(p => edits.CanSet(p.Key.Item1,p.Key.Item2,p.Key.Item3,true,false) && !committedSolids.Contains(p.Key))
+                .Select(p => new MissingFloor { x=p.Key.Item1,y=p.Key.Item2,z=p.Key.Item3 }).ToArray();
             floor = (string)savedFloor?["fill"] == "solid";
             gate = savedGate != null;
+            activePath = gate ? walkGraph.Find(route.start,route.gateNode,route.door,
+                (x,y,z) => currentCells.TryGetValue((x,y,z),out var cell) && (string)cell["fill"] == "solid",route.prefix) : null;
+            revision++;
+            documentSnapshot = document.Write(DateTimeOffset.UtcNow);
+            // An open must reach the shared UI so it adopts the station; an edit only
+            // publishes its revision and counters.
+            documentOpenPending = true;
+            nextDocumentSend = 0f;
             ResetService();
             ShowLevel();
         }
 
-        bool Connected => floor && gate;
-        string RouteProblem => !floor ? "Blocked: replace the highlighted approach floor." :
-            !gate ? "Blocked: place the fare gate at its marked position." : "Route connected.";
+        bool Connected => activePath != null;
+        string RouteProblem => !gate ? "Blocked: place the fare gate at its marked position." :
+            !Connected ? "Blocked: connect the floor from the entrance through the gate to the platform." : "Route connected.";
 
         void BuildToolbar() {
             var canvas = new GameObject("Zoo toolbar", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
@@ -237,8 +344,7 @@ namespace Metro.App {
         void ShowLevel() {
             geometry.ShowThrough(Level);
             floorObject.SetActive(floor && Level >= ServiceLevel);
-            gateObject.SetActive(gate && Level >= ServiceLevel);
-            train.SetActive(Level == ServiceLevel);
+            if (train) train.SetActive(Level == ServiceLevel);
             foreach (var marker in editMarkers) marker.SetActive(Level == ServiceLevel);
             foreach (var passenger in passengers) RefreshPassenger(passenger);
             RefreshStatus();
@@ -258,6 +364,20 @@ namespace Metro.App {
             target = new Vector3(64, Level + 1, 10.5f);
             ApplyCamera();
         }
+        /// <summary>Frame the platform door bank the consist opens on, for the smoke capture.</summary>
+        void FocusTrainDoors() {
+            SetLevel(Array.IndexOf(Levels, ServiceLevel));
+            var board = route.path[route.path.Length - 1];
+            yaw = -8; pitch = 74; zoom = 6;
+            target = new Vector3((float)board.x, Level + 1, -1.2f);
+            ApplyCamera();
+        }
+        void FocusApproach() {
+            SetLevel(Array.IndexOf(Levels, ServiceLevel));
+            yaw = -12; pitch = 66; zoom = 15;
+            target = new Vector3(67, Level + 1, 27);
+            ApplyCamera();
+        }
         void ApplyCamera() {
             var rotation = Quaternion.Euler(pitch, yaw, 0);
             cameraView.transform.SetPositionAndRotation(target - rotation * Vector3.forward * 160, rotation);
@@ -273,10 +393,7 @@ namespace Metro.App {
             if (document == null) return;
             HandlePointer();
             if (!running) return;
-            elapsed += Time.deltaTime;
-            if (elapsed < StepSeconds) return;
-            elapsed -= StepSeconds;
-            StepService();
+            if (scheduler.Advance(Time.unscaledDeltaTime, speed, StepService) > 0) RefreshStatus();
         }
         void HandlePointer() {
             var mouse = Mouse.current;
@@ -314,31 +431,48 @@ namespace Metro.App {
             if (!new Plane(Vector3.up, new Vector3(0, Level + 1, 0)).Raycast(ray, out float distance)) return;
             var hit = ray.GetPoint(distance);
             var slot = new Vector3Int(Mathf.FloorToInt(hit.x), Mathf.FloorToInt(hit.z), Level);
-            bool editFloor = slot == floorSlot && (tool == "Floor" ? !floor : tool == "Delete" && floor);
-            bool editGate = slot == gateSlot && (tool == "Gate" ? !gate : tool == "Delete" && gate);
+            var key = (slot.x,slot.y,slot.z);
+            bool exists = committedSolids.Contains(key);
+            bool editFloor = (tool == "Floor" || tool == "Delete") && edits.CanSet(slot.x,slot.y,slot.z,exists,tool == "Floor");
+            bool editGate = slot == gateSlot && (tool == "Gate" || tool == "Delete") &&
+                edits.CanSetGate(gate,tool == "Gate",committedSolids.Contains((gateSlot.x,gateSlot.y,gateSlot.z)));
+            if (slot == gateSlot && gate && tool == "Delete") editFloor = false;
             if (!editFloor && !editGate) return;
             cursor.transform.position = World(slot, 1.045f);
             cursor.SetActive(true);
             if (!mouse.leftButton.wasPressedThisFrame) return;
-            if (editFloor) {
-                floor = tool == "Floor";
-                document.SetCell(slot.x, slot.y, slot.z, floor ? authoredFloor : null);
-            }
-            if (editGate) {
+            // The preview verdict is rechecked against the committed state before mutation.
+            // This is the only document commit; routing and rendering consume it below.
+            if (editFloor && edits.CanSet(slot.x,slot.y,slot.z,committedSolids.Contains(key),tool == "Floor")) {
+                bool place = tool == "Floor";
+                document.SetCell(slot.x,slot.y,slot.z,place ? authoredCells[key] : null);
+                if (place) committedSolids.Add(key); else committedSolids.Remove(key);
+                if (slot == floorSlot) floor = place;
+                else geometry.SetEditableCell(slot.x,slot.y,slot.z,place,Level,authoredCells[key]);
+            } else if (editGate && edits.CanSetGate(gate,tool == "Gate",committedSolids.Contains((gateSlot.x,gateSlot.y,gateSlot.z)))) {
                 gate = tool == "Gate";
-                document.SetModule(route.gate, gate ? authoredGate : null);
-            }
+                document.SetModule(route.gate,gate ? authoredGate : null);
+                geometry.SetModuleVisible(route.gate, gate);
+            } else return;
+            activePath = gate ? walkGraph.Find(route.start,route.gateNode,route.door,
+                (x,y,z) => committedSolids.Contains((x,y,z)),route.prefix) : null;
+            missingFloor = authoredCells.Where(p => edits.CanSet(p.Key.Item1,p.Key.Item2,p.Key.Item3,true,false) && !committedSolids.Contains(p.Key))
+                .Select(p => new MissingFloor { x=p.Key.Item1,y=p.Key.Item2,z=p.Key.Item3 }).ToArray();
+            revision++;
+            documentSnapshot = document.Write(DateTimeOffset.UtcNow);
+            documentOpenPending = false;
             ResetService();
             message = RouteProblem;
             ShowLevel();
         }
 
         void ResetService() {
-            foreach (var passenger in passengers) { passenger.model.SetActive(false); Destroy(passenger.model); }
+            foreach (var passenger in passengers) passenger.view?.Dispose();
             passengers.Clear();
             running = false;
-            ticks = queued = boarded = doorOpenTick = 0;
-            elapsed = 0;
+            world = null;
+            ticks = queued = boarded = 0;
+            scheduler.Reset();
             SampleDoors(false);
         }
         void ToggleRun() {
@@ -348,54 +482,46 @@ namespace Metro.App {
                 running = false;
                 message = "Service paused.";
             } else {
-                if (passengers.Count == 0 || boarded == GroupSize) {
+                if (world == null || world.Complete) {
                     ResetService();
-                    for (int i = 0; i < GroupSize; i++) {
-                        var sim = new GatePathSlice(route.path, 2.0, 1);
-                        var model = Model("Passenger " + (i + 1), personMesh, personMaterial,
-                            new Vector3((float)sim.X, (float)sim.Z, (float)sim.Y), Vector3.one);
-                        model.SetActive(false);
-                        passengers.Add((sim, model, i * 2));
-                    }
+                    world = new ZooPassengerWorld(activePath, 7654321, GroupSize, 3600, 1);
                 }
                 running = true;
                 message = "Service running.";
             }
             RefreshStatus();
         }
-        void StepService() {
-            ticks++;
-            bool admitted = false;
-            queued = boarded = 0;
+        bool StepService() {
+            world.Step();
+            ticks = world.Tick;
+            queued = world.Queued;
+            boarded = world.Boarded;
+            SampleDoors(world.DoorsOpen);
+            for (int i = passengers.Count; i < world.Passengers.Count; i++) {
+                var sim = world.Passengers[i];
+                var view = new PassengerActor("zoo-passenger-" + (i + 1), passengerPrefab,
+                    passengerClips, new Vector3((float)sim.X, (float)sim.Z, (float)sim.Y), transform);
+                passengers.Add((sim, view, ticks));
+            }
             foreach (var passenger in passengers) {
                 var sim = passenger.sim;
-                bool waitingAtTrain = sim.PathIndex == route.path.Length - 1 && ticks <= doorOpenTick + 2;
-                if (ticks >= passenger.delay && !sim.Dead && !waitingAtTrain && (sim.QueueCount == 0 || !admitted)) {
-                    admitted |= sim.QueueCount > 0;
-                    sim.Step();
-                }
-                if (!doorsOpen && sim.PathIndex >= route.path.Length - 1) {
-                    doorOpenTick = ticks;
-                    SampleDoors(true);
-                }
-                passenger.model.transform.position = new Vector3((float)sim.X, (float)sim.Z, (float)sim.Y);
+                passenger.view.Update(new Vector3((float)sim.X, (float)sim.Z, (float)sim.Y),
+                    sim.State == 2, sim.PathIndex >= activePath.Length - 1, sim.Dead);
                 RefreshPassenger(passenger);
-                queued += sim.QueueCount;
-                if (sim.Dead) boarded++;
             }
             if (boarded == GroupSize) {
                 running = false;
                 message = "All passengers boarded.";
             }
-            RefreshStatus();
+            return running;
         }
-        void RefreshPassenger((GatePathSlice sim, GameObject model, int delay) passenger) {
-            passenger.model.SetActive(!passenger.sim.Dead && ticks >= passenger.delay && passenger.sim.Z <= Level + 1.1);
+        void RefreshPassenger((GatePathSlice sim, PassengerActor view, int delay) passenger) {
+            passenger.view?.SetVisible(!passenger.sim.Dead && ticks >= passenger.delay && passenger.sim.Z <= Level + 1.1);
         }
         void SampleDoors(bool open) {
-            if (animatedTrain && platformDoors && (doorsOpen != open || !open))
-                platformDoors.SampleAnimation(animatedTrain, open ? platformDoors.length : 0);
+            trainDoors?.Apply(open ? 1f : 0f);
             doorsOpen = open;
+            geometry?.ApplyMotion(ticks, open, line.direction == "up" ? 1 : -1);
         }
 
         public void OpenFile(string json) {
@@ -424,8 +550,19 @@ namespace Metro.App {
                         }
                         break;
                     case "run": ToggleRun(); break;
+                    case "speed":
+                        if (int.TryParse(command.value,out int rate) && (rate == 1 || rate == 4 || rate == 16 || rate == 64)) { speed=rate; RefreshStatus(); }
+                        break;
+                    case "documentReceived":
+                        if (int.TryParse(command.value,out int received) && received == revision) {
+                            acknowledgedRevision=received;
+                            documentOpenPending=false;
+                        }
+                        break;
                     case "resetView": ResetView(); break;
                     case "focusService": FocusService(); break;
+                    case "focusApproach": FocusApproach(); break;
+                    case "focusTrainDoors": FocusTrainDoors(); break;
                     case "save": ZooPlayableDownload(document.Write(DateTimeOffset.UtcNow)); break;
                     case "open": OpenFile(command.value); break;
                 }
@@ -447,23 +584,41 @@ namespace Metro.App {
         }
         void Publish() {
             if (document == null) return;
+            var unresolved = geometry == null ? Array.Empty<string>()
+                : geometry.Unresolved.Select(pair => pair.Key + " x" + pair.Value).ToArray();
+            // Resend an unacknowledged open at most every two seconds rather than on
+            // every camera publish (a pan publishes dozens of states per second).
+            bool sendDocument = documentOpenPending && acknowledgedRevision != revision && Time.unscaledTime >= nextDocumentSend;
+            if (sendDocument) nextDocumentSend = Time.unscaledTime + 2f;
             ZooPlayableState(JsonUtility.ToJson(new BrowserState {
-                cells = document.CellCount, modules = document.ModuleCount, lines = document.LineCount,
+                cells = document.CellCount, modules = document.ModuleCount, lines = document.LineCount, revision = revision, speed = speed,
+                routeWaypoints = activePath?.Length ?? 0, tick = ticks, simTime = ticks,
+                document = sendDocument ? documentSnapshot : null,
+                missingFloor = missingFloor,
                 level = Level, queued = queued, boarded = boarded, floor = floor, gate = gate,
                 connected = Connected, running = running, doorsOpen = doorsOpen,
-                doorMovement = Vector3.Distance(observedDoor.localPosition, closedDoorPosition),
+                doorMovement = trainDoors != null ? trainDoors.Movement : 0f,
+                prefabViews = geometry?.PrefabViews ?? 0, liveViews = geometry?.LiveViews ?? 0,
+                generatedViews = geometry?.GeneratedViews ?? 0, batchedViews = geometry?.BatchedViews ?? 0,
+                fallbackViews = geometry?.FallbackViews ?? 0,
+                unresolvedViews = geometry?.UnresolvedViews ?? 0,
+                visualKeys = geometry?.VisualKeys.ToArray() ?? Array.Empty<string>(),
+                unresolved = unresolved,
+                formation = TrainFormations.Select(line.stock, line.cars, line.power, trainCatalogue),
+                trainDoorSide = trainDoors != null && trainDoors.PlatformBank > 0 ? "plus" : "minus",
+                trainScale = trainEntry != null ? trainEntry.bakedScale : 0f,
+                passengerHeight = passengerPrefab ? 1.7f : 0f,
                 tool = tool, message = message, yaw = yaw, zoom = zoom, targetX = target.x, targetY = target.z,
-                floorPoint = ScreenPoint(floorSlot), gatePoint = ScreenPoint(gateSlot)
+                floorPoint = ScreenPoint(floorSlot), gatePoint = ScreenPoint(gateSlot),
+                alternatePoint = ScreenPoint(new Vector3Int(67,27,-15)), connectorPoint = ScreenPoint(new Vector3Int(73,35,-15))
             }));
         }
         void OnDestroy() {
             geometry?.Dispose();
-            Destroy(personMesh);
+            materials?.Dispose();
             Destroy(floorMaterial);
-            Destroy(gateMaterial);
-            Destroy(personMaterial);
             Destroy(cursorMaterial);
+            foreach (var passenger in passengers) passenger.view?.Dispose();
         }
     }
 }
-

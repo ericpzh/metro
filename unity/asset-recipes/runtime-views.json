@@ -1,0 +1,2889 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tools/unity-assets/build-runtime-views.mjs",
+  "counts": {
+    "prefab": 123,
+    "live": 66,
+    "generated": 15
+  },
+  "problems": [],
+  "views": [
+    {
+      "key": "ac-unit",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/AcUnit.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.ac-unit.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "bench-office-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchOffice1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.bench.office-1",
+      "offset": [
+        0.5,
+        0.575,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "bench-seat-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchSeat1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.bench.seat-1",
+      "offset": [
+        0.5,
+        0.575,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "bench-seat-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Bench.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.bench.seat-2",
+      "offset": [
+        1,
+        0.575,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "bench-steel-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchSteel1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.bench.steel-1",
+      "offset": [
+        0.5,
+        0.575,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "bench-steel-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchSteel2.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.bench.steel-2",
+      "offset": [
+        1,
+        0.575,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "bench-wood-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchWood1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.bench.wood-1",
+      "offset": [
+        0.5,
+        0.575,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "bench-wood-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BenchWood2.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.bench.wood-2",
+      "offset": [
+        1,
+        0.575,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "billboard-16x9-3m",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Billboard16x9_3m.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.16x9-3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 6
+    },
+    {
+      "key": "billboard-16x9-4m",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Billboard16x9_4m.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.16x9-4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 7
+    },
+    {
+      "key": "billboard-4x3-3m",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Billboard4x3_3m.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.4x3-3m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "billboard-4x3-4m",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Billboard4x3_4m.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.4x3-4m",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 6
+    },
+    {
+      "key": "billboard-large",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardLarge.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.large",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "billboard-panorama",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardPanorama.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.panorama",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "billboard-portrait",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardPortrait.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.portrait",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "billboard-square",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardSquare.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.square",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "billboard-standard",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardStandard.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "billboard-wide",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BillboardWide.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "poster-panels",
+      "recipeId": "station.billboard.wide",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "bin",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Bin.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.bin.double-stream",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "booth",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TicketBooth.prefab",
+      "palette": false,
+      "status": "DONE",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "bridge",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Bridge.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.track.bridge",
+      "offset": [
+        0.5,
+        0.5,
+        0
+      ]
+    },
+    {
+      "key": "busstop-long",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BusstopLong.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.busstop.long",
+      "offset": [
+        -2.5,
+        0.5,
+        1
+      ],
+      "cells": 8
+    },
+    {
+      "key": "busstop-short",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/BusstopShort.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.busstop.short",
+      "offset": [
+        -0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "calligraphy-hei-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyHeiH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.hei-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-hei-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyHeiV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.hei-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-kai-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyKaiH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.kai-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-kai-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyKaiV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.kai-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-li-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyLiH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.li-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-li-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyLiV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.li-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-song-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphySongH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.song-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-song-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphySongV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.song-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-wei-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyWeiH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.wei-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-wei-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyWeiV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.wei-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-xing-h",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyXingH.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.xing-h",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "calligraphy-xing-v",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CalligraphyXingV.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "inscription",
+      "recipeId": "station.calligraphy.xing-v",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cctv",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Cctv.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cctv.bullet",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cctv-dome",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CctvDome.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cctv.dome",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cctv-post",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CctvPost.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cctv.post",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cctv-ptz",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CctvPtz.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cctv.ptz",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "checkout",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Checkout.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.checkout.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "checkout-cafe",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafe.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "checkout-cafe-pastry",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutCafePastry.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.checkout.cafe-pastry",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "checkout-generic",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CheckoutGeneric.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.checkout.generic",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:beijing:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayBeijing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "beijing",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:beijing:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitBeijing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "beijing",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:beijing:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitBeijing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "beijing",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:beijing:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostBeijing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "beijing",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:beijing:train-mark",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TrainMarkBeijing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "beijing",
+      "part": "train-mark",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chengdu:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayChengdu.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chengdu",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chengdu:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitChengdu.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chengdu",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chengdu:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitChengdu.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chengdu",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chengdu:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostChengdu.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chengdu",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chongqing:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayChongqing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chongqing",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chongqing:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitChongqing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chongqing",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chongqing:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitChongqing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chongqing",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chongqing:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostChongqing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chongqing",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:chongqing:train-mark",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TrainMarkChongqing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "chongqing",
+      "part": "train-mark",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:guangzhou:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayGuangzhou.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "guangzhou",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:guangzhou:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitGuangzhou.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "guangzhou",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:guangzhou:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitGuangzhou.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "guangzhou",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:guangzhou:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostGuangzhou.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "guangzhou",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:guangzhou:train-mark",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TrainMarkGuangzhou.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "guangzhou",
+      "part": "train-mark",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:nanjing:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayNanjing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "nanjing",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:nanjing:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitNanjing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "nanjing",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:nanjing:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitNanjing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "nanjing",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:nanjing:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostNanjing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "nanjing",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:nanjing:train-mark",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TrainMarkNanjing.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "nanjing",
+      "part": "train-mark",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shanghai:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayShanghai.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shanghai",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shanghai:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitShanghai.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shanghai",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shanghai:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitShanghai.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shanghai",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shanghai:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostShanghai.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shanghai",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shenzhen:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayShenzhen.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shenzhen",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shenzhen:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitShenzhen.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shenzhen",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shenzhen:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitShenzhen.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shenzhen",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:shenzhen:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostShenzhen.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "shenzhen",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:wuhan:doorway-entrance",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityDoorwayWuhan.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "wuhan",
+      "part": "doorway-entrance",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:wuhan:exit-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitWuhan.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "wuhan",
+      "part": "exit-canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:wuhan:exit-header",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityExitWuhan.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "wuhan",
+      "part": "exit-header",
+      "binding": "exit-header",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "city:wuhan:guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CityGuidepostWuhan.prefab",
+      "palette": false,
+      "status": "DONE",
+      "city": "wuhan",
+      "part": "guidepost",
+      "binding": "guidepost-plates",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "clock",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Clock.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "clock-hands",
+      "recipeId": "station.clock.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "clock-digital",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ClockDigital.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "clock-display",
+      "recipeId": "station.clock.digital",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "court-badminton",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CourtBadminton.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.court.badminton",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "court-divider",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CourtDivider.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.court.divider",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "court-pickleball",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CourtPickleball.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.court.pickleball",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cubicle",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Cubicle.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cubicle.shared",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "cubicle-toilet",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CubicleToilet.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.cubicle.toilet",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "curtain-wall",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/CurtainWall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.curtain-wall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "desk",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Desk.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.desk.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "door-glass-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorGlass1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.door.glass-1",
+      "offset": [
+        0.5,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "door-glass-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorGlass2.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.door.glass-2",
+      "offset": [
+        1,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "door-steel-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorSteel1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.door.steel-1",
+      "offset": [
+        0.5,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "door-steel-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorSteel2.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.door.steel-2",
+      "offset": [
+        1,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "door-wood-1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorWood1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.door.wood-1",
+      "offset": [
+        0.5,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "door-wood-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/DoorWood2.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.door.wood-2",
+      "offset": [
+        1,
+        0.09,
+        1
+      ]
+    },
+    {
+      "key": "electrical-cabinet",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ElectricalCabinet.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.electrical-cabinet.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 3
+    },
+    {
+      "key": "escalator",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Escalator.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "escalator-run",
+      "note": "sloped run, belt and balustrades from the saved incline and direction",
+      "recipeId": "station.escalator.standard",
+      "offset": [
+        0.5,
+        0.669873,
+        1
+      ]
+    },
+    {
+      "key": "exit",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Exit.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-covered-1",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitCovered1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.covered-1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-covered-3",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitCovered3.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.covered-3",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-doorway-1",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitDoorway1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.doorway-1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-doorway-2",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitDoorway2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.doorway-2",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-doorway-3",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitDoorway3.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.exit.doorway-3",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-doorway-4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitDoorway4.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.exit.doorway-4",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-uncovered-1",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitUncovered1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.uncovered-1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-uncovered-2",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitUncovered2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.uncovered-2",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-uncovered-3",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitUncovered3.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.uncovered-3",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "exit-virtual",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExitVirtual.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "exit-header",
+      "recipeId": "station.exit.virtual",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "extinguisher",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Extinguisher.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.extinguisher.standard",
+      "offset": [
+        0.5,
+        0.733,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "extinguisher-compact",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExtinguisherCompact.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.extinguisher.compact",
+      "offset": [
+        0.5,
+        0.825,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "extinguisher-glass",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ExtinguisherGlass.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.extinguisher.glass",
+      "offset": [
+        0.5,
+        0.75,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "fence",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Fence.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.fence.glass",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "fence-gate",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FenceGate.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.fence.gate",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "fence-iron",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FenceIron.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.fence.iron",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "fence-steel-blue",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FenceSteelBlue.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.fence.steel-blue",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "floor-mark-boarding",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FloorMarkBoarding.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.floor-mark.boarding",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "floor-mark-direction",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FloorMarkDirection.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.floor-mark.direction",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "floor-mark-waiting",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/FloorMarkWaiting.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.floor-mark.waiting",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "gate",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Gate.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.gate.classic",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "gate-new",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/GateNew.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.gate.modern",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-1x1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass1x1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-1x1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-1x2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass1x2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-1x2",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-1x4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass1x4.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-1x4",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-2x1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass2x1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-2x1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-2x2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass2x2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-2x2",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-2x4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass2x4.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-2x4",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-3x1",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass3x1.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-3x1",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-3x2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass3x2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-3x2",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-3x4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass3x4.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-3x4",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "glass-4x4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Glass4x4.prefab",
+      "palette": false,
+      "status": "DONE",
+      "recipeId": "station.glass.panel-4x4",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "guidepost",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Guidepost.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "guidepost-plates",
+      "recipeId": "station.guidepost.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "hanger-post",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/HangerPost.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.hanger.post",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "hanger-roof",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/HangerRoof.prefab",
+      "palette": true,
+      "status": "PARTIAL",
+      "generator": "hanger-rod",
+      "note": "rod length and clamp height from the nearest backing surface (`hangerRoofZ`)",
+      "recipeId": "station.hanger.roof",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "lawn",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Lawn.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.lawn.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "lift",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Lift.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "lift-shaft",
+      "note": "shaft, landings and car travel from `cfg.rises`",
+      "recipeId": "station.lift.standard",
+      "offset": [
+        1,
+        1,
+        0.99
+      ]
+    },
+    {
+      "key": "light-circular",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/LightCircular.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.light.circular",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "light-rectangular",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/LightRectangular.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.light.rectangular",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "linemap-stand",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/LinemapStand.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "linemap-panels",
+      "recipeId": "station.linemap.stand",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "linemap-wall",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/LinemapWall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "linemap-panels",
+      "recipeId": "station.linemap.wall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "monitor-ceiling",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/MonitorCeiling.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "monitor-panels",
+      "recipeId": "station.monitor.ceiling",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "monitor-wall",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/MonitorWall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "monitor-panels",
+      "recipeId": "station.monitor.wall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "noise-barrier",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/NoiseBarrier.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.noise-barrier.full",
+      "offset": [
+        0.5,
+        0.15999999999999998,
+        0.5
+      ]
+    },
+    {
+      "key": "noise-barrier-half",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/NoiseBarrierHalf.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.noise-barrier.half",
+      "offset": [
+        0.5,
+        0.15999999999999998,
+        0.5
+      ]
+    },
+    {
+      "key": "noise-barrier-railing",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/NoiseBarrierRailing.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.noise-barrier.railing",
+      "offset": [
+        0.5,
+        0.15999999999999998,
+        0.44999999999999996
+      ]
+    },
+    {
+      "key": "pillar-run",
+      "kind": "generated",
+      "generator": "pillar-run",
+      "palette": false,
+      "status": "DONE",
+      "note": "column height from the saved cfg.height; the palette prefab is only the 5 m section",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "pillar-slim",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/PillarSlim.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.pillar.slim",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "pillar-thick",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/PillarThick.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.pillar.thick",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "platform-edge",
+      "kind": "generated",
+      "generator": "psd-run",
+      "palette": false,
+      "status": "DONE",
+      "note": "screen door assembly from the saved run and the 6-car L door centres",
+      "pieces": [
+        "PlatformEdge",
+        "PlatformEdgeHousing",
+        "PlatformEdgeHeader",
+        "PlatformEdgeDecals"
+      ],
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "psd-end",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/PsdEnd.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.psd-end.standard",
+      "offset": [
+        0.5,
+        0.5,
+        0
+      ],
+      "cells": 1
+    },
+    {
+      "key": "psd-end-cover",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/PsdEndCover.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.psd-end.cover",
+      "offset": [
+        0.5,
+        0.5,
+        0
+      ],
+      "cells": 1
+    },
+    {
+      "key": "rail-signal",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RailSignal.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.rail-signal.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "retail",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RetailRoom.prefab",
+      "palette": false,
+      "status": "DONE",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "road",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Road.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.road.standard",
+      "offset": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "key": "roof",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Roof.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.roof.flat",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "roof-canopy",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RoofCanopy.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.roof.canopy",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "roof-shell",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RoofShell.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.roof.shell",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "roof-tapered",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RoofTapered.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.roof.tapered",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "roof-truss",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/RoofTruss.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.roof.truss",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "shelf-bags",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfBags.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.bags",
+      "offset": [
+        0.5,
+        0.8,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "shelf-books",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfBooks.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.books",
+      "offset": [
+        0.5,
+        0.8,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "shelf-cafe-backbar",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfCafeBackbar.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.cafe-backbar",
+      "offset": [
+        0.5,
+        0.7,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-cafe-backbar-2",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfCafeBackbar2.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.cafe-backbar-2",
+      "offset": [
+        0.5,
+        0.7,
+        1
+      ],
+      "cells": 2
+    },
+    {
+      "key": "shelf-cafe-backbar-4",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfCafeBackbar4.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.cafe-backbar-4",
+      "offset": [
+        0.5,
+        0.7,
+        1
+      ],
+      "cells": 4
+    },
+    {
+      "key": "shelf-clothing-rail",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfClothingRail.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.clothing-rail",
+      "offset": [
+        0.5,
+        0.7,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-clothing-shoes",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfClothingShoes.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.clothing-shoes",
+      "offset": [
+        0.5,
+        0.725,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-clothing-table",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfClothingTable.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.clothing-table",
+      "offset": [
+        0.5,
+        0.6,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-clothing-wall",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfClothingWall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.clothing-wall",
+      "offset": [
+        0.5,
+        0.75,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-cooler",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfCooler.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.cooler",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-cooler-dark",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfCoolerDark.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.cooler-dark",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-dark-tall",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfDarkTall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.dark-tall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-food-bakery",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfFoodBakery.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.food-bakery",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-food-snacks",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfFoodSnacks.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.food-snacks",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-fruit-island",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfFruitIsland.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.fruit-island",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-fruit-tiered",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfFruitTiered.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.fruit-tiered",
+      "offset": [
+        0.5,
+        0.675,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "shelf-ice-cream",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfIceCream.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.ice-cream",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-white-short",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfWhiteShort.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.white-short",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-white-tall",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfWhiteTall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.white-tall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shelf-wire",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShelfWire.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.shelf.wire",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "shop",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/ShopRoom.prefab",
+      "palette": false,
+      "status": "DONE",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "sidewalk",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Sidewalk.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.sidewalk.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "sign-ceiling",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/SignCeiling.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "sign-panels",
+      "recipeId": "station.sign.ceiling",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "sign-wall",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/SignWall.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "sign-panels",
+      "recipeId": "station.sign.wall",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "sink",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Sink.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.sink.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-block",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairBlock.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.stair.block",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-centerForward",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairCenterForward.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.center-forward",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-left180",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairLeft180.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.left-180",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-left90",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairLeft90.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.left-90",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-leftForward",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairLeftForward.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.left-forward",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-right180",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairRight180.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.right-180",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-right90",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairRight90.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.right-90",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-rightForward",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairRightForward.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "recipeId": "station.stair.right-forward",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "stair-straight",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/StairStraight.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "stair-flights",
+      "note": "straight flights and half-level landings from `cfg.flights`",
+      "recipeId": "station.stair.straight",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tactile-guide",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TactileGuide.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.tactile.guide",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tactile-warning",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TactileWarning.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.tactile.warning",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tactile-warning-strip",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TactileWarningStrip.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.tactile.warning-strip",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "track-run",
+      "kind": "generated",
+      "generator": "track-run",
+      "palette": false,
+      "status": "PARTIAL",
+      "note": "rails, sleepers, power equipment and tunnel from the saved run",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "traffic-light",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TrafficLight.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.traffic-light.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "tree",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Tree.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.tree.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tv",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Tv.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "tv-panels",
+      "recipeId": "station.tv.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tv-double",
+      "kind": "live",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/TvDouble.prefab",
+      "palette": true,
+      "status": "DONE",
+      "binding": "tv-panels",
+      "recipeId": "station.tv.double",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "tvm",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Tvm.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.tvm.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "urinal",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Urinal.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.urinal.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "vending",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Vending.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.vending.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    },
+    {
+      "key": "vent",
+      "kind": "prefab",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Vent.prefab",
+      "palette": true,
+      "status": "DONE",
+      "recipeId": "station.vent.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ],
+      "cells": 1
+    },
+    {
+      "key": "walkway",
+      "kind": "generated",
+      "prefab": "Assets/StationDesigner/Generated/Prefabs/Walkway.prefab",
+      "palette": true,
+      "status": "DONE",
+      "generator": "walkway-run",
+      "note": "level moving band from the saved run",
+      "recipeId": "station.walkway.standard",
+      "offset": [
+        0.5,
+        0.5,
+        1
+      ]
+    }
+  ],
+  "city": {
+    "guangzhou": {
+      "exit-canopy": "city:guangzhou:exit-canopy",
+      "exit-header": "city:guangzhou:exit-header",
+      "doorway-entrance": "city:guangzhou:doorway-entrance",
+      "guidepost": "city:guangzhou:guidepost",
+      "train-mark": "city:guangzhou:train-mark"
+    },
+    "shenzhen": {
+      "exit-canopy": "city:shenzhen:exit-canopy",
+      "exit-header": "city:shenzhen:exit-header",
+      "doorway-entrance": "city:shenzhen:doorway-entrance",
+      "guidepost": "city:shenzhen:guidepost",
+      "train-mark": null
+    },
+    "shanghai": {
+      "exit-canopy": "city:shanghai:exit-canopy",
+      "exit-header": "city:shanghai:exit-header",
+      "doorway-entrance": "city:shanghai:doorway-entrance",
+      "guidepost": "city:shanghai:guidepost",
+      "train-mark": null
+    },
+    "beijing": {
+      "exit-canopy": "city:beijing:exit-canopy",
+      "exit-header": "city:beijing:exit-header",
+      "doorway-entrance": "city:beijing:doorway-entrance",
+      "guidepost": "city:beijing:guidepost",
+      "train-mark": "city:beijing:train-mark"
+    },
+    "chengdu": {
+      "exit-canopy": "city:chengdu:exit-canopy",
+      "exit-header": "city:chengdu:exit-header",
+      "doorway-entrance": "city:chengdu:doorway-entrance",
+      "guidepost": "city:chengdu:guidepost",
+      "train-mark": null
+    },
+    "chongqing": {
+      "exit-canopy": "city:chongqing:exit-canopy",
+      "exit-header": "city:chongqing:exit-header",
+      "doorway-entrance": "city:chongqing:doorway-entrance",
+      "guidepost": "city:chongqing:guidepost",
+      "train-mark": "city:chongqing:train-mark"
+    },
+    "wuhan": {
+      "exit-canopy": "city:wuhan:exit-canopy",
+      "exit-header": "city:wuhan:exit-header",
+      "doorway-entrance": "city:wuhan:doorway-entrance",
+      "guidepost": "city:wuhan:guidepost",
+      "train-mark": null
+    },
+    "nanjing": {
+      "exit-canopy": "city:nanjing:exit-canopy",
+      "exit-header": "city:nanjing:exit-header",
+      "doorway-entrance": "city:nanjing:doorway-entrance",
+      "guidepost": "city:nanjing:guidepost",
+      "train-mark": "city:nanjing:train-mark"
+    }
+  }
+}

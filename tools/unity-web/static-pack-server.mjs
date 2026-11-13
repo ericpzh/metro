@@ -1,0 +1,149 @@
+// A plain Node server for a packed StationGame player (plan 11 local verification).
+//
+// `local-worker.mjs` does this as a Cloudflare Worker; wrangler/workerd is the
+// normal host. This server exists because workerd can fail to start in a locked-down
+// Windows environment (`CreateDirectory: Access is denied` for its email store), and
+// the browser verifier only needs the same three things the Worker gives it:
+//
+//   * the player page for `/game/`, `/game/en/` and the demo deep links,
+//   * static files under `/game/_unity/...`,
+//   * reassembly of the split `.wasm`/`.data` parts recorded in `manifest.json`.
+//
+// It is byte-for-byte the Worker's routing (see `local-worker.mjs`) without the
+// Worker runtime:
+//
+//   node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799]
+//
+// or import `createStaticServer(packDir)` and use `{ url, close }`.
+
+import { createReadStream, readFileSync, statSync } from 'node:fs'
+import { createServer } from 'node:http'
+import { extname, join, normalize, resolve, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.data': 'application/octet-stream',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.ico': 'image/x-icon',
+  '.svg': 'image/svg+xml',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ttf': 'font/ttf',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
+/** Keep a request path inside the pack directory. */
+function safeJoin(packDir, relative) {
+  const full = resolve(packDir, '.' + normalize('/' + relative))
+  if (full !== packDir && !full.startsWith(packDir + sep)) return null
+  return full
+}
+
+function sendFile(res, path, method) {
+  let info
+  try { info = statSync(path) } catch { return false }
+  if (!info.isFile()) return false
+  res.writeHead(200, {
+    'content-type': MIME[extname(path).toLowerCase()] ?? 'application/octet-stream',
+    'content-length': info.size,
+    'cache-control': 'no-store',
+  })
+  if (method === 'HEAD') { res.end(); return true }
+  createReadStream(path).pipe(res)
+  return true
+}
+
+export function createStaticServer(packDir, requestedPort = 0) {
+  const pack = resolve(packDir)
+  const manifest = JSON.parse(readFileSync(join(pack, 'manifest.json'), 'utf8'))
+  const indexHtml = readFileSync(join(pack, 'index.html'), 'utf8')
+
+  const server = createServer((req, res) => {
+    const method = req.method ?? 'GET'
+    if (method !== 'GET' && method !== 'HEAD') {
+      res.writeHead(405, { allow: 'GET, HEAD' })
+      res.end('Method not allowed')
+      return
+    }
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+    const pathname = decodeURIComponent(url.pathname)
+    const redirect = to => { res.writeHead(308, { location: to }); res.end() }
+
+    if (pathname === '/') return redirect('/game/')
+    if (pathname === '/en' || pathname === '/en/') return redirect('/game/en/')
+    if (pathname === '/game' || pathname === '/game/index.html') return redirect('/game/')
+    if (pathname === '/game/en' || pathname === '/game/en/index.html') return redirect('/game/en/')
+
+    const segments = pathname.split('/').filter(Boolean)
+    if (segments[0] === 'game' && segments[1] !== '_unity') {
+      if (segments.length === 2 && segments[1] !== 'en' && pathname.endsWith('/')) return redirect('/game/' + segments[1])
+      if (segments.length === 3 && segments[1] === 'en' && pathname.endsWith('/')) return redirect('/game/en/' + segments[2])
+      const english = segments[1] === 'en'
+      const html = indexHtml.replace('<html lang="en-us">', `<html lang="${english ? 'en' : 'zh-CN'}">`)
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(method === 'HEAD' ? undefined : html)
+      return
+    }
+    if (pathname.startsWith('/game/_unity/')) {
+      const assetPath = pathname.slice('/game/_unity'.length)
+      if (!assetPath || assetPath === '/') { res.writeHead(404); res.end('Not found'); return }
+      const relative = assetPath.slice(1)
+      const direct = safeJoin(pack, relative)
+      if (direct && sendFile(res, direct, method)) return
+      const split = manifest?.splitFiles?.[relative]
+      if (!split || !Array.isArray(split.parts) || split.parts.length === 0 || !Number.isInteger(split.bytes)) {
+        res.writeHead(404); res.end('Not found'); return
+      }
+      res.writeHead(200, {
+        'content-type': relative.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream',
+        'content-encoding': 'identity',
+        'content-length': String(split.bytes),
+        'cache-control': 'no-store',
+      })
+      if (method === 'HEAD') { res.end(); return }
+      let index = 0
+      const next = () => {
+        if (index >= split.parts.length) { res.end(); return }
+        const part = safeJoin(pack, split.parts[index++])
+        if (!part) { res.destroy(); return }
+        const stream = createReadStream(part)
+        stream.on('end', next)
+        stream.on('error', () => res.destroy())
+        stream.pipe(res, { end: false })
+      }
+      next()
+      return
+    }
+    res.writeHead(404)
+    res.end('Not found')
+  })
+
+  return new Promise((ok, bad) => {
+    server.once('error', bad)
+    server.listen(requestedPort, '127.0.0.1', () => {
+      const { port } = server.address()
+      ok({ url: `http://127.0.0.1:${port}`, port, close: () => server.close() })
+    })
+  })
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const arg = name => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined }
+  const pack = arg('--pack')
+  const port = Number(arg('--port') ?? 0)
+  if (!pack) {
+    console.error('usage: node tools/unity-web/static-pack-server.mjs --pack <pack-dir> [--port 8799]')
+    process.exit(2)
+  }
+  const { url } = await createStaticServer(pack, port)
+  console.log(`static pack server: ${url}/game/ (pack ${pack})`)
+}
+

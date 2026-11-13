@@ -1,0 +1,8367 @@
+{
+  "schemaVersion": 1,
+  "generatedBy": "tools/unity-parity/record-station-roads.mjs",
+  "sourceSha": "6409535b6ea9aabacc72d6a0744a4eb1f9bade2f",
+  "source": {
+    "save": "unity/Assets/StationDesigner/Zoo/ZooSave.json",
+    "records": 2
+  },
+  "constants": {
+    "nodeSnapRadius": 3,
+    "crosswalkDepth": 2,
+    "step": 0.1,
+    "laneWidth": 3,
+    "trafficSpacing": 20,
+    "trafficDensity": 0.5,
+    "trafficSpeed": 6,
+    "trafficCapacity": 192,
+    "maxCatchup": 60,
+    "signalGreen": 12,
+    "signalAmber": 3,
+    "signalClear": 5,
+    "followGap": 2
+  },
+  "hashes": [
+    {
+      "input": "7654321:kind:0",
+      "hash": 4008025937
+    },
+    {
+      "input": "7654321:spawn:0",
+      "hash": 1749514583
+    },
+    {
+      "input": "7654321:0:0",
+      "hash": 3496286486
+    },
+    {
+      "input": "0:0:0:0:0",
+      "hash": 3928669408
+    },
+    {
+      "input": "0:16:-3:24:3",
+      "hash": 372723291
+    },
+    {
+      "input": "站😀road",
+      "hash": 3135566072
+    }
+  ],
+  "zoo": {
+    "records": [
+      {
+        "id": "road-3717",
+        "type": "road",
+        "x": 28,
+        "y": 0,
+        "z": 0,
+        "w": 86,
+        "d": 6,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 31,
+          "y": 3
+        },
+        "hasTo": true,
+        "to": {
+          "x": 111,
+          "y": 3
+        },
+        "acrossX": false,
+        "width": 6,
+        "length": 86,
+        "lanes": 2,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": 31,
+            "y": 3
+          },
+          {
+            "x": 111,
+            "y": 3
+          }
+        ]
+      },
+      {
+        "id": "road-3976",
+        "type": "road",
+        "x": 28,
+        "y": -15,
+        "z": 0,
+        "w": 86,
+        "d": 12,
+        "rot": 3,
+        "direction": "two-way",
+        "hasFrom": true,
+        "from": {
+          "x": 34,
+          "y": -9
+        },
+        "hasTo": true,
+        "to": {
+          "x": 108,
+          "y": -9
+        },
+        "acrossX": false,
+        "width": 12,
+        "length": 86,
+        "lanes": 4,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": 34,
+            "y": -9
+          },
+          {
+            "x": 108,
+            "y": -9
+          }
+        ]
+      }
+    ],
+    "segments": [
+      {
+        "id": "road-3717",
+        "sourceId": "road-3717",
+        "fromNode": "road-node:0:31:3",
+        "toNode": "road-node:0:111:3",
+        "x": 28,
+        "y": 0,
+        "z": 0,
+        "w": 86,
+        "d": 6,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 31,
+          "y": 3
+        },
+        "hasTo": true,
+        "to": {
+          "x": 111,
+          "y": 3
+        }
+      },
+      {
+        "id": "road-3976",
+        "sourceId": "road-3976",
+        "fromNode": "road-node:0:34:-9",
+        "toNode": "road-node:0:108:-9",
+        "x": 28,
+        "y": -15,
+        "z": 0,
+        "w": 86,
+        "d": 12,
+        "rot": 3,
+        "direction": "two-way",
+        "hasFrom": true,
+        "from": {
+          "x": 34,
+          "y": -9
+        },
+        "hasTo": true,
+        "to": {
+          "x": 108,
+          "y": -9
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "road-node:0:31:3",
+        "x": 31,
+        "y": 3,
+        "z": 0,
+        "segments": [
+          "road-3717"
+        ]
+      },
+      {
+        "id": "road-node:0:111:3",
+        "x": 111,
+        "y": 3,
+        "z": 0,
+        "segments": [
+          "road-3717"
+        ]
+      },
+      {
+        "id": "road-node:0:34:-9",
+        "x": 34,
+        "y": -9,
+        "z": 0,
+        "segments": [
+          "road-3976"
+        ]
+      },
+      {
+        "id": "road-node:0:108:-9",
+        "x": 108,
+        "y": -9,
+        "z": 0,
+        "segments": [
+          "road-3976"
+        ]
+      }
+    ],
+    "network": {
+      "junctions": [],
+      "edges": [
+        {
+          "road": "road-3717",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 114,
+            "y": 1.5
+          },
+          "end": {
+            "x": 28,
+            "y": 1.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-3717",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 114,
+            "y": 4.5
+          },
+          "end": {
+            "x": 28,
+            "y": 4.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-3976",
+          "lane": 0,
+          "sign": 1,
+          "axis": false,
+          "start": {
+            "x": 28,
+            "y": -13.5
+          },
+          "end": {
+            "x": 114,
+            "y": -13.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-3976",
+          "lane": 1,
+          "sign": 1,
+          "axis": false,
+          "start": {
+            "x": 28,
+            "y": -10.5
+          },
+          "end": {
+            "x": 114,
+            "y": -10.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-3976",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 114,
+            "y": -7.5
+          },
+          "end": {
+            "x": 28,
+            "y": -7.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-3976",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 114,
+            "y": -4.5
+          },
+          "end": {
+            "x": 28,
+            "y": -4.5
+          },
+          "length": 86,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "entries": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "sides": [],
+      "laneSigns": [
+        {
+          "road": "road-3717",
+          "lane": 0,
+          "sign": -1
+        },
+        {
+          "road": "road-3717",
+          "lane": 1,
+          "sign": -1
+        },
+        {
+          "road": "road-3976",
+          "lane": 0,
+          "sign": 1
+        },
+        {
+          "road": "road-3976",
+          "lane": 1,
+          "sign": 1
+        },
+        {
+          "road": "road-3976",
+          "lane": 2,
+          "sign": -1
+        },
+        {
+          "road": "road-3976",
+          "lane": 3,
+          "sign": -1
+        }
+      ],
+      "movements": [
+        {
+          "edge": 0,
+          "turns": []
+        },
+        {
+          "edge": 1,
+          "turns": []
+        },
+        {
+          "edge": 2,
+          "turns": []
+        },
+        {
+          "edge": 3,
+          "turns": []
+        },
+        {
+          "edge": 4,
+          "turns": []
+        },
+        {
+          "edge": 5,
+          "turns": []
+        }
+      ]
+    },
+    "snaps": [
+      {
+        "probe": {
+          "x": 30,
+          "y": 3
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 31,
+          "y": 3
+        },
+        "hasNode": true,
+        "nodeId": "road-node:0:31:3",
+        "roadId": "road-3717",
+        "atId": "road-3717"
+      },
+      {
+        "probe": {
+          "x": 50,
+          "y": 4
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 50,
+          "y": 3
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-3717",
+        "atId": "road-3717"
+      },
+      {
+        "probe": {
+          "x": 50,
+          "y": 2.6
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 50,
+          "y": 3
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-3717",
+        "atId": "road-3717"
+      },
+      {
+        "probe": {
+          "x": 110,
+          "y": 3
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 111,
+          "y": 3
+        },
+        "hasNode": true,
+        "nodeId": "road-node:0:111:3",
+        "roadId": "road-3717",
+        "atId": "road-3717"
+      },
+      {
+        "probe": {
+          "x": 27,
+          "y": -9
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 27,
+          "y": -9
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "",
+        "atId": ""
+      },
+      {
+        "probe": {
+          "x": 33,
+          "y": -9
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 34,
+          "y": -9
+        },
+        "hasNode": true,
+        "nodeId": "road-node:0:34:-9",
+        "roadId": "road-3976",
+        "atId": "road-3976"
+      },
+      {
+        "probe": {
+          "x": 50,
+          "y": -10.2
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 50,
+          "y": -9
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-3976",
+        "atId": "road-3976"
+      },
+      {
+        "probe": {
+          "x": 50,
+          "y": 4
+        },
+        "z": 0,
+        "radius": 0.2,
+        "point": {
+          "x": 50,
+          "y": 3
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-3717",
+        "atId": "road-3717"
+      }
+    ],
+    "inks": [
+      {
+        "road": "road-3717",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 5.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 5.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 2.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 2.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 3.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3717",
+        "across": 3.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 11.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 11.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 6,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 6,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 5.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 5.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 6.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 6.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 9,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      },
+      {
+        "road": "road-3976",
+        "across": 9,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 86
+          }
+        ]
+      }
+    ],
+    "traffic": [
+      {
+        "time": 0,
+        "trafficTime": 0,
+        "cars": [
+          {
+            "id": 3,
+            "edge": 0,
+            "distance": 70,
+            "previousEdge": 0,
+            "previousDistance": 70,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 4,
+            "edge": 1,
+            "distance": 12,
+            "previousEdge": 1,
+            "previousDistance": 12,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 8,
+            "edge": 2,
+            "distance": 10,
+            "previousEdge": 2,
+            "previousDistance": 10,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "distance": 30,
+            "previousEdge": 2,
+            "previousDistance": 30,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 13,
+            "edge": 3,
+            "distance": 32,
+            "previousEdge": 3,
+            "previousDistance": 32,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 14,
+            "edge": 3,
+            "distance": 52,
+            "previousEdge": 3,
+            "previousDistance": 52,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 15,
+            "edge": 3,
+            "distance": 72,
+            "previousEdge": 3,
+            "previousDistance": 72,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 16,
+            "edge": 4,
+            "distance": 14,
+            "previousEdge": 4,
+            "previousDistance": 14,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 20,
+            "edge": 5,
+            "distance": 16,
+            "previousEdge": 5,
+            "previousDistance": 16,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 23,
+            "edge": 5,
+            "distance": 76,
+            "previousEdge": 5,
+            "previousDistance": 76,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          }
+        ],
+        "poses": [
+          {
+            "id": 3,
+            "edge": 0,
+            "kind": "car",
+            "variant": "suv",
+            "x": 44,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 4,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 102,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 8,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 38,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 58,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 13,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 60,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 14,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 80,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 15,
+            "edge": 3,
+            "kind": "car",
+            "variant": "suv",
+            "x": 100,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 16,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 100,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 20,
+            "edge": 5,
+            "kind": "car",
+            "variant": "suv",
+            "x": 98,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 23,
+            "edge": 5,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 38,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          }
+        ],
+        "signals": []
+      },
+      {
+        "time": 5.3,
+        "trafficTime": 5.300000000000001,
+        "cars": [
+          {
+            "id": 4,
+            "edge": 1,
+            "distance": 43.80000000000006,
+            "previousEdge": 1,
+            "previousDistance": 43.20000000000006,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 8,
+            "edge": 2,
+            "distance": 41.800000000000054,
+            "previousEdge": 2,
+            "previousDistance": 41.20000000000005,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "distance": 61.800000000000075,
+            "previousEdge": 2,
+            "previousDistance": 61.200000000000074,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 13,
+            "edge": 3,
+            "distance": 63.800000000000075,
+            "previousEdge": 3,
+            "previousDistance": 63.200000000000074,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 14,
+            "edge": 3,
+            "distance": 83.79999999999984,
+            "previousEdge": 3,
+            "previousDistance": 83.19999999999985,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 16,
+            "edge": 4,
+            "distance": 45.80000000000007,
+            "previousEdge": 4,
+            "previousDistance": 45.20000000000007,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 20,
+            "edge": 5,
+            "distance": 47.800000000000075,
+            "previousEdge": 5,
+            "previousDistance": 47.200000000000074,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 24,
+            "edge": 0,
+            "distance": 36.20000000000004,
+            "previousEdge": 0,
+            "previousDistance": 35.60000000000004,
+            "kind": "bus",
+            "size": 10,
+            "held": -1,
+            "variant": "bus-mosaic"
+          },
+          {
+            "id": 25,
+            "edge": 1,
+            "distance": 29.600000000000026,
+            "previousEdge": 1,
+            "previousDistance": 29.000000000000025,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 26,
+            "edge": 2,
+            "distance": 23.00000000000001,
+            "previousEdge": 2,
+            "previousDistance": 22.40000000000001,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 27,
+            "edge": 3,
+            "distance": 16.399999999999995,
+            "previousEdge": 3,
+            "previousDistance": 15.799999999999994,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 28,
+            "edge": 4,
+            "distance": 9.799999999999997,
+            "previousEdge": 4,
+            "previousDistance": 9.199999999999998,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          }
+        ],
+        "poses": [
+          {
+            "id": 4,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 70.79999999999994,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 8,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 69.20000000000005,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 89.20000000000007,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 13,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 91.20000000000007,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 14,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 111.19999999999985,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 16,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 68.79999999999993,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 20,
+            "edge": 5,
+            "kind": "car",
+            "variant": "suv",
+            "x": 66.79999999999993,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 24,
+            "edge": 0,
+            "kind": "bus",
+            "variant": "bus-mosaic",
+            "x": 78.39999999999996,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 25,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 84.99999999999997,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 26,
+            "edge": 2,
+            "kind": "car",
+            "variant": "suv",
+            "x": 50.400000000000006,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 27,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 43.8,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 28,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 104.8,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          }
+        ],
+        "signals": []
+      },
+      {
+        "time": 17.7,
+        "trafficTime": 17.7,
+        "cars": [
+          {
+            "id": 28,
+            "edge": 4,
+            "distance": 84.19999999999992,
+            "previousEdge": 4,
+            "previousDistance": 83.59999999999992,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 29,
+            "edge": 5,
+            "distance": 77.59999999999998,
+            "previousEdge": 5,
+            "previousDistance": 76.99999999999999,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 30,
+            "edge": 0,
+            "distance": 70.40000000000005,
+            "previousEdge": 0,
+            "previousDistance": 69.80000000000005,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 31,
+            "edge": 1,
+            "distance": 63.800000000000104,
+            "previousEdge": 1,
+            "previousDistance": 63.2000000000001,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 32,
+            "edge": 2,
+            "distance": 57.20000000000009,
+            "previousEdge": 2,
+            "previousDistance": 56.60000000000009,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 33,
+            "edge": 3,
+            "distance": 50.60000000000007,
+            "previousEdge": 3,
+            "previousDistance": 50.00000000000007,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 34,
+            "edge": 4,
+            "distance": 44.00000000000006,
+            "previousEdge": 4,
+            "previousDistance": 43.400000000000055,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 35,
+            "edge": 5,
+            "distance": 37.40000000000004,
+            "previousEdge": 5,
+            "previousDistance": 36.80000000000004,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 36,
+            "edge": 0,
+            "distance": 30.200000000000028,
+            "previousEdge": 0,
+            "previousDistance": 29.600000000000026,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 37,
+            "edge": 1,
+            "distance": 23.600000000000012,
+            "previousEdge": 1,
+            "previousDistance": 23.00000000000001,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 38,
+            "edge": 2,
+            "distance": 16.999999999999996,
+            "previousEdge": 2,
+            "previousDistance": 16.399999999999995,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 39,
+            "edge": 3,
+            "distance": 10.399999999999997,
+            "previousEdge": 3,
+            "previousDistance": 9.799999999999997,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          }
+        ],
+        "poses": [
+          {
+            "id": 28,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 30.400000000000077,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 29,
+            "edge": 5,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 37.000000000000014,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 30,
+            "edge": 0,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 44.199999999999946,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 31,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 50.79999999999989,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 32,
+            "edge": 2,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 84.60000000000008,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 33,
+            "edge": 3,
+            "kind": "car",
+            "variant": "suv",
+            "x": 78.00000000000007,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 34,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 70.59999999999994,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 35,
+            "edge": 5,
+            "kind": "car",
+            "variant": "suv",
+            "x": 77.19999999999996,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 36,
+            "edge": 0,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 84.39999999999998,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 37,
+            "edge": 1,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 90.99999999999999,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 38,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 44.39999999999999,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 39,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 37.8,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          }
+        ],
+        "signals": []
+      },
+      {
+        "time": 41.2,
+        "trafficTime": 41.2,
+        "cars": [
+          {
+            "id": 49,
+            "edge": 1,
+            "distance": 84.19999999999992,
+            "previousEdge": 1,
+            "previousDistance": 83.59999999999992,
+            "kind": "bus",
+            "size": 10,
+            "held": -1,
+            "variant": "bus-orange"
+          },
+          {
+            "id": 50,
+            "edge": 2,
+            "distance": 77.59999999999998,
+            "previousEdge": 2,
+            "previousDistance": 76.99999999999999,
+            "kind": "bus",
+            "size": 10,
+            "held": -1,
+            "variant": "bus-orange"
+          },
+          {
+            "id": 51,
+            "edge": 3,
+            "distance": 71.00000000000004,
+            "previousEdge": 3,
+            "previousDistance": 70.40000000000005,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 52,
+            "edge": 4,
+            "distance": 64.4000000000001,
+            "previousEdge": 4,
+            "previousDistance": 63.800000000000104,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 53,
+            "edge": 5,
+            "distance": 57.80000000000009,
+            "previousEdge": 5,
+            "previousDistance": 57.20000000000009,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 54,
+            "edge": 0,
+            "distance": 50.60000000000007,
+            "previousEdge": 0,
+            "previousDistance": 50.00000000000007,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 55,
+            "edge": 1,
+            "distance": 44.00000000000006,
+            "previousEdge": 1,
+            "previousDistance": 43.400000000000055,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 56,
+            "edge": 2,
+            "distance": 37.40000000000004,
+            "previousEdge": 2,
+            "previousDistance": 36.80000000000004,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 57,
+            "edge": 3,
+            "distance": 30.80000000000003,
+            "previousEdge": 3,
+            "previousDistance": 30.200000000000028,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 58,
+            "edge": 4,
+            "distance": 24.200000000000014,
+            "previousEdge": 4,
+            "previousDistance": 23.600000000000012,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 59,
+            "edge": 5,
+            "distance": 17.599999999999998,
+            "previousEdge": 5,
+            "previousDistance": 16.999999999999996,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 60,
+            "edge": 0,
+            "distance": 10.399999999999997,
+            "previousEdge": 0,
+            "previousDistance": 9.799999999999997,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          }
+        ],
+        "poses": [
+          {
+            "id": 49,
+            "edge": 1,
+            "kind": "bus",
+            "variant": "bus-orange",
+            "x": 30.400000000000077,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 50,
+            "edge": 2,
+            "kind": "bus",
+            "variant": "bus-orange",
+            "x": 104.99999999999999,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 51,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 98.40000000000005,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 52,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 50.1999999999999,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 53,
+            "edge": 5,
+            "kind": "car",
+            "variant": "suv",
+            "x": 56.79999999999991,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 54,
+            "edge": 0,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 63.99999999999993,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 55,
+            "edge": 1,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 70.59999999999994,
+            "y": 4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 56,
+            "edge": 2,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 64.80000000000004,
+            "y": -13.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 57,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 58.20000000000003,
+            "y": -10.5,
+            "z": 1.05,
+            "heading": -1.5707963267948966
+          },
+          {
+            "id": 58,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 90.39999999999999,
+            "y": -7.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 59,
+            "edge": 5,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 97,
+            "y": -4.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 60,
+            "edge": 0,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 104.2,
+            "y": 1.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          }
+        ],
+        "signals": []
+      }
+    ]
+  },
+  "tanwei": {
+    "records": [
+      {
+        "id": "road-2184",
+        "type": "road",
+        "x": 32,
+        "y": -54,
+        "z": 0,
+        "w": 6,
+        "d": 78,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 35,
+          "y": -51
+        },
+        "hasTo": true,
+        "to": {
+          "x": 35,
+          "y": 21
+        },
+        "acrossX": true,
+        "width": 6,
+        "length": 78,
+        "lanes": 2,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": 35,
+            "y": -51
+          },
+          {
+            "x": 35,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2185",
+        "type": "road",
+        "x": -1,
+        "y": 15,
+        "z": 0,
+        "w": 42,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 5,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 35,
+          "y": 21
+        },
+        "acrossX": false,
+        "width": 12,
+        "length": 42,
+        "lanes": 4,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": 5,
+            "y": 21
+          },
+          {
+            "x": 35,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2186",
+        "type": "road",
+        "x": -69,
+        "y": 15,
+        "z": 0,
+        "w": 52,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -63,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": 21
+        },
+        "acrossX": false,
+        "width": 12,
+        "length": 52,
+        "lanes": 4,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": -63,
+            "y": 21
+          },
+          {
+            "x": -23,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2186-segment-1",
+        "type": "road",
+        "x": -29,
+        "y": 15,
+        "z": 0,
+        "w": 40,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 5,
+          "y": 21
+        },
+        "acrossX": false,
+        "width": 12,
+        "length": 40,
+        "lanes": 4,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": -23,
+            "y": 21
+          },
+          {
+            "x": 5,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2187",
+        "type": "road",
+        "x": 29,
+        "y": 15,
+        "z": 0,
+        "w": 46,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 35,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 69,
+          "y": 21
+        },
+        "acrossX": false,
+        "width": 12,
+        "length": 46,
+        "lanes": 4,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": 35,
+            "y": 21
+          },
+          {
+            "x": 69,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2188",
+        "type": "road",
+        "x": -26,
+        "y": -4,
+        "z": 0,
+        "w": 6,
+        "d": 28,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": -1
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": 21
+        },
+        "acrossX": true,
+        "width": 6,
+        "length": 28,
+        "lanes": 2,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": -23,
+            "y": -1
+          },
+          {
+            "x": -23,
+            "y": 21
+          }
+        ]
+      },
+      {
+        "id": "road-2190",
+        "type": "road",
+        "x": -26,
+        "y": -50,
+        "z": 0,
+        "w": 6,
+        "d": 52,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": -47
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": -1
+        },
+        "acrossX": true,
+        "width": 6,
+        "length": 52,
+        "lanes": 2,
+        "laneWidth": 3,
+        "endpoints": [
+          {
+            "x": -23,
+            "y": -47
+          },
+          {
+            "x": -23,
+            "y": -1
+          }
+        ]
+      }
+    ],
+    "segments": [
+      {
+        "id": "road-2184",
+        "sourceId": "road-2184",
+        "fromNode": "road-node:0:35:-51",
+        "toNode": "road-node:0:35:21",
+        "x": 32,
+        "y": -54,
+        "z": 0,
+        "w": 6,
+        "d": 78,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 35,
+          "y": -51
+        },
+        "hasTo": true,
+        "to": {
+          "x": 35,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2185",
+        "sourceId": "road-2185",
+        "fromNode": "road-node:0:5:21",
+        "toNode": "road-node:0:35:21",
+        "x": -1,
+        "y": 15,
+        "z": 0,
+        "w": 42,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 5,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 35,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2186",
+        "sourceId": "road-2186",
+        "fromNode": "road-node:0:-63:21",
+        "toNode": "road-node:0:-23:21",
+        "x": -69,
+        "y": 15,
+        "z": 0,
+        "w": 52,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -63,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2186-segment-1",
+        "sourceId": "road-2186-segment-1",
+        "fromNode": "road-node:0:-23:21",
+        "toNode": "road-node:0:5:21",
+        "x": -29,
+        "y": 15,
+        "z": 0,
+        "w": 40,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 5,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2187",
+        "sourceId": "road-2187",
+        "fromNode": "road-node:0:35:21",
+        "toNode": "road-node:0:69:21",
+        "x": 29,
+        "y": 15,
+        "z": 0,
+        "w": 46,
+        "d": 12,
+        "rot": 3,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": 35,
+          "y": 21
+        },
+        "hasTo": true,
+        "to": {
+          "x": 69,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2188",
+        "sourceId": "road-2188",
+        "fromNode": "road-node:0:-23:-1",
+        "toNode": "road-node:0:-23:21",
+        "x": -26,
+        "y": -4,
+        "z": 0,
+        "w": 6,
+        "d": 28,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": -1
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": 21
+        }
+      },
+      {
+        "id": "road-2190",
+        "sourceId": "road-2190",
+        "fromNode": "road-node:0:-23:-47",
+        "toNode": "road-node:0:-23:-1",
+        "x": -26,
+        "y": -50,
+        "z": 0,
+        "w": 6,
+        "d": 52,
+        "rot": 2,
+        "direction": "one-way",
+        "hasFrom": true,
+        "from": {
+          "x": -23,
+          "y": -47
+        },
+        "hasTo": true,
+        "to": {
+          "x": -23,
+          "y": -1
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "road-node:0:35:-51",
+        "x": 35,
+        "y": -51,
+        "z": 0,
+        "segments": [
+          "road-2184"
+        ]
+      },
+      {
+        "id": "road-node:0:35:21",
+        "x": 35,
+        "y": 21,
+        "z": 0,
+        "segments": [
+          "road-2184",
+          "road-2185",
+          "road-2187"
+        ]
+      },
+      {
+        "id": "road-node:0:5:21",
+        "x": 5,
+        "y": 21,
+        "z": 0,
+        "segments": [
+          "road-2185",
+          "road-2186-segment-1"
+        ]
+      },
+      {
+        "id": "road-node:0:-63:21",
+        "x": -63,
+        "y": 21,
+        "z": 0,
+        "segments": [
+          "road-2186"
+        ]
+      },
+      {
+        "id": "road-node:0:-23:21",
+        "x": -23,
+        "y": 21,
+        "z": 0,
+        "segments": [
+          "road-2186",
+          "road-2186-segment-1",
+          "road-2188"
+        ]
+      },
+      {
+        "id": "road-node:0:69:21",
+        "x": 69,
+        "y": 21,
+        "z": 0,
+        "segments": [
+          "road-2187"
+        ]
+      },
+      {
+        "id": "road-node:0:-23:-1",
+        "x": -23,
+        "y": -1,
+        "z": 0,
+        "segments": [
+          "road-2188",
+          "road-2190"
+        ]
+      },
+      {
+        "id": "road-node:0:-23:-47",
+        "x": -23,
+        "y": -47,
+        "z": 0,
+        "segments": [
+          "road-2190"
+        ]
+      }
+    ],
+    "network": {
+      "junctions": [
+        {
+          "x0": 32,
+          "y0": 15,
+          "x1": 38,
+          "y1": 27,
+          "z": 0,
+          "id": "0:32:15:38:27"
+        },
+        {
+          "x0": -26,
+          "y0": 15,
+          "x1": -20,
+          "y1": 27,
+          "z": 0,
+          "id": "0:-26:15:-20:27"
+        }
+      ],
+      "edges": [
+        {
+          "road": "road-2184",
+          "lane": 0,
+          "sign": -1,
+          "axis": true,
+          "start": {
+            "x": 33.5,
+            "y": 15
+          },
+          "end": {
+            "x": 33.5,
+            "y": -54
+          },
+          "length": 69,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2184",
+          "lane": 1,
+          "sign": -1,
+          "axis": true,
+          "start": {
+            "x": 36.5,
+            "y": 15
+          },
+          "end": {
+            "x": 36.5,
+            "y": -54
+          },
+          "length": 69,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -26,
+            "y": 16.5
+          },
+          "end": {
+            "x": -69,
+            "y": 16.5
+          },
+          "length": 43,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 32,
+            "y": 16.5
+          },
+          "end": {
+            "x": -20,
+            "y": 16.5
+          },
+          "length": 52,
+          "next": [
+            21,
+            22
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 75,
+            "y": 16.5
+          },
+          "end": {
+            "x": 38,
+            "y": 16.5
+          },
+          "length": 37,
+          "next": [
+            16,
+            17
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -26,
+            "y": 19.5
+          },
+          "end": {
+            "x": -69,
+            "y": 19.5
+          },
+          "length": 43,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 32,
+            "y": 19.5
+          },
+          "end": {
+            "x": -20,
+            "y": 19.5
+          },
+          "length": 52,
+          "next": [
+            23
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 75,
+            "y": 19.5
+          },
+          "end": {
+            "x": 38,
+            "y": 19.5
+          },
+          "length": 37,
+          "next": [
+            18
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -26,
+            "y": 22.5
+          },
+          "end": {
+            "x": -69,
+            "y": 22.5
+          },
+          "length": 43,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 32,
+            "y": 22.5
+          },
+          "end": {
+            "x": -20,
+            "y": 22.5
+          },
+          "length": 52,
+          "next": [
+            24
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 75,
+            "y": 22.5
+          },
+          "end": {
+            "x": 38,
+            "y": 22.5
+          },
+          "length": 37,
+          "next": [
+            19
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -26,
+            "y": 25.5
+          },
+          "end": {
+            "x": -69,
+            "y": 25.5
+          },
+          "length": 43,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 32,
+            "y": 25.5
+          },
+          "end": {
+            "x": -20,
+            "y": 25.5
+          },
+          "length": 52,
+          "next": [
+            25
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 75,
+            "y": 25.5
+          },
+          "end": {
+            "x": 38,
+            "y": 25.5
+          },
+          "length": 37,
+          "next": [
+            20
+          ],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2188",
+          "lane": 0,
+          "sign": -1,
+          "axis": true,
+          "start": {
+            "x": -24.5,
+            "y": 15
+          },
+          "end": {
+            "x": -24.5,
+            "y": -50
+          },
+          "length": 65,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2188",
+          "lane": 1,
+          "sign": -1,
+          "axis": true,
+          "start": {
+            "x": -21.5,
+            "y": 15
+          },
+          "end": {
+            "x": -21.5,
+            "y": -50
+          },
+          "length": 65,
+          "next": [],
+          "junction": -1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 38,
+            "y": 16.5
+          },
+          "end": {
+            "x": 36.5,
+            "y": 15
+          },
+          "length": 2.4338609640987037,
+          "next": [
+            1
+          ],
+          "junction": 0,
+          "hasControl": true,
+          "control": {
+            "x": 36.5,
+            "y": 16.5
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 38,
+            "y": 16.5
+          },
+          "end": {
+            "x": 32,
+            "y": 16.5
+          },
+          "length": 6,
+          "next": [
+            3
+          ],
+          "junction": 0,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 38,
+            "y": 19.5
+          },
+          "end": {
+            "x": 32,
+            "y": 19.5
+          },
+          "length": 6,
+          "next": [
+            6
+          ],
+          "junction": 0,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 38,
+            "y": 22.5
+          },
+          "end": {
+            "x": 32,
+            "y": 22.5
+          },
+          "length": 6,
+          "next": [
+            9
+          ],
+          "junction": 0,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": 38,
+            "y": 25.5
+          },
+          "end": {
+            "x": 32,
+            "y": 25.5
+          },
+          "length": 6,
+          "next": [
+            12
+          ],
+          "junction": 0,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -20,
+            "y": 16.5
+          },
+          "end": {
+            "x": -26,
+            "y": 16.5
+          },
+          "length": 6,
+          "next": [
+            2
+          ],
+          "junction": 1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -20,
+            "y": 16.5
+          },
+          "end": {
+            "x": -21.5,
+            "y": 15
+          },
+          "length": 2.4338609640987037,
+          "next": [
+            15
+          ],
+          "junction": 1,
+          "hasControl": true,
+          "control": {
+            "x": -21.5,
+            "y": 16.5
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -20,
+            "y": 19.5
+          },
+          "end": {
+            "x": -26,
+            "y": 19.5
+          },
+          "length": 6,
+          "next": [
+            5
+          ],
+          "junction": 1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -20,
+            "y": 22.5
+          },
+          "end": {
+            "x": -26,
+            "y": 22.5
+          },
+          "length": 6,
+          "next": [
+            8
+          ],
+          "junction": 1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1,
+          "axis": false,
+          "start": {
+            "x": -20,
+            "y": 25.5
+          },
+          "end": {
+            "x": -26,
+            "y": 25.5
+          },
+          "length": 6,
+          "next": [
+            11
+          ],
+          "junction": 1,
+          "hasControl": false,
+          "control": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      ],
+      "entries": [
+        4,
+        7,
+        10,
+        13
+      ],
+      "sides": [
+        {
+          "junction": 1,
+          "road": "road-2185",
+          "axis": false,
+          "out": 1,
+          "boundary": -20
+        },
+        {
+          "junction": 0,
+          "road": "road-2185",
+          "axis": false,
+          "out": 1,
+          "boundary": 38
+        },
+        {
+          "junction": 0,
+          "road": "road-2184",
+          "axis": true,
+          "out": -1,
+          "boundary": 15
+        },
+        {
+          "junction": 0,
+          "road": "road-2185",
+          "axis": false,
+          "out": -1,
+          "boundary": 32
+        },
+        {
+          "junction": 1,
+          "road": "road-2185",
+          "axis": false,
+          "out": -1,
+          "boundary": -26
+        },
+        {
+          "junction": 1,
+          "road": "road-2188",
+          "axis": true,
+          "out": -1,
+          "boundary": 15
+        }
+      ],
+      "laneSigns": [
+        {
+          "road": "road-2184",
+          "lane": 0,
+          "sign": -1
+        },
+        {
+          "road": "road-2184",
+          "lane": 1,
+          "sign": -1
+        },
+        {
+          "road": "road-2185",
+          "lane": 0,
+          "sign": -1
+        },
+        {
+          "road": "road-2185",
+          "lane": 1,
+          "sign": -1
+        },
+        {
+          "road": "road-2185",
+          "lane": 2,
+          "sign": -1
+        },
+        {
+          "road": "road-2185",
+          "lane": 3,
+          "sign": -1
+        },
+        {
+          "road": "road-2188",
+          "lane": 0,
+          "sign": -1
+        },
+        {
+          "road": "road-2188",
+          "lane": 1,
+          "sign": -1
+        }
+      ],
+      "movements": [
+        {
+          "edge": 0,
+          "turns": []
+        },
+        {
+          "edge": 1,
+          "turns": []
+        },
+        {
+          "edge": 2,
+          "turns": []
+        },
+        {
+          "edge": 3,
+          "turns": [
+            "straight",
+            "left"
+          ]
+        },
+        {
+          "edge": 4,
+          "turns": [
+            "left",
+            "straight"
+          ]
+        },
+        {
+          "edge": 5,
+          "turns": []
+        },
+        {
+          "edge": 6,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 7,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 8,
+          "turns": []
+        },
+        {
+          "edge": 9,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 10,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 11,
+          "turns": []
+        },
+        {
+          "edge": 12,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 13,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 14,
+          "turns": []
+        },
+        {
+          "edge": 15,
+          "turns": []
+        },
+        {
+          "edge": 16,
+          "turns": [
+            "left"
+          ]
+        },
+        {
+          "edge": 17,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 18,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 19,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 20,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 21,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 22,
+          "turns": [
+            "left"
+          ]
+        },
+        {
+          "edge": 23,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 24,
+          "turns": [
+            "straight"
+          ]
+        },
+        {
+          "edge": 25,
+          "turns": [
+            "straight"
+          ]
+        }
+      ]
+    },
+    "snaps": [
+      {
+        "probe": {
+          "x": 30,
+          "y": 21
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 30,
+          "y": 21
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-2185",
+        "atId": "road-2185"
+      },
+      {
+        "probe": {
+          "x": 35,
+          "y": -50
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 35,
+          "y": -51
+        },
+        "hasNode": true,
+        "nodeId": "road-node:0:35:-51",
+        "roadId": "road-2184",
+        "atId": "road-2184"
+      },
+      {
+        "probe": {
+          "x": 0,
+          "y": 21
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 0,
+          "y": 21
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-2186-segment-1",
+        "atId": "road-2186-segment-1"
+      },
+      {
+        "probe": {
+          "x": 35,
+          "y": 15
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": 35,
+          "y": 15
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-2184",
+        "atId": "road-2184"
+      },
+      {
+        "probe": {
+          "x": -23,
+          "y": 10
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": -23,
+          "y": 10
+        },
+        "hasNode": false,
+        "nodeId": "",
+        "roadId": "road-2188",
+        "atId": "road-2188"
+      },
+      {
+        "probe": {
+          "x": -23,
+          "y": -2
+        },
+        "z": 0,
+        "radius": 3,
+        "point": {
+          "x": -23,
+          "y": -1
+        },
+        "hasNode": true,
+        "nodeId": "road-node:0:-23:-1",
+        "roadId": "road-2188",
+        "atId": "road-2190"
+      }
+    ],
+    "inks": [
+      {
+        "road": "road-2184",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 69
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 65.5
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 5.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 69
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 5.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 65.5
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 69
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 65.5
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 2.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 69
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 2.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 65.5
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 3.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 69
+          }
+        ]
+      },
+      {
+        "road": "road-2184",
+        "across": 3.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 65.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 11.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 11.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 6,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 6,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 5.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 5.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 6.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 6.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 9,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 33
+          },
+          {
+            "lo": 39,
+            "hi": 42
+          }
+        ]
+      },
+      {
+        "road": "road-2185",
+        "across": 9,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 29.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 11.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 11.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 6,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 6,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 5.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 5.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 6.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 6.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 9,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 43
+          },
+          {
+            "lo": 49,
+            "hi": 52
+          }
+        ]
+      },
+      {
+        "road": "road-2186",
+        "across": 9,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 39.5
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 11.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 11.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 6,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 6,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 5.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 5.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 6.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 6.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 9,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2186-segment-1",
+        "across": 9,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 28
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 11.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 11.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 6,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 6,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 5.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 5.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 6.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 6.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 9,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 12,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2187",
+        "across": 9,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 12.5,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 19
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 15.5
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 5.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 19
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 5.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 15.5
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 19
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 15.5
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 2.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 19
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 2.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 15.5
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 3.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 19
+          }
+        ]
+      },
+      {
+        "road": "road-2188",
+        "across": 3.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 15.5
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 0.16,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 0.16,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 5.84,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 5.84,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 3,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 3,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 2.87,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 2.87,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 3.13,
+        "margin": 0,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      },
+      {
+        "road": "road-2190",
+        "across": 3.13,
+        "margin": 3.5,
+        "spans": [
+          {
+            "lo": 0,
+            "hi": 46
+          }
+        ]
+      }
+    ],
+    "traffic": [
+      {
+        "time": 0,
+        "trafficTime": 0,
+        "cars": [
+          {
+            "id": 3,
+            "edge": 1,
+            "distance": 12,
+            "previousEdge": 1,
+            "previousDistance": 12,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 4,
+            "edge": 1,
+            "distance": 32,
+            "previousEdge": 1,
+            "previousDistance": 32,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 8,
+            "edge": 3,
+            "distance": 10,
+            "previousEdge": 3,
+            "previousDistance": 10,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 9,
+            "edge": 3,
+            "distance": 30,
+            "previousEdge": 3,
+            "previousDistance": 30,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 13,
+            "edge": 5,
+            "distance": 32,
+            "previousEdge": 5,
+            "previousDistance": 32,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 14,
+            "edge": 6,
+            "distance": 12,
+            "previousEdge": 6,
+            "previousDistance": 12,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 15,
+            "edge": 6,
+            "distance": 32,
+            "previousEdge": 6,
+            "previousDistance": 32,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 16,
+            "edge": 7,
+            "distance": 12,
+            "previousEdge": 7,
+            "previousDistance": 12,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 20,
+            "edge": 9,
+            "distance": 34,
+            "previousEdge": 9,
+            "previousDistance": 34,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 23,
+            "edge": 11,
+            "distance": 36,
+            "previousEdge": 11,
+            "previousDistance": 36,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 24,
+            "edge": 12,
+            "distance": 16,
+            "previousEdge": 12,
+            "previousDistance": 16,
+            "kind": "bus",
+            "size": 10,
+            "held": -1,
+            "variant": "bus-mosaic"
+          },
+          {
+            "id": 25,
+            "edge": 12,
+            "distance": 36,
+            "previousEdge": 12,
+            "previousDistance": 36,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 29,
+            "edge": 14,
+            "distance": 50,
+            "previousEdge": 14,
+            "previousDistance": 50,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 31,
+            "edge": 15,
+            "distance": 32,
+            "previousEdge": 15,
+            "previousDistance": 32,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 32,
+            "edge": 15,
+            "distance": 52,
+            "previousEdge": 15,
+            "previousDistance": 52,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          }
+        ],
+        "poses": [
+          {
+            "id": 3,
+            "edge": 1,
+            "kind": "car",
+            "variant": "suv",
+            "x": 36.5,
+            "y": 3,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 4,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 36.5,
+            "y": -17,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 8,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 22,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 9,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 2.0000000000000036,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 13,
+            "edge": 5,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": -58,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 14,
+            "edge": 6,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 20,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 15,
+            "edge": 6,
+            "kind": "car",
+            "variant": "suv",
+            "x": 0,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 16,
+            "edge": 7,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 63,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 20,
+            "edge": 9,
+            "kind": "car",
+            "variant": "suv",
+            "x": -2,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 23,
+            "edge": 11,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -62,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 24,
+            "edge": 12,
+            "kind": "bus",
+            "variant": "bus-mosaic",
+            "x": 16,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 25,
+            "edge": 12,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -4,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 29,
+            "edge": 14,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": -24.5,
+            "y": -35,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 31,
+            "edge": 15,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -21.5,
+            "y": -17,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 32,
+            "edge": 15,
+            "kind": "car",
+            "variant": "sedan",
+            "x": -21.5,
+            "y": -37,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          }
+        ],
+        "signals": [
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 0,
+            "phase": "green"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 0,
+            "phase": "red"
+          },
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 0,
+            "phase": "red"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 0,
+            "phase": "red"
+          }
+        ]
+      },
+      {
+        "time": 10.4,
+        "trafficTime": 10.4,
+        "cars": [
+          {
+            "id": 8,
+            "edge": 3,
+            "distance": 47.55,
+            "previousEdge": 3,
+            "previousDistance": 47.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "distance": 33.60000000000004,
+            "previousEdge": 2,
+            "previousDistance": 33.000000000000036,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 14,
+            "edge": 5,
+            "distance": 4.800000000000001,
+            "previousEdge": 5,
+            "previousDistance": 4.200000000000001,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 15,
+            "edge": 5,
+            "distance": 19.200000000000003,
+            "previousEdge": 5,
+            "previousDistance": 18.6,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 16,
+            "edge": 7,
+            "distance": 32.55,
+            "previousEdge": 7,
+            "previousDistance": 32.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 20,
+            "edge": 9,
+            "distance": 48.800000000000004,
+            "previousEdge": 9,
+            "previousDistance": 48.2,
+            "kind": "car",
+            "size": 4.2,
+            "held": 1,
+            "variant": "suv"
+          },
+          {
+            "id": 24,
+            "edge": 12,
+            "distance": 39.599999999999994,
+            "previousEdge": 12,
+            "previousDistance": 39.599999999999994,
+            "kind": "bus",
+            "size": 10,
+            "held": -1,
+            "variant": "bus-mosaic"
+          },
+          {
+            "id": 25,
+            "edge": 12,
+            "distance": 47.55,
+            "previousEdge": 12,
+            "previousDistance": 47.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 33,
+            "edge": 4,
+            "distance": 31.4,
+            "previousEdge": 4,
+            "previousDistance": 31.4,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 34,
+            "edge": 7,
+            "distance": 28.65,
+            "previousEdge": 7,
+            "previousDistance": 28.65,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 35,
+            "edge": 10,
+            "distance": 31.4,
+            "previousEdge": 10,
+            "previousDistance": 31.4,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 36,
+            "edge": 13,
+            "distance": 32.55,
+            "previousEdge": 13,
+            "previousDistance": 32.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 37,
+            "edge": 4,
+            "distance": 25.2,
+            "previousEdge": 4,
+            "previousDistance": 25.2,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 38,
+            "edge": 7,
+            "distance": 16.999999999999996,
+            "previousEdge": 7,
+            "previousDistance": 16.399999999999995,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 39,
+            "edge": 10,
+            "distance": 7.399999999999999,
+            "previousEdge": 10,
+            "previousDistance": 6.799999999999999,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          }
+        ],
+        "poses": [
+          {
+            "id": 8,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -15.549999999999997,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 9,
+            "edge": 2,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -59.000000000000036,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 14,
+            "edge": 5,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -30.200000000000003,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 15,
+            "edge": 5,
+            "kind": "car",
+            "variant": "suv",
+            "x": -44.6,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 16,
+            "edge": 7,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 42.45,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 20,
+            "edge": 9,
+            "kind": "car",
+            "variant": "suv",
+            "x": -16.200000000000003,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 24,
+            "edge": 12,
+            "kind": "bus",
+            "variant": "bus-mosaic",
+            "x": -7.599999999999994,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 25,
+            "edge": 12,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -15.549999999999997,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 33,
+            "edge": 4,
+            "kind": "car",
+            "variant": "suv",
+            "x": 43.6,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 34,
+            "edge": 7,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 46.35,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 35,
+            "edge": 10,
+            "kind": "car",
+            "variant": "suv",
+            "x": 43.6,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 36,
+            "edge": 13,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 42.45,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 37,
+            "edge": 4,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 49.800000000000004,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 38,
+            "edge": 7,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 58.60000000000001,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 39,
+            "edge": 10,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 68.2,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          }
+        ],
+        "signals": [
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 10.4,
+            "phase": "red"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 10.4,
+            "phase": "red"
+          },
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 10.4,
+            "phase": "red"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 10.4,
+            "phase": "green"
+          }
+        ]
+      },
+      {
+        "time": 25.7,
+        "trafficTime": 25.700000000000003,
+        "cars": [
+          {
+            "id": 8,
+            "edge": 3,
+            "distance": 47.55,
+            "previousEdge": 3,
+            "previousDistance": 47.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 16,
+            "edge": 6,
+            "distance": 11.999999999999996,
+            "previousEdge": 6,
+            "previousDistance": 11.399999999999997,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 33,
+            "edge": 3,
+            "distance": 42.5,
+            "previousEdge": 3,
+            "previousDistance": 42.5,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 34,
+            "edge": 18,
+            "distance": 4.800000000000001,
+            "previousEdge": 18,
+            "previousDistance": 4.200000000000001,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": 0,
+            "variant": "moped"
+          },
+          {
+            "id": 35,
+            "edge": 10,
+            "distance": 31.4,
+            "previousEdge": 10,
+            "previousDistance": 31.4,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 36,
+            "edge": 13,
+            "distance": 32.55,
+            "previousEdge": 13,
+            "previousDistance": 32.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 37,
+            "edge": 3,
+            "distance": 36.3,
+            "previousEdge": 3,
+            "previousDistance": 36.00000000000004,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 38,
+            "edge": 7,
+            "distance": 32.55,
+            "previousEdge": 7,
+            "previousDistance": 32.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "bicycle"
+          },
+          {
+            "id": 39,
+            "edge": 10,
+            "distance": 26.349999999999998,
+            "previousEdge": 10,
+            "previousDistance": 26.349999999999998,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 40,
+            "edge": 13,
+            "distance": 27.499999999999996,
+            "previousEdge": 13,
+            "previousDistance": 27.499999999999996,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 41,
+            "edge": 1,
+            "distance": 25.200000000000017,
+            "previousEdge": 1,
+            "previousDistance": 24.600000000000016,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 42,
+            "edge": 7,
+            "distance": 27.499999999999996,
+            "previousEdge": 7,
+            "previousDistance": 27.499999999999996,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "suv"
+          },
+          {
+            "id": 43,
+            "edge": 10,
+            "distance": 22.45,
+            "previousEdge": 10,
+            "previousDistance": 22.45,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 44,
+            "edge": 13,
+            "distance": 21.299999999999997,
+            "previousEdge": 13,
+            "previousDistance": 21.299999999999997,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 45,
+            "edge": 4,
+            "distance": 32.55,
+            "previousEdge": 4,
+            "previousDistance": 32.55,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 46,
+            "edge": 7,
+            "distance": 21.299999999999997,
+            "previousEdge": 7,
+            "previousDistance": 21.299999999999997,
+            "kind": "car",
+            "size": 4.2,
+            "held": -1,
+            "variant": "sedan"
+          },
+          {
+            "id": 47,
+            "edge": 10,
+            "distance": 18.55,
+            "previousEdge": 10,
+            "previousDistance": 18.2,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          },
+          {
+            "id": 48,
+            "edge": 13,
+            "distance": 9.199999999999998,
+            "previousEdge": 13,
+            "previousDistance": 8.599999999999998,
+            "kind": "scooter",
+            "size": 1.9,
+            "held": -1,
+            "variant": "moped"
+          }
+        ],
+        "poses": [
+          {
+            "id": 8,
+            "edge": 3,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": -15.549999999999997,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 16,
+            "edge": 6,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 20.6,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 33,
+            "edge": 3,
+            "kind": "car",
+            "variant": "suv",
+            "x": -10.5,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 34,
+            "edge": 18,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 33.8,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 35,
+            "edge": 10,
+            "kind": "car",
+            "variant": "suv",
+            "x": 43.6,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 36,
+            "edge": 13,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 42.45,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 37,
+            "edge": 3,
+            "kind": "car",
+            "variant": "sedan",
+            "x": -4.000000000000043,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 38,
+            "edge": 7,
+            "kind": "scooter",
+            "variant": "bicycle",
+            "x": 42.45,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 39,
+            "edge": 10,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 48.650000000000006,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 40,
+            "edge": 13,
+            "kind": "car",
+            "variant": "suv",
+            "x": 47.5,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 41,
+            "edge": 1,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 36.5,
+            "y": -9.600000000000016,
+            "z": 1.05,
+            "heading": -3.141592653589793
+          },
+          {
+            "id": 42,
+            "edge": 7,
+            "kind": "car",
+            "variant": "suv",
+            "x": 47.5,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 43,
+            "edge": 10,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 52.55,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 44,
+            "edge": 13,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 53.7,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 45,
+            "edge": 4,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 42.45,
+            "y": 16.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 46,
+            "edge": 7,
+            "kind": "car",
+            "variant": "sedan",
+            "x": 53.7,
+            "y": 19.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 47,
+            "edge": 10,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 56.8,
+            "y": 22.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          },
+          {
+            "id": 48,
+            "edge": 13,
+            "kind": "scooter",
+            "variant": "moped",
+            "x": 66.4,
+            "y": 25.5,
+            "z": 1.05,
+            "heading": 1.5707963267948966
+          }
+        ],
+        "signals": [
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 25.7,
+            "phase": "red"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": true,
+            "time": 25.7,
+            "phase": "green"
+          },
+          {
+            "junction": "0:32:15:38:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 25.7,
+            "phase": "green"
+          },
+          {
+            "junction": "0:-26:15:-20:27",
+            "uncontrolled": false,
+            "axis": false,
+            "time": 25.7,
+            "phase": "red"
+          }
+        ]
+      }
+    ]
+  },
+  "fixtures": [
+    {
+      "name": "rotated-crossing",
+      "description": "One-way horizontal and two-way vertical roads crossing; rotated quarter turns and a controlled junction.",
+      "probes": [
+        [
+          0,
+          0,
+          0,
+          3
+        ],
+        [
+          19,
+          0,
+          0,
+          3
+        ],
+        [
+          20,
+          2,
+          0,
+          3
+        ],
+        [
+          40.4,
+          0.4,
+          0,
+          3
+        ],
+        [
+          20,
+          -20,
+          0,
+          3
+        ]
+      ],
+      "trafficSeed": 4242,
+      "trafficTimes": [
+        0,
+        3.2,
+        9.9
+      ],
+      "expected": {
+        "records": [
+          {
+            "id": "cross-x",
+            "type": "road",
+            "x": -3,
+            "y": -3,
+            "z": 0,
+            "w": 46,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 0,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 40,
+              "y": 0
+            },
+            "acrossX": false,
+            "width": 6,
+            "length": 46,
+            "lanes": 2,
+            "laneWidth": 3,
+            "endpoints": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 40,
+                "y": 0
+              }
+            ]
+          },
+          {
+            "id": "cross-y",
+            "type": "road",
+            "x": 16,
+            "y": -24,
+            "z": 0,
+            "w": 8,
+            "d": 48,
+            "rot": 0,
+            "direction": "two-way",
+            "hasFrom": true,
+            "from": {
+              "x": 20,
+              "y": -20
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 20
+            },
+            "acrossX": true,
+            "width": 8,
+            "length": 48,
+            "lanes": 2,
+            "laneWidth": 4,
+            "endpoints": [
+              {
+                "x": 20,
+                "y": -20
+              },
+              {
+                "x": 20,
+                "y": 20
+              }
+            ]
+          }
+        ],
+        "segments": [
+          {
+            "id": "cross-x",
+            "sourceId": "cross-x",
+            "fromNode": "road-node:0:0:0",
+            "toNode": "road-node:0:20:0",
+            "x": -3,
+            "y": -3,
+            "z": 0,
+            "w": 26,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 0,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            }
+          },
+          {
+            "id": "cross-x-segment-1",
+            "sourceId": "cross-x",
+            "fromNode": "road-node:0:20:0",
+            "toNode": "road-node:0:40:0",
+            "x": 17,
+            "y": -3,
+            "z": 0,
+            "w": 26,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 40,
+              "y": 0
+            }
+          },
+          {
+            "id": "cross-y",
+            "sourceId": "cross-y",
+            "fromNode": "road-node:0:20:-20",
+            "toNode": "road-node:0:20:0",
+            "x": 16,
+            "y": -24,
+            "z": 0,
+            "w": 8,
+            "d": 28,
+            "rot": 0,
+            "direction": "two-way",
+            "hasFrom": true,
+            "from": {
+              "x": 20,
+              "y": -20
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            }
+          },
+          {
+            "id": "cross-y-segment-1",
+            "sourceId": "cross-y",
+            "fromNode": "road-node:0:20:0",
+            "toNode": "road-node:0:20:20",
+            "x": 16,
+            "y": -4,
+            "z": 0,
+            "w": 8,
+            "d": 28,
+            "rot": 0,
+            "direction": "two-way",
+            "hasFrom": true,
+            "from": {
+              "x": 20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 20
+            }
+          }
+        ],
+        "nodes": [
+          {
+            "id": "road-node:0:0:0",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "segments": [
+              "cross-x"
+            ]
+          },
+          {
+            "id": "road-node:0:20:0",
+            "x": 20,
+            "y": 0,
+            "z": 0,
+            "segments": [
+              "cross-x",
+              "cross-x-segment-1",
+              "cross-y",
+              "cross-y-segment-1"
+            ]
+          },
+          {
+            "id": "road-node:0:40:0",
+            "x": 40,
+            "y": 0,
+            "z": 0,
+            "segments": [
+              "cross-x-segment-1"
+            ]
+          },
+          {
+            "id": "road-node:0:20:-20",
+            "x": 20,
+            "y": -20,
+            "z": 0,
+            "segments": [
+              "cross-y"
+            ]
+          },
+          {
+            "id": "road-node:0:20:20",
+            "x": 20,
+            "y": 20,
+            "z": 0,
+            "segments": [
+              "cross-y-segment-1"
+            ]
+          }
+        ],
+        "network": {
+          "junctions": [
+            {
+              "x0": 16,
+              "y0": -3,
+              "x1": 24,
+              "y1": 3,
+              "z": 0,
+              "id": "0:16:-3:24:3"
+            }
+          ],
+          "edges": [
+            {
+              "road": "cross-x",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -3,
+                "y": -1.5
+              },
+              "end": {
+                "x": 16,
+                "y": -1.5
+              },
+              "length": 19,
+              "next": [
+                8,
+                9
+              ],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 24,
+                "y": -1.5
+              },
+              "end": {
+                "x": 43,
+                "y": -1.5
+              },
+              "length": 19,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -3,
+                "y": 1.5
+              },
+              "end": {
+                "x": 16,
+                "y": 1.5
+              },
+              "length": 19,
+              "next": [
+                10,
+                11
+              ],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 24,
+                "y": 1.5
+              },
+              "end": {
+                "x": 43,
+                "y": 1.5
+              },
+              "length": 19,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 0,
+              "sign": -1,
+              "axis": true,
+              "start": {
+                "x": 18,
+                "y": -3
+              },
+              "end": {
+                "x": 18,
+                "y": -24
+              },
+              "length": 21,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 0,
+              "sign": -1,
+              "axis": true,
+              "start": {
+                "x": 18,
+                "y": 24
+              },
+              "end": {
+                "x": 18,
+                "y": 3
+              },
+              "length": 21,
+              "next": [
+                12,
+                13
+              ],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 1,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 22,
+                "y": -24
+              },
+              "end": {
+                "x": 22,
+                "y": -3
+              },
+              "length": 21,
+              "next": [
+                14,
+                15
+              ],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 1,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 22,
+                "y": 3
+              },
+              "end": {
+                "x": 22,
+                "y": 24
+              },
+              "length": 21,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 16,
+                "y": -1.5
+              },
+              "end": {
+                "x": 24,
+                "y": -1.5
+              },
+              "length": 8,
+              "next": [
+                1
+              ],
+              "junction": 0,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 16,
+                "y": -1.5
+              },
+              "end": {
+                "x": 18,
+                "y": -3
+              },
+              "length": 2.8509137094396495,
+              "next": [
+                4
+              ],
+              "junction": 0,
+              "hasControl": true,
+              "control": {
+                "x": 18,
+                "y": -1.5
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 16,
+                "y": 1.5
+              },
+              "end": {
+                "x": 24,
+                "y": 1.5
+              },
+              "length": 8,
+              "next": [
+                3
+              ],
+              "junction": 0,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-x",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": 16,
+                "y": 1.5
+              },
+              "end": {
+                "x": 22,
+                "y": 3
+              },
+              "length": 6.534819606341963,
+              "next": [
+                7
+              ],
+              "junction": 0,
+              "hasControl": true,
+              "control": {
+                "x": 22,
+                "y": 1.5
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 0,
+              "sign": -1,
+              "axis": true,
+              "start": {
+                "x": 18,
+                "y": 3
+              },
+              "end": {
+                "x": 24,
+                "y": 1.5
+              },
+              "length": 6.534819606341962,
+              "next": [
+                3
+              ],
+              "junction": 0,
+              "hasControl": true,
+              "control": {
+                "x": 18,
+                "y": 1.5
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 0,
+              "sign": -1,
+              "axis": true,
+              "start": {
+                "x": 18,
+                "y": 3
+              },
+              "end": {
+                "x": 18,
+                "y": -3
+              },
+              "length": 6,
+              "next": [
+                4
+              ],
+              "junction": 0,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 1,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 22,
+                "y": -3
+              },
+              "end": {
+                "x": 24,
+                "y": -1.5
+              },
+              "length": 2.8509137094396504,
+              "next": [
+                1
+              ],
+              "junction": 0,
+              "hasControl": true,
+              "control": {
+                "x": 22,
+                "y": -1.5
+              }
+            },
+            {
+              "road": "cross-y",
+              "lane": 1,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 22,
+                "y": -3
+              },
+              "end": {
+                "x": 22,
+                "y": 3
+              },
+              "length": 6,
+              "next": [
+                7
+              ],
+              "junction": 0,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "entries": [
+            0,
+            2,
+            5,
+            6
+          ],
+          "sides": [
+            {
+              "junction": 0,
+              "road": "cross-x",
+              "axis": false,
+              "out": -1,
+              "boundary": 16
+            },
+            {
+              "junction": 0,
+              "road": "cross-y",
+              "axis": true,
+              "out": 1,
+              "boundary": 3
+            },
+            {
+              "junction": 0,
+              "road": "cross-y",
+              "axis": true,
+              "out": -1,
+              "boundary": -3
+            },
+            {
+              "junction": 0,
+              "road": "cross-x",
+              "axis": false,
+              "out": 1,
+              "boundary": 24
+            }
+          ],
+          "laneSigns": [
+            {
+              "road": "cross-x",
+              "lane": 0,
+              "sign": 1
+            },
+            {
+              "road": "cross-x",
+              "lane": 1,
+              "sign": 1
+            },
+            {
+              "road": "cross-y",
+              "lane": 0,
+              "sign": -1
+            },
+            {
+              "road": "cross-y",
+              "lane": 1,
+              "sign": 1
+            }
+          ],
+          "movements": [
+            {
+              "edge": 0,
+              "turns": [
+                "straight",
+                "right"
+              ]
+            },
+            {
+              "edge": 1,
+              "turns": []
+            },
+            {
+              "edge": 2,
+              "turns": [
+                "straight",
+                "left"
+              ]
+            },
+            {
+              "edge": 3,
+              "turns": []
+            },
+            {
+              "edge": 4,
+              "turns": []
+            },
+            {
+              "edge": 5,
+              "turns": [
+                "left",
+                "straight"
+              ]
+            },
+            {
+              "edge": 6,
+              "turns": [
+                "right",
+                "straight"
+              ]
+            },
+            {
+              "edge": 7,
+              "turns": []
+            },
+            {
+              "edge": 8,
+              "turns": [
+                "straight"
+              ]
+            },
+            {
+              "edge": 9,
+              "turns": [
+                "right"
+              ]
+            },
+            {
+              "edge": 10,
+              "turns": [
+                "straight"
+              ]
+            },
+            {
+              "edge": 11,
+              "turns": [
+                "left"
+              ]
+            },
+            {
+              "edge": 12,
+              "turns": [
+                "left"
+              ]
+            },
+            {
+              "edge": 13,
+              "turns": [
+                "straight"
+              ]
+            },
+            {
+              "edge": 14,
+              "turns": [
+                "right"
+              ]
+            },
+            {
+              "edge": 15,
+              "turns": [
+                "straight"
+              ]
+            }
+          ]
+        },
+        "snaps": [
+          {
+            "probe": {
+              "x": 0,
+              "y": 0
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 0,
+              "y": 0
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:0:0",
+            "roadId": "cross-x",
+            "atId": "cross-x"
+          },
+          {
+            "probe": {
+              "x": 19,
+              "y": 0
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 20,
+              "y": 0
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:20:0",
+            "roadId": "cross-x",
+            "atId": "cross-x"
+          },
+          {
+            "probe": {
+              "x": 20,
+              "y": 2
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 20,
+              "y": 0
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:20:0",
+            "roadId": "cross-x",
+            "atId": "cross-y-segment-1"
+          },
+          {
+            "probe": {
+              "x": 40.4,
+              "y": 0.4
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 40,
+              "y": 0
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:40:0",
+            "roadId": "cross-x-segment-1",
+            "atId": "cross-x-segment-1"
+          },
+          {
+            "probe": {
+              "x": 20,
+              "y": -20
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 20,
+              "y": -20
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:20:-20",
+            "roadId": "cross-y",
+            "atId": "cross-y"
+          }
+        ],
+        "inks": [
+          {
+            "road": "cross-x",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 19
+              },
+              {
+                "lo": 27,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 15.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 5.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 19
+              },
+              {
+                "lo": 27,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 5.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 15.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 3,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 19
+              },
+              {
+                "lo": 27,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 3,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 15.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 2.87,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 19
+              },
+              {
+                "lo": 27,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 2.87,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 15.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 3.13,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 19
+              },
+              {
+                "lo": 27,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-x",
+            "across": 3.13,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 15.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 21
+              },
+              {
+                "lo": 27,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 7.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 21
+              },
+              {
+                "lo": 27,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 7.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 4,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 21
+              },
+              {
+                "lo": 27,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 4,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 3.87,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 21
+              },
+              {
+                "lo": 27,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 3.87,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 4.13,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 21
+              },
+              {
+                "lo": 27,
+                "hi": 48
+              }
+            ]
+          },
+          {
+            "road": "cross-y",
+            "across": 4.13,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17.5
+              },
+              {
+                "lo": 30.5,
+                "hi": 48
+              }
+            ]
+          }
+        ],
+        "traffic": [
+          {
+            "time": 0,
+            "trafficTime": 0,
+            "cars": [
+              {
+                "id": 0,
+                "edge": 0,
+                "distance": 10,
+                "previousEdge": 0,
+                "previousDistance": 10,
+                "kind": "bus",
+                "size": 10,
+                "held": -1,
+                "variant": "bus-mosaic"
+              },
+              {
+                "id": 1,
+                "edge": 1,
+                "distance": 10,
+                "previousEdge": 1,
+                "previousDistance": 10,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "suv"
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "distance": 12,
+                "previousEdge": 2,
+                "previousDistance": 12,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "sedan"
+              },
+              {
+                "id": 4,
+                "edge": 4,
+                "distance": 10,
+                "previousEdge": 4,
+                "previousDistance": 10,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "moped"
+              }
+            ],
+            "poses": [
+              {
+                "id": 0,
+                "edge": 0,
+                "kind": "bus",
+                "variant": "bus-mosaic",
+                "x": 7,
+                "y": -1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 1,
+                "edge": 1,
+                "kind": "car",
+                "variant": "suv",
+                "x": 34,
+                "y": -1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "kind": "car",
+                "variant": "sedan",
+                "x": 9,
+                "y": 1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 4,
+                "edge": 4,
+                "kind": "scooter",
+                "variant": "moped",
+                "x": 18,
+                "y": -13,
+                "z": 1.05,
+                "heading": -3.141592653589793
+              }
+            ],
+            "signals": [
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": true,
+                "time": 0,
+                "phase": "green"
+              },
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": false,
+                "time": 0,
+                "phase": "red"
+              }
+            ]
+          },
+          {
+            "time": 3.2,
+            "trafficTime": 3.2,
+            "cars": [
+              {
+                "id": 0,
+                "edge": 0,
+                "distance": 10.5,
+                "previousEdge": 0,
+                "previousDistance": 10.5,
+                "kind": "bus",
+                "size": 10,
+                "held": -1,
+                "variant": "bus-mosaic"
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "distance": 13.399999999999999,
+                "previousEdge": 2,
+                "previousDistance": 13.399999999999999,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "sedan"
+              },
+              {
+                "id": 9,
+                "edge": 2,
+                "distance": 7.199999999999999,
+                "previousEdge": 2,
+                "previousDistance": 7.199999999999999,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "sedan"
+              }
+            ],
+            "poses": [
+              {
+                "id": 0,
+                "edge": 0,
+                "kind": "bus",
+                "variant": "bus-mosaic",
+                "x": 7.500000000000002,
+                "y": -1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "kind": "car",
+                "variant": "sedan",
+                "x": 10.399999999999999,
+                "y": 1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 9,
+                "edge": 2,
+                "kind": "car",
+                "variant": "sedan",
+                "x": 4.199999999999999,
+                "y": 1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              }
+            ],
+            "signals": [
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": true,
+                "time": 3.2,
+                "phase": "amber"
+              },
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": false,
+                "time": 3.2,
+                "phase": "red"
+              }
+            ]
+          },
+          {
+            "time": 9.9,
+            "trafficTime": 9.9,
+            "cars": [
+              {
+                "id": 0,
+                "edge": 0,
+                "distance": 15.899999999999997,
+                "previousEdge": 0,
+                "previousDistance": 15.299999999999997,
+                "kind": "bus",
+                "size": 10,
+                "held": 0,
+                "variant": "bus-mosaic"
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "distance": 13.399999999999999,
+                "previousEdge": 2,
+                "previousDistance": 13.399999999999999,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "sedan"
+              },
+              {
+                "id": 9,
+                "edge": 2,
+                "distance": 7.199999999999999,
+                "previousEdge": 2,
+                "previousDistance": 7.199999999999999,
+                "kind": "car",
+                "size": 4.2,
+                "held": -1,
+                "variant": "sedan"
+              },
+              {
+                "id": 10,
+                "edge": 5,
+                "distance": 16.55,
+                "previousEdge": 5,
+                "previousDistance": 16.55,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "moped"
+              },
+              {
+                "id": 11,
+                "edge": 6,
+                "distance": 16.55,
+                "previousEdge": 6,
+                "previousDistance": 16.55,
+                "kind": "scooter",
+                "size": 1.9,
+                "held": -1,
+                "variant": "moped"
+              }
+            ],
+            "poses": [
+              {
+                "id": 0,
+                "edge": 0,
+                "kind": "bus",
+                "variant": "bus-mosaic",
+                "x": 12.299999999999997,
+                "y": -1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 2,
+                "edge": 2,
+                "kind": "car",
+                "variant": "sedan",
+                "x": 10.399999999999999,
+                "y": 1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 9,
+                "edge": 2,
+                "kind": "car",
+                "variant": "sedan",
+                "x": 4.199999999999999,
+                "y": 1.5,
+                "z": 1.05,
+                "heading": -1.5707963267948966
+              },
+              {
+                "id": 10,
+                "edge": 5,
+                "kind": "scooter",
+                "variant": "moped",
+                "x": 18,
+                "y": 7.449999999999999,
+                "z": 1.05,
+                "heading": -3.141592653589793
+              },
+              {
+                "id": 11,
+                "edge": 6,
+                "kind": "scooter",
+                "variant": "moped",
+                "x": 22,
+                "y": -7.449999999999999,
+                "z": 1.05,
+                "heading": 0
+              }
+            ],
+            "signals": [
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": true,
+                "time": 9.9,
+                "phase": "red"
+              },
+              {
+                "junction": "0:16:-3:24:3",
+                "uncontrolled": false,
+                "axis": false,
+                "time": 9.9,
+                "phase": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "input": [
+        {
+          "id": "cross-x",
+          "type": "road",
+          "x": -3,
+          "y": -3,
+          "z": 0,
+          "w": 46,
+          "d": 6,
+          "rot": 1,
+          "cfg": {
+            "direction": "one-way",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              40,
+              0
+            ]
+          }
+        },
+        {
+          "id": "cross-y",
+          "type": "road",
+          "x": 16,
+          "y": -24,
+          "z": 0,
+          "w": 8,
+          "d": 48,
+          "rot": 0,
+          "cfg": {
+            "direction": "two-way",
+            "from": [
+              20,
+              -20
+            ],
+            "to": [
+              20,
+              20
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "overpass",
+      "description": "Identical rectangles at elevations 0 and 4: a bridge over a road must not create a shared node or junction.",
+      "probes": [
+        [
+          0,
+          0,
+          0,
+          3
+        ],
+        [
+          0,
+          0,
+          4,
+          3
+        ],
+        [
+          0,
+          0,
+          2,
+          3
+        ]
+      ],
+      "trafficTimes": [],
+      "expected": {
+        "records": [
+          {
+            "id": "over-lower",
+            "type": "road",
+            "x": -23,
+            "y": -3,
+            "z": 0,
+            "w": 46,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": -20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            },
+            "acrossX": false,
+            "width": 6,
+            "length": 46,
+            "lanes": 2,
+            "laneWidth": 3,
+            "endpoints": [
+              {
+                "x": -20,
+                "y": 0
+              },
+              {
+                "x": 20,
+                "y": 0
+              }
+            ]
+          },
+          {
+            "id": "over-upper",
+            "type": "road",
+            "x": -23,
+            "y": -3,
+            "z": 4,
+            "w": 46,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": -20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            },
+            "acrossX": false,
+            "width": 6,
+            "length": 46,
+            "lanes": 2,
+            "laneWidth": 3,
+            "endpoints": [
+              {
+                "x": -20,
+                "y": 0
+              },
+              {
+                "x": 20,
+                "y": 0
+              }
+            ]
+          }
+        ],
+        "segments": [
+          {
+            "id": "over-lower",
+            "sourceId": "over-lower",
+            "fromNode": "road-node:0:-20:0",
+            "toNode": "road-node:0:20:0",
+            "x": -23,
+            "y": -3,
+            "z": 0,
+            "w": 46,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": -20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            }
+          },
+          {
+            "id": "over-upper",
+            "sourceId": "over-upper",
+            "fromNode": "road-node:4:-20:0",
+            "toNode": "road-node:4:20:0",
+            "x": -23,
+            "y": -3,
+            "z": 4,
+            "w": 46,
+            "d": 6,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": -20,
+              "y": 0
+            },
+            "hasTo": true,
+            "to": {
+              "x": 20,
+              "y": 0
+            }
+          }
+        ],
+        "nodes": [
+          {
+            "id": "road-node:0:-20:0",
+            "x": -20,
+            "y": 0,
+            "z": 0,
+            "segments": [
+              "over-lower"
+            ]
+          },
+          {
+            "id": "road-node:0:20:0",
+            "x": 20,
+            "y": 0,
+            "z": 0,
+            "segments": [
+              "over-lower"
+            ]
+          },
+          {
+            "id": "road-node:4:-20:0",
+            "x": -20,
+            "y": 0,
+            "z": 4,
+            "segments": [
+              "over-upper"
+            ]
+          },
+          {
+            "id": "road-node:4:20:0",
+            "x": 20,
+            "y": 0,
+            "z": 4,
+            "segments": [
+              "over-upper"
+            ]
+          }
+        ],
+        "network": {
+          "junctions": [],
+          "edges": [
+            {
+              "road": "over-lower",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -23,
+                "y": -1.5
+              },
+              "end": {
+                "x": 23,
+                "y": -1.5
+              },
+              "length": 46,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "over-lower",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -23,
+                "y": 1.5
+              },
+              "end": {
+                "x": 23,
+                "y": 1.5
+              },
+              "length": 46,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "over-upper",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -23,
+                "y": -1.5
+              },
+              "end": {
+                "x": 23,
+                "y": -1.5
+              },
+              "length": 46,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "over-upper",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -23,
+                "y": 1.5
+              },
+              "end": {
+                "x": 23,
+                "y": 1.5
+              },
+              "length": 46,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "entries": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "sides": [],
+          "laneSigns": [
+            {
+              "road": "over-lower",
+              "lane": 0,
+              "sign": 1
+            },
+            {
+              "road": "over-lower",
+              "lane": 1,
+              "sign": 1
+            },
+            {
+              "road": "over-upper",
+              "lane": 0,
+              "sign": 1
+            },
+            {
+              "road": "over-upper",
+              "lane": 1,
+              "sign": 1
+            }
+          ],
+          "movements": [
+            {
+              "edge": 0,
+              "turns": []
+            },
+            {
+              "edge": 1,
+              "turns": []
+            },
+            {
+              "edge": 2,
+              "turns": []
+            },
+            {
+              "edge": 3,
+              "turns": []
+            }
+          ]
+        },
+        "snaps": [
+          {
+            "probe": {
+              "x": 0,
+              "y": 0
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 0,
+              "y": 0
+            },
+            "hasNode": false,
+            "nodeId": "",
+            "roadId": "over-lower",
+            "atId": "over-lower"
+          },
+          {
+            "probe": {
+              "x": 0,
+              "y": 0
+            },
+            "z": 4,
+            "radius": 3,
+            "point": {
+              "x": 0,
+              "y": 0
+            },
+            "hasNode": false,
+            "nodeId": "",
+            "roadId": "over-upper",
+            "atId": "over-upper"
+          },
+          {
+            "probe": {
+              "x": 0,
+              "y": 0
+            },
+            "z": 2,
+            "radius": 3,
+            "point": {
+              "x": 0,
+              "y": 0
+            },
+            "hasNode": false,
+            "nodeId": "",
+            "roadId": "",
+            "atId": ""
+          }
+        ],
+        "inks": [
+          {
+            "road": "over-lower",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 5.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 5.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 3,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 3,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 2.87,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 2.87,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 3.13,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-lower",
+            "across": 3.13,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 5.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 5.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 3,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 3,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 2.87,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 2.87,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 3.13,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          },
+          {
+            "road": "over-upper",
+            "across": 3.13,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 46
+              }
+            ]
+          }
+        ],
+        "traffic": []
+      },
+      "input": [
+        {
+          "id": "over-lower",
+          "type": "road",
+          "x": -23,
+          "y": -3,
+          "z": 0,
+          "w": 46,
+          "d": 6,
+          "rot": 1,
+          "cfg": {
+            "direction": "one-way",
+            "from": [
+              -20,
+              0
+            ],
+            "to": [
+              20,
+              0
+            ]
+          }
+        },
+        {
+          "id": "over-upper",
+          "type": "road",
+          "x": -23,
+          "y": -3,
+          "z": 4,
+          "w": 46,
+          "d": 6,
+          "rot": 1,
+          "cfg": {
+            "direction": "one-way",
+            "from": [
+              -20,
+              0
+            ],
+            "to": [
+              20,
+              0
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "legacy-no-endpoints",
+      "description": "Road record with no cfg.from/cfg.to: endpoints derive from the inset rectangle.",
+      "probes": [
+        [
+          0,
+          0,
+          0,
+          6
+        ],
+        [
+          1,
+          0,
+          0,
+          6
+        ],
+        [
+          4,
+          4,
+          0,
+          3
+        ],
+        [
+          4,
+          26,
+          0,
+          3
+        ]
+      ],
+      "trafficTimes": [],
+      "expected": {
+        "records": [
+          {
+            "id": "legacy-road",
+            "type": "road",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 8,
+            "d": 30,
+            "rot": 0,
+            "direction": "one-way",
+            "hasFrom": false,
+            "from": {
+              "x": 0,
+              "y": 0
+            },
+            "hasTo": false,
+            "to": {
+              "x": 0,
+              "y": 0
+            },
+            "acrossX": true,
+            "width": 8,
+            "length": 30,
+            "lanes": 2,
+            "laneWidth": 4,
+            "endpoints": [
+              {
+                "x": 4,
+                "y": 4
+              },
+              {
+                "x": 4,
+                "y": 26
+              }
+            ]
+          }
+        ],
+        "segments": [
+          {
+            "id": "legacy-road",
+            "sourceId": "legacy-road",
+            "fromNode": "road-node:0:4:4",
+            "toNode": "road-node:0:4:26",
+            "x": 0,
+            "y": 0,
+            "z": 0,
+            "w": 8,
+            "d": 30,
+            "rot": 0,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 4,
+              "y": 4
+            },
+            "hasTo": true,
+            "to": {
+              "x": 4,
+              "y": 26
+            }
+          }
+        ],
+        "nodes": [
+          {
+            "id": "road-node:0:4:4",
+            "x": 4,
+            "y": 4,
+            "z": 0,
+            "segments": [
+              "legacy-road"
+            ]
+          },
+          {
+            "id": "road-node:0:4:26",
+            "x": 4,
+            "y": 26,
+            "z": 0,
+            "segments": [
+              "legacy-road"
+            ]
+          }
+        ],
+        "network": {
+          "junctions": [],
+          "edges": [
+            {
+              "road": "legacy-road",
+              "lane": 0,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 2,
+                "y": 0
+              },
+              "end": {
+                "x": 2,
+                "y": 30
+              },
+              "length": 30,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "legacy-road",
+              "lane": 1,
+              "sign": 1,
+              "axis": true,
+              "start": {
+                "x": 6,
+                "y": 0
+              },
+              "end": {
+                "x": 6,
+                "y": 30
+              },
+              "length": 30,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "entries": [
+            0,
+            1
+          ],
+          "sides": [],
+          "laneSigns": [
+            {
+              "road": "legacy-road",
+              "lane": 0,
+              "sign": 1
+            },
+            {
+              "road": "legacy-road",
+              "lane": 1,
+              "sign": 1
+            }
+          ],
+          "movements": [
+            {
+              "edge": 0,
+              "turns": []
+            },
+            {
+              "edge": 1,
+              "turns": []
+            }
+          ]
+        },
+        "snaps": [
+          {
+            "probe": {
+              "x": 0,
+              "y": 0
+            },
+            "z": 0,
+            "radius": 6,
+            "point": {
+              "x": 4,
+              "y": 4
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:4:4",
+            "roadId": "legacy-road",
+            "atId": "legacy-road"
+          },
+          {
+            "probe": {
+              "x": 1,
+              "y": 0
+            },
+            "z": 0,
+            "radius": 6,
+            "point": {
+              "x": 4,
+              "y": 4
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:4:4",
+            "roadId": "legacy-road",
+            "atId": "legacy-road"
+          },
+          {
+            "probe": {
+              "x": 4,
+              "y": 4
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 4,
+              "y": 4
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:4:4",
+            "roadId": "legacy-road",
+            "atId": "legacy-road"
+          },
+          {
+            "probe": {
+              "x": 4,
+              "y": 26
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 4,
+              "y": 26
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:4:26",
+            "roadId": "legacy-road",
+            "atId": "legacy-road"
+          }
+        ],
+        "inks": [
+          {
+            "road": "legacy-road",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 7.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 7.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 4,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 4,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 3.87,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 3.87,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 4.13,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          },
+          {
+            "road": "legacy-road",
+            "across": 4.13,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 30
+              }
+            ]
+          }
+        ],
+        "traffic": []
+      },
+      "input": [
+        {
+          "id": "legacy-road",
+          "type": "road",
+          "x": 0,
+          "y": 0,
+          "z": 0,
+          "w": 8,
+          "d": 30,
+          "rot": 0,
+          "cfg": {
+            "direction": "one-way"
+          }
+        }
+      ]
+    },
+    {
+      "name": "fractional-endpoints",
+      "description": "Authored endpoints on half/quarter cells stay fractional; rectangle padding must match roadBetween.",
+      "probes": [
+        [
+          0.5,
+          2.25,
+          0,
+          3
+        ],
+        [
+          10.5,
+          2.25,
+          0,
+          3
+        ],
+        [
+          5.5,
+          4,
+          0,
+          3
+        ]
+      ],
+      "trafficTimes": [],
+      "expected": {
+        "records": [
+          {
+            "id": "frac-road",
+            "type": "road",
+            "x": -3,
+            "y": -1,
+            "z": 0,
+            "w": 17,
+            "d": 7,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 0.5,
+              "y": 2.25
+            },
+            "hasTo": true,
+            "to": {
+              "x": 10.5,
+              "y": 2.25
+            },
+            "acrossX": false,
+            "width": 7,
+            "length": 17,
+            "lanes": 2,
+            "laneWidth": 3.5,
+            "endpoints": [
+              {
+                "x": 0.5,
+                "y": 2.25
+              },
+              {
+                "x": 10.5,
+                "y": 2.25
+              }
+            ]
+          }
+        ],
+        "segments": [
+          {
+            "id": "frac-road",
+            "sourceId": "frac-road",
+            "fromNode": "road-node:0:0.5:2.25",
+            "toNode": "road-node:0:10.5:2.25",
+            "x": -3,
+            "y": -1,
+            "z": 0,
+            "w": 17,
+            "d": 7,
+            "rot": 1,
+            "direction": "one-way",
+            "hasFrom": true,
+            "from": {
+              "x": 0.5,
+              "y": 2.25
+            },
+            "hasTo": true,
+            "to": {
+              "x": 10.5,
+              "y": 2.25
+            }
+          }
+        ],
+        "nodes": [
+          {
+            "id": "road-node:0:0.5:2.25",
+            "x": 0.5,
+            "y": 2.25,
+            "z": 0,
+            "segments": [
+              "frac-road"
+            ]
+          },
+          {
+            "id": "road-node:0:10.5:2.25",
+            "x": 10.5,
+            "y": 2.25,
+            "z": 0,
+            "segments": [
+              "frac-road"
+            ]
+          }
+        ],
+        "network": {
+          "junctions": [],
+          "edges": [
+            {
+              "road": "frac-road",
+              "lane": 0,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -3,
+                "y": 0.75
+              },
+              "end": {
+                "x": 14,
+                "y": 0.75
+              },
+              "length": 17,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            },
+            {
+              "road": "frac-road",
+              "lane": 1,
+              "sign": 1,
+              "axis": false,
+              "start": {
+                "x": -3,
+                "y": 4.25
+              },
+              "end": {
+                "x": 14,
+                "y": 4.25
+              },
+              "length": 17,
+              "next": [],
+              "junction": -1,
+              "hasControl": false,
+              "control": {
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "entries": [
+            0,
+            1
+          ],
+          "sides": [],
+          "laneSigns": [
+            {
+              "road": "frac-road",
+              "lane": 0,
+              "sign": 1
+            },
+            {
+              "road": "frac-road",
+              "lane": 1,
+              "sign": 1
+            }
+          ],
+          "movements": [
+            {
+              "edge": 0,
+              "turns": []
+            },
+            {
+              "edge": 1,
+              "turns": []
+            }
+          ]
+        },
+        "snaps": [
+          {
+            "probe": {
+              "x": 0.5,
+              "y": 2.25
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 0.5,
+              "y": 2.25
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:0.5:2.25",
+            "roadId": "frac-road",
+            "atId": "frac-road"
+          },
+          {
+            "probe": {
+              "x": 10.5,
+              "y": 2.25
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 10.5,
+              "y": 2.25
+            },
+            "hasNode": true,
+            "nodeId": "road-node:0:10.5:2.25",
+            "roadId": "frac-road",
+            "atId": "frac-road"
+          },
+          {
+            "probe": {
+              "x": 5.5,
+              "y": 4
+            },
+            "z": 0,
+            "radius": 3,
+            "point": {
+              "x": 5.5,
+              "y": 2.25
+            },
+            "hasNode": false,
+            "nodeId": "",
+            "roadId": "frac-road",
+            "atId": "frac-road"
+          }
+        ],
+        "inks": [
+          {
+            "road": "frac-road",
+            "across": 0.16,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 0.16,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 6.84,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 6.84,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.5,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.5,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.37,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.37,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.63,
+            "margin": 0,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          },
+          {
+            "road": "frac-road",
+            "across": 3.63,
+            "margin": 3.5,
+            "spans": [
+              {
+                "lo": 0,
+                "hi": 17
+              }
+            ]
+          }
+        ],
+        "traffic": []
+      },
+      "input": [
+        {
+          "id": "frac-road",
+          "type": "road",
+          "x": -3,
+          "y": -1,
+          "z": 0,
+          "w": 17,
+          "d": 7,
+          "rot": 1,
+          "cfg": {
+            "direction": "one-way",
+            "from": [
+              0.5,
+              2.25
+            ],
+            "to": [
+              10.5,
+              2.25
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

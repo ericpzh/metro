@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using Metro.App;
+using Metro.View;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -12,20 +13,25 @@ using UnityEngine.Rendering;
 namespace Metro.Editor {
     public static class ZooPlayable {
         public const string ScenePath = "Assets/StationDesigner/Scenes/ZooPlayable.unity";
+        public const string PassengerModel = "Assets/StationDesigner/Generated/Models/passenger-adult.glb";
 
         public static void Generate() {
+            Metro.Editor.RuntimeCatalogue.Ensure();
+            TrainCatalogueBuilder.Ensure();
             if (File.Exists(ScenePath)) {
                 var existing = EditorSceneManager.OpenScene(ScenePath);
                 var view = UnityEngine.Object.FindAnyObjectByType<ZooPlayableView>();
                 if (!existing.IsValid() || !view || !view.fixture || !view.layout)
                     throw new InvalidOperationException("Existing ZooPlayable scene is invalid");
-                var clip = PlatformDoors();
-                if (view.platformDoors != clip) {
-                    view.platformDoors = clip;
+                bool changed = Assign(view);
+                if (changed) {
                     EditorSceneManager.MarkSceneDirty(existing);
                     if (!EditorSceneManager.SaveScene(existing, ScenePath))
                         throw new InvalidOperationException("Could not update ZooPlayable scene");
                 }
+                // Validate what the scene serialized, not the in-memory edit.
+                var reopened = EditorSceneManager.OpenScene(ScenePath);
+                Validate(UnityEngine.Object.FindAnyObjectByType<ZooPlayableView>(), reopened);
                 return;
             }
 
@@ -47,19 +53,63 @@ namespace Metro.Editor {
             var zoo = new GameObject("ZooPlayable").AddComponent<ZooPlayableView>();
             zoo.fixture = Load<TextAsset>("Assets/StationDesigner/Zoo/ZooSave.json");
             zoo.layout = Load<TextAsset>("Assets/StationDesigner/Zoo/ZooLayout.json");
-            zoo.benchPrefab = Load<GameObject>("Assets/StationDesigner/Generated/Prefabs/Bench.prefab");
-            zoo.binPrefab = Load<GameObject>("Assets/StationDesigner/Generated/Prefabs/Bin.prefab");
-            zoo.trainPrefab = Load<GameObject>("Assets/TrainProof/TypeA.prefab");
-            zoo.platformDoors = PlatformDoors();
             zoo.font = Load<Font>(Bootstrap.FontPath);
             zoo.stationShader = Shader.Find("Universal Render Pipeline/Lit");
+            Assign(zoo);
             if (!zoo.stationShader || !EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException("Could not create ZooPlayable scene");
             AssetDatabase.SaveAssets();
+            var saved = EditorSceneManager.OpenScene(ScenePath);
+            Validate(UnityEngine.Object.FindAnyObjectByType<ZooPlayableView>(), saved);
         }
 
-        static AnimationClip PlatformDoors() => AssetDatabase.LoadAllAssetsAtPath("Assets/TrainProof/train.glb")
-            .OfType<AnimationClip>().Single(clip => clip.name == "OpenPlus");
+        static bool Assign(ZooPlayableView view) {
+            // Reload the generated assets by path: a reference created moments ago in the
+            // same batch run is not a reliable thing to serialize into a scene.
+            var catalogue = AssetDatabase.LoadAssetAtPath<Metro.View.RuntimeCatalogue>(Metro.View.RuntimeCatalogue.AssetPath);
+            var formations = AssetDatabase.LoadAssetAtPath<Metro.View.TrainCatalogue>(Metro.View.TrainCatalogue.AssetPath);
+            if (!catalogue) throw new InvalidOperationException("Runtime catalogue asset is missing: " + Metro.View.RuntimeCatalogue.AssetPath);
+            if (!formations) throw new InvalidOperationException("Train catalogue asset is missing: " + Metro.View.TrainCatalogue.AssetPath);
+            bool changed = false;
+            void Set<T>(ref T field, T value) where T : UnityEngine.Object {
+                if (field == value) return;
+                field = value;
+                changed = true;
+            }
+            Set(ref view.catalogue, catalogue);
+            Set(ref view.trainCatalogue, formations);
+            Set(ref view.passengerPrefab, AssetDatabase.LoadAssetAtPath<GameObject>(PassengerModel));
+            var passengerClips = Clips(PassengerModel);
+            if (!Same(view.passengerClips, passengerClips)) { view.passengerClips = passengerClips; changed = true; }
+            return changed;
+        }
+
+        static void Validate(ZooPlayableView view, UnityEngine.SceneManagement.Scene scene) {
+            if (!view || !scene.IsValid())
+                throw new InvalidOperationException("ZooPlayable scene lost its playable view after saving");
+            var problems = new System.Collections.Generic.List<string>();
+            if (!view.catalogue) problems.Add("runtime catalogue is not assigned");
+            if (!view.trainCatalogue) problems.Add("train catalogue is not assigned");
+            if (!view.passengerPrefab) problems.Add("cleared passenger rig is not assigned");
+            if (view.passengerClips == null || view.passengerClips.Length == 0) problems.Add("passenger clips are not assigned");
+            if (view.catalogue) {
+                var zoo = TrainFormations.Select("L", 6, "third-rail", view.trainCatalogue);
+                if (!view.trainCatalogue.Has(zoo)) problems.Add("Line 5 formation is missing from the train catalogue: " + zoo);
+            }
+            if (problems.Count > 0) throw new InvalidOperationException("ZooPlayable scene validation failed:\n  " + string.Join("\n  ", problems));
+            Debug.Log($"ZOO_SCENE_OK catalogue={view.catalogue.Count} formations={view.trainCatalogue.entries.Length} passengerClips={view.passengerClips.Length}");
+        }
+
+        static AnimationClip[] Clips(string path) => AssetDatabase.LoadAllAssetsAtPath(path)
+            .OfType<AnimationClip>().OrderBy(clip => clip.name, StringComparer.Ordinal).ToArray();
+        static AnimationClip Clip(string path, string name) =>
+            Clips(path).FirstOrDefault(clip => clip.name == name);
+        static bool Same(AnimationClip[] a, AnimationClip[] b) {
+            if (a == null || b == null) return a == b;
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
 
         static T Load<T>(string path) where T : UnityEngine.Object {
             var asset = AssetDatabase.LoadAssetAtPath<T>(path);
@@ -68,4 +118,3 @@ namespace Metro.Editor {
         }
     }
 }
-

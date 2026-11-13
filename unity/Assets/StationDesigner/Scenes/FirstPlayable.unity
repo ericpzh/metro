@@ -148,8 +148,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe7853262562a2748ac728748f14f6a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Metro.App::Metro.App.FirstPlayableView
-  trainPrefab: {fileID: 6278457141649737115, guid: c1e01b4236021fe42822e69b79d7e3c2, type: 3}
-  platformDoors: {fileID: 6936232505505550857, guid: f1ab344c4aaae4a4d90b8c6c614c3283, type: 3}
+  trainPrefab: {fileID: 4437917892646983283, guid: 496b648a11f01ac4fb287a55619c1cde, type: 3}
+  platformDoors: {fileID: 6936232505505550857, guid: 4aa3b86a7b4036145946335ee6a50c94, type: 3}
   stationShader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
 --- !u!4 &336634785
 Transform:

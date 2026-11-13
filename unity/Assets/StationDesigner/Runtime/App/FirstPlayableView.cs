@@ -48,7 +48,7 @@ namespace Metro.App {
             if(trainPrefab) { train=Instantiate(trainPrefab); train.name="Type A train"; train.transform.position=new Vector3(5,0,3);
                 var basis=train.transform.Find("Unity basis"); if(basis && basis.childCount>0) animatedTrain=basis.GetChild(0).gameObject;
                 if(animatedTrain && !animatedTrain.GetComponent<Animator>()) animatedTrain.AddComponent<Animator>();
-                foreach(var node in train.GetComponentsInChildren<Transform>()) if(node.name=="TypeADoor00") { observedDoor=node; closedDoorPosition=node.localPosition; break; } }
+                foreach(var node in train.GetComponentsInChildren<Transform>()) if(node.name=="TrainADoor00" || node.name=="TypeADoor00") { observedDoor=node; closedDoorPosition=node.localPosition; break; } }
             passenger=new GameObject("Passenger"); passenger.AddComponent<MeshFilter>().mesh=PlaceholderCrowdMesh.Create();
             var renderer=passenger.AddComponent<MeshRenderer>(); renderer.material=new Material(stationShader); renderer.material.color=new Color(.85f,.3f,.15f);
             passenger.SetActive(false); Refresh(); Publish();

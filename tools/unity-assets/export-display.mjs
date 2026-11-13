@@ -99,7 +99,7 @@ const MODELS = [
   { key: 'clock', paletteId: 'clock', prefab: 'Clock', file: 'clock.glb', id: 'station.clock.standard', variant: 'analogue' },
   { key: 'clock-digital', paletteId: 'clock-digital', prefab: 'ClockDigital', file: 'clock-digital.glb', id: 'station.clock.digital', variant: 'digital' },
   { key: 'tv', paletteId: 'tv', prefab: 'Tv', file: 'tv.glb', id: 'station.tv.standard', variant: 'single' },
-  { key: 'tv-double', paletteId: 'tv', prefab: 'TvDouble', file: 'tv-double.glb', id: 'station.tv.double', variant: 'pair', pair: true },
+  { key: 'tv-double', paletteId: 'tv-double', prefab: 'TvDouble', file: 'tv-double.glb', id: 'station.tv.double', variant: 'pair', pair: true },
   { key: 'tvm', paletteId: 'tvm', prefab: 'Tvm', file: 'tvm.glb', id: 'station.tvm.standard', variant: 'single' },
   { key: 'vending', paletteId: 'vending', prefab: 'Vending', file: 'vending.glb', id: 'station.vending.standard', variant: 'single' },
 ]

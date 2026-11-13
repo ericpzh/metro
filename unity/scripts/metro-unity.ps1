@@ -3,10 +3,12 @@ param(
     [Parameter(Position=0)][ValidateSet('doctor','bootstrap','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [ValidateSet('Development','Release')][string]$Configuration = 'Development',
-    [ValidateSet('Bootstrap','FirstPlayable','ZooPlayable')][string]$Scene = 'Bootstrap',
+    [ValidateSet('Bootstrap','FirstPlayable','ZooPlayable','StationGame')][string]$Scene = 'Bootstrap',
+    [string]$ScenePath = '',
     [string]$ProjectPath,
     [string]$OutputDirectory,
     [string]$Manifest,
+    [string]$TestFilter = '',
     [int]$TimeoutSeconds = 1800,
     [switch]$Help
 )
@@ -50,12 +52,18 @@ if ($Task -in @('pack-web','smoke-web')) {
 if (!(Test-Path -LiteralPath $editor) -or !(Test-Path -LiteralPath $module)) { throw 'Pinned Editor or WebGL module not found.' }
 if (!$versionRevision -or $editorProductVersion -ne $expectedProductVersion) { throw "Editor version does not match the project pin: $editorProductVersion versus $versionRevision" }
 if (Test-Path (Join-Path $project 'Temp/UnityLockfile')) { throw 'Project is locked by a running Editor. Use a separate copy.' }
+# The runtime catalogue generator reads the checked-in recipe folder. A scratch copy of
+# Assets, Packages and ProjectSettings does not carry it, so stage it beside the project.
+$recipes = Join-Path $project 'asset-recipes'
+if (!(Test-Path -LiteralPath $recipes) -and (Test-Path -LiteralPath (Join-Path $repo 'unity/asset-recipes'))) {
+    Copy-Item -LiteralPath (Join-Path $repo 'unity/asset-recipes') -Destination $recipes -Recurse
+}
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $headAtStart = (& git -C $repo rev-parse HEAD).Trim()
 $log = Join-Path $out "$Task-$Mode-$Configuration.log"
 $argsList = @('-batchmode','-nographics','-projectPath',('"'+$project+'"'),'-logFile',('"'+$log+'"'))
 switch ($Task) {
-    'bootstrap' { $method = if ($Scene -eq 'FirstPlayable') { 'Metro.Editor.FirstPlayable.Generate' } elseif ($Scene -eq 'ZooPlayable') { 'Metro.Editor.ZooPlayable.Generate' } else { 'Metro.Editor.Bootstrap.Generate' }; $argsList += @('-quit','-executeMethod',$method) }
+    'bootstrap' { $method = if ($Scene -eq 'FirstPlayable') { 'Metro.Editor.FirstPlayable.Generate' } elseif ($Scene -eq 'ZooPlayable') { 'Metro.Editor.ZooPlayable.Generate' } elseif ($Scene -eq 'StationGame') { 'Metro.Editor.StationGameScene.Generate' } else { 'Metro.Editor.Bootstrap.Generate' }; $argsList += @('-quit','-executeMethod',$method) }
     'import-assets' {
         if (!$Manifest) { throw 'import-assets requires -Manifest.' }
         $manifestPath = (Resolve-Path -LiteralPath $Manifest).Path
@@ -63,12 +71,27 @@ switch ($Task) {
         if (Test-Path -LiteralPath $importReport) { Remove-Item -LiteralPath $importReport }
         $argsList += @('-quit','-executeMethod','Metro.Editor.ImportAssets.Run','-metroManifest',('"'+$manifestPath+'"'),'-metroImportReport',('"'+$importReport+'"'))
     }
-    'test' { $xml = Join-Path $out "$Mode.xml"; if(Test-Path $xml){ Remove-Item -LiteralPath $xml }; $argsList += @('-runTests','-testPlatform',$Mode,'-testResults',('"'+$xml+'"')) }
-    'build-web' { $build = Join-Path $out "web-$Configuration"; if(Test-Path $build){ throw 'Build output already exists; choose a fresh output directory.' }; $argsList += @('-quit','-buildTarget','WebGL','-executeMethod','Metro.Editor.BuildWeb.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$Scene) }
+    'test' {
+        $xml = Join-Path $out "$Mode.xml"; if(Test-Path $xml){ Remove-Item -LiteralPath $xml }
+        $argsList += @('-runTests','-testPlatform',$Mode,'-testResults',('"'+$xml+'"'))
+        if ($TestFilter) { $argsList += @('-testFilter',('"'+$TestFilter+'"')) }
+    }
+    'build-web' { $build = Join-Path $out "web-$Configuration"; if(Test-Path $build){ throw 'Build output already exists; choose a fresh output directory.' }; $sceneArg = if ($ScenePath) { $ScenePath } else { $Scene }; $argsList += @('-quit','-buildTarget','WebGL','-executeMethod','Metro.Editor.BuildWeb.Run','-metroOut',('"'+$build+'"'),'-metroConfiguration',$Configuration,'-metroScene',$sceneArg) }
 }
+function Get-RelativePath([string]$basePath, [string]$targetPath) {
+    # Windows PowerShell 5.1 has no [IO.Path]::GetRelativePath; derive it from URIs.
+    $baseUri = [Uri](($basePath.TrimEnd([IO.Path]::DirectorySeparatorChar)) + [IO.Path]::DirectorySeparatorChar)
+    $targetUri = [Uri]([IO.Path]::GetFullPath($targetPath))
+    [Uri]::UnescapeDataString($baseUri.MakeRelativeUri($targetUri).ToString()).Replace('/', '\')
+}
+# The build rewrites the URP global settings (shader stripping and variant
+# collections), so that one asset is a build output rather than a source input.
+$script:BuildMutableInputs = @('Assets/Settings/UniversalRenderPipelineGlobalSettings.asset')
 function Get-InputSnapshot($root, $directories) {
     @($directories | ForEach-Object { Get-ChildItem -LiteralPath (Join-Path $root $_) -Recurse -File } | Sort-Object FullName | ForEach-Object {
-        [pscustomobject]@{ Path=[IO.Path]::GetRelativePath($root,$_.FullName).Replace('\','/'); SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        $relative = (Get-RelativePath $root $_.FullName).Replace('\','/')
+        if ($script:BuildMutableInputs -contains $relative) { return }
+        [pscustomobject]@{ Path=$relative; SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     })
 }
 if ($Task -eq 'build-web') {
@@ -92,11 +115,11 @@ if ($Task -eq 'build-web') {
     $fixtures = @(Get-InputSnapshot $repo @('unity/tests/fixtures'))
     if ((ConvertTo-Json -InputObject $inputsAtStart -Compress -Depth 6) -cne (ConvertTo-Json -InputObject $inputs -Compress -Depth 6) -or (ConvertTo-Json -InputObject $fixturesAtStart -Compress -Depth 6) -cne (ConvertTo-Json -InputObject $fixtures -Compress -Depth 6)) { throw 'Project inputs or fixtures changed during the build; preserve the output and pre-build snapshot, then rebuild.' }
     $files = Get-ChildItem -LiteralPath $build -Recurse -File | ForEach-Object {
-        [pscustomobject]@{ Path=[IO.Path]::GetRelativePath($build,$_.FullName).Replace('\','/'); Bytes=$_.Length; SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
+        [pscustomobject]@{ Path=(Get-RelativePath $build $_.FullName).Replace('\','/'); Bytes=$_.Length; SHA256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash }
     }
     $head = (& git -C $repo rev-parse HEAD).Trim()
     if ($head -ne $headAtStart) { throw 'Repository HEAD changed during the build; preserve the output but rebuild for traceable provenance.' }
     $dirty = [bool]((& git -C $repo status --porcelain) | Select-Object -First 1)
-    [pscustomobject]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Compression='Disabled'; DecompressionFallback=$false; Scene="Assets/StationDesigner/Scenes/$Scene.unity"; Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
+    [pscustomobject]@{ Head=$head; HeadMeaning='workspace HEAD at build; project inputs are identified by hashes'; Dirty=$dirty; ProjectPath=$project; EditorVersion=$version; EditorVersionWithRevision=$versionRevision; Configuration=$Configuration; Compression='Disabled'; DecompressionFallback=$false; Scene=$(if ($ScenePath) { $ScenePath } else { "Assets/StationDesigner/Scenes/$Scene.unity" }); Inputs=@($inputsAtStart); Fixtures=@($fixturesAtStart); InputsVerifiedAfterBuild=$true; Files=@($files) } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 ($build+'.provenance.json')
 }
 Write-Output "$Task succeeded; log: $log"

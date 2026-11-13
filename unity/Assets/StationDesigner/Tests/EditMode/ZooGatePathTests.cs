@@ -7,8 +7,10 @@ using UnityEngine;
 public class ZooGatePathTests {
     [Serializable] sealed class Fixture { public int gateId,passengerId; public double speed,rate; public GatePathSlice.Waypoint[] path; public Row[] trace; }
     [Serializable] sealed class Row { public int tick,state,pathIndex,gateDir,lane,waitCount; public double x,y,z,cooldown,waitAccum; public int[] queue; public bool dead; }
-    [Test] public void SinglePassengerMatchesActualZooWorldTrace() {
-        var path=Path.Combine(Application.dataPath,"StationDesigner/Tests/EditMode/zoo-gate-oracle.json");
+    [TestCase("zoo-gate-oracle.json")]
+    [TestCase("zoo-gate-entry-oracle.json")]
+    public void SinglePassengerMatchesActualZooWorldTrace(string fixtureName) {
+        var path=Path.Combine(Application.dataPath,"StationDesigner/Tests/EditMode",fixtureName);
         var fixture=JsonUtility.FromJson<Fixture>(File.ReadAllText(path)); Assert.AreEqual(52,fixture.gateId); Assert.AreEqual(1,fixture.passengerId);
         var sim=new GatePathSlice(fixture.path,fixture.speed,fixture.rate);
         foreach(var expected in fixture.trace) {

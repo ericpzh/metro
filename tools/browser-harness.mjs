@@ -49,12 +49,30 @@ export function findChrome() {
   return found
 }
 
-/** A static server for one built directory, with an SPA fallback. */
-export function serveDir(root, port) {
+/**
+ * A static server for one built directory, with an SPA fallback.
+ *
+ * `mounts` maps an absolute URL prefix onto a directory. The packed Unity player
+ * references its runtime under `/game/_unity/…` because that is where the local
+ * Worker and the deployed host serve it; a plain directory server has to answer
+ * that prefix from the same `packed/` tree, or the shell's module import gets the
+ * SPA fallback HTML instead of JavaScript and never mounts.
+ */
+export function serveDir(root, port, mounts = []) {
   const server = createServer((req, res) => {
     const url = decodeURIComponent((req.url ?? '/').split('?')[0])
-    let file = join(root, normalize(url).replace(/^(\.\.[/\\])+/, ''))
-    if (!existsSync(file) || url.endsWith('/')) file = join(root, 'index.html')
+    let base = root
+    let target = url
+    let mounted = false
+    for (const mount of mounts) {
+      if (!url.startsWith(mount.prefix)) continue
+      base = mount.root
+      target = '/' + url.slice(mount.prefix.length)
+      mounted = true
+      break
+    }
+    let file = join(base, normalize(target).replace(/^(\.\.[/\\])+/, ''))
+    if (!mounted && (!existsSync(file) || url.endsWith('/'))) file = join(root, 'index.html')
     if (!existsSync(file)) {
       res.writeHead(404).end('no')
       return
@@ -74,7 +92,7 @@ export function serveDir(root, port) {
  * directory open, and the next run's `rmSync` then fails with EPERM on Windows
  * before it draws anything.
  */
-export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware', commandTimeoutMs = 60000 }) {
+export async function withPage({ url, profile, debugPort = 9335, windowSize = '1400,900', verbose = false, softwareGpu = process.env.METRO_BROWSER_GPU !== 'hardware', commandTimeoutMs = 60000, startupAttempts = 100 }) {
   const chromePath = findChrome()
   rmSync(profile, { recursive: true, force: true })
   // The profile's parent is often a gitignored scratch directory (`.preview/`)
@@ -119,7 +137,7 @@ export async function withPage({ url, profile, debugPort = 9335, windowSize = '1
 
   try {
     let up = false
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < startupAttempts; i++) {
       try {
         if ((await fetch(`http://127.0.0.1:${debugPort}/json/version`)).ok) {
           up = true

@@ -1,0 +1,125 @@
+{
+  "path": "unity/Assets/StationDesigner/Zoo/ZooSave.json",
+  "sha256": "1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e",
+  "name": "动物园",
+  "levelBase": 0,
+  "storeyHeight": 5,
+  "cells": 14066,
+  "solids": 14066,
+  "voids": 0,
+  "modules": 4299,
+  "moduleTypes": {
+    "track": 6,
+    "platform-edge": 2,
+    "lift": 2,
+    "fence": 213,
+    "billboard": 97,
+    "bench": 14,
+    "gate": 15,
+    "vending": 2,
+    "exit": 2,
+    "tv": 28,
+    "sign": 21,
+    "booth": 2,
+    "tvm": 5,
+    "bin": 17,
+    "extinguisher": 18,
+    "clock": 12,
+    "cctv": 35,
+    "glass": 2,
+    "calligraphy": 8,
+    "linemap": 4,
+    "door": 6,
+    "guidepost": 2,
+    "light": 139,
+    "vent": 2,
+    "floor-mark": 45,
+    "electrical-cabinet": 8,
+    "psd-end": 226,
+    "tactile": 77,
+    "ac-unit": 1,
+    "shelf": 10,
+    "checkout": 2,
+    "desk": 21,
+    "rail-signal": 2,
+    "monitor": 5,
+    "cubicle": 4,
+    "sink": 3,
+    "sidewalk": 2430,
+    "lawn": 704,
+    "road": 2,
+    "tree": 86,
+    "escalator": 14,
+    "stair": 5
+  },
+  "tags": {
+    "auto-floor": 2110,
+    "auto-wall": 1194,
+    "opening-ceiling": 51,
+    "tunnel-shell:track-3": 109,
+    "tunnel-shell:track-4": 110,
+    "wall": 3732,
+    "tunnel-shell:track-7": 139,
+    "tunnel-shell:track-8": 145,
+    "tri-lower:e": 10,
+    "tri-upper:w": 10,
+    "tri-lower:w": 10,
+    "tri-upper:e": 10
+  },
+  "shapes": {
+    "tri-lower:e": 10,
+    "tri-upper:w": 10,
+    "tri-lower:w": 10,
+    "tri-upper:e": 10
+  },
+  "faceCounts": {
+    "s": 3176,
+    "top": 5428,
+    "n": 2372,
+    "e": 1395,
+    "w": 1309,
+    "bottom": 3420
+  },
+  "finishCounts": {
+    "floor.soil": 7678,
+    "floor.concrete": 5033,
+    "ceil.baffle": 2454,
+    "wall.enamel#ff4242": 1927,
+    "wall.stainless": 8
+  },
+  "finishByFace": {
+    "s": {
+      "floor.soil": 1873,
+      "wall.enamel#ff4242": 1001,
+      "floor.concrete": 294,
+      "wall.stainless": 8
+    },
+    "top": {
+      "floor.concrete": 3030,
+      "floor.soil": 2398
+    },
+    "n": {
+      "floor.soil": 1873,
+      "floor.concrete": 260,
+      "wall.enamel#ff4242": 136,
+      "ceil.baffle": 103
+    },
+    "e": {
+      "floor.soil": 769,
+      "floor.concrete": 175,
+      "wall.enamel#ff4242": 445,
+      "ceil.baffle": 6
+    },
+    "w": {
+      "floor.soil": 765,
+      "wall.enamel#ff4242": 345,
+      "floor.concrete": 193,
+      "ceil.baffle": 6
+    },
+    "bottom": {
+      "ceil.baffle": 2339,
+      "floor.concrete": 1081
+    }
+  },
+  "unknownFinishes": []
+}

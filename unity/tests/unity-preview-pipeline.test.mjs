@@ -1,9 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import vm from 'node:vm'
 import localWorker from '../../tools/unity-web/local-worker.mjs'
 import { attachUnityUI, buildUnityUI } from '../../tools/unity-web/unity-ui-pack.mjs'
 import {
@@ -368,4 +369,57 @@ test('Unity UI bundle excludes Three.js crowd/map payloads and replaces default 
   assert.match(attached, /window\.__metroUnityProgress\?\.\(progress\)/)
   assert.match(attached, /window\.__metroUnityFail\?\.\(message\)/)
   assert.doesNotMatch(attached, /alert\(message\)/)
+})
+
+test('WebGL player settings target the 4 GiB Wasm32 heap ceiling and all jslib pointer imports declare signatures', () => {
+  const settings = readFileSync(join(repo, 'unity/ProjectSettings/ProjectSettings.asset'), 'utf8')
+  const readInt = key => {
+    const match = new RegExp(`^\\s*${key}:\\s*(\\d+)\\s*$`, 'm').exec(settings)
+    assert.ok(match, `Missing ${key} in ProjectSettings.asset`)
+    return Number(match[1])
+  }
+
+  const initialMiB = readInt('webGLInitialMemorySize')
+  const maxMiB = readInt('webGLMaximumMemorySize')
+  assert.equal(initialMiB, 1024)
+  // Unity 6000.6.8f1 switches Emscripten to memory64/BigInt glue above 4096 MiB, which
+  // throws `TypeError: Cannot mix BigInt and other types` during `createUnityInstance`.
+  assert.equal(maxMiB, 4096)
+  assert.ok(initialMiB <= maxMiB, 'Initial memory must not exceed maximum memory')
+  assert.equal(readInt('webGLMemoryGrowthMode'), 2, '4 GiB Wasm32 heap should grow geometrically on demand')
+  assert.equal(readInt('webGLThreadsSupport'), 0, 'Single-threaded WebGL avoids SharedArrayBuffer COOP/COEP header requirements')
+  assert.equal(readInt('webWasm2023'), 1, 'WebAssembly 2023 keeps modern Wasm features enabled')
+
+  const jslibDir = join(repo, 'unity/Assets/StationDesigner/Plugins/WebGL')
+  const jslibFiles = readdirSync(jslibDir).filter(name => name.endsWith('.jslib')).sort()
+  assert.ok(jslibFiles.length > 0, 'Expected WebGL .jslib plugins')
+
+  for (const file of jslibFiles) {
+    const code = readFileSync(join(jslibDir, file), 'utf8')
+    const library = {}
+    vm.runInNewContext(code, {
+      LibraryManager: { library },
+      mergeInto(target, source) {
+        Object.assign(target, source)
+      },
+    })
+    for (const [key, value] of Object.entries(library)) {
+      if (key.includes('__') || typeof value !== 'function') continue
+      const sig = library[`${key}__sig`]
+      assert.equal(typeof sig, 'string', `${file}: ${key} must declare ${key}__sig for pointer interop`)
+      const fnSource = value.toString()
+      const paramsMatch = /^[^(]*\(([^)]*)\)/.exec(fnSource)
+      const params = paramsMatch?.[1].split(',').map(s => s.trim()).filter(Boolean) ?? []
+      assert.equal(sig.length, params.length + 1, `${file}: ${key}__sig ('${sig}') length must match return + ${params.length} args`)
+      for (const utfMatch of fnSource.matchAll(/UTF8ToString\(\s*([A-Za-z_$][\w$]*)\s*\)/g)) {
+        const argIndex = params.indexOf(utfMatch[1])
+        assert.ok(argIndex >= 0, `${file}: ${key} passes non-parameter '${utfMatch[1]}' to UTF8ToString`)
+        assert.equal(
+          sig[argIndex + 1],
+          'p',
+          `${file}: ${key} param '${utfMatch[1]}' passed to UTF8ToString must use 'p' in ${key}__sig ('${sig}')`,
+        )
+      }
+    }
+  }
 })

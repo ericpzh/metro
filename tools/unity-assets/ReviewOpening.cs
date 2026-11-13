@@ -206,6 +206,13 @@ namespace Metro.AssetExample
                     Require(pivots.Length == 0, $"{asset.paletteId}: a gate has no swing-door pivot");
                     Require(asset.textures == 3,
                         $"{asset.paletteId}: expected the two lane panels and the brushed steel, got {asset.textures}");
+                    // The family's moving part is the pair of fan wings that setGateWing
+                    // drives. Sample closed, half-open and fully retracted and compare the leaf
+                    // geometry, not just the node names.
+                    var wings = root.GetComponentsInChildren<Transform>()
+                        .Where(child => Named(child.name, "left-leaf") || Named(child.name, "right-leaf")).ToArray();
+                    Require(wings.Length == 2, $"{asset.paletteId}: expected two fan wings, found {wings.Length}");
+                    CheckGateWings(asset.paletteId, wings);
                 }
                 else
                 {
@@ -305,6 +312,47 @@ namespace Metro.AssetExample
 
             Require(EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene(), Scene),
                 "Could not save the opening review scene");
+        }
+
+        /// <summary>
+        /// Sample a fare gate's fan wings at closed, half-open and fully retracted with
+        /// setGateWing's formula (full width 0.35 m, lane edges -0.2 and 0.5) and compare
+        /// the measured leaf widths. The authored pose must be the closed one.
+        /// </summary>
+        private static void CheckGateWings(string paletteId, Transform[] wings)
+        {
+            const float fullWidth = .35f;
+            foreach (var wing in wings)
+            {
+                bool left = Named(wing.name, "left-leaf");
+                float edge = left ? -.2f : .5f;
+                float sign = left ? 1f : -1f;
+                var authoredScale = wing.localScale;
+                var authoredPosition = wing.localPosition;
+                Require(Mathf.Abs(authoredScale.x - 1f) < 1e-4f,
+                    $"{paletteId} {wing.name}: the authored pose is not closed (scale.x {authoredScale.x:F4})");
+                float closedX = edge + sign * fullWidth * .5f;
+                Require(Mathf.Abs(authoredPosition.x - closedX) < 1e-3f,
+                    $"{paletteId} {wing.name}: closed x expected {closedX:F4}, got {authoredPosition.x:F4}");
+
+                foreach (var sample in new[] { (open: .5f, width: .1875f), (open: 1f, width: .025f) })
+                {
+                    float width = fullWidth * (1f - sample.open) + .025f * sample.open;
+                    wing.localScale = new Vector3(width / fullWidth, authoredScale.y, authoredScale.z);
+                    wing.localPosition = new Vector3(edge + sign * width * .5f, authoredPosition.y, authoredPosition.z);
+                    var renderers = wing.GetComponentsInChildren<MeshRenderer>();
+                    Require(renderers.Length > 0, $"{paletteId} {wing.name}: the wing holds no mesh");
+                    var bounds = renderers[0].bounds;
+                    foreach (var renderer in renderers) bounds.Encapsulate(renderer.bounds);
+                    Close(bounds.size.x, sample.width, $"{paletteId} {wing.name} leaf width at open {sample.open}");
+                    Require(bounds.size.x > 0f, $"{paletteId} {wing.name}: the sampled leaf has no width");
+                }
+
+                wing.localScale = authoredScale;
+                wing.localPosition = authoredPosition;
+                Require(Mathf.Abs(wing.localScale.x - 1f) < 1e-4f,
+                    $"{paletteId} {wing.name}: resetting the wing left a residual scale");
+            }
         }
 
         /// <summary>

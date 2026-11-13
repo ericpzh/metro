@@ -9,6 +9,7 @@
     "video:plan": "node tools/demo-video.mjs --plan",
     "setup": "npm --prefix web ci",
     "start": "node tools/dev-services.mjs",
+    "preview:unity": "node tools/unity-web/serve-latest-pack.mjs",
     "start:unity": "node tools/unity-web/start-unity.mjs",
     "build:unity": "node tools/unity-web/start-unity.mjs --build-only",
     "test:unity": "node --test \"unity/tests/*.test.mjs\"",

@@ -46,13 +46,16 @@ function inventory(dir) {
 }
 const before = inventory(generated)
 const wrapper = join(root, 'unity/scripts/metro-unity.ps1')
-const command = ['-NoProfile','-File',wrapper,'import-assets','-Manifest',badManifest,'-ProjectPath',project,'-OutputDirectory',out]
-const run = spawnSync('pwsh', command, {cwd:root, encoding:'utf8', timeout:300000})
+const command = ['-NoProfile','-ExecutionPolicy','Bypass','-File',wrapper,'import-assets','-Manifest',badManifest,'-ProjectPath',project,'-OutputDirectory',out]
+let run = spawnSync('pwsh', command, {cwd:root, encoding:'utf8', timeout:300000})
+if (run.error?.code === 'ENOENT' && process.platform === 'win32') {
+  run = spawnSync('powershell', command, {cwd:root, encoding:'utf8', timeout:300000})
+}
 writeFileSync(join(out,'command-console.log'), (run.stdout ?? '') + (run.stderr ?? ''))
 if (run.error) throw run.error
 if (run.status === 0) throw Error('Invalid second GLB unexpectedly imported')
 const log = readFileSync(join(out, 'import-assets-EditMode-Development.log'), 'utf8')
-if (!/Missing material: train\.A\.two-car\.catenary/.test(log)) throw Error('Import failed for an unexpected reason')
+if (!/Missing material: train\.A\.three-car\.catenary/.test(log)) throw Error('Import failed for an unexpected reason')
 const after = inventory(generated)
 writeFileSync(join(out, 'inventories.json'), JSON.stringify({before, after}, null, 2))
 if (JSON.stringify(before) !== JSON.stringify(after)) throw Error('Delivered assets changed after rejected batch')

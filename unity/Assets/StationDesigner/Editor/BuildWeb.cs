@@ -21,8 +21,16 @@ namespace Metro.Editor {
             if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.WebGL) throw new Exception("Active build target is not WebGL");
             var sceneIndex = Array.IndexOf(args, "-metroScene");
             string sceneName = sceneIndex >= 0 && sceneIndex + 1 < args.Length ? args[sceneIndex + 1] : "Bootstrap";
-            string scenePath = sceneName == "Bootstrap" ? Bootstrap.ScenePath : sceneName == "FirstPlayable" ? FirstPlayable.ScenePath : sceneName == "ZooPlayable" ? ZooPlayable.ScenePath : throw new ArgumentException("Invalid scene");
+            // A named scene is the public path; an explicit `Assets/...` path is the
+            // local-only profile escape hatch (plan 11 H3). The caller owns the promise
+            // that the scene never ships: `metro-local-player.ps1` is the only script
+            // that passes a path, and it serves the result on loopback only.
+            string scenePath = sceneName.StartsWith("Assets/", StringComparison.Ordinal) ? sceneName
+                : sceneName == "Bootstrap" ? Bootstrap.ScenePath : sceneName == "FirstPlayable" ? FirstPlayable.ScenePath : sceneName == "ZooPlayable" ? ZooPlayable.ScenePath
+                : sceneName == "StationGame" ? "Assets/StationDesigner/Scenes/StationGame.unity" : throw new ArgumentException("Invalid scene");
             if (!File.Exists(scenePath)) throw new Exception("Selected scene missing");
+            if (sceneName.StartsWith("Assets/", StringComparison.Ordinal) && sceneName.IndexOf("/Scenes/", StringComparison.Ordinal) < 0)
+                throw new ArgumentException("An explicit metroScene path must point at a scene under Assets/.../Scenes/");
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
             PlayerSettings.WebGL.decompressionFallback = false;
             if (PlayerSettings.WebGL.compressionFormat != WebGLCompressionFormat.Disabled || PlayerSettings.WebGL.decompressionFallback)

@@ -30,22 +30,37 @@
       "clips": []
     },
     {
-      "id": "train.A.two-car.catenary",
-      "source": "unity/Assets/TrainProof/train.glb",
-      "sha256": "1a294e45b19d97a1943228b3fc4e91a23e1ca3240178c18f3ec646115e31ad89",
+      "id": "train.A.three-car.catenary",
+      "source": "unity/Assets/StationDesigner/Generated/Models/train-a.glb",
+      "sha256": "93abd0a88e532a3ba51977792b5ebc2b24fdf058c2c21e9edbb6589996742eb1",
       "kind": "train",
-      "triangles": 0,
+      "triangles": 355566,
+      "min": [
+        -33.86999999821186,
+        -1.597000000745058,
+        -0.7015151572227477
+      ],
+      "max": [
+        33.86999999821186,
+        1.597000000745058,
+        3.569999999940395
+      ],
       "materials": [
         "glass",
         "lineLivery"
       ],
-      "anchors": [],
+      "anchors": [
+        "AxisX",
+        "Front",
+        "Up",
+        "Approach"
+      ],
       "clips": [
         "OpenPlus",
         "OpenMinus"
       ],
       "motionOracle": "unity/asset-recipes/train-A-motion.json",
-      "motionOracleSha256": "3cede0468c7feda469b690f75eb7d35bf2f3b203e53164615b5a374bae573597"
+      "motionOracleSha256": "cd8e2b8e06805aec710e69bb192215f8fb2e4da00c8289f2a57d9bc22f792824"
     }
   ]
 }

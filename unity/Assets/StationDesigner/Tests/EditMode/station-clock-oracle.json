@@ -1,0 +1,2076 @@
+{
+  "generatedBy": "tools/unity-parity/record-station-clock.mjs",
+  "sourceSha": "dbfc74f9b740cfec4edddd29eef9f5bb3605257681a984eafd2fcdb150ff313e",
+  "sourceDocument": "game/src/data/tanwei-station.json",
+  "dayOverridden": true,
+  "referenceBootSeconds": 23400,
+  "simSecondsPerTick": 1,
+  "maxTicksPerFrame": 64,
+  "input": {
+    "service": {
+      "from": 18000,
+      "to": 82800
+    },
+    "peaks": [
+      {
+        "from": 21600,
+        "to": 30600
+      },
+      {
+        "from": 61200,
+        "to": 66600
+      }
+    ],
+    "demand": {
+      "workday": {
+        "amPeak": 1.2,
+        "pmPeak": 0.9,
+        "sharpness": 0.8
+      },
+      "offday": {
+        "amPeak": 0.4,
+        "pmPeak": 0.5,
+        "sharpness": 1.4
+      }
+    },
+    "calendar": {
+      "epoch": {
+        "year": 2026,
+        "month": 1,
+        "day": 1
+      },
+      "holidays": [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03",
+        "2026-02-15",
+        "2026-02-16",
+        "2026-02-17",
+        "2026-02-18",
+        "2026-02-19",
+        "2026-02-20",
+        "2026-02-21",
+        "2026-02-22",
+        "2026-02-23",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06",
+        "2026-05-01",
+        "2026-05-02",
+        "2026-05-03",
+        "2026-05-04",
+        "2026-05-05",
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-09-25",
+        "2026-09-26",
+        "2026-09-27",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07",
+        "2026-01-05"
+      ]
+    }
+  },
+  "normalization": {
+    "serviceInverted": {
+      "from": 36000,
+      "to": 36900
+    },
+    "serviceOutOfRange": {
+      "from": 0,
+      "to": 86340
+    },
+    "serviceAtDayEnd": {
+      "from": 85440,
+      "to": 86340
+    },
+    "peaksCrossed": [
+      {
+        "from": 28800,
+        "to": 72000
+      },
+      {
+        "from": 72000,
+        "to": 72900
+      }
+    ],
+    "peaksSqueezed": [
+      {
+        "from": 21600,
+        "to": 85440
+      },
+      {
+        "from": 85440,
+        "to": 86340
+      }
+    ],
+    "calendarClamped": {
+      "epoch": {
+        "year": 2026,
+        "month": 2,
+        "day": 28
+      },
+      "holidays": [
+        "2026-01-01"
+      ]
+    },
+    "calendarMissingList": {
+      "epoch": {
+        "year": 2026,
+        "month": 1,
+        "day": 1
+      },
+      "holidays": [
+        "2026-01-01",
+        "2026-01-02",
+        "2026-01-03",
+        "2026-02-15",
+        "2026-02-16",
+        "2026-02-17",
+        "2026-02-18",
+        "2026-02-19",
+        "2026-02-20",
+        "2026-02-21",
+        "2026-02-22",
+        "2026-02-23",
+        "2026-04-04",
+        "2026-04-05",
+        "2026-04-06",
+        "2026-05-01",
+        "2026-05-02",
+        "2026-05-03",
+        "2026-05-04",
+        "2026-05-05",
+        "2026-06-19",
+        "2026-06-20",
+        "2026-06-21",
+        "2026-09-25",
+        "2026-09-26",
+        "2026-09-27",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-03",
+        "2026-10-04",
+        "2026-10-05",
+        "2026-10-06",
+        "2026-10-07"
+      ]
+    },
+    "demandRounded": {
+      "amPeak": 2.5,
+      "pmPeak": 0,
+      "sharpness": 2
+    },
+    "secondsOfClock": {
+      "open": 18000,
+      "lastMinute": 86340
+    }
+  },
+  "adapterChecks": [
+    "no session means no control",
+    "send before connect is dropped",
+    "a connected session drives play/speed/seek/restart",
+    "day edits stay unavailable until the host commits them",
+    "play sends sim.play",
+    "speed sends sim.speed",
+    "applyUnityClock writes playing/speed/unityClock only",
+    "unityClock is seconds since day zero",
+    "a null clock is ignored",
+    "stationClockOf prefers the TS run",
+    "stationClockOf falls back to Unity",
+    "stationClockOf prints nothing when neither reports",
+    "setPlaying/setSpeed/restart send sim.* commands",
+    "seek keeps the time of day",
+    "station clock reads one number for the panel",
+    "disconnect clears the clock",
+    "disconnected controls disable again"
+  ],
+  "scenarios": [
+    {
+      "name": "cold-boot",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        }
+      ]
+    },
+    {
+      "name": "speeds",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "1x",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        },
+        {
+          "op": "play",
+          "label": "4x",
+          "playing": true,
+          "speed": 4,
+          "seconds": 1
+        },
+        {
+          "op": "play",
+          "label": "16x",
+          "playing": true,
+          "speed": 16,
+          "seconds": 1
+        },
+        {
+          "op": "play",
+          "label": "64x",
+          "playing": true,
+          "speed": 64,
+          "seconds": 1
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "1x",
+          "ticksTotal": 1,
+          "simTime": 23401,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23401,
+          "dayFraction": 0.2708449074074074,
+          "clock": "06:30",
+          "clockSeconds": "06:30:01",
+          "hourHand": 195.00833333333333,
+          "minuteHand": 180.1,
+          "demandRate": 0.16067005953942534
+        },
+        {
+          "label": "4x",
+          "ticksTotal": 5,
+          "simTime": 23405,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23405,
+          "dayFraction": 0.27089120370370373,
+          "clock": "06:30",
+          "clockSeconds": "06:30:05",
+          "hourHand": 195.04166666666669,
+          "minuteHand": 180.5,
+          "demandRate": 0.16080911493520514
+        },
+        {
+          "label": "16x",
+          "ticksTotal": 21,
+          "simTime": 23421,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23421,
+          "dayFraction": 0.2710763888888889,
+          "clock": "06:30",
+          "clockSeconds": "06:30:21",
+          "hourHand": 195.175,
+          "minuteHand": 182.10000000000002,
+          "demandRate": 0.1613659486222066
+        },
+        {
+          "label": "64x",
+          "ticksTotal": 85,
+          "simTime": 23485,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23485,
+          "dayFraction": 0.2718171296296296,
+          "clock": "06:31",
+          "clockSeconds": "06:31:25",
+          "hourHand": 195.70833333333334,
+          "minuteHand": 188.5,
+          "demandRate": 0.1636028999005572
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "running-16x",
+          "playing": true,
+          "speed": 16,
+          "seconds": 2
+        },
+        {
+          "op": "play",
+          "label": "paused-5s",
+          "playing": false,
+          "speed": 16,
+          "seconds": 5
+        },
+        {
+          "op": "play",
+          "label": "resumed-16x",
+          "playing": true,
+          "speed": 16,
+          "seconds": 0.5
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "running-16x",
+          "ticksTotal": 32,
+          "simTime": 23432,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23432,
+          "dayFraction": 0.2712037037037037,
+          "clock": "06:30",
+          "clockSeconds": "06:30:32",
+          "hourHand": 195.26666666666665,
+          "minuteHand": 183.20000000000002,
+          "demandRate": 0.16174933612522602
+        },
+        {
+          "label": "paused-5s",
+          "ticksTotal": 32,
+          "simTime": 23432,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23432,
+          "dayFraction": 0.2712037037037037,
+          "clock": "06:30",
+          "clockSeconds": "06:30:32",
+          "hourHand": 195.26666666666665,
+          "minuteHand": 183.20000000000002,
+          "demandRate": 0.16174933612522602
+        },
+        {
+          "label": "resumed-16x",
+          "ticksTotal": 40,
+          "simTime": 23440,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23440,
+          "dayFraction": 0.2712962962962963,
+          "clock": "06:30",
+          "clockSeconds": "06:30:40",
+          "hourHand": 195.33333333333334,
+          "minuteHand": 184,
+          "demandRate": 0.16202845003517424
+        }
+      ]
+    },
+    {
+      "name": "midnight",
+      "startSimTime": 431970,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "cross-midnight",
+          "playing": true,
+          "speed": 64,
+          "seconds": 1
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 431970,
+          "dayIndex": 4,
+          "dateKey": "2026-01-05",
+          "weekday": 1,
+          "dayType": "offday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 86370,
+          "dayFraction": 0.9996527777777777,
+          "clock": "23:59",
+          "clockSeconds": "23:59:30",
+          "hourHand": 359.75,
+          "minuteHand": 357,
+          "demandRate": 0.015073547911095898
+        },
+        {
+          "label": "cross-midnight",
+          "ticksTotal": 64,
+          "simTime": 432034,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 34,
+          "dayFraction": 0.0003935185185185185,
+          "clock": "00:00",
+          "clockSeconds": "00:00:34",
+          "hourHand": 0.2833333333333333,
+          "minuteHand": 3.4,
+          "demandRate": 0.015000000000520423
+        }
+      ]
+    },
+    {
+      "name": "weekday-holiday",
+      "startSimTime": 374400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "listed-holiday",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        },
+        {
+          "op": "seekDate",
+          "label": "tuesday",
+          "year": 2026,
+          "month": 1,
+          "day": 6
+        },
+        {
+          "op": "play",
+          "label": "workday-peak",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        },
+        {
+          "op": "seekDate",
+          "label": "saturday",
+          "year": 2026,
+          "month": 1,
+          "day": 10
+        },
+        {
+          "op": "play",
+          "label": "offday-no-peak",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 374400,
+          "dayIndex": 4,
+          "dateKey": "2026-01-05",
+          "weekday": 1,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 28800,
+          "dayFraction": 0.3333333333333333,
+          "clock": "08:00",
+          "clockSeconds": "08:00:00",
+          "hourHand": 240,
+          "minuteHand": 0,
+          "demandRate": 0.31314442917507557
+        },
+        {
+          "label": "listed-holiday",
+          "ticksTotal": 1,
+          "simTime": 374401,
+          "dayIndex": 4,
+          "dateKey": "2026-01-05",
+          "weekday": 1,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 28801,
+          "dayFraction": 0.3333449074074074,
+          "clock": "08:00",
+          "clockSeconds": "08:00:01",
+          "hourHand": 240.0083333333333,
+          "minuteHand": 0.1,
+          "demandRate": 0.31314931723959555
+        },
+        {
+          "label": "tuesday",
+          "ticksTotal": 1,
+          "simTime": 460801,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "peak",
+          "isOpen": true,
+          "peak": true,
+          "timeOfDay": 28801,
+          "dayFraction": 0.3333449074074074,
+          "clock": "08:00",
+          "clockSeconds": "08:00:01",
+          "hourHand": 240.0083333333333,
+          "minuteHand": 0.1,
+          "demandRate": 1.2668529975795473
+        },
+        {
+          "label": "workday-peak",
+          "ticksTotal": 2,
+          "simTime": 460802,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "peak",
+          "isOpen": true,
+          "peak": true,
+          "timeOfDay": 28802,
+          "dayFraction": 0.3333564814814815,
+          "clock": "08:00",
+          "clockSeconds": "08:00:02",
+          "hourHand": 240.01666666666668,
+          "minuteHand": 0.2,
+          "demandRate": 1.266855463003133
+        },
+        {
+          "label": "saturday",
+          "ticksTotal": 2,
+          "simTime": 806402,
+          "dayIndex": 9,
+          "dateKey": "2026-01-10",
+          "weekday": 6,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 28802,
+          "dayFraction": 0.3333564814814815,
+          "clock": "08:00",
+          "clockSeconds": "08:00:02",
+          "hourHand": 240.01666666666668,
+          "minuteHand": 0.2,
+          "demandRate": 0.313154192569758
+        },
+        {
+          "label": "offday-no-peak",
+          "ticksTotal": 3,
+          "simTime": 806403,
+          "dayIndex": 9,
+          "dateKey": "2026-01-10",
+          "weekday": 6,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 28803,
+          "dayFraction": 0.33336805555555554,
+          "clock": "08:00",
+          "clockSeconds": "08:00:03",
+          "hourHand": 240.02499999999998,
+          "minuteHand": 0.30000000000000004,
+          "demandRate": 0.3131590551655319
+        }
+      ]
+    },
+    {
+      "name": "service-close",
+      "startSimTime": 514770,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "last-open-second",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        },
+        {
+          "op": "play",
+          "label": "closed",
+          "playing": true,
+          "speed": 1,
+          "seconds": 60
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 514770,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 82770,
+          "dayFraction": 0.9579861111111111,
+          "clock": "22:59",
+          "clockSeconds": "22:59:30",
+          "hourHand": 329.75,
+          "minuteHand": 357,
+          "demandRate": 0.01500000569615802
+        },
+        {
+          "label": "last-open-second",
+          "ticksTotal": 1,
+          "simTime": 514771,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 82771,
+          "dayFraction": 0.9579976851851851,
+          "clock": "22:59",
+          "clockSeconds": "22:59:31",
+          "hourHand": 329.7583333333333,
+          "minuteHand": 357.1,
+          "demandRate": 0.015000005685859387
+        },
+        {
+          "label": "closed",
+          "ticksTotal": 61,
+          "simTime": 514831,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 82831,
+          "dayFraction": 0.9586921296296296,
+          "clock": "23:00",
+          "clockSeconds": "23:00:31",
+          "hourHand": 330.2583333333333,
+          "minuteHand": 3.1000000000000005,
+          "demandRate": 0.015000005101220074
+        }
+      ]
+    },
+    {
+      "name": "restart",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "before-restart",
+          "playing": true,
+          "speed": 4,
+          "seconds": 2
+        },
+        {
+          "op": "restart",
+          "label": "restart"
+        },
+        {
+          "op": "play",
+          "label": "after-restart",
+          "playing": true,
+          "speed": 1,
+          "seconds": 1
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "before-restart",
+          "ticksTotal": 8,
+          "simTime": 23408,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23408,
+          "dayFraction": 0.2709259259259259,
+          "clock": "06:30",
+          "clockSeconds": "06:30:08",
+          "hourHand": 195.06666666666666,
+          "minuteHand": 180.8,
+          "demandRate": 0.16091344676266234
+        },
+        {
+          "label": "restart",
+          "ticksTotal": 8,
+          "simTime": 23408,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23408,
+          "dayFraction": 0.2709259259259259,
+          "clock": "06:30",
+          "clockSeconds": "06:30:08",
+          "hourHand": 195.06666666666666,
+          "minuteHand": 180.8,
+          "demandRate": 0.16091344676266234
+        },
+        {
+          "label": "after-restart",
+          "ticksTotal": 9,
+          "simTime": 23409,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23409,
+          "dayFraction": 0.2709375,
+          "clock": "06:30",
+          "clockSeconds": "06:30:09",
+          "hourHand": 195.07500000000002,
+          "minuteHand": 180.89999999999998,
+          "demandRate": 0.16094823169795486
+        }
+      ]
+    },
+    {
+      "name": "seek",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "tick-before-seek",
+          "playing": true,
+          "speed": 4,
+          "seconds": 1
+        },
+        {
+          "op": "seekDate",
+          "label": "forward",
+          "year": 2026,
+          "month": 1,
+          "day": 10
+        },
+        {
+          "op": "seekDate",
+          "label": "before-epoch",
+          "year": 2025,
+          "month": 12,
+          "day": 25
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "tick-before-seek",
+          "ticksTotal": 4,
+          "simTime": 23404,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23404,
+          "dayFraction": 0.27087962962962964,
+          "clock": "06:30",
+          "clockSeconds": "06:30:04",
+          "hourHand": 195.03333333333333,
+          "minuteHand": 180.4,
+          "demandRate": 0.16077434532700402
+        },
+        {
+          "label": "forward",
+          "ticksTotal": 4,
+          "simTime": 801004,
+          "dayIndex": 9,
+          "dateKey": "2026-01-10",
+          "weekday": 6,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23404,
+          "dayFraction": 0.27087962962962964,
+          "clock": "06:30",
+          "clockSeconds": "06:30:04",
+          "hourHand": 195.03333333333333,
+          "minuteHand": 180.4,
+          "demandRate": 0.16077434532700402
+        },
+        {
+          "label": "before-epoch",
+          "ticksTotal": 4,
+          "simTime": -581396,
+          "dayIndex": -7,
+          "dateKey": "2025-12-25",
+          "weekday": 4,
+          "dayType": "workday",
+          "period": "peak",
+          "isOpen": true,
+          "peak": true,
+          "timeOfDay": 23404,
+          "dayFraction": 0.27087962962962964,
+          "clock": "06:30",
+          "clockSeconds": "06:30:04",
+          "hourHand": 195.03333333333333,
+          "minuteHand": 180.4,
+          "demandRate": 0.16625250228625138
+        }
+      ]
+    },
+    {
+      "name": "tick-cap",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "one-long-call",
+          "playing": true,
+          "speed": 1,
+          "seconds": 300
+        },
+        {
+          "op": "play",
+          "label": "next-call-keeps-only-the-remainder",
+          "playing": true,
+          "speed": 1,
+          "seconds": 0.5
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "one-long-call",
+          "ticksTotal": 64,
+          "simTime": 23464,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23464,
+          "dayFraction": 0.2715740740740741,
+          "clock": "06:31",
+          "clockSeconds": "06:31:04",
+          "hourHand": 195.53333333333333,
+          "minuteHand": 186.4,
+          "demandRate": 0.1628672263449885
+        },
+        {
+          "label": "next-call-keeps-only-the-remainder",
+          "ticksTotal": 64,
+          "simTime": 23464,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23464,
+          "dayFraction": 0.2715740740740741,
+          "clock": "06:31",
+          "clockSeconds": "06:31:04",
+          "hourHand": 195.53333333333333,
+          "minuteHand": 186.4,
+          "demandRate": 0.1628672263449885
+        }
+      ]
+    },
+    {
+      "name": "wrap-service",
+      "startSimTime": 518280,
+      "input": {
+        "service": {
+          "from": 79200,
+          "to": 86340
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "through-midnight-1",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        },
+        {
+          "op": "play",
+          "label": "through-midnight-2",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        },
+        {
+          "op": "play",
+          "label": "through-midnight-3",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        },
+        {
+          "op": "play",
+          "label": "through-midnight-4",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        },
+        {
+          "op": "play",
+          "label": "through-midnight-5",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        },
+        {
+          "op": "play",
+          "label": "through-midnight-6",
+          "playing": true,
+          "speed": 1,
+          "seconds": 50
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 518280,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 86280,
+          "dayFraction": 0.9986111111111111,
+          "clock": "23:58",
+          "clockSeconds": "23:58:00",
+          "hourHand": 359,
+          "minuteHand": 348,
+          "demandRate": 0.01500000002977362
+        },
+        {
+          "label": "through-midnight-1",
+          "ticksTotal": 50,
+          "simTime": 518330,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 86330,
+          "dayFraction": 0.9991898148148148,
+          "clock": "23:58",
+          "clockSeconds": "23:58:50",
+          "hourHand": 359.4166666666667,
+          "minuteHand": 353,
+          "demandRate": 0.015000000028129356
+        },
+        {
+          "label": "through-midnight-2",
+          "ticksTotal": 100,
+          "simTime": 518380,
+          "dayIndex": 5,
+          "dateKey": "2026-01-06",
+          "weekday": 2,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 86380,
+          "dayFraction": 0.9997685185185186,
+          "clock": "23:59",
+          "clockSeconds": "23:59:40",
+          "hourHand": 359.8333333333333,
+          "minuteHand": 358,
+          "demandRate": 0.015000000026582255
+        },
+        {
+          "label": "through-midnight-3",
+          "ticksTotal": 150,
+          "simTime": 518430,
+          "dayIndex": 6,
+          "dateKey": "2026-01-07",
+          "weekday": 3,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 30,
+          "dayFraction": 0.00034722222222222224,
+          "clock": "00:00",
+          "clockSeconds": "00:00:30",
+          "hourHand": 0.25,
+          "minuteHand": 3,
+          "demandRate": 0.015000000000518095
+        },
+        {
+          "label": "through-midnight-4",
+          "ticksTotal": 200,
+          "simTime": 518480,
+          "dayIndex": 6,
+          "dateKey": "2026-01-07",
+          "weekday": 3,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 80,
+          "dayFraction": 0.000925925925925926,
+          "clock": "00:01",
+          "clockSeconds": "00:01:20",
+          "hourHand": 0.6666666666666667,
+          "minuteHand": 8,
+          "demandRate": 0.015000000000547926
+        },
+        {
+          "label": "through-midnight-5",
+          "ticksTotal": 250,
+          "simTime": 518530,
+          "dayIndex": 6,
+          "dateKey": "2026-01-07",
+          "weekday": 3,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 130,
+          "dayFraction": 0.0015046296296296296,
+          "clock": "00:02",
+          "clockSeconds": "00:02:10",
+          "hourHand": 1.0833333333333333,
+          "minuteHand": 13,
+          "demandRate": 0.015000000000579435
+        },
+        {
+          "label": "through-midnight-6",
+          "ticksTotal": 300,
+          "simTime": 518580,
+          "dayIndex": 6,
+          "dateKey": "2026-01-07",
+          "weekday": 3,
+          "dayType": "workday",
+          "period": "late",
+          "isOpen": false,
+          "peak": false,
+          "timeOfDay": 180,
+          "dayFraction": 0.0020833333333333333,
+          "clock": "00:03",
+          "clockSeconds": "00:03:00",
+          "hourHand": 1.5,
+          "minuteHand": 18,
+          "demandRate": 0.015000000000612721
+        }
+      ]
+    },
+    {
+      "name": "disconnected",
+      "startSimTime": 23400,
+      "input": {
+        "service": {
+          "from": 18000,
+          "to": 82800
+        },
+        "peaks": [
+          {
+            "from": 21600,
+            "to": 30600
+          },
+          {
+            "from": 61200,
+            "to": 66600
+          }
+        ],
+        "demand": {
+          "workday": {
+            "amPeak": 1.2,
+            "pmPeak": 0.9,
+            "sharpness": 0.8
+          },
+          "offday": {
+            "amPeak": 0.4,
+            "pmPeak": 0.5,
+            "sharpness": 1.4
+          }
+        },
+        "calendar": {
+          "epoch": {
+            "year": 2026,
+            "month": 1,
+            "day": 1
+          },
+          "holidays": [
+            "2026-01-01",
+            "2026-01-02",
+            "2026-01-03",
+            "2026-02-15",
+            "2026-02-16",
+            "2026-02-17",
+            "2026-02-18",
+            "2026-02-19",
+            "2026-02-20",
+            "2026-02-21",
+            "2026-02-22",
+            "2026-02-23",
+            "2026-04-04",
+            "2026-04-05",
+            "2026-04-06",
+            "2026-05-01",
+            "2026-05-02",
+            "2026-05-03",
+            "2026-05-04",
+            "2026-05-05",
+            "2026-06-19",
+            "2026-06-20",
+            "2026-06-21",
+            "2026-09-25",
+            "2026-09-26",
+            "2026-09-27",
+            "2026-10-01",
+            "2026-10-02",
+            "2026-10-03",
+            "2026-10-04",
+            "2026-10-05",
+            "2026-10-06",
+            "2026-10-07",
+            "2026-01-05"
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "play",
+          "label": "disconnected-16x",
+          "playing": true,
+          "speed": 16,
+          "seconds": 1
+        },
+        {
+          "op": "play",
+          "label": "disconnected-64x",
+          "playing": true,
+          "speed": 64,
+          "seconds": 0.5
+        }
+      ],
+      "frames": [
+        {
+          "label": "start",
+          "ticksTotal": 0,
+          "simTime": 23400,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23400,
+          "dayFraction": 0.2708333333333333,
+          "clock": "06:30",
+          "clockSeconds": "06:30:00",
+          "hourHand": 195,
+          "minuteHand": 180,
+          "demandRate": 0.1606353052973679
+        },
+        {
+          "label": "disconnected-16x",
+          "ticksTotal": 16,
+          "simTime": 23416,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23416,
+          "dayFraction": 0.2710185185185185,
+          "clock": "06:30",
+          "clockSeconds": "06:30:16",
+          "hourHand": 195.13333333333333,
+          "minuteHand": 181.6,
+          "demandRate": 0.16119183322638128
+        },
+        {
+          "label": "disconnected-64x",
+          "ticksTotal": 48,
+          "simTime": 23448,
+          "dayIndex": 0,
+          "dateKey": "2026-01-01",
+          "weekday": 4,
+          "dayType": "offday",
+          "period": "offpeak",
+          "isOpen": true,
+          "peak": false,
+          "timeOfDay": 23448,
+          "dayFraction": 0.2713888888888889,
+          "clock": "06:30",
+          "clockSeconds": "06:30:48",
+          "hourHand": 195.4,
+          "minuteHand": 184.8,
+          "demandRate": 0.16230780389320268
+        }
+      ]
+    }
+  ]
+}

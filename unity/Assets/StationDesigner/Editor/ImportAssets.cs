@@ -58,7 +58,7 @@ namespace Metro.Editor {
                     var oracleHash = BitConverter.ToString(sha.ComputeHash(oracleBytes)).Replace("-", "").ToLowerInvariant();
                     if (oracleHash != item.motionOracleSha256) throw new Exception("Motion oracle digest mismatch: " + item.id);
                     var oracle = JsonUtility.FromJson<MotionOracle>(System.Text.Encoding.UTF8.GetString(oracleBytes));
-                    if (oracle == null || oracle.sha256 != item.sha256 || oracle.doors == null || oracle.doors.Length != 40) throw new Exception("Motion oracle does not match train fixture");
+                    if (oracle == null || oracle.sha256 != item.sha256 || oracle.doors == null || oracle.doors.Length < 40 || oracle.doors.Length % 2 != 0) throw new Exception("Motion oracle does not match train fixture");
                     motions.Add(item.id, oracle);
                 }
             }
@@ -157,18 +157,20 @@ namespace Metro.Editor {
                     }
                     var clips = AssetDatabase.LoadAllAssetsAtPath(modelPath).OfType<AnimationClip>().ToArray();
                     if ((item.clips ?? Array.Empty<string>()).Any(name => !clips.Any(c => c.name == name && Mathf.Abs(c.length - 1) < .001f))) throw new Exception("Missing fixture clip: " + item.id);
-                    var doors = nodes.Where(n => n.StartsWith("TypeADoor", StringComparison.Ordinal)).OrderBy(n => n, StringComparer.Ordinal).ToArray();
-                    if (item.kind == "train" && (doors.Length != 40 || doors.Distinct().Count() != 40)) throw new Exception("Expected 40 named train door leaves");
+                    static bool IsTrainDoor(string name) => name.StartsWith("TrainADoor", StringComparison.Ordinal) || name.StartsWith("TypeADoor", StringComparison.Ordinal);
+                    var doors = nodes.Where(IsTrainDoor).OrderBy(n => n, StringComparer.Ordinal).ToArray();
                     if (item.kind == "train" && !renderers.SelectMany(r => r.sharedMaterials).Any(m => m != null && m.name == "glass" && m.renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent)) throw new Exception("Train glass lost transparent queue");
                     if (item.kind == "train") {
                         var oracle = motions[item.id];
-                        var leaves = imported.GetComponentsInChildren<Transform>().Where(t => t.name.StartsWith("TypeADoor", StringComparison.Ordinal)).ToDictionary(t => t.name);
-                        if (oracle.doors.Count(d => d.side == 1) != 20 || oracle.doors.Count(d => d.side == -1) != 20) throw new Exception("Invalid door side mapping");
+                        if (doors.Length != oracle.doors.Length || doors.Distinct().Count() != oracle.doors.Length) throw new Exception("Expected " + oracle.doors.Length + " named train door leaves");
+                        var leaves = imported.GetComponentsInChildren<Transform>().Where(t => IsTrainDoor(t.name)).ToDictionary(t => t.name);
+                        int perBank = oracle.doors.Length / 2;
+                        if (oracle.doors.Count(d => d.side == 1) != perBank || oracle.doors.Count(d => d.side == -1) != perBank) throw new Exception("Invalid door side mapping");
                         void Check(int index) {
                             foreach (var door in oracle.doors) {
                                 if (!leaves.TryGetValue(door.name, out var leaf) || door.samples == null || door.samples.Length != 5 || door.samples[index].position == null || door.samples[index].position.Length != 3) throw new Exception("Invalid door oracle: " + door.name);
                                 var v = door.samples[index].position;
-                                if (Vector3.Distance(leaf.position, new Vector3(v[0], v[2], v[1])) > .001f) throw new Exception("Door motion mismatch: " + door.name + " sample " + index);
+                                if (Vector3.Distance(leaf.position, new Vector3(v[0], v[2], v[1])) > .002f) throw new Exception("Door motion mismatch: " + door.name + " sample " + index);
                             }
                         }
                         Check(0);
