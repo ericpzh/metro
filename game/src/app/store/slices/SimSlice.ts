@@ -89,6 +89,23 @@ function sendControl(playing: boolean, speed: number): void {
 }
 
 let client: Worker | null = null
+let benchmarkBackend: 'ts' | 'wasm' | undefined
+let routingDiagnostic: RoutingDiagnostic | undefined
+
+export function prepareBenchmarkWorker(backend: 'ts' | 'wasm'): void {
+  client?.terminate()
+  client = null
+  latestFrame = null
+  sentStation = null
+  benchmarkBackend = backend
+  routingDiagnostic = undefined
+  delete (window as Window & { __metroRouting?: RoutingDiagnostic }).__metroRouting
+  useStore.setState({ metrics: null })
+}
+
+export function benchmarkRoutingDiagnostic(): RoutingDiagnostic | undefined {
+  return routingDiagnostic
+}
 let sentStation: StationData | null = null
 const LARGE_WORKER_DOCUMENT = 20_000
 let frameCb:
@@ -177,9 +194,9 @@ export function selectSimAgent(id: number | null): void {
 function ensureClient(): Worker {
   if (client) return client
   client = new Worker(new URL('../../../sim/worker.ts', import.meta.url), { type: 'module' })
-  if (typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+  if (import.meta.env?.MODE === 'wasm-experiment' && typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
     const params = new URLSearchParams(location.search)
-    if (params.get('sim') === 'wasm') {
+    if ((benchmarkBackend ?? params.get('sim')) === 'wasm') {
       const fault = params.get('wasmFault')
       client.postMessage({ type: 'enableWasm', fault: fault === 'missing' || fault === 'search' ? fault : undefined })
     }
@@ -188,6 +205,7 @@ function ensureClient(): Worker {
     const msg = e.data
     if (msg.type === 'routing') {
       const host = window as Window & { __metroRouting?: RoutingDiagnostic }
+      routingDiagnostic = msg
       host.__metroRouting = msg
     } else if (msg.type === 'ready') {
       useStore.getState().setGraph(msg)

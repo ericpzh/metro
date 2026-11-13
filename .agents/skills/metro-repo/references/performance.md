@@ -992,6 +992,11 @@ factor.
 separate clean timings, CPU sampling and GPU traces. Low / normal view / 16×
 targets at least 15 FPS 1% low over the first 30 seconds.
 
+For a routing comparison, build once with `npm --prefix game run build:game:wasm`
+and serve it with `npm --prefix game run preview:wasm`. Select TypeScript or WebAssembly
+on localhost `/benchmark` and keep the other settings fixed. The result shows
+the backend, searches completed in WASM, and ticks advanced during sampling.
+
 Measured 2026-11-07 at Low / normal view / 16× for 30 s, DPR 1, 852 × 715 canvas,
 headless Chrome 156 on an i7-14700KF with an RTX 4080 SUPER (hardware ANGLE).
 Zoo and Tanwei were measured back to back on the build with the occupied-storey

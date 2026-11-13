@@ -227,7 +227,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as ToWorker
   switch (msg.type) {
     case 'enableWasm':
-      void enableWasm(msg.fault)
+      if (import.meta.env?.MODE === 'wasm-experiment') void enableWasm(msg.fault)
       break
     case 'init': {
       cancelBuild()

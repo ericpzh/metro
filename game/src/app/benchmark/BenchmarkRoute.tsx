@@ -3,12 +3,15 @@ import * as THREE from 'three'
 import type { UpscalingMode } from '../../render/upscaling.ts'
 import { App } from '../App.tsx'
 import { useStore } from '../store.ts'
+import { benchmarkRoutingDiagnostic, prepareBenchmarkWorker } from '../store/slices/SimSlice.ts'
 import { useLanguage } from '../i18n.ts'
 import { EXAMPLE_STATION_IDS, type ExampleStationId } from '../../data/reference-station.ts'
 import { summarizeFrameIntervals } from './benchmarkStats.ts'
 import { BENCHMARK_COPY, benchmarkCopy } from './benchmarkCopy.ts'
 import './benchmark.css'
 
+type Backend = 'ts' | 'wasm'
+const local = import.meta.env?.MODE === 'wasm-experiment' && typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)
 type Quality = 'low' | 'high'
 type View = 'regular' | 'explode'
 type Phase = 'setup' | 'preparing' | 'running' | 'result' | 'error'
@@ -18,6 +21,9 @@ interface ResourceSample { at: number; cpu: number | null; gpu: number | null; r
 interface Result {
   station: string
   stationId: ExampleStationId
+  backend: Backend
+  wasmSearches: number
+  ticks: number
   activeLevel: number
   quality: Quality
   upscalingMode: UpscalingMode
@@ -150,6 +156,7 @@ function BenchmarkChart({ result, copy }: { result: Result; copy: ReturnType<typ
 export function BenchmarkRoute(): React.ReactElement {
   const language = useLanguage()
   const copy = benchmarkCopy(language)
+  const [backend, setBackend] = useState<Backend>(() => local && new URLSearchParams(location.search).get('sim') === 'wasm' ? 'wasm' : 'ts')
   const [stationId, setStationId] = useState<ExampleStationId>('tianhe')
   const [quality, setQuality] = useState<Quality>('low')
   const [upscalingMode, setUpscalingMode] = useState<UpscalingMode>('native')
@@ -210,6 +217,7 @@ export function BenchmarkRoute(): React.ReactElement {
     store.setGhostOther(true)
     setLoadingStep(copy.loadingStation)
     setLoadingProgress(28)
+    prepareBenchmarkWorker(backend)
     store.loadReference(stationId)
     // The Regular preset fixes the storey each demo is measured at: the Zoo
     // platform and the Tianhe Park concourse. Tanwei keeps its opening level.
@@ -217,6 +225,14 @@ export function BenchmarkRoute(): React.ReactElement {
     if (view === 'regular' && stationId === 'tianhe') useStore.getState().setActiveZ(-5)
     try {
       await waitUntil(() => !!window.__metro?.getState().metrics, 30_000, copy.setupError)
+      if (backend === 'wasm') {
+        await waitUntil(() => {
+          const routing = benchmarkRoutingDiagnostic()
+          return routing?.status === 'fallback' || routing?.backend === 'wasm'
+        }, 30_000, copy.wasmError)
+        const routing = benchmarkRoutingDiagnostic()
+        if (routing?.status === 'fallback') throw new Error(routing.reason ?? copy.wasmError)
+      }
       setLoadingStep(copy.preparingScene)
       setLoadingProgress(48)
       if (view === 'explode') {
@@ -281,6 +297,8 @@ export function BenchmarkRoute(): React.ReactElement {
       let displayedSecond = 30
       const started = performance.now()
       const storeApi = window.__metro!
+      const initialSearches = benchmarkRoutingDiagnostic()?.searches ?? 0
+      const initialTick = storeApi.getState().metrics?.tick ?? 0
       storeApi.getState().setPlaying(true)
       await new Promise<void>((resolve) => {
         const sample = (): void => {
@@ -312,6 +330,8 @@ export function BenchmarkRoute(): React.ReactElement {
         }
         requestAnimationFrame(sample)
       })
+      const routing = benchmarkRoutingDiagnostic()
+      const finalTick = storeApi.getState().metrics?.tick ?? initialTick
       storeApi.getState().setPlaying(false)
       // Let completed asynchronous timer queries return before restoring the renderer.
       const drainStarted = performance.now()
@@ -328,7 +348,11 @@ export function BenchmarkRoute(): React.ReactElement {
       const gpu = debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER))
       const canvas = scene.renderer.domElement
       const current = storeApi.getState()
-      setResult({ station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, resources, stats,
+      const wasmSearches = (routing?.searches ?? 0) - initialSearches
+      if (backend === 'wasm' && (routing?.backend !== 'wasm' || wasmSearches <= 0)) {
+        throw new Error(routing?.reason ?? copy.wasmError)
+      }
+      setResult({ backend, wasmSearches, ticks: finalTick - initialTick, station: current.station.name, stationId, activeLevel: current.activeZ, quality, upscalingMode, view, frames, arrivals, resources, stats,
         browser: navigator.userAgent, gpu, cpuCores: navigator.hardwareConcurrency || null,
         memoryGb: (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? null,
         viewport: `${canvas.clientWidth} × ${canvas.clientHeight}`, pixelRatio: window.devicePixelRatio,
@@ -361,6 +385,7 @@ export function BenchmarkRoute(): React.ReactElement {
       <div className="benchmarkEyebrow">{copy.eyebrow}</div>
       <h1>{copy.title}</h1>
       <p>{copy.intro}</p>
+      {local && <label>{copy.backend}<select value={backend} onChange={event => setBackend(event.target.value as Backend)}><option value="ts">TypeScript</option><option value="wasm">WebAssembly</option></select></label>}
       <label>{copy.station}<select value={stationId} onChange={(event) => setStationId(event.target.value as ExampleStationId)}>{EXAMPLE_STATION_IDS.map(id => <option key={id} value={id}>{copy[id]}</option>)}</select></label>
       <fieldset><legend>{copy.graphics}</legend><div className="benchmarkChoices">
         <button type="button" aria-pressed={quality === 'low'} onClick={() => setQuality('low')}>{copy.low}</button>
@@ -401,6 +426,7 @@ export function BenchmarkRoute(): React.ReactElement {
           <div><dt>{copy.cores}</dt><dd>{result.cpuCores ?? copy.unavailable}</dd></div><div><dt>{copy.memory}</dt><dd>{result.memoryGb ? `${result.memoryGb} GB` : copy.unavailable}</dd></div>
           <div><dt>{copy.viewport}</dt><dd>{result.viewport} {copy.dpr} {result.pixelRatio.toFixed(2)}</dd></div><div><dt>{copy.geometry}</dt><dd>{result.cells.toLocaleString()} {copy.cells} · {result.modules.toLocaleString()} {copy.modules}</dd></div>
           <div><dt>{copy.run}</dt><dd>{stationLabel(result.stationId, language)} · {result.quality === 'low' ? copy.low : copy.high} · {copy.fsr}: {fsrLabels[result.upscalingMode]} · {result.view === 'explode' ? copy.explode : copy.normal} · {copy.level} {result.activeLevel} m · {result.view === 'regular' ? `${copy.zoom} · ` : ''}16× · 30{copy.secShort}</dd></div>
+          <div><dt>{copy.backend}</dt><dd>{result.backend === 'wasm' ? 'WebAssembly' : 'TypeScript'} · {result.wasmSearches.toLocaleString()} {copy.wasmSearches} · {result.ticks.toLocaleString()} {copy.tick}</dd></div>
           <div><dt>{copy.samples}</dt><dd>{Math.max(0, result.frames.length - 1).toLocaleString()} {copy.intervals} · {result.arrivals.length} {copy.arrivals}</dd></div>
         </dl><p>{copy.intervalInfo}</p></section>
       </article>}

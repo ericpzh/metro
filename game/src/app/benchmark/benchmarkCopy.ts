@@ -2,6 +2,7 @@ import type { Language } from '../../sim/i18n.ts'
 
 export const BENCHMARK_COPY = {
   en: {
+    backend: 'Routing backend', wasmSearches: 'WASM searches', wasmError: 'WebAssembly did not complete searches during the benchmark.',
     eyebrow: 'STATION DESIGNER · PERFORMANCE', title: 'Browser benchmark',
     intro: 'Measure the first 30 seconds of simulation playback in this browser. The game runs at 16× speed.',
     station: 'Demo station', zoo: 'Zoo', tanwei: 'Tanwei', tianhe: 'Tianhe Park', graphics: 'Graphics detail', low: 'Low LOD', high: 'High LOD',
@@ -26,6 +27,7 @@ export const BENCHMARK_COPY = {
     stationError: 'The station renderer did not finish loading.', rendererError: 'The benchmark renderer is unavailable.', noFramesError: 'No submitted frames were recorded.',
   },
   zh: {
+    backend: '寻路后端', wasmSearches: 'WASM 搜索次数', wasmError: 'WebAssembly 未在基准测试期间完成寻路。',
     eyebrow: '车站设计师 · 性能测试', title: '浏览器性能测试',
     intro: '在这个浏览器里跑一遍游戏，记录模拟开始后前 30 秒的帧率。游戏会以 16 倍速运行。',
     station: '示例车站', zoo: '动物园站', tanwei: '坦尾站', tianhe: '天河公园站', graphics: '画面细节', low: '低画质', high: '高画质',

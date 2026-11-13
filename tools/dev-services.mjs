@@ -9,9 +9,9 @@ if(process.argv[2]==='unity'){
 const npmCli=process.env.npm_execpath;
 if(!npmCli)throw new Error('Run this launcher with npm start or npm run dev:all.');
 const services=[
-  {name:'web',port:5173,args:[npmCli,'--prefix','web','run','dev']},
-  {name:'game',port:5174,args:[npmCli,'--prefix','game','run','dev']},
-  {name:'model',port:5175,args:[npmCli,'--prefix','model','run','dev']},
+  {name:'web',port:5173,args:[npmCli,'--prefix','web','run','dev','--','--clearScreen','false']},
+  {name:'game',port:5174,args:[npmCli,'--prefix','game','run','dev','--','--clearScreen','false']},
+  {name:'model',port:5175,args:[npmCli,'--prefix','model','run','dev','--','--clearScreen','false']},
   {name:'stats',port:5176,args:[npmCli,'run','dev:stats']},
 ],children=[];
 function listening(port){return new Promise(resolve=>{const socket=connect({host:'localhost',port});socket.setTimeout(500);socket.once('connect',()=>{socket.destroy();resolve(true)});socket.once('error',()=>resolve(false));socket.once('timeout',()=>{socket.destroy();resolve(false)})})}

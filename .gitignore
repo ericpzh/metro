@@ -126,3 +126,4 @@ web/pnpm-lock.yaml
 
 /game/generated/wasm/
 /game/wasm/target/
+/game/dist-wasm/

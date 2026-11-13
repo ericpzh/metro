@@ -10,7 +10,7 @@ const benchmarkMaps = process.env.BENCH_SOURCE_MAP === '1'
 // The game is its own app, its own build and its own Worker (PLAN.md §1.2).
 // `base: './'` keeps the build portable if it is ever served from a path prefix
 // instead of the Worker's own domain root (PLAN.md §5).
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: './',
   plugins: [react(), passengerAssets(), editorBenchmarkBuild(), {
     name: 'english-game-assets',
@@ -37,7 +37,7 @@ export default defineConfig({
   server: { port: 5174, strictPort: false },
   preview: { port: 4174 },
   build: {
-    outDir: 'dist',
+    outDir: mode === 'wasm-experiment' ? 'dist-wasm' : 'dist',
     assetsInlineLimit: 0,
     target: 'es2022',
     sourcemap: benchmarkMaps,
@@ -46,4 +46,4 @@ export default defineConfig({
   worker: {
     format: 'es',
   },
-})
+}))

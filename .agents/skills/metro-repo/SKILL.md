@@ -1087,3 +1087,5 @@ site. The more specific pairs beat the site's `/*` on specificity. All Workers
 must be attached with routes rather than a Custom Domain, which would claim the
 whole hostname for one of them; routes need the hostname proxied in DNS. The root
 `README.md` holds the full routing table.
+
+For the archived local WASM routing comparison and release isolation checks, see [metro-wasm-experiment](../metro-wasm-experiment/SKILL.md).

@@ -4454,13 +4454,18 @@ From the repository root:
 ```sh
 npm --prefix game run dev:wasm
 npm --prefix game run build:game:wasm
-npm --prefix game run preview
+npm --prefix game run preview:wasm
 ```
 
-Use dev or build followed by preview. Open
+WASM routing is an opt-in local experiment. The ordinary startup and production
+build use TypeScript. Run the experiment on a free port or stop the normal dev
+server before starting the experimental dev command. Open
 [Zoo in dev](http://localhost:5174/zoo?sim=wasm) or
 [Zoo in preview](http://localhost:4174/zoo?sim=wasm) and press Play.
-The same selector works on [the benchmark route](http://localhost:4174/benchmark?sim=wasm).
+On [the benchmark route](http://localhost:4174/benchmark), choose TypeScript or
+WebAssembly before each run. The results include the backend, WASM search count,
+and ticks advanced during sampling. A WASM run reports an error if it falls back
+or completes zero searches.
 In the browser console, `window.__metroRouting` reports the active backend,
 probe value (42), and cumulative WASM searches. Omit the query or use `?sim=ts`
 to run TypeScript. The selector is limited to loopback hosts.
