@@ -123,3 +123,6 @@ web/pnpm-lock.yaml
 /unity/Assets/StationDesigner/Scenes/StationGameLocal*.unity.meta
 /unity/Assets/StationDesigner/Generated/Passengers/passenger-catalogue*.asset
 /unity/Assets/StationDesigner/Generated/Passengers/passenger-catalogue*.asset.meta
+
+/game/generated/wasm/
+/game/wasm/target/

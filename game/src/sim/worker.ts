@@ -3,13 +3,15 @@
 // per-agent microtasks (PLAN.md §2.4).
 
 import { BASE_TICK_MS, BUILD_COALESCE_MS } from './constants.ts'
-import type { FromWorker, ToWorker } from './protocol.ts'
+import type { FromWorker, RoutingDiagnostic, RoutingFault, ToWorker } from './protocol.ts'
 import type { Metrics } from './world.ts'
 import type { StationData } from './types.ts'
 import { World } from './world.ts'
 import { applyPopulationEdit } from './populationEdit.ts'
 import { isCosmeticStationEdit } from './cosmeticEdit.ts'
 import { applyStationEdit } from './stationEdit.ts'
+import type { WasmRouting } from './wasmRouting.ts'
+import type { PathFinder } from './station.ts'
 
 const ctx = self as unknown as {
   postMessage(message: unknown, transfer?: Transferable[]): void
@@ -86,6 +88,62 @@ function post(message: FromWorker, transfer: Transferable[] = []): void {
   ctx.postMessage(message, transfer)
 }
 
+let routing: WasmRouting | undefined
+let attachedPath: PathFinder | undefined
+let routingDiagnostic: RoutingDiagnostic | undefined
+let successfulSearches = 0
+let probe: number | undefined
+
+function routingStatus(backend: RoutingDiagnostic['backend'], status: RoutingDiagnostic['status'], reason?: string): void {
+  routingDiagnostic = { probe, type: 'routing', backend, status, searches: successfulSearches, reason }
+  post(routingDiagnostic)
+}
+
+function routingFailure(error: unknown): void {
+  const failed = routing
+  routing = undefined
+  attachedPath = undefined
+  try {
+    failed?.dispose()
+  } catch {
+    // A trapped kernel must not prevent the TypeScript retry.
+  }
+  routingStatus('ts', 'fallback', String(error))
+}
+
+function attachRouting(): void {
+  if (!routing || !world || attachedPath === world.path) return
+  try {
+    routing.install(world.graph)
+  } catch (error) {
+    routingFailure(error)
+    return
+  }
+  const kernel = routing
+  attachedPath = world.path
+  world.path.onSearchFailure = routingFailure
+  world.path.routeSearch = (path, start, goal, needs) => {
+    const route = kernel.search(path, start, goal, needs)
+    successfulSearches++
+    return route
+  }
+  routingStatus('wasm', 'ready')
+}
+
+async function enableWasm(fault: RoutingFault | undefined): Promise<void> {
+  if (routingDiagnostic) return
+  routingStatus('ts', 'loading')
+  try {
+    const { loadWasmRouting } = await import('./workerWasm.ts')
+    const loaded = await loadWasmRouting(fault)
+    routing = loaded.routing
+    probe = loaded.probe
+    // Install on the next worker task against whichever document is current.
+  } catch (error) {
+    routingFailure(error)
+  }
+}
+
 function metricsOf(w: World): Metrics {
   return { ...w.metrics }
 }
@@ -107,10 +165,14 @@ function stepping(): boolean {
 
 function run(advance = true): void {
   if (!world) return
+  attachRouting()
   if (advance && stepping()) world.tickOnce()
   // Paused with nothing changed since the last frame: there is no news to post.
   else if (!dirty) return
   dirty = false
+  if (routingDiagnostic?.backend === 'wasm' && routingDiagnostic.searches !== successfulSearches) {
+    routingStatus('wasm', 'ready')
+  }
   const w = world
   const need = w.pool.count * 6
   if (buffer.length < need) buffer = new Float32Array(Math.max(need, 4096))
@@ -164,6 +226,9 @@ function schedule(): void {
 ctx.addEventListener('message', (e: MessageEvent) => {
   const msg = e.data as ToWorker
   switch (msg.type) {
+    case 'enableWasm':
+      void enableWasm(msg.fault)
+      break
     case 'init': {
       cancelBuild()
       // The first `init` boots a world; sending it again loads a different
@@ -180,6 +245,7 @@ ctx.addEventListener('message', (e: MessageEvent) => {
       resetHistory()
       // Warm the station so the demo does not open on an empty floor. This is
       // just ticks: §7.6 determinism is unaffected.
+      attachRouting()
       const warm = msg.warmup ?? 0
       for (let i = 0; i < warm; i++) world.tickOnce()
       const g = world.graph

@@ -4439,3 +4439,43 @@ Run `node tools/check-nanjing-style.mjs` for production selection/reload, lazy m
 loading, retained resources and theme/High/Low captures.
 
 The shelf catalogue includes a two-column wooden bookcase and a white 5×5 bag display. Shelf regressions pin their stock, cubby arrangement, rotated two-cell bounds, saves and picking; model-detail checks authored Low geometry.
+
+### Local WebAssembly routing
+
+The browser worker can run its uncached A* searches in Rust/WebAssembly. The
+TypeScript simulation owns the station, live costs, request queue, and route cache.
+The Rust crate uses Rust 1.90.0, the single-threaded
+`wasm32-unknown-unknown` target, and wasm-pack 0.13.1. Install rustup and put the
+pinned wasm-pack release on your PATH. The crate's toolchain file selects Rust
+and the target automatically.
+
+From the repository root:
+
+```sh
+npm --prefix game run dev:wasm
+npm --prefix game run build:game:wasm
+npm --prefix game run preview
+```
+
+Use dev or build followed by preview. Open
+[Zoo in dev](http://localhost:5174/zoo?sim=wasm) or
+[Zoo in preview](http://localhost:4174/zoo?sim=wasm) and press Play.
+The same selector works on [the benchmark route](http://localhost:4174/benchmark?sim=wasm).
+In the browser console, `window.__metroRouting` reports the active backend,
+probe value (42), and cumulative WASM searches. Omit the query or use `?sim=ts`
+to run TypeScript. The selector is limited to loopback hosts.
+
+`npm --prefix game run build:wasm` generates bindings and the binary in
+`game/generated/wasm`. Ordinary dev, build, and test commands work without
+generated files. The optional parity and browser checks are:
+
+```sh
+npm --prefix game run test:wasm
+node tools/check-wasm-routing.mjs http://localhost:5174
+node tools/check-wasm-routing.mjs http://localhost:4174
+```
+
+Append `&wasmFault=missing` or `&wasmFault=search` to exercise initialization
+and search failures. The diagnostic reports the reason when the worker falls
+back to TypeScript. The search keeps JavaScript's `Math.hypot` for identical
+heuristic rounding at near-equal priorities.

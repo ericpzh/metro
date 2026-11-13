@@ -6,7 +6,7 @@ import { stationEdit } from '../../../sim/stationEdit.ts'
 // messages in `sim/protocol.ts`. Panels only — no sim logic.
 
 import type { StateCreator } from 'zustand'
-import type { GraphInfo, FromWorker } from '../../../sim/protocol.ts'
+import type { GraphInfo, FromWorker, RoutingDiagnostic } from '../../../sim/protocol.ts'
 import type { StationData } from '../../../sim/types.ts'
 import type { Metrics } from '../../../sim/world.ts'
 import type { TrainService } from '../../../sim/trainSchedule.ts'
@@ -177,9 +177,19 @@ export function selectSimAgent(id: number | null): void {
 function ensureClient(): Worker {
   if (client) return client
   client = new Worker(new URL('../../../sim/worker.ts', import.meta.url), { type: 'module' })
+  if (typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) {
+    const params = new URLSearchParams(location.search)
+    if (params.get('sim') === 'wasm') {
+      const fault = params.get('wasmFault')
+      client.postMessage({ type: 'enableWasm', fault: fault === 'missing' || fault === 'search' ? fault : undefined })
+    }
+  }
   client.onmessage = (e: MessageEvent<FromWorker>) => {
     const msg = e.data
-    if (msg.type === 'ready') {
+    if (msg.type === 'routing') {
+      const host = window as Window & { __metroRouting?: RoutingDiagnostic }
+      host.__metroRouting = msg
+    } else if (msg.type === 'ready') {
       useStore.getState().setGraph(msg)
       // The active storey is already chosen by the load path (basis floor or the
       // lowest level with user placement); the worker's level list includes the

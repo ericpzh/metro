@@ -1106,7 +1106,11 @@ export interface PendingRequest {
   needs: Needs
 }
 
+export type RouteSearch = (path: PathFinder, start: number, goal: number, needs: Needs) => Int32Array | null
+
 export class PathFinder {
+  routeSearch: RouteSearch | null = null
+  onSearchFailure: ((error: unknown) => void) | null = null
   graph: StationGraph
   /** Live directional gate forecasts, supplied by the world (§7.2). */
   gateWait: ((server: ServerDef, dir: GateDir) => number) | null = null
@@ -1237,8 +1241,17 @@ export class PathFinder {
 
   /** Plain A* over the CSR graph. Returns node ids from start to goal. */
   astar(start: number, goal: number, needs: Needs, count = true): Int32Array | null {
-    const g = this.graph
     if (count) this.searches++
+    if (this.routeSearch && Number.isInteger(start) && Number.isInteger(goal) &&
+      start >= 0 && goal >= 0 && start < this.graph.nodeCount && goal < this.graph.nodeCount) {
+      try {
+        return this.routeSearch(this, start, goal, needs)
+      } catch (error) {
+        this.routeSearch = null
+        this.onSearchFailure?.(error)
+      }
+    }
+    const g = this.graph
     this.epoch++
     const ep = this.epoch
     const { adjStart, adjTo, adjCost, adjKind, adjServer, nodeX, nodeY, nodeZ, servers, serverForNode } = g
@@ -1292,12 +1305,7 @@ export class PathFinder {
           if (s.kind === 'gate' && this.gateWait) {
             // A gate's own painted zone may be either side of the fare line.
             // Infer the crossing from the approach side and its other neighbours.
-            let dir: GateDir = 0
-            for (let ge = adjStart[nb]; ge < adjStart[nb + 1]; ge++) {
-              dir = crossingDir(ZONES[g.nodeZone[cur]], ZONES[g.nodeZone[adjTo[ge]]])
-              if (dir !== 0) break
-            }
-            ng += this.gateWait(s, dir)
+            ng += this.gateWait(s, gateApproach(g, cur, nb))
           } else ng += queueWait(s)
         }
         if (this.seen[nb] === ep && this.gScore[nb] <= ng) continue
@@ -1315,10 +1323,19 @@ export class PathFinder {
   }
 }
 
+export function gateApproach(graph: StationGraph, from: number, gate: number): GateDir {
+  const zone = ZONES[graph.nodeZone[from]]
+  for (let edge = graph.adjStart[gate]; edge < graph.adjStart[gate + 1]; edge++) {
+    const dir = crossingDir(zone, ZONES[graph.nodeZone[graph.adjTo[edge]]])
+    if (dir !== 0) return dir
+  }
+  return 0
+}
+
 const EMPTY_PATH = new Int32Array(0)
 
 /** Estimated wait at a capacity-limited edge, seconds. Capped so A* stays sane. */
-function queueWait(s: ServerDef): number {
+export function queueWait(s: ServerDef): number {
   const w = s.rate > 0 ? s.queue.length / s.rate : s.queue.length
   return w > 600 ? 600 : w
 }

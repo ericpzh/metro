@@ -17,7 +17,19 @@ export interface GraphInfo {
   levelsZ: number[]
 }
 
+export type RoutingFault = 'missing' | 'search'
+
+export interface RoutingDiagnostic {
+  type: 'routing'
+  backend: 'ts' | 'wasm'
+  status: 'loading' | 'ready' | 'fallback'
+  searches: number
+  probe?: number
+  reason?: string
+}
+
 export type ToWorker =
+  | { type: 'enableWasm'; fault?: RoutingFault }
   // `init` boots the world and, sent again, loads a different station: both are
   // a full reset. Live edits arrive as `build`, which rebuilds the graph and
   // keeps the crowd.
@@ -38,6 +50,7 @@ export type ToWorker =
   | { type: 'selectAgent'; id: number; token: number }
 
 export type FromWorker =
+  | RoutingDiagnostic
   | ({ type: 'ready' } & GraphInfo)
   | {
       type: 'state'
