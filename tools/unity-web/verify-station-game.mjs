@@ -730,6 +730,9 @@ async function runSectionHandleCase() {
   await send('view.set', { key: 'sectionSurface', value: true })
   await sleep(500)
   const shot = await screenshot('station-game-section-handle')
+  await send('view.set', { key: 'sectionOffset', value: 0 })
+  await send('view.set', { key: 'cutaway', value: false })
+  await sleep(250)
   return finishCase(record, problems.length === 0, {
     problems, span: state.span, startOffset, offsetAfterArrow, across, part: arrowPart,
     norm: state.norm, rect, images: shot,
@@ -2840,10 +2843,12 @@ async function runStationEditingCase() {
   // higher block from there is above the cutaway (correctly unpickable). The view handler
   // may not be registered on the first tick of a cold player, so send until it answers.
   for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
     await send('view.set', { key: 'level', value: 0 })
     await sleep(300)
     const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
-    if (level === 0) break
+    const cutaway = await page.evaluate('window.__metroStationBridge.getSnapshot().state.view?.cutaway ?? false')
+    if (level === 0 && cutaway === false) break
   }
   await sleep(900)
   // `view.set level` slices the station but does not reframe the camera (an edit keeps the
@@ -3087,6 +3092,252 @@ async function runStationEditingCase() {
           if (!afterRedo || afterRedo.x !== movedTo.x || afterRedo.y !== movedTo.y) problems.push('redo did not re-apply the move')
         } else if (!afterRedo) problems.push('redo did not restore the placed bench')
       }
+
+      // Restore Zoo to its clean authored document before exercising the fixed -10 m targets.
+      if (movedTo) {
+        before = await revision()
+        await send('edit.undo', {})
+        await waitRevision(before + 1, 'cleanup move undo')
+      }
+      before = await revision()
+      await send('edit.undo', {})
+      await waitRevision(before + 1, 'cleanup place undo')
+
+      // 8. Fixed, independently chosen Zoo targets at -10 m (`StationScenePickerTests.ZooMinusTenFixedTargetsMatchBrowserCanvasSequence`):
+      //    Step from 0 m Home down to -10 m and zoom to 0.45x so the north concourse balcony
+      //    around `bin-754` (58, 38, -10) and `(57, 37, -10)` — directly beneath the hidden 0 m
+      //    street / VirtualGround slab at (69, 22, 0) — is projected directly from camera math
+      //    rather than chosen by `edit.probe`.
+      await send('view.set', { key: 'level', value: 0 })
+      await sleep(250)
+      await send('camera.home', {})
+      await sleep(400)
+      await send('view.set', { key: 'level', value: -10 })
+      try {
+        await poll('window.__metroStationBridge.getSnapshot().state.level === -10', 'level -10', 15000)
+      } catch { problems.push('view.set level -10 did not settle') }
+      await send('camera.zoom', { factor: 0.45 })
+      await sleep(600)
+
+      const cam = await page.evaluate('window.__metroStationBridge.getSnapshot().state.camera ?? null')
+      if (!cam || !Array.isArray(cam.position) || !Array.isArray(cam.right) || !Array.isArray(cam.up) || !Array.isArray(cam.back)) {
+        problems.push('camera snapshot missing basis for independent -10 m projection')
+      } else {
+        const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        const projectDoc = (pt) => {
+          const d = [pt[0] - cam.position[0], pt[1] - cam.position[1], pt[2] - cam.position[2]]
+          const cx = dot3(d, cam.right)
+          const cy = dot3(d, cam.up)
+          const cz = -dot3(d, cam.back)
+          const halfH = cam.ortho ? cam.orthoSize : cz * Math.tan((cam.fov * Math.PI) / 360)
+          const halfW = halfH * (rect.w / rect.h)
+          return { u: 0.5 + 0.5 * (cx / halfW), v: 0.5 - 0.5 * (cy / halfH) }
+        }
+        const hoverAt = async (u, v) => {
+          const x = Math.round(rect.x + u * rect.w)
+          const y = Math.round(rect.y + v * rect.h)
+          await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 })
+          await page.evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+          await sleep(150)
+        }
+        const clickWithoutHover = async (u, v) => {
+          const x = Math.round(rect.x + u * rect.w)
+          const y = Math.round(rect.y + v * rect.h)
+          await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 })
+          await sleep(30)
+          await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 })
+          await sleep(200)
+        }
+        const rightTapAt = async (u, v) => {
+          const x = Math.round(rect.x + u * rect.w)
+          const y = Math.round(rect.y + v * rect.h)
+          await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 })
+          await sleep(50)
+          await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1 })
+          await sleep(30)
+          await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1 })
+          await sleep(200)
+        }
+
+        const fixedBinUv = projectDoc([58.5, 38.5, -8.55])      // bin-754 @ (58, 38, -10)
+        const fixedCellUv = projectDoc([57.5, 37.2, -9.0])      // open concourse floor @ (57, 37, -10)
+        const fixedDropUv = projectDoc([60.5, 37.5, -9.0])      // open concourse floor @ (60, 37, -10)
+        const fixedVoidUv = projectDoc([50.0, 45.0, 0.0])       // above hidden 0 m grade -> void miss
+        const screenshotUv = projectDoc([56.5, 37.6, -9.0])     // (56, 37, -10) directly under (72, 14, 0) / sidewalk-1717
+
+        // 8a. Select at -10 m: concourse cell, authored bin-754, and void miss clearing selection.
+        await tool('select')
+        await clickAt(fixedCellUv.u, fixedCellUv.v)
+        await sleep(150)
+        let subState = await editState()
+        if (subState?.selectionKind !== 'cell' || subState?.selectionKey !== '57,37,-10') {
+          problems.push('fixed -10 m cell select expected cell:57,37,-10, got ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+
+        await clickAt(fixedBinUv.u, fixedBinUv.v)
+        await sleep(150)
+        subState = await editState()
+        if (subState?.selectionKind !== 'module' || subState?.selectionKey !== 'bin-754') {
+          problems.push('fixed -10 m module select expected module:bin-754, got ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+
+        await clickAt(fixedVoidUv.u, fixedVoidUv.v)
+        await sleep(150)
+        subState = await editState()
+        if (subState?.selectionKind !== '' || subState?.selectionKey !== '') {
+          problems.push('void miss at -10 m did not clear selection: ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+
+        // 8b. Eyedropper (`pick`) on fixed -10 m bin-754.
+        await tool('pick')
+        await clickAt(fixedBinUv.u, fixedBinUv.v)
+        await sleep(250)
+        subState = await editState()
+        if (subState?.pick?.moduleId !== 'bin-754') {
+          problems.push('eyedropper at -10 m did not pick bin-754: ' + JSON.stringify(subState?.pick ?? null))
+        }
+
+        // 8c. Placement at -10 m: hover preview matches fixture plan without revision bump,
+        //     occupied bin-754 refuses without revision bump, open (57, 37, -10) commits in +1 revision.
+        await tool('module', { moduleType: 'bench-steel-1', rotation: 0 })
+        before = await revision()
+        await hoverAt(fixedCellUv.u, fixedCellUv.v)
+        if (await revision() !== before) problems.push('-10 m hover preview mutated revision')
+        subState = await editState()
+        const hoverCand = subState?.plan?.candidate
+        if (!subState?.plan?.ok || hoverCand?.x !== 57 || hoverCand?.y !== 37 || hoverCand?.z !== -10) {
+          problems.push('-10 m hover plan did not match fixture (57, 37, -10): ' + JSON.stringify(subState?.plan ?? null))
+        }
+
+        await clickAt(fixedBinUv.u, fixedBinUv.v)
+        await sleep(200)
+        if (await revision() !== before) problems.push('refused -10 m placement on occupied bin-754 mutated revision')
+
+        await clickAt(fixedCellUv.u, fixedCellUv.v)
+        if (await waitRevision(before + 1, '-10 m pointer place')) {
+          const subPlaced = (await modules()).find(m => m.type === 'bench' && m.x === 57 && m.y === 37 && m.z === -10)
+          if (!subPlaced) problems.push('-10 m placed bench missing at (57, 37, -10)')
+          else {
+            // 8d. Move pickup & drop at -10 m: (57, 37, -10) -> (60, 37, -10) in one commit.
+            const placedSeatUv = projectDoc([57.5, 37.5, -8.55])
+            await tool('move')
+            before = await revision()
+            await clickAt(placedSeatUv.u, placedSeatUv.v)
+            try {
+              await poll(`(window.__metroStationBridge.getSnapshot().state.edit ?? {}).carried === ${JSON.stringify(subPlaced.id)}`, '-10 m carried bench', 15000)
+            } catch {
+              problems.push('-10 m move pickup did not lift ' + subPlaced.id)
+            }
+            if (await revision() !== before) problems.push('-10 m move pickup mutated revision')
+
+            await clickAt(fixedDropUv.u, fixedDropUv.v)
+            if (await waitRevision(before + 1, '-10 m pointer move')) {
+              const subMoved = (await modules()).find(m => m.id === subPlaced.id)
+              if (!subMoved || subMoved.x !== 60 || subMoved.y !== 37 || subMoved.z !== -10) {
+                problems.push('-10 m moved bench did not land at (60, 37, -10): ' + JSON.stringify(subMoved ?? null))
+              }
+              const postDrop = await editState()
+              if (postDrop?.carried) problems.push('-10 m move draft survived valid drop')
+
+              // Assert one scene resolution per routed editing event in the recent trace.
+              const subTrace = postDrop?.trace ?? []
+              if (subTrace.some(entry => ['pointer.down', 'pointer.move', 'pointer.rightTap'].includes(entry.type) && entry.picks !== 1)) {
+                problems.push('routed editing event did not resolve exactly 1 scene pick: ' + JSON.stringify(subTrace))
+              }
+              if (subTrace.some(entry => entry.type === 'pointer.move' && entry.committed)) {
+                problems.push('-10 m hover move committed a revision')
+              }
+
+              // 8e. Select right-tap deletes the -10 m bench in one undoable commit; undo/redo verify and restore clean Zoo.
+              const movedSeatUv = projectDoc([60.5, 37.5, -8.55])
+              await tool('select')
+              before = await revision()
+              await rightTapAt(movedSeatUv.u, movedSeatUv.v)
+              if (await waitRevision(before + 1, '-10 m right-tap delete')) {
+                if ((await modules()).some(m => m.id === subPlaced.id)) {
+                  problems.push('right-tap delete left the -10 m bench in the document')
+                }
+                const delTrace = (await editState())?.trace ?? []
+                if (!delTrace.some(entry => entry.type === 'pointer.rightTap' && entry.picks === 1 && entry.committed)) {
+                  problems.push('right-tap delete did not record a single-pick committed trace entry')
+                }
+
+                before = await revision()
+                await send('edit.undo', {})
+                if (await waitRevision(before + 1, '-10 m undo delete')) {
+                  if (!(await modules()).some(m => m.id === subPlaced.id)) problems.push('undo did not restore right-tap deleted bench')
+                }
+                before = await revision()
+                await send('edit.redo', {})
+                if (await waitRevision(before + 1, '-10 m redo delete')) {
+                  if ((await modules()).some(m => m.id === subPlaced.id)) problems.push('redo did not re-apply right-tap delete')
+                }
+                // Undo delete, move, and place so Zoo returns to its exact authored state.
+                for (const label of ['-10 m restore delete', '-10 m restore move', '-10 m restore place']) {
+                  before = await revision()
+                  await send('edit.undo', {})
+                  await waitRevision(before + 1, label)
+                }
+              }
+            }
+          }
+        }
+
+        // 8f. Toggle the view and click the EXACT same pixel again without an intervening hover:
+        //     `screenshotUv` aims at (56, 37, -10) directly through 0 m `sidewalk-1717` / `(72, 14, 0)`.
+        await tool('select')
+        await clickAt(screenshotUv.u, screenshotUv.v)
+        await sleep(150)
+        subState = await editState()
+        if (subState?.selectionKind !== 'cell' || subState?.selectionKey !== '56,37,-10') {
+          problems.push('frozen ray at -10 m expected cell:56,37,-10, got ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+
+        await send('view.set', { key: 'hideUi', value: true })
+        try {
+          await poll('window.__metroStationBridge.getSnapshot().state.view?.hideUi === true', 'hideUi on', 10000)
+        } catch { problems.push('hideUi on did not settle') }
+        await sleep(150)
+        const seqBeforeNoHover = ((await editState())?.trace ?? []).at(-1)?.seq ?? 0
+        await clickWithoutHover(screenshotUv.u, screenshotUv.v)
+        subState = await editState()
+        if (subState?.selectionKind !== 'module' || subState?.selectionKey !== 'sidewalk-1717') {
+          problems.push('frozen ray after hideUi=true without hover expected module:sidewalk-1717, got ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+        const between = (subState?.trace ?? []).filter(entry => entry.seq > seqBeforeNoHover)
+        if (between.some(entry => entry.type === 'pointer.move')) {
+          problems.push('clickWithoutHover unexpectedly dispatched a pointer.move before clicking')
+        }
+
+        await send('view.set', { key: 'hideUi', value: false })
+        try {
+          await poll('window.__metroStationBridge.getSnapshot().state.view?.hideUi === false', 'hideUi off', 10000)
+        } catch { problems.push('hideUi off did not settle') }
+        await sleep(150)
+        await clickWithoutHover(screenshotUv.u, screenshotUv.v)
+        subState = await editState()
+        if (subState?.selectionKind !== 'cell' || subState?.selectionKey !== '56,37,-10') {
+          problems.push('frozen ray after hideUi=false without hover expected cell:56,37,-10, got ' + JSON.stringify({
+            kind: subState?.selectionKind, key: subState?.selectionKey,
+          }))
+        }
+      }
+
+      // Restore 0 m Home framing for downstream cases.
+      await send('view.set', { key: 'level', value: 0 })
+      await sleep(250)
+      await send('camera.home', {})
+      await sleep(400)
     }
   }
   await screenshot('station-game-station-editing')

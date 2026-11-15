@@ -1091,5 +1091,291 @@ namespace Metro.Editor {
                 return ExitCode.Failed;
             }
         }
+
+        [CliGroupCommand("metro",
+            "Verify camera-visible pointer picking in Live Editor Play Mode across Zoo (-10 m), a raised-floor station (levelBase = 2), Tanwei nonstandard L-ramp (stair-right90-9516), and both perspective and orthographic camera views via WebView2 synthetic canvas clicks.",
+            Effect = CommandEffect.ReadOnly, Tags = new[] { "tests" })]
+        internal static async Task<ExitCode> EditorUiPickerCheck(
+            CommandContext cmd,
+            [CliArg("out-dir", "Output folder under .preview/unity/ for report JSON and GameView PNG.")] string outDir = ".preview/unity/editor/picker-overlay") {
+            try {
+                if (!EditorApplication.isPlaying) {
+                    cmd.Log.Error("Editor must be in Play Mode to run editor_ui_picker_check.");
+                    return ExitCode.Failed;
+                }
+                FocusGameViewTab();
+                if (cachedGameViewType != null) {
+                    var gv = EditorWindow.GetWindow(cachedGameViewType, false, null, false);
+                    if (gv != null && (gv.position.width < 1160f || gv.position.height < 660f)) {
+                        gv.position = new Rect(gv.position.x, gv.position.y,
+                            Mathf.Max(1280f, gv.position.width), Mathf.Max(720f, gv.position.height));
+                    }
+                }
+                Application.runInBackground = true;
+                await Task.Delay(250);
+
+                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var presenter = StationDesktopUiPresenter.Active;
+                var rig = StationViewFeature.Active;
+                if (host == null || !host.IsLoaded || host.stationCamera == null || presenter == null || !presenter.IsWebReady || rig == null) {
+                    cmd.Log.Error("StationGameHost, StationDesktopUiPresenter, or StationViewRig is not ready.");
+                    return ExitCode.Failed;
+                }
+
+                string repoRoot = RepoRoot();
+                string fullOutDir = Path.IsPathRooted(outDir)
+                    ? Path.GetFullPath(outDir)
+                    : Path.GetFullPath(Path.Combine(repoRoot, outDir));
+                Directory.CreateDirectory(fullOutDir);
+
+                string sessionId = !string.IsNullOrEmpty(host.ClientSessionId) ? host.ClientSessionId : "editor-picker-check";
+
+                void SendHost(string type, JObject payload) {
+                    host.BrowserCommand(new JObject {
+                        ["schemaVersion"] = 2,
+                        ["id"] = "overlay-pick-" + Guid.NewGuid().ToString("N"),
+                        ["sessionId"] = sessionId,
+                        ["type"] = type,
+                        ["payload"] = payload,
+                    }.ToString(Formatting.None));
+                }
+
+                async Task SettleOverlayAsync(int minFrames = 2, int extraMs = 150) {
+                    host.PublishStateNow();
+                    int startFrames = presenter.PresentedFrameCount;
+                    var sw = Stopwatch.StartNew();
+                    while (sw.ElapsedMilliseconds < 2500 && presenter.PresentedFrameCount < startFrames + minFrames) {
+                        await Task.Yield();
+                    }
+                    if (extraMs > 0) await Task.Delay(extraMs);
+                }
+
+                async Task OpenDemoStationAsync(string demoId) {
+                    SendHost("station.openDemo", new JObject { ["id"] = demoId });
+                    SendHost("sim.play", new JObject { ["playing"] = false });
+                    SendHost("tool.select", new JObject { ["tool"] = "select" });
+                    await SettleOverlayAsync(3, 250);
+                }
+
+                async Task OpenJsonStationAsync(string jsonText, string sourceId) {
+                    SendHost("station.open", new JObject { ["document"] = jsonText, ["sourceId"] = sourceId });
+                    SendHost("sim.play", new JObject { ["playing"] = false });
+                    SendHost("tool.select", new JObject { ["tool"] = "select" });
+                    await SettleOverlayAsync(3, 250);
+                }
+
+                async Task ConfigureViewAsync(int level, bool showLevels = true, bool ceiling = false,
+                    bool walls = false, bool ground = false, bool roof = false, bool hideUi = false, bool cutaway = false) {
+                    SendHost("tool.select", new JObject { ["tool"] = "select" });
+                    SendHost("view.set", new JObject { ["key"] = "level", ["value"] = level });
+                    SendHost("view.set", new JObject { ["key"] = "showLevels", ["value"] = showLevels });
+                    SendHost("view.set", new JObject { ["key"] = "ceiling", ["value"] = ceiling });
+                    SendHost("view.set", new JObject { ["key"] = "walls", ["value"] = walls });
+                    SendHost("view.set", new JObject { ["key"] = "ground", ["value"] = ground });
+                    SendHost("view.set", new JObject { ["key"] = "roof", ["value"] = roof });
+                    SendHost("view.set", new JObject { ["key"] = "hideUi", ["value"] = hideUi });
+                    SendHost("view.set", new JObject { ["key"] = "cutaway", ["value"] = cutaway });
+                    rig.Tick(0f);
+                    await SettleOverlayAsync(2, 160);
+                }
+
+                async Task SetPerspectiveIsoAsync(Vector3 target, float distance, float fov, Vector3 dirVec) {
+                    var dir = dirVec.normalized;
+                    rig.CameraController.State.Projection = StationProjection.Perspective;
+                    rig.CameraController.State.Fov = fov;
+                    rig.CameraController.State.Target = target;
+                    rig.CameraController.State.Position = target + dir * distance;
+                    rig.Commands.ApplyCamera();
+                    rig.Tick(0f);
+                    await SettleOverlayAsync(2, 120);
+                }
+
+                async Task SetOrthoPlanAsync(Vector3 target, float distance, float orthoHalfHeight) {
+                    var dir = new Vector3(0f, 0.001f, 1f).normalized;
+                    rig.CameraController.State.Projection = StationProjection.Orthographic;
+                    rig.CameraController.State.Target = target;
+                    rig.CameraController.State.Position = target + dir * distance;
+                    float baseOrtho = StationCameraMath.OrthoSize(rig.CameraController.State.Bounds, 1f);
+                    rig.CameraController.State.OrthoZoom = orthoHalfHeight / Mathf.Max(0.01f, baseOrtho);
+                    rig.Commands.ApplyCamera();
+                    rig.Tick(0f);
+                    await SettleOverlayAsync(2, 120);
+                }
+
+                var scenes = new JArray();
+                var problems = new JArray();
+
+                async Task ClickAndAssertAsync(string stationName, string sceneLabel, Vector3 docAim, string expectedResolved) {
+                    StationEditSession.ClearSelection();
+                    host.PublishStateNow();
+                    await Task.Delay(60);
+
+                    var cam = host.stationCamera;
+                    int vw = presenter.TextureWidth > 0 ? presenter.TextureWidth : Mathf.Max(1, Screen.width);
+                    int vh = presenter.TextureHeight > 0 ? presenter.TextureHeight : Mathf.Max(1, Screen.height);
+                    var vp = cam.WorldToViewportPoint(StationCoordinates.Point(docAim));
+                    double u = vp.x;
+                    double vTop = 1.0 - vp.y;
+                    double clickX = Math.Round(u * vw, 2);
+                    double clickY = Math.Round(vTop * vh, 2);
+
+                    int picksBefore = StationScenePicker.PickCount;
+                    presenter.SendSyntheticMouse("move", clickX, clickY, "none", 0);
+                    await Task.Delay(40);
+                    int picksBeforeClick = StationScenePicker.PickCount;
+                    presenter.SendSyntheticMouse("down", clickX, clickY, "left", 1, 0, 1);
+                    await Task.Delay(40);
+                    presenter.SendSyntheticMouse("up", clickX, clickY, "left", 0, 0, 1);
+
+                    var waitSw = Stopwatch.StartNew();
+                    while (waitSw.ElapsedMilliseconds < 3000 && StationScenePicker.PickCount <= picksBeforeClick) {
+                        await Task.Yield();
+                    }
+                    await Task.Delay(80);
+
+                    int clickPicks = StationScenePicker.PickCount - picksBeforeClick;
+                    string resolved = string.IsNullOrEmpty(StationEditSession.SelectionKind)
+                        ? ""
+                        : StationEditSession.SelectionKind + ":" + StationEditSession.SelectionKey;
+
+                    var snap = rig.CameraController.Snapshot(cam);
+                    var vis = rig.Visibility.State;
+                    var row = new JObject {
+                        ["station"] = stationName,
+                        ["scene"] = sceneLabel,
+                        ["docAim"] = new JArray(Math.Round(docAim.x, 3), Math.Round(docAim.y, 3), Math.Round(docAim.z, 3)),
+                        ["u"] = Math.Round(u, 4),
+                        ["v"] = Math.Round(vTop, 4),
+                        ["clientX"] = clickX,
+                        ["clientY"] = clickY,
+                        ["viewport"] = new JArray(vw, vh),
+                        ["camera"] = new JObject {
+                            ["projection"] = snap.IsOrthographic ? "ortho" : "perspective",
+                            ["position"] = new JArray(Math.Round(snap.Position.x, 3), Math.Round(snap.Position.y, 3), Math.Round(snap.Position.z, 3)),
+                            ["target"] = new JArray(Math.Round(snap.Target.x, 3), Math.Round(snap.Target.y, 3), Math.Round(snap.Target.z, 3)),
+                            ["fov"] = Math.Round(snap.Fov, 2),
+                            ["orthoSize"] = Math.Round(snap.OrthoSize, 3),
+                        },
+                        ["level"] = vis.ActiveLevel,
+                        ["toggles"] = new JObject {
+                            ["showLevels"] = vis.ShowLevels,
+                            ["ceiling"] = vis.AutoCeiling,
+                            ["walls"] = vis.HideWalls,
+                            ["ground"] = vis.HideGround,
+                            ["roof"] = vis.HideRoof,
+                            ["hideUi"] = vis.HideUi,
+                            ["cutaway"] = rig.Visibility.SectionClipping,
+                        },
+                        ["clickPicks"] = clickPicks,
+                        ["totalPicksDelta"] = StationScenePicker.PickCount - picksBefore,
+                        ["expected"] = expectedResolved,
+                        ["resolved"] = resolved,
+                        ["ok"] = string.Equals(resolved, expectedResolved, StringComparison.Ordinal) && clickPicks == 1,
+                    };
+                    scenes.Add(row);
+                    if (!string.Equals(resolved, expectedResolved, StringComparison.Ordinal)) {
+                        problems.Add($"{sceneLabel}: expected '{expectedResolved}', got '{resolved}' at ({clickX}, {clickY}) / ({vw}x{vh})");
+                    } else if (clickPicks != 1) {
+                        problems.Add($"{sceneLabel}: expected 1 scene pick on click, got {clickPicks}");
+                    }
+                }
+
+                // 1. Zoo (-10 m) — Perspective & Orthographic
+                await OpenDemoStationAsync("zoo");
+                await ConfigureViewAsync(-10);
+                await SetPerspectiveIsoAsync(new Vector3(67.5f, 12.5f, -9.0f), 58.1665f, 45f, new Vector3(1f, -1.2f, 0.85f));
+                await ClickAndAssertAsync("zoo", "zoo-persp-minus10-screenshot-ray", new Vector3(56.5f, 37.6f, -9.0f), "cell:56,37,-10");
+                await ClickAndAssertAsync("zoo", "zoo-persp-minus10-module", new Vector3(58.5f, 38.5f, -8.55f), "module:bin-754");
+
+                string zooPng = Path.Combine(fullOutDir, "zoo-minus10-picker.png");
+                if (File.Exists(zooPng)) File.Delete(zooPng);
+                ScreenCapture.CaptureScreenshot(zooPng);
+                var capSw = Stopwatch.StartNew();
+                while (capSw.ElapsedMilliseconds < 4000 && !File.Exists(zooPng)) {
+                    await Task.Yield();
+                }
+
+                await ConfigureViewAsync(-10, hideUi: true);
+                await ClickAndAssertAsync("zoo", "zoo-persp-minus10-hideui-on", new Vector3(56.5f, 37.6f, -9.0f), "module:sidewalk-1717");
+
+                await ConfigureViewAsync(-10, hideUi: false);
+                await SetOrthoPlanAsync(new Vector3(58.0f, 37.5f, -9.0f), 60.0f, 18.0f);
+                await ClickAndAssertAsync("zoo", "zoo-ortho-minus10-screenshot-point", new Vector3(56.5f, 37.6f, -9.0f), "cell:56,37,-10");
+                await ClickAndAssertAsync("zoo", "zoo-ortho-minus10-module", new Vector3(58.5f, 38.5f, -8.55f), "module:bin-754");
+
+                // 2. Raised floor (levelBase = 2, storeyHeight = 5) — Perspective & Orthographic
+                var raisedCells = new JArray();
+                for (int x = 0; x <= 6; x++) {
+                    for (int y = 0; y <= 6; y++) {
+                        raisedCells.Add(new JObject { ["x"] = x, ["y"] = y, ["z"] = 2, ["fill"] = "solid" });
+                        raisedCells.Add(new JObject { ["x"] = x, ["y"] = y, ["z"] = 7, ["fill"] = "solid" });
+                    }
+                }
+                string raisedJson = new JObject {
+                    ["format"] = "metro-save",
+                    ["formatVersion"] = 1,
+                    ["gameVersion"] = "0.2.0",
+                    ["savedAt"] = "2026-01-01T00:00:00.000Z",
+                    ["name"] = "Raised Floor Check",
+                    ["seed"] = 42,
+                    ["levelBase"] = 2,
+                    ["storeyHeight"] = 5,
+                    ["static"] = new JObject {
+                        ["cells"] = raisedCells,
+                        ["modules"] = new JArray(new JObject {
+                            ["id"] = "bench-raised", ["type"] = "bench", ["x"] = 2, ["y"] = 2, ["z"] = 2, ["rot"] = 0, ["cfg"] = new JObject(),
+                        }),
+                        ["lines"] = new JArray(),
+                    },
+                }.ToString(Formatting.None);
+
+                await OpenJsonStationAsync(raisedJson, "file:raised-floor");
+                await ConfigureViewAsync(2);
+                await SetPerspectiveIsoAsync(new Vector3(3.5f, 3.5f, 3.0f), 20.0f, 45f, new Vector3(1f, -1.2f, 0.85f));
+                await ClickAndAssertAsync("raised-floor", "raised-persp-plus2-bench", new Vector3(2.5f, 2.5f, 3.45f), "module:bench-raised");
+                await ClickAndAssertAsync("raised-floor", "raised-persp-plus2-floor", new Vector3(4.5f, 2.5f, 3.0f), "cell:4,2,2");
+
+                await ConfigureViewAsync(7);
+                await SetPerspectiveIsoAsync(new Vector3(3.5f, 3.5f, 8.0f), 20.0f, 45f, new Vector3(1f, -1.2f, 0.85f));
+                await ClickAndAssertAsync("raised-floor", "raised-persp-plus7-slab", new Vector3(2.5f, 2.5f, 8.0f), "cell:2,2,7");
+
+                await ConfigureViewAsync(2);
+                await SetOrthoPlanAsync(new Vector3(3.5f, 3.5f, 3.0f), 40.0f, 8.0f);
+                await ClickAndAssertAsync("raised-floor", "raised-ortho-plus2-bench", new Vector3(2.5f, 2.5f, 3.45f), "module:bench-raised");
+                await ClickAndAssertAsync("raised-floor", "raised-ortho-plus2-floor", new Vector3(4.5f, 2.5f, 3.0f), "cell:4,2,2");
+
+                // 3. Tanwei nonstandard L-shaped ramp (stair-right90-9516) at 0 m — Perspective & Orthographic
+                await OpenDemoStationAsync("tanwei");
+                await ConfigureViewAsync(0);
+                await SetPerspectiveIsoAsync(new Vector3(35.5f, 40.5f, 4.0f), 18.0f, 45f, new Vector3(1f, 1.2f, 0.85f));
+                await ClickAndAssertAsync("tanwei", "tanwei-persp-zero-ramp-tread", new Vector3(35.0f, 42.3f, 2.8f), "module:stair-right90-9516");
+                await ClickAndAssertAsync("tanwei", "tanwei-persp-zero-ramp-inner-corner", new Vector3(34.5f, 39.5f, 5.0f), "cell:34,39,4");
+
+                await SetOrthoPlanAsync(new Vector3(35.5f, 40.5f, 4.0f), 40.0f, 10.0f);
+                await ClickAndAssertAsync("tanwei", "tanwei-ortho-zero-ramp-tread", new Vector3(35.0f, 42.3f, 2.8f), "module:stair-right90-9516");
+                await ClickAndAssertAsync("tanwei", "tanwei-ortho-zero-ramp-inner-corner", new Vector3(34.5f, 39.5f, 5.0f), "cell:34,39,4");
+
+                // Restore clean Zoo default state.
+                await OpenDemoStationAsync("zoo");
+
+                bool ok = problems.Count == 0 && scenes.Count == 14;
+                var report = new JObject {
+                    ["ok"] = ok,
+                    ["sceneCount"] = scenes.Count,
+                    ["problems"] = problems,
+                    ["zooScreenshot"] = zooPng,
+                    ["scenes"] = scenes,
+                };
+                string reportPath = Path.Combine(fullOutDir, "report.json");
+                File.WriteAllText(reportPath, report.ToString(Formatting.Indented));
+                report["reportPath"] = reportPath;
+
+                cmd.Result.Write(report);
+                return ok ? ExitCode.Success : ExitCode.Failed;
+            } catch (Exception ex) {
+                cmd.Log.Error("editor_ui_picker_check failed: " + ex);
+                return ExitCode.Failed;
+            }
+        }
     }
 }

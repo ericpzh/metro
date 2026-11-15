@@ -183,3 +183,26 @@ test('a blocked shell never starts a tool gesture', () => {
     detach()
   }
 })
+
+test('desktop/Editor metro-overlay maps docked stage clicks to full swapchain coordinates', () => {
+  const canvas = new FakeCanvas(748, 630)
+  canvas.getBoundingClientRect = () => ({ left: 232, top: 48, width: 748, height: 630, right: 980, bottom: 678 })
+  canvas.ownerDocument = {
+    documentElement: { classList: { contains: token => token === 'metro-overlay' } },
+    defaultView: { innerWidth: 1280, innerHeight: 720 },
+  }
+  const commands = []
+  const frames = installFrames()
+  const detach = attachCanvasToolPointer(canvas, { send: command => commands.push(command) })
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ clientX: 640, clientY: 360 }))
+    assert.equal(commands.length, 1)
+    assert.equal(commands[0].payload.x, 640)
+    assert.equal(commands[0].payload.y, 360)
+    assert.equal(commands[0].payload.w, 1280)
+    assert.equal(commands[0].payload.h, 720)
+  } finally {
+    frames.restore()
+    detach()
+  }
+})

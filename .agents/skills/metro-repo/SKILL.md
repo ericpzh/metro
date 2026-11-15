@@ -216,7 +216,13 @@ it; map hanger hits to the hanger's real attachment anchor and leave support/ref
 to the shared validator. Preserve erase and floor-paint policies. Pin geometry
 anchors in `geometry-snap.test.mjs`, low-angle targeting and occlusion in
 `placement-surface.test.mjs`, and reproduce the visible-object interaction with
-`tools/check-geometry-snapping.mjs`.
+`tools/check-geometry-snapping.mjs`. In the Unity port, camera-visible triangle
+picking (`StationScenePicker`, `StationCellRenderer.TryPickWorld`, per-tile
+`StationBatchSpan`s, post-load `ApplyVisibility`, single-ray routing in
+`StationPointerRouter` / `StationEditSession`, and `html.metro-overlay` swapchain
+pointer mapping in `game/src/unity-web/pointerInput.ts`) routes to `metro-unity`,
+pinned by `StationScenePickerTests`, `unity/tests/pointer-input.test.mjs`,
+`verify-station-game.mjs` (`station-editing`), and `metro editor_ui_picker_check`.
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local

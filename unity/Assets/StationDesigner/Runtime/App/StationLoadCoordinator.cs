@@ -78,6 +78,7 @@ namespace Metro.App {
         public int Revision;
         public string SourceId;
         public string SourceHash;
+        public bool IsEdit;
         public StationCameraBounds CameraBounds;
         public StationViewSummary View;
         public IReadOnlyList<StationDiagnostic> Diagnostics;
@@ -244,8 +245,8 @@ namespace Metro.App {
 
             var info = new StationCommitInfo {
                 Document = document, Index = index, Revision = revision, SourceId = sourceId,
-                SourceHash = sourceHash, CameraBounds = cameraBounds, View = world.Summary(),
-                Diagnostics = Merge(read.Diagnostics, world.Unresolved),
+                SourceHash = sourceHash, IsEdit = isEdit && previous != null, CameraBounds = cameraBounds,
+                View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
             };
             Committed?.Invoke(info);
             return new StationLoadResult {

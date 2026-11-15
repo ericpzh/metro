@@ -605,12 +605,18 @@ namespace Metro.App {
         /// <see cref="Configure"/> instead, which homes against the fresh bounds.
         /// </summary>
         public void RefreshStation(Bounds documentBounds, StationLevelGrid grid) {
+            int previousBase = Visibility != null ? Visibility.State.LevelBase : Grid.LevelBase;
             StationBounds = documentBounds;
             Grid = grid;
             if (Commands == null) return;
             Commands.Grid = grid;
             Visibility.State.LevelBase = grid.LevelBase;
             Visibility.State.StoreyHeight = grid.StoreyHeight;
+            if (previousBase != grid.LevelBase) {
+                int shifted = grid.NearestLadderLevel(Commands.Camera.ActiveLevel - previousBase + grid.LevelBase);
+                Commands.Camera.SetActiveLevel(shifted);
+                Visibility.State.ActiveLevel = shifted;
+            }
             CameraController.SetBounds(documentBounds);
             Visibility.Apply();
             SyncSky();
@@ -844,10 +850,11 @@ namespace Metro.App {
             var grid = StationLevelGrid.FromDocument(info.Document.LevelBase, info.Document.StoreyHeight,
                 info.Index != null ? info.Index.Levels : null);
             var bounds = DocumentBounds(info.CameraBounds);
+            var world = host?.Coordinator?.World;
             // The first commit and every source switch home against the fresh station;
-            // a later commit of the same source (an edit) keeps the player's view.
-            bool newStation = lastRevision < 0 ||
-                !string.Equals(lastSource ?? "", info.SourceId ?? "", StringComparison.Ordinal);
+            // an edit/undo/redo or a same-source commit keeps the player's camera and cut.
+            bool newStation = !info.IsEdit && (lastRevision < 0 ||
+                !string.Equals(lastSource ?? "", info.SourceId ?? "", StringComparison.Ordinal));
             lastSource = info.SourceId ?? "";
             lastRevision = info.Revision;
             if (newStation) {
@@ -855,36 +862,50 @@ namespace Metro.App {
                 // `openingLevel`); a level that is not on the storey ladder is pulled to
                 // the nearest one so the view grid stays valid.
                 int level = grid.NearestLadderLevel(info.Document.OpeningLevel);
-                var world = host?.Coordinator?.World;
                 rig.Configure(host != null ? host.stationCamera : null, bounds, grid, level, SectionPlanCentre(world));
                 host?.SetActiveLevel(level);
             } else {
                 rig.RefreshStation(bounds, grid);
+                if (rig.Commands != null) host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
             }
             rig.SetDense(info.Document.ModuleCount >= StationVisibilityRules.DenseStationModules);
-            RegisterWorld(rig, host != null && host.Coordinator != null ? host.Coordinator.World : null);
+            RegisterWorld(rig, world);
         }
 
         /// <summary>
         /// Tag every part A's world registered with the role and true level span the
-        /// view rules need. A's <see cref="StationViewRecord"/> is the only coupling;
-        /// a family that wants its own wall/PSD/ground tag registers that role on the
-        /// record instead of teaching the camera about its geometry.
+        /// view rules need, then apply the current visibility state so the newly built
+        /// renderers match the active level, toggles and section cut immediately.
         /// </summary>
-        static void RegisterWorld(StationViewRig rig, StationWorldView world) {
+        public static void RegisterWorld(StationViewRig rig, StationWorldView world) {
             if (rig == null || world == null) return;
-            rig.Visibility.ClearRegisteredTargets();
-            rig.Visibility.ResetMaterials();
+            RegisterWorld(rig.Visibility, world);
+            rig.SyncSky();
+        }
+
+        /// <summary>
+        /// Register one built world's parts with a visibility registry and apply its
+        /// current slice/hide/cut state immediately. Usable from standalone EditMode tests
+        /// that construct a <see cref="StationVisibilityRegistry"/> without a scene host.
+        /// </summary>
+        public static void RegisterWorld(StationVisibilityRegistry visibility, StationWorldView world) {
+            if (visibility == null || world == null || world.Document == null) return;
+            visibility.State.LevelBase = world.Document.LevelBase;
+            visibility.State.StoreyHeight = world.Document.StoreyHeight;
+            visibility.State.Dense = world.Document.ModuleCount >= StationVisibilityRules.DenseStationModules;
+            visibility.ClearRegisteredTargets();
+            visibility.ResetMaterials();
             var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
             foreach (var module in world.Document.Modules) modules[module.Id] = module;
-            var grid = rig.Visibility.State.Grid;
+            var grid = visibility.State.Grid;
             foreach (var record in world.Records) {
                 if (record?.View == null) continue;
                 var role = RoleOf(record, modules);
                 var levels = LevelsOf(record, modules, grid);
-                rig.Register(record.View.transform, role, levels,
+                visibility.Register(record.View.transform, role, levels,
                     gradeOwned: IsGradeOwned(record, modules));
             }
+            visibility.Apply();
         }
 
         /// <summary>

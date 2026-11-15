@@ -73,8 +73,26 @@ export interface ToolPointerOptions {
     }
   }
 
+  const frameRect = (): { left: number; top: number; width: number; height: number } => {
+    const doc = (canvas as { ownerDocument?: Document }).ownerDocument ?? globalThis.document
+    const win = doc?.defaultView ?? globalThis.window
+    // In the desktop/Editor WebView2 overlay (`<html class="metro-overlay">`), Unity's
+    // 3D camera renders across the full swapchain `(0..innerWidth, 0..innerHeight)` behind
+    // the transparent `.stage` hole, while `#unity-canvas` stays docked inside `.stage` so
+    // React sidebars/bars still block pointer events outside `.stage`.
+    if (
+      doc?.documentElement?.classList?.contains('metro-overlay') &&
+      win &&
+      win.innerWidth > 0 &&
+      win.innerHeight > 0
+    ) {
+      return { left: 0, top: 0, width: win.innerWidth, height: win.innerHeight }
+    }
+    return canvas.getBoundingClientRect()
+  }
+
   const payload = (event: PointerEvent, button: number): PointerPayload => {
-    const rect = canvas.getBoundingClientRect()
+    const rect = frameRect()
     const known = snapshot()
     return {
       x: event.clientX - rect.left,

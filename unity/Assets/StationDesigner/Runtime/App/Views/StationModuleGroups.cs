@@ -448,6 +448,8 @@ namespace Metro.App.Views {
             var bucketLevel = new Dictionary<string, int>(StringComparer.Ordinal);
             var bucketIds = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             var bucketBoxes = new Dictionary<string, List<StationBox>>(StringComparer.Ordinal);
+            var bucketSpans = new Dictionary<string, List<StationBatchSpan>>(StringComparer.Ordinal);
+            var bucketTriangles = new Dictionary<string, int>(StringComparer.Ordinal);
             var bucketItems = new Dictionary<string, List<(ModuleFacts module, RuntimeCatalogue.Entry entry, string key)>>(StringComparer.Ordinal);
             // 20 §4: a batch is grade furniture when the tiles it combines are, and the bucket is
             // keyed by the **exact saved module Z**, so a chunk that happens to span 0 m still
@@ -547,20 +549,46 @@ namespace Metro.App.Views {
                         bucketLevel[bucketKey] = module.Z;
                         bucketIds[bucketKey] = new List<string>();
                         bucketBoxes[bucketKey] = new List<StationBox>();
+                        bucketSpans[bucketKey] = new List<StationBatchSpan>();
+                        bucketTriangles[bucketKey] = 0;
                         bucketItems[bucketKey] = new List<(ModuleFacts, RuntimeCatalogue.Entry, string)>();
                         bucketGrade[bucketKey] = string.Equals(module.Type, "sidewalk", StringComparison.Ordinal) ||
                             string.Equals(module.Type, "lawn", StringComparison.Ordinal);
                     }
                     var matrix = placement * part.Local;
+                    int startTriangle = bucketTriangles[bucketKey];
+                    int partTriangles = part.Mesh.GetTopology(part.Submesh) == MeshTopology.Triangles
+                        ? (int)(part.Mesh.GetIndexCount(part.Submesh) / 3)
+                        : 0;
+                    bucketTriangles[bucketKey] = startTriangle + partTriangles;
                     list.Add(new CombineInstance { mesh = part.Mesh, subMeshIndex = part.Submesh, transform = matrix });
                     var bounds = bucketBounds[bucketKey];
                     EncapsulateTransformed(part.Mesh.bounds, matrix, ref bounds);
                     bucketBounds[bucketKey] = bounds;
                     var ids = bucketIds[bucketKey];
-                    if (!string.IsNullOrEmpty(module.Id) && !ids.Contains(module.Id)) {
-                        ids.Add(module.Id);
-                        if (hasTileBox) bucketBoxes[bucketKey].Add(tileBox);
-                        else bucketBoxes[bucketKey].Add(BoxOf(module));
+                    int sourceIndex = -1;
+                    if (!string.IsNullOrEmpty(module.Id)) {
+                        sourceIndex = ids.IndexOf(module.Id);
+                        if (sourceIndex < 0) {
+                            sourceIndex = ids.Count;
+                            ids.Add(module.Id);
+                            if (hasTileBox) bucketBoxes[bucketKey].Add(tileBox);
+                            else bucketBoxes[bucketKey].Add(BoxOf(module));
+                        }
+                    }
+                    if (sourceIndex >= 0 && partTriangles > 0) {
+                        var spans = bucketSpans[bucketKey];
+                        if (spans.Count > 0) {
+                            var last = spans[spans.Count - 1];
+                            if (last.SourceIndex == sourceIndex && last.StartTriangle + last.TriangleCount == startTriangle) {
+                                spans[spans.Count - 1] = new StationBatchSpan(sourceIndex, last.StartTriangle,
+                                    last.TriangleCount + partTriangles);
+                            } else {
+                                spans.Add(new StationBatchSpan(sourceIndex, startTriangle, partTriangles));
+                            }
+                        } else {
+                            spans.Add(new StationBatchSpan(sourceIndex, startTriangle, partTriangles));
+                        }
                     }
                     var items = bucketItems[bucketKey];
                     if (p == 0) items.Add((module, entry, key));
@@ -615,7 +643,8 @@ namespace Metro.App.Views {
                     new StationBox(bounds.min.x, bounds.min.z, bounds.min.y, bounds.max.x, bounds.max.z, bounds.max.y),
                     band, band, new[] { band }, bucketIds[pair.Key].ToArray(), bucketBoxes[pair.Key].ToArray(),
                     bucketGrade.TryGetValue(pair.Key, out bool grade) && grade,
-                    "batch z=" + bucketLevel[pair.Key].ToString(CultureInfo.InvariantCulture));
+                    "batch z=" + bucketLevel[pair.Key].ToString(CultureInfo.InvariantCulture),
+                    bucketSpans[pair.Key].ToArray());
             }
 
             // Unresolved or unreadable tiles are still drawn: one prefab instance each.

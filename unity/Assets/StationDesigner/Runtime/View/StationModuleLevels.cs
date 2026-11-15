@@ -92,8 +92,12 @@ namespace Metro.View {
             }
         }
 
-        /// <summary>The storey band a raw elevation belongs to.</summary>
-        public static int Band(StationLevelGrid grid, double z) => grid.Band(Mathf.FloorToInt((float)z));
+        /// <summary>
+        /// The storey band a raw elevation belongs to (`sim/constants.ts:storeyBand`, which slices
+        /// by the fixed 5 m band step anchored at <see cref="StationLevelGrid.LevelBase"/> just as
+        /// <see cref="StationCellMesher"/> does).
+        /// </summary>
+        public static int Band(StationLevelGrid grid, double z) => StationCoordinates.StoreyBand(z, grid.LevelBase);
 
         /// <summary>Sort and de-duplicate a band list.</summary>
         public static int[] Collapse(IEnumerable<int> levels) {

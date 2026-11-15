@@ -56,6 +56,8 @@ namespace Metro.App.Views {
         public MeshRenderer Renderer;
         public Mesh Mesh;
         public Material Material;
+        public Vector3[] WorldVertices;
+        public int[] WorldIndices;
         public Transform Transform => GameObject != null ? GameObject.transform : null;
 
         public StationSurfaceRole Role => Data.Role;
@@ -67,6 +69,81 @@ namespace Metro.App.Views {
         public bool Wall { get; internal set; }
 
         public override string ToString() => Data != null ? Data.GroupKey : "(released)";
+    }
+
+    /// <summary>
+    /// Camera and visibility filter applied during analytic cell triangle picking so only
+    /// triangles that are currently rendered (enabled renderer, matching camera layer,
+    /// clip interval, material face culling, and section plane keep test) can win a hit.
+    /// </summary>
+    public readonly struct StationCellPickFilter {
+        readonly bool configured;
+        readonly int cullingMask;
+        readonly float minDistance;
+        readonly float maxDistance;
+        public readonly StationVisibilityRegistry Visibility;
+
+        public StationCellPickFilter(int cullingMask, float minDistance, float maxDistance,
+            StationVisibilityRegistry visibility) {
+            configured = true;
+            this.cullingMask = cullingMask;
+            this.minDistance = Mathf.Max(0f, minDistance);
+            this.maxDistance = float.IsNaN(maxDistance) ? float.PositiveInfinity : Mathf.Max(0f, maxDistance);
+            Visibility = visibility;
+        }
+
+        public int CullingMask => configured ? cullingMask : ~0;
+        public float MinDistance => configured ? minDistance : 0f;
+        public float MaxDistance => configured ? maxDistance : float.PositiveInfinity;
+
+        public static StationCellPickFilter Default =>
+            new StationCellPickFilter(~0, 0f, float.PositiveInfinity, null);
+
+        public static StationCellPickFilter FromCamera(Camera camera, StationVisibilityRegistry visibility) {
+            if (camera == null) return new StationCellPickFilter(~0, 0f, float.PositiveInfinity, visibility);
+            return new StationCellPickFilter(
+                camera.cullingMask,
+                Mathf.Max(0f, camera.nearClipPlane),
+                camera.farClipPlane > 0f ? camera.farClipPlane : float.PositiveInfinity,
+                visibility);
+        }
+
+        public static StationCellPickFilter FromCamera(Camera camera, Ray ray, StationVisibilityRegistry visibility) {
+            if (camera == null) return new StationCellPickFilter(~0, 0f, float.PositiveInfinity, visibility);
+            ClipInterval(camera, ray, out var min, out var max);
+            return new StationCellPickFilter(camera.cullingMask, min, max, visibility);
+        }
+
+        /// <summary>
+        /// Convert a camera's planar <c>[nearClipPlane, farClipPlane]</c> depth interval into ray
+        /// parameter bounds <c>[minDistance, maxDistance]</c> along <paramref name="ray"/>.
+        /// <c>Camera.ScreenPointToRay</c> starts on the near clip plane, whereas unit test rays
+        /// may start at the eye or elsewhere; projecting along <c>camera.transform.forward</c>
+        /// handles perspective, orthographic and eye-origin rays uniformly.
+        /// </summary>
+        public static void ClipInterval(Camera camera, Ray ray, out float minDistance, out float maxDistance) {
+            if (camera == null) {
+                minDistance = 0f;
+                maxDistance = float.PositiveInfinity;
+                return;
+            }
+            var forward = camera.transform.forward;
+            var dir = ray.direction.sqrMagnitude > 1e-12f ? ray.direction.normalized : forward;
+            float originDepth = Vector3.Dot(ray.origin - camera.transform.position, forward);
+            float cosTheta = Vector3.Dot(dir, forward);
+            float near = Mathf.Max(0f, camera.nearClipPlane);
+            float far = camera.farClipPlane > 0f ? camera.farClipPlane : float.PositiveInfinity;
+            if (cosTheta <= 1e-5f) {
+                bool inSlice = originDepth >= near - 1e-4f && originDepth <= far + 1e-4f;
+                minDistance = 0f;
+                maxDistance = inSlice ? float.PositiveInfinity : 0f;
+                return;
+            }
+            minDistance = Mathf.Max(0f, (near - originDepth) / cosTheta - 1e-4f);
+            maxDistance = float.IsPositiveInfinity(far)
+                ? float.PositiveInfinity
+                : Mathf.Max(0f, (far - originDepth) / cosTheta + 1e-4f);
+        }
     }
 
     /// <summary>A resolved pointer hit on the drawn surface: the pick record painting reads.</summary>
@@ -161,11 +238,12 @@ namespace Metro.App.Views {
                 renderer.shadowCastingMode = ShadowCastingMode.Off;
                 renderer.receiveShadows = true;
                 renderer.sharedMaterial = material;
-                var mesh = BuildMesh(group);
+                var mesh = BuildMesh(group, out var worldVertices, out var worldIndices);
                 filter.sharedMesh = mesh;
                 var entry = new StationCellGroupView {
                     Data = group, GameObject = child, Filter = filter, Renderer = renderer,
                     Mesh = mesh, Material = material,
+                    WorldVertices = worldVertices, WorldIndices = worldIndices,
                     Wall = group.Role == StationSurfaceRole.Wall ||
                         (request.Finishes != null && !string.IsNullOrEmpty(group.FinishId) && request.Finishes.IsWall(group.FinishId)),
                 };
@@ -181,17 +259,17 @@ namespace Metro.App.Views {
             throw new InvalidOperationException("StationCellViewRequest has no finish resolver (Finishes, ResolveFinish or FallbackMaterial)");
         }
 
-        /// <summary>Document axes  world, then the reflected winding is reversed.</summary>
-        Mesh BuildMesh(StationCellMeshGroup group) {
+        /// <summary>Document axes -> world, then the reflected winding is reversed.</summary>
+        Mesh BuildMesh(StationCellMeshGroup group, out Vector3[] vertices, out int[] indices) {
             var vertexCount = group.Positions.Length;
-            var vertices = new Vector3[vertexCount];
+            vertices = new Vector3[vertexCount];
             var normals = new Vector3[vertexCount];
             for (var i = 0; i < vertexCount; i++) {
                 vertices[i] = toWorld(group.Positions[i]);
                 normals[i] = toWorld(group.Normals[i]);
             }
-            var indices = new int[group.Indices.Length];
-            // The documentworld swap is a reflection: keep every triangle facing out
+            indices = new int[group.Indices.Length];
+            // The document->world swap is a reflection: keep every triangle facing out
             // by reversing its winding, exactly once, here.
             for (var t = 0; t < indices.Length; t += 3) {
                 indices[t] = group.Indices[t];
@@ -261,32 +339,63 @@ namespace Metro.App.Views {
         /// paint brush and a block tool both read. The hit is resolved **once**: hover
         /// and commit pass the same record, so the previewed face is the painted face.
         /// </summary>
-        public bool TryPick(Ray worldRay, out StationCellPickHit hit) {
+        public bool TryPick(Ray worldRay, out StationCellPickHit hit) =>
+            TryPick(worldRay, StationCellPickFilter.Default, out hit);
+
+        /// <summary>
+        /// Camera- and slice-aware cell pick: skips hidden/disabled renderers, excluded
+        /// camera layers, triangles outside the clip interval, culled backfaces/frontfaces,
+        /// and intersection points discarded by the active section cut.
+        /// </summary>
+        public bool TryPick(Ray worldRay, StationCellPickFilter filter, out StationCellPickHit hit) {
             hit = default;
-            var best = float.MaxValue;
+            if (worldRay.direction.sqrMagnitude <= 1e-12f) return false;
+            var ray = new Ray(worldRay.origin, worldRay.direction);
+            var best = float.PositiveInfinity;
+            var minDistance = filter.MinDistance;
+            var maxDistance = filter.MaxDistance;
+            var cullingMask = filter.CullingMask;
+            var visibility = filter.Visibility;
             var found = false;
             foreach (var group in groups) {
                 if (group.GameObject == null || !group.GameObject.activeInHierarchy) continue;
+                if (group.Renderer == null || !group.Renderer.enabled) continue;
+                if (group.Filter == null || group.Filter.sharedMesh == null) continue;
+                if ((cullingMask & (1 << group.GameObject.layer)) == 0) continue;
                 var data = group.Data;
-                if (!RayHitsBounds(worldRay, data.Bounds)) continue;
-                var indices = data.Indices;
-                var positions = data.Positions;
+                var groupTransform = group.Transform;
+                bool identity = groupTransform == null || (
+                    groupTransform.position == Vector3.zero &&
+                    groupTransform.rotation == Quaternion.identity &&
+                    groupTransform.lossyScale == Vector3.one);
+                if (identity && !RayHitsBounds(ray, data.Bounds, Mathf.Min(best, maxDistance))) continue;
+                var cull = MaterialCullMode(group.Renderer.sharedMaterial);
+                var indices = group.WorldIndices;
+                var vertices = group.WorldVertices;
+                if (indices == null || vertices == null) continue;
+                var toWorldMatrix = identity ? Matrix4x4.identity : groupTransform.localToWorldMatrix;
                 for (var t = 0; t < indices.Length; t += 3) {
-                    var i0 = indices[t];
-                    var i1 = indices[t + 1];
-                    var i2 = indices[t + 2];
-                    var a = toWorld(positions[i0]);
-                    var b = toWorld(positions[i1]);
-                    var c = toWorld(positions[i2]);
-                    if (!RayTriangle(worldRay, a, b, c, best, out var distance)) continue;
+                    var a = vertices[indices[t]];
+                    var b = vertices[indices[t + 1]];
+                    var c = vertices[indices[t + 2]];
+                    if (!identity) {
+                        a = toWorldMatrix.MultiplyPoint3x4(a);
+                        b = toWorldMatrix.MultiplyPoint3x4(b);
+                        c = toWorldMatrix.MultiplyPoint3x4(c);
+                    }
+                    if (!RayTriangle(ray, a, b, c, cull, minDistance, maxDistance, best,
+                            out var distance, out var normal)) continue;
+                    var worldPoint = ray.origin + ray.direction * distance;
+                    if (visibility != null) {
+                        var docPoint = StationCameraSpace.ToDocument(worldPoint);
+                        if (!visibility.IsPointKept(docPoint)) continue;
+                    }
                     best = distance;
                     found = true;
                     var faceIndex = data.TriangleFaces != null && t / 3 < data.TriangleFaces.Length ? data.TriangleFaces[t / 3] : -1;
                     var record = faceIndex >= 0 && faceIndex < faces.Count ? faces[faceIndex] : default;
-                    var normal = Vector3.Cross(b - a, c - a);
-                    if (normal.sqrMagnitude > 0) normal.Normalize();
                     hit = new StationCellPickHit(record.X, record.Y, record.Z, record.Face, record.FinishId, record.Role,
-                        record.Slope, worldRay.origin + worldRay.direction * distance, normal, distance, group);
+                        record.Slope, worldPoint, normal, distance, group);
                 }
             }
             return found;
@@ -304,24 +413,45 @@ namespace Metro.App.Views {
             return false;
         }
 
-        static bool RayHitsBounds(Ray ray, Bounds bounds) {
+        /// <summary>Resolve the effective face-cull mode of a material (`_Cull`, `_CullMode`, default Back).</summary>
+        public static CullMode MaterialCullMode(Material material) {
+            if (material != null) {
+                if (material.HasProperty("_Cull")) return (CullMode)Mathf.RoundToInt(material.GetFloat("_Cull"));
+                if (material.HasProperty("_CullMode")) return (CullMode)Mathf.RoundToInt(material.GetFloat("_CullMode"));
+            }
+            return CullMode.Back;
+        }
+
+        static bool RayHitsBounds(Ray ray, Bounds bounds, float limit) {
             // A ray that misses the document-axis bounds cannot hit the group; the
             // swap is monotone, so testing the document bounds in their own axes with
             // a swapped ray is exact.
             var origin = new Vector3(ray.origin.x, ray.origin.z, ray.origin.y);
             var direction = new Vector3(ray.direction.x, ray.direction.z, ray.direction.y);
             var documentRay = new Ray(origin, direction);
-            return new Bounds(bounds.center, bounds.size).IntersectRay(documentRay);
+            return new Bounds(bounds.center, bounds.size).IntersectRay(documentRay, out var enter) && enter <= limit;
         }
 
-        static bool RayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, float maxDistance, out float distance) {
+        static bool RayTriangle(Ray ray, Vector3 a, Vector3 b, Vector3 c, CullMode cull,
+            float minDistance, float maxDistance, float bestDistance, out float distance, out Vector3 normal) {
             const float epsilon = 1e-7f;
             distance = 0f;
+            normal = Vector3.zero;
             var edge1 = b - a;
             var edge2 = c - a;
             var h = Vector3.Cross(ray.direction, edge2);
             var determinant = Vector3.Dot(edge1, h);
-            if (determinant > -epsilon && determinant < epsilon) return false;
+            switch (cull) {
+                case CullMode.Back:
+                    if (determinant <= epsilon) return false;
+                    break;
+                case CullMode.Front:
+                    if (determinant >= -epsilon) return false;
+                    break;
+                default:
+                    if (determinant > -epsilon && determinant < epsilon) return false;
+                    break;
+            }
             var inverse = 1f / determinant;
             var s = ray.origin - a;
             var u = inverse * Vector3.Dot(s, h);
@@ -330,8 +460,11 @@ namespace Metro.App.Views {
             var v = inverse * Vector3.Dot(ray.direction, q);
             if (v < 0f || u + v > 1f) return false;
             var t = inverse * Vector3.Dot(edge2, q);
-            if (t <= epsilon || t >= maxDistance) return false;
+            if (t <= epsilon || t < minDistance || t > maxDistance || t >= bestDistance) return false;
             distance = t;
+            normal = Vector3.Cross(edge1, edge2);
+            if (determinant < 0f) normal = -normal;
+            if (normal.sqrMagnitude > 0f) normal.Normalize();
             return true;
         }
 
@@ -441,10 +574,36 @@ namespace Metro.App.Views {
             StationCommandHandlers.Add(new StationFinishPaintHandler());
         }
 
+        /// <summary>Look up the built cell view belonging to <paramref name="world"/>.</summary>
+        public static bool TryGetView(StationWorldView world, out StationCellView view) {
+            if (world != null && !world.IsDisposed) {
+                for (var i = states.Count - 1; i >= 0; i--) {
+                    var state = states[i];
+                    if (state.World == world && state.View != null) {
+                        view = state.View;
+                        return true;
+                    }
+                }
+            }
+            view = null;
+            return false;
+        }
+
+        /// <summary>Pick against the cell view registered for <paramref name="world"/>.</summary>
+        public static bool TryPickWorld(StationWorldView world, Ray worldRay, StationCellPickFilter filter,
+            out StationCellPickHit hit) {
+            if (TryGetView(world, out var view)) return view.TryPick(worldRay, filter, out hit);
+            hit = default;
+            return false;
+        }
+
         /// <summary>The active world's pick, for a handler that has no view reference.</summary>
         public static bool TryPickActive(Ray worldRay, out StationCellPickHit hit) {
             var view = Current?.View;
-            if (view != null) return view.TryPick(worldRay, out hit);
+            if (view != null) {
+                return view.TryPick(worldRay,
+                    StationCellPickFilter.FromCamera(null, StationViewFeature.Active?.Visibility), out hit);
+            }
             hit = default;
             return false;
         }
@@ -507,7 +666,7 @@ namespace Metro.App.Views {
                 if (faceIndex < 0 || faceIndex >= view.Faces.Count) continue;
                 var record = view.Faces[faceIndex];
                 var anchor = group.Data.HasAnchor ? group.Data.Anchor : record.CellKey;
-                context.World.RegisterCell(RoleName, anchor, group.GameObject);
+                context.World.RegisterCell(RoleName, anchor, group.GameObject, new[] { group.Storey });
                 registered++;
             }
             if (view.Triangles == 0 && finishes != null) {

@@ -60,14 +60,22 @@ namespace Metro.App {
         const int MaxTrace = 16;
 
         public static void Trace(string type, string tool, StationSceneHit hit, StationPlacementPlan plan,
-            int revisionBefore, int revisionAfter) {
+            int revisionBefore, int revisionAfter, int picks = -1) {
+            var targetKind = hit == null ? "none"
+                : hit.TargetKind == StationSceneTargetKind.Module ? "module"
+                : hit.TargetKind == StationSceneTargetKind.Cell ? "cell"
+                : hit.TargetKind == StationSceneTargetKind.Plane ? "plane"
+                : "none";
             var entry = new JObject {
                 ["seq"] = ++traceSeq,
                 ["type"] = type ?? "",
                 ["tool"] = tool ?? "",
                 ["picked"] = hit != null,
-                ["cell"] = hit != null && hit.HasCell ? new JArray(hit.Cell.X, hit.Cell.Y, hit.Cell.Z) : null,
-                ["moduleId"] = hit != null && hit.HasModule ? hit.Module.Id : "",
+                ["picks"] = picks >= 0 ? picks : (hit != null ? 1 : 0),
+                ["targetKind"] = targetKind,
+                ["cell"] = hit != null && hit.HasCell ? new JArray(hit.CellKey.X, hit.CellKey.Y, hit.CellKey.Z) : null,
+                ["plane"] = hit != null && hit.HasWorkPlane ? new JArray(hit.WorkPlane.X, hit.WorkPlane.Y, hit.WorkPlane.Z) : null,
+                ["moduleId"] = hit != null && hit.TargetKind == StationSceneTargetKind.Module ? hit.Module.Id : "",
                 ["reason"] = plan != null ? plan.Reason ?? "" : "",
                 ["candidate"] = plan?.Candidate != null
                     ? new JArray(plan.Candidate.Type, plan.Candidate.X, plan.Candidate.Y, plan.Candidate.Z, plan.Candidate.Rotation)

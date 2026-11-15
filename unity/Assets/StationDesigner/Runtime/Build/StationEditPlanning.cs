@@ -75,10 +75,21 @@ namespace Metro.Build {
     /// against that surface takes.
     /// </summary>
     public readonly struct StationPlacementHit {
-        public StationPlacementHit(int x, int y, int z, int px, int py, int pz, bool solid, StationPoint point, double surfaceZ) {
-            X = x; Y = y; Z = z; PlaceX = px; PlaceY = py; PlaceZ = pz;
-            Solid = solid; Point = point; SurfaceZ = surfaceZ;
+        readonly bool hasCell;
+
+        public StationPlacementHit(int x, int y, int z, int px, int py, int pz, bool solid,
+            StationPoint point, double surfaceZ)
+            : this(x, y, z, px, py, pz, solid, point, surfaceZ,
+                (px != x || py != y || pz != z) ? new StationPoint(px - x, py - y, pz - z) : new StationPoint(0, 0, 1)) {
         }
+
+        public StationPlacementHit(int x, int y, int z, int px, int py, int pz, bool solid,
+            StationPoint point, double surfaceZ, StationPoint normal) {
+            hasCell = true;
+            X = x; Y = y; Z = z; PlaceX = px; PlaceY = py; PlaceZ = pz;
+            Solid = solid; Point = point; SurfaceZ = surfaceZ; Normal = normal;
+        }
+
         public int X { get; }
         public int Y { get; }
         public int Z { get; }
@@ -90,8 +101,58 @@ namespace Metro.Build {
         public StationPoint Point { get; }
         /// <summary>The hit surface's elevation (the block's top for a top hit).</summary>
         public double SurfaceZ { get; }
-        public bool HasCell => X != int.MinValue;
-        public static StationPlacementHit None => new StationPlacementHit(int.MinValue, 0, 0, 0, 0, 0, false, new StationPoint(0, 0, 0), 0);
+        /// <summary>The axis-snapped outward face step (`render/pickCell.ts:faceStep`).</summary>
+        public StationPoint Normal { get; }
+        public bool HasCell => hasCell;
+        public static StationPlacementHit None => default;
+
+        /// <summary>
+        /// Snap an arbitrary geometric surface normal to its dominant cell axis (`render/pickCell.ts:faceStep`).
+        /// </summary>
+        public static void FaceStep(StationPoint normal, out int stepX, out int stepY, out int stepZ) {
+            double ax = Math.Abs(normal.X), ay = Math.Abs(normal.Y), az = Math.Abs(normal.Z);
+            if (az >= ax && az >= ay) {
+                stepX = 0; stepY = 0; stepZ = normal.Z >= 0 ? 1 : -1;
+                return;
+            }
+            if (ax >= ay) {
+                stepX = normal.X >= 0 ? 1 : -1; stepY = 0; stepZ = 0;
+                return;
+            }
+            stepX = 0; stepY = normal.Y >= 0 ? 1 : -1; stepZ = 0;
+        }
+
+        /// <summary>
+        /// Build a placement hit directly from an authored cell face record (`cellKey` + `face`),
+        /// keeping the face's exact cell rather than reconstructing it by stepping inside.
+        /// </summary>
+        public static StationPlacementHit FromCellFace(int x, int y, int z, int stepX, int stepY, int stepZ,
+            bool solid, StationPoint point) {
+            double surfaceZ = stepZ > 0 ? z + 1 : point.Z;
+            return new StationPlacementHit(x, y, z, x + stepX, y + stepY, z + stepZ, solid, point, surfaceZ,
+                new StationPoint(stepX, stepY, stepZ));
+        }
+
+        /// <summary>
+        /// Port of <c>render/pickCell.ts:pickCells</c> from a hit point and geometric triangle normal:
+        /// steps a hair inside along the un-snapped geometric normal to identify the host cell, then
+        /// snaps the placement step to the dominant axis.
+        /// </summary>
+        public static StationPlacementHit FromNormal(StationPoint point, StationPoint normal, bool solid) {
+            const double inside = 0.02;
+            double len = Math.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
+            if (len <= 1e-9) {
+                normal = new StationPoint(0, 0, 1);
+                len = 1.0;
+            }
+            int x = (int)Math.Floor(point.X - normal.X / len * inside);
+            int y = (int)Math.Floor(point.Y - normal.Y / len * inside);
+            int z = (int)Math.Floor(point.Z - normal.Z / len * inside);
+            FaceStep(normal, out var stepX, out var stepY, out var stepZ);
+            double surfaceZ = stepZ > 0 ? z + 1 : point.Z;
+            return new StationPlacementHit(x, y, z, x + stepX, y + stepY, z + stepZ, solid, point, surfaceZ,
+                new StationPoint(stepX, stepY, stepZ));
+        }
 
         /// <summary>
         /// The whole cells a solid hit names, from the hit point and the face step. The
@@ -106,7 +167,8 @@ namespace Metro.Build {
             int y = (int)Math.Floor(point.Y - stepY / len * inside);
             int z = (int)Math.Floor(point.Z - stepZ / len * inside);
             double surfaceZ = stepZ > 0 ? z + 1 : point.Z;
-            return new StationPlacementHit(x, y, z, x + stepX, y + stepY, z + stepZ, solid, point, surfaceZ);
+            return new StationPlacementHit(x, y, z, x + stepX, y + stepY, z + stepZ, solid, point, surfaceZ,
+                new StationPoint(stepX, stepY, stepZ));
         }
     }
 
@@ -391,14 +453,18 @@ namespace Metro.Build {
 
         /// <summary>Build the fresh candidate at a whole cell (<c>createModule</c>'s migrated branches).</summary>
         public static bool TryCreate(StationPlacementRequest request, out StationEditDraft draft, out string reason) =>
-            TryCreate(request, null, out draft, out reason);
+            TryCreate(null, request, null, out draft, out reason);
+
+        public static bool TryCreate(StationPlacementRequest request, StationExitBaySnap? baySnap,
+            out StationEditDraft draft, out string reason) =>
+            TryCreate(null, request, baySnap, out draft, out reason);
 
         /// <summary>
         /// Build the fresh candidate, honouring the exit-bay snap an escalated ramp takes
         /// (`exitRunSnap`): <paramref name="baySnap"/> replaces the pointer cell and turn with
         /// the run's upper landing in the bay the pointer is inside.
         /// </summary>
-        public static bool TryCreate(StationPlacementRequest request, StationExitBaySnap? baySnap,
+        public static bool TryCreate(StationIndex index, StationPlacementRequest request, StationExitBaySnap? baySnap,
             out StationEditDraft draft, out string reason) {
             reason = "";
             draft = null;
@@ -407,7 +473,7 @@ namespace Metro.Build {
                 reason = "unsupported-family";
                 return false;
             }
-            var cell = StationModulePlacement.AimCell(request);
+            var cell = StationModulePlacement.AimCell(index, request);
             int rotation = StationFootprints.NormRot(request.Rotation);
             if (baySnap.HasValue && IsRamp(family.Type)) {
                 cell = baySnap.Value.Base;
@@ -568,7 +634,7 @@ namespace Metro.Build {
             if (request == null) { plan.Reason = "bad-request"; return plan; }
             StationEditDraft candidate;
             if (request.Carried != null) {
-                candidate = MoveCandidate(request, out var moveReason);
+                candidate = MoveCandidate(index, request, out var moveReason);
                 if (candidate == null) { plan.Reason = moveReason; return plan; }
                 plan.IsMove = true;
             } else {
@@ -584,7 +650,7 @@ namespace Metro.Build {
                         baySnap = snap;
                     }
                 }
-                if (!StationModuleFamilies.TryCreate(request, baySnap, out candidate, out var createReason)) {
+                if (!StationModuleFamilies.TryCreate(index, request, baySnap, out candidate, out var createReason)) {
                     plan.Reason = createReason;
                     return plan;
                 }
@@ -680,31 +746,40 @@ namespace Metro.Build {
 
         /// <summary>
         /// The surface anchor a fresh piece or a carried one aims at. Port of
-        /// <c>moduleAim</c>'s floor branch: a solid hit anchors on the block it hit (the
-        /// piece stands on that block's top), while a hit on a derived floor â€” an exit
-        /// plate, a void â€” anchors on the placement cell in front of the surface.
+        /// <c>moduleAim</c>'s floor branch: a solid hit (or an exit pad floor) anchors on the
+        /// block it hit, while an open-air plane or wall-adjacent hit anchors on the placement
+        /// cell in front of the surface.
         /// </summary>
-        public static StationPoint AimCell(StationPlacementRequest request) {
+        public static StationPoint AimCell(StationPlacementRequest request) => AimCell(null, request);
+
+        public static StationPoint AimCell(StationIndex index, StationPlacementRequest request) {
             var hit = request.Hit;
-            return hit.Solid
+            bool onSurface = hit.Solid ||
+                (index != null && StationFootprints.IsExitFloorAt(index, hit.X, hit.Y, hit.Z));
+            return onSurface
                 ? new StationPoint(hit.X, hit.Y, hit.Z)
                 : new StationPoint(hit.PlaceX, hit.PlaceY, hit.PlaceZ);
         }
 
         /// <summary>The carried piece at its aimed cell and turn (<c>moveCandidate</c> without its sign snap).</summary>
-        static StationEditDraft MoveCandidate(StationPlacementRequest request, out string reason) {
+        static StationEditDraft MoveCandidate(StationIndex index, StationPlacementRequest request, out string reason) {
             reason = "";
             var source = request.Carried;
             if (!request.Hit.HasCell) { reason = "no-hit"; return null; }
             // A wall panel and a hung fitting anchor on their support, not on the floor
-            // the pointer is over (moduleAim's wall/ceiling branches). Their support aim
-            // is not ported yet, so the move is refused by name instead of landing the
-            // piece on the floor.
-            if (StationFootprints.IsWallMounted(source) || StationFootprints.IsCeilingHung(source)) {
+            // the pointer is over (`moduleAim`'s wall/ceiling branches). A visible hanger
+            // hit supplies its own bar anchor; other wall/ceiling mounts keep their explicit
+            // refusal until wall/ceiling plane aim is ported.
+            bool hangerAim = StationFootprints.IsCeilingHung(source) &&
+                HangerAcceptsPiece(source.Type, source.Config.Text("variant"), source.Config.Text("mount")) &&
+                index != null && !string.IsNullOrEmpty(request.TargetModuleId) &&
+                index.TryGetModule(request.TargetModuleId, out var host) &&
+                string.Equals(host.Type, "hanger", StringComparison.Ordinal);
+            if (StationFootprints.IsWallMounted(source) || (StationFootprints.IsCeilingHung(source) && !hangerAim)) {
                 reason = "unsupported-mount";
                 return null;
             }
-            var at = AimCell(request);
+            var at = AimCell(index, request);
             int x = (int)Math.Round(at.X), y = (int)Math.Round(at.Y), z = (int)Math.Round(at.Z);
             int rot = StationFootprints.NormRot(request.Rotation);
             var draft = DraftOf(source);
@@ -811,7 +886,7 @@ namespace Metro.Build {
             CollectColliders(index, record, box, colliders, unverified);
             if (colliders.Count > 0) return "occupied";
             if (wall && !WallSupport(index, record)) return "wall";
-            if (hung && !CeilingSupport(index, draft)) return "ceiling";
+            if (hung && !CeilingSupport(index, record, draft)) return "ceiling";
             return "";
         }
 
@@ -896,6 +971,7 @@ namespace Metro.Build {
                 if (placedOutdoor && !candidateOutdoor && candidate.Type != "road") continue;
                 if (candidateOutdoor && !placedOutdoor && placed.Type != "road") continue;
                 if (IsExitRampPair(candidate, placed)) continue;
+                if (HangerSupports(placed, candidate) || HangerSupports(candidate, placed)) continue;
                 // Plan 22 §2: the glass exceptions the source documents (`placementColliders`).
                 // A 门 fitted into a curtain shares its tile and plane by design, an edge-decor
                 // piece backed against a curtain steps clear of it, and two floor-standing
@@ -1045,16 +1121,61 @@ namespace Metro.Build {
         /// piece hangs from is the block directly above its stand cell (a åŠé¡¶ or an
         /// ordinary top block), or the nominal storey ceiling for a fixture.
         /// </summary>
-        static bool CeilingSupport(StationIndex index, StationEditDraft draft) {
+        static bool CeilingSupport(StationIndex index, StationModuleRecord record, StationEditDraft draft) {
             if (StationFootprints.IsSolidAt(index, draft.X, draft.Y, draft.Z + 1)) return true;
             if (StationFootprints.IsSolidAt(index, draft.X, draft.Y, draft.Z + 4)) return true;
+            foreach (var module in index.Document.Modules) {
+                if (string.Equals(module.Id, draft.SourceId, StringComparison.Ordinal)) continue;
+                if (HangerSupports(module, record)) return true;
+            }
             return false;
+        }
+
+        /// <summary>True when a piece family/variant can hang from a steel <c>hanger</c> beam (<c>placementSurface.ts</c>).</summary>
+        public static bool HangerAcceptsPiece(string type, string variant, string mount) {
+            if (string.Equals(type, "tv", StringComparison.Ordinal) ||
+                string.Equals(type, "clock", StringComparison.Ordinal)) return true;
+            if (string.Equals(type, "cctv", StringComparison.Ordinal))
+                return !string.Equals(variant, "post", StringComparison.Ordinal);
+            if (string.Equals(type, "sign", StringComparison.Ordinal))
+                return !string.Equals(mount, "wall", StringComparison.Ordinal);
+            return false;
+        }
+
+        /// <summary>Port of <c>sim/hangers.ts:hangerSupports</c>: hanging rods must land on the bar centreline.</summary>
+        public static bool HangerSupports(StationModuleRecord hanger, StationModuleRecord item) {
+            if (hanger == null || item == null) return false;
+            if (!string.Equals(hanger.Type, "hanger", StringComparison.Ordinal) || hanger.Z != item.Z) return false;
+            if (!HangerAcceptsPiece(item.Type, item.Config.Text("variant"), item.Config.Text("mount"))) return false;
+            bool onCell = false;
+            int width = Math.Max(1, hanger.Width);
+            for (int i = 0; i < width; i++) {
+                StationFootprints.RotateLocal(hanger.Rotation, i, 0, out var dx, out var dy);
+                if (hanger.X + (int)Math.Round(dx) == item.X && hanger.Y + (int)Math.Round(dy) == item.Y) {
+                    onCell = true;
+                    break;
+                }
+            }
+            if (!onCell) return false;
+            bool centredClock = string.Equals(item.Type, "clock", StringComparison.Ordinal) &&
+                !string.Equals(item.Config.Text("variant"), "digital", StringComparison.Ordinal);
+            if (!centredClock && ((item.Rotation - hanger.Rotation) % 2) != 0) return false;
+            StationFootprints.RotateLocal(-hanger.Rotation, item.X - hanger.X, item.Y - hanger.Y, out var along, out _);
+            double rodHalf = string.Equals(item.Type, "sign", StringComparison.Ordinal)
+                ? Math.Max(0.22, StationFootprints.SignBoardWidth(item.Config) * 0.5 - 0.35) + 0.08
+                : string.Equals(item.Type, "tv", StringComparison.Ordinal) ? 0.5
+                : string.Equals(item.Type, "cctv", StringComparison.Ordinal) ? 0.18
+                : centredClock ? 0.075
+                : 0.32 + 0.09 * 0.5;
+            return along + 0.5 - rodHalf >= 0.0 && along + 0.5 + rodHalf <= width;
         }
 
         /// <summary>The module a piece stands on / hangs from, for the plan's support id.</summary>
         static string Support(StationIndex index, StationEditDraft draft) {
+            var candidate = ToRecord(draft);
             foreach (var module in index.Document.Modules) {
                 if (string.Equals(module.Id, draft.SourceId, StringComparison.Ordinal)) continue;
+                if (HangerSupports(module, candidate)) return module.Id;
                 if (module.Type != "exit" || module.Z != draft.Z) continue;
                 var style = module.Config.Text("style");
                 if (style == "doorway" || style == "virtual") continue;

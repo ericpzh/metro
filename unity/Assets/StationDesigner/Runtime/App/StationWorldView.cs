@@ -48,6 +48,22 @@ namespace Metro.App {
             world.ReportUnresolved(code, recordType, recordId, message);
     }
 
+    /// <summary>
+    /// Maps a contiguous run of triangles in a combined batch mesh back to one entry in
+    /// <see cref="StationViewRecord.SourceIds"/> (`[StartTriangle, StartTriangle + TriangleCount)`).
+    /// </summary>
+    public readonly struct StationBatchSpan {
+        public readonly int SourceIndex;
+        public readonly int StartTriangle;
+        public readonly int TriangleCount;
+
+        public StationBatchSpan(int sourceIndex, int startTriangle, int triangleCount) {
+            SourceIndex = sourceIndex;
+            StartTriangle = startTriangle;
+            TriangleCount = triangleCount;
+        }
+    }
+
     /// <summary>One pickable/visible record: a module view, a cell view or a named part.</summary>
     public sealed class StationViewRecord {
         public string Role = "";
@@ -81,6 +97,11 @@ namespace Metro.App {
         /// selection/delete path must address that tile's own record.
         /// </summary>
         public StationBox[] SourceBounds;
+        /// <summary>
+        /// Per-tile triangle ranges in the combined batch mesh, referencing indices in
+        /// <see cref="SourceIds"/> so triangle-accurate picking resolves the exact tile hit.
+        /// </summary>
+        public StationBatchSpan[] SourceSpans;
         /// <summary>
         /// Independent **grade** membership (20 §4): the producer's own answer to "is this part
         /// owned by the authored 0 m ground datum?". It is deliberately separate from
@@ -213,12 +234,12 @@ namespace Metro.App {
         public void RegisterModule(string role, string moduleId, GameObject view, string part = "",
             StationBox? bounds = null, int levelMin = 0, int levelMax = 0, int[] levelBands = null,
             string[] sourceIds = null, StationBox[] sourceBounds = null, bool gradeOwned = false,
-            string gradeNote = "") {
+            string gradeNote = "", StationBatchSpan[] sourceSpans = null) {
             Add(new StationViewRecord {
                 Role = role ?? "", ModuleId = moduleId ?? "", Part = part ?? "", View = view,
                 Bounds = bounds ?? default, HasBounds = bounds.HasValue, LevelMin = levelMin, LevelMax = levelMax,
                 LevelBands = levelBands, SourceIds = sourceIds, SourceBounds = sourceBounds,
-                GradeOwned = gradeOwned, GradeNote = gradeNote ?? "",
+                SourceSpans = sourceSpans, GradeOwned = gradeOwned, GradeNote = gradeNote ?? "",
             });
         }
 
