@@ -58,6 +58,40 @@ export interface UnityPlayer {
   SendMessage(object: string, method: string, value?: string): void
 }
 
+export interface RequestOptions {
+  id?: string
+  expectedRevision?: number
+  timeoutMs?: number
+}
+
+export class BridgeRequestError extends Error {
+  readonly code: string
+  readonly commandType: string
+  readonly commandId: string
+  readonly reason?: string
+
+  constructor(code: string, commandType: string, commandId: string, reason?: string) {
+    super(reason && reason.length > 0 ? `${commandType} (${code}): ${reason}` : `${commandType} (${code})`)
+    this.name = 'BridgeRequestError'
+    this.code = code
+    this.commandType = commandType
+    this.commandId = commandId
+    if (reason !== undefined && reason.length > 0) this.reason = reason
+  }
+}
+
+interface PendingRequest {
+  id: string
+  type: string
+  sessionId: string
+  timer: ReturnType<typeof setTimeout> | null
+  resolve: (payload: Record<string, unknown>) => void
+  reject: (error: BridgeRequestError) => void
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 5000
+const MAX_RETIRED_REQUEST_IDS = 512
+
 const EMPTY: StationSnapshot = {
   ready: false, sessionId: '', revision: -1, sourceId: null, sourceHash: null,
   document: null, documentRevision: -1, state: {}, capabilities: {}, rejects: [],
@@ -69,11 +103,32 @@ let objectName = 'StationGame'
 let counter = 0
 const listeners = new Set<() => void>()
 const pending = new Map<string, { type: string; at: number }>()
+const pendingRequests = new Map<string, PendingRequest>()
+const retiredRequestIds = new Set<string>()
 const commitListeners = new Set<(snapshot: StationSnapshot) => void>()
 // The shell mounts before Unity finishes booting, so the first demo open is sent
 // into this queue and flushed once the player registers. Nothing is dropped and
 // no command is replayed twice: the queue holds only commands, not documents.
 const queue: { type: string; payload?: unknown; expectedRevision?: number }[] = []
+
+function retireRequestId(id: string): void {
+  retiredRequestIds.add(id)
+  if (retiredRequestIds.size > MAX_RETIRED_REQUEST_IDS) {
+    const oldest = retiredRequestIds.values().next().value
+    if (oldest !== undefined) retiredRequestIds.delete(oldest)
+  }
+}
+
+function cancelPendingRequests(code: string, reason: string): void {
+  const entries = [...pendingRequests.values()]
+  pendingRequests.clear()
+  retiredRequestIds.clear()
+  for (const entry of entries) {
+    if (entry.timer !== null) clearTimeout(entry.timer)
+    pending.delete(entry.id)
+    entry.reject(new BridgeRequestError(code, entry.type, entry.id, reason))
+  }
+}
 
 // A session id names one Unity player generation. `register` mints a new one, so
 // every reply still in flight from the previous page or player is fenced out.
@@ -83,7 +138,7 @@ function newSessionId(): string {
 }
 
 export function envelope(type: string, payload?: unknown, options: { id?: string; sessionId?: string; expectedRevision?: number } = {}): Envelope {
-  const id = options.id ?? `c-${counter}`
+  const id = options.id ?? `c-${++counter}`
   const sessionId = options.sessionId ?? snapshot.sessionId
   const result: Envelope = { schemaVersion: SCHEMA_VERSION, id, sessionId, type }
   if (options.expectedRevision !== undefined) result.expectedRevision = options.expectedRevision
@@ -132,9 +187,37 @@ function deliver(text: string): void {
   let reply: Reply
   try { reply = JSON.parse(text) as Reply } catch { return }
   if (!reply || typeof reply !== 'object') return
+
+  const replyId = typeof reply.id === 'string' ? reply.id : ''
+  const replySession = typeof reply.sessionId === 'string' ? reply.sessionId : ''
+  if (replyId) {
+    const req = pendingRequests.get(replyId)
+    if (req) {
+      if (replySession && replySession !== req.sessionId) return
+      pendingRequests.delete(replyId)
+      if (req.timer !== null) clearTimeout(req.timer)
+      if (reply.kind !== 'commit') {
+        pending.delete(replyId)
+        const accepted = reply.accepted !== false && reply.kind !== 'reject'
+        if (accepted) {
+          req.resolve(reply.payload && typeof reply.payload === 'object' ? reply.payload : {})
+        } else {
+          const code = typeof reply.code === 'string' && reply.code.length > 0 ? reply.code : 'rejected'
+          const reason = reply.payload && typeof reply.payload.reason === 'string' ? reply.payload.reason : undefined
+          req.reject(new BridgeRequestError(code, req.type, req.id, reason))
+        }
+        return
+      }
+      req.resolve(reply.payload && typeof reply.payload === 'object' ? reply.payload : {})
+    } else if (retiredRequestIds.has(replyId) && reply.kind !== 'commit') {
+      if (!replySession || replySession === snapshot.sessionId) retiredRequestIds.delete(replyId)
+      return
+    }
+  }
+
   const before = snapshot
   const next = reduce(before, reply)
-  if (reply.id) pending.delete(reply.id)
+  if (replyId) pending.delete(replyId)
   if (next !== before) {
     snapshot = next
     listeners.forEach(listener => listener())
@@ -152,6 +235,7 @@ export const stationBridge = {
     return () => { commitListeners.delete(listener) }
   },
   register(instance: UnityPlayer, name = 'StationGame'): void {
+    cancelPendingRequests('session-changed', 'A new Unity player session registered.')
     player = instance
     objectName = name
     pending.clear()
@@ -161,13 +245,14 @@ export const stationBridge = {
   },
   unregister(): void {
     player = null
+    cancelPendingRequests('disconnected', 'The Unity player unregistered.')
     pending.clear()
     snapshot = EMPTY
     listeners.forEach(listener => listener())
   },
   /** C# calls this through the WebGL bridge; a string keeps the JS boundary trivial. */
   receive(text: string): void { deliver(text) },
-  send(type: string, payload?: unknown, options: { expectedRevision?: number } = {}): string {
+  send(type: string, payload?: unknown, options: { id?: string; expectedRevision?: number } = {}): string {
     if (!player) {
       queue.push({ type, payload, expectedRevision: options.expectedRevision })
       return ''
@@ -176,6 +261,56 @@ export const stationBridge = {
     pending.set(message.id, { type, at: Date.now() })
     player.SendMessage(objectName, 'BrowserCommand', JSON.stringify(message))
     return message.id
+  },
+  /**
+   * Send a one-shot correlated command and resolve with the host's ack payload.
+   * Pending callback registration happens before `SendMessage` so synchronous
+   * replies settle safely, and non-commit replies return before `reduce` so a
+   * late read ack can never roll back `snapshot.revision`.
+   */
+  request<TPayload = Record<string, unknown>>(type: string, payload?: unknown, options: RequestOptions = {}): Promise<TPayload> {
+    const activePlayer = player
+    if (!activePlayer) {
+      return Promise.reject(new BridgeRequestError('no-player', type, options.id ?? '', 'No Unity player is registered.'))
+    }
+    const sessionId = snapshot.sessionId
+    const message = envelope(type, payload, {
+      id: options.id,
+      sessionId,
+      expectedRevision: options.expectedRevision,
+    })
+    const timeoutMs = options.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    return new Promise<TPayload>((resolve, reject) => {
+      const timer = timeoutMs > 0
+        ? setTimeout(() => {
+            if (!pendingRequests.delete(message.id)) return
+            pending.delete(message.id)
+            retireRequestId(message.id)
+            reject(new BridgeRequestError('timeout', type, message.id, 'Bridge request timed out.'))
+          }, timeoutMs)
+        : null
+      pendingRequests.set(message.id, {
+        id: message.id,
+        type,
+        sessionId,
+        timer,
+        resolve: value => resolve(value as TPayload),
+        reject,
+      })
+      try {
+        activePlayer.SendMessage(objectName, 'BrowserCommand', JSON.stringify(message))
+      } catch (error) {
+        if (pendingRequests.delete(message.id)) {
+          if (timer !== null) clearTimeout(timer)
+          reject(new BridgeRequestError(
+            'send-failed',
+            type,
+            message.id,
+            error instanceof Error ? error.message : String(error),
+          ))
+        }
+      }
+    })
   },
   /** Ask for the committed document again, e.g. after a reconnect or a dropped commit. */
   resync(): void { stationBridge.send('station.resync') },

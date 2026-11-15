@@ -257,7 +257,8 @@ export function createUnityViewCubeAdapter(port: CameraPort): ViewCubeAdapter {
  * It is deliberately not installed by `createStationCameraPort`: a test or another
  * host may create a port without a mounted shared store.
  */
-export function attachViewStateBridge(port: CameraPort): () => void {
+export function attachViewStateBridge(port: CameraPort, options: { forwardExploded?: boolean } = {}): () => void {
+  const forwardExploded = options.forwardExploded !== false
   let previous = useStore.getState()
   const send = (key: string, value: unknown): void => port.send({ type: 'view.set', payload: { key, value } })
   const apply = (state: typeof previous): void => {
@@ -270,17 +271,18 @@ export function attachViewStateBridge(port: CameraPort): () => void {
     if (now.hideUI !== previous.hideUI) send('hideUi', now.hideUI)
     if (now.cutaway !== previous.cutaway) send('cutaway', now.cutaway)
     if (now.hideSectionSurface !== previous.hideSectionSurface) send('sectionSurface', !now.hideSectionSurface)
-    if (now.explodedView !== previous.explodedView) send('exploded', now.explodedView)
+    if (forwardExploded && now.explodedView !== previous.explodedView) send('exploded', now.explodedView)
     if (now.overlayOn !== previous.overlayOn) send('density', now.overlayOn)
     if (now.zoneOverlayOn !== previous.zoneOverlayOn) send('zones', now.zoneOverlayOn)
     if (now.followAgentId !== previous.followAgentId) send('followPassenger', now.followAgentId ?? null)
-    const moved = now.section !== previous.section
-    if (moved) {
-      send('section', {
-        anchor: [now.section.anchor[0], now.section.anchor[1], now.section.anchor[2]],
-        azimuth: now.section.orientation.azimuth,
-        offset: now.section.offset,
-      })
+    if (now.section !== previous.section) {
+      const anchorChanged = now.section.anchor.some((value, axis) => value !== previous.section.anchor[axis])
+      const rotated = now.section.orientation.azimuth !== previous.section.orientation.azimuth
+      // Unity seeds the station anchor itself. A rotation only carries the new
+      // angle, so the shell's initial placeholder cannot move the cut to the origin.
+      if (anchorChanged) send('sectionAnchor', now.section.anchor)
+      if (rotated) send('sectionRotate', now.section.orientation.azimuth)
+      else if (now.section.offset !== previous.section.offset) send('sectionOffset', now.section.offset)
     }
     previous = now
   }
@@ -296,13 +298,21 @@ export function attachViewStateBridge(port: CameraPort): () => void {
  * The lead mounts this from `main.tsx`; the C# host must not also read the mouse for
  * the camera while it is attached.
  */
-export function attachCanvasCameraGestures(canvas: HTMLCanvasElement, port: CameraPort): () => void {
+export function attachCanvasCameraGestures(
+  canvas: HTMLCanvasElement,
+  port: CameraPort,
+  options: { blocked?: () => boolean } = {},
+): () => void {
   let mode: 'orbit' | 'pan' | null = null
   let pointer = -1
   let x = 0
   let y = 0
+  const isBlocked = (): boolean => {
+    try { return options.blocked ? options.blocked() : false } catch { return false }
+  }
 
   const down = (event: PointerEvent): void => {
+    if (isBlocked()) return
     if (event.button !== 1 && event.button !== 2) return
     mode = event.button === 1 ? 'orbit' : 'pan'
     pointer = event.pointerId
@@ -313,6 +323,11 @@ export function attachCanvasCameraGestures(canvas: HTMLCanvasElement, port: Came
   }
   const move = (event: PointerEvent): void => {
     if (!mode || event.pointerId !== pointer) return
+    if (isBlocked()) {
+      mode = null
+      pointer = -1
+      return
+    }
     const dx = event.clientX - x
     const dy = event.clientY - y
     x = event.clientX
@@ -335,6 +350,7 @@ export function attachCanvasCameraGestures(canvas: HTMLCanvasElement, port: Came
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
   }
   const wheel = (event: WheelEvent): void => {
+    if (isBlocked()) return
     event.preventDefault()
     port.send(cameraCommands.zoom(event.deltaY))
   }

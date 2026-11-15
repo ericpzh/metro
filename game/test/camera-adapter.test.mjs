@@ -156,9 +156,16 @@ test('the shared view toggles become view.set commands', () => {
     st.setAutoCeiling(!restore.autoCeiling)
     st.setZoneOverlay(!restore.zones)
     st.setOverlay(!restore.density)
+    st.setSectionOffset(12)
     st.rotateSection()
+    assert.equal(useStore.getState().section.offset, 0, 'rotation clears the shell drag offset')
+    assert.deepEqual(port.commands.at(-1).payload, {
+      key: 'sectionRotate',
+      value: useStore.getState().section.orientation.azimuth,
+    }, 'Unity rotates around the anchor it seeded')
     const keys = port.commands.filter(command => command.type === 'view.set').map(command => command.payload.key)
-    for (const key of ['showLevels', 'walls', 'ground', 'roof', 'sectionSurface', 'ceiling', 'zones', 'density', 'section']) {
+    assert.ok(!keys.includes('section') && !keys.includes('sectionAnchor'), 'rotation must never send the shell placeholder anchor')
+    for (const key of ['showLevels', 'walls', 'ground', 'roof', 'sectionSurface', 'ceiling', 'zones', 'density', 'sectionOffset', 'sectionRotate']) {
       assert.ok(keys.includes(key), `the toolbar toggle ${key} never reached C#`)
     }
   } finally {

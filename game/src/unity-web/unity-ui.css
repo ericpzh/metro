@@ -8,3 +8,8 @@
 #unity-warning { pointer-events: auto; }
 #unity-loading-container,
 #unity-footer { display: none !important; }
+.explodedViewer[data-unity-host="true"] > canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0; flex: none; }
+.explodedViewer[data-unity-host="true"] > .explodedToolbar { position: relative; z-index: 12; }
+.explodedViewer[data-unity-host="true"] > .explodedCanvasSpacer { flex: 1; min-height: 0; pointer-events: none; }
+.explodedViewer[data-unity-host="true"] > .explodedLevels { position: relative; z-index: 2; background: var(--ui-202e3d, #202e3d); }
+html.metro-overlay body:has(.explodedViewer[open]) .app { visibility: hidden !important; pointer-events: none !important; }

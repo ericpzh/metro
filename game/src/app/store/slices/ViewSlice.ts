@@ -206,5 +206,5 @@ export const createViewSlice: StateCreator<AppState, [], [], ViewSlice> = (set, 
       section: { ...s.section, anchor: [anchor[0], anchor[1], anchor[2]], offset: 0 },
     })),
   setSectionOffset: (offset) => set((s) => ({ section: { ...s.section, offset } })),
-  rotateSection: () => set((s) => ({ section: { ...s.section, orientation: { azimuth: nextAzimuth(s.section.orientation.azimuth) } } })),
+  rotateSection: () => set((s) => ({ section: { ...s.section, offset: 0, orientation: { azimuth: nextAzimuth(s.section.orientation.azimuth) } } })),
 })
