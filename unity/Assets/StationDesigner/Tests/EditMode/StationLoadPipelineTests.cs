@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Metro.App;
 using Metro.Build;
 using Metro.Persistence;
+using Metro.Sim;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
@@ -33,6 +35,8 @@ namespace Metro.EditModeTests {
         public void TearDown() {
             if (rootObject != null) UnityEngine.Object.DestroyImmediate(rootObject);
             StationRenderers.Clear();
+            StationCommandHandlers.Clear();
+            StationEditSession.Reset();
         }
 
         // ------------------------------------------------------------- fixtures
@@ -419,13 +423,20 @@ namespace Metro.EditModeTests {
 
         sealed class FakeSimulation : IStationSimulationHost {
             public int StageCount;
+            public bool LastStageWasEdit;
             public int CommitCount;
             public int AbortCount;
             public int ReleaseCount;
             public bool Playing => false;
             public int Speed => 1;
             public double SimTimeSeconds => 23400;
-            public void StageInstall(StationDocument document, StationIndex index) { StageCount++; }
+            public long SimulationTick => 0;
+            public double PresentationFraction => 0;
+            public long PresentationEpoch => 0;
+            public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false) {
+                StageCount++;
+                LastStageWasEdit = isEdit;
+            }
             public void CommitInstall() { CommitCount++; }
             public void AbortInstall() { AbortCount++; }
             public void Tick(double realSeconds) { }
@@ -454,6 +465,215 @@ namespace Metro.EditModeTests {
             var moduleLow = Module("benches-1", "bench", 0, 0, -5);
             var lowered = StationDocumentReader.Read(TinySave(new JArray { moduleLow }, new JArray { Cell(0, 0, 0) }), new StationSource("low", ""));
             Assert.That(lowered.Document.OpeningLevel, Is.EqualTo(-5), "a module below the floor opens the station lower");
+        }
+
+        // --------------------------------------------- statistics run & edit lifecycle
+
+        static string ActiveServiceSaveJson(string nameEn = "Stats Station", string cell32Finish = "floor.concrete", bool extraConcourseCell = false, double serviceTo = 84600) {
+            var cells = new JArray();
+            for (int x = 0; x <= 42; x++) {
+                for (int y = 1; y <= 4; y++) {
+                    if (x == 5 && y != 2) continue; // single gate throat at (5, 2)
+                    string zone = x < 5 ? "unpaid" : "paid";
+                    string finish = (x == 3 && y == 2) ? cell32Finish : "floor.concrete";
+                    cells.Add(new JObject {
+                        ["x"] = x, ["y"] = y, ["z"] = 0, ["fill"] = "solid",
+                        ["zone"] = zone,
+                        ["finish"] = new JObject { ["top"] = finish },
+                    });
+                }
+            }
+            if (extraConcourseCell) {
+                cells.Add(new JObject {
+                    ["x"] = 43, ["y"] = 2, ["z"] = 0, ["fill"] = "solid",
+                    ["zone"] = "paid",
+                    ["finish"] = new JObject { ["top"] = "floor.concrete" },
+                });
+            }
+
+            var modules = new JArray {
+                new JObject {
+                    ["id"] = "exit-a", ["type"] = "exit", ["x"] = 1, ["y"] = 2, ["z"] = 0, ["rot"] = 0,
+                    ["cfg"] = new JObject { ["name"] = "A", ["inRate"] = 1800, ["open"] = true, ["covered"] = false, ["bays"] = 2 },
+                },
+                new JObject {
+                    ["id"] = "gate-1", ["type"] = "gate", ["x"] = 5, ["y"] = 2, ["z"] = 0, ["rot"] = 0,
+                    ["cfg"] = new JObject { ["dir"] = "both", ["door"] = "lane" },
+                },
+                new JObject {
+                    ["id"] = "track-1", ["type"] = "track", ["x"] = 6, ["y"] = -2, ["z"] = 0, ["rot"] = 0,
+                    ["w"] = 36, ["d"] = 3, ["cfg"] = new JObject { ["line"] = "5", ["power"] = "third-rail", ["dir"] = "up" },
+                },
+                new JObject {
+                    ["id"] = "edge-1", ["type"] = "platform-edge", ["x"] = 6, ["y"] = 1, ["z"] = 0, ["rot"] = 0,
+                    ["w"] = 36, ["cfg"] = new JObject { ["line"] = "5", ["from"] = "track-1", ["side"] = "left", ["psd"] = "full", ["dir"] = "up" },
+                },
+            };
+
+            var line = Line("5", "Line 5");
+            line["cars"] = 2;
+            line["alightPerTrain"] = 8;
+            line["headwayProfile"] = new JObject { ["peak"] = 60, ["offpeak"] = 60, ["late"] = 60 };
+
+            var raw = JObject.Parse(TinySave(modules, cells, new JArray { line }, serviceTo: serviceTo));
+            raw["nameEn"] = nameEn;
+            return raw.ToString(Newtonsoft.Json.Formatting.None);
+        }
+
+        static string HostEnvelope(string type, JObject payload = null, string id = "c-1") => new JObject {
+            ["schemaVersion"] = 2,
+            ["id"] = id,
+            ["sessionId"] = "s-stats",
+            ["type"] = type,
+            ["payload"] = payload ?? new JObject(),
+        }.ToString(Newtonsoft.Json.Formatting.None);
+
+        [Test]
+        public void StatisticsRunSurvivesLabelCosmeticDayStructuralUndoAbortedEditsRejectedLoadAndResyncWhileReloadResets() {
+            var hostGo = new GameObject(StationGameHost.ObjectName);
+            hostGo.transform.SetParent(rootObject.transform, false);
+            var host = hostGo.AddComponent<StationGameHost>();
+            host.frameCameraOnCommit = false;
+            var awake = typeof(StationGameHost).GetMethod("Awake", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(awake);
+            awake.Invoke(host, null);
+
+            var renderer = new CountingRenderer();
+            host.RegisterRenderer(renderer);
+
+            string baseJson = ActiveServiceSaveJson();
+
+            // 1. Initial Open publishes fresh statistics & stationStatistics capability, without full history values in commit/state.
+            var open0 = JObject.Parse(host.SendForTest(HostEnvelope("station.open", new JObject { ["document"] = baseJson }, "c-open-0")));
+            Assert.AreEqual("commit", (string)open0["kind"], open0.ToString());
+            Assert.IsTrue((bool)open0["payload"]["capabilities"]["stationStatistics"]);
+            string run0 = (string)open0["payload"]["statistics"]["runId"];
+            Assert.IsNotEmpty(run0);
+            Assert.AreEqual(0, (int)open0["payload"]["statistics"]["history"]["count"]);
+            Assert.IsNull(open0["payload"]["statistics"]["history"]["values"]);
+
+            // 2. Reloading the exact same JSON hash starts a different statistics run!
+            var open1 = JObject.Parse(host.SendForTest(HostEnvelope("station.open", new JObject { ["document"] = baseJson }, "c-open-1")));
+            Assert.AreEqual("commit", (string)open1["kind"]);
+            Assert.AreEqual((string)open0["payload"]["sourceHash"], (string)open1["payload"]["sourceHash"], "same save hash");
+            string run1 = (string)open1["payload"]["statistics"]["runId"];
+            Assert.AreNotEqual(run0, run1, "reopening the same hash must mint a fresh statistics run");
+
+            // 3. Seek into Monday morning peak (2026-01-05 08:00) & run until >= 2 history rows, active crowd, and a berthed train / boardings exist.
+            var seekPeak = JObject.Parse(host.SendForTest(HostEnvelope("sim.seek", new JObject { ["simTimeSeconds"] = 4 * 86400 + 28800 }, "c-seek")));
+            Assert.AreEqual("ack", (string)seekPeak["kind"]);
+            string activeRun = (string)seekPeak["payload"]["statistics"]["runId"];
+            Assert.AreNotEqual(run1, activeRun);
+
+            host.SendForTest(HostEnvelope("sim.play", new JObject { ["playing"] = true }, "c-play"));
+            var session = ((StationSimulationHost)host.Simulation).Session;
+
+            bool hitBerthedState = false;
+            for (int i = 0; i < 240; i++) {
+                host.Coordinator.Tick(1.0);
+                if (session.History.Count >= 2 && session.Statistics.Boarded > 0 && (session.Services.Onboard > 0 || session.Statistics.Population > 3)) {
+                    if (session.Services.Onboard > 0) {
+                        hitBerthedState = true;
+                        break;
+                    }
+                }
+            }
+            if (!hitBerthedState) {
+                Assert.GreaterOrEqual(session.History.Count, 2);
+                Assert.Greater(session.Statistics.Boarded, 0);
+            }
+
+            int rowsBeforeEdits = session.History.Count;
+            int boardedBeforeEdits = session.Statistics.Boarded;
+            int epochBeforeEdits = session.Services.GraphEpoch;
+
+            // 4. Label / cosmetic edit keeps runId, history rows, cumulative totals, and walk graph epoch!
+            var labelResult = host.ApplyDocumentEdit(ActiveServiceSaveJson(nameEn: "Renamed Station"), "label-edit");
+            Assert.IsTrue(labelResult.Accepted, labelResult.ToString());
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(rowsBeforeEdits, session.History.Count);
+            Assert.AreEqual(epochBeforeEdits, session.Services.GraphEpoch, "label edit is cosmetic and does not rebuild graph");
+            Assert.AreEqual(boardedBeforeEdits, session.Statistics.Boarded);
+
+            // 5. Cosmetic bin placement + Undo + Redo + Undo via StationEditSession keeps runId, history, and counters!
+            var binDraft = new StationEditDraft {
+                Id = "bin-cosmetic", Type = "bin", X = 12, Y = 4, Z = 0, Rotation = 0, Width = 1, Depth = 1, Height = 1,
+            };
+            Assert.IsTrue(StationEditSession.TryApply(host, StationModuleEditMode.Add, binDraft, null, "place", "c-bin", out _, out var editErr), editErr);
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(epochBeforeEdits, session.Services.GraphEpoch, "bin placement is sim-inert cosmetic");
+            Assert.IsTrue(StationEditSession.TryUndo(host, out _, out editErr), editErr);
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.IsTrue(StationEditSession.TryRedo(host, out _, out editErr), editErr);
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(rowsBeforeEdits, session.History.Count);
+            Assert.AreEqual(boardedBeforeEdits, session.Statistics.Boarded);
+            Assert.IsTrue(StationEditSession.TryUndo(host, out _, out editErr), editErr);
+
+            // 6. Day-only edit keeps runId, history, and walk graph epoch!
+            var dayEdit = host.ApplyDocumentEdit(ActiveServiceSaveJson(nameEn: "Renamed Station", serviceTo: 82800), "day-edit");
+            Assert.IsTrue(dayEdit.Accepted, dayEdit.ToString());
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(epochBeforeEdits, session.Services.GraphEpoch, "day-only edit uses ApplyDay without graph rebuild");
+
+            // 7. Structural edit (changing floor top finish speed + adding floor cell) keeps runId, history, and cumulative counters,
+            // while rebuilding the graph and replanning active walkers!
+            var structuralEdit = host.ApplyDocumentEdit(
+                ActiveServiceSaveJson(nameEn: "Renamed Station", cell32Finish: "floor.granite", extraConcourseCell: true, serviceTo: 82800),
+                "structural-edit");
+            Assert.IsTrue(structuralEdit.Accepted, structuralEdit.ToString());
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(rowsBeforeEdits, session.History.Count);
+            Assert.AreEqual(epochBeforeEdits + 1, session.Services.GraphEpoch, "top-finish speed + cell change triggered structural rebuild");
+            Assert.IsTrue(session.Services.AllWalkingRoutesMatchCurrentGraph(), "all walking paths replanned onto new graph");
+            Assert.AreEqual(boardedBeforeEdits, session.Statistics.Boarded);
+
+            // 8. Aborted edit (renderer failure) drops staged data and leaves run, history, and crowd intact!
+            int revBeforeFail = host.CurrentRevision;
+            int epochBeforeFail = session.Services.GraphEpoch;
+            renderer.FailNext = true;
+            var abortedEdit = host.ApplyDocumentEdit(ActiveServiceSaveJson(nameEn: "Will Roll Back", extraConcourseCell: false), "abort-edit");
+            renderer.FailNext = false;
+            Assert.IsFalse(abortedEdit.Accepted);
+            Assert.AreEqual(revBeforeFail, host.CurrentRevision);
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(epochBeforeFail, session.Services.GraphEpoch);
+            Assert.AreEqual(rowsBeforeEdits, session.History.Count);
+            Assert.AreEqual(boardedBeforeEdits, session.Statistics.Boarded);
+
+            // 9. Rejected load leaves active station, revision, runId, and history untouched!
+            var rejectedOpen = JObject.Parse(host.SendForTest(HostEnvelope("station.open", new JObject { ["document"] = "{not valid json" }, "c-bad-open")));
+            Assert.AreEqual("reject", (string)rejectedOpen["kind"]);
+            Assert.AreEqual(revBeforeFail, host.CurrentRevision);
+            Assert.AreEqual(activeRun, session.StatisticsRunId);
+            Assert.AreEqual(rowsBeforeEdits, session.History.Count);
+
+            // 10. station.resync returns the current run descriptor, and stats.history reads rows without moving revision!
+            var resyncReply = JObject.Parse(host.SendForTest(HostEnvelope("station.resync", null, "c-resync")));
+            Assert.AreEqual("commit", (string)resyncReply["kind"]);
+            Assert.AreEqual(revBeforeFail, host.CurrentRevision);
+            Assert.AreEqual(activeRun, (string)resyncReply["payload"]["statistics"]["runId"]);
+            Assert.AreEqual(rowsBeforeEdits, (int)resyncReply["payload"]["statistics"]["history"]["count"]);
+
+            var historyAck = JObject.Parse(host.SendForTest(HostEnvelope(
+                "stats.history",
+                new JObject { ["runId"] = activeRun, ["from"] = 0, ["limit"] = 128 },
+                "c-hist")));
+            Assert.AreEqual("ack", (string)historyAck["kind"], historyAck.ToString());
+            Assert.AreEqual(revBeforeFail, host.CurrentRevision, "stats.history must never move document revision");
+            Assert.AreEqual(rowsBeforeEdits, (int)historyAck["payload"]["count"]);
+            Assert.AreEqual(rowsBeforeEdits * StationStatisticsHistory.Stride, ((JArray)historyAck["payload"]["values"]).Count);
+
+            // 11. Calendar date seek via sim.seek { year, month, day } resets history & mints a new runId while preserving cumulative boarded!
+            var dateSeek = JObject.Parse(host.SendForTest(HostEnvelope(
+                "sim.seek",
+                new JObject { ["year"] = 2026, ["month"] = 1, ["day"] = 6 },
+                "c-date-seek")));
+            Assert.AreEqual("ack", (string)dateSeek["kind"], dateSeek.ToString());
+            string postDateRun = (string)dateSeek["payload"]["statistics"]["runId"];
+            Assert.AreNotEqual(activeRun, postDateRun);
+            Assert.AreEqual(0, (int)dateSeek["payload"]["statistics"]["history"]["count"]);
+            Assert.AreEqual(boardedBeforeEdits, (int)dateSeek["payload"]["statistics"]["metrics"]["boarded"]);
         }
     }
 }

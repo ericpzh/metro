@@ -18,11 +18,11 @@ public class StationCameraTests {
         return rig;
     }
 
-    static void AssertUnit(Vector3 vector, string what) {
+    internal static void AssertUnit(Vector3 vector, string what) {
         Assert.AreEqual(1f, vector.magnitude, 1e-4, what + " is not unit length");
     }
 
-    static void AssertOrthonormal(StationCameraSnapshot snapshot) {
+    internal static void AssertOrthonormal(StationCameraSnapshot snapshot) {
         AssertUnit(snapshot.Right, "right");
         AssertUnit(snapshot.Up, "up");
         AssertUnit(snapshot.Back, "back");
@@ -511,5 +511,85 @@ public class StationViewCommandParserTests {
         Assert.AreEqual("bad-orbit", orbit);
         Assert.IsFalse(StationViewCommandParser.TryParse(Envelope("camera.snap", "{\"face\":\"sideways\"}"), out _, out string snap));
         Assert.AreEqual("bad-snap", snap);
+    }
+
+    [Test]
+    public void FrameStandalonePresentationFitsPackedTraysWithMarginAndExtendedMaxDistance() {
+        var rig = new StationCameraController();
+        var boxes = new[] {
+            new Bounds(new Vector3(0f, 0f, -15f), new Vector3(40f, 30f, 5f)),
+            new Bounds(new Vector3(0f, 60f, -10f), new Vector3(40f, 30f, 5f)),
+            new Bounds(new Vector3(0f, 120f, 0f), new Vector3(40f, 30f, 5f)),
+        };
+        float aspect = 16f / 9f;
+        rig.FrameStandalonePresentation(boxes, aspect);
+
+        Assert.AreEqual(StationCameraMath.MaxStandaloneDistance, rig.MaxDistance, 1e-4f);
+        var snap = rig.Snapshot();
+        Assert.AreEqual(StationProjection.Orthographic, snap.Projection);
+        StationCameraTests.AssertOrthonormal(snap);
+
+        float halfH = snap.OrthoSize;
+        float halfW = halfH * aspect;
+        foreach (var box in boxes) {
+            for (int c = 0; c < 8; c++) {
+                var corner = new Vector3(
+                    (c & 1) == 0 ? box.min.x : box.max.x,
+                    (c & 2) == 0 ? box.min.y : box.max.y,
+                    (c & 4) == 0 ? box.min.z : box.max.z);
+                var rel = corner - snap.Target;
+                float projX = Mathf.Abs(Vector3.Dot(rel, snap.Right));
+                float projY = Mathf.Abs(Vector3.Dot(rel, snap.Up));
+                Assert.LessOrEqual(projX, halfW * 1.001f, "every packed corner fits horizontally within the framed ortho frustum");
+                Assert.LessOrEqual(projY, halfH * 1.001f, "every packed corner fits vertically within the framed ortho frustum");
+            }
+        }
+
+        // Verify zoom can reach beyond the editor's 400 m limit when switched to perspective or wide distance
+        rig.SetProjection(StationProjection.Perspective);
+        rig.ZoomBy(100f);
+        Assert.AreEqual(StationCameraMath.MaxStandaloneDistance, rig.State.Distance, 1e-2f);
+    }
+
+    [Test]
+    public void TrayDragDeltaMatchesThreeOrthographicFormulaAcrossYawsAndDpi() {
+        var rig = new StationCameraController();
+        rig.FrameStandalonePresentation(new[] {
+            new Bounds(new Vector3(10f, 20f, -5f), new Vector3(50f, 50f, 5f)),
+        }, 16f / 9f);
+
+        foreach (float yawPixels in new[] { 0f, 95f, -210f, 430f }) {
+            if (yawPixels != 0f) rig.OrbitByPixels(yawPixels, -18f);
+            var snap = rig.Snapshot();
+            float scaleAt720 = (2f * snap.OrthoSize) / 720f;
+
+            // Horizontal CSS pixel drag moves along camera Right (purely horizontal in document XY, Z == 0)
+            var rightMove = rig.TrayDragDelta(80f, 0f, 720f);
+            Assert.AreEqual(0f, rightMove.z, 1e-6f, "horizontal drag never changes tray elevation");
+            Assert.AreEqual(snap.Right.x * 80f * scaleAt720, rightMove.x, 1e-4f);
+            Assert.AreEqual(snap.Right.y * 80f * scaleAt720, rightMove.y, 1e-4f);
+
+            // Vertical CSS pixel drag (dy < 0 = dragging upward on screen) lifts tray Z and projects camera Up
+            var upMove = rig.TrayDragDelta(0f, -60f, 720f);
+            Assert.Greater(upMove.z, 0f, "dragging upward on screen lifts tray Z");
+            Assert.AreEqual(snap.Up.x * 60f * scaleAt720, upMove.x, 1e-4f);
+            Assert.AreEqual(snap.Up.y * 60f * scaleAt720, upMove.y, 1e-4f);
+            Assert.AreEqual(snap.Up.z * 60f * scaleAt720, upMove.z, 1e-4f);
+
+            // DPI independence: TrayDragDelta depends only on CSS viewportHeight, so 2x backing resolution
+            // with the same CSS delta and CSS viewportHeight produces the exact same world displacement.
+            var camGo = new GameObject("TempViewerCam");
+            try {
+                var cam = camGo.AddComponent<Camera>();
+                rig.ApplyTo(cam);
+                var withLiveCam = rig.TrayDragDelta(45f, -30f, 720f, cam);
+                var withoutCam = rig.TrayDragDelta(45f, -30f, 720f, null);
+                Assert.AreEqual(withoutCam.x, withLiveCam.x, 1e-3f);
+                Assert.AreEqual(withoutCam.y, withLiveCam.y, 1e-3f);
+                Assert.AreEqual(withoutCam.z, withLiveCam.z, 1e-3f);
+            } finally {
+                UnityEngine.Object.DestroyImmediate(camGo);
+            }
+        }
     }
 }

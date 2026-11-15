@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -443,6 +443,36 @@ public class VerticalModuleViewTests {
         CollectionAssert.AreEqual(lowerX, Leaves(lower).Select(leaf => leaf.localPosition.x).ToArray(), "no door opens between floors");
         CollectionAssert.AreEqual(upperX, Leaves(upper).Select(leaf => leaf.localPosition.x).ToArray(), "no door opens between floors");
     }
+
+    [Test]
+    public void AGlassLiftKeepsItsSidesGlazedAndOnlyAStatedSteelHousingIsOpaque() {
+        var save = Zoo();
+        var glass = Build(save, Module(save, "lift-15"));
+        // The Zoo save names no style on one lift and `glass` on the other; the source
+        // defaults both to `buildGlassLift`, which has glazed panel bays and no side wall.
+        Assert.AreEqual(0, glass.OpaqueShaftSidePanels,
+            "a glazed lift has no full-height opaque side wall");
+        var side = glass.Root.GetComponentsInChildren<MeshRenderer>(true)
+            .First(renderer => renderer.name == "shaft-glass");
+        Assert.IsNotNull(side, "the side panel bays are drawn");
+        Assert.IsTrue(IsTransparent(side.sharedMaterial), "the side bays use the glass surface");
+        int bays = Mathf.CeilToInt((float)(glass.DocumentBounds.Z1 - glass.DocumentBounds.Z0) / 2f);
+        var sideMesh = side.GetComponent<MeshFilter>().sharedMesh;
+        Assert.GreaterOrEqual(sideMesh.vertexCount, bays * 2 * 8,
+            "one glazed bay on each side per two-metre story interval");
+
+        var steelModule = (JObject)Module(save, "lift-15").DeepClone();
+        ((JObject)steelModule["cfg"])["style"] = "steel";
+        steelModule["id"] = "lift-steel";
+        var steel = Build(save, steelModule);
+        Assert.AreEqual(2, steel.OpaqueShaftSidePanels, "the solid steel style keeps its two side walls");
+        Assert.AreNotEqual(glass.OpaqueShaftSidePanels, steel.OpaqueShaftSidePanels,
+            "the style branch selects the housing, not a global default");
+    }
+
+    static bool IsTransparent(Material material) =>
+        material != null && (material.renderQueue >= (int)UnityEngine.Rendering.RenderQueue.Transparent ||
+            (material.HasProperty("_Surface") && material.GetFloat("_Surface") > .5f));
 
     static List<Transform> Leaves(Transform group) =>
         group.Cast<Transform>().Where(child => child.name.StartsWith("lift-door-leaf", StringComparison.Ordinal)).ToList();

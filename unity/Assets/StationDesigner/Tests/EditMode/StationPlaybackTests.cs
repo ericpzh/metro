@@ -110,10 +110,30 @@ namespace Metro.Tests {
             host.Coordinator.Tick(1.0);
             double running = Session.Clock.SimTime;
             host.SendForTest(Envelope("sim.play", new JObject { ["playing"] = false }, "c-2"));
-            // The session drops its fractional second on pause: a resume must not bank it.
+            // A paused session never accumulates: the sub-tick fraction is kept for the
+            // presentation, but the paused real time is not banked into the clock.
             host.Coordinator.Tick(2.5);
             Assert.AreEqual(running, Session.Clock.SimTime, 1e-9, "a paused station does not advance");
             Assert.IsFalse((bool)host.BuildStatePayload()["clock"]["playing"]);
+        }
+
+        /// <summary>
+        /// RCA 14 §5.1: the scheduler's sub-tick remainder is exposed to the host so the
+        /// per-frame sinks can sample between two tick frames. It never advances the
+        /// authoritative tick or clock.
+        /// </summary>
+        [Test]
+        public void AFrameInsideATickPublishesItsPresentationFraction() {
+            host.SendForTest(Envelope("sim.play", new JObject { ["playing"] = true }, "c-1"));
+            var simulation = (StationSimulationHost)host.Simulation;
+            host.Coordinator.Tick(0.4);
+            Assert.AreEqual(0L, simulation.SimulationTick, "four tenths of a second is not a whole tick");
+            Assert.AreEqual(0.4, simulation.PresentationFraction, 1e-9,
+                "the render frame can sample 40% of the way across the tick interval");
+            host.Coordinator.Tick(0.6);
+            Assert.AreEqual(1L, simulation.SimulationTick, "the whole tick advanced once");
+            Assert.AreEqual(0.0, simulation.PresentationFraction, 1e-9, "and the fraction settled at the boundary");
+            Assert.IsNotNull(host.BuildStatePayload()["clock"], "the published clock is still the authoritative one");
         }
     }
 }

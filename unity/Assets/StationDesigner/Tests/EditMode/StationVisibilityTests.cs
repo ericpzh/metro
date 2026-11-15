@@ -34,6 +34,30 @@ public class StationVisibilityTests {
         registry = null;
     }
 
+    [Test]
+    public void DecidePartAnswersAnUnregisteredPoolsSliceQuestion() {
+        // A pooled road vehicle has no world record; it still asks the one registry rule,
+        // so it cannot draw on a hidden storey or while 隐藏地面 is on.
+        Assert.AreEqual(StationDrawMode.Base, registry.DecidePart(StationPartRole.Ground, new[] { 0 }),
+            "the active street storey draws");
+        Assert.AreEqual(StationDrawMode.Ghost, registry.DecidePart(StationPartRole.Ground, new[] { -20 }),
+            "显示其他层 ghosts the storey below rather than hiding it");
+
+        registry.State.ShowLevels = false;
+        Assert.AreEqual(StationDrawMode.Hidden, registry.DecidePart(StationPartRole.Ground, new[] { -20 }),
+            "an underground road is hidden while the street is the active storey");
+        registry.State.ShowLevels = true;
+
+        registry.State.HideGround = true;
+        Assert.AreEqual(StationDrawMode.Hidden, registry.DecidePart(StationPartRole.Ground, new[] { 0 }),
+            "隐藏地面 hides street traffic with the road itself");
+        registry.State.HideGround = false;
+
+        registry.State.HideUi = true;
+        Assert.AreNotEqual(StationDrawMode.Hidden, registry.DecidePart(StationPartRole.Ground, new[] { -20 }),
+            "隐藏UI draws every storey as itself");
+    }
+
     /// <summary>
     /// A plain target for the rule tests: the walk only needs role, span, bounds and a
     /// mode sink, so these tests run without a scene. The real component is covered by
@@ -51,16 +75,12 @@ public class StationVisibilityTests {
         public Transform Root => null;
         public Bounds WorldBounds => Bounds;
         public StationDrawMode LastMode { get; private set; } = StationDrawMode.Base;
-        public Vector3 ExplodedOffset { get; private set; }
         public int ModeChanges { get; private set; }
 
         public void Apply(StationDrawMode mode, StationVisibilityPalette palette) {
             LastMode = mode;
             ModeChanges++;
         }
-
-        public void SetExplodedOffset(Vector3 documentOffset) => ExplodedOffset = documentOffset;
-        public void ResetExploded() => ExplodedOffset = Vector3.zero;
     }
 
     FakeTarget Target(string name, StationPartRole role, int[] levels, Vector3 documentCentre,
@@ -428,21 +448,151 @@ public class StationVisibilityTests {
         Assert.AreEqual(new Vector3(0, 4, 0), result.DocumentOffset(0));
     }
 
+    // ------------------------------------------------------- grade (plan 20 §4)
+
+    static StationDocument zooDocument;
+    static Dictionary<string, StationModuleRecord> zooModules;
+
+    static StationDocument Zoo {
+        get {
+            if (zooDocument != null) return zooDocument;
+            var read = StationDocumentReader.ReadFile("Assets/StationDesigner/Demos/zoo.metro.json");
+            Assert.IsNotNull(read?.Document, "the Zoo document must load");
+            zooDocument = read.Document;
+            zooModules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
+            foreach (var module in zooDocument.Modules) zooModules[module.Id] = module;
+            return zooDocument;
+        }
+    }
+
+    static StationViewRecord Record(string role, string moduleId = "", bool gradeOwned = false, string part = "") =>
+        new StationViewRecord { Role = role, ModuleId = moduleId, GradeOwned = gradeOwned, Part = part };
+
+    /// <summary>
+    /// 20 §4 — 隐藏地面 hides grade **furniture**, not only the `Ground` role. A fence at the
+    /// authored datum carries the independent grade flag, so the toggle removes it while every
+    /// other view tool keeps reading its real role (it is still a 栏杆 for 隐藏墙壁 and the
+    /// storey slice), and a run one storey down is untouched.
+    /// </summary>
     [Test]
-    public void ExplodedOffsetsMoveEachStoreyAndRestoreIt() {
-        var lower = Target("lower", StationPartRole.Prop, new[] { -5 }, new Vector3(0, 0, -5), Vector3.one);
-        var upper = Target("upper", StationPartRole.Prop, new[] { 0 }, new Vector3(0, 0, 0), Vector3.one);
+    public void GradeFurnitureFollowsHideGroundAndALowerRunDoesNot() {
+        // 显示其他层 is a user setting, so the case states it rather than inheriting a default: a
+        // run one storey down must be drawn (or the "lower run keeps its geometry" claim is really
+        // about the slice, not about grade membership).
         registry.State.ShowLevels = true;
-        registry.ExplodedPlan = StationExplodedPlan.FromTargets(registry.Targets);
-        registry.State.Exploded = true;
+        var grade = Component("grade fence", StationPartRole.Prop, new[] { 0 }, new Vector3(2, 0, 0), true);
+        var lower = Component("lower fence", StationPartRole.Prop, new[] { -5 }, new Vector3(2, 0, -5), false);
         registry.Apply();
-        Assert.IsTrue(registry.ExplodedPlan.Levels.Length >= 2);
-        Assert.AreEqual(Vector3.zero, lower.ExplodedOffset, "the first tray keeps its plan position");
-        Assert.AreNotEqual(Vector3.zero, upper.ExplodedOffset, "the next tray is packed clear of it");
-        registry.State.Exploded = false;
+        Assert.AreEqual(StationDrawMode.Base, grade.LastMode);
+        Assert.AreEqual(StationDrawMode.Ghost, lower.LastMode,
+            "显示其他层 draws the storey below as a ghost");
+        registry.State.HideGround = true;
         registry.Apply();
-        Assert.AreEqual(Vector3.zero, lower.ExplodedOffset, "turning exploded off restores the plan");
-        Assert.AreEqual(Vector3.zero, upper.ExplodedOffset);
+        Assert.AreEqual(StationDrawMode.Hidden, grade.LastMode,
+            "a grade-owned prop is removed with the street it stands on");
+        // 显示其他层 ghosts the storey below rather than hiding it: the run keeps its geometry,
+        // which is the claim that matters here (a hidden lower run would be a different bug).
+        Assert.AreNotEqual(StationDrawMode.Hidden, lower.LastMode, "the run below the datum keeps its geometry");
+        Assert.AreEqual(StationPartRole.Prop, grade.Role, "the part keeps its role for the other view tools");
+        registry.State.HideGround = false;
+        registry.Apply();
+        Assert.AreEqual(StationDrawMode.Base, grade.LastMode, "the same record comes back when the toggle is off");
+        Assert.IsTrue(grade.gameObject.activeInHierarchy);
+    }
+
+    /// <summary>A real component target: only the grade flag differs between the two runs.</summary>
+    StationVisibilityTarget Component(string name, StationPartRole role, int[] levels, Vector3 documentCentre,
+        bool gradeOwned) {
+        var go = new GameObject(name);
+        go.transform.position = StationCameraSpace.ToWorld(documentCentre);
+        var filter = go.AddComponent<MeshFilter>();
+        filter.sharedMesh = new Mesh { name = name };
+        go.AddComponent<MeshRenderer>();
+        var target = registry.Register(go.transform, role, levels, StationVisibilityTarget.NoGroundBand,
+            false, false, false, gradeOwned);
+        Assert.IsNotNull(target, name + " did not register");
+        return target;
+    }
+
+    /// <summary>
+    /// The classification is the **authored 0 m datum**, never the storey grid: the same Zoo
+    /// modules answer the same way with the station baseline shifted, a structural run that
+    /// crosses the datum is not grade furniture, and the entrance/exit assembly is the explicit
+    /// exception.
+    /// </summary>
+    [Test]
+    public void GradeMembershipUsesTheAuthoredGroundDatumNotTheStoreyGrid() {
+        var document = Zoo;
+        var sideways = document.Modules.Where(module => module.Type == "sidewalk").ToList();
+        var lawns = document.Modules.Where(module => module.Type == "lawn").ToList();
+        var trees = document.Modules.Where(module => module.Type == "tree").ToList();
+        var fences = document.Modules.Where(module => module.Type == "fence").ToList();
+        var exits = document.Modules.Where(module => module.Type == "exit" || module.Type == "guidepost").ToList();
+        Assert.Greater(sideways.Count, 0, "Zoo owns sidewalk tiles");
+        Assert.Greater(lawns.Count, 0, "Zoo owns lawn tiles");
+        Assert.Greater(trees.Count, 0, "Zoo owns trees");
+        Assert.Greater(fences.Count, 0, "Zoo owns fences");
+        Assert.Greater(exits.Count, 0, "Zoo owns an entrance/exit assembly");
+        foreach (var module in sideways.Concat(lawns).Concat(trees))
+            Assert.IsTrue(StationViewFeature.IsGradeModule(module), module.Type + " " + module.Id + " is grade furniture");
+        foreach (var module in exits)
+            Assert.IsFalse(StationViewFeature.IsGradeModule(module), module.Id + " keeps the entrance/exit assembly");
+        var atGrade = fences.Where(module => module.Z == StationViewFeature.GroundZ).ToList();
+        var below = fences.Where(module => module.Z != StationViewFeature.GroundZ).ToList();
+        Assert.Greater(atGrade.Count, 0, "Zoo has a fence standing on the datum");
+        Assert.Greater(below.Count, 0, "Zoo has a fence below the datum");
+        foreach (var module in atGrade) Assert.IsTrue(StationViewFeature.IsGradeModule(module), "0 m fence " + module.Id);
+        foreach (var module in below) Assert.IsFalse(StationViewFeature.IsGradeModule(module), "lower fence " + module.Id);
+        // A structural run is never grade furniture, even where it crosses the datum.
+        foreach (var module in document.Modules.Where(module =>
+                     module.Type == "track" || module.Type == "platform-edge" || module.Type == "psd"))
+            Assert.IsFalse(StationViewFeature.IsGradeModule(module), module.Type + " " + module.Id + " is structural");
+        Assert.AreEqual(0, StationViewFeature.GroundZ, "the authored ground datum is 0 m");
+        // The grid's baseline is not an input, so a shifted station answers identically.
+        var shifted = StationLevelGrid.FromDocument(document.LevelBase + 2, document.StoreyHeight);
+        Assert.AreNotEqual(StationViewFeature.GroundZ, shifted.Band(StationViewFeature.GroundZ),
+            "the shifted grid puts the datum in another band, which the rule must ignore");
+        Assert.IsTrue(StationViewFeature.IsGradeModule(atGrade[0]), "a shifted baseline does not reclassify the datum");
+    }
+
+    /// <summary>
+    /// One helper answers both producers: a combined surface batch carries the producer's flag
+    /// (it has no module id of its own), a cell chunk under the `Ground` role is grade by role,
+    /// and a per-module record is classified from its saved elevation.
+    /// </summary>
+    [Test]
+    public void OneClassificationHelperAnswersBatchesRoleRecordsAndPicks() {
+        var document = Zoo;
+        var sidewalk = document.Modules.First(module => module.Type == "sidewalk");
+        Assert.IsTrue(StationViewFeature.IsGradeOwned(Record("surfaces", gradeOwned: true, part: "batch"), zooModules),
+            "a batch the producer tagged as grade is grade furniture");
+        Assert.IsFalse(StationViewFeature.IsGradeOwned(Record("surfaces", part: "batch"), zooModules),
+            "a batch the producer did not tag is not classified by its bounding box");
+        // The cell mesher's ground pass is grade by **role**, which the registry answers directly
+        // (the record's own role needs its authored parent transform, covered by the cell-mesh
+        // fixture); here the rule is pinned where it is applied.
+        registry.State.HideGround = true;
+        Assert.AreEqual(StationDrawMode.Hidden,
+            registry.DecidePart(StationPartRole.Ground, new[] { 0 }), "the ground slab and courses follow Hide Ground");
+        registry.State.HideGround = false;
+        Assert.IsTrue(StationViewFeature.IsGradeOwned(Record("roads"), zooModules), "the road deck follows the street");
+        Assert.IsTrue(StationViewFeature.IsGradeOwned(Record("modules", sidewalk.Id), zooModules),
+            "a per-module record is classified from its saved elevation");
+        var exit = document.Modules.First(module => module.Type == "exit");
+        Assert.IsFalse(StationViewFeature.IsGradeOwned(Record("modules", exit.Id), zooModules),
+            "the exit assembly is the exception");
+        // The pick asks the same question, so a removed prop cannot be clicked through its hole.
+        registry.State.HideGround = true;
+        Assert.AreEqual(StationDrawMode.Hidden,
+            registry.DecidePart(StationPartRole.Prop, new[] { 0 }, false, StationVisibilityTarget.NoGroundBand, true),
+            "a grade part is unpickable while Hide Ground is on");
+        // A lower storey answers the slice, not the grade rule: still drawn, as a ghost.
+        Assert.AreEqual(StationDrawMode.Ghost,
+            registry.DecidePart(StationPartRole.Prop, new[] { -5 }, false, StationVisibilityTarget.NoGroundBand, false),
+            "a lower prop keeps its own answer");
+        Assert.AreEqual(StationDrawMode.Hidden,
+            registry.DecidePart(StationPartRole.Ground, new[] { 0 }), "road traffic keeps its own grade path");
+        registry.State.HideGround = false;
     }
 
     // ---------------------------------------------------------------- command applier
@@ -476,9 +626,61 @@ public class StationVisibilityTests {
             previous = current;
         }
         Assert.IsFalse(applier.SectionSurfaceVisible);
-        Assert.IsFalse(applier.Visibility.SectionClipping, "turning exploded on put the cut away; the cut is its own toggle");
+        Assert.IsTrue(applier.Visibility.SectionClipping, "standalone exploded view leaves the editor section cut untouched");
         Assert.AreEqual(-5, applier.Camera.ActiveLevel);
         Assert.AreEqual(-5, applier.Visibility.State.ActiveLevel);
+    }
+
+    [Test]
+    public void StandaloneExplodedHandlerAdvertisesDragAndLeavesEditorTogglesUntouched() {
+        var applier = Applier(out _);
+        Assert.IsFalse(applier.Capabilities.ExplodedDrag, "no standalone handler bound yet");
+
+        bool? handledRequest = null;
+        applier.ExplodedHandler = want => {
+            handledRequest = want;
+            return true;
+        };
+        Assert.IsTrue(applier.Capabilities.ExplodedDrag, "binding standalone handler enables explodedDrag capability");
+
+        applier.Visibility.State.Cutaway = true;
+        applier.Visibility.SectionClipping = true;
+        applier.Visibility.State.HideWalls = true;
+
+        var openCmd = Command(StationViewCommandType.ViewSet, c => { c.Key = StationViewKey.Exploded; c.BoolValue = true; });
+        Assert.IsTrue(applier.TryApply(openCmd, out string code), code);
+        Assert.AreEqual(true, handledRequest);
+        Assert.IsTrue(applier.Visibility.State.Exploded);
+        Assert.IsTrue(applier.Visibility.State.Cutaway, "editor cutaway stays intact while standalone viewer opens");
+        Assert.IsTrue(applier.Visibility.SectionClipping, "editor section clipping stays intact");
+        Assert.IsTrue(applier.Visibility.State.HideWalls, "editor wall toggle stays intact");
+
+        applier.SyncExplodedState(false);
+        Assert.IsFalse(applier.Visibility.State.Exploded);
+    }
+
+    [Test]
+    public void ResolveDrawableBaseMaterialsReturnsOriginalUnghostedMaterials() {
+        var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Standard");
+        var baseMat = new Material(shader) { name = "OriginalPropMat" };
+        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        try {
+            var mr = go.GetComponent<MeshRenderer>();
+            mr.sharedMaterial = baseMat;
+            var target = registry.Register(go.transform, StationPartRole.Prop, new[] { -5 });
+            registry.State.ActiveLevel = 0;
+            registry.State.ShowLevels = true;
+            registry.Apply();
+            Assert.AreEqual(StationDrawMode.Ghost, target.LastMode, "editor view ghosted the lower storey");
+            Assert.AreNotSame(baseMat, mr.sharedMaterial, "renderer now wears a ghost material variant");
+
+            Assert.IsTrue(StationVisibilityTarget.ResolveDrawableBaseMaterials(mr, out var resolved));
+            Assert.AreEqual(1, resolved.Length);
+            Assert.AreSame(baseMat, resolved[0], "standalone exploded extractor recovers the unghosted base material");
+        } finally {
+            UnityEngine.Object.DestroyImmediate(go);
+            UnityEngine.Object.DestroyImmediate(baseMat);
+        }
     }
 
     [Test]
@@ -513,6 +715,57 @@ public class StationVisibilityTests {
     }
 
     [Test]
+    public void SectionRotationReturnsToTheRenderedPlanCentre() {
+        var root = new GameObject("section plan probe");
+        try {
+            using var world = new StationWorldView(root.transform, "probe", Array.Empty<IStationViewRenderer>());
+            var cell = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cell.transform.SetParent(root.transform);
+            cell.transform.position = StationCameraSpace.ToWorld(new Vector3(36, 15, 0));
+            world.RegisterCell(StationCellRenderer.RoleName, new StationCellKey(36, 15, 0), cell);
+            var street = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            street.transform.SetParent(root.transform);
+            street.transform.position = StationCameraSpace.ToWorld(new Vector3(44, 25, 0));
+            world.RegisterCell(StationCellRenderer.RoleName, new StationCellKey(44, 25, 0), street);
+            var prop = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            prop.transform.SetParent(root.transform);
+            prop.transform.position = StationCameraSpace.ToWorld(new Vector3(150, 100, 0));
+            world.RegisterModule("modules", "distant-prop", prop);
+            var centre = StationViewFeature.SectionPlanCentre(world);
+            Assert.AreEqual(new Vector2(40, 20), centre);
+            var applier = Applier(out _);
+            var grid = StationLevelGrid.FromDocument(0, 5, null);
+            applier.SetStation(new Bounds(Vector3.zero, Vector3.one), grid, -20, centre);
+            Assert.IsTrue(applier.TryApply(Command(StationViewCommandType.ViewSet, c => {
+                c.Key = StationViewKey.SectionOffset;
+                c.FloatValue = 12;
+            }), out string code), code);
+            Assert.IsTrue(applier.TryApply(Command(StationViewCommandType.ViewSet, c => {
+                c.Key = StationViewKey.SectionRotate;
+                c.RotateToNext = true;
+            }), out code), code);
+            Assert.AreEqual(new Vector3(40, 20, -20), applier.Section.Point);
+        } finally {
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
+    public void SectionRotationReturnsToTheRenderedPlanCentreForZoo() {
+        var root = new GameObject("Zoo section anchor probe");
+        try {
+            using var world = new StationWorldView(root.transform, "probe", Array.Empty<IStationViewRenderer>());
+            var read = StationDocumentReader.ReadFile("Assets/StationDesigner/Demos/zoo.metro.json");
+            world.Build(read.Document, read.Index);
+            // Web groundWindow for the bundled Zoo save is [-14,148] × [-31,55]
+            // in grid cells. The outer mesh edges include the final cell width.
+            Assert.AreEqual(new Vector2(67.5f, 12.5f), StationViewFeature.SectionPlanCentre(world));
+        } finally {
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
     public void SectionCommandsAnchorRotateAndSlideOnePlane() {
         var applier = Applier(out _);
         Assert.IsTrue(applier.TryApply(Command(StationViewCommandType.ViewSet, c => {
@@ -529,6 +782,8 @@ public class StationVisibilityTests {
         }), out code), code);
         Assert.AreEqual(0f, applier.Section.Azimuth, 1e-4, "æ—‹è½¬ wraps from 270 to 0");
 
+        Assert.AreEqual(0f, applier.Section.Offset, "rotation clears the previous drag");
+        Assert.AreEqual(applier.Section.Anchor, applier.Visibility.Section.Point);
         Assert.IsTrue(applier.TryApply(Command(StationViewCommandType.ViewSet, c => {
             c.Key = StationViewKey.SectionAnchor;
             c.HasVector = true;
@@ -572,9 +827,13 @@ public class StationVisibilityTests {
 
     /* ------------------------------------------------- cell role registration */
 
+    /// <summary>The production cell role/level mappers, public or internal.</summary>
+    static MethodInfo Mapper(string name) => typeof(StationViewFeature).GetMethod(name,
+        BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+
     [Test]
     public void CellRoleMappingNamesWallCeilingAndRoof() {
-        var roleOf = typeof(StationViewFeature).GetMethod("RoleOf", BindingFlags.NonPublic | BindingFlags.Static);
+        var roleOf = Mapper("RoleOf");
         Assert.IsNotNull(roleOf, "StationViewFeature.RoleOf is the cell role mapping");
         var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
         foreach (var parentName in new[] { "Cell", "Plate", "Ceiling", "Ground", "Wall", "Roof" }) {
@@ -656,12 +915,13 @@ public class StationVisibilityTests {
         }, root.transform);
         var world = new ZooRoleWorld { Root = root, View = view, Finishes = finishes };
         try {
-            var roleOf = typeof(StationViewFeature).GetMethod("RoleOf", BindingFlags.NonPublic | BindingFlags.Static);
-            var levelsOf = typeof(StationViewFeature).GetMethod("LevelsOf", BindingFlags.NonPublic | BindingFlags.Static);
+            var roleOf = Mapper("RoleOf");
+            var levelsOf = Mapper("LevelsOf");
             Assert.IsNotNull(roleOf);
             Assert.IsNotNull(levelsOf);
             var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
             foreach (var module in read.Document.Modules) modules[module.Id] = module;
+            var grid = StationLevelGrid.FromDocument(read.Document.LevelBase, read.Document.StoreyHeight);
             world.Registry = new StationVisibilityRegistry(shader);
             world.Registry.State.LevelBase = read.Document.LevelBase;
             world.Registry.State.StoreyHeight = read.Document.StoreyHeight;
@@ -670,7 +930,7 @@ public class StationVisibilityTests {
                 var anchor = group.Data.HasAnchor ? group.Data.Anchor : face.CellKey;
                 var record = new StationViewRecord { Role = "cells", CellKey = anchor.ToString(), View = group.GameObject };
                 var role = (StationPartRole)roleOf.Invoke(null, new object[] { record, modules });
-                var levels = (int[])levelsOf.Invoke(null, new object[] { record, modules });
+                var levels = (int[])levelsOf.Invoke(null, new object[] { record, modules, grid });
                 var target = world.Registry.Register(group.GameObject.transform, role, levels);
                 world.Targets.Add(target);
                 world.Roles[target] = role;
@@ -691,11 +951,13 @@ public class StationVisibilityTests {
     [Test]
     public void ZooCellRolesChangeVisibilityAtEveryStorey() {
         using var world = BuildZooRoleWorld();
-        // Pinned Zoo counts (the same split StationCellMeshTests pins).
-        Assert.AreEqual(158, world.Count(StationPartRole.Slab), "Zoo Cell/Slab groups");
-        Assert.AreEqual(144, world.Count(StationPartRole.Wall), "Zoo Wall groups: wall-flagged sides and wall.* finishes");
-        Assert.AreEqual(130, world.Count(StationPartRole.Ceiling), "Zoo Ceiling groups: ceiling plates and slab bodies");
-        Assert.AreEqual(65, world.Count(StationPartRole.Roof), "Zoo Roof groups: cell-geometry roof decks (0 roof modules)");
+        // Pinned Zoo counts (the same split StationCellMeshTests pins). 18 §1 removed the
+        // one-metre wall crests from the slab set, so those groups are Wall now rather than
+        // Ceiling/Roof, and the Cell group count fell by one.
+        Assert.AreEqual(157, world.Count(StationPartRole.Slab), "Zoo Cell/Slab groups");
+        Assert.AreEqual(154, world.Count(StationPartRole.Wall), "Zoo Wall groups: wall bodies and their crests, wall.* finishes");
+        Assert.AreEqual(94, world.Count(StationPartRole.Ceiling), "Zoo Ceiling groups: ceiling plates and slab bodies");
+        Assert.AreEqual(46, world.Count(StationPartRole.Roof), "Zoo Roof groups: cell-geometry roof decks (0 roof modules)");
         Assert.AreEqual(66, world.Count(StationPartRole.Ground), "Zoo street groups");
 
         foreach (var level in new[] { 0, -5, -10, -15, -20 }) {

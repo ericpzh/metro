@@ -628,6 +628,45 @@ public class StationRoadTests {
     }
 
     [Test]
+    public void HiddenRoadPosesAreFilteredBeforeAPoolSlotIsEnabled() {
+        var fixture = Oracle.fixtures.Single(f => f.name == "rotated-crossing");
+        var network = StationRoadLayout.Network(fixture.input.Select(ToRecord).ToList());
+        var traffic = StationRoadTrafficFor(network, 4242);
+        traffic.Advance(17.7);
+        var root = new GameObject("vehicle-filter-test");
+        try {
+            var view = RoadVehicleViews.Build(root.transform, traffic, Shader.Find("Universal Render Pipeline/Lit"));
+            view.Render(17.7, _ => false);
+            Assert.Greater(view.SampledVehicles, 0, "the simulation still sampled traffic");
+            Assert.AreEqual(0, view.VisibleVehicles, "a refused level draws nobody");
+            Assert.AreEqual(view.SampledVehicles, view.FilteredVehicles, "every pose was filtered");
+            foreach (var pool in root.GetComponentsInChildren<Transform>(true)) {
+                if (!pool.name.StartsWith("vehicle ", StringComparison.Ordinal)) continue;
+                Assert.IsFalse(pool.gameObject.activeSelf, "a filtered pool slot cannot stay enabled");
+            }
+
+            // The same slots are reused when the storey comes back: the first visible pass
+            // must re-pose and re-enable them, never leave the hidden frame's transforms.
+            traffic.Advance(30.0);
+            view.Render(30.0, pose => pose.RoadZ >= 0);
+            Assert.Greater(view.VisibleVehicles, 0, "the street storey draws its traffic again");
+            Assert.AreEqual(0, view.FilteredVehicles);
+            var ids = new HashSet<int>();
+            foreach (var pose in view.Poses) {
+                Assert.IsFalse(string.IsNullOrEmpty(pose.RoadId), "a pose names its source road");
+                Assert.AreEqual(0d, pose.RoadZ, 1e-9, "the Zoo road is at street level");
+                Assert.IsTrue(ids.Add(pose.Id), "a pool slot shows one pose");
+                Assert.IsTrue(view.TryGetRenderedVehicle(pose.Id, out var instance), "pose " + pose.Id + " is drawn");
+                Assert.IsTrue(instance.gameObject.activeSelf);
+            }
+            Assert.AreEqual(view.Mopeds + view.Bicycles, view.Riders,
+                "road riders are counted separately from the station crowd");
+        } finally {
+            UnityEngine.Object.DestroyImmediate(root);
+        }
+    }
+
+    [Test]
     public void StationRoadRendererRegistersBothZooRoadsInTheStagedWorld() {
         var read = Metro.Persistence.StationDocumentReader.Read(File.ReadAllText(ZooSavePath), Metro.Build.StationSource.None);
         Assert.NotNull(read.Document, "A's reader must accept the shipped Zoo save");

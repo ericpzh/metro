@@ -183,6 +183,27 @@ public class OutdoorModuleViewTests {
                 ExpectedPanelSize(visual.Key, out var panelWidth, out var panelHeight);
                 Assert.AreEqual(panelHeight, view.Bounds.size.y, .01f,
                     module.Id + " fence height (" + visual.Key + ")");
+                // RCA 15 §4: a two-axis junction is now composed from the arms `FenceArms` derives,
+                // so its extent is the arm span around the centre post — not the isolated one-metre
+                // panel. Everything else still draws the promoted panel unchanged.
+                if (view.ComposedArms > 0) {
+                    var junctionArms = OutdoorModuleViews.FenceArms(module.Rotation, OutdoorModuleViews.Neighbours(module, station));
+                    // The centre post's floor shoe is 0.11 m wide, so the bound never falls inside
+                    // ±0.055 even where an arm runs one way only.
+                    float loX = Mathf.Min(junctionArms.RunsAlongX ? junctionArms.X0 : 0f, -.055f);
+                    float hiX = Mathf.Max(junctionArms.RunsAlongX ? junctionArms.X1 : 0f, .055f);
+                    float loZ = Mathf.Min(junctionArms.RunsAlongY ? junctionArms.Y0 : 0f, -.055f);
+                    float hiZ = Mathf.Max(junctionArms.RunsAlongY ? junctionArms.Y1 : 0f, .055f);
+                    float spanX = hiX - loX, spanZ = hiZ - loZ;
+                    float longest = Mathf.Max(spanX, spanZ), shortest = Mathf.Min(spanX, spanZ);
+                    Assert.AreEqual(longest, Mathf.Max(view.Bounds.size.x, view.Bounds.size.z), .02f,
+                        module.Id + " composed arm span (long) x[]=" + spanX + " z[]=" + spanZ);
+                    if (Mathf.Abs(longest - shortest) > .05f) {
+                        Assert.AreEqual(shortest, Mathf.Min(view.Bounds.size.x, view.Bounds.size.z), .02f,
+                            module.Id + " composed arm span (short) x[]=" + spanX + " z[]=" + spanZ);
+                    }
+                    continue;
+                }
                 Assert.AreEqual(panelWidth, Mathf.Max(view.Bounds.size.x, view.Bounds.size.z), .01f,
                     module.Id + " panel is not its measured cell span (" + visual.Key + ")");
                 var alongZ = Mathf.Abs(Mathf.Sin(view.Yaw * Mathf.Deg2Rad)) > .5f;
@@ -373,13 +394,15 @@ public class OutdoorModuleViewTests {
         Assert.IsTrue(view.PanelExtentMatchesSource, "a one-axis panel covers the whole cell");
         Assert.IsEmpty(view.Diagnostic);
 
-        // An L junction cannot be drawn by the single promoted panel: report it.
+        // An L is composed from the computed arms (RCA 15 §4): one centre post and a half span
+        // toward each neighbour, which is exactly what `fenceArms` describes.
         var east = Fence("fence-east", 1, 0);
         var turn = new[] { centre, north, east };
         var corner = Build(centre, ModuleViews.Resolve(centre, turn, catalogue), turn);
-        Assert.IsFalse(corner.PanelExtentMatchesSource, "one panel cannot cover both arms of a turn");
-        StringAssert.Contains("arm-composition-missing", corner.Diagnostic);
-        Assert.AreEqual(0f, corner.Yaw, .01f, "a junction keeps the saved turn's axis");
+        Assert.IsTrue(corner.PanelExtentMatchesSource, "the composed arms are the source's own geometry");
+        Assert.AreEqual(2, corner.ComposedArms, "an L composes two arms");
+        StringAssert.Contains("fence-arms-composed:2arms", corner.Diagnostic);
+        Assert.AreEqual(0f, corner.Yaw, .01f, "a composed junction is drawn in the cell frame");
     }
 
     [Test]
@@ -399,10 +422,14 @@ public class OutdoorModuleViewTests {
             if (neighbours.Degree > 0 && !(arms.RunsAlongX && arms.RunsAlongY) && savedAlongY != armsAlongY) overridden++;
         }
         Assert.AreEqual(ExpectedFences, isolated + runEnd + straight + junction);
-        Assert.AreEqual(4, isolated, "four Zoo fence cells have no fence neighbour");
-        Assert.AreEqual(36, runEnd, "run-end cells");
-        Assert.AreEqual(165, straight, "straight-run cells");
-        Assert.AreEqual(8, junction, "L cells the fence-only neighbour rule can see");
+        // The counts the document-level `fenceConnectionIndex` gives (RCA 15 §4): the fence-only
+        // scan saw 4 isolated / 36 end / 165 straight / 8 L cells, because it could not see a fare
+        // gate's machine face or a rail landing. Twelve fences changed arms when the full index
+        // replaced it; the junction count doubles.
+        Assert.AreEqual(2, isolated, "two Zoo fence cells meet neither a fence, a machine nor a landing");
+        Assert.AreEqual(28, runEnd, "run-end cells");
+        Assert.AreEqual(167, straight, "straight-run cells");
+        Assert.AreEqual(16, junction, "L, T and + junctions across fences, gate machines and landings");
         Assert.AreEqual(6, overridden,
             "six Zoo fences store a saved turn that disagrees with the axis their run draws");
     }

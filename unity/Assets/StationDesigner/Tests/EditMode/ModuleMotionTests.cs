@@ -445,9 +445,9 @@ public class ModuleMotionTests {
         var dispatch = new ModuleMotionDispatch();
         Assert.IsTrue(dispatch.Bind(one));
         Assert.IsTrue(dispatch.Bind(two));
-        Assert.AreEqual(ModuleMotionChannel.PendingCrowd, dispatch.ChannelOf("gate-1"),
-            "a gate has a binding but no published frame channel yet (crowd, C3)");
-        // The frame must not slam a gate that another system drove: it has no gate channel.
+        Assert.AreEqual(ModuleMotionChannel.FrameGates, dispatch.ChannelOf("gate-1"),
+            "a gate is fed by the service's published gate frames");
+        // A frame that names no gate must not slam a gate another system drove.
         Assert.IsTrue(dispatch.ApplyOpening("gate-1", 1f));
         Assert.AreEqual(.025f, left.localScale.x * .35f, 1e-3, "the driven gate retracts to its edge");
         Assert.AreEqual(1f, otherLeft.localScale.x, 1e-4, "its neighbour stays shut");
@@ -505,6 +505,104 @@ public class ModuleMotionTests {
         dispatch.Apply(frame);
         CollectionAssert.AreEqual(half, opened.SelectMany(Leaves).Select(leaf => leaf.localPosition.x).ToArray(),
             "the paused lift holds its half-open leaves");
+    }
+
+    [Test]
+    public void DwellAndHoldTicksKeepTheirEndpointAndNeverReplayTheTravel() {
+        // Plan 17 §1: the interpolation pair is keyed by the simulation tick, not by the
+        // value. With the snapshots 0, .5, 1, 1, 1, .5, 0, 0 a value-keyed history keeps
+        // the *previous different* fraction across the repeated ticks and each rendered
+        // tick replays .5→1 (or .5→0) as alpha advances. The tick-keyed history must hold
+        // the last endpoint, and the leaf must cross exactly once each way.
+        const string trainId = "5|track-1";
+        var legacy = Host("psd-dwell");
+        var psdLeaf = Pivot("psd-leaf-a", new Vector3(-.6f, 1.175f, -.41f));
+        psdLeaf.transform.SetParent(legacy.transform, false);
+        var motion = legacy.AddComponent<ModuleMotion>();
+        motion.moduleId = "edge-dwell";
+        motion.kind = ModuleMotion.Kind.ScreenDoors;
+        motion.leaves = new[] { psdLeaf.transform };
+        motion.leavesClosed = new[] { psdLeaf.transform.localPosition };
+        motion.leafTravel = 1.029f;
+
+        var catalogue = AssetDatabase.LoadAssetAtPath<TrainCatalogue>(TrainCatalogue.AssetPath);
+        Assert.IsNotNull(catalogue, "train catalogue asset");
+        var key = TrainFormations.Select("L", 6, "third-rail", catalogue);
+        Assert.IsTrue(catalogue.TryGet(key, out var entry), "formation " + key + " is promoted");
+        var consist = Object.Instantiate(entry.prefab);
+        Spawned.Add(consist);
+        var rig = new TrainDoorRig(consist, TrainDoorRig.ForLine("L", 6, entry.bakedScale));
+        Assert.Greater(rig.Leaves, 0, "the formation carries door leaves");
+
+        var dispatch = new ModuleMotionDispatch();
+        Assert.IsTrue(dispatch.Bind(motion));
+        Assert.IsTrue(dispatch.BindTrain(trainId, rig, 1));
+
+        var fractions = new[] { 0.0, .5, 1.0, 1.0, 1.0, .5, 0.0, 0.0 };
+        var rendered = new List<float>();
+        for (int tick = 0; tick < fractions.Length; tick++) {
+            var frame = Frame();
+            frame.Clock.Tick = tick;
+            frame.Doors = new[] {
+                new StationDoorFrame { PlatformId = "edge-dwell", LineId = "5", TrackId = "track-1",
+                    DoorFraction = fractions[tick], TrainPhase = TrainPhase.Dwell },
+            };
+            frame.Trains = new[] { TrainFrame(trainId, fractions[tick]) };
+            float previousRendered = float.NaN;
+            foreach (float alpha in new[] { .5f, .75f, .995f }) {
+                dispatch.Apply(frame, alpha);
+                float expected = tick == 0
+                    ? (float)fractions[0]
+                    : (float)(fractions[tick - 1] + (fractions[tick] - fractions[tick - 1]) * alpha);
+                Assert.AreEqual(expected, rig.Plus, 1e-4f,
+                    "train bank at tick " + tick + " alpha " + alpha + " must sample this tick's own pair");
+                Assert.AreEqual(expected * 1.029f, -(psdLeaf.transform.localPosition.x + .6f), 1e-4f,
+                    "the PSD leaf and the train bank read the same door state");
+                Assert.AreEqual(0f, rig.Minus, 1e-6f, "the inactive bank never opens");
+                if (!float.IsNaN(previousRendered)) {
+                    float delta = Mathf.Abs(expected - previousRendered);
+                    Assert.Less(delta, .52f, "one tick's rendered pair never re-walks the whole travel");
+                }
+                previousRendered = expected;
+                rendered.Add(expected);
+            }
+        }
+        // Three dwell ticks at 1 all render the open endpoint (not .5→1 each time), and the
+        // two hold ticks at 0 both render the shut endpoint.
+        Assert.AreEqual(1f, rendered[3 * 3 + 2], 1e-4f, "a dwell tick renders the open endpoint");
+        Assert.AreEqual(1f, rendered[4 * 3 + 2], 1e-4f, "the next dwell tick stays open");
+        Assert.AreEqual(0f, rendered[7 * 3 + 2], 1e-4f, "the hold tick renders the shut endpoint");
+        int openings = 0, closings = 0, direction = 0;
+        for (int i = 1; i < rendered.Count; i++) {
+            float delta = rendered[i] - rendered[i - 1];
+            if (Mathf.Abs(delta) <= 1e-4f) continue;
+            int sign = delta > 0 ? 1 : -1;
+            if (sign == direction) continue;
+            direction = sign;
+            if (sign > 0) openings++;
+            else closings++;
+        }
+        Assert.AreEqual(1, openings, "exactly one opening across the stop");
+        Assert.AreEqual(1, closings, "exactly one closing across the stop");
+    }
+
+    [Test] public void GateWingsFollowThePublishedGateLaneState() {
+        var one = Gate(out var left, out var right);
+        one.moduleId = "gate-lane";
+        var dispatch = new ModuleMotionDispatch();
+        Assert.IsTrue(dispatch.Bind(one));
+        Assert.AreEqual(ModuleMotionChannel.FrameGates, dispatch.ChannelOf("gate-lane"),
+            "a gate is fed by the service's published gate frames");
+        var frame = Frame();
+        frame.Clock.Tick = 1;
+        frame.Gates = new[] { new StationGateFrame { Id = "gate-lane", Server = 1, Lane = 1, Open = 1 } };
+        dispatch.Apply(frame);
+        Assert.AreEqual(.025f, left.localScale.x * .35f, 1e-3f, "the lane is open");
+        frame.Clock.Tick = 2;
+        frame.Gates = new[] { new StationGateFrame { Id = "gate-lane", Server = 1, Lane = 0, Open = 0 } };
+        dispatch.Apply(frame);
+        Assert.AreEqual(1f, left.localScale.x, 1e-4f, "the lane shut on the next tick");
+        Assert.AreEqual(.325f, right.localPosition.x, 1e-4f, "and the wings re-seat at their authored jamb");
     }
 
     [Test]

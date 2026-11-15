@@ -90,6 +90,13 @@ namespace Metro.EditModeTests {
             new StationSignRenderer(),
             new Metro.App.Views.StationRoadRenderer(),
             new Metro.App.Views.TrainConsistRenderer(),
+            // Plan 13 §3: the four group renderers the generic player registered for
+            // surfaces, street furniture, equipment and live displays. Without them the
+            // report described a load the browser no longer runs (RCA 14 audit).
+            new Metro.App.Views.StationSurfaceModuleRenderer(),
+            new Metro.App.Views.StationStreetModuleRenderer(),
+            new Metro.App.Views.StationEquipmentModuleRenderer(),
+            new Metro.App.Views.StationDisplayModuleRenderer(),
         };
 
         [Test]
@@ -154,21 +161,24 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(psd.Any(row => row.Moved > .3f), "a screen leaf slid on the berth");
             Assert.IsTrue(report.Rows.Where(row => row.Type == "psd-end").All(row => row.Motion == "static:source"),
                 "a fixed screen end has no channel");
-            // Gates and room doors have no published frame channel yet; they are bound and
-            // were driven through their own module state, which the probe measured.
+            // Gates answer the service's published lane state; room doors answer the crowd
+            // proximity rule on the same passenger frames. Both are driven every tick.
             var gates = report.Rows.Where(row => row.Type == "gate").ToArray();
             Assert.AreEqual(15, gates.Length);
-            Assert.IsTrue(gates.All(row => row.Motion == "bound:pending-crowd"),
-                "every fare gate has a per-module binding, never one station-wide switch");
+            Assert.IsTrue(gates.All(row => row.Motion == "bound:frame.Gates"),
+                "every fare gate is driven by its own published lane state, never one station-wide switch");
             Assert.IsTrue(gates.All(row => row.Applied || !row.Movable),
-                "every gate with a lane was driven through its own state");
-            Assert.IsTrue(gates.Any(row => row.Moved > .05f), "a gate wing retracted a measured distance");
+                "every gate with a lane was driven from the service's gate frame");
+            Assert.IsTrue(gates.Any(row => row.Moved > .05f), "a gate wing retracted a measured distance | " +
+                report.FrameSource + " | " + string.Join("; ", gates.Select(row => row.Id + ":" + row.Motion +
+                    ":applied=" + row.Applied + ":moved=" + row.Moved + ":movable=" + row.Movable)));
             // A fence-door gate (`gateHasLane` false) is bound and correctly immobile.
-            Assert.IsTrue(gates.Where(row => !row.Movable).All(row => row.Motion == "bound:pending-crowd"),
+            Assert.IsTrue(gates.Where(row => !row.Movable).All(row => row.Motion == "bound:frame.Gates"),
                 "a lane-less gate is still bound");
             var doors = report.Rows.Where(row => row.Type == "door" || row.Type == "cubicle").ToArray();
             Assert.AreEqual(10, doors.Length, "six standing doors and four cubicles");
-            Assert.IsTrue(doors.All(row => row.Motion == "bound:pending-crowd" && row.Applied), "swing leaves are bound");
+            Assert.IsTrue(doors.All(row => row.Motion == "bound:frame.Passengers" && row.Applied),
+                "swing leaves answer the published crowd proximity channel");
             Assert.IsTrue(doors.Any(row => row.Moved > 10f), "a hinge turned (degrees are folded into the probe)");
         }
 
@@ -202,10 +212,20 @@ namespace Metro.EditModeTests {
             var deliberate = tv.Where(row => row.Status.StartsWith("no-view: deliberate:pair-panel", StringComparison.Ordinal)).ToArray();
             Assert.IsNotEmpty(deliberate, "the second half of a back-to-back pair draws nothing by design");
             Assert.IsTrue(deliberate.All(row => row.Family == "other"));
-            // A type no renderer claims is a named gap, not a fallback.
+            // A claimed type is drawn by its family renderer; since plan 13 §3 the
+            // equipment renderer owns the 139 lights, so none of them may still report
+            // itself as an unclaimed gap.
             var lights = report.Rows.Where(row => row.Type == "light").ToArray();
             Assert.AreEqual(139, lights.Length);
-            Assert.IsTrue(lights.All(row => row.Status == "no-view: no-renderer:light"), "an unclaimed type says so");
+            Assert.IsTrue(lights.All(row => row.Status == "bound"), "a claimed type is drawn, not called unclaimed");
+            Assert.IsTrue(lights.All(row => row.RendererPath.StartsWith("equipment:", StringComparison.Ordinal)),
+                "the lights name the equipment renderer");
+            // Every saved Zoo type is claimed by a renderer now, so an unclaimed branch
+            // must not appear on the real load; the tiny-station probe below pins it.
+            var unclaimed = report.Rows.Where(row =>
+                row.Status.StartsWith("no-view: no-renderer:", StringComparison.Ordinal)).ToArray();
+            Assert.IsEmpty(unclaimed.Select(row => row.Id + "=" + row.Status).ToArray(),
+                "every Zoo type is claimed by a registered renderer");
             // The two reasons partition the module no-view rows; the train rows carry
             // their own status and are not claimed by either.
             var partition = report.Rows.Where(row => row.Kind == "module" && row.Status.StartsWith("no-view:", StringComparison.Ordinal)).ToArray();
@@ -288,7 +308,8 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void FallbackAndDeliberateNoViewStayDistinctOnATinyStation() {
-            // A tiny save: a gate a renderer refuses, and a lawn no renderer claims.
+            // A tiny save: a gate a renderer refuses, and a type no renderer claims (a
+            // urinal is a real saved type with no owning renderer).
             var json = new JObject {
                 ["format"] = "metro-save",
                 ["formatVersion"] = 1,
@@ -302,7 +323,7 @@ namespace Metro.EditModeTests {
                     ["cells"] = new JArray { new JObject { ["x"] = 0, ["y"] = 0, ["z"] = 0, ["fill"] = "solid" } },
                     ["modules"] = new JArray {
                         new JObject { ["id"] = "gate-refused", ["type"] = "gate", ["x"] = 0, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["cfg"] = new JObject { ["dir"] = "both" } },
-                        new JObject { ["id"] = "lawn-1", ["type"] = "lawn", ["x"] = 1, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["cfg"] = new JObject() },
+                        new JObject { ["id"] = "urinal-1", ["type"] = "urinal", ["x"] = 1, ["y"] = 0, ["z"] = 0, ["rot"] = 0, ["cfg"] = new JObject() },
                     },
                     ["lines"] = new JArray(),
                 },
@@ -321,8 +342,8 @@ namespace Metro.EditModeTests {
                 var gate = probe.Rows.First(row => row.Id == "gate-refused");
                 Assert.AreEqual("fallback", gate.Status, "a renderer-owned type with an unresolved diagnostic is a fallback");
                 StringAssert.Contains("refused-on-purpose", gate.Note);
-                var lawn = probe.Rows.First(row => row.Id == "lawn-1");
-                Assert.AreEqual("no-view: no-renderer:lawn", lawn.Status, "an unclaimed type is a named gap, not a fallback");
+                var urinal = probe.Rows.First(row => row.Id == "urinal-1");
+                Assert.AreEqual("no-view: no-renderer:urinal", urinal.Status, "an unclaimed type is a named gap, not a fallback");
                 Assert.AreEqual(1, probe.Status.Fallback);
                 Assert.AreEqual(1, probe.Status.NoView);
                 Assert.AreEqual(0, probe.Status.Deliberate, "nothing here is deliberate");

@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Metro.App;
 using Metro.App.Views;
 using Metro.Sim;
 using Metro.View;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
+using UnityEngine;
 
-// Packet C Â· C3 â€” the published service frames (`StationServiceRuntime`), the
+// Packet C ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· C3 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the published service frames (`StationServiceRuntime`), the
 // document-derived crowd that fills them and the App feed that binds them to the
 // crowd renderer.
 //
@@ -33,15 +37,14 @@ public class StationServiceFrameTests {
     /// the fare line, a paid platform strip with one screen-door run. The gate is
     /// the only walk edge between the two zones, so the crowd must use it.
     /// </summary>
-    static StationSessionDocument GatePlatformDocument() {
-        var document = new StationSessionDocument { StationId = "fixture-c3-gate", LevelBase = 0 };
+    static StationSessionDocument GatePlatformDocument() {        var document = new StationSessionDocument { StationId = "fixture-c3-gate", LevelBase = 0 };
         for (int x = 0; x <= 11; x++)
             for (int y = 0; y <= 9; y++)
-                document.Cells.Add(Cell(x, y, 0, 1));
-        document.Cells.Add(Cell(12, 4, 0, 1));
+                document.Cells.Add(Cell(x, y, 0, 2));
+        document.Cells.Add(Cell(12, 4, 0, 2));
         for (int x = 13; x <= 23; x++)
             for (int y = 3; y <= 5; y++)
-                document.Cells.Add(Cell(x, y, 0, 2));
+                document.Cells.Add(Cell(x, y, 0, 3));
         document.Modules.Add(new StationModuleFact { Id = "exit", Type = "exit", X = 10, Y = 4, Z = 0, Name = "A" });
         document.Modules.Add(new StationModuleFact {
             Id = GateId, Type = "gate", X = 12, Y = 4, Z = 0, Rot = 0, GateDir = 0, GateOpen = true, GateHasLane = true,
@@ -59,6 +62,178 @@ public class StationServiceFrameTests {
         return document;
     }
 
+    /* ------------------------------------------- door identity (plan 18 §8) */
+
+    /// <summary>
+    /// 18 §8.1 — the source attributes each platform edge's doors to a track by
+    /// `World.ts`'s rule, not by an exact `cfg.from` match: a valid `from` wins, otherwise
+    /// the first service track with the edge's own direction, otherwise the first track.
+    /// Requiring the saved id verbatim left every edge that named no track (or named one
+    /// that had been moved away) with **no** service doors, so nobody could board or alight
+    /// there.
+    /// </summary>
+    [Test]
+    public void APlatformEdgeFindsItsTrackByTheSourceRuleNotByAnExactSavedId() {
+        var document = new StationSessionDocument { StationId = "fixture-18-8", LevelBase = 0 };
+        document.Modules.Add(new StationModuleFact {
+            Id = "track-up", Type = "track", X = 0, Y = 0, Z = 0, Rot = 0, Width = 10, Depth = 1,
+            LineId = LineId, Dir = "up",
+        });
+        document.Modules.Add(new StationModuleFact {
+            Id = "track-down", Type = "track", X = 0, Y = 4, Z = 0, Rot = 0, Width = 10, Depth = 1,
+            LineId = LineId, Dir = "down",
+        });
+        document.Modules.Add(new StationModuleFact {
+            Id = "track-tunnel", Type = "track", X = 0, Y = 8, Z = 0, Rot = 0, Width = 10, Depth = 1,
+            LineId = LineId, Dir = "up", Tunnel = true,
+        });
+        document.Modules.Add(new StationModuleFact {
+            Id = "edge-bound", Type = "platform-edge", X = 0, Y = 1, Z = 0, Rot = 0, Width = 10,
+            LineId = LineId, RailId = "track-down", Dir = "up",
+        });
+        document.Modules.Add(new StationModuleFact {
+            Id = "edge-unbound", Type = "platform-edge", X = 0, Y = 5, Z = 0, Rot = 0, Width = 10,
+            LineId = LineId, Dir = "down",
+        });
+        document.Modules.Add(new StationModuleFact {
+            Id = "edge-stale", Type = "platform-edge", X = 0, Y = 9, Z = 0, Rot = 0, Width = 10,
+            LineId = LineId, RailId = "track-deleted", Dir = "down",
+        });
+        document.Lines.Add(new StationLineFact {
+            Id = LineId, Direction = "up", HeadwayPeak = 150, HeadwayOffpeak = 240, HeadwayLate = 480,
+        });
+
+        // A valid `from` wins, even when the edge's direction disagrees.
+        Assert.AreEqual("track-down", StationServiceDoors.ResolveEdgeTrack(document,
+            document.Modules[3], document.Lines[0], true), "a valid from binds that track");
+        // No `from`: the first service track in the edge's own direction.
+        Assert.AreEqual("track-down", StationServiceDoors.ResolveEdgeTrack(document,
+            document.Modules[4], document.Lines[0], true), "an unbound edge takes its direction's track");
+        // A `from` naming a track the line no longer has falls back the same way.
+        Assert.AreEqual("track-down", StationServiceDoors.ResolveEdgeTrack(document,
+            document.Modules[5], document.Lines[0], true), "a stale from falls back to the direction match");
+        // The tunnel run is an extension: it is only a last resort.
+        Assert.AreEqual("track-up", StationServiceDoors.ResolveEdgeTrack(document,
+            new StationModuleFact { Id = "edge-any", Type = "platform-edge", LineId = LineId, Dir = "sideways" },
+            document.Lines[0], true), "an unmatched direction takes the first platform track");
+
+        // A line with no rail at all keeps the source's line-only service.
+        var bare = new StationSessionDocument { StationId = "fixture-18-8-bare", LevelBase = 0 };
+        bare.Lines.Add(new StationLineFact { Id = LineId, Direction = "up" });
+        bare.Modules.Add(new StationModuleFact {
+            Id = "edge-only", Type = "platform-edge", X = 0, Y = 0, Z = 0, Rot = 0, Width = 4, LineId = LineId,
+        });
+        Assert.AreEqual("", StationServiceDoors.ResolveEdgeTrack(bare, bare.Modules[0], bare.Lines[0], true),
+            "a line with no track resolves to the line-only service");
+        Assert.AreEqual(0, StationServiceDoors.ServiceTracks(bare, LineId).Count);
+    }
+
+    /// <summary>Two tracks of one line keep disjoint door sets on the real Zoo save.</summary>
+    [Test]
+    public void TheZooServiceAttributesEachPlatformEdgeToExactlyOneTrack() {
+        var read = Metro.Persistence.StationDocumentReader.ReadFile("Assets/StationDesigner/Demos/zoo.metro.json");
+        var document = StationSessionProjection.Document(read.Document, read.Index);
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = document,
+            Day = StationDayData.Default, Seed = 7,
+            StartSimTime = StationClock.ReferenceBootSeconds, StartPlaying = false,
+            Services = new StationServiceOptions { Spawn = false },
+        });
+        var up = StationServiceDoors.ForService(document, session.WalkGraph, "5", "track-1", out var upNotes);
+        var down = StationServiceDoors.ForService(document, session.WalkGraph, "5", "track-5", out var downNotes);
+        Assert.Greater(up.Count, 0, "line 5's up track has doorways: " + string.Join(";", upNotes));
+        Assert.Greater(down.Count, 0, "line 5's down track has doorways: " + string.Join(";", downNotes));
+        Assert.IsFalse(up.Any(slot => string.Equals(slot.TrackId, "track-5", StringComparison.Ordinal)),
+            "an up-platform doorway never belongs to the down service");
+        Assert.IsFalse(down.Any(slot => string.Equals(slot.TrackId, "track-1", StringComparison.Ordinal)),
+            "a down-platform doorway never belongs to the up service");
+        Assert.AreEqual(up.Count + down.Count, up.Select(slot => slot.Node).Concat(down.Select(slot => slot.Node)).Distinct().Count(),
+            "no walkable node carries doorways for both services");
+    }
+
+    /* ------------------------------------------- cabin pose (plan 18 §8.2) */
+
+    /// <summary>
+    /// `stock.ts:cabinSlot`, in scaled car units: two abreast either side of the doorway,
+    /// rows snaking wall to wall and drifting one turn-step toward the cab each turn.
+    /// </summary>
+    [Test]
+    public void ACabinSlotSnakesWallToWallFromItsDoorway() {
+        var cadence = StationServiceCadence.CabinHalfWidth - StationServiceCadence.CabinDoorInset;
+        // Row 0: the near wall, one pair-half either side of the doorway.
+        StationTrainPose.CabinSlot(2.0, 1, -1, 0, out double x, out double y);
+        Assert.AreEqual(2.0 - StationServiceCadence.CabinPairHalf, x, 1e-9, "row 0 stays on the doorway");
+        Assert.AreEqual(cadence, y, 1e-9, "row 0 sits against the near wall");
+        StationTrainPose.CabinSlot(2.0, -1, 1, 0, out x, out y);
+        Assert.AreEqual(cadence, Math.Abs(y), 1e-9, "the far side mirrors the wall");
+        // Row 4: 2.2 m of depth is one 1.8 m span plus 0.4 m, so the odd turn heads back.
+        double depth = 4 * StationServiceCadence.CabinRowPitch;
+        double turn = Math.Floor(depth / (cadence * 2));
+        double within = depth - turn * (cadence * 2);
+        StationTrainPose.CabinSlot(2.0, 1, -1, 4, out x, out y);
+        Assert.AreEqual(2.0 - StationServiceCadence.CabinPairHalf +
+            Math.Min(turn, StationServiceCadence.CabinMaxTurns) * StationServiceCadence.CabinTurnStep,
+            x, 1e-9, "each turn drifts one step toward the cab");
+        Assert.AreEqual(-cadence + within, y, 1e-9, "an odd turn heads back toward the doorway's skin");
+        // The turn is capped so a full car of rows stays inside the stock.
+        StationTrainPose.CabinSlot(0, 1, 1, StationServiceCadence.CabinMaxRows - 1, out x, out _);
+        Assert.LessOrEqual(x, StationServiceCadence.CabinPairHalf +
+            StationServiceCadence.CabinMaxTurns * StationServiceCadence.CabinTurnStep + 1e-9,
+            "the drift never passes the last authored turn");
+        // Pair-half displacement along the train is the source's 0.32 m.
+        Assert.AreEqual(.32, StationServiceCadence.CabinPairHalf, 1e-9);
+    }
+
+    /// <summary>
+    /// 18 §8.2 — a track-bound wave is seated **inside its car** and steps out along the
+    /// train. The old runtime used the source's no-consist branch for every service: all
+    /// rows packed against one platform node and the step displaced along document X, so a
+    /// logically alighting passenger never visibly left a car. The discriminating check is
+    /// the car frame: every cabin rider projects inside the stock's cabin half width, which
+    /// a platform-node seat cannot do.
+    /// </summary>
+    [Test]
+    public void ATrackBoundZooWaveIsSeatedInsideItsCar() {
+        var read = Metro.Persistence.StationDocumentReader.ReadFile("Assets/StationDesigner/Demos/zoo.metro.json");
+        var document = StationSessionProjection.Document(read.Document, read.Index);
+        var line = document.Lines.First(candidate => candidate.Id == "5");
+        Assert.IsTrue(StationTrainPose.TryBerth(document, line, true, "track-1",
+            StationTrainPose.DefaultScale, out var berth, out var failure), "berth: " + failure);
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = document, Day = StationDayData.Default, Seed = 7654321,
+            StartSimTime = StationClock.ReferenceBootSeconds, StartPlaying = true,
+            Services = new StationServiceOptions { Spawn = false, AlightPerTrain = 200 },
+        });
+        double cabinHalf = StationServiceCadence.CabinHalfWidth;
+        int riders = 0;
+        for (int tick = 0; tick < 120 && riders == 0; tick++) {
+            session.Advance(1.0);
+            foreach (var passenger in session.Snapshot().Passengers) {
+                if (!(passenger.ServerId ?? "").StartsWith("line:5|track-1", StringComparison.Ordinal)) continue;
+                double dx = passenger.X - berth.X, dy = passenger.Y - berth.Y;
+                double along = dx * berth.Fx + dy * berth.Fy;
+                double across = -dx * berth.Fy + dy * berth.Fx;
+                Assert.LessOrEqual(Math.Abs(across), cabinHalf + 1e-6,
+                    "passenger " + passenger.SimId + " sits outside the car: across=" + across.ToString("0.###"));
+                Assert.LessOrEqual(Math.Abs(along), berth.HalfLength + 1e-6,
+                    "passenger " + passenger.SimId + " sits past the car ends: along=" + along.ToString("0.###"));
+                Assert.AreEqual(berth.CabinFloorZ, passenger.Z, 1e-6,
+                    "passenger " + passenger.SimId + " stands on the cabin floor");
+                riders++;
+            }
+        }
+        Assert.Greater(riders, 0, "the berth seated a wave inside the car");
+        // The step out lands either side of the doorway's centre, along the train's facing.
+        StationTrainPose.StepOutTarget(berth, 67.5, -2.0, -19.0, 1, out double toX, out double toY, out double toZ);
+        Assert.AreEqual(67.5 + StationServiceCadence.CabinPairHalf * berth.Fx, toX, 1e-9);
+        Assert.AreEqual(-2.0 + StationServiceCadence.CabinPairHalf * berth.Fy, toY, 1e-9);
+        Assert.AreEqual(-19.0, toZ, 1e-9, "the step lands on the platform's own elevation");
+        // A line-only service keeps the source's no-consist branch (there is no car to stand in).
+        StationTrainPose.CabinWorldPos(null, 0, 0, 1, 0, out _, out _, out _);
+        Assert.IsFalse(StationTrainPose.CabinWorldPos(null, 0, 0, 1, 0, out _, out _, out _),
+            "no consist means no cabin slot");
+    }
+
     /// <summary>
     /// Two floors whose only connection is one lift: the street apron and the
     /// platform. No stair, no escalator and (with the generated ground off) no
@@ -68,10 +243,10 @@ public class StationServiceFrameTests {
         var document = new StationSessionDocument { StationId = "fixture-c3-lift", LevelBase = 0 };
         for (int x = 0; x <= 7; x++)
             for (int y = 0; y <= 7; y++)
-                document.Cells.Add(Cell(x, y, 0, 1));
+                document.Cells.Add(Cell(x, y, 0, 2));
         for (int x = 0; x <= 7; x++)
             for (int y = 0; y <= 7; y++)
-                document.Cells.Add(Cell(x, y, -5, 2));
+                document.Cells.Add(Cell(x, y, -5, 3));
         document.Modules.Add(new StationModuleFact { Id = "exit", Type = "exit", X = 4, Y = 4, Z = 0, Name = "A" });
         document.Modules.Add(new StationModuleFact {
             Id = "lift-1", Type = "lift", X = 5, Y = 5, Z = -5, Rot = 0, Width = 2, Depth = 2,
@@ -95,10 +270,10 @@ public class StationServiceFrameTests {
         var document = new StationSessionDocument { StationId = "fixture-c3-disconnected", LevelBase = 0 };
         for (int x = 0; x <= 3; x++)
             for (int y = 0; y <= 3; y++)
-                document.Cells.Add(Cell(x, y, 0, 1));
+                document.Cells.Add(Cell(x, y, 0, 2));
         for (int x = 0; x <= 3; x++)
             for (int y = 0; y <= 3; y++)
-                document.Cells.Add(Cell(x, y, -10, 2));
+                document.Cells.Add(Cell(x, y, -10, 3));
         document.Modules.Add(new StationModuleFact { Id = ExitId, Type = "exit", X = 0, Y = 0, Z = 0, Name = "A" });
         document.Modules.Add(new StationModuleFact {
             Id = TrackId, Type = "track", X = 0, Y = 0, Z = -10, Rot = 0, Width = 4, Depth = 1, LineId = LineId,
@@ -178,8 +353,27 @@ public class StationServiceFrameTests {
     }
 
     [Test]
+    public void GateLaneCommitsAndPublishesTheLeafCurve() {
+        var session = Session(GatePlatformDocument(), 0);
+        Assert.AreEqual(3, session.Services.SeedGateRiders(GateId, 3), "three entry riders join the lane queue");
+        int lane = 0;
+        var open = new List<double>();
+        Run(session, 8, frame => {
+            Assert.AreEqual(1, frame.Gates.Length, "one fare gate in the fixture");
+            lane = Math.Max(lane, frame.Gates[0].Lane);
+            open.Add(frame.Gates[0].Open);
+        });
+        Assert.AreEqual(1, lane, "the two-way lane commits to the first arrival's direction");
+        Assert.IsTrue(open.Any(value => value >= .99), "the published leaf curve opened the lane: " +
+            string.Join(",", open.ConvertAll(value => value.ToString("0.###"))));
+        Assert.Less(open[open.Count - 1], .5, "and shut again after the hold: " +
+            string.Join(",", open.ConvertAll(value => value.ToString("0.###"))));
+        Assert.GreaterOrEqual(session.Services.GateFrames()[0].Served, 3, "all three riders passed the lane");
+    }
+
+    [Test]
     public void SpawnCountScalesWithTheDemandCurve() {
-        // The authored knob is the 时刻 slider's own range (0–2.5, clamped by the clock),
+        // The authored knob is the ÃƒÂ¦Ã¢â‚¬â€Ã‚Â¶ÃƒÂ¥Ã‹â€ Ã‚Â» slider's own range (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2.5, clamped by the clock),
         // so the comparison is the busiest authored day against a nearly flat one.
         var busy = new StationSimulationSession(Setup(GatePlatformDocument(), PeakDay(2.5), 0));
         var quiet = new StationSimulationSession(Setup(GatePlatformDocument(), PeakDay(0.2), 0));
@@ -299,7 +493,7 @@ public class StationServiceFrameTests {
     // ------------------------------------------------------------ boarding
 
     [Test]
-    public void BoardingOnlyHappensWhileTheDoorsAreActuallyOpen() {
+    public void BoardingOnlyHappensWhileTheDoorsAreActuallyOpeningOrOpen() {
         var session = Session(GatePlatformDocument(), 6);
         int boardings = 0;
         int ticksWithOpenDoors = 0;
@@ -307,45 +501,53 @@ public class StationServiceFrameTests {
             session.Advance(1.0);
             var frame = session.Snapshot();
             var doors = frame.Doors[0];
-            bool wideOpen = doors.DoorFraction >= 1 - 1e-9;
-            if (wideOpen) ticksWithOpenDoors++;
+            bool leavesMoving = doors.TrainPhase == TrainPhase.Opening || doors.TrainPhase == TrainPhase.Dwell;
+            if (doors.DoorFraction > 0) ticksWithOpenDoors++;
             if (session.Services.BoardingsThisTick <= 0) continue;
             boardings += session.Services.BoardingsThisTick;
-            Assert.IsTrue(wideOpen, "a boarder was admitted at fraction " + doors.DoorFraction + " on tick " + (tick + 1));
-            Assert.AreEqual(TrainPhase.Dwell, doors.TrainPhase, "boarding only in the dwell (tick " + (tick + 1) + ")");
-            Assert.AreEqual(1.0, doors.DoorFraction, 1e-9, "the leaves are wide, not travelling");
+            // The source opens a doorway as soon as its own wave clears, which can be while
+            // the leaves are still travelling â€” never before they have started to move.
+            Assert.IsTrue(leavesMoving, "a boarder was admitted while the doors were " + doors.TrainPhase + " on tick " + (tick + 1));
+            Assert.Greater(doors.DoorFraction, 0, "the leaves have begun to open (tick " + (tick + 1) + ")");
         }
         Assert.Greater(ticksWithOpenDoors, 0, "the consist did open its doors");
         Assert.Greater(boardings, 0, "and the platform's queue got through");
         Assert.AreEqual(session.Services.Boarded, boardings, "every admission was counted exactly once");
-        Assert.LessOrEqual(session.Services.Boarded, session.Snapshot().Trains[0].Capacity,
-            "the consist never boards past its own capacity");
+        // The rated load is published, not enforced: the source's `boardRider` has no
+        // capacity gate, so boarding is bounded by the platform queue and the doorway rate.
+        Assert.GreaterOrEqual(session.Snapshot().Trains[0].Capacity, 1,
+            "the service publishes the line's rated load");
     }
 
     [Test]
-    public void AlightingLeavesTheCabinBeforeBoardingStarts() {
+    public void EachDoorwayBoardsOnlyAfterItsOwnWaveHasCleared() {
         var session = Session(GatePlatformDocument(), 6);
-        bool sawWave = false;
-        bool sawAlighted = false;
-        int firstBoardingTick = -1;
+        Assert.IsTrue(session.Services.TryDoorStates(LineId, TrackId, out var states), "the fixture has service doorways");
+        var firstRelease = new Dictionary<int, int>();
+        var firstBoard = new Dictionary<int, int>();
+        var lastWave = new Dictionary<int, int>();
+        int lastAlighting = 0;
         for (int tick = 1; tick <= 70; tick++) {
             session.Advance(1.0);
-            var frame = session.Snapshot();
-            int alighting = 0;
-            for (int i = 0; i < frame.Passengers.Length; i++)
-                if (frame.Passengers[i].State == StationPassengerState.Alighting) alighting++;
-            if (alighting > 0) sawWave = true;
-            if (session.Services.Alighted > 0) sawAlighted = true;
-            if (session.Services.BoardingsThisTick <= 0) continue;
-            if (firstBoardingTick < 0) firstBoardingTick = tick;
-            Assert.IsTrue(sawAlighted, "the wave left the cabin before the first boarder (tick " + tick + ")");
-            Assert.AreEqual(0, alighting, "nobody is still stepping out when a boarder is admitted (tick " + tick + ")");
-            Assert.AreEqual(0, session.Services.AlightInFlightFor(LineId, TrackId),
-                "the consist's own doorway hand-over is clear (tick " + tick + ")");
+            Assert.IsTrue(session.Services.TryDoorStates(LineId, TrackId, out states));
+            for (int d = 0; d < states.Length; d++) {
+                if (states[d].Released && !firstRelease.ContainsKey(d)) firstRelease[d] = tick;
+                if (states[d].CabinRows > 0 || states[d].InFlight > 0) lastWave[d] = tick;
+                if (states[d].Boarded > 0 && !firstBoard.ContainsKey(d)) firstBoard[d] = tick;
+            }
+            lastAlighting = session.Services.Alighted;
         }
-        Assert.IsTrue(sawWave, "a berth brings its alighting wave before the doors open");
-        Assert.Greater(firstBoardingTick, 0, "boarding followed the alighting wave");
-        Assert.GreaterOrEqual(session.Services.Alighted, 6, "the whole fixture wave stepped out");
+        Assert.Greater(firstBoard.Count, 0, "the platform's queue reached the consist");
+        Assert.Greater(lastAlighting, 0, "the berth brought an alighting wave");
+        foreach (var pair in firstBoard) {
+            Assert.IsTrue(firstRelease.ContainsKey(pair.Key), "doorway " + pair.Key + " released before it boarded");
+            Assert.GreaterOrEqual(pair.Value, firstRelease[pair.Key],
+                "doorway " + pair.Key + " boards from its own hand-over tick, not before it");
+            if (lastWave.TryGetValue(pair.Key, out int last))
+                Assert.GreaterOrEqual(pair.Value, last,
+                    "doorway " + pair.Key + " never admits while its own wave is still in it");
+        }
+        Assert.AreEqual(0, session.Services.AlightInFlightFor(LineId, TrackId), "the stop's wave finished");
     }
 
     // ------------------------------------------------- identity and lifecycle
@@ -533,5 +735,267 @@ public class StationServiceFrameTests {
         var emptyPoses = new List<PassengerPose> { new PassengerPose { SimId = 7 } };
         Assert.IsTrue(emptyFeed.TryRead(emptyPoses), "an empty station still publishes a (complete, empty) frame");
         Assert.AreEqual(0, emptyPoses.Count, "which clears the actors");
+    }
+
+    // ------------------------------------------ the TS service oracle (plan 16 Ãƒâ€šÃ‚Â§4)
+
+    /// <summary>
+    /// The source's stop, recorded by `tools/unity-parity/record-station-service.mjs`
+    /// running `World.dispatchTrains` / `loadAlighting` / `stepAlighting` / `stepOut` /
+    /// `boardRider` themselves on one Zoo Line 5 service. Every expectation below is that
+    /// file's own answer, not a second implementation of the same arithmetic.
+    /// </summary>
+    static JObject ServiceOracle() {
+        if (oracle != null) return oracle;
+        string path = Path.Combine(Application.dataPath, "StationDesigner/Tests/EditMode/station-service-oracle.json");
+        Assert.IsTrue(File.Exists(path), "the service oracle is missing: " + path);
+        oracle = JObject.Parse(File.ReadAllText(path));
+        return oracle;
+    }
+    static JObject oracle;
+
+    static JObject ServiceCase(string name) {
+        foreach (var item in (JArray)ServiceOracle()["cases"])
+            if ((string)item["name"] == name) return (JObject)item;
+        Assert.Fail("no service oracle case '" + name + "'");
+        return null;
+    }
+
+    /// <summary>The recorded station, expanded into the session's plain document.</summary>
+    static StationSessionDocument StationOf(JObject station) {
+        var document = new StationSessionDocument { StationId = (string)station["name"], LevelBase = 0 };
+        foreach (var rect in (JArray)station["cells"]) {
+            int x0 = (int)rect["x0"], x1 = (int)rect["x1"], y0 = (int)rect["y0"], y1 = (int)rect["y1"];
+            int z = (int)rect["z"];
+            int zone = StationSessionProjection.ZoneIndex((string)rect["zone"]);
+            for (int x = x0; x <= x1; x++)
+                for (int y = y0; y <= y1; y++)
+                    document.Cells.Add(Cell(x, y, z, zone));
+        }
+        foreach (var module in (JArray)station["modules"]) {
+            var cfg = module["cfg"] as JObject ?? new JObject();
+            document.Modules.Add(new StationModuleFact {
+                Id = (string)module["id"], Type = (string)module["type"],
+                X = (int)module["x"], Y = (int)module["y"], Z = (int)module["z"],
+                Rot = module["rot"] == null ? 0 : (int)module["rot"],
+                Width = module["w"] == null ? 1 : (int)module["w"],
+                Depth = module["d"] == null ? 1 : (int)module["d"],
+                Height = 1,
+                LineId = (string)cfg["line"] ?? "",
+                Dir = (string)cfg["dir"] ?? "",
+                Side = (string)cfg["side"] ?? "",
+                RailId = (string)cfg["from"] ?? "",
+                Name = (string)cfg["name"] ?? "",
+            });
+        }
+        var line = (JObject)station["line"];
+        var headway = (JObject)line["headwayProfile"];
+        document.Lines.Add(new StationLineFact {
+            Id = (string)line["id"], Direction = (string)line["direction"],
+            Stock = (string)line["stock"], Cars = (int)line["cars"],
+            AlightPerTrain = (int)line["alightPerTrain"], AuthoredAlight = true, ModelScale = (double)line["modelScale"],
+            HeadwayPeak = (double)headway["peak"], HeadwayOffpeak = (double)headway["offpeak"],
+            HeadwayLate = (double)headway["late"],
+        });
+        return document;
+    }
+
+    static string TrackOf(JObject item) => ((string)item["serviceKey"]).Split('|')[1];
+
+    static StationSimulationSession OracleSession(JObject item) {
+        var station = (JObject)item["station"];
+        var line = (JObject)station["line"];
+        var session = new StationSimulationSession(new StationSessionSetup {
+            Document = StationOf(station),
+            Day = StationDayData.Default,
+            Seed = 7654321,
+            StartSimTime = StationClock.ReferenceBootSeconds,
+            StartPlaying = true,
+            // The recorded fixture is authored floor only (the recorder's graph rides on
+            // `withGround`'s street, which the C# builder reports rather than re-derives).
+            WalkOptions = new StationWalkGraphOptions { IncludeGround = false },
+            Services = new StationServiceOptions { Spawn = false, ExitInRatePerHour = 0 },
+        });
+        int riders = (int)item["ridersPerDoor"];
+        if (riders > 0) session.Services.SeedDoorRiders((string)line["id"], TrackOf(item), riders);
+        return session;
+    }
+
+    /// <summary>One tick's doorway facts, in the service's own doorway order.</summary>
+    sealed class DoorRun {
+        public int Tick;
+        public StationServiceRuntime.StationServiceDoorState[] States = Array.Empty<StationServiceRuntime.StationServiceDoorState>();
+        public TrainPhase Phase;
+        public double PhaseSeconds;
+        public int Boarded;
+        public int Onboard;
+        public int Alighted;
+    }
+
+    static List<DoorRun> RunService(StationSimulationSession session, int ticks) {
+        string lineId = session.Document.Lines[0].Id;
+        string trackId = session.Document.Modules.Find(m => m.Type == "track").Id;
+        var runs = new List<DoorRun>();
+        for (int i = 0; i < ticks; i++) {
+            Assert.AreEqual(1, session.Advance(1.0), "fixed one-second ticks");
+            Assert.IsTrue(session.Services.TryDoorStates(lineId, trackId, out var states), "the service has doorways");
+            var train = session.Snapshot().Trains[0];
+            runs.Add(new DoorRun {
+                Tick = (int)session.Tick, States = states, Phase = train.Phase,
+                PhaseSeconds = train.PhaseSeconds, Boarded = session.Services.Boarded,
+                Onboard = session.Services.Onboard, Alighted = session.Services.Alighted,
+            });
+        }
+        return runs;
+    }
+
+    static int FirstTick(List<DoorRun> runs, Func<DoorRun, bool> predicate) {
+        for (int i = 0; i < runs.Count; i++) if (predicate(runs[i])) return runs[i].Tick;
+        return -1;
+    }
+
+    [Test]
+    public void TheZooLine5WaveIsStagedAndReleasedDoorForDoorLikeTheSource() {
+        var item = ServiceCase("zoo-line-5-up");
+        var session = OracleSession(item);
+        var doorNodes = (JArray)item["doorNodes"];
+        Assert.AreEqual((int)item["doorCount"], session.Services.DoorCountFor("5", "track-1"),
+            "one service doorway per modelled passenger door, not one per platform cell");
+        Assert.AreEqual(18, (int)item["doorCount"], "six L cars, three doors a side");
+        Assert.AreEqual((int)item["capacity"], session.Snapshot().Trains[0].Capacity,
+            "`trainRatedCapacity(line)`: the rated load the source publishes");
+
+        var runs = RunService(session, 60);
+        Assert.IsTrue(session.Services.TryDoorStates("5", "track-1", out var doors));
+        for (int d = 0; d < doorNodes.Count; d++) {
+            Assert.AreEqual((double)doorNodes[d]["x"], doors[d].X + .5, 1e-9, "doorway " + d + " cell x");
+            Assert.AreEqual((double)doorNodes[d]["y"], doors[d].Y + .5, 1e-9, "doorway " + d + " cell y");
+            Assert.AreEqual((double)doorNodes[d]["z"], doors[d].Z + 1, 1e-9, "doorway " + d + " cell z");
+        }
+
+        // The cabin depth each doorway is loaded with: two abreast per row, rows across
+        // the whole consist first, so 200 over 18 doors is six rows on ten and five on eight.
+        var doorRows = (JArray)item["doorRows"];
+        int berthTick = FirstTick(runs, run => run.Phase == TrainPhase.Berth);
+        Assert.AreEqual(6, berthTick, "the consist is at berth on the source's tick");
+        var atBerth = runs[berthTick - 1];
+        for (int d = 0; d < doorRows.Count; d++)
+            Assert.AreEqual((int)doorRows[d], atBerth.States[d].CabinRows, "doorway " + d + " cabin rows");
+
+        // Per doorway: when its first pair left the cabin, and when it was handed to boarders.
+        foreach (var expected in (JArray)item["doorTimeline"]) {
+            int d = (int)expected["door"];
+            int firstRelease = -1, released = -1;
+            for (int i = 1; i < runs.Count && (firstRelease < 0 || released < 0); i++) {
+                if (firstRelease < 0 && runs[i].States[d].CabinRows < runs[i - 1].States[d].CabinRows) firstRelease = runs[i].Tick;
+                if (released < 0 && runs[i].States[d].Released) released = runs[i].Tick;
+            }
+            Assert.AreEqual((int)expected["firstReleaseTick"], firstRelease, "doorway " + d + " first release tick");
+            Assert.AreEqual((int)expected["releasedTick"], released, "doorway " + d + " handed to boarders");
+        }
+
+        // The phase timeline: the source's own dispatch/berth/opening/dwell/closing/hold/
+        // depart ticks, from the transition log the phase loop itself writes.
+        var phases = new List<string>();
+        foreach (var transition in session.TrainTransitions) {
+            if (!transition.ServiceId.StartsWith("5|", StringComparison.Ordinal)) continue;
+            phases.Add(transition.Tick + ":" + StationSimulationSession.TrainPhaseText(transition.To) +
+                (transition.Dispatch ? "*" : ""));
+        }
+        CollectionAssert.AreEqual(
+            new[] { "1:approach*", "6:berth", "8:opening", "10:dwell", "40:closing", "42:hold", "47:depart" },
+            phases, "the stop's phase timeline is the source's: dispatch, berth, open, dwell, close, hold, depart");
+
+        // The wave: every step-out the source recorded crossed the platform, on the very
+        // ticks it recorded them (one pair a doorway a tick until a doorway's rows are gone).
+        var stepOuts = (JArray)item["stepOuts"];
+        var expectedPerTick = new Dictionary<int, int>();
+        foreach (var step in stepOuts) {
+            int tick = (int)step["tick"];
+            expectedPerTick[tick] = expectedPerTick.TryGetValue(tick, out int held) ? held + 1 : 1;
+        }
+        var actualPerTick = new Dictionary<int, int>();
+        int crossings = 0;
+        foreach (var run in runs) {
+            int delta = run.Alighted - crossings;
+            crossings = run.Alighted;
+            if (delta > 0) actualPerTick[run.Tick] = delta;
+        }
+        Assert.AreEqual(expectedPerTick.Count, actualPerTick.Count, "the wave crosses on the source's ticks");
+        foreach (var pair in expectedPerTick)
+            Assert.AreEqual(pair.Value, actualPerTick.TryGetValue(pair.Key, out int held) ? held : 0,
+                "step-outs at tick " + pair.Key);
+        Assert.AreEqual((int)item["summary"]["alighted"], session.Services.Alighted, "alighted");
+        Assert.AreEqual((int)item["summary"]["leftBehind"], session.Services.LeftBehind, "left behind");
+
+        // The consist leaves the world on the source's own tick, and only then.
+        var removed = FirstTick(runs, run => run.Phase == TrainPhase.None && run.Tick > berthTick);
+        Assert.AreEqual((int)item["removedTick"], removed, "the consist leaves the world on the source's tick");
+        Assert.AreEqual((int)item["removedTick"], (int)session.Tick - 7, "seven ticks after the last recorded one");
+    }
+
+    [Test]
+    public void ZeroAlightersHandEveryDoorwayToTheBoardersOnTheOpeningTick() {
+        var item = ServiceCase("zero-alighters");
+        var session = OracleSession(item);
+        Assert.AreEqual(0, session.Services.DoorCountFor("5", "track-1") - 18, "the same 18 doorways");
+        var runs = RunService(session, 30);
+        // Every doorway opened on the source's first opening tick (opening t = 1): with no
+        // wave to clear, the doorway is handed to the boarders the moment its queue is empty.
+        int releasedTick = FirstTick(runs, run => {
+            for (int d = 0; d < run.States.Length; d++) if (!run.States[d].Released) return false;
+            return true;
+        });
+        Assert.AreEqual(9, releasedTick, "the zero-alighter stop hands every doorway over on opening t=1");
+        Assert.AreEqual(0, session.Services.AlightInFlightFor("5", "track-1"), "nobody is stepping out");
+        Assert.AreEqual((int)item["summary"]["boarded"], session.Services.Boarded, "boarded");
+
+        // The source's cooldown law, per doorway: two aboard on the release tick, one after.
+        var expectedByDoor = new Dictionary<string, int>();
+        foreach (var board in (JArray)item["boardings"])
+            expectedByDoor[(int)board["tick"] + "/" + (int)board["door"]] = (int)board["count"];
+        var actualByDoor = new Dictionary<string, int>();
+        for (int i = 0; i < runs.Count; i++) {
+            for (int d = 0; d < runs[i].States.Length; d++) {
+                int boarded = runs[i].States[d].Boarded - (i > 0 ? runs[i - 1].States[d].Boarded : 0);
+                if (boarded > 0) actualByDoor[runs[i].Tick + "/" + d] = boarded;
+            }
+        }
+        foreach (var pair in expectedByDoor)
+            Assert.AreEqual(pair.Value, actualByDoor.TryGetValue(pair.Key, out int held) ? held : 0,
+                "boardings at tick/door " + pair.Key);
+        Assert.AreEqual(expectedByDoor.Count, actualByDoor.Count,
+            "no doorway boarded on a tick the source did not");
+    }
+
+    [Test]
+    public void AnOppositeBankServiceKeepsItsOwnDoorwaysAndWholeWave() {
+        var item = ServiceCase("opposite-bank");
+        var session = OracleSession(item);
+        Assert.AreEqual((int)item["doorCount"], session.Services.DoorCountFor("5", "track-5"), "the down track's own doors");
+        Assert.AreEqual(2, (int)item["doorSides"], "the source's bank mask is the platform side, not the consist's +y");
+        RunService(session, 60);
+        Assert.AreEqual((int)item["summary"]["alighted"], session.Services.Alighted, "alighted");
+        Assert.AreEqual((int)item["summary"]["boarded"], session.Services.Boarded, "boarded");
+        Assert.AreEqual((int)item["summary"]["leftBehind"], session.Services.LeftBehind, "left behind");
+    }
+
+    [Test]
+    public void ASaturatedCabinRidesOnAndCountsTheArrivalsItCouldNotGetOff() {        var item = ServiceCase("saturated-cabin");
+        var session = OracleSession(item);
+        var runs = RunService(session, 60);
+        Assert.AreEqual(12, (int)item["doorRows"][0], "the cabin is loaded to its twelve rows");
+        // The source bounds a doorway's alighting at 15 s: past it the doorway boards and
+        // the rest of the wave rides on, counted rather than dropped in silence.
+        foreach (var expected in (JArray)item["doorTimeline"])
+            Assert.AreEqual(24, (int)expected["releasedTick"], "doorway " + (int)expected["door"] + " turns to boarding at 24");
+        Assert.AreEqual(24, FirstTick(runs, run => {
+            for (int d = 0; d < run.States.Length; d++) if (!run.States[d].Released) return false;
+            return true;
+        }), "every doorway turns to boarding on the same tick");
+        Assert.AreEqual((int)item["summary"]["alighted"], session.Services.Alighted, "alighted");
+        Assert.Greater(session.Services.LeftBehind, 0, "the wave the dwell could not clear is counted");
+        Assert.AreEqual((int)item["summary"]["leftBehind"], session.Services.LeftBehind, "left behind");
+        Assert.AreEqual(0, runs[runs.Count - 1].Onboard, "the saturated consist leaves with its riders");
     }
 }

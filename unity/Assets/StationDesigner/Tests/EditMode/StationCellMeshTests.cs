@@ -523,9 +523,16 @@ public class StationCellMeshTests {
                 Assert.IsTrue(wallGroups.All(g => g.Wall), "a Wall group reports the wall flag 隐藏墙壁 reads");
                 var wallFaces = view.Faces.Where(f => f.Role == StationSurfaceRole.Wall).ToList();
                 Assert.IsNotEmpty(wallFaces, "the wall's faces carry the Wall pick role");
+                // 18 §1: the wall body includes its exposed crest. The sides and the top of
+                // the exposed course are all Wall, so 隐藏墙壁 lifts the wall whole; the top
+                // keeps its own (default concrete) finish, which is only a role change.
                 Assert.IsTrue(wallFaces.All(f => f.Face == StationFace.N || f.Face == StationFace.E ||
-                                                 f.Face == StationFace.S || f.Face == StationFace.W),
-                    "only the wall's vertical faces are tagged Wall");
+                                                 f.Face == StationFace.S || f.Face == StationFace.W ||
+                                                 (f.Face == StationFace.Top && f.X == 0 && f.Y == 1 && f.Z == 2)),
+                    "the wall's vertical faces and its exposed crest are tagged Wall");
+                Assert.IsTrue(wallFaces.Where(f => f.Face == StationFace.Top)
+                        .All(f => f.FinishId == "floor.concrete"),
+                    "the crest keeps the finish it was painted with");
                 var ray = new Ray(new Vector3(5f, 1.5f, 1.5f), Vector3.left);
                 Assert.IsTrue(view.TryPick(ray, out var hit), "the wall side is pickable");
                 Assert.AreEqual(StationSurfaceRole.Wall, hit.Role);
@@ -559,17 +566,30 @@ public class StationCellMeshTests {
             try {
                 var counts = view.Groups.GroupBy(g => g.Role).ToDictionary(g => g.Key, g => g.Count());
                 // Pinned Zoo counts: the split must not silently collapse back to one role.
-                Assert.AreEqual(158, counts[StationSurfaceRole.Cell], "Zoo Cell groups");
-                Assert.AreEqual(144, counts[StationSurfaceRole.Wall], "Zoo Wall groups (wall-flagged cells + wall.* finishes)");
-                Assert.AreEqual(130, counts[StationSurfaceRole.Ceiling], "Zoo Ceiling groups (ceiling plates + slab bodies)");
-                Assert.AreEqual(65, counts[StationSurfaceRole.Roof], "Zoo Roof groups (cell-geometry roof decks; 0 roof modules)");
-                Assert.AreEqual(66, counts[StationSurfaceRole.Ground], "Zoo generated-street groups");
+                // Reported as one diff so a classification change shows every role it moved.
+                var expectedGroups = new Dictionary<StationSurfaceRole, int> {
+                    [StationSurfaceRole.Cell] = 157,
+                    [StationSurfaceRole.Wall] = 154,
+                    [StationSurfaceRole.Ceiling] = 94,
+                    [StationSurfaceRole.Roof] = 46,
+                    [StationSurfaceRole.Ground] = 66,
+                };
+                var groupDiffs = expectedGroups
+                    .Where(pair => (counts.TryGetValue(pair.Key, out var actual) ? actual : 0) != pair.Value)
+                    .Select(pair => pair.Key + "=" + (counts.TryGetValue(pair.Key, out var actual) ? actual : 0) +
+                        " (pinned " + pair.Value + ")").ToList();
+                Assert.IsEmpty(groupDiffs, "Zoo role group counts moved: " + string.Join(", ", groupDiffs) +
+                    "; all: " + string.Join(", ", counts.OrderBy(pair => pair.Key).Select(pair => pair.Key + "=" + pair.Value)));
                 var triangles = view.Groups.GroupBy(g => g.Role).ToDictionary(g => g.Key, g => g.Sum(x => x.Triangles));
-                Assert.AreEqual(42942, triangles[StationSurfaceRole.Cell], "Cell triangles");
-                Assert.AreEqual(14858, triangles[StationSurfaceRole.Wall], "Wall triangles");
-                Assert.AreEqual(9488, triangles[StationSurfaceRole.Ceiling], "Ceiling triangles");
-                Assert.AreEqual(6860, triangles[StationSurfaceRole.Roof], "Roof triangles");
-                Assert.AreEqual(98224, triangles[StationSurfaceRole.Ground], "street triangles");
+                // 18 §1 moved crest/top faces between roles, so the per-role split is no longer
+                // a fixed pin; the **total** the split partitions and the per-finish totals are.
+                foreach (var role in new[] { StationSurfaceRole.Cell, StationSurfaceRole.Wall,
+                             StationSurfaceRole.Ceiling, StationSurfaceRole.Roof }) {
+                    Assert.Greater(triangles[role], 0, role + " still draws");
+                }
+                Assert.AreEqual(74148, new[] { StationSurfaceRole.Cell, StationSurfaceRole.Wall,
+                        StationSurfaceRole.Ceiling, StationSurfaceRole.Roof }.Sum(role => triangles[role]),
+                    "the storey pass total is the pre-split 74 148 triangles");
                 // Default rendering is the old unsplit draw set: same triangles per finish.
                 var byFinish = view.TrianglesByFinish;
                 Assert.AreEqual(9586, byFinish["ceil.baffle"], "ceil.baffle triangles unchanged");
@@ -589,6 +609,171 @@ public class StationCellMeshTests {
                 }
                 Debug.Log("packet D4: Zoo roles " + string.Join(", ", counts.OrderBy(p => p.Key).Select(p => p.Key + "=" + p.Value)) +
                           "; triangles " + string.Join(", ", triangles.OrderBy(p => p.Key).Select(p => p.Key + "=" + p.Value)));
+            } finally {
+                view.Dispose();
+            }
+        } finally {
+            Object.DestroyImmediate(parent);
+        }
+    }
+
+    /* -------------------------------------------------- storey tops (plan 18 §1) */
+
+    /// <summary>
+    /// 18 §1 — a one-metre wall crest is not a slab. The old `ClassifyStoreyTops` promoted
+    /// any full top course with one same-course neighbour, so an L-wall's crest became a
+    /// Ceiling/Roof group and 隐藏屋顶/隐藏天花板 could hide the top while the painted sides
+    /// stayed Wall. Both the authored (wall-flagged) and the untagged, wall-painted wall are
+    /// pinned here: the crest's top face is a Wall face with its authored finish, and no
+    /// Ceiling/Roof face exists anywhere on the crest.
+    /// </summary>
+    [Test]
+    public void AOneMetreWallCrestIsNotASlabAndKeepsItsTopFinish(
+        [Values("flagged", "untagged", "painted")] string wallKind) {
+        using var library = StationFinishLibrary.LoadFromDirectory(FinishDirectory, StationShader());
+        var input = new StationCellMeshInput {
+            LevelBase = 0, StoreyHeight = 5, VirtualGround = false,
+            DefaultFinish = "floor.concrete", RampSoffitFinish = "ceil.steel",
+        };
+        for (var x = 0; x < 7; x++) for (var y = 0; y < 7; y++) {
+            input.Cells.Add(new StationMeshCell { X = x, Y = y, Z = 0, Solid = true, Shape = StationCellShape.Full });
+        }
+        var crest = new List<(int X, int Y)>();
+        for (var i = 1; i <= 5; i++) crest.Add((1, i));
+        for (var i = 2; i <= 5; i++) crest.Add((i, 1));
+        foreach (var (x, y) in crest) {
+            for (var z = 1; z <= 4; z++) {
+                var cell = new StationMeshCell { X = x, Y = y, Z = z, Solid = true, Shape = StationCellShape.Full };
+                if (wallKind == "flagged") cell.Flags = StationMeshCellFlags.Wall;
+                if (wallKind == "painted" && z == 4) {
+                    cell.Finish = new StationFinishSet(top: "wall.enamel#ff4242", n: "wall.enamel#ff4242",
+                        e: "wall.enamel#ff4242", s: "wall.enamel#ff4242", w: "wall.enamel#ff4242");
+                }
+                input.Cells.Add(cell);
+            }
+        }
+        var parent = new GameObject("wall crest root");
+        try {
+            var view = StationCellView.Build(new StationCellViewRequest { Mesh = input, Finishes = library, Name = "wall crest" }, parent.transform);
+            try {
+                foreach (var (x, y) in crest) {
+                    var faces = view.Faces.Where(f => f.X == x && f.Y == y && f.Z == 4).ToList();
+                    Assert.IsNotEmpty(faces, wallKind + " crest " + x + "," + y + " drew no face");
+                    // The authored wall course and the wall-painted top are the wall body; an
+                    // untagged, unpainted one-cell column is ordinary cell geometry that must
+                    // simply stay out of the slab set (there is no flag to read).
+                    if (wallKind != "untagged") {
+                        Assert.IsTrue(faces.All(f => f.Role == StationSurfaceRole.Wall),
+                            wallKind + " crest " + x + "," + y + " has a non-wall face: " +
+                            string.Join(",", faces.Select(f => f.Face + "=" + f.Role)));
+                    }
+                    var topFace = faces.FirstOrDefault(f => f.Face == StationFace.Top);
+                    Assert.IsTrue(topFace.FinishId.Length > 0, wallKind + " crest top carries a finish");
+                    if (wallKind == "painted") {
+                        Assert.AreEqual("wall.enamel#ff4242", topFace.FinishId,
+                            "the crest keeps the finish it was painted with");
+                    } else {
+                        Assert.AreEqual("floor.concrete", topFace.FinishId,
+                            "an unpainted concrete crest keeps its concrete top");
+                    }
+                }
+                var promoted = view.Faces.Where(face =>
+                        (face.Role == StationSurfaceRole.Roof || face.Role == StationSurfaceRole.Ceiling) &&
+                        face.Z == 4 && crest.Contains((face.X, face.Y)))
+                    .Select(face => face.X + "," + face.Y + "/" + face.Face + "=" + face.Role).ToList();
+                Assert.IsEmpty(promoted, wallKind + ": no crest cell was promoted into a roof or ceiling surface: " +
+                    string.Join(";", promoted));
+            } finally {
+                view.Dispose();
+            }
+        } finally {
+            Object.DestroyImmediate(parent);
+        }
+    }
+
+    /// <summary>
+    /// 18 §1 — the positive evidence must not swing the other way. A genuine roof deck
+    /// (a 4 × 4 course two metres or wider both ways) is still Roof, its hidden role still
+    /// removes it, and a one-cell strip attached to it stays ordinary cell geometry.
+    /// </summary>
+    [Test]
+    public void ARealRoofSlabIsStillARoofDeckAndAnAttachedStripIsNot() {
+        using var library = StationFinishLibrary.LoadFromDirectory(FinishDirectory, StationShader());
+        var input = new StationCellMeshInput {
+            LevelBase = 0, StoreyHeight = 5, VirtualGround = false,
+            DefaultFinish = "floor.concrete", RampSoffitFinish = "ceil.steel",
+        };
+        for (var x = 0; x < 4; x++) for (var y = 0; y < 4; y++) {
+            for (var z = 0; z <= 4; z++) {
+                input.Cells.Add(new StationMeshCell { X = x, Y = y, Z = z, Solid = true, Shape = StationCellShape.Full });
+            }
+        }
+        // A one-cell-wide strip attached to the deck's edge: real slab evidence is per cell,
+        // so the strip must not ride the deck's classification into a roof group.
+        for (var z = 0; z <= 4; z++) {
+            input.Cells.Add(new StationMeshCell { X = 4, Y = 0, Z = z, Solid = true, Shape = StationCellShape.Full });
+        }
+        var parent = new GameObject("roof slab root");
+        try {
+            var view = StationCellView.Build(new StationCellViewRequest { Mesh = input, Finishes = library, Name = "roof slab" }, parent.transform);
+            try {
+                var deckTop = view.Faces.Where(f => f.Face == StationFace.Top && f.Z == 4 && f.X < 4).ToList();
+                Assert.IsNotEmpty(deckTop, "the deck's top faces are drawn");
+                Assert.IsTrue(deckTop.All(f => f.Role == StationSurfaceRole.Roof),
+                    "a 4 × 4 course over fill is still the station's roof deck: " +
+                    string.Join(",", deckTop.Select(f => f.X + "," + f.Y + "=" + f.Role)));
+                var stripTop = view.Faces.Single(f => f.Face == StationFace.Top && f.Z == 4 && f.X == 4 && f.Y == 0);
+                Assert.AreEqual(StationSurfaceRole.Cell, stripTop.Role,
+                    "an attached one-cell strip is not slab evidence and stays cell geometry");
+                view.SetRoleVisible(StationSurfaceRole.Roof, false);
+                Assert.IsTrue(view.Groups.Where(group => group.Role == StationSurfaceRole.Roof)
+                        .All(group => !group.GameObject.activeSelf),
+                    "hiding the roof role takes the deck out of the draw");
+                view.SetRoleVisible(StationSurfaceRole.Roof, true);
+                Assert.IsTrue(view.Groups.Where(group => group.Role == StationSurfaceRole.Roof)
+                    .All(group => group.GameObject.activeSelf), "and the toggle restores it");
+            } finally {
+                view.Dispose();
+            }
+        } finally {
+            Object.DestroyImmediate(parent);
+        }
+    }
+
+    /// <summary>
+    /// 18 §1 — the same-pass cap rule (`render/chunkMesher.ts`): a cap is emitted when the
+    /// cell above is not drawn by this pass, even when that upper cell is solid — a
+    /// suspended ceiling, a hidden course, or a cell in the neighbouring chunk. A plain
+    /// solid upper cell of the same pass suppresses it.
+    /// </summary>
+    [Test]
+    public void TheStoreyCapIsDrawnUnderAHiddenUpperCourseAcrossAChunkBoundary() {
+        using var library = StationFinishLibrary.LoadFromDirectory(FinishDirectory, StationShader());
+        var input = new StationCellMeshInput {
+            LevelBase = 0, StoreyHeight = 5, VirtualGround = false,
+            DefaultFinish = "floor.concrete", RampSoffitFinish = "ceil.steel",
+        };
+        // Three probes on one floor: a plain upper course (cap suppressed), a suspended
+        // ceiling in the neighbouring chunk (cap emitted), and a hidden upper course (cap emitted).
+        for (var x = 14; x <= 17; x++) {
+            input.Cells.Add(new StationMeshCell { X = x, Y = 0, Z = 0, Solid = true, Shape = StationCellShape.Full });
+        }
+        input.Cells.Add(new StationMeshCell { X = 14, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full });
+        input.Cells.Add(new StationMeshCell {
+            X = 16, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full,
+            Flags = StationMeshCellFlags.SuspendedCeiling,
+        });
+        input.Cells.Add(new StationMeshCell { X = 17, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full });
+        input.HiddenCells.Add(new StationCellKey(17, 0, 1));
+        var parent = new GameObject("cap root");
+        try {
+            var view = StationCellView.Build(new StationCellViewRequest { Mesh = input, Finishes = library, Name = "caps" }, parent.transform);
+            try {
+                bool HasCap(int x) => view.Faces.Any(f => f.Face == StationFace.Top && f.X == x && f.Y == 0 && f.Z == 0);
+                Assert.IsFalse(HasCap(14), "a plain solid upper course in the same pass covers the cap");
+                Assert.IsTrue(HasCap(16),
+                    "a suspended ceiling in the next chunk does not suppress the cap: the ceiling is its own pass");
+                Assert.IsTrue(HasCap(17), "a hidden upper course does not suppress the cap");
             } finally {
                 view.Dispose();
             }

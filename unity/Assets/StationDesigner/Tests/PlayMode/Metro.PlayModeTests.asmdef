@@ -1,1 +1,20 @@
-{"name":"Metro.PlayModeTests","references":["Metro.Runtime","Unity.ugui"],"optionalUnityReferences":["TestAssemblies"],"autoReferenced":false}
+{
+    "name": "Metro.PlayModeTests",
+    "references": [
+        "Metro.Runtime",
+        "Metro.Sim",
+        "Metro.Build",
+        "Metro.Persistence",
+        "Metro.View",
+        "Metro.App",
+        "Unity.ugui"
+    ],
+    "optionalUnityReferences": [
+        "TestAssemblies"
+    ],
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "Newtonsoft.Json.dll"
+    ],
+    "autoReferenced": false
+}

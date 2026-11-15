@@ -194,8 +194,16 @@ public class StationSignViewTests {
         Assert.AreEqual(0.41f, rod.localScale.y, 0.0001f, "rod length to a 0 m hang surface");
         Assert.AreEqual(0.375f, Mathf.Abs(rod.localPosition.x), 0.0001f, "rods are spaced to the board's width");
         var frame = Parts(hung, "frame")[0].transform;
-        AssertNear(new Vector3(1.45f, 0.08f, 0.4f), frame.localScale, "frame is the panel's own size");
+        // RCA 15 §2: the body's board is width × height × **thickness** — `SignModel`'s
+        // `slab(g, …, W, BOARD_T, H)` through the coordinate swap. The earlier pin recorded
+        // (width, thickness, height), which made a 0.08 m horizontal slab whose ±0.20 m depth
+        // crossed both printed sheets: the solid bar across the text in the screenshot.
+        AssertNear(new Vector3(1.45f, 0.4f, 0.08f), frame.localScale, "frame is the panel's own size");
         AssertNear(new Vector3(0f, -0.65f, 0f), frame.localPosition, "frame is centred on the panel");
+        var lightbox = Parts(hung, "lightbox")[0].transform;
+        AssertNear(new Vector3(1.45f - 0.03f, 0.4f - 0.03f, StationSignMounts.BoardThickness + 0.012f),
+            lightbox.localScale, "the lightbox is the board inset, with the thickness on the depth axis");
+        AssertNear(new Vector3(0f, -0.65f, 0f), lightbox.localPosition, "the lightbox is centred on the panel");
 
         // A wall board is the sheet alone, 3 mm proud of the wall (no rods, no housing).
         var wall = Build(RequestFor(modules.First(m => (string)m["id"] == "sign-wall-395"), lines));
@@ -792,6 +800,361 @@ public class StationSignViewTests {
         StringAssert.Contains("| sign-309 | ceiling | 1.45×0.40 |", report.ToString());
         StringAssert.Contains("sign-wall-726", report.ToString());
         Assert.AreEqual(21, report.ToString().Split('\n').Count(line => line.StartsWith("| sign-", StringComparison.Ordinal)));
+    }
+
+    /* --------------------------------------- promoted-holder contract (RCA 15 §2) */
+
+    // One mesh per shape, shared by every synthetic holder and never saved — the same
+    // lifetime the view gives its own cube and sheet.
+    static Mesh holderBoxMesh;
+    static Mesh holderSheetMesh;
+
+    static Mesh HolderBoxMesh() {
+        if (holderBoxMesh != null) return holderBoxMesh;
+        var vertices = new Vector3[8];
+        for (int corner = 0; corner < 8; corner++) {
+            vertices[corner] = new Vector3(
+                (corner & 1) == 0 ? -0.5f : 0.5f,
+                (corner & 2) == 0 ? -0.5f : 0.5f,
+                (corner & 4) == 0 ? -0.5f : 0.5f);
+        }
+        // Clockwise seen from outside, so the triangles' cross product is the face normal.
+        var faces = new[] {
+            0, 2, 1, 0, 3, 2,   // -x
+            4, 5, 6, 4, 6, 7,   // +x
+            0, 1, 5, 0, 5, 4,   // -y
+            2, 3, 7, 2, 7, 6,   // +y
+            0, 4, 7, 0, 7, 3,   // -z
+            1, 2, 6, 1, 6, 5,   // +z
+        };
+        holderBoxMesh = new Mesh { name = "holder test box", vertices = vertices, triangles = faces };
+        holderBoxMesh.RecalculateBounds();
+        holderBoxMesh.hideFlags = HideFlags.HideAndDontSave;
+        return holderBoxMesh;
+    }
+
+    static Mesh HolderSheetMesh() {
+        if (holderSheetMesh != null) return holderSheetMesh;
+        holderSheetMesh = new Mesh {
+            name = "holder test sheet",
+            vertices = new[] {
+                new Vector3(-0.5f, -0.5f, 0f), new Vector3(-0.5f, 0.5f, 0f),
+                new Vector3(0.5f, 0.5f, 0f), new Vector3(0.5f, -0.5f, 0f),
+            },
+            triangles = new[] { 0, 1, 2, 0, 2, 3 },
+        };
+        holderSheetMesh.RecalculateBounds();
+        holderSheetMesh.hideFlags = HideFlags.HideAndDontSave;
+        return holderSheetMesh;
+    }
+
+    /// <summary>A holder root with the export's four basis anchors (`Front` = local +z).</summary>
+    GameObject HolderRoot(string name) {
+        var root = new GameObject(name);
+        created.Add(root);
+        foreach (var anchor in new[] {
+            new KeyValuePair<string, Vector3>("Front", Vector3.forward),
+            new KeyValuePair<string, Vector3>("Up", Vector3.up),
+            new KeyValuePair<string, Vector3>("Approach", Vector3.back),
+            new KeyValuePair<string, Vector3>("AxisX", Vector3.right),
+        }) {
+            var child = new GameObject(anchor.Key);
+            child.transform.SetParent(root.transform, false);
+            child.transform.localPosition = anchor.Value;
+        }
+        return root;
+    }
+
+    GameObject HolderPart(GameObject root, string name, Vector3 centre, Vector3 size, bool sheet = false) {
+        var part = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
+        part.transform.SetParent(root.transform, false);
+        part.transform.localPosition = centre;
+        part.transform.localScale = size;
+        part.GetComponent<MeshFilter>().sharedMesh = sheet ? HolderSheetMesh() : HolderBoxMesh();
+        return part;
+    }
+
+    /// <summary>
+    /// The promoted export's measured shape at the request's own panel (1.9 × 0.4 hanging
+    /// 0.65 m under a 4 m surface): frame, lightbox, two rods, two ceiling plates, the baked
+    /// neutral sheet at +0.052 and the four anchors. Every one of those numbers is the
+    /// shipped `SignCeiling.prefab`'s, so the synthetic holders differ from it only where a
+    /// test adds the part under suspicion.
+    /// </summary>
+    GameObject CleanHolder(string name, float centreZ, float hang) {
+        const float panelWidth = 1.9f, panelHeight = 0.4f;
+        var root = HolderRoot(name);
+        HolderPart(root, "frame", new Vector3(0f, centreZ, 0f), new Vector3(panelWidth, panelHeight, 0.08f));
+        HolderPart(root, "lightbox", new Vector3(0f, centreZ, 0f), new Vector3(1.87f, 0.37f, 0.092f));
+        float rodLength = hang - (centreZ + panelHeight / 2f) - 0.04f;
+        float rodCentre = (centreZ + panelHeight / 2f + hang) / 2f;
+        for (int side = -1; side <= 1; side += 2) {
+            HolderPart(root, "rod", new Vector3(side * 0.6f, rodCentre, 0f), new Vector3(0.05f, rodLength, 0.05f));
+            HolderPart(root, "ceiling plate", new Vector3(side * 0.6f, hang - 0.02f, 0f), new Vector3(0.16f, 0.04f, 0.16f));
+        }
+        HolderPart(root, "baked sheet", new Vector3(0f, centreZ, 0.052f), new Vector3(panelWidth - 0.06f, panelHeight - 0.06f, 1f), true);
+        return root;
+    }
+
+    static int Count(StationSignHolderClearance clearance, StationSignHolderPartKind kind) =>
+        clearance.Parts.Count(part => part.Kind == kind);
+
+    /// <summary>A child's mesh bounds in the view's local space, the space the contract uses.</summary>
+    static Bounds LocalBounds(Transform root, MeshFilter filter) {
+        var matrix = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+        var local = filter.sharedMesh.bounds;
+        var bounds = new Bounds(matrix.MultiplyPoint3x4(local.center), Vector3.zero);
+        for (int corner = 0; corner < 8; corner++) {
+            bounds.Encapsulate(matrix.MultiplyPoint3x4(local.center + Vector3.Scale(local.extents, new Vector3(
+                (corner & 1) == 0 ? -1f : 1f,
+                (corner & 2) == 0 ? -1f : 1f,
+                (corner & 4) == 0 ? -1f : 1f))));
+        }
+        return bounds;
+    }
+
+    /// <summary>Why the promoted export classifies the way the contract needs it to.</summary>
+    [Test] public void HolderContractClassifiesThePromotedExports() {
+        var panel = new Vector2(1.9f, 0.4f);
+        var ceiling = Prefab("SignCeiling");
+        Assert.IsTrue(StationSignView.TryVerifyHolder(ceiling, StationSignMount.Ceiling, panel, 3.35f, 4f,
+            out var clearance), clearance?.Reason);
+        Assert.AreEqual(1, Count(clearance, StationSignHolderPartKind.Frame), "one frame spans the panel");
+        Assert.AreEqual(1, Count(clearance, StationSignHolderPartKind.Housing), "one lightbox is enclosed in it");
+        Assert.AreEqual(2, Count(clearance, StationSignHolderPartKind.Rod), "two suspension rods");
+        Assert.AreEqual(2, Count(clearance, StationSignHolderPartKind.CeilingPlate), "two ceiling plates");
+        Assert.AreEqual(1, Count(clearance, StationSignHolderPartKind.Plate), "one replaceable baked sheet");
+        Assert.AreEqual(0.046f, clearance.ExteriorZ, 0.001f, "the lightbox is the outermost body part");
+        Assert.AreEqual(0.058f, clearance.FaceZ, 0.001f, "the sheet prints 12 mm clear of it");
+
+        // The wall export is a sheet alone, which is exactly what a wall board is: the wall
+        // is its backing, so no frame/rod structure is required there.
+        var wall = Prefab("SignWall");
+        Assert.IsTrue(StationSignView.TryVerifyHolder(wall, StationSignMount.Wall, panel,
+            StationSignMounts.WallPanelZ, 0f, out var wallClearance), wallClearance?.Reason);
+        Assert.AreEqual(1, wallClearance.PlateCount);
+        Assert.AreEqual(0, wallClearance.BodyCount);
+        Assert.AreEqual(-0.5f + StationSignMounts.WallStandOff, wallClearance.FaceZ, 0.0005f,
+            "the wall sheet's verified plane is the wall's own stand-off");
+    }
+
+    /// <summary>(a) A clean frame with rods is accepted, and its face plane clears its body.</summary>
+    [Test] public void HolderContractAcceptsAFrameWithRodsAndClearsEveryBodyPart() {
+        var panel = new Vector2(1.9f, 0.4f);
+        const float centreZ = 3.35f, hang = 4f;
+        var holder = CleanHolder("synthetic clean holder", centreZ, hang);
+        Assert.IsTrue(StationSignView.TryVerifyHolder(holder, StationSignMount.Ceiling, panel, centreZ, hang,
+            out var clearance), clearance?.Reason);
+        Assert.IsTrue(clearance.Accepted);
+        Assert.IsFalse(clearance.ContractRejected);
+        Assert.AreEqual(2, clearance.RodCount);
+        Assert.AreEqual(2, clearance.CeilingPlateCount);
+        Assert.AreEqual(1, clearance.PlateCount);
+        Assert.AreEqual(0.046f, clearance.ExteriorZ, 0.0005f);
+        Assert.AreEqual(0.058f, clearance.FaceZ, 0.0005f);
+        // The two face planes are outside every part of the body that could cross a sheet.
+        foreach (var part in clearance.Parts) {
+            if (part.Kind != StationSignHolderPartKind.Frame && part.Kind != StationSignHolderPartKind.Housing) continue;
+            Assert.LessOrEqual(part.Bounds.max.z, clearance.FaceZ, part.Name + " must stay behind the printed plane");
+            Assert.GreaterOrEqual(part.Bounds.min.z, -clearance.FaceZ, part.Name + " must stay behind the back plane");
+        }
+        // The rods really reach the hang surface the request hangs from.
+        var rods = clearance.Parts.Where(part => part.Kind == StationSignHolderPartKind.Rod).ToArray();
+        Assert.AreEqual(2, rods.Length);
+        foreach (var rod in rods) Assert.AreEqual(hang, rod.Bounds.max.y, 0.03f, "the rod reaches the ceiling plate");
+
+        // And the view uses it: the promoted holder, the measured plane and both faces.
+        var save = Save();
+        var lines = Lines(save);
+        var module = SignModules(save).First(m => (string)m["id"] == "sign-ceiling-398");
+        var view = Build(RequestFor(module, lines, hangOverride: hang),
+            new StationSignHolderSet { CeilingHolder = holder });
+        Assert.IsTrue(view.HolderMatched, view.HolderDiagnostic);
+        Assert.AreEqual("promoted:synthetic clean holder", view.HolderSource, "HoldersSource names the promoted holder");
+        Assert.AreEqual(0.058f, view.FacePlaneZ, 0.0005f, "the printed plane is the holder's own clear exterior");
+        Assert.AreEqual(view.HolderClearance.FaceZ, view.FacePlaneZ, 0.0001f);
+        Assert.AreEqual(StationSignFaceName.Front, view.Front.Face);
+        Assert.AreEqual(StationSignFaceName.Back, view.Back.Face);
+        Assert.AreNotSame(view.Front, view.Back, "the two faces are distinct slots");
+        Assert.AreNotSame(view.Front.GameObject, view.Back.GameObject);
+        Assert.AreNotSame(view.Front.Material, view.Back.Material, "each face gets its own plate material");
+        Assert.AreEqual(0.058f, view.Front.LocalPosition.z, 0.0005f);
+        Assert.AreEqual(-0.058f, view.Back.LocalPosition.z, 0.0005f);
+        Assert.AreEqual(0.058f, view.Front.LocalPosition.z, 0.0005f, "the sheet sits on the verified plane");
+        Assert.AreEqual(1.9f, view.Panel.x, 0.0001f, "the board keeps its own width");
+        Assert.AreEqual(0.4f, view.Panel.y, 0.0001f);
+        Assert.AreEqual(1.84f, view.Front.Width, 0.0001f, "the plate is the source model's inset, not the holder's");
+        Assert.AreEqual(0.34f, view.Front.Height, 0.0001f);
+        Assert.AreEqual(view.Front.Width, view.Back.Width, 0.0001f);
+
+        // The clone: the baked sheet alone is hidden, and every *body* part of the accepted
+        // holder sits inside the two face planes. (The ceiling plates are 0.16 m across in
+        // z but 0.6 m above the board, so they cannot cross its printed rectangle; the same
+        // reason keeps them out of the plane derivation.)
+        var instance = view.transform.Find("holder synthetic clean holder");
+        Assert.IsNotNull(instance, "the promoted holder is instantiated under the view");
+        int hidden = 0;
+        foreach (var filter in instance.GetComponentsInChildren<MeshFilter>(true)) {
+            var renderer = filter.GetComponent<MeshRenderer>();
+            if (renderer == null || !renderer.enabled) { hidden++; continue; }
+            var bounds = LocalBounds(view.transform, filter);
+            if (bounds.min.y > view.PanelCentreZ + view.Panel.y / 2f) continue;
+            Assert.LessOrEqual(bounds.max.z, view.Front.LocalPosition.z + 0.0005f,
+                filter.name + " must not reach the printed sheet");
+            Assert.GreaterOrEqual(bounds.min.z, view.Back.LocalPosition.z - 0.0005f,
+                filter.name + " must not reach the back sheet");
+        }
+        Assert.AreEqual(1, hidden, "only the replaceable baked sheet is hidden");
+        Assert.IsFalse(instance.GetComponentsInChildren<MeshRenderer>(true).First(r => r.name == "baked sheet").enabled);
+
+        // Distinct textures still land on distinct plates.
+        var front = new Texture2D(4, 2);
+        var back = new Texture2D(4, 2);
+        try {
+            view.ApplyFaceTexture(StationSignFaceName.Front, front, "front-fingerprint");
+            view.ApplyFaceTexture(StationSignFaceName.Back, back, "back-fingerprint");
+            Assert.AreSame(front, view.Front.AppliedTexture);
+            Assert.AreSame(back, view.Back.AppliedTexture);
+            Assert.AreEqual("front-fingerprint", view.Front.AppliedFingerprint);
+            Assert.AreEqual("back-fingerprint", view.Back.AppliedFingerprint);
+        } finally {
+            UnityEngine.Object.DestroyImmediate(front);
+            UnityEngine.Object.DestroyImmediate(back);
+        }
+
+        // The report carries the id, mount, source, every child and both face bounds.
+        var report = view.DescribeHolderClearance();
+        StringAssert.Contains("sign-ceiling-398 ceiling", report);
+        StringAssert.Contains("promoted:synthetic clean holder", report);
+        StringAssert.Contains("panel centre (0,3.35,0)", report);
+        StringAssert.Contains("face front bounds min(-0.92,3.18,0.058) max(0.92,3.52,0.058)", report);
+        StringAssert.Contains("face back bounds min(-0.92,3.18,-0.058) max(0.92,3.52,-0.058)", report);
+        StringAssert.Contains("baked sheet' enabled hidden", report);
+        StringAssert.Contains("frame", report);
+        StringAssert.Contains("lightbox", report);
+        StringAssert.Contains("ceiling plate", report);
+        StringAssert.Contains("baked sheet", report);
+        StringAssert.Contains("enabled", report);
+        StringAssert.Contains("bounds min(", report);
+    }
+
+    /// <summary>(b) An extruded baked board crossing the sheet refuses the holder by name.</summary>
+    [Test] public void HolderContractRejectsAnExtrudedBakedBoardCrossingTheSheet() {
+        var panel = new Vector2(1.9f, 0.4f);
+        const float centreZ = 3.35f, hang = 4f;
+
+        // The export's lightbox grown to 0.16 m deep: it pokes 34 mm through both sheets.
+        var lightbox = CleanHolder("baked lightbox holder", centreZ, hang);
+        HolderPart(lightbox, "baked lightbox", new Vector3(0f, centreZ, 0f), new Vector3(1.86f, 0.36f, 0.16f));
+        Assert.IsFalse(StationSignView.TryVerifyHolder(lightbox, StationSignMount.Ceiling, panel, centreZ, hang,
+            out var clearance), "an extruded baked lightbox must refuse the holder");
+        Assert.IsFalse(clearance.Accepted);
+        Assert.IsTrue(clearance.ContractRejected, "a geometry refusal, not a size mismatch");
+        Assert.IsFalse(clearance.StructureMissing, "the structure is intact; clearance is what fails");
+        Assert.IsNotNull(clearance.Offender);
+        Assert.AreEqual("baked lightbox", clearance.Offender.Name, "the diagnostic names the responsible child");
+        StringAssert.Contains("baked lightbox", clearance.DescribeReason());
+        StringAssert.Contains("bounds min(", clearance.DescribeReason());
+        StringAssert.Contains("printed face", clearance.Reason);
+        // The seam MeasureHolder exposes carries the same attribution, not just a verdict.
+        Assert.IsFalse(StationSignView.MeasureHolder(lightbox, StationSignMount.Ceiling, panel, centreZ, hang,
+            out var measured), measured);
+        StringAssert.Contains("baked lightbox", measured);
+        StringAssert.Contains("bounds min(", measured);
+
+        // A 20 mm painted board in front of the sheets is the same fault: thickness alone
+        // never earns it a hiding, it has to prove it is the replaceable plate.
+        var painted = CleanHolder("painted board holder", centreZ, hang);
+        HolderPart(painted, "painted board", new Vector3(0f, centreZ, 0.06f), new Vector3(1.84f, 0.34f, 0.02f));
+        Assert.IsFalse(StationSignView.TryVerifyHolder(painted, StationSignMount.Ceiling, panel, centreZ, hang,
+            out var paintedClearance), "a thin extruded board in front of the sheet must refuse the holder");
+        Assert.AreEqual("painted board", paintedClearance.Offender?.Name);
+
+        // The same holder makes the view fall back — reported, never silent — and the
+        // procedural path keeps the source model's own plane and parts.
+        var save = Save();
+        var lines = Lines(save);
+        var module = SignModules(save).First(m => (string)m["id"] == "sign-ceiling-398");
+        var view = Build(RequestFor(module, lines, hangOverride: hang),
+            new StationSignHolderSet { CeilingHolder = lightbox });
+        Assert.IsFalse(view.HolderMatched);
+        Assert.AreEqual("parts", view.HolderSource);
+        StringAssert.Contains("baked lightbox", view.HolderDiagnostic);
+        StringAssert.Contains("baked lightbox", view.DescribeHolderClearance());
+        Assert.AreEqual(0.052f, view.FacePlaneZ, 0.0005f, "the procedural plane is the source model's");
+        Assert.AreEqual(2, Parts(view, "rod").Length, "the fallback builds the source model's rods");
+        Assert.AreEqual(0, view.transform.Cast<Transform>().Count(child => child.name.StartsWith("holder ", StringComparison.Ordinal)),
+            "no rejected holder is instantiated");
+    }
+
+    /// <summary>
+    /// RCA 15 §2: the **procedural** body must not cross the printed sheets either. This is
+    /// the case that produced the solid bar across the text in image 2: all 21 Zoo signs fall
+    /// back to `BuildParts`, which drew the frame and lightbox with their y/z swapped, so a
+    /// 0.08 m horizontal slab (depth 0.4 m) crossed both plates at ±0.052 on every face.
+    /// Asserted from the **measured** child bounds, not from the authored sizes.
+    /// </summary>
+    [Test] public void ProceduralBodyDoesNotCrossThePrintedFacePlanes() {
+        var save = Save();
+        var lines = Lines(save);
+        var view = Build(RequestFor(SignModules(save).First(m => (string)m["id"] == "sign-309"), lines));
+        Assert.IsFalse(view.HolderMatched, "the stock sign is the procedural path");
+        Assert.AreEqual(0.052f, view.FacePlaneZ, 0.0005f);
+        // The frame is the panel's own board; the lightbox is the 3 cm inset inside it.
+        foreach (var part in new[] {
+            new KeyValuePair<string, float>("frame", view.Panel.y),
+            new KeyValuePair<string, float>("lightbox", view.Panel.y - 0.03f),
+        }) {
+            var child = Parts(view, part.Key).Single();
+            var bounds = LocalBounds(view.transform, child.GetComponent<MeshFilter>());
+            Assert.Less(bounds.max.z, view.FacePlaneZ, part.Key + " must stay behind the printed sheet");
+            Assert.Greater(bounds.min.z, -view.FacePlaneZ, part.Key + " must stay behind the back sheet");
+            Assert.AreEqual(part.Value, bounds.size.y, 0.001f, part.Key + " must span the board's height");
+            Assert.Less(bounds.size.z, bounds.size.y, part.Key + " carries its thickness on the depth axis");
+        }
+        // The report's verdicts are the same measurement, so the fault is readable without a
+        // screenshot: nothing on a stock sign crosses a printed face.
+        var report = view.DescribeHolderClearance();
+        StringAssert.Contains("frame enabled bounds min(", report);
+        StringAssert.Contains("clear of the printed face", report);
+        StringAssert.DoesNotContain("CROSSES", report);
+    }
+
+    /// <summary>(c) A sheet alone has no suspension structure, so it refuses the holder.</summary>
+    [Test] public void HolderContractRejectsASheetWithNoSuspensionStructure() {
+        var holder = HolderRoot("sheet only");
+        HolderPart(holder, "baked sheet", new Vector3(0f, 3.35f, 0.052f), new Vector3(1.84f, 0.34f, 1f), true);
+        Assert.IsFalse(StationSignView.TryVerifyHolder(holder, StationSignMount.Ceiling, new Vector2(1.9f, 0.4f),
+            3.35f, 4f, out var clearance), "a sheet with nothing to hang from must refuse the holder");
+        Assert.IsTrue(clearance.StructureMissing);
+        StringAssert.Contains("structure", clearance.Reason);
+        Assert.IsNull(clearance.Offender, "nothing crossed the plane; the structure is the fault");
+        StringAssert.Contains("structure", clearance.DescribeReason());
+    }
+
+    /// <summary>
+    /// The report is the "which child crosses the face" tool on both paths: a procedural
+    /// view dumps its own built parts with bounds and a crossing verdict, so the renderer
+    /// behind a bar in the screenshot can be identified without a guess (RCA 15 §2 item 1).
+    /// </summary>
+    [Test] public void HolderClearanceReportDumpsTheProceduralParts() {
+        var save = Save();
+        var lines = Lines(save);
+        var view = Build(RequestFor(SignModules(save).First(m => (string)m["id"] == "sign-309"), lines));
+        Assert.IsFalse(view.HolderMatched);
+        var report = view.DescribeHolderClearance();
+        StringAssert.Contains("sign-309 ceiling", report);
+        StringAssert.Contains("fallback-parts", report);
+        StringAssert.Contains("panel centre (0,-0.65,0)", report);
+        StringAssert.Contains("face front bounds min(", report);
+        StringAssert.Contains("face back bounds min(", report);
+        StringAssert.Contains("built parts (procedural)", report);
+        StringAssert.Contains("frame enabled bounds min(", report);
+        StringAssert.Contains("lightbox enabled bounds min(", report);
+        StringAssert.Contains("rod enabled bounds min(", report);
+        StringAssert.Contains("printed face", report);
+        // The two faces ask for the pane size the source model prints, not the panel's.
+        StringAssert.Contains("plate 1.39x0.34", report);
     }
 
     /* -------------------------------------------------------------- helpers */

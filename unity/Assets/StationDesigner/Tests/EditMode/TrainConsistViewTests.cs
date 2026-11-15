@@ -77,11 +77,12 @@ namespace Metro.EditModeTests {
             return view;
         }
 
-        static StationTrainFrame Train(string id, TrainPhase phase, double seconds, double door) {
+        static StationTrainFrame Train(string id, TrainPhase phase, double seconds, double door, int sequence = 1) {
             var parts = (id ?? "").Split('|');
             return new StationTrainFrame {
                 Id = id ?? "", LineId = parts.Length > 0 ? parts[0] : "",
                 TrackId = parts.Length > 1 ? parts[1] : "",
+                ServiceSequence = sequence,
                 Phase = phase, PhaseSeconds = seconds, DoorFraction = door,
             };
         }
@@ -175,9 +176,9 @@ namespace Metro.EditModeTests {
         [Test]
         public void CarsSitOnTheDerivedTrackAndAtTheAuthoredBerth() {
             var view = Consist("5|track-1");
-            // World.computeLineAnchors for track-1 (x 17, y −4, z −20, w 101, d 3,
+            // World.computeLineAnchors for track-1 (x 17, y âˆ’4, z âˆ’20, w 101, d 3,
             // rot 0, dir up): berth at the run centre, the bed centre across, and the
-            // rail surface `track.z + 1 − CABIN_FLOOR_Z · scale`.
+            // rail surface `track.z + 1 âˆ’ CABIN_FLOOR_Z Â· scale`.
             Assert.AreEqual(67.5f, view.Berth.DocumentPosition.x, 1e-2f, "berth x");
             Assert.AreEqual(-2.5f, view.Berth.DocumentPosition.y, 1e-2f, "berth plan y (bed centre)");
             Assert.AreEqual(-20f + 1f - .62f * .98f, view.Berth.DocumentPosition.z, 1e-2f, "berth elevation");
@@ -274,6 +275,37 @@ namespace Metro.EditModeTests {
         }
 
         [Test]
+        public void ASampleInsideTheTickIntervalMovesTheConsistBetweenTicks() {
+            // RCA 14 Â§5.2: the published pose advances once per fixed second, but a
+            // rendered frame samples between the previous and current tick targets, so
+            // an approach is continuous instead of a 1 Hz jump.
+            var view = Consist("5|track-1");
+            var frame2 = Frame(true,
+                Train("5|track-1", TrainPhase.Approach, 2, 0),
+                Train("5|track-5", TrainPhase.None, 0, 0));
+            var frame3 = Frame(true,
+                Train("5|track-1", TrainPhase.Approach, 3, 0),
+                Train("5|track-5", TrainPhase.None, 0, 0));
+            zooRenderer.Apply(frame2, 1f, true);
+            var atTwo = view.DocumentPosition.x;
+            zooRenderer.Apply(frame3, 1f, false);
+            var atThree = view.DocumentPosition.x;
+            Assert.Greater(atThree, atTwo, "the approach moves toward the platform");
+
+            zooRenderer.Apply(frame3, .25f, false);
+            var inside = view.DocumentPosition.x;
+            Assert.That(inside, Is.GreaterThan(atTwo).And.LessThan(atThree),
+                "a frame inside the tick interval samples between the two tick poses");
+            Assert.AreNotEqual(atTwo, inside, "the sample is not stuck on the previous frame");
+            Assert.AreNotEqual(atThree, inside, "the sample is not the current frame's own value");
+
+            // Re-sampling the same frame at the same fraction is the identity: a paused
+            // station holds exactly the pose the player last saw.
+            zooRenderer.Apply(frame3, .25f, false);
+            Assert.AreEqual(inside, view.DocumentPosition.x, 1e-6f);
+        }
+
+        [Test]
         public void DepartureRunsTheTailOutOfTheConnectedRail() {
             var view = Consist("5|track-1");
             var berth = view.Berth.DocumentPosition;
@@ -285,7 +317,7 @@ namespace Metro.EditModeTests {
                 "the last drawn depart frame leaves the tail on the connected rail's end");
             Assert.Greater(view.DocumentPosition.x, berth.x + 100f, "the consist pulled out");
             // Car 0 is the trailing end; it has cleared the far end of the connected
-            // rail (track-1 u 116 → world x 133) at the last drawn frame.
+            // rail (track-1 u 116 â†’ world x 133) at the last drawn frame.
             var tail = view.CarViews[0];
             Assert.Greater(tail.DocumentPosition.x, 133f, "the tail is past the tunnel portal");
         }
@@ -321,21 +353,69 @@ namespace Metro.EditModeTests {
         }
 
         [Test]
-        public void CarsAreRegisteredForPickingByLineTrackIndex() {
+        public void OneVisibilityRootPerTrackCoversEveryPartAndUsesTheSavedTrackBand() {
             var records = zooWorld.Records.Where(record => record.Role == "trains").ToArray();
-            Assert.AreEqual(12, records.Length, "two consists of six cars");
-            foreach (var trainId in new[] { "5|track-1", "5|track-5" }) {
-                for (int i = 0; i < 6; i++) {
-                    var id = "train:" + trainId + "|" + i;
-                    var record = records.FirstOrDefault(candidate => candidate.ModuleId == id);
-                    Assert.IsNotNull(record, id + " is registered");
-                    Assert.AreEqual("car", record.Part);
-                    Assert.IsNotNull(record.View, id + " has a live view");
-                    Assert.IsTrue(record.HasBounds, id + " carries document bounds");
-                    Assert.LessOrEqual(record.LevelMin, record.LevelMax);
-                    Assert.IsTrue(zooWorld.TryGetModule(id, out var picked), id + " is pickable");
-                    Assert.AreSame(record.View, picked.View);
+            Assert.AreEqual(2, records.Length, "one visibility root per consist (track-1, track-5)");
+            foreach (var pair in new[] {
+                new { TrainId = "5|track-1", Band = -20 },
+                new { TrainId = "5|track-5", Band = -15 },
+            }) {
+                var id = "train:" + pair.TrainId;
+                var record = records.FirstOrDefault(candidate => candidate.ModuleId == id);
+                Assert.IsNotNull(record, id + " is registered");
+                Assert.AreEqual("consist", record.Part, id + " registers the whole consist, not a car");
+                Assert.IsNotNull(record.View, id + " has a live view");
+                Assert.AreSame(Consist(pair.TrainId).Root, record.View, id + " covers every child part");
+                Assert.IsTrue(record.HasBounds, id + " carries the saved track band");
+                Assert.AreEqual(pair.Band, record.LevelMin, id + " uses the saved track storey, not child bounds");
+                Assert.AreEqual(pair.Band, record.LevelMax, id);
+                CollectionAssert.AreEqual(new[] { pair.Band }, record.LevelBands, id + " level membership");
+                Assert.IsTrue(zooWorld.TryGetModule(id, out var picked), id + " is addressable");
+                Assert.AreSame(record.View, picked.View);
+                Assert.IsFalse(records.Any(candidate => candidate.ModuleId.StartsWith(id + "|", StringComparison.Ordinal)),
+                    id + " does not also register each car as its own visibility target");
+
+                // The standalone gangway roots are children of the same consist root, so
+                // they hide and show with the cars instead of being left always enabled.
+                var view = Consist(pair.TrainId);
+                Assert.AreEqual(5, view.Gangways.Count, id + " carries five standalone gangway roots");
+                foreach (var gangway in view.Gangways) {
+                    Assert.IsTrue(gangway.IsChildOf(view.Root.transform),
+                        id + " gangway " + gangway.name + " belongs to the registered root");
                 }
+                // Per-car metadata is retained outside visibility registration.
+                Assert.AreEqual(6, view.Cars, id + " still reports six cars");
+                foreach (var car in view.CarViews) {
+                    Assert.IsTrue(car.HasBounds, id + " car " + car.Index + " keeps its measured bounds");
+                    Assert.IsFalse(string.IsNullOrEmpty(car.Part), id + " car " + car.Index + " keeps its authored part");
+                }
+            }
+        }
+
+        [Test]
+        public void CarsKeepTheAuthoredFormationLayoutInsteadOfARecentredOverride() {
+            // The promoted formation writes `-car.centre` in its own `Consist` frame under
+            // the 180° Unity basis; that is exactly the source cadence the source's
+            // `carCentre` gives. A runtime re-write in the opposite sign would move the
+            // cars against the unchanged gangways and doorway anchors.
+            var view = Consist("5|track-1");
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(view.PrefabPath);
+            Assert.IsNotNull(prefab, "the promoted formation prefab resolves");
+            var source = UnityEngine.Object.Instantiate(prefab);
+            try {
+                var sourceCars = TrainConsistViews.CollectCars(source);
+                var sourceGangways = TrainConsistViews.CollectGangways(source);
+                Assert.AreEqual(view.Cars, sourceCars.Count, "same car set");
+                Assert.AreEqual(view.Gangways.Count, sourceGangways.Count, "same gangway set");
+                var centres = TrainConsistGeometry.CarCentres("L", 6, .98f);
+                for (int i = 0; i < view.Cars; i++) {
+                    Assert.AreEqual(sourceCars[i].localPosition.x, view.CarViews[i].Transform.localPosition.x, 1e-4f,
+                        "car " + i + " keeps the prefab's authored local x");
+                    Assert.AreEqual(-centres[i], sourceCars[i].localPosition.x * .98f, 0.02f,
+                        "the authored layout is the source's car centre in the mirrored Consist frame");
+                }
+            } finally {
+                UnityEngine.Object.DestroyImmediate(source);
             }
         }
 
@@ -435,6 +515,230 @@ namespace Metro.EditModeTests {
                 world.Dispose();
                 UnityEngine.Object.DestroyImmediate(probeRoot);
             }
+        }
+
+        // ------------------------------------------- the stop's door trace (plan 16 Â§4)
+
+        /// <summary>
+        /// One Zoo Line 5 stop driven by the **real** session through the **real** renderer,
+        /// one presented frame per fixed tick, with the rig's per-event log on. The stop is
+        /// the source's own choreography (approach, berth, opening, dwell, closing, hold,
+        /// depart), so the assertion is the one the screenshot needed: a stop opens once and
+        /// closes once, the bank facing away from the platform never moves, and a second
+        /// opening can only ever belong to another consist run.
+        /// </summary>
+        [Test]
+        public void AStopOpensOnceAndClosesOnceAndTheOtherBankStaysShut() {
+            var sessionDocument = StationSessionProjection.Document(zooDocument, zooRead.Index);
+            var session = new StationSimulationSession(new StationSessionSetup {
+                Document = sessionDocument,
+                Day = StationDayData.Default,
+                Seed = 7654321,
+                StartSimTime = StationClock.ReferenceBootSeconds,
+                StartPlaying = true,
+                Services = new StationServiceOptions { Spawn = false },
+            });
+            zooRenderer.LogDoorEvents = true;
+            zooRenderer.ClearDoorEvents();
+            try {
+                var sequences = new Dictionary<string, HashSet<int>>();
+                for (int tick = 0; tick < 70; tick++) {
+                    Assert.AreEqual(1, session.Advance(1.0), "fixed one-second ticks");
+                    zooRenderer.Apply(session.Snapshot(), 1f, tick == 0);
+                    foreach (var train in session.Snapshot().Trains) {
+                        if (string.IsNullOrEmpty(train.Id) || train.ServiceSequence <= 0) continue;
+                        if (!sequences.TryGetValue(train.Id, out var seen)) sequences[train.Id] = seen = new HashSet<int>();
+                        seen.Add(train.ServiceSequence);
+                    }
+                }
+                var events = zooRenderer.DoorEvents;
+                Assert.Greater(events.Count, 0, "the stop logged its door events");
+
+                // Nothing the platform does not face ever moved.
+                foreach (var item in events)
+                    Assert.AreNotEqual("inactive-open", item.Kind,
+                        item.TrainId + " opened its tunnel-side bank: " + item);
+
+                foreach (var pair in sequences) {
+                    string trainId = pair.Key;
+                    Assert.IsTrue(zooRenderer.TryGetConsist(trainId, out var view), "no consist for " + trainId);
+                    var opens = new List<TrainDoorEvent>();
+                    var closes = new List<TrainDoorEvent>();
+                    var fulls = new List<TrainDoorEvent>();
+                    foreach (var item in events) {
+                        if (item.TrainId != trainId) continue;
+                        Assert.AreEqual(view.PlatformBank, item.Bank,
+                            "a bank event always addresses the platform bank: " + item);
+                        if (item.Kind == "opening") opens.Add(item);
+                        else if (item.Kind == "closed") closes.Add(item);
+                        else if (item.Kind == "open") fulls.Add(item);
+                    }
+                    // One stop per consist run: exactly one opening and one closing, and the
+                    // leaves were commanded fully open in between.
+                    Assert.AreEqual(pair.Value.Count, opens.Count,
+                        trainId + " has one opening per consist run (" + Describe(opens) + ")");
+                    Assert.AreEqual(pair.Value.Count, closes.Count,
+                        trainId + " has one closing per consist run (" + Describe(closes) + ")");
+                    Assert.AreEqual(opens.Count, fulls.Count, trainId + " reached fully open once per stop");
+                    var openSequences = new HashSet<int>();
+                    foreach (var item in opens) {
+                        Assert.IsTrue(openSequences.Add(item.ServiceSequence),
+                            "the same consist run opened twice: " + item);
+                        Assert.IsTrue(pair.Value.Contains(item.ServiceSequence),
+                            "an opening belongs to a dispatched consist run: " + item);
+                    }
+                    // The phase that commanded it is the opening phase, never a re-entry.
+                    foreach (var item in opens)
+                        Assert.AreEqual(TrainPhase.Opening, item.Phase, "an opening is the opening phase: " + item);
+                    foreach (var item in closes)
+                        Assert.AreEqual(TrainPhase.Hold, item.Phase,
+                            "the leaves are shut by the hold, after the closing phase ramped them: " + item);
+                    // The pose follows the fraction: the observed leaf's x moves by the staged slide.
+                    var opened = opens[0];
+                    var shut = closes[0];
+                    Assert.Greater(Mathf.Abs(opened.LeafX - shut.LeafX), 0f,
+                        "the doorway's leaf wrote a pose between shut and open");
+                    Assert.AreEqual(0f, view.Rig.BankFraction(-view.PlatformBank), 1e-6f,
+                        "the inactive bank is still shut at the end of the run");
+                    Assert.GreaterOrEqual(opened.Doorway, 0, "the event names the doorway its leaf belongs to");
+                    Assert.AreEqual(shut.ServiceSequence, opened.ServiceSequence,
+                        "the closing belongs to the same consist run that opened");
+                }
+            } finally {
+                zooRenderer.LogDoorEvents = false;
+                zooRenderer.ClearDoorEvents();
+            }
+        }
+
+        // ------------------------------------------- idle consults (plan 18 §7)
+
+        /// <summary>
+        /// 18 §7 — a station opened before Play shows **no consist**. The formation is staged
+        /// inactive and only an active service run may mount it; the `None` record the session
+        /// still publishes in the gap between runs (which the clock and arrival forecast need)
+        /// is not a train at a platform.
+        /// </summary>
+        [Test]
+        public void AStationOpenedBeforePlayAndTheGapBetweenRunsShowNoConsist() {
+            foreach (var view in zooRenderer.Consists) {
+                Assert.IsFalse(view.Visible, view.TrainId + " is staged hidden before any frame");
+                Assert.IsTrue(view.Root != null && !view.Root.activeSelf, view.TrainId + " root is inactive, not just unfocused");
+            }
+            // The paused/restart frame and an idle service record both leave it parked.
+            Assert.IsFalse(zooRenderer.Apply(Frame(false,
+                Train("5|track-1", TrainPhase.None, 0, 0, 0),
+                Train("5|track-5", TrainPhase.None, 0, 0, 0))),
+                "a frame of idle services positions no consist");
+            foreach (var view in zooRenderer.Consists) {
+                Assert.IsFalse(view.Visible, view.TrainId + " stays hidden through an idle frame");
+                Assert.AreEqual(TrainPhase.None, view.Phase);
+                Assert.AreEqual(0f, view.OffsetMetres, "a parked consist sits on its berth, not at its departure");
+            }
+        }
+
+        /// <summary>
+        /// A level/section pass writes renderers, never root active state, so the retired
+        /// consist must stay hidden through Hidden, Ghost and Base — and a second dispatch of
+        /// the same service must start beyond the approach rail instead of blending out of the
+        /// previous departure.
+        /// </summary>
+        [Test]
+        public void RetiredConsistsStayHiddenThroughVisibilityAndRestartAtTheRail() {
+            var view = Consist("5|track-1");
+            // The production walk registers every record; the root's active state, not a
+            // renderer flag, is what a level toggle must not be able to override.
+            using var registry = new StationVisibilityRegistry(Shader.Find("Universal Render Pipeline/Lit"));
+            var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
+            foreach (var module in zooDocument.Modules) modules[module.Id] = module;
+            var grid = registry.State.Grid;
+            foreach (var record in zooWorld.Records) {
+                if (record?.View == null) continue;
+                registry.Register(record.View.transform,
+                    StationViewFeature.RoleOf(record, modules),
+                    StationViewFeature.LevelsOf(record, modules, grid));
+            }
+            var target = registry.Targets.FirstOrDefault(candidate =>
+                candidate.Root != null && candidate.Root == view.Root.transform);
+            Assert.IsNotNull(target, "the consist is registered with a visibility target");
+            foreach (var mode in new[] { StationDrawMode.Hidden, StationDrawMode.Ghost, StationDrawMode.Base }) {
+                target.Apply(mode, null);
+                Assert.IsFalse(view.Visible, mode + " must not resurrect a retired consist");
+            }
+
+            // First service: approach, so the pose is live.
+            zooRenderer.Apply(Frame(true,
+                Train("5|track-1", TrainPhase.Approach, 5, 0, 3),
+                Train("5|track-5", TrainPhase.None, 0, 0, 0)));
+            Assert.IsTrue(view.Visible, "an active run mounts the consist");
+            Assert.AreEqual(3, view.ServiceSequence);
+            // Depart, then the true gap: the root goes away and both door banks shut.
+            zooRenderer.Apply(Frame(true,
+                Train("5|track-1", TrainPhase.Depart, 5, 0, 3),
+                Train("5|track-5", TrainPhase.None, 0, 0, 0)));
+            var departed = view.DocumentPosition.x;
+            Assert.IsFalse(zooRenderer.Apply(Frame(true,
+                Train("5|track-1", TrainPhase.None, 0, 0, 0),
+                Train("5|track-5", TrainPhase.None, 0, 0, 0))), "the gap positions nothing");
+            Assert.IsFalse(view.Visible, "the departed consist is retired, not left parked");
+            Assert.AreEqual(0f, view.Rig.Plus, 1e-6f);
+            Assert.AreEqual(0f, view.Rig.Minus, 1e-6f);
+            // The next dispatch of the same service: a new sequence, its own approach pose.
+            zooRenderer.Apply(Frame(true,
+                Train("5|track-1", TrainPhase.Approach, 0, 0, 4),
+                Train("5|track-5", TrainPhase.None, 0, 0, 0)));
+            Assert.IsTrue(view.Visible, "the next dispatch mounts it again");
+            Assert.AreEqual(4, view.ServiceSequence, "a new consist run is its own sequence");
+            Assert.AreEqual(-(view.Berth.HalfLength + view.Berth.ApproachRun), view.OffsetMetres, .01f,
+                "the next train starts beyond the approach rail");
+            Assert.Less(view.DocumentPosition.x, departed - 100f,
+                "it never interpolates from the previous departure");
+        }
+
+        // ------------------------------------------- shared consist pose (plan 18 §8.2)
+
+        /// <summary>
+        /// 18 §8.2 — the passenger runtime and the consist view must sample **one** pose. The
+        /// sim's `StationTrainPose` is the shared owner (the runtime cannot reference the view
+        /// assembly); this pins it against the view's own berth derivation on both Zoo tracks,
+        /// position, facing, direction, runs, half length and the cabin-floor datum, so the two
+        /// cannot drift apart.
+        /// </summary>
+        [Test]
+        public void TheSimConsistPoseMatchesTheViewBerthOnEveryZooTrack() {
+            var sessionDocument = StationSessionProjection.Document(zooDocument, zooRead.Index);
+            var lineFact = sessionDocument.Lines.First(candidate => candidate.Id == "5");
+            foreach (var trackId in new[] { "track-1", "track-5" }) {
+                var view = Consist("5|" + trackId);
+                Assert.IsTrue(StationTrainPose.TryBerth(sessionDocument, lineFact, true, trackId,
+                    StationTrainPose.DefaultScale, out var sim, out var failure), trackId + ": " + failure);
+                Assert.AreEqual((double)view.Berth.DocumentPosition.x, sim.X, 1e-3, trackId + " berth x");
+                Assert.AreEqual((double)view.Berth.DocumentPosition.y, sim.Y, 1e-3, trackId + " berth y");
+                Assert.AreEqual((double)view.Berth.DocumentPosition.z, sim.Z, 1e-3, trackId + " berth z");
+                Assert.AreEqual((double)view.Berth.Facing.x, sim.Fx, 1e-6, trackId + " facing x");
+                Assert.AreEqual((double)view.Berth.Facing.y, sim.Fy, 1e-6, trackId + " facing y");
+                Assert.AreEqual(view.Berth.DirectionSign, sim.DirectionSign, trackId + " direction sign");
+                Assert.AreEqual((double)view.Berth.HalfLength, sim.HalfLength, 1e-3, trackId + " half length");
+                Assert.AreEqual((double)view.Berth.ApproachRun, sim.ApproachRun, 1e-3, trackId + " approach run");
+                Assert.AreEqual((double)view.Berth.DepartRun, sim.DepartRun, 1e-3, trackId + " depart run");
+                Assert.AreEqual((double)view.Berth.CabinFloorDocumentZ, sim.CabinFloorZ, 1e-3,
+                    trackId + " cabin-floor datum");
+                foreach (var phase in new[] { TrainPhase.Approach, TrainPhase.Depart, TrainPhase.Dwell }) {
+                    for (double t = 0; t <= 5; t += 1) {
+                        Assert.AreEqual((double)TrainConsistGeometry.OffsetMetres(phase, t, view.Berth),
+                            StationTrainPose.OffsetMetres(phase, t, sim), 1e-3,
+                            trackId + " " + phase + " offset at " + t + " s");
+                    }
+                }
+            }
+        }
+
+        static string Describe(List<TrainDoorEvent> events) {
+            var builder = new System.Text.StringBuilder();
+            for (int i = 0; i < events.Count; i++) {
+                if (i > 0) builder.Append("; ");
+                builder.Append(events[i].ToString());
+            }
+            return builder.ToString();
         }
     }
 }
