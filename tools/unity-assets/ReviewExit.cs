@@ -339,7 +339,7 @@ namespace Metro.AssetExample
                 .Where(texture => texture != null).Distinct().ToArray();
             Require(textures.Length == asset.textures,
                 $"{label}: expected {asset.textures} textures, got {textures.Length}");
-            CheckFamilyShape(asset, expected, importedMaterials, textures.Length);
+            CheckFamilyShape(asset, expected, importedMaterials, textures.Length, root);
 
             CheckHierarchy(root, expected);
             for (int facing = 0; facing < 4; facing++)
@@ -366,7 +366,8 @@ namespace Metro.AssetExample
         /// so a wrong bay count or a lost canopy cannot pass on the manifest alone.
         /// Sizes are in Unity metres (x across the bays, y up, z along the run).
         /// </summary>
-        private static void CheckFamilyShape(Asset asset, Expected expected, Material[] materials, int textures)
+        private static void CheckFamilyShape(Asset asset, Expected expected, Material[] materials, int textures,
+            GameObject root)
         {
             var size = BasisSize(asset.size);
             float tolerance = expected.style == "virtual" ? 0.005f : 0.02f;
@@ -377,9 +378,15 @@ namespace Metro.AssetExample
             {
                 case "head-house":
                     // exitWidth(bays) = bays + 2; the frame/roof add 0.1 m on the
-                    // covered variants, the railing 0.04 m on the open ones.
-                    Require(materials.Length == (expected.covered ? 7 : 5),
-                        $"{asset.paletteId}: expected {(expected.covered ? 7 : 5)} materials, got {materials.Length}");
+                    // covered variants, the railing 0.04 m on the open ones. Since 18 §6
+                    // a head-house is **pad-free**: the source's `exitConcrete` plinth is
+                    // retired at export and the runtime lays the floor from the linked
+                    // runs' openings, so one material fewer than the legacy shape is the
+                    // current contract (the legacy count is still accepted for a
+                    // not-yet-regenerated asset and named by the pad check below).
+                    int legacyMaterials = expected.covered ? 7 : 5;
+                    Require(materials.Length == legacyMaterials || materials.Length == legacyMaterials - 1,
+                        $"{expected.paletteId}: expected {(expected.covered ? 7 : 5)} (legacy) or {(expected.covered ? 6 : 4)} (pad-free) materials, got {materials.Length}");
                     Require(textures == (expected.covered ? 1 : 2),
                         $"{asset.paletteId}: expected {(expected.covered ? 1 : 2)} textures, got {textures}");
                     Require(asset.alphaMaterials.Length == 1, $"{asset.paletteId}: expected one alpha slot, got {asset.alphaMaterials.Length}");
@@ -387,7 +394,15 @@ namespace Metro.AssetExample
                     {
                         foreach (var name in new[] { "blue", "exitRed", "glow" })
                             Require(materials.Any(material => material.name == name), $"{asset.paletteId}: missing {name}");
-                        Require(materials.Any(material => material.name == "exitConcrete"), $"{asset.paletteId}: missing the concrete base");
+                        // A legacy asset still carries the baked plinth; a pad-free one must
+                        // carry neither the mesh nor the `exitConcrete` slot.
+                        bool padNode = FindNode(root, "exit-concrete-base") != null;
+                        if (padNode)
+                            Require(materials.Any(material => material.name == "exitConcrete"),
+                                $"{asset.paletteId}: the legacy concrete plinth lost its material");
+                        else
+                            Require(!materials.Any(material => material.name == "exitConcrete"),
+                                $"{asset.paletteId}: a pad-free exit still exports the concrete plinth material");
                         Require(!materials.Any(material => material.name == "steel"),
                             $"{asset.paletteId}: a covered exit with no runs draws no steel handrail");
                     }
@@ -427,7 +442,12 @@ namespace Metro.AssetExample
             switch (expected.style)
             {
                 case "head-house":
-                    Require(FindNode(root, "exit-concrete-base") != null, $"{expected.paletteId}: concrete plinth node missing");
+                    // Since 18 §6 a head-house exports **pad-free**: the source's concrete
+                    // plinth is retired, and the runtime composes the floor from the linked
+                    // runs' openings. A not-yet-regenerated legacy asset still carries it;
+                    // either shape is accepted (the material check above keeps the two
+                    // consistent), and coverage itself is proved by the runtime
+                    // `StationExitSnappingTests` ray test, not by this import gate.
                     if (expected.covered)
                     {
                         Require(FindNode(root, "exit-canopy-segment") != null, $"{expected.paletteId}: canopy segments missing");

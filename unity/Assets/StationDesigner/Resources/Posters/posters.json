@@ -1,0 +1,527 @@
+{
+  "schemaVersion": 1,
+  "source": "game/src/assets/posters/*.webp",
+  "note": "slug = WebP file stem (render/adArt.ts URL_BY_SLUG); Unity loads Resources/Posters/<slug>",
+  "maxEdge": 512,
+  "count": 74,
+  "posters": [
+    {
+      "slug": "landscape-1-jfif",
+      "file": "landscape-1-jfif.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-1-jpg",
+      "file": "landscape-1-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-1-webp",
+      "file": "landscape-1-webp.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-10-jpg",
+      "file": "landscape-10-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-11-jpg",
+      "file": "landscape-11-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-11-png",
+      "file": "landscape-11-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-12-jpg",
+      "file": "landscape-12-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-12-png",
+      "file": "landscape-12-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-13-png",
+      "file": "landscape-13-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-15-jpg",
+      "file": "landscape-15-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-19-jpg",
+      "file": "landscape-19-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-2-webp",
+      "file": "landscape-2-webp.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-28-jpg",
+      "file": "landscape-28-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-3-jfif",
+      "file": "landscape-3-jfif.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-3-png",
+      "file": "landscape-3-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-31-jpg",
+      "file": "landscape-31-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-32-jpg",
+      "file": "landscape-32-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-33-jpg",
+      "file": "landscape-33-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-34-jpg",
+      "file": "landscape-34-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-4-png",
+      "file": "landscape-4-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-5-jfif",
+      "file": "landscape-5-jfif.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-5-jpeg",
+      "file": "landscape-5-jpeg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-5-jpg",
+      "file": "landscape-5-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-5-png",
+      "file": "landscape-5-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-6-jfif",
+      "file": "landscape-6-jfif.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-6-png",
+      "file": "landscape-6-png.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-6-webp",
+      "file": "landscape-6-webp.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-7-webp",
+      "file": "landscape-7-webp.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-8-jfif",
+      "file": "landscape-8-jfif.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-games-2025-blue-jpg",
+      "file": "landscape-games-2025-blue-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-guangdong-league-jpg",
+      "file": "landscape-guangdong-league-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-heinz-league-jpg",
+      "file": "landscape-heinz-league-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "landscape-metro-security-jpg",
+      "file": "landscape-metro-security-jpg.png",
+      "width": 512,
+      "height": 288,
+      "sourceBytes": "512x288"
+    },
+    {
+      "slug": "portrait-1-jpeg",
+      "file": "portrait-1-jpeg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-1-png",
+      "file": "portrait-1-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-10-png",
+      "file": "portrait-10-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-13-jpg",
+      "file": "portrait-13-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-14-jpg",
+      "file": "portrait-14-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-16-jpg",
+      "file": "portrait-16-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-17-jpg",
+      "file": "portrait-17-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-2-jfif",
+      "file": "portrait-2-jfif.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-2-jpeg",
+      "file": "portrait-2-jpeg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-2-jpg",
+      "file": "portrait-2-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-2-png",
+      "file": "portrait-2-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-20-jpg",
+      "file": "portrait-20-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-21-jpg",
+      "file": "portrait-21-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-22-jpg",
+      "file": "portrait-22-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-23-jpg",
+      "file": "portrait-23-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-25-jpg",
+      "file": "portrait-25-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-27-jpg",
+      "file": "portrait-27-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-29-jpg",
+      "file": "portrait-29-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-3-jpeg",
+      "file": "portrait-3-jpeg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-3-webp",
+      "file": "portrait-3-webp.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-30-jpg",
+      "file": "portrait-30-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-4-jfif",
+      "file": "portrait-4-jfif.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-4-jpeg",
+      "file": "portrait-4-jpeg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-4-jpg",
+      "file": "portrait-4-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-4-webp",
+      "file": "portrait-4-webp.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-5-webp",
+      "file": "portrait-5-webp.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-6-jpg",
+      "file": "portrait-6-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-7-jfif",
+      "file": "portrait-7-jfif.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-7-jpg",
+      "file": "portrait-7-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-7-png",
+      "file": "portrait-7-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-8-jpg",
+      "file": "portrait-8-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-8-png",
+      "file": "portrait-8-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-8-webp",
+      "file": "portrait-8-webp.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-9-jpg",
+      "file": "portrait-9-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-9-png",
+      "file": "portrait-9-png.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-games-2025-red-jpg",
+      "file": "portrait-games-2025-red-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "portrait-heinz-body-jpg",
+      "file": "portrait-heinz-body-jpg.png",
+      "width": 288,
+      "height": 512,
+      "sourceBytes": "288x512"
+    },
+    {
+      "slug": "square-18-jpg",
+      "file": "square-18-jpg.png",
+      "width": 384,
+      "height": 384,
+      "sourceBytes": "384x384"
+    },
+    {
+      "slug": "square-24-jpg",
+      "file": "square-24-jpg.png",
+      "width": 384,
+      "height": 384,
+      "sourceBytes": "384x384"
+    },
+    {
+      "slug": "square-26-jpg",
+      "file": "square-26-jpg.png",
+      "width": 384,
+      "height": 384,
+      "sourceBytes": "384x384"
+    },
+    {
+      "slug": "square-3-jpg",
+      "file": "square-3-jpg.png",
+      "width": 384,
+      "height": 384,
+      "sourceBytes": "384x384"
+    }
+  ]
+}

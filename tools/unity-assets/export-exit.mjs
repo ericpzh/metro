@@ -175,8 +175,25 @@ function nameMaterials(root, platePrefix, panelPrefix) {
   }
 }
 
-const round = (value) => Number(value.toFixed(6))
-const out = resolve(process.argv[2] ?? '.preview/unity/exit-proof/export')
+/**
+ * Remove the head-house's baked concrete plinth (`exitConcrete` meshes, the
+ * `exit-concrete-base` nodes) before export. The runtime composes the floor from the
+ * saved runs' own openings instead (18 §6), so a baked pad would cover the wellway it
+ * is supposed to leave open. Returns how many pad meshes were retired.
+ */
+function removePads(root) {
+  const pads = new Set()
+  root.traverse(object => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    if (!materials.includes(exitConcrete)) return
+    pads.add(object)
+  })
+  for (const mesh of pads) mesh.removeFromParent()
+  return pads.size
+}
+
+const round = (value) => Number(value.toFixed(6))const out = resolve(process.argv[2] ?? '.preview/unity/exit-proof/export')
 await mkdir(out, { recursive: true })
 
 const assets = []
@@ -192,6 +209,15 @@ for (const spec of MODELS) {
   const root = buildModule(mod, ctx)
   assert.ok(root, `${spec.paletteId}: buildModule returned null`)
 
+  // 18 §6: a head-house's plan-wide concrete plinth is **not** baked into the runtime
+  // asset. Unity composes that floor from the shared opening description
+  // (`StationExitOpenings`, the port of `exitRunOpenings`/`exitLandingBack`), which
+  // leaves the wellway the linked stair/escalator runs actually use open; a baked pad
+  // covers it again, because a registered visibility target re-enables every child it
+  // collected. The strips keep the source's own `floor.concrete` finish and metre UVs
+  // at runtime, so the floor still reads as the web pad.
+  const retiredPads = spec.style === 'head-house' ? removePads(root) : 0
+
   // placeLocal puts the piece on its cell centre; export from a stable local
   // origin and record the placement once.
   const placementOffset = root.position.toArray().map(round)
@@ -203,6 +229,17 @@ for (const spec of MODELS) {
     spec.style === 'virtual' ? 'guide' : 'exitHeader',
     spec.style === 'doorway' ? 'doorwayPanel' : 'exitPanel')
   root.updateMatrixWorld(true)
+  // A head-house runtime asset is **pad-free**: no concrete plinth mesh, no
+  // `exitConcrete` material left to re-enable, and its canopy/frame/glass/railing
+  // pieces all still present.
+  if (spec.style === 'head-house') {
+    assert.ok(retiredPads > 0, `${spec.paletteId}: the source built no concrete plinth to retire`)
+    let padNodes = 0
+    root.traverse(object => { if (object.name === 'exit-concrete-base') padNodes++ })
+    assert.equal(padNodes, 0, `${spec.paletteId}: a pad node survived the pad-free export`)
+    assert.equal(stats.names.includes('exitConcrete'), false,
+      `${spec.paletteId}: the retired plinth left its concrete material in the asset`)
+  }
   const bounds = new THREE.Box3().setFromObject(root)
   assert.equal(bounds.isEmpty(), false, `${spec.paletteId}: empty bounds`)
   const size = bounds.getSize(new THREE.Vector3())
@@ -291,6 +328,10 @@ for (const spec of MODELS) {
     glassMaterials: stats.glassMaterials,
     textures: stats.textures,
     marker,
+    // 18 §6: a head-house ships without its baked plinth; the runtime composes the
+    // floor from the linked runs' openings (`StationExitOpenings`).
+    padFree: spec.style === 'head-house',
+    retiredPadMeshes: retiredPads,
     parameters,
     validation: { errors: report.issues.numErrors, warnings: report.issues.numWarnings },
   }
@@ -359,7 +400,7 @@ const summary = {
       widthMetres: asset.parameters.widthMetres,
       depthMetres: asset.size[1],
     })),
-    palette: 'createModelMaterials(): steel (64 px brushed canvas map), darkSteel, glass (transparent 0.26, double sided), exitRed, blue, glow; builder-owned exitConcrete floor plinth, the 出入口 header canvas plate and the doorway entrance-colour panel are named by pixel size / authored colour',
+    palette: 'createModelMaterials(): steel (64 px brushed canvas map), darkSteel, glass (transparent 0.26, double sided), exitRed, blue, glow; the 出入口 header canvas plate and the doorway entrance-colour panel are named by pixel size / authored colour. The head-house concrete plinth is **not** exported (padFree): the runtime lays the floor from the saved runs\' own openings with the `floor.concrete` station finish and metre UVs',
     textures: 'brushed steel 64 px canvas (steel), the 出入口 header canvas (512 x 96 for the head-houses and the 3 m doorway, wider for the 4-6 m headers) and, for the 虚拟 marker, its seven 导向柱 plates; the steel grain uses a fixed-seed generator and every canvas encode is serialised, so two exports are byte-identical',
     basis: 'source Z-up tree wrapped in a group rotated -90 degrees about X (glTF Y-up); Unity wrapper applies the 180-degree Y correction so gameplay channels read (x, z, y)',
   },

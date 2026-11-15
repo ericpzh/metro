@@ -28,6 +28,7 @@ Shader "Metro/Station Finish"
         [MainColor] _BaseColor("Base Color", Color) = (1,1,1,1)
         _Smoothness("Smoothness", Range(0,1)) = 0.22
         _Metallic("Metallic", Range(0,1)) = 0
+        [HideInInspector] _VertexColorWeight("Vertex Color Weight", Float) = 1
         [Enum(UnityEngine.Rendering.CullMode)] _Cull("Cull", Float) = 2
         [Toggle(_ALPHATEST_ON)] _AlphaClip("Alpha Clip", Float) = 0
         _Cutoff("Alpha Cutoff", Range(0,1)) = 0.5
@@ -36,6 +37,8 @@ Shader "Metro/Station Finish"
         [HideInInspector] _SrcBlend("__src", Float) = 1
         [HideInInspector] _DstBlend("__dst", Float) = 0
         [HideInInspector] _ZWrite("__zw", Float) = 1
+        [HideInInspector] _SectionPlane("Section Plane", Vector) = (0,0,0,0)
+        [HideInInspector] _SectionClip("Section Clip", Float) = 0
     }
 
     SubShader
@@ -82,12 +85,14 @@ Shader "Metro/Station Finish"
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "StationSectionClip.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
                 half4 _BaseColor;
                 half _Smoothness;
                 half _Metallic;
+                half _VertexColorWeight;
                 half _Cutoff;
                 half _Surface;
             CBUFFER_END
@@ -153,9 +158,10 @@ Shader "Metro/Station Finish"
             {
                 UNITY_SETUP_INSTANCE_ID(input);
 
+                ClipStationSection(input.positionWS);
                 half4 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv) * _BaseColor;
                 // The mesher's AO, exactly as the source's `vertexColors: true` applies it.
-                albedo.rgb *= input.color.rgb;
+                albedo.rgb *= lerp(1.0h, input.color.rgb, _VertexColorWeight);
 
                 #if defined(_ALPHATEST_ON)
                     clip(albedo.a - _Cutoff);
@@ -212,12 +218,14 @@ Shader "Metro/Station Finish"
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "StationSectionClip.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
                 half4 _BaseColor;
                 half _Smoothness;
                 half _Metallic;
+                half _VertexColorWeight;
                 half _Cutoff;
                 half _Surface;
             CBUFFER_END
@@ -236,6 +244,7 @@ Shader "Metro/Station Finish"
             {
                 float4 positionCS : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float3 positionWS : TEXCOORD1;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -246,13 +255,15 @@ Shader "Metro/Station Finish"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
                 return output;
             }
 
             half4 DepthFragment(DepthVaryings input) : SV_Target
             {
+                ClipStationSection(input.positionWS);
                 #if defined(_ALPHATEST_ON)
                     half alpha = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv).a * _BaseColor.a;
                     clip(alpha - _Cutoff);
@@ -277,12 +288,14 @@ Shader "Metro/Station Finish"
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "StationSectionClip.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
                 half4 _BaseColor;
                 half _Smoothness;
                 half _Metallic;
+                half _VertexColorWeight;
                 half _Cutoff;
                 half _Surface;
             CBUFFER_END
@@ -303,6 +316,7 @@ Shader "Metro/Station Finish"
                 float4 positionCS : SV_POSITION;
                 float3 normalWS : TEXCOORD0;
                 float2 uv : TEXCOORD1;
+                float3 positionWS : TEXCOORD2;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -313,7 +327,8 @@ Shader "Metro/Station Finish"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_TRANSFER_INSTANCE_ID(input, output);
                 UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
-                output.positionCS = TransformObjectToHClip(input.positionOS.xyz);
+                output.positionWS = TransformObjectToWorld(input.positionOS.xyz);
+                output.positionCS = TransformWorldToHClip(output.positionWS);
                 output.normalWS = TransformObjectToWorldNormal(input.normalOS);
                 output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
                 return output;
@@ -321,6 +336,7 @@ Shader "Metro/Station Finish"
 
             half4 NormalsFragment(NormalVaryings input) : SV_Target
             {
+                ClipStationSection(input.positionWS);
                 #if defined(_ALPHATEST_ON)
                     half alpha = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv).a * _BaseColor.a;
                     clip(alpha - _Cutoff);

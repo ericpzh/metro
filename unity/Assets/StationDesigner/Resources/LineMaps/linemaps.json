@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "source": "game/src/assets/linemaps/*",
+  "note": "slug = file stem (render/lineMapCity.ts cityLineMapSlug); Unity loads Resources/LineMaps/<slug>",
+  "maxEdge": 1024,
+  "count": 8,
+  "cities": {
+    "beijing": "beijing-map",
+    "chengdu": "chengdu-map",
+    "chongqing": "chongqing-map",
+    "nanjing": "nanjing-map",
+    "guangzhou": "network-map",
+    "shanghai": "shanghai-map",
+    "shenzhen": "shenzhen-map",
+    "wuhan": "wuhan-map"
+  },
+  "maps": [
+    {
+      "slug": "beijing-map",
+      "city": "beijing",
+      "file": "beijing-map.png",
+      "width": 1024,
+      "height": 1020,
+      "aspect": 1.0041,
+      "source": "game/src/assets/linemaps/beijing-map.png",
+      "sourceBytes": "6564x6537",
+      "sourceSha256": "f1c4bfcb019e13f4bd110240778f77ae2cca2b0bc753a226c269fc6cbe1599eb"
+    },
+    {
+      "slug": "chengdu-map",
+      "city": "chengdu",
+      "file": "chengdu-map.png",
+      "width": 959,
+      "height": 1024,
+      "aspect": 0.9369,
+      "source": "game/src/assets/linemaps/chengdu-map.png",
+      "sourceBytes": "3000x3202",
+      "sourceSha256": "b0d745e3c38130d4efbbc857fc08094235ff805a309c97c817760ab6c14a4b4d"
+    },
+    {
+      "slug": "chongqing-map",
+      "city": "chongqing",
+      "file": "chongqing-map.png",
+      "width": 1024,
+      "height": 938,
+      "aspect": 1.0911,
+      "source": "game/src/assets/linemaps/chongqing-map.png",
+      "sourceBytes": "2000x1833",
+      "sourceSha256": "64aeba07cc45215a4f32f4b9920a208f6b65b7cadd9d80420fa6b85c2c944708"
+    },
+    {
+      "slug": "nanjing-map",
+      "city": "nanjing",
+      "file": "nanjing-map.png",
+      "width": 947,
+      "height": 1024,
+      "aspect": 0.9252,
+      "source": "game/src/assets/linemaps/nanjing-map.png",
+      "sourceBytes": "1497x1618",
+      "sourceSha256": "d71656eb737da5666d96b5dde17252510c1fafa9a6c209542ee56026da06b79a"
+    },
+    {
+      "slug": "network-map",
+      "city": "guangzhou",
+      "file": "network-map.png",
+      "width": 1024,
+      "height": 1024,
+      "aspect": 1,
+      "source": "game/src/assets/linemaps/network-map.jpg",
+      "sourceBytes": "1080x1080",
+      "sourceSha256": "5dd45f97ac323e1ca128303afc068e8390cd67a682f60d3600b78d2caf7f588b"
+    },
+    {
+      "slug": "shanghai-map",
+      "city": "shanghai",
+      "file": "shanghai-map.png",
+      "width": 732,
+      "height": 1024,
+      "aspect": 0.7146,
+      "source": "game/src/assets/linemaps/shanghai-map.png",
+      "sourceBytes": "2279x3189",
+      "sourceSha256": "59e64c1db61b87ae479a38faa4a255752f586b895dcf658504fe4313e57c6c9d"
+    },
+    {
+      "slug": "shenzhen-map",
+      "city": "shenzhen",
+      "file": "shenzhen-map.png",
+      "width": 1024,
+      "height": 1024,
+      "aspect": 1,
+      "source": "game/src/assets/linemaps/shenzhen-map.jpg",
+      "sourceBytes": "1200x1200",
+      "sourceSha256": "ba3333ccf238bec222c97d8f142842681338f1625dbb42cf518c9e9386ea22a1"
+    },
+    {
+      "slug": "wuhan-map",
+      "city": "wuhan",
+      "file": "wuhan-map.png",
+      "width": 1024,
+      "height": 1024,
+      "aspect": 1.0004,
+      "source": "game/src/assets/linemaps/wuhan-map.png",
+      "sourceBytes": "2732x2731",
+      "sourceSha256": "d8eecada4f1acc026ac28670efc7b610d4a82c35467403b438fef12f556d7316"
+    }
+  ]
+}
