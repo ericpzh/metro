@@ -364,11 +364,11 @@ namespace Metro.Tests {
                 Assert.AreEqual(4.0, probeRecord.Bounds.Y1, .02, "8 m crossbar starts at y = +4.0");
 
                 var vertices = DocumentVertices(probeRecord.View);
-                // Interior vertices along the bar (between the two endpoint rods) top out at 16.000 m.
-                var midBar = vertices.Where(v => v.y > -2.5f && v.y < 2.5f).ToArray();
-                Assert.IsNotEmpty(midBar);
-                Assert.AreEqual(15.8f, midBar.Min(v => v.z), 1e-3f, "bar underside");
-                Assert.AreEqual(16.0f, midBar.Max(v => v.z), 1e-3f, "bar top at 16.000 m");
+                // Crossbar end-cap vertices at y = ±4.0 m (beyond the rods/clamps at y = ±3.5 m) span 15.8..16.0 m.
+                var barTips = vertices.Where(v => Mathf.Abs(v.y) > 3.9f).ToArray();
+                Assert.IsNotEmpty(barTips);
+                Assert.AreEqual(15.8f, barTips.Min(v => v.z), 1e-3f, "bar underside");
+                Assert.AreEqual(16.0f, barTips.Max(v => v.z), 1e-3f, "bar top at 16.000 m");
 
                 // Both endpoint suspension rods rise from 16.000 m to 21.367 m independently.
                 var rodStart = vertices.Where(v => v.y > 3.2f && v.z > 16.1f).ToArray();
