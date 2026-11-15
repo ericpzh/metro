@@ -412,13 +412,31 @@ namespace Metro.App.Views {
             new Color32(75, 120, 58, 255), new Color32(215, 227, 225, 255),
         };
 
+        internal static void ConfigurePaletteMaterial(Material material, int palette) {
+            if (!material) return;
+            if (palette == PaletteGlass) {
+                StationGlass.MakeTransparent(material, .26f);
+                return;
+            }
+            if (palette == PaletteSteel) {
+                if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .72f);
+                if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .66f);
+            } else if (palette == PaletteDark) {
+                if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .35f);
+                if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .45f);
+            } else if (palette == PaletteWarm) {
+                if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", .1f);
+                if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", .6f);
+            }
+        }
+
         /// <summary>Fallback material for tests and a host with no palette (the shader is found once).</summary>
         public static Material DefaultMaterial(int palette) {
             palette = Mathf.Clamp(palette, 0, Palette.Length - 1);
             if (DefaultMaterials.TryGetValue(palette, out var existing) && existing) return existing;
             if (!defaultShader) defaultShader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
             var material = new Material(defaultShader) { color = Palette[palette], name = "Vertical " + palette };
-            if (palette == PaletteGlass) StationGlass.MakeTransparent(material, .26f);
+            ConfigurePaletteMaterial(material, palette);
             DefaultMaterials[palette] = material;
             return material;
         }
@@ -1261,10 +1279,8 @@ namespace Metro.App.Views {
         static void RegisterStairAnchors(VerticalModuleView view, List<StairFlightSpec> specs, List<StairFlight> flights, Vector3 pivot) {
             view.PivotDocument = pivot;
             view.Register("pivot", NewAnchor(view.Root, "pivot", pivot, Quaternion.identity), false);
-            var firstSpec = specs[0];
-            var lastSpec = specs[specs.Count - 1];
-            var first = firstSpec.From + new Vector3(firstSpec.Slide.x, firstSpec.Slide.y, 0f);
-            var last = lastSpec.To + new Vector3(lastSpec.Slide.x, lastSpec.Slide.y, 0f);
+            var first = specs[0].From;
+            var last = specs[specs.Count - 1].To;
             var low = first.z <= last.z ? first : last;
             var high = first.z <= last.z ? last : first;
             view.Register("lower-landing", NewAnchor(view.Root, "lower-landing",
@@ -3135,11 +3151,7 @@ namespace Metro.App.Views {
                 Materials = new Material[VerticalModuleViews.Palette.Length];
                 for (int i = 0; i < Materials.Length; i++) {
                     Materials[i] = new Material(shader) { color = VerticalModuleViews.Palette[i], name = "Vertical " + i };
-                }
-                // Shaft, cabin, portal and balustrade glass all use the palette's glass slot;
-                // the source renders them transparent (`PieceBuilder.glass`, opacity .26).
-                if (Materials.Length > VerticalModuleViews.PaletteGlass) {
-                    StationGlass.MakeTransparent(Materials[VerticalModuleViews.PaletteGlass], .26f);
+                    VerticalModuleViews.ConfigurePaletteMaterial(Materials[i], i);
                 }
                 MaterialFor = palette => Materials[Mathf.Clamp(palette, 0, Materials.Length - 1)];
             }

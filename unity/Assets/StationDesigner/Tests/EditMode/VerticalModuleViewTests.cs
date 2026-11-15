@@ -713,8 +713,11 @@ public class VerticalModuleViewTests {
                 Assert.Greater(visibleTreads.Length, 10, view.ModuleId + " visible treads");
                 Assert.AreEqual(lower.z, visibleTreads.Min(t => t.z), .05f, view.ModuleId + " treads start at lower landing");
                 Assert.AreEqual(upper.z, visibleTreads.Max(t => t.z), .05f, view.ModuleId + " treads reach upper landing");
-                float midTreadZ = visibleTreads.OrderBy(t => new Vector2(t.x - mid.x, t.y - mid.y).sqrMagnitude).First().z;
-                Assert.Greater(midTreadZ, trussMidZ + .2f, view.ModuleId + " treads sit above the truss");
+                var midTread = visibleTreads.OrderBy(t => new Vector2(t.x - mid.x, t.y - mid.y).sqrMagnitude).First();
+                var spanPlan = new Vector2(upper.x - lower.x, upper.y - lower.y);
+                float uAtTread = Vector2.Dot(new Vector2(midTread.x - lower.x, midTread.y - lower.y), spanPlan) / spanPlan.sqrMagnitude;
+                float trussZAtTread = Mathf.Lerp(lower.z, upper.z, uAtTread) - (mid.z - trussMidZ);
+                Assert.Greater(midTread.z, trussZAtTread + .2f, view.ModuleId + " treads sit above the truss");
             }
         }
 
@@ -839,8 +842,12 @@ public class VerticalModuleViewTests {
         Assert.IsFalse(fractional.UsedPrefab);
         Assert.IsTrue(Near(Document(fractional, "turn-landing"), new Vector3(37f, 39f, -1.5f), 1e-3f),
             "fractional -2.5 landing places its platform top at z = -1.5 across (36..38, 38.105..39.895)");
-        Assert.IsTrue(Near(Document(fractional, "lower-landing"), new Vector3(37f, 43.5f, -4f), 1e-3f));
-        Assert.IsTrue(Near(Document(fractional, "upper-landing"), new Vector3(32.5f, 39f, 1f), 1e-3f));
+        Assert.IsTrue(Near(Document(fractional, "lower-landing"), new Vector3(37.5f, 43.5f, -4f), 1e-3f));
+        Assert.IsTrue(Near(Document(fractional, "upper-landing"), new Vector3(32.5f, 39.5f, 1f), 1e-3f));
+        Assert.IsTrue(Near(Document(fractional, "flight-0"), new Vector3(37f, 43.5f, -4f), 1e-3f),
+            "2-lane flight-0 slides onto X = 37 across lanes 36..38");
+        Assert.IsTrue(Near(Document(fractional, "flight-1"), new Vector3(36.5f, 39f, -1.5f), 1e-3f),
+            "2-lane flight-1 slides onto Y = 39 across lanes 38..40");
         var landingSurface = MeshVerticesInDoc(fractional.Root, "landing-surface");
         Assert.AreEqual(36f, landingSurface.Min(v => v.x), 1e-3f);
         Assert.AreEqual(38f, landingSurface.Max(v => v.x), 1e-3f);
