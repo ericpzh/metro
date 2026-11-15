@@ -143,6 +143,18 @@ namespace Metro.Build {
         public double RunLength;
         /// <summary>A ramp's chosen climb in metres; 0 reads the é•¿ 5 m rung.</summary>
         public double RunRise;
+        /// <summary>
+        /// A 玻璃幕墙's chosen panel height in metres (`createModule`'s `curtainHeight`): 4 is
+        /// the catalogue's own piece and leaves the override out of the save, 2 and 3 carry it.
+        /// </summary>
+        public int CurtainHeight = 4;
+        /// <summary>
+        /// The **point** the ray met on the picked module, in document axes. `Hit` prefers the
+        /// cell behind a model (see `PlacementHit`'s note), so it cannot say where along a
+        /// curtain run the pointer landed; the door-to-curtain snap needs that point to choose
+        /// the run cell it centres on.
+        /// </summary>
+        public StationPoint? ModulePoint;
     }
 
     /// <summary>One immutable answer: the candidate, its support, its collisions and a stable reason code.</summary>
@@ -302,6 +314,29 @@ namespace Metro.Build {
                 parsed.Variant = id == "monitor-wall" ? "wall" : "ceiling";
                 parsed.Width = id == "monitor-wall" ? 3 : 1;
                 parsed.Centred = true;
+            } else if (id == "curtain-wall") {
+                // `createModule`'s curtain branch: the palette id names a 4 m high run whose
+                // width comes from the action row (1–4 cells), and the run is centred on the
+                // hovered cell like a 玻璃板's. Without this the curtain could not be placed or
+                // moved at all, so a fitted door had nothing to snap to (plan 22 §2).
+                parsed.Type = "glass";
+                parsed.Variant = width >= 4 ? "4x4" : width == 3 ? "3x4" : width == 2 ? "2x4" : "1x4";
+                parsed.Width = width >= 4 ? 4 : width == 3 ? 3 : width == 2 ? 2 : 1;
+                parsed.Centred = true;
+            } else if (id == "glass" || id.StartsWith("glass-", StringComparison.Ordinal)) {
+                var variant = id == "glass" ? "1x1" : id.Substring("glass-".Length);
+                parsed.Type = "glass";
+                parsed.Variant = variant;
+                parsed.Width = GlassWidth(variant);
+                parsed.Centred = true;
+            } else if (id == "door" || id.StartsWith("door-", StringComparison.Ordinal)) {
+                // `createModule`'s door branch: the id names the variant, and a 双开 door grows
+                // evenly either side of the pointer.
+                var variant = id == "door" ? "steel-1" : id.Substring("door-".Length);
+                parsed.Type = "door";
+                parsed.Variant = variant;
+                parsed.Width = DoorWidth(variant);
+                parsed.Centred = true;
             } else if (id == "light-circular" || id == "light-rectangular" || id == "light") {
                 parsed.Type = "light";
                 parsed.Variant = id == "light-rectangular" ? "rectangular" : "circular";
@@ -332,6 +367,24 @@ namespace Metro.Build {
             family = parsed;
             return true;
         }
+
+        /// <summary>`glassSpec(variant).w`: how many cells a 玻璃板 size covers.</summary>
+        public static int GlassWidth(string variant) {
+            switch (variant) {
+                case "2x1":
+                case "2x2":
+                case "2x4": return 2;
+                case "3x1":
+                case "3x2":
+                case "3x4": return 3;
+                case "4x4": return 4;
+                default: return 1;
+            }
+        }
+
+        /// <summary>`doorSpec(variant).w`: one leaf or two.</summary>
+        public static int DoorWidth(string variant) =>
+            variant == "steel-2" || variant == "wood-2" || variant == "glass-2" ? 2 : 1;
 
         /// <summary>Build the fresh candidate at a whole cell (<c>createModule</c>'s migrated branches).</summary>
         public static bool TryCreate(StationPlacementRequest request, out StationEditDraft draft, out string reason) =>
@@ -418,6 +471,21 @@ namespace Metro.Build {
                     break;
                 case "fence":
                     candidate.Set("variant", family.Variant);
+                    break;
+                case "glass":
+                    // `createModule`: the palette id names the size, and a 玻璃幕墙 keeps its
+                    // `curtainHeight` override unless it is the catalogue's own 4 m piece
+                    // (whose `…x4` variant already describes it).
+                    candidate.Width = family.Width;
+                    var glassVariant = family.Variant.Length == 0 ? "1x1" : family.Variant;
+                    candidate.Set("variant", glassVariant);
+                    if (glassVariant.EndsWith("x4", StringComparison.Ordinal) &&
+                        request.CurtainHeight > 0 && request.CurtainHeight != 4)
+                        candidate.Set(request.CurtainHeight, "curtainHeight");
+                    break;
+                case "door":
+                    candidate.Width = family.Width;
+                    candidate.Set("variant", family.Variant.Length == 0 ? "steel-1" : family.Variant);
                     break;
                 case "tactile":
                 case "floor-mark":
@@ -514,6 +582,16 @@ namespace Metro.Build {
                     plan.Reason = createReason;
                     return plan;
                 }
+                // Plan 22 §2: a 门 dropped on a floor-standing 玻璃幕墙 fits into it
+                // (`EquipmentTool`'s `snapDoorToCurtain`): the door takes the curtain's axis and
+                // edge and centres its run on the curtain cell the pointer landed in. The source
+                // runs this **before** validation, so the snapped door's own envelope is what the
+                // clearance and collider checks read.
+                if (candidate.Type == "door" && !string.IsNullOrEmpty(request.TargetModuleId) &&
+                    index.TryGetModule(request.TargetModuleId, out var host) &&
+                    TrySnapDoorToCurtain(index, candidate, host, request.ModulePoint, request.Hit)) {
+                    // The candidate moved: keep the plan's cell fields in step below.
+                }
                 // §5.2(a): a fresh head-house dropped on a picked ramp wraps that ramp's upper
                 // landing (`snapExitToRamp`). The source falls back to the unsnapped candidate
                 // when the pick is not a supported ramp, so a missing/failed snap is not a
@@ -546,6 +624,52 @@ namespace Metro.Build {
             }
             plan.SupportId = Support(index, candidate);
             return plan;
+        }
+
+        /// <summary>
+        /// `snapDoorToCurtain`: fit a 门 dropped on a floor-standing 玻璃幕墙 into it. The door
+        /// takes the curtain's axis and edge and centres its run on the run cell the pointer
+        /// landed in, clamped so a 双开 leaf stays inside the panel. Returns false — leaving the
+        /// door exactly where it was aimed — when the pick is not a curtain, is on another
+        /// storey, or the run is too short for the door.
+        /// </summary>
+        static bool TrySnapDoorToCurtain(StationIndex index, StationEditDraft door, StationModuleRecord host,
+            StationPoint? point, StationPlacementHit hit) {
+            if (host == null || !string.Equals(host.Type, "glass", StringComparison.Ordinal)) return false;
+            if (!StationFootprints.GlassStandsOnFloor(host.Config)) return false;
+            if (host.Z != door.Z) return false;
+            int cellX, cellY;
+            if (point.HasValue) {
+                // The ray met the curtain's own drawn face: that is the run cell under the pointer.
+                cellX = (int)Math.Floor(point.Value.X);
+                cellY = (int)Math.Floor(point.Value.Y);
+            } else if (hit.HasCell) {
+                cellX = hit.Solid ? hit.X : hit.PlaceX;
+                cellY = hit.Solid ? hit.Y : hit.PlaceY;
+            } else {
+                return false;
+            }
+            var run = RunCells(host);
+            int at = run.FindIndex(cell => cell.X == cellX && cell.Y == cellY);
+            if (at < 0) return false;
+            int width = Math.Max(1, door.Width);
+            if (width > run.Count) return false;
+            int first = Math.Max(0, Math.Min(run.Count - width, at - (width - 1) / 2));
+            door.X = (int)Math.Round(run[first].X);
+            door.Y = (int)Math.Round(run[first].Y);
+            door.Rotation = StationFootprints.NormRot(host.Rotation);
+            return true;
+        }
+
+        /// <summary>The cells a run covers, marched in its own turn (`track.rotateLocal`).</summary>
+        static List<StationPoint> RunCells(StationModuleRecord record) {
+            int width = Math.Max(1, record.Width);
+            var cells = new List<StationPoint>(width);
+            for (int i = 0; i < width; i++) {
+                StationFootprints.RotateLocal(record.Rotation, i, 0, out var dx, out var dy);
+                cells.Add(new StationPoint(record.X + (int)Math.Round(dx), record.Y + (int)Math.Round(dy), record.Z));
+            }
+            return cells;
         }
 
         /// <summary>
@@ -765,6 +889,15 @@ namespace Metro.Build {
                 if (placedOutdoor && !candidateOutdoor && candidate.Type != "road") continue;
                 if (candidateOutdoor && !placedOutdoor && placed.Type != "road") continue;
                 if (IsExitRampPair(candidate, placed)) continue;
+                // Plan 22 §2: the glass exceptions the source documents (`placementColliders`).
+                // A 门 fitted into a curtain shares its tile and plane by design, an edge-decor
+                // piece backed against a curtain steps clear of it, and two floor-standing
+                // curtains that cross on one tile are one joined corner rather than a collision.
+                if (GlassDoorShare(candidate, placed)) continue;
+                if (EdgeDecorGlassShare(candidate, placed)) continue;
+                if (string.Equals(candidate.Type, "glass", StringComparison.Ordinal) &&
+                    string.Equals(placed.Type, "glass", StringComparison.Ordinal) &&
+                    GlassCrossTile(candidate, placed)) continue;
                 if (candidateSticker && (placed.Type == "platform-edge" ||
                     (placed.Type == "fence" && string.Equals(placed.Config.Text("variant"), "gate", StringComparison.Ordinal)))) continue;
                 if (IsFloorSticker(placed.Type) && (candidate.Type == "platform-edge" ||
@@ -780,6 +913,69 @@ namespace Metro.Build {
         }
 
         static bool IsFloorSticker(string type) => type == "tactile" || type == "floor-mark";
+
+        /// <summary>`isEdgeDecor`: floor decor drawn against its tile's trailing edge.</summary>
+        static bool IsEdgeDecor(string type) =>
+            type == "bin" || type == "extinguisher" || type == "shelf" || type == "tvm" || type == "vending";
+
+        /// <summary>`curtainDoorShare`: a 门 fitted into a floor-standing 玻璃幕墙.</summary>
+        static bool GlassDoorShare(StationModuleRecord a, StationModuleRecord b) {
+            var glass = string.Equals(a.Type, "glass", StringComparison.Ordinal) ? a
+                : string.Equals(b.Type, "glass", StringComparison.Ordinal) ? b : null;
+            var door = string.Equals(a.Type, "door", StringComparison.Ordinal) ? a
+                : string.Equals(b.Type, "door", StringComparison.Ordinal) ? b : null;
+            if (glass == null || door == null) return false;
+            if (glass.Z != door.Z) return false;
+            if (StationFootprints.NormRot(glass.Rotation) != StationFootprints.NormRot(door.Rotation)) return false;
+            if (!StationFootprints.GlassStandsOnFloor(glass.Config)) return false;
+            var wall = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var cell in RunCells(glass)) wall.Add(cell.X + "," + cell.Y);
+            foreach (var cell in RunCells(door))
+                if (!wall.Contains(cell.X + "," + cell.Y)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// `edgeDecorCurtainShare`: a floor decor piece backed against a floor-standing curtain in
+        /// the same tile — same storey, opposite wall sides, overlapping the curtain's run.
+        /// </summary>
+        static bool EdgeDecorGlassShare(StationModuleRecord a, StationModuleRecord b) {
+            var glass = string.Equals(a.Type, "glass", StringComparison.Ordinal) ? a
+                : string.Equals(b.Type, "glass", StringComparison.Ordinal) ? b : null;
+            var decor = !string.Equals(a.Type, "glass", StringComparison.Ordinal) && IsEdgeDecor(a.Type) ? a
+                : !string.Equals(b.Type, "glass", StringComparison.Ordinal) && IsEdgeDecor(b.Type) ? b : null;
+            if (glass == null || decor == null) return false;
+            if (glass.Z != decor.Z) return false;
+            if (!StationFootprints.GlassStandsOnFloor(glass.Config)) return false;
+            StationFootprints.WallSide(glass.Rotation, out var gx, out var gy);
+            StationFootprints.WallSide(decor.Rotation, out var dx, out var dy);
+            if (dx != -gx || dy != -gy) return false;
+            var curtain = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var cell in RunCells(glass)) curtain.Add(cell.X + "," + cell.Y);
+            foreach (var cell in CurtainFootprint(decor))
+                if (curtain.Contains(cell.X + "," + cell.Y)) return true;
+            return false;
+        }
+
+        /// <summary>`moduleFootprint` for the edge-decor families (a run or the anchor cell).</summary>
+        static IReadOnlyList<StationPoint> CurtainFootprint(StationModuleRecord record) {
+            try { return StationFootprints.Footprint(record); } catch (NotSupportedException) {
+                return new[] { record.Point };
+            }
+        }
+
+        /// <summary>`curtainShareCrossTile`: two floor-standing curtains on opposite sides of one tile.</summary>
+        static bool GlassCrossTile(StationModuleRecord a, StationModuleRecord b) {
+            if (a == null || b == null) return false;
+            if (a.Z != b.Z || StationFootprints.NormRot(a.Rotation) == StationFootprints.NormRot(b.Rotation)) return false;
+            if (!StationFootprints.GlassStandsOnFloor(a.Config) || !StationFootprints.GlassStandsOnFloor(b.Config)) return false;
+            var cellsA = RunCells(a);
+            var cellsB = RunCells(b);
+            foreach (var cell in cellsA)
+                foreach (var other in cellsB)
+                    if (cell.X == other.X && cell.Y == other.Y) return true;
+            return false;
+        }
 
         /// <summary>Port of <c>isOutdoorSurface</c>: the paving modules a piece stands on.</summary>
         static bool IsOutdoorSurface(string type) => type == "sidewalk" || type == "lawn";

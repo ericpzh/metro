@@ -118,6 +118,10 @@ namespace Metro.App {
             StationRenderers.Add(new Metro.App.Views.StationStreetModuleRenderer());
             StationRenderers.Add(new Metro.App.Views.StationEquipmentModuleRenderer());
             StationRenderers.Add(new Metro.App.Views.StationDisplayModuleRenderer());
+            // Plan 22 §1: the two structure families generated from their saved dimensions. The
+            // live registry had no owner for `pillar` or `roof`, so Tanwei's 73 pillars (11 of
+            // them bridge piers) and 308 roofs reported `no-renderer` and drew nothing.
+            StationRenderers.Add(new Metro.App.Views.StationStructureModuleRenderer());
             StationRenderers.Add(new Metro.App.Views.StationGridRenderer());
             StationRenderers.Add(new Metro.App.Views.StationOverlayRenderer());
             StationFrameSinks.Add(new RoadFrameSink());

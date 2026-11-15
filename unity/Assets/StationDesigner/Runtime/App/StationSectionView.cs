@@ -925,7 +925,7 @@ namespace Metro.App {
                 // A structural run that happens to cross the datum keeps its geometry.
                 case "track": case "platform-edge": case "psd": case "psd-end":
                 case "stair": case "escalator": case "lift": case "walkway":
-                case "glass": case "door": case "roof": case "pillar": return false;
+                case "glass": case "door": case "roof": case "pillar": case "hanger": return false;
             }
             return module.Z == GroundZ;
         }

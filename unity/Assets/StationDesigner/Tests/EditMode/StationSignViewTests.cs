@@ -1157,6 +1157,133 @@ public class StationSignViewTests {
         StringAssert.Contains("plate 1.39x0.34", report);
     }
 
+    static string TanweiPath => Path.Combine(Application.dataPath, "StationDesigner/Demos/tanwei.metro.json");
+
+    [Test] public void TanweiSignsResolveOverheadDecksSolidsHangersAndHigherBackingWithoutDoubleLift() {
+        var result = StationDocumentReader.ReadFile(TanweiPath);
+        Assert.IsNotNull(result.Document, "Tanwei document must load");
+        var catalogue = AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath);
+        Assert.IsNotNull(catalogue, "runtime catalogue asset missing");
+        var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Texture");
+        StationSignSignage.SendHook = _ => { };
+        var root = new GameObject("tanwei signs world");
+        created.Add(root);
+        var structureRenderer = new Metro.App.Views.StationStructureModuleRenderer();
+        var signRenderer = new StationSignRenderer();
+        var world = new StationWorldView(root.transform, "tanwei signs test",
+            new IStationViewRenderer[] { structureRenderer, signRenderer },
+            new StationViewAssets { Catalogue = catalogue, Shader = shader });
+        try {
+            world.Build(result.Document, result.Index);
+            world.Activate();
+
+            var mounts = StationCeilingMounts.For(result.Document);
+            var ceilingSigns = result.Document.Modules
+                .Where(m => m.Type == "sign" && m.Config.Text("mount") != "wall")
+                .ToArray();
+            Assert.AreEqual(46, ceilingSigns.Length, "Tanwei carries 46 ceiling signs");
+
+            int authoredZeroCount = 0;
+            int overheadZeroCount = 0;
+            foreach (var sign in ceilingSigns) {
+                var resolved = mounts.Resolve(sign.Facts, StationCeilingMounts.FallbackFor(sign.Facts, result.Document.StoreyHeight));
+                if (Math.Abs(resolved.Local) >= 1e-6) continue;
+                if (sign.CeilingAnchored) authoredZeroCount++;
+                else overheadZeroCount++;
+            }
+            Assert.AreEqual(18, authoredZeroCount, "18 ceiling signs carry an authored ceilingAnchored flag");
+            Assert.AreEqual(17, overheadZeroCount, "17 unanchored ceiling signs sit directly below a solid or rail deck (4 m delta fixed)");
+
+            // All 6 z = 11 ceiling signs hang from an authored roof hanger at 16.000 m (15.350 m board centre).
+            var z11Signs = ceilingSigns.Where(s => s.Z == 11).ToArray();
+            Assert.AreEqual(6, z11Signs.Length);
+            foreach (var sign in z11Signs) {
+                var resolved = mounts.Resolve(sign.Facts, 4);
+                Assert.AreEqual(StationCeilingMounts.SupportKind.HangerRoof, resolved.Support, sign.Id);
+                Assert.AreEqual(4d, resolved.Local, 1e-9, sign.Id);
+                Assert.AreEqual(16d, resolved.Underside, 1e-9, sign.Id);
+                var view = signRenderer.View(sign.Id);
+                Assert.IsNotNull(view, sign.Id + " view");
+                float docBoardCentreZ = StationCoordinates.WorldToDocument(view.transform.TransformPoint(new Vector3(0f, view.PanelCentreZ, 0f))).z;
+                Assert.AreEqual(15.35f, docBoardCentreZ, 1e-3f, sign.Id + " board centre without double uplift");
+            }
+
+            // Probe 1: sign-ceiling-254 meets hanger-roof-249's crossbar at 16.000 m.
+            Assert.IsTrue(world.TryGetModule("hanger-roof-249", out var hanger249));
+            Assert.IsTrue(world.TryGetModule("sign-ceiling-254", out var sign254Record));
+            Assert.AreEqual(16d, sign254Record.Bounds.Z1, .03, "sign-ceiling-254 rod attachment meets 16 m crossbar");
+            Assert.AreEqual(15.8d, hanger249.Bounds.Z0, .02, "hanger-roof-249 crossbar underside");
+
+            // Probe 2: sign-ceiling-1609 at (1, 7, 9) hangs from track-3's deck underside at 10.0 m -> 9.35 m board centre.
+            var sign1609 = ceilingSigns.First(s => s.Id == "sign-ceiling-1609");
+            var mount1609 = mounts.Resolve(sign1609.Facts, 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.OverheadTrackDeck, mount1609.Support);
+            Assert.AreEqual(0d, mount1609.Local, 1e-9);
+            Assert.AreEqual(10d, mount1609.Underside, 1e-9);
+            var view1609 = signRenderer.View("sign-ceiling-1609");
+            float centre1609 = StationCoordinates.WorldToDocument(view1609.transform.TransformPoint(new Vector3(0f, view1609.PanelCentreZ, 0f))).z;
+            Assert.AreEqual(9.35f, centre1609, 1e-3f, "sign-ceiling-1609 tucks under track-3 deck instead of floating at 13.35 m");
+            Assert.IsTrue(world.TryGetModule("sign-ceiling-1609", out var rec1609));
+            Assert.AreEqual(10d, rec1609.Bounds.Z1, .03);
+
+            // Probe 3: sign-ceiling-1608 at (10, 4, 10) hangs from overhead solid at 11.0 m -> 10.35 m board centre.
+            var sign1608 = ceilingSigns.First(s => s.Id == "sign-ceiling-1608");
+            var mount1608 = mounts.Resolve(sign1608.Facts, 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.OverheadSolid, mount1608.Support);
+            Assert.AreEqual(0d, mount1608.Local, 1e-9);
+            var view1608 = signRenderer.View("sign-ceiling-1608");
+            float centre1608 = StationCoordinates.WorldToDocument(view1608.transform.TransformPoint(new Vector3(0f, view1608.PanelCentreZ, 0f))).z;
+            Assert.AreEqual(10.35f, centre1608, 1e-3f);
+
+            // Probe 4: sign-ceiling-994 at (44, 4, 6) resolves real higher solid backing at 11.0 m -> local 4.0 m, no fallback diagnostic.
+            var sign994 = ceilingSigns.First(s => s.Id == "sign-ceiling-994");
+            var mount994 = mounts.Resolve(sign994.Facts, 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.CeilingSolid, mount994.Support);
+            Assert.AreEqual(4d, mount994.Local, 1e-9);
+            Assert.AreEqual(11d, mount994.Underside, 1e-9);
+            var view994 = signRenderer.View("sign-ceiling-994");
+            float centre994 = StationCoordinates.WorldToDocument(view994.transform.TransformPoint(new Vector3(0f, view994.PanelCentreZ, 0f))).z;
+            Assert.AreEqual(10.35f, centre994, 1e-3f);
+
+            var fallbackIds = new HashSet<string>(
+                world.Unresolved.Where(d => d.Code == "sign-hang").Select(d => d.RecordId),
+                StringComparer.Ordinal);
+            foreach (var resolvedId in new[] { "sign-ceiling-254", "sign-ceiling-1609", "sign-ceiling-1608", "sign-ceiling-994" }) {
+                Assert.IsFalse(fallbackIds.Contains(resolvedId), resolvedId + " resolved real backing, not fallback");
+            }
+        } finally {
+            world.Dispose();
+        }
+    }
+
+    [Test] public void PanelBoundsFollowsRotatedBoardsAndBoothOffsetsInDocumentAxes() {
+        var config = new ModuleConfig(new Dictionary<string, string> {
+            { "mount", "wall" },
+            { "boothId", "booth-1" },
+            { "boothOffset", "{\"x\":0.25,\"y\":-0.4}" },
+            { "front", "[{\"id\":\"a1\",\"kind\":\"arrow\",\"arrow\":\"left\",\"x\":0.2,\"y\":0.2,\"scale\":1,\"side\":\"both\"}," +
+                       "{\"id\":\"t1\",\"kind\":\"text\",\"text\":\"五号线文冲方向\",\"x\":1.1,\"y\":0.2,\"scale\":1,\"side\":\"both\"}]" },
+        });
+        var facts = new ModuleFacts {
+            Id = "rotated-booth-sign", Type = "sign", X = 10, Y = 20, Z = 6, Rotation = 1, Config = config,
+        };
+        var record = new StationModuleRecord("rotated-booth-sign", "sign", 10, 20, 6, 1, 1, 1, 1, false,
+            null, null, Array.Empty<string>(), "{}", facts);
+        var request = StationSignViews.RequestFor(record, Array.Empty<StationSignLine>());
+        var view = Build(request);
+        view.transform.SetPositionAndRotation(StationSignViews.Placement(record), ModulePlacement.Rotation(record.Rotation));
+
+        var box = StationSignRenderer.PanelBounds(view);
+        Assert.Greater(view.Panel.x, 1.5f, "board is wider than 1.5 m along its own face");
+        // At rot = 1 (quarter turn), the board's width runs along document Y while X is thin.
+        Assert.AreEqual(view.Panel.x, box.Depth, .02, "document Y span matches rotated panel width");
+        Assert.Less(box.Width, .25, "document X span is the thin wall housing, not the unrotated panel width");
+        // Centre Y reflects cell centre (20.5) plus boothOffset.y (-0.4) = 20.1.
+        Assert.AreEqual(20.5 - 0.4, (box.Y0 + box.Y1) * 0.5, .02, "document Y centre includes boothOffset.y");
+        // Wall board shifts toward local -z (`RotateLocal(1, 0, -0.5)` -> `+0.5` in document X) plus boothOffset.x (+0.25).
+        Assert.Greater((box.X0 + box.X1) * 0.5, 10.5 + 0.25 + 0.35, "document X centre includes wall step and boothOffset.x");
+    }
+
     /* -------------------------------------------------------------- helpers */
 
     static Transform[] Parts(StationSignView view, string name) =>

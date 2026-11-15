@@ -453,6 +453,9 @@ public class StationExitSnappingTests {
                 Assert.IsNotNull(pad, id + " drew no composed pad");
                 var padMesh = pad.sharedMesh;
                 var top = PadTopTriangles(padMesh, pad.transform, tops);
+                bool IsEscalatorTopLanding(double lx, double ly) =>
+                    openings.Runs.Any(run => run.Escalator &&
+                        Math.Abs(lx - run.Column) < 1e-6 && Math.Abs(ly - run.Row) < 1e-6);
 
                 // Every cell of the plate, judged by the composed mesh's own triangle: the
                 // geometry decides the expectation, so a coverage bug cannot agree with itself.
@@ -468,6 +471,15 @@ public class StationExitSnappingTests {
                             where + " first surface is '" + hit.Name + "' at " + hit.Z + " not the composed pad top");
                         Assert.AreEqual("exit pad strips", hit.Name,
                             where + " must be floored by the composed strips, not '" + hit.Name + "'");
+                    } else if (IsEscalatorTopLanding(cell.LX, cell.LY)) {
+                        // `buildExit` + `exitLandingHeight`: escalators own their top landing deck lifted
+                        // to `tops` (`z + 1 + EXIT_BASE_HEIGHT`), while the exit's plinth/ground/pavers stay open.
+                        Assert.IsTrue(hit.Found, where + " escalator top landing hit nothing");
+                        StringAssert.StartsWith("escalator-", hit.Owner,
+                            where + " escalator top landing must belong to the escalator, not '" + hit.Name + "' (" + hit.Owner + ")");
+                        Assert.AreNotEqual("exit pad strips", hit.Name, where + " is an escalator deck, not a concrete strip");
+                        Assert.GreaterOrEqual(hit.Z, tops - .03f, where + " escalator top landing was not lifted to the exit plinth");
+                        Assert.LessOrEqual(hit.Z, tops + .06f, where + " escalator top landing rose above step/comb height");
                     } else {
                         Assert.IsTrue(hit.Found, where + " is open but the ray hit nothing at all");
                         Assert.Less(hit.Z, tops - 1e-3f,
@@ -477,7 +489,8 @@ public class StationExitSnappingTests {
                 }
 
                 // The source's own predicate: a wellway cell that no landing floors must be
-                // open, and B's two escalator corridors are exactly that.
+                // open, and B's two escalator corridors are exactly that (excluding the 1 m
+                // upper landing cell where each lifted escalator owns its own flat deck).
                 var openWells = openings.WellwayCells()
                     .Where(cell => !CoversTopFace(top, cell.X + .5f, cell.Y + .5f)).ToList();
                 int expectedOpen = openings.LandingPads.Count == 0 ? openings.WellwayCells().Count : -1;
@@ -485,8 +498,13 @@ public class StationExitSnappingTests {
                     Assert.AreEqual(expectedOpen, openWells.Count,
                         id + " opens one wellway cell per run column");
                 }
-                Assert.Greater(openWells.Count, 0, id + " exposes at least one open corridor cell");
-                foreach (var cell in openWells) {
+                var plateByKey = PlateCells(exit, openings).ToDictionary(c => (c.X, c.Y));
+                var descendingWells = openWells
+                    .Where(cell => !plateByKey.TryGetValue((cell.X, cell.Y), out var local) ||
+                        !IsEscalatorTopLanding(local.LX, local.LY))
+                    .ToList();
+                Assert.Greater(descendingWells.Count, 0, id + " exposes at least one open corridor cell");
+                foreach (var cell in descendingWells) {
                     var hit = FirstSurface(world, cell.X + .5f, cell.Y + .5f, exit.Facts.Z + 8f, exit.Facts.Z - 14f);
                     Assert.IsTrue(hit.Found, id + " wellway " + cell.X + "," + cell.Y + " hit nothing below");
                     Assert.Less(hit.Z, tops - 1e-3f,

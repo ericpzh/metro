@@ -175,6 +175,11 @@ namespace Metro.View {
                 case "pillar": return new ModuleVisual(PillarRun, ModuleViewKind.Generated, "");
                 case "roof": {
                     var variant = cfg.Text("variant");
+                    // The save keeps the source's own variant names (`sim/types.ts`), and the
+                    // promoted catalogue row for the tapered truss is `roof-tapered`: the saved
+                    // `tapered-truss` used to build the key `roof-tapered-truss`, miss, and fall
+                    // back to the flat `roof` tile, which is a 1 m ceiling plate (plan 22 §1).
+                    if (variant == "tapered-truss") return Key("roof-tapered", "tapered-truss-alias");
                     return First(variant.Length > 0 ? "roof-" + variant : "", "roof");
                 }
                 case "court": {
@@ -185,6 +190,11 @@ namespace Metro.View {
                 case "cubicle": return Key(string.Equals(cfg.Text("variant"), "toilet", StringComparison.Ordinal) ? "cubicle-toilet" : "cubicle");
                 case "psd-end": return Key(string.Equals(cfg.Text("variant"), "cover", StringComparison.Ordinal) ? "psd-end-cover" : "psd-end");
                 case "stair": {
+                    // A 楼梯块 is its own promoted piece (`StairBlock.prefab`, a solid 1 m cube of
+                    // four treads), not a flight with a style: the saved `cfg.style` of a block is
+                    // empty, so falling through to the style table resolved it to `stair-straight`
+                    // and instanced a full stair run in a one-metre cell (plan 22 §3).
+                    if (cfg.Bool("block")) return Key("stair-block", "block");
                     var style = cfg.Text("style");
                     return First(style.Length > 0 ? "stair-" + style : "", "stair-straight");
                 }

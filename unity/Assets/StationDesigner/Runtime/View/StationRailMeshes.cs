@@ -4,6 +4,39 @@ using Metro.Build;
 using UnityEngine;
 
 namespace Metro.View {
+    /// <summary>
+    /// The bridge options of one saved track run (`TrackModel.ts`'s `mod.cfg.bridge*`
+    /// fields). A bridge run keeps the running gear on the ordinary rail datum but
+    /// replaces the dug trench with a raised deck, edge shoulders and a barrier or
+    /// railing along each edge; the deck's shoulders step back around any catenary
+    /// gantry post, including one a neighbouring run owns across the module seam.
+    /// </summary>
+    public sealed class RailBridgeOptions {
+        /// <summary>`cfg.bridgeRailing`: `<c>railing</c>`, `<c>sound-barrier</c>` or `<c>sound-barrier-half</c>`.</summary>
+        public string Railing = "railing";
+        /// <summary>`STOCK[line.stock].width`, for the screen-door centre-line offset.</summary>
+        public float VehicleWidth;
+        /// <summary>
+        /// Upright positions a **neighbouring** run owns, in this run's local frame
+        /// (`neighboringGantryPosts`): the deck's shoulder and the barrier stop at their faces.
+        /// </summary>
+        public IReadOnlyList<Vector2> NeighborPosts = Array.Empty<Vector2>();
+
+        public bool SoundBarrier => string.Equals(Railing, "sound-barrier", StringComparison.Ordinal) ||
+                                    string.Equals(Railing, "sound-barrier-half", StringComparison.Ordinal);
+
+        /// <summary>`bridgeBarrierTop`: 2 m half-height, 3.5 m full, 1.29 m railing.</summary>
+        public float BarrierTop => string.Equals(Railing, "sound-barrier-half", StringComparison.Ordinal) ? 2f
+            : string.Equals(Railing, "sound-barrier", StringComparison.Ordinal) ? BridgeBarrierTop : BridgeRailingTop;
+
+        /// <summary>`BRIDGE_BARRIER_TOP`.</summary>
+        public const float BridgeBarrierTop = 3.5f;
+        /// <summary>`bridgeBarrierTop`'s railing case.</summary>
+        public const float BridgeRailingTop = 1.29f;
+        /// <summary>`BRIDGE_DECK_DEPTH`: one metre of structure below the rail bed.</summary>
+        public const float DeckDepth = 1f;
+    }
+
     /// <summary>One material bin of generated track geometry: vertices and triangles only.</summary>
     public sealed class RailMeshBin {
         public readonly List<Vector3> Vertices = new List<Vector3>();
@@ -95,30 +128,48 @@ namespace Metro.View {
         public int ThirdRailSide;
         public float ThirdRailLocalY;
         public bool Catenary;
+        /// <summary>Non-null for a `cfg.bridge` run: the deck, shoulders and barriers it draws.</summary>
+        public RailBridgeOptions Bridge;
+        /// <summary>The deck's barrier line offset across the bed (`bridgeSupportOffset`).</summary>
+        public float BridgeSupportOffset;
+        /// <summary>The deck's full across extent (`bridgeSpan`), never narrower than the bed.</summary>
+        public float BridgeSpan;
         /// <summary>One line per part the port emits, for diagnostics and tests.</summary>
         public readonly List<string> Notes = new List<string>();
 
         public readonly RailMeshBin Bed = new RailMeshBin();
+        /// <summary>The raised deck and its edge shoulders; the source's `bridgeFinish` surface.</summary>
+        public readonly RailMeshBin Deck = new RailMeshBin();
         public readonly RailMeshBin Steel = new RailMeshBin();
         public readonly RailMeshBin Dark = new RailMeshBin();
         public readonly RailMeshBin Power = new RailMeshBin();
         public readonly RailMeshBin Insulator = new RailMeshBin();
+        /// <summary>The sound barrier's opaque lower panels (`mats.white` in the source).</summary>
+        public readonly RailMeshBin Panel = new RailMeshBin();
 
         float cx;   // local x of the run centre
         float cy;   // local y of the bed centre
+
+        bool IsBridge => Bridge != null;
 
         /// <summary>
         /// Build one run. <paramref name="width"/>/<paramref name="depth"/> are the saved
         /// module extents in cells; <paramref name="thirdRailSide"/> is the local +1/−1
         /// edge the conductor rail takes (ignored for an overhead run).
         /// </summary>
-        public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary) {
+        public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary) =>
+            Build(width, depth, scale, thirdRailSide, catenary, null);
+
+        /// <summary>Build one run, optionally as a bridge (see <see cref="RailBridgeOptions"/>).</summary>
+        public static RailRunGeometry Build(float width, float depth, float scale, int thirdRailSide, bool catenary,
+            RailBridgeOptions bridge) {
             var run = new RailRunGeometry {
                 Width = Math.Max(1f, width),
                 Depth = Math.Max(1f, depth),
                 Scale = scale > 0f ? scale : StationRailGeometry.DefaultScale,
                 ThirdRailSide = thirdRailSide,
                 Catenary = catenary,
+                Bridge = bridge,
             };
             run.BuildParts();
             return run;
@@ -135,10 +186,22 @@ namespace Metro.View {
             // The trench: a full dug course with its top at bedTop, the raised centre slab,
             // and the two trench walls that close the exposed block sides. Unity local axes
             // are (along, up, across), so a source (x, across, up) becomes (x, up, across).
-            Box(Bed, V(cx, cy, (BedTop - 1f) * .5f), S(w, d, BedTop + 1f));
+            //
+            // A **bridge** has no trench: the same raising is a deck that hangs a metre below
+            // the rail bed and carries a shoulder and a barrier/railing along each edge
+            // (`TrackModel.ts:buildTrack`'s `cfg.bridge` branch). Without it the rails were
+            // drawn in a dug bed while the web drew the raised bridge deck the screenshots
+            // show, and the whole deck and both barriers were missing (plan 22 §1).
+            if (!IsBridge) {
+                Box(Bed, V(cx, cy, (BedTop - 1f) * .5f), S(w, d, BedTop + 1f));
+            }
             Box(Bed, V(cx, cy, BedTop + .02f), S(w, Mathf.Max(.8f, d - .52f), .04f));
-            for (int side = -1; side <= 1; side += 2)
-                Box(Bed, V(cx, cy + side * (d * .5f - .025f), BedTop * .5f), S(w, .05f, -BedTop));
+            if (IsBridge) {
+                BuildBridgeDeck(w, d);
+            } else {
+                for (int side = -1; side <= 1; side += 2)
+                    Box(Bed, V(cx, cy + side * (d * .5f - .025f), BedTop * .5f), S(w, .05f, -BedTop));
+            }
             Notes.Add("track-bed top=" + BedTop.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture));
 
             // Hardware is scaled and lifted as one group (the source's `hardware` node), so a
@@ -198,6 +261,155 @@ namespace Metro.View {
                 Notes.Add("track-catenary:masts+contact-wire (simplified gantry lookup)");
             } else {
                 BuildThirdRail();
+            }
+        }
+
+        /* --------------------------------------------------------- bridge deck */
+
+        /// <summary>
+        /// The raised deck, its two shoulders and the barrier/railing along each edge — the
+        /// port of `TrackModel.ts`'s `cfg.bridge` branch (`buildBridgeEdgeConcrete`,
+        /// `buildBridgeNoiseBarrier`, `buildBridgeRailing`).
+        ///
+        /// The deck hangs `BRIDGE_DECK_DEPTH` (1 m) below the rail bed and spans the screen-door
+        /// centre lines (`bridgeSpan`); each shoulder is the concrete step between the bed edge
+        /// and the barrier line, raised to the barrier's footing. Both stop at any catenary
+        /// gantry upright, including one a neighbouring run owns across the module seam.
+        /// </summary>
+        void BuildBridgeDeck(float w, float d) {
+            var options = Bridge;
+            float support = StationRailGeometry.TrackSideFixtureOffset(d, options.VehicleWidth);
+            BridgeSupportOffset = support;
+            float span = Mathf.Max(d, support * 2f + .12f);
+            BridgeSpan = span;
+            float shoulderDepth = (span - d) * .5f;
+            bool sound = options.SoundBarrier;
+            // The deck slab first: the shoulders and barriers stand on it.
+            Box(Deck, V(cx, cy, (BedTop - RailBridgeOptions.DeckDepth) * .5f),
+                S(w, span, RailBridgeOptions.DeckDepth + BedTop));
+            // The shoulder rises to the barrier's own footing: 0.5 m under a noise barrier,
+            // 0.55 m under a railing (`buildTrack`).
+            float shoulderTop = sound ? .5f : .55f;
+            for (int side = -1; side <= 1; side += 2) {
+                float y = cy + side * support;
+                float shoulderY = cy + side * (d * .5f + shoulderDepth * .5f);
+                var ownPostXs = OwnGantryPostXs(y, support);
+                var postXs = new List<float>(ownPostXs);
+                AppendNeighborPostXs(postXs, y);
+                postXs.Sort();
+                AppendBridgeShoulder(w, shoulderY, shoulderDepth, shoulderTop, postXs);
+                if (sound) BuildBridgeNoiseBarrier(w, y, options.BarrierTop, ownPostXs.Count > 0);
+                else BuildBridgeRailing(w, y, ownPostXs.Count > 0);
+            }
+            Notes.Add("track-bridge span=" + span.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                " support=" + support.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) +
+                " railing=" + options.Railing +
+                " neighborPosts=" + options.NeighborPosts.Count);
+        }
+
+        /// <summary>`buildBridgeEdgeConcrete`: the shoulder step, split around every upright.</summary>
+        void AppendBridgeShoulder(float w, float y, float depth, float top, List<float> postXs) {
+            const float halfPost = .06f;
+            float end = w - .5f;
+            float start = -.5f;
+            foreach (var x in postXs) {
+                if (x + halfPost <= start || x - halfPost >= end) continue;
+                Section(start, Math.Min(end, x - halfPost));
+                start = Math.Min(end, Math.Max(start, x + halfPost));
+            }
+            Section(start, end);
+            void Section(float lo, float hi) {
+                if (hi <= lo) return;
+                Box(Deck, V((lo + hi) * .5f, y, (top + BedTop) * .5f), S(hi - lo, depth, top - BedTop));
+            }
+        }
+
+        /// <summary>
+        /// `buildBridgeNoiseBarrier`: a glazed barrier on opaque lower panels between steel
+        /// posts every two metres — a half-height one tops out at 2 m and the full one at 3.5 m.
+        /// Panels and rails stop at every post, and never share a face with it.
+        /// </summary>
+        void BuildBridgeNoiseBarrier(float w, float y, float top, bool gantryOwnsUprights) {
+            const float baseZ = .5f;
+            const float halfPost = .06f;
+            const float railHeight = .08f;
+            const float glazing = .003f;
+            float height = top - baseZ;
+            float middle = baseZ + height * 2f / 3f;
+            var externalCuts = new List<Vector2>();
+            foreach (var post in Bridge.NeighborPosts)
+                if (Mathf.Abs(post.y - y) < halfPost * 2f - 1e-6f)
+                    externalCuts.Add(new Vector2(post.x - halfPost, post.x + halfPost));
+            var cuts = new List<Vector2>(externalCuts);
+            for (float x = 0f; x < w; x += 2f) {
+                bool gantry = gantryOwnsUprights && Mathf.Approximately(Mathf.Repeat(x, 8f), 0f);
+                bool inside = false;
+                for (int i = 0; i < externalCuts.Count; i++) {
+                    var cut = externalCuts[i];
+                    if (cut.x < x + halfPost && cut.y > x - halfPost) { inside = true; break; }
+                }
+                if (!gantry && inside) continue;
+                cuts.Add(new Vector2(x - halfPost, x + halfPost));
+                // The gantry supplies the upright at this position; every surrounding frame and
+                // panel stops at its faces rather than passing through it.
+                if (!gantry)
+                    Box(Dark, V(x, y, baseZ + height * .5f), S(halfPost * 2f, halfPost * 2f, height));
+            }
+            cuts.Sort((a, b) => a.x.CompareTo(b.x));
+            float start = -.5f;
+            float end = w - .5f;
+            for (int i = 0; i < cuts.Count; i++) {
+                var cut = cuts[i];
+                if (cut.y <= start || cut.x >= end) continue;
+                Bay(start, Math.Min(end, cut.x));
+                start = Math.Min(end, Math.Max(start, cut.y));
+            }
+            Bay(start, end);
+            void Bay(float lo, float hi) {
+                if (hi <= lo) return;
+                float x = (lo + hi) * .5f;
+                float width = hi - lo;
+                float lowerTop = middle - railHeight * .5f;
+                float glassBottom = middle + railHeight * .5f + glazing;
+                float glassTop = top - railHeight - glazing;
+                Box(Panel, V(x, y, (baseZ + lowerTop) * .5f), S(width, .08f, lowerTop - baseZ));
+                if (width > glazing * 2f)
+                    Box(Steel, V(x, y, (glassBottom + glassTop) * .5f), S(width - glazing * 2f, .08f, glassTop - glassBottom));
+                Box(Steel, V(x, y, middle), S(width, halfPost * 2f, railHeight));
+                Box(Steel, V(x, y, top - railHeight * .5f), S(width, halfPost * 2f, railHeight));
+            }
+        }
+
+        /// <summary>`buildBridgeRailing`: a top rail at 1.25 m on posts every two metres.</summary>
+        void BuildBridgeRailing(float w, float y, bool gantryOwnsUprights) {
+            Box(Steel, V((w - 1f) * .5f, y, 1.25f), S(w, .08f, .08f));
+            for (float x = 0f; x < w; x += 2f) {
+                if (gantryOwnsUprights && Mathf.Approximately(Mathf.Repeat(x, 8f), 0f)) continue;
+                Box(Steel, V(x, y, .9f), S(.08f, .08f, .7f));
+            }
+        }
+
+        /// <summary>
+        /// The gantry uprights this run owns on one barrier line (`trackGantryLayout`): a bridge
+        /// catenary run stands one every eight metres, on the conductor-rail side only.
+        /// </summary>
+        List<float> OwnGantryPostXs(float y, float support) {
+            var xs = new List<float>();
+            if (!Catenary) return xs;
+            int side = ThirdRailSide == 0 ? -1 : ThirdRailSide;
+            float gantryY = cy + side * support;
+            if (Mathf.Abs(gantryY - y) > .12f) return xs;
+            for (float x = 0f; x < Width; x += 8f) xs.Add(x);
+            return xs;
+        }
+
+        /// <summary>`neighboringGantryPosts`' x list for one barrier line.</summary>
+        void AppendNeighborPostXs(List<float> xs, float y) {
+            if (Bridge.NeighborPosts == null || Bridge.NeighborPosts.Count == 0) return;
+            for (int i = 0; i < Bridge.NeighborPosts.Count; i++) {
+                var post = Bridge.NeighborPosts[i];
+                if (Mathf.Abs(post.y - y) >= .12f - 1e-6f) continue;
+                xs.Add(post.x);
             }
         }
 

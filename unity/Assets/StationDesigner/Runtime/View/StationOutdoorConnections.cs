@@ -45,6 +45,8 @@ namespace Metro.View {
         public const double EscalatorBand = .68;
         /// <summary>`ESCALATOR_BALUSTRADE`: the 窄 piece's overall body width.</summary>
         public const double EscalatorBalustrade = .82;
+        /// <summary>`ESCALATOR_SKIRT_INSET` (`sim/constants.ts`).</summary>
+        public const double EscalatorSkirtInset = .08;
         /// <summary>`ESCALATOR_CASING_PROUD` (`sim/constants.ts`).</summary>
         public const double EscalatorCasingProud = .08;
         /// <summary>`STAIR_RAIL_PROUD` (`sim/constants.ts`).</summary>
@@ -66,6 +68,15 @@ namespace Metro.View {
 
         /// <summary>Port of `escalatorBodyWidth`: the balustrade plus one metre per extra lane.</summary>
         public static double EscalatorBodyWidth(ModuleFacts m) => EscalatorBalustrade + (EscalatorWidth(m) - 1);
+
+        /// <summary>Port of `escalatorBandWidth`: clear moving step band between skirts.</summary>
+        public static double EscalatorBandWidth(ModuleFacts m) => EscalatorBand + (EscalatorWidth(m) - 1) - 2 * EscalatorSkirtInset;
+
+        /// <summary>Port of `escalatorBalustradeWidth`: clear glass spacing inside the casing.</summary>
+        public static double EscalatorBalustradeWidth(ModuleFacts m) => EscalatorBodyWidth(m) - 2 * EscalatorSkirtInset;
+
+        /// <summary>Port of `stairTreadTrim` (`sim/stairs.ts`).</summary>
+        public static double StairTreadTrim(double run) => Math.Min(.5, Math.Max(0, (run - .4) * .5));
 
         /// <summary>Port of `escalatorRun`: the lane-1 endpoints shifted to the run's centre.</summary>
         public static void EscalatorRun(ModuleFacts m, out StationRunPoint from, out StationRunPoint to) {
@@ -247,8 +258,10 @@ namespace Metro.View {
                 double grid = StationOnGrid(StairTreadWidth(m));
                 if (grid == 0) return slides;
                 var f = flights[0];
-                double dx = f.To.X - f.From.X;
-                double dy = f.To.Y - f.From.Y;
+                var lower = f.From.Z <= f.To.Z ? f.From : f.To;
+                var upper = f.From.Z <= f.To.Z ? f.To : f.From;
+                double dx = upper.X - lower.X;
+                double dy = upper.Y - lower.Y;
                 double run = Math.Sqrt(Sq(dx) + Sq(dy));
                 if (run < 1e-6) return slides;
                 slides[0] = new StationRunPoint(Z(dy / run * grid), Z(-dx / run * grid), 0);

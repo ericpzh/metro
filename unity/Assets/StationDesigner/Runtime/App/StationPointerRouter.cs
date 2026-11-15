@@ -359,6 +359,11 @@ namespace Metro.App {
                 Rotation = carried != null ? carriedRotation : StationToolSelection.SettingInt("rotation", 0),
                 Hit = PlacementHit(hit),
                 TargetModuleId = hit.HasModule ? hit.Module.Id : "",
+                // Plan 22 §2: the point the ray met on the picked module, kept separately from the
+                // placement cell. The door-to-curtain snap needs it to know which run cell of the
+                // curtain the pointer is over; `Hit` prefers the cell *behind* the model.
+                ModulePoint = hit.HasModule ? hit.ModulePoint : (StationPoint?)null,
+                CurtainHeight = StationToolSelection.SettingInt("curtainHeight", 4),
             };
             if (carried == null) {
                 request.ToolType = StationToolSelection.Setting("moduleType");

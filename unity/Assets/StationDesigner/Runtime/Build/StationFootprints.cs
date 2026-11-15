@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace Metro.Build {
     /// <summary>Where a module is carried: floor, wall, ceiling, track bed or a run.</summary>
@@ -821,7 +823,12 @@ namespace Metro.Build {
                 }
                 case "glass": {
                     var spec = GlassSpec(m);
-                    box = WallPanelBox(m, Run(m), z0, z0 + spec.H);
+                    // Plan 22 §2: a floor-standing 玻璃幕墙 reserves the **rotated edge strip** its
+                    // pane occupies, not the wall panel's band. Its plane sits on the tile's own
+                    // `rot` leading edge (`GLASS_FRAME.depth / 2 − 0.5` off the cell centre), so a
+                    // door fitted into the same cell shares that strip instead of fighting the
+                    // wall panel's box, which stood 0.44 m off the centre on the opposite side.
+                    box = GlassEnvelope(m, spec.H);
                     return true;
                 }
                 case "monitor": {
@@ -1036,6 +1043,37 @@ namespace Metro.Build {
                 : new StationBox(box.X0, box.Y0, box.Z0, box.X1, box.Y0 + panelDepth, box.Z1);
         }
 
+        /// <summary>
+        /// The housing of a 玻璃板: a **slab on an edge** rather than a cell. A short 玻璃板 is
+        /// cladding bolted to the wall behind it, so its strip hugs the wall (`WallPanelBox`); a
+        /// 玻璃幕墙 stands on the floor edge like a doorway, so its strip is the rotated leading
+        /// edge with no wall behind it (`GlassModel.ts`'s `edgeIn = GLASS_FRAME.depth / 2 − 0.5`
+        /// with a 0.1 m frame depth). Either way the air beside it stays the room's.
+        /// </summary>
+        static StationBox GlassEnvelope(StationModuleRecord m, double height) {
+            double z0 = m.Z + 1;
+            if (!GlassStandsOnFloor(m.Config)) return WallPanelBox(m, Run(m), z0, z0 + height);
+            const double edgeIn = GlassFrameDepth * .5 - .5;
+            const double halfDepth = GlassFrameDepth * .5;
+            int run = Math.Max(1, m.Width > 0 ? m.Width : GlassSpec(m.Config).W);
+            double halfRun = run * .5;
+            RotateLocal(m.Rotation, (run - 1) * .5, edgeIn, out var centreX, out var centreY);
+            double cx = m.X + .5 + centreX, cy = m.Y + .5 + centreY;
+            double x0 = double.MaxValue, y0 = double.MaxValue, x1 = double.MinValue, y1 = double.MinValue;
+            var corners = new[] {
+                (-halfRun, -halfDepth), (halfRun, -halfDepth), (halfRun, halfDepth), (-halfRun, halfDepth),
+            };
+            foreach (var corner in corners) {
+                RotateLocal(m.Rotation, corner.Item1, corner.Item2, out var ox, out var oy);
+                x0 = Math.Min(x0, cx + ox); x1 = Math.Max(x1, cx + ox);
+                y0 = Math.Min(y0, cy + oy); y1 = Math.Max(y1, cy + oy);
+            }
+            return new StationBox(x0, y0, z0, x1, y1, z0 + height);
+        }
+
+        /// <summary>`GLASS_FRAME.depth` — every curtain member's stand-off from the wall.</summary>
+        const double GlassFrameDepth = .1;
+
         /// <summary>Port of <c>doorSpec(...).h</c>: every door variant is 1.99 m tall.</summary>
         public static double DoorHeight(StationModuleRecord m) => 1.99;
 
@@ -1046,6 +1084,430 @@ namespace Metro.Build {
                 case "cafe":
                 case "cafe-pastry": return 1.5;
                 default: return CheckoutHeight;
+            }
+        }
+
+        // ----------------------------------------------------------- sign board
+
+        /// <summary>
+        /// Port of <c>signBoardsPanel(mountedSignBoards(mount, signBoardsOf(cfg))).w</c> in
+        /// <c>sim/sign.ts</c> so <c>Metro.View</c> (<c>StationCeilingMounts.HangerSupports</c>)
+        /// can check rod clearance along a hanger crossbar without taking an upward dependency on
+        /// <c>Metro.App</c> or <c>Newtonsoft.Json</c>.
+        /// </summary>
+        public static double SignBoardWidth(ModuleConfig config) => SignBoardWidthReader.Width(config);
+
+        static class SignBoardWidthReader {
+            const float PanelMinWidth = 1f;
+            const float PanelMaxWidth = 3.5f;
+            const float PiecePad = 0.02f;
+            const float EndPad = 0.12f;
+            const float EdgePad = 0.006f;
+            const float UturnWidth = 0.24f;
+            const float ArrowWidth = 0.32f;
+            const float LineWidth = 0.28f;
+            const float IconWidth = 0.2f;
+            const float TextHeight = 0.107f;
+            const float TextEnScale = 0.5f;
+            const int TextMax = 24;
+
+            static readonly HashSet<string> ValidIcons = new HashSet<string>(StringComparer.Ordinal) {
+                "train", "lift", "accessible", "restroom", "escalator", "stairs",
+                "exit", "stop", "customer-service", "separator", "gap",
+            };
+
+            struct RawMark {
+                public float X;
+                public float Scale;
+                public float PieceWidth;
+            }
+
+            public static double Width(ModuleConfig config) {
+                if (config == null) return PanelMinWidth;
+                string frontJson = config.Json("front");
+                string backJson = config.Json("back");
+                bool hasFront = IsJsonArray(frontJson);
+                bool hasBack = IsJsonArray(backJson);
+                if (!hasFront && !hasBack) return PanelMinWidth;
+                float front = hasFront ? FacePanelWidth(frontJson) : PanelMinWidth;
+                bool wall = string.Equals(config.Text("mount"), "wall", StringComparison.Ordinal);
+                float back = !wall && hasBack ? FacePanelWidth(backJson) : PanelMinWidth;
+                return Math.Max(front, back);
+            }
+
+            static bool IsJsonArray(string json) {
+                if (string.IsNullOrEmpty(json)) return false;
+                int i = SkipSpace(json, 0);
+                return i < json.Length && json[i] == '[';
+            }
+
+            static float FacePanelWidth(string json) {
+                if (!TryParseArray(json, out var marks) || marks.Count == 0) return PanelMinWidth;
+                var packed = Pack(marks);
+                float panel = PanelWidth(packed);
+                var fitted = Fit(packed, panel);
+                return PanelWidth(fitted);
+            }
+
+            static RawMark[] Pack(List<RawMark> layout) {
+                int count = layout.Count;
+                var result = new RawMark[count];
+                var order = new List<int>(count);
+                for (int i = 0; i < count; i++) {
+                    result[i] = layout[i];
+                    if (result[i].PieceWidth > 0f) order.Add(i);
+                }
+                order.Sort((a, b) => {
+                    int byX = result[a].X.CompareTo(result[b].X);
+                    return byX != 0 ? byX : a.CompareTo(b);
+                });
+                var occupied = new List<(float Lo, float Hi)>(count);
+                foreach (int index in order) {
+                    float width = result[index].PieceWidth;
+                    float centre = Math.Max(EndPad + width / 2f, Math.Min(result[index].X, PanelMaxWidth - width / 2f));
+                    occupied.Sort((a, b) => a.Lo.CompareTo(b.Lo));
+                    foreach (var used in occupied) {
+                        if (centre - width / 2f < used.Hi && centre + width / 2f > used.Lo) centre = used.Hi + width / 2f;
+                    }
+                    if (centre + width / 2f > PanelMaxWidth) {
+                        centre = Math.Max(EndPad + width / 2f, PanelMaxWidth - width / 2f);
+                    }
+                    occupied.Add((centre - width / 2f, centre + width / 2f));
+                    result[index].X = centre;
+                }
+                return result;
+            }
+
+            static RawMark[] Fit(RawMark[] layout, float panel) {
+                if (layout.Length == 0) return layout;
+                float left = float.PositiveInfinity;
+                float right = 0f;
+                for (int i = 0; i < layout.Length; i++) {
+                    float width = layout[i].PieceWidth;
+                    left = Math.Min(left, layout[i].X - width / 2f);
+                    right = Math.Max(right, layout[i].X + width / 2f);
+                }
+                float shift = panel < PanelMaxWidth && left >= EdgePad && right > panel - EdgePad
+                    ? (panel - (right - left)) / 2f - left
+                    : 0f;
+                var result = new RawMark[layout.Length];
+                for (int i = 0; i < layout.Length; i++) {
+                    var mark = layout[i];
+                    float width = mark.PieceWidth;
+                    float half = width / 2f + EdgePad;
+                    float low = half * 2f >= panel ? panel / 2f : half;
+                    float high = half * 2f >= panel ? panel / 2f : panel - half;
+                    mark.X = Math.Min(high, Math.Max(low, mark.X + shift));
+                    result[i] = mark;
+                }
+                return result;
+            }
+
+            static float PanelWidth(RawMark[] layout) {
+                bool any = false;
+                float left = 0f;
+                float right = 0f;
+                for (int i = 0; i < layout.Length; i++) {
+                    float width = layout[i].PieceWidth;
+                    if (width <= 0f) continue;
+                    float markLeft = layout[i].X - width / 2f;
+                    float markRight = layout[i].X + width / 2f;
+                    if (!any) { left = markLeft; right = markRight; any = true; }
+                    else { left = Math.Min(left, markLeft); right = Math.Max(right, markRight); }
+                }
+                if (!any || right <= 0f) return PanelMinWidth;
+                return ClampPanel(PanelMinWidth, Math.Max(PanelMinWidth, right - left + EndPad * 2f), PanelMaxWidth);
+            }
+
+            static float ClampPanel(float min, float want, float max) {
+                const double step = 0.05;
+                double rounded = Math.Floor((double)want / step + 0.5 + 1e-9) * step;
+                double value = Math.Min(max, Math.Max(min, rounded));
+                return (float)Math.Round(value, 3);
+            }
+
+            static float ClampedScale(float scale) {
+                if (float.IsNaN(scale) || float.IsInfinity(scale)) return 1f;
+                return Math.Min(2f, Math.Max(0.4f, scale));
+            }
+
+            static float ComputePieceWidth(string kind, string arrow, string icon, string text, bool hasTextString, float rawScale) {
+                float scale = ClampedScale(rawScale);
+                float ink;
+                switch (kind) {
+                    case "arrow":
+                        ink = (arrow == "uturn-right" || arrow == "uturn-left" ? UturnWidth : ArrowWidth) * scale;
+                        break;
+                    case "line":
+                        ink = LineWidth * scale;
+                        break;
+                    case "icon":
+                        if (!ValidIcons.Contains(icon ?? "")) return -1f;
+                        ink = IconWidth * scale;
+                        break;
+                    case "text": {
+                        if (!hasTextString) return -1f;
+                        var lines = TextLines(text);
+                        if (lines.Length == 0) return 0f;
+                        float size = TextHeight * scale;
+                        ink = lines.Length == 1
+                            ? EstimateTextWidth(lines[0], size * 2f * LineScale(0, lines[0]))
+                            : Math.Max(
+                                EstimateTextWidth(lines[0], size * LineScale(0, lines[0])),
+                                EstimateTextWidth(lines[1], size * LineScale(1, lines[1])));
+                        break;
+                    }
+                    default:
+                        return -1f;
+                }
+                return ink <= 0f ? 0f : ink + PiecePad * 2f;
+            }
+
+            static string[] TextLines(string text) {
+                var kept = new List<string>();
+                foreach (var row in (text ?? "").Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)) {
+                    if (row.Length == 0) continue;
+                    kept.Add(Prefix(row, TextMax));
+                    if (kept.Count == 2) break;
+                }
+                return kept.ToArray();
+            }
+
+            static string Prefix(string value, int count) {
+                var output = new StringBuilder();
+                int taken = 0;
+                for (int i = 0; i < value.Length && taken < count; i++, taken++) {
+                    output.Append(value[i]);
+                    if (char.IsHighSurrogate(value[i]) && i + 1 < value.Length && char.IsLowSurrogate(value[i + 1])) output.Append(value[++i]);
+                }
+                return output.ToString();
+            }
+
+            static bool HasCjk(string text) {
+                foreach (char ch in text ?? "") {
+                    int code = ch;
+                    if ((code >= 0x2e80 && code <= 0x303f) || (code >= 0x3040 && code <= 0x30ff) ||
+                        (code >= 0x3400 && code <= 0x4dbf) || (code >= 0x4e00 && code <= 0x9fff) ||
+                        (code >= 0xf900 && code <= 0xfaff) || (code >= 0xff00 && code <= 0xffef)) return true;
+                }
+                return false;
+            }
+
+            static float LineScale(int index, string line) => index == 0 || HasCjk(line) ? 1f : TextEnScale;
+
+            static float EstimateTextWidth(string text, float size) {
+                float em = 0f;
+                for (int i = 0; i < (text ?? "").Length; i++) {
+                    int code = text[i];
+                    if (char.IsHighSurrogate(text[i]) && i + 1 < text.Length && char.IsLowSurrogate(text[i + 1])) {
+                        code = char.ConvertToUtf32(text, i);
+                        i++;
+                    }
+                    if (code >= 0x2e80) em += 1f;
+                    else if (code == ' ') em += 0.3f;
+                    else if (code >= '0' && code <= '9') em += 0.58f;
+                    else if (code >= 'A' && code <= 'Z') em += 0.68f;
+                    else if (code >= 'a' && code <= 'z') em += 0.55f;
+                    else em += 0.6f;
+                }
+                return em * size;
+            }
+
+            static bool TryParseArray(string json, out List<RawMark> marks) {
+                marks = new List<RawMark>();
+                int i = SkipSpace(json, 0);
+                if (i >= json.Length || json[i] != '[') return false;
+                i = SkipSpace(json, i + 1);
+                if (i < json.Length && json[i] == ']') return true;
+                while (i < json.Length) {
+                    if (json[i] == '{') {
+                        if (!TryParseObject(json, ref i, out var mark, out bool keep)) return false;
+                        if (keep) marks.Add(mark);
+                    } else {
+                        if (!SkipValue(json, ref i)) return false;
+                    }
+                    i = SkipSpace(json, i);
+                    if (i >= json.Length) return false;
+                    if (json[i] == ',') {
+                        i = SkipSpace(json, i + 1);
+                        continue;
+                    }
+                    return json[i] == ']';
+                }
+                return false;
+            }
+
+            static bool TryParseObject(string json, ref int i, out RawMark mark, out bool keep) {
+                mark = default;
+                keep = false;
+                string kind = "", arrow = "", icon = "", text = "";
+                bool hasTextString = false;
+                double x = 0, scale = 0;
+                i = SkipSpace(json, i + 1);
+                if (i < json.Length && json[i] == '}') {
+                    i++;
+                    return true;
+                }
+                while (i < json.Length) {
+                    if (json[i] != '"' || !TryReadString(json, ref i, out string key)) return false;
+                    i = SkipSpace(json, i);
+                    if (i >= json.Length || json[i] != ':') return false;
+                    i = SkipSpace(json, i + 1);
+                    if (i >= json.Length) return false;
+                    switch (key) {
+                        case "kind":
+                            if (json[i] == '"') { if (!TryReadString(json, ref i, out kind)) return false; }
+                            else if (!SkipValue(json, ref i)) return false;
+                            break;
+                        case "arrow":
+                            if (json[i] == '"') { if (!TryReadString(json, ref i, out arrow)) return false; }
+                            else if (!SkipValue(json, ref i)) return false;
+                            break;
+                        case "icon":
+                            if (json[i] == '"') { if (!TryReadString(json, ref i, out icon)) return false; }
+                            else if (!SkipValue(json, ref i)) return false;
+                            break;
+                        case "text":
+                            if (json[i] == '"') {
+                                if (!TryReadString(json, ref i, out text)) return false;
+                                hasTextString = true;
+                            } else if (!SkipValue(json, ref i)) return false;
+                            break;
+                        case "x":
+                            if (!TryReadNumberOrSkip(json, ref i, out x)) return false;
+                            break;
+                        case "scale":
+                            if (!TryReadNumberOrSkip(json, ref i, out scale)) return false;
+                            break;
+                        default:
+                            if (!SkipValue(json, ref i)) return false;
+                            break;
+                    }
+                    i = SkipSpace(json, i);
+                    if (i >= json.Length) return false;
+                    if (json[i] == ',') {
+                        i = SkipSpace(json, i + 1);
+                        continue;
+                    }
+                    if (json[i] == '}') {
+                        i++;
+                        float pieceWidth = ComputePieceWidth(kind, arrow, icon, text, hasTextString, (float)scale);
+                        if (pieceWidth >= 0f) {
+                            mark = new RawMark { X = (float)x, Scale = (float)scale, PieceWidth = pieceWidth };
+                            keep = true;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+                return false;
+            }
+
+            static bool TryReadNumberOrSkip(string json, ref int i, out double value) {
+                value = 0;
+                if (i >= json.Length) return false;
+                char ch = json[i];
+                if (ch != '-' && (ch < '0' || ch > '9')) return SkipValue(json, ref i);
+                int start = i;
+                while (i < json.Length) {
+                    char c = json[i];
+                    if ((c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E') i++;
+                    else break;
+                }
+                if (!double.TryParse(json.Substring(start, i - start), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed))
+                    return false;
+                value = double.IsNaN(parsed) || double.IsInfinity(parsed) ? 0 : parsed;
+                return true;
+            }
+
+            static bool TryReadString(string json, ref int i, out string value) {
+                value = "";
+                if (i >= json.Length || json[i] != '"') return false;
+                i++;
+                var sb = new StringBuilder();
+                while (i < json.Length) {
+                    char ch = json[i++];
+                    if (ch == '"') {
+                        value = sb.ToString();
+                        return true;
+                    }
+                    if (ch != '\\') {
+                        sb.Append(ch);
+                        continue;
+                    }
+                    if (i >= json.Length) return false;
+                    char esc = json[i++];
+                    switch (esc) {
+                        case '"': sb.Append('"'); break;
+                        case '\\': sb.Append('\\'); break;
+                        case '/': sb.Append('/'); break;
+                        case 'b': sb.Append('\b'); break;
+                        case 'f': sb.Append('\f'); break;
+                        case 'n': sb.Append('\n'); break;
+                        case 'r': sb.Append('\r'); break;
+                        case 't': sb.Append('\t'); break;
+                        case 'u': {
+                            if (i + 4 > json.Length) return false;
+                            if (!ushort.TryParse(json.Substring(i, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort code))
+                                return false;
+                            sb.Append((char)code);
+                            i += 4;
+                            break;
+                        }
+                        default:
+                            return false;
+                    }
+                }
+                return false;
+            }
+
+            static bool SkipValue(string json, ref int i) {
+                i = SkipSpace(json, i);
+                if (i >= json.Length) return false;
+                char ch = json[i];
+                if (ch == '"') return TryReadString(json, ref i, out _);
+                if (ch == '{') {
+                    i = SkipSpace(json, i + 1);
+                    if (i < json.Length && json[i] == '}') { i++; return true; }
+                    while (i < json.Length) {
+                        if (!TryReadString(json, ref i, out _)) return false;
+                        i = SkipSpace(json, i);
+                        if (i >= json.Length || json[i] != ':') return false;
+                        i++;
+                        if (!SkipValue(json, ref i)) return false;
+                        i = SkipSpace(json, i);
+                        if (i >= json.Length) return false;
+                        if (json[i] == ',') { i = SkipSpace(json, i + 1); continue; }
+                        if (json[i] == '}') { i++; return true; }
+                        return false;
+                    }
+                    return false;
+                }
+                if (ch == '[') {
+                    i = SkipSpace(json, i + 1);
+                    if (i < json.Length && json[i] == ']') { i++; return true; }
+                    while (i < json.Length) {
+                        if (!SkipValue(json, ref i)) return false;
+                        i = SkipSpace(json, i);
+                        if (i >= json.Length) return false;
+                        if (json[i] == ',') { i = SkipSpace(json, i + 1); continue; }
+                        if (json[i] == ']') { i++; return true; }
+                        return false;
+                    }
+                    return false;
+                }
+                int start = i;
+                while (i < json.Length) {
+                    char c = json[i];
+                    if (c == ',' || c == ']' || c == '}' || char.IsWhiteSpace(c)) break;
+                    i++;
+                }
+                return i > start;
+            }
+
+            static int SkipSpace(string json, int i) {
+                while (i < json.Length && char.IsWhiteSpace(json[i])) i++;
+                return i;
             }
         }
     }

@@ -1842,18 +1842,19 @@ namespace Metro.App {
         /// <summary>
         /// One saved module as the view's request. The boards are the module's own
         /// normalized `cfg.front` / `cfg.back` (the reader keeps them as raw JSON), the
-        /// mount is `cfg.mount` repaired, and the hang height is `hangCeilingLocal`'s
-        /// first branch: a piece anchored on the block over its cell hangs from that
-        /// block, at the module's own `z+1` plane (local 0). A piece that is **not**
-        /// anchored needs packet A's slab branch, which is not published yet; it falls
-        /// back to the source's `storeyHeight - 1` and is reported, never assumed.
+        /// mount is `cfg.mount` repaired, and `hangCeilingLocal` is either the resolved
+        /// attachment height from <see cref="StationCeilingMounts"/> or, when no document
+        /// index is supplied, the authored-anchor / nominal-storey default.
         /// </summary>
         public static StationSignRequest RequestFor(
-            Metro.Build.StationModuleRecord record, StationSignLine[] lines, string locale = "zh-CN") {
+            Metro.Build.StationModuleRecord record, StationSignLine[] lines, string locale = "zh-CN",
+            float? hangCeilingLocal = null) {
             if (record == null) return default;
             var config = record.Config;
             var boothOffset = BoothOffset(record);
             var mount = StationSignMounts.Of(config.Text("mount"));
+            float resolvedHang = hangCeilingLocal ??
+                (record.CeilingAnchored ? 0f : (float)(Metro.Build.StationFootprints.StoreyHeight - 1));
             return new StationSignRequest {
                 ModuleId = record.Id,
                 Mount = mount,
@@ -1863,7 +1864,7 @@ namespace Metro.App {
                 BoothId = config.Text("boothId"),
                 BoothOffsetX = boothOffset.x,
                 BoothOffsetY = boothOffset.y,
-                HangCeilingLocal = record.CeilingAnchored ? 0f : (float)(Metro.Build.StationFootprints.StoreyHeight - 1),
+                HangCeilingLocal = resolvedHang,
                 Lines = lines ?? Array.Empty<StationSignLine>(),
                 DefaultLineId = lines != null && lines.Length > 0 ? lines[0].Id : "",
                 Locale = string.IsNullOrEmpty(locale) ? "zh-CN" : locale,
@@ -2442,14 +2443,30 @@ namespace Metro.App {
 
             var lines = StationSignViews.Lines(context.Document);
             var records = StationSignViews.Records(context.Document);
+            var ceilingMounts = StationCeilingMounts.For(context.Document);
+            int storeyHeight = context.Document != null && context.Document.StoreyHeight > 0
+                ? context.Document.StoreyHeight
+                : (int)Metro.Build.StationFootprints.StoreyHeight;
             for (int i = 0; i < records.Count; i++) {
                 var record = records[i];
-                if (!record.CeilingAnchored && StationSignMounts.Hung(StationSignMounts.Of(record.Config.Text("mount")))) {
-                    context.ReportUnresolved("sign-hang", "sign", record.Id,
-                        "hangCeilingLocal slab branch is packet A's mount geometry; using the source fallback " +
-                        (Metro.Build.StationFootprints.StoreyHeight - 1) + " m");
+                var mountKind = StationSignMounts.Of(record.Config.Text("mount"));
+                float? hangCeilingLocal = null;
+                if (StationSignMounts.Hung(mountKind)) {
+                    double fallback = StationCeilingMounts.FallbackFor(record.Facts, storeyHeight);
+                    var resolved = ceilingMounts.Resolve(record.Facts, fallback);
+                    hangCeilingLocal = (float)resolved.Local;
+                    StationCeilingMounts.Trace(record.Id,
+                        "saved z=" + record.Z + " ceilingAnchored=" + record.CeilingAnchored +
+                        " support=" + resolved.SupportName +
+                        " local=" + resolved.Local.ToString("0.###", CultureInfo.InvariantCulture) +
+                        " underside=" + resolved.Underside.ToString("0.###", CultureInfo.InvariantCulture));
+                    if (resolved.Support == StationCeilingMounts.SupportKind.Fallback) {
+                        context.ReportUnresolved("sign-hang", "sign", record.Id,
+                            "no overhead anchor, block, hanger or slab backing found; using fallback " +
+                            resolved.Local.ToString("0.###", CultureInfo.InvariantCulture) + " m");
+                    }
                 }
-                var request = StationSignViews.RequestFor(record, lines, StationSignSignage.Locale);
+                var request = StationSignViews.RequestFor(record, lines, StationSignSignage.Locale, hangCeilingLocal);
                 var view = StationSignView.Build(request, materials, holders, root);
                 // The root carries the booth step in document axes (see `StationSignViews.Placement`).
                 view.transform.SetPositionAndRotation(StationSignViews.Placement(record), ModulePlacement.Rotation(record.Rotation));
@@ -2465,7 +2482,7 @@ namespace Metro.App {
                     continue;
                 }
                 context.World.RegisterModule(Role, record.Id, view.gameObject, "board",
-                    PanelBounds(record, view), record.Z, record.Z + 1);
+                    PanelBounds(view, context.Root), record.Z, record.Z + 1);
                 built.Views.Add(view);
                 built.Bindings.Add(built.Cache.BindView(view));
             }
@@ -2542,16 +2559,27 @@ namespace Metro.App {
             };
         }
 
-        /// <summary>The board's envelope in document axes (the view's local axes swapped back).</summary>
-        static Metro.Build.StationBox PanelBounds(Metro.Build.StationModuleRecord record, StationSignView view) {
+        /// <summary>
+        /// The board's envelope in document axes, transformed through the placed view's
+        /// transform so rotated boards and booth offsets report their real document box.
+        /// </summary>
+        public static Metro.Build.StationBox PanelBounds(StationSignView view, Transform stationRoot = null) {
+            if (view == null) return default;
             var local = view.LocalBounds;
-            double x0 = record.X + 0.5 + Math.Min(local.min.x, local.max.x);
-            double x1 = record.X + 0.5 + Math.Max(local.min.x, local.max.x);
-            double y0 = record.Y + 0.5 + Math.Min(local.min.z, local.max.z);
-            double y1 = record.Y + 0.5 + Math.Max(local.min.z, local.max.z);
-            double z0 = record.Z + 1 + Math.Min(local.min.y, local.max.y);
-            double z1 = record.Z + 1 + Math.Max(local.min.y, local.max.y);
-            return new Metro.Build.StationBox(x0, y0, z0, x1, y1, z1);
+            var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            for (int corner = 0; corner < 8; corner++) {
+                var point = new Vector3(
+                    (corner & 1) == 0 ? local.min.x : local.max.x,
+                    (corner & 2) == 0 ? local.min.y : local.max.y,
+                    (corner & 4) == 0 ? local.min.z : local.max.z);
+                var world = view.transform.TransformPoint(point);
+                if (stationRoot != null) world = stationRoot.InverseTransformPoint(world);
+                var document = StationCoordinates.WorldToDocument(world);
+                min = Vector3.Min(min, document);
+                max = Vector3.Max(max, document);
+            }
+            return new Metro.Build.StationBox(min.x, min.y, min.z, max.x, max.y, max.z);
         }
     }
 

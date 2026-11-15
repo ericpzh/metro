@@ -21,9 +21,19 @@ namespace Metro.App {
             public bool Active;
         }
 
+        /// <summary>
+        /// The source's selection pad: `refreshSelection` grows the module's rendered box by
+        /// 0.06 m on **every** side (`ModuleSystem.ts`, `box.expandByScalar(0.06)`), so the line
+        /// box clears the geometry it wraps instead of z-fighting its faces.
+        /// </summary>
+        public const float SelectionPad = .06f;
+        /// <summary>`#55b6ff`, the one colour the web's selection and hover boxes use.</summary>
+        public static readonly Color SelectionColour = new Color(0x55 / 255f, 0xb6 / 255f, 1f, 1f);
+
         readonly List<GameObject> owned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
         Mesh boxMesh;
+        Mesh lineMesh;
         Material okMaterial;
         Material badMaterial;
         Material selectMaterial;
@@ -76,22 +86,82 @@ namespace Metro.App {
             hidden.Clear();
         }
 
-        /// <summary>Draw the selection highlight around one placed module's real bounds.</summary>
+        /// <summary>
+        /// Draw the selection mark around one placed module: the source's **rendered** bounds
+        /// padded by <see cref="SelectionPad"/> drawn as a thin `#55b6ff` line box (the web's
+        /// `refreshSelection`). Two things were wrong here before (plan 22 §3):
+        ///
+        /// * Both branches passed the nullable <c>selectMaterial</c> field, which nothing ever
+        ///   initialised; `BuildBox` then assigned a null material and every selection drew
+        ///   Unity's magenta missing-material. The material is now acquired here, through
+        ///   <see cref="SelectionMaterial"/>.
+        /// * The geometry was a 12-prism cage built from the **clearance** box scaled by 1.06,
+        ///   so a stair selected a volume three times its drawn size. The source pads by a fixed
+        ///   0.06 m and draws a line box, and the module's own group is what it measures.
+        /// </summary>
         public void Select(StationModuleRecord module) {
             var world = CurrentWorld();
             if (world == null || module == null) return;
-            if (!StationFootprints.TryClearance(module, out var box, out _)) {
-                if (!world.TryGetModule(module.Id, out var record) || record.View == null) return;
-                if (!TryWorldBounds(record.View, out var worldBox)) return;
-                BuildOutline(worldBox, selectMaterial, 1.06f);
-                return;
+            if (!TrySelectionBounds(world, module, out var bounds)) return;
+            BuildLineBox(bounds, SelectionMaterial());
+        }
+
+        /// <summary>
+        /// The box a selection wraps: the drawn geometry's bounds, exactly as the source's
+        /// `Box3().setFromObject(group)` measures it, padded by <see cref="SelectionPad"/>. A
+        /// module with no view of its own — a paving tile lives in a combined surface batch
+        /// whose record carries `SourceIds` instead of a `ModuleId` — falls back to its authored
+        /// clearance envelope, the source's `bareSurfaceBox`. Public so a verifier can read the
+        /// box a click would mark without driving a pointer.
+        /// </summary>
+        public static bool TrySelectionBounds(StationWorldView world, StationModuleRecord module, out Bounds bounds) {
+            bounds = default;
+            if (module == null) return false;
+            if (TryRenderedBounds(world, module.Id, out var rendered)) {
+                bounds = rendered;
+            } else if (StationFootprints.TryClearance(module, out var box, out _)) {
+                bounds = WorldFromDocument(box);
+            } else {
+                return false;
             }
-            BuildOutline(WorldFromDocument(box), selectMaterial, 1.06f);
+            bounds.Expand(SelectionPad * 2f);
+            return true;
+        }
+
+        /// <summary>
+        /// World bounds of every mesh under one module's own registered view. Measured from
+        /// `MeshFilter.sharedMesh` rather than `Renderer.bounds`, so it is also valid while a
+        /// staged world root is still inactive.
+        /// </summary>
+        static bool TryRenderedBounds(StationWorldView world, string moduleId, out Bounds bounds) {
+            bounds = default;
+            if (world == null || string.IsNullOrEmpty(moduleId)) return false;
+            bool any = false;
+            foreach (var record in world.Records) {
+                if (record?.View == null) continue;
+                if (!string.Equals(record.ModuleId, moduleId, StringComparison.Ordinal)) continue;
+                foreach (var filter in record.View.GetComponentsInChildren<MeshFilter>(true)) {
+                    var mesh = filter ? filter.sharedMesh : null;
+                    if (!mesh) continue;
+                    var local = mesh.bounds;
+                    var matrix = filter.transform.localToWorldMatrix;
+                    for (int corner = 0; corner < 8; corner++) {
+                        var point = matrix.MultiplyPoint3x4(new Vector3(
+                            (corner & 1) == 0 ? local.min.x : local.max.x,
+                            (corner & 2) == 0 ? local.min.y : local.max.y,
+                            (corner & 4) == 0 ? local.min.z : local.max.z));
+                        if (!any) { bounds = new Bounds(point, Vector3.zero); any = true; }
+                        else bounds.Encapsulate(point);
+                    }
+                }
+            }
+            return any;
         }
 
         void OnDestroy() {
             ClearGhost();
             if (boxMesh != null) Destroy(boxMesh);
+            if (lineMesh != null) Destroy(lineMesh);
             if (okMaterial != null) Destroy(okMaterial);
             if (badMaterial != null) Destroy(badMaterial);
             if (selectMaterial != null) Destroy(selectMaterial);
@@ -112,6 +182,11 @@ namespace Metro.App {
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
             var world = host != null ? host.Coordinator?.World : null;
             if (world?.Catalogue == null || index == null) return false;
+            // Plan 22 §2: a 玻璃板's housing is a rotated **edge strip**, not the promoted panel's
+            // centre pivot, so the generic prefab ghost stood 0.45 m off the plane the curtain (and
+            // the door fitted into it) is drawn on. The clearance box is that strip, for a
+            // floor-standing panel as well as for wall cladding.
+            if (string.Equals(draft.Type, "glass", StringComparison.Ordinal)) return false;
             var record = StationModulePlacement.ToRecord(draft);
             var facts = record.Facts;
             var station = StationFacts(index);
@@ -145,25 +220,46 @@ namespace Metro.App {
             BuildBox(WorldFromDocument(box), Tinted(colour.r < 0.5f, colour));
         }
 
-        void BuildOutline(Bounds bounds, Material material, float scale) {
-            var centre = bounds.center;
-            var size = bounds.size * scale;
-            var half = size * 0.5f;
-            const float thickness = 0.035f;
-            // Twelve thin prisms along the box's edges: an outline that reads at any zoom
-            // without a custom wireframe shader.
-            for (int axis = 0; axis < 3; axis++) {
-                for (int a = 0; a < 2; a++) {
-                    for (int b = 0; b < 2; b++) {
-                        var edge = new Vector3(thickness, thickness, thickness);
-                        edge[axis] = size[axis];
-                        var offset = Vector3.zero;
-                        offset[(axis + 1) % 3] = (a == 0 ? -1f : 1f) * half[(axis + 1) % 3];
-                        offset[(axis + 2) % 3] = (b == 0 ? -1f : 1f) * half[(axis + 2) % 3];
-                        BuildBox(new Bounds(centre + offset, edge), material);
-                    }
+        /// <summary>
+        /// The source's selection box: twelve **line segments** on the box's edges, not twelve
+        /// thin prisms. A line-topology mesh draws one device pixel wide at any zoom, which is
+        /// what a `THREE.Box3Helper` does, and it costs one draw call instead of twelve.
+        /// </summary>
+        void BuildLineBox(Bounds bounds, Material material) {
+            if (lineMesh == null) {
+                // A unit cube's twelve edges as line pairs, −0.5…+0.5.
+                var corners = new Vector3[8];
+                for (int i = 0; i < 8; i++)
+                    corners[i] = new Vector3((i & 1) == 0 ? -0.5f : 0.5f, (i & 2) == 0 ? -0.5f : 0.5f,
+                        (i & 4) == 0 ? -0.5f : 0.5f);
+                int[,] edges = {
+                    { 0, 1 }, { 2, 3 }, { 4, 5 }, { 6, 7 },
+                    { 0, 2 }, { 1, 3 }, { 4, 6 }, { 5, 7 },
+                    { 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 },
+                };
+                var vertices = new List<Vector3>(24);
+                var indices = new List<int>(24);
+                for (int edge = 0; edge < 12; edge++) {
+                    vertices.Add(corners[edges[edge, 0]]);
+                    vertices.Add(corners[edges[edge, 1]]);
+                    indices.Add(edge * 2);
+                    indices.Add(edge * 2 + 1);
                 }
+                lineMesh = new Mesh { name = "edit selection box" };
+                lineMesh.SetVertices(vertices);
+                lineMesh.SetIndices(indices.ToArray(), MeshTopology.Lines, 0);
+                lineMesh.RecalculateBounds();
             }
+            var go = new GameObject("selection box");
+            go.transform.SetParent(transform, false);
+            go.transform.position = bounds.center;
+            go.transform.localScale = bounds.size;
+            go.AddComponent<MeshFilter>().sharedMesh = lineMesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            owned.Add(go);
         }
 
         void BuildBox(Bounds bounds, Material material) {
@@ -208,22 +304,28 @@ namespace Metro.App {
             return material;
         }
 
+        /// <summary>
+        /// The one selection material, acquired on first use. **Unlit** and `#55b6ff`, like the
+        /// source's `Box3Helper` line: a line primitive has no normals to shade, so a Lit
+        /// material renders black on half the box and reads as a broken outline. The field used
+        /// to start null and `Select` never called this, which is why the mark was magenta.
+        /// </summary>
         Material SelectionMaterial() {
             if (selectMaterial != null) return selectMaterial;
-            var shader = Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color");
-            var colour = new Color(0.12f, 0.62f, 1f, 0.95f);
-            selectMaterial = new Material(shader) { name = "edit selection" };
-            if (selectMaterial.HasProperty("_BaseColor")) selectMaterial.SetColor("_BaseColor", colour);
-            if (selectMaterial.HasProperty("_Color")) selectMaterial.SetColor("_Color", colour);
-            if (selectMaterial.HasProperty("_Surface")) selectMaterial.SetFloat("_Surface", 1f);
-            if (selectMaterial.HasProperty("_Blend")) selectMaterial.SetFloat("_Blend", 0f);
-            if (selectMaterial.HasProperty("_SrcBlend")) selectMaterial.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            if (selectMaterial.HasProperty("_DstBlend")) selectMaterial.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            if (selectMaterial.HasProperty("_ZWrite")) selectMaterial.SetFloat("_ZWrite", 0f);
-            selectMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-            selectMaterial.SetOverrideTag("RenderType", "Transparent");
-            selectMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            selectMaterial = CreateSelectionMaterial();
             return selectMaterial;
+        }
+
+        /// <summary>The selection material a selection mark draws with (`#55b6ff`, unlit).</summary>
+        public static Material CreateSelectionMaterial() {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit")
+                ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Universal Render Pipeline/Lit")
+                ?? Shader.Find("Sprites/Default");
+            var material = new Material(shader) { name = "edit selection" };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", SelectionColour);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", SelectionColour);
+            return material;
         }
 
         static ModuleFacts[] StationFacts(StationIndex station) {
@@ -240,18 +342,6 @@ namespace Metro.App {
             var min = Vector3.Min(a, b);
             var max = Vector3.Max(a, b);
             return new Bounds((min + max) * 0.5f, max - min);
-        }
-
-        static bool TryWorldBounds(GameObject view, out Bounds bounds) {
-            bounds = default;
-            var renderers = view.GetComponentsInChildren<Renderer>(true);
-            bool any = false;
-            foreach (var renderer in renderers) {
-                if (renderer == null) continue;
-                if (!any) { bounds = renderer.bounds; any = true; }
-                else bounds.Encapsulate(renderer.bounds);
-            }
-            return any;
         }
     }
 }

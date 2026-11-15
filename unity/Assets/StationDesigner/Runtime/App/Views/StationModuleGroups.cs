@@ -24,6 +24,12 @@ namespace Metro.App.Views {
         public const string Street = "street";
         public const string Equipment = "equipment";
         public const string Displays = "displays";
+        /// <summary>
+        /// The above-ground structures generated from their saved dimensions: 屋顶 and 柱.
+        /// Plan 22 §1 — neither had an owner, so all 308 Tanwei roofs and 73 pillars reported
+        /// `no-renderer` and drew nothing.
+        /// </summary>
+        public const string Structure = "structure";
 
         /// <summary>Types drawn by `StationSurfaceModuleRenderer` (tiled, batched).</summary>
         static readonly HashSet<string> surfaces = new HashSet<string>(StringComparer.Ordinal) {
@@ -46,6 +52,11 @@ namespace Metro.App.Views {
             "billboard", "tv", "clock", "calligraphy", "monitor", "linemap",
         };
 
+        /// <summary>Types drawn by `StationStructureModuleRenderer` (generated from the record).</summary>
+        static readonly HashSet<string> structure = new HashSet<string>(StringComparer.Ordinal) {
+            "roof", "pillar", "hanger",
+        };
+
         public static bool Owns(string type) => type != null && GroupOf(type) != null;
 
         public static string GroupOf(string type) {
@@ -54,6 +65,7 @@ namespace Metro.App.Views {
             if (street.Contains(type)) return Street;
             if (equipment.Contains(type)) return Equipment;
             if (displays.Contains(type)) return Displays;
+            if (structure.Contains(type)) return Structure;
             return null;
         }
 
@@ -63,6 +75,7 @@ namespace Metro.App.Views {
                 case Street: return street;
                 case Equipment: return equipment;
                 case Displays: return displays;
+                case Structure: return structure;
                 default: return Array.Empty<string>();
             }
         }
@@ -74,6 +87,7 @@ namespace Metro.App.Views {
                 foreach (var type in street) yield return type;
                 foreach (var type in equipment) yield return type;
                 foreach (var type in displays) yield return type;
+                foreach (var type in structure) yield return type;
             }
         }
     }
@@ -119,6 +133,12 @@ namespace Metro.App.Views {
             /// candidate never shares it with the outgoing station.
             /// </summary>
             public StationFinishLibrary Finishes;
+            /// <summary>
+            /// This world's palette, minted on first need and owned by the world. It must not live
+            /// on the renderer: the host reuses renderer singletons across staged worlds, and the
+            /// outgoing world's disposal would destroy the palette the new world is drawing with.
+            /// </summary>
+            public StationMaterials Palette;
         }
 
         readonly List<WorldState> states = new List<WorldState>();
@@ -763,21 +783,21 @@ namespace Metro.App.Views {
         }
 
         /// <summary>
-        /// Port of `outdoorSurfaceHidden` (`sim/placement.ts`) for the two paved families
-        /// (RCA 15 §4.3 / §6.2): a tile is not drawn when its cell is a dug void, when an exit
-        /// head-house's floor plate covers it, or when a run's landing opens the street plane
-        /// there. The exit plates are the **same** <see cref="StationExitOpenings"/> description
-        /// the head-house pad strips and the cell mesher's ground holes read, so ground, pavers and
-        /// pad cannot disagree.
+        /// Port of `outdoorSurfaceHidden` (`sim/placement.ts`) for the two paved families: a tile is
+        /// not drawn when its cell is a dug void, when an exit head-house's floor plate covers it, or
+        /// when a ramp **crosses the street plane** there (`rampOpeningsInWindow`). The exit plates
+        /// are the **same** <see cref="StationExitOpenings"/> description the head-house pad strips
+        /// and the cell mesher's ground holes read, so ground, pavers and pad cannot disagree.
         ///
-        /// **Not ported, reported by name:** `rampOpeningAt`'s corridor sweep. Only a run's
-        /// **landing** cells are excluded here, so a paved tile beside the length of a ramp still
-        /// draws; <see cref="UnportedRampRuns"/> counts the runs at street level a full port would
-        /// sweep (the cell mesher reports the same gap as `ramp-openings-not-derived`).
+        /// A run's **grade landing is not an opening**: it is the saved pavement the player stands
+        /// on when stepping onto the run. Hiding it deleted a one-cell strip of authored `sidewalk`
+        /// in front of every at-grade stair — a block stair's terrace left a bare grey band where
+        /// the JSON has a filled, paved area. Only the cells a run actually passes through are
+        /// excluded, which the source derives from the ramp corridor; block stairs lay none.
         /// </summary>
         public sealed class SurfaceHidden {
             readonly HashSet<long> voids = new HashSet<long>();
-            readonly HashSet<long> landings = new HashSet<long>();
+            readonly HashSet<long> rampOpenings = new HashSet<long>();
             readonly List<StationExitOpenings> exits = new List<StationExitOpenings>();
 
             public int UnportedRampRuns { get; private set; }
@@ -789,18 +809,9 @@ namespace Metro.App.Views {
                     var openings = StationExitOpenings.For(document.Modules, record);
                     if (openings != null && openings.IsHeadHouse) exits.Add(openings);
                 }
-                for (int i = 0; i < station.Length; i++) {
-                    var module = station[i];
-                    if (module == null) continue;
-                    bool ramp = string.Equals(module.Type, "stair", StringComparison.Ordinal)
-                        || string.Equals(module.Type, "escalator", StringComparison.Ordinal)
-                        || string.Equals(module.Type, "walkway", StringComparison.Ordinal);
-                    if (!ramp) continue;
-                    if (module.Z == StationPaintSnapshot.GroundZ) UnportedRampRuns++;
-                    foreach (var point in Landings(module)) {
-                        if (Math.Abs(point.Z - StationPaintSnapshot.GroundZ) > 1e-9 || !point.IsCell) continue;
-                        landings.Add(CellKey((int)Math.Round(point.X), (int)Math.Round(point.Y), StationPaintSnapshot.GroundZ));
-                    }
+                if (station != null && station.Length > 0) {
+                    var gradeHoles = StationRampOpenings.RampOpeningsAtLevel(station, StationPaintSnapshot.GroundZ);
+                    foreach (var hole in gradeHoles) rampOpenings.Add(CellKey(hole.X, hole.Y, hole.Z));
                 }
             }
 
@@ -818,21 +829,8 @@ namespace Metro.App.Views {
                     reason = "exit-floor:" + exit.Exit.Facts.Id;
                     return true;
                 }
-                if (landings.Contains(CellKey(module.X, module.Y, module.Z))) { reason = "run-landing"; return true; }
+                if (rampOpenings.Contains(CellKey(module.X, module.Y, module.Z))) { reason = "ramp-opening"; return true; }
                 return false;
-            }
-
-            static List<StationRunPoint> Landings(ModuleFacts run) {
-                if (string.Equals(run.Type, "escalator", StringComparison.Ordinal) ||
-                    string.Equals(run.Type, "walkway", StringComparison.Ordinal))
-                    return StationRunGeometry.EscalatorLandings(run);
-                var points = new List<StationRunPoint>(8);
-                var flights = StationRunGeometry.StairFlights(run);
-                for (int i = 0; i < flights.Count; i++) {
-                    points.Add(flights[i].From);
-                    points.Add(flights[i].To);
-                }
-                return points;
             }
 
             static long CellKey(int x, int y, int z) =>
@@ -1307,6 +1305,74 @@ namespace Metro.App.Views {
             return null;
         }
 
+        /// <summary>
+        /// The bridge options a saved `track` run carries (`cfg.bridge`, `cfg.bridgeRailing`) —
+        /// null for a run on the ground. The neighbouring-run upright list is only computed for an
+        /// overhead run, because that is the only case the source asks for it
+        /// (`neighboringGantryPosts` reads the gantry a bridge's own barrier must clear).
+        /// </summary>
+        static RailBridgeOptions RailBridgeOptionsFor(StationViewBuildContext context, ModuleFacts module,
+            ModuleFacts[] station, bool catenary, int thirdRail) {
+            if (!module.Config.Bool("bridge")) return null;
+            var options = new RailBridgeOptions {
+                Railing = module.Config.Text("bridgeRailing"),
+                VehicleWidth = StockWidthOf(context, module),
+            };
+            if (options.Railing.Length == 0) options.Railing = "railing";
+            if (catenary) options.NeighborPosts = NeighboringGantryPosts(context, module, station, thirdRail);
+            return options;
+        }
+
+        /// <summary>`STOCK[line.stock].width` for a track's line, in metres.</summary>
+        static float StockWidthOf(StationViewBuildContext context, ModuleFacts module) {
+            var line = LineOf(context.Document, module);
+            return line != null ? StationRailGeometry.StockWidth(line.Stock) : 0f;
+        }
+
+        /// <summary>
+        /// Port of `TrackGantry.neighboringGantryPosts`: the uprights **other** runs at the same
+        /// elevation stand on the same module seam, expressed in this run's local frame, so the
+        /// barrier and its concrete shoulder stop at their faces instead of passing through them.
+        /// </summary>
+        static IReadOnlyList<Vector2> NeighboringGantryPosts(StationViewBuildContext context, ModuleFacts bridge,
+            ModuleFacts[] station, int bridgeSide) {
+            var posts = new List<Vector2>();
+            float bridgeWidth = Mathf.Max(1f, bridge.Width);
+            for (int i = 0; i < station.Length; i++) {
+                var other = station[i];
+                if (other == null || !string.Equals(other.Type, "track", StringComparison.Ordinal)) continue;
+                if (string.Equals(other.Id, bridge.Id, StringComparison.Ordinal)) continue;
+                if (other.Z != bridge.Z) continue;
+                if (!other.Config.Bool("bridge") && !other.Config.Bool("tunnel") &&
+                    !string.Equals(other.Config.Text("catenaryStyle"), "gantry", StringComparison.Ordinal)) continue;
+                if (!string.Equals(StationRailGeometry.PowerOf(context.Document, other), "catenary", StringComparison.Ordinal))
+                    continue;
+                int side = StationRailGeometry.ThirdRailSide(other, station, StationRailGeometry.LineDirectionOf(context.Document, other));
+                float offset = StationRailGeometry.TrackSideFixtureOffset(Mathf.Max(1f, other.Depth), StockWidthOf(context, other));
+                float centreAcross = (Mathf.Max(1f, other.Depth) - 1f) * .5f;
+                // A bridge gantry stands every eight metres from the run's origin.
+                for (float x = 0f; x < Mathf.Max(1f, other.Width); x += 8f) {
+                    RotateLocal(other.Rotation, x, centreAcross + side * offset, out var dx, out var dy);
+                    double globalX = other.X - bridge.X + dx;
+                    double globalY = other.Y - bridge.Y + dy;
+                    RotateLocal(-bridge.Rotation, globalX, globalY, out var localX, out var localY);
+                    if (localX < -.56 || localX > bridgeWidth - .44) continue;
+                    posts.Add(new Vector2((float)localX, (float)localY));
+                }
+            }
+            return posts;
+        }
+
+        /// <summary>`track.rotateLocal` on doubles (the source's own quarter-turn).</summary>
+        static void RotateLocal(int rotation, double i, double j, out double x, out double y) {
+            switch (((rotation % 4) + 4) % 4) {
+                case 1: x = -j; y = i; break;
+                case 2: x = -i; y = -j; break;
+                case 3: x = j; y = -i; break;
+                default: x = i; y = j; break;
+            }
+        }
+
         void BuildTrackRun(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
             float width = Mathf.Max(1f, module.Width);
             float depth = Mathf.Max(1f, module.Depth);
@@ -1327,7 +1393,11 @@ namespace Metro.App.Views {
                 StationRailGeometry.LineDirectionOf(context.Document, module));
             bool catenary = string.Equals(StationRailGeometry.PowerOf(context.Document, module), "catenary",
                 StringComparison.Ordinal);
-            var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary);
+            // Plan 22 §1: a bridge run draws a raised deck, edge shoulders and the barrier the
+            // save names. `BuildTrackRun` used to drop the whole `cfg.bridge*` group, so Tanwei's
+            // four 32 × 3 m bridge runs came out as dug trenches with nothing over them.
+            var bridge = RailBridgeOptionsFor(context, module, station, catenary, thirdRail);
+            var run = RailRunGeometry.Build(width, depth, scale, thirdRail, catenary, bridge);
             var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "track" : module.Id) + " run");
             root.transform.SetParent(context.RoleRoot(Role), false);
             // `TrackModel.build` positions its group at the track record's **floor elevation**
@@ -1343,11 +1413,19 @@ namespace Metro.App.Views {
             var darkMaterial = TrackMaterial(context, state, "track hardware", StationMaterials.Dark, .5f, .4f);
             var powerMaterial = TrackMaterial(context, state, "track power", StationMaterials.Warm, .7f, .1f);
             var insulatorMaterial = TrackMaterial(context, state, "track insulator", StationMaterials.Light, .4f, .02f);
+            // The deck and barrier materials exist only on a bridge run, so a ground station does
+            // not mint two unused materials per track.
+            var deckMaterial = bridge != null
+                ? TrackMaterial(context, state, "track deck", StationMaterials.Platform, .86f, .02f) : null;
+            var panelMaterial = bridge != null
+                ? TrackMaterial(context, state, "track barrier panel", StationMaterials.Light, .55f, .04f) : null;
             AddTrackPart(root.transform, run.Bed, bedMaterial, state, "track-bed");
+            AddTrackPart(root.transform, run.Deck, deckMaterial, state, "track-deck");
             AddTrackPart(root.transform, run.Steel, steelMaterial, state, "track-rail");
             AddTrackPart(root.transform, run.Dark, darkMaterial, state, "track-hardware");
             AddTrackPart(root.transform, run.Power, powerMaterial, state, "track-power");
             AddTrackPart(root.transform, run.Insulator, insulatorMaterial, state, "track-insulator");
+            AddTrackPart(root.transform, run.Panel, panelMaterial, state, "track-barrier-panel");
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
             var bands = StationModuleLevels.Of(module, grid);
             int levelMin = bands.Length > 0 ? bands[0] : module.Z;
@@ -1414,12 +1492,12 @@ namespace Metro.App.Views {
             StationMaterials palette = null;
             StationCeilingMounts ceilingMounts = null;
             int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
+            glassNotes.Clear();
             for (int i = 0; i < station.Length; i++) {
                 var module = station[i];
                 if (!Owns(module.Type)) continue;
-                // A 玻璃板 is a wall-mounted slab: its catalogue prefab already carries the
-                // source's frame/pane and 0.44 m wall stand-off, so the only things the
-                // generic placement got wrong were its storey membership and its bounds.
+                // A 玻璃板 is generated from the saved run, height, joins and fitted doors (plan
+                // 22 §2); the promoted panel could honour none of them.
                 if (module.Type == "glass") {
                     if (BuildWallGlass(context, module, station, state)) continue;
                 }
@@ -1503,57 +1581,293 @@ namespace Metro.App.Views {
         }
 
         /// <summary>
-        /// Place one authored 玻璃板 (RCA 14 §1.3 / plan A3). The promoted model is the
-        /// catalogue mesh for the saved variant; the placement pivot is the source's
-        /// run centre and its rotation, its storey membership is the **envelope
-        /// midpoint** band, and its record carries the measured rendered bounds instead
-        /// of the raw record Z. A variant/size the prefab cannot honour is reported by
-        /// name rather than silently drawn as a one-metre panel.
+        /// One authored 玻璃板 / 玻璃幕墙 (plan 22 §2). The promoted `curtain-wall` prefab is one
+        /// fixed 2 × 4 m panel with an uninterrupted pane, so instancing it could not honour a
+        /// saved run, a `curtainHeight` override, a corner join or a fitted door's opening — and
+        /// its catalogue pivot is the panel's own centre, while the source places a
+        /// floor-standing curtain on the tile's **leading edge** (0.45 m off the cell centre).
+        /// That missing offset is what left a 0.41 m gap between `curtain-wall-434` and the
+        /// `door-glass-1-437` fitted into it.
+        ///
+        /// The frame and panes are therefore generated exactly as `GlassModel.ts:buildGlass`
+        /// draws them: one sill, one head and two end posts around the whole run, one pane
+        /// between them, the `curtainCornerJoin` end-post trim and the `curtainDoorShare` lower
+        /// opening. Storey membership is the envelope midpoint band, and the record carries the
+        /// measured rendered bounds instead of the raw record Z.
         /// </summary>
         bool BuildWallGlass(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
-            if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
-                if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
-                return true;
-            }
+            var materials = Palette(context, state);
+            var record = RecordOf(context, module);
             var spec = StationFootprints.GlassSpec(module.Config);
             int run = module.Width > 0 ? module.Width : spec.W;
-            var variant = module.Config.Text("variant");
-            if (variant.Length > 0 && key != "glass-" + variant) {
-                context.ReportUnresolved("glass-variant-fallback", module.Type, module.Id,
-                    "authored variant '" + variant + "' has no promoted model; '" + key + "' is drawn instead.");
+            bool floorStanding = StationFootprints.GlassStandsOnFloor(module.Config);
+            // The group origin: the run's centre, on the leading edge for a floor-standing
+            // curtain (`buildGlass`'s `edgeIn`) or on the cell centre for wall cladding.
+            StationFootprints.RotateLocal(module.Rotation, (run - 1) * .5, floorStanding ? GlassEdgeIn : 0,
+                out var centreX, out var centreY);
+            var root = new GameObject((string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass");
+            root.transform.SetParent(context.RoleRoot(Role), false);
+            root.transform.SetPositionAndRotation(
+                StationCoordinates.Point(new Vector3(module.X + .5f + (float)centreX, module.Y + .5f + (float)centreY, module.Z + 1f)),
+                ModulePlacement.Rotation(module.Rotation));
+
+            var posts = new GlassParts();
+            var frame = new GlassParts();
+            var panes = new GlassParts();
+
+            float w = run, h = spec.H;
+            // A short 玻璃板 is cladding bolted to the wall on its local −y face, 0.44 m off the
+            // cell centre; a curtain stands on the tile edge, so its plane is the group origin.
+            float across = floorStanding ? 0f : -GlassWallOffset;
+            float span = w * .5f;
+            const float rail = GlassRail, post = GlassPost, depth = GlassDepth, pane = GlassPane;
+
+            var joined = new HashSet<string>(StringComparer.Ordinal);
+            if (floorStanding) {
+                // A same-tile crossing trims the end post that would project into the other
+                // panel's frame (`curtainCornerJoin`), so two curtains read as one corner.
+                for (int i = 0; i < station.Length; i++) {
+                    var other = station[i];
+                    if (other == null || !string.Equals(other.Type, "glass", StringComparison.Ordinal)) continue;
+                    if (string.Equals(other.Id, module.Id, StringComparison.Ordinal)) continue;
+                    foreach (var end in GlassCornerJoin(record, RecordOf(context, other))) joined.Add(end);
+                }
             }
-            if (spec.W != run) {
-                context.ReportUnresolved("glass-run-mismatch", module.Type, module.Id,
-                    "authored run is " + run + " m but the promoted " + spec.W + " m wide panel is drawn.");
+            float left = -span + (joined.Contains("start") ? post : 0f);
+            float right = span - (joined.Contains("end") ? post : 0f);
+            float frameX = (left + right) * .5f;
+            float frameW = right - left;
+
+            // A 门 fitted into a curtain replaces the lower doorway-sized section of that
+            // panel: keep the upper glazing continuous and retain lower glazing only in the run
+            // cells the door does not occupy.
+            var covered = new HashSet<int>();
+            var runCells = GlassCells(module, run);
+            float cut = 0f;
+            if (floorStanding) {
+                for (int i = 0; i < station.Length; i++) {
+                    var other = station[i];
+                    if (other == null || !string.Equals(other.Type, "door", StringComparison.Ordinal)) continue;
+                    var otherRecord = RecordOf(context, other);
+                    if (!GlassDoorShare(record, otherRecord)) continue;
+                    cut = Mathf.Max(cut, (float)StationFootprints.DoorHeight(otherRecord));
+                    foreach (var cell in GlassCells(other, Mathf.Max(1, other.Width))) {
+                        int index = runCells.FindIndex(candidate => candidate.X == cell.X && candidate.Y == cell.Y);
+                        if (index >= 0) covered.Add(index);
+                    }
+                }
             }
-            var parent = context.RoleRoot(Role);
-            var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
-            go.name = (string.IsNullOrEmpty(module.Id) ? "glass" : module.Id) + " glass";
-            go.transform.SetPositionAndRotation(Pivot(module, entry), ModulePlacement.Rotation(module.Rotation));
-            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key });
+            if (covered.Count > 0 && cut > 0f) {
+                float paneH = Mathf.Max(.05f, h - cut - rail * 2f);
+                float upperPostH = Mathf.Max(0f, h - cut - rail * 2f);
+                // The transom over the door and the run's head rail.
+                frame.Add(frameX, across, cut + rail * .5f, frameW, depth, rail);
+                frame.Add(frameX, across, h - rail * .5f, frameW, depth, rail);
+                if (!joined.Contains("start")) posts.Add(-(span - post * .5f), across, cut + rail + upperPostH * .5f, post, depth, upperPostH);
+                if (!joined.Contains("end")) posts.Add(span - post * .5f, across, cut + rail + upperPostH * .5f, post, depth, upperPostH);
+                panes.Add(0f, across + pane, cut + rail + paneH * .5f, Mathf.Max(.05f, w - post * 2f), pane, paneH);
+                // Lower sections, one uninterrupted span at a time: door jambs replace the inner
+                // end posts wherever the door occupies a cell.
+                int cellIndex = 0;
+                while (cellIndex < w) {
+                    if (covered.Contains(cellIndex)) { cellIndex++; continue; }
+                    int first = cellIndex;
+                    while (cellIndex + 1 < w && !covered.Contains(cellIndex + 1)) cellIndex++;
+                    int last = cellIndex;
+                    float lo = first - (w - 1) * .5f - .5f + (first == 0 && joined.Contains("start") ? post : 0f);
+                    float hi = last - (w - 1) * .5f + .5f - (last == w - 1 && joined.Contains("end") ? post : 0f);
+                    float sectionW = hi - lo;
+                    float sectionX = (lo + hi) * .5f;
+                    frame.Add(sectionX, across, rail * .5f, sectionW, depth, rail);
+                    frame.Add(sectionX, across, cut - rail * .5f, sectionW, depth, rail);
+                    panes.Add(sectionX, across + pane, cut * .5f,
+                        sectionW - (first == 0 ? post * .5f : 0f) - (last == w - 1 ? post * .5f : 0f),
+                        pane, Mathf.Max(.05f, cut - rail * 2f));
+                    if (first == 0 && !joined.Contains("start"))
+                        posts.Add(-span + post * .5f, across, cut * .5f, post, depth, cut - rail * 2f);
+                    if (last == w - 1 && !joined.Contains("end"))
+                        posts.Add(span - post * .5f, across, cut * .5f, post, depth, cut - rail * 2f);
+                    cellIndex++;
+                }
+            } else {
+                // The outer frame: a sill on the floor, a head at the top and one post at each
+                // end of the run, with nothing between them.
+                frame.Add(frameX, across, rail * .5f, frameW, depth, rail);
+                frame.Add(frameX, across, h - rail * .5f, frameW, depth, rail);
+                float postH = Mathf.Max(0f, h - rail * 2f);
+                if (!joined.Contains("start")) posts.Add(-(span - post * .5f), across, h * .5f, post, depth, postH);
+                if (!joined.Contains("end")) posts.Add(span - post * .5f, across, h * .5f, post, depth, postH);
+                panes.Add(0f, across + pane, h * .5f, Mathf.Max(.05f, w - post * 2f), pane,
+                    Mathf.Max(.05f, h - rail * 2f));
+            }
+
+            posts.Emit(root.transform, state.Meshes, "glass-posts", Mat(materials, StationMaterials.Steel));
+            frame.Emit(root.transform, state.Meshes, "glass-frame", Mat(materials, StationMaterials.Dark));
+            panes.Emit(root.transform, state.Meshes, "glass-pane", Mat(materials, StationMaterials.Glass));
+
+            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = "generated:glass" });
             state.Count++;
             var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
-            if (!TryDocumentBounds(go.transform, context.Root, out var bounds)) {
-                int fallbackBand = StationModuleLevels.Band(grid, module.Z + 1 + spec.H * .5);
-                context.World.RegisterModule(Role, module.Id, go, "wall-glass", null, fallbackBand, fallbackBand,
+            if (!TryDocumentBounds(root.transform, context.Root, out var bounds)) {
+                int fallbackBand = StationModuleLevels.Band(grid, module.Z + 1 + h * .5);
+                context.World.RegisterModule(Role, module.Id, root, "wall-glass", null, fallbackBand, fallbackBand,
                     new[] { fallbackBand });
                 context.ReportUnresolved("glass-bounds-missing", module.Type, module.Id,
-                    "the promoted pane has no readable mesh bounds; membership uses the authored envelope.");
+                    "the generated curtain has no readable mesh bounds; membership uses the authored envelope.");
                 return true;
             }
-            // The pane's own size, from the promoted geometry rather than the authored
-            // numbers: a promotion that baked the wrong size must show up here.
-            double measuredHeight = bounds.Z1 - bounds.Z0;
-            double measuredWidth = Math.Max(bounds.X1 - bounds.X0, bounds.Y1 - bounds.Y0);
-            if (Math.Abs(measuredHeight - spec.H) > .06 || Math.Abs(measuredWidth - run) > .06) {
-                context.ReportUnresolved("glass-dimension-mismatch", module.Type, module.Id,
-                    "promoted pane is " + measuredWidth.ToString("0.##") + "×" + measuredHeight.ToString("0.##") +
-                    " m but the saved glass is " + run + "×" + spec.H + " m.");
-            }
             int band = StationModuleLevels.Band(grid, (bounds.Z0 + bounds.Z1) * .5);
-            context.World.RegisterModule(Role, module.Id, go, "wall-glass", bounds, band, band, new[] { band });
+            context.World.RegisterModule(Role, module.Id, root, "wall-glass", bounds, band, band, new[] { band });
+            glassNotes.Add(module.Id + " run=" + run + " height=" + h.ToString("0.##", CultureInfo.InvariantCulture) +
+                " mount=" + (floorStanding ? "floor-edge" : "wall") + " doors=" + covered.Count +
+                " joined=" + joined.Count);
             return true;
         }
+
+        /* ---------------------------------------------------------- curtain kit */
+
+        /// <summary>`GLASS_FRAME.depth` — every member's stand-off from the wall.</summary>
+        const float GlassDepth = .1f;
+        /// <summary>`GLASS_FRAME.rail` — the sill's and head's height.</summary>
+        const float GlassRail = .1f;
+        /// <summary>`GLASS_FRAME.post` — an end post's width.</summary>
+        const float GlassPost = .1f;
+        /// <summary>`GLASS_FRAME.pane` — how proud of the frame the pane's face sits.</summary>
+        const float GlassPane = .02f;
+        /// <summary>`GlassModel.ts`'s `WALL_OFFSET`.</summary>
+        const float GlassWallOffset = .44f;
+        /// <summary>`GLASS_FRAME.depth / 2 − 0.5`: a floor-standing panel's tile edge.</summary>
+        const float GlassEdgeIn = GlassDepth * .5f - .5f;
+
+        /// <summary>Accumulated curtain members in the module's own local frame.</summary>
+        sealed class GlassParts {
+            public readonly List<Vector3> Vertices = new List<Vector3>();
+            public readonly List<int> Triangles = new List<int>();
+            public readonly List<Vector2> Uvs = new List<Vector2>();
+
+            /// <summary>One member: along the run, across the plane, up from the floor top.</summary>
+            public void Add(float x, float across, float up, float sx, float sy, float sz) {
+                if (sx <= 0f || sy <= 0f || sz <= 0f) return;
+                // Source (along, across, up) → Unity local (along, up, across).
+                BoxFaces.AppendUv(Vertices, Triangles, Uvs,
+                    new Vector3(x, up, across),
+                    new Vector3(sx, 0f, 0f), new Vector3(0f, sz, 0f), new Vector3(0f, 0f, sy));
+            }
+
+            public void Emit(Transform parent, List<Mesh> owned, string name, Material material) {
+                if (Vertices.Count == 0 || !material) return;
+                var mesh = new Mesh { name = name };
+                mesh.SetVertices(Vertices);
+                mesh.SetTriangles(Triangles, 0);
+                mesh.SetUVs(0, Uvs);
+                mesh.RecalculateNormals();
+                mesh.RecalculateBounds();
+                var part = new GameObject(name, typeof(MeshFilter), typeof(MeshRenderer));
+                part.transform.SetParent(parent, false);
+                part.GetComponent<MeshFilter>().sharedMesh = mesh;
+                part.GetComponent<MeshRenderer>().sharedMaterial = material;
+                owned.Add(mesh);
+            }
+        }
+
+        /// <summary>Per-curtain composition notes, one per saved glass module.</summary>
+        public List<string> GlassNotes => glassNotes;
+        readonly List<string> glassNotes = new List<string>();
+
+        /// <summary>`glassCells`: the run's own cells, marched the way the model draws it.</summary>
+        static List<StationPoint> GlassCells(ModuleFacts module, int width) {
+            int count = Mathf.Max(1, width);
+            var cells = new List<StationPoint>(count);
+            for (int i = 0; i < count; i++) {
+                StationFootprints.RotateLocal(module.Rotation, i, 0, out var dx, out var dy);
+                cells.Add(new StationPoint(module.X + (int)Math.Round(dx), module.Y + (int)Math.Round(dy), module.Z));
+            }
+            return cells;
+        }
+
+        static int GlassRun(StationModuleRecord record) =>
+            record.Width > 0 ? record.Width : StationFootprints.GlassSpec(record.Config).W;
+
+        /// <summary>`curtainShareCrossTile`: two floor-standing curtains on opposite sides of one tile.</summary>
+        static bool GlassCrossTile(StationModuleRecord a, StationModuleRecord b) {
+            if (a == null || b == null) return false;
+            if (a.Z != b.Z || StationFootprints.NormRot(a.Rotation) == StationFootprints.NormRot(b.Rotation)) return false;
+            if (!StationFootprints.GlassStandsOnFloor(a.Config) || !StationFootprints.GlassStandsOnFloor(b.Config)) return false;
+            var cellsA = GlassCells(a.Facts, GlassRun(a));
+            var cellsB = GlassCells(b.Facts, GlassRun(b));
+            foreach (var cell in cellsA)
+                foreach (var other in cellsB)
+                    if (cell.X == other.X && cell.Y == other.Y) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// `curtainCornerJoin`: the ends of <paramref name="a"/> whose end-post centre falls
+        /// inside <paramref name="b"/>'s own envelope, so the corner's post is drawn once.
+        /// </summary>
+        static List<string> GlassCornerJoin(StationModuleRecord a, StationModuleRecord b) {
+            var ends = new List<string>();
+            if (!GlassCrossTile(a, b)) return ends;
+            if (!StationFootprints.TryClearance(b, out var other, out _) || other.IsEmpty) return ends;
+            int width = GlassRun(a);
+            foreach (var end in new[] { "start", "end" }) {
+                float endX = end == "start" ? -(width * .5f - GlassPost * .5f) : width * .5f - GlassPost * .5f;
+                StationFootprints.RotateLocal(a.Rotation, .5 + (width - 1) * .5, GlassDepth * .5 - .5, out var ox, out var oy);
+                StationFootprints.RotateLocal(a.Rotation, endX, 0, out var ex, out var ey);
+                double x = a.X + ox + ex, y = a.Y + oy + ey;
+                if (x < other.X0 || x >= other.X1 || y < other.Y0 || y >= other.Y1) continue;
+                ends.Add(end);
+            }
+            return ends;
+        }
+
+        /// <summary>
+        /// `curtainDoorShare`: a 门 fitted into a floor-standing curtain — same storey, same
+        /// plane, wholly inside the curtain's run.
+        /// </summary>
+        static bool GlassDoorShare(StationModuleRecord glass, StationModuleRecord door) {
+            if (glass == null || door == null) return false;
+            if (glass.Z != door.Z) return false;
+            if (StationFootprints.NormRot(glass.Rotation) != StationFootprints.NormRot(door.Rotation)) return false;
+            if (!StationFootprints.GlassStandsOnFloor(glass.Config)) return false;
+            var wall = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var cell in GlassCells(glass.Facts, GlassRun(glass))) wall.Add(cell.X + "," + cell.Y);
+            foreach (var cell in GlassCells(door.Facts, Mathf.Max(1, door.Width)))
+                if (!wall.Contains(cell.X + "," + cell.Y)) return false;
+            return true;
+        }
+
+        /// <summary>The parsed record behind a built module, by id and then by cell.</summary>
+        static StationModuleRecord RecordOf(StationViewBuildContext context, ModuleFacts module) {
+            var modules = context.Document.Modules;
+            for (int i = 0; i < modules.Count; i++) {
+                var record = modules[i];
+                if (record?.Facts == null) continue;
+                if (!string.IsNullOrEmpty(module.Id) && string.Equals(record.Facts.Id, module.Id, StringComparison.Ordinal))
+                    return record;
+            }
+            for (int i = 0; i < modules.Count; i++) {
+                var record = modules[i];
+                if (record?.Facts == null) continue;
+                if (record.Facts.X == module.X && record.Facts.Y == module.Y && record.Facts.Z == module.Z &&
+                    string.Equals(record.Facts.Type, module.Type, StringComparison.Ordinal)) return record;
+            }
+            return null;
+        }
+
+        /// <summary>This world's palette, minted once and owned by the world.</summary>
+        static StationMaterials Palette(StationViewBuildContext context, WorldState state) {
+            if (state.Palette != null) return state.Palette;
+            var shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
+            if (!shader) return null;
+            state.Palette = new StationMaterials(shader);
+            for (int slot = 0; slot < StationMaterials.Colours.Length; slot++) state.Materials.Add(state.Palette[slot]);
+            return state.Palette;
+        }
+
+        /// <summary>A palette slot, or the shared fallback when this world has no shader.</summary>
+        static Material Mat(StationMaterials materials, int slot) =>
+            materials != null ? materials[slot] : VerticalModuleViews.DefaultMaterial(slot);
     }
 
     /// <summary>

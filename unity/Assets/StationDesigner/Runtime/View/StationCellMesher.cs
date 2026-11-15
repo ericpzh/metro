@@ -348,9 +348,28 @@ namespace Metro.View {
         readonly HashSet<StationCellKey> fills;
         readonly HashSet<StationCellKey> hidden;
 
+        readonly struct FaceRecordKey : IEquatable<FaceRecordKey> {
+            readonly long a;
+            readonly long b;
+
+            public FaceRecordKey(int x, int y, int z, StationFace face, int finishIndex, StationSurfaceRole role, bool slope) {
+                a = ((long)x << 32) | (uint)y;
+                b = ((long)z << 32) | (((long)(uint)finishIndex & 0xFFFFFFL) << 8) | (((long)role & 0xFL) << 4) | (((long)face & 0x7L) << 1) | (slope ? 1L : 0L);
+            }
+
+            public bool Equals(FaceRecordKey other) => a == other.a && b == other.b;
+            public override bool Equals(object obj) => obj is FaceRecordKey other && Equals(other);
+            public override int GetHashCode() {
+                unchecked {
+                    long h = a * -7046029254386353131L + b * -4417276706812531889L;
+                    return (int)(h ^ (long)((ulong)h >> 32));
+                }
+            }
+        }
+
         readonly List<string> finishIds = new List<string>();
         readonly Dictionary<string, int> finishIndex = new Dictionary<string, int>(StringComparer.Ordinal);
-        readonly Dictionary<long, int> faceRecordIndex = new Dictionary<long, int>();
+        readonly Dictionary<FaceRecordKey, int> faceRecordIndex = new Dictionary<FaceRecordKey, int>();
 
         // Scratch reused per cell, as the source does.
         readonly List<Profile> sections = new List<Profile>(2);
@@ -723,11 +742,11 @@ namespace Metro.View {
 
         string FinishId(int index) => index >= 0 && index < finishIds.Count ? finishIds[index] : input.DefaultFinish;
 
-        int FaceRecord(int x, int y, int z, StationFace face, string finishId, StationSurfaceRole role, bool slope) {
-            var key = ((long)x * 1315423911L) ^ ((long)y * 2654435761L) ^ ((long)z * 40503L) ^ ((long)face << 32) ^ (slope ? 1L << 40 : 0) ^ (long)finishId.GetHashCode();
+        int FaceRecord(int x, int y, int z, StationFace face, int finishIdx, StationSurfaceRole role, bool slope) {
+            var key = new FaceRecordKey(x, y, z, face, finishIdx, role, slope);
             if (faceRecordIndex.TryGetValue(key, out var index)) return index;
             index = result.Faces.Count;
-            result.Faces.Add(new StationCellFaceRecord(x, y, z, face, finishId, role, slope));
+            result.Faces.Add(new StationCellFaceRecord(x, y, z, face, FinishId(finishIdx), role, slope));
             faceRecordIndex[key] = index;
             return index;
         }
@@ -822,7 +841,7 @@ namespace Metro.View {
                 // splits reuse that cell, so a wall or ceiling part of a chunk draws on
                 // exactly the storey the whole chunk used to draw on.
                 if (!anchors.ContainsKey(finishIndex)) anchors[finishIndex] = new StationCellKey(x, y, z);
-                return session.FaceRecord(x, y, z, face, session.FinishId(finishIndex), faceRole, slope);
+                return session.FaceRecord(x, y, z, face, finishIndex, faceRole, slope);
             }
 
             /// <summary>

@@ -37,6 +37,12 @@ namespace Metro.View {
         /// <summary>The generated street plane (`GROUND_Z`).</summary>
         public const int GroundZ = 0;
 
+        /// <summary>`DIGITAL_CLOCK_ROD_OFFSET` in `sim/hangers.ts`.</summary>
+        public const double DigitalClockRodOffset = 0.32;
+
+        /// <summary>`DIGITAL_CLOCK_MOUNT_WIDTH` in `sim/hangers.ts`.</summary>
+        public const double DigitalClockMountWidth = 0.09;
+
         const double Epsilon = 1e-9;
 
         /// <summary>Which of the source's ordered branches answered.</summary>
@@ -49,6 +55,16 @@ namespace Metro.View {
             OverheadTrackDeck,
             /// <summary>The virtual street plane directly over the piece's own cell.</summary>
             OverheadGround,
+            /// <summary>An authored roof hanger (`mount == "roof"`) carrying the piece at 4 m local (`3 + 1` uplift).</summary>
+            HangerRoof,
+            /// <summary>An authored post hanger (`mount != "roof"`) carrying the piece at 3 m local.</summary>
+            HangerPost,
+            /// <summary>Nearest exposed solid underside above the footprint (`ceilingMountHeight`).</summary>
+            CeilingSolid,
+            /// <summary>Nearest exposed 站台 / 轨道桥 deck underside above the footprint (`ceilingMountHeight`).</summary>
+            CeilingTrackDeck,
+            /// <summary>Unexcavated virtual street underside above the footprint (`ceilingMountHeight`).</summary>
+            CeilingGround,
             /// <summary>Nothing overhead: the family fallback stands in.</summary>
             Fallback,
         }
@@ -73,6 +89,11 @@ namespace Metro.View {
                         case SupportKind.OverheadSolid: return "overhead-solid";
                         case SupportKind.OverheadTrackDeck: return "overhead-track-deck";
                         case SupportKind.OverheadGround: return "overhead-ground";
+                        case SupportKind.HangerRoof: return "hanger-roof";
+                        case SupportKind.HangerPost: return "hanger-post";
+                        case SupportKind.CeilingSolid: return "ceiling-solid";
+                        case SupportKind.CeilingTrackDeck: return "ceiling-track-deck";
+                        case SupportKind.CeilingGround: return "ceiling-ground";
                         default: return "fallback";
                     }
                 }
@@ -83,7 +104,9 @@ namespace Metro.View {
 
         readonly HashSet<long> solids = new HashSet<long>();
         readonly HashSet<long> groundVoids = new HashSet<long>();
+        readonly Dictionary<long, List<int>> undersides = new Dictionary<long, List<int>>();
         readonly List<ModuleFacts> tracks = new List<ModuleFacts>();
+        readonly List<ModuleFacts> hangers = new List<ModuleFacts>();
 
         /// <summary>
         /// Build the lookup once per committed document. Zoo has 14,066 cells, so the
@@ -98,10 +121,21 @@ namespace Metro.View {
                 if (cell.IsSolid) mounts.solids.Add(Key(cell.X, cell.Y, cell.Z));
                 else if (cell.Z == GroundZ) mounts.groundVoids.Add(Key(cell.X, cell.Y, cell.Z));
             }
+            for (int i = 0; i < cells.Count; i++) {
+                var cell = cells[i];
+                if (!cell.IsSolid || mounts.solids.Contains(Key(cell.X, cell.Y, cell.Z - 1))) continue;
+                long col = ColumnKey(cell.X, cell.Y);
+                if (!mounts.undersides.TryGetValue(col, out var list)) {
+                    list = new List<int>();
+                    mounts.undersides[col] = list;
+                }
+                if (!list.Contains(cell.Z)) list.Add(cell.Z);
+            }
             var modules = document.Modules;
             for (int i = 0; i < modules.Count; i++) {
                 var module = modules[i];
                 if (IsCeilingTrack(module.Facts)) mounts.tracks.Add(module.Facts);
+                else if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) mounts.hangers.Add(module.Facts);
             }
             return mounts;
         }
@@ -186,15 +220,164 @@ namespace Metro.View {
         }
 
         /// <summary>
-        /// Port of <c>hangCeilingLocal</c>: the height of the surface a hung piece hangs from,
-        /// measured above the cell's own floor top. The callers pass their family's fallback
-        /// from <see cref="FallbackFor"/>, exactly as the source does for a 灯具 / 风口.
+        /// Port of <c>hangers.ts:hangerCells</c>: the rotated plan cells a hanger crossbar spans.
+        /// </summary>
+        public static (int X, int Y)[] HangerCells(ModuleFacts hanger) {
+            if (hanger == null) return Array.Empty<(int X, int Y)>();
+            int width = Math.Max(1, hanger.Width);
+            var cells = new (int X, int Y)[width];
+            for (int i = 0; i < width; i++) {
+                RotateLocal(hanger.Rotation, i, 0, out var dx, out var dy);
+                cells[i] = (hanger.X + (int)Math.Round(dx), hanger.Y + (int)Math.Round(dy));
+            }
+            return cells;
+        }
+
+        /// <summary>
+        /// Port of <c>hangers.ts:hangerSupports</c>: hanging rods must land on the bar centreline
+        /// and stay inside the crossbar span.
+        /// </summary>
+        public static bool HangerSupports(ModuleFacts hanger, ModuleFacts item) {
+            if (hanger == null || item == null) return false;
+            if (!string.Equals(hanger.Type, "hanger", StringComparison.Ordinal) || hanger.Z != item.Z) return false;
+            bool isTv = string.Equals(item.Type, "tv", StringComparison.Ordinal);
+            bool isClock = string.Equals(item.Type, "clock", StringComparison.Ordinal);
+            bool isCctv = string.Equals(item.Type, "cctv", StringComparison.Ordinal);
+            bool isHungSign = string.Equals(item.Type, "sign", StringComparison.Ordinal) &&
+                !string.Equals(item.Config.Text("mount"), "wall", StringComparison.Ordinal);
+            if (!isTv && !isClock && !isCctv && !isHungSign) return false;
+
+            var run = HangerCells(hanger);
+            bool onRun = false;
+            for (int i = 0; i < run.Length; i++) {
+                if (run[i].X == item.X && run[i].Y == item.Y) { onRun = true; break; }
+            }
+            if (!onRun) return false;
+
+            bool centredClock = isClock && !string.Equals(item.Config.Text("variant"), "digital", StringComparison.Ordinal);
+            if (!centredClock && (item.Rotation - hanger.Rotation) % 2 != 0) return false;
+            if (isCctv && string.Equals(item.Config.Text("variant"), "post", StringComparison.Ordinal)) return false;
+
+            RotateLocal(-hanger.Rotation, item.X - hanger.X, item.Y - hanger.Y, out var along, out _);
+            double rodHalf = isHungSign
+                ? Math.Max(0.22, StationFootprints.SignBoardWidth(item.Config) * 0.5 - 0.35) + 0.08
+                : isTv ? 0.5
+                : isCctv ? 0.18
+                : centredClock ? 0.075
+                : DigitalClockRodOffset + DigitalClockMountWidth * 0.5;
+            int width = Math.Max(1, hanger.Width);
+            return along + 0.5 - rodHalf >= -Epsilon && along + 0.5 + rodHalf <= width + Epsilon;
+        }
+
+        /// <summary>
+        /// Port of <c>hangCeilingLocal</c> + <c>ceilingMountHeight</c> + <c>hangerLiftFor</c>: the
+        /// height of the surface a hung piece attaches to, measured above the cell's own floor top.
+        /// For a roof hanger, the 1 m crossbar uplift (`3 + 1 = 4 m`) is included once here so both
+        /// `StationSignView` and `PlaceCeilingFixture` share the exact beam datum without a second lift.
         /// </summary>
         public Mount Resolve(ModuleFacts module, double fallback) {
             if (module == null) return new Mount(SupportKind.Fallback, fallback, 0);
             if (module.CeilingAnchored) return new Mount(SupportKind.AuthoredAnchor, 0, module.Z);
             if (TopBlockOver(module, out var kind)) return new Mount(kind, 0, module.Z);
+            if (StationFootprints.IsCeilingHung(module)) {
+                bool anyHanger = false;
+                bool roofHanger = false;
+                for (int i = 0; i < hangers.Count; i++) {
+                    var hanger = hangers[i];
+                    if (!HangerSupports(hanger, module)) continue;
+                    anyHanger = true;
+                    if (string.Equals(hanger.Config.Text("mount"), "roof", StringComparison.Ordinal)) {
+                        roofHanger = true;
+                        break;
+                    }
+                }
+                if (anyHanger) {
+                    return roofHanger
+                        ? new Mount(SupportKind.HangerRoof, 4, module.Z)
+                        : new Mount(SupportKind.HangerPost, 3, module.Z);
+                }
+                if (TryNearestBacking(module, out double local, out var ceilingKind)) {
+                    return new Mount(ceilingKind, local, module.Z);
+                }
+            }
             return new Mount(SupportKind.Fallback, fallback, module.Z);
+        }
+
+        bool TryNearestBacking(ModuleFacts candidate, out double local, out SupportKind kind) {
+            local = 0;
+            kind = SupportKind.CeilingSolid;
+            var footprint = BaseCells(candidate);
+            var first = footprint.Length > 0 ? footprint[0] : (X: candidate.X, Y: candidate.Y);
+            var candidates = new List<double>();
+            if (undersides.TryGetValue(ColumnKey(first.X, first.Y), out var column)) {
+                for (int i = 0; i < column.Count; i++) {
+                    if (column[i] > candidate.Z + 1) AddDistinct(candidates, column[i]);
+                }
+            }
+            for (int i = 0; i < tracks.Count; i++) {
+                var track = tracks[i];
+                double underside = TrackCeilingUnderside(track);
+                if (underside < candidate.Z + 2 - Epsilon) continue;
+                if (TrackCellAt(track, first.X, first.Y, track.Z)) AddDistinct(candidates, underside);
+            }
+            if (GroundZ > candidate.Z + 1 && VirtualSolidAt(first.X, first.Y, GroundZ)) {
+                AddDistinct(candidates, GroundZ);
+            }
+            if (candidates.Count == 0) return false;
+            candidates.Sort();
+            for (int c = 0; c < candidates.Count; c++) {
+                double z = candidates[c];
+                bool covered = true;
+                for (int i = 0; i < footprint.Length; i++) {
+                    int x = footprint[i].X, y = footprint[i].Y;
+                    if (!BackingAt(x, y, z)) {
+                        covered = false;
+                        break;
+                    }
+                }
+                if (!covered) continue;
+                local = z - candidate.Z - 1;
+                kind = ClassifyBacking(first.X, first.Y, z);
+                return true;
+            }
+            return false;
+        }
+
+        bool BackingAt(int x, int y, double z) {
+            int zi = (int)Math.Round(z);
+            if (Math.Abs(z - zi) <= Epsilon && (SolidAt(x, y, zi) || VirtualSolidAt(x, y, zi))) return true;
+            return TrackCeilingAt(x, y, z);
+        }
+
+        SupportKind ClassifyBacking(int x, int y, double z) {
+            int zi = (int)Math.Round(z);
+            if (Math.Abs(z - zi) <= Epsilon) {
+                if (SolidAt(x, y, zi)) return SupportKind.CeilingSolid;
+                if (VirtualSolidAt(x, y, zi)) return SupportKind.CeilingGround;
+            }
+            return SupportKind.CeilingTrackDeck;
+        }
+
+        static (int X, int Y)[] BaseCells(ModuleFacts module) {
+            if (module == null) return Array.Empty<(int X, int Y)>();
+            if (string.Equals(module.Type, "hanger", StringComparison.Ordinal)) return HangerCells(module);
+            if (string.Equals(module.Type, "monitor", StringComparison.Ordinal) &&
+                string.Equals(module.Config.Text("mount"), "wall", StringComparison.Ordinal)) {
+                var cells = new (int X, int Y)[3];
+                for (int i = 0; i < 3; i++) {
+                    RotateLocal(module.Rotation, i, 0, out var dx, out var dy);
+                    cells[i] = (module.X + (int)Math.Round(dx), module.Y + (int)Math.Round(dy));
+                }
+                return cells;
+            }
+            return new[] { (module.X, module.Y) };
+        }
+
+        static void AddDistinct(List<double> list, double value) {
+            for (int i = 0; i < list.Count; i++) {
+                if (Math.Abs(list[i] - value) <= Epsilon) return;
+            }
+            list.Add(value);
         }
 
         /// <summary>
@@ -233,5 +416,8 @@ namespace Metro.View {
 
         static long Key(int x, int y, int z) =>
             ((long)(x + 32768) << 40) | ((long)(y + 32768) << 20) | (long)(z + 32768);
+
+        static long ColumnKey(int x, int y) =>
+            ((long)(x + 32768) << 20) | (long)(y + 32768);
     }
 }

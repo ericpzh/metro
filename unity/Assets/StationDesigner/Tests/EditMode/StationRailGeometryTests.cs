@@ -255,5 +255,87 @@ namespace Metro.Tests {
 
         static Shader FindShader() =>
             Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
+
+        /* ------------------------------------------------------ the bridge deck */
+
+        static JObject BridgeTrack(string id, int z, string railing, string dir = "down") => new JObject {
+            ["id"] = id, ["type"] = "track", ["x"] = 10, ["y"] = 4, ["z"] = z,
+            ["w"] = 32, ["d"] = 3, ["rot"] = 0,
+            ["cfg"] = new JObject {
+                ["line"] = "5", ["dir"] = dir, ["bridge"] = true, ["bridgeRailing"] = railing,
+                ["bridgeFinish"] = "floor.concrete",
+            },
+        };
+
+        /// <summary>
+        /// Plan 22 §1: a `cfg.bridge` run draws a raised deck, its edge shoulders and the barrier
+        /// the save names. `BuildTrackRun` dropped the whole bridge group and `BuildParts` emitted
+        /// the trench, so Tanwei's four 32 × 3 m bridge runs came out as dug track with no deck
+        /// over them while the web drew the bridge in the reference screenshot.
+        /// </summary>
+        [Test]
+        public void ABridgeRunDrawsADeckShouldersAndItsBarrierInsteadOfATrench() {
+            var trench = RailRunGeometry.Build(32f, 3f, .98f, -1, false);
+            var bridge = RailRunGeometry.Build(32f, 3f, .98f, -1, false, new RailBridgeOptions {
+                Railing = "sound-barrier-half", VehicleWidth = 3f,
+            });
+            Assert.AreEqual(0, trench.Deck.TriangleCount, "a ground run has no deck");
+            Assert.Greater(bridge.Deck.TriangleCount, 0, "the raised deck and its two shoulders");
+            Assert.Greater(bridge.Panel.TriangleCount, 0, "the sound barrier's opaque lower panels");
+            // A bridge run replaces the dug course (and the two trench walls) with the deck, so its
+            // bed bin never reaches the full metre the ground run's dug course reaches.
+            Assert.Less(trench.Bed.Vertices.Min(vertex => vertex.y), -.9f, "the ground run digs its trench a metre down");
+            Assert.Greater(bridge.Bed.Vertices.Min(vertex => vertex.y), -.9f,
+                "a bridge run's bed carries no dug course: the deck below it is a separate part");
+            // `bridgeSupportOffset = max(d/2 + 0.5 − PSD_WALL_OFFSET, vehicleWidth/2 + 0.25)`
+            // = max(1.66, 1.75), and `bridgeSpan = max(d, offset·2 + 0.12)` = 3.62.
+            Assert.AreEqual(1.75f, bridge.BridgeSupportOffset, 1e-4f);
+            Assert.AreEqual(3.62f, bridge.BridgeSpan, 1e-4f);
+            Assert.IsTrue(bridge.Notes.Exists(note => note.StartsWith("track-bridge", StringComparison.Ordinal)),
+                "the bridge composition is named: " + string.Join("; ", bridge.Notes));
+        }
+
+        [Test]
+        public void ABridgeRailingTakesItsOwnHeightAndTheHalfBarrierIsTwoMetres() {
+            Assert.AreEqual(1.29f, new RailBridgeOptions { Railing = "railing" }.BarrierTop, 1e-4f);
+            Assert.AreEqual(2f, new RailBridgeOptions { Railing = "sound-barrier-half" }.BarrierTop, 1e-4f);
+            Assert.AreEqual(3.5f, new RailBridgeOptions { Railing = "sound-barrier" }.BarrierTop, 1e-4f);
+        }
+
+        [Test]
+        public void TheStreetRendererBuildsTheSavedBridgeDeckAndBarrier() {
+            var read = StationDocumentReader.Read(Save(new JArray {
+                BridgeTrack("track", -20, "sound-barrier-half"),
+                EdgeModule("edge", -20, "left", "down"),
+            }).ToString(Formatting.None), new StationSource("bridge probe", ""));
+            var root = new GameObject("bridge view probe");
+            var street = new StationStreetModuleRenderer();
+            var world = new StationWorldView(root.transform, "bridge probe",
+                new IStationViewRenderer[] { street },
+                new StationViewAssets { Catalogue = Catalogue(), TrainCatalogue = Trains(), Shader = FindShader() });
+            try {
+                world.Build(read.Document, read.Index);
+                world.Activate();
+                Assert.IsTrue(world.TryGetModule("track", out var record));
+                var view = record.View;
+                var partNames = view.GetComponentsInChildren<MeshFilter>(true)
+                    .Where(filter => filter && filter.sharedMesh).Select(filter => filter.name).Distinct().ToArray();
+                CollectionAssert.Contains(partNames, "track-deck");
+                CollectionAssert.Contains(partNames, "track-barrier-panel");
+                CollectionAssert.Contains(partNames, "track-rail");
+                var bounds = MeasuredBounds(view);
+                Assert.AreEqual(-20f + 2f, bounds.Z1, .03f,
+                    "a half-height noise barrier tops out two metres above the track anchor | " + bounds);
+                Assert.AreEqual(-20f - 1f, bounds.Z0, .03f,
+                    "the deck hangs BRIDGE_DECK_DEPTH below the track record's floor elevation | " + bounds);
+                Assert.Greater(bounds.Y1 - bounds.Y0, 3f, "the shoulders make the deck wider than the 3 m bed");
+                Assert.Less(bounds.Y1 - bounds.Y0, 4f, "and no wider than its two screen-door centre lines");
+                Assert.IsTrue(street.TrackNotes.Any(note => note.Contains("track-bridge")),
+                    "the bridge note reaches the binding trace: " + string.Join("; ", street.TrackNotes));
+            } finally {
+                world.Dispose();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
     }
 }

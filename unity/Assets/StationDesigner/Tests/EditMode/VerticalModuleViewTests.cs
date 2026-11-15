@@ -502,6 +502,89 @@ public class VerticalModuleViewTests {
         Assert.AreEqual("idle", paused.Phase, "a paused lift holds its stop");
     }
 
+    /* --------------------------------------------------- block stair geometry */
+
+    static VerticalModuleView BuildBlockStair(int rotation, double blockHeight, string finish,
+        Func<string, (bool ok, Material material)> finishFor = null) {
+        var module = JObject.Parse("{\"id\":\"stair-block\",\"type\":\"stair\",\"x\":2,\"y\":-29,\"z\":0," +
+            "\"rot\":" + rotation + ",\"w\":1,\"d\":1," +
+            "\"from\":{\"x\":2,\"y\":-30,\"z\":0},\"to\":{\"x\":2,\"y\":-28,\"z\":1}," +
+            "\"cfg\":{\"width\":1,\"block\":true,\"blockHeight\":" +
+            blockHeight.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+            ",\"finish\":\"" + finish + "\"}}");
+        var parent = new GameObject("block stair test");
+        Parents.Add(parent);
+        var request = VerticalModuleRequest.FromFacts(ModuleFactsReader.Read(module), null, "stair-block",
+            (x, y, z) => true, VerticalModuleViews.DefaultMaterial,
+            finishFor == null ? null : new Func<string, Material>(id => finishFor(id).material));
+        Assert.IsTrue(VerticalModuleViews.TryBuild(request, parent.transform, out var view), "the block stair did not build");
+        Built.Add(view);
+        return view;
+    }
+
+    /// <summary>
+    /// Plan 22 §3: a 楼梯块 is a **solid** one-cell stair — four full-width treads for a 1 m rise,
+    /// two for a 0.5 m one — built before any endpoint is read. Zoo/Tanwei's 56 block stairs used
+    /// to go through the flight path, which drew thin treads, stringers and glass balustrades
+    /// inside a one-metre cell (the magenta-caged tread cluster in the reference screenshot).
+    /// </summary>
+    [Test]
+    public void ABlockStairIsASolidCellOfTreadsNotAFlight() {
+        var view = BuildBlockStair(1, 1, "floor.concrete");
+        Assert.IsFalse(view.UsedPrefab, "the block is assembled from its saved height, not a run prefab");
+        var parts = view.Root.GetComponentsInChildren<Transform>(true)
+            .Select(transform => transform.name).ToArray();
+        CollectionAssert.Contains(parts, "treads");
+        foreach (var forbidden in new[] { "handrails", "glass", "stringers", "soffit", "risers" }) {
+            CollectionAssert.DoesNotContain(parts, forbidden, "a block stair draws no " + forbidden);
+        }
+        // The drawn cell: one metre square on its cell's floor top and exactly as tall as the rise.
+        Assert.AreEqual(2f, view.DocumentBounds.X0, .02f);
+        Assert.AreEqual(-29f, view.DocumentBounds.Y0, .02f);
+        Assert.AreEqual(1f, view.DocumentBounds.Z0, .02f, "the block stands on its cell's floor top");
+        Assert.AreEqual(2f, view.DocumentBounds.Z1, .02f, "a 1 m rise fills exactly one metre");
+        Assert.AreEqual(1f, view.DocumentBounds.X1 - view.DocumentBounds.X0, .02f);
+        Assert.AreEqual(1f, view.DocumentBounds.Y1 - view.DocumentBounds.Y0, .02f);
+        // Four treads: the first is a quarter-metre deep and a quarter-metre high, the last a
+        // full metre high. Read the mesh's own vertices rather than inferring it from a count.
+        var treads = view.Root.GetComponentsInChildren<MeshFilter>(true).First(filter => filter.name == "treads");
+        var heights = treads.sharedMesh.vertices.Select(vertex => treads.transform.TransformPoint(vertex))
+            .Select(point => StationCoordinates.WorldToDocument(point).z).ToArray();
+        Assert.AreEqual(1f, heights.Min(), .01f);
+        Assert.AreEqual(2f, heights.Max(), .01f);
+        var lowestTop = heights.Where(z => z > 1.1f).Min();
+        Assert.AreEqual(1.25f, lowestTop, .01f, "the first tread's top is a quarter of the rise");
+    }
+
+    [Test]
+    public void AHalfMetreBlockStairHasTwoTreads() {
+        var view = BuildBlockStair(0, .5, "floor.concrete");
+        Assert.AreEqual(1f, view.DocumentBounds.Z0, .02f, "the block stands on its cell's floor top");
+        Assert.AreEqual(1.5f, view.DocumentBounds.Z1, .02f, "a 0.5 m rise is half a metre tall");
+        var treads = view.Root.GetComponentsInChildren<MeshFilter>(true).First(filter => filter.name == "treads");
+        var tops = treads.sharedMesh.vertices.Select(vertex => treads.transform.TransformPoint(vertex))
+            .Select(point => StationCoordinates.WorldToDocument(point).z)
+            .Where(z => z > 1.001f).Select(z => Mathf.Round(z * 100f) / 100f).Distinct().OrderBy(z => z).ToArray();
+        CollectionAssert.AreEqual(new[] { 1.25f, 1.5f }, tops, "two treads fill a 0.5 m rise");
+    }
+
+    [Test]
+    public void TheBlockStairWearsItsSavedFinishAndFallsBackToTheFloors() {
+        var saved = new Material(Shader.Find("Universal Render Pipeline/Lit")) { name = "saved finish" };
+        try {
+            var view = BuildBlockStair(0, 1, "ceil.steel", _ => (true, saved));
+            var renderer = view.Root.GetComponentsInChildren<MeshRenderer>(true).First();
+            Assert.AreSame(saved, renderer.sharedMaterial, "`cfg.finish` wins");
+            // With no saved override the block asks the floor it stands on, then the default.
+            var asked = new List<string>();
+            BuildBlockStair(0, 1, "", id => { asked.Add(id); return (false, null); });
+            Assert.AreEqual(StationFinishIds.DefaultMaterial, asked.Last(),
+                "a block with no override and no floor finish wears the documented default");
+        } finally {
+            UnityEngine.Object.DestroyImmediate(saved);
+        }
+    }
+
     /* ------------------------------------------------------- no prefab scaling */
 
     [Test]
@@ -525,6 +608,252 @@ public class VerticalModuleViewTests {
                 }
             }
         }
+    }
+
+    /* ----------------------------------------- Tanwei wide & multi-storey ramps */
+
+    const string TanweiPath = "Assets/StationDesigner/Demos/tanwei.metro.json";
+
+    static JObject Tanwei() => JObject.Parse(File.ReadAllText(TanweiPath));
+
+    static VerticalModuleView BuildWithNeighbours(JObject save, JObject module, IReadOnlyList<ModuleFacts> neighbours) {
+        var parent = new GameObject("vertical tanwei test");
+        Parents.Add(parent);
+        var facts = ModuleFactsReader.Read(module);
+        var request = VerticalModuleRequest.FromFacts(facts, PrefabFor(module), KeyFor(module), SolidOf(save),
+            null, null, null, neighbours);
+        Assert.IsTrue(VerticalModuleViews.TryBuild(request, parent.transform, out var view), "build failed: " + (string)module["id"]);
+        Built.Add(view);
+        return view;
+    }
+
+    static List<ModuleFacts> AllFacts(JObject save) =>
+        save["static"]["modules"].Children<JObject>().Select(m => ModuleFactsReader.Read(m)).Where(f => f != null).ToList();
+
+    static Vector3[] MeshVerticesInDoc(Transform root, string childName) {
+        var filter = root.GetComponentsInChildren<MeshFilter>(true).FirstOrDefault(f => f.name == childName);
+        Assert.IsNotNull(filter, "missing mesh child '" + childName + "' under " + root.name);
+        return filter.sharedMesh.vertices
+            .Select(v => StationCoordinates.WorldToDocument(filter.transform.TransformPoint(v)))
+            .ToArray();
+    }
+
+    static Vector3 TopSlopeNormalInDoc(Transform root, string childName) {
+        var filter = root.GetComponentsInChildren<MeshFilter>(true).First(f => f.name == childName);
+        var verts = filter.sharedMesh.vertices;
+        var tris = filter.sharedMesh.triangles;
+        var normals = filter.sharedMesh.normals;
+        Vector3 bestNormal = Vector3.zero;
+        float bestScore = float.MinValue;
+        for (int i = 0; i + 2 < tris.Length; i += 3) {
+            var a = StationCoordinates.WorldToDocument(filter.transform.TransformPoint(verts[tris[i]]));
+            var b = StationCoordinates.WorldToDocument(filter.transform.TransformPoint(verts[tris[i + 1]]));
+            var c = StationCoordinates.WorldToDocument(filter.transform.TransformPoint(verts[tris[i + 2]]));
+            float area = Vector3.Cross(b - a, c - a).magnitude * .5f;
+            if (area < .5f) continue;
+            var nWorld = filter.transform.TransformDirection(normals[tris[i]]).normalized;
+            var nDoc = new Vector3(nWorld.x, nWorld.z, nWorld.y).normalized;
+            float score = area * nDoc.z;
+            if (score > bestScore) { bestScore = score; bestNormal = nDoc; }
+        }
+        return bestNormal;
+    }
+
+    [Test]
+    public void ProceduralEscalatorsKeepTrussBelowTreadsAndLevelPlatesAcrossHeadingsAndOrders() {
+        var headings = new (int dx, int dy, int rot)[] {
+            (0, 9, 0), (9, 0, 1), (0, -9, 2), (-9, 0, 3),
+        };
+        foreach (var h in headings) {
+            foreach (bool ascending in new[] { true, false }) {
+                int ax = 10, ay = 10, az = 0;
+                int bx = 10 + h.dx, by = 10 + h.dy, bz = 5;
+                int fx = ascending ? ax : bx, fy = ascending ? ay : by, fz = ascending ? az : bz;
+                int tx = ascending ? bx : ax, ty = ascending ? by : ay, tz = ascending ? bz : az;
+                var json = JObject.Parse("{\"id\":\"probe-" + h.rot + "-" + (ascending ? "up" : "down") +
+                    "\",\"type\":\"escalator\",\"x\":" + fx + ",\"y\":" + fy + ",\"z\":" + fz + ",\"rot\":" + h.rot +
+                    ",\"from\":{\"x\":" + fx + ",\"y\":" + fy + ",\"z\":" + fz + "}," +
+                    "\"to\":{\"x\":" + tx + ",\"y\":" + ty + ",\"z\":" + tz + "}," +
+                    "\"cfg\":{\"incline\":30,\"dir\":\"" + (ascending ? "up" : "down") + "\",\"width\":2}}");
+                var parent = new GameObject("heading probe");
+                Parents.Add(parent);
+                var req = VerticalModuleRequest.FromFacts(ModuleFactsReader.Read(json), LoadPrefab("Escalator"), "escalator", (x, y, z) => false);
+                Assert.IsTrue(VerticalModuleViews.TryBuild(req, parent.transform, out var view));
+                Built.Add(view);
+                Assert.IsFalse(view.UsedPrefab, view.ModuleId + " wide run uses procedural builder");
+
+                // Housing top normal points above the treads (+Z in document axes, cos(30°) ≈ 0.866).
+                var trussTopNormal = TopSlopeNormalInDoc(view.Root, "truss");
+                Assert.Greater(trussTopNormal.z, .8f, view.ModuleId + " truss top normal must point upward, got " + trussTopNormal);
+
+                // Truss stays strictly below the walking line at the midpoint while treads sit on it.
+                var lower = Document(view, "band-lower");
+                var upper = Document(view, "band-upper");
+                var mid = (lower + upper) * .5f;
+                var trussVerts = MeshVerticesInDoc(view.Root, "truss");
+                float trussMidZ = trussVerts.Average(v => v.z);
+                Assert.Less(trussMidZ, mid.z - .2f, view.ModuleId + " truss must sit below the walking line");
+
+                // Comb plates and U-shaped landing decks lie level on the lower and upper floors.
+                var combVerts = MeshVerticesInDoc(view.Root, "comb-plate");
+                Assert.LessOrEqual(combVerts.Where(v => v.z < mid.z).Max(v => v.z) - combVerts.Where(v => v.z < mid.z).Min(v => v.z), .055f,
+                    view.ModuleId + " lower comb plate must lie flat (5 cm thick), never upright");
+                Assert.LessOrEqual(combVerts.Where(v => v.z > mid.z).Max(v => v.z) - combVerts.Where(v => v.z > mid.z).Min(v => v.z), .055f,
+                    view.ModuleId + " upper comb plate must lie flat (5 cm thick), never upright");
+                var deckVerts = MeshVerticesInDoc(view.Root, "landing-deck");
+                Assert.Greater(deckVerts.Length, 0, view.ModuleId + " landing-deck built");
+
+                // Static shell and animated step band share the same endpoints in both travel orders.
+                Assert.IsTrue(view.TryGetPart("band", out var bandGroup), view.ModuleId + " band group");
+                var visibleTreads = Enumerable.Range(0, view.StepCount)
+                    .Select(i => bandGroup.Find("tread-" + i))
+                    .Where(t => t != null && t.gameObject.activeSelf)
+                    .Select(t => StationCoordinates.WorldToDocument(t.position))
+                    .ToArray();
+                Assert.Greater(visibleTreads.Length, 10, view.ModuleId + " visible treads");
+                Assert.AreEqual(lower.z, visibleTreads.Min(t => t.z), .05f, view.ModuleId + " treads start at lower landing");
+                Assert.AreEqual(upper.z, visibleTreads.Max(t => t.z), .05f, view.ModuleId + " treads reach upper landing");
+                float midTreadZ = visibleTreads.OrderBy(t => new Vector2(t.x - mid.x, t.y - mid.y).sqrMagnitude).First().z;
+                Assert.Greater(midTreadZ, trussMidZ + .2f, view.ModuleId + " treads sit above the truss");
+            }
+        }
+
+        // Tanwei's ascending width-2 `escalator-9672` and descending width-2 control `escalator-9671`.
+        var tanwei = Tanwei();
+        var neighbours = AllFacts(tanwei);
+        var ascWide = BuildWithNeighbours(tanwei, Module(tanwei, "escalator-9672"), neighbours);
+        var descWide = BuildWithNeighbours(tanwei, Module(tanwei, "escalator-9671"), neighbours);
+        Assert.AreEqual(3f, Document(ascWide, "lower-landing").x, 1e-3f, "escalator-9672 centres across X=2..4 at X=3");
+        Assert.AreEqual(24f, Document(descWide, "lower-landing").x, 1e-3f, "escalator-9671 descending control centres across X=23..25 at X=24");
+        Assert.IsTrue(Near(Document(descWide, "lower-landing"), new Vector3(24f, -13.5f, 2f), 1e-3f), "escalator-9671 lower-landing is z=2");
+        Assert.IsTrue(Near(Document(descWide, "upper-landing"), new Vector3(24f, -4.5f, 7f), 1e-3f), "escalator-9671 upper-landing is z=7");
+        Assert.Greater(TopSlopeNormalInDoc(ascWide.Root, "truss").z, .8f, "escalator-9672 truss normal upward");
+        Assert.Greater(TopSlopeNormalInDoc(descWide.Root, "truss").z, .8f, "escalator-9671 truss normal upward");
+        Assert.IsNotNull(ascWide.Root.GetComponentsInChildren<MeshFilter>(true).FirstOrDefault(f => f.name == "undercroft"),
+            "escalator-9672 builds undercroft wedge");
+        Assert.IsNotNull(ascWide.Root.GetComponentsInChildren<MeshFilter>(true).FirstOrDefault(f => f.name == "balustrade-left"),
+            "escalator-9672 builds rounded balustrade glass");
+    }
+
+    [Test]
+    public void TanweiTwinElevenMetreEscalatorsAlignAtUpperLandingAndShareOneRampJoin() {
+        var tanwei = Tanwei();
+        var neighbours = AllFacts(tanwei);
+        var upRun = BuildWithNeighbours(tanwei, Module(tanwei, "escalator-9667"), neighbours);
+        var downRun = BuildWithNeighbours(tanwei, Module(tanwei, "escalator-9668"), neighbours);
+
+        Assert.IsFalse(upRun.UsedPrefab, "11 m rise uses procedural builder");
+        Assert.IsFalse(downRun.UsedPrefab, "11 m rise uses procedural builder");
+        Assert.AreEqual(upRun.StepCount, downRun.StepCount, "twin 11 m runs have matching step counts");
+        Assert.GreaterOrEqual(upRun.StepCount, 55, "20 m / 11 m chain carries two-storey step count");
+
+        // Aligned at both lower (-9) and upper (+2) landings for the full 11 m rise.
+        Assert.IsTrue(Near(Document(upRun, "lower-landing"), new Vector3(8.5f, 4.5f, -9f), 1e-3f));
+        Assert.IsTrue(Near(Document(upRun, "upper-landing"), new Vector3(8.5f, -15.5f, 2f), 1e-3f));
+        Assert.IsTrue(Near(Document(downRun, "lower-landing"), new Vector3(9.5f, 4.5f, -9f), 1e-3f));
+        Assert.IsTrue(Near(Document(downRun, "upper-landing"), new Vector3(9.5f, -15.5f, 2f), 1e-3f));
+
+        // Independent step bands moving in opposite travel directions.
+        int midStep = upRun.StepCount / 2;
+        Assert.IsTrue(upRun.TryGetPart("band", out var upBand));
+        Assert.IsTrue(downRun.TryGetPart("band", out var downBand));
+        upRun.Apply(EscalatorState(upRun.ModuleId, 0.0));
+        downRun.Apply(EscalatorState(downRun.ModuleId, 0.0));
+        var upT0 = StationCoordinates.WorldToDocument(upBand.Find("tread-" + midStep).position);
+        var downT0 = StationCoordinates.WorldToDocument(downBand.Find("tread-" + midStep).position);
+        upRun.Apply(EscalatorState(upRun.ModuleId, 1.0));
+        downRun.Apply(EscalatorState(downRun.ModuleId, 1.0));
+        var upT1 = StationCoordinates.WorldToDocument(upBand.Find("tread-" + midStep).position);
+        var downT1 = StationCoordinates.WorldToDocument(downBand.Find("tread-" + midStep).position);
+        Assert.Greater(upT1.z - upT0.z, .15f, "escalator-9667 climbs upward");
+        Assert.Less(downT1.z - downT0.z, -.15f, "escalator-9668 travels downward");
+
+        // Single stainless-steel `ramp-join` + tactile domes on the boundary X = 9.0.
+        Assert.IsTrue(upRun.TryGetPart("ramp-join", out _), "lexicographically first twin owns ramp-join");
+        Assert.IsFalse(downRun.TryGetPart("ramp-join", out _), "second twin does not duplicate ramp-join");
+        var joinVerts = MeshVerticesInDoc(upRun.Root, "ramp-join");
+        Assert.AreEqual(9f, joinVerts.Average(v => v.x), .02f, "ramp-join straddles X = 9 between lanes 8 and 9");
+        Assert.IsNotNull(upRun.Root.GetComponentsInChildren<MeshFilter>(true).FirstOrDefault(f => f.name == "ramp-join-dome"),
+            "twin escalator seam carries anti-slide domes");
+    }
+
+    [Test]
+    public void TanweiBuildInputDerivesSlopeCutsAndGradeOpeningsWithoutDeletingSavedSolids() {
+        var read = StationDocumentReader.ReadFile(TanweiPath);
+        Assert.IsNotNull(read?.Document, "Tanwei fixture must parse");
+        var doc = read.Document;
+        var notes = new List<string>();
+        var input = StationCellRenderer.BuildInput(doc, null, notes, null);
+
+        int docSolids = doc.Cells.Count(c => c.IsSolid);
+        int meshSolids = input.Cells.Count(c => c.Solid);
+        Assert.AreEqual(docSolids, meshSolids, "exact slope cuts retain every saved Tanwei solid cell");
+
+        var pinnedSlopeCells = new[] {
+            new StationCellKey(8, -4, -6),
+            new StationCellKey(9, -4, -6),
+            new StationCellKey(2, -13, 1),
+            new StationCellKey(3, -13, 1),
+            new StationCellKey(37, 40, 3),
+        };
+        foreach (var key in pinnedSlopeCells) {
+            Assert.IsTrue(input.SlopeCuts.ContainsKey(key), "missing derived slope cut at " + key);
+            var cut = input.SlopeCuts[key];
+            Assert.Less(Math.Min(cut.Lo, cut.Hi), 1.0 - 1e-3, key + " slope patch shaves below full cell height");
+        }
+
+        for (int x = 8; x <= 9; x++) {
+            for (int y = -12; y <= -9; y++) {
+                var hole = new StationCellKey(x, y, 0);
+                Assert.IsTrue(input.GroundHoles.Contains(hole), "missing grade corridor hole at " + hole);
+            }
+        }
+        Assert.IsTrue(notes.Any(n => n.StartsWith("ramp-slope-applied:", StringComparison.Ordinal)), "slope note recorded");
+        Assert.IsTrue(notes.Any(n => n.StartsWith("ramp-openings-applied:", StringComparison.Ordinal)), "grade opening note recorded");
+
+        // Meshing the input emits sloped underside top caps strictly below `z + 1` on the retained cells.
+        var meshed = StationCellMesher.Mesh(input);
+        Assert.Greater(meshed.SlopeCutCells, 0, "mesher shaved slope-cut cells");
+        foreach (var key in pinnedSlopeCells) {
+            int faceIdx = meshed.Faces.FindIndex(f => f.CellKey.Equals(key) && f.Face == StationFace.Top);
+            Assert.GreaterOrEqual(faceIdx, 0, "mesher must emit retained Top cap on " + key);
+            float minCapZ = float.MaxValue;
+            foreach (var group in meshed.Groups) {
+                if (group.TriangleFaces == null) continue;
+                for (int t = 0; t < group.TriangleFaces.Length; t++) {
+                    if (group.TriangleFaces[t] != faceIdx) continue;
+                    for (int v = 0; v < 3; v++)
+                        minCapZ = Mathf.Min(minCapZ, group.Positions[group.Indices[t * 3 + v]].z);
+                }
+            }
+            Assert.Less(minCapZ, key.Z + .99f, key + " retained cap must slope below uncut z + 1");
+        }
+    }
+
+    [Test]
+    public void TanweiWideQuarterTurnStairsKeepFractionalLandingsAndFittedSupport() {
+        var tanwei = Tanwei();
+        var neighbours = AllFacts(tanwei);
+
+        var fractional = BuildWithNeighbours(tanwei, Module(tanwei, "stair-right90-9712"), neighbours);
+        Assert.IsFalse(fractional.UsedPrefab);
+        Assert.IsTrue(Near(Document(fractional, "turn-landing"), new Vector3(37f, 39f, -1.5f), 1e-3f),
+            "fractional -2.5 landing places its platform top at z = -1.5 across (36..38, 38.105..39.895)");
+        Assert.IsTrue(Near(Document(fractional, "lower-landing"), new Vector3(37f, 43.5f, -4f), 1e-3f));
+        Assert.IsTrue(Near(Document(fractional, "upper-landing"), new Vector3(32.5f, 39f, 1f), 1e-3f));
+        var landingSurface = MeshVerticesInDoc(fractional.Root, "landing-surface");
+        Assert.AreEqual(36f, landingSurface.Min(v => v.x), 1e-3f);
+        Assert.AreEqual(38f, landingSurface.Max(v => v.x), 1e-3f);
+        Assert.AreEqual(38.105f, landingSurface.Min(v => v.y), 1e-3f);
+        Assert.AreEqual(39.895f, landingSurface.Max(v => v.y), 1e-3f);
+        Assert.AreEqual(-1.5f, landingSurface.Max(v => v.z), 1e-3f);
+
+        var sixMetre = BuildWithNeighbours(tanwei, Module(tanwei, "stair-right90-9516"), neighbours);
+        Assert.IsFalse(sixMetre.UsedPrefab);
+        Assert.IsTrue(Near(Document(sixMetre, "turn-landing"), new Vector3(38f, 42f, 4f), 1e-3f),
+            "stair-right90-9516 intermediate landing sits at z = 4 across (37.105..38.895, 41..43)");
+        Assert.AreEqual(6f, Document(sixMetre, "upper-landing").z - Document(sixMetre, "lower-landing").z, 1e-3f,
+            "stair-right90-9516 spans the full 6 m rise");
     }
 }
 

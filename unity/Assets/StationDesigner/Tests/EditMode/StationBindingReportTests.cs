@@ -146,8 +146,12 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(escalators.All(row => row.Motion == "bound:frame.Escalators"), "escalators are frame-driven");
             Assert.IsTrue(escalators.All(row => row.Applied), "each escalator binding was applied");
             Assert.IsTrue(escalators.Any(row => row.Moved > 1f), "the band travelled a measured distance");
-            Assert.IsTrue(escalators.All(row => row.RendererPath == "vertical:VerticalModuleViews(prefab:escalator)"),
-                "the promoted escalator prefab took all 14: " + escalators[0].RendererPath);
+            var prefabEscalators = escalators.Where(row => row.RendererPath == "vertical:VerticalModuleViews(prefab:escalator)").ToArray();
+            var exitEscalators = escalators.Where(row => row.RendererPath == "vertical:VerticalModuleViews(dimensioned)").ToArray();
+            Assert.AreEqual(11, prefabEscalators.Length, "11 interior Zoo escalators use the promoted prefab");
+            Assert.AreEqual(3, exitEscalators.Length, "3 exit head-house escalators lift their upper landing by 0.25 m");
+            Assert.IsTrue(exitEscalators.All(row => row.Provenance.Contains("prefab-rejected=exit-landing")),
+                "exit escalators report exit-landing prefab rejection");
             // The lift binding is applied from the frame but C parks an uncalled car, so
             // nothing travels; that is a producer gap, not an unbound family.
             var lifts = report.Rows.Where(row => row.Type == "lift").ToArray();

@@ -23,7 +23,7 @@ public class StationModuleClaimsTests {
     }
 
     [Test]
-    public void TheFourGroupsCoverTheZooNoViewTypes() {
+    public void TheClaimedGroupsCoverTheZooNoViewTypes() {
         // The 30 types the Zoo playtest reported as unclaimed, minus the deliberate
         // back-to-back TV halves (handled by the display renderer with `tv`).
         string[] zoo = {
@@ -38,6 +38,11 @@ public class StationModuleClaimsTests {
         }
         Assert.IsEmpty(missing, "Zoo types no group claims: " + string.Join(", ", missing));
         Assert.AreEqual(30, new HashSet<string>(zoo).Count, "the worklist has 30 distinct types");
+        // Structure families generated directly from committed dimensions (`roof`, `pillar`, `hanger`).
+        foreach (var type in new[] { "roof", "pillar", "hanger" }) {
+            Assert.AreEqual(StationModuleClaims.Structure, StationModuleClaims.GroupOf(type),
+                type + " is owned by the structure renderer");
+        }
     }
 
     [Test]
@@ -48,7 +53,8 @@ public class StationModuleClaimsTests {
             Assert.IsFalse(seen.ContainsKey(type), type + " is claimed by two groups");
             seen[type] = group;
         }
-        Assert.AreEqual(4, new HashSet<string>(seen.Values).Count, "four groups: surfaces, street, equipment, displays");
+        Assert.AreEqual(5, new HashSet<string>(seen.Values).Count,
+            "five groups: surfaces, street, equipment, displays, structure");
     }
 
     [Test]
@@ -61,15 +67,16 @@ public class StationModuleClaimsTests {
             new StationStreetModuleRenderer(),
             new StationEquipmentModuleRenderer(),
             new StationDisplayModuleRenderer(),
+            new StationStructureModuleRenderer(),
             new StationGridRenderer(),
             new StationOverlayRenderer(),
         };
         var roles = new HashSet<string>();
         foreach (var renderer in renderers) roles.Add(renderer.Role);
-        foreach (var role in new[] { StationModuleClaims.Surfaces, StationModuleClaims.Street, StationModuleClaims.Equipment, StationModuleClaims.Displays, StationGridRenderer.RoleName, StationOverlayRenderer.RoleName }) {
+        foreach (var role in new[] { StationModuleClaims.Surfaces, StationModuleClaims.Street, StationModuleClaims.Equipment, StationModuleClaims.Displays, StationModuleClaims.Structure, StationGridRenderer.RoleName, StationOverlayRenderer.RoleName }) {
             Assert.IsTrue(roles.Contains(role), "no renderer for role '" + role + "'");
         }
-        Assert.AreEqual(6, roles.Count, "each renderer owns a distinct role");
+        Assert.AreEqual(7, roles.Count, "each renderer owns a distinct role");
     }
 
 }

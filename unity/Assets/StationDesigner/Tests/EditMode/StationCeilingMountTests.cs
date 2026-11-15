@@ -399,5 +399,150 @@ namespace Metro.Tests {
                 Object.DestroyImmediate(built.root);
             }
         }
+
+        [Test]
+        public void SignBoardWidthAgreesWithStationSignBoardsAcrossZooAndTanwei() {
+            foreach (var rel in new[] { "StationDesigner/Demos/zoo.metro.json", "StationDesigner/Demos/tanwei.metro.json" }) {
+                var path = System.IO.Path.Combine(Application.dataPath, rel);
+                var doc = StationDocumentReader.Read(System.IO.File.ReadAllText(path), new StationSource(rel, path)).Document;
+                int checkedCount = 0;
+                foreach (var record in doc.Modules) {
+                    if (record.Type != "sign") continue;
+                    var mount = StationSignMounts.Of(record.Config.Text("mount"));
+                    var boards = StationSignBoards.FromConfig(
+                        record.Config.Json("front"),
+                        record.Config.Json("back"),
+                        record.Config.Json("components")).Mounted(mount);
+                    float expected = StationSignBoards.Panel(boards).x;
+                    double actual = StationFootprints.SignBoardWidth(record.Config);
+                    Assert.AreEqual(expected, actual, 1e-5, record.Id + " in " + rel);
+                    checkedCount++;
+                }
+                Assert.Greater(checkedCount, 20, "checked sign records in " + rel);
+            }
+        }
+
+        [Test]
+        public void HangerSupportChecksEligibilityRotationRodSpanAndMountUplift() {
+            var wideMarks = new JArray();
+            for (int i = 0; i < 9; i++) {
+                wideMarks.Add(new JObject {
+                    ["id"] = "a" + i, ["kind"] = "arrow", ["arrow"] = "left",
+                    ["x"] = 0.12 + i * 0.36, ["y"] = 0.2, ["scale"] = 1, ["side"] = "both",
+                });
+            }
+            var narrowMarks = new JArray {
+                new JObject { ["id"] = "a0", ["kind"] = "icon", ["icon"] = "lift", ["x"] = 0.22, ["y"] = 0.2, ["scale"] = 1, ["side"] = "both" },
+            };
+
+            var document = Document(new JArray {
+                new JObject { ["id"] = "hanger-roof", ["type"] = "hanger", ["x"] = 0, ["y"] = 0, ["z"] = 11, ["w"] = 4, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "roof" } },
+                new JObject { ["id"] = "hanger-post", ["type"] = "hanger", ["x"] = 0, ["y"] = 5, ["z"] = 11, ["w"] = 4, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "post" } },
+                // Narrow sign fits at endpoint cell x = 0 (0.5 - 0.30 >= 0), wide 3.5 m sign overflows x = 0 (0.5 - 1.48 < 0) but fits interior x = 1..2.
+                new JObject { ["id"] = "sign-narrow-end", ["type"] = "sign", ["x"] = 0, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "ceiling", ["front"] = narrowMarks, ["back"] = new JArray() } },
+                new JObject { ["id"] = "sign-wide-end", ["type"] = "sign", ["x"] = 0, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "ceiling", ["front"] = wideMarks, ["back"] = new JArray() } },
+                new JObject { ["id"] = "sign-wide-mid", ["type"] = "sign", ["x"] = 1, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 2, ["cfg"] = new JObject { ["mount"] = "ceiling", ["front"] = wideMarks, ["back"] = new JArray() } },
+                new JObject { ["id"] = "sign-perp", ["type"] = "sign", ["x"] = 1, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 1, ["cfg"] = new JObject { ["mount"] = "ceiling", ["front"] = narrowMarks, ["back"] = new JArray() } },
+                new JObject { ["id"] = "sign-wall", ["type"] = "sign", ["x"] = 1, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "wall", ["front"] = narrowMarks, ["back"] = new JArray() } },
+                new JObject { ["id"] = "clock-analogue-perp", ["type"] = "clock", ["x"] = 2, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 1, ["cfg"] = new JObject() },
+                new JObject { ["id"] = "clock-digital-perp", ["type"] = "clock", ["x"] = 2, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 1, ["cfg"] = new JObject { ["variant"] = "digital" } },
+                new JObject { ["id"] = "cctv-post", ["type"] = "cctv", ["x"] = 2, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["variant"] = "post" } },
+                new JObject { ["id"] = "tv-on-post", ["type"] = "tv", ["x"] = 1, ["y"] = 5, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 2, ["cfg"] = new JObject() },
+            });
+
+            var roofHanger = Facts(document, "hanger-roof");
+            Assert.IsTrue(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "sign-narrow-end")), "narrow sign rods fit endpoint");
+            Assert.IsFalse(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "sign-wide-end")), "3.5 m sign rods overhang endpoint");
+            Assert.IsTrue(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "sign-wide-mid")), "3.5 m sign rods fit interior cell");
+            Assert.IsFalse(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "sign-perp")), "perpendicular sign rods miss bar");
+            Assert.IsFalse(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "sign-wall")), "wall sign does not hang from bar");
+            Assert.IsTrue(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "clock-analogue-perp")), "centred analogue clock rod fits any turn");
+            Assert.IsFalse(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "clock-digital-perp")), "twin-rod digital clock requires parallel turn");
+            Assert.IsFalse(StationCeilingMounts.HangerSupports(roofHanger, Facts(document, "cctv-post")), "post CCTV never hangs from bar");
+
+            var mounts = StationCeilingMounts.For(document);
+            var roofSignMount = mounts.Resolve(Facts(document, "sign-wide-mid"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.HangerRoof, roofSignMount.Support);
+            Assert.AreEqual(4d, roofSignMount.Local, 1e-9, "roof hanger includes 1 m crossbar uplift (3 + 1)");
+            Assert.AreEqual(16d, roofSignMount.Underside, 1e-9);
+
+            var postTvMount = mounts.Resolve(Facts(document, "tv-on-post"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.HangerPost, postTvMount.Support);
+            Assert.AreEqual(3d, postTvMount.Local, 1e-9, "post hanger beam stays 3 m above floor top");
+            Assert.AreEqual(15d, postTvMount.Underside, 1e-9);
+
+            // Verify PlaceCeilingFixture aligns TVs to 16 m on a roof hanger vs 15 m on a post hanger,
+            // and check Tanwei's live hanger-mounted TV and PTZ CCTV records.
+            var displayBuild = BuildDisplays(Save(new JArray {
+                new JObject { ["id"] = "hanger-roof", ["type"] = "hanger", ["x"] = 0, ["y"] = 0, ["z"] = 11, ["w"] = 4, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "roof" } },
+                new JObject { ["id"] = "hanger-post", ["type"] = "hanger", ["x"] = 0, ["y"] = 5, ["z"] = 11, ["w"] = 4, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "post" } },
+                new JObject { ["id"] = "tv-roof", ["type"] = "tv", ["x"] = 1, ["y"] = 0, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject() },
+                new JObject { ["id"] = "tv-post", ["type"] = "tv", ["x"] = 1, ["y"] = 5, ["z"] = 11, ["w"] = 1, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject() },
+            }));
+            try {
+                Assert.IsTrue(displayBuild.world.TryGetModule("tv-roof", out var tvRoof));
+                Assert.IsTrue(displayBuild.world.TryGetModule("tv-post", out var tvPost));
+                Assert.AreEqual(16d, MeasuredBounds(tvRoof.View).Z1, .03, "roof-hanger TV attaches at 16 m");
+                Assert.AreEqual(15d, MeasuredBounds(tvPost.View).Z1, .03, "post-hanger TV attaches at 15 m");
+            } finally {
+                displayBuild.world.Dispose();
+                Object.DestroyImmediate(displayBuild.root);
+            }
+
+            var tanweiPath = System.IO.Path.Combine(Application.dataPath, "StationDesigner/Demos/tanwei.metro.json");
+            var tanwei = StationDocumentReader.Read(System.IO.File.ReadAllText(tanweiPath), new StationSource("tanwei", tanweiPath)).Document;
+            var tanweiMounts = StationCeilingMounts.For(tanwei);
+            foreach (var id in new[] { "tv-256", "tv-257", "cctv-ptz-268", "cctv-ptz-270" }) {
+                var facts = Facts(tanwei, id);
+                var resolved = tanweiMounts.Resolve(facts, StationCeilingMounts.FallbackFor(facts, tanwei.StoreyHeight));
+                Assert.AreEqual(StationCeilingMounts.SupportKind.HangerRoof, resolved.Support, id);
+                Assert.AreEqual(16d, resolved.Underside, 1e-9, id);
+            }
+        }
+
+        [Test]
+        public void NearestExposedBackingResolvesAcrossFootprintBeforeFallback() {
+            var document = Document(new JArray {
+                Module("light-high-solid", "light", 2, 2, 6, cfg: new JObject { ["variant"] = "rectangular" }),
+                Module("light-high-deck", "light", 5, 5, 6, cfg: new JObject { ["variant"] = "rectangular" }),
+                Module("light-under-street", "light", 8, 8, -4, cfg: new JObject { ["variant"] = "rectangular" }),
+                new JObject {
+                    ["id"] = "track-high", ["type"] = "track", ["x"] = 5, ["y"] = 5, ["z"] = 10,
+                    ["w"] = 2, ["d"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["bridge"] = true },
+                },
+                // Multi-cell roof hanger: slab at z = 14 covers only 3 of 4 cells, slab at z = 16 covers all 4.
+                new JObject {
+                    ["id"] = "hanger-span", ["type"] = "hanger", ["x"] = 10, ["y"] = 0, ["z"] = 8,
+                    ["w"] = 4, ["h"] = 1, ["rot"] = 0, ["cfg"] = new JObject { ["mount"] = "roof" },
+                },
+            }, new JArray {
+                // Wall stack at (2, 2, 9..10) exposes underside at z = 9 (not z = 10), plus higher slab at z = 12.
+                Cell(2, 2, 9), Cell(2, 2, 10), Cell(2, 2, 12),
+                // Partial slab at z = 14 (missing x = 13) and full slab at z = 16 across x = 10..13.
+                Cell(10, 0, 14), Cell(11, 0, 14), Cell(12, 0, 14),
+                Cell(10, 0, 16), Cell(11, 0, 16), Cell(12, 0, 16), Cell(13, 0, 16),
+            });
+
+            var mounts = StationCeilingMounts.For(document);
+
+            var highSolid = mounts.Resolve(Facts(document, "light-high-solid"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.CeilingSolid, highSolid.Support);
+            Assert.AreEqual(2d, highSolid.Local, 1e-9, "nearest exposed underside z = 9 gives 9 - 6 - 1 = 2 m");
+            Assert.AreEqual(9d, highSolid.Underside, 1e-9);
+
+            var highDeck = mounts.Resolve(Facts(document, "light-high-deck"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.CeilingTrackDeck, highDeck.Support);
+            Assert.AreEqual(2d, highDeck.Local, 1e-9, "track at z = 10 has deck underside 9 -> local 2 m");
+            Assert.AreEqual(9d, highDeck.Underside, 1e-9);
+
+            var underStreet = mounts.Resolve(Facts(document, "light-under-street"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.CeilingGround, underStreet.Support);
+            Assert.AreEqual(3d, underStreet.Local, 1e-9, "street at z = 0 above z = -4 gives local 3 m");
+            Assert.AreEqual(0d, underStreet.Underside, 1e-9);
+
+            var hangerSpan = mounts.Resolve(Facts(document, "hanger-span"), 4);
+            Assert.AreEqual(StationCeilingMounts.SupportKind.CeilingSolid, hangerSpan.Support);
+            Assert.AreEqual(7d, hangerSpan.Local, 1e-9, "partial slab at z = 14 skipped; full slab at z = 16 gives 16 - 8 - 1 = 7 m");
+        }
     }
 }
