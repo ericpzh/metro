@@ -244,7 +244,26 @@ namespace Metro.Editor {
                 result["view"] = view.DeepClone();
 
                 var state = host.BuildStatePayload();
-                var fingerprint = Hash(state.ToString(Formatting.None) + "\n" + snapshotText);
+                var stateForHash = (JObject)state.DeepClone();
+                if (stateForHash["statistics"] is JObject statsForHash) {
+                    statsForHash.Remove("runId");
+                    if (statsForHash["metrics"] is JObject metricsForHash) {
+                        metricsForHash.Remove("tickMs");
+                    }
+                }
+                if (stateForHash["displays"] is JObject displaysForHash) {
+                    displaysForHash.Remove("posters");
+                    if (displaysForHash["list"] is JArray displayFaces) {
+                        for (int i = 0; i < displayFaces.Count; i++) {
+                            if (displayFaces[i] is JObject faceObj) {
+                                faceObj.Remove("poster");
+                                faceObj.Remove("deadline");
+                                faceObj.Remove("swaps");
+                            }
+                        }
+                    }
+                }
+                var fingerprint = Hash(stateForHash.ToString(Formatting.None) + "\n" + snapshotText);
                 result["state"] = new JObject {
                     ["hash"] = fingerprint,
                     ["bytes"] = state.ToString(Formatting.None).Length,

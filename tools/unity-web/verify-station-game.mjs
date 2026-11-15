@@ -405,6 +405,17 @@ async function runCameraCase() {
   const problems = []
   const send = (type, payload) => page.evaluate(`window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
   const cameraExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.camera ?? null })()`
+  // The home basis is the **committed** station's framing: wait for the startup commit (it
+  // frames the camera once) before reading it, or a late commit moves the baseline the
+  // later `camera.home` is compared against.
+  try {
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      const c = s.state.camera
+      return s.revision >= 0 && !!(c && c.back)
+    })()`, 'committed camera', Math.min(timeoutMs, 60000))
+  } catch { problems.push('no committed station before the camera case') }
+  await sleep(600)
   const start = await page.evaluate(cameraExpr)
   if (!start || !start.back) { problems.push('no camera snapshot published'); return finishCase(record, false, { problems }) }
   // A face snap must change the rendered basis and report the new one. The camera basis
@@ -482,6 +493,35 @@ async function runOverlayCase() {
     if (info && info.zoneCells > 0) { zoneLevel = level; break }
   }
   if (zoneLevel === null) problems.push('no storey drew a zone cell')
+  // 20 §5: the zone layer must print real **glyphs**, not only coloured quads.
+  const overlayState = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).overlays ?? null))()')
+  const zoneLabels = await overlayState()
+  if (!zoneLabels) problems.push('no state.overlays payload was published')
+  else {
+    if (!(zoneLabels.labelCount >= 1)) problems.push('the zone layer printed no label at level ' + zoneLevel)
+    if (!(zoneLabels.labelPlates >= zoneLabels.labelCount)) problems.push('only ' + zoneLabels.labelPlates + ' of ' + zoneLabels.labelCount + ' labels have a painted plate')
+    if (zoneLabels.painterNote) problems.push('the label painter failed: ' + zoneLabels.painterNote)
+    if (!['zh-CN', 'en'].includes(zoneLabels.locale)) problems.push('the label locale is ' + zoneLabels.locale)
+    for (const label of zoneLabels.labels ?? []) {
+      if (!(label.cells >= 6)) problems.push('label ' + label.text + ' covers only ' + label.cells + ' cells')
+      if (!label.text) problems.push('a zone label has no text')
+      if (!(label.ink > 0)) problems.push('label ' + label.text + ' painted no glyph pixels')
+      if (!label.plate) problems.push('label ' + label.text + ' has no plate')
+    }
+    // A language switch reprints the labels in the other language, still with glyph ink.
+    const before = (zoneLabels.labels ?? []).map((label) => label.text).join('|')
+    await page.evaluate(`window.__metroStationBridge.send('exit.locale', { locale: 'en' })`)
+    await sleep(1000)
+    const english = await overlayState()
+    if (!english || english.locale !== 'en') problems.push('the zone labels did not switch to English')
+    else {
+      const after = (english.labels ?? []).map((label) => label.text).join('|')
+      if (after === before) problems.push('the zone labels kept their Chinese text after a language switch')
+      if (!(english.labels ?? []).every((label) => label.ink > 0)) problems.push('an English label painted no glyph pixels')
+    }
+    await page.evaluate(`window.__metroStationBridge.send('exit.locale', { locale: 'zh-CN' })`)
+    await sleep(600)
+  }
   const zoneShot = await capture()
   writeFileSync(join(outDir, 'station-game-overlay-zones.png'), Buffer.from(zoneShot, 'base64'))
   report.images.push('station-game-overlay-zones.png')
@@ -512,6 +552,780 @@ async function runOverlayCase() {
   if (restored && (restored.zones || restored.density)) problems.push('turning both overlays off left a flag set')
   const final = await overlays()
   return finishCase(record, problems.length === 0, { problems, zoneLevel, densityLevel, zoneCells: zoneLevel === null ? 0 : (final?.zoneCells ?? 0), densityCells, overlays: final, render: await render() })
+}
+
+async function runDisplayCase() {
+  const record = caseStart('station-displays')
+  const problems = []
+  const send = (type, payload) => page.evaluate(`window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const displays = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).displays ?? null))()')
+  const view = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).view ?? null))()')
+  await waitForSnapshot('s.state.displays != null', 'display contributor installed')
+  // A platform storey, so the televisions hang where their boards are about the service.
+  await send('view.set', { key: 'level', value: -5 })
+  await send('view.set', { key: 'cutaway', value: false })
+  await sleep(1200)
+  const info = await displays()
+  if (!info || info.bound !== true) problems.push('no display world is bound')
+  if (!info || (info.faces ?? 0) < 4) problems.push('only ' + (info?.faces ?? 0) + ' television faces bound')
+  if (!info || (info.pairFaces ?? 0) < 1) problems.push('no back-to-back pair bound both of its faces')
+  if (!info || (info.posters ?? 0) < 2) problems.push('the televisions print only ' + (info?.posters ?? 0) + ' distinct posters')
+  const list = info?.list ?? []
+  if (list.length === 0) problems.push('no face was sampled for the report')
+  const ids = new Set()
+  const statuses = new Set()
+  for (const face of list) {
+    for (const key of ['module', 'track', 'line', 'date', 'poster', 'board']) {
+      if (!face[key]) problems.push('face ' + face.module + '/' + face.face + ' has no ' + key)
+    }
+    if (!Array.isArray(face.status) || face.status.length !== 3) problems.push('face ' + face.module + ' did not print three cards')
+    else for (const value of face.status) statuses.add(value)
+    if (!face.upright) problems.push('face ' + face.module + ' is not upright: ' + face.basis)
+    ids.add(face.module + '#' + face.face)
+  }
+  if (ids.size !== list.length) problems.push('a face was published twice')
+  if (statuses.size < 2) problems.push('every card printed the same status')
+  if (!(await view())) problems.push('the view state is missing')
+  // The board follows the published minute and the shell's language.
+  const before = list[0]?.board ?? ''
+  await send('exit.locale', { locale: 'en' })
+  await sleep(1200)
+  const english = await displays()
+  if (!english || english.locale !== 'en') problems.push('the display locale did not switch')
+  else if (english.list?.[0]?.board === before) problems.push('the board kept its pixels across a locale switch')
+  const englishBoard = english?.list?.[0]?.board ?? ''
+  if (englishBoard && !englishBoard.includes('|en|')) problems.push('the English board key does not record the locale')
+  await send('exit.locale', { locale: 'zh-CN' })
+  await sleep(800)
+  const restored = await displays()
+  if (!restored || restored.list?.[0]?.board === englishBoard) problems.push('the board did not reprint in Chinese')
+  const shot = await screenshot('station-game-displays')
+  return finishCase(record, problems.length === 0, { problems, info, english: english?.list?.[0] ?? null, images: shot })
+}
+
+async function runSectionHandleCase() {
+  const record = caseStart('section-handle')
+  const problems = []
+  const send = (type, payload) => page.evaluate(`window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const view = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).view ?? null))()')
+  const handle = async () => (await view())?.sectionHandle ?? null
+  // The case may run alone against a URL that has not committed yet, so wait for the station
+  // itself and not only for the view rig: an uncommitted view has no section bounds to frame.
+  await waitForSnapshot('s.revision >= 0', 'committed station', 30000)
+  await waitForSnapshot('s.state.view != null', 'view rig installed', 30000)
+  const settle = async () => {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const current = await handle()
+      if (current && current.arrowVisible === true && current.norm && Number(current.span) > 0) return current
+      if (attempt === 3) await send('view.set', { key: 'sectionRotate', value: 'next' })
+      await sleep(400)
+    }
+    return await handle()
+  }
+  await send('view.set', { key: 'level', value: -5 })
+  await send('view.set', { key: 'cutaway', value: true })
+  await send('view.set', { key: 'sectionSurface', value: true })
+  await sleep(1200)
+  const state = await settle()
+  if (!state || !state.norm) {
+    problems.push('the section handle published no control points')
+    return finishCase(record, false, { problems })
+  }
+  if (!(state.span > 0)) problems.push('the cut published no screen axis (span ' + state.span + ')')
+  if (state.arrowVisible !== true) problems.push('the arrow is not drawn while the cut and sheet are visible')
+  // The shell can hold more than one canvas; the one that covers the viewport is the game's, and
+  // a smaller UI canvas would give every grip the wrong origin.
+  const rect = await page.evaluate(`(() => {
+    const list = Array.from(document.querySelectorAll('canvas')).map((c) => {
+      const r = c.getBoundingClientRect()
+      return { x: r.left, y: r.top, w: r.width, h: r.height, area: r.width * r.height }
+    }).sort((a, b) => b.area - a.area)
+    return list[0] ?? null
+  })()`)
+  if (!rect) {
+    problems.push('no canvas')
+    return finishCase(record, false, { problems })
+  }
+  const point = (norm) => ({ x: rect.x + norm[0] * rect.w, y: rect.y + norm[1] * rect.h })
+  const move = async (at) => {
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: at.x, y: at.y })
+    await sleep(220)
+    return await handle()
+  }
+  // Find a point the section actually reports as hovered: the published control points are the
+  // authoritative guess, and a small ring around them absorbs the pixel-space conversion.
+  const ring = [[0, 0], [0.01, 0], [-0.01, 0], [0, 0.01], [0, -0.01], [0.02, 0.02], [-0.02, -0.02]]
+  const findHover = async (norm) => {
+    for (const [dx, dy] of ring) {
+      const hover = await move({ x: rect.x + (norm[0] + dx) * rect.w, y: rect.y + (norm[1] + dy) * rect.h })
+      if (hover && hover.hovered === true) {
+        return { at: { x: rect.x + (norm[0] + dx) * rect.w, y: rect.y + (norm[1] + dy) * rect.h }, handle: hover }
+      }
+    }
+    return null
+  }
+  const sheet = await findHover(state.norm.sheet)
+  if (!sheet) {
+    problems.push('the pointer never reached the section sheet (norm ' + JSON.stringify(state.norm) + ')')
+    return finishCase(record, false, { problems, state, rect })
+  }
+  const axis = state.axis ? { x: state.axis[0], y: -state.axis[1] } : { x: 0, y: -1 }
+  const length = Math.hypot(axis.x, axis.y) || 1
+  const along = { x: axis.x / length, y: axis.y / length }
+  const grip = async (from, dx, dy) => {
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: from.x, y: from.y, button: 'left', clickCount: 1 })
+    for (let step = 1; step <= 5; step++) {
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: from.x + dx * step / 5, y: from.y + dy * step / 5, button: 'left', buttons: 1 })
+      await sleep(80)
+    }
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: from.x + dx, y: from.y + dy, button: 'left', clickCount: 1 })
+    await sleep(600)
+  }
+  const pixels = Math.max(24, Math.min(160, Number(state.span ?? 0) * 1))
+  const startOffset = Number((await view())?.sectionOffset ?? 0)
+  // The sheet is the reliable grip target; the arrow's own grip is checked when the hover found it.
+  const before = { ...startOffset }
+  await grip(sheet.at, along.x * pixels, along.y * pixels)
+  const moved = await handle()
+  const offsetAfterArrow = Number((await view())?.sectionOffset ?? 0)
+  if (Math.abs(offsetAfterArrow - before) < 0.4) problems.push('a sheet drag did not slide the cut (' + before + ' -> ' + offsetAfterArrow + ')')
+  if (offsetAfterArrow * 2 - Math.round(offsetAfterArrow * 2) > 1e-4) problems.push('the offset left the half-metre snap: ' + offsetAfterArrow)
+  // Across the axis: nothing moves.
+  const acrossFrom = await handle()
+  await grip(sheet.at, -along.y * pixels, along.x * pixels)
+  const across = Number((await view())?.sectionOffset ?? 0)
+  if (Math.abs(across - offsetAfterArrow) > 1e-4) problems.push('a drag across the axis moved the cut (' + offsetAfterArrow + ' -> ' + across + ')')
+  // The cut has moved, so the arrow's own point is re-probed against the **current** handle: the
+  // press has to land on the drawn mark, not where it was before the sheet drag.
+  const arrow = await findHover((await handle()).norm.shaft)
+  let arrowPart = ''
+  if (arrow) {
+    const beforeArrow = Number((await view())?.sectionOffset ?? 0)
+    await grip(arrow.at, along.x * pixels, along.y * pixels)
+    const arrowState = await handle()
+    arrowPart = arrowState?.part ?? ''
+    // The offset moving is the primary evidence; the part names which control took the grip when
+    // the runtime reports it (an idle read reports the last gesture's own part).
+    if (Math.abs(Number((await view())?.sectionOffset ?? 0) - beforeArrow) < 0.4) problems.push('the arrow grip did not slide the cut')
+    if (arrowPart && !arrowPart.startsWith('arrow')) problems.push('the arrow grip was taken by ' + arrowPart)
+  } else {
+    problems.push('the arrow never reported hover at its published control point')
+  }
+  // 隐藏剖切面 puts the arrow away and gives the pointer back.
+  await send('view.set', { key: 'sectionSurface', value: false })
+  await sleep(700)
+  const hidden = await handle()
+  if (hidden && hidden.arrowVisible !== false) problems.push('the arrow stayed drawn with the sheet hidden')
+  const offsetHidden = Number((await view())?.sectionOffset ?? 0)
+  await grip(sheet.at, along.x * pixels, along.y * pixels)
+  if (Math.abs(Number((await view())?.sectionOffset ?? 0) - offsetHidden) > 1e-4) problems.push('a grip moved the cut while the sheet was hidden')
+  await send('view.set', { key: 'sectionSurface', value: true })
+  await sleep(500)
+  const shot = await screenshot('station-game-section-handle')
+  return finishCase(record, problems.length === 0, {
+    problems, span: state.span, startOffset, offsetAfterArrow, across, part: arrowPart,
+    norm: state.norm, rect, images: shot,
+  })
+}
+
+async function runExplodedViewCase() {
+  const record = caseStart('exploded-view')
+  const problems = []
+  const oracle = JSON.parse(readFileSync(join(root, 'unity/Assets/StationDesigner/Tests/EditMode/station-exploded-view-oracle.json'), 'utf8'))
+  const oracleByDemo = new Map((oracle.demos ?? []).map(row => [row.id, row]))
+  const traceReport = {
+    generatedBy: 'tools/unity-web/verify-station-game.mjs#exploded-view',
+    pack: packed,
+    runs: {},
+  }
+  const vecDist = (a, b) => Array.isArray(a) && Array.isArray(b)
+    ? Math.hypot((a[0] ?? 0) - (b[0] ?? 0), (a[1] ?? 0) - (b[1] ?? 0), (a[2] ?? 0) - (b[2] ?? 0))
+    : 999
+  const sameDir = (a, b) => Array.isArray(a) && Array.isArray(b) &&
+    Math.abs(a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) > 0.998
+
+  for (let di = 0; di < demos.length; di++) {
+    const id = demos[di]
+    const expectedOracle = oracleByDemo.get(id)
+    for (let li = 0; li < locales.length; li++) {
+      const locale = locales[li]
+      const tag = `${id}-${locale}`
+      const targetPathPrefix = locale === 'en' ? '/game/en/' : '/game/'
+      const current = await currentSnapshot().catch(() => null)
+      const onDesiredLocale = current && (locale === 'en'
+        ? current.path.startsWith('/game/en')
+        : !current.path.startsWith('/game/en'))
+      if (!(di === 0 && li === 0 && current && current.sourceId === id && onDesiredLocale)) {
+        await page.send('Page.navigate', { url: base + targetPathPrefix + id })
+        await poll('window.__metroStationBridge !== undefined', `${tag} shell mount`)
+      }
+      const { problems: commitProblems } = await expectDemoCommit(id, locale)
+      for (const p of commitProblems) problems.push(`${tag}: ${p}`)
+
+      await poll(`(() => {
+        const loading = document.getElementById('game-loading')
+        if (loading && !loading.hidden && getComputedStyle(loading).display !== 'none' && !loading.classList.contains('is-hidden')) return false
+        const logo = document.getElementById('unity-logo')
+        if (logo && logo.offsetParent !== null && getComputedStyle(logo).display !== 'none') return false
+        const s = window.__metroStationBridge.getSnapshot()
+        return Boolean(s.revision >= 0 && s.state.camera && s.state.camera.back && s.state.view && s.state.edit)
+      })()`, `${tag} editor settled`, Math.min(timeoutMs, 60000))
+
+      const stageCenter = await page.evaluate(`(() => {
+        const c = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+        if (!c) return null
+        const r = c.getBoundingClientRect()
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), pixels: [c.width, c.height], parentClass: c.parentElement?.className ?? '' }
+      })()`)
+      if (!stageCenter) {
+        problems.push(`${tag}: missing #unity-canvas before open`)
+        continue
+      }
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: stageCenter.x, y: stageCenter.y, button: 'left', buttons: 1, clickCount: 1 })
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: stageCenter.x, y: stageCenter.y, button: 'left', buttons: 0, clickCount: 1 })
+      await page.evaluate(`window.__metroStationBridge.request('camera.home', {})`)
+      await page.evaluate(`window.__metroStationBridge.request('sim.play', { playing: false })`)
+      await page.evaluate(`new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { unsub(); reject(new Error('timed out waiting for baseline state snapshot')) }, 30000)
+        const unsub = window.__metroStationBridge.subscribe(() => {
+          clearTimeout(timer)
+          unsub()
+          resolve(true)
+        })
+      })`)
+
+      const editorBefore = await page.evaluate(`(() => {
+        const s = window.__metroStationBridge.getSnapshot()
+        const c = document.querySelector('#unity-canvas')
+        window.__metroOriginalUnityCanvas = c
+        return {
+          revision: s.revision,
+          sourceHash: s.sourceHash,
+          documentBytes: s.document ? s.document.length : 0,
+          hasExplodedCapability: Boolean(s.capabilities && s.capabilities.exploded === true),
+          explodedDrag: (s.state.view?.capabilities?.explodedDrag ?? s.state.capabilities?.explodedDrag) === true,
+          level: s.state.view?.level ?? null,
+          tool: s.state.tool ?? null,
+          undoDepth: s.state.edit?.undoDepth ?? 0,
+          redoDepth: s.state.edit?.redoDepth ?? 0,
+          selectionKey: s.state.edit?.selectionKey ?? s.state.edit?.selection?.key ?? '',
+          camera: s.state.camera,
+          pixels: c ? [c.width, c.height] : [0, 0],
+        }
+      })()`)
+      if (!editorBefore.hasExplodedCapability) problems.push(`${tag}: host capabilities missing 'exploded'`)
+      if (!editorBefore.explodedDrag) problems.push(`${tag}: state.view.capabilities.explodedDrag is not true`)
+
+      // Ensure the View folder in the inspector rail is open, then click the real Exploded view tile
+      await page.evaluate(`window.dispatchEvent(new CustomEvent('metro:tutorial-folders', { detail: { open: ['view'], close: [] } }))`)
+      await sleep(100)
+      const wantedLabel = locale === 'en' ? 'Exploded view' : '爆炸视图'
+      const clickedOpen = await page.evaluate(`(() => {
+        const tiles = [...document.querySelectorAll('.viewGrid .bpBlock, .panel .bpBlock')]
+        const match = tiles.find(btn => {
+          const label = (btn.querySelector('.bpBlockLabel')?.textContent ?? btn.textContent ?? '').trim()
+          return label.toLowerCase() === ${JSON.stringify(wantedLabel.toLowerCase())}
+        })
+        if (!match) return 'missing:' + tiles.map(b => (b.querySelector('.bpBlockLabel')?.textContent ?? b.textContent ?? '').trim()).join('|')
+        if (match.disabled) return 'disabled'
+        match.click()
+        return 'clicked'
+      })()`)
+      if (clickedOpen !== 'clicked') {
+        problems.push(`${tag}: could not click '${wantedLabel}' (${clickedOpen})`)
+        continue
+      }
+
+      await poll(`(() => {
+        const dlg = document.querySelector('dialog.explodedViewer')
+        const exp = window.__metroStationBridge.getSnapshot().state.exploded
+        return Boolean(dlg && dlg.open && dlg.dataset.ready === 'true' && dlg.dataset.equipped === 'true' &&
+          dlg.dataset.unityHost === 'true' && exp && exp.phase === 'ready' && exp.equipped === true)
+      })()`, `${tag} exploded ready & equipped`, Math.min(timeoutMs, 60000))
+      await sleep(500)
+
+      const openedCheck = await page.evaluate(`(() => {
+        const dlg = document.querySelector('dialog.explodedViewer')
+        const c = document.querySelector('#unity-canvas')
+        const r = c ? c.getBoundingClientRect() : null
+        const dpr = window.devicePixelRatio || 1
+        const exp = window.__metroStationBridge.getSnapshot().state.exploded
+        return {
+          inDialog: Boolean(dlg && c && dlg.contains(c)),
+          sameNode: Boolean(c && c === window.__metroOriginalUnityCanvas),
+          pixels: c ? [c.width, c.height] : [0, 0],
+          expectedModalPixels: r ? [Math.round(r.width * dpr), Math.round(r.height * dpr)] : [0, 0],
+          toolbarTitle: dlg?.querySelector('.explodedToolbar strong')?.textContent?.trim() ?? '',
+          footerButtons: [...(dlg?.querySelectorAll('.explodedLevels button') ?? [])].map(b => b.textContent.trim()),
+          exploded: exp,
+        }
+      })()`)
+      if (!openedCheck.inDialog) problems.push(`${tag}: #unity-canvas was not reparented into dialog.explodedViewer`)
+      if (!openedCheck.sameNode) problems.push(`${tag}: #unity-canvas DOM node was recreated instead of reparented`)
+      if (Math.abs(openedCheck.pixels[0] - openedCheck.expectedModalPixels[0]) > 4 ||
+          Math.abs(openedCheck.pixels[1] - openedCheck.expectedModalPixels[1]) > 4) {
+        problems.push(`${tag}: #unity-canvas modal backing size ${JSON.stringify(openedCheck.pixels)} did not match modal box ${JSON.stringify(openedCheck.expectedModalPixels)}`)
+      }
+      if (openedCheck.toolbarTitle !== wantedLabel) {
+        problems.push(`${tag}: toolbar title '${openedCheck.toolbarTitle}' != '${wantedLabel}'`)
+      }
+
+      const expInitial = openedCheck.exploded
+      if (expectedOracle) {
+        const gotLevels = (expInitial.rows ?? []).map(r => r.elevation)
+        const gotPacked = (expInitial.rows ?? []).map(r => r.packedOffset)
+        if (JSON.stringify(gotLevels) !== JSON.stringify(expectedOracle.levels)) {
+          problems.push(`${tag}: levels ${JSON.stringify(gotLevels)} != ${JSON.stringify(expectedOracle.levels)}`)
+        }
+        if (JSON.stringify(gotPacked) !== JSON.stringify(expectedOracle.packedOffsets)) {
+          problems.push(`${tag}: packedOffsets ${JSON.stringify(gotPacked)} != ${JSON.stringify(expectedOracle.packedOffsets)}`)
+        }
+        const expectedGuides = expectedOracle.guideCounts?.total ?? expectedOracle.guides?.length ?? 0
+        if (expInitial.activeGuides !== expectedGuides) {
+          problems.push(`${tag}: activeGuides ${expInitial.activeGuides} != ${expectedGuides}`)
+        }
+      }
+      await screenshot(`station-game-exploded-${tag}-initial`)
+
+      // 1. WASD held pan, middle-button orbit, right-button pan, and wheel zoom on the standalone camera
+      const canvasBox = await page.evaluate(`(() => {
+        const r = document.querySelector('dialog.explodedViewer canvas').getBoundingClientRect()
+        return { left: r.left, top: r.top, width: r.width, height: r.height, cx: Math.round(r.left + r.width * 0.5), cy: Math.round(r.top + r.height * 0.52) }
+      })()`)
+      const camStart = expInitial.camera
+      await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+      await sleep(550)
+      await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+      await sleep(300)
+      const camAfterW = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded?.camera')
+      if (!(vecDist(camAfterW?.target, camStart?.target) > 0.5)) {
+        problems.push(`${tag}: holding W did not pan exploded viewer camera`)
+      }
+      if (!sameDir(camAfterW?.back, camStart?.back)) {
+        problems.push(`${tag}: holding W altered exploded viewer camera angle`)
+      }
+
+      // Middle-drag orbit
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasBox.cx, y: canvasBox.cy, button: 'middle', buttons: 4, clickCount: 1 })
+      for (let s = 1; s <= 4; s++) {
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: canvasBox.cx + s * 16, y: canvasBox.cy - s * 6, button: 'middle', buttons: 4 })
+        await sleep(35)
+      }
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: canvasBox.cx + 64, y: canvasBox.cy - 24, button: 'middle', buttons: 0, clickCount: 1 })
+      await sleep(300)
+      const camAfterOrbit = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded?.camera')
+      if (!(vecDist(camAfterOrbit?.back, camAfterW?.back) > 0.03)) {
+        problems.push(`${tag}: middle-button drag did not orbit exploded camera`)
+      }
+
+      // Right-drag pan
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: canvasBox.cx, y: canvasBox.cy, button: 'right', buttons: 2, clickCount: 1 })
+      for (let s = 1; s <= 4; s++) {
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: canvasBox.cx - s * 18, y: canvasBox.cy + s * 10, button: 'right', buttons: 2 })
+        await sleep(35)
+      }
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: canvasBox.cx - 72, y: canvasBox.cy + 40, button: 'right', buttons: 0, clickCount: 1 })
+      await sleep(300)
+      const camAfterPan = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded?.camera')
+      if (!(vecDist(camAfterPan?.target, camAfterOrbit?.target) > 0.4)) {
+        problems.push(`${tag}: right-button drag did not pan exploded camera`)
+      }
+
+      // Wheel zoom
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: canvasBox.cx, y: canvasBox.cy, deltaX: 0, deltaY: -240 })
+      await sleep(300)
+      const camAfterZoom = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded?.camera')
+      if (!camAfterZoom || !(camAfterZoom.orthoSize < camAfterPan.orthoSize - 0.1)) {
+        problems.push(`${tag}: wheel zoom did not zoom exploded camera (${camAfterPan?.orthoSize} -> ${camAfterZoom?.orthoSize})`)
+      }
+      // Restore zoom so all packed trays fit comfortably for picking & dragging
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: canvasBox.cx, y: canvasBox.cy, deltaX: 0, deltaY: 240 })
+      await sleep(300)
+
+      // 2. Real left-press tray pick & drag (Plan 19 §5.6: drag -15 m on Zoo, -5 m on Tanwei)
+      const dragElev = id === 'zoo' ? -15 : (expInitial.rows[1]?.elevation ?? expInitial.rows[0]?.elevation)
+      const pickAim = await page.evaluate(`(() => {
+        const snap = window.__metroStationBridge.getSnapshot()
+        const exp = snap.state.exploded
+        const cam = exp?.camera
+        const doc = JSON.parse(snap.document)
+        const canvas = document.querySelector('dialog.explodedViewer canvas')
+        if (!exp || !cam || !doc || !canvas) return null
+        const r = canvas.getBoundingClientRect()
+        const aspect = r.width / Math.max(1, r.height)
+        const halfH = cam.orthoSize
+        const halfW = halfH * aspect
+        const targetRow = exp.rows.find(row => row.elevation === ${JSON.stringify(dragElev)})
+        if (!targetRow) return null
+        const cells = (doc.static?.cells ?? []).filter(c =>
+          c.z === ${JSON.stringify(dragElev)} &&
+          c.fill === 'solid' &&
+          !(Array.isArray(c.tags) && c.tags.includes('auto-wall')) &&
+          (c.zone === 'paid' || c.zone === 'unpaid' || c.zone === 'platform' || c.room))
+        const packDir = ${JSON.stringify(expectedOracle?.direction ?? [1, 1])}
+        // Compute higher trays' shifted AABBs to avoid clicking through an upper floor
+        const higherBoxes = exp.rows.filter(row => row.elevation > ${JSON.stringify(dragElev)}).map(row => {
+          const hc = (doc.static?.cells ?? []).filter(c => c.z >= row.elevation && c.z < row.elevation + 5 && c.fill === 'solid')
+          if (!hc.length) return null
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
+          for (const c of hc) {
+            if (c.x < minX) minX = c.x; if (c.x + 1 > maxX) maxX = c.x + 1
+            if (c.y < minY) minY = c.y; if (c.y + 1 > maxY) maxY = c.y + 1
+          }
+          const ox = packDir[0] * row.packedOffset
+          const oy = packDir[1] * row.packedOffset
+          return {
+            minX: minX + ox - 1, maxX: maxX + ox + 1,
+            minY: minY + oy - 1, maxY: maxY + oy + 1,
+            minZ: row.elevation, maxZ: row.elevation + 5,
+          }
+        }).filter(Boolean)
+
+        const project = (pt) => {
+          const dx = pt[0] - cam.target[0], dy = pt[1] - cam.target[1], dz = pt[2] - cam.target[2]
+          const vx = dx * cam.right[0] + dy * cam.right[1] + dz * cam.right[2]
+          const vy = dx * cam.up[0] + dy * cam.up[1] + dz * cam.up[2]
+          const nx = 0.5 + vx / (2 * halfW)
+          const ny = 0.5 - vy / (2 * halfH)
+          return { nx, ny, x: Math.round(r.left + nx * r.width), y: Math.round(r.top + ny * r.height) }
+        }
+        const occluded = (pt) => {
+          const bx = cam.back[0], by = cam.back[1], bz = cam.back[2]
+          for (const box of higherBoxes) {
+            let tmin = 0, tmax = 1e6
+            const axes = [
+              [pt[0], bx, box.minX, box.maxX],
+              [pt[1], by, box.minY, box.maxY],
+              [pt[2], bz, box.minZ, box.maxZ],
+            ]
+            let hit = true
+            for (const [p0, d, lo, hi] of axes) {
+              if (Math.abs(d) < 1e-6) { if (p0 < lo || p0 > hi) { hit = false; break } }
+              else {
+                let t1 = (lo - p0) / d, t2 = (hi - p0) / d
+                if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp }
+                tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2)
+                if (tmin > tmax) { hit = false; break }
+              }
+            }
+            if (hit) return true
+          }
+          return false
+        }
+        let sumX = 0, sumY = 0
+        for (const c of cells) { sumX += c.x + 0.5; sumY += c.y + 0.5 }
+        const cx = cells.length ? sumX / cells.length : 0
+        const cy = cells.length ? sumY / cells.length : 0
+        const sorted = [...cells].sort((a, b) =>
+          Math.hypot(a.x + 0.5 - cx, a.y + 0.5 - cy) - Math.hypot(b.x + 0.5 - cx, b.y + 0.5 - cy))
+        const tox = packDir[0] * targetRow.packedOffset
+        const toy = packDir[1] * targetRow.packedOffset
+        for (let i = 0; i < sorted.length; i += Math.max(1, Math.floor(sorted.length / 80))) {
+          const c = sorted[i]
+          const pt = [c.x + 0.5 + tox, c.y + 0.5 + toy, ${JSON.stringify(dragElev)} + 1.0]
+          const pr = project(pt)
+          if (pr.nx < 0.14 || pr.nx > 0.78 || pr.ny < 0.16 || pr.ny > 0.82) continue
+          if (!occluded(pt)) return pr
+        }
+        for (const c of sorted) {
+          const pt = [c.x + 0.5 + tox, c.y + 0.5 + toy, ${JSON.stringify(dragElev)} + 1.0]
+          const pr = project(pt)
+          if (pr.nx >= 0.12 && pr.nx <= 0.85 && pr.ny >= 0.15 && pr.ny <= 0.85) return pr
+        }
+        return null
+      })()`)
+
+      if (!pickAim) {
+        problems.push(`${tag}: could not project an unobstructed floor point for ${dragElev} m`)
+      } else {
+        const beforeDrag = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+        // First click selects the tray (1 pick) and mounts .explodedFloorPanel
+        await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pickAim.x, y: pickAim.y, button: 'left', buttons: 1, clickCount: 1 })
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pickAim.x, y: pickAim.y, button: 'left', buttons: 0, clickCount: 1 })
+        await sleep(300)
+        const afterSelect = await page.evaluate(`(() => {
+          const exp = window.__metroStationBridge.getSnapshot().state.exploded
+          const panel = document.querySelector('.explodedFloorPanel')
+          const r = panel ? panel.getBoundingClientRect() : null
+          return { exp, panelRect: r ? { left: r.left, top: r.top } : null }
+        })()`)
+        if (afterSelect.exp.pickCount !== beforeDrag.pickCount + 1) {
+          problems.push(`${tag}: single left click executed ${afterSelect.exp.pickCount - beforeDrag.pickCount} picks (expected 1)`)
+        }
+        if (afterSelect.exp.selectedElevation !== dragElev) {
+          problems.push(`${tag}: left click selected ${afterSelect.exp.selectedElevation} m instead of ${dragElev} m`)
+        }
+        if (!afterSelect.panelRect) {
+          problems.push(`${tag}: .explodedFloorPanel did not mount after selecting ${dragElev} m`)
+        }
+
+        // Now press and drag the selected tray across the viewport (1 pick on press, 0 picks on move)
+        await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pickAim.x, y: pickAim.y, button: 'left', buttons: 1, clickCount: 1 })
+        for (let step = 1; step <= 5; step++) {
+          await page.send('Input.dispatchMouseEvent', {
+            type: 'mouseMoved',
+            x: pickAim.x + step * 24,
+            y: pickAim.y - step * 12,
+            button: 'left',
+            buttons: 1,
+          })
+          await sleep(40)
+        }
+        await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pickAim.x + 120, y: pickAim.y - 60, button: 'left', buttons: 0, clickCount: 1 })
+        await sleep(350)
+
+        const afterDrag = await page.evaluate(`(() => {
+          const exp = window.__metroStationBridge.getSnapshot().state.exploded
+          const panel = document.querySelector('.explodedFloorPanel')
+          const r = panel ? panel.getBoundingClientRect() : null
+          return { exp, panelRect: r ? { left: r.left, top: r.top } : null }
+        })()`)
+        if (afterDrag.exp.pickCount !== afterSelect.exp.pickCount + 1) {
+          problems.push(`${tag}: drag gesture executed ${afterDrag.exp.pickCount - afterSelect.exp.pickCount} picks (expected 1 on pointerDown, 0 on pointerMove)`)
+        }
+        const draggedRow = afterDrag.exp.rows.find(r => r.elevation === dragElev)
+        const manualDelta = draggedRow ? Math.hypot(...draggedRow.manualOffset) : 0
+        if (!(manualDelta > 1.0)) {
+          problems.push(`${tag}: dragging ${dragElev} m moved manualOffset by only ${manualDelta.toFixed(3)} m`)
+        }
+        for (const other of afterDrag.exp.rows) {
+          if (other.elevation !== dragElev && Math.hypot(...other.manualOffset) > 1e-4) {
+            problems.push(`${tag}: dragging ${dragElev} m also moved ${other.elevation} m (${JSON.stringify(other.manualOffset)})`)
+          }
+        }
+        if (afterSelect.panelRect && afterDrag.panelRect) {
+          const panelShift = Math.hypot(afterDrag.panelRect.left - afterSelect.panelRect.left, afterDrag.panelRect.top - afterSelect.panelRect.top)
+          if (!(panelShift > 4)) {
+            problems.push(`${tag}: .explodedFloorPanel did not follow dragged tray (${JSON.stringify(afterSelect.panelRect)} -> ${JSON.stringify(afterDrag.panelRect)})`)
+          }
+        }
+        // Verify dashed guide endpoints tracked the dragged tray in world space
+        const worldShift = draggedRow ? [draggedRow.manualOffset[0], draggedRow.manualOffset[2], draggedRow.manualOffset[1]] : [0, 0, 0]
+        const beforeGuideMap = new Map((beforeDrag.guides ?? []).map(g => [`${g.id}|${g.lowerElevation}|${g.upperElevation}`, g]))
+        for (const g of afterDrag.exp.guides ?? []) {
+          const orig = beforeGuideMap.get(`${g.id}|${g.lowerElevation}|${g.upperElevation}`)
+          if (!orig) continue
+          const expLower = g.lowerElevation === dragElev
+            ? [orig.lowerWorld[0] + worldShift[0], orig.lowerWorld[1] + worldShift[1], orig.lowerWorld[2] + worldShift[2]]
+            : orig.lowerWorld
+          const expUpper = g.upperElevation === dragElev
+            ? [orig.upperWorld[0] + worldShift[0], orig.upperWorld[1] + worldShift[1], orig.upperWorld[2] + worldShift[2]]
+            : orig.upperWorld
+          if (vecDist(g.lowerWorld, expLower) > 0.05 || vecDist(g.upperWorld, expUpper) > 0.05) {
+            problems.push(`${tag}: guide ${g.id} detached after dragging ${dragElev} m`)
+            break
+          }
+        }
+        await screenshot(`station-game-exploded-${tag}-dragged`)
+
+        // 3. Hide near walls, hide floor (incident guides disappear), restore via footer, and Reset
+        await page.evaluate(`document.querySelectorAll('.explodedFloorPanel .selected button')[1]?.click()`)
+        await sleep(300)
+        const afterWallHide = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+        const wallRow = afterWallHide.rows.find(r => r.elevation === dragElev)
+        if (!wallRow || wallRow.wallsVisible !== false || wallRow.floorVisible !== true) {
+          problems.push(`${tag}: wall button did not hide only near walls on ${dragElev} m`)
+        }
+        if (afterWallHide.activeGuides !== beforeDrag.activeGuides) {
+          problems.push(`${tag}: hiding front walls unexpectedly changed guide count (${beforeDrag.activeGuides} -> ${afterWallHide.activeGuides})`)
+        }
+
+        const expectedNonIncidentGuides = (beforeDrag.guides ?? []).filter(
+          g => g.lowerElevation !== dragElev && g.upperElevation !== dragElev).length
+        await page.evaluate(`document.querySelectorAll('.explodedFloorPanel .selected button')[0]?.click()`)
+        await sleep(300)
+        const afterFloorHide = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+        const hiddenRow = afterFloorHide.rows.find(r => r.elevation === dragElev)
+        if (!hiddenRow || hiddenRow.floorVisible !== false) {
+          problems.push(`${tag}: eye button did not hide ${dragElev} m`)
+        }
+        if (afterFloorHide.activeGuides !== expectedNonIncidentGuides) {
+          problems.push(`${tag}: hiding ${dragElev} m left ${afterFloorHide.activeGuides} guides, expected ${expectedNonIncidentGuides} non-incident guides`)
+        }
+        await screenshot(`station-game-exploded-${tag}-hidden`)
+
+        // Deselect via another footer button, reselect the hidden level via footer, restore floor & walls, then click Reset
+        await page.evaluate(`(() => {
+          const btns = [...document.querySelectorAll('.explodedLevels button')]
+          const other = btns.find(b => !b.classList.contains('explodedHiddenLevel'))
+          other?.click()
+        })()`)
+        await sleep(250)
+        await page.evaluate(`(() => {
+          const hiddenBtn = document.querySelector('.explodedLevels button.explodedHiddenLevel')
+          hiddenBtn?.click()
+        })()`)
+        await sleep(250)
+        await page.evaluate(`(() => {
+          const panelBtns = document.querySelectorAll('.explodedFloorPanel .selected button')
+          panelBtns[0]?.click()
+          panelBtns[1]?.click()
+        })()`)
+        await sleep(300)
+        await page.evaluate(`document.querySelector('.explodedReset')?.click()`)
+        await sleep(300)
+        const afterReset = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+        if (afterReset.selectedElevation !== null) {
+          problems.push(`${tag}: Reset did not clear selectedElevation (${afterReset.selectedElevation})`)
+        }
+        if (afterReset.rows.some(r => Math.hypot(...r.manualOffset) > 1e-4)) {
+          problems.push(`${tag}: Reset left non-zero manualOffset`)
+        }
+        if (afterReset.activeGuides !== beforeDrag.activeGuides) {
+          problems.push(`${tag}: restoring ${dragElev} m + Reset left ${afterReset.activeGuides} guides (expected ${beforeDrag.activeGuides})`)
+        }
+      }
+
+      // 4. Simulation play/pause inside viewer + game-hotkey suppression + viewport resize
+      const tickBeforePlay = await page.evaluate('window.__metroStationBridge.getSnapshot().state.clock?.tick ?? 0')
+      await page.evaluate(`(() => {
+        const btn = [...document.querySelectorAll('.explodedToolbar .seg button')].find(b => b.textContent.trim() === '16\\u00d7')
+        btn?.click()
+      })()`)
+      await poll(`(() => {
+        const c = window.__metroStationBridge.getSnapshot().state.clock
+        return Boolean(c && c.playing === true && c.tick > ${Number(tickBeforePlay)})
+      })()`, `${tag} live playback inside exploded view`, Math.min(timeoutMs, 20000)).catch(() => {
+        problems.push(`${tag}: simulation did not advance while playing in exploded view`)
+      })
+      // Blur toolbar button so Space hits the viewer's keyboard handler
+      await page.evaluate(`document.activeElement?.blur?.()`)
+      await pressKey(' ', 'Space', 32)
+      await poll(`window.__metroStationBridge.getSnapshot().state.clock?.playing === false`, `${tag} Space pause in exploded view`, 15000)
+        .catch(() => problems.push(`${tag}: Space did not pause playback inside exploded view`))
+
+      await pressKey('b', 'KeyB', 66)
+      await sleep(200)
+      const toolDuringModal = await page.evaluate('window.__metroStationBridge.getSnapshot().state.tool')
+      if (toolDuringModal !== editorBefore.tool) {
+        problems.push(`${tag}: build hotkey KeyB leaked through exploded modal (${editorBefore.tool} -> ${toolDuringModal})`)
+      }
+
+      // Resize viewport while modal is open and restore
+      await page.send('Emulation.setDeviceMetricsOverride', { width: 1180, height: 780, deviceScaleFactor: 1, mobile: false })
+      await sleep(350)
+      const expResized = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+      if (!expResized || expResized.phase !== 'ready') {
+        problems.push(`${tag}: viewport resize disrupted exploded session`)
+      }
+      await page.send('Emulation.clearDeviceMetricsOverride')
+      await sleep(300)
+
+      // Record compact tray/guide trace keyed by demo hash and locale
+      const finalOpenExp = await page.evaluate('window.__metroStationBridge.getSnapshot().state.exploded')
+      traceReport.runs[`${id}:${editorBefore.sourceHash}:${locale}`] = {
+        demo: id,
+        locale,
+        sourceHash: editorBefore.sourceHash,
+        generation: finalOpenExp?.generation ?? 0,
+        rows: finalOpenExp?.rows ?? [],
+        activeGuides: finalOpenExp?.activeGuides ?? 0,
+        sampleGuides: (finalOpenExp?.guides ?? []).slice(0, 6),
+      }
+
+      // 5. Close via Escape / Back button, verify editor state restoration, reopen once and close again
+      if (locale === 'zh') {
+        await pressKey('Escape', 'Escape', 27)
+      } else {
+        await page.evaluate(`document.querySelector('.explodedBack')?.click()`)
+      }
+      await poll(`!document.querySelector('dialog.explodedViewer') && window.__metroStationBridge.getSnapshot().state.exploded?.phase === 'closed'`,
+        `${tag} exploded close`, 15000)
+      await sleep(350)
+
+      // Reopen once and close via the opposite control to exercise repeated opens on the same station
+      await page.evaluate(`(() => {
+        const tiles = [...document.querySelectorAll('.viewGrid .bpBlock, .panel .bpBlock')]
+        const match = tiles.find(btn => {
+          const label = (btn.querySelector('.bpBlockLabel')?.textContent ?? btn.textContent ?? '').trim()
+          return label.toLowerCase() === ${JSON.stringify(wantedLabel.toLowerCase())}
+        })
+        match?.click()
+      })()`)
+      await poll(`(() => {
+        const dlg = document.querySelector('dialog.explodedViewer')
+        const exp = window.__metroStationBridge.getSnapshot().state.exploded
+        return Boolean(dlg && dlg.open && dlg.dataset.ready === 'true' && exp && exp.phase === 'ready' && exp.generation > ${Number(finalOpenExp?.generation ?? 0)})
+      })()`, `${tag} second open`, 30000)
+      if (locale === 'zh') {
+        await page.evaluate(`document.querySelector('.explodedBack')?.click()`)
+      } else {
+        await pressKey('Escape', 'Escape', 27)
+      }
+      await poll(`!document.querySelector('dialog.explodedViewer') && window.__metroStationBridge.getSnapshot().state.exploded?.phase === 'closed'`,
+        `${tag} second close`, 15000)
+      await sleep(350)
+
+      const editorAfter = await page.evaluate(`(() => {
+        const s = window.__metroStationBridge.getSnapshot()
+        const c = document.querySelector('#unity-canvas')
+        return {
+          inStage: Boolean(c && c.closest('.unityViewport')),
+          sameNode: Boolean(c && c === window.__metroOriginalUnityCanvas),
+          pixels: c ? [c.width, c.height] : [0, 0],
+          revision: s.revision,
+          sourceHash: s.sourceHash,
+          documentBytes: s.document ? s.document.length : 0,
+          level: s.state.view?.level ?? null,
+          tool: s.state.tool ?? null,
+          undoDepth: s.state.edit?.undoDepth ?? 0,
+          redoDepth: s.state.edit?.redoDepth ?? 0,
+          selectionKey: s.state.edit?.selectionKey ?? s.state.edit?.selection?.key ?? '',
+          camera: s.state.camera,
+        }
+      })()`)
+      if (!editorAfter.inStage) problems.push(`${tag}: #unity-canvas was not returned to .unityViewport on close`)
+      if (!editorAfter.sameNode) problems.push(`${tag}: #unity-canvas DOM node was recreated on return`)
+      if (JSON.stringify(editorAfter.pixels) !== JSON.stringify(editorBefore.pixels)) {
+        problems.push(`${tag}: #unity-canvas pixels changed across open/close`)
+      }
+      if (editorAfter.revision !== editorBefore.revision) problems.push(`${tag}: exploded session mutated revision (${editorBefore.revision} -> ${editorAfter.revision})`)
+      if (editorAfter.sourceHash !== editorBefore.sourceHash) problems.push(`${tag}: exploded session mutated sourceHash`)
+      if (editorAfter.documentBytes !== editorBefore.documentBytes) problems.push(`${tag}: exploded session mutated document length`)
+      if (editorAfter.level !== editorBefore.level) problems.push(`${tag}: exploded session mutated active level (${editorBefore.level} -> ${editorAfter.level})`)
+      if (editorAfter.tool !== editorBefore.tool) problems.push(`${tag}: exploded session mutated active tool (${editorBefore.tool} -> ${editorAfter.tool})`)
+      if (editorAfter.undoDepth !== editorBefore.undoDepth || editorAfter.redoDepth !== editorBefore.redoDepth) {
+        problems.push(`${tag}: exploded session mutated undo/redo stack`)
+      }
+      if (editorAfter.selectionKey !== editorBefore.selectionKey) {
+        problems.push(`${tag}: exploded session mutated selection (${JSON.stringify(editorBefore.selectionKey)} -> ${JSON.stringify(editorAfter.selectionKey)})`)
+      }
+      if (vecDist(editorAfter.camera?.position, editorBefore.camera?.position) > 0.05 ||
+          vecDist(editorAfter.camera?.target, editorBefore.camera?.target) > 0.05 ||
+          !sameDir(editorAfter.camera?.back, editorBefore.camera?.back)) {
+        problems.push(`${tag}: editor camera pose was not restored after exploded close (before=${JSON.stringify(editorBefore.camera)}, after=${JSON.stringify(editorAfter.camera)})`)
+      }
+    }
+  }
+
+  // Verify station replacement while viewer is open closes the viewer cleanly without late callback corruption
+  const activeDemoBeforeSwitch = await page.evaluate('window.__metroStationBridge.getSnapshot().sourceId')
+  const alternateDemo = activeDemoBeforeSwitch === 'zoo' ? 'tanwei' : 'zoo'
+  if (byId.has(alternateDemo)) {
+    await page.evaluate(`window.__metroStationBridge.send('exploded.open', { viewportWidth: 1280, viewportHeight: 720 })`)
+    await poll(`Boolean(document.querySelector('dialog.explodedViewer') && window.__metroStationBridge.getSnapshot().state.exploded?.phase === 'ready')`,
+      'pre-switch exploded open', 30000)
+    const revBeforeSwitch = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+    await page.evaluate(`window.__metroStationBridge.send('station.openDemo', { id: ${JSON.stringify(alternateDemo)} })`)
+    await waitForSnapshot(`s.revision > ${revBeforeSwitch} && s.sourceId === ${JSON.stringify(alternateDemo)} && s.state.exploded?.phase === 'closed'`,
+      `switch to ${alternateDemo} closes exploded view`, Math.min(timeoutMs, 120000))
+    await poll(`!document.querySelector('dialog.explodedViewer')`, 'modal unmounted after station switch', 15000)
+    await sleep(400)
+    const switchedSnap = await currentSnapshot()
+    if (switchedSnap.sourceId !== alternateDemo) problems.push(`station switch from open exploded view landed on ${switchedSnap.sourceId}`)
+    if (switchedSnap.state?.exploded?.phase !== 'closed') problems.push(`exploded view stayed '${switchedSnap.state?.exploded?.phase}' across station switch`)
+    // Restore original demo if other cases follow in the same verifier session
+    if (onlyCases === null && activeDemoBeforeSwitch && activeDemoBeforeSwitch !== alternateDemo) {
+      await ensureDemo(activeDemoBeforeSwitch)
+    }
+  }
+
+  writeFileSync(join(outDir, 'station-exploded-trace.json'), JSON.stringify(traceReport, null, 2) + '\n')
+  return finishCase(record, problems.length === 0, {
+    problems,
+    traceFile: 'station-exploded-trace.json',
+    runs: Object.keys(traceReport.runs),
+  })
 }
 
 async function runVisualCase() {
@@ -1052,6 +1866,164 @@ async function runSignCommitCase() {
 }
 
 /**
+ * RCA 15 §5 sub-item 2, the end-to-end proof: the PSD printed header band. The geometry
+ * half mints one slot per doorway/route span and poses its node toward the platform; this
+ * case proves the **transport** — the browser painted `drawPsdHeader` panels, Unity
+ * uploaded them, and every slot shows a non-blank texture. It reads `state.psd.headers`
+ * (slots/served/textures/minInk and the per-panel facts), then changes Line 5's ink and
+ * up terminus, reopens the committed document, and asserts the new request carries the
+ * new painted data and a new content key — the "update after changing line information"
+ * check the plan calls out. The demo is reopened afterwards so later cases see Zoo.
+ */
+async function runPsdHeaderCase() {
+  const record = caseStart('psd-header')
+  const problems = []
+  if (!(await ensureDemo('zoo'))) {
+    problems.push('could not commit the Zoo document before reading the PSD headers')
+    return finishCase(record, false, { problems })
+  }
+  const headersExpr = '(() => { const s = window.__metroStationBridge.getSnapshot(); return (s.state.psd && s.state.psd.headers) || null })()'
+  const reportExpr = 'window.__metroStationBridge.getSnapshot().revision'
+  const waitServed = async (what, differentFrom) => {
+    try {
+      await poll(`(() => {
+        const s = window.__metroStationBridge.getSnapshot()
+        const h = s.state.psd && s.state.psd.headers
+        if (!h || !(h.slots > 0) || h.served !== h.slots || h.pending !== 0) return false
+        ${differentFrom ? `const panel = (h.panels ?? []).find(p => p.kind === 'station' && p.direction === 'up')
+        if (!panel || panel.key === ${JSON.stringify(differentFrom)}) return false` : ''}
+        return true
+      })()`, what, Math.min(timeoutMs, 120000))
+      return true
+    } catch {
+      return false
+    }
+  }
+  await waitServed('initial PSD header paint')
+  const initial = await page.evaluate(headersExpr)
+  mark('psd-header:headers')
+  if (!initial) {
+    problems.push('no state.psd.headers published for a station with PSD runs')
+    return finishCase(record, false, { problems })
+  }
+  // Zoo's two 101 m Line 5 runs: 18 station panels + 19 route panels each.
+  if (initial.slots !== 74) problems.push('expected 74 PSD header slots for Zoo, got ' + initial.slots)
+  if (initial.served !== initial.slots) problems.push('PSD headers served ' + initial.served + '/' + initial.slots + ' slots')
+  if (initial.pending !== 0) problems.push(initial.pending + ' PSD header panel(s) never painted')
+  if (initial.unported !== 0) problems.push(initial.unported + ' PSD header slot(s) could not be printed')
+  if (!(initial.minInk > 0.02)) {
+    problems.push('the served PSD header texture reports ink ' + initial.minInk + '; a blank band is not artwork')
+  }
+  const panels = Array.isArray(initial.panels) ? initial.panels : []
+  const kinds = new Set(panels.map(panel => panel.kind))
+  if (!kinds.has('route') || !kinds.has('station')) problems.push('the band is missing a route or station panel')
+  const directions = new Set(panels.map(panel => panel.direction))
+  if (!directions.has('up') || !directions.has('down')) problems.push('both Line 5 directions must print a band')
+  for (const panel of panels) {
+    if (!(panel.bytes > 1024)) problems.push('panel ' + String(panel.key).slice(0, 8) + ' uploaded only ' + panel.bytes + ' bytes')
+    if (!(panel.width >= 1024) || panel.height !== 256) problems.push('panel ' + String(panel.key).slice(0, 8) + ' is ' + panel.width + 'x' + panel.height)
+    if (!(panel.ink > 0.02)) problems.push('panel ' + String(panel.key).slice(0, 8) + ' painted no ink')
+    if (!(panel.slots > 0)) problems.push('panel ' + String(panel.key).slice(0, 8) + ' is bound to no slot')
+  }
+  const upStation = panels.find(panel => panel.kind === 'station' && panel.direction === 'up')
+  if (!upStation) problems.push('no up station panel was painted')
+  if (upStation && upStation.destination !== '文冲') problems.push('the up station panel prints ' + upStation.destination + ', expected 文冲')
+
+  // Change the committed line information, then reopen exactly as a saved edit would.
+  // The whole document is edited **inside the page**: a 1.6 MB save carried through a
+  // CDP argument and back is the one evaluate in this case big enough to hit the
+  // harness's command timeout on a loaded page.
+  const before = await page.evaluate(reportExpr)
+  if (!(await installCommandRecorder())) problems.push('the shared bridge port is not mounted')
+  await page.evaluate(`(() => {
+    window.__psdHeaderRequests = []
+    window.addEventListener('metro:station-state', (event) => {
+      try {
+        const message = JSON.parse(event.detail)
+        if (message && (message.kind === 'psdHeaderRequest' || message.type === 'psd.requestHeader')) window.__psdHeaderRequests.push(message)
+      } catch { /* a non-JSON frame is not a header request */ }
+    })
+    return true
+  })()`)
+  const edited = await page.evaluate(`(() => {
+    const bridge = window.__metroStationBridge
+    const text = bridge.getSnapshot().document
+    if (!text) return { ok: false, why: 'no committed document' }
+    const edited = JSON.parse(text)
+    const line = (edited.static?.lines ?? []).find(candidate => candidate.id === '5')
+    if (!line) return { ok: false, why: 'no Line 5 record' }
+    line.colour = '#ff3300'
+    line.upTerminus = 'Probe End'
+    line.upTerminusEn = 'Probe End'
+    window.__psdEditedDocument = JSON.stringify(edited)
+    return { ok: true }
+  })()`)
+  mark('psd-header:prepare')
+  if (edited && edited.ok) {
+    await page.evaluate('window.__metroStationBridge.send("station.open", { document: window.__psdEditedDocument })')
+    mark('psd-header:send')
+  }
+  if (!edited || !edited.ok) {
+    problems.push('could not edit the committed line information: ' + (edited ? edited.why : 'evaluate failed'))
+  } else {
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'reopen after the line edit', Math.min(timeoutMs, 300000))
+    } catch {
+      problems.push('reopening the edited document did not commit a revision')
+    }
+    mark('psd-header:opened')
+    const repainted = await waitServed('repaint after the line edit', upStation ? upStation.key : '')
+    mark('psd-header:repainted')
+    if (!repainted) problems.push('the edited line information never produced a new painted band')
+    const requests = await page.evaluate('window.__psdHeaderRequests ?? []')
+    mark('psd-header:requests')
+    const requested = requests.flatMap(row => Array.isArray(row.payload?.panels) ? row.payload.panels : [])
+    const upRequested = requested.filter(panel => panel.direction === 'up' && panel.kind === 'station')
+    if (requests.length === 0) problems.push('the reopened station minted no psdHeaderRequest')
+    for (const request of requests) {
+      if ((request.payload?.panels ?? []).length > 32) problems.push('a psdHeaderRequest carried more than 32 panels')
+    }
+    if (upRequested.length === 0) problems.push('the reopened station requested no up station panel')
+    else {
+      const panel = upRequested[0]
+      if (panel.colour !== '#ff3300') problems.push('the re-minted request kept the old line ink ' + panel.colour)
+      if (panel.destination !== 'Probe End') problems.push('the re-minted request kept the old terminus ' + panel.destination)
+      if (upStation && panel.key.slice(0, 16) === upStation.key) {
+        problems.push('the painted-data key did not move with the edited line information')
+      }
+    }
+    const commands = await recordedCommands()
+    mark('psd-header:commands')
+    const ready = commands.filter(row => row.type === 'psd.headerReady')
+    const chunks = commands.filter(row => row.type === 'psd.headerChunk')
+    if (ready.length === 0) problems.push('the browser never answered a psdHeaderRequest')
+    if (chunks.length === 0) problems.push('the browser streamed no psd.headerChunk')
+    for (const row of ready) {
+      const painted = Array.isArray(row.payload?.painted) ? row.payload.painted : []
+      if (painted.length === 0) problems.push('a psd.headerReady carried no painted panels')
+      for (const panel of painted) {
+        if (!(panel.bytes > 1024)) problems.push('the browser reported a ' + panel.bytes + '-byte panel')
+        if (!(panel.ink > 0.02)) problems.push('the browser painted panel ink ' + panel.ink)
+      }
+    }
+    // Put Zoo back: the demo open restores the committed document and its source id.
+    if (!(await ensureDemo('zoo'))) problems.push('could not restore the Zoo demo after the line edit')
+    else await waitServed('restored PSD header paint')
+    mark('psd-header:restored')
+  }
+  await screenshot('station-game-psd-header')
+  mark('psd-header:screenshot')
+  return finishCase(record, problems.length === 0, {
+    problems,
+    slots: initial.slots,
+    served: initial.served,
+    minInk: initial.minInk,
+    panels: panels.map(panel => ({ kind: panel.kind, direction: panel.direction, bytes: panel.bytes, slots: panel.slots })),
+    revision: await page.evaluate(reportExpr),
+  })
+}
+
+/**
  * H3 through the bridge: the crowd block reports which profile is bound. The public
  * pack has no catalogue and must publish nobody and no recipe ids; the local pack
  * binds the 440-row library and must publish real recipe ids into the state frame.
@@ -1179,6 +2151,623 @@ async function runServiceMotionCase() {
   })
 }
 
+/**
+ * Plan 21 §6.4: live station metrics, paginated 1-minute history (`stats.history`), and
+ * `ChartsPanel` / `BottomBar` verification across Chinese and English.
+ */
+async function runStationStatisticsCase(locale) {
+  const record = caseStart(`station-statistics-${locale}`)
+  const problems = []
+  const wantLang = locale === 'en' ? 'en' : 'zh-CN'
+  const copy = locale === 'en'
+    ? {
+        railTile: 'Statistics charts',
+        modalTitle: 'Data',
+        hudOpenLabel: 'Open the data window',
+        chartTitles: ['Average crowd level', 'In-station numbers', 'Passenger totals'],
+        modes: { cumulative: 'Cumulative', perMinute: 'Per minute' },
+        empty: 'No data yet',
+        hudLabels: [
+          'Passengers inside', 'Average crowd level', 'Gate queue', 'Escalator queue',
+          'Lift queue', 'Platform door queue', 'Boarded', 'Exited', 'Left behind', 'Time',
+        ],
+        losLabels: { A: 'Free flow', B: 'Comfortable', C: 'Busy', D: 'Crowded', E: 'Very crowded', F: 'Overcrowded' },
+      }
+    : {
+        railTile: '统计图',
+        modalTitle: '数据',
+        hudOpenLabel: '打开数据窗口',
+        chartTitles: ['平均拥挤等级', '站内数值', '客流累计'],
+        modes: { cumulative: '累计', perMinute: '每分钟' },
+        empty: '暂无数据',
+        hudLabels: [
+          '站内人数', '平均拥挤等级', '闸机排队', '扶梯排队',
+          '电梯排队', '站台门排队', '已上车', '已出站', '滞留', '时间',
+        ],
+        losLabels: { A: '畅通', B: '顺畅', C: '有点挤', D: '拥挤', E: '很挤', F: '挤爆' },
+      }
+
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload ?? {})})`)
+
+  const pad2 = (n) => String(n).padStart(2, '0')
+  const clockTextOf = (seconds) => {
+    const t = ((Math.round(seconds) % 86400) + 86400) % 86400
+    return `${pad2(Math.floor(t / 3600))}:${pad2(Math.floor((t % 3600) / 60))}`
+  }
+  const stampClockOf = (simTime) => {
+    const t = ((Math.floor(simTime) % 86400) + 86400) % 86400
+    return `${pad2(Math.floor(t / 3600))}:${pad2(Math.floor((t % 3600) / 60))}`
+  }
+  const niceMax = (max) => {
+    if (!Number.isFinite(max) || max <= 0) return 1
+    const magnitude = 10 ** Math.floor(Math.log10(max))
+    for (const step of [1, 2, 5]) {
+      const candidate = step * magnitude
+      if (candidate >= max) return candidate
+    }
+    return 10 * magnitude
+  }
+  const expectedPoints = (values, top) => {
+    const count = values.length
+    const x = (i) => 40 + (count <= 1 ? 0 : (i / (count - 1)) * 430)
+    const y = (v) => 10 + 104 - Math.min(1, Math.max(0, top > 0 ? v / top : 0)) * 104
+    return values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ')
+  }
+  const expectedTimeLabels = (times, slots = 7) => {
+    if (times.length === 0) return []
+    const shown = Math.min(slots, times.length)
+    const out = []
+    for (let i = 0; i < shown; i++) {
+      const at = shown === 1 ? 0 : Math.round((i / (shown - 1)) * (times.length - 1))
+      out.push(clockTextOf(times[at]))
+    }
+    return out
+  }
+
+  const switchUiLanguage = async (target) => {
+    const current = await page.evaluate('document.documentElement.lang || "zh-CN"')
+    if (current === target) return true
+    const clicked = await page.evaluate(`(() => {
+      const details = document.querySelector('details.settingsMenu')
+      if (details) details.open = true
+      const buttons = [...document.querySelectorAll('details.settingsMenu button.settingsAction, button.settingsAction')]
+      const langBtn = buttons.find(btn => {
+        const label = (btn.getAttribute('aria-label') ?? btn.getAttribute('title') ?? '').trim()
+        return label.startsWith('切换语言') || label.startsWith('Switch language')
+      })
+      if (!langBtn) return false
+      langBtn.click()
+      if (details) details.open = false
+      return true
+    })()`)
+    if (!clicked) return false
+    try {
+      await poll(`(document.documentElement.lang || 'zh-CN') === ${JSON.stringify(target)}`, `language ${target}`, 10000)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  const pauseAt1x = async (what) => {
+    await send('sim.play', { playing: false })
+    await send('sim.speed', { speed: 1 })
+    await poll(`(() => {
+      const c = window.__metroStationBridge.getSnapshot().state.clock ?? {}
+      return c.playing === false && c.speed === 1
+    })()`, what, Math.min(timeoutMs, 20000))
+  }
+
+  const readHudAndDom = async () => page.evaluate(`(() => {
+    const hudButton = document.querySelector('.bottombarMetrics[role="button"]')
+    const hud = [...document.querySelectorAll('.bottombarMetrics .metric')].map(el => ({
+      label: el.querySelector('.metricLabel')?.textContent?.trim() ?? '',
+      value: el.querySelector('b')?.textContent?.trim() ?? '',
+    }))
+    const dialog = document.querySelector('.chartsWindow[role="dialog"]')
+    if (!dialog) {
+      return {
+        hudAriaLabel: hudButton?.getAttribute('aria-label') ?? '',
+        hudTabIndex: hudButton?.getAttribute('tabindex') ?? '',
+        hud,
+        open: false,
+      }
+    }
+    const blocks = [...dialog.querySelectorAll('.timeBlock')].map(block => {
+      const heading = block.querySelector('.timeBlockHead > span')?.textContent?.trim() ?? ''
+      const modes = [...block.querySelectorAll('.chartModes .chartMode')].map(btn => ({
+        text: btn.textContent?.trim() ?? '',
+        pressed: btn.getAttribute('aria-pressed') === 'true',
+      }))
+      const chips = [...block.querySelectorAll('.chartLegend .chartChip')].map(btn => ({
+        text: btn.textContent?.trim() ?? '',
+        pressed: btn.getAttribute('aria-pressed') === 'true',
+      }))
+      const empty = block.querySelector('.chartEmpty')?.textContent?.trim() ?? null
+      const svg = block.querySelector('svg.chart')
+      const ticks = svg ? [...svg.querySelectorAll('text.chartTick')].map(t => ({
+        text: t.textContent?.trim() ?? '',
+        x: Number(t.getAttribute('x')),
+        y: Number(t.getAttribute('y')),
+      })) : []
+      const yTicks = ticks.filter(t => Math.abs(t.y - 125) >= 0.5)
+      const xTicks = ticks.filter(t => Math.abs(t.y - 125) < 0.5).map(t => t.text)
+      const polylines = svg ? [...svg.querySelectorAll('polyline.chartLine')].map(p => ({
+        points: p.getAttribute('points') ?? '',
+        stroke: p.style?.stroke ?? p.getAttribute('stroke') ?? '',
+      })) : []
+      const dots = svg ? svg.querySelectorAll('circle.chartDot').length : 0
+      return { heading, modes, chips, empty, yTicks, xTicks, polylines, dots }
+    })
+    return {
+      hudAriaLabel: hudButton?.getAttribute('aria-label') ?? '',
+      hudTabIndex: hudButton?.getAttribute('tabindex') ?? '',
+      hud,
+      open: true,
+      title: dialog.querySelector('.timeTitle')?.textContent?.trim() ?? '',
+      blocks,
+    }
+  })()`)
+
+  const initialLang = await page.evaluate('document.documentElement.lang || "zh-CN"')
+  let zooEvidence = null
+  let fixtureEvidence = null
+
+  try {
+    if (!(await switchUiLanguage(wantLang))) {
+      problems.push(`could not switch UI language to ${wantLang}`)
+      return finishCase(record, false, { problems })
+    }
+    await page.evaluate(`(() => {
+      document.querySelector('.tutorialActions .ghost')?.click()
+      const close = document.querySelector('.chartsWindow .timeClose')
+      if (close) close.click()
+    })()`)
+    await sleep(100)
+
+    // 1. Open Zoo, verify capability & descriptor shape (no embedded values array), and sample >= 3 minutes.
+    if (!(await ensureDemo('zoo'))) {
+      problems.push('could not commit Zoo before station-statistics')
+      return finishCase(record, false, { problems })
+    }
+    const initCheck = await page.evaluate(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      const stats = s.state.statistics ?? null
+      return {
+        capability: Boolean(s.capabilities && s.capabilities.stationStatistics === true),
+        available: Boolean(stats && stats.available === true),
+        runId: stats?.runId ?? '',
+        hasEmbeddedValues: Boolean(stats?.history && 'values' in stats.history),
+      }
+    })()`)
+    if (!initCheck.capability) problems.push('capabilities.stationStatistics is not true')
+    if (!initCheck.available || !initCheck.runId) problems.push('state.statistics is unavailable on Zoo')
+    if (initCheck.hasEmbeddedValues) problems.push('state.statistics.history leaked embedded values array')
+
+    // Monday 2026-01-05 08:00 morning peak (avoiding 2026-01-01 New Year holiday).
+    const mondayMorningPeak = 4 * 86400 + 28800
+    await send('sim.seek', { simTimeSeconds: mondayMorningPeak })
+    await poll(`(() => {
+      const stats = window.__metroStationBridge.getSnapshot().state.statistics
+      return Boolean(stats && stats.runId && stats.runId !== ${JSON.stringify(initCheck.runId)} && stats.history?.count === 0)
+    })()`, `${locale} zoo seek reset`, 15000)
+
+    const zooRunAfterSeek = await page.evaluate('window.__metroStationBridge.getSnapshot().state.statistics.runId')
+    await send('sim.speed', { speed: 64 })
+    await send('sim.play', { playing: true })
+    await poll(`(() => {
+      const stats = window.__metroStationBridge.getSnapshot().state.statistics
+      return Boolean(stats && stats.runId === ${JSON.stringify(zooRunAfterSeek)} && stats.history && stats.history.count >= 3 && (stats.metrics?.population ?? 0) > 0)
+    })()`, `${locale} zoo >= 3 history samples`, Math.min(timeoutMs, 90000))
+    await pauseAt1x(`${locale} zoo paused`)
+    await sleep(350)
+
+    // 2. Open panel from the Inspector View rail, close with Escape, reopen from HUD click and keyboard Enter.
+    // Focus the tab with a real CDP bringToFront + mouse click so Chromium routes Input.dispatchKeyEvent to DOM keydown.
+    await page.send('Page.bringToFront').catch(() => {})
+    await page.evaluate(`window.focus()`).catch(() => {})
+    await page.evaluate(`window.dispatchEvent(new CustomEvent('metro:tutorial-folders', { detail: { open: ['view'], close: [] } }))`)
+    await sleep(100)
+    const railTarget = await page.evaluate(`(() => {
+      const tiles = [...document.querySelectorAll('.viewGrid .bpBlock, .panel .bpBlock')]
+      const match = tiles.find(btn => {
+        const label = btn.querySelector('.bpBlockLabel')?.textContent?.trim() ?? btn.textContent?.trim() ?? ''
+        return label.toLowerCase() === ${JSON.stringify(copy.railTile.toLowerCase())}
+      })
+      if (!match) return { ok: false, why: 'missing:' + tiles.map(b => b.querySelector('.bpBlockLabel')?.textContent?.trim() ?? '').join('|') }
+      match.scrollIntoView({ block: 'nearest' })
+      const exactLabel = match.querySelector('.bpBlockLabel')?.textContent?.trim() ?? ''
+      const r = match.getBoundingClientRect()
+      return { ok: true, label: exactLabel, x: r.left + r.width / 2, y: r.top + r.height / 2 }
+    })()`)
+    if (!railTarget.ok) {
+      problems.push(`could not find Statistics charts rail tile (${railTarget.why})`)
+    } else {
+      if (railTarget.label !== copy.railTile) {
+        problems.push(`rail tile label '${railTarget.label}' != '${copy.railTile}'`)
+      }
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: railTarget.x, y: railTarget.y, button: 'left', buttons: 1, clickCount: 1 })
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: railTarget.x, y: railTarget.y, button: 'left', buttons: 0, clickCount: 1 })
+    }
+    await poll(`Boolean(document.querySelector('.chartsWindow[role="dialog"]'))`, `${locale} open from rail`, 10000)
+
+    await pressKey('Escape', 'Escape', 27)
+    await poll(`!document.querySelector('.chartsWindow[role="dialog"]')`, `${locale} close with Escape`, 10000)
+
+    const hudRect = await page.evaluate(`(() => {
+      const el = document.querySelector('.bottombarMetrics[role="button"]')
+      if (!el) return null
+      const r = el.getBoundingClientRect()
+      return { x: r.left + Math.min(80, r.width / 2), y: r.top + r.height / 2 }
+    })()`)
+    if (hudRect) {
+      await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: hudRect.x, y: hudRect.y, button: 'left', buttons: 1, clickCount: 1 })
+      await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: hudRect.x, y: hudRect.y, button: 'left', buttons: 0, clickCount: 1 })
+    }
+    await poll(`Boolean(document.querySelector('.chartsWindow[role="dialog"]'))`, `${locale} open from HUD click`, 10000)
+    await page.evaluate(`document.querySelector('.chartsWindow .timeClose')?.click()`)
+    await poll(`!document.querySelector('.chartsWindow[role="dialog"]')`, `${locale} close with timeClose`, 10000)
+
+    await page.evaluate(`document.querySelector('.bottombarMetrics[role="button"]')?.focus()`)
+    await pressKey('Enter', 'Enter', 13)
+    await poll(`Boolean(document.querySelector('.chartsWindow[role="dialog"]'))`, `${locale} open from HUD Enter`, 10000)
+    await sleep(250)
+
+    // 3. Verify Zoo HUD metrics & plotted charts at the exact paused tick, LOS axis orientation, series toggle, and paused stability.
+    const zooState = await page.evaluate(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      return {
+        revision: s.revision,
+        clock: s.state.clock ?? null,
+        statistics: s.state.statistics ?? null,
+      }
+    })()`)
+    const zooHistory = await page.evaluate(`window.__metroStationBridge.request('stats.history', {
+      runId: ${JSON.stringify(zooState.statistics.runId)},
+      from: 0,
+      limit: 128,
+    })`)
+    const zooDom = await readHudAndDom()
+    zooEvidence = { state: zooState, history: zooHistory, dom: zooDom }
+
+    if (zooDom.hudAriaLabel !== copy.hudOpenLabel) {
+      problems.push(`HUD aria-label '${zooDom.hudAriaLabel}' != '${copy.hudOpenLabel}'`)
+    }
+    if (zooDom.hudTabIndex !== '0') problems.push(`HUD tabIndex '${zooDom.hudTabIndex}' != '0'`)
+    if (!zooDom.open || zooDom.title !== copy.modalTitle) {
+      problems.push(`modal title '${zooDom.title}' != '${copy.modalTitle}'`)
+    }
+    if (zooState.clock?.tick !== zooState.statistics?.metrics?.tick) {
+      problems.push(`clock.tick (${zooState.clock?.tick}) != statistics.metrics.tick (${zooState.statistics?.metrics?.tick})`)
+    }
+
+    const zm = zooState.statistics.metrics
+    const expectedZooHud = [
+      [copy.hudLabels[0], await page.evaluate(`(${Number(zm.population)}).toLocaleString()`)],
+      [copy.hudLabels[1], `${zm.crowdLos} ${copy.losLabels[zm.crowdLos]}`],
+      [copy.hudLabels[2], String(zm.gateQueue)],
+      [copy.hudLabels[3], String(zm.escalatorQueue)],
+      [copy.hudLabels[4], String(zm.liftQueue)],
+      [copy.hudLabels[5], String(zm.doorQueue)],
+      [copy.hudLabels[6], String(zm.boarded)],
+      [copy.hudLabels[7], String(zm.exited)],
+      [copy.hudLabels[8], String(zm.leftBehind)],
+      [copy.hudLabels[9], stampClockOf(zm.simTime)],
+    ]
+    if (zooDom.hud.length !== expectedZooHud.length) {
+      problems.push(`HUD rendered ${zooDom.hud.length} metrics, expected ${expectedZooHud.length}`)
+    } else {
+      for (let i = 0; i < expectedZooHud.length; i++) {
+        const [wantLabel, wantVal] = expectedZooHud[i]
+        const got = zooDom.hud[i]
+        if (got.label !== wantLabel || got.value !== wantVal) {
+          problems.push(`HUD[${i}] '${got.label}: ${got.value}' != '${wantLabel}: ${wantVal}'`)
+        }
+      }
+    }
+
+    const zooF32 = new Float32Array(zooHistory.values ?? [])
+    const zooCount = Number(zooHistory.count ?? 0)
+    const zooStride = Number(zooHistory.stride ?? 13)
+    const zooCol = (c) => Array.from({ length: zooCount }, (_, r) => zooF32[r * zooStride + c])
+    const zooTimes = zooCol(0)
+    const wantZooX = expectedTimeLabels(zooTimes)
+
+    if (zooDom.blocks.length !== 3) {
+      problems.push(`ChartsPanel rendered ${zooDom.blocks.length} chart blocks, expected 3`)
+    } else {
+      for (let b = 0; b < 3; b++) {
+        if (zooDom.blocks[b].heading !== copy.chartTitles[b]) {
+          problems.push(`block[${b}] heading '${zooDom.blocks[b].heading}' != '${copy.chartTitles[b]}'`)
+        }
+        if (JSON.stringify(zooDom.blocks[b].xTicks) !== JSON.stringify(wantZooX)) {
+          problems.push(`block[${b}] xTicks ${JSON.stringify(zooDom.blocks[b].xTicks)} != ${JSON.stringify(wantZooX)}`)
+        }
+      }
+      const losTicks = zooDom.blocks[0].yTicks
+      const tickA = losTicks.find(t => t.text === 'A')
+      const tickF = losTicks.find(t => t.text === 'F')
+      if (!tickA || !tickF || !(tickA.y < tickF.y)) {
+        problems.push(`LOS axis must put A above F, got ${JSON.stringify(losTicks)}`)
+      }
+      const wantLosPts = expectedPoints(zooCol(2).map(idx => 5 - idx), 5)
+      if (zooDom.blocks[0].polylines[0]?.points !== wantLosPts) {
+        problems.push(`Zoo LOS polyline '${zooDom.blocks[0].polylines[0]?.points}' != '${wantLosPts}'`)
+      }
+    }
+
+    // Series chip toggle hides and restores a line cleanly.
+    const linesBeforeToggle = zooDom.blocks[1]?.polylines?.length ?? 0
+    await page.evaluate(`document.querySelectorAll('.chartsWindow .timeBlock')[1]?.querySelector('.chartLegend .chartChip')?.click()`)
+    await sleep(120)
+    const afterChipOff = await readHudAndDom()
+    if (afterChipOff.blocks[1]?.chips[0]?.pressed !== false) problems.push('clicking first station series chip did not set aria-pressed=false')
+    if ((afterChipOff.blocks[1]?.polylines?.length ?? -1) !== linesBeforeToggle - 1) {
+      problems.push(`hiding one station series changed polyline count ${linesBeforeToggle} -> ${afterChipOff.blocks[1]?.polylines?.length}`)
+    }
+    await page.evaluate(`document.querySelectorAll('.chartsWindow .timeBlock')[1]?.querySelector('.chartLegend .chartChip')?.click()`)
+    await sleep(120)
+    const afterChipOn = await readHudAndDom()
+    if ((afterChipOn.blocks[1]?.polylines?.length ?? -1) !== linesBeforeToggle) {
+      problems.push('re-enabling station series chip did not restore polyline')
+    }
+
+    // Paused history must not synthesize extra samples while paused.
+    await sleep(1000)
+    const zooAfterPauseWait = await page.evaluate('window.__metroStationBridge.getSnapshot().state.statistics')
+    if (zooAfterPauseWait.runId !== zooState.statistics.runId || zooAfterPauseWait.history.count !== zooState.statistics.history.count) {
+      problems.push(`paused Zoo statistics drifted (${JSON.stringify(zooState.statistics.history)} -> ${JSON.stringify(zooAfterPauseWait.history)})`)
+    }
+    await screenshot(`station-game-statistics-zoo-${locale}`)
+
+    // 4. Short-headway deterministic fixture for nonzero boarded, exited, leftBehind, and per-minute chart deltas.
+    const prevRev = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+    const fixtureJson = await page.evaluate(`(() => {
+      const cells = []
+      for (let x = 0; x <= 4; x++) {
+        for (let y = 1; y <= 6; y++) {
+          cells.push({ x, y, z: 0, fill: 'solid', zone: 'unpaid', finish: { top: 'floor.concrete' } })
+        }
+      }
+      for (const y of [2, 3, 4]) {
+        cells.push({ x: 5, y, z: 0, fill: 'solid', zone: 'paid', finish: { top: 'floor.concrete' } })
+      }
+      for (let x = 6; x <= 42; x++) {
+        for (let y = 1; y <= 4; y++) {
+          cells.push({ x, y, z: 0, fill: 'solid', zone: 'paid', finish: { top: 'floor.concrete' } })
+        }
+      }
+      const modules = [
+        { id: 'exit-a', type: 'exit', x: 1, y: 1, z: 0, rot: 0, cfg: { name: 'A', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'exit-b', type: 'exit', x: 1, y: 2, z: 0, rot: 0, cfg: { name: 'B', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'exit-c', type: 'exit', x: 1, y: 3, z: 0, rot: 0, cfg: { name: 'C', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'exit-d', type: 'exit', x: 1, y: 4, z: 0, rot: 0, cfg: { name: 'D', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'exit-e', type: 'exit', x: 1, y: 5, z: 0, rot: 0, cfg: { name: 'E', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'exit-f', type: 'exit', x: 1, y: 6, z: 0, rot: 0, cfg: { name: 'F', inRate: 1800, open: true, covered: false, bays: 2 } },
+        { id: 'gate-in-1', type: 'gate', x: 5, y: 2, z: 0, rot: 0, cfg: { dir: 'in', door: 'lane' } },
+        { id: 'gate-in-2', type: 'gate', x: 5, y: 3, z: 0, rot: 0, cfg: { dir: 'in', door: 'lane' } },
+        { id: 'gate-out', type: 'gate', x: 5, y: 4, z: 0, rot: 0, cfg: { dir: 'out', door: 'lane' } },
+        { id: 'track-1', type: 'track', x: 6, y: -2, z: 0, rot: 0, w: 36, d: 3, cfg: { line: '5', power: 'third-rail', dir: 'up' } },
+        { id: 'edge-1', type: 'platform-edge', x: 10, y: 1, z: 0, rot: 0, w: 2, cfg: { line: '5', from: 'track-1', side: 'left', psd: 'full', dir: 'up' } },
+      ]
+      const lines = [{
+        id: '5',
+        name: '5号线',
+        nameEn: 'Line 5',
+        colour: '#c70541',
+        stock: 'L',
+        cars: 2,
+        power: 'third-rail',
+        psd: 'full',
+        direction: 'up',
+        upTerminus: '文冲',
+        upTerminusEn: 'Wenchong',
+        downTerminus: '滘口',
+        downTerminusEn: 'Jiaokou',
+        alightPerTrain: 18,
+        headwayProfile: { peak: 60, offpeak: 60, late: 60 },
+      }]
+      return JSON.stringify({
+        format: 'metro-save',
+        formatVersion: 1,
+        gameVersion: '0.2.0',
+        savedAt: '2026-01-01T00:00:00.000Z',
+        name: '统计测试站',
+        nameEn: 'Statistics Fixture',
+        city: 'guangzhou',
+        seed: 20260105,
+        levelBase: 0,
+        storeyHeight: 5,
+        service: { from: 21600, to: 84600 },
+        peaks: [{ from: 25200, to: 34200 }, { from: 61200, to: 68400 }],
+        static: { cells, modules, lines },
+      })
+    })()`)
+    await send('station.open', { document: fixtureJson })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      return s.revision > ${prevRev} && s.state.statistics && s.state.statistics.runId !== ${JSON.stringify(zooState.statistics.runId)} && s.state.statistics.history?.count === 0
+    })()`, `${locale} short-headway fixture open`, Math.min(timeoutMs, 60000))
+    await sleep(200)
+    const emptyOpenDom = await readHudAndDom()
+    if (emptyOpenDom.open && emptyOpenDom.blocks.some(b => b.empty !== copy.empty)) {
+      problems.push(`freshly opened fixture did not show empty state '${copy.empty}'`)
+    }
+
+    await send('sim.seek', { simTimeSeconds: mondayMorningPeak })
+    await poll(`(() => {
+      const c = window.__metroStationBridge.getSnapshot().state.clock
+      return Boolean(c && Math.abs(c.simTimeSeconds - ${mondayMorningPeak}) < 2)
+    })()`, `${locale} fixture seek to Monday peak`, 15000)
+    const fixtureRunId = await page.evaluate('window.__metroStationBridge.getSnapshot().state.statistics.runId')
+
+    await send('sim.speed', { speed: 64 })
+    await send('sim.play', { playing: true })
+    await poll(`(async () => {
+      const s = window.__metroStationBridge.getSnapshot()
+      const stats = s.state.statistics
+      const m = stats?.metrics
+      if (!stats || stats.runId !== ${JSON.stringify(fixtureRunId)}) return false
+      if (!(stats.history?.count >= 4 && m && m.boarded > 0 && m.exited > 0 && m.leftBehind > 0)) return false
+      const page = await window.__metroStationBridge.request('stats.history', { runId: stats.runId, from: 0, limit: 128 })
+      const vals = page.values ?? []
+      const stride = page.stride ?? 13
+      const rows = page.count ?? 0
+      let sawBoardedDelta = false, sawExitedDelta = false, sawLeftBehindDelta = false
+      for (let r = 1; r < rows; r++) {
+        if (vals[r * stride + 10] > 0) sawBoardedDelta = true
+        if (vals[r * stride + 11] > 0) sawExitedDelta = true
+        if (vals[r * stride + 12] > 0) sawLeftBehindDelta = true
+      }
+      return sawBoardedDelta && sawExitedDelta && sawLeftBehindDelta
+    })()`, `${locale} fixture nonzero throughput & per-minute deltas`, Math.min(timeoutMs, 90000))
+    await pauseAt1x(`${locale} fixture paused`)
+    await sleep(350)
+
+    const revBeforeHistReq = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+    const fixState = await page.evaluate(`(() => {
+      const s = window.__metroStationBridge.getSnapshot()
+      return {
+        revision: s.revision,
+        clock: s.state.clock ?? null,
+        statistics: s.state.statistics ?? null,
+      }
+    })()`)
+    const fixHistory = await page.evaluate(`window.__metroStationBridge.request('stats.history', {
+      runId: ${JSON.stringify(fixState.statistics.runId)},
+      from: 0,
+      limit: 128,
+    })`)
+    const revAfterHistReq = await page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+    if (revAfterHistReq !== revBeforeHistReq) {
+      problems.push(`stats.history mutated document revision (${revBeforeHistReq} -> ${revAfterHistReq})`)
+    }
+
+    const fixF32 = new Float32Array(fixHistory.values ?? [])
+    const fixCount = Number(fixHistory.count ?? 0)
+    const fixStride = Number(fixHistory.stride ?? 13)
+    const fixCol = (c) => Array.from({ length: fixCount }, (_, r) => fixF32[r * fixStride + c])
+
+    // Check row 0 zero deltas and row r >= 1 exact per-minute differences.
+    if (fixCount < 3) problems.push(`expected >= 3 fixture rows, got ${fixCount}`)
+    else {
+      if (fixF32[10] !== 0 || fixF32[11] !== 0 || fixF32[12] !== 0) {
+        problems.push(`row 0 per-minute deltas must be 0, got [${fixF32[10]}, ${fixF32[11]}, ${fixF32[12]}]`)
+      }
+      for (let r = 1; r < fixCount; r++) {
+        for (const [totIdx, dIdx, name] of [[7, 10, 'boarded'], [8, 11, 'exited'], [9, 12, 'leftBehind']]) {
+          const wantDelta = fixF32[r * fixStride + totIdx] - fixF32[(r - 1) * fixStride + totIdx]
+          const gotDelta = fixF32[r * fixStride + dIdx]
+          if (Math.abs(gotDelta - wantDelta) > 1e-3) {
+            problems.push(`row ${r} ${name}PerMin ${gotDelta} != ${wantDelta}`)
+          }
+        }
+      }
+    }
+
+    // Ensure cumulative mode is selected and verify SVG polylines match cols 7..9.
+    await page.evaluate(`(() => {
+      const buttons = [...document.querySelectorAll('.chartsWindow .chartModes .chartMode')]
+      const btn = buttons.find(b => b.textContent?.trim() === ${JSON.stringify(copy.modes.cumulative)})
+      btn?.click()
+    })()`)
+    await sleep(120)
+    const cumulativeDom = await readHudAndDom()
+    const cumSeries = [fixCol(7), fixCol(8), fixCol(9)]
+    const cumTop = niceMax(Math.max(0, ...cumSeries.flat()))
+    for (let sIdx = 0; sIdx < 3; sIdx++) {
+      const wantPts = expectedPoints(cumSeries[sIdx], cumTop)
+      const gotPts = cumulativeDom.blocks[2]?.polylines[sIdx]?.points ?? ''
+      if (gotPts !== wantPts) {
+        problems.push(`cumulative polyline[${sIdx}] '${gotPts}' != '${wantPts}'`)
+      }
+    }
+
+    // Switch to Per-minute mode and verify SVG polylines match cols 10..12.
+    await page.evaluate(`(() => {
+      const buttons = [...document.querySelectorAll('.chartsWindow .chartModes .chartMode')]
+      const btn = buttons.find(b => b.textContent?.trim() === ${JSON.stringify(copy.modes.perMinute)})
+      btn?.click()
+    })()`)
+    await sleep(120)
+    const perMinuteDom = await readHudAndDom()
+    const pmSeries = [fixCol(10), fixCol(11), fixCol(12)]
+    const pmTop = niceMax(Math.max(0, ...pmSeries.flat()))
+    for (let sIdx = 0; sIdx < 3; sIdx++) {
+      const wantPts = expectedPoints(pmSeries[sIdx], pmTop)
+      const gotPts = perMinuteDom.blocks[2]?.polylines[sIdx]?.points ?? ''
+      if (gotPts !== wantPts) {
+        problems.push(`per-minute polyline[${sIdx}] '${gotPts}' != '${wantPts}'`)
+      }
+    }
+
+    await screenshot(`station-game-statistics-${locale}`)
+    fixtureEvidence = {
+      state: fixState,
+      history: fixHistory,
+      cumulativeDom,
+      perMinuteDom,
+    }
+    writeFileSync(
+      join(outDir, `station-statistics-${locale}.json`),
+      JSON.stringify({ locale, wantLang, zoo: zooEvidence, fixture: fixtureEvidence }, null, 2) + '\n',
+    )
+
+    // 5. Seek preserves cumulative boarded while resetting history & minting a new runId; Restart clears both!
+    const boardedBeforeSeek = fixState.statistics.metrics.boarded
+    await send('sim.seek', { simTimeSeconds: mondayMorningPeak + 1800 })
+    await poll(`(() => {
+      const stats = window.__metroStationBridge.getSnapshot().state.statistics
+      return Boolean(stats && stats.runId !== ${JSON.stringify(fixState.statistics.runId)} && stats.history?.count === 0)
+    })()`, `${locale} post-fixture seek reset`, 15000)
+    await sleep(200)
+    const afterSeekStats = await page.evaluate('window.__metroStationBridge.getSnapshot().state.statistics')
+    const afterSeekDom = await readHudAndDom()
+    if (afterSeekStats.metrics.boarded !== boardedBeforeSeek) {
+      problems.push(`sim.seek altered cumulative boarded (${boardedBeforeSeek} -> ${afterSeekStats.metrics.boarded})`)
+    }
+    if (afterSeekDom.blocks.some(b => b.empty !== copy.empty)) {
+      problems.push(`ChartsPanel did not show '${copy.empty}' immediately after sim.seek`)
+    }
+
+    await send('sim.restart', {})
+    await poll(`(() => {
+      const stats = window.__metroStationBridge.getSnapshot().state.statistics
+      return Boolean(stats && stats.runId !== ${JSON.stringify(afterSeekStats.runId)} && stats.history?.count === 0 && stats.metrics?.boarded === 0 && stats.metrics?.population === 0)
+    })()`, `${locale} post-fixture restart reset`, 15000)
+    await sleep(200)
+    const afterRestartDom = await readHudAndDom()
+    if (afterRestartDom.blocks.some(b => b.empty !== copy.empty)) {
+      problems.push(`ChartsPanel did not show '${copy.empty}' immediately after sim.restart`)
+    }
+
+    await pressKey('Escape', 'Escape', 27)
+    await poll(`!document.querySelector('.chartsWindow[role="dialog"]')`, `${locale} final Escape close`, 10000)
+  } finally {
+    await switchUiLanguage(initialLang).catch(() => {})
+    await page.evaluate(`(() => {
+      try {
+        localStorage.removeItem('metro-game.language.zh-CN')
+        localStorage.removeItem('metro-game.language.en')
+      } catch { /* ignore */ }
+    })()`).catch(() => {})
+  }
+
+  const after = await currentSnapshot()
+  return finishCase(record, problems.length === 0, {
+    problems,
+    locale,
+    revision: after.revision,
+    zooRunId: zooEvidence?.state?.statistics?.runId ?? null,
+    zooSamples: zooEvidence?.history?.count ?? 0,
+    fixtureRunId: fixtureEvidence?.state?.statistics?.runId ?? null,
+    fixtureSamples: fixtureEvidence?.history?.count ?? 0,
+    fixtureMetrics: fixtureEvidence?.state?.statistics?.metrics ?? null,
+    evidenceFile: `station-statistics-${locale}.json`,
+  })
+}
+
 async function runPaintCase() {
   const record = caseStart('material-paint')
   const problems = []
@@ -1219,6 +2808,363 @@ async function runPaintCase() {
   const restored = await page.evaluate('window.__metroStationBridge.getSnapshot().document')
   if (restored && restored.includes('floor.marble')) problems.push('the restoring paint left the painted finish behind')
   return finishCase(record, problems.length === 0, { problems, revision: await revision() })
+}
+
+async function runStationEditingCase() {
+  const record = caseStart('station-editing')
+  const problems = []
+  if (!(await ensureDemo('zoo'))) {
+    problems.push('could not commit the Zoo document before editing it')
+    return finishCase(record, false, { problems })
+  }
+  const revision = () => page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+  const editState = () => page.evaluate('window.__metroStationBridge.getSnapshot().state.edit ?? null')
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const tool = async (name, settings) => {
+    await send('tool.set', { tool: name, settings: settings ?? {} })
+    // The pointer event carries the tool generation the shell last saw, so a click must
+    // wait for the committed tool's state frame (0.1 s) before it can be accepted.
+    try { await poll(`window.__metroStationBridge.getSnapshot().state.tool === ${JSON.stringify(name)}`, 'tool ' + name, 15000) } catch { /* the click below reports the effect */ }
+    await sleep(150)
+  }
+  // Edit on the street storey: Zoo opens on the sunken concourse, and a piece placed on a
+  // higher block from there is above the cutaway (correctly unpickable). The view handler
+  // may not be registered on the first tick of a cold player, so send until it answers.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
+    if (level === 0) break
+  }
+  await sleep(900)
+  // `view.set level` slices the station but does not reframe the camera (an edit keeps the
+  // view). Home after the level change puts the street storey in the viewport, which is
+  // what a player sees after stepping storeys and pressing Home.
+  await send('camera.home', {})
+  await sleep(1500)
+  const modules = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.modules ?? []) : []
+  })()`)
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+  // Where a module is actually drawn: the picker's own measured-body pixel from
+  // `edit.probe { kind: "inspect" }`. A placement probe aims at a sampled cell, which is
+  // not necessarily the cell the ray lands on, so later clicks must use the body pixel.
+  const inspect = async (moduleId, probeId) => {
+    await send('edit.probe', { kind: 'inspect', moduleId, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)} && p.boxUv)
+    })()`, 'inspect ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  // A real pointer press on the canvas exactly where the probe's own pick resolved.
+  const clickAt = async (u, v) => {
+    const x = Math.round(rect.x + u * rect.w)
+    const y = Math.round(rect.y + v * rect.h)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, button: 'none', buttons: 0 })
+    await sleep(50)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(30)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 })
+    await sleep(150)
+  }
+  const waitRevision = async (expected, label) => {
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${expected}`, label, Math.min(timeoutMs, 30000))
+      return true
+    } catch {
+      problems.push(label + ' did not reach revision ' + expected)
+      return false
+    }
+  }
+
+  // 1. Place one static prop through the real pointer path: hover resolves a candidate,
+  //    the press commits exactly that candidate, and one revision carries it.
+  await tool('module', { moduleType: 'bench-steel-1', rotation: 0 })
+  // A cold player needs its cell view built before a probe can resolve a pixel; retry the
+  // probe rather than failing the whole case on the first tick.
+  let placeTarget = null
+  for (let attempt = 1; attempt <= 3 && !placeTarget; attempt++) {
+    try { placeTarget = await probe({ kind: 'place', toolType: 'bench-steel-1', rotation: 0 }, 'place-' + attempt) } catch { await sleep(1500) }
+  }
+  if (!placeTarget || placeTarget.kind !== 'place') {
+    problems.push('no place probe')
+    return finishCase(record, false, { problems })
+  }
+  let before = await revision()
+  let placedInspect = null
+  await clickAt(placeTarget.u, placeTarget.v)
+  if (await waitRevision(before + 1, 'pointer place')) {
+    const placed = (await modules()).find(m => m.type === 'bench'
+      && m.x === placeTarget.x && m.y === placeTarget.y && m.z === placeTarget.z)
+    if (!placed) problems.push('the committed document has no bench at the probed cell')
+    else {
+      const state = await editState()
+      if (state?.selectionKey !== placed.id) problems.push('the committed bench is not the selection')
+      // Diagnostic: can the scene picker see the newly placed bench at all after the
+      // commit rebuilt the world?
+      try {
+        await send('edit.probe', { kind: 'inspect', moduleId: placed.id, probeId: 'inspect-placed' })
+        await poll(`(() => {
+          const p = (window.__metroStationBridge.getSnapshot().state.edit ?? {}).probe
+          return !!(p && p.probeId === 'inspect-placed')
+        })()`, 'placed inspect', 15000)
+        placedInspect = await page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+      } catch { placedInspect = { error: 'inspect timeout' } }
+      let placedPixel = placedInspect?.boxUv
+        ? { u: placedInspect.boxUv[0], v: placedInspect.boxUv[1] }
+        : placeTarget
+      try {
+        const placedProbe = await probe({ kind: 'module', moduleType: 'bench', moduleId: placed.id }, 'placed-bench')
+        if (placedProbe?.moduleId !== placed.id) problems.push('the placed bench is not pickable: ' + JSON.stringify(placedProbe))
+        else if (typeof placedProbe.u === 'number' && typeof placedProbe.v === 'number') {
+          // The module probe aims at the bench's **drawn** body; the place pixel aimed at the
+          // cell it was dropped on, and the commit's rebuild can leave that pixel meeting the
+          // pavement a cell nearer the camera instead of the seat. A player aims at the seat.
+          placedPixel = { u: placedProbe.u, v: placedProbe.v }
+        }
+      } catch { problems.push('the placed bench is not pickable: probe timeout') }
+
+      // 2. Hover previews never bump the revision: three pointer moves over open floor.
+      before = await revision()
+      for (const offset of [0.02, 0.04, 0.06]) {
+        await page.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: Math.round(rect.x + (placeTarget.u + offset) * rect.w),
+          y: Math.round(rect.y + (placeTarget.v + offset) * rect.h), button: 'none', buttons: 0,
+        })
+        await sleep(30)
+      }
+      await sleep(150)
+      if (await revision() !== before) problems.push('a hover preview changed the document revision')
+      const trace = await page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.trace ?? []')
+      if (!trace.some(entry => entry.type === 'pointer.down' && entry.committed)) {
+        problems.push('the interaction trace has no committed pointer.down')
+      }
+      if (trace.some(entry => entry.type === 'pointer.move' && entry.committed)) {
+        problems.push('a hover move committed a revision')
+      }
+      if (trace.filter(entry => entry.type === 'pointer.down').some(entry => !entry.picked)) {
+        problems.push('a pointer.down was routed without a scene pick')
+      }
+
+      // 3. Eyedropper: the bench just placed stands under the place pixel, so that is the
+      //    pixel a player would point at. The host names the picked module and the shell
+      //    arms the rail through `paletteIdForModule`.
+      await tool('pick')
+      await clickAt(placedPixel.u, placedPixel.v)
+      await sleep(250)
+      const picked = await editState()
+      if (picked?.pick?.moduleId !== placed.id) problems.push('the eyedropper did not publish the picked module')
+      try {
+        await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'module'`, 'picked tool', 15000)
+      } catch { problems.push('the shell did not arm the palette for the picked module') }
+
+      // 4. Selection: the 选择 tool publishes the module identity the inspector reads.
+      await tool('select')
+      await clickAt(placedPixel.u, placedPixel.v)
+      await sleep(200)
+      const selected = await editState()
+      if (selected?.selectionKind !== 'module' || selected.selectionKey !== placed.id) {
+        problems.push('a select click did not publish a module selection')
+      }
+
+      // 5. Move: the bench just placed stands under the pixel the place click used, so that
+      //    same pixel lifts it; a fresh-placement probe picks a different free cell to drop
+      //    it on (the carried bench still occupies its old cell, so the probe cannot return
+      //    it). One revision, the same id, a new position.
+      await tool('move')
+      before = await revision()
+      let movedFrom = null
+      let movedTo = null
+      await clickAt(placedPixel.u, placedPixel.v)
+      try {
+        await poll(`(() => {
+          const s = window.__metroStationBridge.getSnapshot().state
+          return s.edit && s.edit.carried === ${JSON.stringify(placed.id)}
+        })()`, 'carried bench', 15000)
+        movedFrom = { x: placed.x, y: placed.y }
+      } catch {
+        const liftState = await editState()
+        problems.push('clicking the placed bench did not lift it for a move: ' + JSON.stringify({
+          carried: liftState?.carried ?? null,
+          selection: liftState?.selectionKey ?? null,
+          trace: (liftState?.trace ?? []).slice(-2),
+        }))
+      }
+      if (movedFrom) {
+        const target = await probe({ kind: 'place', toolType: 'bench-steel-1', rotation: 0 }, 'move-to')
+        if (!target || (target.x === movedFrom.x && target.y === movedFrom.y)) {
+          problems.push('no distinct drop target for the move')
+        } else {
+          await clickAt(target.u, target.v)
+          if (await waitRevision(before + 1, 'pointer move')) {
+            movedTo = target
+            const moved = (await modules()).find(m => m.id === placed.id)
+            if (!moved) problems.push('the moved bench left the document')
+            else if (moved.x !== target.x || moved.y !== target.y) problems.push('the bench did not land on the aimed cell')
+            const state = await editState()
+            if (state?.carried) problems.push('the move draft survived a valid drop')
+          }
+        }
+      }
+
+      // 6. An invalid drop leaves both the saved object and the draft in place. The bench
+      //    now stands under the drop pixel (or the place pixel when the drop was skipped).
+      before = await revision()
+      let cancelAt = movedTo ?? placedPixel
+      try {
+        const afterMove = await inspect(placed.id, 'inspect-moved')
+        if (afterMove?.boxUv) cancelAt = { u: afterMove.boxUv[0], v: afterMove.boxUv[1] }
+      } catch { /* the moved pixel is the next best aim */ }
+      await tool('move')
+      await clickAt(cancelAt.u, cancelAt.v)
+      const carried = await editState()
+      const cancelFrom = carried?.carried
+        ? (await modules()).find(m => m.id === carried.carried)
+        : null
+      if (cancelFrom) {
+        const refused = await probe({ kind: 'refused', toolType: 'bench-steel-1', rotation: 0 }, 'invalid-drop')
+        if (refused?.kind === 'refused') {
+          await clickAt(refused.u, refused.v)
+          await sleep(250)
+          if (await revision() !== before) problems.push('an invalid drop committed a revision')
+          const still = await editState()
+          if (!still?.carried) problems.push('an invalid drop dropped the carried draft')
+        } else problems.push('no refused placement probe')
+        await send('edit.cancel', {})
+        await sleep(150)
+        const cancelled = await editState()
+        if (cancelled?.carried) problems.push('edit.cancel did not put the piece back')
+        const restored = (await modules()).find(m => m.id === cancelFrom.id)
+        if (restored && (restored.x !== cancelFrom.x || restored.y !== cancelFrom.y)) problems.push('a cancel moved the saved object')
+      } else problems.push('a move click did not lift a bench for the invalid-drop check')
+
+      // 7. Undo/redo: the last commit is the move (or the place when no drop was available).
+      //    Each is one revision, and the committed envelope is restored.
+      before = await revision()
+      await send('edit.undo', {})
+      if (await waitRevision(before + 1, 'undo')) {
+        const afterUndo = (await modules()).find(m => m.id === placed.id)
+        if (movedTo) {
+          if (!afterUndo) problems.push('undoing the move removed the bench')
+          else if (afterUndo.x !== movedFrom.x || afterUndo.y !== movedFrom.y) problems.push('undo did not restore the moved bench')
+        } else if (afterUndo) problems.push('undo did not remove the placed bench')
+      }
+      before = await revision()
+      await send('edit.redo', {})
+      if (await waitRevision(before + 1, 'redo')) {
+        const afterRedo = (await modules()).find(m => m.id === placed.id)
+        if (movedTo) {
+          if (!afterRedo || afterRedo.x !== movedTo.x || afterRedo.y !== movedTo.y) problems.push('redo did not re-apply the move')
+        } else if (!afterRedo) problems.push('redo did not restore the placed bench')
+      }
+    }
+  }
+  await screenshot('station-game-station-editing')
+  return finishCase(record, problems.length === 0, {
+    problems, revision: await revision(), probe: placeTarget, placedInspect,
+  })
+}
+
+async function runExitFacesCase() {
+  const record = caseStart('exit-faces')
+  const problems = []
+  if (!(await ensureDemo('zoo'))) {
+    problems.push('could not commit the Zoo document before checking its exit faces')
+    return finishCase(record, false, { problems })
+  }
+  // The oracle records the street plates in zh-CN (plus the en letter/header rows). The
+  // preceding locale cases leave the shell in en, so reset the *face* locale before the
+  // comparison: the painter identity is the subject here, not the locale switch (which
+  // has its own oracle rows).
+  await page.evaluate("window.__metroStationBridge.send('exit.locale', { locale: 'zh-CN' })")
+  // The street renderer binds replaceable exit/guidepost faces and asks the shell's
+  // painter for them through the `exit.*` seam; the host publishes the result as
+  // `state.exit.faces`. A face only counts once its PNG was applied and the plate has ink.
+  try {
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const f = s.exit && s.exit.faces
+      return !!(f && f.bound > 0 && f.pending === 0 && f.served === f.bound)
+    })()`, 'exit faces settled', Math.min(timeoutMs, 45000))
+  } catch { problems.push('the exit faces did not bind and serve') }
+  const faces = await page.evaluate(`(() => {
+    const s = window.__metroStationBridge.getSnapshot().state
+    return s.exit && s.exit.faces ? s.exit.faces : null
+  })()`)
+  if (!faces) return finishCase(record, false, { problems: [...problems, 'no state.exit.faces payload'] })
+  if (faces.pending !== 0) problems.push('exit faces still pending: ' + faces.pending)
+  if (faces.served !== faces.bound) problems.push('served faces ' + faces.served + ' of ' + faces.bound)
+  if (!(faces.minInk > 0)) problems.push('a served exit face is blank (minInk ' + faces.minInk + ')')
+  // The TypeScript painter's recorded content key is the oracle: the host's applied
+  // key must be that key (the report publishes a short prefix), so a face cannot be
+  // silently painted by a different painter/fact set.
+  let oracle = null
+  try {
+    oracle = JSON.parse(readFileSync(join(root, 'unity/Assets/StationDesigner/Tests/EditMode/station-exit-faces-oracle.json'), 'utf8'))
+  } catch { problems.push('cannot read the exit-face oracle') }
+  const expected = new Map()
+  for (const row of oracle?.rows ?? []) {
+    const moduleId = row.facts?.moduleId
+    const key = row.facts?.key ?? row.key
+    if (!moduleId || !key) continue
+    if (!expected.has(moduleId)) expected.set(moduleId, new Set())
+    expected.get(moduleId).add(key)
+  }
+  const served = (faces.faces ?? []).filter(face => face.served)
+  for (const face of served) {
+    const keys = expected.get(face.moduleId)
+    if (!keys) continue
+    const short = String(face.key ?? '')
+    if (![...keys].some(key => key.startsWith(short))) {
+      problems.push('face ' + face.moduleId + '/' + face.painter + ' key ' + short + ' is not a recorded painter key')
+    }
+  }
+  // The plan's own identity chain: B and C, fascia and linked guidepost, must be the
+  // recorded pixels and must differ from each other.
+  const keyOf = moduleId => served.filter(face => face.moduleId === moduleId).map(face => String(face.key ?? ''))
+  const wants = (moduleId, prefix) => keyOf(moduleId).some(key => prefix.startsWith(key) || key.startsWith(prefix))
+  const identity = [
+    ['exit-uncovered-2-258', '63893dc4'],
+    ['exit-uncovered-2-398', '2d1a93e6'],
+    ['guidepost-399', '7c50ab75'],
+    ['guidepost-400', 'cf281c64'],
+  ]
+  for (const [moduleId, prefix] of identity) {
+    if (!wants(moduleId, prefix)) problems.push(moduleId + ' is not painted with its recorded face (' + prefix + ')')
+  }
+  if (wants('exit-uncovered-2-258', '63893dc4') && wants('exit-uncovered-2-398', '2d1a93e6') &&
+      keyOf('exit-uncovered-2-258').join() === keyOf('exit-uncovered-2-398').join()) {
+    problems.push('exit B and exit C share one face texture')
+  }
+  await screenshot('station-game-exit-faces')
+  return finishCase(record, problems.length === 0, {
+    problems,
+    bound: faces.bound, served: faces.served, textures: faces.textures,
+    requests: faces.requests, painted: faces.painted, minInk: faces.minInk,
+    keys: Object.fromEntries(identity.map(([moduleId]) => [moduleId, keyOf(moduleId)])),
+  })
 }
 
 async function runToolCase() {
@@ -1397,20 +3343,29 @@ async function main() {
   // replaces it: reloading a 14 k-cell station is the expensive install path, and the
   // browser must not pay it twice in one run.
   if (wanted('view-tools')) await runViewToolsCase()
+  if (wanted('exploded-view')) await runExplodedViewCase()
   if (wanted('camera-cube')) await runCameraCase()
   if (wanted('pointer-camera')) await runPointerCameraCase()
     if (wanted('visual-home')) await runVisualCase()
     if (wanted('overlay-toggles')) await runOverlayCase()
+    if (wanted('station-displays')) await runDisplayCase()
+    if (wanted('section-handle')) await runSectionHandleCase()
   if (wanted('keyboard-navigation')) await runKeyboardNavigationCase()
   if (wanted('tool-selection')) await runToolCase()
+  if (wanted('station-editing')) await runStationEditingCase()
+  if (wanted('exit-faces')) await runExitFacesCase()
   if (wanted('road-geometry')) await runRoadGeometryCase()
   if (wanted('simulation-clock')) await runClockCase()
   if (wanted('road-traffic')) await runTrafficCase()
+  // The printed band installs the station twice (the line edit and the restore), so it
+  // runs before the sign commit's own three installs rather than after them.
+  if (wanted('psd-header')) await runPsdHeaderCase()
   if (wanted('sign-commit')) await runSignCommitCase()
   if (wanted('passenger-profile')) await runPassengerProfileCase()
   // Still on Zoo here (the paint case replaces the station), so the service sample does
   // not pay for another 14 k-cell install.
   if (wanted('service-motion')) await runServiceMotionCase()
+  for (const locale of locales) if (wanted(`station-statistics-${locale}`)) await runStationStatisticsCase(locale)
   if (wanted('material-paint')) await runPaintCase()
   if (wanted('new-station')) await runNewCase()
   if (wanted('invalid-document-rollback')) await runInvalidCase()

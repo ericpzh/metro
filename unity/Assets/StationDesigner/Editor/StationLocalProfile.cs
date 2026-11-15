@@ -128,6 +128,19 @@ namespace Metro.Editor {
             Debug.Log("STATION_LOCAL_WEB_SCENE_OK " + GenerateWebReport());
         }
 
+        /// <summary>
+        /// One-pass batch bootstrap for an isolated local WebGL preview workspace: ensures the
+        /// runtime/train catalogues and public scene are up to date, builds the 15-recipe Web
+        /// cohort inside <see cref="PassengerCatalogue.InternalRoot"/>, and generates
+        /// <see cref="LocalWebScenePath"/> without touching build settings or the public scene.
+        /// </summary>
+        public static void PrepareLocalWebBuild() {
+            StationGameScene.Generate();
+            var cohortReport = PassengerCatalogueBuilder.BuildWebCohort();
+            var sceneReport = GenerateWebReport();
+            Debug.Log("STATION_LOCAL_WEB_PREPARE_OK cohort(" + cohortReport + ") scene(" + sceneReport + ")");
+        }
+
         /// <summary>Build the local-Web scene from the validated public scene and the cohort catalogue.</summary>
         public static string GenerateWebReport() {
             var cohort = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(PassengerCatalogueBuilder.WebCohortPath);

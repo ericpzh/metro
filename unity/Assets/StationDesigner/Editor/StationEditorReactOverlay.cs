@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 using Metro.App;
+using Metro.View;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Unity.Pipeline.Commands;
@@ -540,6 +541,404 @@ namespace Metro.Editor {
                 return ExitCode.Success;
             } catch (Exception ex) {
                 cmd.Log.Error("editor_ui_capture failed: " + ex);
+                return ExitCode.Failed;
+            }
+        }
+
+        [CliGroupCommand("metro",
+            "Verify standalone exploded view transparency, middle/right/wheel camera gestures, WASD pan, left-drag tray arrangement, and Escape close in the live Editor WebView2 React overlay.",
+            Effect = CommandEffect.ReadOnly, Tags = new[] { "tests" })]
+        internal static async Task<ExitCode> EditorUiExplodedCheck(
+            CommandContext cmd,
+            [CliArg("out-dir", "Output folder under .preview/unity/ for SHM and GameView PNGs.")] string outDir = ".preview/unity/editor/exploded-overlay") {
+            try {
+                if (!EditorApplication.isPlaying) {
+                    cmd.Log.Error("Editor must be in Play Mode to run editor_ui_exploded_check.");
+                    return ExitCode.Failed;
+                }
+                FocusGameViewTab();
+                Application.runInBackground = true;
+
+                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var presenter = StationDesktopUiPresenter.Active;
+                var exploded = StationViewFeature.ActiveExploded;
+                if (host == null || !host.IsLoaded || presenter == null || !presenter.IsWebReady || exploded == null) {
+                    cmd.Log.Error("StationGameHost, StationDesktopUiPresenter, or StationExplodedView is not ready.");
+                    return ExitCode.Failed;
+                }
+
+                string repoRoot = RepoRoot();
+                string fullOutDir = Path.IsPathRooted(outDir)
+                    ? Path.GetFullPath(outDir)
+                    : Path.GetFullPath(Path.Combine(repoRoot, outDir));
+                Directory.CreateDirectory(fullOutDir);
+
+                int revBefore = host.CurrentRevision;
+                bool editorCamBefore = host.stationCamera != null && host.stationCamera.enabled;
+                int vw = presenter.TextureWidth > 0 ? presenter.TextureWidth : 1280;
+                int vh = presenter.TextureHeight > 0 ? presenter.TextureHeight : 720;
+                string sessionId = !string.IsNullOrEmpty(host.ClientSessionId) ? host.ClientSessionId : "editor-overlay-check";
+
+                host.BrowserCommand(new JObject {
+                    ["schemaVersion"] = 2,
+                    ["id"] = "overlay-exp-open-" + Guid.NewGuid().ToString("N"),
+                    ["sessionId"] = sessionId,
+                    ["type"] = "exploded.open",
+                    ["payload"] = new JObject {
+                        ["viewportWidth"] = vw,
+                        ["viewportHeight"] = vh,
+                        ["theme"] = "blueprint",
+                    },
+                }.ToString(Formatting.None));
+
+                var waitSw = Stopwatch.StartNew();
+                while (waitSw.ElapsedMilliseconds < 20000 && !(exploded.IsReady && exploded.IsEquipped)) {
+                    await Task.Yield();
+                }
+                if (!exploded.IsReady || !exploded.IsEquipped) {
+                    cmd.Log.Error("Exploded view did not become ready & equipped within 20s.");
+                    return ExitCode.Failed;
+                }
+
+                // Wait for WebView2 to adopt the external generation, mount <dialog class="explodedViewer" data-ready="true">, and upload fresh SHM frames.
+                int baseFrames = presenter.PresentedFrameCount;
+                var settleSw = Stopwatch.StartNew();
+                while (settleSw.ElapsedMilliseconds < 2500 && presenter.PresentedFrameCount < baseFrames + 5) {
+                    await Task.Yield();
+                }
+                await Task.Delay(300);
+
+                // 1. Capture raw 32-bit RGBA WebView2 SHM surface and verify modal center alpha == 0 (transparent over Unity camera).
+                string shmPng = Path.Combine(fullOutDir, "exploded-overlay-shm.png");
+                if (File.Exists(shmPng)) File.Delete(shmPng);
+                presenter.RequestPreviewCapture(shmPng);
+                var shmSw = Stopwatch.StartNew();
+                byte[] shmBytes = null;
+                while (shmSw.ElapsedMilliseconds < 5000 && shmBytes == null) {
+                    await Task.Yield();
+                    if (string.Equals(presenter.LastCapturedPreviewPath, shmPng, StringComparison.OrdinalIgnoreCase) && File.Exists(shmPng)) {
+                        try {
+                            using var fs = new FileStream(shmPng, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            if (fs.Length > 0) {
+                                shmBytes = new byte[fs.Length];
+                                int read = 0;
+                                while (read < shmBytes.Length) {
+                                    int n = fs.Read(shmBytes, read, shmBytes.Length - read);
+                                    if (n <= 0) break;
+                                    read += n;
+                                }
+                            }
+                        } catch (IOException) {
+                            shmBytes = null;
+                        }
+                    }
+                }
+                int centerAlpha = -1;
+                int toolbarAlpha = -1;
+                if (shmBytes != null && shmBytes.Length > 0) {
+                    var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+                    try {
+                        tex.LoadImage(shmBytes);
+                        Color32 centerPx = tex.GetPixel(tex.width / 2, tex.height / 2);
+                        Color32 topPx = tex.GetPixel(24, tex.height - 20);
+                        centerAlpha = centerPx.a;
+                        toolbarAlpha = topPx.a;
+                    } finally {
+                        UnityEngine.Object.DestroyImmediate(tex);
+                    }
+                }
+
+                // 2. Capture full GameView framebuffer (3D exploded trays + dashed guides + transparent React modal chrome).
+                string openPng = Path.Combine(fullOutDir, "exploded-overlay-open.png");
+                if (File.Exists(openPng)) File.Delete(openPng);
+                ScreenCapture.CaptureScreenshot(openPng);
+                var capOpenSw = Stopwatch.StartNew();
+                while (capOpenSw.ElapsedMilliseconds < 5000 && !File.Exists(openPng)) {
+                    await Task.Yield();
+                }
+
+                vw = presenter.TextureWidth > 0 ? presenter.TextureWidth : vw;
+                vh = presenter.TextureHeight > 0 ? presenter.TextureHeight : vh;
+                double cx = Math.Round(vw * 0.5);
+                double cy = Math.Round(vh * 0.52);
+
+                // 3. Middle-button drag orbit via presenter -> TCP -> WebView2 CDP -> explodedInput -> BrowserCommand
+                var rotBeforeOrbit = exploded.ViewerCamera.transform.rotation;
+                presenter.SendSyntheticMouse("move", cx, cy, "none", 0);
+                await Task.Delay(40);
+                presenter.SendSyntheticMouse("down", cx, cy, "middle", 4, 0, 1);
+                for (int s = 1; s <= 4; s++) {
+                    await Task.Delay(35);
+                    presenter.SendSyntheticMouse("move", cx + s * 16, cy - s * 6, "none", 4);
+                }
+                await Task.Delay(40);
+                presenter.SendSyntheticMouse("up", cx + 64, cy - 24, "middle", 0, 0, 1);
+                await Task.Delay(250);
+                float orbitDegrees = Quaternion.Angle(rotBeforeOrbit, exploded.ViewerCamera.transform.rotation);
+
+                // 4. Right-button drag pan
+                var posBeforePan = exploded.ViewerCamera.transform.position;
+                presenter.SendSyntheticMouse("down", cx, cy, "right", 2, 0, 1);
+                for (int s = 1; s <= 4; s++) {
+                    await Task.Delay(35);
+                    presenter.SendSyntheticMouse("move", cx - s * 18, cy + s * 10, "none", 2);
+                }
+                await Task.Delay(40);
+                presenter.SendSyntheticMouse("up", cx - 72, cy + 40, "right", 0, 0, 1);
+                await Task.Delay(250);
+                float rightPanMeters = Vector3.Distance(posBeforePan, exploded.ViewerCamera.transform.position);
+
+                // 5. Wheel zoom in & restore
+                float orthoBeforeZoom = exploded.ViewerCamera.orthographicSize;
+                presenter.SendSyntheticMouse("wheel", cx, cy, "none", 0, 0, 0, 0, -160);
+                await Task.Delay(250);
+                float orthoZoomed = exploded.ViewerCamera.orthographicSize;
+                presenter.SendSyntheticMouse("wheel", cx, cy, "none", 0, 0, 0, 0, 160);
+                await Task.Delay(250);
+
+                // 6. Held WASD ('W') planar pan & release
+                var posBeforeWasd = exploded.ViewerCamera.transform.position;
+                presenter.SendSyntheticKey("down", 0x57, "w", "KeyW", 0);
+                await Task.Delay(450);
+                presenter.SendSyntheticKey("up", 0x57, "w", "KeyW", 0);
+                await Task.Delay(250);
+                float wasdPanMeters = Vector3.Distance(posBeforeWasd, exploded.ViewerCamera.transform.position);
+
+                // 7. Find an unobstructed pixel on tray 1 (-15 m on Zoo) and left-drag it through WebView2
+                int targetTrayIdx = exploded.Builder.Trays.Count > 1 ? 1 : 0;
+                int targetElev = exploded.Builder.Trays[targetTrayIdx].Level;
+                double pickX = cx, pickY = cy;
+                bool foundTrayRay = false;
+                var traySpec = exploded.Builder.Plan.Trays[targetTrayIdx];
+                var trayWorldOffset = exploded.Builder.Trays[targetTrayIdx].WorldOffset;
+                int stride = Math.Max(1, traySpec.Cells.Count / 120);
+                for (int i = 0; i < traySpec.Cells.Count; i += stride) {
+                    var cell = traySpec.Cells[i];
+                    if (cell.Z != targetElev) continue;
+                    var worldPt = trayWorldOffset + StationCoordinates.Point(new Vector3(cell.X + 0.5f, cell.Y + 0.5f, targetElev + 1f));
+                    var vp = exploded.ViewerCamera.WorldToViewportPoint(worldPt);
+                    if (vp.x < 0.15f || vp.x > 0.80f || vp.y < 0.18f || vp.y > 0.82f) continue;
+                    var ray = exploded.ViewerCamera.ViewportPointToRay(new Vector3(vp.x, vp.y, 0f));
+                    if (exploded.Builder.PickTray(ray, out int hitIdx, out _) && hitIdx == targetTrayIdx) {
+                        pickX = Math.Round(vp.x * vw);
+                        pickY = Math.Round((1.0 - vp.y) * vh);
+                        foundTrayRay = true;
+                        break;
+                    }
+                }
+
+                int picksBeforeDrag = exploded.Builder.PickCount;
+                presenter.SendSyntheticMouse("move", pickX, pickY, "none", 0);
+                await Task.Delay(40);
+                presenter.SendSyntheticMouse("down", pickX, pickY, "left", 1, 0, 1);
+                for (int s = 1; s <= 5; s++) {
+                    await Task.Delay(35);
+                    presenter.SendSyntheticMouse("move", pickX + s * 22, pickY - s * 11, "none", 1);
+                }
+                await Task.Delay(40);
+                presenter.SendSyntheticMouse("up", pickX + 110, pickY - 55, "left", 0, 0, 1);
+                await Task.Delay(400);
+
+                int? selectedAfterDrag = exploded.Builder.SelectedElevation;
+                int picksDuringDrag = exploded.Builder.PickCount - picksBeforeDrag;
+                float draggedMeters = exploded.Builder.Trays[targetTrayIdx].ManualOffset.magnitude;
+
+                string draggedPng = Path.Combine(fullOutDir, "exploded-overlay-dragged.png");
+                if (File.Exists(draggedPng)) File.Delete(draggedPng);
+                ScreenCapture.CaptureScreenshot(draggedPng);
+                var capDragSw = Stopwatch.StartNew();
+                while (capDragSw.ElapsedMilliseconds < 5000 && !File.Exists(draggedPng)) {
+                    await Task.Yield();
+                }
+
+                // 8. Press Escape via WebView2 keyboard forwarding to close modal and restore editor camera
+                presenter.SendSyntheticKey("down", 0x1B, "Escape", "Escape", 0);
+                await Task.Delay(40);
+                presenter.SendSyntheticKey("up", 0x1B, "Escape", "Escape", 0);
+                var closeSw = Stopwatch.StartNew();
+                while (closeSw.ElapsedMilliseconds < 6000 && exploded.Phase != StationExplodedView.PhaseClosed) {
+                    await Task.Yield();
+                }
+
+                bool closedCleanly = exploded.Phase == StationExplodedView.PhaseClosed;
+                bool editorCamRestored = host.stationCamera != null && host.stationCamera.enabled == editorCamBefore;
+                bool revisionUnchanged = host.CurrentRevision == revBefore;
+
+                bool allOk = centerAlpha == 0 &&
+                             orbitDegrees > 1.0f &&
+                             rightPanMeters > 0.3f &&
+                             orthoZoomed < orthoBeforeZoom - 0.1f &&
+                             wasdPanMeters > 0.3f &&
+                             foundTrayRay &&
+                             selectedAfterDrag == targetElev &&
+                             picksDuringDrag == 1 &&
+                             draggedMeters > 0.5f &&
+                             closedCleanly &&
+                             editorCamRestored &&
+                             revisionUnchanged;
+
+                cmd.Result.Write(new JObject {
+                    ["ok"] = allOk,
+                    ["centerAlpha"] = centerAlpha,
+                    ["toolbarAlpha"] = toolbarAlpha,
+                    ["orbitDegrees"] = Math.Round(orbitDegrees, 3),
+                    ["rightPanMeters"] = Math.Round(rightPanMeters, 3),
+                    ["orthoBeforeZoom"] = Math.Round(orthoBeforeZoom, 3),
+                    ["orthoZoomed"] = Math.Round(orthoZoomed, 3),
+                    ["wasdPanMeters"] = Math.Round(wasdPanMeters, 3),
+                    ["foundTrayRay"] = foundTrayRay,
+                    ["targetElevation"] = targetElev,
+                    ["selectedElevation"] = selectedAfterDrag.HasValue ? (JToken)selectedAfterDrag.Value : JValue.CreateNull(),
+                    ["picksDuringDrag"] = picksDuringDrag,
+                    ["draggedMeters"] = Math.Round(draggedMeters, 3),
+                    ["closedCleanly"] = closedCleanly,
+                    ["editorCamRestored"] = editorCamRestored,
+                    ["revisionUnchanged"] = revisionUnchanged,
+                    ["shmPng"] = shmPng,
+                    ["openPng"] = openPng,
+                    ["draggedPng"] = draggedPng,
+                });
+                return allOk ? ExitCode.Success : ExitCode.Failed;
+            } catch (Exception ex) {
+                cmd.Log.Error("editor_ui_exploded_check failed: " + ex);
+                return ExitCode.Failed;
+            }
+        }
+
+        [CliGroupCommand("metro",
+            "Verify station statistics HUD, paginated stats.history transport, and ChartsPanel open/close from both the View rail and HUD bar in the live Editor WebView2 React overlay.",
+            Effect = CommandEffect.ReadOnly, Tags = new[] { "tests" })]
+        internal static async Task<ExitCode> EditorUiStatisticsCheck(
+            CommandContext cmd,
+            [CliArg("out-dir", "Output folder under .preview/unity/ for GameView PNGs.")] string outDir = ".preview/unity/editor/statistics-overlay") {
+            try {
+                if (!EditorApplication.isPlaying) {
+                    cmd.Log.Error("Editor must be in Play Mode to run editor_ui_statistics_check.");
+                    return ExitCode.Failed;
+                }
+                FocusGameViewTab();
+                Application.runInBackground = true;
+
+                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var presenter = StationDesktopUiPresenter.Active;
+                var session = (host?.Simulation as StationSimulationHost)?.Session;
+                var handler = StationStatisticsFeature.ActiveHandler;
+                if (host == null || !host.IsLoaded || presenter == null || !presenter.IsWebReady || session == null || handler == null) {
+                    cmd.Log.Error("StationGameHost, StationDesktopUiPresenter, StationSimulationSession, or StationStatisticsCommandHandler is not ready.");
+                    return ExitCode.Failed;
+                }
+
+                string repoRoot = RepoRoot();
+                string fullOutDir = Path.IsPathRooted(outDir)
+                    ? Path.GetFullPath(outDir)
+                    : Path.GetFullPath(Path.Combine(repoRoot, outDir));
+                Directory.CreateDirectory(fullOutDir);
+
+                int revBefore = host.CurrentRevision;
+                int vw = presenter.TextureWidth > 0 ? presenter.TextureWidth : 1280;
+                int vh = presenter.TextureHeight > 0 ? presenter.TextureHeight : 720;
+                string sessionId = !string.IsNullOrEmpty(host.ClientSessionId) ? host.ClientSessionId : "editor-stats-check";
+
+                void SendSim(string type, JObject payload) {
+                    host.BrowserCommand(new JObject {
+                        ["schemaVersion"] = 2,
+                        ["id"] = "overlay-stats-" + Guid.NewGuid().ToString("N"),
+                        ["sessionId"] = sessionId,
+                        ["type"] = type,
+                        ["payload"] = payload,
+                    }.ToString(Formatting.None));
+                }
+
+                async Task ClickPixel(double x, double y) {
+                    presenter.SendSyntheticMouse("move", x, y, "none", 0);
+                    await Task.Delay(50);
+                    presenter.SendSyntheticMouse("down", x, y, "left", 1, 0, 1);
+                    await Task.Delay(50);
+                    presenter.SendSyntheticMouse("up", x, y, "left", 0, 0, 1);
+                    await Task.Delay(450);
+                }
+
+                async Task<string> CaptureView(string name) {
+                    string png = Path.Combine(fullOutDir, name);
+                    if (File.Exists(png)) File.Delete(png);
+                    ScreenCapture.CaptureScreenshot(png);
+                    var swCap = Stopwatch.StartNew();
+                    while (swCap.ElapsedMilliseconds < 5000 && !File.Exists(png)) {
+                        await Task.Yield();
+                    }
+                    return png;
+                }
+
+                // 1. Seek Zoo to Monday 2026-01-05 08:00 morning peak and run at 64x until >= 3 history samples exist.
+                int servedBefore = handler.RequestsServed;
+                SendSim("sim.seek", new JObject { ["simTimeSeconds"] = 4 * 86400 + 28800 });
+                await Task.Delay(150);
+                string activeRunId = session.StatisticsRunId;
+                SendSim("sim.speed", new JObject { ["speed"] = 64 });
+                SendSim("sim.play", new JObject { ["playing"] = true });
+
+                var runSw = Stopwatch.StartNew();
+                while (runSw.ElapsedMilliseconds < 25000 && !(session.History.Count >= 3 && session.Statistics.Population > 0)) {
+                    await Task.Yield();
+                }
+
+                SendSim("sim.play", new JObject { ["playing"] = false });
+                SendSim("sim.speed", new JObject { ["speed"] = 1 });
+
+                // Wait for WebView2's statisticsAdapter to receive the state frame and request stats.history over TCP.
+                var syncSw = Stopwatch.StartNew();
+                while (syncSw.ElapsedMilliseconds < 6000 && !(handler.RequestsServed > servedBefore && handler.LastServedRunId == activeRunId)) {
+                    await Task.Yield();
+                }
+                await Task.Delay(350);
+
+                // 2. Click the '统计图' / 'Statistics charts' tile in the View rail (middle column of row 3).
+                double railX = Math.Round(vw * 0.910);
+                double railY = Math.Round(vh * 0.638);
+                await ClickPixel(railX, railY);
+                string railOpenPng = await CaptureView("stats-editor-rail-open.png");
+
+                // 3. Close with Escape via WebView2 keyboard forwarding.
+                presenter.SendSyntheticKey("down", 0x1B, "Escape", "Escape", 0);
+                await Task.Delay(50);
+                presenter.SendSyntheticKey("up", 0x1B, "Escape", "Escape", 0);
+                await Task.Delay(400);
+                string closedPng = await CaptureView("stats-editor-closed.png");
+
+                // 4. Reopen ChartsPanel by clicking the HUD bottombarMetrics button.
+                double hudX = Math.Round(vw * 0.080);
+                double hudY = Math.Round(vh * 0.980);
+                await ClickPixel(hudX, hudY);
+                string hudOpenPng = await CaptureView("stats-editor-hud-open.png");
+
+                bool revisionUnchanged = host.CurrentRevision == revBefore;
+                bool ok = session.History.Count >= 3 &&
+                          session.Statistics.Population > 0 &&
+                          handler.RequestsServed > servedBefore &&
+                          handler.LastServedRunId == activeRunId &&
+                          handler.LastServedRows >= 1 &&
+                          revisionUnchanged &&
+                          File.Exists(railOpenPng) &&
+                          File.Exists(closedPng) &&
+                          File.Exists(hudOpenPng);
+
+                cmd.Result.Write(new JObject {
+                    ["ok"] = ok,
+                    ["runId"] = activeRunId,
+                    ["historyCount"] = session.History.Count,
+                    ["population"] = session.Statistics.Population,
+                    ["crowdLos"] = session.Statistics.CrowdLos,
+                    ["boarded"] = session.Statistics.Boarded,
+                    ["requestsServedDelta"] = handler.RequestsServed - servedBefore,
+                    ["lastServedRows"] = handler.LastServedRows,
+                    ["revisionUnchanged"] = revisionUnchanged,
+                    ["railOpenPng"] = railOpenPng,
+                    ["closedPng"] = closedPng,
+                    ["hudOpenPng"] = hudOpenPng,
+                });
+                return ok ? ExitCode.Success : ExitCode.Failed;
+            } catch (Exception ex) {
+                cmd.Log.Error("editor_ui_statistics_check failed: " + ex);
                 return ExitCode.Failed;
             }
         }

@@ -1654,8 +1654,14 @@ internal sealed class OffscreenWebViewHost : NativeWindow, IDisposable {
       html.metro-overlay .app,
       html.metro-overlay .main,
       html.metro-overlay .stage,
-      html.metro-overlay .unityViewport {
+      html.metro-overlay .unityViewport,
+      html.metro-overlay .explodedViewer[data-ready="true"],
+      html.metro-overlay .explodedViewer::backdrop {
         background: transparent !important;
+      }
+      html.metro-overlay body:has(.explodedViewer[open]) .app {
+        visibility: hidden !important;
+        pointer-events: none !important;
       }
       #unity-loading-container, #unity-footer { display: none !important; }
       #game-loading { position: fixed; inset: 0; z-index: 20000; display: grid; place-items: center; padding: 24px; background: #06111d; color: #d6e7f7; font: 14px system-ui, sans-serif; }

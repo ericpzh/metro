@@ -42,7 +42,13 @@ namespace Metro.Editor {
 
         static void OnPlayModeChanged(PlayModeStateChange change) {
             if (change == PlayModeStateChange.EnteredPlayMode) {
-                if (!string.Equals(SceneManager.GetActiveScene().name, LocalSceneName, StringComparison.Ordinal)) return;
+                var sceneName = SceneManager.GetActiveScene().name;
+                bool isLocalScene = string.Equals(sceneName, LocalSceneName, StringComparison.Ordinal);
+                bool isInteractiveStationGame =
+                    string.Equals(sceneName, "StationGame", StringComparison.Ordinal) &&
+                    !Application.isBatchMode &&
+                    AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(PassengerCatalogue.AssetPath) != null;
+                if (!isLocalScene && !isInteractiveStationGame) return;
                 InjectNow();
             } else if (change == PlayModeStateChange.EnteredEditMode) {
                 PassengerCatalogueAnchor.ClearInjection();

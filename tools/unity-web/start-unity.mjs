@@ -116,7 +116,10 @@ export function verifyRawBuild(rawBuildDir, { inputs, fixtures, scene, configura
   }
   if (report.result !== 'Succeeded') return { ok: false, reason: 'build report did not succeed' }
   if (provenance.InputsVerifiedAfterBuild !== true) return { ok: false, reason: 'inputs were not verified after build' }
-  if (provenance.Scene !== `Assets/StationDesigner/Scenes/${scene}.unity`) return { ok: false, reason: 'scene mismatch' }
+  const expectedScenePath = String(scene || '').endsWith('.unity')
+    ? scene
+    : `Assets/StationDesigner/Scenes/${scene}.unity`
+  if (provenance.Scene !== expectedScenePath) return { ok: false, reason: 'scene mismatch' }
   if (provenance.Configuration !== configuration) return { ok: false, reason: 'configuration mismatch' }
   if (editorVersionWithRevision && provenance.EditorVersionWithRevision !== editorVersionWithRevision) {
     return { ok: false, reason: 'editor version mismatch' }
@@ -337,7 +340,7 @@ function killProcessTree(pid) {
   }
 }
 
-async function runMetroUnityTask(root, task, { projectPath, outputDirectory, scene, configuration }) {
+async function runMetroUnityTask(root, task, { projectPath, outputDirectory, scene, scenePath, configuration }) {
   const script = join(root, 'unity/scripts/metro-unity.ps1')
   const logPath = join(outputDirectory, `${task}-EditMode-${configuration}.log`)
   const args = [
@@ -349,6 +352,7 @@ async function runMetroUnityTask(root, task, { projectPath, outputDirectory, sce
     task,
     '-Scene',
     scene,
+    ...(scenePath ? ['-ScenePath', scenePath] : []),
     '-Configuration',
     configuration,
     '-ProjectPath',
@@ -388,6 +392,47 @@ async function runMetroUnityTask(root, task, { projectPath, outputDirectory, sce
     }
     const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
     console.log(`[unity] ${task} completed in ${elapsed}s.`)
+  } finally {
+    clearInterval(timer)
+    process.removeListener('SIGINT', onSignal)
+    process.removeListener('SIGTERM', onSignal)
+  }
+}
+
+async function runUnityExecuteMethod(editorPath, { projectPath, logPath, method, label = method }) {
+  const args = ['-batchmode', '-nographics', '-quit', '-projectPath', projectPath, '-logFile', logPath, '-executeMethod', method]
+  const startedAt = Date.now()
+  const child = spawn(editorPath, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+  let stdout = ''
+  let stderr = ''
+  child.stdout.on('data', chunk => {
+    stdout += chunk.toString('utf8')
+  })
+  child.stderr.on('data', chunk => {
+    stderr += chunk.toString('utf8')
+  })
+  const onSignal = () => {
+    killProcessTree(child.pid)
+    process.exit(130)
+  }
+  process.once('SIGINT', onSignal)
+  process.once('SIGTERM', onSignal)
+  const timer = setInterval(() => {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000)
+    const stage = latestUnityLogLine(logPath)
+    console.log(`[unity] ${label} running (${elapsed}s)${stage ? ` — ${stage.slice(0, 110)}` : '...'}`)
+  }, 10000)
+  try {
+    const exitCode = await new Promise((resolveExit, rejectExit) => {
+      child.once('error', rejectExit)
+      child.once('close', code => resolveExit(code ?? 1))
+    })
+    if (exitCode !== 0) {
+      printUnityLogFailureTail(logPath)
+      throw new Error(`Unity -executeMethod ${method} exited with code ${exitCode}.\n${stdout}\n${stderr}`.trim())
+    }
+    const elapsed = ((Date.now() - startedAt) / 1000).toFixed(1)
+    console.log(`[unity] ${label} completed in ${elapsed}s.`)
   } finally {
     clearInterval(timer)
     process.removeListener('SIGINT', onSignal)
@@ -535,6 +580,15 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
   if (!argv.includes('--scene') && !existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Editor/StationGameScene.cs'))) {
     options.scene = 'ZooPlayable'
   }
+  const isLoopback = options.ip === '127.0.0.1' || options.ip === 'localhost' || options.ip === '::1'
+  const useLocalWebPassengers =
+    !argv.includes('--scene') &&
+    options.scene === 'StationGame' &&
+    isLoopback &&
+    existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Generated/Passengers/passenger-library.manifest.json')) &&
+    existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Editor/StationLocalProfile.cs'))
+  const buildScenePath = useLocalWebPassengers ? 'Assets/StationDesigner/Scenes/StationGameLocalWeb.unity' : null
+  const expectedScene = buildScenePath ?? options.scene
   const previewUnityDir = join(root, '.preview/unity')
   const workspaceDir = join(previewUnityDir, 'dev-workspace')
   const devProjectDir = join(workspaceDir, 'project')
@@ -583,7 +637,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
     const verifyOpts = {
       inputs: sourceInputs,
       fixtures: fixtureInputs,
-      scene: options.scene,
+      scene: expectedScene,
       configuration: options.configuration,
       editorVersionWithRevision: editorPin.versionWithRevision,
     }
@@ -617,7 +671,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
           sourceSignature,
           recipeSignature,
           demoSourceSignature,
-          scene: options.scene,
+          scene: expectedScene,
           configuration: options.configuration,
           builtAt: new Date().toISOString(),
         }
@@ -667,15 +721,20 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
     const bootstrapInputs = [
       ...sourceRecipes,
       ...snapshotDirectoryInputs(devProjectDir, ['Assets/StationDesigner/Demos', 'Assets/StationDesigner/Editor']),
-      { Path: '__scene__', SHA256: options.scene },
+      { Path: '__scene__', SHA256: expectedScene },
       { Path: '__editor__', SHA256: editorPin.versionWithRevision },
     ]
     const bootstrapSignature = digestSnapshot(bootstrapInputs)
     const sceneAssetPath = join(devProjectDir, `Assets/StationDesigner/Scenes/${options.scene}.unity`)
+    const localWebReady =
+      !useLocalWebPassengers ||
+      (existsSync(join(devProjectDir, buildScenePath)) &&
+        existsSync(join(devProjectDir, 'Assets/StationDesigner/Generated/Passengers/passenger-catalogue-web.asset')))
     const needsBootstrap =
       options.rebuild ||
       options.bootstrap ||
       !existsSync(sceneAssetPath) ||
+      !localWebReady ||
       !existsSync(join(devProjectDir, 'Assets/StationDesigner/Generated/RuntimeCatalogue.asset')) ||
       !existsSync(join(devProjectDir, 'Assets/StationDesigner/Generated/TrainCatalogue.asset')) ||
       state.lastBootstrapSignature !== bootstrapSignature
@@ -685,22 +744,33 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
     mkdirSync(runBuildOut, { recursive: true })
 
     if (needsBootstrap) {
-      console.log(`[unity] Bootstrapping scene ${options.scene} and runtime catalogues...`)
-      await runMetroUnityTask(root, 'bootstrap', {
-        projectPath: devProjectDir,
-        outputDirectory: runBuildOut,
-        scene: options.scene,
-        configuration: options.configuration,
-      })
+      if (useLocalWebPassengers) {
+        console.log('[unity] Bootstrapping StationGame, local 3D passenger cohort, and StationGameLocalWeb...')
+        await runUnityExecuteMethod(editorPin.editorPath, {
+          projectPath: devProjectDir,
+          logPath: join(runBuildOut, `prepare-local-web-${options.configuration}.log`),
+          method: 'Metro.Editor.StationLocalProfile.PrepareLocalWebBuild',
+          label: 'prepare-local-web',
+        })
+      } else {
+        console.log(`[unity] Bootstrapping scene ${options.scene} and runtime catalogues...`)
+        await runMetroUnityTask(root, 'bootstrap', {
+          projectPath: devProjectDir,
+          outputDirectory: runBuildOut,
+          scene: options.scene,
+          configuration: options.configuration,
+        })
+      }
       state.lastBootstrapSignature = bootstrapSignature
       writeWorkspaceState(statePath, state)
     }
 
-    console.log(`[unity] Building Unity WebGL (${options.scene}, ${options.configuration})...`)
+    console.log(`[unity] Building Unity WebGL (${expectedScene}, ${options.configuration})...`)
     await runMetroUnityTask(root, 'build-web', {
       projectPath: devProjectDir,
       outputDirectory: runBuildOut,
       scene: options.scene,
+      scenePath: buildScenePath,
       configuration: options.configuration,
     })
 
@@ -711,7 +781,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
     const verified = verifyRawBuild(producedRaw, {
       inputs: postBuildInputs,
       fixtures: fixtureInputs,
-      scene: options.scene,
+      scene: expectedScene,
       configuration: options.configuration,
       editorVersionWithRevision: editorPin.versionWithRevision,
     })
@@ -723,7 +793,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
       sourceSignature,
       recipeSignature,
       demoSourceSignature,
-      scene: options.scene,
+      scene: expectedScene,
       configuration: options.configuration,
       builtAt: new Date().toISOString(),
     }
