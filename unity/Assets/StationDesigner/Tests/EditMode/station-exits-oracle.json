@@ -1,0 +1,1527 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "head": "d493c2a1d1028cfd40b92dfa6260469c7250e09e",
+    "files": {
+      "game/src/sim/exits.ts": "3216e1a2f0c913371ade84a98acf4eabe1e4e6ad7b77afff5dea8065b495de31",
+      "game/src/sim/stairs.ts": "289ad2d1c13e7fb4a4635a2c4ddacfc1edd69d399b38218b42c1ee4399939631",
+      "game/src/render/models/pieces/ExitModel.ts": "82e269361df34c7d3a9ea7ca4a78e84832e5944dd68dd95fd36d0cbeeb2689b8",
+      "unity/Assets/StationDesigner/Demos/zoo.metro.json": "1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e"
+    },
+    "zooTextSha256": "1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e"
+  },
+  "zooExits": [
+    {
+      "id": "exit-uncovered-2-258",
+      "name": "C",
+      "cell": [
+        89,
+        16,
+        0
+      ],
+      "rot": 3,
+      "bays": 2,
+      "headHouse": true,
+      "span": {
+        "centre": 0.5,
+        "half": 2
+      },
+      "floorBounds": {
+        "x0": 84,
+        "y0": 14,
+        "x1": 91.8,
+        "y1": 18
+      },
+      "runs": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        },
+        {
+          "column": 1,
+          "row": 0,
+          "half": 0.5
+        }
+      ],
+      "landingBack": 0.5,
+      "yHi": 2.5,
+      "pads": [
+        {
+          "x": -1,
+          "y": -2,
+          "width": 1,
+          "length": 5,
+          "height": 0.25
+        },
+        {
+          "x": 0,
+          "y": 0,
+          "width": 1,
+          "length": 1,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": -5,
+          "width": 4,
+          "length": 1,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": 1.35,
+          "width": 4,
+          "length": 1.7,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": 2.35,
+          "width": 4,
+          "length": 0.3,
+          "height": 0.125
+        },
+        {
+          "x": 2,
+          "y": -2,
+          "width": 1,
+          "length": 5,
+          "height": 0.25
+        }
+      ],
+      "groundCells": [
+        [
+          84,
+          14,
+          0
+        ],
+        [
+          84,
+          17,
+          0
+        ],
+        [
+          85,
+          14,
+          0
+        ],
+        [
+          85,
+          17,
+          0
+        ],
+        [
+          86,
+          14,
+          0
+        ],
+        [
+          86,
+          17,
+          0
+        ],
+        [
+          87,
+          14,
+          0
+        ],
+        [
+          87,
+          17,
+          0
+        ],
+        [
+          88,
+          14,
+          0
+        ],
+        [
+          88,
+          17,
+          0
+        ],
+        [
+          89,
+          14,
+          0
+        ],
+        [
+          89,
+          15,
+          0
+        ],
+        [
+          89,
+          16,
+          0
+        ],
+        [
+          89,
+          17,
+          0
+        ],
+        [
+          90,
+          14,
+          0
+        ],
+        [
+          90,
+          15,
+          0
+        ],
+        [
+          90,
+          16,
+          0
+        ],
+        [
+          90,
+          17,
+          0
+        ]
+      ],
+      "surfaceTiles": [
+        {
+          "id": "sidewalk-2562",
+          "type": "sidewalk",
+          "cell": [
+            90,
+            14,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2563",
+          "type": "sidewalk",
+          "cell": [
+            90,
+            15,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2564",
+          "type": "sidewalk",
+          "cell": [
+            90,
+            16,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2565",
+          "type": "sidewalk",
+          "cell": [
+            90,
+            17,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2588",
+          "type": "sidewalk",
+          "cell": [
+            91,
+            14,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2589",
+          "type": "sidewalk",
+          "cell": [
+            91,
+            15,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2590",
+          "type": "sidewalk",
+          "cell": [
+            91,
+            16,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-2591",
+          "type": "sidewalk",
+          "cell": [
+            91,
+            17,
+            0
+          ],
+          "hidden": true
+        }
+      ],
+      "runModules": [
+        {
+          "id": "stair-straight-4061",
+          "type": "stair",
+          "module": {
+            "id": "stair-straight-4061",
+            "type": "stair",
+            "x": 81,
+            "y": 16,
+            "z": -5,
+            "rot": 1,
+            "w": 1,
+            "d": 1,
+            "h": 1,
+            "cfg": {
+              "width": "0.68",
+              "style": "straight",
+              "flights": "[{\"from\":{\"x\":81,\"y\":16,\"z\":-5},\"to\":{\"x\":89,\"y\":16,\"z\":0}}]"
+            },
+            "from": [
+              81,
+              16,
+              -5
+            ],
+            "to": [
+              89,
+              16,
+              0
+            ]
+          },
+          "openings": [
+            {
+              "column": 0,
+              "row": 0,
+              "half": 0.5
+            }
+          ],
+          "half": 0.5
+        },
+        {
+          "id": "escalator-4063",
+          "type": "escalator",
+          "module": {
+            "id": "escalator-4063",
+            "type": "escalator",
+            "x": 80,
+            "y": 15,
+            "z": -5,
+            "rot": 1,
+            "w": 1,
+            "d": 1,
+            "h": 1,
+            "cfg": {
+              "incline": "30",
+              "dir": "up"
+            },
+            "from": [
+              80,
+              15,
+              -5
+            ],
+            "to": [
+              89,
+              15,
+              0
+            ]
+          },
+          "openings": [
+            {
+              "column": 1,
+              "row": 0,
+              "half": 0.5
+            }
+          ],
+          "half": 0.5
+        }
+      ]
+    },
+    {
+      "id": "exit-uncovered-2-398",
+      "name": "B",
+      "cell": [
+        63,
+        16,
+        0
+      ],
+      "rot": 3,
+      "bays": 2,
+      "headHouse": true,
+      "span": {
+        "centre": 0.5,
+        "half": 2
+      },
+      "floorBounds": {
+        "x0": 58,
+        "y0": 14,
+        "x1": 65.8,
+        "y1": 18
+      },
+      "runs": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        },
+        {
+          "column": 1,
+          "row": 0,
+          "half": 0.5
+        }
+      ],
+      "landingBack": 0.5,
+      "yHi": 2.5,
+      "pads": [
+        {
+          "x": -1,
+          "y": -2,
+          "width": 1,
+          "length": 5,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": -5,
+          "width": 4,
+          "length": 1,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": 1.35,
+          "width": 4,
+          "length": 1.7,
+          "height": 0.25
+        },
+        {
+          "x": 0.5,
+          "y": 2.35,
+          "width": 4,
+          "length": 0.3,
+          "height": 0.125
+        },
+        {
+          "x": 2,
+          "y": -2,
+          "width": 1,
+          "length": 5,
+          "height": 0.25
+        }
+      ],
+      "groundCells": [
+        [
+          58,
+          14,
+          0
+        ],
+        [
+          58,
+          17,
+          0
+        ],
+        [
+          59,
+          14,
+          0
+        ],
+        [
+          59,
+          17,
+          0
+        ],
+        [
+          60,
+          14,
+          0
+        ],
+        [
+          60,
+          17,
+          0
+        ],
+        [
+          61,
+          14,
+          0
+        ],
+        [
+          61,
+          17,
+          0
+        ],
+        [
+          62,
+          14,
+          0
+        ],
+        [
+          62,
+          17,
+          0
+        ],
+        [
+          63,
+          14,
+          0
+        ],
+        [
+          63,
+          15,
+          0
+        ],
+        [
+          63,
+          16,
+          0
+        ],
+        [
+          63,
+          17,
+          0
+        ],
+        [
+          64,
+          14,
+          0
+        ],
+        [
+          64,
+          15,
+          0
+        ],
+        [
+          64,
+          16,
+          0
+        ],
+        [
+          64,
+          17,
+          0
+        ],
+        [
+          65,
+          14,
+          0
+        ],
+        [
+          65,
+          15,
+          0
+        ],
+        [
+          65,
+          16,
+          0
+        ],
+        [
+          65,
+          17,
+          0
+        ]
+      ],
+      "surfaceTiles": [
+        {
+          "id": "sidewalk-1677",
+          "type": "sidewalk",
+          "cell": [
+            64,
+            14,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1678",
+          "type": "sidewalk",
+          "cell": [
+            64,
+            15,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1679",
+          "type": "sidewalk",
+          "cell": [
+            64,
+            16,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1680",
+          "type": "sidewalk",
+          "cell": [
+            64,
+            17,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1682",
+          "type": "sidewalk",
+          "cell": [
+            65,
+            14,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1683",
+          "type": "sidewalk",
+          "cell": [
+            65,
+            15,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1684",
+          "type": "sidewalk",
+          "cell": [
+            65,
+            16,
+            0
+          ],
+          "hidden": true
+        },
+        {
+          "id": "sidewalk-1685",
+          "type": "sidewalk",
+          "cell": [
+            65,
+            17,
+            0
+          ],
+          "hidden": true
+        }
+      ],
+      "runModules": [
+        {
+          "id": "escalator-4064",
+          "type": "escalator",
+          "module": {
+            "id": "escalator-4064",
+            "type": "escalator",
+            "x": 54,
+            "y": 16,
+            "z": -5,
+            "rot": 1,
+            "w": 1,
+            "d": 1,
+            "h": 1,
+            "cfg": {
+              "incline": "30",
+              "dir": "down"
+            },
+            "from": [
+              63,
+              16,
+              0
+            ],
+            "to": [
+              54,
+              16,
+              -5
+            ]
+          },
+          "openings": [
+            {
+              "column": 0,
+              "row": 0,
+              "half": 0.5
+            }
+          ],
+          "half": 0.5
+        },
+        {
+          "id": "escalator-4065",
+          "type": "escalator",
+          "module": {
+            "id": "escalator-4065",
+            "type": "escalator",
+            "x": 54,
+            "y": 15,
+            "z": -5,
+            "rot": 1,
+            "w": 1,
+            "d": 1,
+            "h": 1,
+            "cfg": {
+              "incline": "30",
+              "dir": "up"
+            },
+            "from": [
+              54,
+              15,
+              -5
+            ],
+            "to": [
+              63,
+              15,
+              0
+            ]
+          },
+          "openings": [
+            {
+              "column": 1,
+              "row": 0,
+              "half": 0.5
+            }
+          ],
+          "half": 0.5
+        }
+      ]
+    }
+  ],
+  "snapExitToRamp": [
+    {
+      "id": "straight-stair-south",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-straight-south",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "1.36"
+        },
+        "from": [
+          10,
+          2,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0
+      },
+      "openings": [
+        {
+          "column": 0.5,
+          "row": 0,
+          "half": 1
+        }
+      ]
+    },
+    {
+      "id": "escalator-arrive-rot0",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-escalator-0",
+        "type": "escalator",
+        "x": 10,
+        "y": 1,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "incline": "30",
+          "dir": "up"
+        },
+        "from": [
+          10,
+          1,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0
+      },
+      "openings": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        }
+      ]
+    },
+    {
+      "id": "escalator-arrive-rot1",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-escalator-1",
+        "type": "escalator",
+        "x": 1,
+        "y": 10,
+        "z": -5,
+        "rot": 1,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "incline": "30",
+          "dir": "up"
+        },
+        "from": [
+          1,
+          10,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 3
+      },
+      "openings": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        }
+      ]
+    },
+    {
+      "id": "escalator-arrive-rot2",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-escalator-2",
+        "type": "escalator",
+        "x": 10,
+        "y": 19,
+        "z": -5,
+        "rot": 2,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "incline": "30",
+          "dir": "up"
+        },
+        "from": [
+          10,
+          19,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 2
+      },
+      "openings": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        }
+      ]
+    },
+    {
+      "id": "escalator-arrive-rot3",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-escalator-3",
+        "type": "escalator",
+        "x": 19,
+        "y": 10,
+        "z": -5,
+        "rot": 3,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "incline": "30",
+          "dir": "up"
+        },
+        "from": [
+          19,
+          10,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 1
+      },
+      "openings": [
+        {
+          "column": 0,
+          "row": 0,
+          "half": 0.5
+        }
+      ]
+    },
+    {
+      "id": "two-lane-stair",
+      "exit": {
+        "type": "exit-covered-3",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 3
+      },
+      "ramp": {
+        "id": "ramp-two-lane",
+        "type": "stair",
+        "x": 9,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "1.36"
+        },
+        "from": [
+          9,
+          2,
+          -5
+        ],
+        "to": [
+          9,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 9,
+        "y": 10,
+        "z": 0,
+        "rot": 0
+      },
+      "openings": [
+        {
+          "column": 0.5,
+          "row": 0,
+          "half": 1
+        }
+      ]
+    },
+    {
+      "id": "three-lane-stair",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-three-lane",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "2.04"
+        },
+        "from": [
+          10,
+          2,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": {
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0
+      },
+      "openings": [
+        {
+          "column": 1,
+          "row": 0,
+          "half": 1.5
+        }
+      ]
+    },
+    {
+      "id": "block-stair-refused",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-block",
+        "type": "stair",
+        "x": 10,
+        "y": 9,
+        "z": 0,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "block": "true",
+          "width": "1",
+          "blockHeight": "1"
+        },
+        "from": [
+          10,
+          9,
+          0
+        ],
+        "to": [
+          10,
+          9,
+          1
+        ]
+      },
+      "result": null
+    },
+    {
+      "id": "turning-stair-refused",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-turn",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "right90",
+          "width": "0.68"
+        },
+        "from": [
+          10,
+          2,
+          -5
+        ],
+        "to": [
+          12,
+          10,
+          0
+        ]
+      },
+      "result": null
+    },
+    {
+      "id": "lift-refused",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-lift",
+        "type": "lift",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "size": "2"
+        },
+        "from": [
+          10,
+          10,
+          0
+        ],
+        "to": [
+          10,
+          10,
+          5
+        ]
+      },
+      "result": null
+    },
+    {
+      "id": "level-ramp-refused",
+      "exit": {
+        "type": "exit-uncovered-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-level",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": 0,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "0.68"
+        },
+        "from": [
+          10,
+          2,
+          0
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": null
+    },
+    {
+      "id": "doorway-exit-refused",
+      "exit": {
+        "type": "exit-doorway-2",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 2
+      },
+      "ramp": {
+        "id": "ramp-straight-doorway",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "0.68"
+        },
+        "from": [
+          10,
+          2,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": null
+    },
+    {
+      "id": "virtual-exit-refused",
+      "exit": {
+        "type": "exit-virtual",
+        "x": 10,
+        "y": 10,
+        "z": 0,
+        "rot": 0,
+        "bays": 1
+      },
+      "ramp": {
+        "id": "ramp-straight-virtual",
+        "type": "stair",
+        "x": 10,
+        "y": 2,
+        "z": -5,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "h": 1,
+        "cfg": {
+          "style": "straight",
+          "width": "0.68"
+        },
+        "from": [
+          10,
+          2,
+          -5
+        ],
+        "to": [
+          10,
+          10,
+          0
+        ]
+      },
+      "result": null
+    }
+  ],
+  "exitRunSnap": [
+    {
+      "id": "a-bay0-default",
+      "pointer": [
+        10,
+        10,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 0,
+        "top": [
+          10,
+          10,
+          0
+        ],
+        "base": [
+          10,
+          2,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-bay1-default",
+      "pointer": [
+        11,
+        11,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 1,
+        "top": [
+          11,
+          10,
+          0
+        ],
+        "base": [
+          11,
+          2,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-edge-low",
+      "pointer": [
+        9,
+        10,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 0,
+        "top": [
+          10,
+          10,
+          0
+        ],
+        "base": [
+          10,
+          2,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-edge-high",
+      "pointer": [
+        12,
+        10,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 1,
+        "top": [
+          11,
+          10,
+          0
+        ],
+        "base": [
+          11,
+          2,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-row-one",
+      "pointer": [
+        10,
+        11,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 0,
+        "top": [
+          10,
+          10,
+          0
+        ],
+        "base": [
+          10,
+          2,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-outside-x",
+      "pointer": [
+        8,
+        10,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": null
+    },
+    {
+      "id": "a-outside-y",
+      "pointer": [
+        10,
+        15,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": null
+    },
+    {
+      "id": "a-wrong-level",
+      "pointer": [
+        10,
+        10,
+        5
+      ],
+      "run": null,
+      "rise": null,
+      "result": null
+    },
+    {
+      "id": "b-rot2-bay0",
+      "pointer": [
+        40,
+        40,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-b",
+        "bay": 0,
+        "top": [
+          40,
+          40,
+          0
+        ],
+        "base": [
+          40,
+          48,
+          -5
+        ],
+        "rot": 2
+      }
+    },
+    {
+      "id": "b-rot2-bay2",
+      "pointer": [
+        38,
+        40,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": {
+        "exitId": "exit-b",
+        "bay": 2,
+        "top": [
+          38,
+          40,
+          0
+        ],
+        "base": [
+          38,
+          48,
+          -5
+        ],
+        "rot": 2
+      }
+    },
+    {
+      "id": "a-short-rise",
+      "pointer": [
+        10,
+        10,
+        0
+      ],
+      "run": 5,
+      "rise": 3,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 0,
+        "top": [
+          10,
+          10,
+          0
+        ],
+        "base": [
+          10,
+          5,
+          -3
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "a-escalator-spec",
+      "pointer": [
+        10,
+        10,
+        0
+      ],
+      "run": 9,
+      "rise": 5,
+      "result": {
+        "exitId": "exit-a",
+        "bay": 0,
+        "top": [
+          10,
+          10,
+          0
+        ],
+        "base": [
+          10,
+          1,
+          -5
+        ],
+        "rot": 0
+      }
+    },
+    {
+      "id": "doorway-none",
+      "pointer": [
+        60,
+        60,
+        0
+      ],
+      "run": null,
+      "rise": null,
+      "result": null
+    }
+  ]
+}

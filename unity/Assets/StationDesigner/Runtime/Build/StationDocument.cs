@@ -200,6 +200,8 @@ namespace Metro.Build {
         public int X { get; }
         public int Y { get; }
         public int Z { get; }
+        /// <summary>Exact authored elevation (<c>m.z</c>), preserving fractional wall-artwork anchors.</summary>
+        public double ExactZ => Facts != null ? Facts.ExactZ : Z;
         /// <summary>Saved quarter turns counter-clockwise in plan space.</summary>
         public int Rotation { get; }
         public int Width { get; }

@@ -136,7 +136,7 @@ namespace Metro.Sim {
         public const double StairRateUp = 25.0 / 60.0;
         public const double StairRateDown = 33.0 / 60.0;
         public const int GroundZ = 0;
-        const int ZoneOutside = 1;
+        public const int ZoneOutside = 1;
 
         public static StationWalkGraph Build(StationSessionDocument document, StationWalkGraphOptions options = null) {
             if (document == null) throw new ArgumentNullException(nameof(document));

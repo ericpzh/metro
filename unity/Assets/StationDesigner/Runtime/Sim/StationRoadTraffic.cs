@@ -100,6 +100,10 @@ namespace Metro.Sim {
         public int PreviousEdge;
         public RoadVehicleKind Kind;
         public string Variant;
+        /// <summary>The source road the pose is on (`road.id`), so a view can apply its level.</summary>
+        public string RoadId;
+        /// <summary>The source road's saved elevation (`road.z`), the pose's own storey.</summary>
+        public double RoadZ;
         public double X, Y, Z;
         /// <summary>Document-plane heading: atan2(-dx, dy), as the source model faces +Y.</summary>
         public double Heading;
@@ -355,6 +359,7 @@ namespace Metro.Sim {
                 output.Add(new RoadVehiclePose {
                     Id = c.Id, Edge = edge, PreviousEdge = c.PreviousEdge, Kind = c.Kind,
                     Variant = VariantOf(c), X = p.X, Y = p.Y, Z = e.RoadZ + 1.05,
+                    RoadId = e.RoadId ?? "", RoadZ = e.RoadZ,
                     Heading = Math.Atan2(-dx, dy),
                 });
             }

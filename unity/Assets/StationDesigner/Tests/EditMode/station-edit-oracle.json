@@ -1,0 +1,904 @@
+{
+  "format": "station-edit-oracle",
+  "source": {
+    "demo": "zoo",
+    "saveSha256": "1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e",
+    "cells": 14066,
+    "modules": 4299
+  },
+  "levels": [
+    -20,
+    -16,
+    -15,
+    -14,
+    -11,
+    -10,
+    -9,
+    -6,
+    -5,
+    -1,
+    0
+  ],
+  "placements": [
+    {
+      "paletteId": "bench-steel-1",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "bench",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "steel-1"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "bench-steel-1",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "bench",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "steel-1"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "bench-wood-2",
+      "rotation": 1,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "bench",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 1,
+        "w": 2,
+        "d": 1,
+        "cfg": {
+          "variant": "wood-2"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "bench-wood-2",
+      "rotation": 1,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "bench",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 1,
+        "w": 2,
+        "d": 1,
+        "cfg": {
+          "variant": "wood-2"
+        }
+      },
+      "floorOk": false,
+      "onTrack": true,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "fence",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "fence",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "glass"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "fence",
+      "rotation": 0,
+      "cell": [
+        17,
+        0,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          0,
+          -20
+        ],
+        "place": [
+          17,
+          0,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          0.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        0,
+        -20
+      ],
+      "candidate": {
+        "type": "fence",
+        "x": 17,
+        "y": 0,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "glass"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [
+        "psd-end-729"
+      ],
+      "level": -20
+    },
+    {
+      "paletteId": "fence-steel-blue",
+      "rotation": 2,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "fence",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 2,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "steel-blue"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "fence-steel-blue",
+      "rotation": 2,
+      "cell": [
+        17,
+        0,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          0,
+          -20
+        ],
+        "place": [
+          17,
+          0,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          0.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        0,
+        -20
+      ],
+      "candidate": {
+        "type": "fence",
+        "x": 17,
+        "y": 0,
+        "z": -20,
+        "rot": 2,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "steel-blue"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [
+        "psd-end-729"
+      ],
+      "level": -20
+    },
+    {
+      "paletteId": "tactile-warning",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "tactile",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "warning"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "tactile-warning",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "tactile",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "warning"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "floor-mark-boarding",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "floor-mark",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "boarding"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "floor-mark-boarding",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "floor-mark",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "variant": "boarding"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "tvm",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "tvm",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {}
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "tvm",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "tvm",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {}
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    }
+  ],
+  "moves": [
+    {
+      "moduleId": "bench-steel-2-193",
+      "type": "bench",
+      "from": {
+        "x": 109,
+        "y": 3,
+        "z": -20,
+        "rot": 2
+      },
+      "at": [
+        17,
+        3,
+        -20
+      ],
+      "rotation": 3,
+      "candidate": {
+        "type": "bench",
+        "x": 17,
+        "y": 3,
+        "z": -20,
+        "rot": 3,
+        "w": 2,
+        "d": 1
+      },
+      "notice": "",
+      "reason": "",
+      "colliders": []
+    },
+    {
+      "moduleId": "fence-21",
+      "type": "fence",
+      "from": {
+        "x": 56,
+        "y": 30,
+        "z": -10,
+        "rot": 0
+      },
+      "at": [
+        16,
+        5,
+        -10
+      ],
+      "rotation": 0,
+      "candidate": {
+        "type": "fence",
+        "x": 16,
+        "y": 5,
+        "z": -10,
+        "rot": 0,
+        "w": 1,
+        "d": 1
+      },
+      "notice": "",
+      "reason": "",
+      "colliders": []
+    },
+    {
+      "moduleId": "tactile-698",
+      "type": "tactile",
+      "from": {
+        "x": 81,
+        "y": 2,
+        "z": -15,
+        "rot": 0
+      },
+      "at": [
+        70,
+        4,
+        -15
+      ],
+      "rotation": 0,
+      "candidate": {
+        "type": "tactile",
+        "x": 70,
+        "y": 4,
+        "z": -15,
+        "rot": 0,
+        "w": 1,
+        "d": 1
+      },
+      "notice": "",
+      "reason": "",
+      "colliders": []
+    },
+    {
+      "moduleId": "floor-mark-boarding-605",
+      "type": "floor-mark",
+      "from": {
+        "x": 114,
+        "y": -1,
+        "z": -20,
+        "rot": 2
+      },
+      "at": [
+        17,
+        1,
+        -20
+      ],
+      "rotation": 3,
+      "candidate": {
+        "type": "floor-mark",
+        "x": 17,
+        "y": 1,
+        "z": -20,
+        "rot": 3,
+        "w": 1,
+        "d": 1
+      },
+      "notice": "",
+      "reason": "",
+      "colliders": []
+    },
+    {
+      "moduleId": "floor-mark-boarding-605",
+      "type": "floor-mark",
+      "from": {
+        "x": 114,
+        "y": -1,
+        "z": -20,
+        "rot": 2
+      },
+      "at": [
+        114,
+        -1,
+        -20
+      ],
+      "rotation": 3,
+      "candidate": {
+        "type": "floor-mark",
+        "x": 114,
+        "y": -1,
+        "z": -20,
+        "rot": 3,
+        "w": 1,
+        "d": 1
+      },
+      "notice": "此处没有地板，设备需立于实心地板上",
+      "reason": "floor",
+      "colliders": []
+    }
+  ],
+  "picks": [
+    {
+      "moduleId": "bench-steel-2-193",
+      "type": "bench",
+      "paletteId": "bench-steel-2"
+    },
+    {
+      "moduleId": "fence-21",
+      "type": "fence",
+      "paletteId": "fence"
+    },
+    {
+      "moduleId": "tactile-698",
+      "type": "tactile",
+      "paletteId": "tactile-guide"
+    },
+    {
+      "moduleId": "floor-mark-boarding-605",
+      "type": "floor-mark",
+      "paletteId": "floor-mark-boarding"
+    },
+    {
+      "moduleId": "tvm-281",
+      "type": "tvm",
+      "paletteId": "tvm"
+    },
+    {
+      "moduleId": "gate-240",
+      "type": "gate",
+      "paletteId": "gate"
+    },
+    {
+      "moduleId": "clock-323",
+      "type": "clock",
+      "paletteId": "clock"
+    },
+    {
+      "moduleId": "cctv-333",
+      "type": "cctv",
+      "paletteId": "cctv"
+    },
+    {
+      "moduleId": "monitor-ceiling-729",
+      "type": "monitor",
+      "paletteId": "monitor-ceiling"
+    },
+    {
+      "moduleId": "light-rectangular-401",
+      "type": "light",
+      "paletteId": "light-rectangular"
+    }
+  ]
+}

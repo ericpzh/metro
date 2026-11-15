@@ -87,6 +87,18 @@ namespace Metro.Sim {
         public StationGateState State;
         /// <summary>The gate's policy: -1 exit only, 0 both, 1 entry only.</summary>
         public int Mode;
+        /// <summary>
+        /// The direction a two-way lane has committed to: -1 exit, +1 entry, 0 idle. The
+        /// source's first-come rule fixes it on the first served agent and releases it when
+        /// that direction drains.
+        /// </summary>
+        public int Lane;
+        /// <summary>
+        /// The lane's moving leaves, 0 shut … 1 open. The source's open/hold/shut curve
+        /// (0.25 s open, 0.45 s hold, 0.35 s shut) evaluated at this tick from the last
+        /// admission, so a gate visibly answers the passenger it served.
+        /// </summary>
+        public double Open;
     }
 
     public static class StationServiceText {

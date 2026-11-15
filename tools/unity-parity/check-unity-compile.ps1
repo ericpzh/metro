@@ -17,7 +17,10 @@
 # packet's in-flight file is broken).
 param(
     [string[]] $Skip = @(),
-    [string[]] $ExcludeFiles = @()
+    [string[]] $ExcludeFiles = @(),
+    # Extra folder suffix under `unity/Temp/` so two owners can compile-check the
+    # same working tree at once without racing on the same bin/obj folders.
+    [string] $OutSuffix = ''
 )
 $ErrorActionPreference = 'Stop'
 # `-File script.ps1 -ExcludeFiles a,b` arrives as one comma-joined string; accept
@@ -25,7 +28,7 @@ $ErrorActionPreference = 'Stop'
 $ExcludeFiles = @($ExcludeFiles | ForEach-Object { $_ -split '[,;]' } | Where-Object { $_ })
 $Skip = @($Skip | ForEach-Object { $_ -split '[,;]' } | Where-Object { $_ })
 $unity = (Resolve-Path (Join-Path $PSScriptRoot '..\..\unity')).Path
-$out = Join-Path $unity 'Temp\acheck'
+$out = Join-Path $unity ('Temp\acheck' + $OutSuffix)
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 function New-CheckProject {

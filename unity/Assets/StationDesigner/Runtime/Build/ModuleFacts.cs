@@ -19,6 +19,12 @@ namespace Metro.Build {
         public int X;
         public int Y;
         public int Z;
+        double? exactZ;
+        /// <summary>Exact authored elevation (<c>m.z</c>), preserving fractional wall-artwork anchors.</summary>
+        public double ExactZ {
+            get => exactZ ?? Z;
+            set => exactZ = value;
+        }
         /// <summary>Quarter turns counter-clockwise in plan space (document convention).</summary>
         public int Rotation;
         public int Width = 1;

@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 
 namespace Metro.Sim {
     // The station session ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â one clock, one scheduler, one set of service actors,
@@ -116,14 +118,35 @@ namespace Metro.Sim {
         public double RunLength;
     }
 
-    /// <summary>One line's dispatch-relevant facts (<c>headwayProfile</c>).</summary>
+    /// <summary>One line's dispatch-relevant facts (`headwayProfile`, stock, authored wave).</summary>
     public struct StationLineFact {
         public string Id;
         /// <summary>The line's fallback direction label (<c>line.direction</c>).</summary>
         public string Direction;
         public double HeadwayPeak, HeadwayOffpeak, HeadwayLate;
+        /// <summary>The stock class the line runs (<c>line.stock</c>: A … D, L).</summary>
+        public string Stock;
+        /// <summary>The cars a consist carries (<c>line.cars</c>).</summary>
+        public int Cars;
+        /// <summary>
+        /// The authored alighting wave per consist (<c>line.alightPerTrain</c>). Read only
+        /// when <see cref="AuthoredAlight"/> is set, so a hand-built fixture that names no
+        /// wave keeps <see cref="StationServiceOptions.AlightPerTrain"/> — and an authored
+        /// 0 is an authored "nobody gets off here", not "unset".
+        /// </summary>
+        public int AlightPerTrain;
+        /// <summary>True when the document authored <see cref="AlightPerTrain"/>.</summary>
+        public bool AuthoredAlight;
+        /// <summary>`line.modelScale`, the scale baked into the promoted consist.</summary>
+        public double ModelScale;
+
+        public static StationLineFact Default => new StationLineFact { AlightPerTrain = -1, ModelScale = 1 };
+
         public double HeadwayFor(SimPeriod period) =>
             period == SimPeriod.Peak ? HeadwayPeak : period == SimPeriod.Offpeak ? HeadwayOffpeak : HeadwayLate;
+
+        /// <summary>`trainRatedCapacity(line)`: the rated load the frame publishes.</summary>
+        public int RatedCapacity => StationServiceCadence.RatedCapacity(Stock, Cars);
     }
 
     /// <summary>
@@ -182,6 +205,8 @@ namespace Metro.Sim {
         public StationWalkGraphOptions WalkOptions;
         /// <summary>The bounded service slice's own knobs; default = the source's own numbers.</summary>
         public StationServiceOptions Services;
+        /// <summary>Keep the phase-transition log (a test or a frame sink reads it); default on.</summary>
+        public bool RecordTransitions = true;
     }
 
     // ------------------------------------------------------------------ frames
@@ -214,10 +239,19 @@ namespace Metro.Sim {
     /// <summary>One consist's service state, keyed by <c>lineId|trackId</c>.</summary>
     public struct StationTrainFrame {
         public string Id, LineId, TrackId;
+        /// <summary>
+        /// The consist run this frame describes. A new dispatch of the same service (the
+        /// next train on the same track) takes the next sequence, so a consumer can tell
+        /// "the same stop went through another phase" from "another consist is at the
+        /// platform" without inferring it from a pose.
+        /// </summary>
+        public int ServiceSequence;
+        /// <summary>The doorways this service may open: one per modelled passenger door.</summary>
+        public int DoorCount;
         public TrainPhase Phase;
         /// <summary>Seconds inside the current phase (<c>Train.t</c>).</summary>
         public double PhaseSeconds;
-        /// <summary>Door leaves' commanded position, 0 shut ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ 1 fully open.</summary>
+        /// <summary>Door leaves' commanded position, 0 shut ... 1 fully open.</summary>
         public double DoorFraction;
         /// <summary>The absolute sim time the next consist dispatch is due.</summary>
         public double NextDispatchSimTime;
@@ -228,6 +262,23 @@ namespace Metro.Sim {
         public int Capacity;
         /// <summary>Passengers aboard this consist right now.</summary>
         public int Onboard;
+    }
+
+    /// <summary>
+    /// One phase transition of one consist, recorded where the session's phase loop makes
+    /// it. A frame sink or a test can read what changed *and when* instead of inferring a
+    /// transition from a pose, and a repeated open/close can be attributed either to a new
+    /// service run (<see cref="ServiceSequence"/> changed) or to the phase alone.
+    /// </summary>
+    public struct StationTrainTransition {
+        public long Tick;
+        public string ServiceId, LineId, TrackId;
+        public int ServiceSequence;
+        public TrainPhase From, To;
+        /// <summary>The instant the new phase began at (seconds since day zero).</summary>
+        public double SimTime;
+        /// <summary>True when the transition is a new consist dispatch, not a phase step.</summary>
+        public bool Dispatch;
     }
 
     /// <summary>One moving band (escalator or walkway), keyed by module id.</summary>
@@ -300,16 +351,41 @@ namespace Metro.Sim {
 
     // --------------------------------------------------------------- the session
 
+    /// <summary>Prepared incoming edit staged before touching the active simulation session.</summary>
+    public sealed class StagedStationDocumentEdit {
+        public StationSessionDocument Document { get; }
+        public StationDayData Day { get; }
+        public StationDocumentEditKind Kind { get; }
+        public StationWalkGraph WalkGraph { get; }
+        internal StationServiceRuntime.StagedServiceFacts ServiceFacts { get; }
+
+        internal StagedStationDocumentEdit(
+            StationSessionDocument document,
+            StationDayData day,
+            StationDocumentEditKind kind,
+            StationWalkGraph walkGraph,
+            StationServiceRuntime.StagedServiceFacts serviceFacts) {
+            Document = document;
+            Day = day;
+            Kind = kind;
+            WalkGraph = walkGraph;
+            ServiceFacts = serviceFacts;
+        }
+    }
+
     /// <summary>
     /// Owns the station clock, the tick scheduler and the service actors. The one
     /// entry point a host needs: construct with a committed document + authored day,
     /// call <see cref="Advance"/> with real elapsed seconds, read <see cref="Snapshot"/>.
     /// </summary>
     public sealed class StationSimulationSession {
+        static long nextStatisticsRunSeq;
         struct TrainRun {
             public string LineId, TrackId;
             public TrainPhase Phase;
             public double T;
+            /// <summary>Which consist run this is for the service: bumped per dispatch.</summary>
+            public int Sequence;
         }
 
         struct EscalatorRun {
@@ -337,6 +413,10 @@ namespace Metro.Sim {
 
         readonly SimulationScheduler scheduler = new SimulationScheduler();
         readonly List<TrainRun> trains = new List<TrainRun>();
+        /// <summary>The last <see cref="TransitionLimit"/> phase/dispatch transitions, oldest first.</summary>
+        readonly List<StationTrainTransition> transitions = new List<StationTrainTransition>();
+        const int TransitionLimit = 512;
+        int nextTrainSequence = 1;
         readonly List<EscalatorRun> escalators = new List<EscalatorRun>();
         readonly List<LiftRun> lifts = new List<LiftRun>();
         readonly Dictionary<string, double> nextDispatch = new Dictionary<string, double>();
@@ -347,11 +427,18 @@ namespace Metro.Sim {
         uint seed;
         long tick;
         long sessionRevision;
+        long presentationEpoch;
         string sessionId;
         /// <summary>The bounded crowd/gate/boarding slice (plan 11 C3).</summary>
         readonly StationServiceRuntime services;
         readonly StationWalkGraphOptions walkOptions;
+        readonly bool recordTransitions;
         StationWalkGraph walkGraph;
+        readonly StationStatisticsHistory history = new StationStatisticsHistory();
+        StationStatisticsSnapshot statistics;
+        string statisticsRunId = "";
+        int trainArrivals;
+        StagedStationDocumentEdit stagedEdit;
 
         public StationSimulationSession(StationSessionSetup setup) {
             if (setup == null) throw new ArgumentNullException(nameof(setup));
@@ -363,7 +450,10 @@ namespace Metro.Sim {
             Playing = setup.StartPlaying;
             walkOptions = setup.WalkOptions ?? new StationWalkGraphOptions();
             services = new StationServiceRuntime(setup.Services);
+            recordTransitions = setup.RecordTransitions;
             LoadDerived(setup.Document);
+            trainArrivals = 0;
+            ResetStatisticsRun();
         }
 
         public StationClock Clock { get; }
@@ -373,15 +463,70 @@ namespace Metro.Sim {
         public string SessionId => sessionId;
         /// <summary>Bumped whenever derived state is rebuilt (a document or authored-day edit).</summary>
         public long SessionRevision => sessionRevision;
+        /// <summary>
+        /// Bumped whenever the presented history is invalid: restart, seek, speed change
+        /// or a rebuilt document. A frame sink compares it with the session id and the
+        /// fixed tick to decide between interpolating and snapping (RCA 14 §5.2).
+        /// </summary>
+        public long PresentationEpoch => presentationEpoch;
+        /// <summary>
+        /// The scheduler's fractional position toward the next fixed tick (0 … 1). This
+        /// is a presentation fraction only: the authoritative clock and every service
+        /// decision stay on <see cref="Tick"/> boundaries.
+        /// </summary>
+        public double PresentationFraction => scheduler.Fraction;
         public StationSessionDocument Document => document;
         /// <summary>The document-built walk graph the service layer routes on (null when the build refused).</summary>
         public StationWalkGraph WalkGraph => walkGraph;
         /// <summary>The bounded crowd/gate/boarding service layer (plan 11 C3).</summary>
         public StationServiceRuntime Services => services;
+        /// <summary>
+        /// The phase/dispatch transitions the run has made, oldest first, bounded to the
+        /// last <see cref="TransitionLimit"/>. This is where the phase loop itself says what
+        /// changed: a repeated open/close is either a new <see cref="StationTrainTransition.ServiceSequence"/>
+        /// (another consist) or the same sequence moving through its phases.
+        /// </summary>
+        public IReadOnlyList<StationTrainTransition> TrainTransitions => transitions;
+        /// <summary>Forget the transition log (a test that only wants one stop).</summary>
+        public void ClearTransitions() => transitions.Clear();
         /// <summary>The published passenger frames (empty when the station serves nobody).</summary>
         public StationPassengerFrame[] PassengerFrames() => services.PassengerFrames();
         /// <summary>The published gate servers' live queues, in document order.</summary>
         public StationGateFrame[] GateFrames() => services.GateFrames();
+        /// <summary>Opaque per-run identifier minted on install, restart and seek.</summary>
+        public string StatisticsRunId => statisticsRunId;
+        /// <summary>Current live metrics snapshot (updated on ticks, resets, seeks and edits).</summary>
+        public StationStatisticsSnapshot Statistics => statistics;
+        /// <summary>Per-run 1-minute history buffer.</summary>
+        public StationStatisticsHistory History => history;
+        /// <summary>Cumulative consist berth arrivals since session load or restart.</summary>
+        public int TrainArrivals => trainArrivals;
+
+        static string MintStatisticsRunId() =>
+            "run-" + Interlocked.Increment(ref nextStatisticsRunSeq).ToString(CultureInfo.InvariantCulture);
+
+        /// <summary>Mint a fresh statistics run ID, clear the history series at the current clock, and refresh live metrics.</summary>
+        public void ResetStatisticsRun() {
+            statisticsRunId = MintStatisticsRunId();
+            history.Reset(Clock.SimTime);
+            RefreshStatistics(0);
+        }
+
+        /// <summary>Recompute the live metrics snapshot from current actors and clock without sampling a history row.</summary>
+        public void RefreshStatistics(double tickMs = 0) {
+            statistics = services.CollectStatistics(
+                tick,
+                Clock.SimTime,
+                PeriodText(Clock.Period),
+                trainArrivals,
+                trains.Count,
+                tickMs);
+        }
+
+        void CaptureStatistics(double tickMs) {
+            RefreshStatistics(tickMs);
+            history.Sample(in statistics);
+        }
 
         public static bool IsSupportedSpeed(int speed) {
             for (int i = 0; i < StationSimConstants.SupportedSpeeds.Length; i++)
@@ -392,13 +537,14 @@ namespace Metro.Sim {
         // ------------------------------------------------------------- lifecycle
 
         /// <summary>
-        /// Play or pause. Pausing drops the scheduler's fractional second: a paused
-        /// station must not bank time to spend the instant it resumes.
+        /// Play or pause. The accumulator's sub-tick fraction is kept: no simulated
+        /// time is banked because <see cref="Advance"/> returns before accumulating
+        /// while paused, and keeping the fraction means the presented pose freezes
+        /// exactly where it was and resumes without a one-tick snap (RCA 14 §5.2).
         /// </summary>
         public void SetPlaying(bool playing) {
             if (playing == Playing) return;
             Playing = playing;
-            scheduler.Reset();
         }
 
         /// <summary>Set the speed multiplier. Returns false for anything but 1ÃƒÆ’Ã¢â‚¬â€/4ÃƒÆ’Ã¢â‚¬â€/16ÃƒÆ’Ã¢â‚¬â€/64ÃƒÆ’Ã¢â‚¬â€.</summary>
@@ -406,7 +552,9 @@ namespace Metro.Sim {
             if (!IsSupportedSpeed(speed)) return false;
             if (speed == Speed) return true;
             Speed = speed;
-            scheduler.Reset();
+            // The tick is always one simulated second, so a speed change only alters
+            // how soon the next tick arrives; the interpolation pair stays valid and
+            // the presented pose must not snap back. The fraction is therefore kept.
             return true;
         }
 
@@ -416,11 +564,17 @@ namespace Metro.Sim {
         /// tick keeps counting, and the dispatch schedule re-staggers from now.
         /// </summary>
         public void Restart() {
+            stagedEdit = null;
             rng = new SimulationRng(seed);
             trains.Clear();
+            transitions.Clear();
+            nextTrainSequence = 1;
+            trainArrivals = 0;
             scheduler.Reset();
-            RebuildServices();
+            presentationEpoch++;
+            RebuildServices(resetLifts: true);
             services.Restart();
+            ResetStatisticsRun();
             sessionRevision++;
         }
 
@@ -437,6 +591,8 @@ namespace Metro.Sim {
             Clock.Seek(StationClock.SimTimeAtDate(date, Clock.Calendar.Epoch, timeOfDay));
             nextDispatch.Clear();
             scheduler.Reset();
+            presentationEpoch++;
+            ResetStatisticsRun();
         }
 
         /// <summary>Move the clock to an absolute instant, seconds since day zero.</summary>
@@ -444,6 +600,68 @@ namespace Metro.Sim {
             Clock.Seek(simTimeSeconds);
             nextDispatch.Clear();
             scheduler.Reset();
+            presentationEpoch++;
+            ResetStatisticsRun();
+        }
+
+        /// <summary>
+        /// Stage an edited document against this running session without mutating active
+        /// actors, queues, RNG or statistics. Call <see cref="CommitDocumentEdit"/> on
+        /// transaction success or <see cref="AbortDocumentEdit"/> on rollback.
+        /// </summary>
+        public StagedStationDocumentEdit StageDocumentEdit(
+            StationSessionDocument next,
+            StationDayData day,
+            StationDocumentEditKind kind = StationDocumentEditKind.Structural) {
+            var doc = next ?? new StationSessionDocument();
+            var normalizedDay = StationClock.NormalizeDay(day);
+            if (kind != StationDocumentEditKind.Structural) {
+                stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, kind, walkGraph, null);
+                return stagedEdit;
+            }
+            StationWalkGraph candidateGraph = null;
+            try { candidateGraph = StationWalkGraphBuilder.Build(doc, walkOptions); }
+            catch (Exception) { candidateGraph = null; }
+            var candidateFacts = StationServiceRuntime.BuildServiceFacts(doc, candidateGraph);
+            stagedEdit = new StagedStationDocumentEdit(doc, normalizedDay, StationDocumentEditKind.Structural, candidateGraph, candidateFacts);
+            return stagedEdit;
+        }
+
+        /// <summary>Discard any staged document edit without touching the running session.</summary>
+        public void AbortDocumentEdit() {
+            stagedEdit = null;
+        }
+
+        /// <summary>Publish a previously staged document edit, preserving the statistics run and cumulative counters.</summary>
+        public void CommitDocumentEdit(StagedStationDocumentEdit edit = null) {
+            var committed = edit ?? stagedEdit;
+            stagedEdit = null;
+            if (committed == null) return;
+            switch (committed.Kind) {
+                case StationDocumentEditKind.DayOnly:
+                    document = committed.Document;
+                    services.ApplyCosmeticDocument(committed.Document);
+                    ApplyDay(committed.Day);
+                    break;
+                case StationDocumentEditKind.Cosmetic:
+                    document = committed.Document;
+                    services.ApplyCosmeticDocument(committed.Document);
+                    ApplyDayCore(committed.Day);
+                    sessionRevision++;
+                    RefreshStatistics(0);
+                    break;
+                default:
+                    document = committed.Document;
+                    Clock.SetDay(committed.Day);
+                    walkGraph = committed.WalkGraph;
+                    RebuildServices(resetLifts: true);
+                    PruneOrphanedTrains();
+                    services.ApplyStagedEdit(committed.ServiceFacts);
+                    presentationEpoch++;
+                    sessionRevision++;
+                    RefreshStatistics(0);
+                    break;
+            }
         }
 
         /// <summary>
@@ -452,8 +670,8 @@ namespace Metro.Sim {
         /// transaction owns the committed document and calls this after committing.
         /// </summary>
         public void ApplyDocument(StationSessionDocument next) {
-            LoadDerived(next);
-            sessionRevision++;
+            var staged = StageDocumentEdit(next, Clock.Day, StationDocumentEditKind.Structural);
+            CommitDocumentEdit(staged);
         }
 
         /// <summary>
@@ -462,6 +680,12 @@ namespace Metro.Sim {
         /// pending dispatches by the same delta instead of restarting them.
         /// </summary>
         public void ApplyDay(StationDayData day) {
+            ApplyDayCore(day);
+            sessionRevision++;
+            RefreshStatistics(0);
+        }
+
+        void ApplyDayCore(StationDayData day) {
             var oldService = Clock.Service;
             var oldPeaks = Clock.Peaks;
             var oldPeriod = StationClock.PeriodOf((long)Math.Floor(Clock.SimTime), oldService, oldPeaks, Clock.DayType == SimDayType.Workday);
@@ -487,24 +711,30 @@ namespace Metro.Sim {
                     }
                 }
             }
-            sessionRevision++;
         }
 
         /// <summary>Load a different station document. A full reset: clock, tick, RNG and actors.</summary>
         public void LoadDocument(StationSessionDocument next, double startSimTime, uint newSeed) {
+            stagedEdit = null;
             seed = newSeed;
             rng = new SimulationRng(seed);
             tick = 0;
+            trains.Clear();
+            transitions.Clear();
+            nextTrainSequence = 1;
+            trainArrivals = 0;
             Clock.Seek(startSimTime);
             Playing = false;
             scheduler.Reset();
+            presentationEpoch++;
             LoadDerived(next);
+            ResetStatisticsRun();
             sessionRevision++;
         }
 
         void LoadDerived(StationSessionDocument next) {
             document = next ?? new StationSessionDocument();
-            RebuildServices();
+            RebuildServices(resetLifts: true);
             // The walk graph is derived from the committed document only: a rebuilt
             // station is a different graph, and a build that refuses (a disconnected
             // or absurd document) still leaves a clock that runs.
@@ -514,14 +744,35 @@ namespace Metro.Sim {
             services.Build(document, walkGraph, seed);
         }
 
+        void PruneOrphanedTrains() {
+            for (int i = trains.Count - 1; i >= 0; i--) {
+                var run = trains[i];
+                if (!serviceTracks.TryGetValue(run.LineId ?? "", out List<string> tracks)) {
+                    trains.RemoveAt(i);
+                    continue;
+                }
+                if (tracks.Count == 0) {
+                    if (!string.IsNullOrEmpty(run.TrackId)) trains.RemoveAt(i);
+                    continue;
+                }
+                bool found = false;
+                for (int t = 0; t < tracks.Count; t++) {
+                    if (string.Equals(tracks[t], run.TrackId, StringComparison.Ordinal)) { found = true; break; }
+                }
+                if (!found) trains.RemoveAt(i);
+            }
+        }
+
         /// <summary>The source <c>rebuild()</c> tail: re-read the document's service actors and re-stagger dispatch.</summary>
-        void RebuildServices() {
+        void RebuildServices(bool resetLifts = false) {
             // A rebuild keeps each band where it had rolled to: an edit that leaves a run
             // alone must not make its steps jump back to zero.
             var phases = new Dictionary<string, double>();
             for (int i = 0; i < escalators.Count; i++) phases[escalators[i].Id] = escalators[i].Phase;
             var cars = new Dictionary<string, LiftRun>();
-            for (int i = 0; i < lifts.Count; i++) cars[lifts[i].Id ?? ""] = lifts[i];
+            if (!resetLifts) {
+                for (int i = 0; i < lifts.Count; i++) cars[lifts[i].Id ?? ""] = lifts[i];
+            }
             escalators.Clear();
             lifts.Clear();
             serviceTracks.Clear();
@@ -540,15 +791,16 @@ namespace Metro.Sim {
                         });
                     } else if (m.Type == "lift") {
                         var stops = StationLiftStops.Levels(m);
-                        LiftRun held;
-                        bool known = cars.TryGetValue(m.Id ?? "", out held) && held.Stops != null && held.Stops.Length == stops.Count;
+                        LiftRun held = default;
+                        bool known = !resetLifts && cars.TryGetValue(m.Id ?? "", out held) && held.Stops != null && held.Stops.Length == stops.Count;
                         int stop = known ? Math.Max(0, Math.Min(stops.Count - 1, held.Stop)) : 0;
+                        double z = known ? held.Z : (stops.Count > 0 ? stops[stop] : m.Z);
                         lifts.Add(new LiftRun {
                             Id = m.Id, Phase = known ? held.Phase : "idle",
                             Door = known ? held.Door : 0,
                             Stop = stop, StopCount = stops.Count,
                             Stops = stops.ToArray(),
-                            Z = known ? held.Z : stops[stop],
+                            Z = z,
                             From = known ? held.From : stop, To = known ? held.To : stop,
                             MoveT = known ? held.MoveT : 0, MoveTotal = known ? held.MoveTotal : 0,
                             T = known ? held.T : 0, Call = known ? held.Call : -1,
@@ -604,11 +856,12 @@ namespace Metro.Sim {
         }
 
         bool StepOnce() {
+            var sw = Stopwatch.StartNew();
             tick++;
-            // The clock advances by the tick's own simulated seconds ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â never by a tick
-            // count and never by wall time.
             Clock.Advance(StationSimConstants.SimSecondsPerTick);
             StepServices();
+            sw.Stop();
+            CaptureStatistics(sw.Elapsed.TotalMilliseconds);
             return true;
         }
 
@@ -641,27 +894,30 @@ namespace Metro.Sim {
                     var line = document.Lines[i];
                     var ids = serviceTracks.TryGetValue(line.Id, out List<string> held) ? held : new List<string>();
                     if (ids.Count == 0) {
-                        var active = ActiveTrain(line.Id, "");
-                        frames.Add(new StationTrainFrame {
-                            Id = ServiceKey(line.Id, ""), LineId = line.Id, TrackId = "",
-                            Phase = active?.Phase ?? TrainPhase.None,
-                            PhaseSeconds = active?.T ?? 0,
-                            DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
-                        });
+                        frames.Add(ServiceFrame(line, "", ActiveTrain(line.Id, "")));
                         continue;
                     }
                     for (int t = 0; t < ids.Count; t++) {
                         var active = ActiveTrain(line.Id, ids[t]);
-                        frames.Add(new StationTrainFrame {
-                            Id = ServiceKey(line.Id, ids[t]), LineId = line.Id, TrackId = ids[t],
-                            Phase = active?.Phase ?? TrainPhase.None,
-                            PhaseSeconds = active?.T ?? 0,
-                            DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
-                        });
+                        frames.Add(ServiceFrame(line, ids[t], active));
                     }
                 }
             }
             return frames.ToArray();
+        }
+
+        /// <summary>One service's live state, with the stable identity a consumer keys on.</summary>
+        StationTrainFrame ServiceFrame(StationLineFact line, string trackId, TrainRun? active) {
+            return new StationTrainFrame {
+                Id = ServiceKey(line.Id, trackId), LineId = line.Id, TrackId = trackId,
+                ServiceSequence = active?.Sequence ?? 0,
+                DoorCount = services.DoorCountFor(line.Id, trackId),
+                Phase = active?.Phase ?? TrainPhase.None,
+                PhaseSeconds = active?.T ?? 0,
+                DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
+                Capacity = services.CapacityFor(line.Id, trackId),
+                Onboard = services.OnboardFor(line.Id, trackId),
+            };
         }
 
         // ---------------------------------------------------------------- trains
@@ -683,24 +939,23 @@ namespace Metro.Sim {
                 train.T += StationSimConstants.SimSecondsPerTick;
                 switch (train.Phase) {
                     case TrainPhase.Approach:
-                        if (train.T >= StationSimConstants.TrainApproachSeconds) { train.Phase = TrainPhase.Berth; train.T = 0; }
+                        if (train.T >= StationSimConstants.TrainApproachSeconds) Advance(ref train, TrainPhase.Berth);
                         break;
                     case TrainPhase.Berth:
-                        // Held at the mark, doors shut, before they cycle. Boarding is a
-                        // crowd behaviour and is not ported; the phase clock is.
-                        if (train.T >= StationSimConstants.TrainBerthHold) { train.Phase = TrainPhase.Opening; train.T = 0; }
+                        // Held at the mark, doors shut, before they cycle.
+                        if (train.T >= StationSimConstants.TrainBerthHold) Advance(ref train, TrainPhase.Opening);
                         break;
                     case TrainPhase.Opening:
-                        if (train.T >= StationSimConstants.TrainDoorTravel) { train.Phase = TrainPhase.Dwell; train.T = 0; }
+                        if (train.T >= StationSimConstants.TrainDoorTravel) Advance(ref train, TrainPhase.Dwell);
                         break;
                     case TrainPhase.Dwell:
-                        if (train.T >= StationSimConstants.TrainDwell) { train.Phase = TrainPhase.Closing; train.T = 0; }
+                        if (train.T >= StationSimConstants.TrainDwell) Advance(ref train, TrainPhase.Closing);
                         break;
                     case TrainPhase.Closing:
-                        if (train.T >= StationSimConstants.TrainDoorTravel) { train.Phase = TrainPhase.Hold; train.T = 0; }
+                        if (train.T >= StationSimConstants.TrainDoorTravel) Advance(ref train, TrainPhase.Hold);
                         break;
                     case TrainPhase.Hold:
-                        if (train.T >= StationSimConstants.TrainDepartHold) { train.Phase = TrainPhase.Depart; train.T = 0; }
+                        if (train.T >= StationSimConstants.TrainDepartHold) Advance(ref train, TrainPhase.Depart);
                         break;
                     case TrainPhase.Depart:
                         if (train.T >= StationSimConstants.TrainDepartSeconds) trains.RemoveAt(i);
@@ -713,12 +968,44 @@ namespace Metro.Sim {
             }
         }
 
+        /// <summary>
+        /// Move one consist to the head of a phase, reset its phase clock and record the
+        /// transition where it happens. The service layer reads the same frames the host
+        /// publishes, so a phase change is visible to crowd, doors and presentation on the
+        /// same tick in every one of them.
+        /// </summary>
+        void Advance(ref TrainRun train, TrainPhase next) {
+            var from = train.Phase;
+            train.Phase = next;
+            train.T = 0;
+            if (from == TrainPhase.Approach && next == TrainPhase.Berth) {
+                trainArrivals++;
+            }
+            Record(train, from, next, false);
+        }
+
+        void Record(TrainRun train, TrainPhase from, TrainPhase to, bool dispatch) {
+            if (!recordTransitions) return;
+            transitions.Add(new StationTrainTransition {
+                Tick = tick, ServiceId = ServiceKey(train.LineId, train.TrackId),
+                LineId = train.LineId, TrackId = train.TrackId,
+                ServiceSequence = train.Sequence, From = from, To = to,
+                SimTime = Clock.SimTime, Dispatch = dispatch,
+            });
+            if (transitions.Count > TransitionLimit) transitions.RemoveRange(0, transitions.Count - TransitionLimit);
+        }
+
         void MaybeDispatch(StationLineFact line, string trackId, SimPeriod period) {
             string key = ServiceKey(line.Id, trackId);
             if (HasActiveTrain(line.Id, trackId)) return;
             double next = nextDispatch.TryGetValue(key, out double held) ? held : Clock.SimTime;
             if (Clock.SimTime < next) return;
-            trains.Add(new TrainRun { LineId = line.Id, TrackId = trackId, Phase = TrainPhase.Approach, T = 0 });
+            var run = new TrainRun {
+                LineId = line.Id, TrackId = trackId, Phase = TrainPhase.Approach, T = 0,
+                Sequence = nextTrainSequence++,
+            };
+            trains.Add(run);
+            Record(run, TrainPhase.None, TrainPhase.Approach, true);
             nextDispatch[key] = Clock.SimTime + line.HeadwayFor(period);
         }
 
@@ -916,6 +1203,8 @@ namespace Metro.Sim {
                 Id = key,
                 LineId = line.Id,
                 TrackId = trackId,
+                ServiceSequence = active?.Sequence ?? 0,
+                DoorCount = services.DoorCountFor(line.Id, trackId),
                 Phase = active?.Phase ?? TrainPhase.None,
                 PhaseSeconds = active?.T ?? 0,
                 DoorFraction = active.HasValue ? DoorFractionOf(active.Value.Phase, active.Value.T) : 0,
@@ -1193,6 +1482,8 @@ namespace Metro.Sim {
             sb.Append(",\"phase\":");
             Str(sb, TrainPhaseText(t.Phase));
             sb.Append(",\"phaseSeconds\":"); Num(sb, t.PhaseSeconds);
+            sb.Append(",\"serviceSequence\":").Append(t.ServiceSequence);
+            sb.Append(",\"doorCount\":").Append(t.DoorCount);
             sb.Append(",\"doorFraction\":"); Num(sb, t.DoorFraction);
             sb.Append(",\"nextDispatchSimTime\":"); Num(sb, t.NextDispatchSimTime);
             sb.Append(",\"capacity\":").Append(t.Capacity);

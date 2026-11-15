@@ -538,8 +538,15 @@ namespace Metro.Build {
         }
 
         /// <summary>Port of <c>isCeilingHung</c> for the saved module types.</summary>
-        public static bool IsCeilingHung(StationModuleRecord m) {
-            switch (m.Type) {
+        public static bool IsCeilingHung(StationModuleRecord m) => IsCeilingHung(m.Type, m.Config);
+
+        /// <summary>The same rule for a bare <see cref="ModuleFacts"/> (RCA 15 §1).</summary>
+        public static bool IsCeilingHung(ModuleFacts m) => m != null && IsCeilingHung(m.Type, m.Config);
+
+        /// <summary>The one <c>isCeilingHung</c> switch: type and authored config is all it reads.</summary>
+        public static bool IsCeilingHung(string type, ModuleConfig config) {
+            if (config == null) config = ModuleConfig.Empty;
+            switch (type) {
                 case "tv":
                 case "clock":
                 case "clock-digital":
@@ -547,10 +554,10 @@ namespace Metro.Build {
                 case "light-circular":
                 case "light-rectangular":
                 case "vent": return true;
-                case "cctv": return m.Config.Text("variant") != "post";
-                case "monitor": return m.Config.Text("mount") != "wall";
-                case "sign": return m.Config.Text("mount") != "wall";
-                case "hanger": return m.Config.Text("mount") == "roof";
+                case "cctv": return config.Text("variant") != "post";
+                case "monitor": return config.Text("mount") != "wall";
+                case "sign": return config.Text("mount") != "wall";
+                case "hanger": return config.Text("mount") == "roof";
                 default: return false;
             }
         }
@@ -565,9 +572,10 @@ namespace Metro.Build {
         }
 
         /// <summary>Port of <c>glassStandsOnFloor</c>: a panel that stands on the floor edge like a doorway.</summary>
-        public static bool GlassStandsOnFloor(StationModuleRecord m) {
-            if (m.Config.Has("curtainHeight")) return true;
-            var variant = m.Config.Text("variant");
+        public static bool GlassStandsOnFloor(StationModuleRecord m) => GlassStandsOnFloor(m.Config);
+        public static bool GlassStandsOnFloor(ModuleConfig config) {
+            if (config.Has("curtainHeight")) return true;
+            var variant = config.Text("variant");
             switch (variant) {
                 case "1x4":
                 case "2x4":
@@ -663,9 +671,10 @@ namespace Metro.Build {
         }
 
         /// <summary>Port of <c>glassModuleSpec</c> (width/height only).</summary>
-        public static GlassSpecValue GlassSpec(StationModuleRecord m) {
+        public static GlassSpecValue GlassSpec(StationModuleRecord m) => GlassSpec(m.Config);
+        public static GlassSpecValue GlassSpec(ModuleConfig config) {
             int width = 1, height = 1;
-            switch (m.Config.Text("variant")) {
+            switch (config.Text("variant")) {
                 case "1x2": height = 2; break;
                 case "2x1": width = 2; break;
                 case "2x2": width = 2; height = 2; break;
@@ -676,7 +685,7 @@ namespace Metro.Build {
                 case "3x4": width = 3; height = 4; break;
                 case "4x4": width = 4; height = 4; break;
             }
-            if (m.Config.Has("curtainHeight")) height = (int)Math.Round(m.Config.Number("curtainHeight", height));
+            if (config.Has("curtainHeight")) height = (int)Math.Round(config.Number("curtainHeight", height));
             return new GlassSpecValue(width, height);
         }
 
@@ -858,8 +867,23 @@ namespace Metro.Build {
                 }
                 case "psd-end": {
                     if (m.Config.Text("variant") != "cover") {
-                        unsupported = "PSD end cap geometry (sim/psdEnds.ts) is not ported by packet A";
-                        return false;
+                        // The end panel's cap: the tile-bounded strip beside the screen line
+                        // (`sim/placement.ts` flatEnvelope + sim/psdEnds.ts psdEndOffset/
+                        // psdEndSpan). Its `cfg.offset` is the corner's length trim, carried
+                        // only when `cfg.corner` names the screen it was snapped to.
+                        double h = m.Config.Text("psd") == "half" ? PsdHalfHeight : PsdFullHeight;
+                        double endOffsetX = m.Config.Has("corner") ? m.OffsetX : 0;
+                        double endOffsetY = m.OffsetY;
+                        double spanLo = Math.Max(-0.5, -0.5 - endOffsetX);
+                        double spanHi = Math.Min(0.5, 0.5 - endOffsetX);
+                        double capLo = Math.Max(-0.5, -0.48 + endOffsetY);
+                        double capHi = Math.Min(0.5, -0.20 + endOffsetY);
+                        RotateLocal(m.Rotation, spanLo + endOffsetX, capLo, out var cax, out var cay);
+                        RotateLocal(m.Rotation, spanHi + endOffsetX, capHi, out var cbx, out var cby);
+                        box = new StationBox(
+                            m.X + 0.5 + Math.Min(cax, cbx), m.Y + 0.5 + Math.Min(cay, cby), z0,
+                            m.X + 0.5 + Math.Max(cax, cbx), m.Y + 0.5 + Math.Max(cay, cby), z0 + h);
+                        return true;
                     }
                     var side = m.Config.Text("side") == "right" ? 1 : -1;
                     double width = m.Config.Number("width", 1);

@@ -27,15 +27,36 @@ namespace Metro.Persistence {
                 X = Int(module["x"]),
                 Y = Int(module["y"]),
                 Z = Int(module["z"]),
+                ExactZ = OptionalDouble(module["z"], 0),
                 Rotation = module["rot"]?.Type == JTokenType.Null ? 0 : Int(module["rot"]),
                 Width = OptionalInt(module["w"], 1),
-                Depth = OptionalInt(module["d"], 1),
+                Depth = DepthOf(module, type),
                 CeilingAnchored = module["ceilingAnchored"]?.Type == JTokenType.Boolean && (bool)module["ceilingAnchored"],
                 From = ReadPoint(module["from"]),
                 To = ReadPoint(module["to"]),
                 Config = ReadConfig(module["cfg"] as JObject),
             };
         }
+
+        /// <summary>
+        /// The authored plan depth. A room family (`booth`, `shop`, `retail`) is saved as
+        /// <c>w × h</c> — the source's `RoomModel`/`BoothModel` read both — so `d` is not
+        /// its depth and defaulting it to 1 lost the authored rectangle (RCA 14 §3.4).
+        /// Other families keep the `d` semantics (and its 1 m fallback).
+        /// </summary>
+        static int DepthOf(JObject module, string type) {
+            if (IsRoomType(type)) {
+                var height = OptionalInt(module["h"], 0);
+                if (height > 0) return height;
+            }
+            return OptionalInt(module["d"], 1);
+        }
+
+        static bool IsRoomType(string type) =>
+            string.Equals(type, "booth", StringComparison.Ordinal) ||
+            string.Equals(type, "shop", StringComparison.Ordinal) ||
+            string.Equals(type, "retail", StringComparison.Ordinal) ||
+            string.Equals(type, "room", StringComparison.Ordinal);
 
         static ModuleFacts.Point ReadPoint(JToken token) {
             if (token is not JObject point) return default;
@@ -75,5 +96,7 @@ namespace Metro.Persistence {
         static int Int(JToken token) => token == null ? 0 : Convert.ToInt32(((JValue)token).Value, CultureInfo.InvariantCulture);
         static int OptionalInt(JToken token, int fallback) =>
             token == null || token.Type == JTokenType.Null ? fallback : Int(token);
+        static double OptionalDouble(JToken token, double fallback) =>
+            token == null || token.Type == JTokenType.Null ? fallback : Convert.ToDouble(((JValue)token).Value, CultureInfo.InvariantCulture);
     }
 }
