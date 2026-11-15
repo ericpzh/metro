@@ -158,6 +158,161 @@ public class StationRenderTests {
         }
     }
 
+    /* ---------------------------------------------------------- the Hide UI skybox */
+
+    [Test]
+    public void SkyIntensityFollowsSimulationTimeOfDayAndRepeatsDaily() {
+        const double h = 3600.0;
+        const double day = StationSkySystem.SimDaySeconds;
+
+        Assert.AreEqual(StationSkySystem.MinSkyIntensity, StationSkySystem.SkyIntensity(2 * h), 1e-6f);
+        Assert.AreEqual(StationSkySystem.MinSkyIntensity, StationSkySystem.SkyIntensity(23 * h), 1e-6f);
+
+        Assert.AreEqual(StationSkySystem.MinSkyIntensity, StationSkySystem.SkyIntensity(5 * h), 1e-6f);
+        Assert.Less(StationSkySystem.SkyIntensity(5 * h), StationSkySystem.SkyIntensity(6 * h));
+        Assert.Less(StationSkySystem.SkyIntensity(6 * h), StationSkySystem.SkyIntensity(7 * h));
+        Assert.AreEqual(StationSkySystem.MaxSkyIntensity, StationSkySystem.SkyIntensity(7 * h), 1e-6f);
+        Assert.AreEqual(StationSkySystem.MaxSkyIntensity, StationSkySystem.SkyIntensity(12 * h), 1e-6f);
+        Assert.AreEqual(StationSkySystem.MaxSkyIntensity, StationSkySystem.SkyIntensity(17 * h), 1e-6f);
+        Assert.Greater(StationSkySystem.SkyIntensity(17 * h), StationSkySystem.SkyIntensity(18 * h));
+        Assert.Greater(StationSkySystem.SkyIntensity(18 * h), StationSkySystem.SkyIntensity(19 * h));
+        Assert.AreEqual(StationSkySystem.MinSkyIntensity, StationSkySystem.SkyIntensity(19 * h), 1e-6f);
+
+        // Repeats with the simulation's day, across multi-day and negative seeks, with no midnight jump.
+        Assert.AreEqual(StationSkySystem.SkyIntensity(6.5 * h), StationSkySystem.SkyIntensity(6.5 * h + day), 1e-6f);
+        Assert.AreEqual(StationSkySystem.SkyIntensity(18 * h), StationSkySystem.SkyIntensity(18 * h + 8 * day), 1e-6f);
+        Assert.AreEqual(StationSkySystem.SkyIntensity(12 * h), StationSkySystem.SkyIntensity(12 * h - 3 * day), 1e-6f);
+        Assert.AreEqual(StationSkySystem.SkyIntensity(day - 1), StationSkySystem.SkyIntensity(day), 1e-6f);
+    }
+
+    [Test]
+    public void HideUiSwitchesBetweenVoidClearAndCloudSkyboxWithMatchingHorizonFog() {
+        var camGo = new GameObject("sky test camera", typeof(Camera));
+        var camera = camGo.GetComponent<Camera>();
+        var rigGo = new GameObject("sky test rig");
+        var rig = rigGo.AddComponent<StationViewRig>();
+        // Odd dimensions place pixel (32, 32) at exact optical-axis NDC (0, 0).
+        var rt = new RenderTexture(65, 65, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+        var readback = new Texture2D(65, 65, TextureFormat.RGBA32, false);
+        var saved = Snapshot();
+        try {
+            StationRenderRig.Apply(camera);
+            rig.SetSimTime(12 * 3600.0);
+            rig.Configure(camera, new Bounds(Vector3.zero, new Vector3(40f, 40f, 15f)),
+                StationLevelGrid.FromDocument(0, 5, new[] { -10, -5, 0 }), -10);
+
+            // Normal editor mode: solid void clear and void linear fog.
+            Assert.AreEqual(CameraClearFlags.SolidColor, camera.clearFlags);
+            Assert.AreEqual(StationRenderRig.VoidColor.r, camera.backgroundColor.r, 1e-4f);
+            Assert.AreEqual(StationRenderRig.VoidColor.linear.g, RenderSettings.fogColor.g, 1e-4f);
+            Assert.IsFalse(rig.Sky.Shown);
+
+            // Enable Hide UI at noon (intensity = 1.0).
+            Assert.IsTrue(rig.Execute("{\"type\":\"view.set\",\"payload\":{\"key\":\"hideUi\",\"value\":true}}", out _));
+            Assert.IsTrue(rig.Sky.Shown);
+            Assert.AreEqual(1f, rig.Sky.AppliedIntensity, 1e-5f);
+            Assert.AreEqual(CameraClearFlags.Skybox, camera.clearFlags);
+            var skybox = camera.GetComponent<Skybox>();
+            Assert.IsNotNull(skybox);
+            Assert.IsTrue(skybox.enabled);
+            Assert.IsNotNull(skybox.material);
+            Assert.AreEqual(StationSkySystem.ShaderName, skybox.material.shader.name);
+            Assert.IsTrue(skybox.material.shader.isSupported);
+            Assert.AreEqual(0f, RenderSettings.reflectionIntensity, 1e-4f, "skybox must never leak reflections");
+
+            // Linear fog colour at noon equals HorizonLinear * 1.0.
+            var fogLinearNoon = QualitySettings.activeColorSpace == ColorSpace.Linear
+                ? RenderSettings.fogColor.linear
+                : RenderSettings.fogColor;
+            Assert.AreEqual(StationSkySystem.HorizonLinear.r, fogLinearNoon.r, 2e-3f);
+            Assert.AreEqual(StationSkySystem.HorizonLinear.g, fogLinearNoon.g, 2e-3f);
+            Assert.AreEqual(StationSkySystem.HorizonLinear.b, fogLinearNoon.b, 2e-3f);
+
+            // Render actual GPU frames looking at zenith, nadir, and horizon (perspective + orthographic).
+            camera.cullingMask = 0;
+            var zenithNoon = RenderCenterPixel(camera, rt, readback, Vector3.up, Vector3.forward, orthographic: false);
+            AssertColor32Near(StationSkySystem.ZenithSrgb, zenithNoon, 3, "noon zenith skybox");
+
+            var nadirNoon = RenderCenterPixel(camera, rt, readback, Vector3.down, Vector3.forward, orthographic: false);
+            AssertColor32Near(StationSkySystem.BelowSrgb, nadirNoon, 3, "noon nadir skybox");
+
+            var horizonNoon = RenderCenterPixel(camera, rt, readback, Vector3.right, Vector3.up, orthographic: false);
+            AssertColor32Near(StationSkySystem.HorizonSrgb, horizonNoon, 4, "noon horizon skybox");
+
+            var orthoHorizon = RenderCenterPixel(camera, rt, readback, Vector3.forward, Vector3.up, orthographic: true);
+            AssertColor32Near(StationSkySystem.HorizonSrgb, orthoHorizon, 4, "orthographic horizon skybox");
+
+            // Verify upper-hemisphere cloud field & GPU cubemap face alignment across azimuths.
+            int minUpperRed = 255;
+            int maxUpperRed = 0;
+            for (int i = 0; i < 24; i++) {
+                float angle = (Mathf.PI * 2f * i) / 24f;
+                var upperDir = new Vector3(Mathf.Cos(angle) * 0.92f, 0.39f, Mathf.Sin(angle) * 0.92f).normalized;
+                var expectedUpper = StationSkySystem.EvaluateWorldDirectionSrgb(upperDir);
+                var renderedUpper = RenderCenterPixel(camera, rt, readback, upperDir, Vector3.up, orthographic: false);
+                AssertColor32Near(expectedUpper, renderedUpper, 4, "upper hemisphere azimuth " + i);
+                if (renderedUpper.r < minUpperRed) minUpperRed = renderedUpper.r;
+                if (renderedUpper.r > maxUpperRed) maxUpperRed = renderedUpper.r;
+            }
+            Assert.Greater(maxUpperRed - minUpperRed, 25, "upper hemisphere must contain procedural white clouds over blue sky");
+
+            // Seek to night (02:00 -> intensity = 0.015): sky and horizon fog dim together.
+            rig.SetSimTime(2 * 3600.0);
+            Assert.AreEqual(StationSkySystem.MinSkyIntensity, rig.Sky.AppliedIntensity, 1e-5f);
+            var fogLinearNight = QualitySettings.activeColorSpace == ColorSpace.Linear
+                ? RenderSettings.fogColor.linear
+                : RenderSettings.fogColor;
+            Assert.AreEqual(StationSkySystem.HorizonLinear.g * StationSkySystem.MinSkyIntensity, fogLinearNight.g, 2e-3f);
+            var horizonNight = RenderCenterPixel(camera, rt, readback, Vector3.right, Vector3.up, orthographic: false);
+            Assert.Less(horizonNight.g, 45, "night skybox must dim to 0.015 linear intensity");
+
+            // Turning Hide UI off restores the solid void background and void fog.
+            Assert.IsTrue(rig.Execute("{\"type\":\"view.set\",\"payload\":{\"key\":\"hideUi\",\"value\":false}}", out _));
+            Assert.IsFalse(rig.Sky.Shown);
+            Assert.AreEqual(CameraClearFlags.SolidColor, camera.clearFlags);
+            Assert.IsFalse(skybox.enabled);
+            Assert.AreEqual(StationRenderRig.VoidColor.r, camera.backgroundColor.r, 1e-4f);
+            Assert.AreEqual(StationRenderRig.VoidColor.linear.g, RenderSettings.fogColor.g, 1e-4f);
+        } finally {
+            Restore(saved);
+            rt.Release();
+            Object.DestroyImmediate(rt);
+            Object.DestroyImmediate(readback);
+            Object.DestroyImmediate(rigGo);
+            Object.DestroyImmediate(camGo);
+            foreach (var light in new[] { Find(StationRenderRig.KeyLightName), Find(StationRenderRig.FillLightName) }) {
+                if (light) Object.DestroyImmediate(light.gameObject);
+            }
+        }
+    }
+
+    static Color32 RenderCenterPixel(Camera camera, RenderTexture rt, Texture2D readback,
+        Vector3 forward, Vector3 up, bool orthographic) {
+        camera.orthographic = orthographic;
+        camera.fieldOfView = 30f;
+        camera.orthographicSize = 10f;
+        camera.transform.SetPositionAndRotation(Vector3.zero, Quaternion.LookRotation(forward, up));
+        var prevTarget = camera.targetTexture;
+        var prevActive = RenderTexture.active;
+        try {
+            camera.targetTexture = rt;
+            camera.Render();
+            RenderTexture.active = rt;
+            readback.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0, false);
+            readback.Apply(false, false);
+            return readback.GetPixel(rt.width / 2, rt.height / 2);
+        } finally {
+            camera.targetTexture = prevTarget;
+            RenderTexture.active = prevActive;
+        }
+    }
+
+    static void AssertColor32Near(Color32 expected, Color32 actual, int tolerance, string label) {
+        Assert.LessOrEqual(Mathf.Abs(expected.r - actual.r), tolerance, label + " R (" + actual + " vs " + expected + ")");
+        Assert.LessOrEqual(Mathf.Abs(expected.g - actual.g), tolerance, label + " G (" + actual + " vs " + expected + ")");
+        Assert.LessOrEqual(Mathf.Abs(expected.b - actual.b), tolerance, label + " B (" + actual + " vs " + expected + ")");
+    }
+
     /* ----------------------------------------------------------------- utilities */
 
     static Light Find(string name) {

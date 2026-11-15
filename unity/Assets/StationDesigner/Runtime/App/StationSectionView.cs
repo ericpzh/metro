@@ -510,6 +510,7 @@ namespace Metro.App {
         public StationCameraController CameraController { get; private set; }
         public StationVisibilityRegistry Visibility { get; private set; }
         public StationViewCommandApplier Commands { get; private set; }
+        public StationSkySystem Sky { get; private set; }
         public StationLevelGrid Grid { get; private set; }
         public Bounds StationBounds { get; private set; }
         public StationSectionPlane Section => Commands?.Section ?? StationSectionPlane.Default;
@@ -519,10 +520,34 @@ namespace Metro.App {
         bool configured;
         bool dirty = true;
         Func<bool, bool> pendingExplodedHandler;
+        Func<double> simTimeSource;
+        double manualSimTime = StationSkySystem.DefaultSimTime;
 
         public void SetExplodedHandler(Func<bool, bool> handler) {
             pendingExplodedHandler = handler;
             if (Commands != null) Commands.ExplodedHandler = handler;
+        }
+
+        public void SetSimTimeSource(Func<double> source) {
+            simTimeSource = source;
+            SyncSky();
+        }
+
+        public void SetSimTime(double simTime) {
+            manualSimTime = simTime;
+            SyncSky();
+        }
+
+        public void SyncSky(bool force = false) {
+            if (!configured || Sky == null || Visibility == null) return;
+            var exploded = StationViewFeature.ActiveExploded;
+            if (exploded != null && exploded.IsOpen) return;
+            var cam = Commands?.ViewCamera != null ? Commands.ViewCamera : viewCamera;
+            if (cam == null) return;
+            double simTime = simTimeSource != null ? simTimeSource() : manualSimTime;
+            Sky.SetSimTime(simTime);
+            bool hideUi = Visibility.State.HideUi;
+            Sky.Update(cam, hideUi, force: force && hideUi);
         }
 
         public void Configure(Camera camera, Bounds documentBounds, StationLevelGrid grid, int activeLevel,
@@ -537,6 +562,7 @@ namespace Metro.App {
                 CameraController = new StationCameraController();
                 Visibility = new StationVisibilityRegistry(FindStationShader());
                 Commands = new StationViewCommandApplier(CameraController, Visibility, grid);
+                Sky = new StationSkySystem();
                 if (pendingExplodedHandler != null) Commands.ExplodedHandler = pendingExplodedHandler;
                 Commands.Changed += MarkDirty;
                 CameraController.Changed += MarkDirty;
@@ -552,6 +578,7 @@ namespace Metro.App {
             if (viewCamera != null) Commands.Camera.SetAspect(viewCamera.aspect);
             Commands.SetStation(documentBounds, grid, activeLevel, sectionPlanCentre);
             Commands.ApplyCamera();
+            SyncSky();
             MarkDirty();
         }
 
@@ -561,6 +588,7 @@ namespace Metro.App {
             if (Commands == null) { Configure(viewCamera, documentBounds, grid, activeLevel); return; }
             Commands.SetStation(documentBounds, grid, activeLevel);
             Commands.ApplyCamera();
+            SyncSky();
             MarkDirty();
         }
 
@@ -585,6 +613,7 @@ namespace Metro.App {
             Visibility.State.StoreyHeight = grid.StoreyHeight;
             CameraController.SetBounds(documentBounds);
             Visibility.Apply();
+            SyncSky();
             MarkDirty();
         }
 
@@ -619,6 +648,7 @@ namespace Metro.App {
                 RefreshSection();
             }
             Commands.ApplyCamera();
+            SyncSky();
             MarkDirty();
             code = null;
             return true;
@@ -635,6 +665,7 @@ namespace Metro.App {
                 }
                 Commands.Tick(deltaSeconds);
                 Commands.ApplyCamera();
+                SyncSky();
             }
             // The lattice is the active storey's, not the world's: it follows every Q/E step
             // without a rebuild (the source moves its grid group the same way).
@@ -736,6 +767,7 @@ namespace Metro.App {
         void OnDestroy() {
             if (Commands != null) Commands.Changed -= MarkDirty;
             if (CameraController != null) CameraController.Changed -= MarkDirty;
+            Sky?.Dispose();
             Visibility?.Dispose();
         }
 
@@ -782,6 +814,9 @@ namespace Metro.App {
             explodedView = stationHost.GetComponent<StationExplodedView>() ?? stationHost.gameObject.AddComponent<StationExplodedView>();
             explodedView.Bind(stationHost, rig);
             rig.SetExplodedHandler(explodedView.SetOpenFromLegacyCommand);
+            rig.SetSimTimeSource(() => stationHost != null && stationHost.Simulation != null
+                ? stationHost.Simulation.SimTimeSeconds
+                : StationSkySystem.DefaultSimTime);
             stationHost.RegisterStateContributor(new StationCameraStateContributor(rig));
             stationHost.RegisterStateContributor(new StationViewStateContributor(rig));
             stationHost.RegisterStateContributor(new StationRenderStateContributor());
@@ -1106,6 +1141,15 @@ namespace Metro.App {
                 ["start"] = RenderSettings.fogStartDistance,
                 ["end"] = RenderSettings.fogEndDistance,
             };
+            var activeRig = StationViewFeature.Active;
+            payload["sky"] = activeRig != null && activeRig.Sky != null
+                ? activeRig.Sky.SnapshotJson(activeRig.viewCamera)
+                : new JObject {
+                    ["shown"] = false,
+                    ["intensity"] = Math.Round(StationSkySystem.SkyIntensity(StationSkySystem.DefaultSimTime), 6),
+                    ["clearFlags"] = CameraClearFlags.SolidColor.ToString(),
+                    ["shaderSupported"] = StationSkySystem.FindShader() != null,
+                };
             var lights = new JArray();
             foreach (var light in UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Exclude)) {
                 if (light.type != LightType.Directional) continue;

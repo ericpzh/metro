@@ -942,5 +942,154 @@ namespace Metro.Editor {
                 return ExitCode.Failed;
             }
         }
+
+        [CliGroupCommand("metro",
+            "Verify Hide UI ('U' shortcut / view.set hideUi) switches the live Editor viewport between the solid void clear and the procedural cloud skybox + matching horizon fog.",
+            Effect = CommandEffect.ReadOnly, Tags = new[] { "tests" })]
+        internal static async Task<ExitCode> EditorUiSkyCheck(
+            CommandContext cmd,
+            [CliArg("out-dir", "Output folder under .preview/unity/ for GameView PNGs.")] string outDir = ".preview/unity/editor/sky-overlay") {
+            try {
+                if (!EditorApplication.isPlaying) {
+                    cmd.Log.Error("Editor must be in Play Mode to run editor_ui_sky_check.");
+                    return ExitCode.Failed;
+                }
+                FocusGameViewTab();
+                Application.runInBackground = true;
+
+                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                var presenter = StationDesktopUiPresenter.Active;
+                var rig = StationViewFeature.Active;
+                if (host == null || !host.IsLoaded || host.stationCamera == null || presenter == null || !presenter.IsWebReady || rig == null) {
+                    cmd.Log.Error("StationGameHost, StationDesktopUiPresenter, or StationViewRig is not ready.");
+                    return ExitCode.Failed;
+                }
+
+                string repoRoot = RepoRoot();
+                string fullOutDir = Path.IsPathRooted(outDir)
+                    ? Path.GetFullPath(outDir)
+                    : Path.GetFullPath(Path.Combine(repoRoot, outDir));
+                Directory.CreateDirectory(fullOutDir);
+
+                int revBefore = host.CurrentRevision;
+                string sessionId = !string.IsNullOrEmpty(host.ClientSessionId) ? host.ClientSessionId : "editor-sky-check";
+
+                void SendHost(string type, JObject payload) {
+                    host.BrowserCommand(new JObject {
+                        ["schemaVersion"] = 2,
+                        ["id"] = "overlay-sky-" + Guid.NewGuid().ToString("N"),
+                        ["sessionId"] = sessionId,
+                        ["type"] = type,
+                        ["payload"] = payload,
+                    }.ToString(Formatting.None));
+                }
+
+                async Task<string> CaptureView(string name) {
+                    string png = Path.Combine(fullOutDir, name);
+                    if (File.Exists(png)) File.Delete(png);
+                    ScreenCapture.CaptureScreenshot(png);
+                    var swCap = Stopwatch.StartNew();
+                    while (swCap.ElapsedMilliseconds < 5000 && !File.Exists(png)) {
+                        await Task.Yield();
+                    }
+                    return png;
+                }
+
+                // Frame street level looking across the station plaza, trees, road, and upper sky.
+                var boundsCentre = rig.CameraController.State.Bounds.center;
+                rig.CameraController.State.Projection = StationProjection.Perspective;
+                rig.CameraController.State.Fov = 45f;
+                rig.CameraController.State.Target = new Vector3(boundsCentre.x + 8f, boundsCentre.y + 6f, 2.5f);
+                rig.CameraController.State.Position = new Vector3(boundsCentre.x - 24f, boundsCentre.y - 30f, 11.5f);
+                rig.Commands.ApplyCamera();
+                SendHost("sim.seek", new JObject { ["simTimeSeconds"] = 6 * 3600 + 1800 });
+                await Task.Delay(350);
+
+                bool initialSkyShown = rig.Sky.Shown;
+                var initialClearFlags = host.stationCamera.clearFlags;
+                string normalPng = await CaptureView("hide-ui-off-0630.png");
+
+                // Press 'U' via WebView2 keyboard forwarding to enter Hide UI mode.
+                int framesBeforeU = presenter.PresentedFrameCount;
+                presenter.SendSyntheticKey("down", 0x55, "u", "KeyU", 0);
+                await Task.Delay(50);
+                presenter.SendSyntheticKey("up", 0x55, "u", "KeyU", 0);
+
+                var waitOnSw = Stopwatch.StartNew();
+                while (waitOnSw.ElapsedMilliseconds < 5000 &&
+                       !(rig.Sky.Shown && host.stationCamera.clearFlags == CameraClearFlags.Skybox && presenter.PresentedFrameCount >= framesBeforeU + 2)) {
+                    await Task.Yield();
+                }
+                await Task.Delay(300);
+
+                bool skyShownOnU = rig.Sky.Shown;
+                var skyClearFlags = host.stationCamera.clearFlags;
+                float dawnIntensity = rig.Sky.AppliedIntensity;
+                string dawnSkyPng = await CaptureView("hide-ui-on-0630.png");
+
+                // Seek to 12:00 noon for full daylight sky intensity (1.0).
+                SendHost("sim.seek", new JObject { ["simTimeSeconds"] = 12 * 3600 });
+                await Task.Delay(300);
+                float noonIntensity = rig.Sky.AppliedIntensity;
+                string noonSkyPng = await CaptureView("hide-ui-on-1200.png");
+
+                // Press 'U' again to exit Hide UI mode and restore void background + fog.
+                int framesBeforeRestore = presenter.PresentedFrameCount;
+                presenter.SendSyntheticKey("down", 0x55, "u", "KeyU", 0);
+                await Task.Delay(50);
+                presenter.SendSyntheticKey("up", 0x55, "u", "KeyU", 0);
+
+                var waitOffSw = Stopwatch.StartNew();
+                while (waitOffSw.ElapsedMilliseconds < 5000 &&
+                       !(!rig.Sky.Shown && host.stationCamera.clearFlags == CameraClearFlags.SolidColor && presenter.PresentedFrameCount >= framesBeforeRestore + 2)) {
+                    await Task.Yield();
+                }
+                SendHost("sim.seek", new JObject { ["simTimeSeconds"] = 6 * 3600 + 1800 });
+                await Task.Delay(300);
+
+                bool skyHiddenOnSecondU = !rig.Sky.Shown;
+                var restoredClearFlags = host.stationCamera.clearFlags;
+                string restoredPng = await CaptureView("hide-ui-restored-0630.png");
+
+                rig.CameraController.Home();
+                rig.CameraController.ZoomBy(2f / 3f);
+                rig.Commands.ApplyCamera();
+
+                bool revisionUnchanged = host.CurrentRevision == revBefore;
+                bool ok = !initialSkyShown &&
+                          initialClearFlags == CameraClearFlags.SolidColor &&
+                          skyShownOnU &&
+                          skyClearFlags == CameraClearFlags.Skybox &&
+                          Mathf.Abs(noonIntensity - 1f) < 1e-4f &&
+                          dawnIntensity > 0.7f && dawnIntensity < 0.95f &&
+                          skyHiddenOnSecondU &&
+                          restoredClearFlags == CameraClearFlags.SolidColor &&
+                          revisionUnchanged &&
+                          File.Exists(normalPng) &&
+                          File.Exists(dawnSkyPng) &&
+                          File.Exists(noonSkyPng) &&
+                          File.Exists(restoredPng);
+
+                cmd.Result.Write(new JObject {
+                    ["ok"] = ok,
+                    ["initialClearFlags"] = initialClearFlags.ToString(),
+                    ["skyShownOnU"] = skyShownOnU,
+                    ["skyClearFlags"] = skyClearFlags.ToString(),
+                    ["dawnIntensity"] = Math.Round(dawnIntensity, 6),
+                    ["noonIntensity"] = Math.Round(noonIntensity, 6),
+                    ["skyHiddenOnSecondU"] = skyHiddenOnSecondU,
+                    ["restoredClearFlags"] = restoredClearFlags.ToString(),
+                    ["revisionUnchanged"] = revisionUnchanged,
+                    ["normalPng"] = normalPng,
+                    ["dawnSkyPng"] = dawnSkyPng,
+                    ["noonSkyPng"] = noonSkyPng,
+                    ["restoredPng"] = restoredPng,
+                });
+                return ok ? ExitCode.Success : ExitCode.Failed;
+            } catch (Exception ex) {
+                cmd.Log.Error("editor_ui_sky_check failed: " + ex);
+                return ExitCode.Failed;
+            }
+        }
     }
 }

@@ -372,6 +372,10 @@ async function runViewToolsCase() {
     await poll(viewExpr(key) + ' === ' + JSON.stringify(value), 'view.' + key + ' baseline', Math.min(timeoutMs, 15000)).catch(() => {})
   }
   await sleep(1000)
+  const skyWhenHidden = await page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).render ?? {}).sky ?? null)()')
+  if (!skyWhenHidden || skyWhenHidden.shown !== true || skyWhenHidden.clearFlags !== 'Skybox') {
+    problems.push('hideUi=true did not activate the skybox (' + JSON.stringify(skyWhenHidden) + ')')
+  }
   captured.allHidden = await capture()
   for (const key of ['ground', 'roof', 'ceiling', 'walls', 'hideUi']) {
     const before = await capture()
@@ -386,6 +390,10 @@ async function runViewToolsCase() {
     const changed = await visualDiff(before, after).catch(() => 0)
     visual[key] = +changed.toFixed(4)
     if (minimums[key] !== undefined && changed < minimums[key]) problems.push('view.' + key + ' changed only ' + (changed * 100).toFixed(2) + '% of the canvas')
+  }
+  const skyWhenShown = await page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).render ?? {}).sky ?? null)()')
+  if (!skyWhenShown || skyWhenShown.shown !== false || skyWhenShown.clearFlags !== 'SolidColor') {
+    problems.push('hideUi=false did not restore solid void clear (' + JSON.stringify(skyWhenShown) + ')')
   }
   captured.allShown = await capture()
   visual.combined = +(await visualDiff(captured.allHidden, captured.allShown).catch(() => 0)).toFixed(4)

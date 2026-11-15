@@ -263,7 +263,10 @@ namespace Metro.App {
         public bool ApplySimCommand(string type, JObject payload, out string rejectCode) {
             if (Simulation is IStationSimulationCommands commands) {
                 bool accepted = commands.ApplySimCommand(type, payload, out rejectCode);
-                if (accepted) stateTimer = Mathf.Max(stateTimer, stateIntervalSeconds);
+                if (accepted) {
+                    StationViewFeature.Active?.SyncSky();
+                    stateTimer = Mathf.Max(stateTimer, stateIntervalSeconds);
+                }
                 return accepted;
             }
             rejectCode = "no-session";

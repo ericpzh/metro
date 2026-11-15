@@ -772,5 +772,64 @@ namespace Metro.PlayModeTests {
             Assert.IsFalse(consistView.Visible, "Out-of-service consist must retire cleanly");
             Assert.AreEqual(1, builder.CountActiveLiftCabins(liftId), "Terminal landing still assigns lift cabin to exactly one slice");
         }
+
+        [UnityTest]
+        public IEnumerator HideUiSkyboxPreservedAcrossStandaloneExplodedViewerLifecycle() {
+            var opened = host.OpenDocument(BuildTwoFloorSave(), "file");
+            Assert.IsTrue(opened.Accepted, opened.ToString());
+            yield return null;
+            StationRenderRig.Apply(editorCamera, "blueprint");
+
+            // Seek to noon and enable Hide UI: editor camera uses Skybox + horizon fog.
+            var seekNoon = SendCommand("sim.seek", new JObject { ["simTimeSeconds"] = 12 * 3600 });
+            Assert.AreEqual("ack", (string)seekNoon["kind"]);
+            var hideAck = SendCommand("view.set", new JObject { ["key"] = "hideUi", ["value"] = true });
+            Assert.IsNotNull(hideAck);
+            Assert.AreEqual("ack", (string)hideAck["kind"]);
+            Assert.AreEqual(CameraClearFlags.Skybox, editorCamera.clearFlags);
+            Assert.IsTrue(RenderSettings.fog);
+
+            var stateBefore = host.BuildStatePayload();
+            Assert.AreEqual(true, (bool?)stateBefore["render"]?["sky"]?["shown"]);
+            Assert.AreEqual(1.0, (double)stateBefore["render"]["sky"]["intensity"], 1e-4);
+
+            // Open standalone exploded viewer: viewer camera stays SolidColor with fog off.
+            var openAck = SendCommand("exploded.open", new JObject {
+                ["viewportWidth"] = 1280,
+                ["viewportHeight"] = 720,
+                ["theme"] = "blueprint",
+            });
+            Assert.IsNotNull(openAck);
+            Assert.AreEqual("ack", (string)openAck["kind"]);
+            explodedView.CompleteAllPropsNow();
+            yield return null;
+
+            Assert.IsTrue(explodedView.IsOpen);
+            Assert.IsFalse(editorCamera.enabled);
+            Assert.AreEqual(CameraClearFlags.SolidColor, explodedView.ViewerCamera.clearFlags);
+            Assert.IsFalse(RenderSettings.fog, "Exploded viewer disables fog while open");
+
+            // Seek simulation to night (02:00) while exploded viewer owns presentation, and let Update run.
+            var seekNight = SendCommand("sim.seek", new JObject { ["simTimeSeconds"] = 2 * 3600 });
+            Assert.AreEqual("ack", (string)seekNight["kind"]);
+            yield return null;
+            Assert.IsFalse(RenderSettings.fog, "Frame ticks while exploded viewer is open must not re-enable fog");
+
+            // Close standalone exploded viewer: editor camera skybox and updated night horizon fog restore cleanly.
+            var closeAck = SendCommand("exploded.close", new JObject { ["generation"] = explodedView.Generation });
+            Assert.IsNotNull(closeAck);
+            Assert.AreEqual("ack", (string)closeAck["kind"]);
+            yield return null;
+
+            Assert.IsFalse(explodedView.IsOpen);
+            Assert.IsTrue(editorCamera.enabled);
+            Assert.AreEqual(CameraClearFlags.Skybox, editorCamera.clearFlags);
+            Assert.IsTrue(RenderSettings.fog);
+            Assert.AreEqual(StationSkySystem.MinSkyIntensity, viewRig.Sky.AppliedIntensity, 1e-5f);
+
+            var stateAfter = host.BuildStatePayload();
+            Assert.AreEqual(true, (bool?)stateAfter["render"]?["sky"]?["shown"]);
+            Assert.AreEqual(StationSkySystem.MinSkyIntensity, (float)stateAfter["render"]["sky"]["intensity"], 1e-4f);
+        }
     }
 }

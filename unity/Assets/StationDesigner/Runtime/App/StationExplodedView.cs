@@ -51,6 +51,7 @@ namespace Metro.App {
         Camera savedEditorCamera;
         bool savedEditorCameraEnabled;
         int savedEditorCullingMask;
+        CameraClearFlags savedEditorClearFlags = CameraClearFlags.SolidColor;
         Color savedEditorBackground;
         Vector3 savedEditorPosition;
         Quaternion savedEditorRotation;
@@ -156,6 +157,7 @@ namespace Metro.App {
                 savedEditorCameraEnabled = savedEditorCamera.enabled;
                 // Preserve any non-exploded layers; ensure ExplodedPresentation stays stripped on editor cam
                 savedEditorCullingMask = savedEditorCamera.cullingMask & ~(1 << presentationLayer);
+                savedEditorClearFlags = savedEditorCamera.clearFlags;
                 savedEditorBackground = savedEditorCamera.backgroundColor;
                 savedEditorPosition = savedEditorCamera.transform.position;
                 savedEditorRotation = savedEditorCamera.transform.rotation;
@@ -187,6 +189,7 @@ namespace Metro.App {
                 targetCam.orthographicSize = savedEditorOrthoSize;
                 targetCam.fieldOfView = savedEditorFov;
                 targetCam.cullingMask = savedEditorCullingMask & ~(1 << presentationLayer);
+                targetCam.clearFlags = savedEditorClearFlags;
                 targetCam.backgroundColor = savedEditorBackground;
                 targetCam.enabled = savedEditorCameraEnabled;
             }
@@ -279,6 +282,7 @@ namespace Metro.App {
                 RestoreEditorBaseline();
                 phase = PhaseError;
                 viewRig?.Commands?.SyncExplodedState(false);
+                viewRig?.SyncSky(force: true);
                 error = ex.Message;
                 return false;
             }
@@ -310,6 +314,7 @@ namespace Metro.App {
             phase = PhaseClosed;
             lastError = "";
             viewRig?.Commands?.SyncExplodedState(false);
+            viewRig?.SyncSky(force: true);
         }
 
         void DisposeBuilderAndInput() {
