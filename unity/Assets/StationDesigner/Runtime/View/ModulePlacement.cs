@@ -1,3 +1,4 @@
+using System;
 using Metro.Build;
 using UnityEngine;
 
@@ -41,6 +42,7 @@ namespace Metro.View {
         /// like every offset here; callers add it before the one world conversion.
         /// </summary>
         public static Vector3 RunCentre(ModuleFacts module) {
+            if (module == null || string.Equals(module.Type, "court", StringComparison.Ordinal)) return Vector3.zero;
             float halfWidth = Mathf.Max(0, module.Width - 1) * 0.5f;
             float halfDepth = Mathf.Max(0, module.Depth - 1) * 0.5f;
             if (halfWidth <= 0f && halfDepth <= 0f) return Vector3.zero;

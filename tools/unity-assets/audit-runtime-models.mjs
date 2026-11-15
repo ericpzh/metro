@@ -758,9 +758,8 @@ function resolveVisual(mod, context = {}) {
     case 'lawn':
     case 'tree':
       // These three carry their own promoted prefabs in `runtime-views.json`
-      // (Sidewalk, Lawn, Tree); only court/pillar are assembled at runtime.
+      // (Sidewalk, Lawn, Tree); only pillar is assembled at runtime.
       return prefabResult(mod.type)
-    case 'court':
     case 'pillar':
       // Saved pillars run 3–11 m tall; the palette prefab is one 5 m section, so the
       // runtime assembles the column from the saved height.
@@ -768,6 +767,7 @@ function resolveVisual(mod, context = {}) {
     case 'road':
       // One-way and two-way runs share the asphalt piece; the markings are live content.
       return prefabResult('road')
+    case 'court':
     case 'hanger':
     case 'roof':
     case 'calligraphy':

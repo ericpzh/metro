@@ -36,6 +36,8 @@ namespace Metro.App {
         Mesh lineMesh;
         Material okMaterial;
         Material badMaterial;
+        Material okLineMaterial;
+        Material badLineMaterial;
         Material selectMaterial;
         StationIndex index;
         bool bound;
@@ -164,6 +166,8 @@ namespace Metro.App {
             if (lineMesh != null) Destroy(lineMesh);
             if (okMaterial != null) Destroy(okMaterial);
             if (badMaterial != null) Destroy(badMaterial);
+            if (okLineMaterial != null) Destroy(okLineMaterial);
+            if (badLineMaterial != null) Destroy(badLineMaterial);
             if (selectMaterial != null) Destroy(selectMaterial);
         }
 
@@ -198,11 +202,20 @@ namespace Metro.App {
             go.transform.SetPositionAndRotation(
                 ModulePlacement.Position(facts, entry) + StationCoordinates.Point(ModulePlacement.RunCentre(facts)),
                 ModulePlacement.Rotation(facts.Rotation));
-            var material = Tinted(colour.r < 0.5f, colour);
+            bool ok = colour.r < 0.5f;
+            var material = Tinted(ok, colour);
+            Material lineMaterial = null;
             foreach (var renderer in go.GetComponentsInChildren<Renderer>(true)) {
                 if (renderer == null) continue;
-                var materials = new Material[renderer.sharedMaterials.Length];
-                for (int i = 0; i < materials.Length; i++) materials[i] = material;
+                var filter = renderer.GetComponent<MeshFilter>();
+                var mesh = filter != null ? filter.sharedMesh : null;
+                int count = renderer.sharedMaterials.Length;
+                var materials = new Material[count];
+                for (int i = 0; i < count; i++) {
+                    bool isLine = mesh != null && mesh.subMeshCount > 0 &&
+                        mesh.GetTopology(Mathf.Min(i, mesh.subMeshCount - 1)) != MeshTopology.Triangles;
+                    materials[i] = isLine ? (lineMaterial ??= TintedUnlit(ok, colour)) : material;
+                }
                 renderer.sharedMaterials = materials;
                 renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
                 renderer.receiveShadows = false;
@@ -301,6 +314,27 @@ namespace Metro.App {
             material.SetOverrideTag("RenderType", "Transparent");
             material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
             if (ok) okMaterial = material; else badMaterial = material;
+            return material;
+        }
+
+        /// <summary>Unlit translucent ghost material for line-topology submeshes (such as court nets).</summary>
+        Material TintedUnlit(bool ok, Color colour) {
+            if (ok && okLineMaterial != null) return okLineMaterial;
+            if (!ok && badLineMaterial != null) return badLineMaterial;
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Universal Render Pipeline/Lit");
+            var material = new Material(shader) { name = ok ? "edit ghost line" : "edit refusal line" };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", colour);
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+            if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            if (ok) okLineMaterial = material; else badLineMaterial = material;
             return material;
         }
 

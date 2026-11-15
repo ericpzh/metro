@@ -14,7 +14,9 @@ the station either copes or it does not.
 
 Station equipment models, including shop fixtures, seating, ballfields and steel
 fences, belong to `metro-game`; their deterministic regressions belong to
-`metro-game-test`. Keep generated menu thumbnails aligned with catalogue changes.
+`metro-game-test`, while Unity port equipment/court binding, corner-pivot
+placement, `MeshTopology.Lines` net handling and C# EditMode regressions route
+to `metro-unity`. Keep generated menu thumbnails aligned with catalogue changes.
 
 Wall decor and sign previews route to `metro-game`, with regressions in
 `metro-game-test`: short wall signs centre in the pointed block, other panels
@@ -396,7 +398,7 @@ first and warmed interactions in the
 | Gameplay demo video planning, recordings, retakes, Studio captions, audio and regeneration (`tools/demo-video*`, `video/`) | [metro-video](../metro-video/SKILL.md) |
 | Anything under `game/src` — the sim, the renderer, the builder, the app shell, the save format | `metro-game` |
 | Adding, running or fixing tests under `game/test` | `metro-game-test` |
-| Anything under `unity/`, `game/src/unity-web/`, `tools/unity-web/`, `tools/unity-parity/` or `tools/unity-assets/` — the Unity 6 URP port, shared WebGL bridge, parity oracles and asset conversion | [metro-unity](../metro-unity/SKILL.md) ([assets](../metro-unity/references/assets.md)) |
+| Anything under `unity/`, `game/src/unity-web/`, `tools/unity-web/`, `tools/unity-editor-ui/`, `tools/unity-parity/` or `tools/unity-assets/` — the Unity 6 URP port, shared WebGL/WebView2 bridge, parity oracles and asset conversion | [metro-unity](../metro-unity/SKILL.md) ([assets](../metro-unity/references/assets.md)) |
 | `web/` (the concept-art site), `art/` (the sheets), and the art/card renderers in `tools/` | `metro-web` |
 | `model/` characters, bag variants, walking exports, passenger activity previews and the approved game passenger atlas | `metro-model` |
 
@@ -573,7 +575,7 @@ The soft-human preview never feeds the game crowd or passenger bake. See
 | `game/src/` | The game's source: `sim/` `build/` `render/` `persistence/` `data/` `app/`. `metro-game` maps it file by file. |
 | `game/test/` | The `node --test` suite. `game/test/README.md` is the authority on how it works; `metro-game-test` is the short version. |
 | `game/README.md` | The game's own long-form guide: milestones, the time base, measured numbers, deliberate divergences from the spec. **Read it before changing sim behaviour.** |
-| `unity/` | The Unity 6000.6.8f1 URP WebGL port: layered C# runtime (`Sim`, `Build`, `Persistence`, `View`, `App`), live Editor workflow (`unity/scripts/metro-editor.ps1`), isolated batch/WebGL runner (`unity/scripts/metro-unity.ps1`), Node contract tests (`unity/tests/`), and plans (`unity/plan/`). Paired with the shared React UI bridge in `game/src/unity-web/` and pipelines in `tools/unity-{web,parity,assets}/`. See [metro-unity](../metro-unity/SKILL.md) and its [asset sub-guide](../metro-unity/references/assets.md). |
+| `unity/` | The Unity 6000.6.8f1 URP WebGL/desktop port: layered C# runtime (`Sim`, `Build`, `Persistence`, `View`, `App`), live Editor workflow (`unity/scripts/metro-editor.ps1`), isolated batch/WebGL runner (`unity/scripts/metro-unity.ps1`), and Node contract tests (`unity/tests/`). Paired with the shared React UI bridge in `game/src/unity-web/` and pipelines in `tools/unity-{web,editor-ui,parity,assets}/`. See [metro-unity](../metro-unity/SKILL.md) and its [asset sub-guide](../metro-unity/references/assets.md). |
 | `model/` | Reviewed character viewer and GLB library at 5175, plus the isolated `/soft-human.html` motion study; `metro-model` owns builders, cleanup, walking clips, soft-human preview, exports and game atlas regeneration. |
 | `design/icon/` | Station Designer icon source, previews and iterations. `tools/prepare-brand-icon.mjs` builds the game/site favicons and the site's CSS-coloured header mark from `station-designer-blue-bold.png`. |
 | `web/` | The concept-art site (React + Vite), deployed as Worker `metro` at `stationdesigner.com/`. Bilingual: Chinese by default, English pinned to the `/en/` path with a switcher in the top bar (`Nav.jsx`); UI copy lives in `web/src/i18n.js`, sheet copy in `web/src/artworks.js` (`zh`/`en`). |

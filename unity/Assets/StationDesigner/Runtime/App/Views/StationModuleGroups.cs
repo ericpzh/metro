@@ -44,7 +44,7 @@ namespace Metro.App.Views {
         /// <summary>Types drawn by `StationEquipmentModuleRenderer` (one prefab instance each).</summary>
         static readonly HashSet<string> equipment = new HashSet<string>(StringComparer.Ordinal) {
             "light", "cctv", "desk", "extinguisher", "bin", "bench", "shelf",
-            "electrical-cabinet", "tvm", "sink", "vending", "checkout", "booth", "glass", "ac-unit",
+            "electrical-cabinet", "tvm", "sink", "vending", "checkout", "booth", "glass", "ac-unit", "court",
         };
 
         /// <summary>Types drawn by `StationDisplayModuleRenderer` (one prefab instance each).</summary>
@@ -213,18 +213,7 @@ namespace Metro.App.Views {
         protected static Vector3 Pivot(ModuleFacts module, RuntimeCatalogue.Entry entry) =>
             ModulePlacement.Position(module, entry) + StationCoordinates.Point(RunCentreOffset(module));
 
-        static Vector3 RunCentreOffset(ModuleFacts module) {
-            float halfWidth = Mathf.Max(0, module.Width - 1) * 0.5f;
-            float halfDepth = Mathf.Max(0, module.Depth - 1) * 0.5f;
-            if (halfWidth <= 0f && halfDepth <= 0f) return Vector3.zero;
-            // Quarter turns in document axes: the source's `rotateLocal`.
-            switch (((module.Rotation % 4) + 4) % 4) {
-                case 1: return new Vector3(-halfDepth, halfWidth, 0f);
-                case 2: return new Vector3(-halfWidth, -halfDepth, 0f);
-                case 3: return new Vector3(halfDepth, -halfWidth, 0f);
-                default: return new Vector3(halfWidth, halfDepth, 0f);
-            }
-        }
+        static Vector3 RunCentreOffset(ModuleFacts module) => ModulePlacement.RunCentre(module);
 
         /// <summary>Instantiate a prefab at the module's pivot and register it for picking.</summary>
         protected BuiltModule Place(StationViewBuildContext context, ModuleFacts module, RuntimeCatalogue.Entry entry,
@@ -1522,8 +1511,37 @@ namespace Metro.App.Views {
                     if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
                     continue;
                 }
+                if (module.Type == "court") {
+                    PlaceCourt(context, module, entry, key, state);
+                    continue;
+                }
                 Place(context, module, entry, key, state);
             }
+        }
+
+        /// <summary>
+        /// Place one ball-court bay (`court-pickleball`, `court-badminton`) or portable divider
+        /// (`court-divider`). `CourtModel.ts` bakes the 14×7 m / 2×1 m bay extent relative to
+        /// anchor cell (0, 0) and calls `placeLocal` at `(x + 0.5, y + 0.5, z + 1)`, while saved
+        /// records omit `w` and `d`; registering the measured rendered box here keeps scene
+        /// picking and selection accurate even when the world is staged or another floor starts
+        /// active.
+        /// </summary>
+        void PlaceCourt(StationViewBuildContext context, ModuleFacts module, RuntimeCatalogue.Entry entry,
+            string key, WorldState state) {
+            var parent = context.RoleRoot(Role);
+            var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+            go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+            go.transform.SetPositionAndRotation(ModulePlacement.Position(module, entry), ModulePlacement.Rotation(module.Rotation));
+            var grid = StationLevelGrid.FromDocument(context.Document.LevelBase, context.Document.StoreyHeight);
+            int band = StationModuleLevels.Band(grid, module.Z);
+            if (TryDocumentBounds(go.transform, context.Root, out var bounds)) {
+                context.World.RegisterModule(Role, module.Id, go, key, bounds, band, band, new[] { band });
+            } else {
+                context.World.RegisterModule(Role, module.Id, go, key, null, band, band, new[] { band });
+            }
+            state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key });
+            state.Count++;
         }
 
 

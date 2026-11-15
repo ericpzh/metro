@@ -349,6 +349,9 @@ namespace Metro.Build {
             } else if (id == "cubicle" || id == "cubicle-toilet") {
                 parsed.Type = "cubicle";
                 parsed.Variant = id == "cubicle-toilet" ? "toilet" : "";
+            } else if (id == "court" || id == "court-pickleball" || id == "court-badminton" || id == "court-divider") {
+                parsed.Type = "court";
+                parsed.Variant = id == "court-divider" ? "divider" : id == "court-badminton" ? "badminton" : "pickleball";
             } else if (TryParseExit(id, out _, out _)) {
                 // A head-house is a creatable family; its palette id carries the cover and bay
                 // count, read again in `TryCreate`. Doorway/virtual exits are wall/surface
@@ -510,6 +513,9 @@ namespace Metro.Build {
                 case "cubicle":
                     if (family.Variant.Length > 0) candidate.Set("variant", family.Variant);
                     break;
+                case "court":
+                    candidate.Set("variant", family.Variant.Length == 0 ? "pickleball" : family.Variant);
+                    break;
                 default:
                     // Every remaining migrated type has an empty authored cfg.
                     break;
@@ -552,7 +558,7 @@ namespace Metro.Build {
         static readonly HashSet<string> BlockChecked = new HashSet<string>(StringComparer.Ordinal) {
             "gate", "tvm", "vending", "bench", "cubicle", "sink", "urinal",
             "bin", "extinguisher", "guidepost", "clock", "cctv", "tv", "sign", "linemap", "door",
-            "tactile", "floor-mark",
+            "tactile", "floor-mark", "court",
         };
 
         /// <summary>Resolve one request against the committed document.</summary>
@@ -850,6 +856,7 @@ namespace Metro.Build {
                 case "extinguisher":
                 case "hanger":
                 case "door":
+                case "court":
                 case "track":
                 case "lift":
                     return StationFootprints.Footprint(record);
@@ -907,9 +914,37 @@ namespace Metro.Build {
                     continue;
                 }
                 if (other.IsEmpty) continue;
+                if (CourtDividerClearsNet(candidate, box, placed, other)) continue;
                 if (!box.Overlaps(other)) continue;
                 colliders.Add(placed.Id);
             }
+        }
+
+        /// <summary>
+        /// Port of <c>placementColliders</c>'s court rule: portable dividers can stand on the
+        /// painted court surface while its centre net and posts remain solid.
+        /// </summary>
+        static bool CourtDividerClearsNet(StationModuleRecord candidate, StationBox candidateBox,
+            StationModuleRecord placed, StationBox placedBox) {
+            if (!string.Equals(candidate.Type, "court", StringComparison.Ordinal) ||
+                !string.Equals(placed.Type, "court", StringComparison.Ordinal)) return false;
+            bool candidateDivider = string.Equals(candidate.Config.Text("variant"), "divider", StringComparison.Ordinal);
+            bool placedDivider = string.Equals(placed.Config.Text("variant"), "divider", StringComparison.Ordinal);
+            if (candidateDivider == placedDivider) return false;
+            var field = candidateDivider ? placed : candidate;
+            var fieldBox = candidateDivider ? placedBox : candidateBox;
+            var dividerBox = candidateDivider ? candidateBox : placedBox;
+            double cx = (fieldBox.X0 + fieldBox.X1) * 0.5;
+            double cy = (fieldBox.Y0 + fieldBox.Y1) * 0.5;
+            bool acrossX = (StationFootprints.NormRot(field.Rotation) % 2) == 1;
+            var net = new StationBox(
+                acrossX ? fieldBox.X0 : cx - 0.2,
+                acrossX ? cy - 0.2 : fieldBox.Y0,
+                fieldBox.Z0,
+                acrossX ? fieldBox.X1 : cx + 0.2,
+                acrossX ? cy + 0.2 : fieldBox.Y1,
+                fieldBox.Z1);
+            return !net.Overlaps(dividerBox);
         }
 
         static bool IsFloorSticker(string type) => type == "tactile" || type == "floor-mark";

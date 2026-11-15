@@ -1032,6 +1032,35 @@ namespace Metro.App.Views {
 
         void AddMeshSubmeshToTray(int trayIndex, Mesh mesh, int submesh, Material sourceMaterial, Matrix4x4 worldMatrix) {
             var tray = trays[trayIndex];
+            int clampedSubmesh = Mathf.Clamp(submesh, 0, Mathf.Max(0, mesh.subMeshCount - 1));
+            var topology = mesh.GetTopology(clampedSubmesh);
+            if (topology != MeshTopology.Triangles) {
+                // Non-triangle primitives (such as a court net's MeshTopology.Lines) cannot be
+                // merged into a triangle PropCombineBucket; mount a viewer-owned MeshRenderer so
+                // the net lines travel rigidly with the tray.
+                Mesh submeshAsset = null;
+                if (mesh.subMeshCount <= 1) {
+                    submeshAsset = mesh;
+                } else if (mesh.isReadable) {
+                    var indices = mesh.GetIndices(clampedSubmesh);
+                    var verts = mesh.vertices;
+                    if (indices != null && indices.Length > 0 && verts != null && verts.Length > 0) {
+                        var extracted = new Mesh { name = mesh.name + " [Submesh " + clampedSubmesh + "]" };
+                        if (verts.Length > 65000) extracted.indexFormat = IndexFormat.UInt32;
+                        extracted.SetVertices(verts);
+                        extracted.SetIndices(indices, topology, 0, calculateBounds: true);
+                        ownedMeshes.Add(extracted);
+                        submeshAsset = extracted;
+                    }
+                }
+                if (submeshAsset != null) {
+                    var lineMat = GetOrCloneTrayMaterial(tray, sourceMaterial);
+                    var lineGo = CreateTrayMeshObject(tray.PropsRoot, submeshAsset.name, submeshAsset, lineMat);
+                    ApplyWorldMatrixToTransform(lineGo.transform, worldMatrix);
+                    tray.EncapsulateWorldBounds(TransformLocalBounds(submeshAsset.bounds, worldMatrix));
+                }
+                return;
+            }
             if (mesh.isReadable) {
                 if (ExtractWorldSubmesh(mesh, submesh, worldMatrix,
                         out var pos, out var norm, out var uv, out var col, out var idx)) {
@@ -1257,6 +1286,7 @@ namespace Metro.App.Views {
             if (mesh == null || !mesh.isReadable) return false;
 
             int clampedSubmesh = Mathf.Clamp(submesh, 0, Mathf.Max(0, mesh.subMeshCount - 1));
+            if (mesh.GetTopology(clampedSubmesh) != MeshTopology.Triangles) return false;
             var tris = mesh.GetTriangles(clampedSubmesh);
             if (tris == null || tris.Length < 3) return false;
 
@@ -1305,8 +1335,18 @@ namespace Metro.App.Views {
             worldBounds = TransformLocalBounds(mesh.bounds, worldMatrix);
             if (!mesh.isReadable) return;
             var srcVerts = mesh.vertices;
-            var srcTris = mesh.triangles;
-            if (srcVerts == null || srcTris == null || srcTris.Length < 3) return;
+            if (srcVerts == null || srcVerts.Length == 0) return;
+            List<int> collectedTris = null;
+            int submeshes = Mathf.Max(1, mesh.subMeshCount);
+            for (int s = 0; s < submeshes; s++) {
+                if (mesh.GetTopology(s) != MeshTopology.Triangles) continue;
+                var subTris = mesh.GetTriangles(s);
+                if (subTris == null || subTris.Length < 3) continue;
+                collectedTris ??= new List<int>(subTris.Length);
+                collectedTris.AddRange(subTris);
+            }
+            if (collectedTris == null || collectedTris.Count < 3) return;
+            var srcTris = collectedTris.ToArray();
             var verts = new Vector3[srcVerts.Length];
             for (int i = 0; i < srcVerts.Length; i++) verts[i] = worldMatrix.MultiplyPoint3x4(srcVerts[i]);
             bool flip = worldMatrix.determinant < 0f;
@@ -2099,7 +2139,11 @@ namespace Metro.App.Views {
             if (root == null) return 0;
             foreach (var mf in root.GetComponentsInChildren<MeshFilter>(true)) {
                 var m = mf != null ? mf.sharedMesh : null;
-                if (m != null && m.isReadable) count += m.triangles.Length / 3;
+                if (m == null) continue;
+                int submeshes = Mathf.Max(1, m.subMeshCount);
+                for (int s = 0; s < submeshes; s++) {
+                    if (m.GetTopology(s) == MeshTopology.Triangles) count += (int)(m.GetIndexCount(s) / 3);
+                }
             }
             return count;
         }

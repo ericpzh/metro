@@ -899,6 +899,7 @@ namespace Metro.App {
                 case "light": return module.Config.Text("variant") == "rectangular" ? "light-rectangular" : "light-circular";
                 case "gate": return module.Config.Text("variant") == "new" ? "gate-new" : "gate";
                 case "cubicle": return module.Config.Text("variant") == "toilet" ? "cubicle-toilet" : "cubicle";
+                case "court": return "court-" + Fallback(module.Config.Text("variant"), "pickleball");
                 case "extinguisher": {
                     var variant = module.Config.Text("variant");
                     return variant == "compact" ? "extinguisher-compact" : variant == "glass" ? "extinguisher-glass" : "extinguisher";
