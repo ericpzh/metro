@@ -379,6 +379,13 @@ namespace Metro.App.Views {
 
         readonly Dictionary<StationWorldView, State> states = new Dictionary<StationWorldView, State>();
         readonly List<PassengerPose> poses = new List<PassengerPose>();
+        readonly List<PassengerPose> presented = new List<PassengerPose>();
+        readonly Dictionary<int, PassengerPose> previousPoses = new Dictionary<int, PassengerPose>();
+        readonly Dictionary<int, PassengerPose> lastTickPoses = new Dictionary<int, PassengerPose>();
+        IPassengerPoseFeed lastFeed;
+        long lastTick = long.MinValue;
+        long lastEpoch = long.MinValue;
+        bool hasTick;
         State newest;
         int serial;
 
@@ -386,6 +393,10 @@ namespace Metro.App.Views {
         public PassengerCrowdView View => newest?.View;
         public int VisibleActors => newest?.View != null ? newest.View.VisibleActors : 0;
         public int Spawned => newest?.View != null ? newest.View.Spawned : 0;
+        /// <summary>Poses the bound feed published at the last tick (before eligibility).</summary>
+        public int LastPoseSamples { get; private set; }
+        /// <summary>Visible poses handed to the view after interpolation and eligibility filtering.</summary>
+        public int LastPresentedPoses { get; private set; }
         public bool CatalogueBound => newest != null && !newest.MissingCatalogue;
         /// <summary>The renderer of the active built world; the frame sink uses it.</summary>
         public static PassengerCrowdRenderer Current { get; private set; }
@@ -430,10 +441,33 @@ namespace Metro.App.Views {
         /// whatever the bound feed publishes. A missing feed keeps the last frame
         /// (pause/replay must not blink) and a feed that has no crowd publishes an
         /// empty list, which hides the actors.
+        ///
+        /// The feed publishes one pose per passenger per fixed tick. A rendered frame
+        /// that falls inside the tick interval samples the adjacent tick pair at the
+        /// scheduler fraction, so the crowd walks continuously instead of stepping once
+        /// a simulated second (RCA 14 §5.3). A passenger that is new, changed activity,
+        /// or moved further than a walk could in one tick snaps rather than gliding
+        /// from an unrelated identity.
         /// </summary>
-        public void Tick(StationDocument document, StationIndex index, double simTimeSeconds) {
+        public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var state = newest;
             var view = state?.View;
+            if (view == null && state != null && state.Context != null &&
+                (state.World == null || !state.World.IsDisposed)) {
+                var catalogue = PassengerCatalogueAnchor.Resolve();
+                if (catalogue != null) {
+                    state.MissingCatalogue = false;
+                    var report = catalogue.Verify();
+                    for (int i = 0; i < report.Problems.Length; i++) {
+                        state.Context.ReportUnresolved("passenger-catalogue-invalid", "catalogue",
+                            report.Problems[i], report.Problems[i]);
+                    }
+                    view = state.View = PassengerCrowdView.Build(state.Context.RoleRoot(Role), catalogue,
+                        (actor, pose) => Register(state.Context, actor, pose),
+                        diagnostic => state.Context.ReportUnresolved(diagnostic.Code, "actor",
+                            "passenger:" + diagnostic.SimId, diagnostic.Detail));
+                }
+            }
             if (view == null) return;
             var feed = PassengerPoseFeeds.Source;
             if (feed == null) return;
@@ -446,7 +480,75 @@ namespace Metro.App.Views {
                 return;
             }
             if (!published) return;
-            view.Render(poses, simTimeSeconds);
+
+            bool reset = !hasTick || clock.Epoch != lastEpoch || !ReferenceEquals(feed, lastFeed);
+            if (reset) {
+                previousPoses.Clear();
+                Copy(poses, previousPoses);
+                lastTickPoses.Clear();
+                Copy(poses, lastTickPoses);
+                hasTick = true;
+                lastFeed = feed;
+            } else if (clock.Tick != lastTick) {
+                // The tick advanced: what we saw last time becomes the previous member of
+                // the pair and this frame becomes the current one.
+                previousPoses.Clear();
+                foreach (var pair in lastTickPoses) previousPoses[pair.Key] = pair.Value;
+                lastTickPoses.Clear();
+                Copy(poses, lastTickPoses);
+            }
+            lastTick = clock.Tick;
+            lastEpoch = clock.Epoch;
+
+            presented.Clear();
+            float alpha = (float)clock.Fraction;
+            for (int i = 0; i < poses.Count; i++) {
+                var current = poses[i];
+                // alpha 0 is the previous tick frame and alpha 1 the current one, the same
+                // convention as `ModuleMotionDispatch` and the presented clock; a missing
+                // or non-adjacent pair snaps to the current frame instead.
+                if (alpha >= 1f || !current.Visible ||
+                    !previousPoses.TryGetValue(current.SimId, out var prior) || !prior.Visible ||
+                    !Adjacent(prior, current)) {
+                    presented.Add(current);
+                    continue;
+                }
+                var blend = current;
+                blend.X = Lerp(prior.X, current.X, alpha);
+                blend.Y = Lerp(prior.Y, current.Y, alpha);
+                blend.Z = Lerp(prior.Z, current.Z, alpha);
+                blend.Heading = LerpAngle(prior.Heading, current.Heading, alpha);
+                blend.ActivitySeconds = Lerp(prior.ActivitySeconds, current.ActivitySeconds, alpha);
+                blend.WalkDistance = Lerp(prior.WalkDistance, current.WalkDistance, alpha);
+                blend.WalkPhase = Lerp(prior.WalkPhase, current.WalkPhase, alpha);
+                blend.WalkWeight = Lerp(prior.WalkWeight, current.WalkWeight, alpha);
+                presented.Add(blend);
+            }
+            view.Render(presented, clock.PresentationSeconds);
+            LastPoseSamples = poses.Count;
+            LastPresentedPoses = presented.Count;
+        }
+
+        static void Copy(List<PassengerPose> from, Dictionary<int, PassengerPose> to) {
+            for (int i = 0; i < from.Count; i++) to[from[i].SimId] = from[i];
+        }
+
+        /// <summary>Same actor, same activity, and a step a walking body could take.</summary>
+        static bool Adjacent(PassengerPose prior, PassengerPose current) {
+            if (prior.Activity != current.Activity) return false;
+            double dx = current.X - prior.X, dy = current.Y - prior.Y, dz = current.Z - prior.Z;
+            // A storey step or a spawn/board teleport is not an interpolatable move. A
+            // 4 Hz walker covers well under two metres in one simulated second.
+            return dz * dz < .75 * .75 && dx * dx + dy * dy < 3.0 * 3.0;
+        }
+
+        static double Lerp(double from, double to, double alpha) => from + (to - from) * alpha;
+
+        static double LerpAngle(double from, double to, double alpha) {
+            double delta = to - from;
+            while (delta > Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            return from + delta * alpha;
         }
 
         public void Release() {
@@ -469,8 +571,8 @@ namespace Metro.App.Views {
 
     /// <summary>Packet H's per-frame half: C's clock and the bound actor feed.</summary>
     sealed class PassengerFrameSink : IStationFrameSink {
-        public void Tick(StationDocument document, StationIndex index, double simTimeSeconds) =>
-            PassengerCrowdRenderer.Current?.Tick(document, index, simTimeSeconds);
+        public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) =>
+            PassengerCrowdRenderer.Current?.Tick(document, index, clock);
     }
 
     /// <summary>Process-wide registration of the actor renderer and its frame sink.</summary>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Metro.View {
@@ -48,6 +49,7 @@ namespace Metro.View {
         public StationProjection Projection => State.Projection;
         public float Fov => State.Fov;
         public int ActiveLevel => State.ActiveLevel;
+        public float MaxDistance { get; set; } = StationCameraMath.MaxDistance;
 
         /// <summary>Install a live station: new bounds, its active storey and the home view.</summary>
         public void SetStation(Bounds documentBounds, int activeLevel) {
@@ -184,10 +186,77 @@ namespace Metro.View {
                 return;
             }
             var offset = State.Position - State.Target;
-            float distance = Mathf.Clamp(offset.magnitude * factor, StationCameraMath.MinDistance, StationCameraMath.MaxDistance);
+            float distance = Mathf.Clamp(offset.magnitude * factor, StationCameraMath.MinDistance, MaxDistance);
             if (offset.sqrMagnitude < 1e-12f) offset = StationCameraMath.PresetDirection(StationCameraPreset.Iso);
             State.Position = State.Target + offset.normalized * distance;
             Raise();
+        }
+
+        /// <summary>
+        /// Port of <c>SceneRenderer.frameStandalonePresentation</c>: frames visible packed tray
+        /// document bounds in isometric orthographic projection with 10% viewport margin.
+        /// </summary>
+        public void FrameStandalonePresentation(IReadOnlyList<Bounds> packedDocumentBoxes, float aspect = 16f / 9f) {
+            MaxDistance = StationCameraMath.MaxStandaloneDistance;
+            if (IsFinite(aspect) && aspect > 0f) State.Aspect = aspect;
+            bool any = false;
+            var union = new Bounds(Vector3.zero, Vector3.one * 40f);
+            if (packedDocumentBoxes != null) {
+                for (int i = 0; i < packedDocumentBoxes.Count; i++) {
+                    var box = packedDocumentBoxes[i];
+                    if (box.size.sqrMagnitude < 1e-9f) continue;
+                    if (!any) { union = box; any = true; }
+                    else union.Encapsulate(box);
+                }
+            }
+            State.Bounds = union;
+            State.OrthoZoom = 1f;
+            ClearHeld();
+            HasStation = true;
+            ApplyPresetFrame(StationCameraPreset.Iso);
+            State.Projection = StationProjection.Orthographic;
+            if (any && packedDocumentBoxes != null) {
+                var snapshot = State.Snapshot();
+                float halfH = Mathf.Max(.1f, snapshot.OrthoSize);
+                float halfW = Mathf.Max(.1f, halfH * Mathf.Max(.01f, State.Aspect));
+                float extent = 0f;
+                for (int i = 0; i < packedDocumentBoxes.Count; i++) {
+                    var box = packedDocumentBoxes[i];
+                    if (box.size.sqrMagnitude < 1e-9f) continue;
+                    var min = box.min;
+                    var max = box.max;
+                    for (int c = 0; c < 8; c++) {
+                        var corner = new Vector3(
+                            (c & 1) == 0 ? min.x : max.x,
+                            (c & 2) == 0 ? min.y : max.y,
+                            (c & 4) == 0 ? min.z : max.z);
+                        var rel = corner - State.Target;
+                        float ndcX = Mathf.Abs(Vector3.Dot(rel, snapshot.Right) / halfW);
+                        float ndcY = Mathf.Abs(Vector3.Dot(rel, snapshot.Up) / halfH);
+                        extent = Mathf.Max(extent, Mathf.Max(ndcX, ndcY));
+                    }
+                }
+                if (extent > 1e-6f) {
+                    State.OrthoZoom = Mathf.Clamp(State.OrthoZoom * (extent / 0.9f),
+                        StationCameraMath.OrthoZoomMin, StationCameraMath.OrthoZoomMax);
+                }
+            }
+            Raise();
+        }
+
+        /// <summary>
+        /// Port of <c>SceneRenderer.moveExplodedFloor</c>: converts CSS-pixel drag deltas into a
+        /// document-space manual tray translation <c>(right * dx - up * dy) * (2 * orthoSize / viewportHeight)</c>,
+        /// independent of devicePixelRatio, canvas backing scale, camera yaw, or tray elevation.
+        /// </summary>
+        public Vector3 TrayDragDelta(float dxCssPixels, float dyCssPixels, float viewportHeightCssPixels, Camera liveCamera = null) {
+            if (!IsFinite(dxCssPixels) || !IsFinite(dyCssPixels) || !IsFinite(viewportHeightCssPixels) || viewportHeightCssPixels <= 0f) {
+                return Vector3.zero;
+            }
+            var snapshot = Snapshot(liveCamera);
+            float orthoSize = Mathf.Max(.1f, snapshot.OrthoSize);
+            float scale = (2f * orthoSize) / viewportHeightCssPixels;
+            return (snapshot.Right * dxCssPixels - snapshot.Up * dyCssPixels) * scale;
         }
 
         /// <summary>Source wheel factor: <c>exp(deltaY * 0.001)</c>.</summary>

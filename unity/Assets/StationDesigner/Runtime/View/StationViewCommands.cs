@@ -591,7 +591,20 @@ namespace Metro.View {
         /// <summary>Raised after an accepted command; the host coalesces the publish.</summary>
         public event Action Changed;
 
-        StationVisibilityState explodedRestore;
+        Func<bool, bool> explodedHandler;
+
+        /// <summary>
+        /// Optional standalone exploded-view lifecycle handler (<c>StationExplodedView</c>).
+        /// When bound, <c>view.set exploded</c> routes through the standalone viewer without
+        /// mutating editor visibility flags or moving registered editor transforms.
+        /// </summary>
+        public Func<bool, bool> ExplodedHandler {
+            get => explodedHandler;
+            set {
+                explodedHandler = value;
+                Capabilities.ExplodedDrag = value != null;
+            }
+        }
 
         public StationViewCommandApplier(StationCameraController camera, StationVisibilityRegistry visibility, StationLevelGrid grid) {
             Camera = camera ?? throw new ArgumentNullException(nameof(camera));
@@ -613,7 +626,7 @@ namespace Metro.View {
         }
 
         /// <summary>Install a live station: bounds, its level grid and the home view.</summary>
-        public void SetStation(Bounds documentBounds, StationLevelGrid grid, int activeLevel) {
+        public void SetStation(Bounds documentBounds, StationLevelGrid grid, int activeLevel, Vector2? sectionPlanCentre = null) {
             Grid = grid;
             Camera.SetStation(documentBounds, activeLevel);
             Visibility.State.ActiveLevel = activeLevel;
@@ -622,8 +635,9 @@ namespace Metro.View {
             // The source re-places 剖切 on a station switch at the middle of the plan
             // on the storey being edited (`SceneRenderer.defaultSection`); an edit keeps
             // the player's cut.
+            var centre = sectionPlanCentre ?? new Vector2(documentBounds.center.x, documentBounds.center.y);
             Section = new StationSectionPlane {
-                Anchor = new Vector3(documentBounds.center.x, documentBounds.center.y, activeLevel),
+                Anchor = new Vector3(centre.x, centre.y, activeLevel),
                 Azimuth = StationSectionPlane.DefaultAzimuth,
                 Offset = 0f,
             };
@@ -722,9 +736,9 @@ namespace Metro.View {
                     Visibility.Section = Section;
                     break;
                 case StationViewKey.SectionRotate:
-                    Section = command.RotateToNext
-                        ? Section.WithAzimuth(StationSectionPlane.NextAzimuth(Section.Azimuth))
-                        : Section.WithAzimuth(command.FloatValue);
+                    Section = Section.WithAzimuth(command.RotateToNext
+                        ? StationSectionPlane.NextAzimuth(Section.Azimuth)
+                        : command.FloatValue).WithOffset(0f);
                     Visibility.Section = Section;
                     break;
                 case StationViewKey.SectionOffset:
@@ -738,7 +752,7 @@ namespace Metro.View {
                     Visibility.Apply();
                     return true;
                 case StationViewKey.Exploded:
-                    SetExploded(command.BoolValue);
+                    if (!SetExploded(command.BoolValue, out code)) return false;
                     return true;
                 case StationViewKey.Density:
                     state.Density = command.BoolValue;
@@ -760,34 +774,20 @@ namespace Metro.View {
             return true;
         }
 
-        void SetExploded(bool on) {
+        public void SyncExplodedState(bool on) {
             if (Visibility.State.Exploded == on) return;
-            if (on) {
-                explodedRestore = Visibility.State.Clone();
-                Visibility.State.SetHideUi(true);
-                Visibility.State.HideGround = true;
-                Visibility.State.HideRoof = true;
-                Visibility.State.AutoCeiling = true;
-                Visibility.State.ShowLevels = true;
-                Visibility.State.Cutaway = false;
-                Visibility.SectionClipping = false;
-                Visibility.ExplodedPlan = StationExplodedPlan.FromTargets(Visibility.Targets);
-            } else {
-                if (explodedRestore != null) {
-                    Visibility.State.ShowLevels = explodedRestore.ShowLevels;
-                    Visibility.State.AutoCeiling = explodedRestore.AutoCeiling;
-                    Visibility.State.HideWalls = explodedRestore.HideWalls;
-                    Visibility.State.HideGround = explodedRestore.HideGround;
-                    Visibility.State.HideRoof = explodedRestore.HideRoof;
-                    Visibility.State.HideUi = explodedRestore.HideUi;
-                    Visibility.State.Cutaway = explodedRestore.Cutaway;
-                    Visibility.SectionClipping = explodedRestore.Cutaway;
-                    explodedRestore = null;
-                }
-                Visibility.ExplodedPlan = null;
+            Visibility.State.Exploded = on;
+            PublishChanged();
+        }
+
+        bool SetExploded(bool on, out string code) {
+            code = null;
+            if (ExplodedHandler != null && !ExplodedHandler(on)) {
+                code = "exploded-failed";
+                return false;
             }
             Visibility.State.Exploded = on;
-            Visibility.Apply();
+            return true;
         }
 
         /// <summary>Advance the held vertical pan; the host calls this from Update.</summary>
@@ -801,6 +801,7 @@ namespace Metro.View {
         /// <summary>The small state fragment the host embeds in a v2 `state` reply.</summary>
         public string SnapshotJson() {
             Capabilities.SectionShaderPlane = Visibility.SectionShaderSupported;
+            Capabilities.ExplodedDrag = ExplodedHandler != null;
             var builder = new StringBuilder(512);
             builder.Append("{\"camera\":");
             var snapshot = Camera.Snapshot(ViewCamera);

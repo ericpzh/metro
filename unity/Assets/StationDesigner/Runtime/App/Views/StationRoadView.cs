@@ -569,6 +569,8 @@ namespace Metro.App.Views {
             public StationRoadTraffic Traffic;
             public StationRoadRecord[] Records = System.Array.Empty<StationRoadRecord>();
             public int Serial;
+            /// <summary>The committed document the storey bands are measured against.</summary>
+            public int LevelBase;
             /// <summary>The last station-clock sample the traffic poses were rendered at.</summary>
             public double SampledTime = double.NaN;
         }
@@ -595,6 +597,7 @@ namespace Metro.App.Views {
             }
             var state = new State {
                 World = context.World, Records = records.ToArray(), Serial = ++serial,
+                LevelBase = context.Document != null ? context.Document.LevelBase : 0,
             };
             var root = context.RoleRoot(Role);
             Shader shader = context.Shader != null ? context.Shader : Shader.Find("Universal Render Pipeline/Lit");
@@ -629,8 +632,27 @@ namespace Metro.App.Views {
             state.View?.SetSimTime(simTimeSeconds);
             if (state.Traffic == null) return;
             state.Traffic.Advance(simTimeSeconds);
-            state.Vehicles?.Render(simTimeSeconds);
+            state.Vehicles?.Render(simTimeSeconds, RoadVisible(state));
             state.SampledTime = simTimeSeconds;
+        }
+
+        /// <summary>
+        /// The live view's own predicate for one sampled pose: the pose rides a **source
+        /// road** at a saved elevation, so its storey is that road's band, not the deck
+        /// height of an inferred child. The one <see cref="StationVisibilityRegistry"/>
+        /// decision answers it exactly as it answers the road geometry (hide ground, the
+        /// storey slice and the dense bound), and the section cut still clips the shared
+        /// material. Null before the view rig exists, so a headless probe draws every pose.
+        /// </summary>
+        static Func<RoadVehiclePose, bool> RoadVisible(State state) {
+            var rig = Metro.App.StationViewFeature.Active;
+            var registry = rig != null ? rig.Visibility : null;
+            if (registry == null) return null;
+            var levels = new int[1];
+            return pose => {
+                levels[0] = Metro.View.StationCoordinates.StoreyBand(pose.RoadZ, state.LevelBase);
+                return registry.DecidePart(Metro.View.StationPartRole.Ground, levels) != Metro.View.StationDrawMode.Hidden;
+            };
         }
 
         /// <summary>
@@ -662,11 +684,16 @@ namespace Metro.App.Views {
                 ["simCars"] = state.Traffic != null ? state.Traffic.Cars.Count : 0,
                 ["vehicles"] = new JObject {
                     ["visible"] = vehicles != null ? vehicles.VisibleVehicles : 0,
+                    ["sampled"] = vehicles != null ? vehicles.SampledVehicles : 0,
+                    ["filtered"] = vehicles != null ? vehicles.FilteredVehicles : 0,
                     ["cars"] = vehicles != null ? vehicles.Cars : 0,
                     ["buses"] = vehicles != null ? vehicles.Buses : 0,
                     ["scooters"] = vehicles != null ? vehicles.Scooters : 0,
                     ["bikes"] = vehicles != null ? vehicles.Bicycles : 0,
                     ["mopeds"] = vehicles != null ? vehicles.Mopeds : 0,
+                    // Riders are ambient road traffic; station crowd actors are counted
+                    // by `payload.crowd` and never included here.
+                    ["riders"] = vehicles != null ? vehicles.Riders : 0,
                     ["prefab"] = vehicles != null ? vehicles.PrefabVehicleViews : 0,
                     ["fallback"] = vehicles != null ? vehicles.FallbackVehicleViews : 0,
                 },

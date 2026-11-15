@@ -560,6 +560,12 @@ namespace Metro.App {
             return Mathf.Abs(raw) <= 10f ? raw * 100.0 : raw * (100.0 / 120.0);
         }
 
+        public void SendSyntheticMouse(string ev, double x, double y, string button = "none", int buttons = 0, int modifiers = 0, int clicks = 0, double dx = 0, double dy = 0) =>
+            SendMouse(ev, x, y, button, buttons, modifiers, clicks, dx, dy);
+
+        public void SendSyntheticKey(string ev, int vk, string domKey, string domCode, int modifiers = 0) =>
+            SendKey(ev, vk, domKey, domCode, modifiers);
+
         void SendMouse(string ev, double x, double y, string button, int buttons, int modifiers, int clicks, double dx, double dy) {
             EnqueueToWorker(new JObject {
                 ["kind"] = "mouse",
@@ -863,6 +869,8 @@ namespace Metro.App {
         public void RestartWorker() { }
         public void StopWorker(bool clearHost = true) { }
         public void RequestPreviewCapture(string fullPngPath) { }
+        public void SendSyntheticMouse(string ev, double x, double y, string button = "none", int buttons = 0, int modifiers = 0, int clicks = 0, double dx = 0, double dy = 0) { }
+        public void SendSyntheticKey(string ev, int vk, string domKey, string domCode, int modifiers = 0) { }
 #endif
     }
 }

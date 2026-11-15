@@ -137,7 +137,24 @@ namespace Metro.App.Views {
                     ["cycle"] = gate.Cycle,
                     ["state"] = StationServiceText.GateStateText(gate.State),
                     ["mode"] = StationServiceText.GateModeText(gate.Mode),
+                    ["lane"] = gate.Lane,
+                    ["open"] = gate.Open,
                 });
+            }
+            // The visible-model chain, reported separately from the logical crowd so a
+            // public-safe pack (no 3D catalogue) still proves spawns, boardings and
+            // alightings. Each stage is a real count, never a copy of the previous one:
+            // session passengers → pose samples → eligible recipes → bound models →
+            // visible actors.
+            var crowdRenderer = PassengerCrowdRenderer.Current;
+            int boundModels = crowdRenderer != null ? crowdRenderer.Spawned : 0;
+            int visibleActors = crowdRenderer != null ? crowdRenderer.VisibleActors : 0;
+            int poseSamples = crowdRenderer != null ? crowdRenderer.LastPoseSamples : 0;
+            int presented = crowdRenderer != null ? crowdRenderer.LastPresentedPoses : 0;
+            int eligible = 0;
+            if (catalogue != null) {
+                for (int i = 0; i < published; i++)
+                    if (catalogue.TryGetForSimId(frames[i].SimId, out _)) eligible++;
             }
             return new JObject {
                 ["passengersTotal"] = frames.Length,
@@ -146,6 +163,7 @@ namespace Metro.App.Views {
                 ["gateQueue"] = services.GateQueueTotal,
                 ["boarding"] = services.Onboard,
                 ["spawned"] = services.Spawned,
+                ["boarded"] = services.Boarded,
                 ["alighted"] = services.Alighted,
                 ["exited"] = services.Exited,
                 ["stuck"] = services.Stuck,
@@ -153,6 +171,16 @@ namespace Metro.App.Views {
                     ["bound"] = catalogue != null,
                     ["count"] = catalogue != null ? catalogue.Count : 0,
                     ["rights"] = catalogue != null ? catalogue.rights : "",
+                },
+                ["models"] = new JObject {
+                    ["samples"] = poseSamples,
+                    ["published"] = presented,
+                    ["eligible"] = eligible,
+                    ["bound"] = boundModels,
+                    ["visible"] = visibleActors,
+                    ["reason"] = catalogue == null
+                        ? "passenger-catalogue-missing"
+                        : eligible == 0 ? "no-eligible-recipe" : "",
                 },
                 ["passengers"] = passengers,
                 ["gates"] = gateRows,

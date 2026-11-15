@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using System.Text;
 using Metro.Build;
+using Metro.App.Views;
 using Metro.View;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
@@ -146,9 +147,194 @@ namespace Metro.App {
         }
     }
 
+    /// <summary>
+    /// What one named geometry part of a generated opening assembly is (RCA 15 §5). The
+    /// source names every fitting it draws (`PsdModel.ts`'s `psd-threshold`,
+    /// `psd-concrete-foundation`, `psd-info-housing`, `PsdEndModel.ts`'s
+    /// `psd-cover-panel`), so a report or a test can ask for one by identity instead of
+    /// guessing which box in a combined mesh is which.
+    /// </summary>
+    public enum OpeningPartRole {
+        Other = 0,
+        /// <summary>`psd-threshold`: the 0.02 m dark slab over the foundation.</summary>
+        Threshold = 1,
+        /// <summary>`psd-concrete-foundation`: the 0.98 m plinth under the threshold.</summary>
+        Foundation = 2,
+        /// <summary>`psd-info-housing` and its cap/ink bands: the fascia above the glazing.</summary>
+        Fascia = 3,
+        /// <summary>`psd-cover-panel`: a `psd-end` cover course.</summary>
+        Cover = 4,
+        /// <summary>`psd-fixed-glass` / `psd-door-glass`.</summary>
+        Glass = 5,
+        /// <summary>`psd-fixed-rail`, `psd-fixed-post`, `psd-section-pillar`, leaf frames.</summary>
+        Frame = 6,
+        /// <summary>A moving leaf's own parts.</summary>
+        Door = 7,
+        /// <summary>The red "mind the gap" threshold strip.</summary>
+        Warning = 8,
+    }
+
+    /// <summary>
+    /// One named, **measured** part of a built opening view. Bounds are recorded twice: in
+    /// the module holder's frame (the source's own axes — <c>x</c> along the run, <c>y</c>
+    /// up, <c>z</c> across) so it can be compared with `PsdModel.ts` line by line, and in
+    /// document axes as an axis-aligned box in metres, so it can be compared with a save.
+    /// </summary>
+    public sealed class OpeningPart {
+        public string Name = "";
+        public OpeningPartRole Role;
+        /// <summary>The measured object; null for a part the builder had to skip.</summary>
+        public Transform Node;
+        /// <summary>Mesh bounds in the module holder's frame (source axes: x along, y up, z across).</summary>
+        public Bounds Local;
+        /// <summary>The same box in document axes (plan x, plan y, elevation), axis-aligned.</summary>
+        public Bounds Document;
+        /// <summary>The finish id or palette slot the part was drawn with.</summary>
+        public string Material = "";
+        /// <summary>
+        /// The local pose written to a promoted prefab before its bounds were measured — the
+        /// **actual prefab offset**. Zero for generated geometry, whose boxes carry their
+        /// own position.
+        /// </summary>
+        public Vector3 PrefabOffset;
+        /// <summary>The document elevation of the holder this part hangs from.</summary>
+        public float Datum;
+
+        public override string ToString() {
+            var id = CultureInfo.InvariantCulture;
+            return Name + " " + Role + " local y " + Local.min.y.ToString("0.###", id) + ".." +
+                Local.max.y.ToString("0.###", id) + " across " + Local.center.z.ToString("0.###", id) +
+                " doc z " + Document.min.z.ToString("0.###", id) + ".." + Document.max.z.ToString("0.###", id) +
+                (Material.Length > 0 ? " material=" + Material : "");
+        }
+    }
+
+    /// <summary>One box a generated view emitted, in the module holder's local axes (18 §3).</summary>
+    public struct OpeningBox {
+        public string Part;
+        public OpeningPartRole Role;
+        public Vector3 Min, Max;
+        public bool Glass;
+        public Vector3 Size => Max - Min;
+    }
+
+    /// <summary>Which printed panel a PSD header slot carries (`PsdHeader.ts`).</summary>
+    public enum PsdHeaderKind {
+        /// <summary>`psd-route-header`: the schematic/terminus panel over a fixed span.</summary>
+        Route = 0,
+        /// <summary>`psd-station-header`: the station-name panel over a doorway.</summary>
+        Station = 1,
+        /// <summary>`psd-fixed-sticker`: the paired route+station print on a half-height panel.</summary>
+        HalfSticker = 2,
+    }
+
+    /// <summary>
+    /// One platform-facing printed slot of a PSD run, in run-local source metres. This is
+    /// the geometry half of sub-item 2: `PsdModel.buildPsd` cuts the header band into
+    /// alternating route and station panels above the doorways and fills the fixed spans
+    /// between them, and prints a paired sticker on every half-height fixed panel. The
+    /// slot carries the pose and span a face provider needs to bind artwork, plus the
+    /// request key over the data actually painted (never over the geometry).
+    /// </summary>
+    public struct PsdHeaderSlot {
+        public PsdHeaderKind Kind;
+        /// <summary>The doorway this panel sits over, or −1 for a route span or sticker.</summary>
+        public int OpeningIndex;
+        /// <summary>Run-local start of the panel (`buildPsd`'s `a`).</summary>
+        public float Start;
+        /// <summary>Run-local end of the panel (`buildPsd`'s `b`).</summary>
+        public float End;
+        /// <summary>Source-local `y` of the printed plane (the holder's local z).</summary>
+        public float Across;
+        /// <summary>Source-local `z` of the panel centre (the holder's local y).</summary>
+        public float Mid;
+        /// <summary>Printed height in metres (`headerH` 0.6, or `sw × 256/2048` for a sticker).</summary>
+        public float Height;
+        /// <summary>
+        /// +1 when the printed face looks toward source **+y**, −1 toward −y. The screen
+        /// faces the platform, so this is the platform facing, not the track facing.
+        /// </summary>
+        public float Facing;
+        /// <summary>
+        /// `PsdHeader.ts` canvas width for this slot: 1024 for one panel, 2048 for the
+        /// paired half-height sticker (route on the left half, station on the right).
+        /// </summary>
+        public int Pixels;
+        /// <summary>The artwork request key: painted data only (see <see cref="OpeningView.HeaderKey"/>).</summary>
+        public string Key;
+        /// <summary>An empty, correctly posed node a face provider can attach a quad to.</summary>
+        public Transform Node;
+
+        public float Width => End - Start;
+        public float Centre => (Start + End) * .5f;
+
+        public override string ToString() {
+            var id = CultureInfo.InvariantCulture;
+            return Kind + (OpeningIndex >= 0 ? "#" + OpeningIndex : "") + " [" + Start.ToString("0.###", id) + ".." +
+                End.ToString("0.###", id) + "] w=" + Width.ToString("0.###", id) + " mid=" +
+                Mid.ToString("0.###", id) + " facing=" + Facing.ToString("0", id);
+        }
+    }
+
+    /// <summary>
+    /// The port of `PsdHeader.ts:psdHeaderInfo` for one saved edge: the printed text a
+    /// header panel carries. Every field here is painted, so every field here is part of
+    /// the request key; nothing geometric is.
+    /// </summary>
+    public struct PsdHeaderPlan {
+        public bool HasData;
+        /// <summary>The edge's line id (`cfg.line`), empty when it names none.</summary>
+        public string LineId;
+        /// <summary>The line's ink (`line.colour`), the source's `#1b6fd6` default.</summary>
+        public string Colour;
+        /// <summary>`cfg.dir`: `up` or `down`.</summary>
+        public string Direction;
+        /// <summary>The committed station name (`ctx.data.name`), and its English line.</summary>
+        public string StationName;
+        public string StationNameEn;
+        /// <summary>`psdHeaderInfo.destination`: the terminus this platform runs toward.</summary>
+        public string Destination;
+        public string DestinationEn;
+        /// <summary>`psdHeaderInfo.adjacent`: the next station on the platform's plaque.</summary>
+        public string Adjacent;
+        public string AdjacentEn;
+        /// <summary>The destination is this station, so the plaque carries no direction arrow.</summary>
+        public bool Terminal;
+        /// <summary>`psdHeaderInfo.arrow`: ±1, the side of the panel the download arrow sits on.</summary>
+        public int Arrow;
+        /// <summary>True when the direction label is the source's `t('up'/'down')` fallback.</summary>
+        public bool DirectionFallback;
+
+        /// <summary>The key over painted data only; geometry changes never move it.</summary>
+        public string ContentKey {
+            get {
+                var text = new StringBuilder();
+                text.Append(LineId).Append('\u001f').Append(Colour).Append('\u001f').Append(Direction)
+                    .Append('\u001f').Append(StationName).Append('\u001f').Append(StationNameEn)
+                    .Append('\u001f').Append(Destination).Append('\u001f').Append(DestinationEn)
+                    .Append('\u001f').Append(Adjacent).Append('\u001f').Append(AdjacentEn)
+                    .Append('\u001f').Append(Terminal ? '1' : '0').Append('\u001f').Append(Arrow)
+                    .Append('\u001f').Append(DirectionFallback ? '1' : '0');
+                return text.ToString();
+            }
+        }
+
+        public override string ToString() {
+            var text = new StringBuilder();
+            text.Append("line=").Append(LineId).Append(" ink=").Append(Colour).Append(" dir=").Append(Direction);
+            text.Append(" station=").Append(StationName);
+            text.Append(" dest=").Append(Destination);
+            if (Adjacent.Length > 0) text.Append(" next=").Append(Adjacent);
+            text.Append(" arrow=").Append(Arrow).Append(" terminal=").Append(Terminal);
+            return text.ToString();
+        }
+    }
+
     /// <summary>One built opening module: identity, provenance, geometry and its state.</summary>
     public sealed class OpeningView {
         internal readonly List<OpeningLeaf> leaves = new List<OpeningLeaf>();
+        internal readonly List<OpeningPart> parts = new List<OpeningPart>();
+        internal readonly List<PsdHeaderSlot> headers = new List<PsdHeaderSlot>();
 
         public OpeningKind Kind;
         public string ModuleId = "";
@@ -158,6 +344,12 @@ namespace Metro.App {
         public string PrefabPath = "";
         /// <summary>Non-fatal caveats (`code:detail` list); empty when fully faithful.</summary>
         public string Diagnostic = "";
+        /// <summary>
+        /// A doorless gate's carried fence panel, in the **holder** frame: the cabinet jamb it
+        /// starts at and the cell edge it reaches (18c §1). Signed, so a probe can tell the lane's
+        /// own side from its mirror; zero on every other opening.
+        /// </summary>
+        public float PanelJamb, PanelEdge;
         public GameObject Instance;
         /// <summary>The module pivot the view hangs from (position + saved quarter turn).</summary>
         public Transform Holder;
@@ -178,9 +370,70 @@ namespace Metro.App {
         public float[] OpeningCentres = Array.Empty<float>();
         /// <summary>The PSD arithmetic the view was assembled from, for a report or a test.</summary>
         public PsdRunLayout Run;
+        /// <summary>
+        /// The port of `PsdHeader.ts:psdHeaderInfo` for this run's edge: the line, direction
+        /// and committed station names the printed panels would carry. Filled by
+        /// <see cref="OpeningModuleViews.BuildRun"/>; empty for the other families.
+        /// </summary>
+        public PsdHeaderPlan Header;
+        /// <summary>
+        /// The artwork request key for this module's printed panels: <see cref="PsdHeaderPlan.ContentKey"/>,
+        /// i.e. the painted data only. A face provider must treat a changed key as new pixels
+        /// and an unchanged key as reusable, so moving a panel never re-renders it.
+        /// </summary>
+        public string HeaderKey = "";
+        /// <summary>
+        /// The finish id the foundation part was drawn with — `floor.concrete` when the host
+        /// resolved the source finish, empty when only the flat palette slot was available.
+        /// </summary>
+        public string FoundationFinish = "";
 
         public IReadOnlyList<OpeningLeaf> Leaves => leaves;
+        /// <summary>Every named, measured part of the assembly, in build order (RCA 15 §5).</summary>
+        public IReadOnlyList<OpeningPart> Parts => parts;
+        /// <summary>Every platform-facing printed slot of a PSD run (RCA 15 §5 sub-item 2).</summary>
+        public IReadOnlyList<PsdHeaderSlot> Headers => headers;
         public bool Built => Instance != null;
+
+        /// <summary>
+        /// Every box this generated view emitted, with the part it belongs to and whether it
+        /// is glazing. `BuildEnd` trims its return against the parent screen's housing before
+        /// this is recorded, so a verifier (or a test) reads the **drawn** boxes, not the
+        /// intended ones (18 §3).
+        /// </summary>
+        public readonly List<OpeningBox> boxes = new List<OpeningBox>();
+
+        /// <summary>
+        /// The parent screen's housing a fixed return was trimmed against, in this view's
+        /// holder frame (18 §3). Empty for a continuation with no parent, so a verifier can
+        /// tell "nothing to trim against" from "trimmed against nothing".
+        /// </summary>
+        public readonly List<PsdReturnTrim.Housing> housing = new List<PsdReturnTrim.Housing>();
+
+        /// <summary>The drawn boxes of a generated view (18 §3).</summary>
+        public IReadOnlyList<OpeningBox> Boxes => boxes;
+        /// <summary>The parent housing a fixed return was trimmed against (empty when none).</summary>
+        public IReadOnlyList<PsdReturnTrim.Housing> Housing => housing;
+
+        /// <summary>The named part, or null when this view has no such part.</summary>
+        public OpeningPart Part(string name) {
+            for (int i = 0; i < parts.Count; i++)
+                if (string.Equals(parts[i].Name, name, StringComparison.Ordinal)) return parts[i];
+            return null;
+        }
+
+        /// <summary>Every part with one role, in build order.</summary>
+        public List<OpeningPart> PartsOf(OpeningPartRole role) => parts.Where(part => part.Role == role).ToList();
+
+        /// <summary>How many slots of one kind the run emitted.</summary>
+        public int HeaderCount(PsdHeaderKind kind) => headers.Count(slot => slot.Kind == kind);
+
+        /// <summary>The slot over one doorway, or default when the run has none.</summary>
+        public PsdHeaderSlot StationHeader(int opening) {
+            for (int i = 0; i < headers.Count; i++)
+                if (headers[i].Kind == PsdHeaderKind.Station && headers[i].OpeningIndex == opening) return headers[i];
+            return default;
+        }
 
         /// <summary>The fraction last applied to one opening.</summary>
         public float FractionAt(int opening) {
@@ -249,6 +502,13 @@ namespace Metro.App {
                     text.Append(OpeningCentres[i].ToString("0.###", id));
                 }
                 text.Append(']');
+            }
+            if (parts.Count > 0) text.Append(" parts=").Append(parts.Count);
+            if (headers.Count > 0) {
+                text.Append(" headers=").Append(headers.Count);
+                text.Append("(route=").Append(HeaderCount(PsdHeaderKind.Route))
+                    .Append(",station=").Append(HeaderCount(PsdHeaderKind.Station))
+                    .Append(",sticker=").Append(HeaderCount(PsdHeaderKind.HalfSticker)).Append(')');
             }
             if (Diagnostic.Length > 0) text.Append(" diagnostic=").Append(Diagnostic);
             return text.ToString();
@@ -337,6 +597,11 @@ namespace Metro.App {
         public float Travel;
         /// <summary>`width / 2 + 0.20`: the leaf's own width (the source overhangs the seam).</summary>
         public float LeafWidth;
+        /// <summary>The run cell whose centre is nearest this doorway (`round(Centre)`).</summary>
+        public int Cell;
+        /// <summary>The doorway's document plan centre at the floor top (`StationPlatformDoorways`).</summary>
+        public float DocumentX;
+        public float DocumentY;
         public override string ToString() =>
             "#" + Index + " at " + Centre.ToString("0.###", CultureInfo.InvariantCulture) +
             " w=" + Width.ToString("0.###", CultureInfo.InvariantCulture);
@@ -635,7 +900,7 @@ namespace Metro.App {
             }
             var layoutRef = layout;
             layoutRef.WallOffset = layoutRef.Left ? -PsdWallOffset : PsdWallOffset;
-            float toward = layoutRef.Left ? -1f : 1f;
+            int towardSign = layoutRef.Left ? -1 : 1;
             float x0 = -.5f;
             float len = layoutRef.Length;
             layoutRef.RunStart = x0;
@@ -647,10 +912,12 @@ namespace Metro.App {
             layoutRef.LeafMid = 1f + layoutRef.DoorHeight * .5f;
             layoutRef.FixedFrameDepth = half ? .10f : .14f;
             layoutRef.SlideOffset = layoutRef.FixedFrameDepth * .5f;
-            float sillTrackReach = layoutRef.SlideOffset + (half ? .10f : .12f) + .01f;
-            layoutRef.SillDepth = PsdBaseDepth * .5f + sillTrackReach;
-            layoutRef.SillY = layoutRef.WallOffset + toward * (sillTrackReach - PsdBaseDepth * .5f) * .5f;
-            layoutRef.LeafY = layoutRef.WallOffset + toward * layoutRef.SlideOffset;
+            // The threshold, foundation and leaf planes come from the one shared rail/PSD
+            // datum: the sill reaches exactly the platform-block inset edge, so the floor
+            // slab and the sill never share a face.
+            layoutRef.SillDepth = StationRailGeometry.PsdSillDepth(half);
+            layoutRef.SillY = StationRailGeometry.PsdSillY(towardSign, half);
+            layoutRef.LeafY = StationRailGeometry.PsdLeafY(towardSign, half);
 
             // The cadence is measured from the consist centre, which is the rail's centre —
             // not this edge's, which may cover only part of the bed.
@@ -689,6 +956,14 @@ namespace Metro.App {
             for (int i = 0; i < accepted.Count; i++) {
                 var opening = accepted[i];
                 opening.Index = i;
+                // RCA 16 §3.2: the shared doorway identity and world centre. The floor
+                // vinyl (`snapBoardingMark`) and the train door stop opposite this same
+                // `StationPlatformDoorways` point; a slot or mark must never re-derive it.
+                var doorway = StationPlatformDoorways.At(request.ModuleId, i, request.X, request.Y, request.Z,
+                    request.Rotation, request.Side, opening.Centre, opening.Width);
+                opening.Cell = doorway.Cell;
+                opening.DocumentX = (float)doorway.X;
+                opening.DocumentY = (float)doorway.Y;
                 accepted[i] = opening;
                 layoutRef.Openings.Add(opening);
             }
@@ -782,6 +1057,8 @@ namespace Metro.App {
             public int StoreyHeight;
             public string Variant, Mount, Psd, Side, Door, Dir, LineId, TrackId;
             public bool HasCorner;
+            /// <summary>The `cfg.corner` module id a `psd-end` returns against (18 §3).</summary>
+            public string Corner;
             public float OffsetX, OffsetY;
             public bool HasWidth, HasDepth;
             public float ConfigWidth, ConfigDepth;
@@ -791,6 +1068,13 @@ namespace Metro.App {
             public string Stock;
             public int Cars;
             public float ModelScale;
+            // RCA 15 §5: the printed header panels need the line's ink and its termini, and
+            // the station's committed names. All of it is resolved here so the geometry
+            // builder never re-reads the document.
+            public string LineColour;
+            public string UpTerminus, DownTerminus, UpTerminusEn, DownTerminusEn;
+            public string UpNextStation, DownNextStation, UpNextStationEn, DownNextStationEn;
+            public string StationName, StationNameEn;
             public GameObject Prefab;
             public RuntimeCatalogue Catalogue;
         }
@@ -815,6 +1099,7 @@ namespace Metro.App {
                 LineId = cfg.Text("line"),
                 TrackId = cfg.Text("from"),
                 HasCorner = cfg.Has("corner") && cfg.Text("corner").Length > 0,
+                Corner = cfg.Text("corner"),
                 HasWidth = cfg.Has("width"),
                 HasDepth = cfg.Has("depth"),
                 ConfigWidth = (float)cfg.Number("width", 0),
@@ -841,9 +1126,86 @@ namespace Metro.App {
                 // `buildPsd` reads `cfg.psd ?? line.psd`: a record that names no height takes
                 // the line's own screen height.
                 if (string.IsNullOrEmpty(request.Psd)) request.Psd = line.Psd ?? "";
+                // RCA 15 §5: the printed header carries the line's ink, its terminus and the
+                // next station for the edge's own direction; `PsdHeader.ts:psdHeaderInfo`.
+                request.LineColour = line.Colour;
+                request.UpTerminus = line.UpTerminus;
+                request.DownTerminus = line.DownTerminus;
+                request.UpTerminusEn = LineText(line, "upTerminusEn");
+                request.DownTerminusEn = LineText(line, "downTerminusEn");
+                request.UpNextStation = LineText(line, "upNextStation");
+                request.DownNextStation = LineText(line, "downNextStation");
+                request.UpNextStationEn = LineText(line, "upNextStationEn");
+                request.DownNextStationEn = LineText(line, "downNextStationEn");
+            }
+            // The station's own committed name is what a station panel prints, so it is read
+            // from the document the module belongs to (`ctx.data.name` in the source).
+            var document = index?.Document;
+            if (document != null) {
+                request.StationName = document.Name;
+                request.StationNameEn = document.NameEn;
             }
             return request;
         }
+
+        /// <summary>
+        /// A scalar string field of the saved line record that is not projected on
+        /// <see cref="StationLineRecord"/> (`upTerminusEn`, `downNextStation`, …), read from
+        /// its own authored JSON. Absent or unreadable fields are the empty string, exactly as
+        /// `psdHeaderInfo`'s `?.trim() ?? ''` treats them.
+        /// </summary>
+        public static string LineText(StationLineRecord line, string key) {
+            if (line == null || string.IsNullOrEmpty(key) || string.IsNullOrEmpty(line.RawJson)) return "";
+            try {
+                var record = JObject.Parse(line.RawJson);
+                var value = record[key];
+                return value == null || value.Type == JTokenType.Null ? "" : ((string)value ?? "").Trim();
+            } catch (Exception) {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// The port of `PsdHeader.ts:psdHeaderInfo`: the printed text one edge's header
+        /// panels carry. A run whose record names no line still gets the source's default
+        /// ink (`#1b6fd6`) and its direction's terminus is the direction label, which is
+        /// reported through <see cref="PsdHeaderPlan.DirectionFallback"/> rather than hidden.
+        /// </summary>
+        public static PsdHeaderPlan PsdHeaderFor(OpeningRequest request) {
+            bool down = string.Equals(request.Dir, "down", StringComparison.Ordinal);
+            bool right = string.Equals(request.Side, "right", StringComparison.Ordinal);
+            var plan = new PsdHeaderPlan {
+                HasData = true,
+                LineId = request.LineId ?? "",
+                Colour = string.IsNullOrEmpty(request.LineColour) ? "#1b6fd6" : request.LineColour,
+                Direction = down ? "down" : "up",
+                StationName = (request.StationName ?? "").Trim(),
+                StationNameEn = (request.StationNameEn ?? "").Trim(),
+                Destination = ((down ? request.DownTerminus : request.UpTerminus) ?? "").Trim(),
+                DestinationEn = ((down ? request.DownTerminusEn : request.UpTerminusEn) ?? "").Trim(),
+                Adjacent = ((down ? request.DownNextStation : request.UpNextStation) ?? "").Trim(),
+                AdjacentEn = ((down ? request.DownNextStationEn : request.UpNextStationEn) ?? "").Trim(),
+            };
+            if (plan.StationName.Length == 0) {
+                // `buildPsd`: `name = ctx.data.name || t('metro_station')`. The canvas prints
+                // the Chinese line, so the fallback is the source's zh string.
+                plan.StationName = "\u5730\u94c1\u7ad9";
+            }
+            if (plan.Destination.Length == 0) {
+                // `psdHeaderInfo`: `destination || t(down ? 'down' : 'up')`.
+                plan.Destination = down ? "\u4e0b\u884c" : "\u4e0a\u884c";
+                plan.DirectionFallback = true;
+            }
+            plan.Terminal = plan.Destination.Length > 0 &&
+                string.Equals(plan.Destination, plan.StationName.Trim(), StringComparison.Ordinal);
+            // The platform-facing plane reverses its local x on the left bank.
+            plan.Arrow = (down ? -1 : 1) * (right ? 1 : -1);
+            return plan;
+        }
+
+        /// <summary>The artwork request key of one slot: the painted data, then the panel kind.</summary>
+        public static string PsdHeaderKey(in PsdHeaderPlan plan, PsdHeaderKind kind) =>
+            plan.ContentKey + "\u001f" + kind;
 
         /// <summary>The saved line record with this id, or null.</summary>
         public static StationLineRecord LineOf(StationIndex index, string lineId) {
@@ -889,8 +1251,8 @@ namespace Metro.App {
             switch (view.Kind) {
                 case OpeningKind.PsdRun: return BuildRun(request, facts, catalogue, parent, paint, view);
                 case OpeningKind.PsdEnd:
-                case OpeningKind.PsdCover: return BuildEnd(request, facts, catalogue, parent, paint, view);
-                case OpeningKind.Gate: return BuildGate(request, facts, station, catalogue, parent, view);
+                case OpeningKind.PsdCover: return BuildEnd(request, facts, station, catalogue, parent, paint, view);
+                case OpeningKind.Gate: return BuildGate(request, facts, station, catalogue, parent, view, paint);
                 case OpeningKind.SwingDoor: return BuildDoor(request, facts, station, catalogue, parent, view);
                 case OpeningKind.Cubicle: return BuildCubicle(request, facts, catalogue, parent, view);
                 default: return Fail(view, "unsupported-type:" + request.Type);
@@ -914,7 +1276,7 @@ namespace Metro.App {
             };
             if (string.Equals(request.Psd, "none", StringComparison.Ordinal)) {
                 // `buildPsd` still draws the platform's safety line where the screen is absent.
-                var bare = Holder(parent, request.ModuleId, facts);
+                var bare = Holder(parent, request.ModuleId, facts, floorTop: false);
                 if (bare == null) return Fail(view, "no-holder");
                 view.Holder = bare;
                 view.Instance = bare.gameObject;
@@ -925,7 +1287,13 @@ namespace Metro.App {
                 return true;
             }
             if (!TryPsdRun(run, out var layout, out var diagnostic)) return Fail(view, diagnostic);
-            var holder = Holder(parent, request.ModuleId, facts);
+            // RCA 15 §5: `buildPsd` positions its group at `(mod.x + .5, mod.y + .5, mod.z)`
+            // and draws its foundation in the cell **below** the floor datum (`z0 = 1`), not
+            // on the floor itself. `Holder(floorTop: true)` put this run one metre above that
+            // datum — the foundation then stood on the platform as a bar and the run no longer
+            // met its own generated `psd-end` panels (which are placed at `mod.z`). The run is
+            // generated in the source frame, so it hangs at the source datum.
+            var holder = Holder(parent, request.ModuleId, facts, floorTop: false);
             if (holder == null) return Fail(view, "no-holder");
             view.Holder = holder;
             view.Run = layout;
@@ -933,6 +1301,9 @@ namespace Metro.App {
             view.PrefabPath = "";
             view.OpeningCount = layout.Openings.Count;
             view.OpeningCentres = layout.Openings.Select(opening => opening.Centre).ToArray();
+            view.FoundationFinish = paint != null ? paint.FoundationFinish : "";
+            view.Header = PsdHeaderFor(request);
+            view.HeaderKey = view.Header.ContentKey;
             var cavity = new OpeningBuilder(holder, paint);
             bool half = string.Equals(request.Psd, "half", StringComparison.Ordinal);
             float toward = layout.Left ? -1f : 1f;
@@ -942,27 +1313,42 @@ namespace Metro.App {
             float wall = layout.WallOffset;
             const float z0 = 1f;
 
-            // Sill, foundation, fascia and the fascia's line-colour band.
+            // Sill, foundation, fascia and the fascia's line-colour band. Each is its own
+            // named part so its bounds can be compared with `PsdModel.ts` (RCA 15 §5).
+            cavity.Part("psd-threshold", OpeningPartRole.Threshold);
             cavity.Box(OpeningColour.Black, Local(cx, layout.SillY, z0 - .01f), LocalSize(len, layout.SillDepth, .02f));
+            cavity.Part("psd-concrete-foundation", OpeningPartRole.Foundation);
             cavity.Box(OpeningColour.Concrete, Local(cx, layout.SillY, z0 - .51f), LocalSize(len, layout.SillDepth, .98f));
             if (!half) {
                 float headerBottom = layout.GlassHeight;
+                cavity.Part("psd-info-housing", OpeningPartRole.Fascia);
                 cavity.Box(OpeningColour.White, Local(cx, wall, z0 + headerBottom + PsdHeaderHeight * .5f),
                     LocalSize(len, .24f, PsdHeaderHeight));
+                cavity.Part("psd-fascia-cap", OpeningPartRole.Fascia);
                 cavity.Box(OpeningColour.Black, Local(cx, wall, z0 + PsdFullHeight - .025f), LocalSize(len, .28f, .05f));
+                cavity.Part("psd-line-colour-band", OpeningPartRole.Fascia);
                 cavity.Box(OpeningColour.Line, Local(cx, wall - toward * .13f, z0 + headerBottom + .012f),
                     LocalSize(len, .03f, .025f));
             } else {
+                cavity.Part("psd-fixed-cap", OpeningPartRole.Frame);
                 cavity.Box(OpeningColour.Black, Local(cx, wall, z0 + PsdHalfHeight - .025f), LocalSize(len, .10f, .05f));
             }
+            cavity.Part("psd-warning-strip", OpeningPartRole.Warning);
             cavity.Box(OpeningColour.Red, Local(cx, wall, z0 + .003f), LocalSize(len, .03f, .006f));
 
+            cavity.Part("psd-fixed-glass", OpeningPartRole.Glass);
             foreach (var panel in layout.Panels) {
                 float width = panel.y - panel.x;
                 if (width <= .05f) continue;
                 float mid = (panel.x + panel.y) * .5f;
                 cavity.Box(OpeningColour.Glass, Local(mid, wall, layout.GlassMid),
                     LocalSize(width, .012f, layout.GlassHeight));
+            }
+            cavity.Part("psd-fixed-rail", OpeningPartRole.Frame);
+            foreach (var panel in layout.Panels) {
+                float width = panel.y - panel.x;
+                if (width <= .05f) continue;
+                float mid = (panel.x + panel.y) * .5f;
                 if (half) {
                     cavity.Box(OpeningColour.Black, Local(mid, wall, z0 + PsdHalfHeight - .05f - .06f),
                         LocalSize(width, .08f, .12f));
@@ -972,9 +1358,11 @@ namespace Metro.App {
                         LocalSize(width, .12f, .06f));
                 }
             }
+            cavity.Part("psd-fixed-post", OpeningPartRole.Frame);
             foreach (var post in layout.Posts)
                 cavity.Box(OpeningColour.Black, Local(post, wall, layout.GlassMid),
                     LocalSize(.08f, layout.FixedFrameDepth, layout.GlassHeight));
+            cavity.Part("psd-section-pillar", OpeningPartRole.Frame);
             foreach (var pillar in layout.Pillars)
                 cavity.Box(OpeningColour.Black, Local(pillar, wall, layout.GlassMid),
                     LocalSize(.16f, layout.FixedFrameDepth, layout.GlassHeight));
@@ -989,8 +1377,10 @@ namespace Metro.App {
                         (side == 0 ? "-left" : "-right"), Local(leafX, layout.LeafY, layout.LeafMid));
                     if (node == null) continue;
                     var parts = new OpeningBuilder(node, paint);
+                    parts.Part("psd-door-glass", OpeningPartRole.Glass);
                     parts.Box(OpeningColour.MovingGlass, Vector3.zero, LocalSize(opening.LeafWidth, .02f, layout.DoorHeight));
                     // All opaque fittings sit track-side of their glass plane.
+                    parts.Part("psd-door-frame", OpeningPartRole.Frame);
                     float frameX = sign * (opening.Width * .5f + .20f - .03f - opening.LeafWidth * .5f);
                     parts.Box(OpeningColour.Black, Local(frameX, toward * .06f, 0f),
                         LocalSize(.06f, .12f, layout.DoorHeight));
@@ -1015,18 +1405,137 @@ namespace Metro.App {
                     });
                 }
             }
-            cavity.Finish(request.ModuleId);
+            // RCA 15 §5 sub-item 2: the printed header band, as slots a face provider can
+            // bind. The panels themselves are not drawn here — the fascia housing behind them
+            // is, so an unpainted slot cannot be mistaken for painted artwork.
+            EmitHeaderSlots(holder, layout, half, view.headers, view.Header);
+            cavity.Finish(request.ModuleId, view);
             view.Instance = holder.gameObject;
             view.Movable = view.leaves.Count > 0;
             view.Diagnostic = Append(diagnostic, "decals-unported:sign-face-engine");
             view.Diagnostic = Append(view.Diagnostic, "prefab-housing-unused:run-exceeds-fixture");
+            // RCA 15 §5: the slots carry pose, span and key. A direct `BuildAll` (an EditMode
+            // test, a bare verifier) has no face provider, so the run names that truth; the
+            // renderer replaces this token with `served`/`pending` once it has bound the
+            // browser's painted pixels (`OpeningModuleRenderer.BuildHeaders`).
+            view.Diagnostic = Append(view.Diagnostic, HeaderArtworkUnported("no-face-provider", view.headers.Count));
             return true;
+        }
+
+        /// <summary>
+        /// The named diagnostic a PSD run carries while its printed panels are not painted
+        /// (RCA 15 §5). `reason` says what is missing — never that the artwork is simply
+        /// "unported" when a provider exists.
+        /// </summary>
+        public static string HeaderArtworkUnported(string reason, int slots) =>
+            "psd-header-artwork-unported:" + reason + "(" + slots.ToString(CultureInfo.InvariantCulture) + " slot(s))";
+
+        /// <summary>
+        /// Replace a view's printed-header diagnostic with the current truth (`served`,
+        /// `pending`, or a named `unported`), leaving every other diagnostic untouched.
+        /// </summary>
+        public static void SetHeaderArtwork(OpeningView view, string token) {
+            if (view == null) return;
+            var kept = new StringBuilder();
+            var parts = (view.Diagnostic ?? "").Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var part in parts) {
+                var entry = part.Trim();
+                if (entry.Length == 0 || entry.StartsWith("psd-header-artwork", StringComparison.Ordinal)) continue;
+                if (kept.Length > 0) kept.Append("; ");
+                kept.Append(entry);
+            }
+            if (!string.IsNullOrEmpty(token)) {
+                if (kept.Length > 0) kept.Append("; ");
+                kept.Append(token);
+            }
+            view.Diagnostic = kept.ToString();
+        }
+
+        /// <summary>
+        /// The span arithmetic of `PsdModel.buildPsd`'s header block, as slots.
+        ///
+        /// Full height: the band over each doorway is a **station** panel spanning exactly the
+        /// clear opening, and the fixed spans before, between and after the doorways are
+        /// **route** panels; a span shorter than 0.05 m is dropped, as the source drops it.
+        /// Half height: the top band is gone, so each fixed pane carries one paired
+        /// **sticker** (route print on the left half, station print on the right), inset by
+        /// 0.12 m per side, capped at 2.8 m and skipped below 0.7 m.
+        /// </summary>
+        public static void EmitHeaderSlots(Transform holder, PsdRunLayout layout, bool half,
+            List<PsdHeaderSlot> slots, in PsdHeaderPlan plan) {
+            if (layout == null || slots == null) return;
+            float facing = layout.Left ? 1f : -1f;
+            float toward = -facing;
+            float wall = layout.WallOffset;
+            float x0 = layout.RunStart;
+            float end = layout.End;
+            if (!half) {
+                float mid = 1f + layout.GlassHeight + PsdHeaderHeight * .5f;
+                float across = wall - toward * .13f;
+                var headerRoot = holder ? OpeningBuilder.Node(holder, "psd-headers", Vector3.zero) : null;
+                float cursor = x0;
+                foreach (var opening in layout.Openings) {
+                    float doorStart = opening.Centre - opening.Width * .5f;
+                    AddHeaderSlot(slots, headerRoot, PsdHeaderKind.Route, -1, cursor, doorStart, across, mid,
+                        PsdHeaderHeight, facing, 1024, plan);
+                    AddHeaderSlot(slots, headerRoot, PsdHeaderKind.Station, opening.Index, doorStart,
+                        opening.Centre + opening.Width * .5f, across, mid, PsdHeaderHeight, facing, 1024, plan);
+                    cursor = opening.Centre + opening.Width * .5f;
+                }
+                AddHeaderSlot(slots, headerRoot, PsdHeaderKind.Route, -1, cursor, end, across, mid,
+                    PsdHeaderHeight, facing, 1024, plan);
+                return;
+            }
+            // A half-height screen prints the pair on the glass of every fixed pane, at the
+            // track-side face of the fixed frame (the source's `fixedFrameDepth / 2 + 0.002`).
+            // The slot spans the **printed** plate, inset 0.12 m per side and capped at 2.8 m.
+            float surface = wall - toward * (layout.FixedFrameDepth * .5f + .002f);
+            var stickerRoot = holder ? OpeningBuilder.Node(holder, "psd-header-stickers", Vector3.zero) : null;
+            foreach (var panel in layout.Panels) {
+                float width = panel.y - panel.x;
+                float printed = Mathf.Min(width - .24f, 2.8f);
+                if (printed < .7f) continue;
+                float centre = (panel.x + panel.y) * .5f;
+                AddHeaderSlot(slots, stickerRoot, PsdHeaderKind.HalfSticker, -1, centre - printed * .5f,
+                    centre + printed * .5f, surface, layout.GlassMid, printed * (256f / 2048f), facing, 2048, plan);
+            }
+        }
+
+        static void AddHeaderSlot(List<PsdHeaderSlot> slots, Transform root, PsdHeaderKind kind, int opening,
+            float start, float end, float across, float mid, float height, float facing, int pixels,
+            in PsdHeaderPlan plan) {
+            float width = end - start;
+            if (width < .05f) return;
+            var slot = new PsdHeaderSlot {
+                Kind = kind,
+                OpeningIndex = opening,
+                Start = start,
+                End = end,
+                Across = across,
+                Mid = mid,
+                Height = height,
+                Facing = facing,
+                Pixels = pixels,
+                Key = PsdHeaderKey(plan, kind),
+            };
+            if (root) {
+                float centre = (start + end) * .5f;
+                var node = OpeningBuilder.Node(root, "psd-header-" + kind.ToString().ToLowerInvariant() + "-" +
+                    slots.Count.ToString("00", CultureInfo.InvariantCulture), Local(centre, across, mid));
+                if (node) {
+                    // The slot's forward is the printed face normal — toward the platform, so a
+                    // quad attached here reads from the platform and is culled from the track.
+                    node.localRotation = Quaternion.LookRotation(new Vector3(0f, 0f, facing), Vector3.up);
+                    slot.Node = node;
+                }
+            }
+            slots.Add(slot);
         }
 
         /* --------------------------------------------------------- fixed PSD ends */
 
-        static bool BuildEnd(OpeningRequest request, ModuleFacts facts, RuntimeCatalogue catalogue, Transform parent,
-            OpeningPalette paint, OpeningView view) {
+        static bool BuildEnd(OpeningRequest request, ModuleFacts facts, IReadOnlyList<ModuleFacts> station,
+            RuntimeCatalogue catalogue, Transform parent, OpeningPalette paint, OpeningView view) {
             bool cover = string.Equals(request.Variant, "cover", StringComparison.Ordinal);
             bool half = string.Equals(request.Psd, "half", StringComparison.Ordinal);
             view.Kind = cover ? OpeningKind.PsdCover : OpeningKind.PsdEnd;
@@ -1041,39 +1550,72 @@ namespace Metro.App {
             view.Holder = holder;
 
             if (cover) {
-                // `PsdEndModel`: one white box (width x depth x 1 m) whose base sits at the
-                // record's own elevation, so the course stacks above the screen.
+                // `PsdEndModel`: one white box (width x depth x 1 m) at
+                // `(offset[0], ±0.34 + offset[1], 0.5)` in the module's own frame — base at the
+                // record's own elevation, course one metre tall, so it stacks on the screen.
                 float width = request.HasWidth ? request.ConfigWidth : 1f;
                 float depth = request.HasDepth ? request.ConfigDepth : .24f;
                 float sideY = string.Equals(request.Side, "right", StringComparison.Ordinal) ? .34f : -.34f;
-                var place = Local(request.OffsetX, 0f, request.OffsetY);
-                if (TryPrefab(request, catalogue, PsdCoverPrefabKey, holder, view, out var coverInstance) &&
-                    PlanExtentsMatch(coverInstance, holder, width, depth)) {
-                    // The prefab's panel is baked at the canonical offset; a saved offset moves
-                    // the whole course.
-                    coverInstance.transform.localPosition = place;
-                    view.Instance = coverInstance;
-                    view.ViewKey = PsdCoverPrefabKey;
-                    view.Movable = false;
-                    return true;
+                // The source's panel centre in the holder's axes. The promoted `psd-end-cover`
+                // prefab bakes its canonical panel there (measured: the GLB `psd-cover-panel`
+                // node sits at source (0, −0.34, 0.5), so the piece is the **left-bank** course
+                // and its pivot is the course base), which is why the instance is placed by its
+                // measured centre rather than an assumed one.
+                var target = Local(request.OffsetX, sideY + request.OffsetY, .5f);
+                if (TryPrefab(request, catalogue, PsdCoverPrefabKey, holder, view, out var coverInstance)) {
+                    var place = target;
+                    coverInstance.transform.localPosition = Vector3.zero;
+                    if (MeshBoundsIn(coverInstance.transform, holder, out var baked)) {
+                        place = target - baked.center;
+                        coverInstance.transform.localPosition = place;
+                        if (Mathf.Abs(place.y) > 1e-3f) {
+                            // The prefab's pivot is not the course base: say so rather than
+                            // letting the mesh float or sink by a silent correction.
+                            view.Diagnostic = "prefab-pivot-offset:y " +
+                                place.y.ToString("+0.###;-0.###", CultureInfo.InvariantCulture);
+                        }
+                    }
+                    if (PlanExtentsMatch(coverInstance, holder, width, depth, 1f, out var extentDiagnostic)) {
+                        var part = MeasurePart("psd-cover-panel", OpeningPartRole.Cover, coverInstance.transform,
+                            holder, paint, OpeningColour.White);
+                        part.PrefabOffset = place;
+                        view.parts.Add(part);
+                        view.Instance = coverInstance;
+                        view.ViewKey = PsdCoverPrefabKey;
+                        view.Movable = false;
+                        return true;
+                    }
+                    // Report the measured offset, not just a code: this is the number the RCA
+                    // asked to measure before touching the course.
+                    view.Diagnostic = Append(view.Diagnostic, "prefab-extent-mismatch:cover " + extentDiagnostic);
+                    Discard(coverInstance);
                 }
-                if (coverInstance) Discard(coverInstance);
                 var box = new OpeningBuilder(holder, paint);
+                box.Part("psd-cover-panel", OpeningPartRole.Cover);
                 box.Box(OpeningColour.White, Local(request.OffsetX, sideY + request.OffsetY, .5f),
                     LocalSize(width, depth, 1f));
-                box.Finish(request.ModuleId);
+                box.Finish(request.ModuleId, view);
                 view.Instance = holder.gameObject;
                 view.ViewKey = PsdEndGeneratedKey + ":cover";
                 view.PrefabPath = "";
                 view.Movable = false;
-                view.Diagnostic = "prefab-extent-mismatch:cover " +
-                    width.ToString("0.###", CultureInfo.InvariantCulture) + "x" +
-                    depth.ToString("0.###", CultureInfo.InvariantCulture);
+                if (view.Diagnostic.Length == 0)
+                    view.Diagnostic = "prefab-extent-mismatch:cover " +
+                        width.ToString("0.###", CultureInfo.InvariantCulture) + "x" +
+                        depth.ToString("0.###", CultureInfo.InvariantCulture);
                 return true;
             }
 
             if (half && TryPrefab(request, catalogue, PsdEndPrefabKey, holder, view, out var halfInstance)) {
-                halfInstance.transform.localPosition = Local(endOffset.x, 0f, endOffset.y);
+                // `PsdEndModel`: `child.position.x += ox; child.position.y += oy` — the offset
+                // is along/across in the **source** frame, so the holder-local position is
+                // `Local(ox, oy, 0)`. (The previous `Local(ox, 0, oy)` put the across offset
+                // into the elevation.) The promoted frame's x may be mirrored; a corner end's
+                // ox is the only value this affects and no half-height corner exists in the
+                // shipped saves, so it is applied in the document's x and reported if it moves.
+                halfInstance.transform.localPosition = Local(endOffset.x, endOffset.y, 0f);
+                view.parts.Add(MeasurePart("psd-end-panel", OpeningPartRole.Other, halfInstance.transform, holder,
+                    paint, OpeningColour.White));
                 view.Instance = halfInstance;
                 view.ViewKey = PsdEndPrefabKey;
                 view.Movable = false;
@@ -1089,7 +1631,9 @@ namespace Metro.App {
             float x0 = span.x;
             float len = span.y - span.x;
             if (len <= .01f) return Fail(view, "empty-span");
-            float wall = -PsdWallOffset;
+            // The screen faces the track: `side: right` mirrors the wall plane (a saved
+            // `side` the run honours, and the return shares the run's frame).
+            float wall = string.Equals(request.Side, "right", StringComparison.Ordinal) ? PsdWallOffset : -PsdWallOffset;
             const float z0 = 1f;
             float doorH = PsdFullHeight - PsdDoorTopGap - PsdHeaderHeight;
             float glassMid = z0 + doorH * .5f;
@@ -1102,28 +1646,97 @@ namespace Metro.App {
             var cavity = new OpeningBuilder(holder, paint);
             float shiftX = ox;
             float shiftY = oy;
+            // The same named parts the run records, so an end can be compared with the run it
+            // continues (RCA 15 §5).
+            cavity.Part("psd-threshold", OpeningPartRole.Threshold);
             cavity.Box(OpeningColour.Black, Local(cx + shiftX, sillY + shiftY, z0 - .01f), LocalSize(len, sillDepth, .02f));
+            cavity.Part("psd-concrete-foundation", OpeningPartRole.Foundation);
             cavity.Box(OpeningColour.Concrete, Local(cx + shiftX, sillY + shiftY, z0 - .51f), LocalSize(len, sillDepth, .98f));
+            cavity.Part("psd-info-housing", OpeningPartRole.Fascia);
             cavity.Box(OpeningColour.White, Local(cx + shiftX, wall + shiftY, z0 + doorH + PsdHeaderHeight * .5f),
                 LocalSize(len, .24f, PsdHeaderHeight));
+            cavity.Part("psd-fascia-cap", OpeningPartRole.Fascia);
             cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + PsdFullHeight - .025f),
                 LocalSize(len, .28f, .05f));
+            cavity.Part("psd-warning-strip", OpeningPartRole.Warning);
             cavity.Box(OpeningColour.Red, Local(cx + shiftX, wall + shiftY, z0 + .003f), LocalSize(len, .03f, .006f));
+            cavity.Part("psd-fixed-glass", OpeningPartRole.Glass);
             cavity.Box(OpeningColour.Glass, Local(cx + shiftX, wall + shiftY, glassMid), LocalSize(len, .012f, doorH));
+            cavity.Part("psd-fixed-rail", OpeningPartRole.Frame);
             cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + .03f), LocalSize(len, .12f, .06f));
             cavity.Box(OpeningColour.Black, Local(cx + shiftX, wall + shiftY, z0 + doorH - .03f),
                 LocalSize(len, .12f, .06f));
+            cavity.Part("psd-fixed-post", OpeningPartRole.Frame);
             foreach (var post in new[] { x0 + .04f, x0 + len - .04f })
                 cavity.Box(OpeningColour.Black, Local(post + shiftX, wall + shiftY, glassMid), LocalSize(.08f, .14f, doorH));
+            cavity.Part("psd-section-pillar", OpeningPartRole.Frame);
             foreach (var pillar in new[] { x0 + .08f, x0 + len - .08f })
                 cavity.Box(OpeningColour.Black, Local(pillar + shiftX, wall + shiftY, glassMid),
                     LocalSize(.16f, .14f, doorH));
-            cavity.Finish(request.ModuleId);
+            // 18 §3: the opaque return stops at its parent screen's housing, slice by slice,
+            // while the fixed glass stays on the shared centreline. A continuation with no
+            // resolvable parent is trimmed by its own box and tile bounds only, and says so.
+            var housing = ParentHousing(request, facts, station, half, out var housingNote);
+            bool trimmed = housing != null && housing.Count > 0;
+            if (trimmed) view.housing.AddRange(housing);
+            cavity.Trim((part, role, centre, size) => {
+                bool glass = role == OpeningPartRole.Glass ||
+                    (part ?? "").IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0;
+                return PsdReturnTrim.Apply(centre, size, glass, ox, housing);
+            });
+            cavity.Finish(request.ModuleId, view);
             view.Instance = holder.gameObject;
             view.ViewKey = PsdEndGeneratedKey;
             view.Movable = false;
+            view.FoundationFinish = paint != null ? paint.FoundationFinish : "";
             view.Diagnostic = half ? "half-prefab-missing:generated" : "prefab-half-height:generated-full";
+            view.Diagnostic = Append(view.Diagnostic, (trimmed ? "psd-end-housing:" : "psd-end-housing-missing:") +
+                housingNote);
             return true;
+        }
+
+        /// <summary>
+        /// 18 §3 — the parent screen's housing in the return's own frame. `cfg.corner` is
+        /// resolved by **exact module id**; its run profile comes from the same `PsdRunLayout`
+        /// arithmetic `BuildRun` draws; and every box is carried through the corner holder's
+        /// transform into the return's, so the two pieces are compared in one frame.
+        /// </summary>
+        static List<PsdReturnTrim.Housing> ParentHousing(OpeningRequest request, ModuleFacts facts,
+            IReadOnlyList<ModuleFacts> station, bool half, out string note) {
+            note = "";
+            if (string.IsNullOrEmpty(request.Corner)) { note = "no-corner"; return null; }
+            ModuleFacts corner = null;
+            if (station != null) {
+                for (int i = 0; i < station.Count; i++) {
+                    var candidate = station[i];
+                    if (candidate == null) continue;
+                    if (!string.Equals(candidate.Type, "platform-edge", StringComparison.Ordinal)) continue;
+                    if (!string.Equals(candidate.Id, request.Corner, StringComparison.Ordinal)) continue;
+                    corner = candidate;
+                    break;
+                }
+            }
+            if (corner == null) { note = "corner-not-found:" + request.Corner; return null; }
+            var run = new PsdRunRequest {
+                ModuleId = corner.Id, X = corner.X, Y = corner.Y, Z = corner.Z,
+                Rotation = corner.Rotation, Width = Mathf.Max(1, corner.Width),
+                Side = request.Side, Psd = request.Psd, StoreyHeight = request.StoreyHeight,
+            };
+            if (!TryPsdRun(run, out var layout, out var runDiagnostic)) {
+                note = "corner-layout:" + runDiagnostic;
+                return null;
+            }
+            var profile = PsdReturnTrim.ProfileFromRun(layout, half);
+            if (profile.Count == 0) { note = "corner-empty"; return null; }
+            var cornerFrame = Matrix4x4.TRS(Pivot(corner, new Vector3(.5f, .5f, 0f), false),
+                ModulePlacement.Rotation(corner.Rotation), Vector3.one);
+            var endFrame = Matrix4x4.TRS(Pivot(facts, new Vector3(.5f, .5f, 0f), false),
+                ModulePlacement.Rotation(facts.Rotation), Vector3.one);
+            var relative = endFrame.inverse * cornerFrame;
+            var housing = new List<PsdReturnTrim.Housing>(profile.Count);
+            for (int i = 0; i < profile.Count; i++) housing.Add(PsdReturnTrim.Transform(profile[i], relative));
+            note = "boxes=" + housing.Count.ToString(CultureInfo.InvariantCulture);
+            return housing;
         }
 
         static bool TryPrefab(OpeningRequest request, RuntimeCatalogue catalogue, string key, Transform holder,
@@ -1137,16 +1750,55 @@ namespace Metro.App {
         }
 
         /// <summary>The measured plan extents of an instance, in its holder's local document axes.</summary>
-        static bool PlanExtentsMatch(GameObject instance, Transform holder, float width, float depth) {
-            if (!instance || !holder) return false;
-            if (!MeshBoundsIn(instance.transform, holder, out var bounds)) return false;
-            return Mathf.Abs(bounds.size.x - width) <= .02f && Mathf.Abs(bounds.size.z - depth) <= .02f;
+        public static bool PlanExtentsMatch(GameObject instance, Transform holder, float width, float depth) =>
+            PlanExtentsMatch(instance, holder, width, depth, 0f, out _);
+
+        /// <summary>
+        /// RCA 15 §5: a promoted prefab is accepted only when it reproduces **both** the saved
+        /// plan extents and — when <paramref name="height"/> is positive — the saved vertical
+        /// span of the course. A `psd-end` cover's base is the record's own elevation, so in
+        /// the holder's frame the course must measure <c>[0, height]</c> up. The promoted
+        /// `PsdEndCover` bakes its panel centred on its pivot, which is why the caller places
+        /// the instance at the source's panel centre before asking; a prefab of another height
+        /// (or one whose content is off-centre) is rejected with the measured span.
+        /// </summary>
+        public static bool PlanExtentsMatch(GameObject instance, Transform holder, float width, float depth,
+            float height, out string diagnostic) {
+            diagnostic = "";
+            if (!instance || !holder) {
+                diagnostic = "no-instance";
+                return false;
+            }
+            if (!MeshBoundsIn(instance.transform, holder, out var bounds)) {
+                diagnostic = "no-mesh";
+                return false;
+            }
+            bool plan = Mathf.Abs(bounds.size.x - width) <= .02f && Mathf.Abs(bounds.size.z - depth) <= .02f;
+            bool vertical = height <= 0f ||
+                (Mathf.Abs(bounds.min.y) <= .02f && Mathf.Abs(bounds.max.y - height) <= .02f);
+            if (plan && vertical) return true;
+            var id = CultureInfo.InvariantCulture;
+            var text = new StringBuilder();
+            if (!plan) {
+                text.Append("plan ").Append(bounds.size.x.ToString("0.###", id)).Append('x')
+                    .Append(bounds.size.z.ToString("0.###", id)).Append(" saved ")
+                    .Append(width.ToString("0.###", id)).Append('x').Append(depth.ToString("0.###", id));
+            }
+            if (!vertical) {
+                if (text.Length > 0) text.Append("; ");
+                text.Append("vertical measured ").Append(bounds.min.y.ToString("0.###", id)).Append("..")
+                    .Append(bounds.max.y.ToString("0.###", id)).Append(" saved ")
+                    .Append(0f.ToString("0.###", id)).Append("..").Append(height.ToString("0.###", id));
+                text.Append(" offset ").Append((bounds.min.y - 0f).ToString("+0.###;-0.###", id));
+            }
+            diagnostic = text.ToString();
+            return false;
         }
 
         /* ------------------------------------------------------------------ gates */
 
         static bool BuildGate(OpeningRequest request, ModuleFacts facts, IReadOnlyList<ModuleFacts> station,
-            RuntimeCatalogue catalogue, Transform parent, OpeningView view) {
+            RuntimeCatalogue catalogue, Transform parent, OpeningView view, OpeningPalette paint) {
             var visual = ModuleViews.Resolve(facts, station, catalogue);
             if (!visual.HasModel) return Fail(view, "unresolved:" + (visual.Detail.Length > 0 ? visual.Detail : "no-view"));
             if (catalogue == null || !catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null)
@@ -1166,15 +1818,16 @@ namespace Metro.App {
             if (wing == null) {
                 if (lane) return FailAndDiscard(view, "gate-has-no-wing");
                 view.Movable = false;
-                view.Diagnostic = "fence-door:no-fence-panel";
+                BuildGateFencePanel(request, facts, station, instance.transform, view, paint);
                 return true;
             }
             if (!lane) {
                 // A fence machine has no leaf channel: the source draws a fence panel through
-                // the lane. B3 must not animate the exported wings in its place.
+                // the lane. The exported wings are the wrong geometry for it, so they are
+                // retired and the panel is composed from the source's own fence numbers (18 §5).
                 wing.gameObject.SetActive(false);
                 view.Movable = false;
-                view.Diagnostic = "fence-door:leaves-hidden; fence-run-unported";
+                BuildGateFencePanel(request, facts, station, instance.transform, view, paint);
                 return true;
             }
             var left = FindNode(wing, "left-leaf");
@@ -1266,6 +1919,157 @@ namespace Metro.App {
         }
 
         /// <summary>
+        /// 18 §5 — the fence panel a **doorless** machine carries through its lane. The
+        /// source's doorless branch (`GateModel.build`) draws `drawFence` from the cabinet's
+        /// inner jamb to the cell edge, a jamb post where it leaves the machine, and a free-end
+        /// cap unless the neighbouring run carries the barrier on. The exported wings are the
+        /// wrong geometry for this door type, and `StationOutdoorConnections.GateSolidFaces`
+        /// already reports the gate as solid on every side, so without this the adjacent fence
+        /// met a gap where the save promised a solid face.
+        ///
+        /// The jamb is measured from the promoted prefab (its lane leaves when it has them,
+        /// its own cabinet body when it does not), so the panel lands in the machine's frame
+        /// whatever handedness the promotion baked in. The arm, post and clamp dimensions are
+        /// `OutdoorModuleViews`' shared `drawFence`/`fencePost` numbers.
+        /// </summary>
+        static bool BuildGateFencePanel(OpeningRequest request, ModuleFacts facts, IReadOnlyList<ModuleFacts> station,
+            Transform instance, OpeningView view, OpeningPalette paint) {
+            if (!instance) {
+                view.Diagnostic = "fence-door:no-instance";
+                return false;
+            }
+            if (!TryMeasureGateJambInHolder(instance, out float inner)) {
+                view.Diagnostic = "fence-door:jamb-unmeasurable";
+                return false;
+            }
+            // 18c §1: the panel grows toward the **lane's own** cell edge — +X in the holder frame,
+            // the very side `LaneNeighbourCarries` looks at. Choosing the edge from the sign of a
+            // jamb measured in the imported wing's frame put the panel one tile edge away, because
+            // that wing carries glTFast's X reflection under the prefab's 180° wrapper.
+            float edge = GateCellEdge;
+            bool carried = LaneNeighbourCarries(facts, station);
+            var steelVertices = new List<Vector3>();
+            var steelTriangles = new List<int>();
+            var glassVertices = new List<Vector3>();
+            var glassTriangles = new List<int>();
+            OutdoorModuleViews.AppendFenceRail(steelVertices, steelTriangles,
+                glassVertices, glassTriangles, inner, edge, false);
+            OutdoorModuleViews.AppendFencePost(steelVertices, steelTriangles, inner, 0f);
+            if (!carried) {
+                // `drawFence`'s `capE`: a free end caps itself one clamp inset from the edge.
+                float cap = edge - Mathf.Sign(edge - inner) * .04f;
+                OutdoorModuleViews.AppendFencePost(steelVertices, steelTriangles, cap, 0f);
+            }
+            var root = new GameObject("fence panel");
+            root.transform.SetParent(instance, false);
+            var steel = GateMaterial(instance, paint, "steel", OpeningColour.Steel);
+            // A gate scanner head carries `tintedGlass` (opaque near-black); the doorless lane's
+            // barrier infill is `drawFence`'s transparent fence glass (`OpeningColour.Glass`), not
+            // the scanner bezel.
+            var glass = paint != null && paint[OpeningColour.Glass] != null
+                ? paint[OpeningColour.Glass]
+                : GateMaterial(instance, paint, "glass", OpeningColour.Glass);
+            OutdoorModuleViews.AddPart(root.transform, "fence panel steel", steelVertices, steelTriangles, steel);
+            OutdoorModuleViews.AddPart(root.transform, "fence panel glass", glassVertices, glassTriangles, glass);
+            view.Instance = instance.gameObject;
+            view.Diagnostic = carried ? "fence-door:panel-carried" : "fence-door:panel-capped";
+            // The signed span the panel was drawn with, in the holder frame, for a probe that has
+            // to read the **side** rather than an absolute extent (18c §1).
+            view.PanelJamb = inner;
+            view.PanelEdge = edge;
+            return true;
+        }
+
+        /// <summary>
+        /// `GateModel`'s doorless `drawFence` runs from the cabinet's inner jamb to the cell edge
+        /// on the lane's own side: `inner = −(0.5 − GATE_W)` to `+0.5` in the **holder** frame.
+        /// </summary>
+        public static float GateJambInner => -(0.5f - GateWidth);
+        /// <summary>The cell edge the lane opens towards, in the holder frame, metres.</summary>
+        public const float GateCellEdge = .5f;
+
+        /// <summary>
+        /// The machine's inner jamb measured in its **holder** frame (18c §1). `TryMeasureGateLane`
+        /// answers in the imported `wing` node's frame, which the promotion mirrors; reading those
+        /// extents as if they were the outer instance's put the fence panel on the far edge. The
+        /// lane always runs toward +X here, so the cabinet jamb is the endpoint nearer the centre
+        /// on the −X side, and a prefab with no leaves falls back to the cabinet body's own edge.
+        /// </summary>
+        static bool TryMeasureGateJambInHolder(Transform instance, out float inner) {
+            inner = 0f;
+            if (!instance) return false;
+            var left = FindNode(instance, "left-leaf");
+            var right = FindNode(instance, "right-leaf");
+            if (left && right) {
+                var a = LeafLocalExtentX(left, instance);
+                var b = LeafLocalExtentX(right, instance);
+                float near = Mathf.Min(a.x, b.x), far = Mathf.Max(a.y, b.y);
+                if (far - near > .05f) {
+                    float endpoint = Mathf.Abs(near) <= Mathf.Abs(far) ? near : far;
+                    inner = -Mathf.Abs(endpoint);
+                    return true;
+                }
+            }
+            if (!MeshBoundsIn(instance, instance, out var bounds)) return false;
+            float lo = bounds.min.x, hi = bounds.max.x;
+            if (hi - lo < .05f || hi - lo > .6f) return false;
+            inner = -Mathf.Abs(Mathf.Abs(lo) <= Mathf.Abs(hi) ? lo : hi);
+            return true;
+        }
+
+        /// <summary>
+        /// The machine's inner jamb in its own local metres: the lane end nearer the cell centre
+        /// when the promoted prefab carries leaves, otherwise the cabinet body's own nearer edge.
+        /// </summary>
+        static bool TryMeasureGateJamb(Transform instance, out float inner) {
+            inner = 0f;
+            if (!instance) return false;
+            if (TryMeasureGateLane(instance, out var nearJamb, out var farJamb, out _)) {
+                inner = Mathf.Abs(nearJamb) <= Mathf.Abs(farJamb) ? nearJamb : farJamb;
+                return true;
+            }
+            if (!MeshBoundsIn(instance, instance, out var bounds)) return false;
+            float lo = bounds.min.x, hi = bounds.max.x;
+            // The bare cabinet is one machine wide (0.30 m); a wider extent means the bounds
+            // cannot isolate it, so the jamb stays unmeasured and is named.
+            if (hi - lo < .05f || hi - lo > .6f) return false;
+            inner = Mathf.Abs(lo) <= Mathf.Abs(hi) ? lo : hi;
+            return true;
+        }
+
+        /// <summary>
+        /// `GateModel`'s doorless `carried`: a same-level fence, or a gate whose solid face
+        /// points back at this cell, stands on the neighbour the lane opens towards.
+        /// </summary>
+        static bool LaneNeighbourCarries(ModuleFacts facts, IReadOnlyList<ModuleFacts> station) {
+            if (facts == null || station == null) return false;
+            StationFootprints.RotateLocal(facts.Rotation, 1, 0, out var ox, out var oy);
+            int dx = (int)Math.Round(ox), dy = (int)Math.Round(oy);
+            for (int i = 0; i < station.Count; i++) {
+                var other = station[i];
+                if (other == null || other.Z != facts.Z) continue;
+                if (other.X != facts.X + dx || other.Y != facts.Y + dy) continue;
+                if (string.Equals(other.Type, "fence", StringComparison.Ordinal)) return true;
+                if (string.Equals(other.Type, "gate", StringComparison.Ordinal) &&
+                    Metro.View.StationFenceConnections.GateSolidFaces(other, -dx, -dy)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The gate's own material naming the slot, else the opening palette's.</summary>
+        static Material GateMaterial(Transform instance, OpeningPalette paint, string match, int slot) {
+            if (instance) {
+                foreach (var renderer in instance.GetComponentsInChildren<MeshRenderer>(true)) {
+                    foreach (var material in renderer.sharedMaterials) {
+                        if (!material || material.name == null) continue;
+                        if (material.name.IndexOf(match, StringComparison.OrdinalIgnoreCase) >= 0) return material;
+                    }
+                }
+            }
+            return paint != null ? paint[slot] : null;
+        }
+
+        /// <summary>
         /// A leaf's own x extent inside `space`, packed as `(min, max)` in the vector's x/z.
         /// The mesh's local geometry is centred on the leaf's own origin, so the extent is the
         /// authored position plus the geometry's bounds — no pose assumption.
@@ -1302,6 +2106,39 @@ namespace Metro.App {
                 }
             }
             return !first;
+        }
+
+        /// <summary>
+        /// Measure one named part of a built view (RCA 15 §5): its mesh bounds in the holder's
+        /// frame — the source's own axes, so they can be read against `PsdModel.ts` — and the
+        /// same box in document axes. `palette`/`colour` only name the material it was drawn
+        /// with, so a report says which slot (or which station finish) a part uses.
+        /// </summary>
+        public static OpeningPart MeasurePart(string name, OpeningPartRole role, Transform node, Transform holder,
+            OpeningPalette palette = null, int colour = -1) {
+            var part = new OpeningPart {
+                Name = name ?? "",
+                Role = role,
+                Node = node,
+                Material = colour == OpeningColour.Concrete && palette != null && palette.FoundationFinish.Length > 0
+                    ? palette.FoundationFinish
+                    : (colour >= 0 ? OpeningColour.Name(colour) : ""),
+                Datum = holder ? StationCoordinates.WorldToDocument(holder.position).z : 0f,
+            };
+            if (!node || !holder || !MeshBoundsIn(node, holder, out var local)) return part;
+            part.Local = local;
+            var document = default(Bounds);
+            for (int corner = 0; corner < 8; corner++) {
+                var point = new Vector3(
+                    (corner & 1) == 0 ? local.min.x : local.max.x,
+                    (corner & 2) == 0 ? local.min.y : local.max.y,
+                    (corner & 4) == 0 ? local.min.z : local.max.z);
+                var inDocument = StationCoordinates.WorldToDocument(holder.TransformPoint(point));
+                if (corner == 0) document = new Bounds(inDocument, Vector3.zero);
+                else document.Encapsulate(inDocument);
+            }
+            part.Document = document;
+            return part;
         }
 
         /// <summary>`GateModel`'s lane: `inner = −(0.5 − GATE_W)` to `0.5`, one wing = half.</summary>
@@ -1509,6 +2346,21 @@ namespace Metro.App {
             new Color(.55f, .57f, .60f),         // concrete foundation
             new Color(.78f, .02f, .25f),         // line colour band
         };
+
+        /// <summary>The stable name of one palette slot, for a part's material note or a test.</summary>
+        public static string Name(int colour) {
+            switch (colour) {
+                case White: return "white";
+                case Black: return "black";
+                case Steel: return "steel";
+                case Glass: return "glass";
+                case MovingGlass: return "moving-glass";
+                case Red: return "red";
+                case Concrete: return "concrete";
+                case Line: return "line";
+                default: return "slot-" + colour.ToString(CultureInfo.InvariantCulture);
+            }
+        }
     }
 
     /// <summary>
@@ -1520,14 +2372,34 @@ namespace Metro.App {
     /// materials and meshes go through <see cref="OpeningModuleViews.SafeDestroy"/>.
     /// </summary>
     public sealed class OpeningPalette {
+        /// <summary>
+        /// `PsdModel` draws its foundation with the station finish `floor.concrete`
+        /// (`finishSlab(g, ctx.finish('floor.concrete'), …)`), not with a flat colour, so the
+        /// host may hand that material in. The palette never owns it.
+        /// </summary>
+        public const string FoundationFinishId = "floor.concrete";
+
         readonly Material[] materials;
         readonly List<Mesh> meshes = new List<Mesh>();
         readonly bool ownsMaterials;
         bool released;
 
-        public OpeningPalette(Shader shader) {
+        public OpeningPalette(Shader shader) : this(shader, null, "") { }
+
+        /// <summary>
+        /// `foundation` is the resolved `floor.concrete` material (the palette does not own
+        /// it) and `foundationFinish` its finish id. Passing neither leaves the flat
+        /// `OpeningColour.Concrete` slot, which <see cref="FoundationFinish"/> reports as empty
+        /// so a caller cannot mistake a stand-in for the source finish (RCA 15 §5).
+        /// </summary>
+        public OpeningPalette(Shader shader, Material foundation, string foundationFinish) {
             materials = new Material[OpeningColour.Count];
-            if (shader == null) return;
+            Foundation = foundation;
+            FoundationFinish = foundation ? (foundationFinish ?? "") : "";
+            if (shader == null) {
+                if (foundation) materials[OpeningColour.Concrete] = foundation;
+                return;
+            }
             ownsMaterials = true;
             for (int i = 0; i < materials.Length; i++) {
                 materials[i] = new Material(shader) { name = "opening-" + i, color = OpeningColour.Values[i] };
@@ -1536,7 +2408,19 @@ namespace Metro.App {
             // moving); a Lit material would discard it, so both get the transparent surface.
             StationGlass.MakeTransparent(materials[OpeningColour.Glass], OpeningColour.Values[OpeningColour.Glass].a);
             StationGlass.MakeTransparent(materials[OpeningColour.MovingGlass], OpeningColour.Values[OpeningColour.MovingGlass].a);
+            if (foundation) {
+                // The finish material replaces the flat slot; it is the host's, so Release
+                // must not destroy it. `ownsMaterials` stays true for the other seven.
+                OpeningModuleViews.SafeDestroy(materials[OpeningColour.Concrete]);
+                materials[OpeningColour.Concrete] = foundation;
+            }
         }
+
+        /// <summary>The resolved `floor.concrete` material, or null when only the flat slot exists.</summary>
+        public Material Foundation { get; }
+
+        /// <summary>The finish id behind <see cref="Foundation"/>: empty means the flat palette slot.</summary>
+        public string FoundationFinish { get; }
 
         /// <summary>How many combined meshes the palette currently owns (a report/test figure).</summary>
         public int MeshCount => meshes.Count;
@@ -1555,7 +2439,12 @@ namespace Metro.App {
             foreach (var mesh in meshes) OpeningModuleViews.SafeDestroy(mesh);
             meshes.Clear();
             if (!ownsMaterials) return;
-            foreach (var material in materials) OpeningModuleViews.SafeDestroy(material);
+            foreach (var material in materials) {
+                if (!material) continue;
+                // The host owns a handed-in foundation material.
+                if (Foundation && material == Foundation) continue;
+                OpeningModuleViews.SafeDestroy(material);
+            }
         }
     }
 
@@ -1566,10 +2455,20 @@ namespace Metro.App {
     /// <see cref="OpeningModuleViews.Local"/>.
     /// </summary>
     public sealed class OpeningBuilder {
+        /// <summary>One named part's boxes, per palette slot, and what it emitted.</summary>
+        sealed class Batch {
+            public string Name = "";
+            public OpeningPartRole Role;
+            public readonly Dictionary<int, List<CombineInstance>> Boxes = new Dictionary<int, List<CombineInstance>>();
+            public Transform Node;
+            public GameObject First;
+        }
+
         readonly Transform root;
         readonly OpeningPalette palette;
-        readonly Dictionary<int, List<CombineInstance>> batches = new Dictionary<int, List<CombineInstance>>();
+        readonly List<Batch> order = new List<Batch>();
         readonly List<Mesh> owned = new List<Mesh>();
+        Batch current;
 
         static Mesh unitCube;
 
@@ -1634,33 +2533,127 @@ namespace Metro.App {
             yield return (Vector3.back, Vector3.right, Vector3.up);
         }
 
-        /// <summary>Accumulate one box into its material's batch.</summary>
+        /// <summary>
+        /// Rewrite (or drop) every accumulated box before anything is combined. Each box is
+        /// offered to <paramref name="rule"/> with its part name, role, holder-local centre and
+        /// size; the rule returns the boxes that replace it (an empty list drops it). This is
+        /// how the fixed return is trimmed at its parent screen (`18 §3`): the geometry is
+        /// adjusted as data, so the same numbers can be asserted without reading a mesh.
+        /// </summary>
+        public void Trim(Func<string, OpeningPartRole, Vector3, Vector3,
+            List<(Vector3 centre, Vector3 size)>> rule) {
+            if (rule == null) return;
+            foreach (var batch in order) {
+                foreach (var pair in batch.Boxes) {
+                    if (pair.Value.Count == 0) continue;
+                    var kept = new List<CombineInstance>(pair.Value.Count);
+                    for (int i = 0; i < pair.Value.Count; i++) {
+                        var instance = pair.Value[i];
+                        var centre = new Vector3(instance.transform.m03, instance.transform.m13, instance.transform.m23);
+                        var size = new Vector3(instance.transform.m00, instance.transform.m11, instance.transform.m22);
+                        var replacements = rule(batch.Name, batch.Role, centre, size);
+                        if (replacements == null) continue;
+                        for (int r = 0; r < replacements.Count; r++) {
+                            var (newCentre, newSize) = replacements[r];
+                            if (newSize.x <= 1e-6f || newSize.y <= 1e-6f || newSize.z <= 1e-6f) continue;
+                            kept.Add(new CombineInstance {
+                                mesh = instance.mesh,
+                                transform = Matrix4x4.TRS(newCentre, Quaternion.identity, newSize),
+                            });
+                        }
+                    }
+                    pair.Value.Clear();
+                    pair.Value.AddRange(kept);
+                }
+            }
+        }
+
+        /// <summary>Accumulate one box into its part's batch for one material.</summary>
         public void Box(int colour, Vector3 centre, Vector3 size) {
-            if (!batches.TryGetValue(colour, out var parts)) batches.Add(colour, parts = new List<CombineInstance>());
+            var batch = Current();
+            if (!batch.Boxes.TryGetValue(colour, out var parts)) batch.Boxes.Add(colour, parts = new List<CombineInstance>());
             parts.Add(new CombineInstance {
                 mesh = UnitCube,
                 transform = Matrix4x4.TRS(centre, Quaternion.identity, size),
             });
         }
 
-        /// <summary>One combined mesh per material under this builder's root.</summary>
-        public void Finish(string name) {
+        /// <summary>
+        /// Start a named part (RCA 15 §5). Every box after this call belongs to it, so a part
+        /// can be found by identity and its bounds measured instead of being one anonymous
+        /// colour band among several.
+        /// </summary>
+        public void Part(string name, OpeningPartRole role = OpeningPartRole.Other) {
+            current = new Batch { Name = name ?? "", Role = role };
+            order.Add(current);
+        }
+
+        Batch Current() {
+            if (current != null) return current;
+            // No part was declared: keep the original one-band-per-colour assembly.
+            current = new Batch { Name = "", Role = OpeningPartRole.Other };
+            order.Add(current);
+            return current;
+        }
+
+        /// <summary>One combined mesh per material, per named part, under this builder's root.</summary>
+        public void Finish(string name) => Finish(name, null);
+
+        /// <summary>
+        /// The same, recording every emitted part on `view` with its **measured** bounds in the
+        /// holder's frame and in document axes (RCA 15 §5).
+        /// </summary>
+        public void Finish(string name, OpeningView view) {
             if (!root) return;
-            foreach (var entry in batches) {
-                if (entry.Value.Count == 0) continue;
-                var mesh = new Mesh { name = name + " " + entry.Key, indexFormat = IndexFormat.UInt32 };
-                // `useMatrices` must stay true: every instance carries its own TRS.
-                mesh.CombineMeshes(entry.Value.ToArray(), true, true);
-                owned.Add(mesh);
-                var part = new GameObject(name + " " + entry.Key, typeof(MeshFilter), typeof(MeshRenderer));
-                part.transform.SetParent(root, false);
-                part.GetComponent<MeshFilter>().sharedMesh = mesh;
-                var material = palette != null ? palette[entry.Key] : null;
-                var renderer = part.GetComponent<MeshRenderer>();
-                if (material != null) renderer.sharedMaterial = material;
-                else renderer.enabled = false;
+            foreach (var batch in order) {
+                if (batch.Boxes.Count == 0) continue;
+                Transform parent = root;
+                if (batch.Name.Length > 0) {
+                    batch.Node = new GameObject(batch.Name).transform;
+                    batch.Node.SetParent(root, false);
+                    parent = batch.Node;
+                }
+                foreach (var entry in batch.Boxes) {
+                    if (entry.Value.Count == 0) continue;
+                    if (view != null) {
+                        bool glass = batch.Role == OpeningPartRole.Glass ||
+                            (batch.Name ?? "").IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0;
+                        for (int i = 0; i < entry.Value.Count; i++) {
+                            var instance = entry.Value[i];
+                            var centre = new Vector3(instance.transform.m03, instance.transform.m13, instance.transform.m23);
+                            var size = new Vector3(instance.transform.m00, instance.transform.m11, instance.transform.m22);
+                            view.boxes.Add(new OpeningBox {
+                                Part = batch.Name ?? "", Role = batch.Role, Glass = glass,
+                                Min = centre - size * .5f, Max = centre + size * .5f,
+                            });
+                        }
+                    }
+                    var mesh = new Mesh {
+                        name = (batch.Name.Length > 0 ? batch.Name : name) + " " + entry.Key,
+                        indexFormat = IndexFormat.UInt32,
+                    };
+                    // `useMatrices` must stay true: every instance carries its own TRS.
+                    mesh.CombineMeshes(entry.Value.ToArray(), true, true);
+                    owned.Add(mesh);
+                    var part = new GameObject(
+                        batch.Name.Length > 0 ? batch.Name + " " + entry.Key : name + " " + entry.Key,
+                        typeof(MeshFilter), typeof(MeshRenderer));
+                    part.transform.SetParent(parent, false);
+                    part.GetComponent<MeshFilter>().sharedMesh = mesh;
+                    var material = palette != null ? palette[entry.Key] : null;
+                    var renderer = part.GetComponent<MeshRenderer>();
+                    if (material != null) renderer.sharedMaterial = material;
+                    else renderer.enabled = false;
+                    if (batch.First == null) batch.First = part;
+                }
+                if (view == null) continue;
+                var measured = batch.Node != null ? batch.Node : batch.First.transform;
+                view.parts.Add(OpeningModuleViews.MeasurePart(
+                    batch.Name.Length > 0 ? batch.Name : batch.First.name, batch.Role, measured, root,
+                    palette, FirstColour(batch)));
             }
-            batches.Clear();
+            order.Clear();
+            current = null;
             // The combined meshes belong to the palette and are freed with it. `AssemblyOwner`
         // from the lead's kit is deliberately not used: its `OnDestroy` calls `Object.Destroy`,
         // which is an error during an edit-mode teardown.
@@ -1673,11 +2666,19 @@ namespace Metro.App {
             owned.Clear();
         }
 
+        static int FirstColour(Batch batch) {
+            foreach (var pair in batch.Boxes) return pair.Key;
+            return -1;
+        }
+
         /// <summary>A named child node, for a fitting whose transform the state drives.</summary>
-        public Transform Node(string name, Vector3 localPosition) {
-            if (!root) return null;
+        public Transform Node(string name, Vector3 localPosition) => Node(root, name, localPosition);
+
+        /// <summary>The same under an explicit parent (the header band's own root, say).</summary>
+        public static Transform Node(Transform parent, string name, Vector3 localPosition) {
+            if (!parent) return null;
             var node = new GameObject(name).transform;
-            node.SetParent(root, false);
+            node.SetParent(parent, false);
             node.localPosition = localPosition;
             node.localRotation = Quaternion.identity;
             return node;
@@ -1701,12 +2702,28 @@ namespace Metro.App {
             public StationWorldView World;
             public OpeningModuleSet Set;
             public OpeningPalette Palette;
+            /// <summary>
+            /// The station finish library this world resolved for the PSD foundation's
+            /// `floor.concrete` (`PsdModel` draws it with the station finish, not a palette
+            /// colour). Owned here and disposed with the world; null when the export is absent,
+            /// in which case every foundation reports the flat-slot fallback.
+            /// </summary>
+            public StationFinishLibrary Finishes;
+            /// <summary>
+            /// The world's printed-header connection (RCA 15 §5 sub-item 2): provider,
+            /// texture cache and the quads on the header slots. Per world, because the
+            /// renderer singleton is reused across the staged candidate and its teardown
+            /// must never free the incoming station's artwork.
+            /// </summary>
+            public PsdHeaderArtworkScope Headers;
             public int Serial;
         }
 
         readonly Dictionary<StationWorldView, WorldState> states = new Dictionary<StationWorldView, WorldState>();
         WorldState newest;
         int serial;
+        /// <summary>The host whose session/revision fences header replies (found lazily).</summary>
+        StationGameHost host;
 
         public string Role => RoleName;
 
@@ -1727,17 +2744,102 @@ namespace Metro.App {
             var state = new WorldState {
                 World = context.World,
                 Set = new OpeningModuleSet(),
-                Palette = new OpeningPalette(context.Shader),
                 Serial = ++serial,
             };
+            // RCA 15 §5: `PsdModel` builds the foundation with `ctx.finish('floor.concrete')`.
+            // The palette takes that station finish so the plinth stops reading as a flat
+            // opening-palette grey; when the export is missing the palette keeps the flat slot
+            // and every view reports `FoundationFinish` empty.
+            state.Finishes = StationCellRenderer.AcquireLibrary(context.Shader);
+            var foundation = state.Finishes != null ? state.Finishes.For(OpeningPalette.FoundationFinishId) : null;
+            state.Palette = new OpeningPalette(context.Shader, foundation,
+                state.Finishes != null ? OpeningPalette.FoundationFinishId : "");
             if (context.World != null) states[context.World] = state;
             newest = state;
             if (!state.Palette.HasMaterials)
                 context.ReportUnresolved("missing-asset", "renderer", Role, "No station shader; opening materials are unlit.");
+            if (state.Finishes == null)
+                context.ReportUnresolved("finish-library-missing", "opening", "platform-edge",
+                    "The exported finish library is not staged, so the PSD foundation is drawn with the flat opening palette instead of 'floor.concrete'.");
             var roleRoot = context.RoleRoot(Role);
             OpeningModuleViews.BuildAll(records, context.Index, context.Catalogue, roleRoot, state.Palette, state.Set,
                 (module, view) => context.World.RegisterModule(Role, module.Id, view.Instance, "", null, module.Z, module.Z + 1),
                 (module, diagnostic) => context.ReportUnresolved("opening", module.Type, module.Id, diagnostic));
+            // RCA 15 §5 sub-item 2: mint the printed band's requests from the slots this
+            // build created and bind the browser's pixels onto their posed nodes.
+            BuildHeaders(context, state, roleRoot);
+        }
+
+        /// <summary>
+        /// The printed PSD headers of one world. The slots were already emitted by
+        /// <see cref="OpeningModuleViews.BuildRun"/>; this creates the world's painter
+        /// connection, binds one quad per slot (`slot.Width × slot.Height`, at the node the
+        /// geometry half posed toward the platform) and asks the browser for the panels the
+        /// slots' keys name. Every slot ends with either pixels or a named diagnostic.
+        /// </summary>
+        void BuildHeaders(StationViewBuildContext context, WorldState state, Transform roleRoot) {
+            var views = new List<OpeningView>();
+            foreach (var view in state.Set.Views) if (view.Headers.Count > 0) views.Add(view);
+            if (views.Count == 0) return;
+            var template = state.Palette != null ? state.Palette[OpeningColour.White] : null;
+            if (template == null || roleRoot == null) {
+                // No station material: the slots exist but cannot be printed. Say so instead
+                // of dropping the band or shading it with an invented shader.
+                foreach (var view in views)
+                    OpeningModuleViews.SetHeaderArtwork(view,
+                        OpeningModuleViews.HeaderArtworkUnported("no-station-material", view.Headers.Count));
+                context.ReportUnresolved("psd-header-material", "opening", views[0].ModuleId,
+                    "No station shader/material for the printed PSD header band; " + views.Count +
+                    " run(s) keep their header slots unpainted.");
+                return;
+            }
+            host = host != null ? host : UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            var scope = roleRoot.gameObject.AddComponent<PsdHeaderArtworkScope>();
+            var publishHost = host;
+            if (publishHost != null) scope.Publish = json => publishHost != null && publishHost.PublishOutbound(json);
+            scope.Provider = new PsdHeaderWebProvider(PsdHeaderArtwork.Send, CurrentContext);
+            scope.Cache = new PsdHeaderTextureCache(scope.Provider, template);
+            foreach (var view in views) {
+                int bound = 0;
+                var slots = view.Headers;
+                for (int i = 0; i < slots.Count; i++) {
+                    var binding = scope.Cache.Bind(view, slots[i]);
+                    if (binding == null) continue;
+                    scope.Bindings.Add(binding);
+                    bound++;
+                }
+                if (bound == 0)
+                    OpeningModuleViews.SetHeaderArtwork(view,
+                        OpeningModuleViews.HeaderArtworkUnported("no-slot-node", slots.Count));
+            }
+            var pumpObject = new GameObject("psd header pump");
+            pumpObject.transform.SetParent(roleRoot, false);
+            pumpObject.AddComponent<PsdHeaderPump>().Cache = scope.Cache;
+            state.Headers = scope;
+            PsdHeaderArtwork.Attach(scope);
+            scope.Cache.Pump();
+            // The pump above asks once; a transport that is not attached yet leaves every
+            // panel in the retry queue and the run's diagnostic names the missing route
+            // until a later Pump heals it (no silent fallback).
+            if (scope.Provider.DroppedRequests > 0) {
+                foreach (var view in views)
+                    OpeningModuleViews.SetHeaderArtwork(view,
+                        OpeningModuleViews.HeaderArtworkUnported("no-transport", view.Headers.Count));
+            }
+            if (publishHost != null) publishHost.RegisterStateContributor(PsdHeaderArtwork.State);
+        }
+
+        /// <summary>
+        /// The session and revision a header reply must still belong to. The same fence the
+        /// sign face provider uses: a reply from another session, or for a revision the
+        /// station has already moved past, is a picture of a station that is gone.
+        /// </summary>
+        PsdHeaderContext CurrentContext() {
+            if (host == null) host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            return new PsdHeaderContext {
+                SessionId = host != null ? host.ClientSessionId : "",
+                Revision = host != null ? host.CurrentRevision : -1,
+            };
         }
 
         public void Release() {
@@ -1748,7 +2850,13 @@ namespace Metro.App {
             foreach (var pair in states) {
                 if (pair.Key == null || pair.Key.IsDisposed) {
                     pair.Value.Set.Clear();
+                    // The printed headers belong to this world too: free their textures,
+                    // quads and materials before the palette (their template) goes.
+                    PsdHeaderArtwork.ReleaseScope(pair.Value.Headers);
+                    pair.Value.Headers = null;
                     pair.Value.Palette?.Release();
+                    pair.Value.Finishes?.Dispose();
+                    pair.Value.Finishes = null;
                     dead.Add(pair.Key);
                 }
             }

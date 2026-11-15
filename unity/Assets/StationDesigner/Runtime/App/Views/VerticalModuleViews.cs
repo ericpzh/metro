@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Metro.Build;
@@ -221,6 +221,12 @@ namespace Metro.App.Views {
         public IReadOnlyList<double> Stops { get; internal set; } = Array.Empty<double>();
         public IReadOnlyList<int> Levels { get; internal set; } = Array.Empty<int>();
         public int PortalCount { get; internal set; }
+        /// <summary>
+        /// Full-height opaque side walls the style branch emitted: 2 for a steel housing,
+        /// 0 for a glazed one (whose sides are the panel bays). A glazed lift must report
+        /// 0 — an opaque box at the same plane is what enclosed the glass.
+        /// </summary>
+        public int OpaqueShaftSidePanels { get; internal set; }
         public double CabinFloorZ { get; internal set; }
         public float DoorFraction { get; internal set; }
         public int AlignedStop { get; internal set; } = -1;
@@ -1176,6 +1182,7 @@ namespace Metro.App.Views {
             int size = Math.Abs(config.Number("size", 2) - 3) < 1e-6 ? 3 : 2;
             float k = size * .5f;
             bool steel = string.Equals(config.Text("style"), "steel", StringComparison.Ordinal);
+            view.OpaqueShaftSidePanels = steel ? 2 : 0;
             var stops = LiftStops(fromZ, toZ, rises);
             var levels = LiftLevels(fromZ, rises);
             var doors = config.Object("doors");
@@ -1262,7 +1269,13 @@ namespace Metro.App.Views {
                 StoryGlass(shaftGlass, shaft, outer, loBack, top, k);
             }
             for (int s = -1; s <= 1; s += 2) {
-                shaft.Box(new Vector3(s * outer, 0f, height * .5f), new Vector3(.12f * k, 1.74f * k, height), Quaternion.identity);
+                // The glass housing has **no** full-height side wall: its side faces are the
+                // glazed panel bays above (`shaftGlass`), exactly like `buildGlassLift`. The
+                // old branch put a 0.12 m steel box at the same `s * outer` plane, enclosing
+                // the 0.025 m pane, so a glazed lift read as an opaque shaft. The steel style
+                // keeps its solid side walls.
+                if (steel)
+                    shaft.Box(new Vector3(s * outer, 0f, height * .5f), new Vector3(.12f * k, 1.74f * k, height), Quaternion.identity);
                 float guideHeight = height - LiftCap;
                 guides.Box(new Vector3(s * .84f * k, 0f, guideHeight * .5f), new Vector3(.055f * k, .065f * k, guideHeight), Quaternion.identity);
                 for (float z = .4f; z < height; z += 2f)
@@ -1432,16 +1445,9 @@ namespace Metro.App.Views {
 
         static Mesh BoxMesh(string name, Vector3 size) {
             var mesh = new Mesh { name = name };
-            var half = size * .5f;
-            var verts = new List<Vector3>(8);
+            var verts = new List<Vector3>(24);
             var tris = new List<int>(36);
-            for (int corner = 0; corner < 8; corner++)
-                verts.Add(new Vector3((corner & 1) == 0 ? -half.x : half.x, (corner & 2) == 0 ? -half.y : half.y, (corner & 4) == 0 ? -half.z : half.z));
-            int[] faces = { 0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 3, 7, 6, 2, 0, 4, 7, 3, 1, 2, 6, 5 };
-            for (int face = 0; face < 6; face++) {
-                int a = faces[face * 4], b = faces[face * 4 + 1], c = faces[face * 4 + 2], d = faces[face * 4 + 3];
-                tris.Add(a); tris.Add(b); tris.Add(c); tris.Add(a); tris.Add(c); tris.Add(d);
-            }
+            BoxFaces.AppendAxisAligned(verts, tris, Vector3.zero, size);
             mesh.SetVertices(verts);
             mesh.SetTriangles(tris, 0);
             mesh.RecalculateNormals();
@@ -1466,24 +1472,17 @@ namespace Metro.App.Views {
             public PartMesh(Vector3 pivotDocument) { pivot = pivotDocument; }
             public int VertexCount => vertices.Count;
 
-            /// <summary>Append one document-axis box (centre/size/rotation in document axes).</summary>
+            /// <summary>
+            /// Append one document-axis box (centre/size/rotation in document axes). The edge
+            /// vectors are mapped to Unity space before the faces are wound, so the
+            /// document-to-Unity mirror (which swaps y and z) cannot invert a triangle — the
+            /// old 8-vertex table ignored that mirror and produced bowtie quads (RCA 15 §3).
+            /// </summary>
             public void Box(Vector3 centre, Vector3 size, Quaternion rotation) {
-                int start = vertices.Count;
-                for (int corner = 0; corner < 8; corner++) {
-                    var local = new Vector3(
-                        (corner & 1) == 0 ? -size.x * .5f : size.x * .5f,
-                        (corner & 2) == 0 ? -size.y * .5f : size.y * .5f,
-                        (corner & 4) == 0 ? -size.z * .5f : size.z * .5f);
-                    var document = centre + rotation * local;
-                    vertices.Add(Doc(document - pivot));
-                }
-                int[] faces = { 0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 3, 7, 6, 2, 0, 4, 7, 3, 1, 2, 6, 5 };
-                for (int face = 0; face < 6; face++) {
-                    int a = start + faces[face * 4], b = start + faces[face * 4 + 1];
-                    int c = start + faces[face * 4 + 2], d = start + faces[face * 4 + 3];
-                    triangles.Add(a); triangles.Add(b); triangles.Add(c);
-                    triangles.Add(a); triangles.Add(c); triangles.Add(d);
-                }
+                BoxFaces.Append(vertices, triangles, Doc(centre - pivot),
+                    Doc(rotation * new Vector3(size.x, 0f, 0f)),
+                    Doc(rotation * new Vector3(0f, size.y, 0f)),
+                    Doc(rotation * new Vector3(0f, 0f, size.z)));
             }
 
             public Mesh Build(Transform parent, Material material, string name) {
@@ -1822,23 +1821,17 @@ namespace Metro.App.Views {
             return mesh;
         }
 
-        /// <summary>Append a box authored in the run frame (x along the run, y across, z up) as Unity local vertices.</summary>
+        /// <summary>
+        /// Append a box authored in the run frame (x along the run, y across, z up) as Unity
+        /// local vertices. As with <see cref="PartMesh.Box"/> the edges are mapped through the
+        /// document-to-Unity mirror first and the winding is derived from the corners, so the
+        /// escalator tread and riser faces are single-wound and flat (RCA 15 §3).
+        /// </summary>
         static void AppendRunBox(List<Vector3> vertices, List<int> triangles, Vector3 centre, Vector3 size, Quaternion rotation) {
-            int start = vertices.Count;
-            for (int corner = 0; corner < 8; corner++) {
-                var local = new Vector3(
-                    (corner & 1) == 0 ? -size.x * .5f : size.x * .5f,
-                    (corner & 2) == 0 ? -size.y * .5f : size.y * .5f,
-                    (corner & 4) == 0 ? -size.z * .5f : size.z * .5f);
-                vertices.Add(Doc(centre + rotation * local));
-            }
-            int[] faces = { 0, 3, 2, 1, 4, 5, 6, 7, 0, 1, 5, 4, 3, 7, 6, 2, 0, 4, 7, 3, 1, 2, 6, 5 };
-            for (int face = 0; face < 6; face++) {
-                int a = start + faces[face * 4], b = start + faces[face * 4 + 1];
-                int c = start + faces[face * 4 + 2], d = start + faces[face * 4 + 3];
-                triangles.Add(a); triangles.Add(b); triangles.Add(c);
-                triangles.Add(a); triangles.Add(c); triangles.Add(d);
-            }
+            BoxFaces.Append(vertices, triangles, Doc(centre),
+                Doc(rotation * new Vector3(size.x, 0f, 0f)),
+                Doc(rotation * new Vector3(0f, size.y, 0f)),
+                Doc(rotation * new Vector3(0f, 0f, size.z)));
         }
 
         static Transform NewMeshObject(string name, Transform parent, Mesh mesh, Material material) {
@@ -2167,13 +2160,14 @@ namespace Metro.App.Views {
 
     /// <summary>
     /// Per-frame half of the vertical family: the host ticks frame sinks with the
-    /// committed station clock, so the bands roll without a scene wiring or a lead edit.
-    /// A paused clock is a frozen time, which holds the pose; lifts stay parked.
+    /// committed station's presentation clock, so the bands roll continuously between
+    /// 1 Hz simulation ticks instead of stepping once a second (RCA 14 §5.1). A paused
+    /// clock is a frozen presentation instant, which holds the pose; lifts stay parked.
     /// </summary>
     sealed class VerticalFrameSink : IStationFrameSink {
-        public void Tick(StationDocument document, StationIndex index, double simTimeSeconds) {
+        public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var renderer = VerticalModuleRenderer.Current;
-            if (renderer != null) renderer.ApplyAll(simTimeSeconds, true);
+            if (renderer != null) renderer.ApplyAll(clock.PresentationSeconds, clock.Playing);
         }
     }
 

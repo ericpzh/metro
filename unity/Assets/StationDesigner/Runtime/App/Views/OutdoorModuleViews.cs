@@ -97,6 +97,11 @@ namespace Metro.App {
         public bool PanelExtentMatchesSource;
         /// <summary>Connected sides read from <see cref="OutdoorModuleRequest.Neighbours"/>, or -1 when unknown.</summary>
         public int NeighbourDegree = -1;
+        /// <summary>
+        /// How many computed arms a junction was composed from (`fence-arms-composed:<n>`), or 0
+        /// when the promoted panel was drawn instead. RCA 15 §4.
+        /// </summary>
+        public int ComposedArms;
 
         public bool Built => Instance != null;
     }
@@ -227,30 +232,27 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// Connectivity for a fence cell from the document's own modules, matching
-        /// `fenceConnectionIndex` for fences. Two neighbour kinds the TypeScript
-        /// index also reads are not projected yet and are therefore not reported: a
-        /// fare gate's machine face (`gateSolidFaces`) and a stair/escalator/walkway
-        /// landing (`railLandingAt`). Zoo has four gate links and eight landing
-        /// links across its 213 fences; the eight that change the derived arm axis
-        /// are listed in `unity/plan/11-evidence/B1.md`. The station index should
-        /// own this rule once packet A publishes it; a family builder must not
-        /// re-derive another family's landing cells.
+        /// Connectivity for a fence cell from the document's own modules: the four `connects`
+        /// questions `FenceModel.build` asks, answered by the document-level
+        /// <see cref="StationFenceConnections"/> port of `fenceConnectionIndex`
+        /// (`game/src/sim/fences.ts`, RCA 15 §4).
+        ///
+        /// The index covers **fences**, a rail **landing** (a stair's full-width band, an
+        /// escalator's or walkway's own landings) and a fare **gate's machine face**
+        /// (`gateSolidFaces`), which is the face a run butts into; the lane side stays a doorway
+        /// the run ends at. The index is cached per module list, so calling this per fence costs
+        /// four lookups rather than a station scan.
         /// </summary>
-        public static OutdoorNeighbours Neighbours(ModuleFacts module, IReadOnlyList<ModuleFacts> station) {
+        public static OutdoorNeighbours Neighbours(ModuleFacts module, IReadOnlyList<ModuleFacts> station) =>
+            Neighbours(module, station == null ? StationFenceConnections.Empty : StationFenceConnections.For(station));
+
+        /// <summary>The same question against an index the caller already built once for the document.</summary>
+        public static OutdoorNeighbours Neighbours(ModuleFacts module, StationFenceConnections index) {
             var neighbours = new OutdoorNeighbours { Known = false };
-            if (module == null || station == null) return neighbours;
+            if (module == null || index == null) return neighbours;
             neighbours.Known = true;
-            for (int i = 0; i < station.Count; i++) {
-                var other = station[i];
-                if (other == null || ReferenceEquals(other, module)) continue;
-                if (!string.Equals(other.Type, "fence", StringComparison.Ordinal) || other.Z != module.Z) continue;
-                int dx = other.X - module.X, dy = other.Y - module.Y;
-                if (dx == 1 && dy == 0) neighbours.East = true;
-                else if (dx == -1 && dy == 0) neighbours.West = true;
-                else if (dx == 0 && dy == 1) neighbours.North = true;
-                else if (dx == 0 && dy == -1) neighbours.South = true;
-            }
+            if (!string.Equals(module.Type, "fence", StringComparison.Ordinal)) return neighbours;
+            index.Sides(module, out neighbours.East, out neighbours.West, out neighbours.North, out neighbours.South);
             return neighbours;
         }
 
@@ -270,6 +272,9 @@ namespace Metro.App {
         public static int BuildAll(IReadOnlyList<ModuleFacts> station, RuntimeCatalogue catalogue, Transform parent,
             Action<ModuleFacts, OutdoorModuleView> built, Action<ModuleFacts, string> unresolved = null) {
             if (station == null || parent == null) return 0;
+            // RCA 15 §4: one connection index for the whole document, built once here and shared
+            // by every fence in the pass (it answers fences, gate machine faces and rail landings).
+            var connections = StationFenceConnections.For(station);
             int count = 0;
             for (int i = 0; i < station.Count; i++) {
                 var module = station[i];
@@ -304,7 +309,7 @@ namespace Metro.App {
                     Prefab = entry.prefab,
                     Catalogue = catalogue,
                     Placement = OutdoorPlacement.ParentPlaced,
-                    Neighbours = Neighbours(module, station),
+                    Neighbours = Neighbours(module, connections),
                 };
                 if (!TryBuild(request, holder, null, out var view)) {
                     unresolved?.Invoke(module, view.Diagnostic);
@@ -367,7 +372,7 @@ namespace Metro.App {
             int width = Math.Max(1, request.Width), depth = Math.Max(1, request.Depth);
             if (width != 1 || depth != 1) caveats.Add("dimensions-not-scaled:" + width + "x" + depth);
 
-            float yaw = SelectedYaw(request, out var yawSource, out bool panelExtent, out var armCaveat);
+            float yaw = SelectedYaw(request, out var yawSource, out bool panelExtent, out bool composeArms, out var armCaveat);
             if (!string.IsNullOrEmpty(armCaveat)) caveats.Add(armCaveat);
 
             Quaternion offset;
@@ -389,18 +394,43 @@ namespace Metro.App {
 
             var renderers = instance.GetComponentsInChildren<Renderer>(true);
             var filters = instance.GetComponentsInChildren<MeshFilter>(true);
-            int triangles = 0;
             bool anyMesh = false, onlyPrimitives = filters.Length > 0;
             foreach (var filter in filters) {
                 var mesh = filter.sharedMesh;
                 if (!mesh) continue;
                 anyMesh = true;
                 if (!BuiltinMeshes.Contains(mesh.name)) onlyPrimitives = false;
-                triangles += MeshTriangles(mesh);
             }
             if (!anyMesh || renderers.Length == 0 || onlyPrimitives) {
                 Discard(instance);
                 return Fail(view, onlyPrimitives ? "primitive-placeholder:" + request.ViewKey : "prefab-has-no-meshes:" + request.ViewKey);
+            }
+
+            // RCA 15 §4: a two-axis junction draws one half panel per computed arm around a single
+            // centre post instead of the isolated one-metre panel. The panel was instantiated first
+            // because composition is gated on **measuring** it: an export whose panel is not the
+            // one-metre run the arms are clipped to keeps the panel and says so by name.
+            if (composeArms) {
+                if (TryComposeFenceArms(request, instance, out var composed, out var composedRenderers, out var count, out var failure)) {
+                    Discard(instance);
+                    instance = composed;
+                    transform = instance.transform;
+                    transform.localPosition = Vector3.zero;
+                    transform.localRotation = authored * offset;
+                    renderers = composedRenderers;
+                    view.ComposedArms = count;
+                    panelExtent = true;
+                    caveats.Add("fence-arms-composed:" + count + "arms");
+                } else {
+                    caveats.Add(failure);
+                }
+            }
+
+            int triangles = 0;
+            foreach (var filter in instance.GetComponentsInChildren<MeshFilter>(true)) {
+                var mesh = filter.sharedMesh;
+                if (!mesh) continue;
+                triangles += MeshTriangles(mesh);
             }
 
             view.Instance = instance;
@@ -425,6 +455,175 @@ namespace Metro.App {
             return false;
         }
 
+        /// <summary>
+        /// Compose the arms `FenceArms` computes for an L, T or + junction, per RCA 15 §4: one
+        /// half panel from the cell centre to each connected edge and **one** centre post, which is
+        /// exactly `drawFence` with the junction's (empty) cap set. The promoted prefab is the
+        /// isolated one-metre panel — a full span with an end post each end — so it cannot drop a
+        /// cap or grow a second arm; drawing the arms from the source's own numbers is the only
+        /// faithful composition.
+        ///
+        /// Composition is gated on **measuring** the promoted panel: the source's panel is a
+        /// one-metre run (x), one metre tall (y) and a few centimetres thick (z), so an export
+        /// whose extents disagree keeps the promoted panel and reports
+        /// `fence-arms-unmeasured:<w>x<h>x<d>` rather than clipping something else. Only the
+        /// `glass` variant is composed (the source's `drawFence` numbers this file ports); an
+        /// `iron`, `gate`, `steel-blue` or `noise-barrier` junction keeps its panel and reports
+        /// `fence-arms-uncomposed:variant:<v>`.
+        /// </summary>
+        static bool TryComposeFenceArms(OutdoorModuleRequest request, GameObject panel, out GameObject composed,
+            out Renderer[] renderers, out int armCount, out string failure) {
+            composed = null;
+            renderers = null;
+            armCount = 0;
+            failure = "";
+            var variant = request.Variant ?? "";
+            if (variant.Length > 0 && !string.Equals(variant, "glass", StringComparison.Ordinal)) {
+                failure = "fence-arms-uncomposed:variant:" + variant;
+                return false;
+            }
+            if (!OpeningModuleViews.MeshBoundsIn(panel.transform, panel.transform, out var bounds)) {
+                failure = "fence-arms-unmeasured:no-bounds";
+                return false;
+            }
+            var size = bounds.size;
+            if (Mathf.Abs(size.x - 1f) > .06f || Mathf.Abs(size.y - 1f) > .12f || size.z > .3f) {
+                failure = "fence-arms-unmeasured:" + Size(size.x) + "x" + Size(size.y) + "x" + Size(size.z);
+                return false;
+            }
+            Material steel = null, glass = null;
+            foreach (var renderer in panel.GetComponentsInChildren<MeshRenderer>(true)) {
+                foreach (var material in renderer.sharedMaterials) {
+                    if (!material) continue;
+                    var name = material.name ?? "";
+                    if (steel == null && name.IndexOf("steel", StringComparison.OrdinalIgnoreCase) >= 0) steel = material;
+                    else if (glass == null && name.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0) glass = material;
+                }
+            }
+            if (steel == null || glass == null) {
+                failure = "fence-arms-unmaterialised:" + (steel == null ? "steel" : "") + (glass == null ? (steel == null ? "+glass" : "glass") : "");
+                return false;
+            }
+
+            var arms = FenceArms(request.Rotation, request.Neighbours);
+            var steelVertices = new List<Vector3>();
+            var steelTriangles = new List<int>();
+            var glassVertices = new List<Vector3>();
+            var glassTriangles = new List<int>();
+            if (arms.RunsAlongX) {
+                AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, arms.X0, arms.X1, false);
+                armCount++;
+            }
+            if (arms.RunsAlongY) {
+                AppendFenceRail(steelVertices, steelTriangles, glassVertices, glassTriangles, arms.Y0, arms.Y1, true);
+                armCount++;
+            }
+            AppendFencePost(steelVertices, steelTriangles, 0f, 0f);
+            // A junction never caps (`fenceArms` caps only degree 0/1), but the rule is the source's.
+            if (arms.CapEast) AppendFencePost(steelVertices, steelTriangles, .46f, 0f);
+            if (arms.CapWest) AppendFencePost(steelVertices, steelTriangles, -.46f, 0f);
+            if (arms.CapNorth) AppendFencePost(steelVertices, steelTriangles, 0f, .46f);
+            if (arms.CapSouth) AppendFencePost(steelVertices, steelTriangles, 0f, -.46f);
+
+            var root = new GameObject(string.IsNullOrEmpty(request.ModuleId) ? "fence junction" : request.ModuleId);
+            root.transform.SetParent(panel.transform.parent, false);
+            AddPart(root.transform, "fence arms steel", steelVertices, steelTriangles, steel);
+            AddPart(root.transform, "fence arms glass", glassVertices, glassTriangles, glass);
+            composed = root;
+            renderers = root.GetComponentsInChildren<Renderer>(true);
+            return true;
+        }
+
+        /// <summary>
+        /// One arm of `drawFence`: the steel top rail at 0.97 m, the glass panel between 0.11 and
+        /// 0.89 m, and the paired clamps at each end (`PieceBuilder.drawFence`, glass variant).
+        /// Shared with the doorless gate's lane panel (18 §5), which draws the same arm from the
+        /// machine's jamb to the cell edge.
+        /// </summary>
+        public static void AppendFenceRail(List<Vector3> steelVertices, List<int> steelTriangles,
+            List<Vector3> glassVertices, List<int> glassTriangles, float a, float b, bool alongY) {
+            float lo = Mathf.Min(a, b), hi = Mathf.Max(a, b);
+            float length = hi - lo;
+            if (length <= 1e-6f) return;
+            float mid = (lo + hi) * .5f;
+            AppendTube(steelVertices, steelTriangles,
+                alongY ? new Vector3(0f, .97f, lo) : new Vector3(lo, .97f, 0f),
+                alongY ? new Vector3(0f, .97f, hi) : new Vector3(hi, .97f, 0f), .029f);
+            float glassLength = length - .012f;
+            BoxFaces.AppendAxisAligned(glassVertices, glassTriangles,
+                alongY ? new Vector3(0f, .5f, mid) : new Vector3(mid, .5f, 0f),
+                alongY ? new Vector3(.012f, .78f, glassLength) : new Vector3(glassLength, .78f, .012f));
+            for (int end = 0; end < 2; end++) {
+                float at = end == 0 ? lo + .045f : hi - .045f;
+                for (int step = 0; step < 2; step++) {
+                    float z = step == 0 ? .18f : .78f;
+                    BoxFaces.AppendAxisAligned(steelVertices, steelTriangles,
+                        alongY ? new Vector3(0f, z, at) : new Vector3(at, z, 0f),
+                        alongY ? new Vector3(.044f, .032f, .055f) : new Vector3(.055f, .032f, .044f));
+                }
+            }
+        }
+
+        /// <summary>One post of `fencePost`: the floor shoe, the upright tube and its two clamps.</summary>
+        public static void AppendFencePost(List<Vector3> vertices, List<int> triangles, float x, float y) {
+            BoxFaces.AppendAxisAligned(vertices, triangles, new Vector3(x, .018f, y), new Vector3(.11f, .036f, .11f));
+            AppendTube(vertices, triangles, new Vector3(x, .035f, y), new Vector3(x, .97f, y), .026f);
+            for (int step = 0; step < 2; step++) {
+                float z = step == 0 ? .23f : .78f;
+                BoxFaces.AppendAxisAligned(vertices, triangles, new Vector3(x, z, y), new Vector3(.075f, .035f, .055f));
+            }
+        }
+
+        /// <summary>A capped tube between two points — `fenceTube`'s 12-sided cylinder.</summary>
+        static void AppendTube(List<Vector3> vertices, List<int> triangles, Vector3 a, Vector3 b, float radius, int segments = 12) {
+            var axis = b - a;
+            if (axis.sqrMagnitude < 1e-12f) return;
+            var direction = axis.normalized;
+            var up = Mathf.Abs(Vector3.Dot(direction, Vector3.up)) > .99f ? Vector3.forward : Vector3.up;
+            var right = Vector3.Cross(up, direction).normalized;
+            var forward = Vector3.Cross(direction, right).normalized;
+            int start = vertices.Count;
+            for (int ring = 0; ring < 2; ring++) {
+                var centre = ring == 0 ? a : b;
+                for (int i = 0; i < segments; i++) {
+                    float angle = Mathf.PI * 2f * i / segments;
+                    vertices.Add(centre + right * (Mathf.Cos(angle) * radius) + forward * (Mathf.Sin(angle) * radius));
+                }
+            }
+            for (int i = 0; i < segments; i++) {
+                int next = (i + 1) % segments;
+                int a0 = start + i, a1 = start + next;
+                int b0 = start + segments + i, b1 = start + segments + next;
+                triangles.Add(a0); triangles.Add(a1); triangles.Add(b0);
+                triangles.Add(a1); triangles.Add(b1); triangles.Add(b0);
+            }
+            int caps = vertices.Count;
+            vertices.Add(a);
+            vertices.Add(b);
+            for (int i = 0; i < segments; i++) {
+                int next = (i + 1) % segments;
+                triangles.Add(caps); triangles.Add(start + next); triangles.Add(start + i);
+                triangles.Add(caps + 1); triangles.Add(start + segments + i); triangles.Add(start + segments + next);
+            }
+        }
+
+        public static void AddPart(Transform parent, string name, List<Vector3> vertices, List<int> triangles, Material material) {
+            if (vertices.Count == 0 || triangles.Count == 0 || material == null) return;
+            var mesh = new Mesh { name = name };
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        }
+
+        static string Size(float value) => value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
         static string DescribeVariant(string variant) => string.IsNullOrEmpty(variant) ? "(none)" : variant;
 
         /// <summary>
@@ -435,9 +634,11 @@ namespace Metro.App {
         /// junction (two axes) keeps the saved turn's axis because one promoted
         /// panel cannot cover both arms.
         /// </summary>
-        static float SelectedYaw(OutdoorModuleRequest request, out OutdoorYawSource source, out bool panelExtent, out string caveat) {
+        static float SelectedYaw(OutdoorModuleRequest request, out OutdoorYawSource source, out bool panelExtent,
+            out bool composeArms, out string caveat) {
             caveat = "";
             panelExtent = true;
+            composeArms = false;
             source = OutdoorYawSource.SavedRotation;
             float saved = ModulePlacement.Yaw(request.Rotation);
             if (!string.Equals(request.Type, "fence", StringComparison.Ordinal)) return saved;
@@ -453,9 +654,13 @@ namespace Metro.App {
                 return saved;
             }
             if (x && y) {
+                // RCA 15 §4: an L, T or + is composed from the computed arms (`TryComposeFenceArms`)
+                // — one centre post and a half span per arm — so its geometry is drawn in the cell
+                // frame and no panel rotation applies. Whether the composition was allowed is
+                // decided after measuring the prefab, and the outcome is reported by name.
+                composeArms = true;
                 panelExtent = false;
-                caveat = "arm-composition-missing:two-axes";
-                return NormTurn(request.Rotation) % 2 == 0 ? 0f : -90f;
+                return 0f;
             }
             if (request.Neighbours.Degree == 0) return saved;
             source = OutdoorYawSource.ArmAxis;

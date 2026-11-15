@@ -42,6 +42,12 @@ namespace Metro.App.Views {
         /// <summary>The bank that faces the platform when no edge exists (the source's `plus`).</summary>
         public int DefaultPlatformBank = 1;
         public StationModuleRecord Track;
+        /// <summary>The shared rail datum for this berth (rail surface, cabin floor, platform top).</summary>
+        public float RailSurfaceZ;
+        public float CabinFloorDocumentZ;
+        public float PlatformTopZ;
+        /// <summary>The local ±1 edge the conductor rail sits on (0 for overhead).</summary>
+        public int ThirdRailSide;
 
         public string TrainId => LineId + "|" + TrackId;
 
@@ -101,6 +107,25 @@ namespace Metro.App.Views {
         public Vector3 DocumentPosition;
         /// <summary>The bank the document's platform faces today (+1 / −1).</summary>
         public int PlatformBank = 1;
+        /// <summary>The standalone `Gangway&lt;n&gt;` roots the promoted formation carries.</summary>
+        public readonly List<Transform> Gangways = new List<Transform>();
+        /// <summary>The saved track's own storey band (the consist's visibility membership).</summary>
+        public int LevelMin, LevelMax;
+        public int[] LevelBands = Array.Empty<int>();
+        /// <summary>The one world record this consist is registered under (`train:line|track`).</summary>
+        public string VisibilityRecordId = "";
+        /// <summary>The saved track's document band, used for section classification.</summary>
+        public StationBox ConsistBounds;
+        public bool HasConsistBounds;
+
+        /// <summary>The service run this consist last showed; a new run never blends from the old.</summary>
+        public int ServiceSequence;
+        /// <summary>The last two tick targets, so a rendered frame can sample between them.</summary>
+        bool hasSample;
+        TrainPhase samplePhase;
+        double samplePhaseSeconds;
+        float sampleOffset;
+        float previousSampleOffset;
 
         public IReadOnlyList<TrainCarView> CarViews => cars;
         public int Cars => cars.Count;
@@ -110,17 +135,84 @@ namespace Metro.App.Views {
 
         internal void AddCar(TrainCarView car) => cars.Add(car);
 
+        /// <summary>Forget the interpolation pair after a seek/restart/switch.</summary>
+        public void ForgetSample() => hasSample = false;
+
+        /// <summary>
+        /// Park the consist between services. The interpolation pair is dropped (the next
+        /// dispatch starts from its own approach pose, never from the last departure), both
+        /// door banks are shut, and the root — not a renderer flag — is the eligibility gate,
+        /// so the level/section pass in `StationVisibilityTarget.Apply` cannot show it again.
+        /// </summary>
+        public void Retire() {
+            ForgetSample();
+            if (Rig != null) {
+                Rig.SetBank(1, 0f);
+                Rig.SetBank(-1, 0f);
+            }
+            DoorFraction = 0f;
+            Phase = TrainPhase.None;
+            PhaseSeconds = 0;
+            ServiceSequence = 0;
+            // Back on its mark: a parked consist has no pose of its own, and a restart that
+            // publishes `None` leaves the previous departure offset in no place at all.
+            OffsetMetres = 0f;
+            Place();
+            if (Root != null && Root.activeSelf) Root.SetActive(false);
+        }
+
+        /// <summary>
+        /// Make the consist drawable. Called only after the frame's first pose and the door
+        /// banks have been written, so a consist never flashes at the berth or with open
+        /// doors from its previous service.
+        /// </summary>
+        public void Mount() {
+            if (Root != null && !Root.activeSelf) Root.SetActive(true);
+        }
+
         /// <summary>
         /// Place the consist from one published frame. Nothing reads a wall clock:
         /// the offset is `trainAt(train)` on the derived berth, and the phase that has
         /// no run (berth/opening/dwell/closing/hold and a cleared `None`) stands at
         /// the mark exactly.
         /// </summary>
-        public void Apply(StationTrainFrame frame) {
+        public void Apply(StationTrainFrame frame) => Apply(frame, 1f);
+
+        /// <summary>
+        /// Place the consist for a rendered frame that falls inside the tick interval:
+        /// the target offset is refreshed only when the frame's phase/phase-seconds
+        /// change (a tick), and the pose samples from the previous target to the current
+        /// one by <paramref name="alpha"/>. That is what makes an approach or a departure
+        /// continuous instead of one jump per simulated second (RCA 14 §5.2).
+        ///
+        /// It snaps rather than blends when the previous target is not a compatible
+        /// adjacent position on the phase curve: a phase change or a backwards phase
+        /// clock (a seek). The sink also calls <see cref="ForgetSample"/> for a session
+        /// switch or a restart, so nothing blends across a station that no longer exists.
+        /// </summary>
+        public void Apply(StationTrainFrame frame, float alpha) {
             Phase = frame.Phase;
             PhaseSeconds = frame.PhaseSeconds;
+            ServiceSequence = frame.ServiceSequence;
             DoorFraction = Mathf.Clamp01((float)frame.DoorFraction);
-            OffsetMetres = TrainConsistGeometry.OffsetMetres(Phase, PhaseSeconds, Berth);
+            float target = TrainConsistGeometry.OffsetMetres(Phase, PhaseSeconds, Berth);
+            if (!hasSample) {
+                previousSampleOffset = sampleOffset = target;
+                hasSample = true;
+            } else if (frame.Phase != samplePhase || frame.PhaseSeconds < samplePhaseSeconds) {
+                // Not an adjacent position on the same curve: a phase change (the
+                // approach ends at the mark, a departure starts there, so the snap is
+                // visually continuous) or a phase clock that went backwards (a seek).
+                previousSampleOffset = sampleOffset = target;
+            } else if (frame.PhaseSeconds != samplePhaseSeconds) {
+                previousSampleOffset = sampleOffset;
+                sampleOffset = target;
+            }
+            samplePhase = frame.Phase;
+            samplePhaseSeconds = frame.PhaseSeconds;
+            if (alpha >= 1f) OffsetMetres = sampleOffset;
+            else if (alpha <= 0f) OffsetMetres = previousSampleOffset;
+            else OffsetMetres = Mathf.Lerp(previousSampleOffset, sampleOffset, alpha);
             Place();
         }
 
@@ -161,9 +253,9 @@ namespace Metro.App.Views {
     /// </summary>
     public static class TrainConsistGeometry {
         /// <summary>`CABIN_FLOOR_Z` (`sim/stock.ts`): the car floor above the model origin.</summary>
-        public const float CabinFloorZ = .62f;
+        public const float CabinFloorZ = StationRailGeometry.CabinFloorZ;
         /// <summary>`trackTrainCentreV`'s platform clearance, metres.</summary>
-        public const float PlatformGap = .1f;
+        public const float PlatformGap = StationRailGeometry.PlatformGap;
 
         public static int NormTurn(int rotation) => ((rotation % 4) + 4) % 4;
 
@@ -318,18 +410,19 @@ namespace Metro.App.Views {
             float modelScale = scale > 0f ? scale : 1f;
             int rotation = NormTurn(track.Rotation);
             var facing = Facing(rotation);
-            float depth = Depth(track);
-            float width = StockWidth(line.Stock) * modelScale;
-            float across = TrainCentreV(track, width, document, line.Id, line.Direction);
+            float width = StationRailGeometry.StockWidth(line.Stock) * modelScale;
+            float across = StationRailGeometry.TrainCentreAcross(track, width, document, line.Id, line.Direction);
             var offset = RotateLocal(rotation, (track.Width - 1) * .5f, across - .5f);
             var position = new Vector3(
                 track.X + .5f + offset.x,
                 track.Y + .5f + offset.y,
-                track.Z + 1f - CabinFloorZ * modelScale);
+                StationRailGeometry.TrainOriginFor(track, modelScale));
             ConnectedRun(document, track, out float back, out float forward);
             var direction = track.Config.Text("dir");
             if (direction.Length == 0) direction = line.Direction;
             var edge = PlatformEdgeFor(document, track, line.Id, direction);
+            var facts = new List<ModuleFacts>(document.Modules.Count);
+            for (int i = 0; i < document.Modules.Count; i++) facts.Add(document.Modules[i].Facts);
             berth = new TrainBerth {
                 LineId = line.Id, TrackId = track.Id, Stock = line.Stock, Cars = line.Cars, Scale = modelScale,
                 DocumentPosition = position, Facing = facing,
@@ -342,6 +435,11 @@ namespace Metro.App.Views {
                     : new Vector3(position.x, position.y - 1.5f, position.z),
                 DefaultPlatformBank = 1,
                 Track = track,
+                RailSurfaceZ = StationRailGeometry.RailSurfaceZ(track, modelScale),
+                CabinFloorDocumentZ = StationRailGeometry.CabinFloorFor(track, modelScale),
+                PlatformTopZ = track.Z + StationRailGeometry.PlatformTopAboveModule,
+                ThirdRailSide = StationRailGeometry.ThirdRailSide(track.Facts, facts,
+                    StationRailGeometry.LineDirectionOf(document, track.Facts)),
             };
             return true;
         }
@@ -413,20 +511,57 @@ namespace Metro.App.Views {
     }
 
     /// <summary>
+    /// One presented door event: what a bank actually applied, with the doorway and the
+    /// leaf pose it wrote. Recorded only while <see cref="TrainConsistViews.LogDoorEvents"/>
+    /// is on (a verifier or a test), never per frame in the player.
+    /// </summary>
+    public struct TrainDoorEvent {
+        /// <summary>The stable `lineId|trackId` the consist is keyed by.</summary>
+        public string TrainId;
+        /// <summary>The consist run the frame belonged to (a new dispatch takes the next).</summary>
+        public int ServiceSequence;
+        public TrainPhase Phase;
+        public double PhaseSeconds;
+        /// <summary>`opening` (left shut), `open` (reached 1), `closed` (reached 0).</summary>
+        public string Kind;
+        /// <summary>`+1` or `-1`: the leaf bank, not the platform side.</summary>
+        public int Bank;
+        /// <summary>The fraction the frame commanded for the consist.</summary>
+        public float Commanded;
+        /// <summary>The fraction this bank actually holds.</summary>
+        public float Applied;
+        /// <summary>The doorway the observed leaf belongs to (−1 when unpaired).</summary>
+        public int Doorway;
+        /// <summary>The observed leaf's local x / z in the consist root — the written pose.</summary>
+        public float LeafX, LeafZ;
+
+        public override string ToString() =>
+            TrainId + "#" + ServiceSequence + " " + Phase + " t=" +
+            PhaseSeconds.ToString("0.##", CultureInfo.InvariantCulture) + " " + Kind +
+            " bank=" + Bank + " cmd=" + Commanded.ToString("0.###", CultureInfo.InvariantCulture) +
+            " applied=" + Applied.ToString("0.###", CultureInfo.InvariantCulture) +
+            " door=" + Doorway + " leafX=" + LeafX.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
     /// The consists of one built station world. It instantiates the promoted
     /// formation for every (line, track) the committed document runs — so a consist
-    /// exists before the first frame — registers every car with the world by
-    /// `train:&lt;lineId&gt;|&lt;trackId&gt;|&lt;index&gt;`, and drives the published
-    /// `StationMotionFrame` into their pose and platform-side door bank.
+    /// exists before the first frame — and registers **one visibility record per
+    /// track** (`train:&lt;lineId&gt;|&lt;trackId&gt;`) on the consist root, so the cars,
+    /// gangways, roofs, pantographs and fittings are shown and hidden together by the
+    /// saved track's own storey band. Per-car identity, bounds and document position
+    /// stay on <see cref="TrainCarView"/>; they are metadata, not visibility targets.
     ///
     /// A missing formation is named and draws nothing; a formation whose car nodes
-    /// disagree with the catalogue is corrected to the source's car arithmetic and
-    /// reported. No stand-in box is ever substituted.
+    /// disagree with the catalogue is reported. No stand-in box is ever substituted.
     /// </summary>
     public sealed class TrainConsistViews {
         readonly List<TrainConsistView> consists = new List<TrainConsistView>();
         readonly Dictionary<string, TrainConsistView> byId =
             new Dictionary<string, TrainConsistView>(StringComparer.Ordinal);
+        readonly Dictionary<string, float> lastBankFraction = new Dictionary<string, float>(StringComparer.Ordinal);
+        readonly List<TrainDoorEvent> doorEvents = new List<TrainDoorEvent>();
+        readonly HashSet<string> activeIds = new HashSet<string>(StringComparer.Ordinal);
         readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
         StationViewBuildContext context;
 
@@ -435,6 +570,11 @@ namespace Metro.App.Views {
         public ModuleMotionDispatch Dispatch => dispatch;
         /// <summary>Frames that positioned at least one consist.</summary>
         public int Applied { get; private set; }
+        /// <summary>Record per-event door presentation (a verifier); off in the player.</summary>
+        public bool LogDoorEvents { get; set; }
+        /// <summary>The events recorded so far, oldest first.</summary>
+        public IReadOnlyList<TrainDoorEvent> DoorEvents => doorEvents;
+        public void ClearDoorEvents() { doorEvents.Clear(); lastBankFraction.Clear(); }
 
         public bool TryGet(string trainId, out TrainConsistView view) =>
             byId.TryGetValue(trainId ?? "", out view);
@@ -518,16 +658,14 @@ namespace Metro.App.Views {
                 DestroyNow(instance);
                 return;
             }
-            // Place each car from the source's own cadence. The promoted prefab
-            // already lays them out this way; writing the offsets from `TrainConsist`
-            // keeps the cars on the derived rail even when a formation was re-promoted
-            // with a different pivot.
-            var centres = TrainConsistGeometry.CarCentres(line.Stock, carNodes.Count, scale);
+            // The promoted prefab already lays the cars out on the source cadence in its
+            // own `Consist` frame (`-car.centre` under the 180° Unity basis). Writing
+            // `CarCentres` onto them here used the opposite sign in that basis and could
+            // disagree with the gangways and doorway anchors that share the frame, so the
+            // authored local positions are kept untouched. `CarCentres` remains the
+            // independent expected cadence a test compares against.
             for (int i = 0; i < carNodes.Count; i++) {
                 var node = carNodes[i];
-                var local = instance.transform.InverseTransformPoint(node.position);
-                local.x = centres[i];
-                node.position = instance.transform.TransformPoint(local);
                 var originalName = node.name;
                 var dash = originalName.IndexOf('-');
                 var part = dash >= 0 && dash + 1 < originalName.Length ? originalName.Substring(dash + 1) : originalName;
@@ -542,11 +680,6 @@ namespace Metro.App.Views {
                 if (TryDocumentBounds(node, context.Root, out var bounds)) {
                     car.Bounds = bounds;
                     car.HasBounds = true;
-                    context.World.RegisterModule(TrainConsistRenderer.RoleName, node.name, node.gameObject, "car",
-                        bounds, level, level);
-                } else {
-                    context.World.RegisterModule(TrainConsistRenderer.RoleName, node.name, node.gameObject, "car",
-                        null, level, level);
                 }
             }
 
@@ -568,8 +701,56 @@ namespace Metro.App.Views {
                 context.ReportUnresolved("train-rig-unbound", "train", recordId,
                     "The consist's door rig could not be bound for frame.Trains.");
             }
+
+            // One visibility target per track, not one per `Car<n>` root. The Zoo
+            // formation also carries standalone `Gangway1…5` roots (and the roof/pantograph
+            // wrappers); registering only the car nodes left every other part always
+            // enabled, which is how fragments of the −15 m consist stayed on screen while
+            // its cars were hidden with the −20 m storey. The saved track's own storey band
+            // is the membership — never a child's measured bounds.
+            var gangways = CollectGangways(instance);
+            for (int i = 0; i < gangways.Count; i++) view.Gangways.Add(gangways[i]);
+            var grid = StationLevelGrid.FromDocument(document.LevelBase, document.StoreyHeight);
+            var bands = StationModuleLevels.Of(track.Facts, grid);
+            int trackLevel = bands.Length > 0 ? bands[0] : StationModuleLevels.Band(grid, track.Z);
+            int trackLevelMax = bands.Length > 0 ? bands[bands.Length - 1] : trackLevel;
+            view.LevelMin = trackLevel;
+            view.LevelMax = trackLevelMax;
+            view.LevelBands = bands;
+            view.VisibilityRecordId = recordId;
+            var consistBounds = TrackBandBounds(track, scale);
+            view.ConsistBounds = consistBounds;
+            view.HasConsistBounds = !consistBounds.IsEmpty;
+            context.World.RegisterModule(TrainConsistRenderer.RoleName, recordId, instance, "consist",
+                view.HasConsistBounds ? consistBounds : (StationBox?)null, trackLevel, trackLevelMax, bands);
+
+            // The formation is staged before the first published frame, but it is not a train
+            // at a platform until a service run samples a pose (18 §7): a station opened
+            // before Play must not show a consist parked at its berth.
+            view.Retire();
+
             consists.Add(view);
             byId[trainId] = view;
+        }
+
+        /// <summary>
+        /// The **saved track band** a consist's visibility belongs to: the track's own
+        /// footprint at its own elevation, raised by the stock envelope. A child's bounds
+        /// never decide storey membership (RCA 14 §1/§3).
+        /// </summary>
+        static StationBox TrackBandBounds(StationModuleRecord track, float scale) {
+            var cells = StationFootprints.TrackCells(track);
+            if (cells.Length == 0) {
+                return new StationBox(track.X, track.Y, track.Z,
+                    track.X + Mathf.Max(1, track.Width), track.Y + Mathf.Max(1, track.Depth), track.Z + 1 + 3.8f * scale);
+            }
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            for (int i = 0; i < cells.Length; i++) {
+                var point = cells[i];
+                x0 = Mathf.Min(x0, (float)point.X); y0 = Mathf.Min(y0, (float)point.Y);
+                x1 = Mathf.Max(x1, (float)point.X + 1); y1 = Mathf.Max(y1, (float)point.Y + 1);
+            }
+            return new StationBox(x0, y0, track.Z, x1, y1, track.Z + 1 + 3.8f * scale);
         }
 
         /* ----------------------------------------------------------- per frame */
@@ -579,29 +760,116 @@ namespace Metro.App.Views {
         /// phase pose and the dispatch drives only its platform-side bank. A frame
         /// that names no consist (a released session) leaves the last pose alone.
         /// </summary>
-        public bool Apply(StationMotionFrame frame) {
+        public bool Apply(StationMotionFrame frame) => Apply(frame, 1f, false);
+
+        /// <summary>
+        /// Sample one consist frame at <paramref name="alpha"/> between the previous and
+        /// current tick targets. <paramref name="resetHistory"/> snaps every consist
+        /// (and the door dispatch) instead of blending; the sink passes it for a
+        /// session switch, a seek or a restart.
+        /// </summary>
+        public bool Apply(StationMotionFrame frame, float alpha, bool resetHistory = false) {
             int positioned = 0;
+            if (resetHistory) {
+                for (int i = 0; i < consists.Count; i++) consists[i].ForgetSample();
+                dispatch.ForgetSamples();
+            }
             var trains = frame.Trains;
-            if (trains != null) {
-                for (int i = 0; i < trains.Length; i++) {
-                    var train = trains[i];
-                    if (string.IsNullOrEmpty(train.Id)) continue;
-                    if (!byId.TryGetValue(train.Id, out var view) || view.Root == null) continue;
-                    view.Apply(train);
-                    positioned++;
+            // A frame that names no consist (a released session) leaves the last pose alone.
+            if (trains == null) return false;
+            activeIds.Clear();
+            for (int i = 0; i < trains.Length; i++) {
+                var train = trains[i];
+                if (string.IsNullOrEmpty(train.Id)) continue;
+                if (!byId.TryGetValue(train.Id, out var view) || view.Root == null) continue;
+                // `None` with sequence 0 is a scheduled service in the gap between two runs:
+                // the snapshot keeps it for the clock and arrival forecast, but there is no
+                // consist on the rails to draw. Before 18 it stayed parked at its berth.
+                if (train.Phase == TrainPhase.None || train.ServiceSequence == 0) {
+                    view.Retire();
+                    continue;
                 }
+                // Another run of the same service: start from its own approach pose instead of
+                // blending out of the previous departure.
+                if (train.ServiceSequence != view.ServiceSequence) view.ForgetSample();
+                view.Apply(train, alpha);
+                activeIds.Add(train.Id);
+                positioned++;
+            }
+            // A service the frame no longer names is parked rather than left in its last pose.
+            for (int i = 0; i < consists.Count; i++) {
+                var view = consists[i];
+                if (view.Root == null || activeIds.Contains(view.TrainId)) continue;
+                view.Retire();
             }
             if (positioned > 0) {
-                dispatch.Apply(frame);
+                dispatch.Apply(frame, alpha);
                 // A track with no platform edge has no bank the source would open
                 // (`doorSides` is 0); hold it shut rather than open a tunnel wall.
                 for (int i = 0; i < consists.Count; i++) {
                     var view = consists[i];
                     if (view.Berth != null && !view.Berth.HasPlatform) view.Rig?.SetBank(view.PlatformBank, 0f);
                 }
+                // Only now, with the first pose and the door banks written, may a consist draw.
+                for (int i = 0; i < consists.Count; i++) {
+                    var view = consists[i];
+                    if (view.Root != null && activeIds.Contains(view.TrainId)) view.Mount();
+                }
+                if (LogDoorEvents) RecordDoorEvents(trains);
                 Applied++;
             }
             return positioned > 0;
+        }
+
+        /// <summary>
+        /// Record what each consist's door banks actually applied this frame — an event,
+        /// not a sample: `opening` the moment a bank leaves shut, `open` when it reaches
+        /// the frame's command, `closed` when it gets back to 0. A stop therefore has
+        /// exactly one `opening` and one `closed` per platform-side bank unless something
+        /// re-opened it, and the opposite bank contributes nothing at all.
+        /// </summary>
+        void RecordDoorEvents(StationTrainFrame[] trains) {
+            if (trains == null) return;
+            for (int i = 0; i < trains.Length; i++) {
+                var train = trains[i];
+                if (string.IsNullOrEmpty(train.Id)) continue;
+                if (!byId.TryGetValue(train.Id, out var view) || view.Rig == null) continue;
+                var rig = view.Rig;
+                bool commandedOpen = (train.Phase == TrainPhase.Opening || train.Phase == TrainPhase.Dwell) &&
+                    view.Berth != null && view.Berth.HasPlatform;
+                for (int b = 0; b < 2; b++) {
+                    int bank = b == 0 ? 1 : -1;
+                    float applied = rig.BankFraction(bank);
+                    string key = train.Id + "|" + bank;
+                    bool had = lastBankFraction.TryGetValue(key, out float previous);
+                    lastBankFraction[key] = applied;
+                    if (!had) previous = 0f;
+                    if (applied == previous) continue;
+                    string kind = previous <= 0f && applied > 0f ? "opening"
+                        : previous > 0f && applied <= 0f ? "closed"
+                        : applied >= 1f && previous < 1f ? "open"
+                        : "";
+                    if (kind.Length == 0) continue;
+                    doorEvents.Add(new TrainDoorEvent {
+                        TrainId = train.Id, ServiceSequence = train.ServiceSequence, Phase = train.Phase,
+                        PhaseSeconds = train.PhaseSeconds, Kind = kind, Bank = bank,
+                        Commanded = (float)train.DoorFraction, Applied = applied,
+                        Doorway = bank == view.PlatformBank ? rig.ObservedDoorway : -1,
+                        LeafX = bank == view.PlatformBank ? rig.ObservedLeafX : 0f,
+                        LeafZ = bank == view.PlatformBank ? rig.ObservedLeafZ : 0f,
+                    });
+                }
+                // A bank the platform does not face must never move: report it as its own
+                // event so a verifier cannot mistake silence for a missing binding.
+                if (commandedOpen && rig.InactiveFraction > 0f) {
+                    doorEvents.Add(new TrainDoorEvent {
+                        TrainId = train.Id, ServiceSequence = train.ServiceSequence, Phase = train.Phase,
+                        PhaseSeconds = train.PhaseSeconds, Kind = "inactive-open", Bank = rig.InactiveBank,
+                        Commanded = (float)train.DoorFraction, Applied = rig.InactiveFraction,
+                        Doorway = -1, LeafX = 0f, LeafZ = 0f,
+                    });
+                }
+            }
         }
 
         /* -------------------------------------------------------------- teardown */
@@ -631,6 +899,17 @@ namespace Metro.App.Views {
             var cars = new List<Transform>(found.Count);
             for (int i = 0; i < found.Count; i++) cars.Add(found[i].Value);
             return cars;
+        }
+
+        /// <summary>Every standalone `Gangway&lt;n&gt;` root the promoted formation carries.</summary>
+        public static List<Transform> CollectGangways(GameObject consist) {
+            var gangways = new List<Transform>();
+            if (consist == null) return gangways;
+            foreach (var node in consist.GetComponentsInChildren<Transform>(true)) {
+                if (!node.name.StartsWith("Gangway", StringComparison.Ordinal)) continue;
+                gangways.Add(node);
+            }
+            return gangways;
         }
 
         /// <summary>The `<n>` of `Car&lt;n&gt;-Part`; −1 for any other node.</summary>
@@ -717,6 +996,19 @@ namespace Metro.App.Views {
             return state != null ? state.Views.Probe(trainId) : default;
         }
 
+        /// <summary>Record per-event door presentation for the active world (off in the player).</summary>
+        public bool LogDoorEvents {
+            get { var state = ActiveState(); return state != null && state.Views.LogDoorEvents; }
+            set { var state = ActiveState(); if (state != null) state.Views.LogDoorEvents = value; }
+        }
+
+        /// <summary>The active world's recorded door events, oldest first.</summary>
+        public IReadOnlyList<TrainDoorEvent> DoorEvents {
+            get { var state = ActiveState(); return state != null ? state.Views.DoorEvents : Array.Empty<TrainDoorEvent>(); }
+        }
+
+        public void ClearDoorEvents() { ActiveState()?.Views.ClearDoorEvents(); }
+
         public void Build(StationViewBuildContext context) {
             if (context == null) throw new ArgumentNullException(nameof(context));
             DropDisposedWorlds();
@@ -736,11 +1028,14 @@ namespace Metro.App.Views {
         }
 
         /// <summary>One published session frame; false when the active world has no consults.</summary>
-        public bool Apply(StationMotionFrame frame) {
+        public bool Apply(StationMotionFrame frame) => Apply(frame, 1f, false);
+
+        /// <summary>Sample the frame at a presentation fraction (see <see cref="TrainConsistViews.Apply"/>).</summary>
+        public bool Apply(StationMotionFrame frame, float alpha, bool resetHistory = false) {
             var state = ActiveState();
             if (state == null) return false;
             try {
-                return state.Views.Apply(frame);
+                return state.Views.Apply(frame, alpha, resetHistory);
             } catch (Exception error) {
                 LastError = error.GetType().Name + ": " + error.Message;
                 return false;
@@ -782,30 +1077,47 @@ namespace Metro.App.Views {
     /// Per-frame half of the rolling stock: the host ticks frame sinks with the
     /// committed station, so the sink reads the live session's own
     /// <see cref="StationMotionFrame"/> through the same seam
-    /// `ModuleMotionFrameSink` uses (no host or scene edit). It re-applies only when
-    /// the session tick, clock or play state changed, so a paused station keeps the
-    /// pose the last frame wrote and an identical frame cannot drift it.
+    /// `ModuleMotionFrameSink` uses (no host or scene edit).
+    ///
+    /// The source frame is refreshed on a fixed-tick boundary only; every rendered
+    /// frame then samples it at the scheduler's presentation fraction, so an approach
+    /// or departure moves continuously instead of once a simulated second (RCA 14 §5).
+    /// A paused station has a frozen fraction, which is the identity and holds the last
+    /// presented pose; a seek, restart or session switch drops the interpolation pair.
     /// </summary>
     sealed class TrainConsistFrameSink : IStationFrameSink {
+        StationSimulationSession session;
+        StationMotionFrame frame;
         long lastTick = long.MinValue;
-        double lastSimTime = double.NaN;
-        bool lastPlaying;
+        long lastEpoch = long.MinValue;
+        bool hasFrame;
 
-        public void Tick(StationDocument document, StationIndex index, double simTimeSeconds) {
+        public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) {
             var renderer = TrainConsistRenderer.Current;
             if (renderer == null || document == null) return;
             try {
                 var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
                 if (host == null) return;
-                var session = (host.Simulation as StationSimulationHost)?.Session;
-                if (session == null) return;
-                if (session.Tick == lastTick &&
-                    Math.Abs(simTimeSeconds - lastSimTime) < 1e-9 &&
-                    session.Playing == lastPlaying) return;
-                lastTick = session.Tick;
-                lastSimTime = simTimeSeconds;
-                lastPlaying = session.Playing;
-                renderer.Apply(session.Snapshot());
+                var live = (host.Simulation as StationSimulationHost)?.Session;
+                if (live == null) return;
+                bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch;
+                if (reset) {
+                    // A new session or an invalidated history: snap to the frame's own
+                    // pose instead of blending from a route the station no longer has.
+                    session = live;
+                    lastEpoch = clock.Epoch;
+                    lastTick = clock.Tick;
+                    frame = live.Snapshot();
+                    hasFrame = true;
+                    renderer.Apply(frame, 1f, true);
+                    return;
+                }
+                if (!hasFrame || clock.Tick != lastTick) {
+                    frame = live.Snapshot();
+                    lastTick = clock.Tick;
+                    hasFrame = true;
+                }
+                renderer.Apply(frame, (float)clock.Fraction, false);
             } catch (Exception error) {
                 renderer.LastError = error.GetType().Name + ": " + error.Message;
             }

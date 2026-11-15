@@ -97,8 +97,10 @@ namespace Metro.App {
     /// not need to know the road type. Registered once, like the renderers.
     /// </summary>
     sealed class RoadFrameSink : IStationFrameSink {
-        public void Tick(StationDocument document, StationIndex index, double simTimeSeconds) =>
-            Metro.App.Views.StationRoadRenderer.Current?.Update(simTimeSeconds);
+        public void Tick(StationDocument document, StationIndex index, StationFrameClock clock) =>
+            // The presented instant, not the tick boundary: signals and ambient traffic
+            // sample the shared presentation clock (RCA 14 §5.3).
+            Metro.App.Views.StationRoadRenderer.Current?.Update(clock.PresentationSeconds);
     }
 
     /// <summary>

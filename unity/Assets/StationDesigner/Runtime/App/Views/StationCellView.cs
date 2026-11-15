@@ -381,10 +381,11 @@ namespace Metro.App.Views {
     ///     cell surface is drawn (a solid-colour stand-in is never a finish);
     ///   * `finish-unknown`  a finish id outside the export, drawn with the documented
     ///     `floor.concrete` fallback and kept in the document (E2's rule);
-    ///   * `ramp-slope-not-derived` / `platform-inset-not-derived` / `ramp-openings-not-derived`
+    ///   * `ramp-slope-not-derived` / `ramp-openings-not-derived`
     ///      module-derived mesher inputs the host has not supplied yet (the mesher
-    ///     draws them when given; the module  cut/inset/opening ports are the blocker
-    ///     named in `unity/plan/11-evidence/E.md`).
+    ///     draws them when given; the module  cut/opening ports are the blocker
+    ///     named in `unity/plan/11-evidence/E.md`). The platform-edge floor inset is
+    ///     ported (`StationPlatformInsets`) and reported as `platform-inset-applied`.
     ///
     /// The built <see cref="View"/> is the paint adapter's pick source:
     /// `view.TryPick(worldRay, out hit)` resolves one pointer hit once and hands back the
@@ -551,22 +552,39 @@ namespace Metro.App.Views {
         /// floors). Ramp openings, slope cuts and platform insets are reported, not
         /// guessed.
         /// </summary>
-        public static StationCellMeshInput BuildInput(StationViewBuildContext context, StationFinishLibrary library, List<string> notes) {
-            var document = context.Document;
+        public static StationCellMeshInput BuildInput(StationViewBuildContext context, StationFinishLibrary library, List<string> notes) =>
+            BuildInput(context.Document, library, notes, null);
+
+        /// <summary>
+        /// Project a <see cref="StationDocument"/> into <see cref="StationCellMeshInput"/>, optionally
+        /// applying a <see cref="StationCellViewerPolicy"/> for the standalone exploded viewer while
+        /// preserving original-coordinate voids and platform insets.
+        /// </summary>
+        public static StationCellMeshInput BuildInput(
+            StationDocument document,
+            StationFinishLibrary library,
+            List<string> notes,
+            StationCellViewerPolicy viewerPolicy) {
+            if (document == null) throw new ArgumentNullException(nameof(document));
+            bool isViewer = viewerPolicy != null;
+            var retained = viewerPolicy?.RetainedCells;
             var input = new StationCellMeshInput {
                 LevelBase = document.LevelBase,
                 StoreyHeight = document.StoreyHeight,
-                VirtualGround = true,
+                VirtualGround = !isViewer,
                 GroundZ = StationPaintSnapshot.GroundZ,
                 GroundMargin = 16,
                 DefaultFinish = library != null ? library.DefaultFinishFor(StationFace.Top) : StationFinishIds.DefaultMaterial,
                 RampSoffitFinish = library != null ? library.RampSoffitId : "ceil.steel",
                 BuildCeilings = true,
                 BuildPlates = false,
-                BuildGround = true,
+                BuildGround = !isViewer,
+                OmitSuspendedCeilings = isViewer && viewerPolicy.OmitSuspendedCeilings,
+                IsolateBandOcclusion = isViewer && viewerPolicy.IsolateBandOcclusion,
             };
             foreach (var cell in document.Cells) {
                 if (!cell.IsSolid) { input.Voids.Add(cell.Key); continue; }
+                if (retained != null && !retained.Contains(cell.Key)) continue;
                 var tags = cell.Tags;
                 var flags = StationMeshCellFlags.None;
                 if (StationCellRules.IsWallBlock(tags)) flags |= StationMeshCellFlags.Wall;
@@ -582,8 +600,18 @@ namespace Metro.App.Views {
             }
             var holes = 0;
             var ramps = 0;
-            var insets = 0;
             var rampsAtGrade = 0;
+            var runEndpoints = 0;
+            var wellway = 0;
+            // RCA 15 §6.2: one opening description per saved head-house, shared with the exit pad
+            // (`StationStreetModuleRenderer.BuildExit`) and the paver exclusion
+            // (`StationSurfaceModuleRenderer`), so ground, pavers and pad cannot disagree.
+            var exits = new List<StationExitOpenings>();
+            foreach (var module in document.Modules) {
+                if (module?.Facts == null || module.Facts.Type != "exit") continue;
+                if (module.Config.Text("style") == "doorway" || module.Config.Text("style") == "virtual") continue;
+                exits.Add(StationExitOpenings.For(document.Modules, module));
+            }
             foreach (var module in document.Modules) {
                 if (module == null) continue;
                 switch (module.Type) {
@@ -592,29 +620,85 @@ namespace Metro.App.Views {
                             foreach (var point in StationFootprints.TrackCells(module))
                                 if (input.GroundHoles.Add(CellKeyAt(point))) holes++;
                         break;
-                    case "exit":
+                    case "exit": {
+                        // `exitFloorAt`: the whole plate is a ground hole (the pad is the floor there).
+                        var openings = ExitOpeningsFor(exits, module);
                         if (module.Z == StationPaintSnapshot.GroundZ)
                             foreach (var point in StationFootprints.ExitFootprint(module))
                                 if (input.GroundHoles.Add(CellKeyAt(point))) holes++;
+                        if (openings != null) wellway += openings.WellwayCells().Count;
                         rampsAtGrade++;
                         break;
+                    }
                     case "stair":
                     case "escalator":
                     case "walkway":
                         ramps++;
                         if (module.Z == StationPaintSnapshot.GroundZ) rampsAtGrade++;
+                        // RCA 15 §6.2: the two endpoints of the ramp belong to the same opening
+                        // description, so a run landing on the street plane opens it. The corridor
+                        // sweep between them is still reported, not guessed.
+                        foreach (var point in RunLandingCells(module.Facts)) {
+                            if (Math.Abs(point.Z - StationPaintSnapshot.GroundZ) > 1e-9) continue;
+                            if (input.GroundHoles.Add(new StationCellKey((int)Math.Round(point.X, MidpointRounding.AwayFromZero),
+                                    (int)Math.Round(point.Y, MidpointRounding.AwayFromZero), StationPaintSnapshot.GroundZ))) {
+                                holes++;
+                                runEndpoints++;
+                            }
+                        }
                         break;
                     case "platform-edge":
-                        if (module.Config.Text("psd") != "none") insets++;
+                        // The screen's own floor base is a mesher input, not a note: the
+                        // mask is derived below from the same records (`StationPlatformInsets`,
+                        // port of render/platformBlockInsets.ts), so a platform cell stops
+                        // behind the PSD plinth instead of running under its threshold.
                         break;
                 }
             }
-            if (ramps > 0) notes.Add("ramp-slope-not-derived: " + ramps + " run(s) have no SlopeCut in this build, so a block under a run is drawn whole");
-            if (insets > 0) notes.Add("platform-inset-not-derived: " + insets + " platform edge(s) with a PSD base are drawn full-width");
-            if (rampsAtGrade > 0) notes.Add("ramp-openings-not-derived: " + rampsAtGrade + " run(s) at grade do not cut the street window (track/exit openings are applied)");
-            if (holes > 0) notes.Add("ground-openings-applied: " + holes + " street cell(s) kept open from track/exit facts");
+            // RCA 16 §3.3: `platformBlockInsets` — the track-facing strip of every
+            // platform-edge cell belongs to the PSD base. Applying it removes the
+            // coplanar cell top under `psd-threshold` and exposes the source foundation.
+            var platformInsets = StationPlatformInsets.For(document.Modules);
+            foreach (var pair in platformInsets) input.Insets[pair.Key] = pair.Value;
+            if (notes != null) {
+                if (platformInsets.Count > 0)
+                    notes.Add("platform-inset-applied: " + platformInsets.Count + " platform cell(s) stop at the PSD base");
+                if (ramps > 0) notes.Add("ramp-slope-not-derived: " + ramps + " run(s) have no SlopeCut in this build, so a block under a run is drawn whole");
+                if (rampsAtGrade > 0) notes.Add("ramp-corridor-not-derived: " + rampsAtGrade + " run(s) at grade cut their landing cell(s) only; the corridor between the endpoints is not swept (track/exit openings are applied)");
+                if (runEndpoints > 0) notes.Add("ramp-openings-applied: " + runEndpoints + " run landing cell(s) at grade kept open");
+                if (wellway > 0) notes.Add("exit-wellway-open: " + wellway + " run column cell(s) under " + exits.Count + " exit(s)");
+                if (holes > 0) notes.Add("ground-openings-applied: " + holes + " street cell(s) kept open from track/exit facts");
+            }
             return input;
         }
+
+        /// <summary>The shared description for a saved exit record, or null for a doorway/virtual one.</summary>
+        static StationExitOpenings ExitOpeningsFor(List<StationExitOpenings> exits, StationModuleRecord record) {
+            for (int i = 0; i < exits.Count; i++) {
+                var openings = exits[i];
+                if (openings != null && ReferenceEquals(openings.Exit, record)) return openings;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// A run's own landing cells (`stairFlights`' endpoints, `escalatorLandings`): the two ends a
+        /// ramp opens the street plane at. The corridor between them is not derived here.
+        /// </summary>
+        static List<StationRunPoint> RunLandingCells(ModuleFacts run) {
+            if (run == null) return EmptyPoints;
+            if (string.Equals(run.Type, "escalator", StringComparison.Ordinal) || string.Equals(run.Type, "walkway", StringComparison.Ordinal))
+                return StationRunGeometry.EscalatorLandings(run);
+            var points = new List<StationRunPoint>(8);
+            var flights = StationRunGeometry.StairFlights(run);
+            for (int i = 0; i < flights.Count; i++) {
+                points.Add(flights[i].From);
+                points.Add(flights[i].To);
+            }
+            return points;
+        }
+
+        static readonly List<StationRunPoint> EmptyPoints = new List<StationRunPoint>();
 
         /// <summary>A module footprint point as a cell key at the street plane.</summary>
         static StationCellKey CellKeyAt(StationPoint point) => new StationCellKey(

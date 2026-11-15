@@ -238,6 +238,11 @@ namespace Metro.App {
         /// <summary>How many requests are waiting for their `sign.faceReady`.</summary>
         public int OpenRequests => requestRevisions.Count;
 
+        /// <summary>Batches this world could not publish (no transport); each stays retryable.</summary>
+        public int DroppedRequests { get; private set; }
+        /// <summary>The last publication failure, for the face status report.</summary>
+        public string LastPublishError { get; private set; } = "";
+
         public void Request(StationSignFaceBatch batch) {
             if (disposed || batch == null || batch.Faces == null || batch.Faces.Length == 0) return;
             var current = context() ?? new StationSignContext();
@@ -260,7 +265,17 @@ namespace Metro.App {
                 ["revision"] = current.Revision,
                 ["payload"] = payload,
             };
-            if (!send(envelope.ToString(Formatting.None))) Cancel(batch.RequestId);
+            if (!send(envelope.ToString(Formatting.None))) {
+                // No route this frame (the desktop presenter is not attached yet, or a
+                // WebGL build without the glue). Drop the request bookkeeping but leave
+                // every face in the cache's `wanted` set: `Pump` re-asks after the retry
+                // window, so a late painter readiness heals instead of wedging.
+                DroppedRequests++;
+                LastPublishError = "publish-unavailable";
+                Cancel(batch.RequestId);
+            } else {
+                LastPublishError = "";
+            }
         }
 
         static JObject FaceJson(StationSignFaceRequest face) {

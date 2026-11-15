@@ -166,6 +166,44 @@ namespace Metro.App {
         /// <summary>Fraction commanded on the −1 bank.</summary>
         public float Minus => minus;
 
+        /// <summary>The fraction the bank facing the platform holds right now.</summary>
+        public float PlatformFraction => platformBank >= 0 ? plus : minus;
+
+        /// <summary>The bank the platform does not face; it must stay shut.</summary>
+        public int InactiveBank => -platformBank;
+
+        /// <summary>The fraction the inactive bank holds (0 on a berth with a platform).</summary>
+        public float InactiveFraction => platformBank >= 0 ? minus : plus;
+
+        /// <summary>The fraction one bank holds (`+1` = the source's `plus`).</summary>
+        public float BankFraction(int bank) => bank >= 0 ? plus : minus;
+
+        /// <summary>The doorway index the observed leaf belongs to (−1 when it could not be paired).</summary>
+        public int ObservedDoorway => observed >= 0 && observed < leaves.Count ? leaves[observed].door : -1;
+
+        /// <summary>The observed leaf's live local x in the consist root — the pose the law writes.</summary>
+        public float ObservedLeafX {
+            get {
+                if (observed < 0 || !root) return 0f;
+                var leaf = leaves[observed];
+                if (!leaf.node) return 0f;
+                return root.InverseTransformPoint(leaf.node.position).x;
+            }
+        }
+
+        /// <summary>The observed leaf's live local z (the plug's own travel), in root metres.</summary>
+        public float ObservedLeafZ {
+            get {
+                if (observed < 0 || !root) return 0f;
+                var leaf = leaves[observed];
+                if (!leaf.node) return 0f;
+                return root.InverseTransformPoint(leaf.node.position).z;
+            }
+        }
+
+        /// <summary>The observed leaf's staged motion at the platform bank's current fraction.</summary>
+        public Stage ObservedStage => Stage.At(PlatformFraction);
+
         /// <summary>True when at least one doorway was bound from a `DoorCentre` anchor.</summary>
         public bool UsesAnchors => anchored;
 

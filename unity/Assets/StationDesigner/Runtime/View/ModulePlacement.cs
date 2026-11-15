@@ -34,6 +34,24 @@ namespace Metro.View {
         public static Vector3 Position(ModuleFacts module, RuntimeCatalogue.Entry entry) =>
             Position(module, entry?.offset ?? new Vector3(.5f, .5f, 1));
 
+        /// <summary>
+        /// The in-cell shift that puts a run's **centre** on its anchor cell. The source
+        /// pivots a run at <c>mod.x + .5 + rotateLocal(rot, (w-1)/2, 0)</c>, so a two-cell
+        /// bench or billboard must not be dropped half a cell to one side. Document axes,
+        /// like every offset here; callers add it before the one world conversion.
+        /// </summary>
+        public static Vector3 RunCentre(ModuleFacts module) {
+            float halfWidth = Mathf.Max(0, module.Width - 1) * 0.5f;
+            float halfDepth = Mathf.Max(0, module.Depth - 1) * 0.5f;
+            if (halfWidth <= 0f && halfDepth <= 0f) return Vector3.zero;
+            switch (((module.Rotation % 4) + 4) % 4) {
+                case 1: return new Vector3(-halfDepth, halfWidth, 0f);
+                case 2: return new Vector3(-halfWidth, -halfDepth, 0f);
+                case 3: return new Vector3(halfDepth, -halfWidth, 0f);
+                default: return new Vector3(halfWidth, halfDepth, 0f);
+            }
+        }
+
         /// <summary>Floor surface plane of a storey, in Unity metres.</summary>
         public static float Floor(int elevation) => StationCoordinates.Floor(elevation);
 

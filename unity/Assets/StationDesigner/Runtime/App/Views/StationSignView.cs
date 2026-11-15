@@ -104,6 +104,12 @@ namespace Metro.App {
         public const float BoardThickness = 0.08f;
         public const float HangDrop = 0.65f;
         public const float WallStandOff = 0.003f;
+        /// <summary>
+        /// The sheet's stand-off in front of the board body: `BOARD_T/2 + 0.012` in
+        /// `SignModel.mountHangingSign`, which is the printed plane a hung board uses
+        /// until a promoted holder proves a farther one (RCA 15 §2).
+        /// </summary>
+        public const float FaceStandOff = 0.012f;
         public const float PanelMinWidth = 1f;
         public const float PanelMinHeight = 0.4f;
         public const float PanelMaxWidth = 3.5f;
@@ -684,6 +690,210 @@ namespace Metro.App {
         }
     }
 
+    /* ------------------------------------------------- RCA 15 §2 holder contract */
+
+    /// <summary>
+    /// What one measured promoted-holder child is, decided from its own bounds in
+    /// sign-local space (RCA 15 §2). The export's spliced nodes are unnamed, so a name
+    /// test would be neither stable nor honest; the measured shape decides instead.
+    /// </summary>
+    public enum StationSignHolderPartKind {
+        /// <summary>Nothing the contract recognises — the part decides the verdict.</summary>
+        Unknown = 0,
+        /// <summary>The body that spans the panel: the sheet's backing.</summary>
+        Frame = 1,
+        /// <summary>The lightbox enclosed between the frame's faces.</summary>
+        Housing = 2,
+        /// <summary>A suspension rod rising from the board to the hang surface.</summary>
+        Rod = 3,
+        /// <summary>A plate at the hang surface the rods fix into.</summary>
+        CeilingPlate = 4,
+        /// <summary>The holder's own baked printed sheet, and the only part a view may hide.</summary>
+        Plate = 5,
+    }
+
+    /// <summary>
+    /// One promoted-holder child mesh measured in sign-local space (RCA 15 §2). Holding a
+    /// `Transform` rather than a formatted path keeps the 21-sign build allocation-free;
+    /// the name path is built only when a diagnostic asks for it.
+    /// </summary>
+    public sealed class StationSignHolderPart {
+        /// <summary>Position in the holder's `MeshFilter` traversal (the clone keeps it).</summary>
+        public int Index;
+        public Transform Root;
+        public Transform Transform;
+        public MeshRenderer Renderer;
+        /// <summary>What the part's measured bounds prove it is (RCA 15 §2).</summary>
+        public StationSignHolderPartKind Kind;
+        /// <summary>Sign-local bounds of the child's mesh.</summary>
+        public Bounds Bounds;
+        /// <summary>Enabled and active at measure time — the parts a reader can see.</summary>
+        public bool Enabled;
+        /// <summary>Hidden by the replaceable-plate rule (never by thickness alone).</summary>
+        public bool Hidden;
+
+        public string Name => Transform != null ? Transform.name : "?";
+        public string Path => StationSignHolderClearance.PathOf(Root, Transform);
+
+        public string Describe() =>
+            Kind.ToString().ToLowerInvariant() + " '" + Path + "' " + (Enabled ? "enabled" : "disabled") +
+            (Hidden ? " hidden" : "") + " bounds min(" + Format(Bounds.min) + ") max(" + Format(Bounds.max) + ")";
+
+        internal static string Format(Vector3 value) =>
+            value.x.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+            value.y.ToString("0.###", CultureInfo.InvariantCulture) + "," +
+            value.z.ToString("0.###", CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>
+    /// The verdict of the RCA 15 §2 holder contract for one request: the parts measured in
+    /// sign-local space, the printed plane they were checked against, and — when the holder
+    /// is refused — the child that refused it. Kept by reference (no formatted strings), so
+    /// the build stays cheap and the readable dump is built only when asked for.
+    /// </summary>
+    public sealed class StationSignHolderClearance {
+        public string HolderName = "";
+        public StationSignMount Mount;
+        public bool Offered;
+        public bool Accepted;
+        /// <summary>Why the holder was refused; empty when accepted.</summary>
+        public string Reason = "";
+        /// <summary>The refusal was a missing frame/rod/ceiling-plate structure.</summary>
+        public bool StructureMissing;
+        /// <summary>The enabled opaque child that reached the printed face plane.</summary>
+        public StationSignHolderPart Offender;
+        public Bounds Bounds;
+        /// <summary>The holder's baked sheet size, as measured.</summary>
+        public Vector2 Plate;
+        public bool Anchors;
+        /// <summary>The source model's printed plane for this mount (signed local z).</summary>
+        public float ReferencePlane;
+        /// <summary>The outermost surface of the holder's own body that could cross it.</summary>
+        public float ExteriorZ;
+        /// <summary>The verified clear printed plane the face slots take (signed local z).</summary>
+        public float FaceZ;
+        public Vector2 Panel;
+        public float PanelCentreZ;
+        public float HangCeilingLocal;
+        public float PlateWidth;
+        public float PlateHeight;
+        public StationSignHolderPart[] Parts = Array.Empty<StationSignHolderPart>();
+
+        /// <summary>
+        /// True when the holder was refused for its **geometry** — a missing structure or a
+        /// child crossing the printed plane — rather than for being the export's one panel
+        /// size. That is the refusal a build must report; a size mismatch is the ordinary
+        /// "this export is one board" case the fallback exists for.
+        /// </summary>
+        public bool ContractRejected => Offered && !Accepted && (StructureMissing || Offender != null);
+
+        /// <summary>How many parts the contract recognised as suspension structure.</summary>
+        public int RodCount {
+            get {
+                int count = 0;
+                foreach (var part in Parts) if (part.Kind == StationSignHolderPartKind.Rod) count++;
+                return count;
+            }
+        }
+
+        public int CeilingPlateCount {
+            get {
+                int count = 0;
+                foreach (var part in Parts) if (part.Kind == StationSignHolderPartKind.CeilingPlate) count++;
+                return count;
+            }
+        }
+
+        public int BodyCount {
+            get {
+                int count = 0;
+                foreach (var part in Parts)
+                    if (part.Kind == StationSignHolderPartKind.Frame || part.Kind == StationSignHolderPartKind.Housing) count++;
+                return count;
+            }
+        }
+
+        public int PlateCount {
+            get {
+                int count = 0;
+                foreach (var part in Parts) if (part.Kind == StationSignHolderPartKind.Plate) count++;
+                return count;
+            }
+        }
+
+        /// <summary>One line: the verdict, the plane and the refusing child.</summary>
+        public string DescribeReason() {
+            if (!Offered) return "no promoted holder offered";
+            var text = new StringBuilder();
+            text.Append("holder ").Append(string.IsNullOrEmpty(HolderName) ? "?" : HolderName);
+            text.Append(Accepted ? " accepted" : " REJECTED: " + Reason);
+            text.Append("; printed plane ");
+            text.Append(ReferencePlane.ToString("0.###", CultureInfo.InvariantCulture));
+            if (Accepted) {
+                text.Append(" cleared to ").Append(FaceZ.ToString("0.###", CultureInfo.InvariantCulture));
+            } else if (Offender != null) {
+                text.Append("; child '").Append(Offender.Path).Append("' bounds min(")
+                    .Append(StationSignHolderPart.Format(Offender.Bounds.min)).Append(") max(")
+                    .Append(StationSignHolderPart.Format(Offender.Bounds.max)).Append(')');
+            }
+            return text.ToString();
+        }
+
+        /// <summary>The full dump: the verdict, every measured child and the face-plane math.</summary>
+        public string Describe() {
+            var text = new StringBuilder();
+            text.Append("  holder ").Append(string.IsNullOrEmpty(HolderName) ? "(none)" : HolderName)
+                .Append(" mount ").Append(StationSignVocabulary.Mount(Mount));
+            text.Append(" panel ").Append(Panel.x.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append('x').Append(Panel.y.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(" centre z ").Append(PanelCentreZ.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(" hang ").Append(HangCeilingLocal.ToString("0.###", CultureInfo.InvariantCulture));
+            text.Append(' ').Append(DescribeReason()).Append('\n');
+            text.Append("  envelope min(").Append(StationSignHolderPart.Format(Bounds.min)).Append(") max(")
+                .Append(StationSignHolderPart.Format(Bounds.max)).Append(") baked sheet ")
+                .Append(Plate.x.ToString("0.###", CultureInfo.InvariantCulture)).Append('x')
+                .Append(Plate.y.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(" anchors ").Append(Anchors ? "yes" : "no").Append('\n');
+            if (Parts.Length == 0) {
+                text.Append("  no holder children measured\n");
+            } else {
+                foreach (var part in Parts) text.Append("  ").Append(part.Index).Append(' ').Append(part.Describe()).Append('\n');
+            }
+            text.Append("  body exterior ").Append(ExteriorZ.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(" face plane ").Append(FaceZ.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(" (reference ").Append(ReferencePlane.ToString("0.###", CultureInfo.InvariantCulture)).Append(')');
+            return text.ToString();
+        }
+
+        internal static string PathOf(Transform root, Transform child) {
+            if (child == null) return "?";
+            var names = new Stack<string>();
+            for (var walk = child; walk != null && walk != root; walk = walk.parent) names.Push(walk.name);
+            var text = new StringBuilder();
+            foreach (var name in names) {
+                if (text.Length > 0) text.Append('/');
+                text.Append(name);
+            }
+            if (text.Length == 0) text.Append(root != null ? root.name : "?");
+            return text.ToString();
+        }
+
+        internal void Refuse(string reason) {
+            Accepted = false;
+            Reason = reason;
+        }
+
+        internal void RefuseStructure(string reason) {
+            StructureMissing = true;
+            Refuse(reason);
+        }
+
+        internal void RefusePart(StationSignHolderPart part, string reason) {
+            Offender = part;
+            Refuse(reason);
+        }
+    }
+
     /* ------------------------------------------------------------------ one face slot */
 
     /// <summary>
@@ -760,6 +970,25 @@ namespace Metro.App {
         public int BoardCount { get; private set; }
         public bool HolderMatched { get; private set; }
         public string HolderSource { get; private set; } = "parts";
+        /// <summary>
+        /// RCA 15 §2: the promoted-holder verdict, including every measured child and the
+        /// child that refused the holder. Null when the request offered no holder at all.
+        /// </summary>
+        public StationSignHolderClearance HolderClearance { get; private set; }
+        /// <summary>
+        /// RCA 15 §2: the verified clear printed plane the face slots use — the accepted
+        /// holder's measured exterior, or the procedural parts' own exterior.
+        /// </summary>
+        public float FacePlaneZ { get; private set; }
+        /// <summary>
+        /// Why a promoted holder was refused, naming the offending child and its bounds, or
+        /// "" when it was accepted or never offered. Built on demand so the Zoo build pays
+        /// nothing for it.
+        /// </summary>
+        public string HolderDiagnostic =>
+            HolderClearance != null && HolderClearance.Offered && !HolderClearance.Accepted
+                ? HolderClearance.DescribeReason()
+                : "";
         public float PanelCentreZ { get; private set; }
         public Bounds LocalBounds { get; private set; }
         public StationSignLine[] Lines { get; private set; } = Array.Empty<StationSignLine>();
@@ -826,28 +1055,37 @@ namespace Metro.App {
             // geometry would rotate it with the piece. `BoothOffsetX/Y` stays on the
             // request as the saved metres that placement reads.
 
+            // RCA 15 §2: a promoted holder is accepted only on the verified contract
+            // (`TryVerifyHolder`), and the printed plane then comes from the holder's own
+            // measured clear exterior — never from a constant that may sit inside it.
             var holder = holders.For(request.Mount);
-            bool matched = TryMatchHolder(holder, request.Mount, panel, PanelCentreZ, request.HangCeilingLocal);
+            bool matched = TryVerifyHolder(holder, request.Mount, panel, PanelCentreZ, request.HangCeilingLocal,
+                out var clearance);
+            HolderClearance = clearance;
             HolderMatched = matched;
             if (matched) {
                 holderInstance = Instantiate(holder, transform, false);
                 holderInstance.name = "holder " + holder.name;
                 holderInstance.transform.localPosition = Vector3.zero;
                 holderInstance.transform.localRotation = Quaternion.identity;
-                DisableBakedFaces(holderInstance);
+                // Only a part the contract identified as a replaceable sheet may be hidden;
+                // an extruded baked board would have refused the holder already.
+                DisableReplaceablePlates(holderInstance, clearance);
                 HolderSource = "promoted:" + holder.name;
+                FacePlaneZ = clearance.FaceZ;
             } else {
                 HolderSource = "parts";
+                FacePlaneZ = ProceduralFacePlane(hung);
                 BuildParts(materials, panel, hung);
             }
 
             bool doubleSided = StationSignMounts.DoubleSided(request.Mount);
             if (StationSignBoards.HasInk(mounted.Front, StationSignFaceName.Front)) {
-                front = BuildFaceSlot(materials, StationSignFaceName.Front, panel, hung);
+                front = BuildFaceSlot(materials, StationSignFaceName.Front, panel, hung, FacePlaneZ);
                 if (front != null) BoardCount++;
             }
             if (doubleSided && StationSignBoards.HasInk(mounted.Back, StationSignFaceName.Back)) {
-                back = BuildFaceSlot(materials, StationSignFaceName.Back, panel, hung);
+                back = BuildFaceSlot(materials, StationSignFaceName.Back, panel, hung, FacePlaneZ);
                 if (back != null) BoardCount++;
             }
             if (BoardCount == 0 && !hung && string.IsNullOrEmpty(Issue)) Issue = "no board content";
@@ -880,33 +1118,56 @@ namespace Metro.App {
             } else if (string.IsNullOrEmpty(Issue)) {
                 Issue = "no headroom for suspension rods";
             }
+            // RCA 15 §2: the body is a **vertical** board — width, height, then the board's
+            // thickness on the depth axis — which is `SignModel.mountHangingSign`'s
+            // `slab(g, …, W, BOARD_T, H)` after the coordinate swap. Swapping the last two
+            // axes here draws a horizontal slab whose ±H/2 depth crosses both printed sheets
+            // at ±0.052: the solid bar across the text in the screenshot.
             Box("frame", materials.DarkSteel, new Vector3(0f, zc, 0f),
-                new Vector3(width, StationSignMounts.BoardThickness, height));
+                new Vector3(width, height, StationSignMounts.BoardThickness));
             Box("lightbox", materials.Black, new Vector3(0f, zc, 0f),
-                new Vector3(width - 0.03f, StationSignMounts.BoardThickness + 0.012f, height - 0.03f));
+                new Vector3(width - 0.03f, height - 0.03f, StationSignMounts.BoardThickness + 0.012f));
         }
 
         /// <summary>
-        /// Disable the holder's own baked lit face: the promoted export carries the
-        /// palette's **neutral** board, and this packet paints the document's. A baked
-        /// plate is a zero-thickness quad, which is what tells it apart from the holder's
-        /// rods, frame and lightbox.
+        /// The printed plane the procedural path draws on: the source model's own
+        /// `plate(w − 0.06, h − 0.06)` at `±(BOARD_T/2 + 0.012)` for a hung board, and the
+        /// sheet 3 mm proud of the wall for a wall board. `BuildParts` emits exactly those
+        /// parts, so the plane is the parts' own exterior and not a guess (RCA 15 §2).
         /// </summary>
-        static void DisableBakedFaces(GameObject holder) {
-            foreach (var filter in holder.GetComponentsInChildren<MeshFilter>(true)) {
-                var mesh = filter.sharedMesh;
-                if (mesh == null) continue;
-                var size = mesh.bounds.size;
-                if (Mathf.Min(size.x, Mathf.Min(size.y, size.z)) > 0.001f) continue;
-                var renderer = filter.GetComponent<MeshRenderer>();
-                if (renderer != null) renderer.enabled = false;
+        static float ProceduralFacePlane(bool hung) =>
+            hung ? StationSignMounts.BoardThickness / 2f + StationSignMounts.FaceStandOff
+                : -0.5f + StationSignMounts.WallStandOff;
+
+        /// <summary>
+        /// Hide the promoted holder's own baked printed sheet — and **only** that (RCA 15
+        /// §2). The export carries the palette's neutral board where this packet paints the
+        /// document's. A part is hidden only when the contract positively identified it as a
+        /// replaceable flat plate; an extruded baked board or lightbox is never hidden by a
+        /// thickness rule, it refuses the holder instead (`TryVerifyHolder`). The clone is
+        /// matched to the measured parts by `MeshFilter` traversal order, because both trees
+        /// are the same hierarchy.
+        /// </summary>
+        static void DisableReplaceablePlates(GameObject instance, StationSignHolderClearance clearance) {
+            if (instance == null || clearance == null || clearance.Parts.Length == 0) return;
+            var filters = instance.GetComponentsInChildren<MeshFilter>(true);
+            for (int i = 0; i < filters.Length && i < clearance.Parts.Length; i++) {
+                var part = clearance.Parts[i];
+                if (part.Kind != StationSignHolderPartKind.Plate) continue;
+                var renderer = filters[i].GetComponent<MeshRenderer>();
+                // Not `Draws`: the view is still inactive while it builds, so a visibility
+                // walk would always say no. The measured `Enabled` flag already recorded
+                // whether the part draws in the inert holder.
+                if (renderer == null || !renderer.enabled) continue;
+                renderer.enabled = false;
+                part.Hidden = true;
             }
         }
 
         /* ------------------------------------------------------------ the faces */
 
         StationSignFaceSlot BuildFaceSlot(
-            StationSignMaterials materials, StationSignFaceName face, Vector2 panel, bool hung) {
+            StationSignMaterials materials, StationSignFaceName face, Vector2 panel, bool hung, float facePlaneZ) {
             float width = panel.x;
             float height = panel.y;
             // A hung board's printed sheet is inset inside the frame (`plate(w - 0.06,
@@ -914,10 +1175,11 @@ namespace Metro.App {
             float plateWidth = hung ? width - 0.06f : width;
             float plateHeight = hung ? height - 0.06f : height;
             float y = PanelCentreZ;
-            float z = hung
-                ? (face == StationSignFaceName.Front ? StationSignMounts.BoardThickness / 2f + 0.012f
-                    : -(StationSignMounts.BoardThickness / 2f + 0.012f))
-                : -0.5f + StationSignMounts.WallStandOff;
+            // RCA 15 §2: the plane is the accepted holder's verified clear exterior (or the
+            // procedural parts' own exterior), so no holder part can sit in front of the
+            // text. A hung board prints on both sides of it; a wall board's sheet is the
+            // signed local z itself.
+            float z = hung ? (face == StationSignFaceName.Front ? facePlaneZ : -facePlaneZ) : facePlaneZ;
             // The sheet's readable side: front (and the wall sheet) look local +z, the
             // hung back looks local −z. The yaw turns the quad's own front (−z) onto it,
             // which also puts the painted +u on the viewer's right.
@@ -1119,79 +1381,266 @@ namespace Metro.App {
 
         /// <summary>
         /// True when a promoted holder still **is** this request's holder: its measured
-        /// part envelope matches the board size and hang height, its baked lit sheet is
-        /// the expected plate, and its basis anchors still name the ship's directions
-        /// (`Front` = readable face = local +z, `Up`, `Approach` = wall side, `AxisX`).
-        /// Anything else falls back to the same parts at the request's dimensions.
+        /// part envelope matches the board size and hang height, its parts carry the
+        /// structure the mount needs, its baked lit sheet is the expected plate, its basis
+        /// anchors still name the ship's directions (`Front` = readable face = local +z,
+        /// `Up`, `Approach` = wall side, `AxisX`), and none of its opaque parts reaches the
+        /// printed face plane (RCA 15 §2). Anything else falls back to the same parts at the
+        /// request's dimensions.
         /// </summary>
         public static bool TryMatchHolder(
             GameObject holder, StationSignMount mount, Vector2 panel, float panelCentreZ, float hangCeilingLocal) {
-            return MeasureHolder(holder, mount, panel, panelCentreZ, hangCeilingLocal, out _);
+            return TryVerifyHolder(holder, mount, panel, panelCentreZ, hangCeilingLocal, out _);
         }
 
-        /// <summary>Measure a promoted holder and say why it matches (or does not).</summary>
+        /// <summary>
+        /// Measure a promoted holder and say why it matches (or does not) — including, on a
+        /// refusal, the path and measured bounds of the child responsible (RCA 15 §2).
+        /// </summary>
         public static bool MeasureHolder(
             GameObject holder, StationSignMount mount, Vector2 panel, float panelCentreZ, float hangCeilingLocal,
             out string reason) {
-            reason = "";
-            if (holder == null) { reason = "no promoted holder"; return false; }
+            bool matched = TryVerifyHolder(holder, mount, panel, panelCentreZ, hangCeilingLocal, out var clearance);
+            reason = clearance != null ? clearance.DescribeReason() : "";
+            return matched;
+        }
+
+        /// <summary>
+        /// The RCA 15 §2 holder contract. A promoted holder is used only when it proves
+        /// both halves:
+        ///
+        ///  * **structure** — a hung board needs the suspension it hangs from (a rod or a
+        ///    ceiling plate in the band above the panel) *and* a body (frame/housing) the
+        ///    sheet prints onto. A bare sheet is a material, not a holder.
+        ///  * **clearance** — no enabled opaque part that overlaps the printed rectangle
+        ///    may reach the printed face plane. The plane is the source model's
+        ///    `BOARD_T/2 + 0.012` for a hung board (the wall's sheet plane for a wall
+        ///    board), and the accepted holder's own measured exterior then sets the plane
+        ///    the face slots use, so the printed sheet always sits outside every part that
+        ///    could cross it.
+        ///
+        /// Every refusal keeps the measured parts and names the child responsible, which is
+        /// the point of the packet: a bar across the text must be attributable.
+        /// </summary>
+        public static bool TryVerifyHolder(
+            GameObject holder, StationSignMount mount, Vector2 panel, float panelCentreZ, float hangCeilingLocal,
+            out StationSignHolderClearance clearance) {
             bool hung = StationSignMounts.Hung(mount);
-            if (!hung && Mathf.Abs(panelCentreZ - StationSignMounts.WallPanelZ) > 0.0001f) { reason = "booth/eye height differs"; return false; }
-            if (!TryMeasure(holder, out var bounds, out var plate, out var anchors)) { reason = "unmeasurable holder"; return false; }
+            float plateWidth = hung ? panel.x - 0.06f : panel.x;
+            float plateHeight = hung ? panel.y - 0.06f : panel.y;
+            clearance = new StationSignHolderClearance {
+                HolderName = holder != null ? holder.name : "",
+                Mount = mount,
+                Offered = holder != null,
+                Panel = panel,
+                PanelCentreZ = panelCentreZ,
+                HangCeilingLocal = hangCeilingLocal,
+                PlateWidth = plateWidth,
+                PlateHeight = plateHeight,
+                ReferencePlane = hung
+                    ? StationSignMounts.BoardThickness / 2f + StationSignMounts.FaceStandOff
+                    : -0.5f + StationSignMounts.WallStandOff,
+            };
+            if (holder == null) { clearance.Refuse("no promoted holder"); return false; }
+            if (!hung && Mathf.Abs(panelCentreZ - StationSignMounts.WallPanelZ) > 0.0001f) {
+                clearance.Refuse("booth/eye height differs");
+                return false;
+            }
+            if (!MeasureParts(holder, clearance, out var bounds, out var plate, out var anchors)) {
+                clearance.Refuse("unmeasurable holder");
+                return false;
+            }
+            clearance.Bounds = bounds;
+            clearance.Plate = plate;
+            clearance.Anchors = anchors;
+            Classify(clearance, hung);
+            // 1. Structure first: a holder that is only a sheet has nothing to hang from,
+            //    whatever its measured size, and that refusal must say so.
+            if (hung && (clearance.RodCount + clearance.CeilingPlateCount == 0)) {
+                clearance.RefuseStructure("no rod/ceiling-plate suspension structure");
+                return false;
+            }
+            if (hung && clearance.BodyCount == 0) {
+                clearance.RefuseStructure("no frame/housing for the printed sheet");
+                return false;
+            }
             const float tolerance = 0.01f;
-            if (Mathf.Abs(bounds.size.x - panel.x) > tolerance) { reason = "panel width " + bounds.size.x.ToString("0.###", CultureInfo.InvariantCulture); return false; }
-            if (Mathf.Abs(plate.x - (hung ? panel.x - 0.06f : panel.x)) > tolerance ||
-                Mathf.Abs(plate.y - (hung ? panel.y - 0.06f : panel.y)) > tolerance) {
-                reason = "baked plate " + plate.x.ToString("0.###", CultureInfo.InvariantCulture) + "x" + plate.y.ToString("0.###", CultureInfo.InvariantCulture);
+            if (Mathf.Abs(bounds.size.x - panel.x) > tolerance) {
+                clearance.Refuse("panel width " + bounds.size.x.ToString("0.###", CultureInfo.InvariantCulture));
                 return false;
             }
-            if (!anchors) { reason = "basis anchors missing"; return false; }
+            if (Mathf.Abs(plate.x - plateWidth) > tolerance || Mathf.Abs(plate.y - plateHeight) > tolerance) {
+                clearance.Refuse("baked plate " + plate.x.ToString("0.###", CultureInfo.InvariantCulture) + "x" +
+                    plate.y.ToString("0.###", CultureInfo.InvariantCulture));
+                return false;
+            }
+            if (!anchors) { clearance.Refuse("basis anchors missing"); return false; }
             if (!hung) {
-                if (Mathf.Abs(bounds.size.y - panel.y) > tolerance) { reason = "panel height"; return false; }
-                if (Mathf.Abs(bounds.min.z - (-0.5f + StationSignMounts.WallStandOff)) > tolerance) { reason = "wall stand-off"; return false; }
-                reason = "wall holder matches";
-                return true;
+                if (Mathf.Abs(bounds.size.y - panel.y) > tolerance) { clearance.Refuse("panel height"); return false; }
+                if (Mathf.Abs(bounds.min.z - (-0.5f + StationSignMounts.WallStandOff)) > tolerance) {
+                    clearance.Refuse("wall stand-off");
+                    return false;
+                }
+            } else {
+                float expectedMin = panelCentreZ - panel.y / 2f;
+                if (Mathf.Abs(bounds.min.y - expectedMin) > tolerance ||
+                    Mathf.Abs(bounds.max.y - hangCeilingLocal) > tolerance ||
+                    Mathf.Abs(bounds.size.z - 0.16f) > tolerance) {
+                    clearance.Refuse("hang envelope " + bounds.min.y.ToString("0.###", CultureInfo.InvariantCulture) +
+                        ".." + bounds.max.y.ToString("0.###", CultureInfo.InvariantCulture));
+                    return false;
+                }
+                // 2. The suspension really reaches the surface the request hangs from.
+                float rodTop = float.NegativeInfinity;
+                foreach (var part in clearance.Parts) {
+                    if (part.Kind != StationSignHolderPartKind.Rod || !part.Enabled) continue;
+                    if (part.Bounds.max.y > rodTop) rodTop = part.Bounds.max.y;
+                }
+                if (!float.IsNegativeInfinity(rodTop) && rodTop < hangCeilingLocal - 0.12f) {
+                    clearance.Refuse("suspension rods stop " + (hangCeilingLocal - rodTop)
+                        .ToString("0.###", CultureInfo.InvariantCulture) + " m short of the hang surface");
+                    return false;
+                }
             }
-            float expectedMin = panelCentreZ - panel.y / 2f;
-            if (Mathf.Abs(bounds.min.y - expectedMin) > tolerance ||
-                Mathf.Abs(bounds.max.y - hangCeilingLocal) > tolerance ||
-                Mathf.Abs(bounds.size.z - 0.16f) > tolerance) {
-                reason = "hang envelope " + bounds.min.y.ToString("0.###", CultureInfo.InvariantCulture) + ".." +
-                    bounds.max.y.ToString("0.###", CultureInfo.InvariantCulture);
-                return false;
+            // 3. Clearance: every enabled opaque part that overlaps the printed rectangle
+            //    must stay behind the printed plane. Between the two planes is the board's
+            //    own body; at or past them is the reader's view of the text.
+            foreach (var part in clearance.Parts) {
+                if (!part.Enabled || part.Kind == StationSignHolderPartKind.Plate) continue;
+                if (!OverlapsPrintedRect(part.Bounds, panelCentreZ, plateWidth, plateHeight)) continue;
+                if (part.Bounds.max.z >= clearance.ReferencePlane - 0.002f) {
+                    clearance.RefusePart(part, "crosses the printed face plane " +
+                        clearance.ReferencePlane.ToString("0.###", CultureInfo.InvariantCulture));
+                    return false;
+                }
+                if (hung && part.Bounds.min.z <= -clearance.ReferencePlane + 0.002f) {
+                    clearance.RefusePart(part, "crosses the back printed face plane");
+                    return false;
+                }
             }
-            reason = "ceiling holder matches";
+            // 4. The verified clear exterior sets the plane the sheets print on. The
+            //    holder's body is what the sheet must clear; the rods and ceiling plates
+            //    sit above the board and can never cross its rectangle.
+            float exterior = 0f;
+            foreach (var part in clearance.Parts) {
+                if (!part.Enabled || part.Kind == StationSignHolderPartKind.Plate) continue;
+                if (!OverlapsPrintedRect(part.Bounds, panelCentreZ, plateWidth, plateHeight)) continue;
+                float reach = Mathf.Max(Mathf.Abs(part.Bounds.min.z), Mathf.Abs(part.Bounds.max.z));
+                if (reach > exterior) exterior = reach;
+            }
+            clearance.ExteriorZ = exterior;
+            clearance.FaceZ = hung
+                ? Mathf.Max(exterior + StationSignMounts.FaceStandOff, clearance.ReferencePlane)
+                : clearance.ReferencePlane;
+            clearance.Accepted = true;
+            clearance.Reason = hung ? "ceiling holder matches" : "wall holder matches";
             return true;
         }
 
-        static bool TryMeasure(GameObject holder, out Bounds bounds, out Vector2 plate, out bool anchors) {
+        /// <summary>
+        /// Classify every measured child from its bounds alone (RCA 15 §2). The export's
+        /// spliced nodes are unnamed, so shape is the only honest evidence: a sheet is the
+        /// expected plate exactly, a rod is tall and narrow in the band above the panel, a
+        /// ceiling plate is flat at the hang surface, the frame spans the panel and the
+        /// lightbox is enclosed inside it.
+        /// </summary>
+        static void Classify(StationSignHolderClearance clearance, bool hung) {
+            const float thin = 0.001f;
+            Vector2 panel = clearance.Panel;
+            float plateWidth = clearance.PlateWidth;
+            float plateHeight = clearance.PlateHeight;
+            float zc = clearance.PanelCentreZ;
+            float hang = clearance.HangCeilingLocal;
+            float panelTop = zc + panel.y / 2f;
+            foreach (var part in clearance.Parts) {
+                if (!part.Enabled) { part.Kind = StationSignHolderPartKind.Unknown; continue; }
+                var size = part.Bounds.size;
+                float min = Mathf.Min(size.x, Mathf.Min(size.y, size.z));
+                // The holder's own baked sheet: zero-thickness, flat in z, the exact plate.
+                if (min <= thin && size.x > thin && size.y > thin &&
+                    Mathf.Abs(part.Bounds.center.z) >= StationSignMounts.BoardThickness / 2f - 0.001f &&
+                    Mathf.Abs(size.x - plateWidth) <= 0.02f && Mathf.Abs(size.y - plateHeight) <= 0.02f) {
+                    part.Kind = StationSignHolderPartKind.Plate;
+                    continue;
+                }
+                if (hung) {
+                    // Suspension: a narrow part reaching up past the panel toward the hang.
+                    if (size.y >= 0.1f && Mathf.Max(size.x, size.z) <= 0.2f && part.Bounds.center.y > panelTop) {
+                        part.Kind = StationSignHolderPartKind.Rod;
+                        continue;
+                    }
+                    if (min <= 0.06f && part.Bounds.center.y >= hang - 0.12f) {
+                        part.Kind = StationSignHolderPartKind.CeilingPlate;
+                        continue;
+                    }
+                }
+                // Body: the frame spans the panel; the lightbox is enclosed inside it. Both
+                // must stay within the source board's own thickness (`BoardThickness`).
+                if (size.z > StationSignMounts.BoardThickness + 0.02f) continue;
+                if (size.x >= panel.x - 0.02f && size.y >= panel.y - 0.02f) {
+                    part.Kind = StationSignHolderPartKind.Frame;
+                    continue;
+                }
+                if (size.x >= plateWidth - 0.02f && size.y >= plateHeight - 0.02f &&
+                    size.x <= panel.x + 0.02f && size.y <= panel.y + 0.02f) {
+                    part.Kind = StationSignHolderPartKind.Housing;
+                }
+            }
+        }
+
+        /// <summary>True when a part's bounds share area with the printed rectangle.</summary>
+        static bool OverlapsPrintedRect(Bounds part, float panelCentreZ, float plateWidth, float plateHeight) {
+            const float edge = 0.002f;
+            if (part.max.x <= -plateWidth / 2f + edge || part.min.x >= plateWidth / 2f - edge) return false;
+            if (part.max.y <= panelCentreZ - plateHeight / 2f + edge ||
+                part.min.y >= panelCentreZ + plateHeight / 2f - edge) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Measure every child mesh in the holder's own local space, keeping the parts so a
+        /// refusal can name one. `Parts` stays one-to-one with the `MeshFilter` traversal,
+        /// which is what lets the clone hide exactly the measured sheet.
+        /// </summary>
+        static bool MeasureParts(
+            GameObject holder, StationSignHolderClearance clearance, out Bounds bounds, out Vector2 plate,
+            out bool anchors) {
             bounds = new Bounds(Vector3.zero, Vector3.zero);
             plate = Vector2.zero;
             anchors = false;
             bool any = false;
             bool anyPlate = false;
             var root = holder.transform;
-            foreach (var filter in holder.GetComponentsInChildren<MeshFilter>(true)) {
+            var filters = holder.GetComponentsInChildren<MeshFilter>(true);
+            var parts = new StationSignHolderPart[filters.Length];
+            for (int index = 0; index < filters.Length; index++) {
+                var filter = filters[index];
+                var part = new StationSignHolderPart {
+                    Index = index,
+                    Root = root,
+                    Transform = filter.transform,
+                    Renderer = filter.GetComponent<MeshRenderer>(),
+                };
+                parts[index] = part;
                 var mesh = filter.sharedMesh;
                 if (mesh == null) continue;
                 var matrix = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
                 var local = mesh.bounds;
-                if (Mathf.Min(local.size.x, Mathf.Min(local.size.y, local.size.z)) <= 0.001f) {
-                    // A zero-thickness quad is a printed sheet: the promoted export's
-                    // baked neutral face, at the plate the request expects.
-                    plate = new Vector2(Mathf.Max(plate.x, local.size.x), Mathf.Max(plate.y, local.size.y));
+                part.Enabled = Draws(part.Renderer);
+                part.Bounds = TransformBounds(local, matrix);
+                if (part.Enabled && Mathf.Min(local.size.x, Mathf.Min(local.size.y, local.size.z)) <= 0.001f) {
+                    // A zero-thickness quad is the export's baked neutral sheet; `Classify`
+                    // still has to prove it is the plate this request prints on. Its size is
+                    // the **measured** sign-local extent, because a holder child may carry
+                    // its own scale (the shipped export's nodes do not, a promoted variant
+                    // may).
+                    plate = new Vector2(Mathf.Max(plate.x, part.Bounds.size.x), Mathf.Max(plate.y, part.Bounds.size.y));
                     anyPlate = true;
                 }
-                for (int corner = 0; corner < 8; corner++) {
-                    var point = local.center + Vector3.Scale(local.extents, new Vector3(
-                        (corner & 1) == 0 ? -1f : 1f,
-                        (corner & 2) == 0 ? -1f : 1f,
-                        (corner & 4) == 0 ? -1f : 1f));
-                    var world = matrix.MultiplyPoint3x4(point);
-                    if (!any) { bounds = new Bounds(world, Vector3.zero); any = true; }
-                    else bounds.Encapsulate(world);
-                }
+                if (!any) { bounds = part.Bounds; any = true; }
+                else bounds.Encapsulate(part.Bounds);
             }
+            clearance.Parts = parts;
             if (!any || !anyPlate) return false;
             Vector3 front = Vector3.zero, up = Vector3.zero, approach = Vector3.zero, axisX = Vector3.zero;
             foreach (var child in holder.GetComponentsInChildren<Transform>(true)) {
@@ -1204,6 +1653,32 @@ namespace Metro.App {
             }
             anchors = front.sqrMagnitude > 0.5f && up.sqrMagnitude > 0.5f && approach.sqrMagnitude > 0.5f && axisX.sqrMagnitude > 0.5f;
             return true;
+        }
+
+        /// <summary>
+        /// True when a child actually draws: its renderer is enabled and every ancestor is
+        /// active. `activeInHierarchy` is not used because the contract also measures the
+        /// promoted **asset** before it is instantiated.
+        /// </summary>
+        static bool Draws(MeshRenderer renderer) {
+            if (renderer == null || !renderer.enabled) return false;
+            for (var walk = renderer.transform; walk != null; walk = walk.parent) {
+                if (!walk.gameObject.activeSelf) return false;
+            }
+            return true;
+        }
+
+        /// <summary>A mesh's local bounds mapped through one matrix, as a local AABB.</summary>
+        static Bounds TransformBounds(Bounds local, Matrix4x4 matrix) {
+            var bounds = new Bounds(matrix.MultiplyPoint3x4(local.center), Vector3.zero);
+            for (int corner = 0; corner < 8; corner++) {
+                var point = local.center + Vector3.Scale(local.extents, new Vector3(
+                    (corner & 1) == 0 ? -1f : 1f,
+                    (corner & 2) == 0 ? -1f : 1f,
+                    (corner & 4) == 0 ? -1f : 1f));
+                bounds.Encapsulate(matrix.MultiplyPoint3x4(point));
+            }
+            return bounds;
         }
 
         /* ------------------------------------------------------------ lifecycle */
@@ -1231,8 +1706,93 @@ namespace Metro.App {
             if (front != null) text.Append(" [").Append(front.Describe()).Append(']');
             if (back != null) text.Append(" [").Append(back.Describe()).Append(']');
             if (!string.IsNullOrEmpty(Issue)) text.Append(" issue=").Append(Issue);
+            if (HolderClearance != null && HolderClearance.Offered && !HolderClearance.Accepted)
+                text.Append(" holder=").Append(HolderClearance.DescribeReason());
             if (Boards != null && Boards.Dropped.Count > 0) text.Append(" dropped=").Append(string.Join(",", Boards.Dropped));
             return text.ToString();
+        }
+
+        /// <summary>
+        /// The RCA 15 §2 report for one sign: id, mount, holder source, the measured holder
+        /// children (name, bounds, enabled) in sign-local space, both printed face bounds in
+        /// the same space, and the panel centre. Built only when a diagnostic asks for it —
+        /// nothing here runs during a station build.
+        /// </summary>
+        public string DescribeHolderClearance() {
+            var text = new StringBuilder();
+            text.Append(ModuleId).Append(' ').Append(StationSignVocabulary.Mount(Mount));
+            text.Append(" holder ").Append(HolderSource)
+                .Append(HolderMatched ? " matched" : " fallback-parts");
+            text.Append(" panel ").Append(Panel.x.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append('x').Append(Panel.y.ToString("0.###", CultureInfo.InvariantCulture));
+            text.Append(" panel centre (0,").Append(PanelCentreZ.ToString("0.###", CultureInfo.InvariantCulture))
+                .Append(",0) face plane ").Append(FacePlaneZ.ToString("0.###", CultureInfo.InvariantCulture)).Append('\n');
+            foreach (var slot in Slots) {
+                var bounds = FaceBounds(slot);
+                text.Append("  face ").Append(StationSignVocabulary.Face(slot.Face)).Append(" bounds min(")
+                    .Append(StationSignHolderPart.Format(bounds.min)).Append(") max(")
+                    .Append(StationSignHolderPart.Format(bounds.max)).Append(") plate ")
+                    .Append(slot.Width.ToString("0.###", CultureInfo.InvariantCulture)).Append('x')
+                    .Append(slot.Height.ToString("0.###", CultureInfo.InvariantCulture))
+                    .Append(" tex ").Append(slot.AppliedTexture != null ? slot.AppliedFingerprint : "none").Append('\n');
+            }
+            if (HolderMatched) {
+                if (HolderClearance != null) text.Append(HolderClearance.Describe());
+            } else {
+                // The procedural path draws the view's own parts. Dump them too, with the
+                // same crossing test the holder contract uses, so a bar across the text is
+                // attributable on **this** path as well (RCA 15 §2 item 1: compare the
+                // actual child responsible before adjusting any offset).
+                if (HolderClearance != null) text.Append(HolderClearance.Describe()).Append('\n');
+                text.Append("  built parts (procedural)");
+                foreach (var filter in GetComponentsInChildren<MeshFilter>(true)) {
+                    if (filter.transform.parent != transform) continue;
+                    var renderer = filter.GetComponent<MeshRenderer>();
+                    var bounds = PartBounds(transform, filter);
+                    text.Append("\n  ").Append(filter.name).Append(' ')
+                        .Append(renderer != null && renderer.enabled ? "enabled" : "hidden")
+                        .Append(" bounds min(").Append(StationSignHolderPart.Format(bounds.min))
+                        .Append(") max(").Append(StationSignHolderPart.Format(bounds.max)).Append(')');
+                    if (filter.name.StartsWith("face ", StringComparison.Ordinal)) { text.Append(" printed sheet"); continue; }
+                    text.Append(CrossesPrintedFace(bounds) ? " CROSSES the printed face plane" : " clear of the printed face");
+                }
+            }
+            return text.ToString();
+        }
+
+        /// <summary>
+        /// True when one built part's bounds reach a printed plane inside the printed
+        /// rectangle — the same geometric test the holder contract runs on a promoted child.
+        /// </summary>
+        bool CrossesPrintedFace(Bounds bounds) {
+            bool hung = StationSignMounts.Hung(Mount);
+            float plateWidth = hung ? Panel.x - 0.06f : Panel.x;
+            float plateHeight = hung ? Panel.y - 0.06f : Panel.y;
+            if (!OverlapsPrintedRect(bounds, PanelCentreZ, plateWidth, plateHeight)) return false;
+            if (bounds.max.z >= Mathf.Abs(FacePlaneZ) - 0.002f) return true;
+            return hung && bounds.min.z <= -Mathf.Abs(FacePlaneZ) + 0.002f;
+        }
+
+        /// <summary>A child's mesh bounds in the view's own local space.</summary>
+        static Bounds PartBounds(Transform root, MeshFilter filter) {
+            var matrix = root.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+            return TransformBounds(filter.sharedMesh != null ? filter.sharedMesh.bounds : default, matrix);
+        }
+
+        /// <summary>One face slot's printed rectangle, in the view's local space.</summary>
+        Bounds FaceBounds(StationSignFaceSlot slot) {
+            if (slot == null) return new Bounds(Vector3.zero, Vector3.zero);
+            if (slot.Renderer == null) return new Bounds(slot.LocalPosition, new Vector3(slot.Width, slot.Height, 0f));
+            var world = slot.Renderer.bounds;
+            var matrix = transform.worldToLocalMatrix;
+            var bounds = new Bounds(matrix.MultiplyPoint3x4(world.center), Vector3.zero);
+            for (int corner = 0; corner < 8; corner++) {
+                bounds.Encapsulate(matrix.MultiplyPoint3x4(world.center + Vector3.Scale(world.extents, new Vector3(
+                    (corner & 1) == 0 ? -1f : 1f,
+                    (corner & 2) == 0 ? -1f : 1f,
+                    (corner & 4) == 0 ? -1f : 1f))));
+            }
+            return bounds;
         }
     }
 
@@ -1718,6 +2278,13 @@ namespace Metro.App {
         public StationSignWebProvider Provider;
         public StationSignTextureCache Cache;
         public StationSignRenderer Renderer;
+        /// <summary>
+        /// The host-bound publisher this world's painter sends through. It must reach
+        /// **both** transports (WebGL glue and the desktop presenter's
+        /// `ReplyPublished`); null means the build had no host and
+        /// <see cref="StationSignSignage.Send"/> falls back to the WebGL bridge.
+        /// </summary>
+        public Func<string, bool> Publish;
         public readonly List<StationSignView> Views = new List<StationSignView>();
         public readonly List<StationSignViewBinding> Bindings = new List<StationSignViewBinding>();
         public StationMaterials Palette;
@@ -1784,15 +2351,24 @@ namespace Metro.App {
         /// <summary>Upload whatever the painter has already answered.</summary>
         public static void Pump() => Cache?.Pump();
 
-        /// <summary>Send one C#→JS message: the WebGL state bridge, or a test's hook.</summary>
+        /// <summary>
+        /// Send one C#→JS message: a test's hook first (the verifier seam), then the
+        /// committed world's host-bound publisher, then the WebGL bridge. The desktop
+        /// player has no WebGL bridge, so a sign request that skipped the host could
+        /// never reach the React painter there — the confirmed transport fault in
+        /// RCA 14 §4.1.
+        /// </summary>
         public static bool Send(string json) {
+            if (string.IsNullOrEmpty(json)) return false;
             var hook = SendHook;
             if (hook != null) {
                 hook(json);
                 return true;
             }
-            StationWebBridge.Publish(json);
-            return true;
+            var scope = Scope;
+            var publish = scope != null ? scope.Publish : null;
+            if (publish != null) return publish(json);
+            return StationWebBridge.Publish(json);
         }
     }
 
@@ -1847,6 +2423,16 @@ namespace Metro.App {
             built.Renderer = this;
             built.Palette = palette;
             built.FaceTemplate = faceTemplate;
+            // The painter's outbound route is the host's, so the desktop presenter sees
+            // the same envelopes the WebGL page does (RCA 14 §4.1). A document-only
+            // test has no host and keeps the bridge fallback.
+            var publishHost = host;
+            if (publishHost != null) {
+                built.Publish = json => publishHost != null && publishHost.PublishOutbound(json);
+            } else {
+                context.ReportUnresolved("sign-transport", "renderer", Role,
+                    "No StationGameHost is in the scene; sign face requests can only use the WebGL bridge.");
+            }
             built.Provider = new StationSignWebProvider(StationSignSignage.Send, CurrentContext);
             built.Cache = new StationSignTextureCache(built.Provider);
 
@@ -1863,6 +2449,12 @@ namespace Metro.App {
                 var view = StationSignView.Build(request, materials, holders, root);
                 // The root carries the booth step in document axes (see `StationSignViews.Placement`).
                 view.transform.SetPositionAndRotation(StationSignViews.Placement(record), ModulePlacement.Rotation(record.Rotation));
+                // RCA 15 §2: a promoted holder refused for its geometry is a caveat on a
+                // drawn sign, not a silent fallback — the child that crossed the printed
+                // face is named here so a screenshot can be attributed to a renderer.
+                if (view.HolderClearance != null && view.HolderClearance.ContractRejected) {
+                    context.ReportUnresolved("sign-holder", "sign", record.Id, view.HolderDiagnostic);
+                }
                 if (!view.Supported || view.BoardCount == 0) {
                     context.ReportUnresolved("sign-board", "sign", record.Id,
                         view.Issue.Length > 0 ? view.Issue : "no board content");

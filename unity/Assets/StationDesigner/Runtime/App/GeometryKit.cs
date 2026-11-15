@@ -79,6 +79,123 @@ namespace Metro.App {
         }
     }
 
+    /// <summary>
+    /// A **correctly wound, flat-shaded box** for the hand-built meshes (RCA 15 §3).
+    ///
+    /// The hand-built cubes in <c>BoothModuleViews</c> and <c>VerticalModuleViews</c> used one
+    /// shared 8-vertex box with a perimeter-order index table. That numbering (x = bit 0,
+    /// y = bit 1, z = bit 2) is not the table's order, so every "quad" was a bowtie: its two
+    /// triangles had opposite signed areas, and `RecalculateNormals` then averaged the eight
+    /// shared corners into one smooth blob. Opaque and transparent parts alike were affected
+    /// before any material setting, which is why the Zoo booths and lifts showed triangular
+    /// artifacts and dull sheet metal.
+    ///
+    /// This helper emits *per face vertices* (four per face, six faces) so each face keeps its
+    /// own normal, and winds each triangle so `Cross(b - a, c - a)` points away from the box
+    /// centre — the same test <c>OpeningModuleViews.OpeningBuilder.UnitCube</c> uses, and the
+    /// direction Unity treats as a front face under backface culling. Callers pass the three
+    /// **full edge vectors** of the box, already in the target space, so a document-axis or
+    /// mirrored caller cannot get the handedness wrong: the winding is derived from the
+    /// corners, not from an index table.
+    /// </summary>
+    public static class BoxFaces {
+        /// <summary>Append one box from its centre and three full edge vectors.</summary>
+        public static void Append(List<Vector3> vertices, List<int> triangles, Vector3 centre,
+            Vector3 edgeX, Vector3 edgeY, Vector3 edgeZ) {
+            Face(vertices, triangles, centre, edgeX, edgeY, edgeZ);
+            Face(vertices, triangles, centre, -edgeX, edgeY, edgeZ);
+            Face(vertices, triangles, centre, edgeY, edgeZ, edgeX);
+            Face(vertices, triangles, centre, -edgeY, edgeZ, edgeX);
+            Face(vertices, triangles, centre, edgeZ, edgeX, edgeY);
+            Face(vertices, triangles, centre, -edgeZ, edgeX, edgeY);
+        }
+
+        /// <summary>Append one axis-aligned box: centre and size in the target space.</summary>
+        public static void AppendAxisAligned(List<Vector3> vertices, List<int> triangles, Vector3 centre, Vector3 size) =>
+            Append(vertices, triangles, centre, new Vector3(size.x, 0f, 0f), new Vector3(0f, size.y, 0f),
+                new Vector3(0f, 0f, size.z));
+
+        /// <summary>
+        /// Append one axis-aligned box with **metre UVs**, one flat quad per face: each
+        /// face's UVs span its own size in metres from 0, exactly like the source's
+        /// `finishSlab` / `metreUv` (`BoxGeometry` scaled per face). A finish material
+        /// therefore tiles at its authored texture scale instead of stretching one texel
+        /// across the slab.
+        /// </summary>
+        public static void AppendAxisAlignedUv(List<Vector3> vertices, List<int> triangles,
+            List<Vector2> uvs, Vector3 centre, Vector3 size) =>
+            AppendUv(vertices, triangles, uvs, centre, new Vector3(size.x, 0f, 0f), new Vector3(0f, size.y, 0f),
+                new Vector3(0f, 0f, size.z));
+
+        /// <summary>Append one box from its centre and three full edge vectors, with metre UVs.</summary>
+        public static void AppendUv(List<Vector3> vertices, List<int> triangles, List<Vector2> uvs,
+            Vector3 centre, Vector3 edgeX, Vector3 edgeY, Vector3 edgeZ) {
+            FaceUv(vertices, triangles, uvs, centre, edgeX, edgeY, edgeZ);
+            FaceUv(vertices, triangles, uvs, centre, -edgeX, edgeY, edgeZ);
+            FaceUv(vertices, triangles, uvs, centre, edgeY, edgeZ, edgeX);
+            FaceUv(vertices, triangles, uvs, centre, -edgeY, edgeZ, edgeX);
+            FaceUv(vertices, triangles, uvs, centre, edgeZ, edgeX, edgeY);
+            FaceUv(vertices, triangles, uvs, centre, -edgeZ, edgeX, edgeY);
+        }
+
+        /// <summary>
+        /// One face of the box: `outwardEdge` is the full edge that points away from the
+        /// centre through this face, and `a` / `b` span it.
+        /// </summary>
+        static void Face(List<Vector3> vertices, List<int> triangles, Vector3 centre,
+            Vector3 outwardEdge, Vector3 a, Vector3 b) {
+            var faceCentre = centre + outwardEdge * .5f;
+            var p0 = faceCentre - a * .5f - b * .5f;
+            var p1 = faceCentre + a * .5f - b * .5f;
+            var p2 = faceCentre + a * .5f + b * .5f;
+            var p3 = faceCentre - a * .5f + b * .5f;
+            int start = vertices.Count;
+            vertices.Add(p0);
+            vertices.Add(p1);
+            vertices.Add(p2);
+            vertices.Add(p3);
+            // Winding follows the corner geometry, so a mirrored document-to-Unity mapping or a
+            // left-handed edge basis still comes out facing the viewer.
+            bool flipped = Vector3.Dot(Vector3.Cross(p1 - p0, p2 - p0), outwardEdge) < 0f;
+            if (flipped) {
+                triangles.Add(start); triangles.Add(start + 2); triangles.Add(start + 1);
+                triangles.Add(start); triangles.Add(start + 3); triangles.Add(start + 2);
+            } else {
+                triangles.Add(start); triangles.Add(start + 1); triangles.Add(start + 2);
+                triangles.Add(start); triangles.Add(start + 2); triangles.Add(start + 3);
+            }
+        }
+
+        /// <summary>One face of the box with metre UVs, in the same corner order as <see cref="Face"/>.</summary>
+        static void FaceUv(List<Vector3> vertices, List<int> triangles, List<Vector2> uvs, Vector3 centre,
+            Vector3 outwardEdge, Vector3 a, Vector3 b) {
+            var faceCentre = centre + outwardEdge * .5f;
+            var p0 = faceCentre - a * .5f - b * .5f;
+            var p1 = faceCentre + a * .5f - b * .5f;
+            var p2 = faceCentre + a * .5f + b * .5f;
+            var p3 = faceCentre - a * .5f + b * .5f;
+            int start = vertices.Count;
+            vertices.Add(p0);
+            vertices.Add(p1);
+            vertices.Add(p2);
+            vertices.Add(p3);
+            float u = a.magnitude;
+            float v = b.magnitude;
+            uvs.Add(new Vector2(0f, 0f));
+            uvs.Add(new Vector2(u, 0f));
+            uvs.Add(new Vector2(u, v));
+            uvs.Add(new Vector2(0f, v));
+            bool flipped = Vector3.Dot(Vector3.Cross(p1 - p0, p2 - p0), outwardEdge) < 0f;
+            if (flipped) {
+                triangles.Add(start); triangles.Add(start + 2); triangles.Add(start + 1);
+                triangles.Add(start); triangles.Add(start + 3); triangles.Add(start + 2);
+            } else {
+                triangles.Add(start); triangles.Add(start + 1); triangles.Add(start + 2);
+                triangles.Add(start); triangles.Add(start + 2); triangles.Add(start + 3);
+            }
+        }
+    }
+
     /// <summary>Frees an assembly's combined meshes with its host object.</summary>
     sealed class AssemblyOwner : MonoBehaviour {
         List<Mesh> meshes = new List<Mesh>();

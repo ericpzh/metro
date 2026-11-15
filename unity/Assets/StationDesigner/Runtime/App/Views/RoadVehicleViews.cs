@@ -83,6 +83,7 @@ namespace Metro.App.Views {
         readonly List<Mesh> ownedMeshes = new List<Mesh>();
         readonly Dictionary<string, Pool> pools = new Dictionary<string, Pool>(StringComparer.Ordinal);
         readonly List<RoadVehiclePose> poses = new List<RoadVehiclePose>();
+        readonly List<RoadVehiclePose> sampled = new List<RoadVehiclePose>();
         readonly List<string> missingPrefabs = new List<string>();
         Material[] paints;
         Shader shader;
@@ -92,6 +93,16 @@ namespace Metro.App.Views {
         /// <summary>The catalogue the prefabs were resolved from; null means explicit fallback.</summary>
         public RuntimeCatalogue Catalogue { get; private set; }
         public int VisibleVehicles { get; private set; }
+        /// <summary>Sampled this frame before the view predicate (the simulation's own count).</summary>
+        public int SampledVehicles { get; private set; }
+        /// <summary>Sampled poses the live view refused (a hidden storey or 隐藏地面).</summary>
+        public int FilteredVehicles { get; private set; }
+        /// <summary>
+        /// Visible **road riders** — the people aboard a promoted moped or bicycle. They
+        /// are ambient road traffic, not station crowd actors; a report must count them
+        /// separately from <c>PassengerCrowdView</c>'s bodies.
+        /// </summary>
+        public int Riders { get; private set; }
         public int Cars { get; private set; }
         public int Buses { get; private set; }
         /// <summary>Every two-wheeled vehicle (mopeds and bicycles).</summary>
@@ -318,10 +329,28 @@ namespace Metro.App.Views {
             : variant == "suv" || variant == "sedan" ? "car" : "scooter";
 
         /// <summary>Poses every vehicle for the current station clock; reused transforms only.</summary>
-        public void Render(double simTimeSeconds) {
+        public void Render(double simTimeSeconds) => Render(simTimeSeconds, null);
+
+        /// <summary>
+        /// Poses the sampled traffic, but only for poses <paramref name="visible"/> accepts.
+        /// The predicate is the live station view's own slice decision for the **source
+        /// road** the pose is on (`road.z`), so a pool slot that is reused across a level
+        /// change, a section cut or 隐藏地面 is filtered before it can be enabled again —
+        /// unlike the old path, which enabled every sampled pose unconditionally and left
+        /// street traffic floating over an underground scene.
+        /// </summary>
+        public void Render(double simTimeSeconds, Func<RoadVehiclePose, bool> visible) {
             if (Traffic == null) return;
-            Traffic.Sample(simTimeSeconds, poses);
+            Traffic.Sample(simTimeSeconds, sampled);
             SampledTime = simTimeSeconds;
+            poses.Clear();
+            FilteredVehicles = 0;
+            for (int i = 0; i < sampled.Count; i++) {
+                var pose = sampled[i];
+                if (visible != null && !visible(pose)) { FilteredVehicles++; continue; }
+                poses.Add(pose);
+            }
+            SampledVehicles = sampled.Count;
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);
             Cars = Buses = Scooters = Bicycles = Mopeds = PrefabVehicleViews = FallbackVehicleViews = 0;
             foreach (var pose in poses) {
@@ -347,6 +376,7 @@ namespace Metro.App.Views {
                 if (variant == "bicycle") Bicycles++;
                 else if (variant == "moped") Mopeds++;
             }
+            Riders = Mopeds + Bicycles;
             VisibleVehicles = poses.Count;
             foreach (var pair in pools)
                 for (int i = 0; i < pair.Value.Instances.Count; i++)

@@ -253,8 +253,18 @@ namespace Metro.App {
             var drawn = new Dictionary<string, string>(StringComparer.Ordinal);
             for (int i = 0; i < world.Records.Count; i++) {
                 var record = world.Records[i];
-                if (record == null || record.ModuleId.Length == 0 || record.View == null) continue;
-                if (!drawn.ContainsKey(record.ModuleId)) drawn[record.ModuleId] = record.Role;
+                if (record == null || record.View == null) continue;
+                if (record.ModuleId.Length > 0) {
+                    if (!drawn.ContainsKey(record.ModuleId)) drawn[record.ModuleId] = record.Role;
+                    continue;
+                }
+                // A combined batch owns one transform for many authored modules; the
+                // contributing ids it registered are what proves they were drawn.
+                if (record.SourceIds == null) continue;
+                for (int id = 0; id < record.SourceIds.Length; id++) {
+                    var moduleId = record.SourceIds[id];
+                    if (!string.IsNullOrEmpty(moduleId) && !drawn.ContainsKey(moduleId)) drawn[moduleId] = record.Role;
+                }
             }
             var diagnostics = new Dictionary<string, StationDiagnostic>(StringComparer.Ordinal);
             for (int i = 0; i < world.Unresolved.Count; i++) {
@@ -304,6 +314,10 @@ namespace Metro.App {
                 session.SeekToSimTime(StationClock.ReferenceBootSeconds);
                 session.Restart();
                 session.SetPlaying(true);
+                // One controlled gate case: queue entry riders at the first working lane so
+                // the replay proves the service's own published lane cycle moves a gate,
+                // instead of depending on a chance walk from an entrance within 40 ticks.
+                SeedGateForReport(report, session, openingViews);
                 bool trainsBound = false;
                 for (int tick = 0; tick < Mathf.Max(1, frameTicks); tick++) {
                     if (session.Advance(1.0) != 1) break;
@@ -329,6 +343,10 @@ namespace Metro.App {
             // The families with no published channel yet are proven through their own
             // module state: drive the bound leaves, measure, and put them back.
             report.ProbePendingOpenings(dispatch, openingViews);
+            // A swing door answers the crowd's own proximity rule. The natural 40-tick
+            // replay may keep every body away from a room door, so the report drives one
+            // controlled published passenger frame at the first movable hinge.
+            report.ProbeSwingDoor(dispatch, openingViews, finalFrame);
 
             var factsArray = new ModuleFacts[document.Modules.Count];
             for (int i = 0; i < factsArray.Length; i++) factsArray[i] = document.Modules[i].Facts;
@@ -340,6 +358,52 @@ namespace Metro.App {
 
             report.Summarise();
             return report;
+        }
+
+        /// <summary>
+        /// The report's one controlled gate case. It queues three entry riders at the first
+        /// gate whose drawn view really has a lane, so the published gate leaf curve has
+        /// something to open for and the probe measures a real wing travel. The seeding is
+        /// named in the frame source; nothing is written to the document.
+        /// </summary>
+        static void SeedGateForReport(StationBindingReport report, StationSimulationSession session,
+            Dictionary<string, OpeningView> views) {
+            if (report == null || session == null || views == null) return;
+            var gates = session.GateFrames();
+            for (int i = 0; i < gates.Length; i++) {
+                if (!views.TryGetValue(gates[i].Id, out var view) || view == null || !view.Movable) continue;
+                int seeded = session.Services.SeedGateRiders(gates[i].Id, 3);
+                if (seeded <= 0) continue;
+                report.FrameSource += "; " + seeded + " entry riders seeded at gate " + gates[i].Id;
+                return;
+            }
+        }
+
+        /// <summary>
+        /// One controlled swing-door case: a published walking passenger at the first
+        /// movable hinge's own document position must turn that door's leaves. It uses the
+        /// frame channel the player uses (<see cref="StationMotionFrame.Passengers"/>), not
+        /// the direct module seam, so the row's `frame.Passengers` label is real.
+        /// </summary>
+        void ProbeSwingDoor(ModuleMotionDispatch dispatch, Dictionary<string, OpeningView> openings,
+            StationMotionFrame frame) {
+            if (dispatch == null || openings == null) return;
+            foreach (var view in openings.Values) {
+                if (view == null || !view.Movable || view.Holder == null) continue;
+                if (view.Kind != OpeningKind.SwingDoor && view.Kind != OpeningKind.Cubicle) continue;
+                var at = StationCoordinates.WorldToDocument(view.Holder.position);
+                var probe = frame;
+                probe.Clock.Tick = frame.Clock.Tick + 1;
+                probe.Passengers = new[] {
+                    new Metro.Sim.StationPassengerFrame {
+                        SimId = 90001, X = at.x + .4, Y = at.y, Z = at.z,
+                        State = Metro.Sim.StationPassengerState.Walking, Visible = true,
+                    },
+                };
+                dispatch.Apply(probe, 1f);
+                FrameSource += "; door proximity probe at " + view.ModuleId;
+                return;
+            }
         }
 
         /// <summary>Destroy the transient consist instances a report built to measure train doors.</summary>
@@ -553,7 +617,7 @@ namespace Metro.App {
             row.MotionDetail = "applied=" + probe.Applied.ToString(CultureInfo.InvariantCulture) +
                 " moved=" + probe.Moved.ToString("0.###", CultureInfo.InvariantCulture);
             if (probe.Channel == ModuleMotionChannel.PendingCrowd)
-                row.MotionDetail += " (the crowd publishes no gate/door channel yet; driven through its own module state)";
+                row.MotionDetail += " (a legacy screen bank with no published platform id; driven through its own module state)";
         }
 
         /// <summary>Types the source never animates (`unity/plan/motion-inventory.md`).</summary>
@@ -599,6 +663,8 @@ namespace Metro.App {
                 case ModuleMotionChannel.FrameLifts: return "frame.Lifts";
                 case ModuleMotionChannel.FrameDoors: return "frame.Doors";
                 case ModuleMotionChannel.FrameTrains: return "frame.Trains";
+                case ModuleMotionChannel.FrameGates: return "frame.Gates";
+                case ModuleMotionChannel.FrameCrowd: return "frame.Passengers";
                 case ModuleMotionChannel.FrameClock: return "frame.Clock";
                 case ModuleMotionChannel.PendingCrowd: return "pending-crowd";
                 case ModuleMotionChannel.StaticSource: return "static";

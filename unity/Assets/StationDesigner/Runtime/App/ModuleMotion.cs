@@ -5,6 +5,7 @@ using System.Text;
 using Metro.App.Views;
 using Metro.Build;
 using Metro.Sim;
+using Metro.View;
 using UnityEngine;
 
 namespace Metro.App {
@@ -269,12 +270,16 @@ namespace Metro.App {
         FrameClock = 5,
         /// <summary>
         /// The family moves in the source but the session publishes no channel for it yet
-        /// (gates and swing doors wait on the crowd, plan 11 C3). The binding exists and
-        /// <see cref="ModuleMotionDispatch.ApplyOpening"/> can drive it.
+        /// (a legacy gate/swing binding before the crowd channel lands). The binding exists
+        /// and <see cref="ModuleMotionDispatch.ApplyOpening"/> can drive it.
         /// </summary>
         PendingCrowd = 6,
         /// <summary>The source has no motion channel at all (stairs, fixed fences, trees, fixed PSD ends).</summary>
         StaticSource = 7,
+        /// <summary>`StationMotionFrame.Gates` (per gate module, from its served passengers).</summary>
+        FrameGates = 8,
+        /// <summary>`StationMotionFrame.Passengers` proximity (a swing door's own occupancy rule).</summary>
+        FrameCrowd = 9,
     }
 
     /// <summary>
@@ -300,6 +305,18 @@ namespace Metro.App {
         public int Direction;
         /// <summary>The clock was playing when this sample was taken.</summary>
         public bool Running;
+        /// <summary>
+        /// The fixed simulation tick the current endpoints were taken from, and the
+        /// service run they belong to. The history is keyed by **tick**, not by value:
+        /// a repeated render of the same tick must leave both endpoints alone even when
+        /// the published value has not changed (otherwise a dwell tick whose fraction
+        /// repeated would keep re-playing the previous tick's travel).
+        /// </summary>
+        public long Tick;
+        /// <summary>The service sequence of the current endpoints (0 when the channel has none).</summary>
+        public int ServiceSequence;
+        /// <summary>Set by a direct `ApplyOpening` push so it always starts a new sample.</summary>
+        public long PushSerial;
 
         public override string ToString() {
             var id = CultureInfo.InvariantCulture;
@@ -416,7 +433,7 @@ namespace Metro.App {
             if (view == null || string.IsNullOrEmpty(view.ModuleId)) return false;
             var family = FamilyOf(view.Kind);
             var binding = Add(view.ModuleId, family, opening: view);
-            binding.Channel = view.Kind == OpeningKind.PsdRun ? ModuleMotionChannel.FrameDoors : ModuleMotionChannel.PendingCrowd;
+            binding.Channel = ChannelOf(view);
             binding.Detail = "openings=" + view.OpeningCount + " leaves=" + view.Leaves.Count +
                 (view.Movable ? " movable" : " fixed");
             return true;
@@ -508,14 +525,24 @@ namespace Metro.App {
             }
         }
 
+        static ModuleMotionChannel ChannelOf(OpeningView view) {
+            switch (view.Kind) {
+                case OpeningKind.PsdRun: return ModuleMotionChannel.FrameDoors;
+                case OpeningKind.Gate: return ModuleMotionChannel.FrameGates;
+                case OpeningKind.SwingDoor:
+                case OpeningKind.Cubicle: return ModuleMotionChannel.FrameCrowd;
+                default: return ModuleMotionChannel.PendingCrowd;
+            }
+        }
+
         static ModuleMotionChannel LegacyChannelOf(ModuleMotion.Kind kind) {
             switch (kind) {
                 case ModuleMotion.Kind.EscalatorSteps: return ModuleMotionChannel.FrameEscalators;
                 case ModuleMotion.Kind.LiftCar: return ModuleMotionChannel.FrameLifts;
                 case ModuleMotion.Kind.ClockHands: return ModuleMotionChannel.FrameClock;
-                // A gate and a screen run move in the source, but only a screen has a published
-                // channel (the berthing consist); a gate waits on the crowd (plan 11 C3).
-                case ModuleMotion.Kind.GateWings: return ModuleMotionChannel.PendingCrowd;
+                // A legacy gate waits for its module's binding to be driven directly; a
+                // legacy screen run has no published platform id either.
+                case ModuleMotion.Kind.GateWings: return ModuleMotionChannel.FrameGates;
                 case ModuleMotion.Kind.ScreenDoors: return ModuleMotionChannel.PendingCrowd;
                 default: return ModuleMotionChannel.StaticSource;
             }
@@ -527,6 +554,8 @@ namespace Metro.App {
                 case ModuleMotionChannel.FrameLifts:
                 case ModuleMotionChannel.FrameDoors:
                 case ModuleMotionChannel.FrameTrains:
+                case ModuleMotionChannel.FrameGates:
+                case ModuleMotionChannel.FrameCrowd:
                 case ModuleMotionChannel.FrameClock: return true;
                 default: return false;
             }
@@ -550,6 +579,8 @@ namespace Metro.App {
             var lifts = IndexLifts(frame.Lifts);
             var doors = IndexDoors(frame.Doors);
             var trains = IndexTrains(frame.Trains);
+            var gates = IndexGates(frame.Gates);
+            long tick = frame.Clock.Tick;
             bool playing = frame.Clock.Playing;
             int applied = 0;
             for (int i = 0; i < bindings.Count; i++) {
@@ -570,7 +601,7 @@ namespace Metro.App {
                         float cabin = sample.StopCount > 1
                             ? Mathf.Clamp01(sample.Stop / (float)(sample.StopCount - 1))
                             : 0f;
-                        PushRanges(binding, cabin, (float)sample.DoorFraction, playing);
+                        PushRanges(binding, cabin, (float)sample.DoorFraction, playing, tick);
                         DriveLift(binding, alpha);
                         applied++;
                         break;
@@ -578,7 +609,9 @@ namespace Metro.App {
                     case ModuleMotionFamily.ScreenDoors: {
                         if ((binding.Opening == null && binding.Legacy == null) || !doors.TryGetValue(binding.Id, out var sample)) break;
                         binding.Channel = ModuleMotionChannel.FrameDoors;
-                        PushRanges(binding, binding.Sample.Cabin, (float)sample.DoorFraction, playing);
+                        // The PSD and the berthing consist read the same door fraction on the
+                        // same tick, so a platform leaf and its train leaf cannot disagree.
+                        PushRanges(binding, binding.Sample.Cabin, (float)sample.DoorFraction, playing, tick);
                         DriveOpening(binding, alpha);
                         applied++;
                         break;
@@ -586,7 +619,8 @@ namespace Metro.App {
                     case ModuleMotionFamily.TrainDoors: {
                         if (binding.Train == null || !trains.TryGetValue(binding.Id, out var sample)) break;
                         binding.Channel = ModuleMotionChannel.FrameTrains;
-                        PushRanges(binding, binding.Sample.Cabin, (float)sample.DoorFraction, playing);
+                        PushRanges(binding, binding.Sample.Cabin, (float)sample.DoorFraction, playing, tick,
+                            sample.ServiceSequence);
                         DriveTrain(binding, alpha);
                         applied++;
                         break;
@@ -599,11 +633,28 @@ namespace Metro.App {
                         applied++;
                         break;
                     }
-                    case ModuleMotionFamily.GateWings:
-                    case ModuleMotionFamily.SwingDoor:
-                        // The crowd publishes no gate/door channel yet (C3), so the frame
-                        // leaves the pose alone instead of forcing it shut every tick.
+                    case ModuleMotionFamily.GateWings: {
+                        if (!gates.TryGetValue(binding.Id, out var gate)) break;
+                        // A fence machine carries no lane; its binding is still addressable
+                        // for the report, but a frame must not pretend to drive a fixed part.
+                        if (binding.Opening != null && !binding.Opening.Movable) break;
+                        binding.Channel = ModuleMotionChannel.FrameGates;
+                        // The gate server owns the lane and its leaf cycle: the published
+                        // fraction is the service's own open/hold/shut curve, not a guess
+                        // from how near anybody happens to be standing.
+                        PushRanges(binding, binding.Sample.Cabin, Mathf.Clamp01((float)gate.Open), playing, tick);
+                        DriveOpening(binding, alpha);
+                        applied++;
                         break;
+                    }
+                    case ModuleMotionFamily.SwingDoor: {
+                        if (binding.Opening == null || !binding.Opening.Movable) break;
+                        binding.Channel = ModuleMotionChannel.FrameCrowd;
+                        PushRanges(binding, binding.Sample.Cabin, SwingTarget(binding, frame.Passengers), playing, tick);
+                        DriveOpening(binding, alpha);
+                        applied++;
+                        break;
+                    }
                     case ModuleMotionFamily.Stair:
                         break; // static in the source; nothing to drive, nothing to fake
                 }
@@ -612,16 +663,22 @@ namespace Metro.App {
         }
 
         /// <summary>
-        /// Drive one bound opening module directly — the seam a crowd system uses for a
-        /// gate lane or a swing leaf, and the proof that the binding exists while no
-        /// frame channel does. Refuses an id the dispatcher does not hold.
+        /// Drive one bound opening module directly — the seam a test or a non-frame owner
+        /// uses for one gate lane or swing leaf. Refuses an id the dispatcher does not hold.
+        /// Every call starts a new sample (the caller is the authority for this push).
         /// </summary>
         public bool ApplyOpening(string moduleId, float fraction) {
             if (string.IsNullOrEmpty(moduleId) || !byId.TryGetValue(moduleId, out var binding)) return false;
             if (binding.Opening == null && binding.Legacy == null) return false;
-            PushRanges(binding, binding.Sample.Cabin, Mathf.Clamp01(fraction), true);
+            var sample = binding.Sample;
+            sample.PushSerial++;
+            binding.Sample = sample;
+            PushRanges(binding, binding.Sample.Cabin, Mathf.Clamp01(fraction), true,
+                long.MinValue + binding.Sample.PushSerial, 0);
             binding.Channel = binding.Family == ModuleMotionFamily.ScreenDoors
-                ? ModuleMotionChannel.FrameDoors : ModuleMotionChannel.PendingCrowd;
+                ? ModuleMotionChannel.FrameDoors
+                : binding.Family == ModuleMotionFamily.GateWings ? ModuleMotionChannel.FrameGates
+                : ModuleMotionChannel.PendingCrowd;
             DriveOpening(binding, 1f);
             binding.Applied++;
             return true;
@@ -690,6 +747,16 @@ namespace Metro.App {
             byId.Clear();
         }
 
+        /// <summary>
+        /// Forget the previous/current interpolation pair without touching the pose the
+        /// parts currently hold. A seek, a restart or a station switch invalidates the
+        /// history: the next frame must snap to its own value rather than blend from a
+        /// position the station no longer has (RCA 14 §5.2).
+        /// </summary>
+        public void ForgetSamples() {
+            for (int i = 0; i < bindings.Count; i++) bindings[i].Sample = default;
+        }
+
         public string Describe() =>
             "bindings=" + Count + " fed=" + FedCount + " moved=" +
             bindings.FindAll(binding => binding.Moved > 1e-4f).Count;
@@ -728,6 +795,47 @@ namespace Metro.App {
             return index;
         }
 
+        static Dictionary<string, StationGateFrame> IndexGates(StationGateFrame[] frames) {
+            var index = new Dictionary<string, StationGateFrame>(StringComparer.Ordinal);
+            if (frames == null) return index;
+            for (int i = 0; i < frames.Length; i++)
+                if (!string.IsNullOrEmpty(frames[i].Id)) index[frames[i].Id] = frames[i];
+            return index;
+        }
+
+        /// <summary>The source's swing-door radius and storey tolerance (`CrowdSystem`).</summary>
+        const float SwingReach = 1.25f;
+        const float SwingStorey = .5f;
+        const float CubicleOccupiedRadius = .35f;
+
+        /// <summary>
+        /// Port of `CrowdSystem.detectGateCrossings`' swing-door half: a leaf opens while a
+        /// walking body stands within 1.25 m of it on its own storey, and a cubicle stays
+        /// shut while somebody is inside it. Read from the published passenger frames, so
+        /// the fixed-tick service remains the one authority and no scene guess is needed.
+        /// </summary>
+        static float SwingTarget(Binding binding, StationPassengerFrame[] passengers) {
+            var holder = binding.Opening != null ? binding.Opening.Holder : null;
+            if (holder == null || passengers == null) return 0f;
+            var at = StationCoordinates.WorldToDocument(holder.position);
+            bool cubicle = binding.Opening.Kind == OpeningKind.Cubicle;
+            bool occupied = false, near = false;
+            for (int i = 0; i < passengers.Length; i++) {
+                var passenger = passengers[i];
+                if (!passenger.Visible) continue;
+                if (Math.Abs(passenger.Z - at.z) > SwingStorey) continue;
+                double dx = passenger.X - at.x, dy = passenger.Y - at.y;
+                double distance = Math.Sqrt(dx * dx + dy * dy);
+                if (cubicle) {
+                    if (distance < CubicleOccupiedRadius) occupied = true;
+                } else if (distance <= SwingReach &&
+                    (passenger.State == StationPassengerState.Walking || passenger.State == StationPassengerState.Queuing)) {
+                    near = true;
+                }
+            }
+            return occupied ? 0f : near ? 1f : 0f;
+        }
+
         static double ChainOf(Binding binding) {
             if (binding.Vertical != null && binding.Vertical.LoopSeconds > 0)
                 return binding.Vertical.LoopSeconds * VerticalModuleViews.EscalatorSpeed;
@@ -756,9 +864,14 @@ namespace Metro.App {
             binding.Sample = sample;
         }
 
-        static void PushRanges(Binding binding, float cabin, float door, bool playing) {
+        static void PushRanges(Binding binding, float cabin, float door, bool playing, long tick, int sequence = 0) {
             var sample = binding.Sample;
-            if (sample.HasSample && cabin == sample.Cabin && door == sample.Door) {
+            // The history is keyed by the fixed tick and the service run, never by the
+            // values: a dwell tick that republishes the same open fraction is still a new
+            // tick, and must move the previous endpoint up to it. Otherwise the pair keeps
+            // the fraction from two ticks ago and every rendered frame replays that travel.
+            if (sample.HasSample && sample.Tick == tick && sample.ServiceSequence == sequence &&
+                cabin == sample.Cabin && door == sample.Door) {
                 sample.Running = playing;
                 binding.Sample = sample;
                 return;
@@ -767,6 +880,8 @@ namespace Metro.App {
             sample.PreviousDoor = sample.HasSample ? sample.Door : door;
             sample.Cabin = cabin;
             sample.Door = door;
+            sample.Tick = tick;
+            sample.ServiceSequence = sequence;
             sample.Running = playing;
             sample.HasSample = true;
             binding.Sample = sample;
@@ -977,16 +1092,22 @@ namespace Metro.App {
     /// per-family proof lives.</item>
     /// </list>
     ///
-    /// The sink re-applies only when the session frame actually changed (tick, sim
-    /// time or play state), so pausing leaves the last pose untouched and a capture
-    /// cannot be overwritten by an identical frame.
+    /// **Sampling cadence (RCA 14 §5).** A session frame is refreshed only when the
+    /// fixed tick (or the session/epoch) changes; the dispatch is then sampled at the
+    /// scheduler's presentation fraction on *every* rendered frame. That is what turns
+    /// a 1 Hz tick into continuous leaf, belt, cabin and clock motion instead of one
+    /// one-second jump. While paused the fraction is frozen, so re-applying is the
+    /// identity and the pose holds exactly where it was; a seek/restart/switch drops
+    /// the interpolation history so nothing blends across the discontinuity.
     /// </summary>
     public sealed class ModuleMotionFrameSink : IStationFrameSink {
         readonly ModuleMotionDispatch dispatch = new ModuleMotionDispatch();
         StationDocument document;
+        StationSimulationSession session;
+        StationMotionFrame frame;
         long lastTick = long.MinValue;
-        double lastSimTime = double.NaN;
-        bool lastPlaying;
+        long lastEpoch = long.MinValue;
+        bool hasFrame;
 
         /// <summary>The dispatch this sink drives (read-only for a verifier).</summary>
         public ModuleMotionDispatch Dispatch => dispatch;
@@ -995,19 +1116,31 @@ namespace Metro.App {
         /// <summary>The last failure, kept off the Console so a console-clean gate is not broken.</summary>
         public string LastError { get; private set; } = "";
 
-        public void Tick(StationDocument stationDocument, StationIndex index, double simTimeSeconds) {
+        public void Tick(StationDocument stationDocument, StationIndex index, StationFrameClock clock) {
             if (Suspended || stationDocument == null) return;
             try {
                 if (!ReferenceEquals(stationDocument, document)) Rebuild(stationDocument);
                 var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
                 if (host == null) return;
-                var session = (host.Simulation as StationSimulationHost)?.Session;
-                if (session == null) return;
-                if (session.Tick == lastTick && Math.Abs(simTimeSeconds - lastSimTime) < 1e-9 && session.Playing == lastPlaying) return;
-                lastTick = session.Tick;
-                lastSimTime = simTimeSeconds;
-                lastPlaying = session.Playing;
-                dispatch.Apply(session.Snapshot());
+                var live = (host.Simulation as StationSimulationHost)?.Session;
+                if (live == null) return;
+                // A new session (station switch) or an invalidated history (seek,
+                // restart, rebuilt document) must snap, not blend.
+                bool reset = !ReferenceEquals(live, session) || clock.Epoch != lastEpoch;
+                if (reset) {
+                    dispatch.ForgetSamples();
+                    session = live;
+                    lastEpoch = clock.Epoch;
+                    lastTick = long.MinValue;
+                }
+                // Only a tick boundary refreshes the source frame; every rendered frame
+                // samples it at the scheduler fraction.
+                if (!hasFrame || clock.Tick != lastTick) {
+                    frame = live.Snapshot();
+                    lastTick = clock.Tick;
+                    hasFrame = true;
+                }
+                dispatch.Apply(frame, (float)clock.Fraction);
             } catch (Exception error) {
                 LastError = error.GetType().Name + ": " + error.Message;
             }
@@ -1015,8 +1148,11 @@ namespace Metro.App {
 
         void Rebuild(StationDocument stationDocument) {
             dispatch.Clear();
+            session = null;
             lastTick = long.MinValue;
-            lastSimTime = double.NaN;
+            lastEpoch = long.MinValue;
+            hasFrame = false;
+            frame = default;
             document = stationDocument;
             var openings = StationOpeningRenderers.Current;
             if (openings == null) return;

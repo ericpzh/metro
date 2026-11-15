@@ -60,6 +60,38 @@ namespace Metro.App {
         public bool HasBounds;
         public int LevelMin;
         public int LevelMax;
+        /// <summary>
+        /// Explicit source storey bands this record belongs to (a wall panel's envelope
+        /// midpoint, a run's two landings, a multi-storey shaft). Null means the view
+        /// derives them from the committed module/cell itself — bounds are **not** a
+        /// storey membership input (RCA 14 §1/§3).
+        /// </summary>
+        public int[] LevelBands;
+        /// <summary>
+        /// Stable authored ids this view draws when it is a combined batch. A batched
+        /// surface owns its own transform, so its record cannot be addressed by one
+        /// module id; the ids it was combined from are kept here for probes and the
+        /// binding report (RCA 14 §3.3).
+        /// </summary>
+        public string[] SourceIds;
+        /// <summary>
+        /// The per-module document bounds of a combined batch, parallel to
+        /// <see cref="SourceIds"/>. The batch owns one GameObject, but a pick must still
+        /// resolve the exact authored tile under the ray, not the whole chunk, and the
+        /// selection/delete path must address that tile's own record.
+        /// </summary>
+        public StationBox[] SourceBounds;
+        /// <summary>
+        /// Independent **grade** membership (20 §4): the producer's own answer to "is this part
+        /// owned by the authored 0 m ground datum?". It is deliberately separate from
+        /// <see cref="Role"/>, which still has to answer 隐藏墙壁 / 隐藏屋顶 / the storey slice — a
+        /// 0 m fence is a 栏杆 for every other view tool and grade furniture only for
+        /// 隐藏地面. A combined batch sets it from the exact module elevation it was grouped by,
+        /// so a mixed chunk cannot be classified by a bounding box that happens to cross 0 m.
+        /// </summary>
+        public bool GradeOwned;
+        /// <summary>Why the record is (or is not) grade furniture, for diagnostics.</summary>
+        public string GradeNote = "";
         public override string ToString() =>
             Role + " " + (ModuleId.Length > 0 ? "module " + ModuleId : "cell " + CellKey) + (Part.Length > 0 ? " part " + Part : "");
     }
@@ -106,6 +138,7 @@ namespace Metro.App {
         readonly Dictionary<string, int> roleCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         readonly Dictionary<string, bool> roleVisibility = new Dictionary<string, bool>(StringComparer.Ordinal);
         readonly GameObject rootObject;
+        Dictionary<string, StationModuleRecord> modulesById;
         StationDocument document;
         StationIndex index;
         bool activated;
@@ -178,15 +211,19 @@ namespace Metro.App {
         }
 
         public void RegisterModule(string role, string moduleId, GameObject view, string part = "",
-            StationBox? bounds = null, int levelMin = 0, int levelMax = 0) {
+            StationBox? bounds = null, int levelMin = 0, int levelMax = 0, int[] levelBands = null,
+            string[] sourceIds = null, StationBox[] sourceBounds = null, bool gradeOwned = false,
+            string gradeNote = "") {
             Add(new StationViewRecord {
                 Role = role ?? "", ModuleId = moduleId ?? "", Part = part ?? "", View = view,
                 Bounds = bounds ?? default, HasBounds = bounds.HasValue, LevelMin = levelMin, LevelMax = levelMax,
+                LevelBands = levelBands, SourceIds = sourceIds, SourceBounds = sourceBounds,
+                GradeOwned = gradeOwned, GradeNote = gradeNote ?? "",
             });
         }
 
-        public void RegisterCell(string role, StationCellKey key, GameObject view) {
-            Add(new StationViewRecord { Role = role ?? "", CellKey = key.ToString(), View = view });
+        public void RegisterCell(string role, StationCellKey key, GameObject view, int[] levelBands = null) {
+            Add(new StationViewRecord { Role = role ?? "", CellKey = key.ToString(), View = view, LevelBands = levelBands });
         }
 
         void Add(StationViewRecord record) {
@@ -222,6 +259,37 @@ namespace Metro.App {
             return false;
         }
 
+        /// <summary>
+        /// The typed document record behind a renderer record's module id. The body index
+        /// (picking, ghosts, the edit transaction) asks once per id, so it is a dictionary
+        /// over the committed document, never a scan.
+        /// </summary>
+        public bool TryGetModuleRecord(string moduleId, out StationModuleRecord module) {
+            if (string.IsNullOrEmpty(moduleId)) { module = null; return false; }
+            if (modulesById == null) {
+                modulesById = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
+                var modules = document?.Modules;
+                if (modules != null) {
+                    for (int i = 0; i < modules.Count; i++) {
+                        var record = modules[i];
+                        if (record != null) modulesById[record.Id] = record;
+                    }
+                }
+            }
+            return modulesById.TryGetValue(moduleId, out module);
+        }
+
+        /// <summary>
+        /// Adopt the materials an artwork owner just installed on one renderer as that part's
+        /// authored base, so a later Base/Ghost/Clear pass restores the bound artwork instead of
+        /// the baked export sample (20 §1, §2). The piece keeps its authored eligibility.
+        /// </summary>
+        public void RecaptureArtwork(Renderer renderer) {
+            if (!renderer) return;
+            var target = renderer.GetComponentInParent<Metro.View.StationVisibilityTarget>(true);
+            if (target != null) target.Recapture(renderer);
+        }
+
         public void SetRoleVisible(string role, bool visible) {
             roleVisibility[role ?? ""] = visible;
             if (roleRoots.TryGetValue(role ?? "", out var root) && root != null) root.gameObject.SetActive(visible);
@@ -250,11 +318,43 @@ namespace Metro.App {
             }
             records.Clear();
             roleRoots.Clear();
+            modulesById = null;
             if (rootObject != null) {
                 if (Application.isPlaying) UnityEngine.Object.Destroy(rootObject);
                 else UnityEngine.Object.DestroyImmediate(rootObject);
             }
         }
+    }
+
+    /// <summary>
+    /// One rendered frame's simulation time. <see cref="SimSeconds"/> is the
+    /// authoritative fixed-tick clock; <see cref="PresentationSeconds"/> is the tick
+    /// interval already elapsed, sampled by <see cref="Fraction"/> between the two
+    /// adjacent tick frames. Service decisions and counters never read this clock —
+    /// only the per-frame animation consumers do (RCA 14 §5).
+    /// </summary>
+    public readonly struct StationFrameClock {
+        public StationFrameClock(long tick, long epoch, double simSeconds, double presentationSeconds,
+            double fraction, bool playing) {
+            Tick = tick;
+            Epoch = epoch;
+            SimSeconds = simSeconds;
+            PresentationSeconds = presentationSeconds;
+            Fraction = fraction < 0 ? 0 : fraction > 1 ? 1 : fraction;
+            Playing = playing;
+        }
+
+        /// <summary>The fixed tick this frame follows (authoritative).</summary>
+        public long Tick { get; }
+        /// <summary>The session's presentation epoch; changes invalidate frame history.</summary>
+        public long Epoch { get; }
+        /// <summary>Seconds since the station's day zero at the tick boundary.</summary>
+        public double SimSeconds { get; }
+        /// <summary>The presented instant: one tick behind the boundary, advanced by the fraction.</summary>
+        public double PresentationSeconds { get; }
+        /// <summary>0 at the tick boundary … 1 just before the next tick.</summary>
+        public double Fraction { get; }
+        public bool Playing { get; }
     }
 
     /// <summary>
@@ -264,7 +364,7 @@ namespace Metro.App {
     /// a station is committed; the clock is seconds since the station's day zero.
     /// </summary>
     public interface IStationFrameSink {
-        void Tick(StationDocument document, StationIndex index, double simTimeSeconds);
+        void Tick(StationDocument document, StationIndex index, StationFrameClock clock);
     }
 
     /// <summary>Process-wide frame-sink registry.</summary>

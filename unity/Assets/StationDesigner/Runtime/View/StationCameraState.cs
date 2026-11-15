@@ -161,6 +161,8 @@ namespace Metro.View {
         public const float MinDistance = 4f;
         /// <summary>Source <c>controls.maxDistance</c>.</summary>
         public const float MaxDistance = 400f;
+        /// <summary>Source <c>setStandalonePresentation</c> <c>controls.maxDistance</c>.</summary>
+        public const float MaxStandaloneDistance = 1800f;
         /// <summary>Source orbit drag: radians of swing per pointer pixel.</summary>
         public const float OrbitRadiansPerPixel = 0.008f;
         /// <summary>Source <c>POLAR_EPS</c>: a hair short of the poles, where the azimuth dies.</summary>

@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using Metro.Build;
 using Metro.Persistence;
+using Metro.Sim;
 using Metro.View;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -58,6 +59,8 @@ namespace Metro.App {
         int activeLevel;
         float stateTimer;
         string clientSessionId = "";
+        /// <summary>True while <see cref="ApplyDocumentEdit"/> installs an edit of the committed station.</summary>
+        bool editingDocument;
 
         /// <summary>Every reply this host publishes, for EditMode/PlayMode tests.</summary>
         public event Action<string> ReplyPublished;
@@ -86,6 +89,7 @@ namespace Metro.App {
             coordinator.Committed += OnCommitted;
             router = new StationCommandRouter(this);
             foreach (var handler in StationCommandHandlers.Snapshot()) router.Register(handler);
+            StationStatisticsFeature.Attach(this);
             RebuildDemoIndex();
         }
 
@@ -116,10 +120,25 @@ namespace Metro.App {
         void TickFrameSinks() {
             var sinks = StationFrameSinks.Snapshot();
             if (sinks.Count == 0) return;
-            double simTime = Simulation?.SimTimeSeconds ?? 0;
+            var simulation = Simulation;
+            double simTime = simulation?.SimTimeSeconds ?? 0;
+            // The scheduler's fractional tick is a **presentation** input only: the
+            // clock, service counts and train dispatch stay on whole ticks. A sink that
+            // drives a family samples its last two tick frames at this fraction, so a
+            // 1 Hz simulation renders as continuous motion instead of one-second steps
+            // (RCA 14 §5.1).
+            double fraction = simulation?.PresentationFraction ?? 0;
+            if (double.IsNaN(fraction) || double.IsInfinity(fraction)) fraction = 0;
+            var clock = new StationFrameClock(
+                simulation?.SimulationTick ?? 0,
+                simulation?.PresentationEpoch ?? 0,
+                simTime,
+                simTime - (1 - fraction) * StationSimConstants.SimSecondsPerTick,
+                fraction,
+                simulation?.Playing ?? false);
             for (int i = 0; i < sinks.Count; i++) {
                 try {
-                    sinks[i].Tick(Document, Index, simTime);
+                    sinks[i].Tick(Document, Index, clock);
                 } catch (Exception error) {
                     Debug.LogException(error);
                 }
@@ -134,11 +153,23 @@ namespace Metro.App {
             Publish(router.Handle(json));
         }
 
-        void Publish(string json) {
-            if (string.IsNullOrEmpty(json)) return;
-            StationWebBridge.Publish(json);
+        /// <summary>
+        /// One outbound player envelope to **both** transports: the WebGL bridge and
+        /// the desktop/Editor presenter's <see cref="ReplyPublished"/> subscription.
+        /// A family that publishes its own envelope (the sign face painter) must go
+        /// through here: <see cref="StationWebBridge.Publish"/> is compiled out of the
+        /// desktop player, so a direct call there could never reach the React painter
+        /// (RCA 14 §4.1). Returns true when at least one transport was available.
+        /// </summary>
+        public bool PublishOutbound(string json) {
+            if (string.IsNullOrEmpty(json)) return false;
+            bool webgl = StationWebBridge.Publish(json);
+            bool desktop = ReplyPublished != null;
             ReplyPublished?.Invoke(json);
+            return webgl || desktop;
         }
+
+        bool Publish(string json) => PublishOutbound(json);
 
         /// <summary>Send one coalesced state snapshot now (no document).</summary>
         public void PublishStateNow() {
@@ -230,7 +261,11 @@ namespace Metro.App {
         }
 
         public bool ApplySimCommand(string type, JObject payload, out string rejectCode) {
-            if (Simulation is IStationSimulationCommands commands) return commands.ApplySimCommand(type, payload, out rejectCode);
+            if (Simulation is IStationSimulationCommands commands) {
+                bool accepted = commands.ApplySimCommand(type, payload, out rejectCode);
+                if (accepted) stateTimer = Mathf.Max(stateTimer, stateIntervalSeconds);
+                return accepted;
+            }
             rejectCode = "no-session";
             return false;
         }
@@ -246,7 +281,16 @@ namespace Metro.App {
         public StationLoadResult ApplyDocumentEdit(string json, string sourceId) {
             if (!IsLoaded) return StationLoadResult.Rejected(new StationRejection("no-session", StationRecordKind.Document,
                 "station", "", "No station is committed, so there is nothing to edit."), CurrentRevision);
-            return coordinator.InstallEditedDocument(json, string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId);
+            // An edit is the same station, not a station switch: the commit must not re-home
+            // the camera or move the player to another storey. The candidate was resolved at
+            // the current level, and a fixed screen pixel has to keep aiming at the piece it
+            // placed (plan 16 §1.5, and the source keeps the view for ordinary edits).
+            editingDocument = true;
+            try {
+                return coordinator.InstallEditedDocument(json, string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId);
+            } finally {
+                editingDocument = false;
+            }
         }
 
         /// <summary>The committed state as a load result, for a handler-triggered commit reply.</summary>
@@ -348,10 +392,13 @@ namespace Metro.App {
 
         void OnCommitted(StationCommitInfo info) {
             cameraBounds = info.CameraBounds;
-            // Open at the document's lowest authored metre, exactly like the source
-            // `openingLevel` (plan 11 D4: the TS and Unity home views must agree).
-            activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
-            if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
+            // A document edit re-installs the same station: keep the player's storey and
+            // framing. Only a New/Open/demo commit opens at the document's lowest authored
+            // metre and frames the fresh bounds (plan 11 D4).
+            if (!editingDocument) {
+                activeLevel = info.Document == null ? 0 : info.Document.OpeningLevel;
+                if (frameCameraOnCommit && stationCamera != null && !info.CameraBounds.IsEmpty) FrameCamera(info.CameraBounds);
+            }
             // The commit reply is published by StationCommandRouter for the command that
             // caused it. Publishing a second, unsolicited commit here would make the
             // shell parse the same document twice.
@@ -396,14 +443,21 @@ namespace Metro.App {
     }
 
     /// <summary>The WebGL transport: one JS function, one DOM event.</summary>
-    static class StationWebBridge {
+    public static class StationWebBridge {
 #if UNITY_WEBGL && !UNITY_EDITOR
         [DllImport("__Internal")]
         static extern void StationGameState(string json);
 #endif
-        public static void Publish(string json) {
+        /// <summary>
+        /// Send one envelope to the WebGL page. Returns false when this build has no
+        /// WebGL transport at all (the desktop/Editor player), so a caller can tell
+        /// "delivered" from "this platform has no such route" instead of assuming.
+        /// </summary>
+        public static bool Publish(string json) {
 #if UNITY_WEBGL && !UNITY_EDITOR
-            try { StationGameState(json); } catch (Exception) { /* a missing glue function must not crash the player */ }
+            try { StationGameState(json); return true; } catch (Exception) { return false; /* a missing glue function must not crash the player */ }
+#else
+            return false;
 #endif
         }
     }

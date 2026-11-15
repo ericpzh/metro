@@ -26,6 +26,7 @@ namespace Metro.View {
         Overlay = 13,
         Road = 14,
         Vehicle = 15,
+        Surface = 16,
     }
 
     /// <summary>Where a part sits relative to the storey being edited.</summary>
@@ -402,8 +403,6 @@ namespace Metro.View {
         Bounds WorldBounds { get; }
         StationDrawMode LastMode { get; }
         void Apply(StationDrawMode mode, StationVisibilityPalette palette);
-        void SetExplodedOffset(Vector3 documentOffset);
-        void ResetExploded();
     }
 
     /// <summary>
@@ -418,8 +417,56 @@ namespace Metro.View {
 
         readonly Dictionary<Material, Material> ghosts = new Dictionary<Material, Material>();
         readonly Dictionary<Material, Material> clears = new Dictionary<Material, Material>();
+        readonly Dictionary<Material, Material> sectionMaterials = new Dictionary<Material, Material>();
         readonly Shader requested;
         Shader resolved;
+        Shader sectionLit;
+        Shader sectionUnlit;
+
+        internal bool SectionClipping;
+        internal Vector4 SectionPlane;
+
+        internal Material SectionMaterial(Material source, StationPartRole role) {
+            if (!source || source.HasProperty("_SectionPlane")) return source;
+            // These exported paving materials are untextured glTF PBR. Sidewalk
+            // colour is baked into vertices, while tactile tiles and arms use a tint.
+            bool paving = role == StationPartRole.Surface &&
+                source.shader.name == "Shader Graphs/glTF-pbrMetallicRoughness" &&
+                (source.name == "outdoorSurface" || source.name == "tactile");
+            if (source.shader.name == "Shader Graphs/glTF-pbrMetallicRoughness" && !paving) return source;
+            if (sectionMaterials.TryGetValue(source, out var clone) && clone) return clone;
+            Shader shader;
+            switch (source.shader.name) {
+                case "Universal Render Pipeline/Lit":
+                    shader = sectionLit ??= Shader.Find("Metro/Station Section Lit");
+                    break;
+                case "Universal Render Pipeline/Unlit":
+                    shader = sectionUnlit ??= Shader.Find("Metro/Station Section Unlit");
+                    break;
+                case "Shader Graphs/glTF-pbrMetallicRoughness":
+                    shader = Shader.Find("Metro/Station Finish");
+                    break;
+                default:
+                    return source;
+            }
+            if (!shader || !shader.isSupported) return source;
+            clone = new Material(source) { name = source.name + " (section)", shader = shader };
+            if (paving) {
+                clone.SetFloat("_VertexColorWeight", source.name == "outdoorSurface" ? 1f : 0f);
+                clone.SetColor("_BaseColor", source.GetColor("baseColorFactor"));
+                clone.SetFloat("_Metallic", source.GetFloat("metallicFactor"));
+                clone.SetFloat("_Smoothness", 1f - source.GetFloat("roughnessFactor"));
+                clone.EnableKeyword("_ENVIRONMENTREFLECTIONS_OFF");
+            }
+            foreach (var keyword in source.enabledKeywords) {
+                var next = shader.keywordSpace.FindKeyword(keyword.name);
+                if (next.isValid) clone.EnableKeyword(next);
+            }
+            clone.renderQueue = source.renderQueue;
+            clone.SetOverrideTag("RenderType", source.GetTag("RenderType", false));
+            sectionMaterials[source] = clone;
+            return clone;
+        }
 
         public StationVisibilityPalette(Shader shader = null) {
             requested = shader;
@@ -490,8 +537,10 @@ namespace Metro.View {
         public void Clear() {
             foreach (var material in ghosts.Values) if (material) Destroy(material);
             foreach (var material in clears.Values) if (material) Destroy(material);
+            foreach (var material in sectionMaterials.Values) if (material) Destroy(material);
             ghosts.Clear();
             clears.Clear();
+            sectionMaterials.Clear();
         }
 
         static void Destroy(UnityEngine.Object value) {
@@ -516,14 +565,35 @@ namespace Metro.View {
         public bool parked;
         public bool floating;
         public bool contactShadow;
+        /// <summary>
+        /// Independent **grade** membership (20 §4): true when the part is owned by the authored
+        /// 0 m ground datum — the street slab and courses, pavement, plantings, fences, street
+        /// decor and traffic. It is separate from <see cref="role"/> so 隐藏墙壁 / 隐藏屋顶 and the
+        /// other view tools keep reading the part's real role; only Hide Ground consults it.
+        /// </summary>
+        public bool gradeOwned;
 
         Renderer[] renderers;
         Collider[] colliders;
         Material[][] baseMaterials;
-        Vector3 basePosition;
         bool collected;
-        bool exploded;
         StationDrawMode lastMode = StationDrawMode.Base;
+        StationVisibilityPalette lastPalette;
+        MaterialPropertyBlock sectionBlock;
+        internal bool SectionShaderActive { get; private set; }
+
+        bool UsesSection => role != StationPartRole.Grid && role != StationPartRole.Cursor && role != StationPartRole.Overlay;
+
+        /// <summary>
+        /// Eligibility each renderer/collider had when the **owner** last left it alone, i.e.
+        /// its authored state before any view-mode pass. `Apply` only ever writes
+        /// `visible &amp;&amp; eligible`, so a piece a builder permanently retired (an exit
+        /// head-house's baked pad, a baked printed plate) is never brought back by the next
+        /// level toggle, and a `Refresh()` after a Hidden pass cannot mistake "hidden by the
+        /// walk" for "authored off" (18 §6). Newly mounted parts are captured on first sight.
+        /// </summary>
+        readonly Dictionary<Renderer, bool> eligibleRenderers = new Dictionary<Renderer, bool>();
+        readonly Dictionary<Collider, bool> eligibleColliders = new Dictionary<Collider, bool>();
 
         public StationPartRole Role => role;
         public IReadOnlyList<int> LevelZs => levels ?? Array.Empty<int>();
@@ -552,13 +622,14 @@ namespace Metro.View {
         }
 
         public void Configure(StationPartRole partRole, int[] levelZs, int band = NoGroundBand, bool isParked = false,
-            bool isFloating = false, bool isContactShadow = false) {
+            bool isFloating = false, bool isContactShadow = false, bool isGradeOwned = false) {
             role = partRole;
             levels = levelZs ?? Array.Empty<int>();
             groundBand = band;
             parked = isParked;
             floating = isFloating;
             contactShadow = isContactShadow;
+            gradeOwned = isGradeOwned;
             collected = false;
         }
 
@@ -570,41 +641,118 @@ namespace Metro.View {
         void Collect() {
             if (collected) return;
             collected = true;
-            basePosition = transform.position;
             renderers = GetComponentsInChildren<Renderer>(true);
             colliders = GetComponentsInChildren<Collider>(true);
             baseMaterials = new Material[renderers.Length][];
             for (int i = 0; i < renderers.Length; i++) {
                 var renderer = renderers[i];
                 baseMaterials[i] = renderer ? renderer.sharedMaterials : Array.Empty<Material>();
+                // First sight only: a renderer already switched off by its builder is retired
+                // for good, and one the visibility walk itself switched off keeps its authored
+                // eligibility because it was captured while the part was still drawable.
+                if (renderer && !eligibleRenderers.ContainsKey(renderer)) eligibleRenderers[renderer] = renderer.enabled;
+            }
+            for (int i = 0; i < colliders.Length; i++) {
+                var collider = colliders[i];
+                if (collider && !eligibleColliders.ContainsKey(collider)) eligibleColliders[collider] = collider.enabled;
+            }
+            Prune(eligibleRenderers);
+            Prune(eligibleColliders);
+        }
+
+        /// <summary>
+        /// Adopt the materials a live artwork owner just installed on one renderer as the
+        /// part's authored base. A display binds its own material **after** registration, so
+        /// without this the next Base pass would put the baked export sample back on the screen
+        /// and undo every poster, plate and line map on a level toggle (20 §1, §2).
+        /// </summary>
+        public void Recapture(Renderer renderer) {
+            if (!renderer) return;
+            Collect();
+            for (int i = 0; i < renderers.Length; i++) {
+                if (!ReferenceEquals(renderers[i], renderer)) continue;
+                baseMaterials[i] = renderer.sharedMaterials;
+                if (lastMode == StationDrawMode.Base && lastPalette != null && UsesSection)
+                    ApplySection(renderer, baseMaterials[i], lastPalette);
+                return;
             }
         }
 
+        /// <summary>Forget destroyed entries so a long session does not grow the maps.</summary>
+        static void Prune<T>(Dictionary<T, bool> map) where T : UnityEngine.Object {
+            if (map.Count == 0) return;
+            List<T> dead = null;
+            foreach (var key in map.Keys) {
+                if (key != null) continue;
+                (dead ??= new List<T>()).Add(key);
+            }
+            if (dead == null) return;
+            for (int i = 0; i < dead.Count; i++) map.Remove(dead[i]);
+        }
+
+        /// <summary>A part the owner permanently retired, or one that is drawable as authored.</summary>
+        bool Eligible(Renderer renderer) =>
+            !eligibleRenderers.TryGetValue(renderer, out bool eligible) || eligible;
+
+        bool Eligible(Collider collider) =>
+            !eligibleColliders.TryGetValue(collider, out bool eligible) || eligible;
+
         public void Apply(StationDrawMode mode, StationVisibilityPalette palette) {
             Collect();
-            lastMode = mode;
+            lastPalette = palette;
+            SectionShaderActive = false;
             bool visible = mode != StationDrawMode.Hidden;
+            // A part that was drawable after the last pass and is now off was retired by its
+            // owner since then: record that as authored and never switch it back on.
+            bool wasVisible = lastMode != StationDrawMode.Hidden;
+            lastMode = mode;
             for (int i = 0; i < renderers.Length; i++) {
                 var renderer = renderers[i];
                 if (!renderer) continue;
-                renderer.enabled = visible;
-                if (!visible || palette == null) continue;
+                if (wasVisible && !renderer.enabled) eligibleRenderers[renderer] = false;
+                bool eligible = Eligible(renderer);
+                renderer.enabled = visible && eligible;
+                if (!visible || !eligible || palette == null) continue;
                 var bases = baseMaterials[i];
                 if (bases == null || bases.Length == 0) continue;
                 switch (mode) {
                     case StationDrawMode.Base:
-                        renderer.sharedMaterials = bases;
+                        if (UsesSection) ApplySection(renderer, bases, palette);
+                        else renderer.sharedMaterials = bases;
                         break;
                     case StationDrawMode.Ghost:
                         renderer.sharedMaterials = Map(bases, palette.Ghost);
+                        if (UsesSection) SetSectionPlane(renderer, palette);
                         break;
                     case StationDrawMode.Clear:
                         renderer.sharedMaterials = Map(bases, palette.Clear);
+                        if (UsesSection) SetSectionPlane(renderer, palette);
                         break;
                 }
             }
             for (int i = 0; i < colliders.Length; i++) {
-                if (colliders[i]) colliders[i].enabled = visible;
+                var collider = colliders[i];
+                if (!collider) continue;
+                if (wasVisible && !collider.enabled) eligibleColliders[collider] = false;
+                collider.enabled = visible && Eligible(collider);
+            }
+        }
+
+        void ApplySection(Renderer renderer, Material[] bases, StationVisibilityPalette palette) {
+            renderer.sharedMaterials = palette.SectionClipping ? Map(bases, source => palette.SectionMaterial(source, role)) : bases;
+            SetSectionPlane(renderer, palette);
+        }
+
+        void SetSectionPlane(Renderer renderer, StationVisibilityPalette palette) {
+            foreach (var material in renderer.sharedMaterials) {
+                if (!material || !material.HasProperty("_SectionPlane")) continue;
+                sectionBlock ??= new MaterialPropertyBlock();
+                renderer.GetPropertyBlock(sectionBlock);
+                sectionBlock.SetVector("_SectionPlane", palette.SectionPlane);
+                sectionBlock.SetFloat("_SectionClip", palette.SectionClipping ? 1f : 0f);
+                renderer.SetPropertyBlock(sectionBlock);
+                SectionShaderActive = true;
+                break;
             }
         }
 
@@ -614,21 +762,39 @@ namespace Metro.View {
             return result;
         }
 
-        public void SetExplodedOffset(Vector3 documentOffset) {
+        /// <summary>
+        /// Returns the authored unghosted materials for <paramref name="renderer"/> when the
+        /// renderer is drawable as authored (skipping parts permanently retired by their builder,
+        /// even while the visibility walk currently hides or ghosts this target).
+        /// </summary>
+        public bool TryGetBaseMaterials(Renderer renderer, out Material[] materials) {
+            materials = Array.Empty<Material>();
+            if (!renderer) return false;
             Collect();
-            exploded = true;
-            transform.position = basePosition + StationCameraSpace.ToWorld(documentOffset);
+            for (int i = 0; i < renderers.Length; i++) {
+                if (!ReferenceEquals(renderers[i], renderer)) continue;
+                bool wasVisible = lastMode != StationDrawMode.Hidden;
+                if (wasVisible && !renderer.enabled) eligibleRenderers[renderer] = false;
+                if (!Eligible(renderer)) return false;
+                materials = baseMaterials[i] ?? Array.Empty<Material>();
+                return materials.Length > 0;
+            }
+            return false;
         }
 
-        public void ResetExploded() {
-            if (!exploded) return;
-            Collect();
-            exploded = false;
-            transform.position = basePosition;
-        }
-
-        void OnDestroy() {
-            ResetExploded();
+        /// <summary>
+        /// Resolves unghosted base materials for <paramref name="renderer"/> via its owning
+        /// <see cref="StationVisibilityTarget"/> if present, or falls back to <c>sharedMaterials</c>
+        /// when unregistered and currently enabled.
+        /// </summary>
+        public static bool ResolveDrawableBaseMaterials(Renderer renderer, out Material[] materials) {
+            materials = Array.Empty<Material>();
+            if (!renderer) return false;
+            var target = renderer.GetComponentInParent<StationVisibilityTarget>(true);
+            if (target != null) return target.TryGetBaseMaterials(renderer, out materials);
+            if (!renderer.enabled) return false;
+            materials = renderer.sharedMaterials ?? Array.Empty<Material>();
+            return materials.Length > 0;
         }
     }
 
@@ -738,74 +904,14 @@ namespace Metro.View {
             return result;
         }
 
-        /// <summary>
-        /// Derive the storey plans from registered target bounds. The cell-level tray
-        /// algorithm stays in A's document; this is the view's own approximation so an
-        /// exploded preview exists before that registration lands.
-        /// </summary>
-        public static StationExplodedPlan FromTargets(IReadOnlyList<IStationVisibilityTarget> targets, int[] levels = null) {
-            var found = new SortedSet<int>();
-            if (levels != null) foreach (int level in levels) found.Add(level);
-            if (targets != null) {
-                foreach (var target in targets) {
-                    if (target?.LevelZs == null) continue;
-                    if (!Explodable(target.Role)) continue;
-                    foreach (int level in target.LevelZs) found.Add(level);
-                }
-            }
-            var levelArray = new int[found.Count];
-            found.CopyTo(levelArray);
-            var plans = new List<IReadOnlyList<Vector2Int>>(levelArray.Length);
-            double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
-            foreach (int level in levelArray) {
-                var points = new HashSet<long>();
-                var plan = new List<Vector2Int>();
-                if (targets != null) {
-                    foreach (var target in targets) {
-                        if (target?.LevelZs == null) continue;
-                        if (!Explodable(target.Role)) continue;
-                        bool covers = false;
-                        foreach (int owned in target.LevelZs) if (owned == level) { covers = true; break; }
-                        if (!covers) continue;
-                        var bounds = target.WorldBounds;
-                        var centre = StationCameraSpace.ToDocument(bounds.center);
-                        var size = StationCameraSpace.ToDocument(bounds.size);
-                        int cx = Mathf.RoundToInt(centre.x);
-                        int cy = Mathf.RoundToInt(centre.y);
-                        int hx = Mathf.Max(1, Mathf.CeilToInt(size.x * .5f));
-                        int hy = Mathf.Max(1, Mathf.CeilToInt(size.y * .5f));
-                        Add(points, plan, cx, cy);
-                        Add(points, plan, cx - hx, cy - hy);
-                        Add(points, plan, cx + hx, cy - hy);
-                        Add(points, plan, cx - hx, cy + hy);
-                        Add(points, plan, cx + hx, cy + hy);
-                        minX = Math.Min(minX, cx - hx); maxX = Math.Max(maxX, cx + hx);
-                        minY = Math.Min(minY, cy - hy); maxY = Math.Max(maxY, cy + hy);
-                    }
-                }
-                plans.Add(plan);
-            }
-            var preferred = maxX - minX >= maxY - minY ? new Vector2Int(0, 1) : new Vector2Int(1, 0);
-            return Compute(levelArray, plans, preferred);
-        }
-
-        static void Add(HashSet<long> keys, List<Vector2Int> plan, int x, int y) {
-            if (!keys.Add(Key(x, y))) return;
-            plan.Add(new Vector2Int(x, y));
-        }
-
-        static bool Explodable(StationPartRole role) =>
-            role != StationPartRole.Ground && role != StationPartRole.Roof &&
-            role != StationPartRole.Grid && role != StationPartRole.Cursor && role != StationPartRole.Overlay;
-
         static long Key(int x, int y) => (long)x * 4294967296L + y;
     }
 
     /// <summary>
-    /// The view walk: one visibility state, one section plane and one exploded plan
-    /// applied to every registered part, actor and pick query. Renderers, colliders and
-    /// material variants are the only things it writes; it never edits the document and
-    /// never restarts a simulation.
+    /// The view walk: one visibility state and one section plane applied to every
+    /// registered part, actor and pick query. Renderers, colliders and material variants
+    /// are the only things it writes; it never edits the document and never restarts a
+    /// simulation.
     /// </summary>
     public sealed class StationVisibilityRegistry : IDisposable {
         readonly List<IStationVisibilityTarget> targets = new List<IStationVisibilityTarget>();
@@ -814,7 +920,6 @@ namespace Metro.View {
         public StationSectionPlane Section = StationSectionPlane.Default;
         public bool SectionClipping;
         public bool SectionSurfaceVisible = true;
-        public StationExplodedPlan ExplodedPlan;
 
         public int RegisteredTargets => targets.Count;
         public IReadOnlyList<IStationVisibilityTarget> Targets => targets;
@@ -834,10 +939,10 @@ namespace Metro.View {
 
         public StationVisibilityTarget Register(Transform root, StationPartRole role, int[] levels,
             int groundBand = StationVisibilityTarget.NoGroundBand, bool parked = false, bool floating = false,
-            bool contactShadow = false) {
+            bool contactShadow = false, bool gradeOwned = false) {
             if (!root) return null;
             var target = root.GetComponent<StationVisibilityTarget>() ?? root.gameObject.AddComponent<StationVisibilityTarget>();
-            target.Configure(role, levels, groundBand, parked, floating, contactShadow);
+            target.Configure(role, levels, groundBand, parked, floating, contactShadow, gradeOwned);
             if (!targets.Contains(target)) targets.Add(target);
             return target;
         }
@@ -852,6 +957,10 @@ namespace Metro.View {
 
         public void Apply() {
             ActiveBuilt = ComputeActiveBuilt();
+            palette.SectionClipping = SectionClipping;
+            var normal = StationCameraSpace.ToWorld(Section.Normal);
+            var point = StationCameraSpace.ToWorld(Section.Point);
+            palette.SectionPlane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
             var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
             VisibleTargets = HiddenTargets = GhostTargets = ClearTargets = CutTargets = StraddlingTargets = 0;
             SectionShaderTargets = 0;
@@ -875,13 +984,7 @@ namespace Metro.View {
                     if (side == StationSectionSide.Cut) CutTargets++;
                     else if (side == StationSectionSide.Straddles) StraddlingTargets++;
                 }
-                if (State.Exploded && ExplodedPlan != null) {
-                    int level = target.LevelZs != null && target.LevelZs.Count > 0 ? target.LevelZs[0] : State.ActiveLevel;
-                    target.SetExplodedOffset(ExplodedPlan.DocumentOffset(level));
-                } else {
-                    target.ResetExploded();
-                }
-                ApplySectionMaterialContract(target);
+                if (target is StationVisibilityTarget concrete && concrete.SectionShaderActive) SectionShaderTargets++;
             }
         }
 
@@ -889,6 +992,40 @@ namespace Metro.View {
         public StationDrawMode Decide(IStationVisibilityTarget target) {
             var slice = StationVisibilityRules.SliceOptions(State.ShowLevels, State.AutoCeiling, State.HideUi, State.Cutaway, ActiveBuilt);
             return Decide(target, slice);
+        }
+
+        /// <summary>
+        /// One **unregistered** part's draw mode — a pooled road vehicle, a crowd actor or
+        /// any other object that follows the slice without a world record of its own. It
+        /// reads the same <see cref="Decide(IStationVisibilityTarget,StationSliceOptions)"/>
+        /// rule as a registered target, so a hidden storey, 隐藏地面 and a dense slice answer
+        /// one way for the geometry and its actors.
+        /// </summary>
+        public StationDrawMode DecidePart(StationPartRole role, int[] levelsZs, bool floating = false,
+            int groundBand = StationVisibilityTarget.NoGroundBand, bool gradeOwned = false) {
+            standalone.Role = role;
+            standalone.LevelZs = levelsZs ?? Array.Empty<int>();
+            standalone.Floating = floating;
+            standalone.GroundBand = groundBand;
+            standalone.GradeOwned = gradeOwned;
+            return Decide(standalone);
+        }
+
+        readonly StandalonePart standalone = new StandalonePart();
+
+        sealed class StandalonePart : IStationVisibilityTarget {
+            public StationPartRole Role { get; set; }
+            public IReadOnlyList<int> LevelZs { get; set; } = Array.Empty<int>();
+            public int GroundBand { get; set; } = StationVisibilityTarget.NoGroundBand;
+            public bool Parked => false;
+            public bool Floating { get; set; }
+            public bool ContactShadow => false;
+            /// <summary>An unregistered part that still belongs to the authored grade (20 §4).</summary>
+            public bool GradeOwned { get; set; }
+            public Transform Root => null;
+            public Bounds WorldBounds => default;
+            public StationDrawMode LastMode => StationDrawMode.Base;
+            public void Apply(StationDrawMode mode, StationVisibilityPalette palette) { }
         }
 
         StationDrawMode Decide(IStationVisibilityTarget target, StationSliceOptions slice) {
@@ -907,14 +1044,14 @@ namespace Metro.View {
                 // player's own 隐藏墙壁; the slice is put away. The absolute surface
                 // toggles (隐藏地面 / 隐藏屋顶 / 隐藏天花板) still apply — they are not
                 // ways of drawing a storey.
-                if (State.HideGround && role == StationPartRole.Ground) return StationDrawMode.Hidden;
+                if (IsGradePart(target)) return StationDrawMode.Hidden;
                 if (State.HideRoof && role == StationPartRole.Roof) return StationDrawMode.Hidden;
                 if (State.AutoCeiling && role == StationPartRole.Ceiling) return StationDrawMode.Hidden;
                 if (State.HideWalls && wall) return StationDrawMode.Hidden;
                 if (SectionClipping && Section.Classify(target.WorldBounds) == StationSectionSide.Cut) return StationDrawMode.Hidden;
                 return StationDrawMode.Base;
             }
-            if (role == StationPartRole.Ground && State.HideGround) return StationDrawMode.Hidden;
+            if (IsGradePart(target)) return StationDrawMode.Hidden;
             if (role == StationPartRole.Roof && State.HideRoof) return StationDrawMode.Hidden;
             if (role == StationPartRole.Ceiling && State.AutoCeiling && !State.HideUi) return StationDrawMode.Hidden;
 
@@ -962,6 +1099,21 @@ namespace Metro.View {
         /// <summary>Hidden parts are unpickable; ghosts and see-through walls stay addressable.</summary>
         public bool IsTargetPickable(IStationVisibilityTarget target) => Decide(target) != StationDrawMode.Hidden;
 
+        /// <summary>
+        /// Does 隐藏地面 remove this part? The ground slab and courses are the `Ground` role; every
+        /// other grade-owned prop carries the independent grade flag its producer classified it
+        /// with (20 §4), because its own role still has to answer 隐藏墙壁 and the storey slice.
+        /// </summary>
+        bool IsGradePart(IStationVisibilityTarget target) {
+            if (!State.HideGround || target == null) return false;
+            if (target.Role == StationPartRole.Ground) return true;
+            switch (target) {
+                case StationVisibilityTarget concrete: return concrete.gradeOwned;
+                case StandalonePart standalone: return standalone.GradeOwned;
+                default: return false;
+            }
+        }
+
         /// <summary>The section's contribution to a pick: a point in the cut-away half is rejected.</summary>
         public bool IsPointKept(Vector3 documentPoint) => !SectionClipping || Section.Keeps(documentPoint);
 
@@ -979,35 +1131,10 @@ namespace Metro.View {
             return false;
         }
 
-        void ApplySectionMaterialContract(IStationVisibilityTarget target) {
-            var root = target.Root;
-            // ReferenceEquals first: a plain test target has no engine identity, and
-            // the Unity `==` null operator is an engine call.
-            if (ReferenceEquals(root, null)) return;
-            var normal = StationCameraSpace.ToWorld(Section.Normal);
-            var point = StationCameraSpace.ToWorld(Section.Point);
-            var plane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
-            bool supported = false;
-            foreach (var renderer in root.GetComponentsInChildren<Renderer>(true)) {
-                if (!renderer) continue;
-                var material = renderer.sharedMaterial;
-                if (material != null && material.HasProperty("_SectionPlane")) supported = true;
-                var block = new MaterialPropertyBlock();
-                renderer.GetPropertyBlock(block);
-                block.SetVector("_SectionPlane", plane);
-                block.SetFloat("_SectionClip", SectionClipping ? 1f : 0f);
-                renderer.SetPropertyBlock(block);
-            }
-            if (supported) SectionShaderTargets++;
-        }
-
-        public void SetExplodedPlan(StationExplodedPlan plan) => ExplodedPlan = plan;
-
         /// <summary>A new station builds new materials; drop the previous clones.</summary>
         public void ResetMaterials() => palette.Clear();
 
         public void Dispose() {
-            foreach (var target in targets) target?.ResetExploded();
             targets.Clear();
             palette.Dispose();
         }
