@@ -90,6 +90,8 @@ namespace Metro.App {
     public sealed class ExitFaceFacts {
         public string ModuleId = "";
         public string RecordType = "exit";
+        /// <summary>Saved exit style when it affects plate density (`doorway` scales width from `Width`).</summary>
+        public string Style = "";
         public ExitFacePainter Painter;
         /// <summary>Target canvas width for a guidepost plate; 0 = the painter decides.</summary>
         public int Pixels;
@@ -131,6 +133,9 @@ namespace Metro.App {
             text.Append("\npixels=").Append(facts.Pixels.ToString(CultureInfo.InvariantCulture))
                 .Append('x').Append(facts.PixelsHigh.ToString(CultureInfo.InvariantCulture));
             text.Append("\nplate=").Append(Number(facts.Width)).Append('x').Append(Number(facts.Height));
+            if (string.Equals(facts.Style, "doorway", StringComparison.Ordinal)) {
+                text.Append("\nstyle=doorway");
+            }
             // Only a fascia prints line badges, and only some city styles do; the guidepost's
             // plates print the station and exit words alone. Keeping the line list off the
             // guidepost key means a line recolour does not repaint every pillar in the street.
@@ -161,6 +166,7 @@ namespace Metro.App {
             new ExitFaceFacts {
                 ModuleId = ModuleId,
                 RecordType = ExitFaceVocabulary.RecordType(painter),
+                Style = Style,
                 Painter = painter,
                 Pixels = pixels,
                 PixelsHigh = pixelsHigh,
@@ -335,7 +341,7 @@ namespace Metro.App {
                     });
                 }
             }
-            return new JObject {
+            var json = new JObject {
                 ["key"] = face.ContentKey,
                 ["moduleId"] = face.ModuleId ?? "",
                 ["recordType"] = face.RecordType ?? "",
@@ -353,6 +359,8 @@ namespace Metro.App {
                 ["locale"] = face.Locale ?? "zh-CN",
                 ["lines"] = lines,
             };
+            if (!string.IsNullOrEmpty(face.Style)) json["style"] = face.Style;
+            return json;
         }
 
         /* -------------------------------------------------------------- replies */
@@ -546,6 +554,7 @@ namespace Metro.App {
         public float Ink = -1f;
         public int PixelsWide;
         public int PixelsHigh;
+        internal Action<Renderer> Recapture;
 
         public bool HasTexture => Texture != null;
         public string ModuleId => Facts != null ? Facts.ModuleId : "";
@@ -559,6 +568,10 @@ namespace Metro.App {
             PixelsWide = texture != null ? texture.width : 0;
             PixelsHigh = texture != null ? texture.height : 0;
             StationExitArtwork.ApplyArtwork(Material, texture);
+            if (Renderer != null && Material != null) {
+                Renderer.sharedMaterial = Material;
+                Recapture?.Invoke(Renderer);
+            }
         }
 
         internal void Clear() {
@@ -569,6 +582,10 @@ namespace Metro.App {
             PixelsWide = 0;
             PixelsHigh = 0;
             StationExitArtwork.ApplyArtwork(Material, null);
+            if (Renderer != null && Material != null) {
+                Renderer.sharedMaterial = Material;
+                Recapture?.Invoke(Renderer);
+            }
         }
 
         public string Describe() =>
@@ -933,6 +950,7 @@ namespace Metro.App {
     /// with it (the renderer singleton is reused across the staged candidate).
     /// </summary>
     public sealed class StationExitArtworkScope : MonoBehaviour {
+        public StationWorldView World;
         public ExitFaceWebProvider Provider;
         public ExitFaceTextureCache Cache;
         /// <summary>The host-bound publisher; null means only the WebGL bridge can be tried.</summary>
@@ -1121,6 +1139,8 @@ namespace Metro.App {
                 facts.ExitId = module.Id ?? "";
                 facts.ExitName = module.Config != null ? module.Config.Text("name") : "";
                 facts.ExitFound = true;
+                var style = module.Config != null ? module.Config.Text("style") : "";
+                if (string.Equals(style, "doorway", StringComparison.Ordinal)) facts.Style = "doorway";
             }
             return facts;
         }
@@ -1142,21 +1162,23 @@ namespace Metro.App {
         /// <summary>
         /// Find the replaceable plate nodes on one placed street prefab. Identification is by
         /// the promoted material the export names (`exitHeaderPlate_*`, `guidePlate_256x277`,
-        /// `guidePlate_256x993`, `guidePlate_256x256_2`) and, for a guidepost, the preserved
-        /// node name (`guide-station-face`, `guide-square-exit-letter`). Nothing is guessed
-        /// from geometry: a prefab without an identifiable plate binds nothing.
+        /// `guidePlate_256x993`, `guidePlate_256x256_2`) and, for a guidepost or virtual exit,
+        /// the preserved node name (`guide-station-face`, `guide-square-exit-letter`). Nothing
+        /// is guessed from geometry: a prefab without an identifiable plate binds nothing.
         /// </summary>
         public static List<FaceNode> Discover(GameObject root, ModuleFacts module) {
             var nodes = new List<FaceNode>(4);
             if (!root || module == null) return nodes;
-            bool guidepost = string.Equals(module.Type, "guidepost", StringComparison.Ordinal);
+            bool guidePlates = string.Equals(module.Type, "guidepost", StringComparison.Ordinal) ||
+                (string.Equals(module.Type, "exit", StringComparison.Ordinal) &&
+                 string.Equals(module.Config != null ? module.Config.Text("style") : "", "virtual", StringComparison.Ordinal));
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
                 if (!renderer) continue;
                 var material = renderer.sharedMaterial;
                 var materialName = material != null ? material.name : "";
                 var nodeName = renderer.transform != null ? renderer.transform.name : "";
                 ExitFacePainter painter;
-                if (!guidepost) {
+                if (!guidePlates) {
                     if (materialName.IndexOf("exitHeaderPlate", StringComparison.OrdinalIgnoreCase) < 0 &&
                         nodeName.IndexOf("exit-doorway-sign", StringComparison.Ordinal) < 0) continue;
                     painter = ExitFacePainter.ExitHeader;
@@ -1320,7 +1342,11 @@ namespace Metro.App {
             if (context == null) return;
             Bind(context.Document,
                 diagnostic => context.ReportUnresolved(diagnostic.Code, diagnostic.RecordType, diagnostic.RecordId, diagnostic.Message),
-                scopeFor, root, module, station, prefabPath);
+                () => {
+                    var scope = scopeFor != null ? scopeFor() : null;
+                    if (scope != null && scope.World == null) scope.World = context.World;
+                    return scope;
+                }, root, module, station, prefabPath);
         }
 
         /// <summary>The document-only form, so an EditMode test can drive the same binding.</summary>
@@ -1361,6 +1387,8 @@ namespace Metro.App {
                         "could not mount the " + ExitFaceVocabulary.Painter(node.Painter) + " plate of " + node.MaterialName));
                     continue;
                 }
+                var capturedScope = scope;
+                binding.Recapture = renderer => capturedScope.World?.RecaptureArtwork(renderer);
                 scope.Bindings.Add(binding);
                 scope.Cache.Bind(binding);
                 bound++;
@@ -1372,7 +1400,8 @@ namespace Metro.App {
             }
             scope.Cache.Pump();
             if (!string.IsNullOrEmpty(baseFacts.City) &&
-                !string.Equals(baseFacts.City, "guangzhou", StringComparison.OrdinalIgnoreCase)) {
+                !string.Equals(baseFacts.City, "guangzhou", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(baseFacts.Style, "doorway", StringComparison.Ordinal)) {
                 // The promoted street prefabs are the Guangzhou exports; a per-city canopy or
                 // pillar shape is a separate asset gap, named rather than silently drawn.
                 report(new FaceDiagnostic(
@@ -1516,8 +1545,10 @@ namespace Metro.App {
             if (texture == null) {
                 bool transparent = material.renderQueue >= (int)RenderQueue.Transparent;
                 var colour = transparent ? new Color(0f, 0f, 0f, 0f) : new Color(.07f, .08f, .09f, 1f);
+                if (material.HasProperty("baseColorFactor")) material.SetColor("baseColorFactor", colour);
                 if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
                 if (material.HasProperty("_Color")) material.color = colour;
+                if (material.HasProperty("baseColorTexture")) material.SetTexture("baseColorTexture", null);
                 if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", null);
                 if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", null);
                 material.mainTexture = null;

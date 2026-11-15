@@ -685,6 +685,142 @@ public class StationExitArtworkTests {
         }
     }
 
+    /* ---------------------------------------------------- all ground exit styles + ghost */
+
+    [Test]
+    public void AllGroundExitStylesBindDynamicIdentityAndDoorwayMountZOffsets() {
+        StationExitArtwork.SendHook = json => requests.Add(JObject.Parse(json));
+        var tanweiPath = Path.Combine(Application.dataPath, "StationDesigner/Demos/tanwei.metro.json");
+        if (File.Exists(tanweiPath)) {
+            var tanwei = StationDocumentReader.ReadFile("Assets/StationDesigner/Demos/tanwei.metro.json");
+            Assert.IsNotNull(tanwei?.Document, "Tanwei demo must parse");
+            var tanweiStreet = Build(tanwei.Document);
+            var tanweiScope = tanweiStreet.Current.Faces;
+            Assert.IsNotNull(tanweiScope, "Tanwei street must create an exit artwork scope");
+
+            var exitI = Binding(tanweiScope, "exit-doorway-4-486", ExitFacePainter.ExitHeader);
+            Assert.AreEqual("坦尾", exitI.Facts.Station);
+            Assert.AreEqual("Tanwei", exitI.Facts.StationEn);
+            Assert.AreEqual("I", exitI.Facts.ExitName);
+            Assert.AreEqual("doorway", exitI.Facts.Style);
+            Assert.AreEqual(5.88f, exitI.Facts.Width, .05f, "4-bay doorway plate width");
+            Assert.IsFalse(exitI.Baked.enabled, "baked 'Station站 | 未命名口' plate must be retired on doorway exits");
+
+            // Tanwei's exit-doorway-2-888 ('D') sits on cell z=0 with mountZ=4 (+3m above floor z+1=1).
+            var exitD = Binding(tanweiScope, "exit-doorway-2-888", ExitFacePainter.ExitHeader);
+            Assert.AreEqual("D", exitD.Facts.ExitName);
+            Assert.AreEqual("doorway", exitD.Facts.Style);
+            Assert.AreEqual(3.88f, exitD.Facts.Width, .05f, "2-bay doorway plate width");
+            var tanweiWorld = worlds[worlds.Count - 1];
+            Assert.IsTrue(tanweiWorld.TryGetModule("exit-doorway-2-888", out var doorwayD) && doorwayD.View != null, "doorway D view");
+            Assert.AreEqual(4f, doorwayD.View.transform.position.y, 1e-3f, "mountZ=4 places doorway floor at world y=4m instead of z+1=1m");
+        }
+
+        // Also verify covered, uncovered, doorway (1..4 bays, non-Guangzhou city tint), and virtual exits in one synthetic station.
+        var save = JObject.Parse(zoo.NormalizedJson);
+        var state = (JObject)save["static"];
+        state["name"] = "坦尾";
+        state["nameEn"] = "Tanwei";
+        state["cityStyle"] = "beijing";
+        state["grid"] = new JObject { ["cells"] = new JArray() };
+        state["modules"] = new JArray {
+            new JObject {
+                ["id"] = "exit-cov-1", ["type"] = "exit", ["x"] = 0, ["y"] = 0, ["z"] = 0, ["rot"] = 0,
+                ["w"] = 3, ["d"] = 5, ["cfg"] = new JObject { ["name"] = "A", ["bays"] = 1, ["style"] = "covered" },
+            },
+            new JObject {
+                ["id"] = "exit-unc-2", ["type"] = "exit", ["x"] = 6, ["y"] = 0, ["z"] = 0, ["rot"] = 0,
+                ["w"] = 4, ["d"] = 5, ["cfg"] = new JObject { ["name"] = "B", ["bays"] = 2, ["style"] = "uncovered" },
+            },
+            new JObject {
+                ["id"] = "exit-door-1", ["type"] = "exit", ["x"] = 12, ["y"] = 0, ["z"] = 0, ["rot"] = 0,
+                ["w"] = 3, ["d"] = 3, ["cfg"] = new JObject { ["name"] = "D1", ["bays"] = 1, ["style"] = "doorway", ["mountZ"] = 1 },
+            },
+            new JObject {
+                ["id"] = "exit-door-4", ["type"] = "exit", ["x"] = 18, ["y"] = 0, ["z"] = 0, ["rot"] = 2,
+                ["w"] = 6, ["d"] = 3, ["cfg"] = new JObject { ["name"] = "I", ["bays"] = 4, ["style"] = "doorway", ["mountZ"] = 4 },
+            },
+            new JObject {
+                ["id"] = "exit-virt-1", ["type"] = "exit", ["x"] = 28, ["y"] = 0, ["z"] = 0, ["rot"] = 0,
+                ["w"] = 1, ["d"] = 1, ["cfg"] = new JObject { ["name"] = "V", ["style"] = "virtual" },
+            },
+        };
+        var parsed = StationDocumentReader.Read(save.ToString(Formatting.None), new StationSource("all-exits", ""));
+        Assert.IsNotNull(parsed?.Document);
+        requests.Clear();
+        var street = Build(parsed.Document);
+        var world = worlds[worlds.Count - 1];
+        var scope = street.Current.Faces;
+        Assert.IsNotNull(scope);
+
+        Assert.AreEqual("A", Binding(scope, "exit-cov-1", ExitFacePainter.ExitHeader).Facts.ExitName);
+        Assert.AreEqual("B", Binding(scope, "exit-unc-2", ExitFacePainter.ExitHeader).Facts.ExitName);
+
+        var door1 = Binding(scope, "exit-door-1", ExitFacePainter.ExitHeader);
+        var door4 = Binding(scope, "exit-door-4", ExitFacePainter.ExitHeader);
+        Assert.AreEqual("doorway", door1.Facts.Style);
+        Assert.AreEqual("doorway", door4.Facts.Style);
+        Assert.AreEqual(2.88f, door1.Facts.Width, .05f);
+        Assert.AreEqual(5.88f, door4.Facts.Width, .05f);
+        Assert.IsTrue(world.TryGetModule("exit-door-1", out var door1Record) && door1Record.View != null);
+        Assert.IsTrue(world.TryGetModule("exit-door-4", out var door4Record) && door4Record.View != null);
+        Assert.AreEqual(3f, door4Record.View.transform.position.y - door1Record.View.transform.position.y, 1e-3f,
+            "mountZ=4 raises doorway 3m above mountZ=1 on the same cell z=0");
+
+        // Doorway exits have no city-specific canopy geometry gap, so Beijing doorway emits no exit-city-shape diagnostic.
+        Assert.IsFalse(world.Unresolved.Any(u => u.Code == "exit-city-shape" && u.RecordId.StartsWith("exit-door-", StringComparison.Ordinal)),
+            "doorway exits tint their panel and must not report exit-city-shape");
+
+        // Virtual exits bind all 6 guidepost-style plates (2 upper station, 1 rear English, 3 exit letters).
+        var virtualPlates = scope.Bindings.Where(b => b.ModuleId == "exit-virt-1").ToList();
+        Assert.AreEqual(6, virtualPlates.Count, "virtual exit binds all 6 guide plates");
+        Assert.AreEqual(2, virtualPlates.Count(b => b.Facts.Painter == ExitFacePainter.GuideStationUpper));
+        Assert.AreEqual(1, virtualPlates.Count(b => b.Facts.Painter == ExitFacePainter.GuideStationRear));
+        Assert.AreEqual(3, virtualPlates.Count(b => b.Facts.Painter == ExitFacePainter.GuideExitLetter));
+        Assert.IsTrue(virtualPlates.All(b => b.Facts.ExitName == "V" && b.Facts.ExitFound && !b.Baked.enabled));
+    }
+
+    [Test]
+    public void GhostedExitPlateRefreshesImmediatelyWhenAsyncArtworkArrives() {
+        StationExitArtwork.SendHook = json => requests.Add(JObject.Parse(json));
+        var street = Build(zoo);
+        var world = worlds[worlds.Count - 1];
+        var scope = street.Current.Faces;
+        var header = Binding(scope, "exit-uncovered-2-258", ExitFacePainter.ExitHeader);
+        Assert.IsTrue(world.TryGetModule("exit-uncovered-2-258", out var exitRecord) && exitRecord.View != null);
+
+        using (var visibility = new StationVisibilityRegistry(shader)) {
+            visibility.Register(exitRecord.View.transform, StationPartRole.Prop, new[] { 0 });
+
+            // View from an empty lower storey (-15m, like Tanwei's default view) BEFORE exit.faceReady arrives:
+            // empty active storeys ghost storeys above (`StationVisibilityRules.LevelVisible`), and viewing from
+            // +5m above also ghosts 0m below.
+            visibility.State.ActiveLevel = -15;
+            visibility.State.ShowLevels = true;
+            visibility.Apply();
+
+            var ghostBefore = header.Renderer.sharedMaterial;
+            Assert.IsNotNull(ghostBefore);
+            Assert.AreNotSame(header.Material, ghostBefore, "street exit is ghosted when viewing empty -15m");
+            Assert.IsNull(ghostBefore.mainTexture, "unpainted ghost clone starts with no texture");
+
+            ServeAll();
+            Assert.IsNotNull(header.Texture, "async exit face texture arrived");
+            var ghostAfter = header.Renderer.sharedMaterial;
+            Assert.IsTrue((bool)ghostBefore, "existing ghost clone is never destroyed under sibling renderers");
+            Assert.AreSame(ghostBefore, ghostAfter, "ghost clone updates in place so shared materials stay valid");
+            Assert.AreNotSame(header.Material, ghostAfter, "exit remains ghosted while still on -15m");
+            Assert.AreSame(header.Texture, ghostAfter.mainTexture,
+                "RecaptureArtwork must refresh the active ghost material's mainTexture immediately");
+
+            // Switching up to the street storey restores the base material with the painted texture intact.
+            visibility.State.ActiveLevel = 0;
+            visibility.Apply();
+            Assert.AreSame(header.Material, header.Renderer.sharedMaterial);
+            Assert.AreSame(header.Texture, header.Renderer.sharedMaterial.mainTexture);
+        }
+    }
+
     static JObject Reply(JObject request, string sessionId, int revision) {
         var requestId = (string)request["id"];
         return new JObject {

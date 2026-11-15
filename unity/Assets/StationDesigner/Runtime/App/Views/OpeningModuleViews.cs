@@ -1815,10 +1815,11 @@ namespace Metro.App {
 
             var wing = FindNode(instance.transform, "wing");
             bool lane = GateHasLane(request.Door);
+            ApplyGateIndicators(instance.transform, lane, request.Dir, paint);
             if (wing == null) {
                 if (lane) return FailAndDiscard(view, "gate-has-no-wing");
                 view.Movable = false;
-                BuildGateFencePanel(request, facts, station, instance.transform, view, paint);
+                BuildGateFencePanel(request, facts, station, catalogue, instance.transform, view, paint);
                 return true;
             }
             if (!lane) {
@@ -1827,7 +1828,7 @@ namespace Metro.App {
                 // retired and the panel is composed from the source's own fence numbers (18 §5).
                 wing.gameObject.SetActive(false);
                 view.Movable = false;
-                BuildGateFencePanel(request, facts, station, instance.transform, view, paint);
+                BuildGateFencePanel(request, facts, station, catalogue, instance.transform, view, paint);
                 return true;
             }
             var left = FindNode(wing, "left-leaf");
@@ -1857,6 +1858,59 @@ namespace Metro.App {
                   farJamb.ToString("0.###", CultureInfo.InvariantCulture) + " wing=" +
                   full.ToString("0.###", CultureInfo.InvariantCulture) + " lane=" + laneOk + " pose=" + poseOk;
             return true;
+        }
+
+        /// <summary>
+        /// Port of `GateModel`'s directional / doorless indicator plates:
+        /// `allowed = hasLane &amp;&amp; (dir === 'both' || (fy === -1 ? dir === 'in' : dir === 'out'))`.
+        /// Promoted `gate` and `gate-new` prefabs bake `gatePanel` on the entry (`Approach`, `fy = -1`)
+        /// face and `gatePanelBack` on the exit (`Front`, `fy = +1`) face. Disallowed or fence-mode
+        /// faces switch to `no-entry-cross` with `PieceBuilder`'s `64×76` `#ff4545` on `#0b0d11` cross.
+        /// </summary>
+        static void ApplyGateIndicators(Transform instance, bool lane, string rawDir, OpeningPalette paint) {
+            if (!instance) return;
+            string dir = string.IsNullOrEmpty(rawDir) ? "both" : rawDir;
+            var approach = FindNode(instance, "Approach");
+            var front = FindNode(instance, "Front");
+            foreach (var renderer in instance.GetComponentsInChildren<MeshRenderer>(true)) {
+                if (!renderer) continue;
+                var material = renderer.sharedMaterial;
+                var baseMat = material != null ? OutdoorModuleViews.MaterialBaseName(material.name) : "";
+                var nodeName = renderer.gameObject.name ?? "";
+                bool isIndicator = string.Equals(nodeName, "entry-arrow", StringComparison.Ordinal) ||
+                    string.Equals(nodeName, "no-entry-cross", StringComparison.Ordinal) ||
+                    string.Equals(baseMat, "gatePanel", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(baseMat, "gatePanelBack", StringComparison.OrdinalIgnoreCase);
+                if (!isIndicator) continue;
+
+                bool isEntryFace;
+                if (string.Equals(baseMat, "gatePanel", StringComparison.OrdinalIgnoreCase)) {
+                    isEntryFace = true;
+                } else if (string.Equals(baseMat, "gatePanelBack", StringComparison.OrdinalIgnoreCase)) {
+                    isEntryFace = false;
+                } else if (approach && front) {
+                    var centre = MeshBoundsIn(renderer.transform, instance, out var local)
+                        ? local.center
+                        : instance.InverseTransformPoint(renderer.transform.position);
+                    var approachPos = instance.InverseTransformPoint(approach.position);
+                    var frontPos = instance.InverseTransformPoint(front.position);
+                    isEntryFace = (centre - approachPos).sqrMagnitude <= (centre - frontPos).sqrMagnitude;
+                } else {
+                    isEntryFace = renderer.transform.localPosition.y < 0f || renderer.transform.localPosition.z < 0f;
+                }
+
+                bool allowed = lane && (string.Equals(dir, "both", StringComparison.Ordinal) ||
+                    (isEntryFace
+                        ? string.Equals(dir, "in", StringComparison.Ordinal)
+                        : string.Equals(dir, "out", StringComparison.Ordinal)));
+                renderer.gameObject.name = allowed ? "entry-arrow" : "no-entry-cross";
+                if (!allowed) {
+                    var cross = paint != null
+                        ? paint.GateCrossMaterial(material)
+                        : GateIndicatorMaterialOwner.For(instance.gameObject, material);
+                    if (cross != null) renderer.sharedMaterial = cross;
+                }
+            }
         }
 
         /// <summary>True when every wing's authored centre is the pose `setGateWing(0)` writes.</summary>
@@ -1930,10 +1984,11 @@ namespace Metro.App {
         /// The jamb is measured from the promoted prefab (its lane leaves when it has them,
         /// its own cabinet body when it does not), so the panel lands in the machine's frame
         /// whatever handedness the promotion baked in. The arm, post and clamp dimensions are
-        /// `OutdoorModuleViews`' shared `drawFence`/`fencePost` numbers.
+        /// `OutdoorModuleViews`' shared `drawFence`/`fencePost` numbers, and `steel`/`glass`
+        /// come from `Fence.prefab` first so the attached barrier matches an adjacent fence 1:1.
         /// </summary>
         static bool BuildGateFencePanel(OpeningRequest request, ModuleFacts facts, IReadOnlyList<ModuleFacts> station,
-            Transform instance, OpeningView view, OpeningPalette paint) {
+            RuntimeCatalogue catalogue, Transform instance, OpeningView view, OpeningPalette paint) {
             if (!instance) {
                 view.Diagnostic = "fence-door:no-instance";
                 return false;
@@ -1962,15 +2017,17 @@ namespace Metro.App {
             }
             var root = new GameObject("fence panel");
             root.transform.SetParent(instance, false);
-            var steel = GateMaterial(instance, paint, "steel", OpeningColour.Steel);
-            // A gate scanner head carries `tintedGlass` (opaque near-black); the doorless lane's
-            // barrier infill is `drawFence`'s transparent fence glass (`OpeningColour.Glass`), not
-            // the scanner bezel.
-            var glass = paint != null && paint[OpeningColour.Glass] != null
-                ? paint[OpeningColour.Glass]
-                : GateMaterial(instance, paint, "glass", OpeningColour.Glass);
-            OutdoorModuleViews.AddPart(root.transform, "fence panel steel", steelVertices, steelTriangles, steel);
-            OutdoorModuleViews.AddPart(root.transform, "fence panel glass", glassVertices, glassTriangles, glass);
+            Material steel = null, glass = null;
+            if (catalogue != null && catalogue.TryGet("fence", out var fenceEntry) && fenceEntry.prefab != null) {
+                OutdoorModuleViews.TryExtractFenceMaterials(fenceEntry.prefab, out steel, out glass);
+            }
+            if (steel == null) steel = GateMaterial(instance, paint, "steel", OpeningColour.Steel);
+            if (glass == null) {
+                glass = GateMaterial(instance, null, "glass", OpeningColour.Glass);
+                if (glass == null && paint != null) glass = paint[OpeningColour.Glass];
+            }
+            OutdoorModuleViews.AddPart(root.transform, "fence panel steel", steelVertices, steelTriangles, steel, paint);
+            OutdoorModuleViews.AddPart(root.transform, "fence panel glass", glassVertices, glassTriangles, glass, paint);
             view.Instance = instance.gameObject;
             view.Diagnostic = carried ? "fence-door:panel-carried" : "fence-door:panel-capped";
             // The signed span the panel was drawn with, in the holder frame, for a probe that has
@@ -2056,13 +2113,14 @@ namespace Metro.App {
             return false;
         }
 
-        /// <summary>The gate's own material naming the slot, else the opening palette's.</summary>
+        /// <summary>The gate's own material naming the exact slot (not a substring like `darkSteel`), else the opening palette's.</summary>
         static Material GateMaterial(Transform instance, OpeningPalette paint, string match, int slot) {
             if (instance) {
                 foreach (var renderer in instance.GetComponentsInChildren<MeshRenderer>(true)) {
                     foreach (var material in renderer.sharedMaterials) {
                         if (!material || material.name == null) continue;
-                        if (material.name.IndexOf(match, StringComparison.OrdinalIgnoreCase) >= 0) return material;
+                        var baseName = OutdoorModuleViews.MaterialBaseName(material.name);
+                        if (string.Equals(baseName, match, StringComparison.OrdinalIgnoreCase)) return material;
                     }
                 }
             }
@@ -2322,6 +2380,92 @@ namespace Metro.App {
             view.Holder = null;
             return Fail(view, code);
         }
+
+        /// <summary>
+        /// `PieceBuilder.ts` `mats.gateCross`: a `64 × 76` unlit indicator texture with a `#0b0d11`
+        /// background and two `lineWidth = 9` butt-capped `#ff4545` strokes `(15, 19) -> (49, 57)`
+        /// and `(49, 19) -> (15, 57)`. Symmetric in both X and Y around `(32, 38)`.
+        /// </summary>
+        public static Texture2D BuildGateCrossTexture() {
+            const int width = 64;
+            const int height = 76;
+            const float halfWidth = 4.5f;
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false, false) {
+                name = "gateCross",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            var bg = new Color(11f / 255f, 13f / 255f, 17f / 255f, 1f);
+            var fg = new Color(1f, 69f / 255f, 69f / 255f, 1f);
+            var a1 = new Vector2(15f, 19f);
+            var b1 = new Vector2(49f, 57f);
+            var a2 = new Vector2(49f, 19f);
+            var b2 = new Vector2(15f, 57f);
+            var pixels = new Color32[width * height];
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    var p = new Vector2(x + .5f, y + .5f);
+                    float coverage = Mathf.Max(
+                        ButtStrokeCoverage(p, a1, b1, halfWidth),
+                        ButtStrokeCoverage(p, a2, b2, halfWidth));
+                    pixels[y * width + x] = (Color32)Color.Lerp(bg, fg, coverage);
+                }
+            }
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
+            return texture;
+        }
+
+        static float ButtStrokeCoverage(Vector2 p, Vector2 a, Vector2 b, float halfWidth) {
+            var ab = b - a;
+            float len = ab.magnitude;
+            if (len < 1e-5f) return 0f;
+            var u = ab / len;
+            var n = new Vector2(-u.y, u.x);
+            var d = p - a;
+            float along = Vector2.Dot(d, u);
+            float perp = Mathf.Abs(Vector2.Dot(d, n));
+            float dx = Mathf.Max(-along, along - len);
+            float dy = perp - halfWidth;
+            float dist = dx > 0f && dy > 0f ? Mathf.Sqrt(dx * dx + dy * dy) : Mathf.Max(dx, dy);
+            return Mathf.Clamp01(.5f - dist);
+        }
+    }
+
+    /// <summary>
+    /// Fallback owner for `gateCross` indicator material/texture when `OpeningModuleViews.Build`
+    /// is invoked without an <see cref="OpeningPalette"/> (for example in standalone view probes).
+    /// </summary>
+    internal sealed class GateIndicatorMaterialOwner : MonoBehaviour {
+        Texture2D crossTexture;
+        Material crossMaterial;
+
+        public static Material For(GameObject target, Material template) {
+            if (!target) return null;
+            var owner = target.GetComponent<GateIndicatorMaterialOwner>();
+            if (!owner) owner = target.AddComponent<GateIndicatorMaterialOwner>();
+            if (owner.crossMaterial) return owner.crossMaterial;
+            owner.crossTexture = OpeningModuleViews.BuildGateCrossTexture();
+            if (template != null) {
+                owner.crossMaterial = new Material(template) {
+                    name = "gateCross",
+                    renderQueue = template.renderQueue,
+                };
+            } else {
+                var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Texture");
+                if (shader == null) return null;
+                owner.crossMaterial = new Material(shader) { name = "gateCross" };
+            }
+            StationSignMaterials.ApplyTexture(owner.crossMaterial, owner.crossTexture);
+            return owner.crossMaterial;
+        }
+
+        void OnDestroy() {
+            OpeningModuleViews.SafeDestroy(crossMaterial);
+            crossMaterial = null;
+            OpeningModuleViews.SafeDestroy(crossTexture);
+            crossTexture = null;
+        }
     }
 
     /// <summary>The material slots a generated opening assembly uses (`PsdModel`'s palette).</summary>
@@ -2381,6 +2525,9 @@ namespace Metro.App {
 
         readonly Material[] materials;
         readonly List<Mesh> meshes = new List<Mesh>();
+        readonly Dictionary<Shader, Material> gateCrossByShader = new Dictionary<Shader, Material>();
+        Material gateCrossDefault;
+        Texture2D gateCrossTexture;
         readonly bool ownsMaterials;
         bool released;
 
@@ -2433,11 +2580,44 @@ namespace Metro.App {
         /// <summary>Hand one combined mesh to the palette, so it dies with the world.</summary>
         public void Own(Mesh mesh) { if (mesh) meshes.Add(mesh); }
 
+        /// <summary>
+        /// Shared `gateCross` indicator material (`PieceBuilder.ts` `mats.gateCross`) matching
+        /// the prefab indicator's unlit shader so doorless (`door: "fence"` / `"none"`) and
+        /// disallowed one-way gate faces show a red `X` instead of the green entry arrow.
+        /// </summary>
+        public Material GateCrossMaterial(Material template) {
+            if (released) return null;
+            if (!gateCrossTexture) gateCrossTexture = OpeningModuleViews.BuildGateCrossTexture();
+            if (template != null && template.shader != null) {
+                if (gateCrossByShader.TryGetValue(template.shader, out var cached) && cached) return cached;
+                var clone = new Material(template) {
+                    name = "gateCross",
+                    renderQueue = template.renderQueue,
+                };
+                StationSignMaterials.ApplyTexture(clone, gateCrossTexture);
+                gateCrossByShader[template.shader] = clone;
+                return clone;
+            }
+            if (!gateCrossDefault) {
+                var fallbackShader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Texture");
+                if (fallbackShader == null) return null;
+                gateCrossDefault = new Material(fallbackShader) { name = "gateCross" };
+                StationSignMaterials.ApplyTexture(gateCrossDefault, gateCrossTexture);
+            }
+            return gateCrossDefault;
+        }
+
         public void Release() {
             if (released) return;
             released = true;
             foreach (var mesh in meshes) OpeningModuleViews.SafeDestroy(mesh);
             meshes.Clear();
+            foreach (var cross in gateCrossByShader.Values) OpeningModuleViews.SafeDestroy(cross);
+            gateCrossByShader.Clear();
+            OpeningModuleViews.SafeDestroy(gateCrossDefault);
+            gateCrossDefault = null;
+            OpeningModuleViews.SafeDestroy(gateCrossTexture);
+            gateCrossTexture = null;
             if (!ownsMaterials) return;
             foreach (var material in materials) {
                 if (!material) continue;

@@ -138,6 +138,14 @@ namespace Metro.App {
 
         static void EnsureWatcher() {
             if (activeInstance != null) return;
+            var existing = FindObjectsByType<StationDesktopUiPresenter>();
+            if (existing != null && existing.Length > 0) {
+                activeInstance = existing[0];
+                for (int i = 1; i < existing.Length; i++) {
+                    if (existing[i] != null) Destroy(existing[i].gameObject);
+                }
+                return;
+            }
             var go = new GameObject("StationDesktopUiPresenter") {
                 hideFlags = HideFlags.DontSave,
             };

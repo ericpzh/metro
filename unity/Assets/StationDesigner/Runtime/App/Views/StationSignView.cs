@@ -648,11 +648,15 @@ namespace Metro.App {
             };
         }
 
-        /// <summary>Assign a painted board to a material, on both the legacy and URP slots.</summary>
+        /// <summary>Assign a painted board to a material, on legacy, URP, and glTFast slots.</summary>
         public static void ApplyTexture(Material material, Texture texture) {
             if (material == null) return;
             material.mainTexture = texture;
+            if (material.HasProperty("baseColorTexture")) material.SetTexture("baseColorTexture", texture);
+            if (material.HasProperty("baseColorTexture_ST")) material.SetVector("baseColorTexture_ST", new Vector4(1f, 1f, 0f, 0f));
+            if (material.HasProperty("baseColorFactor")) material.SetColor("baseColorFactor", Color.white);
             if (material.HasProperty("_BaseMap")) material.SetTexture("_BaseMap", texture);
+            if (material.HasProperty("_BaseMap_ST")) material.SetVector("_BaseMap_ST", new Vector4(1f, 1f, 0f, 0f));
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", Color.white);
             if (material.HasProperty("_Color")) material.color = Color.white;
             if (material.HasProperty("_MainTex")) material.SetTexture("_MainTex", texture);

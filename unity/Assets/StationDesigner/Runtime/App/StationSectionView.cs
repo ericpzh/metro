@@ -655,7 +655,7 @@ namespace Metro.App {
         }
 
         public void Tick(float deltaSeconds) {
-            if (!configured) return;
+            if (!configured || Commands == null) return;
             var exploded = StationViewFeature.ActiveExploded;
             bool explodedOwnsCamera = exploded != null && exploded.IsOpen;
             if (!explodedOwnsCamera) {
@@ -952,7 +952,11 @@ namespace Metro.App {
                 case "actors": case "crowd": return StationPartRole.Actor;
                 case "grid": return StationPartRole.Grid;
                 case "cursor": return StationPartRole.Cursor;
-                case "modules": {
+                case "modules":
+                // Plan 22 §1: the generated structure renderer registers its roofs and pillars
+                // under its own role, and a roof still has to answer the `Roof` role so Hide
+                // Roof and the section plane reach the geometry it builds.
+                case "structure": {
                     if (string.IsNullOrEmpty(record.ModuleId) || !modules.TryGetValue(record.ModuleId, out var module)) {
                         return StationPartRole.Prop;
                     }

@@ -48,6 +48,8 @@ export interface ExitFaceFacts {
   moduleId: string
   /** `exit` for a head-house fascia; `guidepost` for the pillar's plates. */
   recordType?: 'exit' | 'guidepost'
+  /** Saved exit style (`doorway` scales header width at constant pixel density like `DoorwayExitModel`). */
+  style?: string
   painter: ExitFacePainter
   /** Target canvas width/height for a guidepost plate; 0 for an exit fascia. */
   pixels: number
@@ -269,8 +271,11 @@ export function paintExitFace(
   try {
     let width: number
     let height: number
+    const baseWidth = painter === 'exitHeader' && facts.style === 'doorway' && facts.width > 0
+      ? Math.max(512, Math.round(512 * facts.width / 2.88))
+      : 512
     if (painter === 'exitHeader') {
-      const resolution = exitHeaderResolution(512, city)
+      const resolution = exitHeaderResolution(baseWidth, city)
       width = resolution.width
       height = resolution.height
     } else {
@@ -290,9 +295,9 @@ export function paintExitFace(
         facts.station || '',
         facts.exitName || '',
         facts.stationEn || '',
-        512,
+        baseWidth,
         { cityStyle: city, lines } as Partial<Pick<StationData, 'cityStyle' | 'lines'>>,
-        surface.width / 512,
+        surface.width / baseWidth,
       )
       context.drawImage(header, 0, 0, surface.width, surface.height)
     } else {
@@ -354,6 +359,7 @@ function factsOf(value: unknown): ExitFaceFacts | null {
     key: facts.key,
     moduleId: typeof facts.moduleId === 'string' ? facts.moduleId : '',
     recordType: facts.recordType === 'guidepost' ? 'guidepost' : 'exit',
+    ...(typeof facts.style === 'string' && facts.style.length > 0 ? { style: facts.style } : {}),
     painter: painterOf(facts.painter),
     pixels: Number.isFinite(pixels) ? Math.round(pixels) : 0,
     pixelsHigh: Number.isFinite(pixelsHigh) ? Math.round(pixelsHigh) : 0,

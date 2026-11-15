@@ -1025,20 +1025,40 @@ namespace Metro.App.Views {
         /// draws no head-house pad at all and falls through to the generic place.
         /// </summary>
         bool BuildExit(StationViewBuildContext context, ModuleFacts module, ModuleFacts[] station, WorldState state) {
-            var record = ExitRecord(context, module);
-            if (record == null) return false;
-            var openings = StationExitOpenings.For(context.Document.Modules, record);
-            if (openings == null || !openings.IsHeadHouse) return false;
             if (!TryResolve(context, module, station, out var entry, out var key, out var diagnostic)) {
                 if (diagnostic != null) context.ReportUnresolved("module-group", module.Type, module.Id, diagnostic);
                 return true;
             }
+            var style = module.Config != null ? module.Config.Text("style") : "";
+            var record = ExitRecord(context, module);
+            var openings = record != null ? StationExitOpenings.For(context.Document.Modules, record) : null;
+            GameObject root;
+            if (string.Equals(style, "doorway", StringComparison.Ordinal)) {
+                var parent = context.RoleRoot(Role);
+                root = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
+                root.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
+                var pivot = Pivot(module, entry);
+                double mountZ = module.Config != null ? module.Config.Number("mountZ", module.Z + 1) : (module.Z + 1);
+                pivot.y += (float)(mountZ - (module.Z + 1));
+                root.transform.SetPositionAndRotation(pivot, ModulePlacement.Rotation(module.Rotation));
+                ApplyDoorwayCityColour(context.Document != null ? context.Document.City : "", root, state);
+                StationExitArtwork.Bind(context, () => FacesFor(context, state), root, module, station, entry.prefabPath);
+                if (TryDocumentBounds(root.transform, context.Root, out var bounds)) {
+                    context.World.RegisterModule(Role, module.Id, root, "", bounds, module.Z, module.Z + 1);
+                } else {
+                    context.World.RegisterModule(Role, module.Id, root, "", null, module.Z, module.Z + 1);
+                }
+                state.Modules.Add(new BuiltModule { ModuleId = module.Id, Type = module.Type, View = root, Key = key });
+                state.Count++;
+                return true;
+            }
             var built = Place(context, module, entry, key, state);
-            var root = built.View;
-            // Plan 16 §5.3: the promoted head-house bakes its printed fascia from the empty
-            // Guangzhou export. Replace exactly that plate with the committed station/exit
-            // identity; the canopy, frame, glass, railing and posts are left untouched.
+            root = built.View;
+            // Plan 16 §5.3: the promoted exit prefabs bake their printed fascia or guide plates
+            // from the empty Guangzhou export. Replace those plates with the committed station/exit
+            // identity; canopy, frame, glass, railing and posts are left untouched.
             StationExitArtwork.Bind(context, () => FacesFor(context, state), root, module, station, entry.prefabPath);
+            if (openings == null || !openings.IsHeadHouse) return true;
             int retired = 0;
             Material concrete = null;
             foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
@@ -1216,9 +1236,58 @@ namespace Metro.App.Views {
 
         /// <summary>This world's street-artwork scope, created on first need.</summary>
         StationExitArtworkScope FacesFor(StationViewBuildContext context, WorldState state) {
-            if (state.Faces != null && state.Faces.gameObject != null) return state.Faces;
+            if (state.Faces != null && state.Faces.gameObject != null) {
+                if (state.Faces.World == null) state.Faces.World = context.World;
+                return state.Faces;
+            }
             state.Faces = StationExitArtwork.CreateScope(context.RoleRoot(Role));
+            if (state.Faces != null) state.Faces.World = context.World;
             return state.Faces;
+        }
+
+        /// <summary>
+        /// `DoorwayExitModel`: recolour `doorwayPanel_*` to `cityStyleFor(city).entranceColour`
+        /// when the committed station uses a non-Guangzhou city style.
+        /// </summary>
+        static void ApplyDoorwayCityColour(string city, GameObject root, WorldState state) {
+            if (!root || state == null) return;
+            var hex = DoorwayEntranceHex(city);
+            if (string.IsNullOrEmpty(hex) || string.Equals(hex, "#c22f28", StringComparison.OrdinalIgnoreCase)) return;
+            if (!ColorUtility.TryParseHtmlString(hex, out var srgb)) return;
+            foreach (var renderer in root.GetComponentsInChildren<MeshRenderer>(true)) {
+                if (!renderer) continue;
+                var materials = renderer.sharedMaterials;
+                bool changed = false;
+                for (int i = 0; i < materials.Length; i++) {
+                    var template = materials[i];
+                    if (!template || template.name == null) continue;
+                    if (template.name.IndexOf("doorwayPanel", StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    var clone = new Material(template) { name = template.name + " (" + city + ")" };
+                    if (clone.HasProperty("baseColorFactor")) {
+                        bool linearSlot = template.GetColor("baseColorFactor").r < .65f;
+                        clone.SetColor("baseColorFactor", linearSlot ? srgb.linear : srgb);
+                    }
+                    if (clone.HasProperty("_BaseColor")) clone.SetColor("_BaseColor", srgb);
+                    if (clone.HasProperty("_Color")) clone.color = srgb;
+                    state.Materials.Add(clone);
+                    materials[i] = clone;
+                    changed = true;
+                }
+                if (changed) renderer.sharedMaterials = materials;
+            }
+        }
+
+        static string DoorwayEntranceHex(string city) {
+            switch ((city ?? "").Trim().ToLowerInvariant()) {
+                case "shenzhen": return "#101b2b";
+                case "shanghai": return "#353b35";
+                case "beijing": return "#073563";
+                case "chengdu": return "#343433";
+                case "chongqing": return "#f2f0dd";
+                case "wuhan": return "#183b70";
+                case "nanjing": return "#14213f";
+                default: return "#c22f28";
+            }
         }
 
         /// <summary>The parsed record behind a built module, by id and then by cell.</summary>

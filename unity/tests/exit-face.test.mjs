@@ -18,6 +18,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { stubCanvas } from '../../game/test/support/stub-canvas.mjs'
 import { exitHeaderCanvas } from '../../game/src/render/models/pieces/ExitModel.ts'
+import { exitHeaderResolution } from '../../game/src/render/exitHeaderResolution.ts'
 import { guideEnglishFace, guideExitLetterFace, guideFace } from '../../game/src/render/models/pieces/StreetDecorModel.ts'
 import { getLanguage, setLanguage, t } from '../../game/src/sim/i18n.ts'
 import {
@@ -205,6 +206,73 @@ test('the port paints a plate at the source resolution and the guidepost plate a
     const unknown = paintExitFace({ ...FACTS, key: 'nopixels', painter: 'guideExitLetter', pixels: 0, pixelsHigh: 0 }, { createSurface: surface })
     assert.equal(unknown.reason, 'unsupported')
     assert.equal(unknown.detail, 'pixels')
+  })
+})
+
+test('doorway exit headers scale canvas width across 1-4 bays while virtual exits paint guide plates', () => {
+  withCanvas(shim => {
+    const surface = (width, height) => {
+      const stub = stubCanvas(width, height)
+      return { width, height, context: stub.g, pngBase64: () => 'ZmFrZQ==' }
+    }
+    const expectedWidths = [
+      [2.88, 512],
+      [3.88, 690],
+      [4.88, 868],
+      [5.88, 1045],
+    ]
+    for (const [plateWidth, pxWidth] of expectedWidths) {
+      const gz = paintExitFace({
+        ...FACTS,
+        key: `doorway-gz-${plateWidth}`,
+        moduleId: 'exit-doorway-4-486',
+        style: 'doorway',
+        width: plateWidth,
+        height: 0.56,
+        station: '坦尾',
+        stationEn: 'Tanwei',
+        exitName: 'I',
+      }, { createSurface: surface })
+      assert.equal(gz.width, pxWidth, `guangzhou doorway width for ${plateWidth}m`)
+      assert.equal(gz.height, 96)
+      const words = shim.lastOps().words.map(word => word.text)
+      assert.ok(words.includes('坦尾站') && words.includes('Tanwei') && words.includes('I'),
+        'doorway header prints committed station and exit letter: ' + JSON.stringify(words))
+
+      const cd = paintExitFace({
+        ...FACTS,
+        key: `doorway-cd-${plateWidth}`,
+        style: 'doorway',
+        city: 'chengdu',
+        width: plateWidth,
+        height: 0.56,
+      }, { createSurface: surface })
+      const expectedCd = exitHeaderResolution(pxWidth, 'chengdu')
+      assert.equal(cd.width, expectedCd.width, `chengdu doorway width for ${plateWidth}m`)
+      assert.equal(cd.height, expectedCd.height, `chengdu doorway height for ${plateWidth}m`)
+    }
+
+    // Head-house exits omit style='doorway' and keep the fixed 512x96 fascia base width.
+    const headHouse = paintExitFace({ ...FACTS, key: 'headhouse-3bays', width: 4.7 }, { createSurface: surface })
+    assert.equal(headHouse.width, 512)
+    assert.equal(headHouse.height, 96)
+
+    // Virtual exits reuse the 6-plate guidepost family directly from the exit's own name.
+    const virtualFacts = {
+      ...FACTS,
+      moduleId: 'exit-virtual-1',
+      recordType: 'guidepost',
+      exitId: 'exit-virtual-1',
+      exitName: 'I',
+      exitFound: true,
+    }
+    assert.equal(guideExitLabel({ ...virtualFacts, painter: 'guideExitLetter' }), 'I')
+    const virtualLetter = paintExitFace(
+      { ...virtualFacts, key: 'virt-letter', painter: 'guideExitLetter', pixels: 256, pixelsHigh: 256 },
+      { createSurface: surface },
+    )
+    assert.equal(virtualLetter.width, 256)
+    assert.equal(virtualLetter.height, 256)
   })
 })
 

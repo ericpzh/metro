@@ -703,6 +703,108 @@ public class OpeningModuleViewTests {
     }
 
     [Test]
+    public void DoorlessAndDirectionalGatesShowRedCrossInsteadOfGreenArrowAndMatchFenceMaterials() {
+        Assert.IsTrue(catalogue.TryGet("fence", out var fenceEntry) && fenceEntry.prefab != null, "Fence.prefab in catalogue");
+        Assert.IsTrue(OutdoorModuleViews.TryExtractFenceMaterials(fenceEntry.prefab, out var fenceSteel, out var fenceGlass),
+            "Fence.prefab must expose exact steel and glass materials");
+        Assert.AreEqual("steel", OutdoorModuleViews.MaterialBaseName(fenceSteel.name));
+        Assert.AreEqual("glass", OutdoorModuleViews.MaterialBaseName(fenceGlass.name));
+
+        var palette = new OpeningPalette(shader);
+        palettes.Add(palette);
+
+        foreach (var variant in new[] { "old", "new" }) {
+            foreach (var door in new[] { "fence", "none" }) {
+                var id = "gate-" + variant + "-" + door;
+                var facts = new ModuleFacts {
+                    Id = id, Type = "gate", X = 0, Y = 0, Z = 0, Rotation = 0, Width = 1, Depth = 1,
+                    Config = new ModuleConfig(new Dictionary<string, string> {
+                        ["dir"] = "both", ["door"] = door, ["variant"] = variant,
+                    }),
+                };
+                var request = new OpeningModuleViews.OpeningRequest {
+                    ModuleId = id, Type = "gate", Rotation = 0, Width = 1, Depth = 1,
+                    Dir = "both", Door = door, Variant = variant,
+                };
+                Assert.IsTrue(OpeningModuleViews.TryBuild(request, facts, new[] { facts }, catalogue,
+                    Root("cross-" + id), palette, out var view), id + ": " + view.Diagnostic);
+
+                var arrows = view.Instance.GetComponentsInChildren<MeshRenderer>(true)
+                    .Where(r => r && r.enabled && r.gameObject.name == "entry-arrow").ToList();
+                var crosses = view.Instance.GetComponentsInChildren<MeshRenderer>(true)
+                    .Where(r => r && r.enabled && r.gameObject.name == "no-entry-cross").ToList();
+                Assert.AreEqual(0, arrows.Count, id + " must not leave any green entry-arrow enabled");
+                Assert.AreEqual(2, crosses.Count, id + " must place no-entry-cross on both approach faces");
+                foreach (var cross in crosses) {
+                    Assert.IsNotNull(cross.sharedMaterial, id + " cross material");
+                    Assert.AreEqual("gateCross", cross.sharedMaterial.name);
+                    var tex = cross.sharedMaterial.mainTexture as Texture2D;
+                    Assert.IsNotNull(tex, id + " gateCross texture");
+                    Assert.AreEqual(64, tex.width);
+                    Assert.AreEqual(76, tex.height);
+                    var centre = tex.GetPixel(32, 38);
+                    var diag = tex.GetPixel(20, 25);
+                    var corner = tex.GetPixel(2, 2);
+                    Assert.Greater(centre.r, .85f, id + " red X centre R");
+                    Assert.Less(centre.g, .35f, id + " red X centre G (never green arrow)");
+                    Assert.Greater(diag.r, .85f, id + " red X diagonal R");
+                    Assert.Less(corner.r, .10f, id + " #0b0d11 dark corner R");
+                    Assert.Less(corner.g, .10f, id + " #0b0d11 dark corner G");
+                }
+
+                var panel = view.Instance.transform.Find("fence panel");
+                Assert.IsNotNull(panel, id + " attached fence panel");
+                var steelFilter = panel.Find("fence panel steel")?.GetComponent<MeshFilter>();
+                var glassFilter = panel.Find("fence panel glass")?.GetComponent<MeshFilter>();
+                Assert.IsNotNull(steelFilter);
+                Assert.IsNotNull(glassFilter);
+                Assert.AreSame(fenceSteel, steelFilter.GetComponent<MeshRenderer>().sharedMaterial,
+                    id + " attached fence steel must use Fence.prefab's exact steel material (never darkSteel)");
+                Assert.AreSame(fenceGlass, glassFilter.GetComponent<MeshRenderer>().sharedMaterial,
+                    id + " attached fence glass must use Fence.prefab's exact glass material");
+
+                var mesh = steelFilter.sharedMesh;
+                var uvs = mesh.uv;
+                Assert.AreEqual(mesh.vertexCount, uvs.Length, id + " steel mesh must carry planar UVs");
+                Assert.IsTrue(uvs.Any(uv => uv.sqrMagnitude > 1e-4f), id + " steel UVs must be non-zero");
+
+                var norms = mesh.normals;
+                Assert.GreaterOrEqual(norms.Length, 24, id + " top rail cylinder barrel vertices");
+                for (int i = 0; i < 24; i++) {
+                    Assert.Less(Mathf.Abs(norms[i].x), 1e-4f,
+                        id + " horizontal top rail barrel normal must stay purely radial (not bent toward end caps)");
+                }
+            }
+        }
+
+        // Directional lane gates: 'both' = 2 arrows, 'in' = 1 arrow + 1 cross, 'out' = 1 cross + 1 arrow.
+        foreach (var (dir, expectedArrows, expectedCrosses) in new[] {
+            ("both", 2, 0), ("in", 1, 1), ("out", 1, 1),
+        }) {
+            var id = "gate-dir-" + dir;
+            var door = "flap";
+            var facts = new ModuleFacts {
+                Id = id, Type = "gate", X = 0, Y = 0, Z = 0, Rotation = 0, Width = 1, Depth = 1,
+                Config = new ModuleConfig(new Dictionary<string, string> {
+                    ["dir"] = dir, ["door"] = door, ["variant"] = "old",
+                }),
+            };
+            var request = new OpeningModuleViews.OpeningRequest {
+                ModuleId = id, Type = "gate", Rotation = 0, Width = 1, Depth = 1,
+                Dir = dir, Door = door, Variant = "old",
+            };
+            Assert.IsTrue(OpeningModuleViews.TryBuild(request, facts, new[] { facts }, catalogue,
+                Root("dir-" + dir), palette, out var view), id + ": " + view.Diagnostic);
+            int arrows = view.Instance.GetComponentsInChildren<MeshRenderer>(true)
+                .Count(r => r && r.enabled && r.gameObject.name == "entry-arrow");
+            int crosses = view.Instance.GetComponentsInChildren<MeshRenderer>(true)
+                .Count(r => r && r.enabled && r.gameObject.name == "no-entry-cross");
+            Assert.AreEqual(expectedArrows, arrows, id + " entry-arrow count");
+            Assert.AreEqual(expectedCrosses, crosses, id + " no-entry-cross count");
+        }
+    }
+
+    [Test]
     public void GateWingsRetractWithSetGateWingAndTheCabinetStaysPut() {
         BuildAll(Root("B3 gate"));
         var set = Set();

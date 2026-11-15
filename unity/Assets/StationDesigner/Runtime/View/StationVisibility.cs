@@ -493,6 +493,12 @@ namespace Metro.View {
             if (!source || active == null) return source;
             if (cache.TryGetValue(source, out var cached) && cached) return cached;
             var clone = new Material(source) { name = source.name + (opacity < .2f ? " (clear)" : " (ghost)") };
+            ApplyTranslucentOverrides(source, clone, opacity);
+            cache[source] = clone;
+            return clone;
+        }
+
+        static void ApplyTranslucentOverrides(Material source, Material clone, float opacity) {
             if (clone.HasProperty("_Surface")) clone.SetFloat("_Surface", 1f);
             if (clone.HasProperty("_Blend")) clone.SetFloat("_Blend", 0f);
             if (clone.HasProperty("_SrcBlend")) clone.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
@@ -505,7 +511,7 @@ namespace Metro.View {
                 : source.HasProperty("_Color") ? source.GetColor("_Color").a : 1f;
             var resolvedAlpha = baseAlpha < .999f ? baseAlpha * opacity : opacity;
             if (clone.HasProperty("_BaseColor")) {
-                var colour = clone.GetColor("_BaseColor");
+                var colour = source.HasProperty("_BaseColor") ? source.GetColor("_BaseColor") : clone.GetColor("_BaseColor");
                 // The source lerps a ghost 70% toward its grey (`ghostMaterial`); glass
                 // keeps its tint because that is what a paned surface reads as.
                 if (baseAlpha >= .999f) colour = Color.Lerp(colour, new Color(.42f, .455f, .502f, 1f), .7f);
@@ -513,7 +519,7 @@ namespace Metro.View {
                 clone.SetColor("_BaseColor", colour);
             }
             if (clone.HasProperty("_Color")) {
-                var colour = clone.GetColor("_Color");
+                var colour = source.HasProperty("_Color") ? source.GetColor("_Color") : clone.GetColor("_Color");
                 if (baseAlpha >= .999f) colour = Color.Lerp(colour, new Color(.42f, .455f, .502f, 1f), .7f);
                 colour.a = resolvedAlpha;
                 clone.SetColor("_Color", colour);
@@ -525,12 +531,36 @@ namespace Metro.View {
             if (!source.IsKeywordEnabled("_ALPHATEST_ON")) clone.DisableKeyword("_ALPHATEST_ON");
             clone.SetOverrideTag("RenderType", "Transparent");
             clone.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
-            cache[source] = clone;
-            return clone;
         }
 
         public void Dispose() {
             Clear();
+        }
+
+        /// <summary>
+        /// Refresh cached translucent/section clones of one base material in place when live
+        /// artwork updates its texture or properties, without destroying shared derived
+        /// materials that sibling renderers may currently wear.
+        /// </summary>
+        public void SyncDerived(Material source) {
+            if (!source) return;
+            if (ghosts.TryGetValue(source, out var ghost) && ghost) {
+                ghost.CopyPropertiesFromMaterial(source);
+                ApplyTranslucentOverrides(source, ghost, GhostOpacity);
+            }
+            if (clears.TryGetValue(source, out var clear) && clear) {
+                clear.CopyPropertiesFromMaterial(source);
+                ApplyTranslucentOverrides(source, clear, ClearOpacity);
+            }
+            if (sectionMaterials.TryGetValue(source, out var section) && section) {
+                section.CopyMatchingPropertiesFromMaterial(source);
+                if (section.shader) {
+                    foreach (var keyword in source.enabledKeywords) {
+                        var next = section.shader.keywordSpace.FindKeyword(keyword.name);
+                        if (next.isValid) section.EnableKeyword(next);
+                    }
+                }
+            }
         }
 
         /// <summary>Drop the cached clones; a new station rebuilds its own materials.</summary>
@@ -671,9 +701,27 @@ namespace Metro.View {
             Collect();
             for (int i = 0; i < renderers.Length; i++) {
                 if (!ReferenceEquals(renderers[i], renderer)) continue;
-                baseMaterials[i] = renderer.sharedMaterials;
-                if (lastMode == StationDrawMode.Base && lastPalette != null && UsesSection)
-                    ApplySection(renderer, baseMaterials[i], lastPalette);
+                var next = renderer.sharedMaterials;
+                if (lastPalette != null && next != null) {
+                    for (int m = 0; m < next.Length; m++) lastPalette.SyncDerived(next[m]);
+                }
+                baseMaterials[i] = next;
+                if (lastMode == StationDrawMode.Hidden || !Eligible(renderer) || lastPalette == null || next == null || next.Length == 0)
+                    return;
+                switch (lastMode) {
+                    case StationDrawMode.Base:
+                        if (UsesSection) ApplySection(renderer, next, lastPalette);
+                        else renderer.sharedMaterials = next;
+                        break;
+                    case StationDrawMode.Ghost:
+                        renderer.sharedMaterials = Map(next, lastPalette.Ghost);
+                        if (UsesSection) SetSectionPlane(renderer, lastPalette);
+                        break;
+                    case StationDrawMode.Clear:
+                        renderer.sharedMaterials = Map(next, lastPalette.Clear);
+                        if (UsesSection) SetSectionPlane(renderer, lastPalette);
+                        break;
+                }
                 return;
             }
         }

@@ -491,16 +491,7 @@ namespace Metro.App {
                 failure = "fence-arms-unmeasured:" + Size(size.x) + "x" + Size(size.y) + "x" + Size(size.z);
                 return false;
             }
-            Material steel = null, glass = null;
-            foreach (var renderer in panel.GetComponentsInChildren<MeshRenderer>(true)) {
-                foreach (var material in renderer.sharedMaterials) {
-                    if (!material) continue;
-                    var name = material.name ?? "";
-                    if (steel == null && name.IndexOf("steel", StringComparison.OrdinalIgnoreCase) >= 0) steel = material;
-                    else if (glass == null && name.IndexOf("glass", StringComparison.OrdinalIgnoreCase) >= 0) glass = material;
-                }
-            }
-            if (steel == null || glass == null) {
+            if (! TryExtractFenceMaterials(panel, out var steel, out var glass)) {
                 failure = "fence-arms-unmaterialised:" + (steel == null ? "steel" : "") + (glass == null ? (steel == null ? "+glass" : "glass") : "");
                 return false;
             }
@@ -532,6 +523,32 @@ namespace Metro.App {
             composed = root;
             renderers = root.GetComponentsInChildren<Renderer>(true);
             return true;
+        }
+
+        /// <summary>Strip Unity's ` (Instance)` / importer suffix from a material name.</summary>
+        public static string MaterialBaseName(string name) {
+            if (string.IsNullOrEmpty(name)) return "";
+            int suffix = name.IndexOf(" (", StringComparison.Ordinal);
+            return (suffix > 0 ? name.Substring(0, suffix) : name).Trim();
+        }
+
+        /// <summary>
+        /// Extract the exact `steel` and `glass` materials from `Fence.prefab` (never matching
+        /// `darkSteel`, `tintedGlass`, or `trainGlass` via substring).
+        /// </summary>
+        public static bool TryExtractFenceMaterials(GameObject prefab, out Material steel, out Material glass) {
+            steel = null;
+            glass = null;
+            if (!prefab) return false;
+            foreach (var renderer in prefab.GetComponentsInChildren<MeshRenderer>(true)) {
+                foreach (var material in renderer.sharedMaterials) {
+                    if (!material) continue;
+                    var baseName = MaterialBaseName(material.name);
+                    if (steel == null && string.Equals(baseName, "steel", StringComparison.OrdinalIgnoreCase)) steel = material;
+                    else if (glass == null && string.Equals(baseName, "glass", StringComparison.OrdinalIgnoreCase)) glass = material;
+                }
+            }
+            return steel != null && glass != null;
         }
 
         /// <summary>
@@ -574,7 +591,12 @@ namespace Metro.App {
             }
         }
 
-        /// <summary>A capped tube between two points — `fenceTube`'s 12-sided cylinder.</summary>
+        /// <summary>
+        /// A capped tube between two points — `fenceTube`'s 12-sided cylinder.
+        /// Side wall and end caps use separate ring vertices (like Three.js `CylinderGeometry`) so
+        /// `RecalculateNormals` keeps pure smooth radial normals on the barrel instead of bending
+        /// them 45° into the flat end caps.
+        /// </summary>
         static void AppendTube(List<Vector3> vertices, List<int> triangles, Vector3 a, Vector3 b, float radius, int segments = 12) {
             var axis = b - a;
             if (axis.sqrMagnitude < 1e-12f) return;
@@ -597,23 +619,40 @@ namespace Metro.App {
                 triangles.Add(a0); triangles.Add(a1); triangles.Add(b0);
                 triangles.Add(a1); triangles.Add(b1); triangles.Add(b0);
             }
+            int capRingA = vertices.Count;
+            for (int i = 0; i < segments; i++) vertices.Add(vertices[start + i]);
+            int capRingB = vertices.Count;
+            for (int i = 0; i < segments; i++) vertices.Add(vertices[start + segments + i]);
             int caps = vertices.Count;
             vertices.Add(a);
             vertices.Add(b);
             for (int i = 0; i < segments; i++) {
                 int next = (i + 1) % segments;
-                triangles.Add(caps); triangles.Add(start + next); triangles.Add(start + i);
-                triangles.Add(caps + 1); triangles.Add(start + segments + i); triangles.Add(start + segments + next);
+                triangles.Add(caps); triangles.Add(capRingA + next); triangles.Add(capRingA + i);
+                triangles.Add(caps + 1); triangles.Add(capRingB + i); triangles.Add(capRingB + next);
             }
         }
 
-        public static void AddPart(Transform parent, string name, List<Vector3> vertices, List<int> triangles, Material material) {
+        public static void AddPart(Transform parent, string name, List<Vector3> vertices, List<int> triangles,
+            Material material, OpeningPalette palette = null) {
             if (vertices.Count == 0 || triangles.Count == 0 || material == null) return;
             var mesh = new Mesh { name = name };
             mesh.SetVertices(vertices);
             mesh.SetTriangles(triangles, 0);
             mesh.RecalculateNormals();
+            var normals = mesh.normals;
+            var uvs = new Vector2[vertices.Count];
+            for (int i = 0; i < vertices.Count; i++) {
+                var p = vertices[i];
+                var n = i < normals.Length ? normals[i] : Vector3.up;
+                float ax = Mathf.Abs(n.x), ay = Mathf.Abs(n.y), az = Mathf.Abs(n.z);
+                if (ay >= ax && ay >= az) uvs[i] = new Vector2(p.x, p.z);
+                else if (az >= ax) uvs[i] = new Vector2(p.x, p.y);
+                else uvs[i] = new Vector2(p.z, p.y);
+            }
+            mesh.SetUVs(0, uvs);
             mesh.RecalculateBounds();
+            if (palette != null) palette.Own(mesh);
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
