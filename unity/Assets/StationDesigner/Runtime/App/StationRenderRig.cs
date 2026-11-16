@@ -15,7 +15,7 @@ namespace Metro.App {
     /// and ambient colour below is the source value **divided by π**; the light colours
     /// are converted from sRGB to linear for the same reason. The rig is applied at
     /// runtime (after the scene loads) and by the scene generator, so an already-serialized
-    /// `StationGame.unity` picks it up without being regenerated.
+    /// `StationGameLocal.unity` picks it up without being regenerated.
     /// </summary>
     public static class StationRenderRig {
         public const string KeyLightName = "Daylight";

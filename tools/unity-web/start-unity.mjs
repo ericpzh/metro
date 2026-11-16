@@ -6,7 +6,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-const SCENES = new Set(['Bootstrap', 'FirstPlayable', 'ZooPlayable', 'StationGame'])
+const SCENES = new Set(['StationGameLocal'])
 const CONFIGURATIONS = new Set(['Development', 'Release'])
 export const MUTABLE_BUILD_INPUTS = new Set(['Assets/Settings/UniversalRenderPipelineGlobalSettings.asset'])
 
@@ -18,7 +18,7 @@ export function parseUnityStartArgs(argv) {
     help: false,
     port: 8787,
     ip: '127.0.0.1',
-    scene: 'StationGame',
+    scene: 'StationGameLocal',
     configuration: 'Release',
   }
   for (let i = 0; i < argv.length; i++) {
@@ -554,7 +554,7 @@ function timestampId() {
 function printHelp() {
   console.log(
     [
-      'Usage: npm start unity [-- --rebuild] [-- --build-only] [-- --port 8787] [-- --configuration Release|Development] [-- --scene StationGame]',
+      'Usage: npm start unity [-- --rebuild] [-- --build-only] [-- --port 8787] [-- --configuration Release|Development] [-- --scene StationGameLocal]',
       '',
       'Options:',
       '  --build-only               Build/pack the latest Unity WebGL preview and update .preview/unity/station-game-local.jsonc without starting Wrangler.',
@@ -562,7 +562,7 @@ function printHelp() {
       '  --bootstrap                Force scene/catalogue regeneration before building WebGL.',
       '  --port <port>              Local preview port (default: 8787).',
       '  --ip <address>             Local preview bind address (default: 127.0.0.1).',
-      '  --scene <name>             Unity scene to build (default: StationGame).',
+      '  --scene <name>             Unity scene to build (default: StationGameLocal).',
       '  --configuration <config>   Unity WebGL configuration: Release (default) or Development.',
     ].join('\n'),
   )
@@ -577,13 +577,10 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
 
   const root = resolve(import.meta.dirname, '../..')
   const sourceUnityDir = join(root, 'unity')
-  if (!argv.includes('--scene') && !existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Editor/StationGameScene.cs'))) {
-    options.scene = 'ZooPlayable'
-  }
   const isLoopback = options.ip === '127.0.0.1' || options.ip === 'localhost' || options.ip === '::1'
   const useLocalWebPassengers =
     !argv.includes('--scene') &&
-    options.scene === 'StationGame' &&
+    options.scene === 'StationGameLocal' &&
     isLoopback &&
     existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Generated/Passengers/passenger-library.manifest.json')) &&
     existsSync(join(sourceUnityDir, 'Assets/StationDesigner/Editor/StationLocalProfile.cs'))
@@ -745,7 +742,7 @@ export async function runUnityDev(argv = process.argv.slice(2)) {
 
     if (needsBootstrap) {
       if (useLocalWebPassengers) {
-        console.log('[unity] Bootstrapping StationGame, local 3D passenger cohort, and StationGameLocalWeb...')
+        console.log('[unity] Bootstrapping StationGameLocal, local 3D passenger cohort, and StationGameLocalWeb...')
         await runUnityExecuteMethod(editorPin.editorPath, {
           projectPath: devProjectDir,
           logPath: join(runBuildOut, `prepare-local-web-${options.configuration}.log`),

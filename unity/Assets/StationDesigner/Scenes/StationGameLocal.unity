@@ -8,7 +8,7 @@ OcclusionCullingSettings:
     smallestOccluder: 5
     smallestHole: 0.25
     backfaceThreshold: 100
-  m_SceneGUID: 00000000000000000000000000000000
+  m_SceneGUID: 6d60589cb3e9e2d32de7b2c227a73587
   m_OcclusionCullingData: {fileID: 0}
 --- !u!104 &2
 RenderSettings:
@@ -202,6 +202,51 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &776650593
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 776650595}
+  - component: {fileID: 776650594}
+  m_Layer: 0
+  m_Name: PassengerProfile
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &776650594
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 776650593}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee73a7033223be6c73fe8ecee443ec8c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Metro.View::Metro.View.PassengerCatalogueAnchor
+  catalogue: {fileID: 0}
+--- !u!4 &776650595
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 776650593}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1156628594
 GameObject:
   m_ObjectHideFlags: 0
@@ -292,7 +337,7 @@ GameObject:
   - component: {fileID: 1274435892}
   - component: {fileID: 1274435891}
   m_Layer: 0
-  m_Name: ZooPlayable
+  m_Name: StationGame
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -307,25 +352,24 @@ MonoBehaviour:
   m_GameObject: {fileID: 1274435890}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f5b561e251fa1264eb44bd94124d127b, type: 3}
+  m_Script: {fileID: 11500000, guid: a7882c940013ed08b7f7cb43d0515a61, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Metro.App::Metro.App.ZooPlayableView
-  fixture: {fileID: 4900000, guid: 1fa750dcc98f2e449953452a2af569a7, type: 3}
-  layout: {fileID: 4900000, guid: 98a5f5267b9a9024b95c27b6f3f03e5f, type: 3}
+  m_EditorClassIdentifier: Metro.App::Metro.App.StationGameHost
   catalogue: {fileID: 11400000, guid: 32b62d90130805044abb05cbf7d8ab77, type: 2}
   trainCatalogue: {fileID: 11400000, guid: ccd50eda632c28e449235348dadaf9fa, type: 2}
-  passengerPrefab: {fileID: -9082714141454833429, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  passengerClips:
-  - {fileID: 1412084336650027537, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: 5177060322043962647, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: 6241282103961292582, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: 8513874004014098567, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: 6610210330558344313, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: 6897437832067368785, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: -8703373971143921010, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
-  - {fileID: -1881101361428871385, guid: fe2f52f07a2bbe242a8c26219c779ac9, type: 3}
   stationShader: {fileID: 4800000, guid: 933532a4fcc9baf4fa0491de14d08ed7, type: 3}
   font: {fileID: 12800000, guid: 14fd7164262e3fd4c83cc2d1957d3e07, type: 3}
+  demoManifest: {fileID: 4900000, guid: 48938ecc2d04fb8d0db4ba757af3c064, type: 3}
+  demos:
+  - id: zoo
+    document: {fileID: 4900000, guid: c9acdac55232a9cc210d99693ea6f0ae, type: 3}
+  - id: tanwei
+    document: {fileID: 4900000, guid: 4eb4cb0cc7f183a4269803d151f03afe, type: 3}
+  - id: tianhe
+    document: {fileID: 4900000, guid: a56d57b23ea6ada0f2e626dd35a4e4af, type: 3}
+  stationCamera: {fileID: 562686562}
+  frameCameraOnCommit: 0
+  stateIntervalSeconds: 0.1
 --- !u!4 &1274435892
 Transform:
   m_ObjectHideFlags: 0
@@ -446,3 +490,4 @@ SceneRoots:
   - {fileID: 1894143734}
   - {fileID: 1156628597}
   - {fileID: 1274435892}
+  - {fileID: 776650595}

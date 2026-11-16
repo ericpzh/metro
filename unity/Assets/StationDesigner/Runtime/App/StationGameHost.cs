@@ -33,7 +33,7 @@ namespace Metro.App {
             public TextAsset document;
         }
 
-        [Header("Assets (serialized by path in Scenes/StationGame.unity)")]
+        [Header("Assets (serialized by path in Scenes/StationGameLocal.unity)")]
         public RuntimeCatalogue catalogue;
         public TrainCatalogue trainCatalogue;
         public Shader stationShader;
@@ -334,6 +334,12 @@ namespace Metro.App {
             // rail can settle on the host's answer rather than its own click.
             payload["tool"] = StationToolSelection.Active;
             payload["toolGeneration"] = StationToolSelection.Generation;
+            // Plan 27 §2: what the secondary mouse button means for the committed tool, so the
+            // shell's camera adapter can leave a claimed tool gesture alone instead of starting a
+            // pan. It travels on the state frame because an ack payload never reaches the shell's
+            // shared store.
+            payload["rightClaim"] = StationToolSelection.RightClaim;
+            payload["settingsGeneration"] = StationToolSelection.SettingsGeneration;
             // C3: the committed session's own service counts. Nobody is queued or
             // boarded when there is no session, so the empty case is still zero.
             var serviceHost = Simulation as StationSimulationHost;

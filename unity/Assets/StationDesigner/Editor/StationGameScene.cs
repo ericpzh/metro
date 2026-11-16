@@ -13,16 +13,18 @@ using UnityEngine.Rendering;
 
 namespace Metro.Editor {
     /// <summary>
-    /// Builds `Assets/StationDesigner/Scenes/StationGame.unity` Ã¢â‚¬â€ the generic player
-    /// scene. It is the ZooPlayable generator's camera/light/shader scaffold without
-    /// any station: no authored roots, no layout file, no fixture adapter. The scene
-    /// carries the two runtime catalogues, the A1 demo manifest with its documents and
-    /// one <see cref="StationGameHost"/>; a station arrives only as a command.
+    /// Builds `Assets/StationDesigner/Scenes/StationGameLocal.unity`, the project's
+    /// single player scene. It is the camera/light/shader scaffold without any
+    /// station: no authored roots, no layout file, no fixture adapter. The scene
+    /// carries the two runtime catalogues, the A1 demo manifest with its documents,
+    /// one <see cref="StationGameHost"/>, and the <c>PassengerProfile</c> anchor that
+    /// the Editor fills with the local passenger catalogue on Play Mode entry; a
+    /// station arrives only as a command.
     ///
     /// CLI: `-executeMethod Metro.Editor.StationGameScene.Generate`.
     /// </summary>
     public static class StationGameScene {
-        public const string ScenePath = "Assets/StationDesigner/Scenes/StationGame.unity";
+        public const string ScenePath = "Assets/StationDesigner/Scenes/StationGameLocal.unity";
         public const string DemosDirectory = "Assets/StationDesigner/Demos";
         public const string ManifestPath = DemosDirectory + "/provenance.json";
 
@@ -34,14 +36,15 @@ namespace Metro.Editor {
                 var existing = EditorSceneManager.OpenScene(ScenePath);
                 var existingHost = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
                 if (!existing.IsValid() || existingHost == null)
-                    throw new InvalidOperationException("Existing StationGame scene has no StationGameHost");
+                    throw new InvalidOperationException("Existing StationGameLocal scene has no StationGameHost");
                 bool changed = Assign(existingHost);
                 // The light rig is code-owned (StationRenderRig): applying it here keeps a
                 // serialized scene in step with the source rig without regenerating it.
                 StationRenderRig.Apply(UnityEngine.Object.FindAnyObjectByType<Camera>());
+                EnsurePassengerAnchor();
                 EditorSceneManager.MarkSceneDirty(existing);
                 if (!EditorSceneManager.SaveScene(existing, ScenePath))
-                    throw new InvalidOperationException("Could not update StationGame scene");
+                    throw new InvalidOperationException("Could not update StationGameLocal scene");
                 var reopened = EditorSceneManager.OpenScene(ScenePath);
                 Validate(UnityEngine.Object.FindAnyObjectByType<StationGameHost>(), reopened);
                 return;
@@ -58,15 +61,34 @@ namespace Metro.Editor {
             // environment map, linear fog). See StationRenderRig for the numbers.
             StationRenderRig.Apply(camera);
             new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
+            EnsurePassengerAnchor();
 
             var host = new GameObject(StationGameHost.ObjectName).AddComponent<StationGameHost>();
             host.stationCamera = camera;
             Assign(host);
             if (!host.stationShader || !EditorSceneManager.SaveScene(scene, ScenePath))
-                throw new InvalidOperationException("Could not create StationGame scene");
+                throw new InvalidOperationException("Could not create StationGameLocal scene");
             AssetDatabase.SaveAssets();
             var saved = EditorSceneManager.OpenScene(ScenePath);
             Validate(UnityEngine.Object.FindAnyObjectByType<StationGameHost>(), saved);
+        }
+
+        /// <summary>
+        /// The single scene keeps the local-passenger marker even without the internal
+        /// catalogue: the anchor is serialized with a null catalogue and the Editor
+        /// injects the catalogue on Play Mode entry (<c>LocalPassengerInjection</c>).
+        /// </summary>
+        static void EnsurePassengerAnchor() {
+            var scene = EditorSceneManager.GetActiveScene();
+            GameObject root = null;
+            foreach (var candidate in scene.GetRootGameObjects())
+                if (candidate.name == StationLocalProfile.RootName) { root = candidate; break; }
+            if (root == null) {
+                root = new GameObject(StationLocalProfile.RootName);
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(root, scene);
+            }
+            if (root.GetComponent<PassengerCatalogueAnchor>() == null)
+                root.AddComponent<PassengerCatalogueAnchor>();
         }
 
         static bool Assign(StationGameHost host) {
@@ -134,7 +156,7 @@ namespace Metro.Editor {
 
         static void Validate(StationGameHost host, UnityEngine.SceneManagement.Scene scene) {
             if (!host || !scene.IsValid())
-                throw new InvalidOperationException("StationGame scene lost its host after saving");
+                throw new InvalidOperationException("StationGameLocal scene lost its host after saving");
             var problems = new List<string>();
             if (!host.catalogue) problems.Add("runtime catalogue is not assigned");
             if (!host.trainCatalogue) problems.Add("train catalogue is not assigned");
@@ -166,7 +188,7 @@ namespace Metro.Editor {
             if (sceneText.IndexOf("ZooLayout", StringComparison.Ordinal) >= 0) problems.Add("scene references ZooLayout.json");
             if (sceneText.IndexOf("ZooSave", StringComparison.Ordinal) >= 0) problems.Add("scene references ZooSave.json");
             if (problems.Count > 0)
-                throw new InvalidOperationException("StationGame scene validation failed:\n  " + string.Join("\n  ", problems));
+                throw new InvalidOperationException("StationGameLocal scene validation failed:\n  " + string.Join("\n  ", problems));
             Debug.Log($"STATION_SCENE_OK path={ScenePath} catalogue={host.catalogue.Count} formations={host.trainCatalogue.entries.Length} demos={host.demos.Length}");
         }
     }

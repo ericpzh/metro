@@ -10,23 +10,23 @@ using UnityEngine;
 
 namespace Metro.Editor {
     /// <summary>
-    /// Plan 11 H3: a **local-only** variant of the player scene that binds the internal
-    /// soft-human catalogue. The public scene must stay free of every internal
-    /// passenger asset (see <c>unity/tests/passenger-profile.test.mjs</c>), so the crowd
-    /// can only be exercised by a scene that is never packed and never named by a
-    /// public build script. This file only creates and verifies that scene; the WebGL
-    /// local build profile is a separate, equally local-only step.
+    /// The project's **single** scene, <c>StationGameLocal.unity</c>, and the local
+    /// passenger binding that the Editor applies to it. The scene on disk never
+    /// references the internal soft-human catalogue (see
+    /// <c>unity/tests/passenger-profile.test.mjs</c>); instead it carries one root
+    /// (<see cref="RootName"/>) with a <see cref="PassengerCatalogueAnchor"/> whose
+    /// catalogue field is left null. The Editor injects the 440-row catalogue when Play
+    /// Mode starts (<c>Editor/LocalPassengerInjection.cs</c>), so the shipped scene
+    /// stays free of every internal passenger asset.
     ///
-    /// The scene is a copy of the validated public scene plus one root
-    /// (<see cref="RootName"/>) carrying a <see cref="PassengerCatalogueAnchor"/> whose
-    /// catalogue is the 440-row asset. Everything else — host, catalogues, demos,
-    /// shader, font — is the public scene's own serialized state, so the load path is
-    /// identical and only the asset differs.
+    /// This file verifies that marker, and generates the equally local-only WebGL
+    /// derivative <c>StationGameLocalWeb.unity</c> that binds the small cohort
+    /// catalogue for loopback testing.
     ///
     /// CLI: `metro station_local_scene` (see <c>unity/scripts/metro-editor.ps1</c>).
     /// </summary>
     public static class StationLocalProfile {
-        public const string LocalScenePath = "Assets/StationDesigner/Scenes/StationGameLocal.unity";
+        public const string LocalScenePath = StationGameScene.ScenePath;
         public const string RootName = "PassengerProfile";
 
         [MenuItem("Metro/Station Game/Generate Local Passenger Scene")]
@@ -36,9 +36,9 @@ namespace Metro.Editor {
         }
 
         /// <summary>
-        /// Rebuild the local scene from the validated public one and return the facts a
-        /// verifier prints. Re-running is idempotent: the anchor is replaced in place and
-        /// the public scene is never modified.
+        /// Ensure the single scene carries its passenger marker and return the facts a
+        /// verifier prints. Re-running is idempotent: the anchor is reused in place and
+        /// the catalogue is never serialized. The scene is left open for smoke runs.
         /// </summary>
         public static string GenerateReport() {
             var catalogue = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(PassengerCatalogue.AssetPath);
@@ -49,70 +49,60 @@ namespace Metro.Editor {
                 throw new InvalidOperationException("The passenger catalogue is not the internal 440-row library (count=" + catalogue.Count +
                     ", rights=" + (catalogue.rights ?? "(none)") + ").");
 
-            // The public scene is the source of truth for the host, demos and catalogues.
-            // Regenerate it first if it is absent or stale, exactly as the build does.
+            // The single scene is the source of truth for the host, demos and catalogues.
+            // Regenerate it first if it is absent.
             if (!File.Exists(Path.Combine(ProjectRoot, StationGameScene.ScenePath)))
                 StationGameScene.Generate();
 
-            var publicScene = EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single);
-            if (!publicScene.IsValid())
-                throw new InvalidOperationException("Could not open the public scene: " + StationGameScene.ScenePath);
+            var scene = EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single);
+            if (!scene.IsValid())
+                throw new InvalidOperationException("Could not open the scene: " + StationGameScene.ScenePath);
             var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
             if (host == null)
-                throw new InvalidOperationException("The public scene has no StationGameHost.");
-            if (publicScene.GetRootGameObjects().Length == 0)
-                throw new InvalidOperationException("The public scene has no roots.");
+                throw new InvalidOperationException("The scene has no StationGameHost.");
+            if (scene.GetRootGameObjects().Length == 0)
+                throw new InvalidOperationException("The scene has no roots.");
 
-            // Save As: the copy keeps every serialized reference of the public scene and
-            // becomes the active scene at the local path.
-            var local = EditorSceneManager.SaveScene(publicScene, LocalScenePath);
-            if (!local)
-                throw new InvalidOperationException("Could not write the local scene: " + LocalScenePath);
-
-            var current = EditorSceneManager.GetActiveScene();
-            var anchorObject = FindRoot(current, RootName);
+            var anchorObject = FindRoot(scene, RootName);
             if (anchorObject == null) {
                 anchorObject = new GameObject(RootName);
-                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(anchorObject, current);
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(anchorObject, scene);
             }
             var anchor = anchorObject.GetComponent<PassengerCatalogueAnchor>();
             if (anchor == null) anchor = anchorObject.AddComponent<PassengerCatalogueAnchor>();
             // Deliberately NOT serialized: a scene reference would put an internal
             // catalogue GUID into an asset outside the excluded folder, which the
-            // public-pack guard forbids. The anchor is the local scene's marker; the
-            // Editor injects the catalogue when Play Mode starts
-            // (Editor/LocalPassengerInjection.cs).
+            // public-pack guard forbids. The Editor injects the catalogue when Play Mode
+            // starts (Editor/LocalPassengerInjection.cs).
             anchor.catalogue = null;
-            EditorSceneManager.MarkSceneDirty(current);
-            if (!EditorSceneManager.SaveScene(current, LocalScenePath))
-                throw new InvalidOperationException("Could not save the local scene with its catalogue anchor: " + LocalScenePath);
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene, StationGameScene.ScenePath))
+                throw new InvalidOperationException("Could not save the scene with its catalogue anchor: " + StationGameScene.ScenePath);
             AssetDatabase.SaveAssets();
             // A scene written and reopened inside one command is imported asynchronously;
             // without a synchronous import the reopened copy can still be the empty file
             // from before the anchor was added, which reads as a broken profile.
-            AssetDatabase.ImportAsset(LocalScenePath, ImportAssetOptions.ForceSynchronousImport);
+            AssetDatabase.ImportAsset(StationGameScene.ScenePath, ImportAssetOptions.ForceSynchronousImport);
 
-            var saved = EditorSceneManager.OpenScene(LocalScenePath, OpenSceneMode.Single);
+            var saved = EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single);
             var savedAnchor = FindAnchor(saved);
             var problems = new List<string>();
             if (!saved.IsValid()) problems.Add("the saved scene did not reopen");
-            if (savedAnchor == null) problems.Add("the local scene has no passenger anchor marker");
-            else if (savedAnchor.catalogue != null) problems.Add("the local scene serializes an internal catalogue reference");
+            if (savedAnchor == null) problems.Add("the scene has no passenger anchor marker");
+            else if (savedAnchor.catalogue != null) problems.Add("the scene serializes an internal catalogue reference");
             string internalGuid = AssetDatabase.AssetPathToGUID(PassengerCatalogue.AssetPath);
             if (string.IsNullOrEmpty(internalGuid)) problems.Add("the catalogue asset has no GUID");
-            else if (File.ReadAllText(LocalScenePath).IndexOf(internalGuid, StringComparison.Ordinal) >= 0)
-                problems.Add("the local scene file references the internal catalogue by GUID");
-            if (Root(StationGameHost.ObjectName, saved) == null) problems.Add("the host is missing from the local copy");
-            if (FindAnchor(EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single)) != null)
-                problems.Add("the public scene now has a passenger anchor");
-            if (IsInBuildSettings(LocalScenePath))
-                problems.Add("the local scene is listed in the editor build settings");
-            // Leave the local scene open: the next smoke run in this editor uses it.
-            EditorSceneManager.OpenScene(LocalScenePath, OpenSceneMode.Single);
+            else if (File.ReadAllText(StationGameScene.ScenePath).IndexOf(internalGuid, StringComparison.Ordinal) >= 0)
+                problems.Add("the scene file references the internal catalogue by GUID");
+            if (Root(StationGameHost.ObjectName, saved) == null) problems.Add("the host is missing from the scene");
+            if (IsInBuildSettings(StationGameScene.ScenePath))
+                problems.Add("the scene is listed in the editor build settings");
+            // Leave the scene open: the next smoke run in this editor uses it.
+            EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single);
             if (problems.Count > 0)
                 throw new InvalidOperationException("Local passenger scene validation failed:\n  " + string.Join("\n  ", problems));
-            return "path=" + LocalScenePath + " catalogue=" + catalogue.Count + " rights=" + catalogue.rights +
-                   " anchor=" + RootName + " publicAnchor=none buildSettings=absent";
+            return "path=" + StationGameScene.ScenePath + " catalogue=" + catalogue.Count + " rights=" + catalogue.rights +
+                   " anchor=" + RootName + " buildSettings=absent";
         }
 
         /// <summary>
@@ -130,9 +120,9 @@ namespace Metro.Editor {
 
         /// <summary>
         /// One-pass batch bootstrap for an isolated local WebGL preview workspace: ensures the
-        /// runtime/train catalogues and public scene are up to date, builds the 15-recipe Web
+        /// runtime/train catalogues and the single scene are up to date, builds the 15-recipe Web
         /// cohort inside <see cref="PassengerCatalogue.InternalRoot"/>, and generates
-        /// <see cref="LocalWebScenePath"/> without touching build settings or the public scene.
+        /// <see cref="LocalWebScenePath"/> without touching build settings or the single scene.
         /// </summary>
         public static void PrepareLocalWebBuild() {
             StationGameScene.Generate();
@@ -141,7 +131,7 @@ namespace Metro.Editor {
             Debug.Log("STATION_LOCAL_WEB_PREPARE_OK cohort(" + cohortReport + ") scene(" + sceneReport + ")");
         }
 
-        /// <summary>Build the local-Web scene from the validated public scene and the cohort catalogue.</summary>
+        /// <summary>Build the local-Web scene from the validated single scene and the cohort catalogue.</summary>
         public static string GenerateWebReport() {
             var cohort = AssetDatabase.LoadAssetAtPath<PassengerCatalogue>(PassengerCatalogueBuilder.WebCohortPath);
             if (!cohort)
@@ -154,9 +144,9 @@ namespace Metro.Editor {
                 StationGameScene.Generate();
 
             var publicScene = EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single);
-            if (!publicScene.IsValid()) throw new InvalidOperationException("Could not open the public scene.");
+            if (!publicScene.IsValid()) throw new InvalidOperationException("Could not open the scene.");
             if (UnityEngine.Object.FindAnyObjectByType<StationGameHost>() == null)
-                throw new InvalidOperationException("The public scene has no StationGameHost.");
+                throw new InvalidOperationException("The scene has no StationGameHost.");
             var local = EditorSceneManager.SaveScene(publicScene, LocalWebScenePath);
             if (!local) throw new InvalidOperationException("Could not write the local Web scene: " + LocalWebScenePath);
 
@@ -182,13 +172,11 @@ namespace Metro.Editor {
             if (savedAnchor == null || savedAnchor.catalogue == null) problems.Add("the cohort anchor is missing or unassigned");
             else if (savedAnchor.catalogue.Count != cohort.Count) problems.Add("the anchor binds a different catalogue");
             if (Root(StationGameHost.ObjectName, saved) == null) problems.Add("the host is missing from the local Web copy");
-            if (FindAnchor(EditorSceneManager.OpenScene(StationGameScene.ScenePath, OpenSceneMode.Single)) != null)
-                problems.Add("the public scene now has a passenger anchor");
             if (IsInBuildSettings(LocalWebScenePath)) problems.Add("the local Web scene is listed in the editor build settings");
             if (problems.Count > 0)
                 throw new InvalidOperationException("Local Web passenger scene validation failed:\n  " + string.Join("\n  ", problems));
             return "path=" + LocalWebScenePath + " catalogue=" + cohort.Count + " rights=" + cohort.rights +
-                   " anchor=" + RootName + " publicAnchor=none buildSettings=absent";
+                   " anchor=" + RootName + " buildSettings=absent";
         }
 
         /// <summary>`metro station_local_web_scene`: the batch/copy-friendly form of <see cref="GenerateWebReport"/>.</summary>

@@ -18,8 +18,8 @@
 //       this on the public profile output after `pack-web`. The **local**
 //       verifier build is the one that binds
 //       `Assets/StationDesigner/Generated/Passengers/passenger-catalogue.asset`
-//       through a `PassengerCatalogueAnchor` in a local-only scene
-//       (`StationGameLocal.unity`, by convention) and is never packed.
+//       through a `PassengerCatalogueAnchor` in the single scene
+//       (`StationGameLocal.unity`, by convention); it is never packed.
 //
 // Public build keeps the `Generated/Models/passenger-adult.glb` stand-in while
 // soft-human parity is explicitly open; the local build reports `soft-human`
@@ -35,8 +35,7 @@ const internalRoot = 'unity/Assets/StationDesigner/Generated/Passengers'
 const manifestPath = `${internalRoot}/passenger-library.manifest.json`
 const cataloguePath = `${internalRoot}/passenger-catalogue.asset`
 const coveragePath = `${internalRoot}/passenger-library.coverage.md`
-const publicScene = 'unity/Assets/StationDesigner/Scenes/StationGame.unity'
-const localScene = 'unity/Assets/StationDesigner/Scenes/StationGameLocal.unity'
+const scene = 'unity/Assets/StationDesigner/Scenes/StationGameLocal.unity'
 const standInPrefab = 'unity/Assets/StationDesigner/Generated/Models/passenger-adult.glb'
 
 // Any of these appearing in a public artefact means an internal asset leaked.
@@ -56,7 +55,6 @@ const PUBLIC_BUILD_INPUTS = [
   'tools/unity-web/unity-ui-pack.mjs',
   'unity/Assets/StationDesigner/Editor/BuildWeb.cs',
   'unity/Assets/StationDesigner/Editor/StationGameScene.cs',
-  'unity/Assets/StationDesigner/Editor/ZooPlayable.cs',
 ]
 
 const read = path => readFileSync(resolve(repo, path), 'utf8')
@@ -119,11 +117,11 @@ test('no internal passenger asset is referenced outside its own folder', () => {
   for (const absolute of walk(assets)) {
     const path = repoPath(absolute)
     if (path.startsWith(internalRoot + '/') || path.endsWith('.meta')) continue
-    // Local-only scene variants are deliberately allowed to bind the internal
-    // catalogue (H3's local Web profile). They are never named by a public build
-    // script, never added to the build settings (asserted below), and the public
-    // scene is still scanned here.
-    if (/Scenes\/StationGameLocal[^/]*\.unity$/.test(path)) continue
+    // The generated local-Web variant deliberately binds the small cohort
+    // catalogue (H3's loopback profile). It is never named by a public build
+    // script and never added to the build settings; the single shipped scene is
+    // still scanned here.
+    if (/Scenes\/StationGameLocalWeb\.unity$/.test(path)) continue
     if (!textExtensions.has(path.slice(path.lastIndexOf('.')))) continue
     const text = read(path)
     for (const [guid, owner] of guids) {
@@ -133,30 +131,23 @@ test('no internal passenger asset is referenced outside its own folder', () => {
   assert.deepEqual(leaks, [], `internal passenger assets must not leak into public assets:\n${leaks.join('\n')}`)
 })
 
-test('the public scene and build inputs do not mention the local profile', () => {
-  for (const path of [publicScene, ...PUBLIC_BUILD_INPUTS]) {
-    assert.ok(existsSync(resolve(repo, path)), `missing public build input ${path}`)
+test('the shipped scene and build inputs never bind the internal catalogue', () => {
+  for (const path of [scene, ...PUBLIC_BUILD_INPUTS]) {
+    assert.ok(existsSync(resolve(repo, path)), `missing build input ${path}`)
     const text = read(path)
     for (const marker of MARKERS) assert.ok(!text.includes(marker), `${path} mentions internal marker "${marker}"`)
   }
-  // The local profile scene, if present, is a local-only variant and must not be
-  // named by a public build script.
-  if (existsSync(resolve(repo, localScene))) {
-    for (const path of PUBLIC_BUILD_INPUTS) {
-      assert.ok(!read(path).includes('StationGameLocal'), `${path} packs the local profile scene`)
-    }
-  }
-  // A local anchor scene may legitimately reference the catalogue; that is why
-  // the catalogue lives inside the excluded folder and this test never treats a
-  // `*Local` scene as public. Neither local scene may be in the build settings.
+  // The single scene carries a null `PassengerCatalogueAnchor` on disk; the Editor
+  // injects the catalogue at Play Mode. Only the generated local-Web variant binds
+  // a catalogue, so neither scene may be in the editor build settings.
   const buildSettings = 'unity/ProjectSettings/EditorBuildSettings.asset'
   const buildText = existsSync(resolve(repo, buildSettings)) ? read(buildSettings) : ''
-  for (const scene of ['StationGameLocal.unity', 'StationGameLocalWeb.unity']) {
-    assert.ok(!buildText.includes(scene), `${scene} must not be in the editor build settings`)
+  for (const name of ['StationGameLocal.unity', 'StationGameLocalWeb.unity']) {
+    assert.ok(!buildText.includes(name), `${name} must not be in the editor build settings`)
   }
   if (existsSync(resolve(repo, cataloguePath))) {
-    assert.ok(!read(publicScene).includes(guids.get(guidOf(`${cataloguePath}.meta`)) ?? '\u0000'),
-      'the public scene references the local passenger catalogue')
+    assert.ok(!read(scene).includes(guids.get(guidOf(`${cataloguePath}.meta`)) ?? '\u0000'),
+      'the single shipped scene references the internal passenger catalogue')
   }
 })
 
@@ -192,10 +183,10 @@ test('public pack scan and local-vs-public invocation', () => {
   const packAt = process.argv.indexOf('--pack')
   const pack = packAt >= 0 ? resolve(process.argv[packAt + 1]) : ''
   console.log([
-    'PASSENGER_PROFILE public=stand-in local=soft-human',
+    'PASSENGER_PROFILE scene=StationGameLocal public=stand-in local=soft-human',
     '  local  : bind Assets/StationDesigner/Generated/Passengers/passenger-catalogue.asset',
-    '           through a PassengerCatalogueAnchor in StationGameLocal.unity, serve on loopback,',
-    '           report "soft-human" with the actual recipe IDs; never ship this build.',
+    '           through a PassengerCatalogueAnchor in StationGameLocalWeb.unity, serve on',
+    '           loopback, report "soft-human" with the actual recipe IDs; never ship it.',
     '  public : no passenger catalogue bound; keep Generated/Models/passenger-adult.glb as the',
     '           reported stand-in while soft-human parity is open. Releasing the real crowd needs',
     '           documented permission for the base and its derivatives (production rig is BLOCKED).',

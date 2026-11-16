@@ -24,7 +24,7 @@ for(const path of actual.filter(p=>p.startsWith('Build/')||p.startsWith('Templat
  const file={path:name,bytes:bytes.length,sha256:sha(bytes),...resourceType(name)}
  files.push(file);payloads.set(name,bytes)
 }
-const ui = provenance.Scene?.endsWith('/ZooPlayable.unity') ? buildUnityUI(root) : null
+const ui = /\/StationGame[^/]*\.unity$/.test(provenance.Scene ?? '') ? buildUnityUI(root) : null
 if (ui) for (const [name, bytes] of ui.files) { files.push({path:name,bytes:bytes.length,sha256:sha(bytes),...resourceType(name)}); payloads.set(name,bytes) }
 const artifactSha256=artifactDigest(files),sourceSha=provenance.Head.toLowerCase(),releaseId=`${sourceSha}-${artifactSha256.slice(0,16)}`
 const manifest={schemaVersion:1,sourceSha,artifactSha256,releaseId,files}

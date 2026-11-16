@@ -119,8 +119,8 @@ web/pnpm-lock.yaml
 /unity/Assets/StationDesigner/Generated/RuntimeCatalogue.asset.meta
 /unity/Assets/StationDesigner/Generated/TrainCatalogue.asset
 /unity/Assets/StationDesigner/Generated/TrainCatalogue.asset.meta
-/unity/Assets/StationDesigner/Scenes/StationGameLocal*.unity
-/unity/Assets/StationDesigner/Scenes/StationGameLocal*.unity.meta
+/unity/Assets/StationDesigner/Scenes/StationGameLocalWeb*.unity
+/unity/Assets/StationDesigner/Scenes/StationGameLocalWeb*.unity.meta
 /unity/Assets/StationDesigner/Generated/Passengers/passenger-catalogue*.asset
 /unity/Assets/StationDesigner/Generated/Passengers/passenger-catalogue*.asset.meta
 

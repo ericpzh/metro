@@ -106,7 +106,7 @@ Invokes the game's Type A builder with two cars and catenary power (covering bot
   ```
   Renders `game/src/render/materials.ts` deterministically with seeded RNG into `unity/asset-recipes/finishes/` (21 finishes / 25 PNGs + `finishes.json`) and stages runtime resources into `unity/Assets/StationDesigner/Resources/StationFinishes/` for `StationFinishLibrary`. Run `node tools/unity-assets/ensure-meta.mjs` if new files are staged.
 - **Soft-human passenger library (`Generated/Passengers/`):**
-  `export-passenger-library.mjs`, `ImportPassengerLibrary.cs` and `promote-passenger-library.ps1` build the 440-recipe library (`220` male / `220` female, 16 bones, 49 legacy clips); `node tools/unity-assets/check-passenger-library.mjs` validates all 440 prefab-to-GLB GUIDs and manifest hashes without re-exporting ~719 MiB of GLBs. Keep this folder `INTERNAL_REVIEW_ONLY` (no `Resources/` subfolder, never referenced by `Scenes/StationGame.unity` or public Web packs; enforced by `unity/tests/passenger-profile.test.mjs`).
+  `export-passenger-library.mjs`, `ImportPassengerLibrary.cs` and `promote-passenger-library.ps1` build the 440-recipe library (`220` male / `220` female, 16 bones, 49 legacy clips); `node tools/unity-assets/check-passenger-library.mjs` validates all 440 prefab-to-GLB GUIDs and manifest hashes without re-exporting ~719 MiB of GLBs. Keep this folder `INTERNAL_REVIEW_ONLY` (no `Resources/` subfolder, never referenced by `Scenes/StationGameLocal.unity` or public Web packs; enforced by `unity/tests/passenger-profile.test.mjs`).
 
 ## Delivering and troubleshooting assets
 

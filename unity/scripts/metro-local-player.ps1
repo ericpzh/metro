@@ -1,14 +1,14 @@
 # Local-only WebGL passenger profile for the Station Designer (plan 11 H3).
 #
-# Builds `Scenes/StationGameLocalWeb.unity` — the public scene plus an anchor bound
+# Builds `Scenes/StationGameLocalWeb.unity` — the single scene plus an anchor bound
 # to the small cohort catalogue (`Generated/Passengers/passenger-catalogue-web.asset`,
 # INTERNAL_REVIEW_ONLY) — into a WebGL pack and serves it on loopback only.
 #
 # This script is deliberately NOT one of the public build inputs:
 # `unity/tests/passenger-profile.test.mjs` asserts that `metro-unity.ps1`,
-# `BuildWeb.cs`, `StationGameScene.cs`, `ZooPlayable.cs` and `unity-ui-pack.mjs`
-# never name the local profile. Keeping the local invocation here means the public
-# build cannot produce this pack by accident.
+# `BuildWeb.cs`, `StationGameScene.cs` and `unity-ui-pack.mjs` never name the local
+# profile. Keeping the local invocation here means the public build cannot produce
+# this pack by accident.
 #
 # It never publishes: the pack is served by `tools/unity-web/static-pack-server.mjs`
 # on 127.0.0.1 and must not be uploaded anywhere (the source library is

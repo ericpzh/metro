@@ -3,7 +3,7 @@ param(
     [Parameter(Position=0)][ValidateSet('doctor','bootstrap','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [ValidateSet('Development','Release')][string]$Configuration = 'Development',
-    [ValidateSet('Bootstrap','FirstPlayable','ZooPlayable','StationGame')][string]$Scene = 'Bootstrap',
+    [ValidateSet('StationGameLocal')][string]$Scene = 'StationGameLocal',
     [string]$ScenePath = '',
     [string]$ProjectPath,
     [string]$OutputDirectory,
@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if ($Help) {
-    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Configuration Development|Release] [-Scene Bootstrap|FirstPlayable|ZooPlayable] [-Help]'
+    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Configuration Development|Release] [-Scene StationGameLocal] [-Help]'
     Write-Output 'Tasks: doctor, bootstrap, test, build-web, pack-web, smoke-web, import-assets.'
     Write-Output 'METRO_UNITY_EDITOR overrides the pinned Editor path; METRO_WRANGLER overrides the Wrangler JS entry for smoke-web.'
     exit 0
@@ -63,7 +63,7 @@ $headAtStart = (& git -C $repo rev-parse HEAD).Trim()
 $log = Join-Path $out "$Task-$Mode-$Configuration.log"
 $argsList = @('-batchmode','-nographics','-projectPath',('"'+$project+'"'),'-logFile',('"'+$log+'"'))
 switch ($Task) {
-    'bootstrap' { $method = if ($Scene -eq 'FirstPlayable') { 'Metro.Editor.FirstPlayable.Generate' } elseif ($Scene -eq 'ZooPlayable') { 'Metro.Editor.ZooPlayable.Generate' } elseif ($Scene -eq 'StationGame') { 'Metro.Editor.StationGameScene.Generate' } else { 'Metro.Editor.Bootstrap.Generate' }; $argsList += @('-quit','-executeMethod',$method) }
+    'bootstrap' { $method = 'Metro.Editor.StationGameScene.Generate'; $argsList += @('-quit','-executeMethod',$method) }
     'import-assets' {
         if (!$Manifest) { throw 'import-assets requires -Manifest.' }
         $manifestPath = (Resolve-Path -LiteralPath $Manifest).Path

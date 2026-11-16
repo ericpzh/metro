@@ -75,7 +75,7 @@ namespace Metro.EditModeTests {
         }
 
         /// <summary>The scene's shader: the sign renderer refuses to build without one, exactly
-        /// as the player supplies `stationShader` from `Scenes/StationGame.unity`.</summary>
+        /// as the player supplies `stationShader` from `Scenes/StationGameLocal.unity`.</summary>
         static Shader SceneShader() =>
             Shader.Find("Universal Render Pipeline/Lit") ?? Shader.Find("Unlit/Color") ?? Shader.Find("Sprites/Default");
 

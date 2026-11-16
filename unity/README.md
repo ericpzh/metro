@@ -19,7 +19,7 @@ actions.
 ./unity/scripts/metro-editor.ps1 status
 ./unity/scripts/metro-editor.ps1 compile
 ./unity/scripts/metro-editor.ps1 test -Mode EditMode -TestFilter StationClockTests
-./unity/scripts/metro-editor.ps1 test -Mode PlayMode -TestFilter BootstrapPlayTests
+./unity/scripts/metro-editor.ps1 test -Mode PlayMode -TestFilter StationExplodedViewPlayTests
 ./unity/scripts/metro-editor.ps1 smoke -Demo zoo
 ./unity/scripts/metro-editor.ps1 verify -TestFilter StationClockTests -Demo zoo
 ```
@@ -63,13 +63,9 @@ folder under `.preview/unity`.
 ./unity/scripts/metro-unity.ps1 smoke-web -OutputDirectory .preview/unity/my-run
 ```
 
-For the first playable scene, pass `-Scene FirstPlayable` to `bootstrap` and
-`build-web`; the default remains `Bootstrap`. After packing, run
-`node tools/unity-web/smoke-first-playable.mjs <run-directory>` to exercise the
-controls, downloaded save, reopen, and boarding in a local browser. Pass
-`--require-second --require-detour` to require both additional layout cases;
-omitting these flags keeps older builds reviewable. The full
-scratch-project sequence is in [the Phase 1 checklist](plan/05-first-playable.md).
+`StationGameLocal` is the project's single scene; it is the default for
+`bootstrap` and `build-web`. The full scratch-project sequence is in
+[the Phase 1 checklist](plan/05-first-playable.md).
 
 `-Help` lists flags. `doctor` does not prove licensing; the Editor invocations do.
 The test task requires a nonzero test count and passing XML. Builds use a new

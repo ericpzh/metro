@@ -40,7 +40,7 @@ namespace Metro.Editor {
             [CliArg("ticks", "Fixed simulation ticks replayed over the committed document to produce the frames.")] int ticks = 40) {
             var host = Host();
             if (host == null) {
-                cmd.Log.Error("No StationGameHost in the open scene. Open Assets/StationDesigner/Scenes/StationGame.unity and enter Play Mode.");
+                cmd.Log.Error("No StationGameHost in the open scene. Open Assets/StationDesigner/Scenes/StationGameLocal.unity and enter Play Mode.");
                 return ExitCode.Failed;
             }
             if (!host.IsLoaded || host.Coordinator == null || host.Coordinator.World == null) {

@@ -1,9 +1,9 @@
-// Plan 11 A7 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the browser verifier for the generic station player.
+﻿// Plan 11 A7 ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the browser verifier for the generic station player.
 //
-// Runs the packed WebGL build of `Scenes/StationGame.unity` under headless Chrome
+// Runs the packed WebGL build of `Scenes/StationGameLocal.unity` under headless Chrome
 // (the same harness `smoke-zoo-playable.mjs` uses) and drives the station through
-// the **shared shell port** `window.__metroStationBridge` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the same path the React
-// UI uses ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â then reads the committed snapshot. It never installs geometry, mutates
+// the **shared shell port** `window.__metroStationBridge` ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â the same path the React
+// UI uses ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â then reads the committed snapshot. It never installs geometry, mutates
 // internal state or calls a fixture adapter.
 //
 // Cases:
@@ -60,6 +60,11 @@ const mark = (name) => { report.trace.push({ name, ms: Date.now() - started }); 
 const provenance = JSON.parse(readFileSync(join(root, 'unity/Assets/StationDesigner/Demos/provenance.json'), 'utf8'))
 const byId = new Map(provenance.demos.map((demo) => [demo.id, demo]))
 const demos = demoArg === 'all' ? provenance.demos.map((demo) => demo.id) : [demoArg]
+// The brush cases edit whichever demo the run opened, so one pack can prove the same
+// gestures on Zoo, Tanwei and Tianhe (`--demo <id>`); `ensureDemo` is a no-op when that
+// demo is already committed. `station-editing` stays pinned to Zoo: its frozen-ray
+// sub-step reads a hard-coded pixel of that station.
+const activeDemo = demos[0]
 for (const id of demos) if (!byId.has(id)) throw new Error('Unknown demo: ' + id + ' (known: ' + [...byId.keys()].join(', ') + ')')
 const locales = localeArg === 'both' ? ['zh', 'en'] : [localeArg === 'zh' ? 'zh' : 'en']
 
@@ -206,7 +211,7 @@ function expectedCounts(id) {
 
 /**
  * Observe what the UI actually asked the host for: wrap the shared port's `send`, the
- * same public seam the React shell uses. This is an observation point, not a shortcut —
+ * same public seam the React shell uses. This is an observation point, not a shortcut â€”
  * the case still presses real keys and clicks real buttons, and only counts the commands
  * those inputs produced. A page navigation drops the wrapper with the page.
  */
@@ -428,7 +433,7 @@ async function runCameraCase() {
   if (!start || !start.back) { problems.push('no camera snapshot published'); return finishCase(record, false, { problems }) }
   // A face snap must change the rendered basis and report the new one. The camera basis
   // is published in document axes, so a top view looks down the document elevation axis:
-  // back = (0,0,1) (world forward is -up, mapped through worldÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢document).
+  // back = (0,0,1) (world forward is -up, mapped through worldÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢document).
   await send('camera.snap', { face: 'top' })
   try {
     await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.camera ?? {}); return c.back && Math.abs(c.back[2]) > 0.9 })()`, 'top snap basis', Math.min(timeoutMs, 20000))
@@ -451,14 +456,14 @@ async function runCameraCase() {
  * basis is the published rendered basis, not a UI counter.
  */
 /**
- * Plan 13 §2 — the frame the finish, lighting and glass work is measured on. One
+ * Plan 13 Â§2 â€” the frame the finish, lighting and glass work is measured on. One
  * canvas-only capture at the home view (no React chrome), with the camera basis and the
  * canvas rect recorded so the comparison against the TypeScript capture names the same
  * region. The numbers themselves come from `tools/unity-parity/compare-captures.mjs`;
  * this case only guarantees the frame exists and is the station's, not a loading screen.
  */
 /**
- * Plan 13 §5 — the two overlay toggles through the real command path. Turning each on must
+ * Plan 13 Â§5 â€” the two overlay toggles through the real command path. Turning each on must
  * change the published view state and the rendered pixels; turning it off must restore
  * them. A capability flag alone is not the acceptance.
  */
@@ -501,7 +506,7 @@ async function runOverlayCase() {
     if (info && info.zoneCells > 0) { zoneLevel = level; break }
   }
   if (zoneLevel === null) problems.push('no storey drew a zone cell')
-  // 20 §5: the zone layer must print real **glyphs**, not only coloured quads.
+  // 20 Â§5: the zone layer must print real **glyphs**, not only coloured quads.
   const overlayState = () => page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state ?? {}).overlays ?? null))()')
   const zoneLabels = await overlayState()
   if (!zoneLabels) problems.push('no state.overlays payload was published')
@@ -719,7 +724,7 @@ async function runSectionHandleCase() {
   } else {
     problems.push('the arrow never reported hover at its published control point')
   }
-  // 隐藏剖切面 puts the arrow away and gives the pointer back.
+  // éšè—å‰–åˆ‡é¢ puts the arrow away and gives the pointer back.
   await send('view.set', { key: 'sectionSurface', value: false })
   await sleep(700)
   const hidden = await handle()
@@ -830,7 +835,7 @@ async function runExplodedViewCase() {
       // Ensure the View folder in the inspector rail is open, then click the real Exploded view tile
       await page.evaluate(`window.dispatchEvent(new CustomEvent('metro:tutorial-folders', { detail: { open: ['view'], close: [] } }))`)
       await sleep(100)
-      const wantedLabel = locale === 'en' ? 'Exploded view' : '爆炸视图'
+      const wantedLabel = locale === 'en' ? 'Exploded view' : 'çˆ†ç‚¸è§†å›¾'
       const clickedOpen = await page.evaluate(`(() => {
         const tiles = [...document.querySelectorAll('.viewGrid .bpBlock, .panel .bpBlock')]
         const match = tiles.find(btn => {
@@ -953,7 +958,7 @@ async function runExplodedViewCase() {
       await page.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: canvasBox.cx, y: canvasBox.cy, deltaX: 0, deltaY: 240 })
       await sleep(300)
 
-      // 2. Real left-press tray pick & drag (Plan 19 §5.6: drag -15 m on Zoo, -5 m on Tanwei)
+      // 2. Real left-press tray pick & drag (Plan 19 Â§5.6: drag -15 m on Zoo, -5 m on Tanwei)
       const dragElev = id === 'zoo' ? -15 : (expInitial.rows[1]?.elevation ?? expInitial.rows[0]?.elevation)
       const pickAim = await page.evaluate(`(() => {
         const snap = window.__metroStationBridge.getSnapshot()
@@ -1381,7 +1386,7 @@ async function runVisualCase() {
   const rect = await screenshotCanvas('station-game-visual-home')
   if (!rect) problems.push('no Unity canvas to capture')
   // The street is a storey above the opening level: step to the ground so the sidewalk,
-  // lawn, street furniture and the lattice are all in the frame (plan 13 §3/§4 evidence).
+  // lawn, street furniture and the lattice are all in the frame (plan 13 Â§3/Â§4 evidence).
   await page.evaluate(`window.__metroStationBridge.send('view.set', { key: 'level', value: 0 })`)
   await sleep(900)
   const street = await screenshotCanvas('station-game-visual-street')
@@ -1473,7 +1478,7 @@ async function runClockCase() {
   if (!first || !Number.isFinite(first.simTimeSeconds)) { problems.push('no clock snapshot published'); return finishCase(record, false, { problems }) }
   // The session boots at 06:30 (`REFERENCE_BOOT`) and nothing seeks it backwards; the
   // playback case may already have run this tab forward, so the cold-boot pin is "not
-  // before 06:30" here — the exact instant stays pinned by the EditMode clock suite.
+  // before 06:30" here â€” the exact instant stays pinned by the EditMode clock suite.
   if (first.simTimeSeconds < 23400 - 1) problems.push('the clock is before the 06:30 boot (' + first.simTimeSeconds + ')')
   await send('sim.play', { playing: true })
   await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true })()`, 'clock playing', Math.min(timeoutMs, 15000)).catch(() => problems.push('sim.play did not start the clock'))
@@ -1491,11 +1496,11 @@ async function runClockCase() {
 }
 
 /**
- * Plan 13 §1: playback through ordinary input. The prior clock case called the bridge
- * directly, which is exactly the path a player cannot use — the React adapter dropped
+ * Plan 13 Â§1: playback through ordinary input. The prior clock case called the bridge
+ * directly, which is exactly the path a player cannot use â€” the React adapter dropped
  * the intent before it reached the transport. This case presses Space on the cold tab
  * and clicks the real Play/Pause and speed buttons, then judges the published clock,
- * the visible 信息栏 clock and the commands those inputs produced.
+ * the visible ä¿¡æ¯æ  clock and the commands those inputs produced.
  */
 async function runPlaybackCase(locale) {
   const record = caseStart(`playback-input-${locale}`)
@@ -1591,12 +1596,12 @@ async function runPlaybackCase(locale) {
       button.click()
       return 'clicked'
     })()`)
-    if (clicks !== 'clicked') { problems.push(`the ${speed}× speed button ${clicks}`); continue }
+    if (clicks !== 'clicked') { problems.push(`the ${speed}Ã— speed button ${clicks}`); continue }
     await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.speed === ${speed} })()`, `${speed}x speed`, Math.min(timeoutMs, 15000))
-      .catch(() => problems.push('the ' + speed + '× click did not start the host at ' + speed + '×'))
+      .catch(() => problems.push('the ' + speed + 'Ã— click did not start the host at ' + speed + 'Ã—'))
     if (speed !== previousSpeed) {
       const speedCommands = (await speeds()).filter(row => row.payload && row.payload.speed === speed)
-      if (speedCommands.length !== 1) problems.push('the ' + speed + '× click sent ' + speedCommands.length + ' sim.speed commands, expected exactly one')
+      if (speedCommands.length !== 1) problems.push('the ' + speed + 'Ã— click sent ' + speedCommands.length + ' sim.speed commands, expected exactly one')
     }
     previousSpeed = speed
     // Pause again through the real Play/Pause button before the next rate.
@@ -1623,15 +1628,15 @@ async function runPlaybackCase(locale) {
     button.click()
     return true
   })()`)
-  if (speedClick) await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.speed === 4 })()`, '4x click playing', Math.min(timeoutMs, 15000)).catch(() => problems.push('clicking 4× did not start the run at 4×'))
+  if (speedClick) await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === true && c.speed === 4 })()`, '4x click playing', Math.min(timeoutMs, 15000)).catch(() => problems.push('clicking 4Ã— did not start the run at 4Ã—'))
   const afterSpeedClick = (await plays()).length
   await pressKey(' ', 'Space', 32)
   try {
     await poll(`(() => { const c = (window.__metroStationBridge.getSnapshot().state.clock ?? {}); return c.playing === false })()`, 'space after 4x', Math.min(timeoutMs, 20000))
-  } catch { problems.push('Space after clicking 4× did not pause') }
+  } catch { problems.push('Space after clicking 4Ã— did not pause') }
   const afterSpaceToggle = (await plays()).length
   const toggleDelta = afterSpaceToggle - afterSpeedClick
-  if (afterSpeedClick - beforeSpaceToggle !== 1) problems.push('the 4× click sent ' + (afterSpeedClick - beforeSpaceToggle) + ' sim.play commands, expected one')
+  if (afterSpeedClick - beforeSpaceToggle !== 1) problems.push('the 4Ã— click sent ' + (afterSpeedClick - beforeSpaceToggle) + ' sim.play commands, expected one')
   if (toggleDelta !== 1) problems.push('Space after a speed click sent ' + toggleDelta + ' sim.play commands, expected exactly one toggle')
   const rejectsAfter = await page.evaluate('window.__metroStationBridge.getSnapshot().rejects.length')
   if (rejectsAfter !== rejectsBefore) problems.push('the transport was rejected ' + (rejectsAfter - rejectsBefore) + ' time(s)')
@@ -1662,7 +1667,7 @@ async function runPlaybackCase(locale) {
 }
 
 /**
- * Plan 13 §1: held keyboard navigation on the Unity canvas. WASD moves camera and aim
+ * Plan 13 Â§1: held keyboard navigation on the Unity canvas. WASD moves camera and aim
  * together across the plan (the published basis is unchanged), Ctrl+E raises the view
  * and Ctrl+Q lowers it (`panCameraVertical`'s own pair), plain Q stays the storey step,
  * and a release or a lost focus stops the motion.
@@ -1748,7 +1753,7 @@ async function runKeyboardNavigationCase() {
 
   // Losing focus releases a held key: a player who alt-tabs must not come back to a
   // camera still sliding. The blur is the event a real tab switch sends, and Unity's
-  // WebGL player reacts to it — so the page is focused again and the host proven live
+  // WebGL player reacts to it â€” so the page is focused again and the host proven live
   // before the case ends. An earlier version of this case left the player paused and
   // every later case read a frozen clock.
   await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'd', code: 'KeyD', windowsVirtualKeyCode: 68, nativeVirtualKeyCode: 68 })
@@ -1877,13 +1882,13 @@ async function runSignCommitCase() {
 }
 
 /**
- * RCA 15 §5 sub-item 2, the end-to-end proof: the PSD printed header band. The geometry
+ * RCA 15 Â§5 sub-item 2, the end-to-end proof: the PSD printed header band. The geometry
  * half mints one slot per doorway/route span and poses its node toward the platform; this
- * case proves the **transport** — the browser painted `drawPsdHeader` panels, Unity
+ * case proves the **transport** â€” the browser painted `drawPsdHeader` panels, Unity
  * uploaded them, and every slot shows a non-blank texture. It reads `state.psd.headers`
  * (slots/served/textures/minInk and the per-panel facts), then changes Line 5's ink and
  * up terminus, reopens the committed document, and asserts the new request carries the
- * new painted data and a new content key — the "update after changing line information"
+ * new painted data and a new content key â€” the "update after changing line information"
  * check the plan calls out. The demo is reopened afterwards so later cases see Zoo.
  */
 async function runPsdHeaderCase() {
@@ -1938,7 +1943,7 @@ async function runPsdHeaderCase() {
   }
   const upStation = panels.find(panel => panel.kind === 'station' && panel.direction === 'up')
   if (!upStation) problems.push('no up station panel was painted')
-  if (upStation && upStation.destination !== '文冲') problems.push('the up station panel prints ' + upStation.destination + ', expected 文冲')
+  if (upStation && upStation.destination !== 'æ–‡å†²') problems.push('the up station panel prints ' + upStation.destination + ', expected æ–‡å†²')
 
   // Change the committed line information, then reopen exactly as a saved edit would.
   // The whole document is edited **inside the page**: a 1.6 MB save carried through a
@@ -2075,7 +2080,7 @@ async function runPassengerProfileCase() {
     // and zoom in. This is evidence that the published recipes are drawn, not just
     // counted.
     await page.evaluate(`(() => {
-      const skip = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'ÃƒÂ¨Ã‚Â·Ã‚Â³ÃƒÂ¨Ã‚Â¿Ã¢â‚¬Â¡')
+      const skip = [...document.querySelectorAll('button')].find(button => button.textContent.trim() === 'ÃƒÆ’Ã‚Â¨Ãƒâ€šÃ‚Â·Ãƒâ€šÃ‚Â³ÃƒÆ’Ã‚Â¨Ãƒâ€šÃ‚Â¿ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡')
       if (skip) skip.click()
     })()`).catch(() => {})
     await send('camera.home', {})
@@ -2092,9 +2097,9 @@ async function runPassengerProfileCase() {
 }
 
 /**
- * Plan 13 §1, the service half: at a running service time the clock advances and real
- * bodies move on a named motion channel — an escalator rider's own world position, the
- * tread the station runs on — not a counter that merely changes. Reads only the
+ * Plan 13 Â§1, the service half: at a running service time the clock advances and real
+ * bodies move on a named motion channel â€” an escalator rider's own world position, the
+ * tread the station runs on â€” not a counter that merely changes. Reads only the
  * published state frame.
  */
 async function runServiceMotionCase() {
@@ -2163,7 +2168,7 @@ async function runServiceMotionCase() {
 }
 
 /**
- * Plan 21 §6.4: live station metrics, paginated 1-minute history (`stats.history`), and
+ * Plan 21 Â§6.4: live station metrics, paginated 1-minute history (`stats.history`), and
  * `ChartsPanel` / `BottomBar` verification across Chinese and English.
  */
 async function runStationStatisticsCase(locale) {
@@ -2185,17 +2190,17 @@ async function runStationStatisticsCase(locale) {
         losLabels: { A: 'Free flow', B: 'Comfortable', C: 'Busy', D: 'Crowded', E: 'Very crowded', F: 'Overcrowded' },
       }
     : {
-        railTile: '统计图',
-        modalTitle: '数据',
-        hudOpenLabel: '打开数据窗口',
-        chartTitles: ['平均拥挤等级', '站内数值', '客流累计'],
-        modes: { cumulative: '累计', perMinute: '每分钟' },
-        empty: '暂无数据',
+        railTile: 'ç»Ÿè®¡å›¾',
+        modalTitle: 'æ•°æ®',
+        hudOpenLabel: 'æ‰“å¼€æ•°æ®çª—å£',
+        chartTitles: ['å¹³å‡æ‹¥æŒ¤ç­‰çº§', 'ç«™å†…æ•°å€¼', 'å®¢æµç´¯è®¡'],
+        modes: { cumulative: 'ç´¯è®¡', perMinute: 'æ¯åˆ†é’Ÿ' },
+        empty: 'æš‚æ— æ•°æ®',
         hudLabels: [
-          '站内人数', '平均拥挤等级', '闸机排队', '扶梯排队',
-          '电梯排队', '站台门排队', '已上车', '已出站', '滞留', '时间',
+          'ç«™å†…äººæ•°', 'å¹³å‡æ‹¥æŒ¤ç­‰çº§', 'é—¸æœºæŽ’é˜Ÿ', 'æ‰¶æ¢¯æŽ’é˜Ÿ',
+          'ç”µæ¢¯æŽ’é˜Ÿ', 'ç«™å°é—¨æŽ’é˜Ÿ', 'å·²ä¸Šè½¦', 'å·²å‡ºç«™', 'æ»žç•™', 'æ—¶é—´',
         ],
-        losLabels: { A: '畅通', B: '顺畅', C: '有点挤', D: '拥挤', E: '很挤', F: '挤爆' },
+        losLabels: { A: 'ç•…é€š', B: 'é¡ºç•…', C: 'æœ‰ç‚¹æŒ¤', D: 'æ‹¥æŒ¤', E: 'å¾ˆæŒ¤', F: 'æŒ¤çˆ†' },
       }
 
   const send = (type, payload) => page.evaluate(
@@ -2245,7 +2250,7 @@ async function runStationStatisticsCase(locale) {
       const buttons = [...document.querySelectorAll('details.settingsMenu button.settingsAction, button.settingsAction')]
       const langBtn = buttons.find(btn => {
         const label = (btn.getAttribute('aria-label') ?? btn.getAttribute('title') ?? '').trim()
-        return label.startsWith('切换语言') || label.startsWith('Switch language')
+        return label.startsWith('åˆ‡æ¢è¯­è¨€') || label.startsWith('Switch language')
       })
       if (!langBtn) return false
       langBtn.click()
@@ -2564,7 +2569,7 @@ async function runStationStatisticsCase(locale) {
       ]
       const lines = [{
         id: '5',
-        name: '5号线',
+        name: '5å·çº¿',
         nameEn: 'Line 5',
         colour: '#c70541',
         stock: 'L',
@@ -2572,9 +2577,9 @@ async function runStationStatisticsCase(locale) {
         power: 'third-rail',
         psd: 'full',
         direction: 'up',
-        upTerminus: '文冲',
+        upTerminus: 'æ–‡å†²',
         upTerminusEn: 'Wenchong',
-        downTerminus: '滘口',
+        downTerminus: 'æ»˜å£',
         downTerminusEn: 'Jiaokou',
         alightPerTrain: 18,
         headwayProfile: { peak: 60, offpeak: 60, late: 60 },
@@ -2584,7 +2589,7 @@ async function runStationStatisticsCase(locale) {
         formatVersion: 1,
         gameVersion: '0.2.0',
         savedAt: '2026-01-01T00:00:00.000Z',
-        name: '统计测试站',
+        name: 'ç»Ÿè®¡æµ‹è¯•ç«™',
         nameEn: 'Statistics Fixture',
         city: 'guangzhou',
         seed: 20260105,
@@ -2821,6 +2826,759 @@ async function runPaintCase() {
   return finishCase(record, problems.length === 0, { problems, revision: await revision() })
 }
 
+/**
+ * Plan 27 Â§1/Â§3: **F** through the real player surface. The block brush is the first
+ * milestone of the build-tool port, so its whole gesture is proved here rather than in a
+ * bridge call: a real key press changes the committed tool, a still pointer over an editable
+ * surface draws a ghost, a click commits exactly the ghost's cell once, the secondary button
+ * digs it back out, and undo restores the document.
+ *
+ * The assertions are deliberately separate (tool, aim, accepted cell, ghost, save,
+ * revision) because the original failure was a dispatch gap: the rail and the command
+ * looked right while no plan ever reached the pointer.
+ */
+async function runStationBlockToolCase() {
+  const record = caseStart('station-block-tool')
+  const problems = []
+  if (!(await ensureDemo(activeDemo))) {
+    problems.push('could not commit the demo document before the block brush case')
+    return finishCase(record, false, { problems })
+  }
+  const snapshot = () => page.evaluate(`(() => {
+    const s = window.__metroStationBridge.getSnapshot()
+    return { revision: s.revision, tool: s.state.tool, rightClaim: s.state.rightClaim, cells: s.state.edit?.cells ?? null }
+  })()`)
+  const revision = async () => (await snapshot()).revision
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const documentCells = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.cells ?? []) : []
+  })()`)
+  const solidAt = async (cell) => (await documentCells()).some(
+    record => record.x === cell[0] && record.y === cell[1] && record.z === cell[2] && record.fill === 'solid')
+  // Edit on the street storey with the cutaway off, exactly as the editing case does: a
+  // higher block placed from the concourse is above the slice and correctly unpickable. The
+  // view handler may not be registered on the first tick of a cold player, so send until it
+  // answers.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
+    if (level === 0) break
+  }
+  await send('camera.home', {})
+  await sleep(1500)
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  const at = (u, v) => ({ x: Math.round(rect.x + u * rect.w), y: Math.round(rect.y + v * rect.h) })
+  const moveTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(250)
+  }
+  const clickAt = async (u, v, button = 'left') => {
+    const p = at(u, v)
+    const buttons = button === 'right' ? 2 : 1
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(120)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button, buttons, clickCount: 1 })
+    await sleep(40)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button, buttons: 0, clickCount: 1 })
+    await sleep(250)
+  }
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+
+  // 1. A real `F` press selects æ–¹å— on both sides: the rail's store and the host's
+  //    committed tool. This is the dispatch the reported defect lost.
+  await pressKey('f', 'KeyF', 70)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'block'`, 'F commits the block tool', 15000)
+  } catch {
+    problems.push('F did not commit the block tool: ' + JSON.stringify((await snapshot()).tool))
+  }
+  let state = await snapshot()
+  if (state.tool !== 'block') problems.push('the committed tool is still ' + state.tool + ' after F')
+  if (state.rightClaim !== 'erase') problems.push('the block brush does not own the secondary button: ' + state.rightClaim)
+
+  // 2. A still pointer over editable floor shows the ghost, and a hover changes no revision.
+  const target = await probe({ kind: 'block', z: 0 }, 'block-cell')
+  if (!target || typeof target.u !== 'number') {
+    problems.push('no block probe for the block brush')
+    return finishCase(record, false, { problems })
+  }
+  let before = await revision()
+  const cellsBefore = (await documentCells()).length
+  await moveTo(target.u, target.v)
+  try {
+    await poll(`(() => {
+      const c = window.__metroStationBridge.getSnapshot().state.edit?.cells
+      return !!(c && Array.isArray(c.accepted) && c.accepted.length > 0)
+    })()`, 'block ghost', 15000)
+  } catch {
+    problems.push('a still pointer over an editable surface drew no block ghost')
+  }
+  state = await snapshot()
+  const planCell = state.cells && state.cells.accepted && state.cells.accepted[0]
+  if (!planCell) problems.push('the block ghost accepted no cell')
+  if (planCell && (planCell[0] !== target.x || planCell[1] !== target.y || planCell[2] !== target.z)) {
+    problems.push('the ghost cell ' + JSON.stringify(planCell) + ' is not the probed placement ' +
+      JSON.stringify([target.x, target.y, target.z]))
+  }
+  if ((await revision()) !== before) problems.push('the block ghost changed the document revision')
+
+  // 2b. The untouched virtual street is a no-op: hovering grade floor draws no accepted cell
+  //     and no refusal, and a click there never edits. Zoo may have no visible virgin ground
+  //     inside its built footprint, in which case the step is recorded as unavailable rather
+  //     than failing a station-shaped fixture (the planner's own grade rule is pinned in
+  //     `StationCellPlannerTests`).
+  let gradeFixture = 'none'
+  try {
+    const grade = await probe({ kind: 'grade', z: 0 }, 'block-grade')
+    gradeFixture = 'z=' + grade.z + ' cell=' + JSON.stringify(grade.cell)
+    before = await revision()
+    await moveTo(grade.u, grade.v)
+    await sleep(400)
+    const atGrade = await snapshot()
+    if (atGrade.cells && Array.isArray(atGrade.cells.accepted) && atGrade.cells.accepted.length > 0) {
+      problems.push('the block brush previewed an accepted cell on untouched virtual ground')
+    }
+    if (atGrade.cells && Array.isArray(atGrade.cells.blocked) && atGrade.cells.blocked.length > 0) {
+      problems.push('the block brush refused the virtual street instead of ignoring it')
+    }
+    await clickAt(grade.u, grade.v)
+    if ((await revision()) !== before) problems.push('a click on untouched virtual ground committed a revision')
+    // Back to the editable cell for the commit below.
+    await moveTo(target.u, target.v)
+  } catch {
+    gradeFixture = 'unavailable'
+  }
+
+  // 3. The click lays exactly the ghost's cell, in one revision.
+  await clickAt(target.u, target.v)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'block click commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the block click did not commit exactly one revision (now ' + (await revision()) + ')')
+  }
+  if (planCell && !(await solidAt(planCell))) {
+    problems.push('the committed document has no block at the ghost cell ' + JSON.stringify(planCell))
+  }
+
+  // 4. The secondary button digs that block out again: one more revision, no block left.
+  const dug = planCell
+  before = await revision()
+  await clickAt(target.u, target.v, 'right')
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'right-click erase commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the right click erased nothing (revision ' + (await revision()) + ')')
+  }
+  if (dug && (await solidAt(dug))) problems.push('the right click left the block in the save')
+
+  // 5. Undo walks the history back: the erase's inverse restores the block, and the place's
+  //    inverse removes it again â€” so the case leaves the demo exactly as it found it. A case
+  //    that edited the shared station and moved on would break every later case that does not
+  //    reload it (`ensureDemo` is a no-op when the demo is already committed).
+  before = await revision()
+  await send('edit.undo', {})
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'block undo',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('undo after a block edit did not commit')
+  }
+  if (dug && !(await solidAt(dug))) problems.push('undo did not restore the dug block')
+  before = await revision()
+  await send('edit.undo', {})
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'block restore undo',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the restoring undo did not commit')
+  }
+  if (dug && (await solidAt(dug))) problems.push('the second undo left the placed block in the save')
+  const cellsAfter = (await documentCells()).length
+  if (cellsAfter !== cellsBefore) {
+    problems.push('the case did not restore the demo document (' + cellsBefore + ' â†’ ' + cellsAfter + ' cells)')
+  }
+  await screenshot('station-game-block-tool')
+  // Leave the session on the shell's own default tool: the brush's press state, its plan and
+  // its claim are session facts, and a later case that never sets a tool must not inherit them.
+  await send('tool.set', { tool: 'select', settings: {} })
+  await sleep(200)
+  return finishCase(record, problems.length === 0, {
+    problems, revision: await revision(), cell: dug, gradeFixture,
+  })
+}
+
+/**
+ * Plan 27 Â§4 through the real player surface: **G** raises a storey-high wall column and its
+ * secondary button lifts it again, **B** takes a placed piece, and **Ctrl+Z** puts it back.
+ *
+ * Each step proves the same chain as the æ–¹å— case â€” key press â†’ committed tool, still pointer
+ * â†’ ghost, click â†’ exactly one revision, and the document really changed â€” because the
+ * original defect was a dispatch gap where every one of those looked plausible on its own.
+ */
+async function runStationWallDeleteCase() {
+  const record = caseStart('station-wall-delete')
+  const problems = []
+  if (!(await ensureDemo(activeDemo))) {
+    problems.push('could not commit the demo document before the wall/delete case')
+    return finishCase(record, false, { problems })
+  }
+  const snapshot = () => page.evaluate(`(() => {
+    const s = window.__metroStationBridge.getSnapshot()
+    return { revision: s.revision, tool: s.state.tool, cells: s.state.edit?.cells ?? null }
+  })()`)
+  const revision = async () => (await snapshot()).revision
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const documentCells = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.cells ?? []) : []
+  })()`)
+  const documentModules = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.modules ?? []) : []
+  })()`)
+  const solidAt = async (cell, list) => (list ?? await documentCells()).some(
+    entry => entry.x === cell[0] && entry.y === cell[1] && entry.z === cell[2] && entry.fill === 'solid')
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
+    if (level === 0) break
+  }
+  await send('camera.home', {})
+  await sleep(1500)
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  const at = (u, v) => ({ x: Math.round(rect.x + u * rect.w), y: Math.round(rect.y + v * rect.h) })
+  const moveTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(250)
+  }
+  const clickAt = async (u, v, button = 'left') => {
+    const p = at(u, v)
+    const buttons = button === 'right' ? 2 : 1
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(120)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button, buttons, clickCount: 1 })
+    await sleep(40)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button, buttons: 0, clickCount: 1 })
+    await sleep(250)
+  }
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+
+  // 1. G commits the å¢™ tool, and a still pointer draws the column it would lay.
+  await pressKey('g', 'KeyG', 71)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'wall'`, 'G commits the wall tool', 15000)
+  } catch {
+    problems.push('G did not commit the wall tool: ' + JSON.stringify((await snapshot()).tool))
+  }
+  if ((await snapshot()).tool !== 'wall') problems.push('the committed tool is not wall after G')
+  const target = await probe({ kind: 'block', z: 0 }, 'wall-cell')
+  if (!target || typeof target.u !== 'number') {
+    problems.push('no block probe for the wall tool')
+    return finishCase(record, false, { problems })
+  }
+  let before = await revision()
+  await moveTo(target.u, target.v)
+  try {
+    await poll(`(() => {
+      const c = window.__metroStationBridge.getSnapshot().state.edit?.cells
+      return !!(c && c.kind === 'wall' && Array.isArray(c.accepted) && c.accepted.length > 0)
+    })()`, 'wall column ghost', 15000)
+  } catch {
+    problems.push('a still pointer drew no wall column ghost')
+  }
+  if ((await revision()) !== before) problems.push('the wall ghost changed the document revision')
+  const column = ((await snapshot()).cells?.accepted ?? []).map(cell => [cell[0], cell[1], cell[2]])
+  if (column.length < 2) problems.push('the wall ghost accepted fewer than two courses: ' + JSON.stringify(column))
+
+  // 2. The click raises exactly that column, in one revision.
+  await clickAt(target.u, target.v)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'wall click commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the wall click did not commit exactly one revision (now ' + (await revision()) + ')')
+  }
+  const afterWall = await documentCells()
+  const missing = []
+  for (const cell of column) if (!(await solidAt(cell, afterWall))) missing.push(cell)
+  if (missing.length > 0) problems.push('the committed save is missing wall courses ' + JSON.stringify(missing))
+
+  // 3. The secondary button lifts the column again: one revision, and every course is gone.
+  before = await revision()
+  await clickAt(target.u, target.v, 'right')
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'wall erase commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the right click on the wall committed no revision (now ' + (await revision()) + ')')
+  }
+  const afterErase = await documentCells()
+  const left = []
+  for (const cell of column) if (await solidAt(cell, afterErase)) left.push(cell)
+  if (left.length > 0) problems.push('the right click left wall courses ' + JSON.stringify(left))
+
+  // 4. B takes a placed piece on the press and its release, and one Ctrl+Z restores it. The
+  //    bench is placed through the same pointer path first: Zoo's street storey has no bench
+  //    in the framed viewport, and a probe only answers for what is on screen.
+  const modulesBefore = (await documentModules()).length
+  await send('tool.set', { tool: 'module', settings: { moduleType: 'bench-steel-1', rotation: 0 } })
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'module'`, 'module tool for the bench', 15000)
+  } catch { problems.push('the module tool did not commit for the bench placement') }
+  let place = null
+  for (let attempt = 1; attempt <= 3 && !place; attempt++) {
+    try { place = await probe({ kind: 'place', toolType: 'bench-steel-1', rotation: 0 }, 'wall-bench-place-' + attempt) } catch { await sleep(800) }
+  }
+  let bench = null
+  if (!place || place.kind !== 'place') {
+    problems.push('no place probe for the delete fixture')
+  } else {
+    before = await revision()
+    await clickAt(place.u, place.v)
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'bench place commit',
+        Math.min(timeoutMs, 30000))
+    } catch {
+      problems.push('the delete fixture bench was not placed (now ' + (await revision()) + ')')
+    }
+    bench = (await documentModules()).find(module => module.type === 'bench'
+      && module.x === place.x && module.y === place.y && module.z === place.z) ?? null
+    if (!bench) problems.push('the committed document has no bench at the probed cell')
+  }
+  if (bench) {
+    // Aim at the bench's **drawn** body, not the cell it was dropped on.
+    let bodyPixel = { u: place.u, v: place.v }
+    try {
+      await send('edit.probe', { kind: 'inspect', moduleId: bench.id, probeId: 'wall-bench-inspect' })
+      await poll(`(() => {
+        const p = (window.__metroStationBridge.getSnapshot().state.edit ?? {}).probe
+        return !!(p && p.probeId === 'wall-bench-inspect' && p.boxUv)
+      })()`, 'bench inspect', 15000)
+      const inspect = await page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+      if (inspect?.boxUv) bodyPixel = { u: inspect.boxUv[0], v: inspect.boxUv[1] }
+    } catch { /* the place pixel still lands on the seat */ }
+    await pressKey('b', 'KeyB', 66)
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'delete'`, 'B commits the delete tool', 15000)
+    } catch {
+      problems.push('B did not commit the delete tool: ' + JSON.stringify((await snapshot()).tool))
+    }
+    before = await revision()
+    await clickAt(bodyPixel.u, bodyPixel.v)
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'bench delete commit',
+        Math.min(timeoutMs, 30000))
+    } catch {
+      problems.push('the delete click committed no revision (now ' + (await revision()) + ')')
+    }
+    if ((await documentModules()).some(module => module.id === bench.id)) {
+      problems.push('the deleted bench is still in the save')
+    }
+    before = await revision()
+    await pressKey('z', 'KeyZ', 90, 2)
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'bench undo commit',
+        Math.min(timeoutMs, 30000))
+    } catch {
+      problems.push('Ctrl+Z did not commit (now ' + (await revision()) + ')')
+    }
+    if (!(await documentModules()).some(module => module.id === bench.id)) {
+      problems.push('Ctrl+Z did not restore the deleted bench')
+    }
+    // A second Ctrl+Z undoes the fixture placement, so the demo is left as it was found.
+    before = await revision()
+    await pressKey('z', 'KeyZ', 90, 2)
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'fixture undo commit',
+        Math.min(timeoutMs, 30000))
+    } catch {
+      problems.push('the fixture-restoring Ctrl+Z did not commit')
+    }
+    const modulesAfter = (await documentModules()).length
+    if (modulesAfter !== modulesBefore) {
+      problems.push('the case did not restore the demo (' + modulesBefore + ' â†’ ' + modulesAfter + ' modules)')
+    }
+  }
+  await screenshot('station-game-wall-delete')
+  // Leave the shell on its own default tool and the demo as it was found.
+  await send('tool.set', { tool: 'select', settings: {} })
+  await sleep(200)
+  return finishCase(record, problems.length === 0, {
+    problems, revision: await revision(), column: column.length, bench: bench?.id ?? null,
+  })
+}
+
+/**
+ * Plan 27 Â§5/Â§6 through the real player surface: a **å›´æ  run** dragged as one line of panels,
+ * and a **æè´¨** face painted by the brush, each committing one revision and coming back with
+ * one undo. The run is the first catalogue family whose gesture is a drag rather than a press,
+ * and the brush is the first face edit, so both prove a transport that a command case cannot.
+ */
+async function runStationRunPaintCase() {
+  const record = caseStart('station-run-paint')
+  const problems = []
+  if (!(await ensureDemo(activeDemo))) {
+    problems.push('could not commit the demo document before the run/paint case')
+    return finishCase(record, false, { problems })
+  }
+  const snapshot = () => page.evaluate(`(() => {
+    const s = window.__metroStationBridge.getSnapshot()
+    return {
+      revision: s.revision, tool: s.state.tool,
+      cells: s.state.edit?.cells ?? null, paint: s.state.edit?.paint ?? null,
+    }
+  })()`)
+  const revision = async () => (await snapshot()).revision
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const documentModules = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.modules ?? []) : []
+  })()`)
+  const documentHasFinish = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    if (!text) return false
+    return (JSON.parse(text).static?.cells ?? []).some(cell => cell.finish && cell.finish.top === 'floor.marble')
+  })()`)
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
+    if (level === 0) break
+  }
+  await send('camera.home', {})
+  await sleep(1500)
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  const at = (u, v) => ({ x: Math.round(rect.x + u * rect.w), y: Math.round(rect.y + v * rect.h) })
+  const moveTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(200)
+  }
+  const dragDown = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(220)
+  }
+  const dragTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'left', buttons: 1 })
+    await sleep(120)
+  }
+  const dragUp = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 })
+    await sleep(300)
+  }
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+
+  // 1. A å›´æ  run: arm the family, drag a line, and release one line of panels.
+  await send('tool.set', { tool: 'module', settings: { moduleType: 'fence', rotation: 0 } })
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'module'`, 'fence family armed', 15000)
+  } catch { problems.push('the å›´æ  palette did not commit') }
+  const target = await probe({ kind: 'block', z: 0 }, 'run-cell')
+  if (!target || typeof target.u !== 'number') {
+    problems.push('no block probe for the run case')
+    return finishCase(record, false, { problems })
+  }
+  const fencesBefore = (await documentModules()).filter(module => module.type === 'fence').length
+  let before = await revision()
+  await moveTo(target.u, target.v)
+  await dragDown(target.u, target.v)
+  // 12 px per step so the drag is deliberate but stays on the same storey.
+  await dragTo(target.u, target.v + 0.08)
+  // The move is coalesced per animation frame and the state frame publishes the ghost at 10 Hz,
+  // so wait for the grown plan rather than reading the press's single cell.
+  try {
+    await poll(`(() => {
+      const c = window.__metroStationBridge.getSnapshot().state.edit?.cells
+      return !!(c && c.kind === 'run' && Array.isArray(c.accepted) && c.accepted.length >= 2)
+    })()`, 'run ghost grows', 15000)
+  } catch {
+    const last = await snapshot()
+    problems.push('the run ghost accepted fewer than two panels: ' + JSON.stringify(last.cells))
+  }
+  await dragUp(target.u, target.v + 0.08)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'fence run commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the fence run did not commit one revision (now ' + (await revision()) + ')')
+  }
+  const fencesAfter = (await documentModules()).filter(module => module.type === 'fence').length
+  if (fencesAfter <= fencesBefore) {
+    problems.push('the committed save gained no fence panels (' + fencesBefore + ' â†’ ' + fencesAfter + ')')
+  }
+  before = await revision()
+  await send('edit.undo', {})
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'fence run undo',
+      Math.min(timeoutMs, 30000))
+  } catch { problems.push('undo after the fence run did not commit') }
+  const fencesRestored = (await documentModules()).filter(module => module.type === 'fence').length
+  if (fencesRestored !== fencesBefore) {
+    problems.push('one undo did not restore the fence count (' + fencesBefore + ' â†’ ' + fencesRestored + ')')
+  }
+
+  // 2. The æè´¨ brush: one click paints the picked face, and one undo takes it back.
+  await send('tool.set', { tool: 'paint', settings: { paintMode: 'single', paintFinish: 'floor.marble' } })
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'paint'`, 'paint tool armed', 15000)
+  } catch { problems.push('the æè´¨ tool did not commit') }
+  const faceTarget = await probe({ kind: 'block', z: 0 }, 'paint-cell')
+  before = await revision()
+  await moveTo(faceTarget.u, faceTarget.v)
+  const hovered = await snapshot()
+  if (!hovered.paint || !Array.isArray(hovered.paint.cells) || hovered.paint.cells.length === 0) {
+    problems.push('the brush drew no face ghost: ' + JSON.stringify(hovered.paint))
+  }
+  if ((await revision()) !== before) problems.push('the paint ghost changed the document revision')
+  const p = at(faceTarget.u, faceTarget.v)
+  await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 })
+  await sleep(40)
+  await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 })
+  await sleep(300)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'paint commit',
+      Math.min(timeoutMs, 30000))
+  } catch { problems.push('the paint click did not commit one revision (now ' + (await revision()) + ')') }
+  if (!(await documentHasFinish())) problems.push('the committed save carries no floor.marble face')
+  before = await revision()
+  await send('edit.undo', {})
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'paint undo',
+      Math.min(timeoutMs, 30000))
+  } catch { problems.push('undo after a paint did not commit') }
+  if (await documentHasFinish()) problems.push('one undo left the painted face in the save')
+  await screenshot('station-game-run-paint')
+  await send('tool.set', { tool: 'select', settings: {} })
+  await sleep(200)
+  return finishCase(record, problems.length === 0, {
+    problems, revision: await revision(), fences: fencesAfter - fencesBefore,
+  })
+}
+
+/**
+ * The åˆ†åŒº (zone) brush on the real player surface. A fare label is a `zone` field on a floor
+ * record, so the case proves the same chain the other brush cases do â€” committed tool â†’
+ * still-pointer ghost â†’ one click, one revision â†’ the save carries the label â†’ the claimed
+ * secondary button takes it off again â€” and restores the demo with the shared history.
+ */
+async function runStationZoneCase() {
+  const record = caseStart('station-zone-paint')
+  const problems = []
+  if (!(await ensureDemo(activeDemo))) {
+    problems.push('could not commit the demo document before the zone case')
+    return finishCase(record, false, { problems })
+  }
+  const snapshot = () => page.evaluate(`(() => {
+    const s = window.__metroStationBridge.getSnapshot()
+    return {
+      revision: s.revision, tool: s.state.tool, rightClaim: s.state.rightClaim,
+      zone: s.state.edit?.zone ?? null,
+    }
+  })()`)
+  const revision = async () => (await snapshot()).revision
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const documentCells = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.cells ?? []) : []
+  })()`)
+  const zoneAt = async (cell) => {
+    const found = (await documentCells()).find(
+      record => record.x === cell[0] && record.y === cell[1] && record.z === cell[2])
+    return found ? (found.zone ?? null) : null
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    const level = await page.evaluate('window.__metroStationBridge.getSnapshot().state.level')
+    if (level === 0) break
+  }
+  await send('camera.home', {})
+  await sleep(1500)
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  const at = (u, v) => ({ x: Math.round(rect.x + u * rect.w), y: Math.round(rect.y + v * rect.h) })
+  const moveTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(250)
+  }
+  const clickAt = async (u, v, button = 'left') => {
+    const p = at(u, v)
+    const buttons = button === 'right' ? 2 : 1
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(120)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button, buttons, clickCount: 1 })
+    await sleep(40)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button, buttons: 0, clickCount: 1 })
+    await sleep(250)
+  }
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+
+  // 1. The committed tool is åˆ†åŒº and it owns the secondary button, so the eraser reaches C#.
+  await send('tool.set', { tool: 'zone', settings: { zoneBrush: 'paid' } })
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'zone'`, 'zone tool armed', 15000)
+  } catch { problems.push('the åˆ†åŒº tool did not commit: ' + JSON.stringify((await snapshot()).tool)) }
+  const armed = await snapshot()
+  if (armed.tool !== 'zone') problems.push('the committed tool is still ' + armed.tool + ' after arming åˆ†åŒº')
+  if (armed.rightClaim !== 'erase') problems.push('the åˆ†åŒº brush does not own the secondary button: ' + armed.rightClaim)
+
+  // 2. A still pointer over a floor cell tints exactly that cell and changes no revision.
+  const target = await probe({ kind: 'zone', z: 0 }, 'zone-cell')
+  if (!target || typeof target.u !== 'number' || !Array.isArray(target.cell)) {
+    problems.push('no floor probe for the åˆ†åŒº brush')
+    return finishCase(record, false, { problems })
+  }
+  const cell = target.cell
+  const cellsBefore = (await documentCells()).length
+  let before = await revision()
+  await moveTo(target.u, target.v)
+  try {
+    await poll(`(() => {
+      const z = window.__metroStationBridge.getSnapshot().state.edit?.zone
+      return !!(z && Array.isArray(z.floor) && z.floor.length === 1)
+    })()`, 'zone ghost', 15000)
+  } catch {
+    problems.push('a still pointer over a floor cell drew no åˆ†åŒº tint: ' + JSON.stringify((await snapshot()).zone))
+  }
+  const hovered = await snapshot()
+  const tinted = hovered.zone && hovered.zone.floor && hovered.zone.floor[0]
+  if (tinted && (tinted[0] !== cell[0] || tinted[1] !== cell[1] || tinted[2] !== cell[2])) {
+    problems.push('the tint ' + JSON.stringify(tinted) + ' is not the probed floor ' + JSON.stringify(cell))
+  }
+  if ((await revision()) !== before) problems.push('the åˆ†åŒº ghost changed the document revision')
+
+  // 3. One click labels exactly that cell, in one revision.
+  await clickAt(target.u, target.v)
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'zone click commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the åˆ†åŒº click did not commit exactly one revision (now ' + (await revision()) + ')')
+  }
+  if ((await zoneAt(cell)) !== 'paid') {
+    problems.push('the committed save has no ä»˜è´¹åŒº label at ' + JSON.stringify(cell))
+  }
+
+  // 4. The claimed secondary button erases the label again: one more revision, no zone left.
+  before = await revision()
+  await clickAt(target.u, target.v, 'right')
+  try {
+    await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'zone erase commit',
+      Math.min(timeoutMs, 30000))
+  } catch {
+    problems.push('the secondary press did not erase the label (now ' + (await revision()) + ')')
+  }
+  if ((await zoneAt(cell)) !== null) problems.push('the label survived the åˆ†åŒº eraser at ' + JSON.stringify(cell))
+
+  // 5. The shared history takes both edits back, leaving the demo as it was found.
+  for (let step = 0; step < 2; step++) {
+    before = await revision()
+    await send('edit.undo', {})
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`, 'zone undo ' + step,
+        Math.min(timeoutMs, 30000))
+    } catch { problems.push('undo ' + step + ' after the åˆ†åŒº edits did not commit') }
+  }
+  const cellsAfter = (await documentCells()).length
+  if (cellsAfter !== cellsBefore) {
+    problems.push('the case did not restore the demo document (' + cellsBefore + ' â†’ ' + cellsAfter + ' cells)')
+  }
+  if ((await zoneAt(cell)) !== null) problems.push('the restored document still carries the test label')
+
+  await send('tool.set', { tool: 'select', settings: {} })
+  await screenshot('station-game-zone-paint')
+  await sleep(200)
+  return finishCase(record, problems.length === 0, {
+    problems, revision: await revision(), cell,
+  })
+}
+
 async function runStationEditingCase() {
   const record = caseStart('station-editing')
   const problems = []
@@ -2993,7 +3751,7 @@ async function runStationEditingCase() {
         await poll(`window.__metroStationBridge.getSnapshot().state.tool === 'module'`, 'picked tool', 15000)
       } catch { problems.push('the shell did not arm the palette for the picked module') }
 
-      // 4. Selection: the 选择 tool publishes the module identity the inspector reads.
+      // 4. Selection: the é€‰æ‹© tool publishes the module identity the inspector reads.
       await tool('select')
       await clickAt(placedPixel.u, placedPixel.v)
       await sleep(200)
@@ -3105,8 +3863,8 @@ async function runStationEditingCase() {
 
       // 8. Fixed, independently chosen Zoo targets at -10 m (`StationScenePickerTests.ZooMinusTenFixedTargetsMatchBrowserCanvasSequence`):
       //    Step from 0 m Home down to -10 m and zoom to 0.45x so the north concourse balcony
-      //    around `bin-754` (58, 38, -10) and `(57, 37, -10)` — directly beneath the hidden 0 m
-      //    street / VirtualGround slab at (69, 22, 0) — is projected directly from camera math
+      //    around `bin-754` (58, 38, -10) and `(57, 37, -10)` â€” directly beneath the hidden 0 m
+      //    street / VirtualGround slab at (69, 22, 0) â€” is projected directly from camera math
       //    rather than chosen by `edit.probe`.
       await send('view.set', { key: 'level', value: 0 })
       await sleep(250)
@@ -3594,7 +4352,7 @@ async function main() {
   for (const locale of locales) {
     for (const id of demos) if (wanted(`demo-${id}-${locale}`)) await runDemoCase(id, locale)
     // Playback runs on the tab that just cold-opened this locale: a real Space press and
-    // real Play/Pause and speed clicks, which is the hop that was broken (plan 13 §1).
+    // real Play/Pause and speed clicks, which is the hop that was broken (plan 13 Â§1).
     if (wanted(`playback-input-${locale}`)) await runPlaybackCase(locale)
   }
   if (wanted('switch-all-demos') && (demoArg === 'all' || demos.length > 1)) await runSwitchCase()
@@ -3612,6 +4370,16 @@ async function main() {
   if (wanted('keyboard-navigation')) await runKeyboardNavigationCase()
   if (wanted('tool-selection')) await runToolCase()
   if (wanted('station-editing')) await runStationEditingCase()
+  // After `station-editing`: that case's frozen-ray sub-step reads a fixed pixel whose
+  // module-versus-cell answer depends on the world the block brush last installed, so the
+  // brush's own case runs once the editing case has taken its measurement. Both restore the
+  // demo they edit; `ensureDemo` is a no-op while Zoo is already committed.
+  if (wanted('station-block-tool')) await runStationBlockToolCase()
+  if (wanted('station-wall-delete')) await runStationWallDeleteCase()
+  if (wanted('station-run-paint')) await runStationRunPaintCase()
+  // The åˆ†åŒº brush is the third face/floor edit on the same street storey; it edits one cell
+  // and restores it through the shared history, so it stays beside the two brushes above.
+  if (wanted('station-zone-paint')) await runStationZoneCase()
   if (wanted('exit-faces')) await runExitFacesCase()
   if (wanted('road-geometry')) await runRoadGeometryCase()
   if (wanted('simulation-clock')) await runClockCase()

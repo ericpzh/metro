@@ -210,11 +210,11 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
     help: false,
     port: 8787,
     ip: '127.0.0.1',
-    scene: 'StationGame',
+    scene: 'StationGameLocal',
     configuration: 'Release',
   })
   assert.deepEqual(
-    parseUnityStartArgs(['--build-only', '--rebuild', '--port', '8790', '--scene', 'ZooPlayable', '--configuration', 'Development']),
+    parseUnityStartArgs(['--build-only', '--rebuild', '--port', '8790', '--scene', 'StationGameLocal', '--configuration', 'Development']),
     {
       buildOnly: true,
       rebuild: true,
@@ -222,7 +222,7 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
       help: false,
       port: 8790,
       ip: '127.0.0.1',
-      scene: 'ZooPlayable',
+      scene: 'StationGameLocal',
       configuration: 'Development',
     },
   )
@@ -270,7 +270,7 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
     writeFileSync(
       `${raw}.provenance.json`,
       JSON.stringify({
-        Scene: 'Assets/StationDesigner/Scenes/StationGame.unity',
+        Scene: 'Assets/StationDesigner/Scenes/StationGameLocal.unity',
         Configuration: 'Release',
         EditorVersionWithRevision: '6000.6.8f1 (237b6593792b)',
         InputsVerifiedAfterBuild: true,
@@ -289,7 +289,7 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
       verifyRawBuild(raw, {
         inputs: inputsAfterMutable,
         fixtures,
-        scene: 'StationGame',
+        scene: 'StationGameLocal',
         configuration: 'Release',
         editorVersionWithRevision: '6000.6.8f1 (237b6593792b)',
       }).ok,
@@ -304,7 +304,7 @@ test('start-unity CLI parser and raw build verifier detect input and output drif
     const stale = verifyRawBuild(raw, {
       inputs: changedInputs,
       fixtures,
-      scene: 'StationGame',
+      scene: 'StationGameLocal',
       configuration: 'Release',
       editorVersionWithRevision: '6000.6.8f1 (237b6593792b)',
     })

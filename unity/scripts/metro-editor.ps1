@@ -24,7 +24,7 @@ param(
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [string]$TestFilter = '',
     [string]$Demo = 'zoo',
-    [ValidateSet('StationGame', 'StationGameLocal')][string]$Scene = 'StationGame',
+    [ValidateSet('StationGameLocal')][string]$Scene = 'StationGameLocal',
     [int]$Ticks = 30,
     [int]$TimeoutSeconds = 300,
     [int]$LockTimeoutSeconds = 900,
@@ -36,7 +36,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($Help) {
     Write-Output 'metro-editor.ps1 OPERATION [-ProjectPath path] [-OutputDirectory path] [-Mode EditMode|PlayMode]'
-    Write-Output '                [-TestFilter name] [-Demo zoo|tanwei|tianhe] [-Scene StationGame|StationGameLocal]'
+    Write-Output '                [-TestFilter name] [-Demo zoo|tanwei|tianhe] [-Scene StationGameLocal]'
     Write-Output '                [-Ticks n] [-TimeoutSeconds n]'
     Write-Output '                [-LockTimeoutSeconds n] [-StopAfter] [-NoRepeat] [-Force] [-Help]'
     Write-Output ''
@@ -45,7 +45,7 @@ if ($Help) {
     Write-Output '  compile  Incremental refresh of the open Editor and its compiler diagnostics.'
     Write-Output '  test     A targeted EditMode or PlayMode run on the open Editor; results and counts are saved.'
     Write-Output '  smoke    Load the Zoo demo through StationGameHost, step fixed ticks, capture the Game view.'
-    Write-Output '           -Scene StationGameLocal uses the local passenger profile that binds the internal crowd.'
+    Write-Output '           -Scene StationGameLocal (the single scene) binds the internal crowd in interactive Play Mode.'
     Write-Output '  verify   compile + filtered test + smoke in one serialized operation.'
     Write-Output ''
     Write-Output 'Artifacts: .preview/unity/editor/<run-id>/ (override with -OutputDirectory).'

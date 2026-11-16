@@ -16,7 +16,7 @@ using UnityEngine;
 
 namespace Metro.Editor {
     /// <summary>
-    /// Live, repeatable verification for the generic StationGame scene.
+    /// Live, repeatable verification for the single StationGameLocal scene.
     ///
     /// The check uses the same path the browser does: one <c>station.openDemo</c>
     /// command through <see cref="StationGameHost.BrowserCommand"/>, the host's
@@ -30,7 +30,7 @@ namespace Metro.Editor {
     /// </summary>
     public static class StationGameSmoke {
         const string Group = "metro";
-        const string SceneName = "StationGame";
+        const string SceneName = "StationGameLocal";
 
         sealed class SmokeFailure : Exception {
             public SmokeFailure(string stage, string message) : base(message) { Stage = stage; }
@@ -59,9 +59,9 @@ namespace Metro.Editor {
             Effect = CommandEffect.Destructive, Tags = new[] { "tests" })]
         internal static async Task<ExitCode> StationSmoke(
             CommandContext cmd,
-            [CliArg("demo", "Demo id serialized in StationGame.unity: zoo, tanwei or tianhe.")] string demo = "zoo",
+            [CliArg("demo", "Demo id serialized in StationGameLocal.unity: zoo, tanwei or tianhe.")] string demo = "zoo",
             [CliArg("ticks", "Fixed simulation ticks to step after the live-frame check.")] int ticks = 30,
-            [CliArg("scene", "Scene the run must be in: StationGame (public profile) or StationGameLocal (local passenger profile).")] string sceneName = SceneName,
+            [CliArg("scene", "Scene the run must be in (the single project scene is StationGameLocal).")] string sceneName = SceneName,
             [CliArg("output-path", "Optional path for the JSON result, e.g. .preview/unity/editor/<run>/smoke-run1.json.")] string outputPath = null,
             [CliArg("timeout", "Seconds allowed for the check.")] double timeoutInSeconds = 120) {
             var result = new JObject {
@@ -90,7 +90,7 @@ namespace Metro.Editor {
 
                 var fixture = FindDemo(host, demo);
                 if (fixture == null)
-                    throw new SmokeFailure("fixture", "Demo '" + demo + "' is not serialized in StationGame.unity. Loaded demos: " + Join(host.DemoIds));
+                    throw new SmokeFailure("fixture", "Demo '" + demo + "' is not serialized in StationGameLocal.unity. Loaded demos: " + Join(host.DemoIds));
 
                 var fixtureText = fixture.text ?? "";
                 var fixtureHash = Hash(fixtureText);
