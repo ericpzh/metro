@@ -209,6 +209,34 @@ Audited directly against the current C#, TypeScript and test sources (`check-uni
   - `capture-ts-view.mjs` + `compare-captures.mjs` (`--samples`) → matched TypeScript reference screenshots & foreground/region RGB diff reports under `.preview/unity/`
   - `check-unity-compile.ps1` (`-Skip`, `-ExcludeFiles`, `-OutSuffix`) → fast `dotnet build` compile check across all four Unity assembly layers in `unity/Temp/acheck<OutSuffix>`
 
+## Retained edit and highlight contracts
+
+`ModulePlacement.Resolve` is the shared furniture ghost/body placement: rotate the
+rotation-zero catalogue inset around the cell centre, add a run translation only
+when the source did not bake it (shelves and extinguisher cabinets already did),
+and apply `EdgeDecorGlassShare`'s 0.15 m curtain clearance once. Keep the 312 source
+cases in `edge-placement-oracle.json` current with
+`node tools/unity-parity/record-edge-placement.mjs --check`.
+
+Hover, persistent selection and temporary ghosts have separate ownership in
+`StationPlacementPreview`; source meshes stay outside the pick registry. Erase
+surfaces use one retained mesh, cancel coincident quarter patches and use the
+section-aware depth-biased `StationHighlight.shader`. Run
+`StationHighlightRetentionTests` with `metro-unity.ps1 test -Graphics` for pixel
+coverage and depth occlusion. `metro-unity.ps1 catalogue` regenerates the serialized
+catalogue in an isolated project; validation includes offsets and cell counts.
+
+Local reads carry a weak parent and `StationIndexDelta`. Only a direct child of
+the committed read uses the typed classifier. Independent prefab-only furniture
+edits with an unchanged ground window stage in the same world; unsupported
+families and cell edits retain the full install. History stores guarded local
+targets inside its existing 40-frame bound and uses the same local whitelist for
+undo/redo. Preserve picker invalidation on document changes within a retained
+world. Do not mark functional furniture inert to avoid graph work. CPU timeline
+markers live in `StationEditProfiling`; managed stage/allocation sampling is opt-in
+through `StationEditTrace.Sample`. See the performance reference for measured
+limits and remaining structural work.
+
 ## Verification checklist before reporting done
 
 1. Every new tracked file under `unity/Assets/` **must** have a paired `.meta` file (`node tools/unity-assets/ensure-meta.mjs` if generated outside the Editor, which also enforces 2D `TextureImporter` blocks on images).

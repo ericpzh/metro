@@ -954,6 +954,7 @@ namespace Metro.App {
         /// renderers match the active level, toggles and section cut immediately.
         /// </summary>
         public static void RegisterWorld(StationViewRig rig, StationWorldView world) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.RegisterWorld");
             if (rig == null || world == null) return;
             RegisterWorld(rig.Visibility, world);
             rig.SyncSky();
@@ -965,6 +966,7 @@ namespace Metro.App {
         /// that construct a <see cref="StationVisibilityRegistry"/> without a scene host.
         /// </summary>
         public static void RegisterWorld(StationVisibilityRegistry visibility, StationWorldView world) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.RegisterWorld");
             if (visibility == null || world == null || world.Document == null) return;
             visibility.State.LevelBase = world.Document.LevelBase;
             visibility.State.StoreyHeight = world.Document.StoreyHeight;

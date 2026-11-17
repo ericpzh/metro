@@ -31,6 +31,7 @@ namespace Metro.App {
             public string Document;
             public string SourceId;
             public string Label;
+            public StationReadResult LocalTarget, LocalExpected;
         }
 
         static readonly List<HistoryFrame> undos = new List<HistoryFrame>();
@@ -265,8 +266,9 @@ namespace Metro.App {
             // committed document and index. Anything else falls through to the complete envelope
             // path below, with the identical document, revision and undo frame.
             var before = host.CommittedDocumentJson;
+            var beforeRead = host.Coordinator.CommittedRead;
             var local = host.TryApplyLocalModule(mode, draft, removeId, host.CurrentSourceId, out code);
-            if (local != null) return FinishLocalEdit(host, local, before, label, commandId, out result, out code);
+            if (local != null) return FinishLocalEdit(host, local, before, beforeRead, label, commandId, out result, out code);
             var saved = host.SaveDocument();
             if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
             var next = StationModuleEdits.Apply(saved, mode, draft, removeId, out code);
@@ -290,8 +292,9 @@ namespace Metro.App {
             // outside the whitelist (line adds, rail/sign/road rewrites, a record a load-time
             // repair owns) falls through to the complete envelope path with the same result.
             var before = host.CommittedDocumentJson;
+            var beforeRead = host.Coordinator.CommittedRead;
             var local = host.TryApplyLocalCells(patch, host.CurrentSourceId, out code);
-            if (local != null) return FinishLocalEdit(host, local, before, label, commandId, out result, out code);
+            if (local != null) return FinishLocalEdit(host, local, before, beforeRead, label, commandId, out result, out code);
             var saved = host.SaveDocument();
             if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
             var next = StationCellEdits.Apply(saved, patch, out code);
@@ -304,7 +307,7 @@ namespace Metro.App {
         /// accepted install pushes exactly one undo frame (the committed envelope text, which the
         /// host already holds) and clears redo — the same history rule as the full path.
         /// </summary>
-        static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, string before, string label,
+        static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, string before, StationReadResult beforeRead, string label,
             string commandId, out StationLoadResult result, out string code) {
             code = null;
             result = candidate;
@@ -313,7 +316,7 @@ namespace Metro.App {
                 return false;
             }
             LocalEdits++;
-            CommitHistory(host, before, label, commandId);
+            CommitHistory(host, before, label, commandId, beforeRead);
             return true;
         }
 
@@ -346,11 +349,11 @@ namespace Metro.App {
         /// belong to another station are dropped first, so a switch can never make one station's
         /// undo land on another's document.
         /// </summary>
-        static void CommitHistory(StationGameHost host, string before, string label, string commandId) {
+        static void CommitHistory(StationGameHost host, string before, string label, string commandId, StationReadResult localBefore = null) {
             if (!string.IsNullOrEmpty(commandId)) Remember(commandId);
             PruneHistory(host.CurrentSourceId);
             if (!string.IsNullOrEmpty(before)) {
-                undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "" });
+                undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "", LocalTarget = localBefore, LocalExpected = localBefore == null ? null : host.Coordinator.CommittedRead });
                 if (undos.Count > MaxHistory) undos.RemoveAt(0);
             }
             redos.Clear();
@@ -386,15 +389,22 @@ namespace Metro.App {
                 code = "no-history";
                 return false;
             }
-            var current = host.SaveDocument();
-            result = host.ApplyDocumentEdit(frame.Document, host.CurrentSourceId);
+            var currentRead = host.Coordinator.CommittedRead;
+            var current = host.CommittedDocumentJson;
+            bool localHistory = frame.LocalTarget != null && ReferenceEquals(frame.LocalExpected, currentRead);
+            if (localHistory) {
+                var read = StationLocalEdit.TryRestore(currentRead, frame.LocalTarget, host.CurrentSourceId, out code);
+                if (read != null) result = host.ApplyLocalHistory(read);
+            }
+            if (result == null) { localHistory = false; result = host.ApplyDocumentEdit(frame.Document, host.CurrentSourceId); }
             if (result == null || !result.Accepted) {
                 code = result?.Rejection?.Code ?? "rejected";
                 return false;
             }
             from.RemoveAt(from.Count - 1);
-            to.Add(new HistoryFrame { Document = current, SourceId = host.CurrentSourceId, Label = frame.Label });
+            to.Add(new HistoryFrame { Document = current, SourceId = host.CurrentSourceId, Label = frame.Label, LocalTarget = localHistory ? currentRead : null, LocalExpected = localHistory ? host.Coordinator.CommittedRead : null });
             if (to.Count > MaxHistory) to.RemoveAt(0);
+            code = null;
             return true;
         }
 
@@ -580,6 +590,9 @@ namespace Metro.App {
         public void Bind(StationGameHost host) {
             EnsurePreview();
             boundIndex = host != null ? host.Index : null;
+            if (StationEditSession.SelectionKind == "module" && boundIndex?.GetModule(StationEditSession.SelectionKey) == null)
+                StationEditSession.ClearSelection();
+            if (StationEditSession.SelectionKind != "module") Preview.ClearSelection();
             Preview.Bind(boundIndex);
         }
 

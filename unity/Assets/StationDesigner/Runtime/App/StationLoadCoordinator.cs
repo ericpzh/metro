@@ -231,20 +231,31 @@ namespace Metro.App {
             // An unclassifiable edit fails closed to Structural, the conservative rebuild.
             StationDocumentEditKind? editKind = null;
             if (isEdit && document != null) {
-                try { editKind = StationEditClassifier.Classify(document, read.Document); }
+                try { editKind = ReferenceEquals(read.LocalParent, committedRead) && read.LocalDelta != null
+                    ? StationEditClassifier.ClassifyLocal(committedRead, read)
+                    : StationEditClassifier.Classify(document, read.Document); }
                 catch (Exception) { editKind = StationDocumentEditKind.Structural; }
             }
-            var candidate = new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(id) ? read.Document.Name : id), renderers, Assets);
+            StationWorldView.LocalModuleStage localView = null;
+            try {
+                if (isEdit && world != null && ReferenceEquals(read.LocalParent, committedRead))
+                    localView = world.StageLocalModules(read.Document, read.Index, read.LocalDelta);
+            } catch (Exception error) {
+                return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
+                    "renderer", "local-modules", error.Message), revision);
+            }
+            bool retained = localView != null;
+            var candidate = retained ? world : new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(id) ? read.Document.Name : id), renderers, Assets);
             IStationSimulationHost stageTarget = simulation;
             try {
-                candidate.Build(read.Document, read.Index);
+                if (!retained) candidate.Build(read.Document, read.Index);
                 if (stageTarget != null) stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null, editKind);
             } catch (StationViewBuildException error) {
-                Abort(candidate, stageTarget);
+                AbortLocal(candidate, stageTarget, localView);
                 return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
                     "renderer", error.Role, error.Message), revision);
             } catch (Exception error) {
-                Abort(candidate, stageTarget);
+                AbortLocal(candidate, stageTarget, localView);
                 return StationLoadResult.Rejected(new StationRejection("simulation-failed", StationRecordKind.Document,
                     "simulation", "", error.Message), revision);
             }
@@ -252,7 +263,7 @@ namespace Metro.App {
             try {
                 if (stageTarget != null) stageTarget.CommitInstall();
             } catch (Exception error) {
-                Abort(candidate, stageTarget);
+                AbortLocal(candidate, stageTarget, localView);
                 return StationLoadResult.Rejected(new StationRejection("simulation-failed", StationRecordKind.Document,
                     "simulation", "", error.Message), revision);
             }
@@ -260,9 +271,12 @@ namespace Metro.App {
             var previous = world;
             var nextRevision = revision + 1;
             world = candidate;
-            world.Activate();
-            BeforePreviousDispose?.Invoke(previous);
-            previous?.Dispose();
+            if (retained) world.CommitLocalModules(localView);
+            else {
+                world.Activate();
+                BeforePreviousDispose?.Invoke(previous);
+                previous?.Dispose();
+            }
             document = read.Document;
             index = read.Index;
             committedRead = read;
@@ -282,6 +296,12 @@ namespace Metro.App {
                 Accepted = true, Revision = revision, Document = document, Index = index,
                 CameraBounds = cameraBounds, View = info.View, Diagnostics = info.Diagnostics,
             };
+        }
+
+        static void AbortLocal(StationWorldView candidate, IStationSimulationHost simulation, StationWorldView.LocalModuleStage local) {
+            if (local == null) { Abort(candidate, simulation); return; }
+            try { simulation?.AbortInstall(); } catch (Exception) { }
+            local.Dispose();
         }
 
         static void Abort(StationWorldView candidate, IStationSimulationHost stageTarget) {
@@ -406,6 +426,7 @@ namespace Metro.App {
 
         public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
             StationDocumentEditKind? editKind = null) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.StageInstall");
             pendingSession = null;
             pendingEdit = null;
             pendingDocument = document;
@@ -423,6 +444,7 @@ namespace Metro.App {
         }
 
         public void CommitInstall() {
+            using var editSample = StationEditProfiling.Measure("StationEdit.CommitInstall");
             if (pendingIsEdit && session != null) {
                 session.CommitDocumentEdit(pendingEdit);
                 committedDocument = pendingDocument;
@@ -784,7 +806,33 @@ namespace Metro.App {
             return InertModuleTypes.Contains(module.Type ?? "");
         }
 
-        public static StationDocumentEditKind Classify(StationDocument before, StationDocument after) {
+        public static StationDocumentEditKind ClassifyLocal(StationReadResult before, StationReadResult after) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.ClassifyLocal");
+            if (before == null || after == null || !ReferenceEquals(after.LocalParent, before) || after.LocalDelta == null)
+                return Classify(before?.Document, after?.Document);
+            if (!SameExtraRootTrees(before.Envelope, after.Envelope)) return StationDocumentEditKind.Structural;
+            var delta = after.LocalDelta;
+            if (delta.RemovedCells.Count == 0 && delta.ChangedCells.Count == 0) {
+                foreach (var id in delta.RemovedModules) {
+                    var module = before.Index.GetModule(id);
+                    if (module != null && !IsSimInertDecorModule(module)) return StationDocumentEditKind.Structural;
+                }
+                foreach (var module in delta.ChangedModules) {
+                    var old = before.Index.GetModule(module.Id);
+                    if (!IsSimInertDecorModule(module) || (old != null && !IsSimInertDecorModule(old))) return StationDocumentEditKind.Structural;
+                }
+                GroundWindow(before.Document, out var x0, out var y0, out var x1, out var y1);
+                GroundWindow(after.Document, out var nx0, out var ny0, out var nx1, out var ny1);
+                return x0 == nx0 && y0 == ny0 && x1 == nx1 && y1 == ny1
+                    ? StationDocumentEditKind.Cosmetic : StationDocumentEditKind.Structural;
+            }
+            return ClassifyCore(before.Document, after.Document, true);
+        }
+
+        public static StationDocumentEditKind Classify(StationDocument before, StationDocument after) =>
+            ClassifyCore(before, after, before != null && after != null && SameExtraRootFields(before.NormalizedJson, after.NormalizedJson));
+
+        static StationDocumentEditKind ClassifyCore(StationDocument before, StationDocument after, bool extraRootsEqual) {
             if (before == null || after == null) return StationDocumentEditKind.Structural;
             if (before.Seed != after.Seed ||
                 before.LevelBase != after.LevelBase ||
@@ -792,7 +840,7 @@ namespace Metro.App {
                 !string.Equals(before.City, after.City, StringComparison.Ordinal)) {
                 return StationDocumentEditKind.Structural;
             }
-            if (!SameExtraRootFields(before.NormalizedJson, after.NormalizedJson)) {
+            if (!extraRootsEqual) {
                 return StationDocumentEditKind.Structural;
             }
 
@@ -833,18 +881,23 @@ namespace Metro.App {
             try {
                 var a = string.IsNullOrEmpty(beforeJson) ? new JObject() : JObject.Parse(beforeJson);
                 var b = string.IsNullOrEmpty(afterJson) ? new JObject() : JObject.Parse(afterJson);
-                foreach (var prop in a.Properties()) {
-                    if (KnownRootKeys.Contains(prop.Name)) continue;
-                    if (!JToken.DeepEquals(prop.Value, b[prop.Name])) return false;
-                }
-                foreach (var prop in b.Properties()) {
-                    if (KnownRootKeys.Contains(prop.Name)) continue;
-                    if (!JToken.DeepEquals(a[prop.Name], prop.Value)) return false;
-                }
-                return true;
+                return SameExtraRootTrees(a, b);
             } catch (Exception) {
                 return false;
             }
+        }
+
+        static bool SameExtraRootTrees(JObject a, JObject b) {
+            if (a == null || b == null) return false;
+            foreach (var prop in a.Properties()) {
+                if (KnownRootKeys.Contains(prop.Name)) continue;
+                if (!JToken.DeepEquals(prop.Value, b[prop.Name])) return false;
+            }
+            foreach (var prop in b.Properties()) {
+                if (KnownRootKeys.Contains(prop.Name)) continue;
+                if (!JToken.DeepEquals(a[prop.Name], prop.Value)) return false;
+            }
+            return true;
         }
 
         static bool DayEquals(StationDayData a, StationDayData b) {
@@ -876,6 +929,7 @@ namespace Metro.App {
         }
 
         static bool SameCellExact(StationCellRecord a, StationCellRecord b) {
+            if (ReferenceEquals(a, b)) return true;
             if (a.X != b.X || a.Y != b.Y || a.Z != b.Z) return false;
             if (!string.Equals(a.Shape, b.Shape, StringComparison.Ordinal)) return false;
             if (!string.Equals(a.Fill, b.Fill, StringComparison.Ordinal)) return false;
@@ -960,6 +1014,7 @@ namespace Metro.App {
         }
 
         static bool SameModuleExact(StationModuleRecord a, StationModuleRecord b) {
+            if (ReferenceEquals(a, b)) return true;
             if (!string.Equals(a.Id, b.Id, StringComparison.Ordinal)) return false;
             if (!string.Equals(a.Type, b.Type, StringComparison.Ordinal)) return false;
             if (a.X != b.X || a.Y != b.Y || a.Z != b.Z || a.ExactZ != b.ExactZ) return false;
@@ -1036,7 +1091,7 @@ namespace Metro.App {
             return bx0 == ax0 && by0 == ay0 && bx1 == ax1 && by1 == ay1;
         }
 
-        static void GroundWindow(StationDocument doc, out int x0, out int y0, out int x1, out int y1) {
+        internal static void GroundWindow(StationDocument doc, out int x0, out int y0, out int x1, out int y1) {
             x0 = int.MaxValue; y0 = int.MaxValue; x1 = int.MinValue; y1 = int.MinValue;
             int ex0 = x0, ey0 = y0, ex1 = x1, ey1 = y1;
             void Eat(int x, int y) {

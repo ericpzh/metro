@@ -189,6 +189,7 @@ namespace Metro.App {
 
         sealed class Index {
             public StationWorldView World;
+            public StationDocument Document;
             public Body[] Bodies;
             public Dictionary<string, StationModuleRecord> Modules;
             public StationLevelGrid Grid;
@@ -689,7 +690,7 @@ namespace Metro.App {
         }
 
         static Body[] Bodies(StationWorldView world) {
-            if (index != null && index.World == world) return index.Bodies;
+            if (index != null && index.World == world && ReferenceEquals(index.Document, world.Document)) return index.Bodies;
             var modules = new Dictionary<string, StationModuleRecord>(StringComparer.Ordinal);
             if (world.Document != null) {
                 var records = world.Document.Modules;
@@ -757,7 +758,7 @@ namespace Metro.App {
                     });
                 }
             }
-            index = new Index {
+            index = new Index { Document = world.Document,
                 World = world, Bodies = bodies.ToArray(), Modules = modules, Grid = grid,
             };
             return index.Bodies;

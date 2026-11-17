@@ -70,7 +70,15 @@
         "dependency": "com.unity.cloud.gltfast@6.19.0"
       },
       "exportCommand": "node tools/unity-assets/export-bin.mjs .preview/unity/bin-proof/export",
-      "proofCommand": "./tools/unity-assets/prove-bench.ps1 -Asset bin"
+      "proofCommand": "./tools/unity-assets/prove-bench.ps1 -Asset bin",
+      "parameters": {
+        "edgeDepthMetres": 0.436,
+        "placementOffset": [
+          0.5,
+          0.782,
+          1
+        ]
+      }
     },
     {
       "id": "station.bench.seat-2",
@@ -8335,7 +8343,7 @@
         "min": [
           -0.440000057220459,
           -0.4875000001862645,
-          -3.5762786898541066e-9
+          -3.5762786898541066e-09
         ],
         "max": [
           2.440000057220459,
@@ -8969,7 +8977,7 @@
         "min": [
           -0.4749999940395355,
           -0.48750000018626455,
-          1.341104505225843e-9
+          1.341104505225843e-09
         ],
         "max": [
           2.4749999940395355,
@@ -12332,7 +12340,12 @@
         "edgeDepthMetres": 0.6,
         "marquee": "tvmMarquee 256x64",
         "mount": "floor, against the cell trailing edge",
-        "stationData": "empty station document"
+        "stationData": "empty station document",
+        "placementOffset": [
+          0.5,
+          0.7,
+          1
+        ]
       }
     },
     {
@@ -12434,7 +12447,12 @@
           "glass"
         ],
         "mount": "floor, against the cell trailing edge",
-        "stationData": "empty station document"
+        "stationData": "empty station document",
+        "placementOffset": [
+          0.5,
+          0.634,
+          1
+        ]
       }
     },
     {

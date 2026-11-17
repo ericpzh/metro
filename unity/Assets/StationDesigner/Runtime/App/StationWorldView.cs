@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Metro.Build;
+using Metro.App.Views;
 using Metro.View;
 using UnityEngine;
 
@@ -193,6 +194,7 @@ namespace Metro.App {
 
         /// <summary>Build every renderer into the staged root. Leaves the root inactive.</summary>
         public void Build(StationDocument stationDocument, StationIndex stationIndex) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.Build");
             if (IsBuilt) throw new InvalidOperationException("Station world is already built.");
             if (IsDisposed) throw new ObjectDisposedException(nameof(StationWorldView));
             document = stationDocument ?? throw new ArgumentNullException(nameof(stationDocument));
@@ -201,6 +203,7 @@ namespace Metro.App {
             foreach (var renderer in renderers) {
                 if (renderer == null) continue;
                 try {
+                    using var familySample = StationEditProfiling.Measure("StationEdit.View." + renderer.Role);
                     renderer.Build(context);
                 } catch (Exception error) {
                     throw new StationViewBuildException(renderer.Role ?? renderer.GetType().Name, error);
@@ -209,8 +212,96 @@ namespace Metro.App {
             IsBuilt = true;
         }
 
+        /// <summary>A staged, prefab-only local replacement. It owns no generated materials,
+        /// artwork or meshes. Unknown dependencies and all cell edits keep the full path.</summary>
+        public sealed class LocalModuleStage : IDisposable {
+            internal StationWorldView World;
+            internal StationDocument Document;
+            internal StationIndex Index;
+            internal readonly HashSet<string> Ids = new HashSet<string>(StringComparer.Ordinal);
+            internal readonly List<StationViewRecord> Records = new List<StationViewRecord>();
+            internal GameObject Root;
+            public void Dispose() {
+                if (Root == null) return;
+                DestroyView(Root); Root = null;
+            }
+        }
+
+        static bool IndependentPrefab(StationModuleRecord module) {
+            if (module == null) return true;
+            if (module.Facts.CeilingAnchored || StationFootprints.IsCeilingHung(module.Facts)) return false;
+            switch (module.Type) {
+                case "bin": case "tvm": case "vending": case "bench": case "shelf": case "extinguisher": return true;
+                default: return false;
+            }
+        }
+
+        public LocalModuleStage StageLocalModules(StationDocument next, StationIndex nextIndex, StationIndexDelta delta) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.StageLocalModules");
+            if (delta == null || delta.RemovedCells.Count > 0 || delta.ChangedCells.Count > 0 || Catalogue == null) return null;
+            StationEditClassifier.GroundWindow(document, out var x0, out var y0, out var x1, out var y1);
+            StationEditClassifier.GroundWindow(next, out var nx0, out var ny0, out var nx1, out var ny1);
+            if (x0 != nx0 || y0 != ny0 || x1 != nx1 || y1 != ny1) return null;
+            var ids = new HashSet<string>(delta.RemovedModules, StringComparer.Ordinal);
+            foreach (var module in delta.ChangedModules) ids.Add(module.Id);
+            if (ids.Count == 0) return null;
+            foreach (var id in ids) {
+                if (!IndependentPrefab(index.GetModule(id)) || !IndependentPrefab(nextIndex.GetModule(id))) return null;
+                // Refuse unexpected batched or generated records rather than deleting a shared view.
+                foreach (var record in records)
+                    if (record.SourceIds != null && Array.IndexOf(record.SourceIds, id) >= 0) return null;
+            }
+            var stage = new LocalModuleStage { World = this, Document = next, Index = nextIndex, Root = new GameObject("staged local modules") };
+            stage.Root.transform.SetParent(Root, false);
+            stage.Root.SetActive(false);
+            foreach (var id in ids) stage.Ids.Add(id);
+            try {
+                var facts = new ModuleFacts[next.ModuleCount];
+                for (int i = 0; i < facts.Length; i++) facts[i] = next.Modules[i].Facts;
+                foreach (var id in ids) {
+                    var module = nextIndex.GetModule(id);
+                    if (module == null) continue;
+                    var visual = ModuleViews.Resolve(module.Facts, facts, Catalogue);
+                    if (!visual.HasModel || !Catalogue.TryGet(visual.Key, out var entry) || entry.prefab == null || entry.kind == "generated") {
+                        stage.Dispose(); return null;
+                    }
+                    var go = UnityEngine.Object.Instantiate(entry.prefab, stage.Root.transform, false);
+                    go.name = id + " " + module.Type;
+                    go.transform.SetPositionAndRotation(ModulePlacement.Resolve(module, entry, nextIndex), ModulePlacement.Rotation(module.Rotation));
+                    stage.Records.Add(new StationViewRecord { Role = StationModuleClaims.Equipment, ModuleId = id, View = go,
+                        LevelMin = module.Z, LevelMax = module.Z + 1 });
+                }
+                return stage;
+            } catch { stage.Dispose(); throw; }
+        }
+
+        public void CommitLocalModules(LocalModuleStage stage) {
+            using var editSample = StationEditProfiling.Measure("StationEdit.CommitLocalModules");
+            if (stage == null || stage.World != this) throw new ArgumentException("Wrong local view stage.");
+            for (int i = records.Count - 1; i >= 0; i--) {
+                var record = records[i];
+                if (!stage.Ids.Contains(record.ModuleId)) continue;
+                if (record.View != null) { record.View.SetActive(false); DestroyView(record.View); }
+                roleCounts[record.Role]--;
+                records.RemoveAt(i);
+            }
+            document = stage.Document; index = stage.Index; modulesById = null;
+            foreach (var record in stage.Records) {
+                record.View.transform.SetParent(RoleRoot(record.Role), true);
+                Add(record);
+            }
+            foreach (var renderer in renderers)
+                if (renderer is StationEquipmentModuleRenderer equipment) equipment.AdoptLocalModules(this, stage.Ids, stage.Records);
+            stage.Dispose();
+        }
+
+        static void DestroyView(GameObject view) {
+            if (Application.isPlaying) UnityEngine.Object.Destroy(view); else UnityEngine.Object.DestroyImmediate(view);
+        }
+
         /// <summary>Activate the staged root. Called by the load transaction at commit.</summary>
         public void Activate() {
+            using var editSample = StationEditProfiling.Measure("StationEdit.Activate");
             if (IsDisposed) return;
             activated = true;
             rootObject.SetActive(true);
@@ -332,6 +423,7 @@ namespace Metro.App {
         }
 
         public void Dispose() {
+            using var editSample = StationEditProfiling.Measure("StationEdit.Dispose");
             if (IsDisposed) return;
             IsDisposed = true;
             for (int i = 0; i < renderers.Count; i++) {

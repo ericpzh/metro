@@ -716,6 +716,7 @@ namespace Metro.App {
                 // points at the surface it was resolved against.
                 if (IsCellTool(tool)) StationCellTool.Miss();
                 ClearCellLayer(editHost);
+                editHost.Preview?.ClearHover();
                 return false;
             }
             editHost.EnsureBound(host);
@@ -1085,6 +1086,7 @@ namespace Metro.App {
             in StationPickContext pickContext, StationPointerEvent pointer, string tool, StationSceneHit hit,
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
+            if (StationEditSession.HasCarried || (tool != "select" && tool != "pick" && tool != "move")) editHost.Preview?.ClearHover();
             if (StationPaintTool.HasGesture || string.Equals(tool, "paint", StringComparison.Ordinal)) {
                 StationPaintTool.Aim(host, hit, pointer);
                 StationPaintTool.Publish();
@@ -1199,7 +1201,8 @@ namespace Metro.App {
                 Hover(host, editHost, world, ray, pickContext, hit);
                 return;
             }
-            ClearPlan(host, editHost);
+            ClearPlan(host, editHost, keepHover: true);
+            editHost.Preview?.Hover(tool == "select" || tool == "pick" || tool == "move" ? hit.Module : null);
         }
 
         // --------------------------------------------------------------- selection
@@ -1595,15 +1598,16 @@ namespace Metro.App {
         /// time, so both layers go: a stale cell ghost must not survive a selection, a tool
         /// switch or a leave (plan 28 §1).
         /// </summary>
-        static void ClearPlan(StationGameHost host, StationEditHost editHost) {
+        static void ClearPlan(StationGameHost host, StationEditHost editHost, bool keepHover = false) {
             _ = host;
             StationEditSession.Plan = null;
+            if (!keepHover) editHost.Preview?.ClearHover();
             editHost.Preview?.ClearGhost();
             editHost.Preview?.ClearCells();
             StationEditSession.Ghost = null;
         }
 
-        static void ClearSelectionHighlight(StationEditHost editHost) => editHost.Preview?.ClearGhost();
+        static void ClearSelectionHighlight(StationEditHost editHost) => editHost.Preview?.ClearSelection();
 
         static void AfterCommit(StationGameHost host, StationEditHost editHost, string selectId) {
             editHost.Bind(host);

@@ -271,6 +271,7 @@ for (const spec of MODELS) {
 
   const edgeDepth = specValues.depth + (spec.variant === 'cooler' || spec.variant === 'cooler-dark' ? 0.12 : 0)
   const parameters = {
+    placementOffset,
     variant: spec.variant,
     heightMetres: specValues.height,
     depthMetres: specValues.depth,

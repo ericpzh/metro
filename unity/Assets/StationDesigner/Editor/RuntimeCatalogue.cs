@@ -249,6 +249,10 @@ namespace Metro.Editor {
                 if (!string.IsNullOrEmpty(row.prefab) && !entry.prefab) problems.Add($"{row.key}: prefab reference not resolved");
                 if ((entry.generator ?? "") != (row.generator ?? "")) problems.Add($"{row.key}: generator {entry.generator} != {row.generator}");
                 if ((entry.binding ?? "") != (row.binding ?? "")) problems.Add($"{row.key}: binding {entry.binding} != {row.binding}");
+                var expectedOffset = row.offset != null && row.offset.Length == 3
+                    ? new Vector3(row.offset[0], row.offset[1], row.offset[2]) : new Vector3(.5f, .5f, 1);
+                if ((entry.offset - expectedOffset).sqrMagnitude > 1e-10f) problems.Add($"{row.key}: placement offset {entry.offset} != {expectedOffset}");
+                if (entry.cells != row.cells) problems.Add($"{row.key}: cells {entry.cells} != {row.cells}");
                 if (entry.palette != row.palette) problems.Add($"{row.key}: palette flag");
                 if (entry.prefab && entry.key != row.key) problems.Add($"{row.key}: entry key mismatch");
             }

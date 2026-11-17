@@ -85,13 +85,16 @@ const DEFAULT_OFFSET = [0.5, 0.5, 1]
 // cells and insets 0.075 m on local −y instead of using a stored offset.
 function placementOf(record, key) {
   const parameters = record?.parameters ?? {}
+  if (Number.isFinite(parameters.edgeDepthMetres)) {
+    return { offset: [0.5, 1 - parameters.edgeDepthMetres / 2, 1], cells: parameters.cells }
+  }
   if (Array.isArray(parameters.placementOffset) && parameters.placementOffset.length === 3) {
     return { offset: parameters.placementOffset.map((value) => Number(value)), cells: parameters.cells }
   }
   const bench = Boolean(parameters.benchStyle) || /^bench-/.test(key)
   if (bench) {
     const cells = Number.isFinite(parameters.cells) ? parameters.cells : /-2$/.test(key) ? 2 : 1
-    return { offset: [0.5 + (cells - 1) / 2, 0.575, 1], cells }
+    return { offset: [0.5, 0.575, 1], cells }
   }
   return { offset: DEFAULT_OFFSET, cells: parameters.cells }
 }

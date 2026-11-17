@@ -34,6 +34,20 @@ namespace Metro.App {
         /// <summary>The cell tool's own ghost objects, cleared independently of a module ghost.</summary>
         readonly List<GameObject> cellOwned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
+        readonly List<GameObject> selectedOwned = new List<GameObject>();
+        readonly List<GameObject> hoverOwned = new List<GameObject>();
+        sealed class SurfaceLink { public string Id; public MeshRenderer Source; public GameObject Overlay; }
+        readonly List<SurfaceLink> surfaceLinks = new List<SurfaceLink>();
+        readonly List<Mesh> overlayMeshes = new List<Mesh>();
+        string selectedId = "", hoveredId = "", carriedId = "";
+        Material selectedFill, hoverFill;
+        public string SelectedId => selectedId;
+        public string HoveredId => hoveredId;
+        GameObject eraseBatch;
+        Mesh eraseMesh;
+        readonly List<Vector3> eraseVertices = new List<Vector3>();
+        readonly List<int> eraseTriangles = new List<int>();
+        readonly Dictionary<(Vector3, Vector3), int> eraseFaces = new Dictionary<(Vector3, Vector3), int>();
         Mesh boxMesh;
         Mesh lineMesh;
         Mesh cellMesh;
@@ -43,6 +57,7 @@ namespace Metro.App {
         Material okLineMaterial;
         Material badLineMaterial;
         Material selectMaterial;
+        Material eraseMaterial;
         Material cellOkMaterial;
         Material cellBadMaterial;
         Material cellRingMaterial;
@@ -59,6 +74,9 @@ namespace Metro.App {
             RestoreCarried();
             ClearGhost();
             ClearCells();
+            ClearHover();
+            ClearLayer(selectedOwned);
+            Select(index?.GetModule(selectedId));
         }
 
         /// <summary>True while a committed document is bound; a draw before this is a no-op.</summary>
@@ -133,7 +151,12 @@ namespace Metro.App {
                 ? new Color(1f, 0.36f, 0.24f, 0.36f)
                 : new Color(0.09f, 0.55f, 1f, 0.34f);
             var ring = new HashSet<StationCellKey>(preview.AutoWalls);
+            if (removing) {
+                if (eraseMaterial == null) eraseMaterial = CreateUnlitTransparent("edit erase surfaces", okColour);
+                BuildEraseBatch(preview.Check.Accepted, eraseMaterial);
+            }
             foreach (var cell in preview.Check.Accepted) {
+                if (removing) continue;
                 if (ring.Contains(cell)) {
                     // The 生成墙壁 ring reads as generated: the same blue, fainter.
                     BuildBox(CellBounds(cell, StationCellShape.Full), RingMaterial(), cellOwned);
@@ -186,6 +209,7 @@ namespace Metro.App {
 
         /// <summary>Drop the cell ghost (pointer leave, a tool change, a commit).</summary>
         public void ClearCells() {
+            if (eraseBatch != null) eraseBatch.SetActive(false);
             foreach (var go in cellOwned) Destroy(go);
             cellOwned.Clear();
             StationEditSession.Ghost = null;
@@ -201,12 +225,13 @@ namespace Metro.App {
             int count = 0, visible = 0;
             CountLayer(cellOwned, ref count, ref visible);
             CountLayer(owned, ref count, ref visible);
+            if (eraseBatch != null && eraseBatch.activeSelf) { count++; if (eraseBatch.GetComponent<Renderer>().isVisible) visible++; }
             return new Newtonsoft.Json.Linq.JObject {
                 ["kind"] = kind ?? "",
                 ["bound"] = bound,
                 ["count"] = count,
                 ["visible"] = visible,
-                ["cells"] = cellOwned.Count,
+                ["cells"] = cellOwned.Count + (eraseBatch != null && eraseBatch.activeSelf ? 1 : 0),
                 ["ghosts"] = owned.Count,
             };
         }
@@ -327,6 +352,9 @@ namespace Metro.App {
         /// </summary>
         public void HideCarried(string moduleId) {
             RestoreCarried();
+            carriedId = moduleId ?? "";
+            ClearHover();
+            ClearLayer(selectedOwned);
             if (string.IsNullOrEmpty(moduleId)) return;
             var world = CurrentWorld();
             if (world == null) return;
@@ -343,6 +371,8 @@ namespace Metro.App {
                 if (entry.View != null) entry.View.SetActive(entry.Active);
             }
             hidden.Clear();
+            carriedId = "";
+            if (selectedId.Length > 0) Select(index?.GetModule(selectedId));
         }
 
         /// <summary>
@@ -359,10 +389,122 @@ namespace Metro.App {
         ///   0.06 m and draws a line box, and the module's own group is what it measures.
         /// </summary>
         public void Select(StationModuleRecord module) {
+            ClearLayer(selectedOwned);
+            selectedId = module?.Id ?? "";
             var world = CurrentWorld();
             if (world == null || module == null) return;
-            if (!TrySelectionBounds(world, module, out var bounds)) return;
-            BuildLineBox(bounds, SelectionMaterial());
+            if (TrySelectionBounds(world, module, out var bounds)) BuildLineBox(bounds, SelectionMaterial(), selectedOwned);
+            BuildSurfaceOverlay(module.Id, selectedOwned, FillMaterial(false));
+            if (hoveredId == selectedId) ClearLayer(hoverOwned);
+        }
+
+        public void ClearSelection() { selectedId = ""; ClearLayer(selectedOwned); }
+        public void ClearHover() { hoveredId = ""; ClearLayer(hoverOwned); }
+
+        public void Hover(StationModuleRecord module) {
+            var id = module?.Id ?? "";
+            if (id == hoveredId) return;
+            ClearHover();
+            hoveredId = id;
+            if (id.Length > 0 && id != selectedId && id != carriedId) BuildSurfaceOverlay(id, hoverOwned, FillMaterial(true));
+        }
+
+        Material FillMaterial(bool hover) {
+            if (hover && hoverFill != null) return hoverFill;
+            if (!hover && selectedFill != null) return selectedFill;
+            var material = CreateUnlitTransparent(hover ? "edit hover fill" : "edit selected fill",
+                new Color(0x16 / 255f, 0x8c / 255f, 1, hover ? .28f : .16f));
+            if (hover) hoverFill = material; else selectedFill = material;
+            return material;
+        }
+
+        void ClearLayer(List<GameObject> layer) {
+            foreach (var go in layer) {
+                if (go != null) {
+                    go.SetActive(false);
+                    var mesh = go.GetComponent<MeshFilter>()?.sharedMesh;
+                    if (mesh != null && overlayMeshes.Remove(mesh)) Destroy(mesh);
+                }
+                Destroy(go);
+            }
+            surfaceLinks.RemoveAll(link => link.Overlay == null || layer.Contains(link.Overlay));
+            layer.Clear();
+        }
+
+        // Copy only the draw binding. Source meshes and base materials remain untouched; no
+        // overlay is registered with the scene picker. Batched paving uses its authored spans.
+        void BuildSurfaceOverlay(string id, List<GameObject> into, Material material) {
+            var world = CurrentWorld();
+            if (world == null) return;
+            foreach (var record in world.Records) {
+                if (record.View == null) continue;
+                int sourceIndex = record.SourceIds == null ? -1 : Array.IndexOf(record.SourceIds, id);
+                if (record.ModuleId != id && sourceIndex < 0) continue;
+                foreach (var filter in record.View.GetComponentsInChildren<MeshFilter>(true)) {
+                    var source = filter.GetComponent<MeshRenderer>();
+                    var mesh = filter.sharedMesh;
+                    if (!source || !mesh) continue;
+                    if (record.ModuleId != id) {
+                        if (record.SourceSpans == null || mesh.subMeshCount != 1 || mesh.GetTopology(0) != MeshTopology.Triangles) continue;
+                        var indices = mesh.GetTriangles(0);
+                        var selected = new List<int>();
+                        foreach (var span in record.SourceSpans) {
+                            if (span.SourceIndex != sourceIndex) continue;
+                            for (int i = span.StartTriangle * 3; i < (span.StartTriangle + span.TriangleCount) * 3; i++) selected.Add(indices[i]);
+                        }
+                        if (selected.Count == 0) continue;
+                        var part = new Mesh { name = "highlight source " + id, indexFormat = mesh.indexFormat };
+                        part.vertices = mesh.vertices;
+                        part.SetTriangles(selected, 0);
+                        part.RecalculateBounds();
+                        overlayMeshes.Add(part);
+                        mesh = part;
+                    }
+                    var go = new GameObject("surface highlight " + id);
+                    go.transform.SetParent(transform, false);
+                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    var renderer = go.AddComponent<MeshRenderer>();
+                    var materials = new Material[mesh.subMeshCount];
+                    for (int i = 0; i < materials.Length; i++) materials[i] = material;
+                    renderer.sharedMaterials = materials;
+                    renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    renderer.receiveShadows = false;
+                    into.Add(go);
+                    surfaceLinks.Add(new SurfaceLink { Id = id, Source = source, Overlay = go });
+                }
+            }
+            RefreshSurfaceLinks();
+        }
+
+        void LateUpdate() {
+            RefreshSurfaceLinks();
+            var visibility = StationViewFeature.Active?.Visibility;
+            if (visibility == null) return;
+            var normal = StationCameraSpace.ToWorld(visibility.Section.Normal);
+            var point = StationCameraSpace.ToWorld(visibility.Section.Point);
+            var plane = new Vector4(normal.x, normal.y, normal.z, -Vector3.Dot(normal, point));
+            ApplyClip(selectedFill, visibility.SectionClipping, plane); ApplyClip(hoverFill, visibility.SectionClipping, plane);
+            ApplyClip(cellOkMaterial, visibility.SectionClipping, plane); ApplyClip(cellBadMaterial, visibility.SectionClipping, plane);
+            ApplyClip(cellRingMaterial, visibility.SectionClipping, plane);
+            ApplyClip(eraseMaterial, visibility.SectionClipping, plane);
+        }
+        static void ApplyClip(Material material, bool clip, Vector4 plane) {
+            if (material == null || !material.HasProperty("_SectionPlane")) return;
+            material.SetVector("_SectionPlane", plane); material.SetFloat("_SectionClip", clip ? 1 : 0);
+        }
+        void RefreshSurfaceLinks() {
+            bool selectedVisible = false;
+            foreach (var link in surfaceLinks) {
+                if (!link.Overlay) continue;
+                bool visible = link.Source && link.Source.enabled && link.Source.gameObject.activeInHierarchy;
+                link.Overlay.SetActive(visible);
+                if (visible && link.Id == selectedId) selectedVisible = true;
+                if (!visible) continue;
+                var source = link.Source.transform;
+                link.Overlay.transform.SetPositionAndRotation(source.position, source.rotation);
+                link.Overlay.transform.localScale = source.lossyScale;
+            }
+            foreach (var go in selectedOwned) if (go != null && go.name == "selection box") go.SetActive(selectedVisible);
         }
 
         /// <summary>
@@ -420,6 +562,13 @@ namespace Metro.App {
         void OnDestroy() {
             ClearGhost();
             ClearCells();
+            ClearLayer(selectedOwned);
+            ClearHover();
+            foreach (var mesh in overlayMeshes) Destroy(mesh);
+            if (selectedFill) Destroy(selectedFill);
+            if (hoverFill) Destroy(hoverFill);
+            if (eraseMesh != null) Destroy(eraseMesh);
+            if (eraseBatch != null) Destroy(eraseBatch);
             if (boxMesh != null) Destroy(boxMesh);
             if (lineMesh != null) Destroy(lineMesh);
             if (cellMesh != null) Destroy(cellMesh);
@@ -430,6 +579,7 @@ namespace Metro.App {
             if (okLineMaterial != null) Destroy(okLineMaterial);
             if (badLineMaterial != null) Destroy(badLineMaterial);
             if (selectMaterial != null) Destroy(selectMaterial);
+            if (eraseMaterial != null) Destroy(eraseMaterial);
             if (cellOkMaterial != null) Destroy(cellOkMaterial);
             if (cellBadMaterial != null) Destroy(cellBadMaterial);
             if (cellRingMaterial != null) Destroy(cellRingMaterial);
@@ -467,7 +617,7 @@ namespace Metro.App {
             var go = Instantiate(entry.prefab, transform, false);
             go.name = "ghost " + draft.Id + " " + draft.Type;
             go.transform.SetPositionAndRotation(
-                ModulePlacement.Position(facts, entry) + StationCoordinates.Point(ModulePlacement.RunCentre(facts)),
+                ModulePlacement.Resolve(record, entry, index),
                 ModulePlacement.Rotation(facts.Rotation));
             bool ok = colour.r < 0.5f;
             var material = Tinted(ok, colour);
@@ -576,6 +726,63 @@ namespace Metro.App {
             return new Bounds((min + max) * 0.5f, max - min);
         }
 
+        /// <summary>One retained mesh for erase surfaces. Quarter patches cancel shared faces,
+        /// including partial contacts between full, half and corner cells. Cut wedges keep their
+        /// own sloped faces. Depth bias belongs to the highlight shader, so bounds stay exact.</summary>
+        void BuildEraseBatch(IReadOnlyList<StationCellKey> cells, Material material) {
+            eraseVertices.Clear(); eraseTriangles.Clear(); eraseFaces.Clear();
+            foreach (var cell in cells) {
+                var record = index.GetCell(cell);
+                var shape = record == null ? StationCellShape.Full : StationCellRules.ShapeOf(record.Tags);
+                if (shape.Kind == StationShapeKind.Triangle) {
+                    var wedge = WedgeMesh(shape.Side, shape.Triangle == StationTriangleKind.Lower);
+                    int start = eraseVertices.Count;
+                    var origin = StationCoordinates.Point(new Vector3(cell.X, cell.Y, cell.Z));
+                    foreach (var vertex in wedge.vertices) eraseVertices.Add(origin + vertex);
+                    foreach (var triangle in wedge.triangles) eraseTriangles.Add(start + triangle);
+                    continue;
+                }
+                var rect = StationCellRules.Bounds(shape);
+                for (double x = rect.X0; x < rect.X1; x += .5)
+                    for (double y = rect.Y0; y < rect.Y1; y += .5) {
+                        var a = StationCoordinates.Point(new Vector3(cell.X + (float)x, cell.Y + (float)y, cell.Z));
+                        var b = a + new Vector3(.5f, 1, .5f);
+                        int first = eraseVertices.Count, firstIndex = eraseTriangles.Count;
+                        BoxFaces.AppendAxisAligned(eraseVertices, eraseTriangles, (a + b) / 2, b - a);
+                        for (int face = 0; face < 6; face++) {
+                            var min = eraseVertices[first + face * 4]; var max = min;
+                            for (int v = 1; v < 4; v++) {
+                                min = Vector3.Min(min, eraseVertices[first + face * 4 + v]);
+                                max = Vector3.Max(max, eraseVertices[first + face * 4 + v]);
+                            }
+                            var key = (min, max);
+                            int faceIndex = firstIndex + face * 6;
+                            if (eraseFaces.TryGetValue(key, out var previous)) {
+                                for (int i = 0; i < 6; i++) { eraseTriangles[previous + i] = -1; eraseTriangles[faceIndex + i] = -1; }
+                                eraseFaces.Remove(key);
+                            } else eraseFaces[key] = faceIndex;
+                        }
+                    }
+            }
+            eraseTriangles.RemoveAll(i => i < 0);
+            if (eraseMesh == null) {
+                eraseMesh = new Mesh { name = "retained erase surfaces", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+                eraseMesh.MarkDynamic();
+                eraseBatch = new GameObject("erase surface batch");
+                eraseBatch.transform.SetParent(transform, false);
+                eraseBatch.AddComponent<MeshFilter>().sharedMesh = eraseMesh;
+                var renderer = eraseBatch.AddComponent<MeshRenderer>();
+                renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+            }
+            eraseMesh.Clear();
+            eraseMesh.SetVertices(eraseVertices);
+            eraseMesh.SetTriangles(eraseTriangles, 0);
+            eraseMesh.RecalculateBounds();
+            eraseBatch.GetComponent<MeshRenderer>().sharedMaterial = material;
+            eraseBatch.SetActive(eraseTriangles.Count > 0);
+        }
+
         /// <summary>One cell's ghost: the whole block, a cut's thin panel, or a 三角's wedge.</summary>
         void BuildCellGhost(StationCellKey cell, StationCellShape shape, Material material, List<GameObject> into) {
             if (shape.Kind == StationShapeKind.Triangle) {
@@ -632,8 +839,8 @@ namespace Metro.App {
                 }
             }
             var indices = new List<int>(24);
-            indices.AddRange(new[] { 0, 2, 4, 0, 4, 2 });
-            indices.AddRange(new[] { 1, 5, 3, 1, 3, 5 });
+            indices.AddRange(new[] { 0, 2, 4 });
+            indices.AddRange(new[] { 1, 5, 3 });
             for (int i = 0; i < 3; i++) {
                 int a = i * 2, b = ((i + 1) % 3) * 2;
                 indices.AddRange(new[] { a, b, b + 1, a, b + 1, a + 1 });
@@ -673,7 +880,7 @@ namespace Metro.App {
         }
 
         static Material CreateUnlitTransparent(string name, Color colour) {
-            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
+            var shader = Shader.Find("Metro/Station Highlight") ?? Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
                 ?? Shader.Find("Universal Render Pipeline/Lit");
             var material = new Material(shader) { name = name };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
@@ -727,7 +934,7 @@ namespace Metro.App {
         Material TintedUnlit(bool ok, Color colour) {
             if (ok && okLineMaterial != null) return okLineMaterial;
             if (!ok && badLineMaterial != null) return badLineMaterial;
-            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
+            var shader = Shader.Find("Metro/Station Highlight") ?? Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
                 ?? Shader.Find("Universal Render Pipeline/Lit");
             var material = new Material(shader) { name = ok ? "edit ghost line" : "edit refusal line" };
             if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);

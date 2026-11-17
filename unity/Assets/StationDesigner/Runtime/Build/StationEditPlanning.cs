@@ -1434,7 +1434,7 @@ namespace Metro.Build {
         static bool IsFloorSticker(string type) => type == "tactile" || type == "floor-mark";
 
         /// <summary>`isEdgeDecor`: floor decor drawn against its tile's trailing edge.</summary>
-        static bool IsEdgeDecor(string type) =>
+        public static bool IsEdgeDecor(string type) =>
             type == "bin" || type == "extinguisher" || type == "shelf" || type == "tvm" || type == "vending";
 
         /// <summary>`curtainDoorShare`: a 门 fitted into a floor-standing 玻璃幕墙.</summary>
@@ -1458,7 +1458,7 @@ namespace Metro.Build {
         /// `edgeDecorCurtainShare`: a floor decor piece backed against a floor-standing curtain in
         /// the same tile  same storey, opposite wall sides, overlapping the curtain's run.
         /// </summary>
-        static bool EdgeDecorGlassShare(StationModuleRecord a, StationModuleRecord b) {
+        public static bool EdgeDecorGlassShare(StationModuleRecord a, StationModuleRecord b) {
             var glass = string.Equals(a.Type, "glass", StringComparison.Ordinal) ? a
                 : string.Equals(b.Type, "glass", StringComparison.Ordinal) ? b : null;
             var decor = !string.Equals(a.Type, "glass", StringComparison.Ordinal) && IsEdgeDecor(a.Type) ? a

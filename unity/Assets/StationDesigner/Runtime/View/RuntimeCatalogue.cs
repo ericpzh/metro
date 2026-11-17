@@ -27,7 +27,7 @@ namespace Metro.View {
             public string city = "";
             public string part = "";
             public string status = "";
-            /// <summary>Source group pivot measured from the cell corner: plan x, plan y, elevation.</summary>
+            /// <summary>Rotation-zero source group pivot from the cell corner: plan x, plan y, elevation.</summary>
             public Vector3 offset = new Vector3(.5f, .5f, 1);
             public int cells;
             public bool palette;

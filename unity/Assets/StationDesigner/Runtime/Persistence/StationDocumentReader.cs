@@ -48,6 +48,12 @@ namespace Metro.Persistence {
         /// for a result a caller built without the reader.
         /// </summary>
         public JObject Envelope { get; }
+        WeakReference<StationReadResult> localParent;
+        public StationReadResult LocalParent {
+            get => localParent != null && localParent.TryGetTarget(out var parent) ? parent : null;
+            internal set => localParent = value == null ? null : new WeakReference<StationReadResult>(value);
+        }
+        public StationIndexDelta LocalDelta { get; internal set; }
         /// <summary>
         /// What the reader/repairs said (not the index's own diagnostics). A local edit carries
         /// these across unchanged: it does not re-run the load-time repairs, because a

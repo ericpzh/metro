@@ -25,12 +25,25 @@ namespace Metro.View {
         public static float Yaw(int rotation) => StationCoordinates.Yaw(rotation);
 
         /// <summary>
-        /// World pivot of a module for a catalogue entry offset. The offset is in
-        /// document axes (plan x, plan y, elevation), exactly what the catalogue
-        /// records, so it is added in document axes before the one conversion.
+        /// World pivot from a rotation-zero source offset. Rotate the local displacement
+        /// around the canonical cell centre, then convert document axes exactly once.
         /// </summary>
-        public static Vector3 Position(ModuleFacts module, Vector3 offset) =>
-            StationCoordinates.Point(new Vector3(module.X + offset.x, module.Y + offset.y, module.Z + offset.z));
+        public static Vector3 Position(ModuleFacts module, Vector3 offset) {
+            var local = Rotation(module.Rotation) * new Vector3(offset.x - .5f, 0, offset.y - .5f);
+            return new Vector3(module.X + .5f + local.x, module.Z + offset.z, module.Y + .5f + local.z);
+        }
+
+        /// <summary>Canonical pivot plus the rotated run and document-dependent curtain clearance.</summary>
+        public static Vector3 Resolve(StationModuleRecord module, RuntimeCatalogue.Entry entry, StationIndex index) {
+            var position = Position(module.Facts, entry) + StationCoordinates.Point(RunCentre(module.Facts));
+            if (index == null || !StationModulePlacement.IsEdgeDecor(module.Type)) return position;
+            foreach (var other in index.Document.Modules) {
+                if (other.Id == module.Id || other.Type != "glass" || !StationModulePlacement.EdgeDecorGlassShare(module, other)) continue;
+                StationFootprints.WallSide(module.Rotation, out var x, out var y);
+                return position + new Vector3(x * .15f, 0, y * .15f);
+            }
+            return position;
+        }
 
         public static Vector3 Position(ModuleFacts module, RuntimeCatalogue.Entry entry) =>
             Position(module, entry?.offset ?? new Vector3(.5f, .5f, 1));
@@ -42,7 +55,9 @@ namespace Metro.View {
         /// like every offset here; callers add it before the one world conversion.
         /// </summary>
         public static Vector3 RunCentre(ModuleFacts module) {
-            if (module == null || string.Equals(module.Type, "court", StringComparison.Ordinal)) return Vector3.zero;
+            // ShelfModel and ExtinguisherModel bake the run displacement into their children;
+            // BenchModel keeps the body centred and moves the group instead.
+            if (module == null || module.Type == "court" || module.Type == "shelf" || module.Type == "extinguisher") return Vector3.zero;
             float halfWidth = Mathf.Max(0, module.Width - 1) * 0.5f;
             float halfDepth = Mathf.Max(0, module.Depth - 1) * 0.5f;
             if (halfWidth <= 0f && halfDepth <= 0f) return Vector3.zero;

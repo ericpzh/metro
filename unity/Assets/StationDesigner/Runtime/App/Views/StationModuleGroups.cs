@@ -221,7 +221,7 @@ namespace Metro.App.Views {
             var parent = context.RoleRoot(Role);
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
-            go.transform.SetPositionAndRotation(Pivot(module, entry), ModulePlacement.Rotation(module.Rotation));
+            go.transform.SetPositionAndRotation(ModulePlacement.Resolve(context.Index.GetModule(module.Id), entry, context.Index), ModulePlacement.Rotation(module.Rotation));
             context.World.RegisterModule(Role, module.Id, go, part, null, module.Z, module.Z + 1);
             var built = new BuiltModule { ModuleId = module.Id, Type = module.Type, View = go, Key = key };
             state.Modules.Add(built);
@@ -355,6 +355,18 @@ namespace Metro.App.Views {
             }
             bounds = new StationBox(min.x, min.y, min.z, max.x, max.y, max.z);
             return !bounds.IsEmpty;
+        }
+
+        internal void AdoptLocalModules(StationWorldView world, ISet<string> ids, IReadOnlyList<StationViewRecord> records) {
+            foreach (var state in states) {
+                if (state.World != world) continue;
+                state.Modules.RemoveAll(module => ids.Contains(module.ModuleId));
+                foreach (var record in records) {
+                    var module = world.Index.GetModule(record.ModuleId);
+                    state.Modules.Add(new BuiltModule { ModuleId = record.ModuleId, Type = module.Type, View = record.View });
+                }
+                state.Count = state.Modules.Count;
+            }
         }
 
         /// <summary>Drop the states of worlds that are already disposed; never a live one.</summary>

@@ -83,6 +83,7 @@ namespace Metro.App {
         public IReadOnlyList<IStationStateContributor> Contributors => contributors;
 
         void Awake() {
+            StationEditProfiling.Enabled = true;
             coordinator = new StationLoadCoordinator(transform) {
                 Assets = new StationViewAssets { Catalogue = catalogue, TrainCatalogue = trainCatalogue, Shader = stationShader, Font = font },
             };
@@ -394,7 +395,14 @@ namespace Metro.App {
 
         // ------------------------------------------------------------- snapshots
 
+        internal StationLoadResult ApplyLocalHistory(StationReadResult read) {
+            editingDocument = true;
+            try { return coordinator.InstallLocalEdit(read, CurrentSourceId); }
+            finally { editingDocument = false; }
+        }
+
         public JObject BuildCommitPayload() {
+            using var editSample = StationEditProfiling.Measure("StationEdit.BuildCommitPayload");
             var payload = new JObject {
                 ["document"] = Document?.NormalizedJson ?? "",
                 ["documentRevision"] = CurrentRevision,

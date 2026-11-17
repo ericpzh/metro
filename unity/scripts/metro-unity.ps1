@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Position=0)][ValidateSet('doctor','bootstrap','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
+    [Parameter(Position=0)][ValidateSet('doctor','bootstrap','catalogue','test','build-web','import-assets','pack-web','smoke-web')][string]$Task = 'doctor',
     [ValidateSet('EditMode','PlayMode')][string]$Mode = 'EditMode',
     [ValidateSet('Development','Release')][string]$Configuration = 'Development',
     [ValidateSet('StationGameLocal')][string]$Scene = 'StationGameLocal',
@@ -10,12 +10,13 @@ param(
     [string]$Manifest,
     [string]$TestFilter = '',
     [int]$TimeoutSeconds = 1800,
+    [switch]$Graphics,
     [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
 if ($Help) {
-    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Configuration Development|Release] [-Scene StationGameLocal] [-Help]'
-    Write-Output 'Tasks: doctor, bootstrap, test, build-web, pack-web, smoke-web, import-assets.'
+    Write-Output 'metro-unity.ps1 TASK [-ProjectPath path] [-OutputDirectory path] [-Manifest path] [-TimeoutSeconds n] [-Mode EditMode|PlayMode] [-Graphics] [-Configuration Development|Release] [-Scene StationGameLocal] [-Help]'
+    Write-Output 'Tasks: doctor, bootstrap, catalogue, test, build-web, pack-web, smoke-web, import-assets.'
     Write-Output 'METRO_UNITY_EDITOR overrides the pinned Editor path; METRO_WRANGLER overrides the Wrangler JS entry for smoke-web.'
     exit 0
 }
@@ -61,8 +62,10 @@ if (!(Test-Path -LiteralPath $recipes) -and (Test-Path -LiteralPath (Join-Path $
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $headAtStart = (& git -C $repo rev-parse HEAD).Trim()
 $log = Join-Path $out "$Task-$Mode-$Configuration.log"
-$argsList = @('-batchmode','-nographics','-projectPath',('"'+$project+'"'),'-logFile',('"'+$log+'"'))
+$argsList = @('-batchmode','-projectPath',('"'+$project+'"'),'-logFile',('"'+$log+'"'))
+if (!$Graphics) { $argsList += '-nographics' }
 switch ($Task) {
+    'catalogue' { $argsList += @('-quit','-executeMethod','Metro.Editor.RuntimeCatalogue.Generate') }
     'bootstrap' { $method = 'Metro.Editor.StationGameScene.Generate'; $argsList += @('-quit','-executeMethod',$method) }
     'import-assets' {
         if (!$Manifest) { throw 'import-assets requires -Manifest.' }

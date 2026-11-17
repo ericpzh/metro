@@ -476,6 +476,7 @@ for (const spec of MODELS) {
     }
     : null
   const parameters = {
+    placementOffset: placement,
     mount: HUNG.has(spec.key) ? 'hung from the storey ceiling' : 'standing on the floor',
     ceilingHeightMetres: HUNG.has(spec.key) ? CEILING : 0,
     facing: 'local -y',

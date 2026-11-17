@@ -107,6 +107,7 @@ const manifest = {
   provenance: 'Repository procedural double-stream bin geometry, palette, and canvas label generator',
   units: 'metres',
   placementOffset,
+  parameters: { placementOffset, edgeDepthMetres: 0.436 },
   min: bounds.min.toArray(),
   max: bounds.max.toArray(),
   anchors,

@@ -42,6 +42,7 @@ namespace Metro.Persistence {
         /// </summary>
         public static StationReadResult TryApplyCells(StationReadResult committed, StationCellPatch patch,
             string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyCells");
             if (!TryPatchEnvelope(committed, patch, out var envelope, out code)) return null;
             return TryProject(committed, envelope, patch, sourceId, out code);
         }
@@ -53,6 +54,7 @@ namespace Metro.Persistence {
         /// </summary>
         public static bool TryPatchEnvelope(StationReadResult committed, StationCellPatch patch,
             out JObject envelope, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryPatchEnvelope");
             code = null;
             envelope = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return false; }
@@ -70,6 +72,7 @@ namespace Metro.Persistence {
         /// </summary>
         public static StationReadResult TryProject(StationReadResult committed, JObject envelope,
             StationCellPatch patch, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryProject");
             code = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
             if (patch == null || envelope == null) { code = "no-document"; return null; }
@@ -105,6 +108,7 @@ namespace Metro.Persistence {
         /// </summary>
         public static StationReadResult TryApplyModule(StationReadResult committed, StationModuleEditMode mode,
             StationEditDraft draft, string removeId, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryApplyModule");
             if (!TryPatchEnvelope(committed, mode, draft, removeId, out var envelope, out code)) return null;
             return TryProject(committed, envelope, mode, draft, removeId, sourceId, out code);
         }
@@ -112,6 +116,7 @@ namespace Metro.Persistence {
         /// <summary>Step one for a module verb: clone the committed envelope and write one record.</summary>
         public static bool TryPatchEnvelope(StationReadResult committed, StationModuleEditMode mode,
             StationEditDraft draft, string removeId, out JObject envelope, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryPatchEnvelope");
             code = null;
             envelope = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return false; }
@@ -123,6 +128,7 @@ namespace Metro.Persistence {
         /// <summary>Step two for a module verb: project the patched envelope.</summary>
         public static StationReadResult TryProject(StationReadResult committed, JObject envelope,
             StationModuleEditMode mode, StationEditDraft draft, string removeId, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.TryProject");
             code = null;
             if (committed?.Document == null || committed.Index == null) { code = "no-document"; return null; }
             if (envelope == null) { code = "no-document"; return null; }
@@ -148,6 +154,38 @@ namespace Metro.Persistence {
             var affected = new HashSet<string>(StringComparer.Ordinal);
             if (id.Length > 0) affected.Add(id);
             return affected;
+        }
+
+        /// <summary>Restore a retained local history target through the same whitelist and
+        /// projection as a forward patch. Callers must verify the history frame still names
+        /// the current read. Unsupported repaired records fall back to the full reader.</summary>
+        public static StationReadResult TryRestore(StationReadResult committed, StationReadResult target, string sourceId, out string code) {
+            code = null;
+            if (committed?.Envelope == null || target?.Envelope == null) { code = "local-no-envelope"; return null; }
+            bool SameFields(JObject a, JObject b, string skipA, string skipB) {
+                foreach (var property in a.Properties())
+                    if (property.Name != skipA && property.Name != skipB && !JToken.DeepEquals(property.Value, b[property.Name])) return false;
+                foreach (var property in b.Properties())
+                    if (property.Name != skipA && property.Name != skipB && !JToken.DeepEquals(property.Value, a[property.Name])) return false;
+                return true;
+            }
+            if (!SameFields(committed.Envelope, target.Envelope, "savedAt", "static") ||
+                !(committed.Envelope["static"] is JObject currentState) || !(target.Envelope["static"] is JObject targetState) ||
+                !SameFields(currentState, targetState, "cells", "modules")) { code = "local-history-metadata"; return null; }
+            if (!TryCloneEnvelope(target, out var envelope, out code)) return null;
+            var cells = new HashSet<StationCellKey>();
+            foreach (var cell in committed.Document.Cells) {
+                var next = target.Index.GetCell(cell.Key);
+                if (next == null || cell.RawJson != next.RawJson) cells.Add(cell.Key);
+            }
+            foreach (var cell in target.Document.Cells) if (committed.Index.GetCell(cell.Key) == null) cells.Add(cell.Key);
+            var modules = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var module in committed.Document.Modules) {
+                var next = target.Index.GetModule(module.Id);
+                if (next == null || module.RawJson != next.RawJson) modules.Add(module.Id);
+            }
+            foreach (var module in target.Document.Modules) if (committed.Index.GetModule(module.Id) == null) modules.Add(module.Id);
+            return Build(committed, envelope, cells, modules, sourceId, out code);
         }
 
         // ------------------------------------------------------------------- shared
@@ -176,6 +214,7 @@ namespace Metro.Persistence {
 
         static StationReadResult Build(StationReadResult committed, JObject envelope, HashSet<StationCellKey> writtenCells,
             HashSet<string> affectedModules, string sourceId, out string code) {
+            using var editSample = StationEditTrace.Measure("StationEdit.Build");
             code = null;
             var previous = committed.Document;
             var previousIndex = committed.Index;
@@ -209,7 +248,10 @@ namespace Metro.Persistence {
                 code = rejection?.Code ?? "local-index-failed";
                 return null;
             }
-            return StationReadResult.FromLocalEdit(document, index, committed.ReaderDiagnostics, committed.Repairs, envelope);
+            var result = StationReadResult.FromLocalEdit(document, index, committed.ReaderDiagnostics, committed.Repairs, envelope);
+            result.LocalParent = committed;
+            result.LocalDelta = delta;
+            return result;
         }
 
         /// <summary>

@@ -58,7 +58,7 @@
       "status": "DONE",
       "recipeId": "station.bench.seat-2",
       "offset": [
-        1,
+        0.5,
         0.575,
         1
       ],
@@ -86,7 +86,7 @@
       "status": "DONE",
       "recipeId": "station.bench.steel-2",
       "offset": [
-        1,
+        0.5,
         0.575,
         1
       ],
@@ -114,7 +114,7 @@
       "status": "DONE",
       "recipeId": "station.bench.wood-2",
       "offset": [
-        1,
+        0.5,
         0.575,
         1
       ],
@@ -279,7 +279,7 @@
       "recipeId": "station.bin.double-stream",
       "offset": [
         0.5,
-        0.5,
+        0.782,
         1
       ]
     },
@@ -2325,7 +2325,7 @@
       "recipeId": "station.shelf.cooler",
       "offset": [
         0.5,
-        0.5,
+        0.61,
         1
       ]
     },
@@ -2338,7 +2338,7 @@
       "recipeId": "station.shelf.cooler-dark",
       "offset": [
         0.5,
-        0.5,
+        0.61,
         1
       ]
     },
@@ -2351,7 +2351,7 @@
       "recipeId": "station.shelf.dark-tall",
       "offset": [
         0.5,
-        0.5,
+        0.75,
         1
       ]
     },
@@ -2364,7 +2364,7 @@
       "recipeId": "station.shelf.food-bakery",
       "offset": [
         0.5,
-        0.5,
+        0.675,
         1
       ]
     },
@@ -2377,7 +2377,7 @@
       "recipeId": "station.shelf.food-snacks",
       "offset": [
         0.5,
-        0.5,
+        0.725,
         1
       ]
     },
@@ -2390,7 +2390,7 @@
       "recipeId": "station.shelf.fruit-island",
       "offset": [
         0.5,
-        0.5,
+        0.55,
         1
       ]
     },
@@ -2417,7 +2417,7 @@
       "recipeId": "station.shelf.ice-cream",
       "offset": [
         0.5,
-        0.5,
+        0.6,
         1
       ]
     },
@@ -2430,7 +2430,7 @@
       "recipeId": "station.shelf.white-short",
       "offset": [
         0.5,
-        0.5,
+        0.75,
         1
       ]
     },
@@ -2443,7 +2443,7 @@
       "recipeId": "station.shelf.white-tall",
       "offset": [
         0.5,
-        0.5,
+        0.75,
         1
       ]
     },
@@ -2456,7 +2456,7 @@
       "recipeId": "station.shelf.wire",
       "offset": [
         0.5,
-        0.5,
+        0.75,
         1
       ]
     },
@@ -2768,7 +2768,7 @@
       "recipeId": "station.tvm.standard",
       "offset": [
         0.5,
-        0.5,
+        0.7,
         1
       ]
     },
@@ -2794,7 +2794,7 @@
       "recipeId": "station.vending.standard",
       "offset": [
         0.5,
-        0.5,
+        0.634,
         1
       ]
     },
