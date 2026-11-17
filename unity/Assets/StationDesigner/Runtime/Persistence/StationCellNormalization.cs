@@ -20,8 +20,9 @@ namespace Metro.Persistence {
             if (!(cell["tags"] is JArray tags)) throw new FormatException("Invalid cell tags");
             foreach(var tag in tags) { if(tag.Type!=JTokenType.String)throw new FormatException("Invalid cell tag"); yield return (string)tag; }
         }
-        static Shape ShapeOf(JObject cell) {
-            var tags=Tags(cell).ToArray(); int mask=0;
+        static Shape ShapeOf(JObject cell) => ShapeOfTags(Tags(cell).ToArray());
+        static Shape ShapeOfTags(IReadOnlyList<string> tags) {
+            int mask=0;
             foreach(var tag in tags) {
                 var split=tag.Split(':'); if(split.Length!=2) continue;
                 int i=Array.IndexOf(Sides,split[1]); if(i<0)continue;
@@ -115,6 +116,32 @@ namespace Metro.Persistence {
                 if(changed&&!finish.HasValues)c.Remove("finish");
             }
             return cells.ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// The **per-cell** rule <see cref="NormalizeJson"/> applies: strip the faces a solid
+        /// neighbour fully covers and clear a suspended ceiling's zone/room labels.
+        /// <paramref name="neighbourAt"/> answers the cell record at one coordinate (null when the
+        /// coordinate is absent or not solid), so a local edit can normalise exactly the records
+        /// it touched — the written cells and their six neighbours — without re-walking the
+        /// station (plan 30 §3). The rule is the same one the open path runs; the two are pinned
+        /// against each other by <c>StationLocalEditTests</c>.
+        /// </summary>
+        internal static void NormalizeCellRecord(JObject cell, Func<int,int,int,Metro.Build.StationCellRecord> neighbourAt) {
+            if (cell == null) return;
+            if (Tagged(cell,"suspended-ceiling")||Tagged(cell,"opening-ceiling")) { cell.Remove("zone"); cell.Remove("room"); }
+            if ((string)cell["fill"]!="solid" || cell["finish"]==null || cell["finish"].Type==JTokenType.Null ||
+                Tagged(cell,"suspended-ceiling")) return;
+            if (!(cell["finish"] is JObject finish)) throw new FormatException("Invalid cell finish");
+            var (x,y,z)=Coordinates(cell); var shape=ShapeOf(cell); bool changed=false;
+            foreach (var d in Directions) {
+                if (finish.Property(d.face)==null) continue;
+                var neighbour = neighbourAt((int)x+d.x,(int)y+d.y,(int)z+d.z);
+                if (neighbour == null || !neighbour.IsSolid || neighbour.HasTag("suspended-ceiling")) continue;
+                if (!Covered(shape, ShapeOfTags(neighbour.Tags), d)) continue;
+                finish.Remove(d.face); changed=true;
+            }
+            if (changed && !finish.HasValues) cell.Remove("finish");
         }
     }
 }

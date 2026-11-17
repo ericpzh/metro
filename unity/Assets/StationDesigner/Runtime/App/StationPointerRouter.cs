@@ -40,9 +40,10 @@ namespace Metro.App {
 
         /// <summary>A synthetic event for a test or a re-aimed cached pointer.</summary>
         public static StationPointerEvent Synthetic(float x, float y, float width, float height,
-            int button = 0, int modifiers = 0, double timeMs = -1, int pointerId = -1) {
+            int button = 0, int modifiers = 0, double timeMs = -1, int pointerId = -1, int buttons = -1) {
+            int mask = buttons >= 0 ? buttons : button == 0 ? 1 : button == 1 ? 4 : button == 2 ? 2 : 0;
             return new StationPointerEvent(x, y, width <= 0 ? 1f : width, height <= 0 ? 1f : height,
-                button, modifiers, timeMs, pointerId, -1, -1, button == 0 ? 1 : 2);
+                button, modifiers, timeMs, pointerId, -1, -1, mask);
         }
 
         StationPointerEvent(float x, float y, float width, float height, int button, int modifiers,
@@ -156,17 +157,31 @@ namespace Metro.App {
 
         /// <summary>
         /// True when this move or release belongs to the press that armed the active gesture.
-        /// A move names no button, so its mask only has to keep the owner's bit; a release must
-        /// be the owner's own button — the release of the other one is what cancels the press.
+        /// A **move names no changed button** — the shell sends the unchanged-button sentinel
+        /// (`pointerInput.ts`'s `MOVE_BUTTON`, −1) — so a move is owned when its pointer matches
+        /// and its `buttons` mask still holds the recorded owner's bit. A **release** names the
+        /// button that changed, and it must be the owner's own: the release of the other one is
+        /// exactly what cancels the press (plan 29 §2, plan 30 §1).
         /// </summary>
-        static bool OwnsPress(in StationPointerEvent pointer) {
+        static bool OwnsPress(string type, in StationPointerEvent pointer) {
             if (!AnyEditGestureActive()) return true;
             if (activePointerId >= 0 && pointer.PointerId >= 0 && pointer.PointerId != activePointerId) return false;
             if (activePointerButton < 0) return true;
-            if (pointer.Button == 0 || pointer.Button == 2) return pointer.Button == activePointerButton;
-            int mask = pointer.Buttons & 3;
-            return mask == 0 || (mask & activePointerButton) != 0;
+            if (string.Equals(type, "pointer.up", StringComparison.Ordinal)) return pointer.Button == activePointerButton;
+            int ownerBit = activePointerButton == 0 ? 1 : activePointerButton == 2 ? 2 : 4;
+            // The mask is authoritative even when the event cannot name a button: a move whose
+            // mask lost the owning bit is a release nobody made, and must not aim the gesture.
+            return (pointer.Buttons & ownerBit) != 0;
         }
+
+        /// <summary>
+        /// The button that armed the in-flight cell gesture, or the event's own when none is
+        /// armed. A move carries the sentinel instead of a button, so the work-plane policy of
+        /// a drag must read the press's button — otherwise a right erase would be handed the
+        /// add plane by the corrected move encoding (plan 30 §1).
+        /// </summary>
+        static int ActiveGestureButton(in StationPointerEvent pointer) =>
+            StationCellTool.HasGesture ? StationCellTool.Gesture.Button : pointer.Button;
 
         static void RememberPress(in StationPointerEvent pointer) {
             activePointerId = pointer.PointerId;
@@ -333,7 +348,7 @@ namespace Metro.App {
                 CancelActiveGesture(host, editHost);
                 return CancelledReply(host, type, tool, "chord", revisionBefore, picksBefore, reply);
             }
-            if (type != "pointer.down" && type != "pointer.rightTap" && !OwnsPress(pointer)) {
+            if (type != "pointer.down" && type != "pointer.rightTap" && !OwnsPress(type, pointer)) {
                 string cancelReason = type == "pointer.up" ? "other-release" : "unowned-pointer";
                 CancelActiveGesture(host, editHost);
                 return CancelledReply(host, type, tool, cancelReason, revisionBefore, picksBefore, reply);
@@ -500,7 +515,7 @@ namespace Metro.App {
 
             var world = host.Coordinator?.World;
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
-                NeedsWorkPlane(tool, pointer.Button), out var pickContext, out code);
+                NeedsWorkPlane(tool, ActiveGestureButton(pointer)), out var pickContext, out code);
             if (hit == null) {
                 // A miss: no surface under the pointer. The reference draws nothing there, so the
                 // owning layer is cleared rather than left showing the previous aim (plan 28 §1).
@@ -711,11 +726,83 @@ namespace Metro.App {
             return true;
         }
 
+        /// <summary>
+        /// A 删除 press on a piece whose family has its own reference delete gesture
+        /// (`DeleteTool.ts`): a 道路 segment lifts the segment through `RoadTool`'s delete mode,
+        /// a 屋顶 (or a stair's block) lifts the tile area through `RoofTool`'s remove mode, and
+        /// a 盲道 / 围栏 / 场地分隔 is erased as a **line** through the pressed record's own run
+        /// template. Returns true when the press was consumed by one of those owners; a family
+        /// without one (a bench, a gate, a sign) falls through to the cell tool's frozen sweep.
+        /// </summary>
+        static bool BeginFamilyDelete(StationGameHost host, StationEditHost editHost, StationPointerEvent pointer,
+            Ray ray, StationSceneHit hit, string tool, JObject reply, out string reason) {
+            reason = null;
+            if (!string.Equals(tool, "delete", StringComparison.Ordinal)) return false;
+            if (pointer.Button != 0 && pointer.Button != 2) return false;
+            if (hit == null || !hit.HasModule || !hit.ModuleWins || hit.Module == null) return false;
+            var module = hit.Module;
+            switch (module.Type) {
+                case "road": {
+                    if (!StationRoadTool.Begin(host, hit, pointer, 2, out reason)) {
+                        if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                        return true;
+                    }
+                    StationRoadTool.Publish();
+                    reply["road"] = StationEditSession.ToJson()["road"];
+                    return true;
+                }
+                case "roof":
+                case "stair": {
+                    if (string.Equals(module.Type, "stair", StringComparison.Ordinal) &&
+                        !module.Config.Bool("block")) return false;
+                    if (!StationRoofTool.Begin(host, hit, pointer, ray, 2, out reason)) {
+                        if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                        return true;
+                    }
+                    StationRoofTool.Publish();
+                    editHost.EnsureBound(host);
+                    editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                    return true;
+                }
+                case "tactile":
+                case "fence":
+                    // The run families the reference deletes along their own line, not as one
+                    // piece of a same-type sweep.
+                    if (!StationCellTool.BeginRunErase(host, hit, pointer, out reason)) {
+                        if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                        return true;
+                    }
+                    StationCellTool.Publish();
+                    DrawCells(host, editHost);
+                    reply["cells"] = StationCellTool.Preview.ToJson();
+                    return true;
+                case "court":
+                    if (!string.Equals(module.Config.Text("variant"), "divider", StringComparison.Ordinal)) return false;
+                    if (!StationCellTool.BeginRunErase(host, hit, pointer, out reason)) {
+                        if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                        return true;
+                    }
+                    StationCellTool.Publish();
+                    DrawCells(host, editHost);
+                    reply["cells"] = StationCellTool.Preview.ToJson();
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         static void Down(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
             in StationPickContext pickContext, StationPointerEvent pointer, string tool, StationSceneHit hit,
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
             StationEditSession.Picked = null;
+            // A 删除 press keeps the reference's **family-specific** delete semantics before it
+            // becomes a module sweep or a block rectangle (plan 30 §2): a road segment lifts the
+            // segment, a roof/stair tile lifts its area, and a 盲道 path / 围栏 run / 场地分隔 is
+            // erased as a line. Everything else keeps the press-frozen sweep the cell tool owns.
+            if (IsCellTool(tool) && BeginFamilyDelete(host, editHost, pointer, ray, hit, tool, reply, out reason)) {
+                return;
+            }
             if (IsCellTool(tool) && (pointer.Button == 0 || pointer.Button == 2)) {
                 // The block tool owns **both** build buttons: the primary adds, the secondary
                 // digs/erases. The shell gives a claimed right button to the tool instead of the
@@ -1057,6 +1144,16 @@ namespace Metro.App {
                 editHost.Preview?.ClearGhost();
                 editHost.Preview?.ShowZone(StationZoneTool.Preview);
                 reply["zone"] = StationEditSession.Zone != null ? StationEditSession.Zone.ToJson() : null;
+                return;
+            }
+            if (StationRoofTool.HasGesture) {
+                // A 屋顶/楼梯 area gesture armed by 删除 (or by the 屋顶 palette) keeps its
+                // remove/add plan through the whole drag (plan 30 §2).
+                StationRoofTool.AimAt(host, hit, ray, pointer);
+                StationRoofTool.Publish();
+                editHost.EnsureBound(host);
+                editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("roof") : null;
                 return;
             }
             if (StationCellTool.HasGesture) {

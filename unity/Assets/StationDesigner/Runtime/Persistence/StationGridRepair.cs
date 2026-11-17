@@ -28,6 +28,16 @@ namespace Metro.Persistence {
         }
         static bool Integer(JToken v) => Number(v, out var n) && Math.Truncate(n) == n;
         static bool GridPoint(JToken v) => v is JObject && Integer(v["x"]) && Integer(v["y"]) && Integer(v["z"]);
+
+        /// <summary>
+        /// Whether the grid repair keeps this saved cell. A local edit refuses a record it would
+        /// drop, so the fallback full read reproduces the drop instead of the local path silently
+        /// keeping a record the reader would have thrown away (plan 30 §3).
+        /// </summary>
+        public static bool KeepsCell(JObject cell) => GridPoint(cell);
+
+        /// <summary>Whether the grid repair keeps this saved module record.</summary>
+        public static bool KeepsModule(JObject module) => module != null && GridModule(module);
         static bool GridModule(JToken token) {
             if (!(token is JObject m)) throw new FormatException("Invalid module");
             var type = (string)m["type"]; var cfg = m["cfg"] as JObject;

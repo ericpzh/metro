@@ -29,7 +29,22 @@ import { msg } from './i18n.ts'
 // Pure data — no three, no DOM.
 
 import { wallCourses } from './courses.ts'
+import { calligraphyFontFace } from './calligraphyFonts.ts'
 import type { CalligraphyAxis, CalligraphyStyle } from './types.ts'
+
+/**
+ * The shared face manifest, re-exported: a caller that needs to know which stack a
+ * hand prints in (the Unity reach, a palette thumbnail, a verifier) reads it from
+ * here instead of restating the strings.
+ */
+export {
+  CALLIGRAPHY_FONT_MANIFEST,
+  CALLIGRAPHY_FONT_VERSION,
+  CALLIGRAPHY_LAST_RESORT_FAMILY,
+  calligraphyFontFace,
+  resolveCalligraphyFace,
+} from './calligraphyFonts.ts'
+export type { CalligraphyFaceResolution, CalligraphyFontFace } from './calligraphyFonts.ts'
 
 export interface CalligraphyStyleSpec {
   style: CalligraphyStyle
@@ -56,16 +71,29 @@ export interface CalligraphyStyleSpec {
 }
 
 /**
+ * The face fields of one hand, taken from the shared manifest
+ * (`sim/calligraphyFonts.ts`) rather than restated here.
+ */
+function faceOf(style: CalligraphyStyle): Pick<CalligraphyStyleSpec, 'family' | 'weight' | 'italic'> {
+  const face = calligraphyFontFace(style)
+  return { family: face.family, weight: face.weight, italic: face.italic }
+}
+
+/**
  * The six hands, in palette order: the three brush hands first (楷 / 行 / 隶), then
  * the stele, then the two that a sign shop would print — 黑体 and 宋体.
+ *
+ * The face itself — family, weight, italic — is **not** decided here: it is the
+ * shared `CALLIGRAPHY_FONT_MANIFEST` (`sim/calligraphyFonts.ts`), which the browser
+ * painter and the Unity host both read, so the hand the palette promises is the hand
+ * Unity prints. The ink, the strike, the tracking and the stretch are the treatment
+ * laid over that face.
  */
 export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> = {
   kai: {
     style: 'kai',
     label: msg('regular_script'),
-    weight: '400',
-    italic: false,
-    family: '"KaiTi", "STKaiti", "Kaiti SC", "Kaiti TC", "DFKai-SB", "SimSun", serif',
+    ...faceOf('kai'),
     ink: '#171a20',
     strike: 0.014,
     tracking: 0.02,
@@ -74,9 +102,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   xing: {
     style: 'xing',
     label: msg('running_script'),
-    weight: '400',
-    italic: true,
-    family: '"STXingkai", "Xingkai SC", "KaiTi", "STKaiti", "DFKai-SB", cursive',
+    ...faceOf('xing'),
     ink: '#14161b',
     strike: 0.032,
     tracking: 0.05,
@@ -85,9 +111,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   li: {
     style: 'li',
     label: msg('clerical_script'),
-    weight: '400',
-    italic: false,
-    family: '"LiSu", "Baoli SC", "SimLi", "STLiti", "STSong", serif',
+    ...faceOf('li'),
     ink: '#1b1d22',
     strike: 0.008,
     tracking: 0.11,
@@ -96,9 +120,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   wei: {
     style: 'wei',
     label: msg('wei_stele'),
-    weight: '700',
-    italic: false,
-    family: '"STXinwei", "Weibei SC", "SimHei", "Microsoft YaHei", sans-serif',
+    ...faceOf('wei'),
     ink: '#101217',
     strike: 0.026,
     tracking: 0,
@@ -107,9 +129,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   hei: {
     style: 'hei',
     label: msg('sans_serif'),
-    weight: '700',
-    italic: false,
-    family: '"Microsoft YaHei", "PingFang SC", "Heiti SC", "SimHei", sans-serif',
+    ...faceOf('hei'),
     ink: '#1d2126',
     // A printed sans has no brush edge at all: one clean strike, which is what the
     // modern station wall beside a 楷书 inscription looks like.
@@ -120,9 +140,7 @@ export const CALLIGRAPHY_STYLES: Record<CalligraphyStyle, CalligraphyStyleSpec> 
   song: {
     style: 'song',
     label: msg('song_serif'),
-    weight: '400',
-    italic: false,
-    family: '"SimSun", "Songti SC", "STSong", "Noto Serif SC", serif',
+    ...faceOf('song'),
     ink: '#191c22',
     strike: 0.012,
     tracking: 0.04,

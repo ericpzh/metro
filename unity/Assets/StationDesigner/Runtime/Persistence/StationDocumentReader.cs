@@ -25,16 +25,44 @@ namespace Metro.Persistence {
 
     /// <summary>A document and its index, plus everything the reader had to say.</summary>
     public sealed class StationReadResult {
-        public StationReadResult(StationDocument document, StationIndex index, IReadOnlyList<StationDiagnostic> diagnostics, StationRepairReport repairs) {
+        public StationReadResult(StationDocument document, StationIndex index, IReadOnlyList<StationDiagnostic> diagnostics, StationRepairReport repairs)
+            : this(document, index, diagnostics, repairs, null, Array.Empty<StationDiagnostic>()) { }
+
+        internal StationReadResult(StationDocument document, StationIndex index, IReadOnlyList<StationDiagnostic> diagnostics,
+            StationRepairReport repairs, JObject normalizedEnvelope, IReadOnlyList<StationDiagnostic> readerDiagnostics) {
             Document = document;
             Index = index;
             Diagnostics = diagnostics ?? Array.Empty<StationDiagnostic>();
             Repairs = repairs ?? new StationRepairReport();
+            Envelope = normalizedEnvelope;
+            ReaderDiagnostics = readerDiagnostics ?? Array.Empty<StationDiagnostic>();
         }
         public StationDocument Document { get; }
         public StationIndex Index { get; }
         public IReadOnlyList<StationDiagnostic> Diagnostics { get; }
         public StationRepairReport Repairs { get; }
+        /// <summary>
+        /// The parsed normalized v1 envelope this document was projected from — the exact tree
+        /// <see cref="StationDocument.NormalizedJson"/> serializes. A local edit patches a clone
+        /// of it instead of re-serializing the whole save to find one record (plan 30 §1). Null
+        /// for a result a caller built without the reader.
+        /// </summary>
+        public JObject Envelope { get; }
+        /// <summary>
+        /// What the reader/repairs said (not the index's own diagnostics). A local edit carries
+        /// these across unchanged: it does not re-run the load-time repairs, because a
+        /// whitelisted edit cannot move them.
+        /// </summary>
+        public IReadOnlyList<StationDiagnostic> ReaderDiagnostics { get; }
+
+        /// <summary>The result of a whitelisted local edit: same document contract, new state.</summary>
+        internal static StationReadResult FromLocalEdit(StationDocument document, StationIndex index,
+            IReadOnlyList<StationDiagnostic> readerDiagnostics, StationRepairReport repairs, JObject envelope) {
+            var all = new List<StationDiagnostic>();
+            if (index != null) all.AddRange(index.Diagnostics);
+            if (readerDiagnostics != null) all.AddRange(readerDiagnostics);
+            return new StationReadResult(document, index, all.AsReadOnly(), repairs, envelope, readerDiagnostics);
+        }
     }
 
     /// <summary>
@@ -112,12 +140,18 @@ namespace Metro.Persistence {
                 DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out savedAtValue))
                 savedAtValue = DateTimeOffset.FromUnixTimeMilliseconds(0);
 
+            // The normalized envelope the document saves as, kept as the tree it already is:
+            // `NormalizedJson` and the retained `Envelope` are the same text, so a local edit
+            // starts from exactly what a full read would re-serialize (plan 30 §1).
+            var normalizedEnvelope = save.WriteTree(savedAtValue);
+
             var document = new StationDocument(
                 Str(state["name"]), Str(state["nameEn"]), city,
                 (long)Num(state["seed"], 1234567),
                 (int)Num(state["levelBase"], 0), (int)Num(state["storeyHeight"], 5),
                 ReadDay(state), cells, modules, lines,
-                save.DroppedCells, save.DroppedModules, resolvedSource, savedAt, save.Write(savedAtValue));
+                save.DroppedCells, save.DroppedModules, resolvedSource, savedAt,
+                normalizedEnvelope.ToString(Formatting.None));
 
             StationIndex index;
             StationRejection rejection;
@@ -125,19 +159,21 @@ namespace Metro.Persistence {
 
             var diagnostics = new List<StationDiagnostic>(index.Diagnostics);
             var repairs = save.Repairs ?? new StationRepairReport();
+            var readerDiagnostics = new List<StationDiagnostic>();
             if (repairs.AdPosters > 0)
-                diagnostics.Add(new StationDiagnostic("ad-posters-backfilled", StationDiagnosticSeverity.Info, "module", "",
+                readerDiagnostics.Add(new StationDiagnostic("ad-posters-backfilled", StationDiagnosticSeverity.Info, "module", "",
                     repairs.AdPosters + " advertising record(s) had no poster; one was printed from the source campaign catalogue."));
             if (repairs.RoomFurnitureRooms > 0)
-                diagnostics.Add(new StationDiagnostic("room-furniture-materialized", StationDiagnosticSeverity.Info, "module", "",
+                readerDiagnostics.Add(new StationDiagnostic("room-furniture-materialized", StationDiagnosticSeverity.Info, "module", "",
                     repairs.RoomFurnitureRooms + " legacy room(s) were marked stocked; " + repairs.RoomFurnitureModules + " furniture piece(s) were placed."));
             if (repairs.BridgePillarsAdded > 0 || repairs.BridgePillarsRemoved > 0)
-                diagnostics.Add(new StationDiagnostic("bridge-pillars-repaired", StationDiagnosticSeverity.Info, "module", "",
+                readerDiagnostics.Add(new StationDiagnostic("bridge-pillars-repaired", StationDiagnosticSeverity.Info, "module", "",
                     "Bridge support repair added " + repairs.BridgePillarsAdded + " and removed " + repairs.BridgePillarsRemoved + " pillar record(s)."));
             if (repairs.BridgePillarCandidatesUnverified > 0)
-                diagnostics.Add(new StationDiagnostic("bridge-pillar-unverified", StationDiagnosticSeverity.Warning, "module", "",
+                readerDiagnostics.Add(new StationDiagnostic("bridge-pillar-unverified", StationDiagnosticSeverity.Warning, "module", "",
                     repairs.BridgePillarCandidatesUnverified + " bridge-pillar candidate(s) touched a module envelope this packet has not ported; they were left unplaced."));
-            return new StationReadResult(document, index, diagnostics.AsReadOnly(), repairs);
+            diagnostics.AddRange(readerDiagnostics);
+            return new StationReadResult(document, index, diagnostics.AsReadOnly(), repairs, normalizedEnvelope, readerDiagnostics.AsReadOnly());
         }
 
         /// <summary>Read a station from a file path; the path and content hash travel with the document.</summary>
@@ -155,8 +191,14 @@ namespace Metro.Persistence {
             var envelope = JObject.Parse(document.NormalizedJson);
             envelope["format"] = SaveFormat;
             envelope["formatVersion"] = SupportedVersion;
-            envelope["savedAt"] = savedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
+            StampSavedAt(envelope, savedAt);
             return envelope.ToString(Formatting.None);
+        }
+
+        /// <summary>Stamp an envelope's <c>savedAt</c> exactly as the save writer does.</summary>
+        internal static void StampSavedAt(JObject envelope, DateTimeOffset savedAt) {
+            if (envelope == null) return;
+            envelope["savedAt"] = savedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
         }
 
         /// <summary>Write with the current UTC time.</summary>
@@ -180,21 +222,33 @@ namespace Metro.Persistence {
             for (int i = 0; i < source.Count; i++) {
                 var cell = source[i] as JObject;
                 if (cell == null) throw Reject("parse-failed", StationRecordKind.Cell, "cell", "#" + i, "A saved cell is not an object.");
-                var finish = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (cell["finish"] is JObject faces) {
-                    foreach (var face in faces.Properties()) {
-                        var value = face.Value;
-                        if (value == null || value.Type == JTokenType.Null) continue;
-                        finish[face.Name] = value.Type == JTokenType.String ? (string)value : value.ToString(Formatting.None);
-                    }
-                }
-                cells[i] = new StationCellRecord(
-                    Int(cell["x"]), Int(cell["y"]), Int(cell["z"]),
-                    Str(cell["shape"]), Str(cell["fill"]), Str(cell["zone"]),
-                    StringArray(cell["tags"]), finish, Str(cell["room"]), cell.ToString(Formatting.None));
+                cells[i] = BuildCellRecord(cell);
             }
             return cells;
         }
+
+        /// <summary>
+        /// One saved cell → its typed record. Shared with the local edit path, which projects
+        /// only the records a patch touched (plan 30 §3).
+        /// </summary>
+        internal static StationCellRecord BuildCellRecord(JObject cell) {
+            var finish = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (cell["finish"] is JObject faces) {
+                foreach (var face in faces.Properties()) {
+                    var value = face.Value;
+                    if (value == null || value.Type == JTokenType.Null) continue;
+                    finish[face.Name] = value.Type == JTokenType.String ? (string)value : value.ToString(Formatting.None);
+                }
+            }
+            return new StationCellRecord(
+                Int(cell["x"]), Int(cell["y"]), Int(cell["z"]),
+                Str(cell["shape"]), Str(cell["fill"]), Str(cell["zone"]),
+                StringArray(cell["tags"]), finish, Str(cell["room"]), cell.ToString(Formatting.None));
+        }
+
+        /// <summary>The typed key of one saved cell record, as <see cref="BuildCellRecord"/> reads it.</summary>
+        internal static StationCellKey CellKeyOf(JObject cell) =>
+            new StationCellKey(Int(cell["x"]), Int(cell["y"]), Int(cell["z"]));
 
         static StationModuleRecord[] ReadModules(JArray source, string city) {
             var modules = new StationModuleRecord[source.Count];

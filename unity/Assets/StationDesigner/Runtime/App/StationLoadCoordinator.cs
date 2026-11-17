@@ -125,6 +125,11 @@ namespace Metro.App {
         StationWorldView world;
         StationDocument document;
         StationIndex index;
+        /// <summary>
+        /// The committed read result, envelope included, so a local edit can patch the save tree
+        /// and project only the records it touched (plan 30 §3).
+        /// </summary>
+        StationReadResult committedRead;
         StationCameraBounds cameraBounds;
         IStationSimulationHost simulation;
         int revision;
@@ -146,6 +151,8 @@ namespace Metro.App {
 
         public StationDocument Document => document;
         public StationIndex Index => index;
+        /// <summary>The committed read result, including the normalized envelope tree (plan 30 §3).</summary>
+        public StationReadResult CommittedRead => committedRead;
         public StationWorldView World => world;
         public StationCameraBounds CameraBounds => cameraBounds;
         public int Revision => revision;
@@ -258,6 +265,7 @@ namespace Metro.App {
             previous?.Dispose();
             document = read.Document;
             index = read.Index;
+            committedRead = read;
             revision = nextRevision;
             sourceId = string.IsNullOrEmpty(id) ? read.Document.Source.Hash : id;
             sourceHash = read.Document.Source.Hash;
@@ -328,6 +336,45 @@ namespace Metro.App {
             return Install(read, id, isEdit: true);
         }
 
+        /// <summary>
+        /// Install the read result a **local** edit built from the committed document and index
+        /// (plan 30 §3): the same install transaction, the same one revision and the same
+        /// staged world/simulation, without re-reading the whole envelope. Callers reach this
+        /// through <see cref="TryInstallLocalCellEdit"/> / <see cref="TryInstallLocalModuleEdit"/>,
+        /// which refuse anything outside the local whitelist.
+        /// </summary>
+        public StationLoadResult InstallLocalEdit(StationReadResult read, string sourceId) {
+            if (read?.Document == null || read.Index == null)
+                return StationLoadResult.Rejected(new StationRejection("no-document", StationRecordKind.Document, "", "",
+                    "The local edit produced no document."), revision);
+            string id = string.IsNullOrEmpty(sourceId) ? read.Document.Source.Hash : sourceId;
+            return Install(read, id, isEdit: true);
+        }
+
+        /// <summary>
+        /// Try the local path for one cell patch. Returns null when the patch is outside the
+        /// local whitelist (or the committed document does not match it); the caller then runs
+        /// the full envelope path, whose answer is identical. <paramref name="code"/> carries the
+        /// refusal code for diagnostics.
+        /// </summary>
+        public StationLoadResult TryInstallLocalCellEdit(StationCellPatch patch, string sourceId, out string code) {
+            code = null;
+            if (disposed || document == null || committedRead == null) { code = "no-document"; return null; }
+            var read = StationLocalEdit.TryApplyCells(committedRead, patch, sourceId, out code);
+            if (read == null) return null;
+            return InstallLocalEdit(read, sourceId);
+        }
+
+        /// <summary>Try the local path for one module add/replace/remove; null means fall back.</summary>
+        public StationLoadResult TryInstallLocalModuleEdit(StationModuleEditMode mode, StationEditDraft draft,
+            string removeId, string sourceId, out string code) {
+            code = null;
+            if (disposed || document == null || committedRead == null) { code = "no-document"; return null; }
+            var read = StationLocalEdit.TryApplyModule(committedRead, mode, draft, removeId, sourceId, out code);
+            if (read == null) return null;
+            return InstallLocalEdit(read, sourceId);
+        }
+
         public void Tick(double realSeconds) => simulation?.Tick(realSeconds);
 
         public void Dispose() {
@@ -338,6 +385,7 @@ namespace Metro.App {
             world = null;
             document = null;
             index = null;
+            committedRead = null;
         }
     }
 

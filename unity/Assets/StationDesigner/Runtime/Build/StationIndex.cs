@@ -26,6 +26,20 @@ namespace Metro.Build {
     }
 
     /// <summary>
+    /// The records one local edit changed, added or removed, so <see cref="StationIndex"/> can
+    /// update itself without rebuilding the whole station (plan 30 §3). The arrays are the
+    /// authority for order; this type only names the deltas.
+    /// </summary>
+    public sealed class StationIndexDelta {
+        public readonly List<StationCellKey> RemovedCells = new List<StationCellKey>();
+        /// <summary>Every cell record the edit wrote or replaced, at its coordinate.</summary>
+        public readonly List<StationCellRecord> ChangedCells = new List<StationCellRecord>();
+        public readonly List<string> RemovedModules = new List<string>();
+        /// <summary>Every module record the edit added or replaced, by its (unique) id.</summary>
+        public readonly List<StationModuleRecord> ChangedModules = new List<StationModuleRecord>();
+    }
+
+    /// <summary>
     /// The read-only lookup layer over one <see cref="StationDocument"/>: cells by
     /// <c>(x,y,z)</c>, modules by <c>id</c>, lines and the station's levels.
     ///
@@ -108,6 +122,111 @@ namespace Metro.Build {
             // Levels come from the content itself: authored cells, anchored modules
             // and run endpoints, so a mezzanine or a below-grade platform shows up
             // even when no cell is filled there.
+            Levels = ScanLevels(document, out bounds);
+
+            if (document.DroppedCells > 0)
+                diagnostics.Add(new StationDiagnostic("cells-dropped", StationDiagnosticSeverity.Warning, "cell", "",
+                    document.DroppedCells + " off-grid cell(s) were dropped by the grid repair."));
+            if (document.DroppedModules > 0)
+                diagnostics.Add(new StationDiagnostic("modules-dropped", StationDiagnosticSeverity.Warning, "module", "",
+                    document.DroppedModules + " off-grid module(s) were dropped by the grid repair."));
+
+            ValidateReferences(lineIds, byType);
+        }
+
+        /// <summary>
+        /// The local-edit constructor (plan 30 §3): copy the previous lookups, apply the delta,
+        /// and re-derive the cheap aggregates (per-type lists, per-line tracks, levels, bounds)
+        /// from the new document arrays. It never re-parses a record: the records it stores are
+        /// the ones the local edit already projected.
+        ///
+        /// The reference diagnostics are re-validated over the new module array, because a
+        /// removed or rewritten module can orphan another record's authored reference; every
+        /// other diagnostic the previous index reported still holds, because a local edit cannot
+        /// move it.
+        /// </summary>
+        StationIndex(StationIndex previous, StationDocument document, StationIndexDelta delta) {
+            Document = document ?? throw new ArgumentNullException(nameof(document));
+            if (delta == null) throw new ArgumentNullException(nameof(delta));
+
+            var cells = new Dictionary<StationCellKey, StationCellRecord>(previous.cellsByKey);
+            for (int i = 0; i < delta.RemovedCells.Count; i++) cells.Remove(delta.RemovedCells[i]);
+            for (int i = 0; i < delta.ChangedCells.Count; i++) cells[delta.ChangedCells[i].Key] = delta.ChangedCells[i];
+            cellsByKey = cells;
+
+            var modules = new Dictionary<string, StationModuleRecord>(previous.modulesById, StringComparer.Ordinal);
+            for (int i = 0; i < delta.RemovedModules.Count; i++) modules.Remove(delta.RemovedModules[i]);
+            for (int i = 0; i < delta.ChangedModules.Count; i++) {
+                var module = delta.ChangedModules[i];
+                modules[module.Id] = module;
+            }
+            modulesById = modules;
+            if (modules.Count != document.ModuleCount) {
+                // Two records with one id cannot both be addressed; the full constructor refuses
+                // this, and a local delta must not be able to introduce it silently.
+                throw new StationRejectedException(new StationRejection("duplicate-id", StationRecordKind.Module, "", "",
+                    "Two saved modules share one id; a module id must address exactly one record."));
+            }
+
+            // Order comes from the document, never from the dictionary: a module's position in
+            // `document.Modules` is the order a full read would project.
+            var byType = new Dictionary<string, List<StationModuleRecord>>(StringComparer.Ordinal);
+            for (int i = 0; i < document.ModuleCount; i++) {
+                var module = document.Modules[i];
+                if (!byType.TryGetValue(module.Type, out var list)) byType.Add(module.Type, list = new List<StationModuleRecord>());
+                list.Add(module);
+            }
+            modulesByType = new Dictionary<string, StationModuleRecord[]>(byType.Count, StringComparer.Ordinal);
+            foreach (var pair in byType) modulesByType[pair.Key] = pair.Value.ToArray();
+
+            var lines = document.Lines ?? Array.Empty<StationLineRecord>();
+            var lineIds = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < lines.Count; i++) lineIds.Add(lines[i].Id);
+            Lines = lines;
+
+            var tracks = new Dictionary<string, List<StationModuleRecord>>(StringComparer.Ordinal);
+            if (modulesByType.TryGetValue("track", out var trackModules)) {
+                foreach (var track in trackModules) {
+                    var lineId = track.Config.Text("line");
+                    if (lineId.Length == 0) continue;
+                    if (!tracks.TryGetValue(lineId, out var list)) tracks.Add(lineId, list = new List<StationModuleRecord>());
+                    list.Add(track);
+                }
+            }
+            tracksByLine = new Dictionary<string, StationModuleRecord[]>(tracks.Count, StringComparer.Ordinal);
+            foreach (var pair in tracks) tracksByLine[pair.Key] = pair.Value.ToArray();
+
+            Levels = ScanLevels(document, out bounds);
+
+            // Keep what the previous index reported, minus the reference findings the edit can
+            // invalidate (they are recomputed below) and the findings the edit rewrote away.
+            // A local edit refuses an off-grid or duplicated record, so the counts and the
+            // duplicate findings the previous index reported still hold.
+            diagnostics = new List<StationDiagnostic>(previous.diagnostics.Count);
+            for (int i = 0; i < previous.diagnostics.Count; i++) {
+                var finding = previous.diagnostics[i];
+                if (ReferenceDiagnostic(finding.Code)) continue;
+                if (NamesEditedModule(finding, delta)) continue;
+                diagnostics.Add(finding);
+            }
+
+            ValidateReferences(lineIds, byType);
+        }
+
+        static bool ReferenceDiagnostic(string code) =>
+            code == "dangling-reference" || code == "line-without-track";
+
+        static bool NamesEditedModule(StationDiagnostic finding, StationIndexDelta delta) {
+            if (finding.RecordId.Length == 0) return false;
+            for (int i = 0; i < delta.ChangedModules.Count; i++)
+                if (string.Equals(delta.ChangedModules[i].Id, finding.RecordId, StringComparison.Ordinal)) return true;
+            for (int i = 0; i < delta.RemovedModules.Count; i++)
+                if (string.Equals(delta.RemovedModules[i], finding.RecordId, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        /// <summary>The tiers and box the content speaks for, shared by both constructors.</summary>
+        static IReadOnlyList<int> ScanLevels(StationDocument document, out StationBounds bounds) {
             var levelSet = new SortedSet<int>();
             int minX = int.MaxValue, minY = int.MaxValue, minZ = int.MaxValue;
             int maxX = int.MinValue, maxY = int.MinValue, maxZ = int.MinValue;
@@ -139,20 +258,31 @@ namespace Metro.Build {
                     if (module.To.Value.Z < minZ) minZ = (int)Math.Round(module.To.Value.Z);
                 }
             }
-            Levels = levelSet.Count > 0 ? new ReadOnlyCollection<int>(new List<int>(levelSet)) : new ReadOnlyCollection<int>(NoLevels);
             bounds = minX == int.MaxValue
                 ? new StationBounds(0, 0, 0, -1, -1, -1)
                 : new StationBounds(minX, minY, minZ, maxX, maxY, maxZ);
-
-            if (document.DroppedCells > 0)
-                diagnostics.Add(new StationDiagnostic("cells-dropped", StationDiagnosticSeverity.Warning, "cell", "",
-                    document.DroppedCells + " off-grid cell(s) were dropped by the grid repair."));
-            if (document.DroppedModules > 0)
-                diagnostics.Add(new StationDiagnostic("modules-dropped", StationDiagnosticSeverity.Warning, "module", "",
-                    document.DroppedModules + " off-grid module(s) were dropped by the grid repair."));
-
-            ValidateReferences(lineIds, byType);
+            return levelSet.Count > 0
+                ? new ReadOnlyCollection<int>(new List<int>(levelSet))
+                : new ReadOnlyCollection<int>(NoLevels);
         }
+
+        /// <summary>
+        /// Builds the index from the previous one plus a local edit's delta. Returns the typed
+        /// refusal instead of throwing when the delta would break the index's identity contract.
+        /// </summary>
+        public static bool TryCreateIncremental(StationIndex previous, StationDocument document,
+            StationIndexDelta delta, out StationIndex index, out StationRejection rejection) {
+            try {
+                index = new StationIndex(previous, document, delta);
+                rejection = null;
+                return true;
+            } catch (StationRejectedException error) {
+                index = null;
+                rejection = error.Rejection;
+                return false;
+            }
+        }
+
 
         /// <summary>Builds the index and returns the typed refusal instead of throwing.</summary>
         public static bool TryCreate(StationDocument document, out StationIndex index, out StationRejection rejection) {

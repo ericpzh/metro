@@ -105,7 +105,16 @@ namespace Metro.Persistence {
             var repairs=StationModuleRepair.RepairDocument(state);
             return new StationSaveV1(state,candidate.DroppedCells,candidate.DroppedModules,repairs);
         }
-        public string Write(DateTimeOffset savedAt) {
+        public string Write(DateTimeOffset savedAt) => WriteTree(savedAt).ToString(Formatting.None);
+
+        /// <summary>
+        /// The normalized v1 envelope as a parsed tree. The typed reader keeps it so a local
+        /// edit can patch the committed save without re-serializing and re-parsing it
+        /// (plan 30 §1). The tree is the save writer's own copy — <c>State</c> stays private —
+        /// but a caller that patches it must clone it first, because the reader hands the same
+        /// instance to <see cref="StationDocumentReader"/>.
+        /// </summary>
+        internal JObject WriteTree(DateTimeOffset savedAt) {
             var data=new JObject {
                 ["format"]="metro-save",["formatVersion"]=1,["gameVersion"]="0.2.0",
                 ["savedAt"]=savedAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'",CultureInfo.InvariantCulture),
@@ -116,7 +125,7 @@ namespace Metro.Persistence {
                 ["demand"]=document["demand"].DeepClone(),["calendar"]=document["calendar"].DeepClone(),
                 ["static"]=new JObject {["cells"]=document["cells"].DeepClone(),["modules"]=document["modules"].DeepClone(),["lines"]=document["lines"].DeepClone()}
             };
-            return data.ToString(Formatting.None);
+            return data;
         }
     }
 }

@@ -24,6 +24,7 @@ import type { CubeProjection, CubeVector, CubeViewState, ViewCubeAdapter } from 
 import { useStore } from '../app/store.ts'
 import { stationBridge } from './stationBridge.ts'
 import type { StationBridge } from './stationBridge.ts'
+import { DOM_BUTTON, holdsButton, isBuildButton } from './pointerButtons.ts'
 
 /** One camera/view command in the v2 payload vocabulary. */
 export type CameraCommand =
@@ -404,26 +405,27 @@ export function attachCanvasCameraGestures(
     try { return options.claimsRight ? options.claimsRight() : false } catch { return false }
   }
   /**
-   * Chord cancellation (plan 29 §2). A press of the other build button while this one is
-   * held cancels both gestures; the camera must never start a pan from the second press of
+   * Chord cancellation (plan 29 §2). A press of the other **build** button while this one
+   * is held cancels both gestures; the camera must never start a pan from the second press of
    * a chord, and a right pan whose left button appears — or whose release is unmatched —
-   * stops where it is. The tool pointer stream applies the same rule to its own half.
+   * stops where it is. The tool pointer stream applies the same rule to its own half. The
+   * rule is scoped to the build buttons: a middle press is an orbit, not a chord (plan 30 §1).
    */
   const cancel = (): void => {
     mode = null
     pointer = -1
     button = -1
   }
-  const opposingHeld = (event: PointerEvent, held: number): boolean =>
-    held === 2 ? (event.buttons & 1) !== 0 : (event.buttons & 2) !== 0
+  const opposingBuildHeld = (event: PointerEvent, held: number): boolean =>
+    isBuildButton(held) && holdsButton(event.buttons, held === DOM_BUTTON.left ? DOM_BUTTON.right : DOM_BUTTON.left)
 
   const down = (event: PointerEvent): void => {
     if (isBlocked()) return
-    if (event.button !== 1 && event.button !== 2) return
-    if (event.button === 2 && claimsRight()) return
+    if (event.button !== DOM_BUTTON.middle && event.button !== DOM_BUTTON.right) return
+    if (event.button === DOM_BUTTON.right && claimsRight()) return
     // The second press of a chord is not a camera gesture.
-    if ((event.buttons & (event.button === 2 ? 1 : 2)) !== 0) return
-    mode = event.button === 1 ? 'orbit' : 'pan'
+    if (opposingBuildHeld(event, event.button)) return
+    mode = event.button === DOM_BUTTON.middle ? 'orbit' : 'pan'
     button = event.button
     pointer = event.pointerId
     x = event.clientX
@@ -437,11 +439,11 @@ export function attachCanvasCameraGestures(
       cancel()
       return
     }
-    if (opposingHeld(event, button)) {
+    if (opposingBuildHeld(event, button)) {
       cancel()
       return
     }
-    if ((event.buttons & button) === 0) {
+    if (!holdsButton(event.buttons, button)) {
       // The owning button went up without an `up` reaching the canvas: never keep panning.
       cancel()
       return
@@ -463,9 +465,11 @@ export function attachCanvasCameraGestures(
   }
   const up = (event: PointerEvent): void => {
     if (event.pointerId !== pointer) return
-    // Releasing the other build button while this one is held cancels the gesture.
-    if (button !== -1 && (event.button === 0 || event.button === 2) && event.button !== button) {
-      cancel()
+    if (event.button !== button) {
+      // A release of the **other build button** while this one is held is the chord that
+      // cancels the gesture. Any other button's release is unrelated to this drag and must
+      // not end it — a left click during a middle orbit is not a chord (plan 30 §1).
+      if (isBuildButton(button) && isBuildButton(event.button)) cancel()
       return
     }
     cancel()

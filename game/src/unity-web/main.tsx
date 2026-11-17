@@ -28,6 +28,7 @@ import { paletteIdForModule } from '../app/tools/PickTool.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
 import { createPsdHeaderPort } from './psdHeaderProvider.ts'
 import { createExitFacePort } from './exitFaceProvider.ts'
+import { createCalligraphyFacePort } from './calligraphyFaceProvider.ts'
 import { attachKeyboardNavigation } from './keyboardNavigation.ts'
 import { applyUnityClock, bindSimulationPort, createSimulationPort, receiveHostState, simulationStoreActions } from './simulationAdapter.ts'
 import { applyHostStatistics, createStatisticsAdapter } from './statisticsAdapter.ts'
@@ -162,15 +163,19 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // Sign artwork requests travel on the same event and are answered here, so a
   // PNG never enters the document reducer (`signFaceProvider.ts`). PSD header
   // panels (RCA 15 §5) take the same route through their own painter, for the
-  // same reason. Street exit/guidepost plates (plan 16 §5.3) are the third kind.
+  // same reason. Street exit/guidepost plates (plan 16 §5.3) are the third kind,
+  // and station-name inscriptions (plan 30 §4) the fourth: their glyphs are the
+  // six approved hands in `sim/calligraphyFonts.ts`, not Unity's one scene font.
   const signFaces = createSignFacePort()
   const psdHeaders = createPsdHeaderPort()
   const exitFaces = createExitFacePort()
+  const calligraphyFaces = createCalligraphyFacePort()
   const onState = (event: Event): void => {
     const detail = (event as CustomEvent<string>).detail
     if (signFaces.receive(detail)) return
     if (psdHeaders.receive(detail)) return
     if (exitFaces.receive(detail)) return
+    if (calligraphyFaces.receive(detail)) return
     stationBridge.receive(detail)
   }
   window.addEventListener('metro:station-state', onState)
@@ -509,6 +514,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     signFaces.dispose()
     psdHeaders.dispose()
     exitFaces.dispose()
+    calligraphyFaces.dispose()
     detachCanvas()
     detachPointer()
     canvas.removeEventListener('pointermove', trackPointer)

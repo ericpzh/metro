@@ -91,32 +91,45 @@ namespace Metro.Persistence {
             if (string.IsNullOrEmpty(savedJson)) { code = "no-document"; return null; }
             JObject envelope;
             try { envelope = JObject.Parse(savedJson); } catch (JsonException) { code = "parse-failed"; return null; }
+            if (!ApplyToEnvelope(envelope, mode, draft, removeId, out code)) return null;
+            return envelope.ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// The surgical half: patch one module in a parsed v1 envelope **in place** (plan 30 §2).
+        /// The caller owns the tree, so a committed document's envelope is cloned before it is
+        /// handed here.
+        /// </summary>
+        public static bool ApplyToEnvelope(JObject envelope, StationModuleEditMode mode, StationEditDraft draft,
+            string removeId, out string code) {
+            code = null;
+            if (envelope == null) { code = "no-document"; return false; }
             if (!(envelope["static"] is JObject state) || !(state["modules"] is JArray modules)) {
                 code = "parse-failed";
-                return null;
+                return false;
             }
             switch (mode) {
                 case StationModuleEditMode.Remove: {
                     var existing = Find(modules, removeId);
-                    if (existing == null) { code = "not-found"; return null; }
+                    if (existing == null) { code = "not-found"; return false; }
                     existing.Remove();
                     break;
                 }
                 case StationModuleEditMode.Add: {
-                    if (draft == null) { code = "bad-payload"; return null; }
-                    if (Find(modules, draft.Id) != null) { code = "duplicate-id"; return null; }
+                    if (draft == null) { code = "bad-payload"; return false; }
+                    if (Find(modules, draft.Id) != null) { code = "duplicate-id"; return false; }
                     modules.Add(ToSaveRecord(draft));
                     break;
                 }
                 default: {
-                    if (draft == null) { code = "bad-payload"; return null; }
+                    if (draft == null) { code = "bad-payload"; return false; }
                     var existing = Find(modules, draft.SourceId.Length > 0 ? draft.SourceId : draft.Id);
-                    if (existing == null) { code = "not-found"; return null; }
+                    if (existing == null) { code = "not-found"; return false; }
                     ApplyMove(existing, draft);
                     break;
                 }
             }
-            return envelope.ToString(Formatting.None);
+            return true;
         }
 
         static JObject Find(JArray modules, string id) {

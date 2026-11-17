@@ -320,6 +320,49 @@ namespace Metro.App {
         public string SaveDocument() => coordinator?.Save(DateTimeOffset.UtcNow) ?? "";
 
         /// <summary>
+        /// The committed normalized envelope text as it already stands — no re-serialization, no
+        /// re-parse. It is what the local edit path puts on the history stack in place of a fresh
+        /// <see cref="SaveDocument"/> frame (plan 30 §3).
+        /// </summary>
+        public string CommittedDocumentJson => Document?.NormalizedJson ?? "";
+
+        /// <summary>
+        /// Try the **local** edit path for one cell patch (plan 30 §3): the next document and
+        /// index are built from the committed read result plus the patch, then installed through
+        /// the same transaction as an open. Returns null when the patch is outside the local
+        /// whitelist, and the caller falls back to <see cref="ApplyDocumentEdit"/> with a complete
+        /// envelope; the resulting document, revision and undo frame are the same either way.
+        /// </summary>
+        public StationLoadResult TryApplyLocalCells(StationCellPatch patch, string sourceId, out string code) {
+            code = null;
+            if (!IsLoaded) { code = "no-session"; return null; }
+            StationLoadResult result;
+            editingDocument = true;
+            try {
+                result = coordinator.TryInstallLocalCellEdit(patch, string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId, out code);
+            } finally {
+                editingDocument = false;
+            }
+            return result;
+        }
+
+        /// <summary>Try the local edit path for one module add/replace/remove (plan 30 §3).</summary>
+        public StationLoadResult TryApplyLocalModule(StationModuleEditMode mode, StationEditDraft draft,
+            string removeId, string sourceId, out string code) {
+            code = null;
+            if (!IsLoaded) { code = "no-session"; return null; }
+            StationLoadResult result;
+            editingDocument = true;
+            try {
+                result = coordinator.TryInstallLocalModuleEdit(mode, draft, removeId,
+                    string.IsNullOrEmpty(sourceId) ? CurrentSourceId : sourceId, out code);
+            } finally {
+                editingDocument = false;
+            }
+            return result;
+        }
+
+        /// <summary>
         /// The edit transaction a feature handler calls: hand it the complete normalized
         /// v1 document text. It installs through the same atomic transaction as an open,
         /// bumps the revision once, and the router replies with the commit for the

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Metro.Build {
     /// <summary>Why a cell refuses a block — the port of `sim/placement.ts:BlockRefusal`.</summary>
@@ -436,17 +437,59 @@ namespace Metro.Build {
     /// answers null — a room, a track, an exit, a stair, a PSD and a fence keep their own
     /// teardown, the same list the source excludes.
     ///
-    /// This port reads the **authored** variant text rather than each family's spec table, so
-    /// two pieces the source would normalise to one variant sweep separately here. That is a
-    /// narrower sweep, never a wider one.
+    /// The variant is **normalized to the family's default** the way the source's spec tables
+    /// do (`benchSpec`, `doorSpec`, `billboardSpec`, `glassModuleSpec`, `lineMapSpec`,
+    /// `signMountSpec`, `shelfVariant`, `counterVariant`/`counterLength`): a legacy or
+    /// hand-written record that stores no variant is the piece the palette would draw by
+    /// default, so it must sweep with a current one. Comparing the raw text made two visually
+    /// identical pieces refuse to join the same drag (plan 30 §2).
     /// </summary>
     public static class StationSweep {
+        /// <summary>The reference's `SWEEP_STEP_PX`: one sample every 6 CSS pixels.</summary>
+        public const float StepPixels = 6f;
+        /// <summary>The reference's `SWEEP_MAX_SAMPLES`: a jump is sampled end to end, coarser.</summary>
+        public const int MaxSamples = 24;
+
         static readonly HashSet<string> Sweepable = new HashSet<string>(StringComparer.Ordinal) {
             "ac-unit", "electrical-cabinet", "floor-mark", "gate", "tvm", "vending", "escalator", "walkway", "lift",
             "psd-end", "bench", "shelf", "desk", "checkout", "cubicle", "sink", "guidepost", "busstop", "bin",
             "extinguisher", "vent", "light", "clock", "cctv", "billboard", "glass", "door", "calligraphy",
             "linemap", "tv", "sign",
         };
+
+        /// <summary>A family default for an absent/legacy variant (`X ?? DEFAULT` in the source).</summary>
+        static string Default(string value, string fallback) => string.IsNullOrEmpty(value) ? fallback : value;
+
+        // The variant tables' own key sets, for the families whose keys the port already
+        // names: a value outside the table is the default piece in the source
+        // (`SPECS[variant] ?? SPECS[DEFAULT]`), so the sweep identity must say so too.
+        static readonly HashSet<string> BenchVariants = new HashSet<string>(StringComparer.Ordinal) {
+            "wood-1", "wood-2", "office-1", "steel-1", "steel-2", "seat-1", "seat-2",
+        };
+        static readonly HashSet<string> DoorVariants = new HashSet<string>(StringComparer.Ordinal) {
+            "steel-1", "steel-2", "wood-1", "wood-2", "glass-1", "glass-2",
+        };
+        static readonly HashSet<string> GlassVariants = new HashSet<string>(StringComparer.Ordinal) {
+            "1x1", "2x1", "3x1", "1x2", "2x2", "3x2", "1x4", "2x4", "3x4", "4x4",
+        };
+        static readonly HashSet<string> BillboardVariants = new HashSet<string>(StringComparer.Ordinal) {
+            "16x9-3m", "16x9-4m", "4x3-3m", "4x3-4m", "panorama", "portrait", "square", "standard", "large", "wide",
+        };
+
+        /// <summary>One spec table's answered variant: an unknown value reads as its default.</summary>
+        static string Spec(string value, HashSet<string> variants, string fallback) =>
+            !string.IsNullOrEmpty(value) && variants.Contains(value) ? value : fallback;
+
+        /// <summary>`counterVariant`: an unknown counter is the plain checkout.</summary>
+        static string CounterVariant(string value) {
+            switch (value) {
+                case "generic": case "cafe": case "cafe-pastry": return value;
+                default: return "checkout";
+            }
+        }
+
+        /// <summary>`counterLength`: only 1–4 cells are offered, anything else is one.</summary>
+        static string CounterLength(int width) => width >= 1 && width <= 4 ? width.ToString(CultureInfo.InvariantCulture) : "1";
 
         public static string FamilyOf(StationModuleRecord module) {
             if (module == null) return null;
@@ -461,6 +504,7 @@ namespace Metro.Build {
                 }
                 case "gate": return cfg.Text("variant") == "new" ? "gate-new" : "gate";
                 case "psd-end": return "psd-end:" + cfg.Text("psd");
+                // These three read the raw `cfg.variant` in the source, default or not.
                 case "floor-mark": return "floor-mark:" + cfg.Text("variant");
                 case "busstop": return "busstop:" + cfg.Text("variant");
                 case "light": return "light-" + cfg.Text("variant");
@@ -472,18 +516,22 @@ namespace Metro.Build {
             }
             if (!Sweepable.Contains(module.Type)) return null;
             switch (module.Type) {
-                case "checkout": return "checkout:" + cfg.Text("variant") + ":" + module.Width;
-                case "shelf": return "shelf:" + cfg.Text("variant");
-                case "bench": return "bench:" + cfg.Text("variant");
-                case "billboard": return "billboard:" + cfg.Text("variant");
-                case "glass": return "glass:" + cfg.Text("variant") + ":" + cfg.Text("curtainHeight");
-                case "door": return "door:" + cfg.Text("variant");
+                case "checkout": return "checkout:" + CounterVariant(cfg.Text("variant")) + ":" + CounterLength(module.Width);
+                // A catalogue shelf's own table is long and not restated here, so only the
+                // absent/legacy value is normalized; a named variant stays exactly as it is.
+                case "shelf": return "shelf:" + Default(cfg.Text("variant"), "dark-tall");
+                case "bench": return "bench:" + Spec(cfg.Text("variant"), BenchVariants, "steel-1");
+                case "billboard": return "billboard:" + Spec(cfg.Text("variant"), BillboardVariants, "wide");
+                case "glass":
+                    return "glass:" + Spec(cfg.Text("variant"), GlassVariants, "1x1") + ":" + cfg.Text("curtainHeight");
+                case "door": return "door:" + Spec(cfg.Text("variant"), DoorVariants, "steel-1");
                 case "calligraphy":
                     return "calligraphy:" + (cfg.Text("style").Length == 0 ? "kai" : cfg.Text("style")) +
                         ":" + (cfg.Text("axis").Length == 0 ? "h" : cfg.Text("axis")) +
                         ":" + (cfg.Bool("showEnglish") ? "1" : "0");
-                case "linemap": return "linemap:" + cfg.Text("mount");
-                case "sign": return "sign:" + cfg.Text("mount");
+                // `lineMapSpec`/`signMountSpec` answer a mount the two-value sets can name.
+                case "linemap": return "linemap:" + (cfg.Text("mount") == "stand" ? "stand" : "wall");
+                case "sign": return "sign:" + (cfg.Text("mount") == "wall" ? "wall" : "ceiling");
                 default: return module.Type;
             }
         }
@@ -492,6 +540,47 @@ namespace Metro.Build {
         public static bool SameFamily(StationModuleRecord a, StationModuleRecord b) {
             var family = FamilyOf(a);
             return family != null && string.Equals(family, FamilyOf(b), StringComparison.Ordinal);
+        }
+    }
+
+    /// <summary>
+    /// `removeModule`'s dependent records (plan 30 §2): the piece itself plus what cannot
+    /// stand without it. A 柱 owns its generated bridge piers (`cfg.bridgeId`) and every 站名
+    /// hung on it (`cfg.pillarId`); removing the post takes them with it, exactly as the
+    /// reference filters them out of the module list. Every other swept family — a bench, a
+    /// gate, a sign, a board, a door, a panel — has no dependent record, so its teardown is
+    /// the removal alone.
+    ///
+    /// This is the **document** answer, not a scene one: it reads the committed index and
+    /// returns the stable ids the patch must remove. Callers fold the result into one patch so
+    /// a whole sweep stays one revision and one undo frame.
+    /// </summary>
+    public static class StationModuleTeardown {
+        public static IReadOnlyList<string> Expand(StationIndex index, IEnumerable<string> ids) {
+            var removed = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            if (ids != null) {
+                foreach (var id in ids) if (!string.IsNullOrEmpty(id) && seen.Add(id)) removed.Add(id);
+            }
+            if (index == null || removed.Count == 0) return removed;
+            bool grew = true;
+            while (grew) {
+                grew = false;
+                foreach (var module in index.Document.Modules) {
+                    if (module == null || seen.Contains(module.Id)) continue;
+                    var cfg = module.Config;
+                    bool dependent =
+                        (string.Equals(module.Type, "pillar", StringComparison.Ordinal) &&
+                            cfg.Text("bridgeId").Length > 0 && seen.Contains(cfg.Text("bridgeId"))) ||
+                        (string.Equals(module.Type, "calligraphy", StringComparison.Ordinal) &&
+                            cfg.Text("pillarId").Length > 0 && seen.Contains(cfg.Text("pillarId")));
+                    if (!dependent) continue;
+                    seen.Add(module.Id);
+                    removed.Add(module.Id);
+                    grew = true;
+                }
+            }
+            return removed;
         }
     }
 
@@ -1061,9 +1150,14 @@ namespace Metro.Build {
                 }
             }
             if (removed.Count == 0) return patch;
+            var anchored = new List<string>();
             foreach (var module in world.Index.Document.Modules) {
-                if (removed.Contains(new StationCellKey(module.X, module.Y, module.Z)) &&
-                    !patch.RemoveModuleIds.Contains(module.Id)) patch.RemoveModuleIds.Add(module.Id);
+                if (removed.Contains(new StationCellKey(module.X, module.Y, module.Z))) anchored.Add(module.Id);
+            }
+            // A removed block takes what stood on it **and what cannot stand without it**
+            // (plan 30 §2): a post's generated piers and the 站名 hung on it.
+            foreach (var id in StationModuleTeardown.Expand(world.Index, anchored)) {
+                if (!patch.RemoveModuleIds.Contains(id)) patch.RemoveModuleIds.Add(id);
             }
             if (droppedFloors.Count > 0) AppendAutoWallSync(world, patch, null, removed, droppedFloors);
             return patch;

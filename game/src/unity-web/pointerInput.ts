@@ -23,6 +23,7 @@
 
 import { stationBridge } from './stationBridge.ts'
 import type { StationBridge } from './stationBridge.ts'
+import { BUTTON_BIT, DOM_BUTTON, MOVE_BUTTON, isBuildButton } from './pointerButtons.ts'
 
 /** One tool-pointer command in the bridge's v2 vocabulary. */
 export type PointerCommand =
@@ -65,11 +66,9 @@ const RIGHT_TAP_PX = 5
 /** How long a right press may be held and still count as a tap. */
 const RIGHT_TAP_MS = 500
 /** `MouseEvent.buttons` bit for the primary button. */
-const LEFT_BIT = 1
+const LEFT_BIT = BUTTON_BIT.left
 /** `MouseEvent.buttons` bit for the secondary button. */
-const RIGHT_BIT = 2
-
-/**
+const RIGHT_BIT = BUTTON_BIT.right/**
  * Attach the tool pointer stream to the Unity canvas. Returns the detach function.
  *
  * A move is coalesced to one send per animation frame (the latest position wins), so a
@@ -166,7 +165,11 @@ export function attachCanvasToolPointer(
     if (!pending) return
     const event = pending
     pending = null
-    port.send({ type: 'pointer.move', payload: payload(event, 0) })
+    // A move names **no** changed button (`MouseEvent.button` is 0/−1 for a motion), so it
+    // travels with the unchanged-button sentinel and the event's real `buttons` mask. Sending
+    // button 0 here made every move look like the left button's release: a held right erase
+    // was cancelled by its own first move and the C# router never saw a right drag (plan 30 §1).
+    port.send({ type: 'pointer.move', payload: payload(event, MOVE_BUTTON) })
   }
 
   const schedule = (event: PointerEvent): void => {
@@ -177,7 +180,7 @@ export function attachCanvasToolPointer(
       if (!pending) return
       const latest = pending
       pending = null
-      port.send({ type: 'pointer.move', payload: payload(latest, 0) })
+      port.send({ type: 'pointer.move', payload: payload(latest, MOVE_BUTTON) })
     })
   }
 
@@ -216,8 +219,8 @@ export function attachCanvasToolPointer(
   }
 
   const down = (event: PointerEvent): void => {
-    if (event.button === 1) return
-    if (event.button !== 0 && event.button !== 2) return
+    if (event.button === DOM_BUTTON.middle) return
+    if (!isBuildButton(event.button)) return
     if (blocked()) return
     if (isMouseLike(event)) {
       // Some browsers deliver a `pointerdown` for the second button of a chord and some do
@@ -237,12 +240,12 @@ export function attachCanvasToolPointer(
     downAt = performance.now()
     downButton = event.button
     toolPressed = false
-    if (event.button === 0) {
+    if (event.button === DOM_BUTTON.left) {
       toolOwnsRight = false
       try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
       flush()
       toolPressed = true
-      port.send({ type: 'pointer.down', payload: payload(event, 0) })
+      port.send({ type: 'pointer.down', payload: payload(event, DOM_BUTTON.left) })
       return
     }
     toolOwnsRight = claimsRight()
@@ -253,7 +256,7 @@ export function attachCanvasToolPointer(
     try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
     flush()
     toolPressed = true
-    port.send({ type: 'pointer.down', payload: payload(event, 2) })
+    port.send({ type: 'pointer.down', payload: payload(event, DOM_BUTTON.right) })
   }
 
   const move = (event: PointerEvent): void => {
@@ -262,8 +265,8 @@ export function attachCanvasToolPointer(
     if (event.pointerType === 'touch') event.preventDefault()
     if (isMouseLike(event) && downButton !== -1) {
       heldMask = event.buttons
-      const ownerBit = downButton === 0 ? LEFT_BIT : RIGHT_BIT
-      const otherBit = downButton === 0 ? RIGHT_BIT : LEFT_BIT
+      const ownerBit = downButton === DOM_BUTTON.left ? LEFT_BIT : RIGHT_BIT
+      const otherBit = downButton === DOM_BUTTON.left ? RIGHT_BIT : LEFT_BIT
       // The move's mask is authoritative even when the browser never sent the second
       // `pointerdown`: a drag that gains the opposing bit is the chord (`onPointerMove`).
       if ((event.buttons & otherBit) !== 0) { cancelChord(); return }
@@ -301,12 +304,12 @@ export function attachCanvasToolPointer(
     // first under the same event order the C# router expects.
     flush()
     if (blocked()) return
-    if (wasButton === 2) {
+    if (wasButton === DOM_BUTTON.right) {
       if (owned) {
-        port.send({ type: 'pointer.up', payload: payload(event, 2) })
+        port.send({ type: 'pointer.up', payload: payload(event, DOM_BUTTON.right) })
         return
       }
-      if (travelled <= RIGHT_TAP_PX && elapsed <= RIGHT_TAP_MS) port.send({ type: 'pointer.rightTap', payload: payload(event, 2) })
+      if (travelled <= RIGHT_TAP_PX && elapsed <= RIGHT_TAP_MS) port.send({ type: 'pointer.rightTap', payload: payload(event, DOM_BUTTON.right) })
       return
     }
     port.send({ type: 'pointer.up', payload: payload(event, event.button) })
@@ -320,7 +323,7 @@ export function attachCanvasToolPointer(
    */
   const contextMenu = (event: MouseEvent): void => {
     event.preventDefault()
-    const owningErase = downButton === 2 && toolOwnsRight && (event.buttons & LEFT_BIT) === 0
+    const owningErase = downButton === DOM_BUTTON.right && toolOwnsRight && (event.buttons & LEFT_BIT) === 0
     if (owningErase) return
     if (chordConsumed) { heldMask = event.buttons; return }
     if (!toolPressed) return

@@ -174,6 +174,11 @@ test('a tool that claims the right button receives a right press, drag and relea
     assert.deepEqual(commands.map(command => command.type), ['pointer.down', 'pointer.move', 'pointer.up'])
     assert.equal(commands[0].payload.button, 2)
     assert.equal(commands[0].payload.buttons, 2)
+    // A move names **no** changed button: it must travel with the unchanged-button sentinel
+    // and the real held mask, or the C# owner check reads it as the left button's release
+    // and cancels the held right erase on its first move (plan 30 §1).
+    assert.equal(commands[1].payload.button, -1, 'a move carries the unchanged-button sentinel')
+    assert.equal(commands[1].payload.buttons, 2, 'a move keeps the real held mask')
     // A right drag is a tool gesture, never a tap.
     assert.ok(!commands.some(command => command.type === 'pointer.rightTap'))
     assert.equal(commands[2].payload.button, 2)
@@ -406,5 +411,74 @@ test('a camera pan stops on an unmatched release instead of drifting', () => {
     assert.equal(sent.length, 1, 'a pan whose release was unmatched does not keep moving')
   } finally {
     detach()
+  }
+})
+
+/* ---------------------------------------- plan 30 §1: held-mask bits and the middle orbit */
+
+test('a middle drag orbits the camera on the middle held bit, not the left one', () => {
+  const canvas = new FakeCanvas()
+  const sent = []
+  const detach = attachCanvasCameraGestures(canvas, { send: command => sent.push(command) }, {
+    claimsRight: () => false,
+  })
+  try {
+    // The middle button is DOM number 1, but its `buttons` mask bit is 4. Testing
+    // `buttons & button` compared 4 with 1 and cancelled the orbit on its first move.
+    canvas.dispatch('pointerdown', pointerEvent({ button: 1, buttons: 4, clientX: 100, clientY: 100 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 140, clientY: 120 }))
+    assert.equal(sent.length, 1, 'a middle move orbits')
+    assert.equal(sent[0].type, 'camera.orbit')
+    assert.equal(sent[0].payload.dx, 40)
+    assert.equal(sent[0].payload.dy, 20)
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 160, clientY: 120 }))
+    assert.equal(sent.length, 2, 'the orbit keeps integrating')
+    // A move whose mask lost the middle bit (an unseen release) stops it.
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 0, clientX: 180, clientY: 120 }))
+    assert.equal(sent.length, 2, 'a middle release nobody reported does not keep orbiting')
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 200, clientY: 120 }))
+    assert.equal(sent.length, 2, 'the cancelled orbit stays cancelled until the next press')
+  } finally {
+    detach()
+  }
+})
+
+test('releasing a build button does not end a middle orbit', () => {
+  const canvas = new FakeCanvas()
+  const sent = []
+  const detach = attachCanvasCameraGestures(canvas, { send: command => sent.push(command) }, {
+    claimsRight: () => false,
+  })
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 1, buttons: 4, clientX: 100, clientY: 100 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 130, clientY: 100 }))
+    // A left press/release is a build button, not a chord with the middle orbit: the orbit
+    // keeps its pointer and continues (the chord rule is scoped to left/right, plan 30 §1).
+    canvas.dispatch('pointerdown', pointerEvent({ button: 0, buttons: 5, clientX: 130, clientY: 100 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 4, clientX: 130, clientY: 100 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 4, clientX: 160, clientY: 100 }))
+    assert.equal(sent.length, 2, 'the orbit survives a build-button release')
+    assert.equal(sent[1].payload.dx, 30)
+  } finally {
+    detach()
+  }
+})
+
+test('the camera refuses the second press of a left/right chord, whatever the button order', () => {
+  for (const [first, second] of [[0, 2], [2, 0]]) {
+    const canvas = new FakeCanvas()
+    const sent = []
+    const detach = attachCanvasCameraGestures(canvas, { send: command => sent.push(command) }, {
+      claimsRight: () => false,
+    })
+    try {
+      const firstMask = first === 0 ? 1 : 2
+      const chordMask = 3
+      canvas.dispatch('pointerdown', pointerEvent({ button: first, buttons: firstMask, clientX: 100, clientY: 100 }))
+      canvas.dispatch('pointerdown', pointerEvent({ button: second, buttons: chordMask, clientX: 100, clientY: 100 }))
+      assert.equal(sent.length, 0, `a ${first}+${second} chord starts no camera gesture`)
+    } finally {
+      detach()
+    }
   }
 })

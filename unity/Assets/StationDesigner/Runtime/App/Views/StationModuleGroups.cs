@@ -1950,15 +1950,21 @@ namespace Metro.App.Views {
         /// The inscriptions this world bound (18 §4): one ledger line per 站名 printed from the
         /// committed name, or the reason one could not be. Read by the verifier instead of
         /// inferring the text from a screenshot.
+        ///
+        /// It is the **live** scope's list, not a copy: a browser-painted plate reports the
+        /// face it actually used (and whether that face was missing) after the build returns,
+        /// and a verifier reading this must see those lines too.
         /// </summary>
-        public List<string> CalligraphyNotes { get; } = new List<string>();
+        public IReadOnlyList<string> CalligraphyNotes =>
+            Current?.Calligraphy != null && Current.Calligraphy.gameObject != null
+                ? (IReadOnlyList<string>)Current.Calligraphy.Notes
+                : Array.Empty<string>();
 
         protected override void BuildGroup(StationViewBuildContext context, ModuleFacts[] station, WorldState state) {
             StationCeilingMounts ceilingMounts = null;
             int storeyHeight = Math.Max(1, context.Document.StoreyHeight);
             Active = this;
             CeilingNotes.Clear();
-            CalligraphyNotes.Clear();
             BillboardNotes.Clear();
             for (int i = 0; i < station.Length; i++) {
                 var module = station[i];
@@ -1990,9 +1996,12 @@ namespace Metro.App.Views {
                 BindArtwork(context, station, state, module, built.View);
             }
             if (state.Calligraphy != null) {
-                CalligraphyNotes.AddRange(state.Calligraphy.Notes);
+                // Flush the inscriptions' browser requests in one bounded batch now that every
+                // plate is bound; a request no transport can carry paints natively here, inside
+                // the build, so a headless smoke still commits an inscription.
+                state.Calligraphy.Cache?.Pump();
                 if (state.Calligraphy.Notes.Count == 0 && state.Calligraphy.Bound >= 0) {
-                    CalligraphyNotes.Add("calligraphy-unresolved:no-inscription-bound");
+                    state.Calligraphy.Notes.Add("calligraphy-unresolved:no-inscription-bound");
                 }
             }
             if (state.Displays != null) BillboardNotes.AddRange(state.Displays.Notes);
@@ -2061,7 +2070,10 @@ namespace Metro.App.Views {
         /// <summary>This world's inscription scope, created on first need.</summary>
         StationCalligraphyArtwork.Scope CalligraphyArtwork(StationViewBuildContext context, WorldState state) {
             if (state.Calligraphy != null && state.Calligraphy.gameObject != null) return state.Calligraphy;
-            state.Calligraphy = StationCalligraphyArtwork.CreateScope(context.RoleRoot(Role));
+            // The world and the scene font go in with the scope: a browser reply recaptures
+            // the plate through the world, and a publish failure paints the native fallback
+            // with the font the scene bound.
+            state.Calligraphy = StationCalligraphyArtwork.CreateScope(context.RoleRoot(Role), context.World, context.Font);
             return state.Calligraphy;
         }
 

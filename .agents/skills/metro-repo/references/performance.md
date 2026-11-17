@@ -1566,6 +1566,53 @@ The same probe, fixtures and machine were rerun after the local-edit load path s
 
 The read stage is still the largest and the local edit still pays whole-document work: `StationCellEdits.Apply` parses and serializes the complete envelope for a surgical patch, and the grid/cell/line repairs take JSON text. The probe calls `StationSimulationHost.StageInstall` directly, so its stage sample still classifies internally; the coordinator path classifies first and passes the kind. These are engine-free managed numbers, not a pass threshold, and still exclude the view build, bridge payload/React adoption and every presented frame. Player capture remains blocked by the same `STATUS_PIPELINE_LOAD_PENDING` Editor, so the release-to-first-visible budget in `placement feedback` is unchanged and unmeasured here.
 
+#### Managed spot check at the Plan 29 commit
+
+At `6cceda189ed2f084472236a6aaed49d66e5ef48b`, the same Windows/i7-14700KF and .NET 10.0.403 probe repeated one block add and delete at `(42, 37, −12)` with the same Zoo and Tanwei fixture hashes above. The first pair warmed up and three samples per action remained. Values are medians in ms with the range of per-operation sums.
+
+| Demo | Action | Patch | Read, normalize and index | Stage sim | Commit sim | Managed total (range) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo | Place | 117 | 1,138 | 437 | 0.2 | 1,659 (1,635–1,738) |
+| Zoo | Delete | 78 | 1,091 | 394 | 0.2 | 1,530 (1,529–1,563) |
+| Tanwei | Place | 161 | 1,401 | 595 | 0.6 | 2,142 (2,074–2,299) |
+| Tanwei | Delete | 232 | 1,473 | 647 | 0.6 | 2,362 (2,167–2,485) |
+
+Reproduce from repo root with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-parity/check-unity-compile.ps1 -OutSuffix Plan30Audit` and `dotnet run -c Release --project .preview/unity/plan30-managed-edit/EditStages.csproj`. The scratch project contains the harness and `results.json`. The spot check establishes that full document read still dominates sampled managed work. It does not quantify a change from the previous run or include a fresh Tianhe sample. `StationLoadCoordinator.Install` still constructs and disposes the whole view for each successful edit. This run did not time those calls, the bridge or the first rendered frame. The live Editor again reported `STATUS_PIPELINE_LOAD_PENDING`.
+
+#### Local edit install: full path vs. local path on the same probe (plan 30 §3/§5)
+
+The reader now retains the parsed normalized envelope, and a whitelisted single block or module edit (and its inverse) installs from the committed typed document plus the patch instead of re-serializing and re-reading the whole save: `StationCellEdits.ApplyToEnvelope` / `StationModuleEdits.ApplyToEnvelope` patch a clone of the committed envelope tree, `StationLocalEdit.TryProject` projects only the records the patch touched (the cell repair's one ring around each written cell included), and `StationIndex.TryCreateIncremental` copies the previous lookups and applies a `StationIndexDelta`. On 2026-11-17 the engine-free probe ran both paths over the same fixtures in one process: `.preview/unity/plan30-local-edit/` alternated one explicit block place/delete at `(42, 37, −12)` and one bench add/remove, each action measured through the complete envelope path (`StationDocumentReader.Write` → `StationCellEdits.Apply` → `StationDocumentReader.Read`) and through the local path (`StationLocalEdit.TryPatchEnvelope` → `StationLocalEdit.TryProject`), then staged and committed both results through `StationSimulationHost`. Nine iterations per action; the first sample of each series is reported separately as cold-or-first and the rest are medians in ms with the range of the repeated samples.
+
+| Demo (cells / modules) | Action | Path | History/`Write` | Patch | Read, normalize, index | Local install | Stage sim | Commit sim | Managed total (range) |
+| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo (14,066 / 4,299) | Place | full | 127 | 312 | 1,901 | — | 727 | 0.2 | 3,032 (2,485–3,246) |
+| Zoo | Place | local | — | 129 (114–141) | — | 53.5 (41–64) | 635 | 0.2 | 820 (716–948) |
+| Zoo | Delete | full | 148 | 330 | 2,031 | — | 749 | 0.3 | 3,263 (2,912–3,581) |
+| Zoo | Delete | local | — | 126 (122–154) | — | 22.3 (21–28) | 751 | 0.3 | 899 (573–1,034) |
+| Zoo | Add module | full | 109 | 152 | 1,397 | — | 655 | 0.3 | 2,347 (2,208–2,413) |
+| Zoo | Add module | local | — | 125 (99–287) | — | 20.9 (17–53) | 592 | 0.3 | 828 (493–974) |
+| Zoo | Remove module | full | 119 | 135 | 1,506 | — | 525 | 0.3 | 2,250 (2,231–2,454) |
+| Zoo | Remove module | local | — | 120 (115–166) | — | 48.7 (17–63) | 707 | 0.3 | 845 (822–950) |
+| Tanwei (16,725 / 9,678) | Place | full | 180 | 265 | 1,860 | — | 989 | 0.7 | 3,373 (3,045–3,555) |
+| Tanwei | Place | local | — | 153 (143–202) | — | 29.4 (29–32) | 865 | 0.7 | 1,048 (774–1,295) |
+| Tanwei | Delete | full | 157 | 170 | 2,052 | — | 843 | 0.6 | 3,211 (2,912–3,969) |
+| Tanwei | Delete | local | — | 142 (121–416) | — | 28.0 (26–60) | 843 | 0.6 | 1,157 (998–1,319) |
+| Tanwei | Add module | full | 260 | 277 | 2,322 | — | 986 | 0.6 | 3,810 (3,271–4,521) |
+| Tanwei | Add module | local | — | 263 (144–474) | — | 43.2 (24–75) | 796 | 0.6 | 1,213 (791–1,632) |
+| Tanwei | Remove module | full | 168 | 399 | 1,915 | — | 913 | 0.8 | 3,387 (3,160–3,842) |
+| Tanwei | Remove module | local | — | 152 (138–153) | — | 28.1 (28–65) | 1,070 | 0.8 | 1,269 (1,229–1,274) |
+
+The first sample of the Zoo place series is the only genuinely cold row: history/`Write` 182, patch 312, read 1,699, local patch 312, local install 82, stage 753 ms. Every repeated local row materializes the envelope text once (`Document.NormalizedJson`, the commit payload's own copy): median 9–31 ms.
+
+The local patch is a deep clone of the committed envelope tree plus the surgical write, so it costs roughly a third of the full path's `Write` + text patch for one record; the local install (projection, the touched ring's cell repair, the incremental index and the one envelope materialization) is 21–53 ms on Zoo and 28–43 ms on Tanwei. The complete read/normalize/project/index stage disappears from the edit. The remaining measured cost is the simulation stage, unchanged by this work: it still projects the whole document, classifies the edit against the previous document and rebuilds the graph, so it is now 72–84% of the local managed chain. These are engine-free managed numbers from one process that also rebuilt a `StationIndex` and compared both documents 36 times, so the full-path totals here are slower than the 1,659/2,142 ms spot check above; compare within this table, not across runs.
+
+Equivalence was asserted before each timing was accepted: all 36 comparisons produced an identical normalized envelope (only `savedAt` canonicalised), identical cell records in order, identical module records and ids, identical index lookups and the same index diagnostics, for both fixtures. The probe refuses to report unless every comparison matches.
+
+Reproduce from repo root with `powershell -NoProfile -ExecutionPolicy Bypass -File .preview/unity/plan30-local-edit/run-probe.ps1`. It rebuilds `CheckCore` (`check-unity-compile.ps1 -OutSuffix LocalEdit`), builds `LocalEditStages.csproj` and runs it from the repo root, writing `results.json` and `results.err.txt` beside it. The App assembly the probe stages the simulation through comes from the last full check build (`acheckPlan30Audit`); that assembly is only used for `StationSimulationHost`, whose API this work does not change. Machine: Windows 10.0.26200, .NET 10.0.14, Intel64 Family 6 Model 183 (28 logical processors), Release. Fixture SHA-256 values are unchanged from the entries above: `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e` (Zoo), `620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4` (Tanwei).
+
+What is still whole-document on a local edit: `StationWorldView.Build` (every renderer still builds the whole station into a fresh world, and the transaction still disposes the previous one), `StationEditClassifier.Classify` and the simulation projection/graph build inside `StageInstall`, the commit payload (`BuildCommitPayload` serializes the whole normalized envelope and all 13 contributor snapshots), React's adoption of that payload, and `Save`, Open/New, resync, undo/redo and every fallback edit (line adds, rail/sign/road rewrites, a record a load-time repair owns, an off-grid record) which keep the complete envelope path. The local path itself is not yet wired to dirty `StationWorldView` chunks or module groups; that renderer half is the remaining step. The measured chain excludes pointer input, the view build and disposal, the bridge, React and every presented frame, and the live Editor still reports `STATUS_PIPELINE_LOAD_PENDING`, so the 100 ms first-visible budget is **not** claimed here.
+
+
 ### Unity Tianhe synthetic scale spike (unmatched workload)
 
 On 2026-11-10, three serial runs of `node tools/unity-feasibility/measure-web.mjs .preview/unity/feasibility .preview/unity/feasibility/visible-run-N` exercised a Unity 6000.6.8f1 Web Release player built from the dirty `7ad810fe1867fc85c1fdae21571949fddd943ce8` checkout, Windows 11, i7-14700KF, RTX 4080 SUPER, headless Chrome 157, DPR 1, 1384 × 805 canvas. Reports and screenshots are under `.preview/unity/feasibility/visible-run-{1,2,3}/`; each records the source/artifact digests. The graph digest is `52003505ee5da485bc74a375eac3b58bd7741f2fe81f2d52a7a01e40b30593e2` and WASM digest `e3dea0af59c2bd84e540057e45d04325383f6680ab3a3bc305ea975dc0fc1b89`. A prior attempt against the older `web-release-final` artifact failed its visual check (zero blue pixels); it is not a valid measurement.

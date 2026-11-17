@@ -27,17 +27,32 @@ namespace Metro.Persistence {
             if (patch == null || (!patch.HasWork && patch.RemoveModuleIds.Count == 0)) {
                 code = "no-change";
                 return null;
-            }            if (string.IsNullOrEmpty(savedJson)) { code = "no-document"; return null; }
+            }
+            if (string.IsNullOrEmpty(savedJson)) { code = "no-document"; return null; }
             JObject envelope;
             try { envelope = JObject.Parse(savedJson); } catch (JsonException) { code = "parse-failed"; return null; }
-            if (!(envelope["static"] is JObject state)) { code = "parse-failed"; return null; }
+            if (!ApplyToEnvelope(envelope, patch, out code)) return null;
+            return envelope.ToString(Formatting.None);
+        }
+
+        /// <summary>
+        /// The surgical half: patch a parsed v1 envelope **in place** and leave every record the
+        /// patch did not name exactly as it was (plan 30 §2). The caller owns the tree, so a
+        /// committed document's envelope is cloned before it is handed here; a refusal can
+        /// leave the clone half-patched, and the caller drops it.
+        /// </summary>
+        public static bool ApplyToEnvelope(JObject envelope, StationCellPatch patch, out string code) {
+            code = null;
+            if (patch == null || (!patch.HasWork && patch.RemoveModuleIds.Count == 0)) { code = "no-change"; return false; }
+            if (envelope == null) { code = "no-document"; return false; }
+            if (!(envelope["static"] is JObject state)) { code = "parse-failed"; return false; }
             if (!(state["cells"] is JArray cells)) {
                 cells = new JArray();
                 state["cells"] = cells;
             }
             if (patch.Writes.Count > 0) {
                 foreach (var write in patch.Writes) {
-                    if (!ApplyWrite(cells, write)) { code = "bad-cell-write"; return null; }
+                    if (!ApplyWrite(cells, write)) { code = "bad-cell-write"; return false; }
                 }
             }
             if (patch.ModuleReplaces.Count > 0) {
@@ -48,7 +63,7 @@ namespace Metro.Persistence {
                 foreach (var draft in patch.ModuleReplaces) {
                     if (draft == null) continue;
                     var existing = FindModule(placed, draft.Id);
-                    if (existing == null) { code = "missing-module"; return null; }
+                    if (existing == null) { code = "missing-module"; return false; }
                     existing.Replace(StationModuleEdits.ToSaveRecord(draft));
                 }
             }
@@ -59,7 +74,7 @@ namespace Metro.Persistence {
                 }
                 foreach (var draft in patch.ModuleAdds) {
                     if (draft == null) continue;
-                    if (FindModule(placed, draft.Id) != null) { code = "duplicate-id"; return null; }
+                    if (FindModule(placed, draft.Id) != null) { code = "duplicate-id"; return false; }
                     placed.Add(StationModuleEdits.ToSaveRecord(draft));
                 }
             }
@@ -73,11 +88,11 @@ namespace Metro.Persistence {
                 }
                 foreach (var draft in patch.LineAdds) {
                     if (draft == null || string.IsNullOrEmpty(draft.Id)) continue;
-                    if (FindLine(lines, draft.Id) != null) { code = "duplicate-line"; return null; }
+                    if (FindLine(lines, draft.Id) != null) { code = "duplicate-line"; return false; }
                     lines.Add(ToSaveLine(draft));
                 }
             }
-            return envelope.ToString(Formatting.None);
+            return true;
         }
 
         static JObject FindLine(JArray lines, string id) {

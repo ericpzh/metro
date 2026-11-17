@@ -82,8 +82,26 @@ namespace Metro.App {
         public IReadOnlyList<StationWallSide> WallDirs = Array.Empty<StationWallSide>();
         /// <summary>The piece a delete press took, or empty.</summary>
         public string ModuleId = "";
+        /// <summary>
+        /// What the delete press chose: a **module sweep** (the press took a drawn piece) or a
+        /// **block rectangle** (the press landed on a block). It is fixed at the press — an
+        /// unrelated hit during the drag can never switch the mode, and a block press can never
+        /// start collecting pieces (`DeleteTool`'s press mode, plan 30 §2).
+        /// </summary>
+        public bool Sweep;
+        /// <summary>The pressed piece's storey: a sweep never crosses to a ghosted level.</summary>
+        public int SweepZ;
         public string SweepFamily = "";
         public readonly List<string> ModuleIds = new List<string>();
+        /// <summary>
+        /// The pressed run's own template for a 删除 **line erase** (a 盲道 path, a 围栏 run,
+        /// a 场地分隔): the arm's palette settings are not the pressed piece's family, so the
+        /// template is frozen from the piece the press took (plan 30 §2).
+        /// </summary>
+        public StationPlacementRequest Run;
+        /// <summary>The previous aim in canvas pixels, for the sampled screen path (plan 30 §2).</summary>
+        public float LastAimX, LastAimY;
+        public bool HasLastAim;
         public float PressX, PressY;
         public double PressTimeMs;
         public bool Shift;
@@ -198,9 +216,21 @@ namespace Metro.App {
                 };
                 deleteGesture.Target = deleteGesture.Anchor;
                 if (hit.HasModule && hit.ModuleWins) {
+                    // A press on a drawn piece freezes **module sweep** here: the family is the
+                    // normalized one the piece belongs to, the storey is the piece's own, and
+                    // the ids the drag collects are the only thing the release removes. The
+                    // drag itself can never switch into a module delete or out of the sweep
+                    // because it crosses something else (plan 30 §2).
+                    deleteGesture.Sweep = true;
+                    deleteGesture.SweepZ = hit.Module.Z;
                     deleteGesture.ModuleId = hit.Module.Id;
                     deleteGesture.SweepFamily = StationSweep.FamilyOf(hit.Module) ?? "";
                     deleteGesture.ModuleIds.Add(hit.Module.Id);
+                } else {
+                    // A press on a block is a **rectangle dig** for the whole gesture: it never
+                    // collects a module the pointer happens to cross on the way.
+                    deleteGesture.Sweep = false;
+                    deleteGesture.ModuleIds.Clear();
                 }
                 gesture = deleteGesture;
                 Aim(host, hit, pointer, true);
@@ -291,6 +321,60 @@ namespace Metro.App {
         /// above the paver's own drawn top instead of at the ground behind it. A cell surface
         /// keeps its authored cell and face step.
         /// </summary>
+        /// <summary>
+        /// Arm a 删除 **line erase** on a run family the reference deletes as a line
+        /// (`DeleteTool`'s fence/divider trail and `TactileTool`'s erase), instead of the
+        /// same-type module sweep. The template is frozen from the **pressed record** — the
+        /// armed palette is 删除, whose settings say nothing about the family — so the run can
+        /// only lift its own type and variant (plan 30 §2).
+        /// </summary>
+        public static bool BeginRunErase(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer,
+            out string reason) {
+            reason = null;
+            var worldRef = World(host);
+            if (worldRef == null) { reason = "no-session"; return false; }
+            if (hit == null || !hit.HasModule || !hit.ModuleWins) { reason = "no-cell"; return false; }
+            var template = RunTemplateFor(hit.Module, out reason);
+            if (template == null) return false;
+            var cell = AnchorFor(hit, true);
+            if (!cell.HasValue) { reason = "no-cell"; return false; }
+            gesture = new StationCellGesture {
+                Kind = StationCellGestureKind.ModuleRun,
+                Tool = "delete",
+                Button = pointer.Button,
+                Remove = true,
+                Anchor = cell.Value,
+                Target = cell.Value,
+                Run = template,
+                PressX = pointer.X,
+                PressY = pointer.Y,
+                PressTimeMs = pointer.TimeMs,
+                Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0,
+                Revision = host.CurrentRevision,
+                ToolGeneration = StationToolSelection.Generation,
+            };
+            Aim(host, hit, pointer, true);
+            return true;
+        }
+
+        /// <summary>The pressed run record as the erase template, or null for a non-run family.</summary>
+        static StationPlacementRequest RunTemplateFor(StationModuleRecord module, out string reason) {
+            reason = null;
+            if (module == null) { reason = "no-cell"; return null; }
+            var variant = module.Config.Text("variant");
+            switch (module.Type) {
+                case "fence":
+                    return new StationPlacementRequest { ToolType = "fence", Variant = variant, Width = module.Width };
+                case "tactile":
+                    return new StationPlacementRequest { ToolType = "tactile", Variant = variant, Width = module.Width };
+                case "court":
+                    if (!string.Equals(variant, "divider", StringComparison.Ordinal)) break;
+                    return new StationPlacementRequest { ToolType = "court-divider", Variant = "divider", Width = 1 };
+            }
+            reason = "unsupported-run";
+            return null;
+        }
+
         /// <summary>
         /// True while the committed cell tool's operation is an **add**, the one operation the
         /// reference lets the active storey's work plane answer for (plan 29 §1).
@@ -408,12 +492,17 @@ namespace Metro.App {
             } else if (gesture.Kind == StationCellGestureKind.Delete) {
                 var deleteAim = AnchorFor(hit, true);
                 if (deleteAim.HasValue) gesture.Target = deleteAim.Value;
-                if (gesture.HasModules) {
-                    // The sweep grows with the pieces the pointer crossed; it never shrinks.
-                    if (gesture.SweepFamily.Length > 0) SweepThrough(worldRef);
-                } else if (hit.HasModule && hit.ModuleWins) {
-                    gesture.ModuleIds.Add(hit.Module.Id);
-                    gesture.SweepFamily = StationSweep.FamilyOf(hit.Module) ?? "";
+                if (gesture.Sweep) {
+                    // The latest visible matching piece joins straight from the hit this event
+                    // already resolved; an unrelated or missing hit leaves the mode, the family
+                    // and the ids the drag has collected completely intact (plan 30 §2).
+                    if (hit.HasModule && hit.ModuleWins && MatchesSweep(gesture, hit.Module)) {
+                        CollectModule(gesture, hit.Module.Id);
+                    }
+                    // A fast drag jumps several cells between events: sample the pointer's own
+                    // screen path since the previous aim and take the same-family pieces it
+                    // visibly crossed. A pointer that barely moved samples nothing.
+                    SweepScreenPath(host, worldRef, gesture, pointer);
                 }
             } else if (gesture.Kind == StationCellGestureKind.ModuleRun) {
                 var runAim = AnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
@@ -427,40 +516,115 @@ namespace Metro.App {
             hoverLevel = gesture.Target.Z;
             hoverRevision = host.CurrentRevision;
             gesture.Dragging = IsDeliberate(gesture, pointer);
+            if (gesture.Kind == StationCellGestureKind.Delete && gesture.Sweep) {
+                gesture.LastAimX = pointer.X;
+                gesture.LastAimY = pointer.Y;
+                gesture.HasLastAim = true;
+            }
             preview = Plan(worldRef, gesture, pointer);
         }
 
         /// <summary>
-        /// Grow a delete sweep with the same-family pieces the drag crossed between the
-        /// press and the current pointer. The cells between the two are the straight run the
-        /// pointer travelled, which is the set a held drag visibly passes over for grid
-        /// furniture; every piece of the pressed family whose footprint holds one of them
-        /// joins the pending list, once. The reference samples the pointer path in screen
-        /// space; a document-only answer keeps the sweep deterministic and needs no extra
-        /// pick per event (plan 27 §2's one-pick rule).
+        /// True when a module is a target of this frozen sweep: the same **normalized** family
+        /// and the pressed piece's own storey. A drag never reaches into another level (that
+        /// level is ghosted and not pickable), and an unrelated piece never joins.
         /// </summary>
-        static void SweepThrough(StationCellEditWorld worldRef) {
-            var path = StationCellPlanner.StraightLineCells(gesture.Anchor, gesture.Target, gesture.Anchor.Z);
-            foreach (var cell in path) {
-                foreach (var module in worldRef.Index.Document.Modules) {
-                    if (gesture.ModuleIds.Contains(module.Id)) continue;
-                    if (!string.Equals(StationSweep.FamilyOf(module), gesture.SweepFamily, StringComparison.Ordinal)) continue;
-                    if (module.Z != cell.Z && !(cell.Z == gesture.Anchor.Z && module.Z == gesture.Anchor.Z)) continue;
-                    if (!FootprintHolds(module, cell.X, cell.Y)) continue;
-                    gesture.ModuleIds.Add(module.Id);
+        static bool MatchesSweep(StationCellGesture current, StationModuleRecord module) {
+            if (module == null || current.SweepFamily.Length == 0) return false;
+            if (module.Z != current.SweepZ) return false;
+            return string.Equals(StationSweep.FamilyOf(module), current.SweepFamily, StringComparison.Ordinal);
+        }
+
+        static void CollectModule(StationCellGesture current, string id) {
+            if (string.IsNullOrEmpty(id) || current.ModuleIds.Contains(id)) return;
+            current.ModuleIds.Add(id);
+        }
+
+        /// <summary>
+        /// Grow the frozen sweep with the same-family pieces the pointer **visibly crossed**
+        /// since its previous aim (`app/sweep.ts:sweepThrough`). The reference samples the
+        /// pointer's screen path every 6 px (capped at 24 samples per event) and resolves a
+        /// module at each sample. Unity resolves one scene pick for the event itself, so the
+        /// path is sampled against the bound pieces of the pressed family in the committed
+        /// index: each sample's camera ray is tested against a candidate's rendered bounds, and
+        /// only a piece that is actually drawn (its view is active on the pressed storey) can
+        /// join. That keeps the sweep deterministic, needs no second scene traversal per
+        /// sample, and — unlike the old straight document line — it cannot be turned away from
+        /// the pieces the player dragged over by an unrelated piece that moved the endpoint
+        /// (plan 30 §2).
+        /// </summary>
+        static void SweepScreenPath(StationGameHost host, StationCellEditWorld worldRef, StationCellGesture current,
+            StationPointerEvent pointer) {
+            if (!current.Sweep || !current.HasLastAim || current.SweepFamily.Length == 0) return;
+            float dx = pointer.X - current.LastAimX;
+            float dy = pointer.Y - current.LastAimY;
+            float span = Mathf.Sqrt(dx * dx + dy * dy);
+            // `sweepSamples`: a move shorter than one step tests only its end — and the end of
+            // this segment is the event's own hit, which the caller has already considered.
+            if (span <= StationSweep.StepPixels) return;
+            var camera = StationEditScene.EditCamera(host);
+            var view = host != null && host.Coordinator != null ? host.Coordinator.World : null;
+            if (camera == null || view == null) return;
+            int samples = Mathf.Clamp(Mathf.CeilToInt(span / StationSweep.StepPixels), 1, StationSweep.MaxSamples);
+            var candidates = SweepCandidates(worldRef, current);
+            if (candidates.Count == 0) return;
+            for (int i = 1; i <= samples; i++) {
+                float t = i / (float)samples;
+                var screen = ScreenPointOf(pointer, current.LastAimX + dx * t, current.LastAimY + dy * t);
+                var ray = camera.ScreenPointToRay(screen);
+                foreach (var module in candidates) {
+                    if (current.ModuleIds.Contains(module.Id)) continue;
+                    if (!RayReachesModule(view, module, ray)) continue;
+                    current.ModuleIds.Add(module.Id);
                 }
             }
         }
 
-        /// <summary>True when a module's authored footprint holds the plan cell.</summary>
-        static bool FootprintHolds(StationModuleRecord module, int x, int y) {
-            var footprint = StationFootprints.TryFootprint(module, out var cells, out _)
-                ? cells
-                : new[] { module.Point };
-            foreach (var cell in footprint) {
-                if ((int)Math.Round(cell.X) == x && (int)Math.Round(cell.Y) == y) return true;
+        /// <summary>The not-yet-collected pieces of the frozen family on the pressed storey.</summary>
+        static List<StationModuleRecord> SweepCandidates(StationCellEditWorld worldRef, StationCellGesture current) {
+            var candidates = new List<StationModuleRecord>();
+            foreach (var module in worldRef.Index.Document.Modules) {
+                if (current.ModuleIds.Contains(module.Id)) continue;
+                if (!MatchesSweep(current, module)) continue;
+                candidates.Add(module);
             }
-            return false;
+            return candidates;
+        }
+
+        /// <summary>
+        /// True when a camera ray reaches a candidate's **drawn** piece: its registered view is
+        /// active (so a hidden storey, a section cut or a ghosted level can never be swept) and
+        /// the ray crosses the record's rendered bounds. Bounds, not a per-sample triangle test:
+        /// the reference's per-sample pick resolves surfaces, while this bounding test is the
+        /// one bounded query the committed index can answer without a second scene traversal.
+        /// </summary>
+        static bool RayReachesModule(StationWorldView view, StationModuleRecord module, Ray ray) {
+            if (view == null || !view.TryGetModule(module.Id, out var record) || record == null) return false;
+            if (record.View == null || !record.View.activeInHierarchy) return false;
+            var box = record.HasBounds && !record.Bounds.IsEmpty
+                ? record.Bounds
+                : new StationBox(module.X, module.Y, module.Z,
+                    module.X + Math.Max(1, module.Width), module.Y + Math.Max(1, module.Depth),
+                    module.Z + Math.Max(1, module.Height));
+            return WorldBoundsOf(box).IntersectRay(ray, out _);
+        }
+
+        /// <summary>A document-axis box as the world-space bounds a ray can be tested against.</summary>
+        static Bounds WorldBoundsOf(StationBox box) {
+            var a = StationCoordinates.Point(new Vector3((float)box.X0, (float)box.Y0, (float)box.Z0));
+            var b = StationCoordinates.Point(new Vector3((float)box.X1, (float)box.Y1, (float)box.Z1));
+            var bounds = new Bounds();
+            bounds.SetMinMax(Vector3.Min(a, b), Vector3.Max(a, b));
+            return bounds;
+        }
+
+        /// <summary>Arbitrary canvas-pixel coordinates as the Unity screen point a ray starts at.</summary>
+        static Vector2 ScreenPointOf(in StationPointerEvent pointer, float x, float y) {
+            float width = Mathf.Max(1f, Screen.width);
+            float height = Mathf.Max(1f, Screen.height);
+            return new Vector2(
+                Mathf.Clamp(x / pointer.Width, 0f, 1f) * width,
+                (1f - Mathf.Clamp(y / pointer.Height, 0f, 1f)) * height);
         }
 
         /// <summary>
@@ -705,7 +869,8 @@ namespace Metro.App {
                 previewOut.Check.Cells.AddRange(line);
                 return previewOut;
             }
-            var plan = StationModuleRuns.PlanAdd(worldRef.Index, RunTemplate(), null, line, current.Remove);
+            var plan = StationModuleRuns.PlanAdd(worldRef.Index,
+                current.Remove && current.Run != null ? current.Run : RunTemplate(), null, line, current.Remove);
             previewOut.Check = StationModuleRuns.ToCheck(plan);
             if (current.Remove) {
                 // An erase run shows the pieces it lifts: every accepted cell is one panel going
@@ -862,10 +1027,22 @@ namespace Metro.App {
                                 PointOf(hit, anchor).X, PointOf(hit, anchor).Y, true,
                                 StationCellToolSettings.Read().WallSnapCycle).Base;
                     }
-                } else if (current.Kind == StationCellGestureKind.Delete && !current.HasModules) {
+                } else if (current.Kind == StationCellGestureKind.Delete && !current.Sweep) {
                     var deleteAim = AnchorFor(hit, true);
                     if (deleteAim.HasValue) current.Target = deleteAim.Value;
                 }
+            }
+            if (current.Kind == StationCellGestureKind.Delete && current.Sweep) {
+                // The release is one final segment past the last delivered move: a fast drag
+                // must take the pieces it crossed on the way to the release, not only the ones
+                // an intermediate `pointer.move` happened to pass over.
+                if (hit != null && hit.HasModule && hit.ModuleWins && MatchesSweep(current, hit.Module)) {
+                    CollectModule(current, hit.Module.Id);
+                }
+                SweepScreenPath(host, worldRef, current, pointer);
+                current.LastAimX = pointer.X;
+                current.LastAimY = pointer.Y;
+                current.HasLastAim = true;
             }
             var plan = Plan(worldRef, current, pointer);
             preview = plan;
@@ -876,7 +1053,8 @@ namespace Metro.App {
                 var runLine = current.Dragging
                     ? StationModuleRuns.LineCells(current.Anchor, current.Target, current.Anchor.Z)
                     : new List<StationCellKey> { current.Anchor };
-                var runPlan = StationModuleRuns.PlanAdd(worldRef.Index, RunTemplate(), null, runLine, current.Remove);
+                var runPlan = StationModuleRuns.PlanAdd(worldRef.Index,
+                    current.Remove && current.Run != null ? current.Run : RunTemplate(), null, runLine, current.Remove);
                 patch = StationModuleRuns.ToPatch(runPlan);
                 if (!patch.HasWork) {
                     reason = runPlan.Reason.Length > 0 ? runPlan.Reason : "nothing-to-do";
@@ -898,13 +1076,17 @@ namespace Metro.App {
                     patch = StationCellPlanner.PlanWalls(worldRef, line, side, 0);
                 }
             } else if (current.Kind == StationCellGestureKind.Delete) {
-                if (current.HasModules) {
+                if (current.Sweep) {
+                    // The ids the **preview actually collected**, plus the dependent records
+                    // that cannot stand without them (a 站名 hung on a removed post), in one
+                    // patch: one revision and one undo frame for the whole sweep (plan 30 §2).
                     patch = new StationCellPatch();
-                    foreach (var id in current.ModuleIds) {
+                    foreach (var id in StationModuleTeardown.Expand(host.Index, current.ModuleIds)) {
                         if (!host.Index.TryGetModule(id, out _)) continue;
                         patch.RemoveModuleIds.Add(id);
                         patch.Changed++;
                     }
+                    if (!patch.HasWork) { reason = "nothing-to-do"; return false; }
                 } else {
                     if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
                     patch = StationCellPlanner.PlanRemoveCells(worldRef, plan.Check.Accepted);

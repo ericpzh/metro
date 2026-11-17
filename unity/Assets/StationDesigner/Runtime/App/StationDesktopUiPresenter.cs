@@ -553,14 +553,33 @@ namespace Metro.App {
             double ry = ((sh - pos.y) / sh) * lastSentHeight;
             int mods = CurrentModifiers();
 
+            // A movement and a release can share one Unity frame. The browser's move handler
+            // treats a move whose `buttons` mask no longer holds the press's own button as a
+            // lost gesture and cancels the tool drag, so the frame's motion is sent **before**
+            // the release with the mask that was still held when it was a drag — the release
+            // then follows at the same latest position and its own pick aims the commit
+            // (plan 30 §1). The previous order sent the move with the already-released mask,
+            // which cancelled a held right erase before its valid up ever arrived.
+            //
+            // When no button changed this frame the **live** InputSystem mask is authoritative:
+            // a release the process never saw (focus loss, a missed device update) then leaves
+            // the browser's move handler to cancel the drag instead of forwarding a stale hold.
             int currentMask =
                 (mouse.leftButton.isPressed ? 1 : 0) |
                 (mouse.rightButton.isPressed ? 2 : 0) |
                 (mouse.middleButton.isPressed ? 4 : 0);
-
-            if ((pos - lastMousePos).sqrMagnitude >= 0.25f) {
+            bool pressThisFrame =
+                (mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame ||
+                 mouse.middleButton.wasPressedThisFrame) && inside;
+            bool releaseThisFrame =
+                (mouse.leftButton.wasReleasedThisFrame && (heldMouseButtons & 1) != 0) ||
+                (mouse.rightButton.wasReleasedThisFrame && (heldMouseButtons & 2) != 0) ||
+                (mouse.middleButton.wasReleasedThisFrame && (heldMouseButtons & 4) != 0);
+            bool moved = (pos - lastMousePos).sqrMagnitude >= 0.25f;
+            if (moved) {
                 lastMousePos = pos;
-                SendMouse("move", rx, ry, "none", currentMask, mods, 0, 0, 0);
+                int movementMask = pressThisFrame || releaseThisFrame ? heldMouseButtons : currentMask;
+                SendMouse("move", rx, ry, "none", movementMask, mods, 0, 0, 0);
             }
 
             if (mouse.leftButton.wasPressedThisFrame && inside) {

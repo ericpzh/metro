@@ -47,6 +47,15 @@ namespace Metro.App.Views {
         /// <summary>The ledger a verifier reads: one line per inscription bound or refused.</summary>
         public const string NotePrefix = "calligraphy-ink:";
 
+        /// <summary>
+        /// The shared face manifest's version (`sim/calligraphyFonts.ts`
+        /// `CALLIGRAPHY_FONT_VERSION`): a monotone counter folded into every browser-paint
+        /// cache key and echoed by `calligraphy.faceReady`. **Bump it with the TypeScript
+        /// constant** (a Node test pins the two), or a shell could serve pixels painted
+        /// under another manifest.
+        /// </summary>
+        public const string FontVersion = "calligraphy-fonts/1";
+
         /// <summary>One hand's printing spec (`CALLIGRAPHY_STYLES`).</summary>
         public struct StyleSpec {
             public string Key;
@@ -55,6 +64,14 @@ namespace Metro.App.Views {
             public Color Ink;
         }
 
+        /// <summary>
+        /// The six hands' **native** treatment: the ink, the second strike, the tracking and
+        /// the stretch (and, for a font with no separate face, bold/italic). The approved
+        /// *face* is `sim/calligraphyFonts.ts`'s manifest — only the browser can paint it —
+        /// and this table mirrors the palette's treatment and the manifest's weight/italic
+        /// so a headless smoke prints the same hand with the scene's one font. The Node
+        /// suite pins every number here to `CALLIGRAPHY_STYLES`.
+        /// </summary>
         static readonly Dictionary<string, StyleSpec> Styles = new Dictionary<string, StyleSpec>(StringComparer.Ordinal) {
             ["kai"] = Spec("kai", false, false, .014f, .02f, 1f, "#171a20"),
             ["xing"] = Spec("xing", false, true, .032f, .05f, 1.02f, "#14161b"),
@@ -162,30 +179,195 @@ namespace Metro.App.Views {
 
         /* -------------------------------------------------------------- binding */
 
-        /// <summary>One world's inscriptions: the painted plates it owns and its ledger.</summary>
+        /// <summary>
+        /// One world's inscriptions: the painted plates it owns, its ledger and — when a
+        /// React shell is attached — the browser painter's provider and texture cache.
+        ///
+        /// It belongs to the world (owned by `StationModuleGroups.WorldState.Calligraphy`),
+        /// not to the renderer, because the host stages a candidate world before the
+        /// outgoing one is disposed. `ReleaseScope`/`OnDestroy` free exactly this world's
+        /// textures; a reply addressed to another world's request id is unknown to this
+        /// cache and is discarded (stale-discard is per world, not per module).
+        /// </summary>
         public sealed class Scope : MonoBehaviour {
             public readonly List<string> Notes = new List<string>();
             public readonly Dictionary<string, Material> Materials = new Dictionary<string, Material>(StringComparer.Ordinal);
             public int Bound;
             public string LastError = "";
+            /// <summary>The world this scope prints for; the reply path recaptures through it.</summary>
+            public StationWorldView World;
+            /// <summary>The scene's CJK face: the headless/native fallback's only font.</summary>
+            public Font Font;
+            /// <summary>The browser painter's cache, created only when a shell can answer.</summary>
+            public StationCalligraphyFaceCache Cache;
+            public StationCalligraphyWebProvider Provider;
+            /// <summary>The host-bound outbound route (both transports); null = WebGL bridge only.</summary>
+            public Func<string, bool> Publish;
+            /// <summary>The 1×1 transparent plate a bridge-painted inscription wears until its pixels land.</summary>
+            public Texture2D Placeholder;
+            /// <summary>True when this world paints through the browser; false = native path throughout.</summary>
+            public bool Bridge;
+            public bool Released;
+
+            void OnDestroy() => ReleaseContents(this);
         }
 
-        public static Scope CreateScope(Transform parent) {
+        /// <summary>A test/verifier seam that captures the C#→JS requests (null = the bridge).</summary>
+        public static Action<string> SendHook;
+
+        static readonly List<Scope> liveScopes = new List<Scope>();
+
+        /// <summary>The most recent world's inscription scope, or null.</summary>
+        public static Scope CurrentScope {
+            get {
+                for (int i = liveScopes.Count - 1; i >= 0; i--) {
+                    var scope = liveScopes[i];
+                    if (scope != null && scope.gameObject != null) return scope;
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// True when a React shell can answer a paint request. Only a live player session can:
+        /// an EditMode fixture and the editor-time binding report are not playing, and a batch
+        /// build/smoke has no shell at all, so all of them keep the native `Paint`. A desktop
+        /// player whose presenter failed to attach is caught later by the publish result (the
+        /// request is dropped and the cache paints natively instead of leaving a blank plate).
+        /// </summary>
+        public static bool BridgeCandidate {
+            get {
+                // The explicit test/verifier seam wins even outside a player session, so a
+                // fixture can drive the bridge path without a React shell.
+                if (SendHook != null) return true;
+                if (!Application.isPlaying || Application.isBatchMode) return false;
+                return UnityEngine.Object.FindAnyObjectByType<StationGameHost>() != null;
+            }
+        }
+
+        public static Scope CreateScope(Transform parent) => CreateScope(parent, null, null);
+
+        public static Scope CreateScope(Transform parent, StationWorldView world, Font font) {
             var go = new GameObject("calligraphy artwork");
             if (parent != null) go.transform.SetParent(parent, false);
-            return go.AddComponent<Scope>();
+            var scope = go.AddComponent<Scope>();
+            scope.World = world;
+            scope.Font = font;
+            if (BridgeCandidate) {
+                scope.Bridge = true;
+                scope.Placeholder = CreateTransparentTexture();
+                scope.Provider = new StationCalligraphyWebProvider(Send, CurrentContext);
+                // A request id is unique to this world: two live worlds can request the same
+                // plate, and a reply must be assembled by the world that asked for it.
+                scope.Cache = new StationCalligraphyFaceCache(scope.Provider, note => scope.Notes.Add(note),
+                    "calligraphy-req-" + ((uint)scope.GetHashCode()).ToString("x8", CultureInfo.InvariantCulture));
+                var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+                if (host != null) scope.Publish = json => host != null && host.PublishOutbound(json);
+                var pump = go.AddComponent<StationCalligraphyPump>();
+                pump.Cache = scope.Cache;
+            }
+            liveScopes.Add(scope);
+            return scope;
         }
 
+        /// <summary>Free one world's cache, textures, materials and placeholder. Idempotent.</summary>
         public static void ReleaseScope(Scope scope) {
             if (scope == null) return;
+            ReleaseContents(scope);
+            if (scope.gameObject) SafeDestroy(scope.gameObject);
+        }
+
+        static void ReleaseContents(Scope scope) {
+            if (scope == null || scope.Released) return;
+            scope.Released = true;
+            liveScopes.Remove(scope);
+            // The cache owns every texture it applied (browser pixels and native fallbacks
+            // alike); a pure-native scope's textures belong to their materials.
+            bool cacheOwnedTextures = scope.Cache != null;
+            if (scope.Cache != null) {
+                scope.Cache.Dispose();
+                scope.Cache = null;
+            }
+            scope.Provider = null;
+            if (scope.Placeholder) {
+                SafeDestroy(scope.Placeholder);
+                scope.Placeholder = null;
+            }
             foreach (var material in scope.Materials.Values) {
                 if (!material) continue;
                 var texture = material.HasProperty("_BaseMap") ? material.GetTexture("_BaseMap") as Texture2D : null;
                 SafeDestroy(material);
-                if (texture) SafeDestroy(texture);
+                if (!cacheOwnedTextures && texture) SafeDestroy(texture);
             }
             scope.Materials.Clear();
-            if (scope.gameObject) SafeDestroy(scope.gameObject);
+        }
+
+        /// <summary>Route one `calligraphy.faceChunk` / `calligraphy.faceReady` into every live world.</summary>
+        public static bool Receive(string json) {
+            if (string.IsNullOrEmpty(json)) return false;
+            bool handled = false;
+            for (int i = liveScopes.Count - 1; i >= 0; i--) {
+                var scope = liveScopes[i];
+                if (scope == null || scope.Provider == null) continue;
+                if (scope.Provider.Receive(json)) handled = true;
+            }
+            return handled;
+        }
+
+        /// <summary>Drain every live world's painter replies and retries.</summary>
+        public static void Pump() {
+            for (int i = liveScopes.Count - 1; i >= 0; i--) {
+                var scope = liveScopes[i];
+                if (scope != null && scope.Cache != null) scope.Cache.Pump();
+            }
+        }
+
+        /// <summary>
+        /// Send one C#→JS message: a test's hook first (the verifier seam), then the
+        /// world's host-bound publisher, then the WebGL bridge. The desktop player has no
+        /// WebGL bridge, so a request that skipped the host could never reach the React
+        /// painter (the transport rule RCA 14 §4.1 established for sign faces).
+        /// </summary>
+        public static bool Send(string json) {
+            if (string.IsNullOrEmpty(json)) return false;
+            var hook = SendHook;
+            if (hook != null) {
+                hook(json);
+                return true;
+            }
+            var scope = CurrentScope;
+            var publish = scope != null ? scope.Publish : null;
+            if (publish != null) return publish(json);
+            return StationWebBridge.Publish(json);
+        }
+
+        static StationCalligraphyFaceContext CurrentContext() {
+            var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            return new StationCalligraphyFaceContext {
+                SessionId = host != null ? host.ClientSessionId : "",
+                Revision = host != null ? host.CurrentRevision : -1,
+            };
+        }
+
+        /// <summary>
+        /// The cache key of one browser-painted plate: the native content key (name, opt-in
+        /// English, hand, axis, panel) plus the manifest version and the plate's measured
+        /// orientation. A face painted for a mirrored plate can never be served to an
+        /// unmirrored one, and a manifest bump is a different plate.
+        /// </summary>
+        public static string BridgeKey(string contentKey, bool mirrorU, bool flipV) =>
+            (contentKey ?? "") + "|font=" + FontVersion + "|u" + (mirrorU ? "1" : "0") + "v" + (flipV ? "1" : "0");
+
+        /// <summary>The transparent plate a bridge-painted inscription wears until its pixels land.</summary>
+        public static Texture2D CreateTransparentTexture() {
+            var texture = new Texture2D(1, 1, TextureFormat.RGBA32, false) {
+                name = "calligraphy ink placeholder",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            texture.SetPixel(0, 0, new Color(0f, 0f, 0f, 0f));
+            texture.Apply(false, false);
+            return texture;
         }
 
         /// <summary>
@@ -212,9 +394,51 @@ namespace Metro.App.Views {
             var panel = PanelSize(axis, module.Width, (float)PanelHeightOf(document, module));
             FitPlanarInkScale(renderer, panel);
             MeasureInkOrientation(root, renderer, out bool mirrorU, out bool flipV);
-            var key = ContentKey(name, nameEn, showEnglish, style, axis, panel);
-            var materialKey = key + (mirrorU ? "|u1" : "|u0") + (flipV ? "|v1" : "|v0");
-            if (!scope.Materials.TryGetValue(materialKey, out var material) || !material) {
+            if (scope.World == null) scope.World = world;
+            if (scope.Font == null) scope.Font = font;
+            var contentKey = ContentKey(name, nameEn, showEnglish, style, axis, panel);
+            var materialKey = BridgeKey(contentKey, mirrorU, flipV);
+            var plate = renderer.sharedMaterial ? renderer.sharedMaterial.name : "calligraphyInk";
+            Material material;
+            bool bridged = false;
+            if (scope.Bridge && scope.Cache != null) {
+                // The browser is the painter. The instance material starts transparent so
+                // the wall shows through; the reply swaps the painted panel into this same
+                // material and the world recaptures the part (`StationVisibility`'s rule).
+                var request = new StationCalligraphyFaceRequest {
+                    ModuleId = module.Id ?? "",
+                    Text = name,
+                    English = showEnglish ? nameEn : "",
+                    Style = style,
+                    Axis = axis,
+                    PanelWidth = panel.x,
+                    PanelHeight = panel.y,
+                    ShowEnglish = showEnglish,
+                    MirrorU = mirrorU,
+                    FlipV = flipV,
+                };
+                if (!scope.Materials.TryGetValue(materialKey, out material) || !material) {
+                    material = CreateInkMaterial(scope.Placeholder);
+                    if (material == null) {
+                        scope.Notes.Add("calligraphy-unresolved:" + module.Id + ":no-material");
+                        return false;
+                    }
+                    scope.Materials[materialKey] = material;
+                }
+                var nativeFont = font != null ? font : scope.Font;
+                scope.Cache.Bind(new StationCalligraphyFaceBinding {
+                    Key = request.Key,
+                    ModuleId = module.Id ?? "",
+                    Style = style,
+                    Axis = axis,
+                    Renderer = renderer,
+                    Material = material,
+                    World = scope.World,
+                    NativePaint = () => PaintTexture(name, showEnglish ? nameEn : "", style, axis, panel,
+                        nativeFont, mirrorU, flipV, out _),
+                }, request);
+                bridged = true;
+            } else if (!scope.Materials.TryGetValue(materialKey, out material) || !material) {
                 try {
                     material = Paint(name, showEnglish ? nameEn : "", style, axis, panel, font, mirrorU, flipV,
                         out var note);
@@ -234,13 +458,20 @@ namespace Metro.App.Views {
             // prefab key print different names. Keeping the plate's own name in the instance
             // material's name is what lets `FindInkRenderer` find the bound plate again (a
             // verifier, a repaint pass, or a later scope) without a second marker.
-            var plate = renderer.sharedMaterial ? renderer.sharedMaterial.name : "calligraphyInk";
             if (material.name == "calligraphy ink") material.name = "calligraphy ink " + plate;
             renderer.sharedMaterial = material;
+            if (bridged) scope.Cache.Pump();
             world?.RecaptureArtwork(renderer);
             scope.Bound++;
-            scope.Notes.Add(NotePrefix + module.Id + ":" + key + ":glyphs=" + Layout(name, axis, style, panel).Count +
-                ":en=" + (showEnglish && nameEn.Length > 0 ? "1" : "0"));
+            // `src` is the current pixel source: a browser reply is asynchronous, so a fresh
+            // bind is `pending` until the reply (or a publish failure's native fallback).
+            var source = !bridged
+                ? "native"
+                : scope.Cache != null && scope.Cache.IsBrowserPainted(materialKey) ? "browser"
+                : scope.Cache != null && scope.Cache.IsNativeFallback(materialKey) ? "native-fallback"
+                : "pending";
+            scope.Notes.Add(NotePrefix + module.Id + ":" + contentKey + ":glyphs=" + Layout(name, axis, style, panel).Count +
+                ":en=" + (showEnglish && nameEn.Length > 0 ? "1" : "0") + ":src=" + source);
             return true;
         }
 
@@ -353,6 +584,30 @@ namespace Metro.App.Views {
             Paint(text, english, style, axis, panel, font, false, false, out note);
 
         public static Material Paint(string text, string english, string style, string axis, Vector2 panel,
+            Font font, bool mirrorU, bool flipV, out string note) {
+            var texture = PaintTexture(text, english, style, axis, panel, font, mirrorU, flipV, out note);
+            if (texture == null) return null;
+            var material = CreateInkMaterial(texture);
+            if (material == null) {
+                SafeDestroy(texture);
+                note = "no-shader";
+                return null;
+            }
+            note = "";
+            return material;
+        }
+
+        /// <summary>
+        /// The pixels of one inscription panel, transparent except the strokes.
+        ///
+        /// This is the native fallback (and the headless/test/smoke path) for a plate the
+        /// browser cannot paint: the same layout arithmetic and the same uniform face the
+        /// scene ships (`NotoSansSC.ttf`), which is why the browser path exists — a real
+        /// hand needs its own font. It is deliberately factored out of <see cref="Paint"/>
+        /// so the bridge's native fallback can swap the same texture into the material it
+        /// already installed, instead of a second material that would lose the plate.
+        /// </summary>
+        public static Texture2D PaintTexture(string text, string english, string style, string axis, Vector2 panel,
             Font font, bool mirrorU, bool flipV, out string note) {
             note = "";
             if (font == null) {
@@ -514,14 +769,8 @@ namespace Metro.App.Views {
                 note = "no-texture";
                 return null;
             }
-            var material = CreateInkMaterial(texture);
-            if (material == null) {
-                SafeDestroy(texture);
-                note = "no-shader";
-                return null;
-            }
             note = "";
-            return material;
+            return texture;
         }
 
         static void AddGlyphPass(Transform parent, string name, Font font, char ch, int fontSize,

@@ -9,16 +9,20 @@ namespace Metro.App {
     /// <summary>
     /// The canvas editor's session state and its one commit path (plan 16 §1.5).
     ///
-    /// The document is only ever changed by <see cref="StationGameHost.ApplyDocumentEdit"/>:
-    /// every place/move/delete builds a complete candidate, applies it to the committed v1
-    /// envelope in <see cref="StationModuleEdits"/> and installs that envelope through the
-    /// same transaction as an open. A refusal leaves the station, the revision and the
-    /// selection untouched, and a canceled move never touches the save at all.
+    /// The document is only ever changed by <see cref="StationGameHost.ApplyDocumentEdit"/> (a
+    /// complete envelope) or by <see cref="StationGameHost.TryApplyLocalCells"/> /
+    /// <see cref="StationGameHost.TryApplyLocalModule"/> (the plan 30 §3 local path, which builds
+    /// the next typed document from the committed one plus the patch). Both install through the
+    /// same transaction as an open, bump one revision and push one undo frame. A patch the local
+    /// whitelist cannot derive exactly — a line add, a record a load-time repair owns — falls back
+    /// to the complete envelope path with the identical result. A refusal leaves the station, the
+    /// revision and the selection untouched, and a canceled move never touches the save at all.
     ///
     /// Undo/redo keep the **whole committed envelope** either side of an edit. That is the
     /// forward/inverse record this port needs: the transaction is document-level and
     /// lossless, so replaying the previous envelope restores dependent edits (a stair's
-    /// carved cells, a neighbour's arm) without a per-family inverse.
+    /// carved cells, a neighbour's arm) without a per-family inverse. A local edit frames the
+    /// committed envelope text the host already holds instead of re-serializing it.
     /// </summary>
     public static class StationEditSession {
         public const int MaxHistory = 40;
@@ -37,6 +41,13 @@ namespace Metro.App {
         public static string SelectionKind = "";
         public static string SelectionKey = "";
         public static string SelectionLabel = "";
+        /// <summary>
+        /// How many edits installed through the local path and how many fell back to the complete
+        /// envelope path (plan 30 §3). Session counters, not document facts: a verifier reads them
+        /// to tell "this edit was local" from "this edit re-read the station".
+        /// </summary>
+        public static int LocalEdits;
+        public static int FullEdits;
         /// <summary>The placed record a move carries, if any.</summary>
         public static string CarriedId = "";
         public static int CarriedRotation;
@@ -127,6 +138,15 @@ namespace Metro.App {
                 ["revisionBefore"] = revisionBefore,
                 ["revisionAfter"] = revisionAfter,
                 ["committed"] = revisionAfter != revisionBefore,
+                // The right-button verdict (plan 30 §1): the claim the shell was told, the
+                // event's own identity and mask, so a stationary right tap that still fails can
+                // be read back from `state.edit.trace` — rightClaim, tool generation, the picked
+                // cell and the commit verdict — before any erase rule is changed.
+                ["rightClaim"] = StationToolSelection.RightClaim ?? "",
+                ["button"] = Pointer.Button,
+                ["buttons"] = Pointer.Buttons,
+                ["pointerId"] = Pointer.PointerId,
+                ["toolGeneration"] = Pointer.ToolGeneration,
             };
             trace.Add(entry);
             if (trace.Count > MaxTrace) trace.RemoveAt(0);
@@ -161,6 +181,8 @@ namespace Metro.App {
             redos.Clear();
             appliedCommandIds.Clear();
             commandIdOrder.Clear();
+            LocalEdits = 0;
+            FullEdits = 0;
             StationCellTool.Reset();
             StationPaintTool.Reset();
             StationPaintGame.Forget();
@@ -239,17 +261,23 @@ namespace Metro.App {
             code = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
             if (IsDuplicate(host, commandId, out code)) return false;
-            var before = host.SaveDocument();
-            if (string.IsNullOrEmpty(before)) { code = "no-document"; return false; }
-            var next = StationModuleEdits.Apply(before, mode, draft, removeId, out code);
+            // Plan 30 §3: one module record the load-time repairs do not own installs from the
+            // committed document and index. Anything else falls through to the complete envelope
+            // path below, with the identical document, revision and undo frame.
+            var before = host.CommittedDocumentJson;
+            var local = host.TryApplyLocalModule(mode, draft, removeId, host.CurrentSourceId, out code);
+            if (local != null) return FinishLocalEdit(host, local, before, label, commandId, out result, out code);
+            var saved = host.SaveDocument();
+            if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
+            var next = StationModuleEdits.Apply(saved, mode, draft, removeId, out code);
             if (next == null) return false;
             return TryApplyPatch(host, next, label, commandId, out result, out code);
         }
 
         /// <summary>
         /// Apply one **cell** patch and install it: the same transaction, the same history and
-        /// the same revision rule as a module edit. The planner names the writes; only
-        /// <see cref="Metro.Persistence.StationCellEdits"/> touches the envelope text.
+        /// the same revision rule as a module edit. The planner names the writes; the committed
+        /// envelope is patched by <see cref="Metro.Persistence.StationCellEdits"/>.
         /// </summary>
         public static bool TryApplyCells(StationGameHost host, Metro.Build.StationCellPatch patch,
             string label, string commandId, out StationLoadResult result, out string code) {
@@ -257,11 +285,36 @@ namespace Metro.App {
             code = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
             if (IsDuplicate(host, commandId, out code)) return false;
-            var before = host.SaveDocument();
-            if (string.IsNullOrEmpty(before)) { code = "no-document"; return false; }
-            var next = StationCellEdits.Apply(before, patch, out code);
+            // Plan 30 §3: a block/module patch the local whitelist can derive exactly is installed
+            // from the committed typed document instead of a re-serialized whole save. A patch
+            // outside the whitelist (line adds, rail/sign/road rewrites, a record a load-time
+            // repair owns) falls through to the complete envelope path with the same result.
+            var before = host.CommittedDocumentJson;
+            var local = host.TryApplyLocalCells(patch, host.CurrentSourceId, out code);
+            if (local != null) return FinishLocalEdit(host, local, before, label, commandId, out result, out code);
+            var saved = host.SaveDocument();
+            if (string.IsNullOrEmpty(saved)) { code = "no-document"; return false; }
+            var next = StationCellEdits.Apply(saved, patch, out code);
             if (next == null) return false;
             return TryApplyPatch(host, next, label, commandId, out result, out code);
+        }
+
+        /// <summary>
+        /// Finish a **local** edit's transaction: a refusal leaves everything untouched, and an
+        /// accepted install pushes exactly one undo frame (the committed envelope text, which the
+        /// host already holds) and clears redo — the same history rule as the full path.
+        /// </summary>
+        static bool FinishLocalEdit(StationGameHost host, StationLoadResult candidate, string before, string label,
+            string commandId, out StationLoadResult result, out string code) {
+            code = null;
+            result = candidate;
+            if (candidate == null || !candidate.Accepted) {
+                code = candidate?.Rejection?.Code ?? "rejected";
+                return false;
+            }
+            LocalEdits++;
+            CommitHistory(host, before, label, commandId);
+            return true;
         }
 
         /// <summary>
@@ -277,20 +330,30 @@ namespace Metro.App {
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
             if (string.IsNullOrEmpty(nextEnvelope)) { code = "no-document"; return false; }
             if (IsDuplicate(host, commandId, out code)) return false;
-            PruneHistory(host.CurrentSourceId);
             var before = host.SaveDocument();
             result = host.ApplyDocumentEdit(nextEnvelope, host.CurrentSourceId);
             if (result == null || !result.Accepted) {
                 code = result?.Rejection?.Code ?? "rejected";
                 return false;
             }
+            FullEdits++;
+            CommitHistory(host, before, label, commandId);
+            return true;
+        }
+
+        /// <summary>
+        /// Push one undo frame for the state an install just replaced and clear redo. Frames that
+        /// belong to another station are dropped first, so a switch can never make one station's
+        /// undo land on another's document.
+        /// </summary>
+        static void CommitHistory(StationGameHost host, string before, string label, string commandId) {
             if (!string.IsNullOrEmpty(commandId)) Remember(commandId);
+            PruneHistory(host.CurrentSourceId);
             if (!string.IsNullOrEmpty(before)) {
                 undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "" });
                 if (undos.Count > MaxHistory) undos.RemoveAt(0);
             }
             redos.Clear();
-            return true;
         }
 
         static bool IsDuplicate(StationGameHost host, string commandId, out string code) {
