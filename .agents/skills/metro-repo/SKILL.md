@@ -223,6 +223,26 @@ picking (`StationScenePicker`, `StationCellRenderer.TryPickWorld`, per-tile
 pointer mapping in `game/src/unity-web/pointerInput.ts`) routes to `metro-unity`,
 pinned by `StationScenePickerTests`, `unity/tests/pointer-input.test.mjs`,
 `verify-station-game.mjs` (`station-editing`), and `metro editor_ui_picker_check`.
+
+Plan 30 makes the bridge boundary explicit: `game/src/unity-web/pointerButtons.ts`
+owns the DOM-button/held-bit table (`0→1`, `1→4`, `2→2`) and a move travels with the
+unchanged-button sentinel `-1` plus the real mask; the host accepts a move by pointer
+identity plus the recorded owner's mask and an up by its changed button, so a
+stationary right tap and a held right erase commit while a lost mask or the other
+button's release still cancels. A 删除 press freezes its mode (one normalized module
+family on one storey, a block rectangle, or the reference's road/roof/tactile/fence/
+divider line/area erase) and samples the pointer's 6 px / 24-sample screen path; keep
+it one patch and one undo frame, with `StationSweep.FamilyOf` mirroring the web spec
+defaults and `StationModuleTeardown` adding dependent records. A single block/module
+edit installs through `StationLocalEdit` from the committed document/index (the
+parsed envelope is retained on `StationReadResult.Envelope`; `StationIndex.TryCreateIncremental`
+applies the delta) and only falls back to the complete read for line adds, records a
+load-time repair owns, off-grid/duplicate records and the Open/New/resync/undo-redo
+paths — keep that whitelist conservative. Station-name artwork takes the same
+browser-painter route as sign/exit/PSD faces (`calligraphyFaceProvider.ts` +
+`StationCalligraphyFaceCache`), keyed by the shared `sim/calligraphyFonts.ts` manifest
+version, with native Noto Sans as the deliberate fallback.
+
 When auditing placement invalidation, check every equipment, structure and decor
 module against the inputs its builder actually reads; unknown dependencies must
 keep the conservative rebuild path. Reuse prepared tool occupancy for local
