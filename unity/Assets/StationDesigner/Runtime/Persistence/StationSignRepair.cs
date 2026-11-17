@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Metro.Build;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -68,10 +69,36 @@ namespace Metro.Persistence {
             foreach(var value in modules) if ((string)value["type"] == "sign") result.Add(JObject.Parse(NormalizeJson(value.ToString(Formatting.None))));
             return result.ToString(Formatting.None);
         }
+        /// <summary>
+        /// `splitSignBoards`: a per-component-era sign names each mark's own face — everything
+        /// that is not the right face prints on the front, and the right-face marks are the back.
+        /// </summary>
+        static (JArray Front, JArray Back) SplitLegacy(JToken components) {
+            var front=new JArray(); var back=new JArray();
+            if (components is JArray array) foreach (var raw in array) {
+                if (raw is not JObject mark) continue;
+                (string.Equals((string)mark["side"], "right", StringComparison.Ordinal) ? back : front).Add(mark.DeepClone());
+            }
+            return (front, back);
+        }
+
         public static string NormalizeJson(string json) {
             var mod=JObject.Parse(json); var cfg=mod["cfg"] as JObject ?? throw new NotSupportedException("Sign config missing");
-            if(cfg.Property("front")==null && cfg.Property("back")==null) throw new NotSupportedException("Legacy sign board repair is not yet ported");
-            var next=new JObject {["front"]=Face(cfg["front"]),["back"]=Face(cfg["back"])};
+            JArray front, back;
+            if(cfg.Property("front")!=null || cfg.Property("back")!=null) {
+                front=Face(cfg["front"]); back=Face(cfg["back"]);
+            } else if(cfg.Property("components")!=null) {
+                // Shape 3: the per-component era. Each mark's own `side` names its face.
+                var split=SplitLegacy(cfg["components"]);
+                front=Face(split.Front); back=Face(split.Back);
+            } else {
+                // Shape 2: a sign written before a board was a document — the default board on
+                // the front and an **empty** back, because a back nobody composed should not
+                // claim one. The default's line badge needs the document, so a bare
+                // `NormalizeJson` prints the line-less board.
+                front=Face(JArray.Parse(StationSignLayouts.Default(null))); back=new JArray();
+            }
+            var next=new JObject {["front"]=front,["back"]=back};
             foreach(string name in new[]{"mount","boothId","boothOffset"}) if(cfg.Property(name)!=null) next[name]=cfg[name].DeepClone();
             mod["cfg"]=next; return mod.ToString(Formatting.None);
         }

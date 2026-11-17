@@ -83,8 +83,13 @@ namespace Metro.App {
                 if (finish == null || finish.Type == JTokenType.Null) finishes.Remove(face);
                 else finishes[face] = (string)finish;
             }
-            var result = host.ApplyDocumentEdit(envelope.ToString(Newtonsoft.Json.Formatting.None), host.CurrentSourceId);
-            if (!result.Accepted) { code = result.Rejection?.Code ?? "rejected"; return false; }
+            // Plan 27 §6: a paint is an ordinary edit transaction, so it bumps one revision **and**
+            // pushes one undo frame. Applying it straight through `ApplyDocumentEdit` (the earlier
+            // path) made a painted face impossible to take back with Ctrl+Z.
+            if (!StationEditSession.TryApplyPatch(host, envelope.ToString(Newtonsoft.Json.Formatting.None),
+                    "paint", null, out var result, out code)) {
+                return false;
+            }
             reply["requiresCommit"] = false;
             reply["revision"] = result.Revision;
             return true;

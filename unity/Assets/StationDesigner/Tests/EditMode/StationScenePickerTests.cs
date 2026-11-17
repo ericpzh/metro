@@ -1279,7 +1279,12 @@ namespace Metro.Tests {
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", PointerPayloadAtDoc(3.5f, 1.5f, -4f),
                     pickupReply, out _, out _));
                 Assert.AreEqual("tac-1", StationEditSession.CarriedId);
-                Assert.IsNull(StationEditSession.Plan, "BeginMove defers placement preview until the next aim event");
+                // Plan 27 §4: a lift shows its ghost at the source **immediately** — a piece that
+                // vanishes until the next pointer move reads as a deletion. The preview is the
+                // piece's own cell, and the next aim event moves it (asserted below).
+                Assert.IsNotNull(StationEditSession.Plan, "a lift shows the source-cell ghost at once");
+                Assert.IsTrue(StationEditSession.Plan.IsMove, "the plan is the carried piece");
+                Assert.IsTrue(StationEditSession.Plan.Ok, StationEditSession.Plan.Reason);
 
                 var aimReply = new JObject();
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.move", PointerPayloadAtDoc(3.5f, 1.5f, -4f),
@@ -1494,7 +1499,10 @@ namespace Metro.Tests {
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", PointerAtDoc(placedSeatDoc), new JObject(), out _, out _));
                 Assert.AreEqual(++picks, StationScenePicker.PickCount);
                 Assert.AreEqual(placedId, StationEditSession.CarriedId, "got selection=" + StationEditSession.SelectionKey);
-                Assert.IsNull(StationEditSession.Plan, "pickup defers preview until aim");
+                // Plan 27 §4: the source cell's ghost appears on the pickup event itself; the drop
+                // below replaces it with the aimed plan.
+                Assert.IsNotNull(StationEditSession.Plan, "a pickup shows the source-cell ghost at once");
+                Assert.IsTrue(StationEditSession.Plan.IsMove, "the plan is the carried piece");
                 Assert.AreEqual(rev0 + 1, host.CurrentRevision);
 
                 Assert.IsTrue(StationPointerRouter.Handle(host, "pointer.down", PointerAtDoc(fixedDropDoc), new JObject(), out _, out _));

@@ -22,16 +22,16 @@ namespace Metro.Build {
         public int Depth => MaxY - MinY + 1;
         public int Height => MaxZ - MinZ + 1;
         public override string ToString() =>
-            IsEmpty ? "empty" : "(" + MinX + "," + MinY + "," + MinZ + ")â€¥(" + MaxX + "," + MaxY + "," + MaxZ + ")";
+            IsEmpty ? "empty" : "(" + MinX + "," + MinY + "," + MinZ + ")‥(" + MaxX + "," + MaxY + "," + MaxZ + ")";
     }
 
     /// <summary>
     /// The read-only lookup layer over one <see cref="StationDocument"/>: cells by
     /// <c>(x,y,z)</c>, modules by <c>id</c>, lines and the station's levels.
     ///
-    /// The constructor is strict about identity â€” a duplicate cell key or module id
+    /// The constructor is strict about identity — a duplicate cell key or module id
     /// is a refusal, because two records with one key cannot both be addressed by
-    /// id â€” and reports dangling authored references as diagnostics. A missing
+    /// id — and reports dangling authored references as diagnostics. A missing
     /// reference the TypeScript loader tolerates (a sign still mounted over a booth
     /// that was removed) is a <see cref="StationDiagnosticSeverity.Warning"/>; one
     /// that can no longer be repaired (a bridge-owned pillar whose bridge is gone)

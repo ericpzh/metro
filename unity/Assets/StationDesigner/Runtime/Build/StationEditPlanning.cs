@@ -1,12 +1,12 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Metro.Build {
     /// <summary>
     /// A module being placed or carried, before it reaches the save. It mirrors the
-    /// authored v1 record â€” type, anchor, turn, run dimensions, the flattened
-    /// <c>cfg</c> â€” so the same value drives the ghost, the refusal and the commit
-    /// (plan 16 Â§1.4: "preview and commit pass one candidate").
+    /// authored v1 record — type, anchor, turn, run dimensions, the flattened
+    /// <c>cfg</c> — so the same value drives the ghost, the refusal and the commit
+    /// (plan 16 §1.4: "preview and commit pass one candidate").
     ///
     /// The document layer owns the JSON: this type keeps scalars as their save text
     /// (exactly what <see cref="ModuleConfig"/> reads) and arrays/objects as raw JSON,
@@ -25,7 +25,7 @@ namespace Metro.Build {
         public bool CeilingAnchored;
         public StationPoint? From;
         public StationPoint? To;
-        /// <summary>Authored <c>h</c> of a hanging panel (a ç«™å's printed height), 0 when absent.</summary>
+        /// <summary>Authored <c>h</c> of a hanging panel (a 站名's printed height), 0 when absent.</summary>
         public double PanelHeight;
         /// <summary>A floor-mark's <c>cfg.offset</c>, metres.</summary>
         public double OffsetX;
@@ -174,7 +174,7 @@ namespace Metro.Build {
 
     /// <summary>What a tool asks the resolver: the pointer hit, the tool's settings and, for a move, the carried record.</summary>
     public sealed class StationPlacementRequest {
-        /// <summary>The palette/type id the tool would place (`bench-steel-1`, `fence`, â€¦).</summary>
+        /// <summary>The palette/type id the tool would place (`bench-steel-1`, `fence`, …).</summary>
         public string ToolType = "";
         public string Variant = "";
         /// <summary>The turn the player chose (R), in document quarter turns.</summary>
@@ -187,7 +187,7 @@ namespace Metro.Build {
         public int Width;
         public string LineId = "";
         public StationPlacementHit Hit = StationPlacementHit.None;
-        /// <summary>The record a ç§»åŠ¨ carries; null for a fresh placement.</summary>
+        /// <summary>The record a 移动 carries; null for a fresh placement.</summary>
         public StationModuleRecord Carried;
         /// <summary>The carried record's document index (its own cfg travels unchanged).</summary>
         public int CarriedRotation;
@@ -201,10 +201,29 @@ namespace Metro.Build {
         /// </summary>
         public string TargetModuleId = "";
         /// <summary>A ramp's chosen run length in cells (`rampSnapSpec`); 0 reads the tool
-        /// family's own default (æ¥¼æ¢¯ é•¿ 8 cells, æ‰¶æ¢¯ é•¿ 9 at 30Â°).</summary>
+        /// family's own default (楼梯 长 8 cells, 扶梯 长 9 at 30°).</summary>
         public double RunLength;
-        /// <summary>A ramp's chosen climb in metres; 0 reads the é•¿ 5 m rung.</summary>
+        /// <summary>A ramp's chosen climb in metres; 0 reads the 长 5 m rung.</summary>
         public double RunRise;
+        /// <summary>
+        /// A 楼梯块's chosen height in metres (`stairBlockHeight`): 1 is the tall block and
+        /// 0.5 the low one. Zero reads the family's own default.
+        /// </summary>
+        public double BlockHeight;
+        /// <summary>A lift's floor interval in metres (`liftInterval`): 5 by default, 3–7 arming.</summary>
+        public int LiftInterval;
+        /// <summary>True for the 大 3 × 3 lift shaft (`liftSize === 'large'`).</summary>
+        public bool LiftSizeLarge;
+        /// <summary>A 自动步道's level run in cells (`walkwayLength`: 30 / 60 / 90).</summary>
+        public int WalkwayRun;
+        /// <summary>True when a walkway travels <c>down</c> (its `from` is the far end).</summary>
+        public bool WalkwayDown;
+        /// <summary>
+        /// A 屋顶 plate's snap (`roofPlateSnap`): <c>lower</c> or <c>upper</c> pins the thin
+        /// slab to the bottom or the top half of the cell it was dropped on. Empty leaves the
+        /// piece at its default height.
+        /// </summary>
+        public string RoofPlateSnap = "";
         /// <summary>
         /// A 玻璃幕墙's chosen panel height in metres (`createModule`'s `curtainHeight`): 4 is
         /// the catalogue's own piece and leaves the override out of the save, 2 and 3 carry it.
@@ -224,7 +243,7 @@ namespace Metro.Build {
         public bool Ok => string.IsNullOrEmpty(Reason);
         /// <summary>The normalized candidate, or null when the request never produced a piece.</summary>
         public StationEditDraft Candidate;
-        /// <summary>Stable refusal code (`floor`, `occupied`, `track`, `wall`, `ceiling`, `unsupported-family`, â€¦).</summary>
+        /// <summary>Stable refusal code (`floor`, `occupied`, `track`, `wall`, `ceiling`, `unsupported-family`, …).</summary>
         public string Reason = "";
         /// <summary>The module the piece stands on / hangs from, when the document names one.</summary>
         public string SupportId = "";
@@ -247,7 +266,7 @@ namespace Metro.Build {
     /// <summary>
     /// The candidate factory for the families the canvas editor can create from the
     /// palette. Ported from <c>build/model/Equipment.ts</c> (<c>createModule</c>) for
-    /// the migrated families only: every other type says so (plan 16 Â§1.4 â€”
+    /// the migrated families only: every other type says so (plan 16 §1.4 —
     /// "guard unsupported families before committing") instead of guessing a record.
     /// </summary>
     public static class StationModuleFamilies {
@@ -267,7 +286,7 @@ namespace Metro.Build {
 
         /// <summary>
         /// The run and rise a fresh ramp is built at for the request: the source's
-        /// `rampSnapSpec` (the é•¿ 5 m rung, 8 cells for a stair and 9 for the 30Â° escalator)
+        /// `rampSnapSpec` (the 长 5 m rung, 8 cells for a stair and 9 for the 30° escalator)
         /// unless the tool passes its own length and climb.
         /// </summary>
         public static void RampSpec(StationPlacementRequest request, out double run, out double rise) {
@@ -422,8 +441,96 @@ namespace Metro.Build {
                 parsed.Variant = id;
             } else if (id == "stair" || id == "stair-straight") {
                 parsed.Type = "stair";
+            } else if (id == "stair-block") {
+                // The 楼梯块: a solid stair box, not a flight (`createModule`'s stair-block
+                // branch). Its height comes from the tool's own setting, not the palette id.
+                parsed.Type = "stair-block";
             } else if (id == "escalator") {
                 parsed.Type = "escalator";
+            } else if (id == "lift") {
+                parsed.Type = "lift";
+            } else if (id == "walkway") {
+                parsed.Type = "walkway";
+            } else if (id == "roof") {
+                // The 屋顶 tile: a 1 × 1 slab hung one storey above the cell it is dropped on
+                // (`createModule`'s roof branch). The truss/canopy ids are separate families.
+                parsed.Type = "roof";
+            } else if (id == "roof-shell" || id == "roof-truss" || id == "roof-tapered" || id == "roof-canopy") {
+                // A truss bay: four cells along the run, its depth the tool's 4/8/12 breadth
+                // (`supportedRoofWidth`), centred on the aim.
+                parsed.Type = "roof";
+                parsed.Variant = id == "roof-shell" ? "shell"
+                    : id == "roof-truss" ? "truss"
+                    : id == "roof-tapered" ? "tapered-truss"
+                    : "canopy";
+                parsed.Width = StationRoofRules.Bay;
+                parsed.Centred = true;
+            } else if (id == "linemap" || id == "linemap-wall" || id == "linemap-stand") {
+                // The 线网图 board: the palette id names the mount (`lineMapSpec`), and both
+                // mounts are the same two-cell board — one on a wall, one on a floor totem.
+                parsed.Type = "linemap";
+                parsed.Variant = id == "linemap-stand" ? "stand" : "wall";
+                parsed.Width = 2;
+                parsed.Centred = true;
+            } else if (id == "tree") {
+                // A street tree: one plan cell, its canopy four and a half metres tall.
+                parsed.Type = "tree";
+            } else if (id == "busstop-short" || id == "busstop-long") {
+                // A bus shelter: four or eight cells along its run by two deep, centred on the
+                // aim like a track piece.
+                parsed.Type = "busstop";
+                parsed.Variant = id == "busstop-long" ? "long" : "short";
+                parsed.Width = id == "busstop-long" ? 8 : 4;
+                parsed.Centred = true;
+            } else if (id == "ac-unit" || id == "electrical-cabinet" || id == "rail-signal") {
+                parsed.Type = id;
+            } else if (id == "shelf" || id.StartsWith("shelf-", StringComparison.Ordinal)) {
+                // A store shelf: the palette id names the variant, and the variant decides how
+                // many cells the run fills (`shelfWidth`: 1, 2 for books/bags, 4 for the long
+                // café back-bar). A bare id is the tall dark shelf.
+                parsed.Type = "shelf";
+                parsed.Variant = id == "shelf" ? "dark-tall" : id.Substring("shelf-".Length);
+            } else if (id == "checkout" || id.StartsWith("checkout-", StringComparison.Ordinal)) {
+                // A 收银台: the palette id names the counter style, and the tool's width
+                // setting names the run length, clamped to the four catalogue lengths.
+                parsed.Type = "checkout";
+                parsed.Variant = id == "checkout" ? "" : id.Substring("checkout-".Length);
+            } else if (id == "billboard" || id.StartsWith("billboard-", StringComparison.Ordinal)) {
+                // A 广告牌: the palette id names the variant (a bare id is the small landscape),
+                // and the variant decides the run width the piece fills.
+                parsed.Type = "billboard";
+                parsed.Variant = id == "billboard" ? "wide" : id.Substring("billboard-".Length);
+                parsed.Width = BillboardWidth(parsed.Variant);
+                parsed.Centred = true;
+            } else if (id == "calligraphy" || id.StartsWith("calligraphy-", StringComparison.Ordinal)) {
+                // A 站名: the palette id names the hand and the axis (`calligraphy-<style>-<axis>`);
+                // a bare id is 楷书 横排. The panel is cut at placement (`StationCalligraphy`).
+                parsed.Type = "calligraphy";
+                var parts = id.Split('-');
+                string style = id == "calligraphy" ? "kai" : (parts.Length > 1 ? parts[1] : "kai");
+                string axis = id == "calligraphy" ? "h" : (parts.Length > 2 ? parts[2] : "h");
+                parsed.Variant = style + "-" + axis;
+            } else if (id == "sign" || id == "sign-wall" || id == "sign-ceiling") {
+                // A 标识: the palette id names its mount  the hung board by default, or the wall
+                // board  and it is born with a composed front (`defaultSignLayout`).
+                parsed.Type = "sign";
+                parsed.Variant = id == "sign-wall" ? "wall" : id == "sign-ceiling" ? "ceiling" : "";
+            } else if (id == "hanger-roof" || id == "hanger-post") {
+                // A hanger: the palette id names its mount, and its run is four cells unless the
+                // tool asks for the six/eight-cell span (`createModule`'s hanger branch).
+                parsed.Type = "hanger";
+                parsed.Variant = id == "hanger-post" ? "post" : "roof";
+                parsed.Width = width == 6 || width == 8 ? width : 4;
+                parsed.Centred = true;
+            } else if (id == "tv-double") {
+                // The double-sided screen is the same `tv` record: the palette names the face
+                // count, the piece hangs from the same hanger.
+                parsed.Type = "tv";
+            } else if (id == "psd-end" || id == "psd-end-cover") {
+                // The 站台门 end piece (`createModule`'s psd-end branch): a half-height end
+                // panel, or the full-height corner cover that caps a run.
+                parsed.Type = "psd-end";
+                parsed.Variant = id == "psd-end-cover" ? "cover" : "";
             } else {
                 return false;
             }
@@ -450,6 +557,64 @@ namespace Metro.Build {
         /// <summary>`doorSpec(variant).w`: one leaf or two.</summary>
         public static int DoorWidth(string variant) =>
             variant == "steel-2" || variant == "wood-2" || variant == "glass-2" ? 2 : 1;
+
+        /// <summary>`billboardSpec(variant).w`: the cells a board fills (the sized panels first).</summary>
+        public static int BillboardWidth(string variant) {
+            switch (variant ?? "") {
+                case "16x9-3m": return 6;
+                case "16x9-4m": return 7;
+                case "4x3-3m": return 4;
+                case "4x3-4m": return 6;
+                case "panorama": return 3;
+                case "standard":
+                case "large": return 2;
+                default: return 1;
+            }
+        }
+
+        /// <summary>`shelfWidth`: the cells a shelf variant fills (books and bags two, the long café back-bar four).</summary>
+        public static int ShelfWidth(string variant) {
+            var name = variant ?? "";
+            if (name == "books" || name == "bags" || name == "cafe-backbar-2") return 2;
+            if (name == "cafe-backbar-4") return 4;
+            return 1;
+        }
+
+        /// <summary>
+        /// True for the palette ids that hang on a wall face (`isWallMountedType`): the wall
+        /// monitor, the wall sign, billboards, 站名, wall 线网图, the doorway exit and the
+        /// floor-standing-free glass panels. Their creation ids are separate families.
+        /// </summary>
+        public static bool IsWallPalette(string paletteId) {
+            var id = paletteId ?? "";
+            if (id == "urinal" || id == "monitor-wall" || id == "sign-wall") return true;
+            if (id == "billboard" || id.StartsWith("billboard-", StringComparison.Ordinal)) return true;
+            if (id == "calligraphy" || id.StartsWith("calligraphy-", StringComparison.Ordinal)) return true;
+            if (id.StartsWith("linemap-", StringComparison.Ordinal) && id != "linemap-stand") return true;
+            if (id == "linemap") return true;
+            if (id.StartsWith("exit-doorway-", StringComparison.Ordinal)) return true;
+            // A 玻璃板 is wall-mounted unless its size stands on the floor (`…x4` and the
+            // curtain-wall pieces are full-storey panes, not bands of wall).
+            if (id == "glass" || id.StartsWith("glass-", StringComparison.Ordinal)) {
+                var variant = id == "glass" ? "1x1" : id.Substring("glass-".Length);
+                return variant != "1x4" && variant != "2x4" && variant != "3x4" && variant != "4x4";
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// `stairFacing`: the run direction of a stair-family piece. It is **not**
+        /// `rotateLocal(rot, 1, 0)` — a stair at rot 0 climbs along +y, and the family's four
+        /// turns walk the compass clockwise from there (`sim/stairs.ts`).
+        /// </summary>
+        public static void StairFacing(int rot, out int dx, out int dy) {
+            switch (StationFootprints.NormRot(rot)) {
+                case 0: dx = 0; dy = 1; break;
+                case 1: dx = 1; dy = 0; break;
+                case 2: dx = 0; dy = -1; break;
+                default: dx = -1; dy = 0; break;
+            }
+        }
 
         /// <summary>Build the fresh candidate at a whole cell (<c>createModule</c>'s migrated branches).</summary>
         public static bool TryCreate(StationPlacementRequest request, out StationEditDraft draft, out string reason) =>
@@ -487,6 +652,9 @@ namespace Metro.Build {
                 Z = (int)Math.Round(cell.Z),
                 Rotation = rotation,
             };
+            // A hung fitting anchors on the slab it hangs from (`ceilingAnchored`), which is what
+            // tells the clearance rule to reserve the column below it rather than the cell.
+            if (StationCeilingAim.IsCeilingPiece(family.Type)) candidate.CeilingAnchored = true;
             if (family.Type == "exit") {
                 if (!TryParseExit(family.Variant.Length == 0 ? request.ToolType : family.Variant, out var bays, out var covered)) {
                     reason = "unsupported-family";
@@ -582,9 +750,153 @@ namespace Metro.Build {
                 case "court":
                     candidate.Set("variant", family.Variant.Length == 0 ? "pickleball" : family.Variant);
                     break;
+                case "roof": {
+                    // `createModule('roof')`: one 1 × 1 slab, and the tool's 贴顶 toggle pins it
+                    // to the lower or upper half of the cell it was dropped on. A truss bay is
+                    // four cells along the run by the tool's breadth, centred on the aim.
+                    if (StationRoofRules.IsVariant(family.Variant)) {
+                        candidate.Width = StationRoofRules.Bay;
+                        int depth = StationRoofRules.SupportedWidth(request.Width);
+                        candidate.Depth = depth;
+                        candidate.Set("variant", family.Variant);
+                        StationFootprints.RotateLocal(candidate.Rotation, 0, -Math.Floor((depth - 1) / 2.0),
+                            out var bdx, out var bdy);
+                        candidate.X += (int)Math.Round(bdx);
+                        candidate.Y += (int)Math.Round(bdy);
+                        break;
+                    }
+                    candidate.Width = 1;
+                    candidate.Depth = 1;
+                    if (!string.IsNullOrEmpty(request.RoofPlateSnap))
+                        candidate.Set("plateSnap", request.RoofPlateSnap);
+                    break;
+                }
+                case "calligraphy": {
+                    // The panel is cut from the name the station carries **now**, then frozen:
+                    // `w` and `panelH` are stored rather than derived on load.
+                    string hand = family.Variant.Length > 0 ? family.Variant : "kai-h";
+                    int dash = hand.LastIndexOf('-');
+                    string axis = dash >= 0 ? hand.Substring(dash + 1) : "h";
+                    var geometry = StationCalligraphy.For(index?.Document?.Name, axis);
+                    candidate.Width = geometry.Cells;
+                    candidate.PanelHeight = geometry.PanelH;
+                    candidate.Set("style", hand);
+                    candidate.Set("axis", axis);
+                    break;
+                }
+                case "billboard":
+                    // `createModule('billboard-*')': the variant, the run width it fills, centred.
+                    // The poster is rolled by the reference at commit from its poster catalogue
+                    // (`randomAdSlug`); that catalogue is data this port has not imported, so a
+                    // fresh board carries no `poster` and the view draws its placeholder.
+                    candidate.Width = StationModuleFamilies.BillboardWidth(family.Variant);
+                    candidate.Set("variant", family.Variant.Length == 0 ? "wide" : family.Variant);
+                    break;
+                case "sign": {
+                    // `createModule('sign-*')': the mount, then the composed front. A wall sign has
+                    // no back  the wall is behind it  so only the hung board could carry one,
+                    // and a fresh board's back is empty either way.
+                    string mount = family.Variant.Length == 0 ? "ceiling" : family.Variant;
+                    candidate.Set("mount", mount);
+                    var firstLine = StationRailPlanner.ResolveLine(index, request.LineId);
+                    candidate.SetJson("front", StationSignLayouts.Default(firstLine));
+                    candidate.SetJson("back", "[]");
+                    break;
+                }
+                case "hanger":
+                    // `createModule('hanger-*')`: the mount names the bar's support, and the run
+                    // is the tool's 4/6/8-cell span centred on the aim.
+                    candidate.Width = family.Width > 0 ? family.Width : 4;
+                    candidate.Depth = 1;
+                    candidate.Set("mount", family.Variant.Length == 0 ? "roof" : family.Variant);
+                    break;
+                case "shelf":
+                    // `createModule('shelf-<variant>')`: the variant picks the run width.
+                    candidate.Width = StationModuleFamilies.ShelfWidth(family.Variant);
+                    candidate.Set("variant", family.Variant.Length == 0 ? "dark-tall" : family.Variant);
+                    break;
+                case "checkout":
+                    // `createModule('checkout-<variant>')`: `counterLength(width)`, the tool's
+                    // run length clamped to the four catalogue counters.
+                    candidate.Width = Math.Max(1, Math.Min(4, request.Width > 0 ? request.Width : 1));
+                    if (family.Variant.Length > 0) candidate.Set("variant", family.Variant);
+                    break;
+                case "linemap":
+                    // `linemapSpec`'s mount; the two-cell board is centred on the aim.
+                    candidate.Width = 2;
+                    candidate.Set("mount", family.Variant.Length == 0 ? "wall" : family.Variant);
+                    break;
+                case "busstop": {
+                    // `createModule`'s bus-shelter branch: 4 or 8 cells along the run, 2 deep,
+                    // centred on the aim.
+                    int run = family.Width >= 8 ? 8 : 4;
+                    candidate.Width = run;
+                    candidate.Depth = 2;
+                    candidate.Set("variant", family.Variant.Length == 0 ? "short" : family.Variant);
+                    StationFootprints.RotateLocal(candidate.Rotation, 0, -Math.Floor((2 - 1) / 2.0),
+                        out var bdx, out var bdy);
+                    candidate.X += (int)Math.Round(bdx);
+                    candidate.Y += (int)Math.Round(bdy);
+                    break;
+                }
+                case "psd-end":
+                    // `createModule`'s psd-end branch: `psd: half` for the end panel, and
+                    // `psd: full` + `variant: cover` for the corner cover.
+                    if (string.Equals(family.Variant, "cover", StringComparison.Ordinal)) {
+                        candidate.Set("psd", "full");
+                        candidate.Set("variant", "cover");
+                    } else {
+                        candidate.Set("psd", "half");
+                    }
+                    break;
+                case "stair-block": {
+                    // `createModule`'s stair-block branch: one solid stair box anchored on the
+                    // pressed cell, its top one course up, the height read from the tool.
+                    candidate.Type = "stair";
+                    StationFootprints.RotateLocal(candidate.Rotation, 1, 0, out var sdx, out var sdy);
+                    candidate.From = new StationPoint(candidate.X - sdx, candidate.Y - sdy, candidate.Z);
+                    candidate.To = new StationPoint(candidate.X + sdx, candidate.Y + sdy, candidate.Z + 1);
+                    candidate.Set(1, "width");
+                    candidate.Set(true, "block");
+                    double blockHeight = request.BlockHeight > 0 ? request.BlockHeight : 1;
+                    candidate.Set("blockHeight", blockHeight == 0.5 ? "0.5" : "1");
+                    break;
+                }
+                case "lift": {
+                    // `liftModule`: the base is the floor cell at the shaft's lower-left corner
+                    // and it serves the floor one interval up.
+                    int interval = request.LiftInterval > 0 ? request.LiftInterval : 5;
+                    candidate.From = new StationPoint(candidate.X, candidate.Y, candidate.Z);
+                    candidate.To = new StationPoint(candidate.X, candidate.Y, candidate.Z + interval);
+                    candidate.SetJson("rises", "[" + interval.ToString(System.Globalization.CultureInfo.InvariantCulture) + "]");
+                    if (request.LiftSizeLarge) candidate.Set("size", "large");
+                    break;
+                }
+                case "walkway": {
+                    // `walkwayModule`: a level run of whole cells along the stair facing, with
+                    // its two endpoints authoritative for the length.
+                    int run = request.WalkwayRun > 0 ? request.WalkwayRun : 30;
+                    StairFacing(candidate.Rotation, out var wdx, out var wdy);
+                    var near = new StationPoint(candidate.X, candidate.Y, candidate.Z);
+                    var far = new StationPoint(candidate.X + wdx * run, candidate.Y + wdy * run, candidate.Z);
+                    candidate.From = request.WalkwayDown ? far : near;
+                    candidate.To = request.WalkwayDown ? near : far;
+                    candidate.Set("dir", request.WalkwayDown ? "down" : "up");
+                    if (request.Width > 1) candidate.Set(request.Width, "width");
+                    break;
+                }
                 default:
                     // Every remaining migrated type has an empty authored cfg.
                     break;
+            }
+            // The 站台门 end panel seats itself on the nearest screen endpoint (or on the
+            // glass plane a neighbouring panel holds) before the verdict runs; its cover stacks
+            // on the full-height support under the click.
+            if (string.Equals(candidate.Type, "psd-end", StringComparison.Ordinal)) {
+                if (string.Equals(candidate.Text("variant"), "cover", StringComparison.Ordinal))
+                    StationPsdEndRules.TrySnapCover(index, candidate, request.TargetModuleId);
+                else
+                    StationPsdEndRules.TrySnap(index, candidate);
             }
             draft = candidate;
             return true;
@@ -602,7 +914,7 @@ namespace Metro.Build {
     }
 
     /// <summary>
-    /// The one candidate resolver for placement preview, drop and move (plan 16 Â§1.4).
+    /// The one candidate resolver for placement preview, drop and move (plan 16 §1.4).
     /// Inputs are the committed document, the tool's settings and one pick; the output
     /// is the normalized candidate plus a stable refusal code. Nothing here mutates the
     /// document, the history or the simulation.
@@ -624,7 +936,9 @@ namespace Metro.Build {
         static readonly HashSet<string> BlockChecked = new HashSet<string>(StringComparer.Ordinal) {
             "gate", "tvm", "vending", "bench", "cubicle", "sink", "urinal",
             "bin", "extinguisher", "guidepost", "clock", "cctv", "tv", "sign", "linemap", "door",
-            "tactile", "floor-mark", "court",
+            "tactile", "floor-mark", "court", "stair", "roof",
+            "ac-unit", "electrical-cabinet", "rail-signal",
+            "shelf", "checkout",
         };
 
         /// <summary>Resolve one request against the committed document.</summary>
@@ -684,13 +998,17 @@ namespace Metro.Build {
             plan.CellX = candidate.X;
             plan.CellY = candidate.Y;
             plan.CellZ = candidate.Z;
-            // A fresh ramp's corridor envelope (`sim/openings.ts rampEnvelope`) is not ported,
-            // so its collision check cannot run. The candidate is built and snapped, but the
-            // resolver refuses to hand an unvalidated run to a commit: a stable code, not a
-            // guessed box and not a silent allow. Replacing this needs the corridor port; the
-            // snap itself is already applied above and pinned by the oracle.
-            if (request.Carried == null && StationModuleFamilies.IsRamp(candidate.Type)) {
-                plan.Reason = "ramp-corridor-unported";
+            // A fresh run's corridor (`sim/openings.ts` `rampEnvelope`) and the **carve** that
+            // shaves the blocks it passes through are one rule, committed together: the run
+            // reserves its corridor and, in the same revision, `StationRampCarve` opens the
+            // blocks the corridor sweeps. Only a straight single flight is ported, so a turning
+            // run keeps its own stable refusal. A 楼梯块 is not a flight — it is one solid box —
+            // so it takes the ordinary clearance path.
+            if (request.Carried == null && StationModuleFamilies.IsRamp(candidate.Type) && !candidate.Bool("block")) {
+                var record = ToRecord(candidate);
+                plan.Reason = StationRampRules.IsStraightRun(record)
+                    ? Validate(index, candidate, request.Carried, plan.ColliderIds, plan.UnverifiedIds)
+                    : "ramp-turning-unported";
             } else {
                 plan.Reason = Validate(index, candidate, request.Carried, plan.ColliderIds, plan.UnverifiedIds);
             }
@@ -754,6 +1072,29 @@ namespace Metro.Build {
 
         public static StationPoint AimCell(StationIndex index, StationPlacementRequest request) {
             var hit = request.Hit;
+            var pieceType = request.Carried != null ? request.Carried.Type : request.ToolType;
+            var pieceConfig = request.Carried != null ? request.Carried.Config : null;
+            // A wall piece is hung on a column's face: the hit names the course and the piece
+            // stands on the floor at that column's foot (`moduleAim`'s wall branch).
+            bool wallPiece = request.Carried != null
+                ? StationFootprints.IsWallMounted(request.Carried)
+                : StationModuleFamilies.IsWallPalette(request.ToolType);
+            if (wallPiece) {
+                string kind = pieceType;
+                if (request.Carried == null &&
+                    StationModuleFamilies.TryParse(request.ToolType, request.Variant, request.Width, out var family))
+                    kind = family.Type;
+                bool follow = StationWallAim.FollowsCourse(kind, pieceConfig);
+                bool snap = request.Carried != null
+                    ? string.Equals(request.Carried.Type, "exit", StringComparison.Ordinal)
+                    : (request.ToolType ?? "").StartsWith("exit-doorway-", StringComparison.Ordinal);
+                return StationWallAim.StandCell(index, hit, snap, follow);
+            }
+            // A ceiling-hung piece hangs from the underside overhead, not from the floor it is
+            // pointed at (`moduleAim`'s ceiling branch).
+            if (StationCeilingAim.IsCeilingPiece(pieceType, pieceConfig)) {
+                return StationCeilingAim.Aim(index, request, pieceType);
+            }
             bool onSurface = hit.Solid ||
                 (index != null && StationFootprints.IsExitFloorAt(index, hit.X, hit.Y, hit.Z));
             return onSurface
@@ -775,16 +1116,20 @@ namespace Metro.Build {
                 index != null && !string.IsNullOrEmpty(request.TargetModuleId) &&
                 index.TryGetModule(request.TargetModuleId, out var host) &&
                 string.Equals(host.Type, "hanger", StringComparison.Ordinal);
-            if (StationFootprints.IsWallMounted(source) || (StationFootprints.IsCeilingHung(source) && !hangerAim)) {
+            // A hung fitting moves with the same ceiling aim a fresh one uses: it hangs from the
+            // slab overhead or from a visible hanger's bar; with neither, the move is refused.
+            var at = AimCell(index, request);
+            int x = (int)Math.Round(at.X), y = (int)Math.Round(at.Y), z = (int)Math.Round(at.Z);
+            if (StationFootprints.IsCeilingHung(source) && !hangerAim &&
+                !(index != null && StationFootprints.IsSolidAt(index, x, y, z + 1))) {
                 reason = "unsupported-mount";
                 return null;
             }
-            var at = AimCell(index, request);
-            int x = (int)Math.Round(at.X), y = (int)Math.Round(at.Y), z = (int)Math.Round(at.Z);
             int rot = StationFootprints.NormRot(request.Rotation);
             var draft = DraftOf(source);
             draft.Id = source.Id;
             draft.SourceId = source.Id;
+            if (StationFootprints.IsCeilingHung(source) && !hangerAim) draft.CeilingAnchored = true;
             // A run's own endpoints are world cells: re-lay them about the carried
             // anchor, stepped in the piece's turn convention (`movedModule`).
             if (source.Type == "stair" || source.Type == "escalator" || source.Type == "walkway") {
@@ -792,7 +1137,7 @@ namespace Metro.Build {
                 reason = "unsupported-family";
                 return null;
             }
-            // A ground å‡ºå…¥å£ keeps the offset of the course it was mounted on.
+            // A ground 出入口 keeps the offset of the course it was mounted on.
             if (source.Type == "exit" && source.Config.Text("style") == "doorway" && source.Config.Has("mountZ")) {
                 draft.Set("mountZ", FormatNumber(z + (source.Config.Number("mountZ", source.Z) - source.Z)));
             }
@@ -865,25 +1210,48 @@ namespace Metro.Build {
                     return "exit-on-slab";
                 }
             }
+            // A street tree is surface decor: it never grows below the street plane. A shelter
+            // and a traffic light are the same (`equipmentReason`'s outdoor-below-ground group).
+            if (draft.Z < 0 && (draft.Type == "tree" || draft.Type == "busstop" || draft.Type == "traffic-light" ||
+                                draft.Type == "guidepost")) return "outdoor-below-ground";
             // A flat body must not intersect a block. Wall and ceiling mounts reserve a
             // panel band or a hung column instead and are answered by their own rule.
             bool hung = StationFootprints.IsCeilingHung(record);
             bool wall = StationFootprints.IsWallMounted(record);
-            if (!hung && !wall && BlockChecked.Contains(draft.Type)) {
+            // A run's own corridor cuts the blocks it passes through (StationRampCarve), and
+            // the cut keeps the floor its base stands on, so the run is not refused for the
+            // ground it is about to open. A 楼梯块 is a solid box and keeps the block test.
+            bool run = StationModuleFamilies.IsRamp(draft.Type) && !draft.Bool("block");
+            if (!hung && !wall && !run && BlockChecked.Contains(draft.Type)) {
                 foreach (var cell in index.Document.Cells) {
                     if (!cell.IsSolid) continue;
                     var unit = new StationBox(cell.X, cell.Y, cell.Z, cell.X + 1, cell.Y + 1, cell.Z + 1);
                     if (box.Overlaps(unit)) return "occupied";
                 }
             }
-            if (!hung && draft.Type != "escalator") {
+            // The pieces in the way are a property of the *candidate*, not of the refusal that
+            // happens to come first: the source's callers read `placementColliders` beside
+            // `equipmentReason`, so a refused placement still names what it would have hit.
+            CollectColliders(index, record, box, colliders, unverified);
+            if (!hung && draft.Type != "escalator" && draft.Type != "roof") {
                 bool floorOk;
                 try { floorOk = StationFootprints.ModuleFloorOk(record, index); }
                 catch (NotSupportedException) { return "unsupported-family"; }
                 if (!floorOk) return draft.Type == "lift" ? "lift-footprint" : "floor";
+                // A 自动步道 lies on the floor for its whole run: the belt is a surface over
+                // solid ground, not a hole (`walkways.ts`: "the floor it lies on must be there").
+                if (draft.Type == "walkway" && !StationFootprints.WalkwayFloorOk(record, index)) return "floor";
             }
             if (PlacementOnTrack(index, draft, record, hung)) return "track";
-            CollectColliders(index, record, box, colliders, unverified);
+            // A canopy stands on its posts, so those cells need floor even though the roof
+            // itself skips the floor rule (`moduleFloorOk`'s canopy footprint).
+            if (string.Equals(draft.Type, "roof", StringComparison.Ordinal) &&
+                string.Equals(draft.Text("variant"), "canopy", StringComparison.Ordinal)) {
+                foreach (var post in StationRoofRules.PostCells(record)) {
+                    if (StationFootprints.IsSolidAt(index, post.X, post.Y, post.Z)) continue;
+                    return "floor";
+                }
+            }
             if (colliders.Count > 0) return "occupied";
             if (wall && !WallSupport(index, record)) return "wall";
             if (hung && !CeilingSupport(index, record, draft)) return "ceiling";
@@ -892,8 +1260,8 @@ namespace Metro.Build {
 
         /// <summary>
         /// Port of <c>placementOnTrack</c>: the cells a piece is anchored by, the visible
-        /// <c>floor.track</c> finish, a dug bed (a track module's cells) and â€” for a
-        /// floor-standing piece â€” the trench one course above.
+        /// <c>floor.track</c> finish, a dug bed (a track module's cells) and — for a
+        /// floor-standing piece — the trench one course above.
         /// </summary>
         static bool PlacementOnTrack(StationIndex index, StationEditDraft draft, StationModuleRecord record, bool hung) {
             StationPoint[] baseCells;
@@ -951,9 +1319,9 @@ namespace Metro.Build {
 
         /// <summary>
         /// Port of <c>placementColliders</c> for the migrated families. The source's
-        /// documented exceptions that concern these families are kept â€” a piece never
+        /// documented exceptions that concern these families are kept — a piece never
         /// collides with itself, an exit shares space with a stair/escalator, and a floor
-        /// sticker lies under a screen-door strip or a gate leaf â€” while a neighbour
+        /// sticker lies under a screen-door strip or a gate leaf — while a neighbour
         /// whose envelope this packet cannot derive is reported, not guessed.
         /// </summary>
         static void CollectColliders(StationIndex index, StationModuleRecord candidate, StationBox box,
@@ -1048,7 +1416,7 @@ namespace Metro.Build {
 
         /// <summary>
         /// `edgeDecorCurtainShare`: a floor decor piece backed against a floor-standing curtain in
-        /// the same tile — same storey, opposite wall sides, overlapping the curtain's run.
+        /// the same tile  same storey, opposite wall sides, overlapping the curtain's run.
         /// </summary>
         static bool EdgeDecorGlassShare(StationModuleRecord a, StationModuleRecord b) {
             var glass = string.Equals(a.Type, "glass", StringComparison.Ordinal) ? a
@@ -1118,7 +1486,7 @@ namespace Metro.Build {
 
         /// <summary>
         /// Port of <c>ceilingMountMissing</c> for the migrated hung families: the slab the
-        /// piece hangs from is the block directly above its stand cell (a åŠé¡¶ or an
+        /// piece hangs from is the block directly above its stand cell (a 吊顶 or an
         /// ordinary top block), or the nominal storey ceiling for a fixture.
         /// </summary>
         static bool CeilingSupport(StationIndex index, StationModuleRecord record, StationEditDraft draft) {

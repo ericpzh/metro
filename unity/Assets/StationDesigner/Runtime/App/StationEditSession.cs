@@ -43,12 +43,42 @@ namespace Metro.App {
         public static string MoveReason = "";
         /// <summary>The last resolved plan, for the state snapshot and the verifier.</summary>
         public static StationPlacementPlan Plan;
+        /// <summary>
+        /// The cell tool's last aimed preview (accepted/refused cells, the ring, the badge).
+        /// It is a **preview**: publishing it never touches the document, the revision or the
+        /// history (plan 27 §3).
+        /// </summary>
+        public static StationCellPreview Cells;
+        /// <summary>
+        /// The brush's last aimed region (the faces the release would paint) and its last
+        /// eyedropper result. A preview, like <see cref="Cells"/>: publishing it never touches
+        /// the document, the revision or the history.
+        /// </summary>
+        public static StationPaintPreview Paint;
+        /// <summary>The last `pick`-mode face finish, adopted by the shell's brush.</summary>
+        public static JObject PaintPick;
+        /// <summary>The road tool's aimed stroke (a preview; see <see cref="Cells"/>).</summary>
+        public static Metro.Build.RoadEditPreview Road;
+        /// <summary>
+        /// The 分区 brush's aimed patch (the floor tinted and the labels the release would
+        /// write). A preview, like <see cref="Cells"/>: it never touches the document, the
+        /// revision or the history.
+        /// </summary>
+        public static StationZonePreview Zone;
+        /// <summary>The 人行道 / 草坪 tile brush's aimed patch (a preview; see <see cref="Cells"/>).</summary>
+        public static StationSurfacePreview Surface;
+        /// <summary>The rail tool's aimed piece (a preview; see <see cref="Cells"/>).</summary>
+        public static Metro.Build.StationRailPlan Rail;
         /// <summary>The last eyedropper result, cleared by the next input.</summary>
         public static JObject Picked;
         /// <summary>The last `edit.probe` answer, for a browser check to click a known pixel.</summary>
         public static JObject Probe;
         /// <summary>The editing level the last pointer resolved against.</summary>
         public static int Level;
+        /// <summary>True while the pointer is inside the stage (a leave parks it).</summary>
+        public static bool HasPointer;
+        /// <summary>The last routed pointer event, so a settings or view change can re-aim it.</summary>
+        public static StationPointerEvent Pointer;
         /// <summary>
         /// The recent interaction trace (plan 16 §1.1/§1.6): one entry per routed pointer
         /// event carrying the event, the hit, the resolved candidate and the revision it
@@ -98,16 +128,44 @@ namespace Metro.App {
             CarriedRotation = 0;
             MoveReason = "";
             Plan = null;
+            Cells = null;
+            Paint = null;
+            PaintPick = null;
+            Zone = null;
+            Surface = null;
+            Rail = null;
             Picked = null;
             Probe = null;
             Level = 0;
+            HasPointer = false;
+            Pointer = default;
             trace.Clear();
             traceSeq = 0;
             undos.Clear();
             redos.Clear();
             appliedCommandIds.Clear();
             commandIdOrder.Clear();
+            StationCellTool.Reset();
+            StationPaintTool.Reset();
+            StationPaintGame.Forget();
+            StationZoneTool.Reset();
+            StationSurfaceTool.Reset();
         }
+
+        /// <summary>Remember the pointer a settings or view refresh has to re-aim.</summary>
+        public static void RememberPointer(in StationPointerEvent pointer) {
+            Pointer = pointer;
+            HasPointer = true;
+        }
+
+        /// <summary>The pointer left the stage: nothing to re-aim until it comes back.</summary>
+        public static void ForgetPointer() {
+            HasPointer = false;
+            Cells = null;
+        }
+
+        /// <summary>The remembered pointer's Unity screen position (origin bottom-left).</summary>
+        public static Vector2 PointerScreen() => Pointer.ToScreen();
 
         /// <summary>Forget history that belongs to another station (a switch makes it meaningless).</summary>
         public static void PruneHistory(string sourceId) {
@@ -143,22 +201,66 @@ namespace Metro.App {
             result = null;
             code = null;
             if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
-            bool dedupe = !string.IsNullOrEmpty(commandId);
-            if (dedupe && appliedCommandIds.Contains(commandId)) { code = "duplicate-command"; return false; }
-            PruneHistory(host.CurrentSourceId);
+            if (IsDuplicate(host, commandId, out code)) return false;
             var before = host.SaveDocument();
             if (string.IsNullOrEmpty(before)) { code = "no-document"; return false; }
             var next = StationModuleEdits.Apply(before, mode, draft, removeId, out code);
             if (next == null) return false;
-            result = host.ApplyDocumentEdit(next, host.CurrentSourceId);
+            return TryApplyPatch(host, next, label, commandId, out result, out code);
+        }
+
+        /// <summary>
+        /// Apply one **cell** patch and install it: the same transaction, the same history and
+        /// the same revision rule as a module edit. The planner names the writes; only
+        /// <see cref="Metro.Persistence.StationCellEdits"/> touches the envelope text.
+        /// </summary>
+        public static bool TryApplyCells(StationGameHost host, Metro.Build.StationCellPatch patch,
+            string label, string commandId, out StationLoadResult result, out string code) {
+            result = null;
+            code = null;
+            if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
+            if (IsDuplicate(host, commandId, out code)) return false;
+            var before = host.SaveDocument();
+            if (string.IsNullOrEmpty(before)) { code = "no-document"; return false; }
+            var next = StationCellEdits.Apply(before, patch, out code);
+            if (next == null) return false;
+            return TryApplyPatch(host, next, label, commandId, out result, out code);
+        }
+
+        /// <summary>
+        /// The one install path (plan 27 §3): hand a complete envelope to
+        /// <c>StationGameHost.ApplyDocumentEdit</c>, install it **before** pushing one undo
+        /// frame, and clear redo. A refusal leaves the document, the revision, the history and
+        /// the selection untouched. `label` names the edit in the history.
+        /// </summary>
+        public static bool TryApplyPatch(StationGameHost host, string nextEnvelope, string label, string commandId,
+            out StationLoadResult result, out string code) {
+            result = null;
+            code = null;
+            if (host == null || !host.IsLoaded) { code = "no-session"; return false; }
+            if (string.IsNullOrEmpty(nextEnvelope)) { code = "no-document"; return false; }
+            if (IsDuplicate(host, commandId, out code)) return false;
+            PruneHistory(host.CurrentSourceId);
+            var before = host.SaveDocument();
+            result = host.ApplyDocumentEdit(nextEnvelope, host.CurrentSourceId);
             if (result == null || !result.Accepted) {
                 code = result?.Rejection?.Code ?? "rejected";
                 return false;
             }
-            if (dedupe) Remember(commandId);
-            undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "" });
-            if (undos.Count > MaxHistory) undos.RemoveAt(0);
+            if (!string.IsNullOrEmpty(commandId)) Remember(commandId);
+            if (!string.IsNullOrEmpty(before)) {
+                undos.Add(new HistoryFrame { Document = before, SourceId = host.CurrentSourceId, Label = label ?? "" });
+                if (undos.Count > MaxHistory) undos.RemoveAt(0);
+            }
             redos.Clear();
+            return true;
+        }
+
+        static bool IsDuplicate(StationGameHost host, string commandId, out string code) {
+            code = null;
+            if (string.IsNullOrEmpty(commandId)) return false;
+            if (!appliedCommandIds.Contains(commandId)) return false;
+            code = "duplicate-command";
             return true;
         }
 
@@ -215,6 +317,13 @@ namespace Metro.App {
                 ["moveReason"] = MoveReason ?? "",
                 ["level"] = Level,
                 ["plan"] = PlanJson(Plan),
+                ["cells"] = Cells != null ? Cells.ToJson() : null,
+                ["paint"] = Paint != null ? Paint.ToJson() : null,
+                ["paintPick"] = PaintPick != null ? PaintPick.DeepClone() : null,
+                ["road"] = Road != null ? RoadJson(Road) : null,
+                ["zone"] = Zone != null ? Zone.ToJson() : null,
+                ["surface"] = Surface != null ? Surface.ToJson() : null,
+                ["railPlan"] = Rail != null ? RailJson(Rail) : null,
                 ["pick"] = Picked != null ? Picked.DeepClone() : null,
                 ["probe"] = Probe != null ? Probe.DeepClone() : null,
                 ["trace"] = new JArray(trace.ConvertAll(entry => entry.DeepClone())),
@@ -224,9 +333,55 @@ namespace Metro.App {
             return edit;
         }
 
+        /// <summary>The rail piece's aimed run as structured data (the ghost and the release agree).</summary>
+        public static JObject RailJson(Metro.Build.StationRailPlan rail) {
+            if (rail == null) return null;
+            var json = new JObject {
+                ["ok"] = rail.Ok,
+                ["reason"] = rail.Reason ?? "",
+                ["line"] = rail.LineId ?? "",
+                ["direction"] = rail.Direction ?? "",
+                ["x"] = rail.X, ["y"] = rail.Y, ["z"] = rail.Z,
+                ["w"] = rail.Width, ["d"] = rail.Depth, ["rot"] = rail.Rotation,
+                ["tunnel"] = rail.Tunnel,
+                ["colliders"] = new JArray(rail.ColliderIds),
+            };
+            var bed = new JArray();
+            foreach (var cell in rail.Bed) bed.Add(new JArray(cell.X, cell.Y, cell.Z));
+            json["bed"] = bed;
+            return json;
+        }
+
+        /// <summary>The road stroke's aimed preview as structured data.</summary>
+        static JObject RoadJson(Metro.Build.RoadEditPreview road) {
+            if (road == null) return null;
+            var json = new JObject {
+                ["valid"] = road.Valid,
+                ["code"] = road.Code ?? "",
+                ["length"] = road.Length,
+                ["lanes"] = road.Lanes,
+                ["laneWidth"] = road.LaneWidth,
+                ["sourceId"] = road.SourceId ?? "",
+            };
+            if (road.Candidate != null) {
+                json["candidate"] = new JObject {
+                    ["id"] = road.Candidate.Id,
+                    ["x"] = road.Candidate.X,
+                    ["y"] = road.Candidate.Y,
+                    ["z"] = road.Candidate.Z,
+                    ["w"] = road.Candidate.W,
+                    ["d"] = road.Candidate.D,
+                    ["rot"] = road.Candidate.Rotation,
+                    ["direction"] = road.Candidate.Direction ?? "",
+                };
+                if (road.Candidate.HasFrom) json["from"] = new JArray(road.Candidate.From.X, road.Candidate.From.Y);
+                if (road.Candidate.HasTo) json["to"] = new JArray(road.Candidate.To.X, road.Candidate.To.Y);
+            }
+            return json;
+        }
+
         /// <summary>The resolved plan as structured data: the thing preview and commit agree on.</summary>
-        public static JObject PlanJson(StationPlacementPlan plan) {
-            if (plan == null) return null;
+        public static JObject PlanJson(StationPlacementPlan plan) {            if (plan == null) return null;
             var json = new JObject {
                 ["ok"] = plan.Ok,
                 ["reason"] = plan.Reason ?? "",

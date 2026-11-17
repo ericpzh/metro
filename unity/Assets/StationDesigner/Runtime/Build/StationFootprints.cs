@@ -9,7 +9,7 @@ namespace Metro.Build {
 
     /// <summary>
     /// An axis-aligned world-space box in **document axes**, half-open:
-    /// <c>[X0,X1) Ã— [Y0,Y1) Ã— [Z0,Z1)</c>. Elevation <c>Z</c> is the save's
+    /// <c>[X0,X1) × [Y0,Y1) × [Z0,Z1)</c>. Elevation <c>Z</c> is the save's
     /// elevation; the view converts the box once at its boundary.
     /// </summary>
     public readonly struct StationBox {
@@ -42,7 +42,7 @@ namespace Metro.Build {
         public bool Contains(double x, double y, double z) =>
             x >= X0 && x < X1 && y >= Y0 && y < Y1 && z >= Z0 && z < Z1;
         public override string ToString() =>
-            "[" + X0 + "," + X1 + ") Ã— [" + Y0 + "," + Y1 + ") Ã— [" + Z0 + "," + Z1 + ")";
+            "[" + X0 + "," + X1 + ") × [" + Y0 + "," + Y1 + ") × [" + Z0 + "," + Z1 + ")";
     }
 
     /// <summary>
@@ -71,11 +71,11 @@ namespace Metro.Build {
 
         // ------------------------------------------------------------ rotation
 
-        /// <summary>A saved quarter turn normalized to 0â€“3.</summary>
+        /// <summary>A saved quarter turn normalized to 0–3.</summary>
         public static int NormRot(int rot) => ((rot % 4) + 4) % 4;
 
         /// <summary>
-        /// Local run offset <c>(i along +x, j across +y)</c> â†’ document offset, turning
+        /// Local run offset <c>(i along +x, j across +y)</c> → document offset, turning
         /// counter-clockwise (port of <c>track.rotateLocal</c>).
         /// </summary>
         public static void RotateLocal(int rot, double i, double j, out double x, out double y) {
@@ -89,7 +89,7 @@ namespace Metro.Build {
 
         /// <summary>
         /// The cell step from a wall-mounted module to the wall it hangs on: local
-        /// (0,âˆ’1) rotated by <c>rot</c>, with âˆ’0 normalized to 0.
+        /// (0,−1) rotated by <c>rot</c>, with −0 normalized to 0.
         /// </summary>
         public static void WallSide(int rot, out int dx, out int dy) {
             RotateLocal(rot, 0, -1, out var x, out var y);
@@ -122,8 +122,8 @@ namespace Metro.Build {
 
         /// <summary>
         /// The **public footprint**: the floor cells a module stands on, ported from
-        /// <c>moduleFootprint</c>. A room covers its whole <c>w Ã— h</c>; a lift its 2Ã—2
-        /// or 3Ã—3 cells; a rail its bed; a ç«™å°é—¨ its screened strip; a run its two
+        /// <c>moduleFootprint</c>. A room covers its whole <c>w × h</c>; a lift its 2×2
+        /// or 3×3 cells; a rail its bed; a 站台门 its screened strip; a run its two
         /// landings; a hung piece is anchored by its single cell.
         /// </summary>
         public static StationPoint[] Footprint(StationModuleRecord m) {
@@ -232,7 +232,7 @@ namespace Metro.Build {
             return new StationBox(x0, y0, m.Z, x1, y1, m.Z + 1);
         }
 
-        /// <summary>The exit's street-opening cell â€” the graph node the crowd crosses (port of <c>exitDoorCell</c>).</summary>
+        /// <summary>The exit's street-opening cell — the graph node the crowd crosses (port of <c>exitDoorCell</c>).</summary>
         public static StationPoint ExitDoorCell(StationModuleRecord m) {
             var span = ExitSpan(m);
             var style = m.Config.Text("style");
@@ -253,7 +253,7 @@ namespace Metro.Build {
             return new ExitSpanValue((bays - 1) / 2.0, (bays + 2) / 2.0);
         }
 
-        /// <summary>Port of <c>exitBays</c>: 1â€“4 are valid, anything else reads two.</summary>
+        /// <summary>Port of <c>exitBays</c>: 1–4 are valid, anything else reads two.</summary>
         public static int ExitBays(StationModuleRecord m) {
             var bays = (int)Math.Round(m.Config.Number("bays", 2));
             return bays == 1 || bays == 3 || bays == 4 ? bays : 2;
@@ -282,7 +282,7 @@ namespace Metro.Build {
             return outCells.ToArray();
         }
 
-        /// <summary>The 2Ã—2 or 3Ã—3 plan of a lift shaft (port of <c>liftFootprintCells</c>).</summary>
+        /// <summary>The 2×2 or 3×3 plan of a lift shaft (port of <c>liftFootprintCells</c>).</summary>
         public static StationPoint[] LiftFootprint(StationModuleRecord m) {
             int size = LiftSize(m);
             var outCells = new List<StationPoint>(size * size);
@@ -349,7 +349,7 @@ namespace Metro.Build {
         // ------------------------------------------------------- ground & support
 
         /// <summary>
-        /// True when the street plane is open at <c>(x,y)</c> — a saved void at z=0, a
+        /// True when the street plane is open at <c>(x,y)</c>  a saved void at z=0, a
         /// ground-level rail bed, a run landing or an exit floor plate (port of
         /// <c>groundHoleAt</c>). The full ramp-corridor sweep is not ported here; a run
         /// **landing** is the conservative part of it a point query can answer without
@@ -379,6 +379,27 @@ namespace Metro.Build {
             return false;
         }
 
+        /// <summary>
+        /// True when a 自动步道's whole run lies on floor: the belt is a surface over solid
+        /// ground, so every cell between its two landings must be solid (the street at grade
+        /// counts, a dug hole does not). Port of `escalatorBasesSolid`'s walkway half.
+        /// </summary>
+        public static bool WalkwayFloorOk(StationModuleRecord m, StationIndex index) {
+            if (m == null || index == null || !m.From.HasValue || !m.To.HasValue) return false;
+            int x0 = (int)Math.Round(m.From.Value.X), y0 = (int)Math.Round(m.From.Value.Y);
+            int x1 = (int)Math.Round(m.To.Value.X), y1 = (int)Math.Round(m.To.Value.Y);
+            int z = m.Z;
+            int dx = Math.Sign(x1 - x0), dy = Math.Sign(y1 - y0);
+            int x = x0, y = y0;
+            for (int guard = 0; guard <= Math.Abs(x1 - x0) + Math.Abs(y1 - y0) + 1; guard++) {
+                if (!IsSolidAt(index, x, y, z)) return false;
+                if (x == x1 && y == y1) return true;
+                x += dx;
+                y += dy;
+            }
+            return true;
+        }
+
         /// <summary>True when an exit head-house lays floor over the cell at its own level.</summary>
         public static bool IsExitFloorAt(StationIndex index, int x, int y, int z) {
             if (index == null) return false;
@@ -404,7 +425,7 @@ namespace Metro.Build {
         /// Do all the floor cells a module stands on have support? Port of
         /// <c>moduleFloorOk</c> for the supported footprints: authored solid, exit floor
         /// or the street plane. A run is checked at its landings (not the corridor between
-        /// them), and a walkway at its covered cells — the same rule as the source's
+        /// them), and a walkway at its covered cells  the same rule as the source's
         /// footprint list.
         /// </summary>
         public static bool ModuleFloorOk(StationModuleRecord module, StationIndex index) {
@@ -694,7 +715,7 @@ namespace Metro.Build {
         // ----------------------------------------------------------- clearance
 
         /// <summary>
-        /// The world box a module occupies, in document axes â€” the port of
+        /// The world box a module occupies, in document axes — the port of
         /// <c>moduleEnvelope</c> for the families this packet owns: flat bodies,
         /// platform screens, beds, shafts, rooms, doors and exits.
         ///
@@ -725,9 +746,17 @@ namespace Metro.Build {
                 box = new StationBox(m.X, m.Y, lo + 0.5, m.X + size, m.Y + size, hi + 1 + 0.6);
                 return true;
             }
-            if (m.Type == "stair" || m.Type == "escalator" || m.Type == "walkway") {
-                unsupported = m.Type + " ramp corridor (sim/openings.ts rampEnvelope) is not ported by packet A";
+            if (m.Type == "hanger") {
+                // `hangerBoxes`: the bar plus (for a post mount) the post and its foot. The union
+                // is the envelope; the per-box shape stays with the view that draws it.
+                if (StationHangerRules.TryBox(m, out box)) return true;
+                unsupported = "hanger has no body box";
                 return false;
+            }
+            if (m.Type == "walkway" || m.Type == "stair" || m.Type == "escalator") {
+                // `rampEnvelope`: the corridor a straight run reserves. A turning stair or a
+                // diagonal run reports the unported table instead of a stand-in box.
+                return StationRampRules.TryEnvelope(m, out box, out unsupported);
             }
             if (m.CeilingAnchored && m.Type != "hanger" && IsCeilingHung(m) && m.Type != "light" && m.Type != "vent") {
                 box = new StationBox(m.X, m.Y, z0 - 3, m.X + 1, m.Y + 1, z0);
@@ -758,6 +787,25 @@ namespace Metro.Build {
                 case "checkout":
                     box = StationBox.FromCells(CheckoutCells(m), z0, z0 + CounterHeight(m));
                     return true;
+                case "light": {
+                    // `lightSpec`/`lightCeilingZ`: a shallow fitting hanging from its slab  a
+                    // 0.5 m disc, or a 0.8 × 0.12 bar turned with the piece, 8 cm deep.
+                    bool rectangular = string.Equals(m.Config.Text("variant"), "rectangular", StringComparison.Ordinal);
+                    bool turned = Math.Abs(StationFootprints.NormRot(m.Rotation) % 2) == 1;
+                    double w = rectangular ? (turned ? 0.12 : 0.8) : 0.5;
+                    double d = rectangular ? (turned ? 0.8 : 0.12) : 0.5;
+                    double ceiling = m.CeilingAnchored ? m.Z + 1 : m.Z + 5;
+                    box = new StationBox(m.X + 0.5 - w / 2, m.Y + 0.5 - d / 2, ceiling - 0.08,
+                        m.X + 0.5 + w / 2, m.Y + 0.5 + d / 2, ceiling);
+                    return true;
+                }
+                case "vent": {
+                    // `VENT_WIDTH`/`VENT_DEPTH`: a 0.7 m grille, 6 cm deep, under its slab.
+                    double ceiling = m.CeilingAnchored ? m.Z + 1 : m.Z + 5;
+                    box = new StationBox(m.X + 0.5 - 0.35, m.Y + 0.5 - 0.35, ceiling - 0.06,
+                        m.X + 0.5 + 0.35, m.Y + 0.5 + 0.35, ceiling);
+                    return true;
+                }
                 case "gate": box = Single(m, z0, 1.3); return true;
                 case "tvm":
                 case "vending": box = Single(m, z0, 1.9); return true;
@@ -863,7 +911,7 @@ namespace Metro.Build {
                     return true;
                 }
                 case "linemap": {
-                    // LINE_MAP_PANEL_W 1.8 Ã— PANEL_H 1.8, frame pad 0.05, wall bottom 1.06.
+                    // LINE_MAP_PANEL_W 1.8 × PANEL_H 1.8, frame pad 0.05, wall bottom 1.06.
                     const double panelH = 1.8;
                     const double pad = 0.05;
                     if (m.Config.Text("mount") == "stand")
@@ -938,10 +986,27 @@ namespace Metro.Build {
                     return true;
                 }
                 case "roof":
-                    // Truss/canopy plate heights live in sim/structures.ts and are not
-                    // in this packet's tables; a made-up box would be a stand-in.
-                    unsupported = "roof truss/canopy envelope (sim/structures.ts) is not ported by packet A";
-                    return false;
+                    // `flatEnvelope`'s roof branch. A plate with a 贴顶 snap is a thin slab
+                    // pinned inside its cell; a plain tile hangs one truss base (5 m) above the
+                    // cell it was dropped on, a quarter-metre thick; a truss shell spans from
+                    // its base to its 10 m top, and a canopy reserves its posts and the lowered
+                    // slab they carry.
+                    if (!StationRoofRules.IsVariant(m.Config.Text("variant"))) {
+                        var cells = TrackCells(m);
+                        if (!string.IsNullOrEmpty(m.Config.Text("plateSnap"))) {
+                            double centre = m.Z + (m.Config.Text("plateSnap") == "lower" ? 0.125 : 0.875);
+                            box = StationBox.FromCells(cells, centre - 0.125, centre + 0.125);
+                        } else {
+                            box = StationBox.FromCells(cells, m.Z + 1 + 5, m.Z + 1 + 5 + 0.25);
+                        }
+                        return true;
+                    }
+                    if (string.Equals(m.Config.Text("variant"), "canopy", StringComparison.Ordinal)) {
+                        return StationRoofRules.TryCanopyBody(m, out box);
+                    }
+                    box = StationBox.FromCells(TrackCells(m), m.Z + 1 + StationRoofRules.Base,
+                        m.Z + 1 + StationRoofRules.Top);
+                    return true;
                 case "exit": {
                     var style = m.Config.Text("style");
                     if (style == "virtual") {
@@ -998,10 +1063,8 @@ namespace Metro.Build {
                         m.Z + (bridge ? BridgeBarrierTop(m.Config.Text("bridgeRailing")) : 1));
                     return true;
                 }
-                case "light":
-                case "vent":
                 case "hanger":
-                    unsupported = m.Type + " envelope (ceiling fitting table) is not ported by packet A";
+                    unsupported = "hanger envelope (sim/hangers.ts hangerBoxes) is not ported here";
                     return false;
                 default:
                     unsupported = "no clearance rule for module type '" + m.Type + "'";
@@ -1071,7 +1134,7 @@ namespace Metro.Build {
             return new StationBox(x0, y0, z0, x1, y1, z0 + height);
         }
 
-        /// <summary>`GLASS_FRAME.depth` — every curtain member's stand-off from the wall.</summary>
+        /// <summary>`GLASS_FRAME.depth`  every curtain member's stand-off from the wall.</summary>
         const double GlassFrameDepth = .1;
 
         /// <summary>Port of <c>doorSpec(...).h</c>: every door variant is 1.99 m tall.</summary>

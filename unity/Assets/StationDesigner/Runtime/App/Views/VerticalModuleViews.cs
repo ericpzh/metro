@@ -45,7 +45,7 @@ namespace Metro.App.Views {
         public Func<int, Material> MaterialFor;
         /// <summary>
         /// Optional station-finish material source. A 楼梯块 wears its saved `cfg.finish`, then
-        /// the top finish of the block it stands on, then the documented default — the same
+        /// the top finish of the block it stands on, then the documented default  the same
         /// order `StairBlockModel.build` reads. Null falls back to the palette.
         /// </summary>
         public Func<string, Material> FinishFor;
@@ -117,11 +117,11 @@ namespace Metro.App.Views {
         public bool Running;
         /// <summary>+1 the authored travel, -1 reversed, 0 stopped.</summary>
         public int DirectionSign;
-        /// <summary>0 bottom stop ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ 1 top stop. NaN samples the endpoint/dwell cycle from <see cref="Seconds"/>.</summary>
+        /// <summary>0 bottom stop … 1 top stop. NaN samples the endpoint/dwell cycle from <see cref="Seconds"/>.</summary>
         public float CabinFraction;
-        /// <summary>0 shut ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ 1 open. NaN samples the endpoint/dwell cycle from <see cref="Seconds"/>.</summary>
+        /// <summary>0 shut … 1 open. NaN samples the endpoint/dwell cycle from <see cref="Seconds"/>.</summary>
         public float DoorFraction;
-        /// <summary>Optional escalator phase in metres; NaN derives it from Seconds ÃƒÆ’Ã¢â‚¬â€ 0.5 m/s.</summary>
+        /// <summary>Optional escalator phase in metres; NaN derives it from Seconds × 0.5 m/s.</summary>
         public double PhaseMeters;
         /// <summary>Optional lift cabin floor elevation in document z; NaN uses <see cref="CabinFraction"/> or the cycle.</summary>
         public double CabinHeight;
@@ -240,7 +240,7 @@ namespace Metro.App.Views {
         /// <summary>
         /// Full-height opaque side walls the style branch emitted: 2 for a steel housing,
         /// 0 for a glazed one (whose sides are the panel bays). A glazed lift must report
-        /// 0 — an opaque box at the same plane is what enclosed the glass.
+        /// 0  an opaque box at the same plane is what enclosed the glass.
         /// </summary>
         public int OpaqueShaftSidePanels { get; internal set; }
         public double CabinFloorZ { get; internal set; }
@@ -340,7 +340,7 @@ namespace Metro.App.Views {
     /// `sim/stairs.ts`, `sim/escalators.ts`, `sim/lifts.ts`).
     ///
     /// The escalator recipe instances the promoted <c>Escalator</c> prefab when the
-    /// authored run is the family's canonical 9-cell / 5 m / 30Ãƒâ€šÃ‚Â° / narrow one ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â all
+    /// authored run is the family's canonical 9-cell / 5 m / 30° / narrow one — all
     /// fourteen Zoo runs are. Its baked step band is hidden and replaced by named,
     /// per-module driven steps, so the fixed truss, balustrades, handrails, comb
     /// plates and landing decks keep the promoted artwork while the moving band is
@@ -370,7 +370,7 @@ namespace Metro.App.Views {
         public const int CanonicalStairRunCells = 8;
         public const float CanonicalStairRise = 5f;
         public const float CanonicalStairTreadWidth = .79f;
-        /// <summary>The promoted Lift.prefab is one 2 ÃƒÆ’Ã¢â‚¬â€ 2 shaft with a single five-metre interval.</summary>
+        /// <summary>The promoted Lift.prefab is one 2 × 2 shaft with a single five-metre interval.</summary>
         public const float CanonicalLiftShaftHeight = 5f;
 
         // TypeScript constants (game/src/sim/constants.ts, rampSurface.ts).
@@ -542,7 +542,7 @@ namespace Metro.App.Views {
 
         /// <summary>
         /// Advance one escalator/walkway band and repose every step. The phase advances
-        /// in the authored travel direction (<c>to ÃƒÂ¢Ã‹â€ Ã¢â‚¬â„¢ from</c>) at 0.5 m/s and wraps into
+        /// in the authored travel direction (<c>to − from</c>) at 0.5 m/s and wraps into
         /// <c>[0, chainLength)</c>; a step is hidden only while the comb covers it, so the
         /// visible span never shows a step teleporting from one landing to the other.
         /// </summary>
@@ -606,7 +606,7 @@ namespace Metro.App.Views {
         /// <summary>
         /// Apply a lift snapshot: the cabin floor is placed at
         /// <c>CabinFraction</c>/<c>CabinHeight</c> (or the endpoint/dwell cycle), and
-        /// only the landing the car is aligned with opens ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â a through-floor's other
+        /// only the landing the car is aligned with opens — a through-floor's other
         /// landing stays shut while the car travels past it.
         /// </summary>
         internal static bool ApplyLift(VerticalModuleView view, ModuleMotionState state) {
@@ -676,7 +676,7 @@ namespace Metro.App.Views {
         /// <summary>
         /// The TypeScript lift choreography as a pure cycle: at a stop the doors open
         /// over 2 s, hold 6 s, close over 2 s, then the car travels
-        /// <c>max(1.5, |ÃƒÅ½Ã¢â‚¬Âz| / 1.5)</c> seconds with a smoothstep, and reverses at the
+        /// <c>max(1.5, |Δz| / 1.5)</c> seconds with a smoothstep, and reverses at the
         /// shaft ends. This is the oracle the view test samples for dwell; packet C's
         /// session currently parks an uncalled car, so the host may keep passing
         /// <see cref="ModuleMotionState.CabinFraction"/> instead.
@@ -691,7 +691,7 @@ namespace Metro.App.Views {
             result.StopIndex = 0;
             result.CabinCellZ = ordered[0];
             if (count == 1 || !running) { result.Phase = "idle"; return result; }
-            // Ping-pong visit order: 0 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ n-1 ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ 1 (then back to 0).
+            // Ping-pong visit order: 0 → … → n-1 → … → 1 (then back to 0).
             var visits = new List<int>(2 * count - 2);
             for (int i = 0; i < count; i++) visits.Add(i);
             for (int i = count - 2; i >= 1; i--) visits.Add(i);
@@ -760,7 +760,7 @@ namespace Metro.App.Views {
         }
 
         /// <summary>
-        /// `StairBlockModel.build` — a 楼梯块 fills its one-cell footprint with **steps solid
+        /// `StairBlockModel.build`  a 楼梯块 fills its one-cell footprint with **steps solid
         /// from the floor up**, each a full-width slab `rise / steps` high and `1 / steps` deep,
         /// ascending along the module's own local +x. Four treads fill a 1 m rise, two fill a
         /// 0.5 m one. The finish is the saved override, then the top finish of the block the
@@ -2317,7 +2317,7 @@ namespace Metro.App.Views {
             /// <summary>
             /// Append one document-axis box (centre/size/rotation in document axes). The edge
             /// vectors are mapped to Unity space before the faces are wound, so the
-            /// document-to-Unity mirror (which swaps y and z) cannot invert a triangle — the
+            /// document-to-Unity mirror (which swaps y and z) cannot invert a triangle  the
             /// old 8-vertex table ignored that mirror and produced bowtie quads (RCA 15 §3).
             /// </summary>
             public void Box(Vector3 centre, Vector3 size, Quaternion rotation) {

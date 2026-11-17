@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 
 namespace Metro.Sim {
-    // The station walk graph â€” a port of `buildGraph` in game/src/sim/station.ts,
+    // The station walk graph — a port of `buildGraph` in game/src/sim/station.ts,
     // bounded to the traversal this packet can prove (plan 11 C1).
     //
     // **Built from the committed document, never from a saved route.** Every node is
@@ -11,7 +11,7 @@ namespace Metro.Sim {
     // lift the document's own modules describe. No Zoo ID, no fixed graph index, no
     // route prefix: a different save produces a different graph, and a save whose
     // floor does not connect produces islands. What the port covers today, and what
-    // it does not, is listed by `StationWalkGraphBuilder.Unported(document)` â€” the
+    // it does not, is listed by `StationWalkGraphBuilder.Unported(document)` — the
     // integration reports the list instead of quietly walking a shorter station.
     //
     // Ported: the effective cell list (authored records + the generated street
@@ -19,7 +19,7 @@ namespace Metro.Sim {
     // solid above, walkable floor finish), the obstacle families that make a whole
     // cell non-walkable (fence, psd-end, tvm, vending, shelf, road footprint, pillar
     // column, solid stair block, booth counter, gate with no lane, lift shaft,
-    // walkway belt), gate policy/servers, 4-neighbour walking plus the clear 2Ã—2
+    // walkway belt), gate policy/servers, 4-neighbour walking plus the clear 2×2
     // diagonal rule, straight escalator/walkway rides with their balustrade walls,
     // straight single-flight stairs (both directions), exit links, platform edges
     // with their door servers, and node/zone/speed facts.
@@ -52,7 +52,7 @@ namespace Metro.Sim {
         /// <summary>Live queue length (0 until the crowd is ported; never invented).</summary>
         public int QueueCount;
         public int Served;
-        /// <summary>A lift shaft's stops, bottom â†’ top, and their floor heights.</summary>
+        /// <summary>A lift shaft's stops, bottom → top, and their floor heights.</summary>
         public int[] LiftStops;
         public double[] LiftStopZ;
     }
@@ -85,7 +85,7 @@ namespace Metro.Sim {
         public readonly List<StationPlatformFact> Platforms = new List<StationPlatformFact>();
         public readonly List<StationExitFact> Exits = new List<StationExitFact>();
         public int MinX, MinY, MaxX, MaxY;
-        /// <summary>The station's own walkable floor, mÂ² â€” one node is one square metre, street excluded.</summary>
+        /// <summary>The station's own walkable floor, m² — one node is one square metre, street excluded.</summary>
         public double StationArea;
         public int[] LevelsZ = Array.Empty<int>();
         /// <summary>Family names present in the document that this build does not traverse.</summary>
@@ -111,7 +111,7 @@ namespace Metro.Sim {
     }
 
     public sealed class StationWalkGraphOptions {
-        /// <summary>Â§4.5's fare line. The shipped `ZONE_LINES_BLOCK` is off while the demo's paint is unfinished.</summary>
+        /// <summary>§4.5's fare line. The shipped `ZONE_LINES_BLOCK` is off while the demo's paint is unfinished.</summary>
         public bool ZoneBarriers;
         /// <summary>How far past the station's content the generated street reaches (`GROUND_MARGIN`).</summary>
         public double GroundMargin = 16;
@@ -320,7 +320,7 @@ namespace Metro.Sim {
                 }
             }
 
-            // ---- diagonals: legal only inside a clear 2Ã—2 square.
+            // ---- diagonals: legal only inside a clear 2×2 square.
             bool CardinalAllows(int from, int to) => cardinalWalk.Contains((long)from * graph.NodeCount + to);
             for (int i = 0; i < graph.NodeCount; i++) {
                 int x = (int)(graph.NodeX[i] - 0.5), y = (int)(graph.NodeY[i] - 0.5), z = (int)(graph.NodeZ[i] - 1);
@@ -377,7 +377,7 @@ namespace Metro.Sim {
                             Rate = (walkway ? WalkwayRate : EscalatorRate) * Math.Max(1, module.Width),
                             Node = a, ExitNode = b, Ride = ride, Batch = 1, Cycle = 0,
                         });
-                        // The edge and the band both travel fromâ†’to; a descending piece is not
+                        // The edge and the band both travel from→to; a descending piece is not
                         // a second edge back up (it is one-way, as the source builds it).
                         edges.Add(a, b, ride, walkway ? WalkEdgeKind.Walkway : WalkEdgeKind.Escalator, id);
                         break;
@@ -392,7 +392,7 @@ namespace Metro.Sim {
                         double ride = Math.Sqrt(horizontal * horizontal + vertical * vertical) / StairSpeed;
                         int width = Math.Max(1, module.Width);
                         // Each flight is a two-way capacity-limited edge: the landing below and
-                        // the landing above are two servers with opposite rates (Â§5.1).
+                        // the landing above are two servers with opposite rates (§5.1).
                         bool down = graph.NodeZ[a] > graph.NodeZ[b];
                         int downId = AddServer(graph, new StationServerFact {
                             Kind = "stair", Label = "stairs",
@@ -537,7 +537,7 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// The exit head-house wall planes (an opening is the only way through, Â§5.6).
+        /// The exit head-house wall planes (an opening is the only way through, §5.6).
         /// Not ported: a head-house is reported in <see cref="Unported"/> instead, so the
         /// integration knows those edges may be more permissive than the source.
         /// </summary>

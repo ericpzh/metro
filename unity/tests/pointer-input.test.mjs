@@ -91,6 +91,9 @@ test('a pointer press sends exactly one down with canvas-relative coordinates', 
     // The shell stamps the revision/generation it was aimed at, from the bridge snapshot.
     assert.equal(command.payload.documentRevision, -1)
     assert.equal(command.payload.toolGeneration, -1)
+    // The client clock lets the host test the reference's press thresholds (160 ms, 4 px).
+    assert.equal(typeof command.payload.time, 'number')
+    assert.ok(command.payload.time >= 0)
   } finally {
     frames.restore()
     detach()
@@ -147,6 +150,50 @@ test('a right tap is a tool cancel but a right drag stays the camera pan', () =>
     canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 260, clientY: 240 }))
     canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0, clientX: 260, clientY: 240 }))
     assert.ok(!commands.some(command => command.type === 'pointer.rightTap'), 'a pan is not a tool click')
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('a tool that claims the right button receives a right press, drag and release', () => {
+  const canvas = new FakeCanvas()
+  const commands = []
+  const frames = installFrames()
+  const detach = attachCanvasToolPointer(canvas, { send: command => commands.push(command) }, {
+    claimsRight: () => true,
+  })
+  try {
+    // The block brush digs with the secondary button: the press is the tool's, so the camera
+    // adapter's pan must never see it (`cameraAdapter.attachCanvasCameraGestures` asks the
+    // same predicate).
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2, clientX: 200, clientY: 200 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 240, clientY: 210 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0, clientX: 240, clientY: 210 }))
+    assert.deepEqual(commands.map(command => command.type), ['pointer.down', 'pointer.move', 'pointer.up'])
+    assert.equal(commands[0].payload.button, 2)
+    assert.equal(commands[0].payload.buttons, 2)
+    // A right drag is a tool gesture, never a tap.
+    assert.ok(!commands.some(command => command.type === 'pointer.rightTap'))
+    assert.equal(commands[2].payload.button, 2)
+    assert.equal(canvas.hasPointerCapture(7), false, 'the release drops the capture')
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('a tool that does not claim the right button keeps the camera pan and a tap', () => {
+  const canvas = new FakeCanvas()
+  const commands = []
+  const frames = installFrames()
+  const detach = attachCanvasToolPointer(canvas, { send: command => commands.push(command) }, {
+    claimsRight: () => false,
+  })
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2, clientX: 200, clientY: 200 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0, clientX: 201, clientY: 202 }))
+    assert.deepEqual(commands.map(command => command.type), ['pointer.rightTap'])
   } finally {
     frames.restore()
     detach()

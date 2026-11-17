@@ -18,7 +18,7 @@ namespace Metro.App {
     ///
     /// It owns the committed document, its revision and the install transaction
     /// (<see cref="StationLoadCoordinator"/>): New, file Open, demo Open and cold
-    /// resync all pass through the same reader Ã¢â€ â€™ index Ã¢â€ â€™ staged world/session Ã¢â€ â€™
+    /// resync all pass through the same reader → index → staged world/session →
     /// commit path. Camera/view/sign/road/material packets register renderers,
     /// command handlers and state contributors; nothing here knows a station id or
     /// an authored layout.
@@ -147,7 +147,7 @@ namespace Metro.App {
 
         // --------------------------------------------------------------- transport
 
-        /// <summary>The one JS Ã¢â€ â€™ C# entry point: <c>SendMessage("StationGame", "BrowserCommand", json)</c>.</summary>
+        /// <summary>The one JS → C# entry point: <c>SendMessage("StationGame", "BrowserCommand", json)</c>.</summary>
         public void BrowserCommand(string json) {
             if (router == null) return;
             Publish(router.Handle(json));
@@ -227,7 +227,7 @@ namespace Metro.App {
         // ------------------------------------------------------------- station ops
 
         public StationLoadResult NewStation(JObject payload) {
-            var name = payload?["name"] != null ? (string)payload["name"] : "Ã¦Å“ÂªÃ¥â€˜Â½Ã¥ÂÂÃ¨Â½Â¦Ã§Â«â„¢";
+            var name = payload?["name"] != null ? (string)payload["name"] : "未命名车站";
             var city = payload?["city"] != null ? (string)payload["city"] : "guangzhou";
             long seed = 1234567;
             if (payload?["seed"] != null) {
@@ -249,7 +249,7 @@ namespace Metro.App {
 
         /// <summary>Republish the current commit; boot a New station when nothing is loaded.</summary>
         public StationLoadResult Resync() {
-            if (!IsLoaded) return coordinator.New("Ã¦Å“ÂªÃ¥â€˜Â½Ã¥ÂÂÃ¨Â½Â¦Ã§Â«â„¢", "guangzhou", 1234567);
+            if (!IsLoaded) return coordinator.New("未命名车站", "guangzhou", 1234567);
             return new StationLoadResult {
                 Accepted = true,
                 Revision = CurrentRevision,

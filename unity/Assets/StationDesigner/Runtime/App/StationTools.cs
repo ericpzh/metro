@@ -18,29 +18,47 @@ namespace Metro.App {
     public static class StationToolSelection {
         public const string Default = "inspect";
 
-        /// <summary>Every tool name the host accepts, in the shell's order.</summary>
+        /// <summary>
+        /// Every tool name the host accepts, in the shell's order. The names are the shared
+        /// UI's own `Tool` union (`game/src/app/store/slices/ToolSlice.ts`) plus the
+        /// session names this host had before the canonical set: `floor` and `gate` are
+        /// **legacy aliases** normalized at this boundary (plan 27 §2), so an older caller
+        /// keeps working while every new one speaks one vocabulary.
+        /// </summary>
         public static readonly string[] Known = {
-            "inspect", "floor", "gate", "paint", "delete",
-            "select", "pick", "move", "rail", "module", "zone", "road", "sign",
+            "select", "pick", "move", "block", "wall", "delete", "module", "paint", "zone", "rail", "tunnel",
+            "inspect", "road", "sign",
+            // Legacy aliases, kept so the old shell and a packaged player still reach a tool.
+            "floor", "gate",
         };
+
+        /// <summary>The tools whose cell gesture owns the secondary button (dig/erase).</summary>
+        static readonly string[] EraseTools = { "block", "wall", "delete", "paint", "zone" };
+        /// <summary>The tools whose secondary button cancels a carried piece or clears a plan.</summary>
+        static readonly string[] CancelTools = { "select", "pick", "move", "module", "rail", "tunnel", "road", "sign" };
 
         static string active = Default;
         static int generation;
+        static int settingsGeneration;
 
         /// <summary>
         /// The active tool's placement settings, as the shell sends them with
         /// <c>tool.set</c>: the palette id (<c>moduleType</c>), the chosen quarter turn
-        /// (<c>rotation</c>), the line a floor mark binds to (<c>lineId</c>) and an
-        /// explicit variant/width for a palette family that cycles them. Session state,
-        /// like the tool itself — never part of the document or its revision.
+        /// (<c>rotation</c>), the line a floor mark binds to (<c>lineId</c>), the block
+        /// brush's cut modes and 生成墙壁 ring, and every other catalogue setting a tool
+        /// reads. Session state, like the tool itself — never part of the document or its
+        /// revision.
         /// </summary>
         static readonly JObject settings = new JObject();
 
-        /// <summary>The committed tool name.</summary>
+        /// <summary>The committed tool name (canonical; never a legacy alias).</summary>
         public static string Active => active;
 
-        /// <summary>Bumped on every accepted selection; a UI can ignore an older ack.</summary>
+        /// <summary>Bumped on every accepted **tool** change; a UI can ignore an older ack.</summary>
         public static int Generation => generation;
+
+        /// <summary>Bumped on every accepted **settings** change (`R`, `Tab`, a tile, a slider).</summary>
+        public static int SettingsGeneration => settingsGeneration;
 
         /// <summary>A copy of the committed placement settings (safe to mutate).</summary>
         public static JObject Settings => (JObject)settings.DeepClone();
@@ -52,6 +70,52 @@ namespace Metro.App {
             var token = settings[key];
             if (token == null || (token.Type != JTokenType.Integer && token.Type != JTokenType.Float)) return fallback;
             return (int)token;
+        }
+
+        public static bool SettingBool(string key, bool fallback = false) {
+            var token = settings[key];
+            if (token == null) return fallback;
+            if (token.Type == JTokenType.Boolean) return (bool)token;
+            if (token.Type == JTokenType.String) return string.Equals((string)token, "true", StringComparison.OrdinalIgnoreCase);
+            if (token.Type == JTokenType.Integer) return (int)token != 0;
+            return fallback;
+        }
+
+        /// <summary>
+        /// What the **secondary** mouse button means for the committed tool, so the shell's
+        /// camera adapter can leave a claimed gesture alone instead of starting a pan
+        /// (plan 27 §2: "Give right-drag to tools, retain middle orbit and keyboard pan").
+        /// </summary>
+        public static string RightClaim {
+            get {
+                for (int i = 0; i < EraseTools.Length; i++)
+                    if (string.Equals(EraseTools[i], active, StringComparison.Ordinal)) return "erase";
+                for (int i = 0; i < CancelTools.Length; i++)
+                    if (string.Equals(CancelTools[i], active, StringComparison.Ordinal)) return "cancel";
+                return "pan";
+            }
+        }
+
+        /// <summary>
+        /// Normalize a requested name to the canonical vocabulary. Returns false with a
+        /// stable code when the name is unknown.
+        /// </summary>
+        public static bool TryNormalize(string requested, out string canonical, out string code) {
+            canonical = requested ?? "";
+            code = null;
+            if (string.IsNullOrEmpty(requested)) { code = "bad-payload"; return false; }
+            switch (requested) {
+                case "floor":
+                    canonical = "block";
+                    return true;
+                case "gate":
+                    // The original 闸机 tile is the `gate` palette entry under 设备.
+                    canonical = "module";
+                    if (settings["moduleType"] == null) settings["moduleType"] = "gate";
+                    return true;
+            }
+            if (!IsKnown(requested)) { code = "unknown-tool"; return false; }
+            return true;
         }
 
         public static bool IsKnown(string tool) {
@@ -67,33 +131,48 @@ namespace Metro.App {
         /// </summary>
         public static bool TrySelect(string tool, out string previous, out string code) {
             previous = active;
-            if (string.IsNullOrEmpty(tool)) { code = "bad-payload"; return false; }
-            if (!IsKnown(tool)) { code = "unknown-tool"; return false; }
+            if (!TryNormalize(tool, out var canonical, out code)) return false;
             code = null;
-            if (string.Equals(active, tool, StringComparison.Ordinal)) return true;
-            active = tool;
+            if (string.Equals(active, canonical, StringComparison.Ordinal)) return true;
+            active = canonical;
             generation++;
             return true;
         }
 
-        /// <summary>Replace the placement settings; a missing key keeps its committed value.</summary>
-        public static void ApplySettings(JObject request) {
-            if (request == null) return;
+        /// <summary>
+        /// Replace the placement settings; a missing key keeps its committed value, an
+        /// explicit null clears it. Returns true when the committed settings really moved,
+        /// which is what a still pointer's ghost has to be rebuilt from.
+        /// </summary>
+        public static bool ApplySettings(JObject request) {
+            if (request == null) return false;
+            bool changed = false;
             foreach (var pair in request) {
-                if (pair.Value == null || pair.Value.Type == JTokenType.Null) settings.Remove(pair.Key);
-                else settings[pair.Key] = pair.Value.DeepClone();
+                if (pair.Value == null || pair.Value.Type == JTokenType.Null) {
+                    if (settings.Remove(pair.Key)) changed = true;
+                    continue;
+                }
+                var next = pair.Value.DeepClone();
+                if (JToken.DeepEquals(settings[pair.Key], next)) continue;
+                settings[pair.Key] = next;
+                changed = true;
             }
+            if (changed) settingsGeneration++;
+            return changed;
         }
 
         public static void Reset() {
             active = Default;
             generation = 0;
+            settingsGeneration = 0;
             settings.RemoveAll();
         }
 
         public static JObject ToJson() => new JObject {
             ["tool"] = active,
             ["generation"] = generation,
+            ["settingsGeneration"] = settingsGeneration,
+            ["rightClaim"] = RightClaim,
             ["known"] = new JArray(Known),
             ["settings"] = Settings,
         };
@@ -118,6 +197,8 @@ namespace Metro.App {
             if (string.Equals(command.Type, "tool.get", StringComparison.Ordinal)) {
                 payload["tool"] = StationToolSelection.Active;
                 payload["generation"] = StationToolSelection.Generation;
+                payload["settingsGeneration"] = StationToolSelection.SettingsGeneration;
+                payload["rightClaim"] = StationToolSelection.RightClaim;
                 payload["known"] = new JArray(StationToolSelection.Known);
                 payload["settings"] = StationToolSelection.Settings;
                 payload["changed"] = false;
@@ -139,13 +220,29 @@ namespace Metro.App {
                     : "tool.set needs a tool name.";
                 return false;
             }
-            StationToolSelection.ApplySettings(payload["settings"] as JObject);
+            bool settingsChanged = StationToolSelection.ApplySettings(payload["settings"] as JObject);
+            bool toolChanged = !string.Equals(previous, StationToolSelection.Active, StringComparison.Ordinal);
+            // A still pointer has to be re-aimed: `R`, `Tab` and every rail/tile setting change
+            // what the same pixel now resolves to (`BlockTool.refreshHover`). A tool change also
+            // drops any plan the old owner was drawing, so ghost and commit cannot disagree.
+            var host = StationEditHost.Host;
+            if (host != null && host.IsLoaded && (toolChanged || settingsChanged)) {
+                if (toolChanged) StationPointerRouter.OnToolChanged(host);
+                StationPointerRouter.RefreshHover(host);
+            }
+            // An ack never reaches the shell's shared store, and `rightClaim` has to be current
+            // the moment the next right press arrives: publish one state frame with the new
+            // tool, its claim and the effective settings (plan 27 §2).
+            if (host != null && toolChanged) host.PublishStateNow();
             payload["tool"] = StationToolSelection.Active;
             payload["previous"] = previous;
             payload["generation"] = StationToolSelection.Generation;
+            payload["settingsGeneration"] = StationToolSelection.SettingsGeneration;
+            payload["rightClaim"] = StationToolSelection.RightClaim;
             payload["known"] = new JArray(StationToolSelection.Known);
             payload["settings"] = StationToolSelection.Settings;
-            payload["changed"] = !string.Equals(previous, StationToolSelection.Active, StringComparison.Ordinal);
+            payload["changed"] = toolChanged;
+            payload["settingsChanged"] = settingsChanged;
             return true;
         }
     }

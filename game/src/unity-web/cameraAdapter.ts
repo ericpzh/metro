@@ -301,7 +301,7 @@ export function attachViewStateBridge(port: CameraPort, options: { forwardExplod
 export function attachCanvasCameraGestures(
   canvas: HTMLCanvasElement,
   port: CameraPort,
-  options: { blocked?: () => boolean } = {},
+  options: { blocked?: () => boolean; claimsRight?: () => boolean } = {},
 ): () => void {
   let mode: 'orbit' | 'pan' | null = null
   let pointer = -1
@@ -310,10 +310,19 @@ export function attachCanvasCameraGestures(
   const isBlocked = (): boolean => {
     try { return options.blocked ? options.blocked() : false } catch { return false }
   }
+  /**
+   * Arbitration (plan 27 §2): a tool gesture that claims the secondary button is the one
+   * owner of a right press. The camera adapter still owns middle orbit and every right drag
+   * the tool does not claim, so the same event never pans and digs.
+   */
+  const claimsRight = (): boolean => {
+    try { return options.claimsRight ? options.claimsRight() : false } catch { return false }
+  }
 
   const down = (event: PointerEvent): void => {
     if (isBlocked()) return
     if (event.button !== 1 && event.button !== 2) return
+    if (event.button === 2 && claimsRight()) return
     mode = event.button === 1 ? 'orbit' : 'pan'
     pointer = event.pointerId
     x = event.clientX

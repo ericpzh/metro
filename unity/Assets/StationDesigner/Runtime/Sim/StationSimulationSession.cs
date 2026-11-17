@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 
 namespace Metro.Sim {
-    // The station session ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â one clock, one scheduler, one set of service actors,
+    // The station session — one clock, one scheduler, one set of service actors,
     // owned together so the player's station clock is the same number the world
     // runs on (plan 11 C2/C3).
     //
@@ -15,13 +15,13 @@ namespace Metro.Sim {
     // zero. The Zoo slice published `simTime = ticks` and started at 0, which is
     // why the React clock showed an invented time. Here the session starts at
     // `REFERENCE_BOOT` (06:30), advances the clock by `SimSecondsPerTick` per
-    // step, and `SeekToDate` moves the clock without moving the tick ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â so the two
+    // step, and `SeekToDate` moves the clock without moving the tick — so the two
     // are visibly independent in every snapshot.
     //
     // Ordering follows `World.tickOnce` (game/src/sim/world/World.ts): advance the
     // instant, read the period once, then dispatch/step services from that
     // instant. The demand curve is the authored one (`StationClock.DemandRate`),
-    // so closing service or finishing a cohort changes what the station spawns ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+    // so closing service or finishing a cohort changes what the station spawns —
     // never whether the clock runs.
     //
     // Plain types only (Metro.Sim has no engine references): the integration layer
@@ -30,11 +30,11 @@ namespace Metro.Sim {
     //
     // Unported from C3 and reported by the frame's `capabilities`: crowd,
     // per-gate queues and admission, boarding/alighting, lift calls (a car only
-    // moves when a passenger calls it, so without a crowd it parks ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â which is the
+    // moves when a passenger calls it, so without a crowd it parks — which is the
     // source's own answer for an empty station), and train berth poses from saved
     // track geometry.
 
-    /// <summary>One simulated second per tick ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â <c>SIM_SECONDS_PER_TICK</c>.</summary>
+    /// <summary>One simulated second per tick — <c>SIM_SECONDS_PER_TICK</c>.</summary>
     public static class StationSimConstants {
         public const double SimSecondsPerTick = 1.0;
         /// <summary>Train stop choreography, in simulated seconds (constants.ts).</summary>
@@ -73,9 +73,9 @@ namespace Metro.Sim {
     public struct StationCellFact {
         public int X, Y, Z;
         public bool Solid;
-        /// <summary>Zone index (Ãƒâ€šÃ‚Â§4.5), 0 = ÃƒÂ¦Ã¢â‚¬â€Ã‚Â ÃƒÂ¥Ã‹â€ Ã¢â‚¬Â ÃƒÂ¥Ã…â€™Ã‚Âº/outside as the document stores it.</summary>
+        /// <summary>Zone index (§4.5), 0 = 付费区/outside as the document stores it.</summary>
         public int Zone;
-        /// <summary>Floor-finish walk-speed multiplier at this cell (Ãƒâ€šÃ‚Â§4.3); 0 = not walkable (a track bed).</summary>
+        /// <summary>Floor-finish walk-speed multiplier at this cell (§4.3); 0 = not walkable (a track bed).</summary>
         public double Speed;
     }
 
@@ -163,7 +163,7 @@ namespace Metro.Sim {
 
         /// <summary>
         /// The rails a line runs trains on: one consist per (line, track). Tunnel and
-        /// bridge runs are extensions, not berths ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â unless the line owns nothing else
+        /// bridge runs are extensions, not berths — unless the line owns nothing else
         /// (port of <c>World.serviceTracks</c>, document order).
         /// </summary>
         public List<StationModuleFact> ServiceTracks(string lineId) {
@@ -211,7 +211,7 @@ namespace Metro.Sim {
 
     // ------------------------------------------------------------------ frames
 
-    /// <summary>The clock half of a frame ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â published first, keyed by nothing but the session.</summary>
+    /// <summary>The clock half of a frame — published first, keyed by nothing but the session.</summary>
     public struct StationClockFrame {
         public double SimTimeSeconds;
         public int DayIndex;
@@ -284,7 +284,7 @@ namespace Metro.Sim {
     /// <summary>One moving band (escalator or walkway), keyed by module id.</summary>
     public struct StationEscalatorFrame {
         public string Id;
-        /// <summary>The travel direction the document authored: +1 along fromÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢to, -1 the reverse.</summary>
+        /// <summary>The travel direction the document authored: +1 along from→to, -1 the reverse.</summary>
         public int Direction;
         public double Speed;
         /// <summary>Metres the band has rolled, wrapped into <see cref="RunLength"/> when known.</summary>
@@ -308,7 +308,7 @@ namespace Metro.Sim {
     /// <summary>One platform edge's screen doors, keyed by its module id.</summary>
     public struct StationDoorFrame {
         public string PlatformId, LineId, TrackId;
-        /// <summary>0 shut ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ 1 open, from the berthing consist's own phase.</summary>
+        /// <summary>0 shut … 1 open, from the berthing consist's own phase.</summary>
         public double DoorFraction;
         public TrainPhase TrainPhase;
     }
@@ -340,7 +340,7 @@ namespace Metro.Sim {
     public struct StationSessionCapabilities {
         public bool Clock, Play, Speed, Seek, Restart, ServiceWindow;
         public bool Trains, Doors, Escalators, Lifts;
-        /// <summary>Crowd-scale state ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â false until the crowd and gate queues are ported.</summary>
+        /// <summary>Crowd-scale state — false until the crowd and gate queues are ported.</summary>
         public bool Crowd, Gates, Queues, Boarding;
         public static StationSessionCapabilities Current => new StationSessionCapabilities {
             Clock = true, Play = true, Speed = true, Seek = true, Restart = true, ServiceWindow = true,
@@ -547,7 +547,7 @@ namespace Metro.Sim {
             Playing = playing;
         }
 
-        /// <summary>Set the speed multiplier. Returns false for anything but 1ÃƒÆ’Ã¢â‚¬â€/4ÃƒÆ’Ã¢â‚¬â€/16ÃƒÆ’Ã¢â‚¬â€/64ÃƒÆ’Ã¢â‚¬â€.</summary>
+        /// <summary>Set the speed multiplier. Returns false for anything but 1×/4×/16×/64×.</summary>
         public bool SetSpeed(int speed) {
             if (!IsSupportedSpeed(speed)) return false;
             if (speed == Speed) return true;
@@ -559,7 +559,7 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// Empty the actors without changing the station or the clock ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the source
+        /// Empty the actors without changing the station or the clock — the source
         /// <c>World.restart()</c>. The clock keeps running from where it stood, the
         /// tick keeps counting, and the dispatch schedule re-staggers from now.
         /// </summary>
@@ -579,8 +579,8 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// Move the clock to a whole date, keeping the time of day ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the ÃƒÂ¦Ã¢â‚¬â€Ã‚Â¶ÃƒÂ¥Ã‹â€ Ã‚Â» window's
-        /// calendar pick (Ãƒâ€šÃ‚Â§7.9's scrub). The actors stay; the dispatch schedule is dropped
+        /// Move the clock to a whole date, keeping the time of day — the 时刻 window's
+        /// calendar pick (§7.9's scrub). The actors stay; the dispatch schedule is dropped
         /// so seeking backwards cannot stall every train until the clock comes round to
         /// that date again (source <c>World.seek</c>).
         /// </summary>
@@ -666,7 +666,7 @@ namespace Metro.Sim {
 
         /// <summary>
         /// Replace derived state for an edited document, keeping the crew: the source
-        /// <c>rebuild()</c> path. Document data itself is never touched here ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â packet A's
+        /// <c>rebuild()</c> path. Document data itself is never touched here — packet A's
         /// transaction owns the committed document and calls this after committing.
         /// </summary>
         public void ApplyDocument(StationSessionDocument next) {
@@ -675,7 +675,7 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// Replace the authored day (operating hours, peaks, demand curves, calendar) ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â
+        /// Replace the authored day (operating hours, peaks, demand curves, calendar) —
         /// the source <c>updatePopulation</c> settings path. A headway change shifts the
         /// pending dispatches by the same delta instead of restarting them.
         /// </summary>
@@ -780,7 +780,7 @@ namespace Metro.Sim {
                 for (int i = 0; i < document.Modules.Count; i++) {
                     var m = document.Modules[i];
                     if (m.Type == "escalator" || m.Type == "walkway") {
-                        // The graph edge and the band both travel fromÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢to; an ascending run
+                        // The graph edge and the band both travel from→to; an ascending run
                         // rolls with a positive sign, a descending one against it
                         // (`buildRampBand`'s `dir`/`roll.dir`).
                         int direction = m.HasEndpoints && m.ToZ < m.FromZ ? -1 : 1;
@@ -833,7 +833,7 @@ namespace Metro.Sim {
             }
         }
 
-        /// <summary>The floors a shaft serves between its endpoints, bottom ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ top (plain <c>liftLevels</c>).</summary>
+        /// <summary>The floors a shaft serves between its endpoints, bottom → top (plain <c>liftLevels</c>).</summary>
         static List<int> LiftStopLevels(StationModuleFact m) => StationLiftStops.Levels(m);
 
         static string ServiceKey(string lineId, string trackId) => lineId + "|" + trackId;
@@ -846,8 +846,8 @@ namespace Metro.Sim {
         /// number of ticks actually stepped (0 while paused).
         ///
         /// Speed multiplies **ticks per real second**, never the step size: one tick is
-        /// always <c>SIM_SECONDS_PER_TICK</c> simulated seconds, so a run at 4ÃƒÆ’Ã¢â‚¬â€ 16ÃƒÆ’Ã¢â‚¬â€ or
-        /// 64ÃƒÆ’Ã¢â‚¬â€ crosses the same calendar in the same order (Ãƒâ€šÃ‚Â§7.6 determinism).
+        /// always <c>SIM_SECONDS_PER_TICK</c> simulated seconds, so a run at 4× 16× or
+        /// 64 × crosses the same calendar in the same order (§7.6 determinism).
         /// </summary>
         public int Advance(double deltaSeconds) {
             if (!Playing) return 0;
@@ -1352,7 +1352,7 @@ namespace Metro.Sim {
             return sb.ToString();
         }
 
-        /// The whole frame as JSON ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the payload the bridge publishes. Clock first, then
+        /// The whole frame as JSON — the payload the bridge publishes. Clock first, then
         /// services keyed by stable document id, then the capability block. Numbers are
         /// round-trip formatted so a consumer sees exactly the instantaneous value.
         /// </summary>

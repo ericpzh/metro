@@ -19,6 +19,7 @@ import { ChartsPanel } from './charts/ChartsPanel.tsx'
 import { Tutorial } from './tutorial/Tutorial.tsx'
 import { ExplodedView } from './ExplodedView.tsx'
 import { StationHostProvider, type StationHost } from './StationHost.tsx'
+import { hostOwnsVerb } from '../stationHostBridge.ts'
 
 export function App({ viewport, files, zooStatus, host }: { viewport?: React.ReactNode; files?: { save: () => void; open: (text: string) => void }; zooStatus?: { queued: number; boarded: number }; host?: StationHost } = {}): React.ReactElement {
   useLanguage()
@@ -212,24 +213,34 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
           // — the cut stays, its sheet and direction arrow go. Both live here
           // because a switch takes its first match: a second `case 'y'` below was
           // unreachable, so Ctrl+Y toggled the cut instead of redoing.
-          if (e.ctrlKey || e.metaKey) st.redo()
-          else st.setHideSectionSurface(!st.hideSectionSurface)
+          if (e.ctrlKey || e.metaKey) {
+            if (!hostOwnsVerb('redo')) st.redo()
+          } else st.setHideSectionSurface(!st.hideSectionSurface)
           break
         case 'home':
           window.dispatchEvent(new CustomEvent('metro:frame'))
           break
         case 'delete':
         case 'backspace':
-          window.dispatchEvent(new CustomEvent('metro:delete'))
+          // A host that owns the document also owns its history and its deletion: the
+          // selected module or block goes through the one edit transaction (plan 27 §4),
+          // and only when it refuses does the plain Three viewport's own path run.
+          if (!hostOwnsVerb('deleteSelection')) window.dispatchEvent(new CustomEvent('metro:delete'))
           break
         case 'z':
           if (e.ctrlKey || e.metaKey) {
-            if (e.shiftKey) st.redo()
-            else st.undo()
+            if (e.shiftKey) {
+              if (!hostOwnsVerb('redo')) st.redo()
+            } else if (!hostOwnsVerb('undo')) st.undo()
           } else {
             // Z is the 选择 tool (吸取 is P; 分区 is chosen from the rail).
             st.setTool('select')
           }
+          break
+        case 'escape':
+          // Escape cancels a carried piece, a pending cell gesture or the plan — the host's
+          // own session state while it owns the document.
+          hostOwnsVerb('cancelGesture')
           break
         case 'p':
           st.setTool(st.tool === 'pick' ? st.previousTool : 'pick')

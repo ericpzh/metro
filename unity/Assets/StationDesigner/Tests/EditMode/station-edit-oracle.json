@@ -705,6 +705,409 @@
       "reason": "occupied",
       "colliders": [],
       "level": -20
+    },
+    {
+      "paletteId": "stair-block",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "stair",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "width": 1,
+          "block": true,
+          "blockHeight": 1
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "stair-block",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "stair",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "width": 1,
+          "block": true,
+          "blockHeight": 1
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "lift",
+      "rotation": 0,
+      "cell": [
+        19,
+        0,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          19,
+          0,
+          -20
+        ],
+        "place": [
+          19,
+          0,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          19.5,
+          0.5,
+          -19
+        ]
+      },
+      "aim": [
+        19,
+        0,
+        -20
+      ],
+      "candidate": {
+        "type": "lift",
+        "x": 19,
+        "y": 0,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "rises": [
+            5
+          ]
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "lift",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "lift",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "rises": [
+            5
+          ]
+        }
+      },
+      "floorOk": false,
+      "onTrack": true,
+      "reason": "lift-footprint",
+      "colliders": [
+        "track-4",
+        "track-7"
+      ],
+      "level": -20
+    },
+    {
+      "paletteId": "walkway",
+      "rotation": 0,
+      "cell": [
+        48,
+        3,
+        -15
+      ],
+      "hit": {
+        "cell": [
+          48,
+          3,
+          -15
+        ],
+        "place": [
+          48,
+          3,
+          -14
+        ],
+        "solid": true,
+        "point": [
+          48.5,
+          3.5,
+          -14
+        ]
+      },
+      "aim": [
+        48,
+        3,
+        -15
+      ],
+      "candidate": {
+        "type": "walkway",
+        "x": 48,
+        "y": 3,
+        "z": -15,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "dir": "up"
+        }
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -15
+    },
+    {
+      "paletteId": "walkway",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -15
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -15
+        ],
+        "place": [
+          13,
+          -5,
+          -14
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -14
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -15
+      ],
+      "candidate": {
+        "type": "walkway",
+        "x": 13,
+        "y": -5,
+        "z": -15,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {
+          "dir": "up"
+        }
+      },
+      "floorOk": false,
+      "onTrack": false,
+      "reason": "floor",
+      "colliders": [
+        "track-7",
+        "fence-647",
+        "electrical-cabinet-650"
+      ],
+      "level": -15
+    },
+    {
+      "paletteId": "roof",
+      "rotation": 0,
+      "cell": [
+        17,
+        2,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          17,
+          2,
+          -20
+        ],
+        "place": [
+          17,
+          2,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          17.5,
+          2.5,
+          -19
+        ]
+      },
+      "aim": [
+        17,
+        2,
+        -20
+      ],
+      "candidate": {
+        "type": "roof",
+        "x": 17,
+        "y": 2,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {}
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "",
+      "colliders": [],
+      "level": -20
+    },
+    {
+      "paletteId": "roof",
+      "rotation": 0,
+      "cell": [
+        13,
+        -5,
+        -20
+      ],
+      "hit": {
+        "cell": [
+          13,
+          -5,
+          -20
+        ],
+        "place": [
+          13,
+          -5,
+          -19
+        ],
+        "solid": true,
+        "point": [
+          13.5,
+          -4.5,
+          -19
+        ]
+      },
+      "aim": [
+        13,
+        -5,
+        -20
+      ],
+      "candidate": {
+        "type": "roof",
+        "x": 13,
+        "y": -5,
+        "z": -20,
+        "rot": 0,
+        "w": 1,
+        "d": 1,
+        "cfg": {}
+      },
+      "floorOk": true,
+      "onTrack": false,
+      "reason": "occupied",
+      "colliders": [],
+      "level": -20
     }
   ],
   "moves": [

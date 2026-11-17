@@ -31,14 +31,22 @@ namespace Metro.App {
         public static readonly Color SelectionColour = new Color(0x55 / 255f, 0xb6 / 255f, 1f, 1f);
 
         readonly List<GameObject> owned = new List<GameObject>();
+        /// <summary>The cell tool's own ghost objects, cleared independently of a module ghost.</summary>
+        readonly List<GameObject> cellOwned = new List<GameObject>();
         readonly List<Restorable> hidden = new List<Restorable>();
         Mesh boxMesh;
         Mesh lineMesh;
+        Mesh cellMesh;
+        Mesh wedgeMesh;
         Material okMaterial;
         Material badMaterial;
         Material okLineMaterial;
         Material badLineMaterial;
         Material selectMaterial;
+        Material cellOkMaterial;
+        Material cellBadMaterial;
+        Material cellRingMaterial;
+        Material blockerOutlineMaterial;
         StationIndex index;
         bool bound;
 
@@ -48,6 +56,7 @@ namespace Metro.App {
             bound = stationIndex != null;
             RestoreCarried();
             ClearGhost();
+            ClearCells();
         }
 
         /// <summary>Draw the candidate, or just the selection when there is none.</summary>
@@ -62,6 +71,141 @@ namespace Metro.App {
         public void ClearGhost() {
             foreach (var go in owned) Destroy(go);
             owned.Clear();
+        }
+
+        /// <summary>
+        /// The cell tool's ghost pass (plan 27 §3): accepted cells in the shared blue, refused
+        /// ones red, the wall ring a floor patch would raise in a lighter blue, and every
+        /// blocking piece boxed in red. A cut piece is drawn as the **thin** panel or the 45°
+        /// wedge it will become, not as the whole block it shares a cell with, so the ghost is
+        /// the piece the release lays. Overlays stay outside the pick registry: nothing here is
+        /// a scene record, and no ray can hit it.
+        /// </summary>
+        public void ShowCells(StationCellPreview preview) {
+            ClearCells();
+            if (!bound || preview == null || !preview.HasPlan) return;
+            var shape = preview.Check.Shape;
+            // The accepted set keeps the shared blue even when a *different* cell of the same
+            // gesture is refused: those cells are exactly what the release will lay, and the
+            // reference tints them cyan beside the red refusal (`checkBlockCells`'s two lists).
+            var okColour = new Color(0.09f, 0.55f, 1f, 0.34f);
+            var ring = new HashSet<StationCellKey>(preview.AutoWalls);
+            foreach (var cell in preview.Check.Accepted) {
+                if (ring.Contains(cell)) {
+                    // The 生成墙壁 ring reads as generated: the same blue, fainter.
+                    BuildBox(CellBounds(cell, StationCellShape.Full), RingMaterial(), cellOwned);
+                    continue;
+                }
+                BuildCellGhost(cell, shape, CellMaterial(true, okColour), cellOwned);
+            }
+            foreach (var cell in preview.Check.Blocked) BuildCellGhost(cell, shape, CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f)), cellOwned);
+            foreach (var cell in preview.AutoWalls) {
+                if (preview.Check.Accepted.Contains(cell)) continue;
+                BuildBox(CellBounds(cell, StationCellShape.Full), RingMaterial(), cellOwned);
+            }
+            foreach (var id in preview.Check.ColliderIds) {
+                if (!TryBlockerBounds(id, out var bounds)) continue;
+                BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
+            }
+            // A delete gesture's pending pieces: the whole drawn body is boxed, not a cell.
+            foreach (var id in preview.ModuleIds) {
+                if (!TryBlockerBounds(id, out var bounds)) continue;
+                BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
+            }
+        }
+
+        /// <summary>Drop the cell ghost (pointer leave, a tool change, a commit).</summary>
+        public void ClearCells() {
+            foreach (var go in cellOwned) Destroy(go);
+            cellOwned.Clear();
+        }
+
+        /// <summary>
+        /// The paint brush's face ghost (plan 27 §6): a thin quad on each face the release would
+        /// paint, so the previewed surface is the painted one. It is the same `cellOwned` layer the
+        /// cell tool uses, unlit and double-sided, and it never enters the pick registry.
+        /// </summary>
+        public void ShowFaces(StationPaintPreview preview) {
+            ClearCells();
+            if (!bound || preview == null || preview.Cells.Count == 0) return;
+            var material = preview.Mode == "erase"
+                ? CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f))
+                : CellMaterial(true, new Color(0.45f, 0.82f, 1f, 0.42f));
+            foreach (var cell in preview.Cells) {
+                BuildBox(FaceBounds(cell, preview.Face), material, cellOwned);
+            }
+        }
+
+        /// <summary>
+        /// The 分区 brush's floor tint (plan 27 §6): a thin top-face slab on every floor cell
+        /// the drag covers, in the armed zone's own palette colour, and the warning red when the
+        /// brush is the eraser. It is the same `cellOwned` layer the other ghosts use, so one
+        /// gesture owns the preview at a time.
+        /// </summary>
+        public void ShowZone(StationZonePreview preview) {
+            ClearCells();
+            if (!bound || preview == null) return;
+            var tint = preview.Floor.Count > 0 ? preview.Floor : preview.Rect;
+            if (tint.Count == 0) return;
+            var rgb = preview.Colour;
+            var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.42f);
+            var material = CellMaterial(!preview.Erase, colour);
+            foreach (var cell in tint) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
+        }
+
+        /// <summary>
+        /// The 站台 rail piece (plan 27 §6): the bed the press would dig, drawn as one box at
+        /// the track's own level, in the shared blue when the run is legal and red when it is
+        /// refused. The pieces in the way are boxed beside it, so an `interference` says which.
+        /// </summary>
+        public void ShowRail(StationRailPlan plan) {
+            ClearCells();
+            if (!bound || plan == null || plan.Bed.Count == 0) return;
+            var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.4f) : new Color(1f, 0.27f, 0.2f, 0.42f);
+            var material = CellMaterial(plan.Ok, colour);
+            foreach (var cell in plan.Bed) BuildBox(CellBounds(cell, StationCellShape.Full), material, cellOwned);
+            foreach (var id in plan.ColliderIds) {
+                if (!TryBlockerBounds(id, out var bounds)) continue;
+                BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
+            }
+        }
+
+        /// <summary>
+        /// The 人行道 / 草坪 tile brush's patch (plan 27 §5): a thin slab on each tile the drag
+        /// would lay, in the finish's own colour, and the refusal red on the cells the outdoor
+        /// rules turn away.
+        /// </summary>
+        public void ShowSurface(StationSurfacePreview preview) {
+            ClearCells();
+            if (!bound || preview == null) return;
+            if (preview.Cells.Count > 0) {
+                int rgb = StationSurfaceTool.ColourFor(preview.Type, preview.Erase);
+                var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.5f);
+                var material = CellMaterial(!preview.Erase, colour);
+                foreach (var cell in preview.Cells) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
+            }
+            if (preview.Refused.Count > 0) {
+                var red = CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f));
+                foreach (var cell in preview.Refused) BuildBox(FaceBounds(cell, StationFace.Top), red, cellOwned);
+            }
+        }
+
+        /// <summary>A 2 cm slab standing just proud of one cell face, in document axes.</summary>
+        static Bounds FaceBounds(StationCellKey cell, StationFace face) {            const double pad = 0.02;
+            double x0 = cell.X, x1 = cell.X + 1, y0 = cell.Y, y1 = cell.Y + 1, z0 = cell.Z, z1 = cell.Z + 1;
+            switch (face) {
+                case StationFace.Top: z0 = z1; z1 = z1 + pad; break;
+                case StationFace.Bottom: z1 = z0; z0 = z0 - pad; break;
+                case StationFace.N: y0 = y1; y1 = y1 + pad; break;
+                case StationFace.S: y1 = y0; y0 = y0 - pad; break;
+                case StationFace.E: x0 = x1; x1 = x1 + pad; break;
+                default: x1 = x0; x0 = x0 - pad; break;
+            }
+            var a = StationCoordinates.Point(new Vector3((float)x0, (float)y0, (float)z0));
+            var b = StationCoordinates.Point(new Vector3((float)x1, (float)y1, (float)z1));
+            var min = Vector3.Min(a, b);
+            var max = Vector3.Max(a, b);
+            return new Bounds((min + max) * 0.5f, max - min);
         }
 
         /// <summary>
@@ -162,13 +306,21 @@ namespace Metro.App {
 
         void OnDestroy() {
             ClearGhost();
+            ClearCells();
             if (boxMesh != null) Destroy(boxMesh);
             if (lineMesh != null) Destroy(lineMesh);
+            if (cellMesh != null) Destroy(cellMesh);
+            foreach (var mesh in wedges.Values) Destroy(mesh);
+            wedges.Clear();
             if (okMaterial != null) Destroy(okMaterial);
             if (badMaterial != null) Destroy(badMaterial);
             if (okLineMaterial != null) Destroy(okLineMaterial);
             if (badLineMaterial != null) Destroy(badLineMaterial);
             if (selectMaterial != null) Destroy(selectMaterial);
+            if (cellOkMaterial != null) Destroy(cellOkMaterial);
+            if (cellBadMaterial != null) Destroy(cellBadMaterial);
+            if (cellRingMaterial != null) Destroy(cellRingMaterial);
+            if (blockerOutlineMaterial != null) Destroy(blockerOutlineMaterial);
         }
 
         static void Destroy(UnityEngine.Object value) {
@@ -238,7 +390,7 @@ namespace Metro.App {
         /// thin prisms. A line-topology mesh draws one device pixel wide at any zoom, which is
         /// what a `THREE.Box3Helper` does, and it costs one draw call instead of twelve.
         /// </summary>
-        void BuildLineBox(Bounds bounds, Material material) {
+        void BuildLineBox(Bounds bounds, Material material, List<GameObject> into = null) {
             if (lineMesh == null) {
                 // A unit cube's twelve edges as line pairs, −0.5…+0.5.
                 var corners = new Vector3[8];
@@ -272,10 +424,10 @@ namespace Metro.App {
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            owned.Add(go);
+            (into ?? owned).Add(go);
         }
 
-        void BuildBox(Bounds bounds, Material material) {
+        void BuildBox(Bounds bounds, Material material, List<GameObject> into = null) {
             if (boxMesh == null) {
                 var vertices = new List<Vector3>();
                 var triangles = new List<int>();
@@ -294,7 +446,146 @@ namespace Metro.App {
             renderer.sharedMaterial = material;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            owned.Add(go);
+            (into ?? owned).Add(go);
+        }
+
+        // -------------------------------------------------------------- cell ghost
+
+        /// <summary>A cell's drawn box in document axes, narrowed to a cut piece's kept part.</summary>
+        static Bounds CellBounds(StationCellKey cell, StationCellShape shape) {
+            var rect = StationCellRules.Bounds(shape);
+            var a = StationCoordinates.Point(new Vector3((float)(cell.X + rect.X0), (float)(cell.Y + rect.Y0), cell.Z));
+            var b = StationCoordinates.Point(new Vector3((float)(cell.X + rect.X1), (float)(cell.Y + rect.Y1), cell.Z + 1));
+            var min = Vector3.Min(a, b);
+            var max = Vector3.Max(a, b);
+            return new Bounds((min + max) * 0.5f, max - min);
+        }
+
+        /// <summary>One cell's ghost: the whole block, a cut's thin panel, or a 三角's wedge.</summary>
+        void BuildCellGhost(StationCellKey cell, StationCellShape shape, Material material, List<GameObject> into) {
+            if (shape.Kind == StationShapeKind.Triangle) {
+                BuildWedge(cell, shape, material, into);
+                return;
+            }
+            BuildBox(CellBounds(cell, shape.IsFull ? StationCellShape.Full : shape), material, into);
+        }
+
+        /// <summary>
+        /// A 三角's wedge, drawn as the prism it tags: the cross-section is the region under
+        /// (or over) the slope in the cell's own 1 m frame, extruded across the cell. The
+        /// meshes are unit prisms in **world** axes relative to the cell's document origin,
+        /// cached per side and kind, and the ghost material is unlit and double-sided — so no
+        /// winding or normal can make the piece read as a whole block.
+        /// </summary>
+        void BuildWedge(StationCellKey cell, StationCellShape shape, Material material, List<GameObject> into) {
+            var mesh = WedgeMesh(shape.Side, shape.Triangle == Metro.Build.StationTriangleKind.Lower);
+            var go = new GameObject("preview wedge");
+            go.transform.SetParent(transform, false);
+            go.transform.position = StationCoordinates.Point(new Vector3(cell.X, cell.Y, cell.Z));
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var renderer = go.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            into.Add(go);
+        }
+
+        readonly Dictionary<(StationWallSide Side, bool Lower), Mesh> wedges =
+            new Dictionary<(StationWallSide, bool), Mesh>();
+
+        Mesh WedgeMesh(StationWallSide side, bool lower) {
+            if (wedges.TryGetValue((side, lower), out var cached)) return cached;
+            // Cross-section in (u, z): `u` is the plan axis the slope climbs across, `z` the
+            // course. A wedge under the slope keeps z ≤ u; one over it keeps z ≥ 1 − u.
+            var section = lower
+                ? new[] { new Vector2(0f, 1f), new Vector2(1f, 0f), new Vector2(1f, 1f) }
+                : new[] { new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(1f, 1f) };
+            var vertices = new List<Vector3>(6);
+            // Document → world is the repo's one swap, (x, y, z) → (x, z, y); the mesh is built
+            // already swapped and relative to the cell origin.
+            foreach (var point in section) {
+                for (int v = 0; v <= 1; v++) {
+                    float u = point.x, z = point.y;
+                    float dx, dy;
+                    switch (side) {
+                        case StationWallSide.S: dx = v; dy = 1f - u; break;
+                        case StationWallSide.E: dx = u; dy = v; break;
+                        case StationWallSide.W: dx = 1f - u; dy = v; break;
+                        default: dx = v; dy = u; break;
+                    }
+                    vertices.Add(new Vector3(dx, z, dy));
+                }
+            }
+            var indices = new List<int>(24);
+            indices.AddRange(new[] { 0, 2, 4, 0, 4, 2 });
+            indices.AddRange(new[] { 1, 5, 3, 1, 3, 5 });
+            for (int i = 0; i < 3; i++) {
+                int a = i * 2, b = ((i + 1) % 3) * 2;
+                indices.AddRange(new[] { a, b, b + 1, a, b + 1, a + 1 });
+            }
+            var mesh = new Mesh { name = "edit preview wedge " + side + (lower ? " lower" : " upper") };
+            mesh.SetVertices(vertices);
+            mesh.SetTriangles(indices, 0);
+            mesh.RecalculateBounds();
+            wedges[(side, lower)] = mesh;
+            return mesh;
+        }
+
+        /// <summary>
+        /// The cell ghost material: **unlit** and double-sided, so a translucent cell reads as
+        /// a marking rather than a lit block and no backface can hide it.
+        /// </summary>
+        Material CellMaterial(bool ok, Color colour) {
+            if (ok && cellOkMaterial != null) return cellOkMaterial;
+            if (!ok && cellBadMaterial != null) return cellBadMaterial;
+            var material = CreateUnlitTransparent(ok ? "edit cell ghost" : "edit cell refusal", colour);
+            if (ok) cellOkMaterial = material; else cellBadMaterial = material;
+            return material;
+        }
+
+        /// <summary>The auto-wall ring: the same blue, slightly fainter, so it reads as generated.</summary>
+        Material RingMaterial() {
+            if (cellRingMaterial != null) return cellRingMaterial;
+            cellRingMaterial = CreateUnlitTransparent("edit cell ring", new Color(0.42f, 0.72f, 1f, 0.22f));
+            return cellRingMaterial;
+        }
+
+        /// <summary>Boxes the placed piece standing in a refused cell.</summary>
+        Material RefusalOutlineMaterial() {
+            if (blockerOutlineMaterial != null) return blockerOutlineMaterial;
+            blockerOutlineMaterial = CreateUnlitTransparent("edit cell blocker", new Color(1f, 0.27f, 0.2f, 1f));
+            return blockerOutlineMaterial;
+        }
+
+        static Material CreateUnlitTransparent(string name, Color colour) {
+            var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Color")
+                ?? Shader.Find("Universal Render Pipeline/Lit");
+            var material = new Material(shader) { name = name };
+            if (material.HasProperty("_BaseColor")) material.SetColor("_BaseColor", colour);
+            if (material.HasProperty("_Color")) material.SetColor("_Color", colour);
+            if (material.HasProperty("_Surface")) material.SetFloat("_Surface", 1f);
+            if (material.HasProperty("_Blend")) material.SetFloat("_Blend", 0f);
+            if (material.HasProperty("_SrcBlend")) material.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (material.HasProperty("_DstBlend")) material.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (material.HasProperty("_ZWrite")) material.SetFloat("_ZWrite", 0f);
+            if (material.HasProperty("_Cull")) material.SetFloat("_Cull", 0f);
+            material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            material.SetOverrideTag("RenderType", "Transparent");
+            material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+            return material;
+        }
+
+        /// <summary>The drawn bounds of one placed piece, for a refusal's red outline.</summary>
+        bool TryBlockerBounds(string moduleId, out Bounds bounds) {
+            bounds = default;
+            var world = CurrentWorld();
+            if (world == null || string.IsNullOrEmpty(moduleId)) return false;
+            return TrySelectionBounds(world, FindModule(moduleId), out bounds);
+        }
+
+        static StationModuleRecord FindModule(string moduleId) {
+            var host = UnityEngine.Object.FindAnyObjectByType<StationGameHost>();
+            return host != null && host.Index != null ? host.Index.GetModule(moduleId) : null;
         }
 
         /// <summary>The one accepted (blue) or refused (red) ghost material, cached per preview.</summary>

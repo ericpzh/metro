@@ -23,6 +23,18 @@ export interface StationHostCommitPort {
    * what the shell adopts). False means "keep the TypeScript commit path".
    */
   commitSignBoards(moduleId: string, boards: SignBoards): boolean
+  /**
+   * The document verbs the host owns while it holds the station (plan 27 §4). Each
+   * returns true when the host took the intent, so the app's own store path must not
+   * run: a local `undo()` next to the host's would leave the inspector showing an
+   * edit the document never made.
+   */
+  undo(): boolean
+  redo(): boolean
+  /** Delete the current selection (a placed module, or a block's whole column). */
+  deleteSelection(): boolean
+  /** Escape: cancel a carried piece, a pending cell gesture or the plan. */
+  cancelGesture(): boolean
 }
 
 let current: StationHostCommitPort | null = null
@@ -35,4 +47,15 @@ export function stationHostCommit(): StationHostCommitPort | null {
 /** Called by the player shell at mount and with `null` at unmount. */
 export function registerStationHostCommit(port: StationHostCommitPort | null): void {
   current = port
+}
+
+/**
+ * True when a host owns the document **and** takes this verb. The app calls it once per
+ * intent: a registered host that refuses falls back to the store path, so a host without
+ * the verb keeps the plain app working.
+ */
+export function hostOwnsVerb(verb: 'undo' | 'redo' | 'deleteSelection' | 'cancelGesture'): boolean {
+  const port = current
+  if (!port || !port.ownsStation()) return false
+  return port[verb]()
 }

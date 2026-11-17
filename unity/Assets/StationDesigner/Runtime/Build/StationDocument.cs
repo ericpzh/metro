@@ -236,7 +236,7 @@ namespace Metro.Build {
         public StationSpan(double from, double to) { From = from; To = to; }
         public double From { get; }
         public double To { get; }
-        public override string ToString() => From + "â€“" + To;
+        public override string ToString() => From + "–" + To;
     }
 
     /// <summary>The demand curve's authored knobs for one day family.</summary>
@@ -359,7 +359,7 @@ namespace Metro.Build {
         public string NameEn { get; }
         public string City { get; }
         public long Seed { get; }
-        /// <summary>The editing grid's base offset in metres (0â€“4), as <c>normalizeLevelBase</c> repairs it.</summary>
+        /// <summary>The editing grid's base offset in metres (0–4), as <c>normalizeLevelBase</c> repairs it.</summary>
         public int LevelBase { get; }
         /// <summary>Always five metres for the supported v1 grid.</summary>
         public int StoreyHeight { get; }

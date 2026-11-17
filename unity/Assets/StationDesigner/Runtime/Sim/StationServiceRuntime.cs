@@ -5,9 +5,9 @@ namespace Metro.Sim {
     // The station's service layer (plan 11 C3): the crowd, the per-gate queues and
     // admission, the vertical rides and the boarding/alighting of a berthing
     // consist. A deterministic port of the bounded slice of
-    // `game/src/sim/world/World.ts` Ã¢â‚¬â€ `tickOnce`'s order, `spawnStreet`,
+    // `game/src/sim/world/World.ts` — `tickOnce`'s order, `spawnStreet`,
     // `sampleTripFromStreet`, `stepGate`, `serve`, the alighting wave
-    // (`loadAlighting`/`stepAlighting`) and `boardRider` Ã¢â‚¬â€ over the document-built
+    // (`loadAlighting`/`stepAlighting`) and `boardRider` — over the document-built
     // `StationWalkGraph` and `StationRoutePlanner`.
     //
     // **What this is not.** No collision/separation pass, no errands (shops,
@@ -81,13 +81,13 @@ namespace Metro.Sim {
             public int TrainDoor = -1;
             /// <summary>`trainRow`: the row of the doorway's cabin queue it stands in.</summary>
             public int TrainRow;
-            /// <summary>`trainFile`: which of the two abreast it is (Ã¢Ë†â€™1 / +1).</summary>
+            /// <summary>`trainFile`: which of the two abreast it is (−1 / +1).</summary>
             public int TrainFile;
             /// <summary>The cabin slot it waits in, and the doorway it steps out onto.</summary>
             public double SeatX, SeatY, SeatZ;
             public double StepFromX, StepFromY, StepFromZ;
             public double StepToX, StepToY, StepToZ;
-            /// <summary>`trainT` inside the step-out (0 Ã¢â‚¬Â¦ <see cref="StationServiceCadence.TrainStepSeconds"/>).</summary>
+            /// <summary>`trainT` inside the step-out (0 … <see cref="StationServiceCadence.TrainStepSeconds"/>).</summary>
             public double StepT;
             /// <summary>The exit sampled when the wave was seated (the source's trip dest).</summary>
             public int DestExit = -1;
@@ -114,7 +114,7 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// One platform doorway of one (line, track) service Ã¢â‚¬â€ a stable
+        /// One platform doorway of one (line, track) service — a stable
         /// <see cref="StationDoorSlot"/> plus the queue and latch the source's door server
         /// owns. Identity is the slot's own id, so a station rebuild re-binds the same
         /// doorway rather than renumbering it.
@@ -450,7 +450,7 @@ namespace Metro.Sim {
             ResetRunActorsAndCounters();
         }
 
-        /// <summary>Empty the crowd and reseed the stream Ã¢â‚¬â€ the source's <c>World.restart()</c>.</summary>
+        /// <summary>Empty the crowd and reseed the stream — the source's <c>World.restart()</c>.</summary>
         public void Restart() {
             rng = new SimulationRng(seed);
             passengers.Clear();
@@ -1596,10 +1596,10 @@ namespace Metro.Sim {
         }
 
         /// <summary>
-        /// The doorway half of the tick Ã¢â‚¬â€ the source's `stepServers` for a `kind: 'door'`
+        /// The doorway half of the tick — the source's `stepServers` for a `kind: 'door'`
         /// server. A doorway boards only while **its own** latch is open (`door.Rate > 0`,
         /// set by `stepAlighting` the tick that doorway's wave cleared, or on the opening
-        /// tick when it brought nobody) Ã¢â‚¬â€ not when the whole consist's alighting is done.
+        /// tick when it brought nobody) — not when the whole consist's alighting is done.
         /// Capacity is published, never enforced: the source's `boardRider` takes riders
         /// past the rated load, so a saturated consist keeps boarding (the trace's
         /// `saturated-cabin` case is the proof).
@@ -1826,7 +1826,7 @@ namespace Metro.Sim {
         /// The source's `stepTrainRider` stepping-out phase (`trainPhase === 2`): from the
         /// cabin slot to the doorway over `TRAIN_STEP_S`, then the passenger is an ordinary
         /// platform walker. The crossing is counted the tick the step lands, exactly where
-        /// `World` counts `alighted` Ã¢â‚¬â€ that is the stop's visible delivery.
+        /// `World` counts `alighted` — that is the stop's visible delivery.
         /// </summary>
         void StepOutRide(Passenger passenger) {
             passenger.StepT += Dt;
@@ -1837,7 +1837,7 @@ namespace Metro.Sim {
             double dx = passenger.StepToX - passenger.StepFromX, dy = passenger.StepToY - passenger.StepFromY;
             if (Math.Abs(dx) + Math.Abs(dy) > 1e-9) passenger.Heading = Math.Atan2(dy, dx);
             if (k < 1) return;
-            // `inFlight[d]--`, `train.alighted++`, `metrics.alighted++` Ã¢â‚¬â€ the passenger is
+            // `inFlight[d]--`, `train.alighted++`, `metrics.alighted++` — the passenger is
             // no longer in the doorway, so the doorway may be handed to the boarders.
             if (!watches.TryGetValue(passenger.TrainKey ?? "", out TrainWatch watch)) watch = null;
             if (watch != null && passenger.TrainDoor >= 0 && passenger.TrainDoor < watch.InFlight.Length) {
@@ -1892,7 +1892,7 @@ namespace Metro.Sim {
         /// The consist half of the tick, in the source's order and on the source's own
         /// phase clock (`World.dispatchTrains`):
         /// <list type="number">
-        /// <item>a consist arriving at **berth** seats its alighting wave, once per berth Ã¢â‚¬â€
+        /// <item>a consist arriving at **berth** seats its alighting wave, once per berth —
         /// a *new* <see cref="StationTrainFrame.ServiceSequence"/> re-seats even when the
         /// previous stop's cabin had not fully drained;</item>
         /// <item>each tick whose *pre-transition* phase was opening or dwell runs
@@ -1989,9 +1989,9 @@ namespace Metro.Sim {
 
         /// <summary>
         /// The source's `loadAlighting`, door for door: the whole wave is placed in the
-        /// doorways it will leave by Ã¢â‚¬â€ one row at a time **across** the consist, so a wave
+        /// doorways it will leave by — one row at a time **across** the consist, so a wave
         /// smaller than the cabins spreads over every doorway instead of packing the first
-        /// car, and two abreast per doorway (`file` Ã¢Ë†â€™1/+1) per row. A wave too big for the
+        /// car, and two abreast per doorway (`file` −1/+1) per row. A wave too big for the
         /// cabin (12 rows deep) keeps the remainder on `AlightLeft` and is seated as the
         /// rows drain.
         ///
@@ -1999,7 +1999,7 @@ namespace Metro.Sim {
         /// (`StationTrainPose`, 18 §8.2): the rider starts **inside its car**, at the cabin
         /// floor, in the row and file it will leave by, so the release walks it out of a
         /// doorway that is drawn under it. Only a line-only service (no track to stand a
-        /// consist on) keeps the source's no-consist branch — the rider waits at its own
+        /// consist on) keeps the source's no-consist branch  the rider waits at its own
         /// doorway, one file either side, at the car floor's height over the platform. The
         /// release tick, the doorway and the crossing are the facts the stop is compared on.
         /// </summary>
@@ -2033,7 +2033,7 @@ namespace Metro.Sim {
             if (!StationTrainPose.CabinWorldPos(berth, nodeX, nodeY, file, row, out x, out y, out z)) {
                 // The source's **no-consist** branch: a platform edge with no rail under it.
                 // There is no car to stand in and none drawn, so the wave waits where it would
-                // leave from — at its own doorway, at the car floor's height over the platform.
+                // leave from  at its own doorway, at the car floor's height over the platform.
                 // (This branch is for a line-only service, never for a track-bound one.)
                 x = nodeX + file * 0.3;
                 y = nodeY + (row % 2 == 0 ? -.15 : .15);
@@ -2074,8 +2074,8 @@ namespace Metro.Sim {
 
         /// <summary>
         /// The source's `stepAlighting`: refill a doorway's cabin from the wave it could not
-        /// hold, then let the front row out at the doorway's own 1.2 s pair cadence, and Ã¢â‚¬â€
-        /// once that doorway has no rows and nobody in flight Ã¢â‚¬â€ hand **that doorway** (not
+        /// hold, then let the front row out at the doorway's own 1.2 s pair cadence, and —
+        /// once that doorway has no rows and nobody in flight — hand **that doorway** (not
         /// the whole consist) to the boarders. Past `CABIN_ALIGHT_MAX_S` the doorway turns
         /// to boarding whatever is left, and the rest of the wave rides on, counted as the
         /// stop's left-behind arrivals.

@@ -1,6 +1,6 @@
-// Plan 16 §1 oracle — one pointer event's candidate, as the TypeScript game resolves
+﻿// Plan 16 Â§1 oracle â€” one pointer event's candidate, as the TypeScript game resolves
 // it. The fixture is the source's own answer, never a second port: each row records
-// `pickCells` → `moduleAim` → `createModule` → `equipmentReason` for a fresh piece and
+// `pickCells` â†’ `moduleAim` â†’ `createModule` â†’ `equipmentReason` for a fresh piece and
 // `moveCandidate`/`equipmentReason` for a carried one, against the same exported Zoo
 // save the Unity reader opens.
 //
@@ -117,6 +117,14 @@ const paletteRows = [
   { id: 'tactile-warning', width: 1, rotation: 0 },
   { id: 'floor-mark-boarding', width: 1, rotation: 0 },
   { id: 'tvm', width: 1, rotation: 0 },
+  // The tile-family pieces the Unity port now places: the æ¥¼æ¢¯å— (one solid box), the ç”µæ¢¯
+  // shaft and the level è‡ªåŠ¨æ­¥é“. Their settings default in `createModule`, so the row carries
+  // only the palette id, a width and a turn â€” the same inputs the resolver test feeds C#.
+  { id: 'stair-block', width: 1, rotation: 0 },
+  { id: 'lift', width: 1, rotation: 0 },
+  { id: 'walkway', width: 1, rotation: 0 },
+  // The å±‹é¡¶ tile: a 1 Ã— 1 slab hung one storey above the cell it is dropped on.
+  { id: 'roof', width: 1, rotation: 0 },
 ]
 
 const placements = []
@@ -192,4 +200,4 @@ const oracle = {
 }
 writeFileSync(OUT, JSON.stringify(oracle, null, 2) + '\n')
 console.log(`station-edit-oracle: ${placements.length} placements, ${moves.length} moves, ${picks.length} picks`)
-console.log(`save ${oracle.source.saveSha256.slice(0, 12)} → ${OUT.pathname}`)
+console.log(`save ${oracle.source.saveSha256.slice(0, 12)} â†’ ${OUT.pathname}`)

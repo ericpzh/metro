@@ -4,11 +4,11 @@ using Metro.Sim;
 using NUnit.Framework;
 using UnityEngine;
 
-// Packet C Â· C2/C3 â€” the station session (`StationSimulationSession.cs`).
+// Packet C · C2/C3 — the station session (`StationSimulationSession.cs`).
 //
 // Every clock expectation comes from `station-clock-oracle.json`, whose values are
 // computed by `game/src/sim/clock.ts` itself, so a passing test means the C# clock
-// agrees with the TypeScript source at that instant â€” not that it agrees with a
+// agrees with the TypeScript source at that instant — not that it agrees with a
 // second copy of the same arithmetic.
 //
 // The scheduling half pins what a station session has to get right beyond the
@@ -123,7 +123,7 @@ public class StationSimulationSessionTests {
         session.SetPlaying(true);
         session.Advance(10);
         var running = session.Snapshot().Clock;
-        Assert.AreEqual(23410.0, running.SimTimeSeconds, 1e-12, "10 ticks at 1Ã— advance 10 simulated seconds");
+        Assert.AreEqual(23410.0, running.SimTimeSeconds, 1e-12, "10 ticks at 1× advance 10 simulated seconds");
         Assert.AreEqual(10, running.Tick);
         Assert.AreEqual(23410.0 - 10.0, running.SimTimeSeconds - running.Tick, 1e-12,
             "simTime is seconds since day zero, not the tick counter the Zoo slice published");
@@ -135,10 +135,10 @@ public class StationSimulationSessionTests {
         var session = Session();
         session.SetPlaying(true);
         session.SetSpeed(4);
-        Assert.AreEqual(4, session.Advance(1.0), "4Ã— runs four ticks in one real second");
+        Assert.AreEqual(4, session.Advance(1.0), "4× runs four ticks in one real second");
         Assert.AreEqual(23404.0, session.Clock.SimTime, 1e-12);
         session.SetSpeed(64);
-        Assert.AreEqual(32, session.Advance(0.5), "64Ã— runs 32 ticks in half a second");
+        Assert.AreEqual(32, session.Advance(0.5), "64× runs 32 ticks in half a second");
         Assert.AreEqual(23436.0, session.Clock.SimTime, 1e-12);
         session.SetPlaying(false);
         Assert.AreEqual(0, session.Advance(5.0), "a paused station steps nothing");
@@ -194,7 +194,7 @@ public class StationSimulationSessionTests {
         double before = session.Clock.SimTime;
         long beforeTick = session.Tick;
         session.Restart();
-        Assert.AreEqual(before, session.Clock.SimTime, 1e-12, "restart keeps the instant â€” it clears the crowd, not the day");
+        Assert.AreEqual(before, session.Clock.SimTime, 1e-12, "restart keeps the instant — it clears the crowd, not the day");
         Assert.AreEqual(beforeTick, session.Tick, "and the tick keeps counting");
         Assert.IsTrue(session.Playing, "the run stays in the state it was in");
         Assert.AreEqual(TrainPhase.None, Train(session.Snapshot()).Phase, "every consist is gone until the next dispatch");
@@ -217,10 +217,10 @@ public class StationSimulationSessionTests {
         var stamp = session.Clock.Stamp();
         Assert.AreEqual("23:00:30", stamp.ClockSeconds);
         Assert.IsFalse(stamp.IsOpen, "the window shut 30 s ago");
-        Assert.AreEqual(SimPeriod.Late, stamp.Period, "a shut station is å¤œé—´");
+        Assert.AreEqual(SimPeriod.Late, stamp.Period, "a shut station is 夜间");
         Assert.AreEqual(60, session.Tick, "the clock ran through the close");
         Assert.Greater(session.Clock.SimTime, 0);
-        // The demand multiplier follows the period, so it changed â€” the clock did not stop.
+        // The demand multiplier follows the period, so it changed — the clock did not stop.
         Assert.Less(session.Snapshot().Clock.DemandRate, 0.5);
         // One call per real second, the way a frame loop drives it (one call is capped at
         // 64 whole ticks, which a 600 s call would silently truncate).
@@ -322,7 +322,7 @@ public class StationSimulationSessionTests {
         var frame = session.Snapshot();
         Assert.AreEqual(1, frame.Escalators.Length);
         Assert.AreEqual("esc-1", frame.Escalators[0].Id);
-        Assert.AreEqual(-1, frame.Escalators[0].Direction, "this run descends fromâ†’to, so its band rolls against the climb");
+        Assert.AreEqual(-1, frame.Escalators[0].Direction, "this run descends from→to, so its band rolls against the climb");
         Assert.AreEqual(0.5, frame.Escalators[0].Speed, 1e-12);
         // One tick rolls half a metre; wrapped into the six-metre run it stands at 5.5.
         Assert.AreEqual(5.5, frame.Escalators[0].PhaseMeters, 1e-9);
@@ -341,9 +341,9 @@ public class StationSimulationSessionTests {
         for (int i = 0; i < 30; i++) session.Advance(1.0);
         var lift = session.Snapshot().Lifts[0];
         Assert.AreEqual("lift-1", lift.Id);
-        Assert.AreEqual("idle", lift.Phase, "nobody called the car, so it parks â€” the source's own answer for an empty station");
+        Assert.AreEqual("idle", lift.Phase, "nobody called the car, so it parks — the source's own answer for an empty station");
         Assert.AreEqual(0.0, lift.DoorFraction, 1e-12);
-        Assert.AreEqual(3, lift.StopCount, "âˆ’15, âˆ’10 and âˆ’5 m are the shaft's stops");
+        Assert.AreEqual(3, lift.StopCount, "−15, −10 and −5 m are the shaft's stops");
     }
 
     [Test]

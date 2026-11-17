@@ -5,7 +5,7 @@ using Metro.Sim;
 using NUnit.Framework;
 using UnityEngine;
 
-// Packet C Â· C1 â€” the document-built walk graph and the route planner.
+// Packet C · C1 — the document-built walk graph and the route planner.
 //
 // The fixture is an independently authored **non-Zoo** station: the generated street
 // plaza, a fence fare line with two gates, a closed pen nobody can enter, a pillar, a
@@ -16,7 +16,7 @@ using UnityEngine;
 //
 // What is *not* ported is reported by `StationWalkGraphBuilder.Unported` and listed in
 // the evidence file; nothing here is allowed to fall back to a saved route, a fixed
-// index or a Zoo id â€” `GraphIsRebuiltFromTheDocument` proves a moved gate re-cuts it.
+// index or a Zoo id — `GraphIsRebuiltFromTheDocument` proves a moved gate re-cuts it.
 public class StationRoutePlannerTests {
     // -------------------------------------------------------------- oracle shape
 
@@ -149,7 +149,7 @@ public class StationRoutePlannerTests {
         for (int i = 0; i < oracle.edges.Length; i++) {
             var expected = oracle.edges[i];
             var got = actual[i];
-            string where = "edge " + i + " (" + expected.from + "â†’" + expected.to + " kind " + expected.kind + ")";
+            string where = "edge " + i + " (" + expected.from + "→" + expected.to + " kind " + expected.kind + ")";
             Assert.AreEqual(expected.from, got.from, "from " + where);
             Assert.AreEqual(expected.to, got.to, "to " + where);
             Assert.AreEqual(expected.kind, got.kind, "kind " + where);
@@ -323,7 +323,7 @@ public class StationRoutePlannerTests {
         var granite = planner.Search("5,4,0", "6,4,0", StationRouteNeeds.Walking);
         Assert.IsTrue(granite.Found);
         Assert.AreEqual(1.0 / StationWalkGraphBuilder.WalkSpeed, granite.Cost, 1e-5, "granite leg");
-        // A diagonal costs its real distance, and only inside a clear 2Ã—2 square.
+        // A diagonal costs its real distance, and only inside a clear 2×2 square.
         var diagonal = planner.Search("4,-3,0", "5,-2,0", StationRouteNeeds.Walking);
         Assert.IsTrue(diagonal.Found);
         Assert.AreEqual(Math.Sqrt(2) / (StationWalkGraphBuilder.WalkSpeed * 0.9), diagonal.Cost, 1e-5, "diagonal leg");

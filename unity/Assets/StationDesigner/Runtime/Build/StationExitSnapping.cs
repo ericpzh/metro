@@ -23,11 +23,11 @@ namespace Metro.Build {
     /// <summary>
     /// The run a ramp placed into an exit bay becomes (`exitRunSnap` in
     /// `game/src/sim/exits.ts`): its upper landing in the bay, its base the chosen
-    /// rise below and toward the mouth, and the placement turn that climbs base â†’ top.
+    /// rise below and toward the mouth, and the placement turn that climbs base → top.
     /// </summary>
     public readonly struct StationExitBaySnap {
         public readonly string ExitId;
-        /// <summary>Local x of the column the run lands in â€” the bay it occupies (whole for a
+        /// <summary>Local x of the column the run lands in — the bay it occupies (whole for a
         /// whole-cell pointer, as the tool always passes).</summary>
         public readonly double Bay;
         public readonly StationPoint Top;
@@ -48,16 +48,16 @@ namespace Metro.Build {
     /// <summary>
     /// The two edit-time exit snaps of `sim/exits.ts`, ported into `Metro.Build` so the
     /// one placement resolver (`StationModulePlacement.Resolve`) can normalize a fresh
-    /// exit against a picked ramp â€” and a fresh ramp against the exit bay under the
-    /// pointer â€” before preview or commit sees the candidate.
+    /// exit against a picked ramp — and a fresh ramp against the exit bay under the
+    /// pointer — before preview or commit sees the candidate.
     ///
     /// **Ported verbatim:** <c>snapExitToRamp</c>, <c>exitRunSnap</c>, their helpers
     /// (<c>isExitHeadHouse</c>, <c>isSnapRamp</c>, <c>exitBays</c>, <c>exitBayCell</c>,
     /// <c>exitLocal</c>/<c>exitRotate</c>, <c>stairRotFor</c>, <c>runTop</c>) and the
     /// single-flight branch of <c>stairFlightSlides</c> the two functions can reach: a
     /// snap-eligible stair is straight by construction. A lift is deliberately not
-    /// snapped â€” the source's <c>snapExitToRamp</c> accepts only a stair or escalator,
-    /// and no source rule links a lift shaft to a head-house (plan 16 Â§5.2). Turning
+    /// snapped — the source's <c>snapExitToRamp</c> accepts only a stair or escalator,
+    /// and no source rule links a lift shaft to a head-house (plan 16 §5.2). Turning
     /// stairs are refused for the same reason the source refuses them: their run does
     /// not end at the bay, so snapping would not line up the opening.
     ///
@@ -66,10 +66,10 @@ namespace Metro.Build {
     /// are stable and only describe why a source `null` came back.
     /// </summary>
     public static class StationExitSnapping {
-        /// <summary>`STAIR_RUN` / `STAIR_RISE`: the é•¿ 5 m rung on the five-metre grid (8 cells).</summary>
+        /// <summary>`STAIR_RUN` / `STAIR_RISE`: the 长 5 m rung on the five-metre grid (8 cells).</summary>
         public const double StairRun = 8;
         public const double StairRise = 5;
-        /// <summary>`ESCALATOR_RUN` / `ESCALATOR_RISE`: the 30Â° run of the same 5 m climb (9 cells).</summary>
+        /// <summary>`ESCALATOR_RUN` / `ESCALATOR_RISE`: the 30° run of the same 5 m climb (9 cells).</summary>
         public const double EscalatorRun = 9;
         public const double EscalatorRise = 5;
         /// <summary>`STAIR_WIDTH_NARROW` / `ESCALATOR_BAND`, metres.</summary>
@@ -90,7 +90,7 @@ namespace Metro.Build {
         }
 
         /// <summary>
-        /// Port of `isSnapRamp`: a straight, non-block stair or any escalator â€” the two
+        /// Port of `isSnapRamp`: a straight, non-block stair or any escalator — the two
         /// families the tool lets an exit snap onto.
         /// </summary>
         public static bool IsSnapRamp(StationModuleRecord ramp) {
@@ -221,7 +221,7 @@ namespace Metro.Build {
             y = exitY + dy;
         }
 
-        /// <summary>`exitRotate`: a point in the exit's local plan â†’ world plan offsets.</summary>
+        /// <summary>`exitRotate`: a point in the exit's local plan → world plan offsets.</summary>
         public static void ExitRotate(double lx, double ly, int rotation, out double x, out double y) {
             switch (NormRot(rotation)) {
                 case 1: x = -ly; y = lx; break;
@@ -301,7 +301,7 @@ namespace Metro.Build {
 
         /// <summary>
         /// The authored `cfg.flights` list, read as the save writes it
-        /// (`[{from:{x,y,z},to:{x,y,z}},â€¦]`) without Newtonsoft, exactly as the view
+        /// (`[{from:{x,y,z},to:{x,y,z}},…]`) without Newtonsoft, exactly as the view
         /// layer's `StationRunGeometry.ParseFlights` does. A list that does not hold whole
         /// triples is ignored, which is how a save that authored nothing reads.
         /// </summary>

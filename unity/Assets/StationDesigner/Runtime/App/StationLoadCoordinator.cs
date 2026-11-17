@@ -28,7 +28,7 @@ namespace Metro.App {
         /// <summary>The fixed tick the session is on (authoritative, integer seconds).</summary>
         long SimulationTick { get; }
         /// <summary>
-        /// The scheduler's fractional position toward the next fixed tick, 0 â€¦ 1. The
+        /// The scheduler's fractional position toward the next fixed tick, 0 … 1. The
         /// presentation layer samples the adjacent tick frames at this fraction; it is
         /// never a simulation input.
         /// </summary>
@@ -50,7 +50,7 @@ namespace Metro.App {
     }
 
     /// <summary>
-    /// A snapshot key a packet owns (camera/view/finishes/ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦). The host merges every
+    /// A snapshot key a packet owns (camera/view/finishes/…). The host merges every
     /// contributor into each `state`/commit payload, so no packet edits the host.
     /// </summary>
     public interface IStationStateContributor {
@@ -103,8 +103,8 @@ namespace Metro.App {
     }
 
     /// <summary>
-    /// The station install transaction: parse/repair ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ document/index ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ **staged**
-    /// view root + staged simulation session ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ commit document, scene, camera bounds
+    /// The station install transaction: parse/repair → document/index â†’ **staged**
+    /// view root + staged simulation session → commit document, scene, camera bounds
     /// and simulation together. Any failure disposes the candidate and returns one
     /// typed rejection; the previous station keeps running.
     /// </summary>
@@ -194,7 +194,7 @@ namespace Metro.App {
                 ["formatVersion"] = StationDocumentReader.SupportedVersion,
                 ["gameVersion"] = "0.2.0",
                 ["savedAt"] = StationDocumentReader.FixedSavedAt,
-                ["name"] = string.IsNullOrEmpty(name) ? "ÃƒÆ’Ã‚Â¦Ãƒâ€¦Ã¢â‚¬Å“Ãƒâ€šÃ‚ÂªÃƒÆ’Ã‚Â¥ÃƒÂ¢Ã¢â€šÂ¬Ã‹Å“Ãƒâ€šÃ‚Â½ÃƒÆ’Ã‚Â¥Ãƒâ€šÃ‚ÂÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¨Ãƒâ€šÃ‚Â½Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã‚Â§Ãƒâ€šÃ‚Â«ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢" : name,
+                ["name"] = string.IsNullOrEmpty(name) ? "未命名车站" : name,
                 ["nameEn"] = "",
                 ["city"] = string.IsNullOrEmpty(city) ? "guangzhou" : city,
                 ["seed"] = seed,
@@ -293,8 +293,8 @@ namespace Metro.App {
 
         /// <summary>
         /// Install a document produced by an edit verb. The caller has already passed
-        /// the revision check; this runs the same parse â†’ index â†’ staged world/session
-        /// â†’ commit transaction as an open, so an edit cannot half-commit either.
+        /// the revision check; this runs the same parse → index → staged world/session
+        /// → commit transaction as an open, so an edit cannot half-commit either.
         /// </summary>
         public StationLoadResult InstallEditedDocument(string json, string sourceId) {
             StationReadResult read;
@@ -445,7 +445,7 @@ namespace Metro.App {
     }
 
     /// <summary>
-    /// The document ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ session projection. Only what C's session reads (flat facts,
+    /// The document → session projection. Only what C's session reads (flat facts,
     /// document order), so the session has no reference to Persistence or Newtonsoft.
     /// </summary>
     public static class StationSessionProjection {
@@ -527,7 +527,7 @@ namespace Metro.App {
                     Id = line.Id, Direction = line.Direction,
                     HeadwayPeak = 150, HeadwayOffpeak = 240, HeadwayLate = 480,
                     Stock = line.Stock, Cars = line.Cars,
-                    // âˆ’1 = the document authors no wave, so the service options' fallback
+                    // −1 = the document authors no wave, so the service options' fallback
                     // applies; an authored 0 means "nobody gets off here".
                     AlightPerTrain = -1, ModelScale = 1,
                 };

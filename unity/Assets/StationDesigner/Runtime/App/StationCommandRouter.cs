@@ -19,17 +19,17 @@ namespace Metro.App {
 
     /// <summary>
     /// A feature packet's command handler (D camera/view, E material/face, F sign,
-    /// G road, â€¦). The router calls it only for types it claims, so packets compile
+    /// G road, …). The router calls it only for types it claims, so packets compile
     /// and register without touching the loader or the host.
     /// </summary>
     public interface IStationCommandHandler {
-        /// <summary>Capability key advertised to the UI ("camera", "view", "sign", â€¦).</summary>
+        /// <summary>Capability key advertised to the UI ("camera", "view", "sign", …).</summary>
         string Capability { get; }
         bool Handles(string type);
         /// <summary>
         /// True = accepted (payload becomes the ack payload). False with an empty
         /// <paramref name="rejectCode"/> = not handled; false with a code = rejected.
-        /// A handler never changes the document revision â€” features ack, never commit.
+        /// A handler never changes the document revision — features ack, never commit.
         /// </summary>
         bool TryHandle(StationCommand command, JObject payload, out string rejectCode, out string rejectReason);
     }
@@ -38,7 +38,7 @@ namespace Metro.App {
     /// Process-wide command-handler registry. A feature file registers its handler
     /// once with <c>[RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]</c>;
     /// the host registers the snapshot with its router at Awake, so adding a packet
-    /// never edits the host. Capability keys are unique — a later handler replaces an
+    /// never edits the host. Capability keys are unique  a later handler replaces an
     /// earlier one with the same capability, which is what a test seam wants.
     /// </summary>
     public static class StationCommandHandlers {
@@ -68,8 +68,8 @@ namespace Metro.App {
 
     /// <summary>
     /// The single command receiver for the v2 envelope. It owns transport-level
-    /// rules â€” schema version, command id, stale <c>expectedRevision</c>, session
-    /// echo, stable rejection codes â€” and forwards feature payloads to registered
+    /// rules — schema version, command id, stale <c>expectedRevision</c>, session
+    /// echo, stable rejection codes — and forwards feature payloads to registered
     /// handlers as <see cref="JObject"/>, so camera/view/sign/road/material/sim
     /// payload types stay with their packets.
     ///

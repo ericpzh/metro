@@ -13,7 +13,7 @@ using UnityEngine;
 /// <summary>
 /// Packet D3: the view rules. The proof covers the level slice, the independent
 /// ceiling/ground/roof toggles, wall and PSD ghosting, Hide UI's grid/cursor-only
-/// subject, the one section plane (including éšè—å‰–åˆ‡é¢ keeping the cut on), picking
+/// subject, the one section plane (including 隐藏剖切面 keeping the cut on), picking
 /// against the same decisions, the exploded storey offsets, and the command applier
 /// that changes no document and no simulation.
 /// </summary>
@@ -228,8 +228,8 @@ public class StationVisibilityTests {
         registry.State.AutoCeiling = true;
         registry.Apply();
         Assert.AreEqual(StationDrawMode.Hidden, ceiling.LastMode);
-        Assert.AreEqual(StationDrawMode.Base, ground.LastMode, "éšè—å¤©èŠ±æ¿ is not éšè—åœ°é¢");
-        Assert.AreEqual(StationDrawMode.Base, roof.LastMode, "éšè—å¤©èŠ±æ¿ is not éšè—å±‹é¡¶");
+        Assert.AreEqual(StationDrawMode.Base, ground.LastMode, "隐藏天花板 is not 隐藏地面");
+        Assert.AreEqual(StationDrawMode.Base, roof.LastMode, "隐藏天花板 is not 隐藏屋顶");
 
         registry.State.AutoCeiling = false;
         registry.State.HideGround = true;
@@ -267,7 +267,7 @@ public class StationVisibilityTests {
     public void SetHideUiPutsTheCeilingToggleBack() {
         var state = new StationVisibilityState { AutoCeiling = true };
         state.SetHideUi(true);
-        Assert.IsFalse(state.AutoCeiling, "éšè—UI draws every storey with no ceiling lifted");
+        Assert.IsFalse(state.AutoCeiling, "隐藏UI draws every storey with no ceiling lifted");
         state.SetHideUi(false);
         Assert.IsFalse(state.AutoCeiling, "and does not restore a toggle the player had turned off");
     }
@@ -280,7 +280,7 @@ public class StationVisibilityTests {
         registry.State.HideWalls = true;
         registry.Apply();
         Assert.AreEqual(StationDrawMode.Clear, wall.LastMode);
-        Assert.AreEqual(StationDrawMode.Clear, psd.LastMode, "a PSD is a wall for éšè—å¢™å£");
+        Assert.AreEqual(StationDrawMode.Clear, psd.LastMode, "a PSD is a wall for 隐藏墙壁");
         Assert.AreEqual(StationDrawMode.Base, prop.LastMode);
 
         registry.State.Cutaway = true;
@@ -308,18 +308,18 @@ public class StationVisibilityTests {
         registry.SectionClipping = false;
         registry.State.HideGround = true;
         registry.Apply();
-        Assert.AreEqual(StationDrawMode.Hidden, ground.LastMode, "éšè—åœ°é¢ survives a cut");
+        Assert.AreEqual(StationDrawMode.Hidden, ground.LastMode, "隐藏地面 survives a cut");
         Assert.AreEqual(StationDrawMode.Base, roof.LastMode);
 
         registry.State.HideGround = false;
         registry.State.HideRoof = true;
         registry.Apply();
-        Assert.AreEqual(StationDrawMode.Hidden, roof.LastMode, "éšè—å±‹é¡¶ survives a cut");
+        Assert.AreEqual(StationDrawMode.Hidden, roof.LastMode, "隐藏屋顶 survives a cut");
 
         registry.State.HideRoof = false;
         registry.State.AutoCeiling = true;
         registry.Apply();
-        Assert.AreEqual(StationDrawMode.Hidden, ceiling.LastMode, "éšè—å¤©èŠ±æ¿ survives a cut");
+        Assert.AreEqual(StationDrawMode.Hidden, ceiling.LastMode, "隐藏天花板 survives a cut");
         Assert.AreEqual(StationDrawMode.Base, ground.LastMode);
     }
 
@@ -350,7 +350,7 @@ public class StationVisibilityTests {
         registry.State.Cutaway = true;
         registry.Apply();
         Assert.IsFalse(registry.SectionSurfaceVisible);
-        Assert.AreEqual(StationDrawMode.Hidden, cut.LastMode, "éšè—å‰–åˆ‡é¢ keeps cutting");
+        Assert.AreEqual(StationDrawMode.Hidden, cut.LastMode, "隐藏剖面 keeps cutting");
         Assert.IsFalse(registry.IsPointKept(new Vector3(0, 10, 0)));
     }
 
@@ -360,9 +360,9 @@ public class StationVisibilityTests {
         Assert.IsTrue(plane.Keeps(new Vector3(0, -1, 0)));
         Assert.IsFalse(plane.Keeps(new Vector3(0, 1, 0)));
         var rotated = plane.WithAzimuth(StationSectionPlane.NextAzimuth(90));
-        Assert.AreEqual(180f, rotated.Azimuth, 1e-4, "æ—‹è½¬ is one quarter turn");
+        Assert.AreEqual(180f, rotated.Azimuth, 1e-4, "旋转 is one quarter turn");
         var east = plane.WithAzimuth(90);
-        Assert.AreEqual(1f, east.Normal.x, 1e-4, "90Â° looks east");
+        Assert.AreEqual(1f, east.Normal.x, 1e-4, "90° looks east");
         Assert.IsFalse(east.Keeps(new Vector3(1, 0, 0)));
         Assert.IsTrue(east.Keeps(new Vector3(-1, 0, 0)));
     }
@@ -378,7 +378,7 @@ public class StationVisibilityTests {
         Assert.AreEqual(3f, slid, 1e-4, "a slide is measured along the normal");
         Assert.AreEqual(0f, StationSectionPlane.SnapOffset(.24f), 1e-4);
         Assert.AreEqual(.25f, StationSectionPlane.SnapOffset(.24f, true), 1e-4);
-        Assert.AreEqual(0f, StationSectionPlane.NextAzimuth(270f), 1e-4, "æ—‹è½¬ wraps at 270");
+        Assert.AreEqual(0f, StationSectionPlane.NextAzimuth(270f), 1e-4, "旋转 wraps at 270");
         Assert.AreEqual(90f, StationSectionPlane.SnapAzimuth(88f), 1e-4);
         Assert.AreEqual(new Vector3(0, 1, 0), plane.Normal);
         Assert.AreEqual(new Vector3(-1, 0, 0), plane.Right);
@@ -431,7 +431,7 @@ public class StationVisibilityTests {
         Assert.AreEqual(StationDrawMode.Hidden, below.LastMode);
         registry.State.HideUi = true;
         registry.Apply();
-        Assert.AreEqual(StationDrawMode.Base, below.LastMode, "éšè—UI draws every storey, shadows included");
+        Assert.AreEqual(StationDrawMode.Base, below.LastMode, "隐藏UI draws every storey, shadows included");
     }
 
     // ---------------------------------------------------------------- exploded
@@ -780,7 +780,7 @@ public class StationVisibilityTests {
             c.Key = StationViewKey.SectionRotate;
             c.RotateToNext = true;
         }), out code), code);
-        Assert.AreEqual(0f, applier.Section.Azimuth, 1e-4, "æ—‹è½¬ wraps from 270 to 0");
+        Assert.AreEqual(0f, applier.Section.Azimuth, 1e-4, "旋转 wraps from 270 to 0");
 
         Assert.AreEqual(0f, applier.Section.Offset, "rotation clears the previous drag");
         Assert.AreEqual(applier.Section.Anchor, applier.Visibility.Section.Point);
@@ -1016,7 +1016,7 @@ public class StationVisibilityTests {
         var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
         try {
             go.transform.position = StationCameraSpace.ToWorld(new Vector3(0, 0, 0));
-            // éšè—UI's subject is the drawing furniture (grid/cursor), not a wall.
+            // 隐藏UI's subject is the drawing furniture (grid/cursor), not a wall.
             var target = registry.Register(go.transform, StationPartRole.Grid, new[] { 0 });
             var renderer = go.GetComponent<MeshRenderer>();
             var collider = go.GetComponent<Collider>();
@@ -1036,7 +1036,7 @@ public class StationVisibilityTests {
             Assert.IsTrue(collider.enabled);
 
             // The same component under a wall role exercises the section branch: a
-            // part wholly on the cut side is hidden even though éšè—å¢™å£ is off.
+            // part wholly on the cut side is hidden even though 隐藏墙壁 is off.
             target.Configure(StationPartRole.Wall, new[] { 0 });
             go.transform.position = StationCameraSpace.ToWorld(new Vector3(0, 10, 0));
             registry.Section = new StationSectionPlane { Anchor = new Vector3(0, 0, -8), Azimuth = 0, Offset = 0 };

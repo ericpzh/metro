@@ -101,7 +101,7 @@ namespace Metro.Editor {
             var manifest = AssetDatabase.LoadAssetAtPath<TextAsset>(ManifestPath);
             if (!manifest)
                 throw new InvalidOperationException("Demo manifest is missing: " + ManifestPath +
-                    " Ã¢â‚¬â€ run `node tools/unity-parity/export-station-documents.mjs` first.");
+                    " — run `node tools/unity-parity/export-station-documents.mjs` first.");
             var demos = ReadManifest(manifest);
             var font = AssetDatabase.LoadAssetAtPath<Font>(Bootstrap.FontPath);
             if (!font) throw new InvalidOperationException("Scene font is missing: " + Bootstrap.FontPath);

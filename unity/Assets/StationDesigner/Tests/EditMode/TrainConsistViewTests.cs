@@ -176,9 +176,9 @@ namespace Metro.EditModeTests {
         [Test]
         public void CarsSitOnTheDerivedTrackAndAtTheAuthoredBerth() {
             var view = Consist("5|track-1");
-            // World.computeLineAnchors for track-1 (x 17, y âˆ’4, z âˆ’20, w 101, d 3,
+            // World.computeLineAnchors for track-1 (x 17, y −4, z −20, w 101, d 3,
             // rot 0, dir up): berth at the run centre, the bed centre across, and the
-            // rail surface `track.z + 1 âˆ’ CABIN_FLOOR_Z Â· scale`.
+            // rail surface `track.z + 1 − CABIN_FLOOR_Z · scale`.
             Assert.AreEqual(67.5f, view.Berth.DocumentPosition.x, 1e-2f, "berth x");
             Assert.AreEqual(-2.5f, view.Berth.DocumentPosition.y, 1e-2f, "berth plan y (bed centre)");
             Assert.AreEqual(-20f + 1f - .62f * .98f, view.Berth.DocumentPosition.z, 1e-2f, "berth elevation");
@@ -276,7 +276,7 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void ASampleInsideTheTickIntervalMovesTheConsistBetweenTicks() {
-            // RCA 14 Â§5.2: the published pose advances once per fixed second, but a
+            // RCA 14 §5.2: the published pose advances once per fixed second, but a
             // rendered frame samples between the previous and current tick targets, so
             // an approach is continuous instead of a 1 Hz jump.
             var view = Consist("5|track-1");
@@ -317,7 +317,7 @@ namespace Metro.EditModeTests {
                 "the last drawn depart frame leaves the tail on the connected rail's end");
             Assert.Greater(view.DocumentPosition.x, berth.x + 100f, "the consist pulled out");
             // Car 0 is the trailing end; it has cleared the far end of the connected
-            // rail (track-1 u 116 â†’ world x 133) at the last drawn frame.
+            // rail (track-1 u 116 → world x 133) at the last drawn frame.
             var tail = view.CarViews[0];
             Assert.Greater(tail.DocumentPosition.x, 133f, "the tail is past the tunnel portal");
         }
@@ -517,7 +517,7 @@ namespace Metro.EditModeTests {
             }
         }
 
-        // ------------------------------------------- the stop's door trace (plan 16 Â§4)
+        // ------------------------------------------- the stop's door trace (plan 16 §4)
 
         /// <summary>
         /// One Zoo Line 5 stop driven by the **real** session through the **real** renderer,
@@ -613,7 +613,7 @@ namespace Metro.EditModeTests {
         // ------------------------------------------- idle consults (plan 18 §7)
 
         /// <summary>
-        /// 18 §7 — a station opened before Play shows **no consist**. The formation is staged
+        /// 18 §7  a station opened before Play shows **no consist**. The formation is staged
         /// inactive and only an active service run may mount it; the `None` record the session
         /// still publishes in the gap between runs (which the clock and arrival forecast need)
         /// is not a train at a platform.
@@ -638,7 +638,7 @@ namespace Metro.EditModeTests {
 
         /// <summary>
         /// A level/section pass writes renderers, never root active state, so the retired
-        /// consist must stay hidden through Hidden, Ghost and Base — and a second dispatch of
+        /// consist must stay hidden through Hidden, Ghost and Base  and a second dispatch of
         /// the same service must start beyond the approach rail instead of blending out of the
         /// previous departure.
         /// </summary>
@@ -697,7 +697,7 @@ namespace Metro.EditModeTests {
         // ------------------------------------------- shared consist pose (plan 18 §8.2)
 
         /// <summary>
-        /// 18 §8.2 — the passenger runtime and the consist view must sample **one** pose. The
+        /// 18 §8.2  the passenger runtime and the consist view must sample **one** pose. The
         /// sim's `StationTrainPose` is the shared owner (the runtime cannot reference the view
         /// assembly); this pins it against the view's own berth derivation on both Zoo tracks,
         /// position, facing, direction, runs, half length and the cabin-floor datum, so the two

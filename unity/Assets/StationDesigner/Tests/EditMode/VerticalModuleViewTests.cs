@@ -19,7 +19,7 @@ using UnityEngine;
 /// quoted in `unity/plan/11-evidence/B2.md`.
 ///
 /// The Zoo fixture has 14 escalators, 5 stairs and 2 lifts. All 14 escalators are the
-/// canonical 9-cell / 5 m / 30Ãƒâ€šÃ‚Â° / narrow run, so they instance the promoted
+/// canonical 9-cell / 5 m / 30Ã‚Â° / narrow run, so they instance the promoted
 /// `Escalator.prefab` exactly. The three straight stairs are also the promoted
 /// geometry, but each has a wall side that suppresses one handrail in the source, so
 /// they are assembled at the authored dimensions instead (the prefab always carries
@@ -397,7 +397,7 @@ public class VerticalModuleViewTests {
             Assert.AreEqual("dimensions", view.PrefabRejectReason, view.ModuleId + " rejection reason");
             double height = view.ModuleId == "lift-15" ? 9.0 : 13.0;
             Assert.AreEqual(height, view.DocumentBounds.Z1 - view.DocumentBounds.Z0, 0.05f, view.ModuleId + " shaft height");
-            // The 2 x 2 shaft's posts are at Ãƒâ€šÃ‚Â±0.94 with a 0.14 section: 2.02 m plan.
+            // The 2 x 2 shaft's posts are at Ã‚Â±0.94 with a 0.14 section: 2.02 m plan.
             Assert.AreEqual(2.02, view.DocumentBounds.X1 - view.DocumentBounds.X0, 0.03f, view.ModuleId + " plan x");
             Assert.AreEqual(2.02, view.DocumentBounds.Y1 - view.DocumentBounds.Y0, 0.03f, view.ModuleId + " plan y");
         }
@@ -523,8 +523,8 @@ public class VerticalModuleViewTests {
     }
 
     /// <summary>
-    /// Plan 22 §3: a 楼梯块 is a **solid** one-cell stair — four full-width treads for a 1 m rise,
-    /// two for a 0.5 m one — built before any endpoint is read. Zoo/Tanwei's 56 block stairs used
+    /// Plan 22 §3: a 楼梯块 is a **solid** one-cell stair  four full-width treads for a 1 m rise,
+    /// two for a 0.5 m one  built before any endpoint is read. Zoo/Tanwei's 56 block stairs used
     /// to go through the flight path, which drew thin treads, stringers and glass balustrades
     /// inside a one-metre cell (the magenta-caged tread cluster in the reference screenshot).
     /// </summary>

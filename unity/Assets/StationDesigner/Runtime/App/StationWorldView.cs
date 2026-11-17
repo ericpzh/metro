@@ -7,14 +7,14 @@ using UnityEngine;
 
 namespace Metro.App {
     /// <summary>
-    /// One renderer family (cells, modules, signs, roads, actors, trains, Ã¢â‚¬Â¦). A
-    /// renderer is registered once Ã¢â‚¬â€ by its own file via
-    /// <see cref="StationRenderers.Add"/> or by the host Ã¢â‚¬â€ and the host calls
+    /// One renderer family (cells, modules, signs, roads, actors, trains, …). A
+    /// renderer is registered once — by its own file via
+    /// <see cref="StationRenderers.Add"/> or by the host — and the host calls
     /// <see cref="Build"/> into a **staged** root on every station install. Throwing
     /// from Build refuses that install and leaves the previous station in place.
     /// </summary>
     public interface IStationViewRenderer {
-        /// <summary>Stable role id ("cells", "modules", "signs", "roads", Ã¢â‚¬Â¦).</summary>
+        /// <summary>Stable role id ("cells", "modules", "signs", "roads", …).</summary>
         string Role { get; }
         void Build(StationViewBuildContext context);
         /// <summary>Drop materials, textures and subscriptions created for the last build.</summary>

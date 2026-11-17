@@ -12,6 +12,7 @@ import { ViewCube } from '../app/ViewCube.tsx'
 import type { ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
 import { useStore } from '../app/store.ts'
 import { initLanguage } from '../app/i18n.ts'
+import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
 import { initUiTheme } from '../app/uiTheme.ts'
 import { demoStationForPath, gamePathFor } from '../app/demoRoute.ts'
@@ -20,6 +21,7 @@ import { openingLevel } from '../app/openingLevel.ts'
 import { parse } from '../persistence/save.ts'
 import { attachCanvasCameraGestures, attachViewStateBridge, createStationCameraPort, createUnityViewCubeAdapter } from './cameraAdapter.ts'
 import { attachCanvasToolPointer } from './pointerInput.ts'
+import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
 import { paletteIdForModule } from '../app/tools/PickTool.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
@@ -196,45 +198,15 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     },
   }
   // Tool and level intent travel as session-scoped commands; neither edits the
-  // document, so neither carries an expected revision. A placement tool also sends
-  // its settings: the host owns the committed tool, and the candidate resolver needs
-  // the same palette id / turn / line the rail is showing.
-  const toolOf = (): string => {
-    const state = useStore.getState()
-    if (state.tool === 'block') return 'floor'
-    if (state.tool === 'module' && state.moduleType === 'gate') return 'gate'
-    if (state.tool === 'module') return 'module'
-    if (state.tool === 'delete') return 'delete'
-    if (state.tool === 'paint') return 'paint'
-    if (state.tool === 'select' || state.tool === 'pick' || state.tool === 'move') return state.tool
-    return 'inspect'
-  }
-  const toolSettings = (): Record<string, unknown> => {
-    const state = useStore.getState()
-    return {
-      moduleType: state.moduleType,
-      rotation: state.moduleRot ?? 0,
-      lineId: state.railLineId ?? '',
-    }
-  }
-  let previousToolKey = ''
-  // Set while the store is being moved to follow the host's committed tool: that change
-  // must not echo back a `tool.set` carrying the rail's settings, which would replace the
-  // host's own committed settings (a verifier or the presenter may have set them).
-  let applyingHostTool = false
-  const sendTool = (): void => {
-    const tool = toolOf()
-    const key = `${tool}|${JSON.stringify(toolSettings())}`
-    if (applyingHostTool) {
-      previousToolKey = key
-      return
-    }
-    if (key === previousToolKey) return
-    previousToolKey = key
-    stationBridge.send('tool.set', { tool, settings: toolSettings() })
-  }
-  sendTool()
-  const unsubscribeTool = useStore.subscribe(sendTool)
+  // document, so neither carries an expected revision. The typed adapter owns the
+  // canonical names and the whole settings payload: the host resolves a ghost from the
+  // same palette id / turn / cut mode the rail is showing (`toolAdapter.ts`, plan 27 §2).
+  const toolAdapter = createToolAdapter({
+    read: () => useStore.getState(),
+    send: (tool, settings) => { stationBridge.send('tool.set', { tool, settings }) },
+    subscribe: listener => useStore.subscribe(listener),
+    applyHostTool: tool => { useStore.getState().setTool(tool) },
+  })
   let previousLevel = Number.NaN
   const unsubscribeLevel = useStore.subscribe(state => {
     if (state.activeZ === previousLevel) return
@@ -278,17 +250,46 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // camera never sees the same pointer event twice (`cameraAdapter.ts`).
   const cameraPort = createStationCameraPort()
   const cameraAdapter = createUnityViewCubeAdapter(cameraPort)
+  // The committed tool can claim the secondary mouse button (the block brush digs with it);
+  // the host publishes that as `state.rightClaim`, and both canvas owners read the one value
+  // so a right press is never delivered to the camera and the tool (`pointerInput.ts`).
+  const rightClaimed = (): boolean => rightClaimedByTool(stationBridge.getSnapshot().state.rightClaim)
   const detachCanvas = attachCanvasCameraGestures(canvas, cameraPort, {
     blocked: () => document.body.dataset.metroBenchmarkLocked === 'true' || useStore.getState().explodedView,
+    claimsRight: rightClaimed,
   })
-  // The left-button tool stream, on the same canvas and with the same capture rule:
-  // a press on a React panel never reaches it. C# resolves one hit per event.
+  // The tool pointer stream, on the same canvas and with the same capture rule: a press on a
+  // React panel never reaches it. C# resolves one hit per event and dispatches a release to
+  // the gesture owner recorded at the press.
+  // The pointer's drag size label (`cells.measure`). C# publishes the footprint badge for a
+  // live cell plan; this chip is the only part that draws it, so the rule lives in
+  // `pointerMeasure.ts` and the player sees the size it is dragging.
+  const measureChip = document.createElement('div')
+  measureChip.className = 'metro-measure-chip'
+  measureChip.hidden = true
+  ;(canvas.parentElement ?? canvas).appendChild(measureChip)
+  let pointerAt = { clientX: 0, clientY: 0 }
+  const trackPointer = (event: PointerEvent): void => {
+    pointerAt = { clientX: event.clientX, clientY: event.clientY }
+  }
+  canvas.addEventListener('pointermove', trackPointer, { passive: true })
+  const showMeasure = (cells: CellsPayload | null): void => {
+    const english = document.documentElement.lang === 'en'
+    const label = wantsMeasure(cells) ? measureText(cells, english ? 'en' : 'zh') : ''
+    if (!label) { measureChip.hidden = true; return }
+    const at = measurePosition(pointerAt.clientX, pointerAt.clientY, canvas.getBoundingClientRect())
+    measureChip.textContent = label
+    measureChip.style.left = `${at.left}px`
+    measureChip.style.top = `${at.top}px`
+    measureChip.hidden = false
+  }
   const detachPointer = attachCanvasToolPointer(canvas, undefined, {
     blocked: () => {
       const state = useStore.getState()
       if (document.body.dataset.metroBenchmarkLocked === 'true') return true
       return state.explodedView || state.signEditorFor !== null || state.signComposing || state.followAgentId !== null
     },
+    claimsRight: rightClaimed,
   })
   // WASD and Ctrl+Q/E are the two keys the Three viewport's own scene owns; in the
   // Unity player they become held intents on the bridge, and the C# rig integrates
@@ -342,24 +343,10 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // rail (a verifier, the desktop presenter, a second client) must move the shell's store
   // too, otherwise a delayed adoption (the eyedropper arming the rail) re-asserts its old
   // tool and silently overrides the host between a command and the pointer event it was
-  // meant for. Names without a store equivalent (`inspect`, `floor`, `gate`, …) are left
-  // to `sendTool`, which owns their mapping.
-  let lastHostTool = ''
+  // meant for. The adapter guards the echo, so the adoption never replaces the host's own
+  // settings.
   const syncHostTool = (): void => {
-    const hostTool = stationBridge.getSnapshot().state.tool
-    if (typeof hostTool !== 'string' || hostTool === lastHostTool) return
-    lastHostTool = hostTool
-    const tools = useStore.getState()
-    applyingHostTool = true
-    try {
-      if (hostTool === 'select' || hostTool === 'pick' || hostTool === 'move') {
-        if (tools.tool !== hostTool) tools.setTool(hostTool)
-      } else if (hostTool === 'module') {
-        if (tools.tool !== 'module') tools.setTool('module')
-      }
-    } finally {
-      applyingHostTool = false
-    }
+    toolAdapter.adoptHostTool(stationBridge.getSnapshot().state.tool)
   }
   const unsubscribeHostTool = stationBridge.subscribe(syncHostTool)
   syncHostTool()
@@ -371,9 +358,11 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   // stays the one owner of "which tile placed this piece".
   let lastSelection = ''
   let lastPick = ''
+  let lastPaintPick = ''
   const adoptEdit = (): void => {
     const state = stationBridge.getSnapshot().state
     const edit = state.edit as Record<string, unknown> | null | undefined
+    showMeasure((edit?.cells as CellsPayload | null | undefined) ?? null)
     if (!edit) return
     const kind = typeof edit.selectionKind === 'string' ? edit.selectionKind : ''
     const key = typeof edit.selectionKey === 'string' ? edit.selectionKey : ''
@@ -407,6 +396,22 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       }
     }
     if (!pickId) lastPick = ''
+    // The 材质 brush's 取色 is the host's: `state.edit.paintPick` carries the finish of the face
+    // the player eyedropped, and only while the brush is still armed with the eyedropper — a
+    // late result must not drag the moulding brush back into pick mode.
+    const paintPick = edit.paintPick as Record<string, unknown> | null | undefined
+    const pickedFinish = paintPick && typeof paintPick.finish === 'string' ? paintPick.finish : ''
+    const paintKey = pickedFinish ? `${pickedFinish}|${String(paintPick?.cell ?? '')}` : ''
+    if (paintKey && paintKey !== lastPaintPick) {
+      lastPaintPick = paintKey
+      const tools = useStore.getState()
+      if (tools.tool === 'paint' && tools.paintMode === 'pick' && pickedFinish) {
+        tools.setPaintFinish(pickedFinish as never)
+        tools.resumePaintMode()
+      }
+    } else if (!paintKey) {
+      lastPaintPick = ''
+    }
   }
   const unsubscribeEdit = stationBridge.subscribe(adoptEdit)
   adoptEdit()
@@ -427,15 +432,38 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   ;(window as unknown as { __metroStationBridge?: typeof stationBridge }).__metroStationBridge = stationBridge
   // The sign editor's ✓ commits through the host while this shell owns the station;
   // the app registers no such port on its own (plan 11 F3 / `app/stationHostBridge.ts`).
+  // The same port carries the document verbs whose only writer is the host (plan 27 §4), so
+  // Ctrl+Z/Y, Delete and Escape reach the one edit history instead of a shadow store copy.
   registerStationHostCommit({
     ownsStation: () => unityHostOwnsStation(),
     commitSignBoards: (moduleId, boards) => commitSignBoardsToHost(moduleId, boards),
+    undo: () => { stationBridge.send('edit.undo', {}); return true },
+    redo: () => { stationBridge.send('edit.redo', {}); return true },
+    deleteSelection: () => {
+      const state = stationBridge.getSnapshot().state
+      const edit = state.edit as Record<string, unknown> | null | undefined
+      const kind = typeof edit?.selectionKind === 'string' ? edit.selectionKind : ''
+      const key = typeof edit?.selectionKey === 'string' ? edit.selectionKey : ''
+      if (!key) return false
+      if (kind === 'module') {
+        stationBridge.send('edit.delete', { moduleId: key })
+        return true
+      }
+      if (kind === 'cell') {
+        const parts = key.split(',').map(value => Number(value))
+        if (parts.length !== 3 || parts.some(value => !Number.isFinite(value))) return false
+        stationBridge.send('edit.delete', { cell: parts })
+        return true
+      }
+      return false
+    },
+    cancelGesture: () => { stationBridge.send('edit.cancel', {}); return true },
   })
   return () => {
     registerStationHostCommit(null)
     stopAdopting()
     unsubscribeRejects()
-    unsubscribeTool()
+    toolAdapter.dispose()
     unsubscribeLevel()
     unsubscribeClock()
     stopResyncStatistics()
@@ -454,6 +482,8 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     exitFaces.dispose()
     detachCanvas()
     detachPointer()
+    canvas.removeEventListener('pointermove', trackPointer)
+    measureChip.remove()
     detachKeyboard()
     detachView()
     cameraAdapter.dispose()

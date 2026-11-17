@@ -14,18 +14,18 @@ using UnityEditor;
 using UnityEngine;
 
 /// <summary>
-/// Plan 16 Â§5 pins for the exit head-house's floor and the two edit-time snaps.
+/// Plan 16 §5 pins for the exit head-house's floor and the two edit-time snaps.
 ///
 /// The expectations are the TypeScript source's own answers, recorded by
 /// `tools/unity-parity/record-station-exits.mjs`:
 ///
-/// * `station-exits-oracle.json` `zooExits` â€” `buildExit`'s real concrete pad
+/// * `station-exits-oracle.json` `zooExits` — `buildExit`'s real concrete pad
 ///   rectangles (`exit-concrete-base` meshes) and the `exitRunOpenings` /
 ///   `exitLandingBack` description, plus every saved floor contributor under the
 ///   plate. `StationExitOpenings` must reproduce the pad set exactly; the
 ///   heading above `Pads`/`LandingPads` explains why a stair landing is a pad the
 ///   escalator-only version was missing.
-/// * `snapExitToRamp` / `exitRunSnap` rows â€” the real `sim/exits.ts` functions over
+/// * `snapExitToRamp` / `exitRunSnap` rows — the real `sim/exits.ts` functions over
 ///   straight, two- and three-lane and Zoo's escalator geometry, every rotation,
 ///   clamped bays, wrong levels, and the families the source refuses (block and
 ///   turning stairs, a lift, a level run, doorway and virtual exits).
@@ -61,7 +61,7 @@ public class StationExitSnappingTests {
         Assert.IsNotNull((JArray)Oracle["zooExits"], "the exit oracle has no zoo rows");
     }
 
-    // ------------------------------------------------------------ DTO â†’ record
+    // ------------------------------------------------------------ DTO → record
 
     static ModuleConfig ConfigOf(JToken cfg) {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -192,7 +192,7 @@ public class StationExitSnappingTests {
         return cells;
     }
 
-    // ================================================== Â§5.1 loaded well opening
+    // ================================================== §5.1 loaded well opening
 
     [Test]
     public void LoadedZooExitsMatchTheSourceOpeningAndPads() {
@@ -218,7 +218,7 @@ public class StationExitSnappingTests {
             }
 
             // The concrete the real `buildExit` lays: strips **and** the per-run stair
-            // landings, as one set. This is the parity the escalator-only version missed â€”
+            // landings, as one set. This is the parity the escalator-only version missed —
             // `exit-uncovered-2-258` holds a stair in one bay, so the source floors its 1 m
             // upper landing even though the corridor below it opens.
             var expected = PadsOf(row);
@@ -244,7 +244,7 @@ public class StationExitSnappingTests {
             double plateArea = openings.Width * (openings.YHi - StationExitOpenings.BackY);
             Assert.AreEqual(plateArea, Area(actual) + cells.Count(cell => !Covers(actual, cell.LX, cell.LY)), 1e-6,
                 exit.Id + " pads + open cells must tile the plate");
-            // Everything left open is a run's wellway â€” never a hole beside the runs â€” and the
+            // Everything left open is a run's wellway — never a hole beside the runs — and the
             // stair landing really closes its own cell.
             foreach (var cell in cells) {
                 if (Covers(actual, cell.LX, cell.LY)) continue;
@@ -271,7 +271,7 @@ public class StationExitSnappingTests {
             foreach (var run in (JArray)row["runModules"]) {
                 var record = zoo.Modules.First(module => module.Facts.Id == (string)run["id"]);
                 // A one-run document isolates that run's `exitRunOpenings` answer, which is
-                // `runTop` plus `exitRunHalf` â€” the view-layer port of both.
+                // `runTop` plus `exitRunHalf` — the view-layer port of both.
                 var single = StationExitOpenings.For(new[] { record }, exit);
                 var expected = (JArray)run["openings"];
                 Assert.AreEqual(expected.Count, single.Runs.Count, record.Id + " opening count");
@@ -376,7 +376,7 @@ public class StationExitSnappingTests {
     }
 
     /// <summary>
-    /// 18 §6 — the street exits stay **open** over their wellways once the world is
+    /// 18 §6  the street exits stay **open** over their wellways once the world is
     /// registered and the view-mode walk has run. The old defect was not the composed
     /// strip mesh (that was already right): `BuildExit` only switched the tagged plinth
     /// renderer off, and `StationVisibilityTarget.Apply` collected every child and set
@@ -661,7 +661,7 @@ public class StationExitSnappingTests {
         return shader ? shader : Shader.Find("Standard");
     }
 
-    // ========================================================== Â§5.2 exit snaps
+    // ========================================================== §5.2 exit snaps
 
     [Test]
     public void SnapExitToRampMatchesTheSourceOracle() {
@@ -746,17 +746,17 @@ public class StationExitSnappingTests {
             Assert.AreEqual(((JArray)expected["base"])[2].Value<double>(), snap.Base.Z, Tolerance, id + " base z");
             Assert.AreEqual((int)expected["rot"], snap.Rotation, id + " rotation");
         }
-        // The defaults the resolver passes are the source's é•¿ rung and the 30Â° escalator run.
-        Assert.AreEqual(8, StationExitSnapping.StairRun, "STAIR_RUN (é•¿ 5 m at 2:3)");
+        // The defaults the resolver passes are the source's 长 rung and the 30° escalator run.
+        Assert.AreEqual(8, StationExitSnapping.StairRun, "STAIR_RUN (长 5 m at 2:3)");
         Assert.AreEqual(5, StationExitSnapping.StairRise, "STAIR_RISE");
-        Assert.AreEqual(9, StationExitSnapping.EscalatorRun, "ESCALATOR_RUN (30Â°)");
+        Assert.AreEqual(9, StationExitSnapping.EscalatorRun, "ESCALATOR_RUN (30°)");
         Assert.AreEqual(5, StationExitSnapping.EscalatorRise, "ESCALATOR_RISE");
     }
 
     /// <summary>
-    /// The lift source finding (plan 16 Â§5.2): the TypeScript tool has **no**
+    /// The lift source finding (plan 16 §5.2): the TypeScript tool has **no**
     /// lift-to-head-house snap. `snapExitToRamp` accepts only a stair or escalator, and the
-    /// lift tool is a shaft/hover-extension path of its own (`EquipmentTool.liftHover` â†’
+    /// lift tool is a shaft/hover-extension path of its own (`EquipmentTool.liftHover` →
     /// `liftExtendedUp/Down`), never a bay snap. The recorder's `lift-refused` row is the
     /// source's own `null`; this pins that Unity must not invent the rule until the extra
     /// behaviour is specified separately.
@@ -781,7 +781,7 @@ public class StationExitSnappingTests {
         public void Release() => Context = null;
     }
 
-    // ==================================================== Â§5.2 resolver wiring
+    // ==================================================== §5.2 resolver wiring
 
     /// <summary>One oracle module DTO in the save's own shape, for a tiny probe document.</summary>
     static JObject SaveModule(JToken dto) {
@@ -843,7 +843,7 @@ public class StationExitSnappingTests {
         var ramp = SnapshotRow("straight-stair-south")["ramp"];
         // The stair's upper landing is a ground hole where the run goes through the
         // street, so the fixture gives the head-house an authored solid at its anchor
-        // cell â€” the same support the Zoo street provides.
+        // cell — the same support the Zoo street provides.
         var index = Document(new JArray { SolidCell(10, 10, 0) }, SaveModule(ramp));
         var request = new StationPlacementRequest {
             ToolType = "exit-uncovered-2",
@@ -863,7 +863,7 @@ public class StationExitSnappingTests {
         Assert.AreEqual(2, (int)plan.Candidate.Number("bays"), "the palette id's bay count");
         Assert.AreEqual("false", plan.Candidate.Text("covered"), "the -uncovered- id drops the canopy");
 
-        // Without the ramp pick the same request keeps the pointer's own cell â€” the source's
+        // Without the ramp pick the same request keeps the pointer's own cell — the source's
         // `?? mod` fallback, not a refusal.
         var unsnapped = StationModulePlacement.Resolve(index, new StationPlacementRequest {
             ToolType = "exit-uncovered-2", Hit = Hit(12, 12, 0), Rotation = 0,
@@ -875,7 +875,7 @@ public class StationExitSnappingTests {
 
     [Test]
     public void ResolveSnapsAFreshRampIntoTheExitBay() {
-        // The bay is A at (10,10,0), two bays, with its two escalator runs already saved â€”
+        // The bay is A at (10,10,0), two bays, with its two escalator runs already saved —
         // exactly the document the source's `exitRunSnap` reads.
         var exitModule = new JObject {
             ["id"] = "exit-a", ["type"] = "exit", ["x"] = 10, ["y"] = 10, ["z"] = 0, ["rot"] = 0,
@@ -885,7 +885,7 @@ public class StationExitSnappingTests {
         var index = Document(exitModule);
 
         // A fresh straight stair: its base is the pointer cell's exit bay, one storey below
-        // and a full run back toward the mouth â€” not the street cell the pointer hit.
+        // and a full run back toward the mouth — not the street cell the pointer hit.
         var stair = StationModulePlacement.Resolve(index, new StationPlacementRequest {
             ToolType = "stair", Hit = Hit(10, 10, 0), Rotation = 0,
         });
@@ -902,12 +902,12 @@ public class StationExitSnappingTests {
         Assert.AreEqual("ramp-corridor-unported", stair.Reason,
             "a ramp's collision check cannot run until rampEnvelope is ported");
 
-        // The escalator's own 30Â° rung: 9 cells of run, the same 5 m rise.
+        // The escalator's own 30° rung: 9 cells of run, the same 5 m rise.
         var escalator = StationModulePlacement.Resolve(index, new StationPlacementRequest {
             ToolType = "escalator", Hit = Hit(10, 10, 0), Rotation = 0,
         });
         Assert.IsNotNull(escalator.Candidate, "the escalator candidate is built: " + escalator.Reason);
-        Assert.AreEqual(1, escalator.Candidate.Y, "9 cells back for the 30Â° run");
+        Assert.AreEqual(1, escalator.Candidate.Y, "9 cells back for the 30° run");
         Assert.AreEqual(-5, escalator.Candidate.Z, "the same storey");
         Assert.AreEqual("30", escalator.Candidate.Text("incline"));
         Assert.AreEqual("up", escalator.Candidate.Text("dir"));

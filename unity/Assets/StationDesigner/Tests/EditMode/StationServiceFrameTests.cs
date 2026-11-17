@@ -10,7 +10,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using UnityEngine;
 
-// Packet C ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· C3 ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â the published service frames (`StationServiceRuntime`), the
+// Packet C · C3 — the published service frames (`StationServiceRuntime`), the
 // document-derived crowd that fills them and the App feed that binds them to the
 // crowd renderer.
 //
@@ -65,7 +65,7 @@ public class StationServiceFrameTests {
     /* ------------------------------------------- door identity (plan 18 §8) */
 
     /// <summary>
-    /// 18 §8.1 — the source attributes each platform edge's doors to a track by
+    /// 18 §8.1  the source attributes each platform edge's doors to a track by
     /// `World.ts`'s rule, not by an exact `cfg.from` match: a valid `from` wins, otherwise
     /// the first service track with the edge's own direction, otherwise the first track.
     /// Requiring the saved id verbatim left every edge that named no track (or named one
@@ -185,7 +185,7 @@ public class StationServiceFrameTests {
     }
 
     /// <summary>
-    /// 18 §8.2 — a track-bound wave is seated **inside its car** and steps out along the
+    /// 18 §8.2  a track-bound wave is seated **inside its car** and steps out along the
     /// train. The old runtime used the source's no-consist branch for every service: all
     /// rows packed against one platform node and the step displaced along document X, so a
     /// logically alighting passenger never visibly left a car. The discriminating check is
@@ -373,7 +373,7 @@ public class StationServiceFrameTests {
 
     [Test]
     public void SpawnCountScalesWithTheDemandCurve() {
-        // The authored knob is the ÃƒÂ¦Ã¢â‚¬â€Ã‚Â¶ÃƒÂ¥Ã‹â€ Ã‚Â» slider's own range (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2.5, clamped by the clock),
+        // The authored knob is the 时刻 slider's own range (0–2.5, clamped by the clock),
         // so the comparison is the busiest authored day against a nearly flat one.
         var busy = new StationSimulationSession(Setup(GatePlatformDocument(), PeakDay(2.5), 0));
         var quiet = new StationSimulationSession(Setup(GatePlatformDocument(), PeakDay(0.2), 0));
@@ -506,7 +506,7 @@ public class StationServiceFrameTests {
             if (session.Services.BoardingsThisTick <= 0) continue;
             boardings += session.Services.BoardingsThisTick;
             // The source opens a doorway as soon as its own wave clears, which can be while
-            // the leaves are still travelling â€” never before they have started to move.
+            // the leaves are still travelling — never before they have started to move.
             Assert.IsTrue(leavesMoving, "a boarder was admitted while the doors were " + doors.TrainPhase + " on tick " + (tick + 1));
             Assert.Greater(doors.DoorFraction, 0, "the leaves have begun to open (tick " + (tick + 1) + ")");
         }
@@ -737,7 +737,7 @@ public class StationServiceFrameTests {
         Assert.AreEqual(0, emptyPoses.Count, "which clears the actors");
     }
 
-    // ------------------------------------------ the TS service oracle (plan 16 Ãƒâ€šÃ‚Â§4)
+    // ------------------------------------------ the TS service oracle (plan 16 §4)
 
     /// <summary>
     /// The source's stop, recorded by `tools/unity-parity/record-station-service.mjs`

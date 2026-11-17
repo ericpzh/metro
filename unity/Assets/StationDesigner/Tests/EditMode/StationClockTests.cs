@@ -4,14 +4,14 @@ using Metro.Sim;
 using NUnit.Framework;
 using UnityEngine;
 
-// Packet C Â· C2 â€” the station clock (`StationClock.cs`) against the TypeScript
+// Packet C · C2  the station clock (`StationClock.cs`) against the TypeScript
 // oracle in `station-clock-oracle.json` (written by
 // `tools/unity-parity/record-station-clock.mjs`, which computes every expected
 // value with `game/src/sim/clock.ts` itself).
 //
 // What a broken clock looks like is the point of most of these: a date one day
 // out, a weekday one off, a midnight that never comes, a service window that
-// never reopens, or `simTime` starting at 0:00 â€” all of them *look* like a
+// never reopens, or `simTime` starting at 0:00  all of them *look* like a
 // working clock until they are pinned against real calendar facts.
 public class StationClockTests {
     // ------------------------------------------------------------- oracle shape
@@ -200,7 +200,7 @@ public class StationClockTests {
         Assert.AreEqual(1, midnight.DayIndex);
         Assert.AreEqual("2026-01-02", midnight.DateKey);
         Assert.AreEqual(5, midnight.Weekday, "the weekday walked with the date");
-        // A time before the epoch reads as an earlier date, not as hour âˆ’1.
+        // A time before the epoch reads as an earlier date, not as hour −1.
         var before = new StationClock(StationDayData.Default, -1).Stamp();
         Assert.AreEqual("23:59:59", before.ClockSeconds);
         Assert.AreEqual("2025-12-31", before.DateKey);
@@ -215,11 +215,11 @@ public class StationClockTests {
         // This document lists 2026-01-05 (a Monday) as a holiday.
         var monday = new StationClock(day, StationClock.SimTimeAtDate(new SimDate(2026, 1, 5), day.Calendar.Epoch, 10 * 3600)).Stamp();
         Assert.AreEqual(1, monday.Weekday, "a holiday is still a Monday");
-        Assert.AreEqual(SimDayType.Offday, monday.DayType, "a listed date is éžå·¥ä½œæ—¥ whatever weekday it falls on");
+        Assert.AreEqual(SimDayType.Offday, monday.DayType, "a listed date is 非工作日 whatever weekday it falls on");
         var tuesday = new StationClock(day, StationClock.SimTimeAtDate(new SimDate(2026, 1, 6), day.Calendar.Epoch, 10 * 3600)).Stamp();
         Assert.AreEqual(SimDayType.Workday, tuesday.DayType);
         var saturday = new StationClock(day, StationClock.SimTimeAtDate(new SimDate(2026, 1, 10), day.Calendar.Epoch, 10 * 3600)).Stamp();
-        Assert.AreEqual(SimDayType.Offday, saturday.DayType, "a Saturday is never a å·¥ä½œæ—¥");
+        Assert.AreEqual(SimDayType.Offday, saturday.DayType, "a Saturday is never a 工作日");
         Assert.AreEqual(6, saturday.Weekday);
     }
 
@@ -227,12 +227,12 @@ public class StationClockTests {
     public void PeriodsReadTheDocumentsOwnWindows() {
         var oracle = Instance();
         var day = DayOf(oracle.input);
-        // The document authors 05:00â€“23:00 and peaks 06:00â€“08:30 / 17:00â€“18:30 â€” not
+        // The document authors 05:0023:00 and peaks 06:0008:30 / 17:0018:30  not
         // the shipped pair, so this pins that the windows come from the document.
         SimPeriod At(int dayIndex, int hour, int minute) => new StationClock(day,
             dayIndex * 86400 + hour * 3600 + minute * 60).Stamp().Period;
-        // Day 4 is 2026-01-05 â€” a listed holiday, so no peak applies even inside the window.
-        Assert.AreEqual(SimPeriod.Offpeak, At(4, 7, 0), "an offday runs no é«˜å³°");
+        // Day 4 is 2026-01-05  a listed holiday, so no peak applies even inside the window.
+        Assert.AreEqual(SimPeriod.Offpeak, At(4, 7, 0), "an offday runs no 高峰");
         // Day 5 is 2026-01-06, a workday.
         Assert.AreEqual(SimPeriod.Late, At(5, 4, 59), "shut before 05:00");
         Assert.AreEqual(SimPeriod.Late, At(5, 5, 0), "the window opens, but the 夜间 shoulder still runs until 06:30");
@@ -255,13 +255,13 @@ public class StationClockTests {
         clock.Seek(StationClock.ServiceLatest - 1);
         Assert.IsTrue(clock.Stamp().IsOpen, "the last open second");
         clock.Seek(StationClock.ServiceLatest);
-        Assert.IsFalse(clock.Stamp().IsOpen, "23:59 is shut â€” the span is half-open");
+        Assert.IsFalse(clock.Stamp().IsOpen, "23:59 is shut  the span is half-open");
         clock.Seek(86400); // the next day, 00:00
         Assert.IsFalse(clock.Stamp().IsOpen, "and midnight is still the closed station");
         Assert.AreEqual(1, clock.Stamp().DayIndex, "while the day index has moved on");
         clock.Seek(86400 + 22 * 3600);
         Assert.IsTrue(clock.Stamp().IsOpen, "the window reopens the next evening");
-        // The overnight reading exists for a caller handed a raw span: 22:00â€“02:00 is
+        // The overnight reading exists for a caller handed a raw span: 22:00–02:00 is
         // open at 23:00 and 01:00 and shut at 12:00. The normalizer never emits one.
         var overnight = new DaySpan(22 * 3600, 2 * 3600);
         Assert.IsTrue(StationClock.WithinSpan(23 * 3600, overnight));
@@ -286,7 +286,7 @@ public class StationClockTests {
         var crossed = StationClock.NormalizePeaks(new DaySpan(8 * 3600, 20 * 3600), new DaySpan(9 * 3600, 10 * 3600));
         Assert.AreEqual(n.peaksCrossed[0].from, crossed.Early.From);
         Assert.AreEqual(n.peaksCrossed[0].to, crossed.Early.To);
-        Assert.AreEqual(n.peaksCrossed[1].from, crossed.Late.From, "æ™šé«˜å³° starts where æ—©é«˜å³° ends");
+        Assert.AreEqual(n.peaksCrossed[1].from, crossed.Late.From, "晚高峰 starts where 早高峰 ends");
         Assert.AreEqual(n.peaksCrossed[1].to, crossed.Late.To);
         var squeezed = StationClock.NormalizePeaks(new DaySpan(6 * 3600, StationClock.ServiceLatest), new DaySpan(17 * 3600, 19 * 3600));
         Assert.AreEqual(n.peaksSqueezed[0].to, squeezed.Early.To);
@@ -321,7 +321,7 @@ public class StationClockTests {
         Assert.AreEqual(p.open, StationClock.SecondsOfClock("05:00"));
         Assert.AreEqual(p.lastMinute, StationClock.SecondsOfClock("23:59"));
         Assert.IsNull(StationClock.SecondsOfClock(""), "the empty box a half-typed input reports");
-        Assert.IsNull(StationClock.SecondsOfClock("24:00"), "the day ends at 23:59 — there is no 24 o’clock");
+        Assert.IsNull(StationClock.SecondsOfClock("24:00"), "the day ends at 23:59  there is no 24 oclock");
         Assert.AreEqual(6 * 3600 + 30 * 60 + 15, StationClock.SecondsOfClock("06:30:15"));
         Assert.IsNull(StationClock.SecondsOfClock("6:5"));
         Assert.IsNull(StationClock.SecondsOfClock("06:60"));
@@ -330,7 +330,7 @@ public class StationClockTests {
 
     [Test]
     public void HandsMatchTheFace() {
-        // 06:30 â€” the cold boot â€” is the whole difference between a clock face and a
+        // 06:30 — the cold boot — is the whole difference between a clock face and a
         // plate with two bars laid on it: the hour hand stands halfway past 6.
         var boot = StationClock.ClockHandAngles(StationClock.ReferenceBootSeconds);
         Assert.AreEqual(195, boot.hour, 1e-9);

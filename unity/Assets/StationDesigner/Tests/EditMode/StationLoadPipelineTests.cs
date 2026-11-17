@@ -47,7 +47,7 @@ namespace Metro.EditModeTests {
                 ["formatVersion"] = 1,
                 ["gameVersion"] = "0.2.0",
                 ["savedAt"] = StationDocumentReader.FixedSavedAt,
-                ["name"] = "ÃƒÂ¦Ã‚ÂµÃ¢â‚¬Â¹ÃƒÂ¨Ã‚Â¯Ã¢â‚¬Â¢ÃƒÂ§Ã‚Â«Ã¢â€žÂ¢",
+                ["name"] = "测试站",
                 ["nameEn"] = "Test",
                 ["city"] = "guangzhou",
                 ["seed"] = 7654321,
@@ -61,7 +61,7 @@ namespace Metro.EditModeTests {
                 ["static"] = new JObject {
                     ["cells"] = cells ?? new JArray { Cell(0, 0, 0), Cell(1, 0, 0) },
                     ["modules"] = modules,
-                    ["lines"] = lines ?? new JArray { Line("5", "5ÃƒÂ¥Ã‚ÂÃ‚Â·ÃƒÂ§Ã‚ÂºÃ‚Â¿") },
+                    ["lines"] = lines ?? new JArray { Line("5", "5号线") },
                 },
             };
             return envelope.ToString(Newtonsoft.Json.Formatting.None);
@@ -146,7 +146,7 @@ namespace Metro.EditModeTests {
                 Module("track-1", "track", 2, 0, -5, new JObject { ["line"] = "5", ["dir"] = "up" }),
             };
             var read = StationDocumentReader.Read(TinySave(modules, levelBase: 2), new StationSource("tiny", ""));
-            Assert.AreEqual("ÃƒÂ¦Ã‚ÂµÃ¢â‚¬Â¹ÃƒÂ¨Ã‚Â¯Ã¢â‚¬Â¢ÃƒÂ§Ã‚Â«Ã¢â€žÂ¢", read.Document.Name);
+            Assert.AreEqual("测试站", read.Document.Name);
             Assert.AreEqual("Test", read.Document.NameEn);
             Assert.AreEqual(2, read.Document.LevelBase);
             Assert.AreEqual(2, read.Document.CellCount);
@@ -321,7 +321,7 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(previousWorld.IsDisposed, "previous world is disposed on success");
             Assert.IsTrue(sim.ActiveClockJson().Contains("simTimeSeconds"), "simulation was committed with the document");
 
-            var newStation = coordinator.New("ÃƒÂ¦Ã¢â‚¬â€œÃ‚Â°ÃƒÂ§Ã‚Â«Ã¢â€žÂ¢", "shenzhen", 42);
+            var newStation = coordinator.New("新站", "shenzhen", 42);
             Assert.IsTrue(newStation.Accepted, newStation.ToString());
             Assert.AreEqual(3, coordinator.Revision);
             Assert.AreEqual("new", coordinator.SourceId);

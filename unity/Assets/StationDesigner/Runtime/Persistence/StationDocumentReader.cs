@@ -45,7 +45,7 @@ namespace Metro.Persistence {
     /// signs, lines, day, ads, furniture, bridge pillars) and adds the typed
     /// projection: records, day, lines, dropped counts and the raw records for a
     /// lossless round trip. A structurally valid station with damaged content still
-    /// opens â€” the *envelope* is what earns a refusal. A record whose migration this
+    /// opens — the *envelope* is what earns a refusal. A record whose migration this
     /// port does not implement is a typed <see cref="StationRejection"/> naming the
     /// type, id and reason; it is never silently dropped.
     /// </summary>
@@ -205,7 +205,7 @@ namespace Metro.Persistence {
         }
 
         /// <summary>
-        /// One saved module â†’ its typed record. Shared with the repair pass, which
+        /// One saved module → its typed record. Shared with the repair pass, which
         /// needs the same facts to answer placement for a bridge-pillar candidate.
         /// </summary>
         internal static StationModuleRecord BuildModule(JObject module, string city) {

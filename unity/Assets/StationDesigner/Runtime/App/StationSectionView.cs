@@ -1270,9 +1270,22 @@ namespace Metro.App {
                 rejectReason = "The camera command was refused.";
                 return false;
             }
+            // A camera change under a still pointer moves the surface it aims at. The discrete
+            // commands (a cube snap, home, projection, fov, the end of a held pan) re-aim the
+            // cached pointer once; a continuous orbit/pan/zoom flow does not, because the next
+            // coalesced pointer move re-plans anyway and a pick per delta would flood the frame
+            // (plan 27 §2: "camera/view/storey changes").
+            if (command != null && RefreshesHover(command.Type)) StationPointerRouter.RefreshHover(host);
             StationViewResponses.Fill(rig, host, payload);
             return true;
         }
+
+        static bool RefreshesHover(string type) =>
+            string.Equals(type, "camera.snap", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.home", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.projection", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.fov", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.panHeld", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1303,6 +1316,9 @@ namespace Metro.App {
             }
             // `state.level` is the host's shared-UI level; keep it on the camera's level.
             host?.SetActiveLevel(rig.Commands.Camera.ActiveLevel);
+            // A storey switch, a hide toggle or a section move all change the surface under a
+            // still pointer, so the tool's ghost is re-aimed from the committed view.
+            StationPointerRouter.RefreshHover(host);
             StationViewResponses.Fill(rig, host, payload);
             return true;
         }

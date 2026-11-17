@@ -1,13 +1,22 @@
-// The Unity player's canvas **tool** pointer stream (plan 16 §1.2). Camera gestures
-// stay with `cameraAdapter.ts` (middle drag orbits, right drag pans, wheel zooms); this
-// file forwards the left button, the pointer lifecycle and a right *tap* to the C#
-// pointer router, which resolves one scene hit per event and runs the active tool.
+// The Unity player's canvas **tool** pointer stream (plan 16 §1.2, plan 27 §2). Camera
+// gestures stay with `cameraAdapter.ts` (middle drag orbits, right drag pans, wheel zooms)
+// and this file forwards the pointer lifecycle to the C# pointer router, which resolves one
+// scene hit per event and runs the tool that **owned the press**.
 //
-// Why the React layer owns the event rather than Unity's InputSystem: the same shell
-// runs as a WebGL player and as the in-canvas desktop/Editor WebView, and the WebView
-// covers the Unity view. Listening on the canvas element means a click on a React
-// panel never reaches the router (the UI owns its own pointer), and it keeps the one
-// pick per event on the same side as the camera's own gesture arbitration.
+// Why the React layer owns the event rather than Unity's InputSystem: the same shell runs
+// as a WebGL player and as the in-canvas desktop/Editor WebView, and the WebView covers the
+// Unity view. Listening on the canvas element means a click on a React panel never reaches
+// the router (the UI owns its own pointer), and it keeps the one pick per event on the same
+// side as the camera's own gesture arbitration.
+//
+// Both build buttons belong to the tools. The host publishes what the secondary button means
+// for the committed tool (`state.rightClaim`: `erase` / `cancel` / `pan`):
+//
+// * `erase`  — a tool gesture (the block brush digs, a fence run comes down): the press,
+//              its moves and its release all go to C#, and the camera never pans.
+// * `cancel` — a right *tap* is a cancel/clear; a right **drag** still pans the camera, so
+//              the press is not forwarded and `up` reports a tap only when it barely moved.
+// * `pan`    — the camera owns the button entirely.
 //
 // Coordinates are CSS pixels relative to the canvas plus the canvas box, so the host
 // normalizes to its own drawing-buffer size and a DPR change cannot move the pick.
@@ -36,12 +45,25 @@ export interface PointerPayload {
   pointerType: string
   toolGeneration: number
   documentRevision: number
+  /** The client clock (`performance.now()`), so the host can test the reference's press thresholds. */
+  time: number
 }
 
 export interface ToolPointerOptions {
   /** True while the shared UI owns the pointer (a dialog, the benchmark lock, …). */
   blocked?: () => boolean
+  /**
+   * True when the committed tool owns the secondary button (`state.rightClaim === 'erase'`).
+   * The camera adapter consults the same predicate, so exactly one of the two consumes a
+   * right press.
+   */
+  claimsRight?: () => boolean
 }
+
+/** How far a right press may travel and still count as a tap (`pointer.ts` tap test). */
+const RIGHT_TAP_PX = 5
+/** How long a right press may be held and still count as a tap. */
+const RIGHT_TAP_MS = 500
 
 /**
  * Attach the tool pointer stream to the Unity canvas. Returns the detach function.
@@ -49,7 +71,8 @@ export interface ToolPointerOptions {
  * A move is coalesced to one send per animation frame (the latest position wins), so a
  * fast drag cannot queue a pick per browser event. Presses and releases flush the
  * pending move first: the release's own pick is the one the commit uses.
- */export function attachCanvasToolPointer(
+ */
+export function attachCanvasToolPointer(
   canvas: HTMLCanvasElement,
   port: { send: (command: PointerCommand) => void } = stationBridgePort(),
   options: ToolPointerOptions = {},
@@ -59,10 +82,12 @@ export interface ToolPointerOptions {
   let downY = 0
   let downAt = 0
   let downButton = -1
+  let toolOwnsRight = false
   let pending: PointerEvent | null = null
   let frame = 0
 
   const blocked = (): boolean => options.blocked?.() === true
+  const claimsRight = (): boolean => options.claimsRight?.() === true
 
   const snapshot = (): { toolGeneration: number; documentRevision: number } => {
     const state = stationBridge.getSnapshot()
@@ -106,6 +131,7 @@ export interface ToolPointerOptions {
       pointerType: event.pointerType || 'mouse',
       toolGeneration: known.toolGeneration,
       documentRevision: known.documentRevision,
+      time: performance.now(),
     }
   }
 
@@ -138,6 +164,7 @@ export interface ToolPointerOptions {
       downY = event.clientY
       downAt = performance.now()
       downButton = 0
+      toolOwnsRight = false
       try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
       flush()
       port.send({ type: 'pointer.down', payload: payload(event, 0) })
@@ -145,13 +172,19 @@ export interface ToolPointerOptions {
     }
     if (event.button === 2) {
       if (blocked()) return
-      // A right drag is the camera's pan; only a tap is a tool cancel/bulldoze, and
-      // `up` decides which one it was.
       pointerId = event.pointerId
       downX = event.clientX
       downY = event.clientY
       downAt = performance.now()
       downButton = 2
+      toolOwnsRight = claimsRight()
+      if (!toolOwnsRight) return
+      // The committed tool owns the secondary button: forward the press now, so the C#
+      // gesture is armed by the same event the player pressed — a right **drag** then digs
+      // a rectangle instead of panning the camera. Capture keeps the drag alive off-canvas.
+      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
+      flush()
+      port.send({ type: 'pointer.down', payload: payload(event, 2) })
     }
   }
 
@@ -164,17 +197,23 @@ export interface ToolPointerOptions {
   const up = (event: PointerEvent): void => {
     if (event.pointerId !== pointerId) return
     const wasButton = downButton
+    const owned = toolOwnsRight
     const travelled = Math.hypot(event.clientX - downX, event.clientY - downY)
     const elapsed = performance.now() - downAt
     pointerId = -1
     downButton = -1
+    toolOwnsRight = false
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
     // The release's hit is the one a click-commit uses, so the queued move is flushed
     // first under the same event order the C# router expects.
     flush()
     if (blocked()) return
     if (wasButton === 2) {
-      if (travelled <= 5 && elapsed <= 500) port.send({ type: 'pointer.rightTap', payload: payload(event, 2) })
+      if (owned) {
+        port.send({ type: 'pointer.up', payload: payload(event, 2) })
+        return
+      }
+      if (travelled <= RIGHT_TAP_PX && elapsed <= RIGHT_TAP_MS) port.send({ type: 'pointer.rightTap', payload: payload(event, 2) })
       return
     }
     port.send({ type: 'pointer.up', payload: payload(event, event.button) })
@@ -184,6 +223,7 @@ export interface ToolPointerOptions {
     const hadActivePointer = pointerId >= 0
     pointerId = -1
     downButton = -1
+    toolOwnsRight = false
     pending = null
     if (frame) { cancelAnimationFrame(frame); frame = 0 }
     if (blocked() && !hadActivePointer) return

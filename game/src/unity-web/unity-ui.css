@@ -13,3 +13,24 @@
 .explodedViewer[data-unity-host="true"] > .explodedCanvasSpacer { flex: 1; min-height: 0; pointer-events: none; }
 .explodedViewer[data-unity-host="true"] > .explodedLevels { position: relative; z-index: 2; background: var(--ui-202e3d, #202e3d); }
 html.metro-overlay body:has(.explodedViewer[open]) .app { visibility: hidden !important; pointer-events: none !important; }
+
+/* The pointer's drag size label (plan 27 §7): the footprint badge C# publishes as
+   `cells.measure`, drawn just off the pointer so the cursor never covers the numbers. */
+.metro-measure-chip {
+  position: absolute;
+  z-index: 40;
+  pointer-events: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(12, 16, 22, 0.82);
+  color: #f2f5f8;
+  font: 500 12px/1.4 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transform: translate(0, 0);
+  transition: opacity 80ms linear;
+}
+
+.metro-measure-chip[hidden] {
+  display: none;
+}

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using Metro.App;
 using Metro.Build;
@@ -138,11 +138,11 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void UnsupportedFamiliesAreRefusedBeforeACommitCanSeeThem() {
-            // A 自动步道 is still outside the ported families (plan 16 §5 has since added the
-            // head-house and the straight stair/escalator pair, whose candidate construction
-            // the exit snaps need).
+            // A 屋顶 roof plate's envelope lives in `sim/structures.ts` and is still outside the
+            // ported families (plan 16 §5 has since added the head-house, the straight
+            // stair/escalator pair, the 自动步道, the 电梯 and the 楼梯块).
             var plan = StationModulePlacement.Resolve(index, new StationPlacementRequest {
-                ToolType = "walkway",
+                ToolType = "billboard",
                 Rotation = 0,
                 Hit = new StationPlacementHit(0, 0, 0, 0, 0, 1, true, new StationPoint(0.5, 0.5, 1), 1),
             });
