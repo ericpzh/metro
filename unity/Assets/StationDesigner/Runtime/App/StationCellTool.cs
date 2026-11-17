@@ -214,8 +214,8 @@ namespace Metro.App {
                 if (!remove) {
                     // The add path snaps the column to the cell that faces open space and to the
                     // R-selected face; the remove path lifts exactly the column aimed at.
-                    var point = hit.HasCell ? hit.Cell.Point : new StationPoint(anchor.X + 0.5, anchor.Y + 0.5, anchor.Z);
-                    var snap = StationCellPlanner.WallSnap(worldRef, anchor, point.X, point.Y, hit.HasCell,
+                    var point = PointOf(hit, anchor);
+                    var snap = StationCellPlanner.WallSnap(worldRef, anchor, point.X, point.Y, true,
                         settings.WallSnapCycle);
                     anchor = snap.Base;
                     dirs = snap.Dirs;
@@ -284,12 +284,47 @@ namespace Metro.App {
             return true;
         }
 
+        /// <summary>
+        /// The whole cell one hit names, from the **nearest drawn surface**: a placed module
+        /// that wins the pick (paving, a track deck, a cabinet) names its own face exactly as
+        /// `render/pickCell.ts:pickCells` does, so the paver in the report anchors one cell
+        /// above the paver's own drawn top instead of at the ground behind it. A cell surface
+        /// keeps its authored cell and face step.
+        /// </summary>
+        static StationPlacementHit? CellOf(StationSceneHit hit) {
+            if (hit == null) return null;
+            var cell = hit.EditCell;
+            return cell.HasCell ? cell : (StationPlacementHit?)null;
+        }
+
         /// <summary>The cell a hit places into (add) or takes away (erase).</summary>
         static StationCellKey? AnchorFor(StationSceneHit hit, bool remove) {
-            if (hit == null || !hit.HasCell) return null;
-            var cell = hit.Cell;
+            var found = CellOf(hit);
+            if (!found.HasValue) return null;
+            var cell = found.Value;
             if (!remove && cell.Solid) return new StationCellKey(cell.PlaceX, cell.PlaceY, cell.PlaceZ);
             return new StationCellKey(cell.X, cell.Y, cell.Z);
+        }
+
+        /// <summary>
+        /// The cell a wall press/hover snaps its column to: the air cell in front of the hit
+        /// face, so the same surface resolves the same column on hover and at the release.
+        /// </summary>
+        static StationCellKey? WallAnchorFor(StationSceneHit hit, bool remove) {
+            var found = CellOf(hit);
+            if (!found.HasValue) return null;
+            var cell = found.Value;
+            if (remove) return new StationCellKey(cell.X, cell.Y, cell.Z);
+            return cell.Solid
+                ? new StationCellKey(cell.PlaceX, cell.PlaceY, cell.PlaceZ)
+                : new StationCellKey(cell.X, cell.Y, cell.Z);
+        }
+
+        /// <summary>The hit's surface point in plan space, for the wall snap's side choice.</summary>
+        static StationPoint PointOf(StationSceneHit hit, StationCellKey anchor) {
+            if (hit != null && hit.HasModule && hit.ModuleWins) return hit.ModulePoint;
+            if (hit != null && hit.HasCell) return hit.Cell.Point;
+            return new StationPoint(anchor.X + 0.5, anchor.Y + 0.5, anchor.Z);
         }
 
         // -------------------------------------------------------------------- aim
@@ -307,7 +342,7 @@ namespace Metro.App {
                 if (cell.HasValue) {
                     hasHover = true;
                     hoverCell = cell.Value;
-                    hoverLevel = hit.HasCell ? hit.Cell.Z : hit.Level;
+                    hoverLevel = cell.Value.Z;
                     hoverRevision = host.CurrentRevision;
                     preview = HoverPreview(worldRef, hit, settings);
                 } else {
@@ -317,34 +352,40 @@ namespace Metro.App {
                 return;
             }
             gesture.Shift = (pointer.Modifiers & StationPointerModifiers.Shift) != 0;
+            if (gesture.Kind == StationCellGestureKind.Block && !gesture.Remove && !gesture.Ceiling &&
+                !gesture.Shape.IsFull) {
+                // A press held in a cut mode keeps its anchor but follows **R** (`BlockTool`'s
+                // `d.shape = shape` in `refreshHover`): the ghost's side is the side the release
+                // lays, so a stationary R must move both.
+                var now = StationCellToolSettings.Read();
+                if (!now.Shape.IsFull) gesture.Shape = now.Shape;
+            }
             if (gesture.Kind == StationCellGestureKind.Wall) {
-                if (hit.HasCell) {
-                    var point = hit.Cell.Point;
+                var wallAim = WallAnchorFor(hit, gesture.Remove);
+                if (wallAim.HasValue) {
+                    var anchor = wallAim.Value;
                     if (gesture.Remove) {
-                        gesture.Target = new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                        gesture.Target = anchor;
                     } else {
-                        var snap = StationCellPlanner.WallSnap(worldRef, new StationCellKey(
-                            hit.Cell.Solid ? hit.Cell.PlaceX : hit.Cell.X,
-                            hit.Cell.Solid ? hit.Cell.PlaceY : hit.Cell.Y,
-                            hit.Cell.Z), point.X, point.Y, true, StationCellToolSettings.Read().WallSnapCycle);
+                        var point = PointOf(hit, anchor);
+                        var snap = StationCellPlanner.WallSnap(worldRef, anchor, point.X, point.Y, true,
+                            StationCellToolSettings.Read().WallSnapCycle);
                         gesture.Target = snap.Base;
                     }
                 }
             } else if (gesture.Kind == StationCellGestureKind.Delete) {
-                if (hit.HasCell) gesture.Target = new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                var deleteAim = AnchorFor(hit, true);
+                if (deleteAim.HasValue) gesture.Target = deleteAim.Value;
                 if (gesture.HasModules) {
                     // The sweep grows with the pieces the pointer crossed; it never shrinks.
                     if (gesture.SweepFamily.Length > 0) SweepThrough(worldRef);
-                } else if (hit.HasCell && hit.HasModule && hit.ModuleWins) {
+                } else if (hit.HasModule && hit.ModuleWins) {
                     gesture.ModuleIds.Add(hit.Module.Id);
                     gesture.SweepFamily = StationSweep.FamilyOf(hit.Module) ?? "";
                 }
             } else if (gesture.Kind == StationCellGestureKind.ModuleRun) {
-                if (hit.HasCell) {
-                    gesture.Target = hit.Cell.Solid
-                        ? new StationCellKey(hit.Cell.PlaceX, hit.Cell.PlaceY, hit.Cell.PlaceZ)
-                        : new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
-                }
+                var runAim = AnchorFor(hit, gesture.Remove);
+                if (runAim.HasValue) gesture.Target = runAim.Value;
             } else {
                 var cell = AnchorFor(hit, gesture.Remove);
                 if (cell.HasValue) gesture.Target = cell.Value;
@@ -701,6 +742,11 @@ namespace Metro.App {
         /// Rebuild the ghost the pointer already aims at: `R`/`Tab`, a new tool, a changed
         /// setting, a view or camera change and a commit all move what the still pointer is
         /// over, and nothing else would redraw it.
+        ///
+        /// It resolves the **same** fresh ray and the same full hit a pointer move would
+        /// (plan 28 §2), rather than re-planning against a cached coordinate: a camera move, a
+        /// storey switch or a tool returning to 方块 must land the ghost where the click would
+        /// land, including when no pointer move ever arrives after the change.
         /// </summary>
         public static bool RefreshHover(StationGameHost host) {
             if (host == null || !host.IsLoaded) return false;
@@ -708,24 +754,37 @@ namespace Metro.App {
             StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
             var worldRef = World(host);
             if (camera == null || worldRef == null) return false;
-            if (gesture == null) {
-                if (!hasHover) return false;
-                if (hoverRevision == host.CurrentRevision) {
-                    preview = HoverPreview(worldRef, null, StationCellToolSettings.Read());
+            if (StationEditSession.HasPointer) {
+                var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
+                var hit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray, activeLevel, visibility,
+                    false, out _, out _);
+                if (hit != null) {
+                    Aim(host, hit, StationEditSession.Pointer);
                     StationEditSession.Cells = preview;
                     return true;
                 }
-                hasHover = false;
+                Miss();
                 return false;
             }
-            if (!StationEditSession.HasPointer) return false;
-            var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
-            var hit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray, activeLevel, visibility,
-                false, out _, out _);
-            if (hit == null) return false;
-            Aim(host, hit, StationEditSession.Pointer);
+            // No pointer in the stage (the shell parked it): re-plan the cached cell so the
+            // settings change still reaches the published plan, but draw nothing.
+            if (gesture != null || !hasHover || hoverRevision != host.CurrentRevision) return false;
+            preview = HoverPreview(worldRef, null, StationCellToolSettings.Read());
             StationEditSession.Cells = preview;
             return true;
+        }
+
+        /// <summary>
+        /// The pointer resolved no surface at all (off the station, past the skybox): the
+        /// reference's `cancelPreview` drops what was drawn while a held gesture keeps its
+        /// anchor, so no stale ghost promises an edit the pointer is no longer aiming at.
+        /// </summary>
+        public static void Miss() {
+            if (gesture == null) {
+                hasHover = false;
+                preview = new StationCellPreview();
+            }
+            StationEditSession.Cells = null;
         }
 
         // ----------------------------------------------------------------- release
@@ -760,17 +819,18 @@ namespace Metro.App {
                     var target = AnchorFor(hit, current.Remove);
                     if (target.HasValue) current.Target = target.Value;
                 } else if (current.Kind == StationCellGestureKind.Wall) {
-                    if (hit.HasCell) {
+                    var wallAim = WallAnchorFor(hit, current.Remove);
+                    if (wallAim.HasValue) {
+                        var anchor = wallAim.Value;
                         current.Target = current.Remove
-                            ? new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z)
-                            : StationCellPlanner.WallSnap(worldRef, new StationCellKey(
-                                hit.Cell.Solid ? hit.Cell.PlaceX : hit.Cell.X,
-                                hit.Cell.Solid ? hit.Cell.PlaceY : hit.Cell.Y,
-                                hit.Cell.Z), hit.Cell.Point.X, hit.Cell.Point.Y, true,
+                            ? anchor
+                            : StationCellPlanner.WallSnap(worldRef, anchor,
+                                PointOf(hit, anchor).X, PointOf(hit, anchor).Y, true,
                                 StationCellToolSettings.Read().WallSnapCycle).Base;
                     }
-                } else if (current.Kind == StationCellGestureKind.Delete && !current.HasModules && hit.HasCell) {
-                    current.Target = new StationCellKey(hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                } else if (current.Kind == StationCellGestureKind.Delete && !current.HasModules) {
+                    var deleteAim = AnchorFor(hit, true);
+                    if (deleteAim.HasValue) current.Target = deleteAim.Value;
                 }
             }
             var plan = Plan(worldRef, current, pointer);

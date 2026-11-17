@@ -1,4 +1,4 @@
-﻿// Plan 11 A7 — the browser verifier for the generic station player.
+// Plan 11 A7 — the browser verifier for the generic station player.
 //
 // Runs the packed WebGL build of `Scenes/StationGameLocal.unity` under headless Chrome
 // (the same harness `smoke-zoo-playable.mjs` uses) and drives the station through
@@ -2943,6 +2943,17 @@ async function runStationBlockToolCase() {
       JSON.stringify([target.x, target.y, target.z]))
   }
   if ((await revision()) !== before) problems.push('the block ghost changed the document revision')
+  // 2a. The plan is **drawn on the game camera**, not only published (plan 28 §1/§5): the
+  //     renderer built ghost objects for the accepted cells and the render loop drew them at
+  //     least once. A badge beside an invisible ghost — the reported defect — fails here.
+  const ghost = await page.evaluate('(() => ((window.__metroStationBridge.getSnapshot().state.edit ?? {}).ghost ?? null))()')
+  if (!ghost || !(ghost.count > 0)) {
+    problems.push('the accepted cell plan drew no preview objects: ' + JSON.stringify(ghost))
+  } else if (!(ghost.visible > 0)) {
+    problems.push('the preview objects were built but never rendered: ' + JSON.stringify(ghost))
+  } else if (ghost.kind !== 'cells') {
+    problems.push('the drawn layer is not the cell ghost: ' + JSON.stringify(ghost))
+  }
 
   // 2b. The untouched virtual street is a no-op: hovering grade floor draws no accepted cell
   //     and no refusal, and a click there never edits. Zoo may have no visible virgin ground
@@ -3039,6 +3050,195 @@ async function runStationBlockToolCase() {
  * → ghost, click → exactly one revision, and the document really changed  because the
  * original defect was a dispatch gap where every one of those looked plausible on its own.
  */
+/**
+ * Plan 28 §3/§5 through the real player surface: **one case per Structure tile**.
+ *
+ * Every tile is driven the way the player drives it — `tool.set` arms the palette, a real hover
+ * resolves the plan, and the renderer must have drawn it (`state.edit.ghost.visible > 0`, the
+ * camera's own answer, not a plan array) — then a click commits exactly one revision and the
+ * save really gains the family. A tile whose probe cannot find a target on Zoo records
+ * `unavailable` rather than failing a station-shaped fixture, exactly as the block case does for
+ * virgin ground; the *renderer* assertion is the one that must never be skipped once a plan is
+ * published, because a badge beside an invisible ghost is the defect this plan repairs.
+ */
+async function runStationStructureTilesCase() {
+  const record = caseStart('station-structure-tiles')
+  const problems = []
+  if (!(await ensureDemo(activeDemo))) {
+    problems.push('could not commit the demo document before the Structure tile case')
+    return finishCase(record, false, { problems })
+  }
+  const revision = () => page.evaluate('window.__metroStationBridge.getSnapshot().revision')
+  const editState = () => page.evaluate('window.__metroStationBridge.getSnapshot().state.edit ?? null')
+  const send = (type, payload) => page.evaluate(
+    `window.__metroStationBridge.send(${JSON.stringify(type)}, ${JSON.stringify(payload)})`)
+  const modules = () => page.evaluate(`(() => {
+    const text = window.__metroStationBridge.getSnapshot().document
+    return text ? (JSON.parse(text).static?.modules ?? []) : []
+  })()`)
+  const tool = async (name, settings) => {
+    await send('tool.set', { tool: name, settings: settings ?? {} })
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().state.tool === ${JSON.stringify(name)}`,
+        'tool ' + name, 15000)
+    } catch { /* the click below reports the effect */ }
+    await sleep(200)
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await send('view.set', { key: 'cutaway', value: false })
+    await send('view.set', { key: 'level', value: 0 })
+    await sleep(300)
+    if (await page.evaluate('window.__metroStationBridge.getSnapshot().state.level') === 0) break
+  }
+  await send('camera.home', {})
+  await sleep(1500)
+  const rect = await page.evaluate(`(() => {
+    const canvas = document.querySelector('#unity-canvas') ?? document.querySelector('canvas')
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    return { x: r.left, y: r.top, w: r.width, h: r.height }
+  })()`)
+  if (!rect || !(rect.w > 100)) {
+    problems.push('the Unity canvas is not laid out')
+    return finishCase(record, false, { problems })
+  }
+  const at = (u, v) => ({ x: Math.round(rect.x + u * rect.w), y: Math.round(rect.y + v * rect.h) })
+  const moveTo = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(300)
+  }
+  const clickAt = async (u, v) => {
+    const p = at(u, v)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, button: 'none', buttons: 0 })
+    await sleep(120)
+    await page.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: p.x, y: p.y, button: 'left', buttons: 1, clickCount: 1 })
+    await sleep(60)
+    await page.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: p.x, y: p.y, button: 'left', buttons: 0, clickCount: 1 })
+    await sleep(350)
+  }
+  const probe = async (payload, probeId) => {
+    await send('edit.probe', { ...payload, probeId })
+    await poll(`(() => {
+      const s = window.__metroStationBridge.getSnapshot().state
+      const p = s.edit && s.edit.probe
+      return !!(p && p.probeId === ${JSON.stringify(probeId)})
+    })()`, 'probe ' + probeId, Math.min(timeoutMs, 30000))
+    return page.evaluate('window.__metroStationBridge.getSnapshot().state.edit.probe')
+  }
+  const undo = async () => {
+    const before = await revision()
+    await send('edit.undo', {})
+    try {
+      await poll(`window.__metroStationBridge.getSnapshot().revision === ${before + 1}`,
+        'structure undo', Math.min(timeoutMs, 30000))
+    } catch { problems.push('undo after a Structure edit did not commit') }
+  }
+
+  // The tiles that resolve a **fresh piece** through the ordinary placement: the two pillars and
+  // the roof plate/bays. Each asserts the ghost is drawn, then one release is one revision.
+  const tiles = [
+    { palette: 'pillar-thick', probe: { kind: 'place', toolType: 'pillar-thick', rotation: 0 }, type: 'pillar' },
+    { palette: 'pillar-slim', probe: { kind: 'place', toolType: 'pillar-slim', rotation: 0 }, type: 'pillar' },
+    { palette: 'roof', probe: { kind: 'place', toolType: 'roof', rotation: 0 }, type: 'roof' },
+    { palette: 'roof-tapered', probe: { kind: 'place', toolType: 'roof-tapered', rotation: 0, width: 4 }, type: 'roof' },
+    { palette: 'roof-canopy', probe: { kind: 'place', toolType: 'roof-canopy', rotation: 0, width: 4 }, type: 'roof' },
+  ]
+  const results = {}
+  for (const tile of tiles) {
+    results[tile.palette] = 'unavailable'
+    await tool('module', {
+      moduleType: tile.palette, rotation: 0, roofWidth: 4, pillarLength: 5,
+    })
+    let target = null
+    try { target = await probe(tile.probe, 'structure-' + tile.palette) } catch { await sleep(1200) }
+    if (!target || typeof target.u !== 'number') continue
+    const countBefore = (await modules()).filter((m) => m.type === tile.type).length
+    await moveTo(target.u, target.v)
+    const aimed = await editState()
+    const ghost = aimed?.ghost ?? null
+    const planned = Boolean(aimed?.plan?.candidate) || Boolean(aimed?.cells?.accepted?.length)
+    if (planned && !(ghost && ghost.count > 0)) {
+      problems.push(tile.palette + ': the plan drew no preview objects: ' + JSON.stringify(ghost))
+    } else if (planned && !(ghost.visible > 0)) {
+      problems.push(tile.palette + ': the preview was built but never rendered: ' + JSON.stringify(ghost))
+    }
+    const before = await revision()
+    await clickAt(target.u, target.v)
+    const after = await revision()
+    if (after === before) {
+      // A probe can aim at a cell the gesture then refuses (a slab over a wall); the refusal must
+      // at least be published, so the player is told rather than left with a dead button.
+      const notice = (await editState())?.notice ?? null
+      if (!notice) problems.push(tile.palette + ': the click changed nothing and published no outcome')
+      results[tile.palette] = 'refused:' + (notice?.code ?? '') + ':' + (notice?.kind ?? '')
+      continue
+    }
+    if (after !== before + 1) problems.push(tile.palette + ': the click committed ' + (after - before) + ' revisions')
+    const countAfter = (await modules()).filter((m) => m.type === tile.type).length
+    if (countAfter !== countBefore + 1) {
+      problems.push(tile.palette + ': the save gained ' + (countAfter - countBefore) + ' ' + tile.type + ' records, not one')
+    }
+    await undo()
+    const countRestored = (await modules()).filter((m) => m.type === tile.type).length
+    if (countRestored !== countBefore) problems.push(tile.palette + ': undo did not remove the piece')
+    results[tile.palette] = 'placed'
+  }
+
+  // The rail tools hang off existing track, so they are driven from a track probe: the hover must
+  // publish a rail plan the renderer drew, and the press commits it in one revision.
+  const railTiles = [
+    { name: 'rail', tool: 'rail', settings: { lineId: '5', railDir: 'up', rotationRail: 0 }, probe: { kind: 'cell', z: 0 } },
+    { name: 'tunnel', tool: 'tunnel', settings: { tunnelLength: 4 }, probe: { kind: 'module', moduleType: 'track' } },
+    { name: 'bridge', tool: 'module', settings: { moduleType: 'bridge', bridgeLength: 8, bridgeRailing: 'railing' }, probe: { kind: 'module', moduleType: 'track' } },
+  ]
+  for (const tile of railTiles) {
+    results[tile.name] = 'unavailable'
+    await tool(tile.tool, tile.settings)
+    let target = null
+    try { target = await probe(tile.probe, 'structure-' + tile.name) } catch { await sleep(1200) }
+    if (!target || typeof target.u !== 'number') continue
+    const tracksBefore = (await modules()).filter((m) => m.type === 'track').length
+    await moveTo(target.u, target.v)
+    const aimed = await editState()
+    const railPlan = aimed?.railPlan ?? null
+    const ghost = aimed?.ghost ?? null
+    if (!railPlan) {
+      results[tile.name] = 'unavailable:no-plan'
+      continue
+    }
+    if (!(ghost && ghost.visible > 0)) {
+      problems.push(tile.name + ': the rail plan drew no rendered preview: ' + JSON.stringify(ghost))
+    }
+    const before = await revision()
+    await clickAt(target.u, target.v)
+    const after = await revision()
+    if (after === before) {
+      const notice = (await editState())?.notice ?? null
+      if (!notice) problems.push(tile.name + ': the press changed nothing and published no outcome')
+      results[tile.name] = 'refused:' + (notice?.code ?? '') + ':' + (notice?.kind ?? '')
+      continue
+    }
+    if (after !== before + 1) problems.push(tile.name + ': the press committed ' + (after - before) + ' revisions')
+    const tracksAfter = (await modules()).filter((m) => m.type === 'track').length
+    if (tracksAfter <= tracksBefore) problems.push(tile.name + ': the press committed no track')
+    if (tile.name === 'bridge') {
+      const bridged = (await modules()).find((m) => m.type === 'track' && m.cfg?.bridge)
+      if (!bridged) problems.push('bridge: the committed track has no cfg.bridge')
+    }
+    await undo()
+    results[tile.name] = 'placed'
+  }
+
+  await send('tool.set', { tool: 'select', settings: {} })
+  await sleep(200)
+  const unavailable = Object.entries(results).filter(([, value]) => String(value).startsWith('unavailable')).map(([key]) => key)
+  await screenshot('station-game-structure-tiles')
+  return finishCase(record, problems.length === 0, {
+    problems, tiles: results, unavailable, revision: await revision(),
+  })
+}
+
 async function runStationWallDeleteCase() {
   const record = caseStart('station-wall-delete')
   const problems = []
@@ -4375,6 +4575,7 @@ async function main() {
   // brush's own case runs once the editing case has taken its measurement. Both restore the
   // demo they edit; `ensureDemo` is a no-op while Zoo is already committed.
   if (wanted('station-block-tool')) await runStationBlockToolCase()
+  if (wanted('station-structure-tiles')) await runStationStructureTilesCase()
   if (wanted('station-wall-delete')) await runStationWallDeleteCase()
   if (wanted('station-run-paint')) await runStationRunPaintCase()
   // The 分区 brush is the third face/floor edit on the same street storey; it edits one cell

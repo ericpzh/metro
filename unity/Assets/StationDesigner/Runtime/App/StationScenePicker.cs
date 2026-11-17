@@ -113,6 +113,19 @@ namespace Metro.App {
         public bool HasCell => Cell.HasCell;
         public bool HasWorkPlane => WorkPlane.HasCell;
 
+        /// <summary>
+        /// The whole cell the **nearest drawn surface** names (plan 28 §1). A module that wins
+        /// the pick names its own face exactly as `render/pickCell.ts:pickCells` does — so a
+        /// sidewalk tile's top anchors one cell above the tile's drawn surface rather than on
+        /// the ground behind it — while a cell surface keeps its authored cell and face step.
+        /// The cell tools and the rail tools all read this one answer, so a paver resolves the
+        /// same cell for the ghost and for the release.
+        /// </summary>
+        public StationPlacementHit EditCell =>
+            HasModule && ModuleWins
+                ? StationPlacementHit.FromNormal(ModulePoint, ModuleNormal, true)
+                : Cell;
+
         /// <summary>True when a visible module surface was hit and is not occluded by a nearer cell surface.</summary>
         public bool ModuleWins =>
             HasModule && (!HasCell || ModuleDistance <= CellDistance + CoincidentTieMetres);

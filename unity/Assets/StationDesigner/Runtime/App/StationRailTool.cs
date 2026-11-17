@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Metro.Build;
 using Newtonsoft.Json.Linq;
@@ -51,10 +51,11 @@ namespace Metro.App {
             code = null;
             reason = null;
             if (host?.Index == null) { reason = "no-session"; return false; }
-            if (hit == null || !hit.HasCell) { reason = "no-cell"; return false; }
+            var cell = hit != null ? hit.EditCell : StationPlacementHit.None;
+            if (!cell.HasCell) { reason = "no-cell"; return false; }
             if (button == 2) {
-                var rail = StationRailPlanner.RailAt(host.Index, hit.Cell.X, hit.Cell.Y, hit.Cell.Z)
-                    ?? StationRailPlanner.RailAt(host.Index, hit.Cell.PlaceX, hit.Cell.PlaceY, hit.Cell.PlaceZ);
+                var rail = StationRailPlanner.RailAt(host.Index, cell.X, cell.Y, cell.Z)
+                    ?? StationRailPlanner.RailAt(host.Index, cell.PlaceX, cell.PlaceY, cell.PlaceZ);
                 if (rail == null) { reason = "no-track-to-remove"; return false; }
                 var removal = StationRailPlanner.PlanRemoval(host.Index, rail.Id);
                 if (!removal.HasWork) { reason = removal.Reason; return false; }
@@ -69,7 +70,7 @@ namespace Metro.App {
                 return true;
             }
             var plan = StationRailPlanner.Plan(host.Index, ArmedLine(), ArmedDirection(), ArmedRotation(),
-                hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                cell.X, cell.Y, cell.Z);
             if (!plan.Ok) {
                 preview = plan;
                 StationEditSession.Rail = plan;
@@ -91,9 +92,10 @@ namespace Metro.App {
         /// <summary>Re-aim the piece ghost at one fresh hit (a move, or a re-aimed cached pointer).</summary>
         public static void Aim(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer) {
             if (host?.Index == null) { preview = null; StationEditSession.Rail = null; return; }
-            if (hit == null || !hit.HasCell) { preview = null; StationEditSession.Rail = null; return; }
+            var cell = hit != null ? hit.EditCell : StationPlacementHit.None;
+            if (!cell.HasCell) { preview = null; StationEditSession.Rail = null; return; }
             preview = StationRailPlanner.Plan(host.Index, ArmedLine(), ArmedDirection(), ArmedRotation(),
-                hit.Cell.X, hit.Cell.Y, hit.Cell.Z);
+                cell.X, cell.Y, cell.Z);
             StationEditSession.Rail = preview;
         }
 

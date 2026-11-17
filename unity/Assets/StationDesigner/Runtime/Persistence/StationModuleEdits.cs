@@ -27,7 +27,7 @@ namespace Metro.Persistence {
                 ["x"] = draft.X,
                 ["y"] = draft.Y,
                 ["z"] = draft.Z,
-                ["rot"] = StationFootprints.NormRot(draft.Rotation),
+                ["rot"] = RotationOf(draft),
             };
             if (draft.Width > 1) record["w"] = draft.Width;
             if (draft.Depth > 1) record["d"] = draft.Depth;
@@ -57,6 +57,20 @@ namespace Metro.Persistence {
         static JObject Point(StationPoint point) => new JObject {
             ["x"] = point.X, ["y"] = point.Y, ["z"] = point.Z,
         };
+
+        /// <summary>
+        /// The saved turn. Every piece is a quarter turn **except** a 细柱: a slim pillar's `rot`
+        /// is its in-cell spot among the reference's nine positions (`IN_CELL_POSITIONS`), which
+        /// `StationFootprints.PillarOffset` reads back, so normalizing it to four would move a
+        /// post the player had stepped around its cell (plan 28 §3).
+        /// </summary>
+        static int RotationOf(StationEditDraft draft) {
+            if (string.Equals(draft.Type, "pillar", StringComparison.Ordinal) &&
+                !string.Equals(draft.Text("size"), "thick", StringComparison.Ordinal)) {
+                return ((draft.Rotation % 9) + 9) % 9;
+            }
+            return StationFootprints.NormRot(draft.Rotation);
+        }
 
         static JToken Scalar(string text) {
             if (string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)) return true;

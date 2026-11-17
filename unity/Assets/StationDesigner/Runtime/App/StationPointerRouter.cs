@@ -155,6 +155,14 @@ namespace Metro.App {
         public static bool CellToolActive => IsCellTool(StationToolSelection.Active);
 
         /// <summary>
+        /// True while the armed 设备 palette is the 桥梁 tile (its own length and railing, and the
+        /// same extension aim as the 隧道 tool — plan 28 §3c).
+        /// </summary>
+        static bool IsBridgeArmed() =>
+            string.Equals(StationToolSelection.Active, "module", StringComparison.Ordinal) &&
+            string.Equals(StationToolSelection.Setting("moduleType"), "bridge", StringComparison.Ordinal);
+
+        /// <summary>
         /// True while the armed 设备 palette is the 道路 stroke (`RoadTool`'s `moduleType === 'road'`).
         /// </summary>
         static bool RoadArmed() =>
@@ -231,7 +239,11 @@ namespace Metro.App {
             }
 
             if (!StationPointerEvent.TryDecode(payload, out var pointer, out code)) return false;
-            StationEditSession.RememberPointer(pointer);
+            // A stale event must not become the pointer a later settings/camera refresh re-aims:
+            // its tool generation or revision names a session this host no longer has (plan 28 §2).
+            bool staleTool = pointer.ToolGeneration >= 0 && pointer.ToolGeneration != StationToolSelection.Generation;
+            bool staleRevision = pointer.DocumentRevision >= 0 && pointer.DocumentRevision != host.CurrentRevision;
+            if (!staleTool && !staleRevision) StationEditSession.RememberPointer(pointer);
 
             // Compute ONE screen ray per event and share it between section-handle arbitration
             // and scene picking so a handle grab performs zero scene picks.
@@ -247,8 +259,6 @@ namespace Metro.App {
             }
 
             var tool = StationToolSelection.Active;
-            bool staleTool = pointer.ToolGeneration >= 0 && pointer.ToolGeneration != StationToolSelection.Generation;
-            bool staleRevision = pointer.DocumentRevision >= 0 && pointer.DocumentRevision != host.CurrentRevision;
             if (type == "pointer.up") {
                 // The release is dispatched to the **owner recorded at the press**, never to
                 // whatever tool happens to be committed when it arrives (plan 27 §2). A tool
@@ -313,6 +323,27 @@ namespace Metro.App {
                             reply["reason"] = reason;
                         }
                     }
+                } else if (StationRoofTool.HasGesture) {
+                    // A 屋顶 area/bay gesture commits on the release (`TileEquipmentTool.onUp`):
+                    // the batch the ghost drew is the batch one revision lays.
+                    if (staleTool || staleRevision) {
+                        StationRoofTool.Cancel();
+                        reason = staleTool ? "stale-tool" : "stale-revision";
+                    } else if (camera != null) {
+                        var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
+                            activeLevel, visibility, false, out _, out _);
+                        committed = StationRoofTool.Finish(host, releaseHit, pointer, ray, out code, out reason);
+                        if (committed) {
+                            editHost.Bind(host);
+                            AfterCommit(host, editHost, "");
+                        } else {
+                            if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
+                            // A refused release leaves the batch drawn, so the player can see what
+                            // the refusal is about; a cancel drops it.
+                            editHost.EnsureBound(host);
+                            editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                        }
+                    }
                 } else if (StationCellTool.HasGesture) {
                     if (staleTool || staleRevision) {
                         StationCellTool.Cancel();
@@ -330,11 +361,18 @@ namespace Metro.App {
                         _ = releaseContext;
                     }
                 }
-                if (IsCellTool(tool) && !committed) StationCellTool.Publish();
+                if (IsCellTool(tool)) {
+                    // A committed cell press leaves the pointer over the cell it just built: re-aim
+                    // against the new revision so the next ghost is the next block in the stack
+                    // (plan 28 §1). A refused or empty release just clears the drawn layer.
+                    bool replanned = committed && StationEditSession.HasPointer && RefreshHover(host);
+                    if (!replanned) DrawCells(host, editHost);
+                }
                 if (StationPaintTool.HasGesture == false) StationPaintTool.Publish();
                 if (StationZoneTool.HasGesture == false) StationZoneTool.Publish();
                 if (StationSurfaceTool.HasGesture == false) StationSurfaceTool.Publish();
                 if (camera != null) PopulateCellReply(host, reply, editHost);
+                PublishOutcome(type, tool, committed, code, reason);
                 StationEditSession.Trace(type, tool, null, null,
                     revisionBefore, host.CurrentRevision, StationScenePicker.PickCount - picksBefore);
                 reply["tool"] = tool;
@@ -360,17 +398,34 @@ namespace Metro.App {
             var world = host.Coordinator?.World;
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
                 NeedsWorkPlane(tool), out var pickContext, out code);
-            if (hit == null) return false;
+            if (hit == null) {
+                // A miss: no surface under the pointer. The reference draws nothing there, so the
+                // owning layer is cleared rather than left showing the previous aim (plan 28 §1).
+                // It is a routed event that aimed at nothing — not a refusal of the command.
+                if (IsCellTool(tool)) StationCellTool.Miss();
+                if (StationRoofTool.IsArmed()) StationRoofTool.Miss();
+                if (StationPillarTool.IsArmed()) StationPillarTool.Miss();
+                ClearCellLayer(editHost);
+                editHost.Preview?.ClearGhost();
+                reply["miss"] = true;
+                reply["tool"] = tool;
+                reply["toolGeneration"] = StationToolSelection.Generation;
+                StationEditSession.Trace(type, tool, null, null,
+                    revisionBefore, host.CurrentRevision, StationScenePicker.PickCount - picksBefore);
+                PopulateCellReply(host, reply, editHost);
+                if (reply["edit"] == null) reply["edit"] = StationEditSession.ToJson();
+                return true;
+            }
 
             switch (type) {
                 case "pointer.down":
                     Down(host, editHost, world, ray, pickContext, pointer, tool, hit, reply, out code, out reason);
                     break;
                 case "pointer.rightTap":
-                    RightTap(host, editHost, pointer, tool, hit, reply, out code, out reason);
+                    RightTap(host, editHost, pointer, ray, tool, hit, reply, out code, out reason);
                     break;
                 case "pointer.move":
-                    Move(host, editHost, world, ray, pickContext, pointer, tool, hit, reply, out code, out reason);
+                    Aim(host, editHost, world, ray, pickContext, pointer, tool, hit, reply, out code, out reason);
                     break;
             }
 
@@ -379,42 +434,72 @@ namespace Metro.App {
             reply["hit"] = HitJson(hit);
             reply["tool"] = tool;
             reply["toolGeneration"] = StationToolSelection.Generation;
+            PublishOutcome(type, tool, host.CurrentRevision != revisionBefore, code, reason);
             PopulateCellReply(host, reply, editHost);
             if (reply["edit"] == null) reply["edit"] = StationEditSession.ToJson();
             return true;
         }
 
         /// <summary>
+        /// Publish one build outcome for the player (plan 28 §4): a **committed** press clears
+        /// the notice, a refusal names itself as `blocked` (a candidate this surface turns away)
+        /// or `stale` (the gesture's tool or revision moved), and a deliberate click that changes
+        /// nothing is a `no-op`. A plain hover publishes nothing, so moving the pointer over
+        /// awkward geometry never spams the shell.
+        /// </summary>
+        static void PublishOutcome(string type, string tool, bool committed, string code, string reason) {
+            if (string.Equals(type, "pointer.move", StringComparison.Ordinal)) return;
+            if (committed) { StationEditSession.ClearNotice(); return; }
+            if (string.IsNullOrEmpty(code) && string.IsNullOrEmpty(reason)) return;
+            string kind = "blocked";
+            if (string.Equals(code, "stale-tool", StringComparison.Ordinal) ||
+                string.Equals(code, "stale-revision", StringComparison.Ordinal) ||
+                string.Equals(reason, "stale-tool", StringComparison.Ordinal) ||
+                string.Equals(reason, "stale-revision", StringComparison.Ordinal)) kind = "stale";
+            else if (string.Equals(code, "nothing-to-do", StringComparison.Ordinal) ||
+                     string.Equals(reason, "nothing-to-do", StringComparison.Ordinal) ||
+                     string.Equals(code, "no-track-to-remove", StringComparison.Ordinal) ||
+                     string.Equals(code, "no-roof-to-remove", StringComparison.Ordinal)) kind = "no-op";
+            StationEditSession.PublishNotice(kind, code ?? reason, reason, tool);
+        }
+
+        /// <summary>
         /// Append the cell tool's aimed preview to a reply so the shell can read the same
         /// verdict the player sees: accepted/refused cells, the generated ring, the footprint
-        /// badge and whether the whole gesture is refused.
+        /// badge and whether the whole gesture is refused. It **serializes only** (plan 28 §1):
+        /// the drawn layer belongs to <see cref="DrawCells"/>, which every aim path calls, so a
+        /// badge can never appear beside an invisible ghost.
         /// </summary>
         static void PopulateCellReply(StationGameHost host, JObject reply, StationEditHost editHost) {
+            _ = host;
+            _ = editHost;
             if (reply == null) return;
             var preview = StationCellTool.Preview;
             reply["cells"] = preview != null && preview.HasPlan ? preview.ToJson() : null;
             reply["zone"] = StationEditSession.Zone != null ? StationEditSession.Zone.ToJson() : null;
             reply["rail"] = StationEditSession.RailJson(StationEditSession.Rail);
             reply["surface"] = StationEditSession.Surface != null ? StationEditSession.Surface.ToJson() : null;
-            if (!CellToolActive) {
-                // One ghost owns the shared preview layer at a time. A face, floor or rail tool
-                // draws its own layer before this reply is built, so the layer is only cleared
-                // here when its owner has nothing to show (a commit, a cancel, another tool).
-                var active = StationToolSelection.Active;
-                bool paintOwner = string.Equals(active, "paint", StringComparison.Ordinal) && StationEditSession.Paint != null;
-                bool zoneOwner = string.Equals(active, "zone", StringComparison.Ordinal) && StationEditSession.Zone != null;
-                bool railOwner = (string.Equals(active, "rail", StringComparison.Ordinal) ||
-                                  string.Equals(active, "tunnel", StringComparison.Ordinal)) &&
-                                 StationEditSession.Rail != null;
-                bool surfaceOwner = string.Equals(active, "module", StringComparison.Ordinal) &&
-                                    StationEditSession.Surface != null;
-                if (!paintOwner && !zoneOwner && !railOwner && !surfaceOwner) editHost.Preview?.ShowCells(null);
-                return;
-            }
-            reply["rightClaim"] = StationToolSelection.RightClaim;
-            _ = host;
-            _ = editHost;
+            if (CellToolActive) reply["rightClaim"] = StationToolSelection.RightClaim;
         }
+
+        /// <summary>
+        /// Draw the cell tool's aimed plan on the game camera (plan 28 §1). Binding is checked
+        /// first and is idempotent for one committed world, so drawing on the first aim after
+        /// Open or New binds, while drawing under a still pointer never wipes the layer.
+        /// </summary>
+        static void DrawCells(StationGameHost host, StationEditHost editHost) {
+            if (editHost == null) return;
+            editHost.EnsureBound(host);
+            editHost.Preview?.ShowCells(StationCellTool.Preview);
+            StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("cells") : null;
+        }
+
+        /// <summary>Drop the cell tool's drawn layer without touching its gesture.</summary>
+        static void ClearCellLayer(StationEditHost editHost) {
+            editHost?.Preview?.ClearCells();
+            StationEditSession.Ghost = null;
+        }
+
 
         /// <summary>
         /// The committed tool changed: drop every plan the old owner was drawing so no ghost
@@ -429,102 +514,67 @@ namespace Metro.App {
             StationRailTool.Cancel();
             StationTunnelTool.Cancel();
             StationSurfaceTool.Cancel();
+            StationRoofTool.Cancel();
+            StationPillarTool.Cancel();
             if (StationEditSession.HasCarried) CancelMove(host, editHost);
             ClearPlan(host, editHost);
         }
 
         /// <summary>
-        /// Re-aim the cached pointer once (plan 27 §2). A settings, camera or view change moves
-        /// what the same pixel resolves to, and nothing else would rebuild the ghost under a
-        /// still pointer.
+        /// The committed tool is unchanged but its **owner** moved (plan 28 §2): the same 设备
+        /// tile swapped for another (a pillar for a bench, a roof bay for a plate) is an owner
+        /// change, so the old owner's gesture and drawn layer are dropped *before* the new aim,
+        /// while a plain rotation/width/variant change is a replan that keeps a held press.
+        /// </summary>
+        public static void OnToolSettingsEdited(StationGameHost host, bool ownerChanged) {
+            if (ownerChanged) {
+                var editHost = StationEditHost.Ensure();
+                StationRoofTool.Cancel();
+                StationPillarTool.Cancel();
+                StationCellTool.Cancel();
+                StationSurfaceTool.Cancel();
+                ClearPlan(host, editHost);
+            }
+            RefreshHover(host);
+        }
+
+        /// <summary>
+        /// Re-aim the cached pointer once (plan 27 §2, plan 28 §2). A settings, tool, camera or
+        /// view change moves what the same pixel resolves to, and nothing else would rebuild
+        /// the ghost under a still pointer. It resolves **one fresh ray and one fresh hit** and
+        /// then runs the same non-committing aim a real `pointer.move` runs
+        /// (<see cref="Aim"/>), so a stationary change and a moving pointer can never resolve
+        /// two different ghosts.
         /// </summary>
         public static bool RefreshHover(StationGameHost host) {
             if (host == null || !host.IsLoaded) return false;
-            bool cell = StationCellTool.RefreshHover(host);
-            if (string.Equals(StationToolSelection.Active, "paint", StringComparison.Ordinal) &&
-                StationEditSession.HasPointer) {
-                // A finish/mode change under a still pointer redraws the face ghost; the brush's
-                // own region does not depend on the camera, so the cached pointer is enough.
-                StationEditScene.ResolveView(host, out _, out var paintCamera, out var paintLevel, out var paintVisibility);
-                if (paintCamera != null) {
-                    var paintRay = paintCamera.ScreenPointToRay(StationEditSession.PointerScreen());
-                    var paintHit = StationEditScene.PickRay(host, host.Coordinator?.World, paintCamera, paintRay,
-                        paintLevel, paintVisibility, false, out _, out _);
-                    StationPaintTool.Aim(host, paintHit, StationEditSession.Pointer);
-                    StationPaintTool.Publish();
-                    StationEditHost.Ensure().Preview?.ShowFaces(StationPaintTool.Preview);
-                    return true;
-                }
-            }
-            if (string.Equals(StationToolSelection.Active, "zone", StringComparison.Ordinal) &&
-                StationEditSession.HasPointer) {                // A brush change under a still pointer retints the floor it would label.
-                StationEditScene.ResolveView(host, out _, out var zoneCamera, out var zoneLevel, out var zoneVisibility);
-                if (zoneCamera != null) {
-                    var zoneRay = zoneCamera.ScreenPointToRay(StationEditSession.PointerScreen());
-                    var zoneHit = StationEditScene.PickRay(host, host.Coordinator?.World, zoneCamera, zoneRay,
-                        zoneLevel, zoneVisibility, false, out _, out _);
-                    StationZoneTool.Aim(host, zoneHit, StationEditSession.Pointer);
-                    StationZoneTool.Publish();
-                    StationEditHost.Ensure().Preview?.ShowZone(StationZoneTool.Preview);
-                    return true;
-                }
-            }
-            if (string.Equals(StationToolSelection.Active, "rail", StringComparison.Ordinal) &&
-                StationEditSession.HasPointer) {
-                // A line, rotation or direction change under a still pointer resizes and turns the
-                // piece ghost without waiting for the next move.
-                StationEditScene.ResolveView(host, out _, out var railCamera, out var railLevel, out var railVisibility);
-                if (railCamera != null) {
-                    var railRay = railCamera.ScreenPointToRay(StationEditSession.PointerScreen());
-                    var railHit = StationEditScene.PickRay(host, host.Coordinator?.World, railCamera, railRay,
-                        railLevel, railVisibility, false, out _, out _);
-                    StationRailTool.Aim(host, railHit, StationEditSession.Pointer);
-                    StationRailTool.Publish();
-                    StationEditHost.Ensure().Preview?.ShowRail(StationRailTool.Preview);
-                    return true;
-                }
-            }
-            if (StationSurfaceTool.IsArmed() && StationEditSession.HasPointer) {
-                // A tile-type change under a still pointer retints the rectangle it would pave.
-                StationEditScene.ResolveView(host, out _, out var paveCamera, out var paveLevel, out var paveVisibility);
-                if (paveCamera != null) {
-                    var paveRay = paveCamera.ScreenPointToRay(StationEditSession.PointerScreen());
-                    var paveHit = StationEditScene.PickRay(host, host.Coordinator?.World, paveCamera, paveRay,
-                        paveLevel, paveVisibility, false, out _, out _);
-                    StationSurfaceTool.Aim(host, paveHit, StationEditSession.Pointer);
-                    StationSurfaceTool.Publish();
-                    StationEditHost.Ensure().Preview?.ShowSurface(StationSurfaceTool.Preview);
-                    return true;
-                }
-            }
-            if (string.Equals(StationToolSelection.Active, "tunnel", StringComparison.Ordinal) &&
-                StationEditSession.HasPointer) {
-                // The armed tunnel length is part of the ghost, so a change to it re-aims too.
-                StationEditScene.ResolveView(host, out _, out var boreCamera, out var boreLevel, out var boreVisibility);
-                if (boreCamera != null) {
-                    var boreRay = boreCamera.ScreenPointToRay(StationEditSession.PointerScreen());
-                    var boreHit = StationEditScene.PickRay(host, host.Coordinator?.World, boreCamera, boreRay,
-                        boreLevel, boreVisibility, false, out _, out _);
-                    StationTunnelTool.Aim(host, boreHit, StationEditSession.Pointer);
-                    StationTunnelTool.Publish();
-                    StationEditHost.Ensure().Preview?.ShowRail(StationTunnelTool.Preview);
-                    return true;
-                }
-            }
+            var tool = StationToolSelection.Active;
             var editHost = StationEditHost.Ensure();
-            if (StationEditSession.HasCarried && StationEditSession.HasPointer) {                StationEditScene.ResolveView(host, out _, out var camera, out var level, out var visibility);
-                if (camera == null) return cell;
-                var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
-                var hit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray, level, visibility,
-                    true, out var context, out _);
-                if (hit != null) {
-                    AimMove(host, editHost, host.Coordinator?.World, ray, context, hit);
-                    return true;
-                }
-            } else if (CellToolActive && !StationCellTool.HasGesture) {
-                return cell;
+            if (!StationEditSession.HasPointer) {
+                // The shell parked the pointer (a rail click, a leave): only the cell tool can
+                // still re-plan its cached cell, and it draws nothing until the pointer returns.
+                return StationCellTool.RefreshHover(host);
             }
-            return cell;
+            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
+            if (camera == null) return false;
+            var world = host.Coordinator?.World;
+            var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
+            var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
+                NeedsWorkPlane(tool), out var pickContext, out _);
+            if (hit == null) {
+                // A miss under a still pointer drops what the old aim drew, exactly like a move
+                // that leaves the station: no stale ghost survives a camera that no longer
+                // points at the surface it was resolved against.
+                if (IsCellTool(tool)) StationCellTool.Miss();
+                ClearCellLayer(editHost);
+                return false;
+            }
+            editHost.EnsureBound(host);
+            string code, reason;
+            var discard = new JObject();
+            Aim(host, editHost, world, ray, pickContext, StationEditSession.Pointer, tool, hit, discard,
+                out code, out reason);
+            return true;
         }
 
         static void Down(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
@@ -538,10 +588,14 @@ namespace Metro.App {
                 // camera pan, so this is the one owner of it.
                 if (StationCellTool.Begin(host, hit, tool, pointer.Button, pointer, out reason)) {
                     StationCellTool.Publish();
+                    DrawCells(host, editHost);
                     reply["cells"] = StationCellTool.Preview.ToJson();
                     return;
                 }
+                StationCellTool.Miss();
+                ClearCellLayer(editHost);
                 reply["cells"] = null;
+                if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && ModuleRunArmed() &&
@@ -550,6 +604,7 @@ namespace Metro.App {
                 // panel per press (`EquipmentTool.beginLineAdd`).
                 if (StationCellTool.Begin(host, hit, tool, pointer.Button, pointer, out reason)) {
                     StationCellTool.Publish();
+                    DrawCells(host, editHost);
                     reply["cells"] = StationCellTool.Preview.ToJson();
                     return;
                 }
@@ -576,44 +631,30 @@ namespace Metro.App {
                 return;
             }
             // A 桥梁 is a fixed-length span hung off the hovered rail's free end — the same gesture
-            // as a 隧道, but it sets `cfg.bridge` and derives its piers per bay in the same revision.
-            if (string.Equals(tool, "module", StringComparison.Ordinal) &&
-                string.Equals(StationToolSelection.Setting("moduleType"), "bridge", StringComparison.Ordinal)) {
-                var bridgeSource = StationTunnelTool.RailUnder(host, hit);
-                if (bridgeSource == null) {
-                    reason = "no-track";
-                    return;
-                }
+            // as a 隧道 (plan 28 §3c), with `cfg.bridge` and piers derived per bay in one revision.
+            // Its aim, its ghost and its press read one shared plan.
+            if (string.Equals(tool, "module", StringComparison.Ordinal) && IsBridgeArmed()) {
+                StationTunnelTool.Aim(host, hit, pointer, true);
+                StationTunnelTool.Publish();
+                editHost.EnsureBound(host);
+                var bridgePlan = StationTunnelTool.Preview;
+                editHost.Preview?.ShowRail(bridgePlan, bridgePlan?.Track != null
+                    ? StationBridgePillars.Candidates(host.Index, StationModulePlacement.ToRecord(bridgePlan.Track))
+                    : null);
+                reply["rail"] = StationEditSession.RailJson(StationEditSession.Rail);
                 if (pointer.Button == 2) {
-                    var sourceRail = bridgeSource;
-                    var removal = StationRailPlanner.PlanRemoval(host.Index, sourceRail.Id);
-                    if (!removal.HasWork) { reason = removal.Reason; return; }
-                    var removalPatch = removal.ToPatch();
-                    foreach (var write in StationTunnelShell.Strip(host.Index, sourceRail.Id)) removalPatch.Writes.Add(write);
-                    if (!StationEditSession.TryApplyCells(host, removalPatch, "remove rail", null, out _, out code)) {
-                        reason = code;
-                        return;
-                    }
+                    bool lifted = StationTunnelTool.Begin(host, hit, pointer, 2, true, out code, out reason);
+                    if (!lifted) { if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason; return; }
+                    editHost.Bind(host);
                     AfterCommit(host, editHost, "");
                     return;
                 }
-                int bridgeLength = Math.Max(1, StationToolSelection.SettingInt("bridgeLength", 24));
-                var bridgePlan = StationRailPlanner.PlanBridge(host.Index, bridgeSource.Id, bridgeLength,
-                    hit.Cell.X, hit.Cell.Y, true, StationToolSelection.Setting("bridgeRailing"));
-                if (!bridgePlan.Ok) {
-                    reason = bridgePlan.Reason;
+                if (!StationTunnelTool.Begin(host, hit, pointer, pointer.Button, true, out code, out reason)) {
+                    if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
                     return;
                 }
-                bridgePlan.Track.Id = StationModulePlacement.NextId(host.Index, "track");
-                var bridgePatch = bridgePlan.ToPatch();
-                foreach (var pier in StationBridgePillars.Candidates(host.Index,
-                             StationModulePlacement.ToRecord(bridgePlan.Track)))
-                    bridgePatch.AddModule(pier);
-                if (!StationEditSession.TryApplyCells(host, bridgePatch, "place bridge", null, out _, out code)) {
-                    reason = code;
-                    return;
-                }
-                AfterCommit(host, editHost, bridgePlan.Track.Id);
+                editHost.Bind(host);
+                AfterCommit(host, editHost, StationTunnelTool.Preview?.Track?.Id ?? "");
                 return;
             }
             if (string.Equals(tool, "module", StringComparison.Ordinal) && StationLiftTool.IsArmed() &&
@@ -681,8 +722,9 @@ namespace Metro.App {
                     // The 隧道 tool extends the hovered rail along its own axis and lifts it on
                     // the secondary press (`TunnelTool.onDown`).
                     StationCellTool.Cancel();
-                    bool bored = StationTunnelTool.Begin(host, hit, pointer, pointer.Button, out code, out reason);
+                    bool bored = StationTunnelTool.Begin(host, hit, pointer, pointer.Button, false, out code, out reason);
                     StationTunnelTool.Publish();
+                    editHost.EnsureBound(host);
                     editHost.Preview?.ShowRail(StationTunnelTool.Preview);
                     reply["rail"] = StationEditSession.RailJson(StationEditSession.Rail);
                     if (!bored && !string.IsNullOrEmpty(reason)) reply["reason"] = reason;
@@ -698,6 +740,30 @@ namespace Metro.App {
                         BeginMove(host, editHost, hit, reply, out code, out reason);
                     return;
                 case "module":
+                    // A 屋顶 tile arms an area/bay gesture that commits on the release, and a
+                    // 支柱 press over an existing post grows it in place (plan 28 §3).
+                    if (StationRoofTool.IsArmed()) {
+                        if (!StationRoofTool.Begin(host, hit, pointer, ray, pointer.Button, out reason)) {
+                            if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                            return;
+                        }
+                        StationRoofTool.Publish();
+                        editHost.EnsureBound(host);
+                        editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                        return;
+                    }
+                    if (StationPillarTool.IsArmed()) {
+                        int revisionBeforePillar = host.CurrentRevision;
+                        if (StationPillarTool.Begin(host, hit, pointer, pointer.Button, out code, out reason)) {
+                            if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                            if (host.CurrentRevision != revisionBeforePillar) {
+                                editHost.Bind(host);
+                                AfterCommit(host, editHost, "");
+                            }
+                            reply["edit"] = StationEditSession.ToJson();
+                            return;
+                        }
+                    }
                     Place(host, editHost, world, ray, pickContext, hit, reply, out code, out reason);
                     return;
                 default:
@@ -707,8 +773,8 @@ namespace Metro.App {
             }
         }
 
-        static void RightTap(StationGameHost host, StationEditHost editHost, StationPointerEvent pointer, string tool,
-            StationSceneHit hit, JObject reply, out string code, out string reason) {
+        static void RightTap(StationGameHost host, StationEditHost editHost, StationPointerEvent pointer, Ray ray,
+            string tool, StationSceneHit hit, JObject reply, out string code, out string reason) {
             code = null; reason = null;
             if (StationCellTool.HasGesture) {
                 StationCellTool.Cancel();
@@ -728,9 +794,12 @@ namespace Metro.App {
                 if (StationCellTool.Begin(host, hit, tool, 2, pointer, out reason)) {
                     StationCellTool.Finish(host, hit, pointer, out code, out reason);
                     StationCellTool.Publish();
+                    DrawCells(host, editHost);
                     if (!string.IsNullOrEmpty(reason) && code == null) reply["reason"] = reason;
                     return;
                 }
+                StationCellTool.Miss();
+                ClearCellLayer(editHost);
             }
             if (string.Equals(tool, "paint", StringComparison.Ordinal)) {
                 // A right tap on the brush erases the face back to the bare finish.
@@ -766,10 +835,32 @@ namespace Metro.App {
                     return;
                 }
             }
+            if (string.Equals(tool, "module", StringComparison.Ordinal) && StationRoofTool.IsArmed()) {
+                // A right **tap** on a 屋顶 piece lifts the piece under the pointer (`TileEquipmentTool`
+                // arms its remove gesture on the secondary press and releases it on the tap).
+                if (StationRoofTool.Begin(host, hit, pointer, ray, 2, out reason)) {
+                    bool lifted = StationRoofTool.Finish(host, hit, pointer, ray, out code, out reason);
+                    if (lifted) {
+                        editHost.Bind(host);
+                        AfterCommit(host, editHost, "");
+                    } else if (!string.IsNullOrEmpty(reason)) {
+                        reply["reason"] = reason;
+                    }
+                    return;
+                }
+                if (!string.IsNullOrEmpty(reason)) reply["reason"] = reason;
+                return;
+            }
             ClearPlan(host, editHost);
         }
 
-        static void Move(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
+        /// <summary>
+        /// The **non-committing** half of one pointer aim (plan 28 §2): re-plan whatever the
+        /// committed tool draws, draw it on the committed world, and publish the plan. A real
+        /// `pointer.move` and a stationary settings/camera refresh both run this, so the two can
+        /// never resolve different ghosts for the same pixel.
+        /// </summary>
+        static void Aim(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
             in StationPickContext pickContext, StationPointerEvent pointer, string tool, StationSceneHit hit,
             JObject reply, out string code, out string reason) {
             code = null; reason = null;
@@ -797,9 +888,20 @@ namespace Metro.App {
             }
             if (string.Equals(tool, "tunnel", StringComparison.Ordinal)) {
                 // The tunnel ghost hangs off the free end of the rail under the pointer.
-                StationTunnelTool.Aim(host, hit, pointer);
+                StationTunnelTool.Aim(host, hit, pointer, false);
                 StationTunnelTool.Publish();
                 editHost.Preview?.ShowRail(StationTunnelTool.Preview);
+                reply["rail"] = StationEditSession.RailJson(StationEditSession.Rail);
+                return;
+            }
+            if (IsBridgeArmed()) {
+                // The bridge ghost is the span — and its piers — the press would build (plan 28 §3c).
+                StationTunnelTool.Aim(host, hit, pointer, true);
+                StationTunnelTool.Publish();
+                var bridge = StationTunnelTool.Preview;
+                editHost.Preview?.ShowRail(bridge, bridge?.Track != null
+                    ? StationBridgePillars.Candidates(host.Index, StationModulePlacement.ToRecord(bridge.Track))
+                    : null);
                 reply["rail"] = StationEditSession.RailJson(StationEditSession.Rail);
                 return;
             }
@@ -826,6 +928,7 @@ namespace Metro.App {
             if (StationCellTool.HasGesture) {
                 StationCellTool.Aim(host, hit, pointer);
                 StationCellTool.Publish();
+                DrawCells(host, editHost);
                 reply["cells"] = StationCellTool.Preview.ToJson();
                 return;
             }
@@ -838,7 +941,27 @@ namespace Metro.App {
                 // that a correctly positioned ghost appears before any click.
                 StationCellTool.Aim(host, hit, pointer);
                 StationCellTool.Publish();
+                DrawCells(host, editHost);
                 reply["cells"] = StationCellTool.Preview.ToJson();
+                return;
+            }
+            if (string.Equals(tool, "module", StringComparison.Ordinal) && StationRoofTool.IsArmed()) {
+                // The 屋顶 tiles are area/bay gestures, not one piece per press (plan 28 §3).
+                StationRoofTool.AimAt(host, hit, ray, pointer);
+                StationRoofTool.Publish();
+                editHost.EnsureBound(host);
+                editHost.Preview?.ShowModules(StationRoofTool.Accepted, StationRoofTool.Refused);
+                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("roof") : null;
+                return;
+            }
+            if (string.Equals(tool, "module", StringComparison.Ordinal) && StationPillarTool.IsArmed()) {
+                // A 支柱 on an existing post grows that post (plan 28 §3); the ghost is the grown
+                // shaft, so the press commits exactly the height the player was shown.
+                StationPillarTool.Aim(host, hit, pointer);
+                StationPillarTool.Publish();
+                editHost.EnsureBound(host);
+                editHost.Preview?.ShowModules(StationPillarTool.Accepted, StationPillarTool.Refused);
+                StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("pillar") : null;
                 return;
             }
             if (tool == "module") {
@@ -900,8 +1023,9 @@ namespace Metro.App {
             in StationPickContext pickContext, StationSceneHit hit) {
             var plan = ResolvePlacement(host, world, ray, pickContext, hit);
             StationEditSession.Plan = plan;
-            editHost.Bind(host);
+            editHost.EnsureBound(host);
             editHost.Preview?.Show(plan);
+            StationEditSession.Ghost = editHost.Preview != null ? editHost.Preview.Summary("module") : null;
         }
 
         static void Place(StationGameHost host, StationEditHost editHost, StationWorldView world, Ray ray,
@@ -968,6 +1092,12 @@ namespace Metro.App {
                 // A truss bay's breadth is the 屋顶 folder's own 4/8/12 setting, not the
                 // generic action-row width (`supportedRoofWidth`).
                 request.Width = StationToolSelection.SettingInt("roofWidth", 4);
+            }
+            if (carried == null && (toolType ?? "").StartsWith("pillar", StringComparison.Ordinal)) {
+                // A 支柱's shaft is the tile's own 2–6 m Tab section (`pillarLength`), not a
+                // storey default; the palette id names its gauge (plan 28 §3).
+                request.PillarLength = StationToolSelection.SettingInt("pillarLength",
+                    StationPillarPlanning.DefaultLength);
             }
             if (carried == null && string.Equals(toolType, "stair-block", StringComparison.Ordinal)) {
                 // The 楼梯块's height is the tool's own 高/低 toggle (`stairBlockHeight`).
@@ -1229,9 +1359,17 @@ namespace Metro.App {
 
         // ----------------------------------------------------------------- helpers
 
+        /// <summary>
+        /// Drop every plan an owner was drawing. One ghost owns the shared preview layer at a
+        /// time, so both layers go: a stale cell ghost must not survive a selection, a tool
+        /// switch or a leave (plan 28 §1).
+        /// </summary>
         static void ClearPlan(StationGameHost host, StationEditHost editHost) {
+            _ = host;
             StationEditSession.Plan = null;
             editHost.Preview?.ClearGhost();
+            editHost.Preview?.ClearCells();
+            StationEditSession.Ghost = null;
         }
 
         static void ClearSelectionHighlight(StationEditHost editHost) => editHost.Preview?.ClearGhost();

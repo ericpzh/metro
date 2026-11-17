@@ -178,18 +178,31 @@ namespace Metro.Build {
         public readonly List<StationEditDraft> ModuleReplaces = new List<StationEditDraft>();
         /// <summary>Placed modules anchored on a removed cell (`removeCells` takes them).</summary>
         public readonly List<string> RemoveModuleIds = new List<string>();
+        /// <summary>
+        /// Lines this edit **adds**. A first platform rail on a line-less document creates the
+        /// line it binds to in the same revision (`layTrack`'s default line), so a fresh station
+        /// never refuses the railway for want of a line list (plan 28 §3c).
+        /// </summary>
+        public readonly List<StationLineDraft> LineAdds = new List<StationLineDraft>();
         /// <summary>Pieces whose reservation this packet could not derive (reported, never guessed).</summary>
         public readonly List<string> Unverified = new List<string>();
         /// <summary>How many records the patch really changes (0 means a no-op).</summary>
         public int Changed;
 
         public bool HasWork => Writes.Count > 0 || ModuleAdds.Count > 0 || ModuleReplaces.Count > 0 ||
-                               RemoveModuleIds.Count > 0;
+                               RemoveModuleIds.Count > 0 || LineAdds.Count > 0;
 
         public void Add(StationCellWrite write) {
             if (write == null) return;
             Writes.Add(write);
             if (write.Mode != StationCellWriteMode.AppendTags || write.Tags.Count > 0 || write.RemoveTags.Count > 0) Changed++;
+        }
+
+        /// <summary>Add one line record to the same transaction as the track that binds to it.</summary>
+        public void AddLine(StationLineDraft line) {
+            if (line == null || string.IsNullOrEmpty(line.Id)) return;
+            LineAdds.Add(line);
+            Changed++;
         }
 
         /// <summary>Add one placed module to the same transaction as the cell writes.</summary>

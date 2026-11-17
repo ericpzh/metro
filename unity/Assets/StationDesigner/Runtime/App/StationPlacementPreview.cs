@@ -46,6 +46,8 @@ namespace Metro.App {
         Material cellOkMaterial;
         Material cellBadMaterial;
         Material cellRingMaterial;
+        Material cursorOkMaterial;
+        Material cursorBadMaterial;
         Material blockerOutlineMaterial;
         StationIndex index;
         bool bound;
@@ -59,18 +61,55 @@ namespace Metro.App {
             ClearCells();
         }
 
+        /// <summary>True while a committed document is bound; a draw before this is a no-op.</summary>
+        public bool Bound => bound;
+
         /// <summary>Draw the candidate, or just the selection when there is none.</summary>
         public void Show(StationPlacementPlan plan) {
             ClearGhost();
+            ClearCells();
             if (!bound || plan?.Candidate == null) return;
             var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.55f) : new Color(1f, 0.27f, 0.2f, 0.55f);
             if (!TryBuildPrefabGhost(plan.Candidate, colour)) BuildBoxGhost(plan.Candidate, colour);
+            StationEditSession.Ghost = Summary("module");
+        }
+
+        /// <summary>
+        /// Draw a **batch** of planned pieces (plan 28 §3): the roof tile/bay gestures preview
+        /// every piece the release would lay — or lift — with the piece's own dimensions, and
+        /// the refused ones in the shared red. The whole batch owns the ghost layer and the
+        /// cell layer is cleared, so one gesture draws one thing.
+        /// </summary>
+        public void ShowModules(IReadOnlyList<StationPlacementPlan> accepted, IReadOnlyList<StationPlacementPlan> refused = null) {
+            ClearGhost();
+            ClearCells();
+            if (!bound) return;
+            var ok = new Color(0.09f, 0.55f, 1f, 0.55f);
+            var bad = new Color(1f, 0.27f, 0.2f, 0.55f);
+            if (accepted != null) {
+                foreach (var plan in accepted) {
+                    if (plan?.Candidate == null) continue;
+                    if (!TryBuildPrefabGhost(plan.Candidate, ok)) BuildBoxGhost(plan.Candidate, ok);
+                }
+            }
+            if (refused == null) return;
+            foreach (var plan in refused) {
+                if (plan?.Candidate == null) continue;
+                if (!TryBuildPrefabGhost(plan.Candidate, bad)) BuildBoxGhost(plan.Candidate, bad);
+                // The pieces in the way are boxed beside it, so a refusal names its blocker.
+                foreach (var id in plan.ColliderIds) {
+                    if (!TryBlockerBounds(id, out var blocker)) continue;
+                    BuildLineBox(blocker, RefusalOutlineMaterial(), owned);
+                }
+            }
+            StationEditSession.Ghost = Summary("modules");
         }
 
         /// <summary>Drop the ghost; the carried piece (if any) stays hidden.</summary>
         public void ClearGhost() {
             foreach (var go in owned) Destroy(go);
             owned.Clear();
+            StationEditSession.Ghost = null;
         }
 
         /// <summary>
@@ -85,10 +124,14 @@ namespace Metro.App {
             ClearCells();
             if (!bound || preview == null || !preview.HasPlan) return;
             var shape = preview.Check.Shape;
-            // The accepted set keeps the shared blue even when a *different* cell of the same
-            // gesture is refused: those cells are exactly what the release will lay, and the
-            // reference tints them cyan beside the red refusal (`checkBlockCells`'s two lists).
-            var okColour = new Color(0.09f, 0.55f, 1f, 0.34f);
+            // A removal gesture draws what it would take away, in the reference's own red
+            // (`setGhost(..., 'remove')`), while an add keeps the shared blue: those cells are
+            // exactly what the release will lay (`checkBlockCells`'s two lists).
+            bool removing = string.Equals(preview.Kind, "erase", StringComparison.Ordinal) ||
+                            string.Equals(preview.Kind, "delete", StringComparison.Ordinal);
+            var okColour = removing
+                ? new Color(1f, 0.36f, 0.24f, 0.36f)
+                : new Color(0.09f, 0.55f, 1f, 0.34f);
             var ring = new HashSet<StationCellKey>(preview.AutoWalls);
             foreach (var cell in preview.Check.Accepted) {
                 if (ring.Contains(cell)) {
@@ -96,7 +139,7 @@ namespace Metro.App {
                     BuildBox(CellBounds(cell, StationCellShape.Full), RingMaterial(), cellOwned);
                     continue;
                 }
-                BuildCellGhost(cell, shape, CellMaterial(true, okColour), cellOwned);
+                BuildCellGhost(cell, shape, CellMaterial(!removing, okColour), cellOwned);
             }
             foreach (var cell in preview.Check.Blocked) BuildCellGhost(cell, shape, CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f)), cellOwned);
             foreach (var cell in preview.AutoWalls) {
@@ -112,12 +155,70 @@ namespace Metro.App {
                 if (!TryBlockerBounds(id, out var bounds)) continue;
                 BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
             }
+            // The reference's pointer ring (`grid.setCursor`): one flat square outline on the
+            // cell under the pointer, cyan when the release would take it and red when not.
+            // Without it the ghost floats with nothing saying which cell the click addresses.
+            bool cursorOk = !preview.OverLimit && !removing && preview.Check.Blocked.Count == 0 &&
+                            (preview.Check.Accepted.Count > 0 || preview.Check.Ignored.Count > 0);
+            BuildLineBox(CursorBounds(preview.Cursor), CursorMaterial(cursorOk), cellOwned);
+            StationEditSession.Ghost = Summary("cells");
+        }
+
+        /// <summary>The pointer ring's own material: the web's `#6ee7ff` or its `#ff5d5d`.</summary>
+        Material CursorMaterial(bool ok) {
+            if (ok && cursorOkMaterial != null) return cursorOkMaterial;
+            if (!ok && cursorBadMaterial != null) return cursorBadMaterial;
+            var colour = ok ? new Color(0x6e / 255f, 0xe7 / 255f, 1f, 1f) : new Color(1f, 0x5d / 255f, 0x5d / 255f, 1f);
+            var material = CreateUnlitTransparent(ok ? "edit cursor ring" : "edit cursor refusal", colour);
+            if (ok) cursorOkMaterial = material; else cursorBadMaterial = material;
+            return material;
+        }
+
+        /// <summary>A thin flat square outline on the aim cell's top face (`z + 1.02`).</summary>
+        static Bounds CursorBounds(StationCellKey cell) {
+            const double pad = 0.02;
+            var a = StationCoordinates.Point(new Vector3(cell.X, cell.Y, cell.Z + 1f + (float)pad));
+            var b = StationCoordinates.Point(new Vector3(cell.X + 1, cell.Y + 1, cell.Z + 1f + (float)pad));
+            var min = Vector3.Min(a, b);
+            var max = Vector3.Max(a, b);
+            return new Bounds((min + max) * 0.5f, max - min);
         }
 
         /// <summary>Drop the cell ghost (pointer leave, a tool change, a commit).</summary>
         public void ClearCells() {
             foreach (var go in cellOwned) Destroy(go);
             cellOwned.Clear();
+            StationEditSession.Ghost = null;
+        }
+
+        /// <summary>
+        /// What the last draw really put on screen, for the verifier (plan 28 §5): the number of
+        /// ghost objects built, how many of their renderers the render loop actually drew
+        /// (`Renderer.isVisible` — the camera's own answer, not a plan array) and which layer
+        /// owns them. A badge with `count = 0` is exactly the invisible-ghost defect this pins.
+        /// </summary>
+        public Newtonsoft.Json.Linq.JObject Summary(string kind) {
+            int count = 0, visible = 0;
+            CountLayer(cellOwned, ref count, ref visible);
+            CountLayer(owned, ref count, ref visible);
+            return new Newtonsoft.Json.Linq.JObject {
+                ["kind"] = kind ?? "",
+                ["bound"] = bound,
+                ["count"] = count,
+                ["visible"] = visible,
+                ["cells"] = cellOwned.Count,
+                ["ghosts"] = owned.Count,
+            };
+        }
+
+        static void CountLayer(List<GameObject> objects, ref int count, ref int visible) {
+            for (int i = 0; i < objects.Count; i++) {
+                var go = objects[i];
+                if (go == null) continue;
+                count++;
+                var renderer = go.GetComponent<Renderer>();
+                if (renderer != null && renderer.enabled && renderer.isVisible) visible++;
+            }
         }
 
         /// <summary>
@@ -134,6 +235,7 @@ namespace Metro.App {
             foreach (var cell in preview.Cells) {
                 BuildBox(FaceBounds(cell, preview.Face), material, cellOwned);
             }
+            StationEditSession.Ghost = Summary("faces");
         }
 
         /// <summary>
@@ -151,6 +253,7 @@ namespace Metro.App {
             var colour = new Color(((rgb >> 16) & 0xFF) / 255f, ((rgb >> 8) & 0xFF) / 255f, (rgb & 0xFF) / 255f, 0.42f);
             var material = CellMaterial(!preview.Erase, colour);
             foreach (var cell in tint) BuildBox(FaceBounds(cell, StationFace.Top), material, cellOwned);
+            StationEditSession.Ghost = Summary("zone");
         }
 
         /// <summary>
@@ -158,16 +261,25 @@ namespace Metro.App {
         /// the track's own level, in the shared blue when the run is legal and red when it is
         /// refused. The pieces in the way are boxed beside it, so an `interference` says which.
         /// </summary>
-        public void ShowRail(StationRailPlan plan) {
+        public void ShowRail(StationRailPlan plan, IReadOnlyList<StationEditDraft> piers = null) {
             ClearCells();
             if (!bound || plan == null || plan.Bed.Count == 0) return;
             var colour = plan.Ok ? new Color(0.09f, 0.55f, 1f, 0.4f) : new Color(1f, 0.27f, 0.2f, 0.42f);
             var material = CellMaterial(plan.Ok, colour);
             foreach (var cell in plan.Bed) BuildBox(CellBounds(cell, StationCellShape.Full), material, cellOwned);
+            // A bridge's piers are part of the run the press builds, so they are part of the
+            // ghost: the deck alone would promise a span with nothing holding it up (plan 28 §3c).
+            if (piers != null) {
+                foreach (var pier in piers) {
+                    if (pier == null) continue;
+                    BuildBoxGhost(pier, colour, cellOwned);
+                }
+            }
             foreach (var id in plan.ColliderIds) {
                 if (!TryBlockerBounds(id, out var bounds)) continue;
                 BuildLineBox(bounds, RefusalOutlineMaterial(), cellOwned);
             }
+            StationEditSession.Ghost = Summary("rail");
         }
 
         /// <summary>
@@ -188,6 +300,7 @@ namespace Metro.App {
                 var red = CellMaterial(false, new Color(1f, 0.27f, 0.2f, 0.42f));
                 foreach (var cell in preview.Refused) BuildBox(FaceBounds(cell, StationFace.Top), red, cellOwned);
             }
+            StationEditSession.Ghost = Summary("surface");
         }
 
         /// <summary>A 2 cm slab standing just proud of one cell face, in document axes.</summary>
@@ -320,6 +433,8 @@ namespace Metro.App {
             if (cellOkMaterial != null) Destroy(cellOkMaterial);
             if (cellBadMaterial != null) Destroy(cellBadMaterial);
             if (cellRingMaterial != null) Destroy(cellRingMaterial);
+            if (cursorOkMaterial != null) Destroy(cursorOkMaterial);
+            if (cursorBadMaterial != null) Destroy(cursorBadMaterial);
             if (blockerOutlineMaterial != null) Destroy(blockerOutlineMaterial);
         }
 
@@ -377,12 +492,12 @@ namespace Metro.App {
         }
 
         /// <summary>The unresolved-candidate stand-in: the clearance body the verdict read.</summary>
-        void BuildBoxGhost(StationEditDraft draft, Color colour) {
+        void BuildBoxGhost(StationEditDraft draft, Color colour, List<GameObject> into = null) {
             var record = StationModulePlacement.ToRecord(draft);
             if (!StationFootprints.TryClearance(record, out var box, out _)) {
                 box = new StationBox(draft.X, draft.Y, draft.Z + 1, draft.X + 1, draft.Y + 1, draft.Z + 2);
             }
-            BuildBox(WorldFromDocument(box), Tinted(colour.r < 0.5f, colour));
+            BuildBox(WorldFromDocument(box), Tinted(colour.r < 0.5f, colour), into ?? owned);
         }
 
         /// <summary>

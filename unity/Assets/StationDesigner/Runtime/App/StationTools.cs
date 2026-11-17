@@ -90,10 +90,25 @@ namespace Metro.App {
             get {
                 for (int i = 0; i < EraseTools.Length; i++)
                     if (string.Equals(EraseTools[i], active, StringComparison.Ordinal)) return "erase";
+                // The 设备 palette carries two remove gestures of its own: a 屋顶 tile lifts the
+                // piece it is aimed at, and a 支柱 press on a post takes it back down. Both read
+                // the secondary button, so the camera must leave it alone (plan 28 §3).
+                if (string.Equals(active, "module", StringComparison.Ordinal) && PaletteOwnsSecondary()) return "erase";
                 for (int i = 0; i < CancelTools.Length; i++)
                     if (string.Equals(CancelTools[i], active, StringComparison.Ordinal)) return "cancel";
                 return "pan";
             }
+        }
+
+        /// <summary>True for the 设备 tiles whose own gesture owns the secondary mouse button.</summary>
+        static bool PaletteOwnsSecondary() {
+            var id = Setting("moduleType") ?? "";
+            return id.StartsWith("pillar", StringComparison.Ordinal) ||
+                   string.Equals(id, "roof", StringComparison.Ordinal) ||
+                   string.Equals(id, "roof-shell", StringComparison.Ordinal) ||
+                   string.Equals(id, "roof-truss", StringComparison.Ordinal) ||
+                   string.Equals(id, "roof-tapered", StringComparison.Ordinal) ||
+                   string.Equals(id, "roof-canopy", StringComparison.Ordinal);
         }
 
         /// <summary>
@@ -213,6 +228,9 @@ namespace Metro.App {
             string requested = (string)token;
             string previous;
             string code;
+            // The palette id the player had armed before this command: a same-tool swap to another
+            // tile is an **owner** change, not a plain replan (plan 28 §2).
+            string paletteBefore = StationToolSelection.Setting("moduleType");
             if (!StationToolSelection.TrySelect(requested, out previous, out code)) {
                 rejectCode = code;
                 rejectReason = string.Equals(code, "unknown-tool", StringComparison.Ordinal)
@@ -222,13 +240,22 @@ namespace Metro.App {
             }
             bool settingsChanged = StationToolSelection.ApplySettings(payload["settings"] as JObject);
             bool toolChanged = !string.Equals(previous, StationToolSelection.Active, StringComparison.Ordinal);
+            bool ownerChanged = !string.Equals(paletteBefore, StationToolSelection.Setting("moduleType"),
+                StringComparison.Ordinal);
             // A still pointer has to be re-aimed: `R`, `Tab` and every rail/tile setting change
             // what the same pixel now resolves to (`BlockTool.refreshHover`). A tool change also
-            // drops any plan the old owner was drawing, so ghost and commit cannot disagree.
+            // drops any plan the old owner was drawing, so ghost and commit cannot disagree; the
+            // same-tool **palette swap** is an owner change too (a 屋顶 bay for a plate, a 支柱
+            // for a bench), while a rotation/width/variant change replans and keeps a held press
+            // (plan 28 §2).
             var host = StationEditHost.Host;
             if (host != null && host.IsLoaded && (toolChanged || settingsChanged)) {
-                if (toolChanged) StationPointerRouter.OnToolChanged(host);
-                StationPointerRouter.RefreshHover(host);
+                if (toolChanged) {
+                    StationPointerRouter.OnToolChanged(host);
+                    StationPointerRouter.RefreshHover(host);
+                } else {
+                    StationPointerRouter.OnToolSettingsEdited(host, ownerChanged);
+                }
             }
             // An ack never reaches the shell's shared store, and `rightClaim` has to be current
             // the moment the next right press arrives: publish one state frame with the new

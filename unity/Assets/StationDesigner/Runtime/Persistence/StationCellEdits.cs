@@ -66,8 +66,52 @@ namespace Metro.Persistence {
             if (patch.RemoveModuleIds.Count > 0 && state["modules"] is JArray modules) {
                 foreach (var id in patch.RemoveModuleIds) RemoveModule(modules, id);
             }
+            if (patch.LineAdds.Count > 0) {
+                if (!(state["lines"] is JArray lines)) {
+                    lines = new JArray();
+                    state["lines"] = lines;
+                }
+                foreach (var draft in patch.LineAdds) {
+                    if (draft == null || string.IsNullOrEmpty(draft.Id)) continue;
+                    if (FindLine(lines, draft.Id) != null) { code = "duplicate-line"; return null; }
+                    lines.Add(ToSaveLine(draft));
+                }
+            }
             return envelope.ToString(Formatting.None);
         }
+
+        static JObject FindLine(JArray lines, string id) {
+            foreach (var token in lines) {
+                if (token is JObject line && string.Equals((string)line["id"], id, StringComparison.Ordinal))
+                    return line;
+            }
+            return null;
+        }
+
+        /// <summary>One added line as a saved v1 line record (`defaultLine`'s own fields).</summary>
+        static JObject ToSaveLine(StationLineDraft line) => new JObject {
+            ["id"] = line.Id,
+            ["name"] = line.Name,
+            ["nameEn"] = line.NameEn,
+            ["colour"] = line.Colour,
+            ["stock"] = line.Stock,
+            ["cars"] = line.Cars,
+            ["power"] = line.Power,
+            ["psd"] = line.Psd,
+            ["direction"] = line.Direction,
+            ["headwayProfile"] = new JObject {
+                ["peak"] = line.PeakHeadway,
+                ["offpeak"] = line.OffpeakHeadway,
+                ["late"] = line.LateHeadway,
+            },
+            ["alightPerTrain"] = line.AlightPerTrain,
+            ["terminus"] = line.Terminus,
+            ["travelSign"] = line.TravelSign,
+            ["modelScale"] = line.ModelScale,
+            ["upTerminus"] = "",
+            ["downTerminus"] = "",
+            ["stations"] = new JArray(),
+        };
 
         static JObject FindModule(JArray modules, string id) {
             if (string.IsNullOrEmpty(id)) return null;

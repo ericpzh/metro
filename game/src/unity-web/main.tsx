@@ -22,6 +22,7 @@ import { parse } from '../persistence/save.ts'
 import { attachCanvasCameraGestures, attachViewStateBridge, createStationCameraPort, createUnityViewCubeAdapter } from './cameraAdapter.ts'
 import { attachCanvasToolPointer } from './pointerInput.ts'
 import { createToolAdapter, rightClaimedByTool } from './toolAdapter.ts'
+import { noticeKey, noticeText, type BuildOutcome } from './editNotices.ts'
 import { UnityExplodedView } from './UnityExplodedView.tsx'
 import { paletteIdForModule } from '../app/tools/PickTool.ts'
 import { createSignFacePort } from './signFaceProvider.ts'
@@ -359,11 +360,26 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
   let lastSelection = ''
   let lastPick = ''
   let lastPaintPick = ''
+  let lastNotice = ''
   const adoptEdit = (): void => {
     const state = stationBridge.getSnapshot().state
     const edit = state.edit as Record<string, unknown> | null | undefined
     showMeasure((edit?.cells as CellsPayload | null | undefined) ?? null)
     if (!edit) return
+    // The pointer router's **build outcome** (`state.edit.notice`, plan 28 §4): a press the
+    // surface refused, a click that deliberately changed nothing, or a stale gesture. The host
+    // sends a code; the shell owns the player's language (`editNotices.ts`). One notice per
+    // distinct outcome, so a held pointer over awkward geometry is not a toast storm.
+    const outcome = (edit.notice as BuildOutcome | null | undefined) ?? null
+    const outcomeKey = noticeKey(outcome)
+    if (outcomeKey && outcomeKey !== lastNotice) {
+      lastNotice = outcomeKey
+      const english = document.documentElement.lang === 'en'
+      const sentence = noticeText(outcome, english ? 'en' : 'zh-CN')
+      if (sentence) useStore.getState().setNotice(sentence)
+    } else if (!outcomeKey) {
+      lastNotice = ''
+    }
     const kind = typeof edit.selectionKind === 'string' ? edit.selectionKind : ''
     const key = typeof edit.selectionKey === 'string' ? edit.selectionKey : ''
     const label = typeof edit.selectionLabel === 'string' ? edit.selectionLabel : ''

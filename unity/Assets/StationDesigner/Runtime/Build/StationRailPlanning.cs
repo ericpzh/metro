@@ -156,9 +156,16 @@ namespace Metro.Build {
         public string Reason = "";
         /// <summary>True when the plan is a tunnel run rather than a surface platform.</summary>
         public bool Tunnel;
+        /// <summary>
+        /// The line this gesture **creates** with its track, or null. `layTrack` lays a default
+        /// line when the document has none, in the same revision as the rail it binds
+        /// (plan 28 §3c).
+        /// </summary>
+        public StationLineDraft NewLine;
 
         public bool Ok => Reason.Length == 0;
-        public bool HasWork => Track != null || DerivedEdges.Count > 0 || DigCells.Count > 0 || RemoveModuleIds.Count > 0;
+        public bool HasWork => Track != null || DerivedEdges.Count > 0 || DigCells.Count > 0 ||
+                               RemoveModuleIds.Count > 0 || NewLine != null;
 
         public StationCellPatch ToPatch() {
             var patch = new StationCellPatch();
@@ -166,6 +173,7 @@ namespace Metro.Build {
             foreach (var id in RemoveModuleIds) if (!patch.RemoveModuleIds.Contains(id)) patch.RemoveModuleIds.Add(id);
             if (Track != null) patch.AddModule(Track);
             foreach (var edge in DerivedEdges) patch.AddModule(edge);
+            if (NewLine != null) patch.AddLine(NewLine);
             return patch;
         }
     }
@@ -290,7 +298,16 @@ namespace Metro.Build {
             };
             if (index == null) { plan.Reason = "no-document"; return plan; }
             var line = ResolveLine(index, lineId);
-            if (line == null) { plan.Reason = "no-line"; return plan; }
+            if (line == null) {
+                // `layTrack`: the first rail on a fresh station **creates** the line it binds to,
+                // so placement never stalls on an empty line list. The line commits in the same
+                // revision as the track it sizes (`defaultLine`).
+                var fresh = StationLineDefaults.Default(string.IsNullOrEmpty(lineId) ? "1" : lineId,
+                    string.IsNullOrEmpty(direction) ? "up" : direction, "third-rail");
+                plan.NewLine = fresh;
+                line = new StationLineRecord(fresh.Id, fresh.Name, fresh.NameEn, fresh.Colour, fresh.Stock,
+                    fresh.Cars, fresh.Power, fresh.Psd, fresh.Direction, "", "", "");
+            }
             plan.LineId = line.Id;
             StationRailRules.PieceForLine(line, out var width, out var depth);
             plan.Width = width;

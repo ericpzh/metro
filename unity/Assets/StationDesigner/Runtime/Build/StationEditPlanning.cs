@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Metro.Build {
@@ -211,9 +211,14 @@ namespace Metro.Build {
         /// </summary>
         public double BlockHeight;
         /// <summary>A lift's floor interval in metres (`liftInterval`): 5 by default, 3–7 arming.</summary>
-        public int LiftInterval;
-        /// <summary>True for the 大 3 × 3 lift shaft (`liftSize === 'large'`).</summary>
+        public int LiftInterval;        /// <summary>True for the 大 3 × 3 lift shaft (`liftSize === 'large'`).</summary>
         public bool LiftSizeLarge;
+        /// <summary>
+        /// A 支柱's armed section length in metres (`pillarLength`, one of 2–6; 0 reads the
+        /// storey height). A fresh post is born this tall and a press on an existing post grows
+        /// it by exactly this much (`extendedPillar`).
+        /// </summary>
+        public int PillarLength;
         /// <summary>A 自动步道's level run in cells (`walkwayLength`: 30 / 60 / 90).</summary>
         public int WalkwayRun;
         /// <summary>True when a walkway travels <c>down</c> (its `from` is the far end).</summary>
@@ -515,8 +520,12 @@ namespace Metro.Build {
                 // board  and it is born with a composed front (`defaultSignLayout`).
                 parsed.Type = "sign";
                 parsed.Variant = id == "sign-wall" ? "wall" : id == "sign-ceiling" ? "ceiling" : "";
-            } else if (id == "hanger-roof" || id == "hanger-post") {
-                // A hanger: the palette id names its mount, and its run is four cells unless the
+            } else if (id == "pillar" || id == "pillar-slim" || id == "pillar-thick") {
+                // A free-standing 支柱 (`createModule`'s pillar branch): one cell, one shaft, and
+                // the palette id names its gauge. Its height is the tool's armed section.
+                parsed.Type = "pillar";
+                parsed.Variant = id == "pillar-thick" ? "thick" : "slim";
+            } else if (id == "hanger-roof" || id == "hanger-post") {                // A hanger: the palette id names its mount, and its run is four cells unless the
                 // tool asks for the six/eight-cell span (`createModule`'s hanger branch).
                 parsed.Type = "hanger";
                 parsed.Variant = id == "hanger-post" ? "post" : "roof";
@@ -639,7 +648,14 @@ namespace Metro.Build {
                 return false;
             }
             var cell = StationModulePlacement.AimCell(index, request);
-            int rotation = StationFootprints.NormRot(request.Rotation);
+            // A slim pillar's R cycles its nine in-cell spots (`IN_CELL_POSITIONS`), not four
+            // quarter turns; every other family snaps to a quarter turn. `ToRecord` carries the
+            // value unchanged, so the spot the ghost drew is the spot the save keeps.
+            bool slimPillar = string.Equals(family.Type, "pillar", StringComparison.Ordinal) &&
+                              !string.Equals(family.Variant, "thick", StringComparison.Ordinal);
+            int rotation = slimPillar
+                ? ((request.Rotation % 9) + 9) % 9
+                : StationFootprints.NormRot(request.Rotation);
             if (baySnap.HasValue && IsRamp(family.Type)) {
                 cell = baySnap.Value.Base;
                 rotation = baySnap.Value.Rotation;
@@ -810,6 +826,16 @@ namespace Metro.Build {
                     candidate.Depth = 1;
                     candidate.Set("mount", family.Variant.Length == 0 ? "roof" : family.Variant);
                     break;
+                case "pillar":
+                    // `createModule('pillar-*')` + `mod.cfg.height = st.pillarLength`: the gauge
+                    // comes from the palette id, the shaft from the armed 2–6 m section (`长` 5 m
+                    // when the tool has none). A slim post's `rot` is its in-cell spot (0–8).
+                    candidate.Set("size", family.Variant == "thick" ? "thick" : "slim");
+                    int section = request.PillarLength > 0
+                        ? StationPillarPlanning.Section(request.PillarLength)
+                        : (index != null ? index.StoreyHeight : StationPillarPlanning.DefaultLength);
+                    candidate.Set(section, "height");
+                    break;
                 case "shelf":
                     // `createModule('shelf-<variant>')`: the variant picks the run width.
                     candidate.Width = StationModuleFamilies.ShelfWidth(family.Variant);
@@ -939,6 +965,8 @@ namespace Metro.Build {
             "tactile", "floor-mark", "court", "stair", "roof",
             "ac-unit", "electrical-cabinet", "rail-signal",
             "shelf", "checkout",
+            // A 支柱 is a free-standing shaft: its envelope must not share a block (plan 28 §3).
+            "pillar",
         };
 
         /// <summary>Resolve one request against the committed document.</summary>
@@ -1259,6 +1287,19 @@ namespace Metro.Build {
         }
 
         /// <summary>
+        /// The validation half of <see cref="Resolve"/> for a **rewritten** piece (plan 28 §3: a
+        /// 支柱 grown by one armed section). The candidate keeps the placed record's id, so the
+        /// collider walk skips the old shaft itself and judges only the span the growth adds.
+        /// </summary>
+        public static string ValidateExtension(StationIndex index, StationModuleRecord carried,
+            StationEditDraft draft, List<string> colliders, List<string> unverified) {
+            if (index == null || draft == null) return "no-document";
+            var record = ToRecord(draft);
+            if (!StationFootprints.TryClearance(record, out _, out _)) return "unsupported-family";
+            return Validate(index, draft, carried, colliders, unverified);
+        }
+
+        /// <summary>
         /// Port of <c>placementOnTrack</c>: the cells a piece is anchored by, the visible
         /// <c>floor.track</c> finish, a dug bed (a track module's cells) and — for a
         /// floor-standing piece — the trench one course above.
@@ -1279,8 +1320,7 @@ namespace Metro.Build {
         }
 
         /// <summary>The cells a piece is anchored by (<c>baseCells</c>): a run/room its footprint, everything else its own cell.</summary>
-        static StationPoint[] BaseCells(StationModuleRecord record) {
-            switch (record.Type) {
+        static StationPoint[] BaseCells(StationModuleRecord record) {            switch (record.Type) {
                 case "exit":
                     return new[] { record.Point };
                 case "retail":

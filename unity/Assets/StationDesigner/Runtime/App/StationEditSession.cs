@@ -71,6 +71,20 @@ namespace Metro.App {
         public static Metro.Build.StationRailPlan Rail;
         /// <summary>The last eyedropper result, cleared by the next input.</summary>
         public static JObject Picked;
+        /// <summary>
+        /// The last build outcome the player should be told about (plan 28 §4): a normalized
+        /// refusal code, the host's own sentence and the outcome kind — `blocked` (a candidate
+        /// this surface refuses), `no-op` (a deliberate click that changes nothing) or `stale`
+        /// (a gesture whose tool or revision moved). Null after a successful edit. It is a
+        /// session fact, published as `edit.notice`: nothing here writes the document.
+        /// </summary>
+        public static JObject Notice;
+        /// <summary>
+        /// What the last draw put on screen (plan 28 §5): the ghost objects, how many renderers
+        /// the camera actually drew, and which layer owns them. A verifier reads this beside the
+        /// published plan so a badge can never stand alone next to an invisible ghost.
+        /// </summary>
+        public static JObject Ghost;
         /// <summary>The last `edit.probe` answer, for a browser check to click a known pixel.</summary>
         public static JObject Probe;
         /// <summary>The editing level the last pointer resolved against.</summary>
@@ -135,6 +149,8 @@ namespace Metro.App {
             Surface = null;
             Rail = null;
             Picked = null;
+            Notice = null;
+            Ghost = null;
             Probe = null;
             Level = 0;
             HasPointer = false;
@@ -150,6 +166,8 @@ namespace Metro.App {
             StationPaintGame.Forget();
             StationZoneTool.Reset();
             StationSurfaceTool.Reset();
+            StationRoofTool.Reset();
+            StationPillarTool.Reset();
         }
 
         /// <summary>Remember the pointer a settings or view refresh has to re-aim.</summary>
@@ -166,6 +184,25 @@ namespace Metro.App {
 
         /// <summary>The remembered pointer's Unity screen position (origin bottom-left).</summary>
         public static Vector2 PointerScreen() => Pointer.ToScreen();
+
+        /// <summary>
+        /// Publish one build outcome for the shell to surface (plan 28 §4). `kind` is `blocked`,
+        /// `no-op` or `stale`; a null/empty code clears the notice (a successful edit or a plain
+        /// hover has nothing to say).
+        /// </summary>
+        public static void PublishNotice(string kind, string code, string reason, string tool) {
+            if (string.IsNullOrEmpty(code) && string.IsNullOrEmpty(reason)) { Notice = null; return; }
+            Notice = new JObject {
+                ["kind"] = kind ?? "",
+                ["code"] = code ?? "",
+                ["reason"] = reason ?? "",
+                ["tool"] = tool ?? "",
+                // The armed 设备 palette so a bridge and a tunnel refuse differently in the shell.
+                ["moduleType"] = StationToolSelection.Setting("moduleType") ?? "",
+            };
+        }
+
+        public static void ClearNotice() => Notice = null;
 
         /// <summary>Forget history that belongs to another station (a switch makes it meaningless).</summary>
         public static void PruneHistory(string sourceId) {
@@ -325,6 +362,8 @@ namespace Metro.App {
                 ["surface"] = Surface != null ? Surface.ToJson() : null,
                 ["railPlan"] = Rail != null ? RailJson(Rail) : null,
                 ["pick"] = Picked != null ? Picked.DeepClone() : null,
+                ["notice"] = Notice != null ? Notice.DeepClone() : null,
+                ["ghost"] = Ghost != null ? Ghost.DeepClone() : null,
                 ["probe"] = Probe != null ? Probe.DeepClone() : null,
                 ["trace"] = new JArray(trace.ConvertAll(entry => entry.DeepClone())),
                 ["undoDepth"] = undos.Count,
@@ -422,6 +461,9 @@ namespace Metro.App {
         public const string ObjectName = "StationEditPreview";
         public StationPlacementPreview Preview { get; private set; }
 
+        /// <summary>The committed index the preview layer is bound to (identity, per revision).</summary>
+        StationIndex boundIndex;
+
         static StationEditHost instance;
 
         public static StationEditHost Ensure() {
@@ -467,10 +509,30 @@ namespace Metro.App {
             if (Preview == null) Preview = gameObject.AddComponent<StationPlacementPreview>();
         }
 
-        /// <summary>Bind the preview to a committed world (called on every commit and pointer).</summary>
+        /// <summary>
+        /// Bind the preview to a committed world. It **clears** both ghost layers and restores
+        /// a carried piece, so it is the rebind a commit, an undo or a station switch needs —
+        /// never something to run before every draw.
+        /// </summary>
         public void Bind(StationGameHost host) {
             EnsurePreview();
-            Preview.Bind(host != null ? host.Index : null);
+            boundIndex = host != null ? host.Index : null;
+            Preview.Bind(boundIndex);
+        }
+
+        /// <summary>
+        /// Bind only when the committed world really changed (plan 28 §1): a draw on the
+        /// first aim after Open or New must bind, while a draw under a still pointer over the
+        /// same revision must not wipe the layer it is about to write. <see cref="Bind"/>
+        /// clears both layers and restores carried views, so it cannot run per event.
+        /// </summary>
+        public bool EnsureBound(StationGameHost host) {
+            EnsurePreview();
+            var next = host != null ? host.Index : null;
+            if (next == null) return false;
+            if (ReferenceEquals(boundIndex, next) && Preview != null && Preview.Bound) return true;
+            Bind(host);
+            return Preview != null && Preview.Bound;
         }
     }
 }
