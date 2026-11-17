@@ -42,17 +42,22 @@ export type CameraCommand =
 export interface CameraSnapshot extends CubeViewState {
   position?: CubeVector
   target?: CubeVector
+  /** The host's pose sequence; a newer pose is never rolled back by an older state reply. */
+  sequence?: number
 }
 
 /**
  * The transport seam: what the Unity adapter needs from the bridge, and nothing more.
  * `stationBridge` is the production implementation; a test or another host can pass a
- * recorder instead.
+ * recorder instead. `onCameraPose` is the frame-cadence channel (plan 29 §5) and is
+ * optional so a minimal recorder can leave it out.
  */
 export interface CameraPort {
   send(command: CameraCommand): void
   /** Pushes every accepted camera state (the port coalesces identical snapshots). */
   subscribe(listener: (state: CameraSnapshot) => void): () => void
+  /** The host's per-frame pose channel, coalesced to one widget update per animation frame. */
+  onCameraPose?(listener: (state: CameraSnapshot) => void): () => void
   dispose(): void
 }
 
@@ -111,6 +116,7 @@ export function cameraSnapshotFromState(state: Record<string, unknown> | null | 
   const ortho = camera.ortho === true || camera.projection === 'orthographic'
   const position = vector(camera.position) ?? undefined
   const target = vector(camera.target) ?? undefined
+  const sequence = finite(camera.sequence) ?? finite(state.sequence)
   return {
     right, up, back,
     projection: ortho ? 'orthographic' : 'perspective',
@@ -118,6 +124,7 @@ export function cameraSnapshotFromState(state: Record<string, unknown> | null | 
     activeLevel: level === null ? undefined : Math.round(level),
     ...(position ? { position } : {}),
     ...(target ? { target } : {}),
+    ...(sequence === null ? {} : { sequence: Math.round(sequence) }),
   }
 }
 
@@ -128,19 +135,66 @@ function snapshotKey(state: CameraSnapshot): string {
 
 /**
  * The production port: commands go through `stationBridge.send` (v2 envelope, no
- * `expectedRevision`), and camera state is read from `snapshot.state.camera`.
+ * `expectedRevision`), camera state is read from `snapshot.state.camera`, and the host's
+ * frame-cadence pose channel is consumed **once per animation frame** (plan 29 §5).
+ *
+ * The reference polls the rendered camera on every animation frame, so a drag's cube
+ * follows it frame by frame. The Unity host samples the rendered camera after its own
+ * `StationViewRig.Tick` and publishes a small sequenced pose; this port keeps the latest
+ * one and hands it to the widget in the next animation frame, which is also the only
+ * cadence at which the SVG can be repainted. The general 100 ms state interval still
+ * delivers everything else, and an untagged or older state camera never rolls the cube
+ * back behind a newer pose.
  */
 export function createStationCameraPort(bridge: StationBridge = stationBridge): CameraPort {
   const listeners = new Set<(state: CameraSnapshot) => void>()
   let last = ''
-  const emit = (): void => {
-    const state = cameraSnapshotFromState(bridge.getSnapshot().state)
-    if (!state) return
+  let lastSequence = -1
+  let current: CameraSnapshot | null = null
+  let latestPose: CameraSnapshot | null = null
+  let poseFrame = 0
+  const accept = (state: CameraSnapshot): void => {
     const key = snapshotKey(state)
     if (key === last) return
     last = key
+    current = state
     for (const listener of listeners) listener(state)
   }
+  const flushPose = (): void => {
+    poseFrame = 0
+    if (!latestPose) return
+    accept(latestPose)
+  }
+  /** One host pose: keep the newest and let the next animation frame draw it. */
+  const onPose = (camera: Record<string, unknown>, sequence: number): void => {
+    const state = cameraSnapshotFromState({ camera })
+    if (!state) return
+    const tagged = sequence >= 0 ? sequence : (state.sequence ?? -1)
+    if (tagged >= 0 && tagged < lastSequence) return
+    if (tagged >= 0) {
+      lastSequence = tagged
+      state.sequence = tagged
+    }
+    latestPose = state
+    if (poseFrame) return
+    if (typeof requestAnimationFrame === 'function') poseFrame = requestAnimationFrame(flushPose)
+    else flushPose()
+  }
+  const emit = (): void => {
+    const raw = bridge.getSnapshot().state
+    const state = cameraSnapshotFromState(raw)
+    if (!state) return
+    const sequence = state.sequence ?? -1
+    if (sequence >= 0) {
+      if (sequence < lastSequence) return
+      lastSequence = sequence
+    } else if (lastSequence >= 0) {
+      // An untagged camera is older than the pose channel: it cannot supersede a pose.
+      return
+    }
+    accept(state)
+  }
+  const unsubscribePose = bridge.onCameraPose(onPose)
   const unsubscribeBridge = bridge.subscribe(emit)
   // Ctrl+H is the shell's keyboard route to the same home action as the cube's ⌂
   // (`AppShell` dispatches `metro:home`). The old Unity entry listened for it
@@ -148,18 +202,22 @@ export function createStationCameraPort(bridge: StationBridge = stationBridge): 
   const onHome = (): void => { bridge.send('camera.home', {}) }
   if (typeof window !== 'undefined') window.addEventListener('metro:home', onHome)
   emit()
+  const subscribe = (listener: (state: CameraSnapshot) => void): (() => void) => {
+    listeners.add(listener)
+    if (current) listener(current)
+    return () => { listeners.delete(listener) }
+  }
   return {
     send(command: CameraCommand): void {
       bridge.send(command.type, command.payload)
     },
-    subscribe(listener): () => void {
-      listeners.add(listener)
-      const state = cameraSnapshotFromState(bridge.getSnapshot().state)
-      if (state) listener(state)
-      return () => { listeners.delete(listener) }
-    },
+    subscribe,
+    onCameraPose: subscribe,
     dispose(): void {
+      if (poseFrame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(poseFrame); poseFrame = 0 }
+      latestPose = null
       if (typeof window !== 'undefined') window.removeEventListener('metro:home', onHome)
+      unsubscribePose()
       unsubscribeBridge()
       listeners.clear()
     },
@@ -189,11 +247,27 @@ export function createUnityViewCubeAdapter(port: CameraPort): ViewCubeAdapter {
   let state: CameraSnapshot | null = null
   let disposed = false
   let held = false
+  // A cube drag is accumulated per animation frame (plan 29 §5): the browser can emit
+  // several pointer moves per frame, and one orbit command per frame keeps the host's
+  // camera loop the cadence the rendered cube follows without dropping any travel.
+  let orbitX = 0
+  let orbitY = 0
+  let orbitFrame = 0
   const stop = port.subscribe(next => { state = next })
 
   const send = (command: CameraCommand): void => {
     if (disposed) return
     port.send(command)
+  }
+
+  const flushOrbit = (): void => {
+    orbitFrame = 0
+    const dx = orbitX
+    const dy = orbitY
+    orbitX = 0
+    orbitY = 0
+    if (dx === 0 && dy === 0) return
+    send(cameraCommands.orbit(dx, dy))
   }
 
   return {
@@ -209,7 +283,11 @@ export function createUnityViewCubeAdapter(port: CameraPort): ViewCubeAdapter {
     },
     orbit(dx, dy) {
       if (!Number.isFinite(dx) || !Number.isFinite(dy)) return
-      send(cameraCommands.orbit(dx, dy))
+      orbitX += dx
+      orbitY += dy
+      if (orbitFrame) return
+      if (typeof requestAnimationFrame === 'function') orbitFrame = requestAnimationFrame(flushOrbit)
+      else flushOrbit()
     },
     snap(direction, projection) {
       send({ type: 'camera.snap', payload: { face: snapFaceKey(direction), direction, projection } })
@@ -241,6 +319,12 @@ export function createUnityViewCubeAdapter(port: CameraPort): ViewCubeAdapter {
       if (disposed) return
       if (held) send({ type: 'camera.panHeld', payload: { direction: 0 } })
       held = false
+      if (orbitFrame) {
+        if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(orbitFrame)
+        orbitFrame = 0
+      }
+      orbitX = 0
+      orbitY = 0
       disposed = true
       stop()
     },
@@ -305,6 +389,7 @@ export function attachCanvasCameraGestures(
 ): () => void {
   let mode: 'orbit' | 'pan' | null = null
   let pointer = -1
+  let button = -1
   let x = 0
   let y = 0
   const isBlocked = (): boolean => {
@@ -318,12 +403,28 @@ export function attachCanvasCameraGestures(
   const claimsRight = (): boolean => {
     try { return options.claimsRight ? options.claimsRight() : false } catch { return false }
   }
+  /**
+   * Chord cancellation (plan 29 §2). A press of the other build button while this one is
+   * held cancels both gestures; the camera must never start a pan from the second press of
+   * a chord, and a right pan whose left button appears — or whose release is unmatched —
+   * stops where it is. The tool pointer stream applies the same rule to its own half.
+   */
+  const cancel = (): void => {
+    mode = null
+    pointer = -1
+    button = -1
+  }
+  const opposingHeld = (event: PointerEvent, held: number): boolean =>
+    held === 2 ? (event.buttons & 1) !== 0 : (event.buttons & 2) !== 0
 
   const down = (event: PointerEvent): void => {
     if (isBlocked()) return
     if (event.button !== 1 && event.button !== 2) return
     if (event.button === 2 && claimsRight()) return
+    // The second press of a chord is not a camera gesture.
+    if ((event.buttons & (event.button === 2 ? 1 : 2)) !== 0) return
     mode = event.button === 1 ? 'orbit' : 'pan'
+    button = event.button
     pointer = event.pointerId
     x = event.clientX
     y = event.clientY
@@ -333,8 +434,16 @@ export function attachCanvasCameraGestures(
   const move = (event: PointerEvent): void => {
     if (!mode || event.pointerId !== pointer) return
     if (isBlocked()) {
-      mode = null
-      pointer = -1
+      cancel()
+      return
+    }
+    if (opposingHeld(event, button)) {
+      cancel()
+      return
+    }
+    if ((event.buttons & button) === 0) {
+      // The owning button went up without an `up` reaching the canvas: never keep panning.
+      cancel()
       return
     }
     const dx = event.clientX - x
@@ -354,8 +463,12 @@ export function attachCanvasCameraGestures(
   }
   const up = (event: PointerEvent): void => {
     if (event.pointerId !== pointer) return
-    mode = null
-    pointer = -1
+    // Releasing the other build button while this one is held cancels the gesture.
+    if (button !== -1 && (event.button === 0 || event.button === 2) && event.button !== button) {
+      cancel()
+      return
+    }
+    cancel()
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
   }
   const wheel = (event: WheelEvent): void => {

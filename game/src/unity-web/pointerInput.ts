@@ -64,6 +64,10 @@ export interface ToolPointerOptions {
 const RIGHT_TAP_PX = 5
 /** How long a right press may be held and still count as a tap. */
 const RIGHT_TAP_MS = 500
+/** `MouseEvent.buttons` bit for the primary button. */
+const LEFT_BIT = 1
+/** `MouseEvent.buttons` bit for the secondary button. */
+const RIGHT_BIT = 2
 
 /**
  * Attach the tool pointer stream to the Unity canvas. Returns the detach function.
@@ -71,6 +75,21 @@ const RIGHT_TAP_MS = 500
  * A move is coalesced to one send per animation frame (the latest position wins), so a
  * fast drag cannot queue a pick per browser event. Presses and releases flush the
  * pending move first: the release's own pick is the one the commit uses.
+ *
+ * **Chord arbitration (plan 29 §2).** DOM mouse `pointerdown`/`pointerup` primarily track
+ * the first press and the last release; the reference additionally treats a press of the
+ * opposing button while one is held as a cancel (`Viewport.tsx`: the move's `buttons`
+ * mask, the unmatched release and `contextmenu`). Here one press owns the tool stream at
+ * a time and a chord that press:
+ *
+ * * discards the queued move and sends **one** `pointer.cancel` — no second `pointer.down`,
+ *   no new erase/add gesture, and the camera adapter refuses the same chord;
+ * * consumes both releases (including one captured outside the canvas) until the pointer
+ *   really holds no button, so the still-held button's release cannot commit the gesture
+ *   the player tried to cancel.
+ *
+ * A right drag the tool does not claim stays the camera's pan, and a claimed right erase
+ * keeps its drag to its own release (`ownsContextMenu`).
  */
 export function attachCanvasToolPointer(
   canvas: HTMLCanvasElement,
@@ -83,11 +102,18 @@ export function attachCanvasToolPointer(
   let downAt = 0
   let downButton = -1
   let toolOwnsRight = false
+  /** The press forwarded to the tool, so a chord only cancels a gesture that exists. */
+  let toolPressed = false
+  /** The owning pointer's live `buttons` mask, kept even when a move is discarded. */
+  let heldMask = 0
+  /** A chord already sent its one cancel; both releases stay consumed until the mask clears. */
+  let chordConsumed = false
   let pending: PointerEvent | null = null
   let frame = 0
 
   const blocked = (): boolean => options.blocked?.() === true
   const claimsRight = (): boolean => options.claimsRight?.() === true
+  const isMouseLike = (event: PointerEvent): boolean => event.pointerType !== 'touch'
 
   const snapshot = (): { toolGeneration: number; documentRevision: number } => {
     const state = stationBridge.getSnapshot()
@@ -155,54 +181,121 @@ export function attachCanvasToolPointer(
     })
   }
 
-  const down = (event: PointerEvent): void => {
-    if (event.button === 1) return
-    if (event.button === 0) {
-      if (blocked()) return
-      pointerId = event.pointerId
-      downX = event.clientX
-      downY = event.clientY
-      downAt = performance.now()
-      downButton = 0
-      toolOwnsRight = false
-      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
-      flush()
-      port.send({ type: 'pointer.down', payload: payload(event, 0) })
-      return
-    }
-    if (event.button === 2) {
-      if (blocked()) return
-      pointerId = event.pointerId
-      downX = event.clientX
-      downY = event.clientY
-      downAt = performance.now()
-      downButton = 2
-      toolOwnsRight = claimsRight()
-      if (!toolOwnsRight) return
-      // The committed tool owns the secondary button: forward the press now, so the C#
-      // gesture is armed by the same event the player pressed — a right **drag** then digs
-      // a rectangle instead of panning the camera. Capture keeps the drag alive off-canvas.
-      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
-      flush()
-      port.send({ type: 'pointer.down', payload: payload(event, 2) })
+  /**
+   * Drop the press the player cancelled. The queued move goes with it — sending it first
+   * would aim the gesture one last time — and one `pointer.cancel` is the whole message:
+   * the C# router owns every tool's cancellation, clears both ghost layers and the badge,
+   * and counts it as zero picks and zero revisions (plan 29 §2). A chord on a press the
+   * tool never owned (a camera pan) cancels nothing in C#, so it sends nothing.
+   */
+  const cancelChord = (): void => {
+    pending = null
+    if (frame) { cancelAnimationFrame(frame); frame = 0 }
+    if (chordConsumed) return
+    chordConsumed = true
+    const ownsTool = toolPressed
+    downButton = -1
+    toolOwnsRight = false
+    toolPressed = false
+    try {
+      if (pointerId >= 0 && canvas.hasPointerCapture(pointerId)) canvas.releasePointerCapture(pointerId)
+    } catch { /* already released */ }
+    if (!ownsTool || blocked()) return
+    port.send({ type: 'pointer.cancel', payload: {} })
+  }
+
+  /** A chord already cancelled this press: consume events until the pointer holds nothing. */
+  const consumeChord = (event: PointerEvent): void => {
+    heldMask = event.buttons
+    if ((heldMask & (LEFT_BIT | RIGHT_BIT)) === 0) {
+      chordConsumed = false
+      pointerId = -1
+      downButton = -1
+      toolPressed = false
     }
   }
 
+  const down = (event: PointerEvent): void => {
+    if (event.button === 1) return
+    if (event.button !== 0 && event.button !== 2) return
+    if (blocked()) return
+    if (isMouseLike(event)) {
+      // Some browsers deliver a `pointerdown` for the second button of a chord and some do
+      // not; either way the press that is already held is the owner, and its gesture is
+      // cancelled rather than joined by a second gesture (`Viewport.tsx` `startPointerTool`).
+      if (chordConsumed) { consumeChord(event); return }
+      if (heldMask !== 0 && (heldMask & (LEFT_BIT | RIGHT_BIT)) !== 0) {
+        cancelChord()
+        consumeChord(event)
+        return
+      }
+    }
+    heldMask = event.buttons
+    pointerId = event.pointerId
+    downX = event.clientX
+    downY = event.clientY
+    downAt = performance.now()
+    downButton = event.button
+    toolPressed = false
+    if (event.button === 0) {
+      toolOwnsRight = false
+      try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
+      flush()
+      toolPressed = true
+      port.send({ type: 'pointer.down', payload: payload(event, 0) })
+      return
+    }
+    toolOwnsRight = claimsRight()
+    if (!toolOwnsRight) return
+    // The committed tool owns the secondary button: forward the press now, so the C#
+    // gesture is armed by the same event the player pressed — a right **drag** then digs
+    // a rectangle instead of panning the camera. Capture keeps the drag alive off-canvas.
+    try { canvas.setPointerCapture(event.pointerId) } catch { /* inside-canvas drag still works */ }
+    flush()
+    toolPressed = true
+    port.send({ type: 'pointer.down', payload: payload(event, 2) })
+  }
+
   const move = (event: PointerEvent): void => {
+    if (chordConsumed) { consumeChord(event); return }
     if (blocked()) return
     if (event.pointerType === 'touch') event.preventDefault()
+    if (isMouseLike(event) && downButton !== -1) {
+      heldMask = event.buttons
+      const ownerBit = downButton === 0 ? LEFT_BIT : RIGHT_BIT
+      const otherBit = downButton === 0 ? RIGHT_BIT : LEFT_BIT
+      // The move's mask is authoritative even when the browser never sent the second
+      // `pointerdown`: a drag that gains the opposing bit is the chord (`onPointerMove`).
+      if ((event.buttons & otherBit) !== 0) { cancelChord(); return }
+      // The owning button went up without a `pointerup` (capture loss, OS gesture): a
+      // release nobody made must never commit the gesture, so the press is cancelled.
+      if ((event.buttons & ownerBit) === 0) { cancelChord(); return }
+    }
     schedule(event)
   }
 
   const up = (event: PointerEvent): void => {
+    if (chordConsumed) { consumeChord(event); return }
     if (event.pointerId !== pointerId) return
     const wasButton = downButton
     const owned = toolOwnsRight
     const travelled = Math.hypot(event.clientX - downX, event.clientY - downY)
     const elapsed = performance.now() - downAt
+    // Releasing the **other** button while the press is held cancels it: the classic case
+    // is right-up during a left drag, whose own `pointerdown` never fired while the left
+    // button was down — committing here would apply the very rectangle the player tried
+    // to cancel (`Viewport.tsx` `dispatchPointerUp`).
+    if (isMouseLike(event) && wasButton !== -1 && event.button !== wasButton) {
+      heldMask = event.buttons
+      cancelChord()
+      consumeChord(event)
+      return
+    }
     pointerId = -1
     downButton = -1
     toolOwnsRight = false
+    toolPressed = false
+    heldMask = event.buttons
     try { if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId) } catch { /* already released */ }
     // The release's hit is the one a click-commit uses, so the queued move is flushed
     // first under the same event order the C# router expects.
@@ -219,14 +312,36 @@ export function attachCanvasToolPointer(
     port.send({ type: 'pointer.up', payload: payload(event, event.button) })
   }
 
+  /**
+   * A native menu may arrive at right-down, before a claimed erase drag's release: the
+   * drag owns its own context menu (`ownsContextMenu`), so an erase drag keeps its
+   * release. Every other menu — the unmatched secondary press the browser reports while
+   * the primary is held — is the chord, and cancels the gesture.
+   */
+  const contextMenu = (event: MouseEvent): void => {
+    event.preventDefault()
+    const owningErase = downButton === 2 && toolOwnsRight && (event.buttons & LEFT_BIT) === 0
+    if (owningErase) return
+    if (chordConsumed) { heldMask = event.buttons; return }
+    if (!toolPressed) return
+    cancelChord()
+    heldMask = event.buttons
+  }
+
   const cancel = (): void => {
     const hadActivePointer = pointerId >= 0
+    const wasChord = chordConsumed
     pointerId = -1
     downButton = -1
     toolOwnsRight = false
+    toolPressed = false
+    heldMask = 0
     pending = null
     if (frame) { cancelAnimationFrame(frame); frame = 0 }
+    chordConsumed = false
     if (blocked() && !hadActivePointer) return
+    // A chord already told the host to cancel; a second `pointer.cancel` would be noise.
+    if (wasChord) return
     port.send({ type: 'pointer.cancel', payload: {} })
   }
 
@@ -245,12 +360,14 @@ export function attachCanvasToolPointer(
   canvas.addEventListener('pointerup', up)
   canvas.addEventListener('pointercancel', cancel)
   canvas.addEventListener('pointerleave', leave)
+  canvas.addEventListener('contextmenu', contextMenu)
   return () => {
     canvas.removeEventListener('pointerdown', down)
     canvas.removeEventListener('pointermove', move)
     canvas.removeEventListener('pointerup', up)
     canvas.removeEventListener('pointercancel', cancel)
     canvas.removeEventListener('pointerleave', leave)
+    canvas.removeEventListener('contextmenu', contextMenu)
     if (frame) cancelAnimationFrame(frame)
     pending = null
   }

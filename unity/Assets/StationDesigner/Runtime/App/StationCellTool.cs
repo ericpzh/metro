@@ -207,7 +207,7 @@ namespace Metro.App {
                 return true;
             }
             if (string.Equals(tool, "wall", StringComparison.Ordinal)) {
-                var aim = AnchorFor(hit, remove);
+                var aim = AnchorFor(hit, remove, !remove);
                 if (!aim.HasValue) { reason = "no-cell"; return false; }
                 var anchor = aim.Value;
                 IReadOnlyList<StationWallSide> dirs = Array.Empty<StationWallSide>();
@@ -239,7 +239,7 @@ namespace Metro.App {
                 Aim(host, hit, pointer, true);
                 return true;
             }
-            var cellAnchor = AnchorFor(hit, remove);
+            var cellAnchor = AnchorFor(hit, remove, !remove);
             if (!cellAnchor.HasValue) { reason = "no-cell"; return false; }
             if (string.Equals(tool, "module", StringComparison.Ordinal) &&
                 StationModuleRuns.IsLinePalette(StationToolSelection.Setting("moduleType"))) {
@@ -291,15 +291,47 @@ namespace Metro.App {
         /// above the paver's own drawn top instead of at the ground behind it. A cell surface
         /// keeps its authored cell and face step.
         /// </summary>
-        static StationPlacementHit? CellOf(StationSceneHit hit) {
+        /// <summary>
+        /// True while the committed cell tool's operation is an **add**, the one operation the
+        /// reference lets the active storey's work plane answer for (plan 29 §1).
+        ///
+        /// `CameraSystem.pick` intersects the plane at `activeZ + 1` after a geometry miss and
+        /// returns a non-solid cell at `activeZ`; `BlockTool` anchors an add on that cell
+        /// (`hit.solid ? hit.place : hit.cell`) and an erase on `hit.cell` only. Unity used to
+        /// ask for the plane for placement tools alone, so 方块 could not place in the void at
+        /// the depth being edited; the same predicate now decides both whether the pick
+        /// evaluates the plane and whether the anchor may read it.
+        /// </summary>
+        public static bool WantsWorkPlane(string tool) {
+            if (HasGesture) return !gesture.Remove;
+            if (string.Equals(tool, "delete", StringComparison.Ordinal)) return false;
+            if (string.Equals(tool, "module", StringComparison.Ordinal)) return true;
+            return StationPointerRouter.IsCellTool(tool);
+        }
+
+        /// <summary>
+        /// The whole cell one hit names, from the **nearest drawn surface**: a placed module
+        /// that wins the pick (paving, a track deck, a cabinet) names its own face exactly as
+        /// `render/pickCell.ts:pickCells` does, so the paver in the report anchors one cell
+        /// above the paver's own drawn top instead of at the ground behind it. A cell surface
+        /// keeps its authored cell and face step.
+        ///
+        /// `allowWorkPlane` lets an **add** read the active storey's plane fallback when no
+        /// visible surface answered (`CameraSystem.pick`'s `workPlaneZ` branch). The plane hit
+        /// is the cell at the edited level, exactly as web's non-solid plane `cell` is, so the
+        /// authored block lands at `level` and the plane itself was intersected at `level + 1`.
+        /// </summary>
+        static StationPlacementHit? CellOf(StationSceneHit hit, bool allowWorkPlane = false) {
             if (hit == null) return null;
             var cell = hit.EditCell;
-            return cell.HasCell ? cell : (StationPlacementHit?)null;
+            if (cell.HasCell) return cell;
+            if (!allowWorkPlane || !hit.HasWorkPlane) return null;
+            return hit.WorkPlane;
         }
 
         /// <summary>The cell a hit places into (add) or takes away (erase).</summary>
-        static StationCellKey? AnchorFor(StationSceneHit hit, bool remove) {
-            var found = CellOf(hit);
+        static StationCellKey? AnchorFor(StationSceneHit hit, bool remove, bool allowWorkPlane = false) {
+            var found = CellOf(hit, allowWorkPlane && !remove);
             if (!found.HasValue) return null;
             var cell = found.Value;
             if (!remove && cell.Solid) return new StationCellKey(cell.PlaceX, cell.PlaceY, cell.PlaceZ);
@@ -310,8 +342,8 @@ namespace Metro.App {
         /// The cell a wall press/hover snaps its column to: the air cell in front of the hit
         /// face, so the same surface resolves the same column on hover and at the release.
         /// </summary>
-        static StationCellKey? WallAnchorFor(StationSceneHit hit, bool remove) {
-            var found = CellOf(hit);
+        static StationCellKey? WallAnchorFor(StationSceneHit hit, bool remove, bool allowWorkPlane = false) {
+            var found = CellOf(hit, allowWorkPlane && !remove);
             if (!found.HasValue) return null;
             var cell = found.Value;
             if (remove) return new StationCellKey(cell.X, cell.Y, cell.Z);
@@ -338,7 +370,7 @@ namespace Metro.App {
             if (worldRef == null) return;
             if (gesture == null) {
                 var settings = StationCellToolSettings.Read();
-                var cell = AnchorFor(hit, false);
+                var cell = AnchorFor(hit, false, WantsWorkPlane(StationToolSelection.Active));
                 if (cell.HasValue) {
                     hasHover = true;
                     hoverCell = cell.Value;
@@ -361,7 +393,7 @@ namespace Metro.App {
                 if (!now.Shape.IsFull) gesture.Shape = now.Shape;
             }
             if (gesture.Kind == StationCellGestureKind.Wall) {
-                var wallAim = WallAnchorFor(hit, gesture.Remove);
+                var wallAim = WallAnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
                 if (wallAim.HasValue) {
                     var anchor = wallAim.Value;
                     if (gesture.Remove) {
@@ -384,10 +416,10 @@ namespace Metro.App {
                     gesture.SweepFamily = StationSweep.FamilyOf(hit.Module) ?? "";
                 }
             } else if (gesture.Kind == StationCellGestureKind.ModuleRun) {
-                var runAim = AnchorFor(hit, gesture.Remove);
+                var runAim = AnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
                 if (runAim.HasValue) gesture.Target = runAim.Value;
             } else {
-                var cell = AnchorFor(hit, gesture.Remove);
+                var cell = AnchorFor(hit, gesture.Remove, WantsWorkPlane(gesture.Tool));
                 if (cell.HasValue) gesture.Target = cell.Value;
             }
             hasHover = true;
@@ -756,8 +788,10 @@ namespace Metro.App {
             if (camera == null || worldRef == null) return false;
             if (StationEditSession.HasPointer) {
                 var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
+                // The stationary refresh evaluates exactly the plane the live move would
+                // (plan 29 §1), so a camera/storey change over the void lands the same ghost.
                 var hit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray, activeLevel, visibility,
-                    false, out _, out _);
+                    StationPointerRouter.NeedsWorkPlane(StationToolSelection.Active), out _, out _);
                 if (hit != null) {
                     Aim(host, hit, StationEditSession.Pointer);
                     StationEditSession.Cells = preview;
@@ -816,10 +850,10 @@ namespace Metro.App {
             current.Dragging = IsDeliberate(current, pointer);
             if (hit != null) {
                 if (current.Kind == StationCellGestureKind.Block) {
-                    var target = AnchorFor(hit, current.Remove);
+                    var target = AnchorFor(hit, current.Remove, WantsWorkPlane(current.Tool));
                     if (target.HasValue) current.Target = target.Value;
                 } else if (current.Kind == StationCellGestureKind.Wall) {
-                    var wallAim = WallAnchorFor(hit, current.Remove);
+                    var wallAim = WallAnchorFor(hit, current.Remove, WantsWorkPlane(current.Tool));
                     if (wallAim.HasValue) {
                         var anchor = wallAim.Value;
                         current.Target = current.Remove

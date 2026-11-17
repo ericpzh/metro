@@ -332,6 +332,31 @@ namespace Metro.EditModeTests {
         static int simulateCommits(FakeSimulation sim) => sim.CommitCount;
 
         [Test]
+        public void AnEditIsClassifiedBeforeTheWorldIsStaged() {
+            // Plan 29 §3: the impact classification runs ahead of view staging, and the
+            // simulation host receives that answer instead of walking the document again.
+            var coordinator = new StationLoadCoordinator(rootObject.transform);
+            coordinator.RegisterRenderer(new CountingRenderer());
+            var sim = new FakeSimulation();
+            coordinator.SetSimulationHost(sim);
+
+            Assert.IsTrue(coordinator.Open(ActiveServiceSaveJson(nameEn: "Classified"), StationSource.None, "classified").Accepted);
+            Assert.IsNull(sim.LastEditKind, "a station open is not an edit");
+
+            Assert.IsTrue(coordinator.InstallEditedDocument(ActiveServiceSaveJson(nameEn: "Renamed"), "label").Accepted);
+            Assert.AreEqual(StationDocumentEditKind.Cosmetic, sim.LastEditKind, "a name/label edit is cosmetic");
+            Assert.IsTrue(sim.LastStageWasEdit, "the staging call is an edit");
+
+            Assert.IsTrue(coordinator.InstallEditedDocument(
+                ActiveServiceSaveJson(nameEn: "Renamed", serviceTo: 82800), "day").Accepted);
+            Assert.AreEqual(StationDocumentEditKind.DayOnly, sim.LastEditKind, "a service-window edit is day-only");
+
+            Assert.IsTrue(coordinator.InstallEditedDocument(
+                ActiveServiceSaveJson(nameEn: "Renamed", serviceTo: 82800, extraConcourseCell: true), "cell").Accepted);
+            Assert.AreEqual(StationDocumentEditKind.Structural, sim.LastEditKind, "a cell change is structural");
+        }
+
+        [Test]
         public void ARefusalKeepsTheCommittedStation() {
             var coordinator = new StationLoadCoordinator(rootObject.transform);
             coordinator.RegisterRenderer(new CountingRenderer());
@@ -424,6 +449,8 @@ namespace Metro.EditModeTests {
         sealed class FakeSimulation : IStationSimulationHost {
             public int StageCount;
             public bool LastStageWasEdit;
+            /// <summary>The classification the coordinator passed ahead of the world staging.</summary>
+            public StationDocumentEditKind? LastEditKind;
             public int CommitCount;
             public int AbortCount;
             public int ReleaseCount;
@@ -433,9 +460,11 @@ namespace Metro.EditModeTests {
             public long SimulationTick => 0;
             public double PresentationFraction => 0;
             public long PresentationEpoch => 0;
-            public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false) {
+            public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
+                StationDocumentEditKind? editKind = null) {
                 StageCount++;
                 LastStageWasEdit = isEdit;
+                LastEditKind = editKind;
             }
             public void CommitInstall() { CommitCount++; }
             public void AbortInstall() { AbortCount++; }

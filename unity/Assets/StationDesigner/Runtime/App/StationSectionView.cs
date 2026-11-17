@@ -522,6 +522,23 @@ namespace Metro.App {
         Func<bool, bool> pendingExplodedHandler;
         Func<double> simTimeSource;
         double manualSimTime = StationSkySystem.DefaultSimTime;
+        StationCameraSnapshot lastPublishedPose;
+        bool hasPublishedPose;
+        bool pausedForExploded;
+
+        /// <summary>
+        /// The sequence of the last camera pose this rig published (plan 29 §5). The shell
+        /// applies the newest pose it has seen and ignores an older state/ack camera, so a
+        /// per-frame orbit update can never be rolled back by the 100 ms state interval.
+        /// </summary>
+        public long CameraPoseSequence { get; private set; }
+
+        /// <summary>
+        /// Raised after the camera pose was written to the rendered camera transform, once
+        /// per frame that actually changed it. The host routes this small sequenced update to
+        /// the shell's camera port ahead of the state interval.
+        /// </summary>
+        public event Action<JObject, long> CameraPosePublished;
 
         public void SetExplodedHandler(Func<bool, bool> handler) {
             pendingExplodedHandler = handler;
@@ -671,7 +688,17 @@ namespace Metro.App {
                 }
                 Commands.Tick(deltaSeconds);
                 Commands.ApplyCamera();
+                // Sample the pose the frame really renders and publish it only when it moved
+                // (plan 29 §5). The exploded viewer drives the same camera while it is open, so
+                // the first frame back must publish even when the pose equals the last one.
+                if (pausedForExploded) {
+                    pausedForExploded = false;
+                    hasPublishedPose = false;
+                }
+                PublishCameraPose();
                 SyncSky();
+            } else if (!pausedForExploded) {
+                pausedForExploded = true;
             }
             // The lattice is the active storey's, not the world's: it follows every Q/E step
             // without a rebuild (the source moves its grid group the same way).
@@ -756,6 +783,51 @@ namespace Metro.App {
 
         void MarkDirty() => dirty = true;
 
+        /// <summary>
+        /// Publish the rendered pose when it changed since the last frame (plan 29 §5). The
+        /// values are read back from the applied camera, so the cube sees the basis the frame
+        /// really uses; the pose is skipped when nothing moved, so an idle station sends
+        /// nothing and a held pan cannot flood the bridge with identical updates.
+        /// </summary>
+        void PublishCameraPose() {
+            if (CameraPosePublished == null || Commands == null || Commands.ViewCamera == null) return;
+            var pose = Commands.Camera.Snapshot(Commands.ViewCamera);
+            if (hasPublishedPose && SamePose(pose, lastPublishedPose)) return;
+            lastPublishedPose = pose;
+            hasPublishedPose = true;
+            CameraPoseSequence++;
+            CameraPosePublished(PoseJson(pose, CameraPoseSequence), CameraPoseSequence);
+        }
+
+        static bool SamePose(in StationCameraSnapshot a, in StationCameraSnapshot b) =>
+            Near(a.Position, b.Position) && Near(a.Right, b.Right) && Near(a.Up, b.Up) &&
+            Near(a.Back, b.Back) && Mathf.Abs(a.Fov - b.Fov) < 1e-4f &&
+            Mathf.Abs(a.OrthoSize - b.OrthoSize) < 1e-4f &&
+            a.ActiveLevel == b.ActiveLevel && a.IsOrthographic == b.IsOrthographic;
+
+        static bool Near(Vector3 a, Vector3 b) => (a - b).sqrMagnitude < 1e-8f;
+
+        /// <summary>The camera object the shell's cube reads, plus the pose sequence.</summary>
+        static JObject PoseJson(in StationCameraSnapshot pose, long sequence) {
+            return new JObject {
+                ["position"] = VectorJson(pose.Position),
+                ["target"] = VectorJson(pose.Target),
+                ["right"] = VectorJson(pose.Right),
+                ["up"] = VectorJson(pose.Up),
+                ["back"] = VectorJson(pose.Back),
+                ["fov"] = pose.Fov,
+                ["ortho"] = pose.IsOrthographic,
+                ["level"] = pose.ActiveLevel,
+                ["orthoSize"] = pose.OrthoSize,
+                ["distance"] = pose.Distance,
+                ["sequence"] = sequence,
+            };
+        }
+
+        static JObject VectorJson(Vector3 value) => new JObject {
+            ["x"] = value.x, ["y"] = value.y, ["z"] = value.z,
+        };
+
         void RefreshSection() {
             if (sectionView == null || Commands == null) return;
             sectionView.Apply(Commands.Section, Visibility.SectionClipping, Commands.SectionSurfaceVisible, StationBounds);
@@ -830,6 +902,10 @@ namespace Metro.App {
             stationHost.RegisterCommandHandler(new StationCameraCommandHandler(rig, stationHost));
             stationHost.RegisterCommandHandler(new StationViewCommandHandler(rig, stationHost));
             stationHost.RegisterCommandHandler(new StationExplodedCommandHandler(explodedView, rig, stationHost));
+            // Plan 29 §5: the rendered pose travels to the shell on every frame that moves the
+            // camera, so the ViewCube follows at camera cadence rather than the state interval.
+            rig.CameraPosePublished -= stationHost.PublishCameraPose;
+            rig.CameraPosePublished += stationHost.PublishCameraPose;
             if (stationHost.Coordinator != null) stationHost.Coordinator.Committed += OnCommitted;
             // A scene preloaded with a demo may have committed before this hook runs;
             // adopt that station now instead of waiting for the next open.
@@ -1107,8 +1183,14 @@ namespace Metro.App {
         readonly StationViewRig rig;
         public StationCameraStateContributor(StationViewRig rig) { this.rig = rig; }
         public string Key => "camera";
-        public JObject BuildPayload(StationDocument document, StationIndex index) =>
-            rig != null && rig.Configured ? rig.SnapshotObject()["camera"] as JObject : null;
+        public JObject BuildPayload(StationDocument document, StationIndex index) {
+            if (rig == null || !rig.Configured) return null;
+            var camera = rig.SnapshotObject()["camera"] as JObject;
+            // The state camera is the same pose the per-frame channel publishes; its sequence
+            // lets the shell keep whichever arrived last (plan 29 §5).
+            if (camera != null) camera["sequence"] = rig.CameraPoseSequence;
+            return camera;
+        }
     }
 
     /// <summary>
@@ -1330,6 +1412,10 @@ namespace Metro.App {
             if (payload == null || rig == null) return;
             var state = rig.SnapshotObject();
             payload["camera"] = state["camera"] ?? JValue.CreateNull();
+            // The ack's camera is the pose this very command applied: tag it with the rig's
+            // sequence so the shell can accept it ahead of the next frame's pose and ignore an
+            // older state reply that arrives late (plan 29 §5).
+            if (payload["camera"] is JObject camera) camera["sequence"] = rig.CameraPoseSequence;
             payload["view"] = state["view"] ?? JValue.CreateNull();
             // 20 §6: the drag's own readout rides the view state, so the shell can mirror the
             // committed offset without inventing one, and a verifier can see the frozen axis.

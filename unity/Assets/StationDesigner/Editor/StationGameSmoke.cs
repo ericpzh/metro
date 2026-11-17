@@ -245,6 +245,10 @@ namespace Metro.Editor {
 
                 var state = host.BuildStatePayload();
                 var stateForHash = (JObject)state.DeepClone();
+                // Plan 29 §5: the camera carries the shell's pose sequence (a frame counter), so
+                // the fingerprint keeps the rendered pose and drops the counter, like every other
+                // wall-clock field here.
+                if (stateForHash["camera"] is JObject cameraForHash) cameraForHash.Remove("sequence");
                 if (stateForHash["statistics"] is JObject statsForHash) {
                     statsForHash.Remove("runId");
                     if (statsForHash["metrics"] is JObject metricsForHash) {
@@ -264,10 +268,12 @@ namespace Metro.Editor {
                     }
                 }
                 var fingerprint = Hash(stateForHash.ToString(Formatting.None) + "\n" + snapshotText);
+                var evidenceCamera = state["camera"] != null ? (JObject)state["camera"].DeepClone() : null;
+                evidenceCamera?.Remove("sequence");
                 result["state"] = new JObject {
                     ["hash"] = fingerprint,
                     ["bytes"] = state.ToString(Formatting.None).Length,
-                    ["camera"] = state["camera"] != null ? state["camera"].DeepClone() : null,
+                    ["camera"] = evidenceCamera,
                     ["clock"] = state["clock"] != null ? state["clock"].DeepClone() : null,
                     ["view"] = state["view"] != null ? state["view"].DeepClone() : null,
                 };

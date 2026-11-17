@@ -9,6 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { attachCanvasToolPointer } from '../../game/src/unity-web/pointerInput.ts'
+import { attachCanvasCameraGestures } from '../../game/src/unity-web/cameraAdapter.ts'
 
 class FakeCanvas {
   constructor(width = 600, height = 400) {
@@ -250,6 +251,160 @@ test('desktop/Editor metro-overlay maps docked stage clicks to full swapchain co
     assert.equal(commands[0].payload.h, 720)
   } finally {
     frames.restore()
+    detach()
+  }
+})
+
+/* ------------------------------------------------------------------ plan 29 §2 chords */
+
+const types = commands => commands.map(command => command.type)
+
+function claimedSetup(claimsRight) {
+  const canvas = new FakeCanvas()
+  const commands = []
+  const frames = installFrames()
+  const detach = attachCanvasToolPointer(canvas, { send: command => commands.push(command) }, {
+    claimsRight: () => claimsRight,
+  })
+  return { canvas, commands, frames, detach }
+}
+
+test('a second button press cancels the held gesture once and consumes both releases', () => {
+  const { canvas, commands, frames, detach } = setup()
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ clientX: 100, clientY: 80, buttons: 1 }))
+    canvas.dispatch('pointermove', pointerEvent({ buttons: 1, clientX: 120 }))
+    // The browser reports the second button of the chord. The queued move is dropped with
+    // the gesture, so no stray `pointer.move` aims the press that was just cancelled.
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 3 }))
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+    assert.equal(commands.length, 1 + 1, 'exactly one cancel, never a second down')
+    assert.equal(canvas.hasPointerCapture(7), false, 'the chord drops the capture')
+    // The release of the other button, then the owner's release: both are consumed so the
+    // still-held button cannot commit the rectangle the player cancelled.
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 1 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 0 }))
+    frames.flush()
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+    // The next clean press is a normal gesture again.
+    canvas.dispatch('pointerdown', pointerEvent({ buttons: 1 }))
+    canvas.dispatch('pointerup', pointerEvent({ buttons: 0 }))
+    assert.deepEqual(types(commands).slice(2), ['pointer.down', 'pointer.up'])
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('a chord is detected from the move mask when the second press never arrives', () => {
+  const { canvas, commands, frames, detach } = setup()
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ buttons: 1 }))
+    // Some browsers fire no `pointerdown` for a second button while the first is held; the
+    // move's `buttons` mask is authoritative (`Viewport.tsx` onPointerMove).
+    canvas.dispatch('pointermove', pointerEvent({ buttons: 3, clientX: 160 }))
+    frames.flush()
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+    canvas.dispatch('pointermove', pointerEvent({ buttons: 3, clientX: 180 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 2 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0 }))
+    frames.flush()
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'], 'moves stay discarded')
+    canvas.dispatch('pointerdown', pointerEvent({ buttons: 1 }))
+    assert.equal(commands.at(-1).type, 'pointer.down', 'a chord never blocks the next press')
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('an unmatched release of the other button cancels a claimed right erase', () => {
+  const { canvas, commands, frames, detach } = claimedSetup(true)
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2 }))
+    // Right-up is what the browser reports when the left button is released during a right
+    // drag: committing here would apply the erase the player tried to cancel.
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 2 }))
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0 }))
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('a claimed right erase keeps its drag and its own context menu', () => {
+  const { canvas, commands, frames, detach } = claimedSetup(true)
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2 }))
+    // A claimed erase drag owns the native menu even though no left button is held
+    // (`ownsContextMenu`), because the browser can fire it at right-down.
+    canvas.dispatch('contextmenu', pointerEvent({ button: 2, buttons: 2 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 0 }))
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.up'], 'the erase release still commits')
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('contextmenu cancels an unmatched secondary press during a held tool gesture', () => {
+  const { canvas, commands, frames, detach } = setup()
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ buttons: 1 }))
+    canvas.dispatch('contextmenu', pointerEvent({ button: 2, buttons: 1 }))
+    assert.deepEqual(types(commands), ['pointer.down', 'pointer.cancel'])
+  } finally {
+    frames.restore()
+    detach()
+  }
+})
+
+test('a left press during a right camera pan is consumed, and the pan never starts from the chord', () => {
+  const canvas = new FakeCanvas()
+  const toolCommands = []
+  const cameraCommands = []
+  const frames = installFrames()
+  const detachTool = attachCanvasToolPointer(canvas, { send: command => toolCommands.push(command) }, {
+    claimsRight: () => false,
+  })
+  const detachCamera = attachCanvasCameraGestures(canvas, { send: command => cameraCommands.push(command) }, {
+    claimsRight: () => false,
+  })
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 140 }))
+    assert.equal(cameraCommands.length, 1, 'the right pan integrates its own drag')
+    canvas.dispatch('pointerdown', pointerEvent({ button: 0, buttons: 3 }))
+    assert.equal(toolCommands.length, 0, 'the second press of a chord starts no tool gesture and needs no cancel')
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 3, clientX: 180 }))
+    assert.equal(cameraCommands.length, 1, 'the chord stops the pan instead of feeding it')
+    canvas.dispatch('pointerup', pointerEvent({ button: 2, buttons: 1 }))
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 0 }))
+    frames.flush()
+    assert.deepEqual(types(toolCommands), [], 'neither release commits a tool gesture')
+  } finally {
+    frames.restore()
+    detachCamera()
+    detachTool()
+  }
+})
+
+test('a camera pan stops on an unmatched release instead of drifting', () => {
+  const canvas = new FakeCanvas()
+  const sent = []
+  const detach = attachCanvasCameraGestures(canvas, { send: command => sent.push(command) }, {
+    claimsRight: () => false,
+  })
+  try {
+    canvas.dispatch('pointerdown', pointerEvent({ button: 2, buttons: 2 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 140 }))
+    assert.equal(sent.length, 1)
+    canvas.dispatch('pointerup', pointerEvent({ button: 0, buttons: 2 }))
+    canvas.dispatch('pointermove', pointerEvent({ button: -1, buttons: 2, clientX: 180 }))
+    assert.equal(sent.length, 1, 'a pan whose release was unmatched does not keep moving')
+  } finally {
     detach()
   }
 })

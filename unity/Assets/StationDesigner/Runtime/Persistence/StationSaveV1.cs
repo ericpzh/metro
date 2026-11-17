@@ -79,9 +79,21 @@ namespace Metro.Persistence {
         /// <summary>The normalized, repaired state object, for the typed document reader.</summary>
         public string StateJson() => document.ToString(Formatting.None);
 
-        public static StationSaveV1 Read(string input) {
-            var candidate=StationSaveCandidate.InspectV1(input);
-            var state=JObject.Parse(candidate.InspectJson());
+        /// <summary>
+        /// The normalized, repaired state object itself. The typed reader projects this tree
+        /// in place, so opening or editing a station does not serialize and re-parse the whole
+        /// document a second time (plan 29 §3). Read-only by contract: nothing outside this
+        /// type mutates it.
+        /// </summary>
+        internal JObject State => document;
+
+        public static StationSaveV1 Read(string input) => Read(StationSaveCandidate.InspectV1(input));
+
+        /// <summary>Read an already-parsed envelope (one parse for the whole load path).</summary>
+        public static StationSaveV1 Read(JObject source) => Read(StationSaveCandidate.InspectV1(source));
+
+        static StationSaveV1 Read(StationSaveCandidate candidate) {
+            var state=candidate.Normalized;
             var modules=(JArray)state["modules"];
             for (int i=0;i<modules.Count;i++) {
                 var mod=modules[i] as JObject ?? throw new FormatException("Invalid module");

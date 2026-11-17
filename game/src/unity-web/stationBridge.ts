@@ -18,7 +18,7 @@ export interface Envelope {
   payload?: unknown
 }
 
-export type ReplyKind = 'ack' | 'reject' | 'state' | 'commit'
+export type ReplyKind = 'ack' | 'reject' | 'state' | 'commit' | 'camera'
 
 export interface Reply {
   schemaVersion?: number
@@ -102,6 +102,12 @@ let player: UnityPlayer | null = null
 let objectName = 'StationGame'
 let counter = 0
 const listeners = new Set<() => void>()
+/**
+ * The per-frame camera pose channel (plan 29 §5). It is deliberately **outside** the
+ * snapshot: a pose arrives at camera cadence, and folding it into `state` would wake every
+ * React subscriber sixty times a second. Its one consumer is `createStationCameraPort`.
+ */
+const cameraPoseListeners = new Set<(camera: Record<string, unknown>, sequence: number) => void>()
 const pending = new Map<string, { type: string; at: number }>()
 const pendingRequests = new Map<string, PendingRequest>()
 const retiredRequestIds = new Set<string>()
@@ -170,6 +176,17 @@ export function reduce(current: StationSnapshot, reply: Reply): StationSnapshot 
   if (kind === 'ack' || kind === 'reject') {
     const code = reply.code ?? (kind === 'ack' ? 'ok' : 'rejected')
     const next: StationSnapshot = { ...current, revision }
+    // The camera and view a camera/view command just applied ride its ack, so the shell no
+    // longer has to wait for the next 100 ms state interval to hear the result (plan 29 §5).
+    const camera = payload.camera
+    const view = payload.view
+    if (kind === 'ack' && (camera !== undefined || view !== undefined)) {
+      const state: Record<string, unknown> = { ...current.state }
+      if (camera !== undefined) state.camera = camera
+      if (view !== undefined) state.view = view
+      if (typeof payload.level === 'number') state.level = payload.level
+      next.state = state
+    }
     if (kind === 'reject') {
       const id = reply.id ?? ''
       const type = id ? pending.get(id)?.type ?? '' : ''
@@ -187,6 +204,23 @@ function deliver(text: string): void {
   let reply: Reply
   try { reply = JSON.parse(text) as Reply } catch { return }
   if (!reply || typeof reply !== 'object') return
+
+  // A frame-cadence camera pose (plan 29 §5): session-fenced, outside the reducer, and
+  // delivered to the camera port only. Nothing here changes the revision or the state map.
+  if (reply.kind === 'camera') {
+    const replySession = typeof reply.sessionId === 'string' ? reply.sessionId : ''
+    if (replySession && snapshot.sessionId && replySession !== snapshot.sessionId) return
+    const payload = reply.payload && typeof reply.payload === 'object' ? reply.payload as Record<string, unknown> : null
+    if (!payload) return
+    const camera = payload.camera && typeof payload.camera === 'object'
+      ? payload.camera as Record<string, unknown> : null
+    if (!camera) return
+    const sequence = typeof payload.sequence === 'number' && Number.isFinite(payload.sequence)
+      ? payload.sequence
+      : (typeof camera.sequence === 'number' && Number.isFinite(camera.sequence) ? camera.sequence : -1)
+    for (const listener of cameraPoseListeners) listener(camera, sequence)
+    return
+  }
 
   const replyId = typeof reply.id === 'string' ? reply.id : ''
   const replySession = typeof reply.sessionId === 'string' ? reply.sessionId : ''
@@ -233,6 +267,15 @@ export const stationBridge = {
   onCommit(listener: (snapshot: StationSnapshot) => void): () => void {
     commitListeners.add(listener)
     return () => { commitListeners.delete(listener) }
+  },
+  /**
+   * Subscribe to the frame-cadence camera pose channel (`kind: "camera"`). Returns the
+   * unsubscribe function. The listener runs for every pose the host publishes, unfiltered
+   * and unfenced by the snapshot, so the camera port can coalesce them per animation frame.
+   */
+  onCameraPose(listener: (camera: Record<string, unknown>, sequence: number) => void): () => void {
+    cameraPoseListeners.add(listener)
+    return () => { cameraPoseListeners.delete(listener) }
   },
   register(instance: UnityPlayer, name = 'StationGame'): void {
     cancelPendingRequests('session-changed', 'A new Unity player session registered.')

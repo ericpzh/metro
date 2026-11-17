@@ -1534,6 +1534,38 @@ and pointer-to-render are separate measurements. Use `BENCH_CANVAS_SIZE` and
 | GPU batching / fallback | `node tools/check-render-batching.mjs`, also `--no-multi-draw` |
 | Harness | `npm run check:perf-tools` |
 
+### Unity local block edit managed stages
+
+On 2026-11-16, commit `736a7b21422a2cec9a2f9031271ea0e60c884cad`, a managed probe alternated adding and deleting one explicit block at `(42, 37, −12)` in each generated demo save. It called the production `StationCellEdits.Apply`, `StationDocumentReader.Read`, `StationSimulationHost.StageInstall` and `CommitInstall`, passing each resulting normalized document into the next operation and checking the cell in the read-back index. The first add/delete pair warmed the path. Five samples per action remained. Each row reports medians in ms, with the range of per-operation sums.
+
+| Demo (authored cells / modules) | Action | Patch | Read, normalize and index | Stage sim | Commit sim | Managed total (range) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Zoo (14,066 / 4,299) | Place | 121 | 1,207 | 393 | 0.2 | 1,740 (1,701–1,764) |
+| Zoo | Delete | 119 | 1,204 | 410 | 0.2 | 1,736 (1,709–1,757) |
+| Tanwei (16,725 / 9,678) | Place | 133 | 1,717 | 568 | 0.6 | 2,406 (2,282–2,678) |
+| Tanwei | Delete | 143 | 1,672 | 615 | 0.5 | 2,515 (2,285–2,735) |
+| Tianhe Park (151,852 / 76,438) | Place | 735 | 12,549 | 4,134 | 7.5 | 17,491 (16,561–18,134) |
+| Tianhe Park | Delete | 1,275 | 11,952 | 2,821 | 7.9 | 16,420 (15,941–16,712) |
+
+Run from repo root with `powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-parity/check-unity-compile.ps1 -OutSuffix BuildPerf29` then `dotnet run -c Release --project .preview/unity/plan29-managed-edit/EditStages.csproj > .preview/unity/plan29-managed-edit/results.json`. The harness and raw samples are in that scratch directory. It ran on Windows/i7-14700KF with .NET SDK 10.0.403 and the engine-free compile check's assemblies. The fixture SHA-256 values are `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e` (Zoo), `620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4` (Tanwei) and `efc73693ef4606fe7df7ba7db93bbab2fa871ae7457fd83776b324ca2a63654e` (Tianhe).
+
+Full document read/normalization/indexing was the largest sampled stage for each demo and action. The reader reparses and normalizes the complete save even for this one-cell delta. The simulation staging sample includes edit classification, full document projection, graph and service builds. This probe excludes pointer input, Unity view build and disposal, frame presentation, the bridge and React, and provides no Windows or WebGL player latency or web comparison. The live Editor reported `STATUS_PIPELINE_LOAD_PENDING`. The next player capture needs input-to-first-visible timing and per-stage markers, including the renderer groups, to measure the full pause and verify incremental installation.
+
+#### Load-path reuse on the same probe (plan 29 §3)
+
+The same probe, fixtures and machine were rerun after the local-edit load path stopped reparsing and re-serializing the whole station. `StationSaveCandidate` now exposes the normalized tree it already built, `StationSaveV1.Read` accepts a parsed envelope and hands its repaired state to the reader in place, the day repair receives only the four authored day keys instead of the whole envelope, the candidate takes the repaired module array without a second deep clone, the impact classification runs before view staging and is passed to the simulation host, and a committed cell release defers its ghost re-aim to one coalesced refresh on the next frame. Run `check-unity-compile.ps1 -OutSuffix Plan29d`/`Plan29e` and `dotnet run -c Release --project .preview/unity/plan29-after/EditStages.csproj`; raw samples are in `.preview/unity/plan29-after/results.json`. Five samples per action after the warm-up pair, same fixture hashes.
+
+| Demo | Action | Patch | Read, normalize and index | Stage sim | Commit sim | Managed total (range) | Total vs. baseline |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo | Place | 97 | 826 | 372 | 0.2 | 1,312 | −25% |
+| Zoo | Delete | 71 | 916 | 357 | 0.2 | 1,374 | −21% |
+| Tanwei | Place | 199 | 1,297 | 546 | 0.6 | 2,039 | −15% |
+| Tanwei | Delete | 139 | 1,183 | 544 | 0.5 | 1,824 | −27% |
+| Tianhe Park | Place | 833 | 8,964 | 4,185 | 6.8 | 14,148 | −19% |
+| Tianhe Park | Delete | 1,079 | 7,922 | 3,920 | 5.9 | 13,217 | −24% |
+
+The read stage is still the largest and the local edit still pays whole-document work: `StationCellEdits.Apply` parses and serializes the complete envelope for a surgical patch, and the grid/cell/line repairs take JSON text. The probe calls `StationSimulationHost.StageInstall` directly, so its stage sample still classifies internally; the coordinator path classifies first and passes the kind. These are engine-free managed numbers, not a pass threshold, and still exclude the view build, bridge payload/React adoption and every presented frame. Player capture remains blocked by the same `STATUS_PIPELINE_LOAD_PENDING` Editor, so the release-to-first-visible budget in `placement feedback` is unchanged and unmeasured here.
+
 ### Unity Tianhe synthetic scale spike (unmatched workload)
 
 On 2026-11-10, three serial runs of `node tools/unity-feasibility/measure-web.mjs .preview/unity/feasibility .preview/unity/feasibility/visible-run-N` exercised a Unity 6000.6.8f1 Web Release player built from the dirty `7ad810fe1867fc85c1fdae21571949fddd943ce8` checkout, Windows 11, i7-14700KF, RTX 4080 SUPER, headless Chrome 157, DPR 1, 1384 × 805 canvas. Reports and screenshots are under `.preview/unity/feasibility/visible-run-{1,2,3}/`; each records the source/artifact digests. The graph digest is `52003505ee5da485bc74a375eac3b58bd7741f2fe81f2d52a7a01e40b30593e2` and WASM digest `e3dea0af59c2bd84e540057e45d04325383f6680ab3a3bc305ea975dc0fc1b89`. A prior attempt against the older `web-release-final` artifact failed its visual check (zero blue pixels); it is not a valid measurement.

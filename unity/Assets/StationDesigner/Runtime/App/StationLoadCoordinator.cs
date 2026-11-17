@@ -16,7 +16,13 @@ namespace Metro.App {
     /// live session; Commit swaps it in; Abort leaves the old one running.
     /// </summary>
     public interface IStationSimulationHost {
-        void StageInstall(StationDocument document, StationIndex index, bool isEdit = false);
+        /// <summary>
+        /// Stage an install. <paramref name="editKind"/> is the classification the coordinator
+        /// already made against the committed document (plan 29 §3), so staging does not walk
+        /// the whole document twice; null asks the host to classify it itself.
+        /// </summary>
+        void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
+            StationDocumentEditKind? editKind = null);
         void CommitInstall();
         void AbortInstall();
         void Tick(double realSeconds);
@@ -79,6 +85,11 @@ namespace Metro.App {
         public string SourceId;
         public string SourceHash;
         public bool IsEdit;
+        /// <summary>
+        /// What this edit can change in the simulation, classified **before** the world was
+        /// staged (plan 29 §3). Null on a station open.
+        /// </summary>
+        public StationDocumentEditKind? EditKind;
         public StationCameraBounds CameraBounds;
         public StationViewSummary View;
         public IReadOnlyList<StationDiagnostic> Diagnostics;
@@ -207,11 +218,20 @@ namespace Metro.App {
 
         StationLoadResult Install(StationReadResult read, string id, bool isEdit = false) {
             if (disposed) throw new ObjectDisposedException(nameof(StationLoadCoordinator));
+            // Classify the edit **before** any world work starts (plan 29 §3): the answer is
+            // what a retained-dirty-chunk install and a skipped simulation projection read, and
+            // the simulation host must not recompute it after the view staged the whole station.
+            // An unclassifiable edit fails closed to Structural, the conservative rebuild.
+            StationDocumentEditKind? editKind = null;
+            if (isEdit && document != null) {
+                try { editKind = StationEditClassifier.Classify(document, read.Document); }
+                catch (Exception) { editKind = StationDocumentEditKind.Structural; }
+            }
             var candidate = new StationWorldView(parent, "Station " + (string.IsNullOrEmpty(id) ? read.Document.Name : id), renderers, Assets);
             IStationSimulationHost stageTarget = simulation;
             try {
                 candidate.Build(read.Document, read.Index);
-                if (stageTarget != null) stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null);
+                if (stageTarget != null) stageTarget.StageInstall(read.Document, read.Index, isEdit && document != null, editKind);
             } catch (StationViewBuildException error) {
                 Abort(candidate, stageTarget);
                 return StationLoadResult.Rejected(new StationRejection("render-failed", StationRecordKind.Document,
@@ -245,7 +265,8 @@ namespace Metro.App {
 
             var info = new StationCommitInfo {
                 Document = document, Index = index, Revision = revision, SourceId = sourceId,
-                SourceHash = sourceHash, IsEdit = isEdit && previous != null, CameraBounds = cameraBounds,
+                SourceHash = sourceHash, IsEdit = isEdit && previous != null, EditKind = editKind,
+                CameraBounds = cameraBounds,
                 View = world.Summary(), Diagnostics = Merge(read.Diagnostics, world.Unresolved),
             };
             Committed?.Invoke(info);
@@ -335,13 +356,14 @@ namespace Metro.App {
 
         public StationSimulationSession Session => session;
 
-        public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false) {
+        public void StageInstall(StationDocument document, StationIndex index, bool isEdit = false,
+            StationDocumentEditKind? editKind = null) {
             pendingSession = null;
             pendingEdit = null;
             pendingDocument = document;
             pendingIsEdit = false;
             if (isEdit && session != null && committedDocument != null) {
-                var kind = StationEditClassifier.Classify(committedDocument, document);
+                var kind = editKind ?? StationEditClassifier.Classify(committedDocument, document);
                 var projectedDoc = StationSessionProjection.Document(document, index);
                 var projectedDay = StationSessionProjection.Day(document.Day);
                 pendingEdit = session.StageDocumentEdit(projectedDoc, projectedDay, kind);

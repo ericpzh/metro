@@ -66,8 +66,42 @@ test('In-canvas React UI presenter and Windows .exe postprocessor keep paired .m
   }
 })
 
-test('MetroEditorWebView builds cleanly and captures 32-bit transparent React UI frames offscreen on interactive Windows desktops', { skip: process.platform !== 'win32' }, t => {
-  const testBinDir = path.join(repoRoot, '.preview', 'unity', 'editor-ui-host', `test-bin-${process.pid}`)
+// Plan 29 §4: the reported screenshot had two depth chips with different values beside one
+// selected tick. The DOM has exactly one chip — `DepthRail` emits one from the one `activeZ`
+// — so a second chip can only come from a second React tree or a second overlay layer.
+// Both are now structurally impossible, and this test pins the single-source rules.
+test('the Unity shell keeps one React tree, one depth chip and one overlay canvas', () => {
+  const mainSource = readFileSync(path.join(repoRoot, 'game', 'src', 'unity-web', 'main.tsx'), 'utf8')
+  const viewCubeSource = readFileSync(path.join(repoRoot, 'game', 'src', 'app', 'ViewCube.tsx'), 'utf8')
+  const appShellSource = readFileSync(path.join(repoRoot, 'game', 'src', 'app', 'windows', 'AppShell.tsx'), 'utf8')
+  const presenterSource = readFileSync(presenterCs, 'utf8')
+
+  // One shell per document: a second mount tears the previous tree down first.
+  assert.match(mainSource, /let activeShell/, 'the Unity entry owns one mounted shell')
+  assert.match(mainSource, /if \(activeShell\) \{/, 'a second mount replaces the previous tree')
+  assert.match(mainSource, /activeShell = \{ element, unmount \}/, 'the mount registers its own teardown')
+  assert.match(mainSource, /<div className="unityViewport" ref=\{container\}><ViewCube adapter=\{adapter\} \/><\/div>/,
+    'the Unity viewport draws exactly one ViewCube')
+
+  // One depth value: the chip, the lit tick and the edit depth all read `activeZ`.
+  assert.equal((viewCubeSource.match(/className="depthChip"/g) ?? []).length, 1,
+    'DepthRail emits exactly one .depthChip in the DOM')
+  assert.equal((viewCubeSource.match(/<DepthRail \/>/g) ?? []).length, 1, 'one depth rail per cube')
+  assert.match(viewCubeSource, /const activeZ = useStore\(\(s\) => s\.activeZ\)/)
+  assert.match(viewCubeSource, /z === activeZ \? 'depthTick on' : 'depthTick'/, 'the lit tick is the chip’s level')
+  assert.match(viewCubeSource, /translate\(activeZ\)\}m/, 'the chip prints the same level the tick marks')
+  assert.match(appShellSource, /\{viewport \?\? <Viewport \/>\}/, 'the shell renders exactly one viewport')
+
+  // One overlay canvas: the presenter owns a named canvas and drops any other layer.
+  assert.match(presenterSource, /public const string CanvasName = "StationDesktopUiCanvas"/)
+  assert.match(presenterSource, /static void DestroyOtherCanvases\(StationDesktopUiPresenter keep\)/)
+  assert.match(presenterSource, /DestroyOtherCanvases\(this\)/, 'building the canvas drops a surviving layer first')
+  assert.match(presenterSource, /DestroyOtherCanvases\(activeInstance\)/, 'adopting a presenter drops a stale layer')
+  assert.match(presenterSource, /public static int OverlayCanvasCount\(\)/,
+    'an automated check can count overlay layers after repeated switches, reload and resize')
+})
+
+test('MetroEditorWebView builds cleanly and captures 32-bit transparent React UI frames offscreen on interactive Windows desktops', { skip: process.platform !== 'win32' }, t => {  const testBinDir = path.join(repoRoot, '.preview', 'unity', 'editor-ui-host', `test-bin-${process.pid}`)
   const testExe = path.join(testBinDir, 'MetroEditorWebView.exe')
   const reportPath = path.join(repoRoot, '.preview', 'unity', 'editor-ui-host', `selftest-${process.pid}.json`)
   rmSync(testBinDir, { recursive: true, force: true })

@@ -59,3 +59,52 @@ test('commands sent before register wait for the player and flush exactly once',
   assert.ok(message.sessionId.length > 0)
   stationBridge.unregister()
 })
+
+/* ------------------------------------------------------- plan 29 §5 camera cadence */
+
+const cubeCamera = (x, sequence) => ({
+  right: [1, 0, 0], up: [0, 0, 1], back: [0, -1, x], fov: 45, ortho: false, level: 0, sequence,
+})
+
+test('a camera ack carries the applied camera and view into the snapshot state', () => {
+  const base = { ...empty, revision: 2, state: { level: -5, camera: { sequence: 1, back: [0, -1, 0], right: [1, 0, 0], up: [0, 0, 1] } } }
+  const next = reduce(base, {
+    sessionId: 's-1', kind: 'ack', revision: 2,
+    payload: { camera: cubeCamera(0.5, 2), view: { level: -5 }, level: -5 },
+  })
+  assert.equal(next.state.camera.back[2], 0.5, 'the ack camera reaches the shell without waiting for the state interval')
+  assert.deepEqual(next.state.view, { level: -5 })
+  assert.equal(next.document, null, 'an ack still never touches the document')
+  // A rejection merges nothing, even when it carries a payload.
+  const rejected = reduce(base, {
+    sessionId: 's-1', kind: 'reject', revision: 2, code: 'camera-failed',
+    payload: { camera: cubeCamera(9, 9), reason: 'no' },
+  })
+  assert.equal(rejected.state.camera.back[2], 0, 'a refusal does not move the camera')
+})
+
+test('the frame-cadence camera pose channel is fenced by session and skips the reducer', () => {
+  const poses = []
+  const stop = stationBridge.onCameraPose((camera, sequence) => poses.push({ camera, sequence }))
+  try {
+    stationBridge.register({ SendMessage: () => {} })
+    const session = stationBridge.getSnapshot().sessionId
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2, kind: 'camera', id: '', sessionId: session, revision: 0,
+      payload: { camera: cubeCamera(0.25, 3), sequence: 3 },
+    }))
+    assert.equal(poses.length, 1)
+    assert.equal(poses[0].sequence, 3)
+    assert.equal(poses[0].camera.back[2], 0.25)
+    assert.equal(stationBridge.getSnapshot().revision, -1, 'a pose is not a state reply')
+    assert.deepEqual(stationBridge.getSnapshot().state, {}, 'a pose never enters the state map')
+    stationBridge.receive(JSON.stringify({
+      schemaVersion: 2, kind: 'camera', id: '', sessionId: 's-stale', revision: 0,
+      payload: { camera: cubeCamera(0.9, 4), sequence: 4 },
+    }))
+    assert.equal(poses.length, 1, 'another session cannot steer this cube')
+  } finally {
+    stop()
+    stationBridge.unregister()
+  }
+})

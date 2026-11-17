@@ -137,6 +137,77 @@ namespace Metro.App {
         /// <summary>The normalized modifier bit for Shift (`pointerInput.ts` passes `e.shiftKey`).</summary>
         const int ShiftBit = StationPointerModifiers.Shift;
 
+        /// <summary>The pointer press that armed the in-flight gesture (plan 29 §2).</summary>
+        static int activePointerId = -1;
+        static int activePointerButton = -1;
+
+        /// <summary>True while any tool owns a press in flight, a carried piece included.</summary>
+        public static bool AnyEditGestureActive() =>
+            StationCellTool.HasGesture || StationPaintTool.HasGesture || StationZoneTool.HasGesture ||
+            StationSurfaceTool.HasGesture || StationRoofTool.HasGesture || StationRoadTool.HasGesture ||
+            StationEditSession.HasCarried;
+
+        /// <summary>
+        /// Both build buttons held at once (`pointerInput.ts`'s chord). The browser cannot
+        /// report the second press reliably, so the event's own `buttons` mask is the
+        /// backstop: a chord cancels the press instead of aiming or finishing it.
+        /// </summary>
+        static bool HasBuildChord(in StationPointerEvent pointer) => (pointer.Buttons & 3) == 3;
+
+        /// <summary>
+        /// True when this move or release belongs to the press that armed the active gesture.
+        /// A move names no button, so its mask only has to keep the owner's bit; a release must
+        /// be the owner's own button — the release of the other one is what cancels the press.
+        /// </summary>
+        static bool OwnsPress(in StationPointerEvent pointer) {
+            if (!AnyEditGestureActive()) return true;
+            if (activePointerId >= 0 && pointer.PointerId >= 0 && pointer.PointerId != activePointerId) return false;
+            if (activePointerButton < 0) return true;
+            if (pointer.Button == 0 || pointer.Button == 2) return pointer.Button == activePointerButton;
+            int mask = pointer.Buttons & 3;
+            return mask == 0 || (mask & activePointerButton) != 0;
+        }
+
+        static void RememberPress(in StationPointerEvent pointer) {
+            activePointerId = pointer.PointerId;
+            activePointerButton = pointer.Button;
+        }
+
+        static void ForgetPress() {
+            activePointerId = -1;
+            activePointerButton = -1;
+        }
+
+        /// <summary>
+        /// One cancellation for every edit owner (plan 29 §2): the cell/paint/zone/rail/tunnel/
+        /// surface/roof/road tools, the carried piece, the section slide, both ghost layers,
+        /// the plan and the footprint badge. It resolves zero scene picks and applies zero
+        /// revisions, so a chord or Escape can never become an edit.
+        /// </summary>
+        public static bool CancelActiveGesture(StationGameHost host, StationEditHost editHost) {
+            bool cancelled = AnyEditGestureActive();
+            StationSectionDrag.Reset();
+            StationCellTool.Cancel();
+            StationPaintTool.Cancel();
+            StationZoneTool.Cancel();
+            StationRailTool.Cancel();
+            StationTunnelTool.Cancel();
+            StationSurfaceTool.Cancel();
+            StationRoofTool.Cancel();
+            StationPillarTool.Cancel();
+            StationRoadTool.Cancel();
+            if (host != null) CancelMove(host, editHost ?? StationEditHost.Ensure());
+            ClearPlan(host, editHost);
+            editHost?.Preview?.ClearCells();
+            editHost?.Preview?.ClearGhost();
+            // The badge is the cell plan's footprint: no plan, no badge.
+            StationEditSession.Cells = null;
+            StationEditSession.Plan = null;
+            StationEditSession.Ghost = null;
+            ForgetPress();
+            return cancelled;
+        }
+
         /// <summary>The pointer events the section's controls may claim before any editor tool.</summary>
         static bool ShouldRouteSection(string type) =>
             type == "pointer.down" || type == "pointer.move" || type == "pointer.up";
@@ -179,12 +250,26 @@ namespace Metro.App {
 
         /// <summary>
         /// True when a pointer event needs the active storey's horizontal work plane evaluated
-        /// as a fallback. A cell gesture takes its cells from a **visible surface** only — a
-        /// work-plane hit is empty air, which is what the reference's `BlockTool` ignores —
-        /// so it asks for none, and the placement tools keep theirs.
+        /// as a fallback (plan 29 §1). The reference's `CameraSystem.pick` always intersects the
+        /// plane at `activeZ + 1` after a geometry miss, and `BlockTool` anchors an add on that
+        /// non-solid cell; an erase or delete reads `hit.cell` only and must never synthesize a
+        /// removal from empty air. So the plane is asked for by an **add** (a carried piece, any
+        /// 设备 placement, the block brush's primary press/drag/release and the 墙 tool's add)
+        /// and by a still hover of those tools, never by the secondary build button.
         /// </summary>
-        static bool NeedsWorkPlane(string tool) =>
-            StationEditSession.HasCarried || string.Equals(tool, "module", StringComparison.Ordinal);
+        public static bool NeedsWorkPlane(string tool, int button = 0) {
+            if (StationEditSession.HasCarried) return true;
+            if (string.Equals(tool, "module", StringComparison.Ordinal)) return true;
+            // A gesture in flight answers for itself: its recorded owner and operation decide,
+            // so a release aims exactly the plane its press and drags aimed.
+            if (StationCellTool.HasGesture) return !StationCellTool.Gesture.Remove;
+            if (button == 2) return false;
+            return StationCellTool.WantsWorkPlane(tool);
+        }
+
+        /// <summary>The plane policy of the release of one in-flight cell gesture (plan 29 §1).</summary>
+        static bool ReleaseNeedsWorkPlane() =>
+            StationCellTool.HasGesture ? !StationCellTool.Gesture.Remove : false;
 
         /// <summary>Handle one `pointer.*` command. Returns false only for an unusable event.</summary>
         public static bool Handle(StationGameHost host, string type, JObject payload, JObject reply, out string code, out string reason) {
@@ -206,15 +291,14 @@ namespace Metro.App {
                 return true;
             }
             if (type == "pointer.cancel") {
-                StationCellTool.Cancel();
-                StationPaintTool.Cancel();
-                StationZoneTool.Cancel();
-                StationRailTool.Cancel();
-                StationTunnelTool.Cancel();
-                StationSurfaceTool.Cancel();
-                CancelMove(host, editHost);
+                CancelActiveGesture(host, editHost);
+                // The draft and badge the shell draws live in `state.edit`; a cancel is not a
+                // commit, so publish one state frame now rather than leaving the chip up until
+                // the next interval tick (plan 29 §2).
+                host.PublishStateNow();
                 StationEditSession.Trace(type, StationToolSelection.Active, null, null,
                     revisionBefore, host.CurrentRevision, StationScenePicker.PickCount - picksBefore);
+                reply["cancelled"] = true;
                 reply["edit"] = StationEditSession.ToJson();
                 return true;
             }
@@ -239,6 +323,21 @@ namespace Metro.App {
             }
 
             if (!StationPointerEvent.TryDecode(payload, out var pointer, out code)) return false;
+            var tool = StationToolSelection.Active;
+            // Chord and ownership arbitration (plan 29 §2). The shell cancels its own chord,
+            // but the host must not trust it: both build buttons held at once, a move whose
+            // mask lost the owning button, or the release of a button that never armed the
+            // press all cancel the gesture — zero picks, zero revisions, both ghost layers
+            // and the badge cleared — instead of aiming or finishing it.
+            if (HasBuildChord(pointer)) {
+                CancelActiveGesture(host, editHost);
+                return CancelledReply(host, type, tool, "chord", revisionBefore, picksBefore, reply);
+            }
+            if (type != "pointer.down" && type != "pointer.rightTap" && !OwnsPress(pointer)) {
+                string cancelReason = type == "pointer.up" ? "other-release" : "unowned-pointer";
+                CancelActiveGesture(host, editHost);
+                return CancelledReply(host, type, tool, cancelReason, revisionBefore, picksBefore, reply);
+            }
             // A stale event must not become the pointer a later settings/camera refresh re-aims:
             // its tool generation or revision names a session this host no longer has (plan 28 §2).
             bool staleTool = pointer.ToolGeneration >= 0 && pointer.ToolGeneration != StationToolSelection.Generation;
@@ -258,11 +357,11 @@ namespace Metro.App {
                 }
             }
 
-            var tool = StationToolSelection.Active;
             if (type == "pointer.up") {
                 // The release is dispatched to the **owner recorded at the press**, never to
                 // whatever tool happens to be committed when it arrives (plan 27 §2). A tool
                 // or revision change in between cancels the gesture instead of applying it.
+                ForgetPress();
                 bool committed = false;
                 if (StationRoadTool.HasGesture) {
                     if (staleTool || staleRevision) {
@@ -349,8 +448,10 @@ namespace Metro.App {
                         StationCellTool.Cancel();
                         reason = staleTool ? "stale-tool" : "stale-revision";
                     } else if (camera != null) {
+                        // The release aims the plane its press aimed: a float block's release
+                        // must resolve the same empty-air cell its ghost drew (plan 29 §1).
                         var releaseHit = StationEditScene.PickRay(host, host.Coordinator?.World, camera, ray,
-                            activeLevel, visibility, false, out var releaseContext, out _);
+                            activeLevel, visibility, ReleaseNeedsWorkPlane(), out var releaseContext, out _);
                         committed = StationCellTool.Finish(host, releaseHit, pointer, out code, out reason);
                         if (committed) {
                             editHost.Bind(host);
@@ -362,11 +463,13 @@ namespace Metro.App {
                     }
                 }
                 if (IsCellTool(tool)) {
-                    // A committed cell press leaves the pointer over the cell it just built: re-aim
-                    // against the new revision so the next ghost is the next block in the stack
-                    // (plan 28 §1). A refused or empty release just clears the drawn layer.
-                    bool replanned = committed && StationEditSession.HasPointer && RefreshHover(host);
-                    if (!replanned) DrawCells(host, editHost);
+                    // A committed cell press leaves the pointer over the cell it just built. The
+                    // re-aim is the **next frame's** work (plan 29 §3): the release's own pick
+                    // already resolved the commit, and a second synchronous pick inside the
+                    // install path only lengthened the pause the player feels. A refused or
+                    // empty release just clears the drawn layer.
+                    if (committed && StationEditSession.HasPointer) host.RequestHoverRefresh();
+                    else DrawCells(host, editHost);
                 }
                 if (StationPaintTool.HasGesture == false) StationPaintTool.Publish();
                 if (StationZoneTool.HasGesture == false) StationZoneTool.Publish();
@@ -397,7 +500,7 @@ namespace Metro.App {
 
             var world = host.Coordinator?.World;
             var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
-                NeedsWorkPlane(tool), out var pickContext, out code);
+                NeedsWorkPlane(tool, pointer.Button), out var pickContext, out code);
             if (hit == null) {
                 // A miss: no surface under the pointer. The reference draws nothing there, so the
                 // owning layer is cleared rather than left showing the previous aim (plan 28 §1).
@@ -405,6 +508,7 @@ namespace Metro.App {
                 if (IsCellTool(tool)) StationCellTool.Miss();
                 if (StationRoofTool.IsArmed()) StationRoofTool.Miss();
                 if (StationPillarTool.IsArmed()) StationPillarTool.Miss();
+                ForgetPress();
                 ClearCellLayer(editHost);
                 editHost.Preview?.ClearGhost();
                 reply["miss"] = true;
@@ -417,6 +521,7 @@ namespace Metro.App {
                 return true;
             }
 
+            if (type == "pointer.down" || type == "pointer.rightTap") ForgetPress();
             switch (type) {
                 case "pointer.down":
                     Down(host, editHost, world, ray, pickContext, pointer, tool, hit, reply, out code, out reason);
@@ -427,6 +532,14 @@ namespace Metro.App {
                 case "pointer.move":
                     Aim(host, editHost, world, ray, pickContext, pointer, tool, hit, reply, out code, out reason);
                     break;
+            }
+            // Record the press that owns whatever gesture it armed (plan 29 §2): the release
+            // and the moves of that gesture must belong to the same pointer and button.
+            if (type == "pointer.down" || type == "pointer.rightTap") {
+                if (AnyEditGestureActive()) RememberPress(pointer);
+                else ForgetPress();
+            } else if (!AnyEditGestureActive()) {
+                ForgetPress();
             }
 
             StationEditSession.Trace(type, tool, hit, StationEditSession.Plan,
@@ -461,6 +574,27 @@ namespace Metro.App {
                      string.Equals(code, "no-track-to-remove", StringComparison.Ordinal) ||
                      string.Equals(code, "no-roof-to-remove", StringComparison.Ordinal)) kind = "no-op";
             StationEditSession.PublishNotice(kind, code ?? reason, reason, tool);
+        }
+
+        /// <summary>
+        /// The reply of a cancelled press (plan 29 §2): no scene pick, no revision, both ghost
+        /// layers and the footprint badge cleared. It is a routed event that deliberately did
+        /// nothing, so it publishes no refusal notice — the player asked for it.
+        /// </summary>
+        static bool CancelledReply(StationGameHost host, string type, string tool, string reason,
+            int revisionBefore, int picksBefore, JObject reply) {
+            if (reply != null) {
+                reply["cancelled"] = reason ?? "";
+                reply["tool"] = tool;
+                reply["toolGeneration"] = StationToolSelection.Generation;
+                reply["edit"] = StationEditSession.ToJson();
+            }
+            // One immediate state frame so the shell drops the ghost's badge with the gesture
+            // instead of waiting for the interval tick.
+            if (host != null) host.PublishStateNow();
+            StationEditSession.Trace(type, tool, null, null, revisionBefore, host.CurrentRevision,
+                StationScenePicker.PickCount - picksBefore);
+            return true;
         }
 
         /// <summary>
@@ -1440,7 +1574,10 @@ namespace Metro.App {
                     return true;
                 }
                 case "edit.cancel":
-                    StationPointerRouter.CancelMove(host, StationEditHost.Ensure());
+                    // Escape is the keyboard half of the chord cancel (plan 29 §2): the same one
+                    // cancellation drops every active tool gesture, the carried piece, both ghost
+                    // layers and the badge, with zero picks and zero revisions.
+                    StationPointerRouter.CancelActiveGesture(host, StationEditHost.Ensure());
                     return true;
                 case "edit.rotate": {
                     if (!StationEditSession.HasCarried) { rejectCode = "no-draft"; rejectReason = "No piece is being moved."; return false; }
@@ -1472,6 +1609,7 @@ namespace Metro.App {
                     StationCellTool.ForgetWorld();
                     StationCellTool.Cancel();
                     StationEditHost.Ensure().Bind(host);
+                    host.RequestHoverRefresh();
                     return true;
                 }
                 case "edit.redo": {
@@ -1480,6 +1618,7 @@ namespace Metro.App {
                     StationCellTool.ForgetWorld();
                     StationCellTool.Cancel();
                     StationEditHost.Ensure().Bind(host);
+                    host.RequestHoverRefresh();
                     return true;
                 }
                 case "edit.delete": {

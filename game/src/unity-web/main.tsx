@@ -142,7 +142,19 @@ function adopt(snapshot: StationSnapshot): void {
   dismissGameLoadingSoon()
 }
 
+/**
+ * The one mounted Unity shell. Plan 29 §4: two React trees over the same player would each
+ * draw a ViewCube and a depth rail — two chips with two different `activeZ` values over one
+ * selected tick — so a second mount replaces the previous tree instead of stacking on it.
+ */
+let activeShell: { element: HTMLElement; unmount: () => void } | null = null
+
 export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): () => void {
+  if (activeShell) {
+    const previous = activeShell
+    activeShell = null
+    try { previous.unmount() } catch { /* the old tree may already be detaching */ }
+  }
   initLanguage()
   initUiTheme()
   // C# answers through one WebGL bridge call that dispatches this event with the
@@ -475,7 +487,8 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     },
     cancelGesture: () => { stationBridge.send('edit.cancel', {}); return true },
   })
-  return () => {
+  const unmount = (): void => {
+    if (activeShell !== null && activeShell.unmount === unmount) activeShell = null
     registerStationHostCommit(null)
     stopAdopting()
     unsubscribeRejects()
@@ -509,6 +522,8 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
     const notice = text(stationBridge.getSnapshot().state.message)
     if (notice) useStore.getState().setNotice(notice)
   }
+  activeShell = { element, unmount }
+  return unmount
 }
 
 export { stationBridge }

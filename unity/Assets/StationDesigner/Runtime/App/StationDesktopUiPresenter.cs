@@ -33,6 +33,9 @@ namespace Metro.App {
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class StationDesktopUiPresenter : MonoBehaviour {
+        /// <summary>The one overlay canvas object this presenter owns (plan 29 §4).</summary>
+        public const string CanvasName = "StationDesktopUiCanvas";
+
         public static Func<(string exePath, string uiDir, string publicDir, string logDir)> PathResolver { get; set; }
 
         static bool userEnabled = true;
@@ -144,6 +147,9 @@ namespace Metro.App {
                 for (int i = 1; i < existing.Length; i++) {
                     if (existing[i] != null) Destroy(existing[i].gameObject);
                 }
+                // A stale canvas whose presenter was already gone has no owner left: drop it so
+                // the adopted presenter is the only layer drawing the React UI.
+                DestroyOtherCanvases(activeInstance);
                 return;
             }
             var go = new GameObject("StationDesktopUiPresenter") {
@@ -151,6 +157,39 @@ namespace Metro.App {
             };
             DontDestroyOnLoad(go);
             activeInstance = go.AddComponent<StationDesktopUiPresenter>();
+        }
+
+        /// <summary>
+        /// Destroy every overlay canvas that is not the one <paramref name="keep"/> owns. The
+        /// check runs only on the rare paths that build or adopt the presenter (a scene load, a
+        /// worker restart, a smoke toggle), never per frame.
+        /// </summary>
+        static void DestroyOtherCanvases(StationDesktopUiPresenter keep) {
+            var canvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            int kept = 0;
+            for (int i = 0; i < canvases.Length; i++) {
+                var canvas = canvases[i];
+                if (canvas == null || !string.Equals(canvas.gameObject.name, CanvasName, StringComparison.Ordinal)) continue;
+                if (keep != null && keep.overlayCanvas == canvas) { kept++; continue; }
+                Destroy(canvas.gameObject);
+            }
+            if (kept > 1) {
+                UnityEngine.Debug.LogWarning("[ReactUI] More than one in-canvas React UI overlay is present; " +
+                    kept + " layers would draw the same UI twice.");
+            }
+        }
+
+        /// <summary>
+        /// How many in-canvas React UI layers exist right now. An automated check can assert
+        /// exactly one after repeated switches, an overlay reload and a resize (plan 29 §4).
+        /// </summary>
+        public static int OverlayCanvasCount() {
+            var canvases = FindObjectsByType<Canvas>(FindObjectsSortMode.None);
+            int count = 0;
+            for (int i = 0; i < canvases.Length; i++) {
+                if (canvases[i] != null && string.Equals(canvases[i].gameObject.name, CanvasName, StringComparison.Ordinal)) count++;
+            }
+            return count;
         }
 
         void Awake() {
@@ -182,7 +221,11 @@ namespace Metro.App {
         }
 
         void BuildCanvas() {
-            var canvasGo = new GameObject("StationDesktopUiCanvas") {
+            // One overlay canvas per player (plan 29 §4). A surviving canvas from a previous
+            // Play Mode session, a re-entered scene or an adopted presenter would otherwise
+            // draw a second UI frame — two ViewCubes, two depth chips — over this one.
+            DestroyOtherCanvases(this);
+            var canvasGo = new GameObject(CanvasName) {
                 hideFlags = HideFlags.DontSave,
             };
             DontDestroyOnLoad(canvasGo);

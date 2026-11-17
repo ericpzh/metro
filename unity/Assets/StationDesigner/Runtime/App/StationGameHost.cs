@@ -58,6 +58,8 @@ namespace Metro.App {
         StationCameraBounds cameraBounds;
         int activeLevel;
         float stateTimer;
+        /// <summary>A commit asked for one coalesced ghost re-aim on the next frame.</summary>
+        bool hoverRefreshRequested;
         string clientSessionId = "";
         /// <summary>True while <see cref="ApplyDocumentEdit"/> installs an edit of the committed station.</summary>
         bool editingDocument;
@@ -110,12 +112,29 @@ namespace Metro.App {
             if (coordinator == null) return;
             coordinator.Tick(Time.deltaTime);
             if (IsLoaded) TickFrameSinks();
+            // A commit under a still pointer re-aims once, on this frame (plan 29 §3): the
+            // release that caused it already paid its own scene pick, and a second pick inside
+            // the commit path only lengthened the pause the player feels.
+            if (hoverRefreshRequested) {
+                hoverRefreshRequested = false;
+                StationPointerRouter.RefreshHover(this);
+            }
             if (clientSessionId.Length == 0) return;
             stateTimer += Time.unscaledDeltaTime;
             if (stateTimer < Mathf.Max(0.02f, stateIntervalSeconds)) return;
             stateTimer = 0f;
             PublishStateNow();
         }
+
+        /// <summary>
+        /// Ask for one coalesced ghost re-aim after a commit, undo or redo (plan 29 §3). The
+        /// next frame re-picks the cached pointer once; a burst of requests inside one frame
+        /// still costs one pick.
+        /// </summary>
+        public void RequestHoverRefresh() => hoverRefreshRequested = true;
+
+        /// <summary>True while a coalesced re-aim is waiting for the next frame (tests, diagnostics).</summary>
+        public bool HoverRefreshPending => hoverRefreshRequested;
 
         void TickFrameSinks() {
             var sinks = StationFrameSinks.Snapshot();
@@ -183,6 +202,31 @@ namespace Metro.App {
                 ["accepted"] = true,
                 ["code"] = JValue.CreateNull(),
                 ["payload"] = BuildStatePayload(),
+            };
+            Publish(reply.ToString(Formatting.None));
+        }
+
+        /// <summary>
+        /// One small, sequenced camera pose reply (plan 29 §5). The cube polls the rendered
+        /// camera on every animation frame in the web reference; in the Unity player the pose
+        /// therefore travels on its own frame-cadence message instead of waiting for the
+        /// 100 ms general state interval. It carries no document, no revision and no view
+        /// toggles, and it is dropped until the shell has registered its session.
+        /// </summary>
+        public void PublishCameraPose(JObject camera, long sequence) {
+            if (camera == null || clientSessionId.Length == 0) return;
+            var reply = new JObject {
+                ["schemaVersion"] = StationCommandRouter.SchemaVersion,
+                ["kind"] = "camera",
+                ["id"] = "",
+                ["sessionId"] = clientSessionId,
+                ["revision"] = CurrentRevision,
+                ["accepted"] = true,
+                ["code"] = JValue.CreateNull(),
+                ["payload"] = new JObject {
+                    ["camera"] = camera,
+                    ["sequence"] = sequence,
+                },
             };
             Publish(reply.ToString(Formatting.None));
         }

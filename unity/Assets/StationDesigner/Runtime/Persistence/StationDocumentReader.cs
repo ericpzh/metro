@@ -87,7 +87,7 @@ namespace Metro.Persistence {
 
             StationSaveV1 save;
             try {
-                save = StationSaveV1.Read(json);
+                save = StationSaveV1.Read(envelope);
             } catch (StationRejectedException) {
                 throw;
             } catch (NotSupportedException error) {
@@ -96,7 +96,9 @@ namespace Metro.Persistence {
                 throw Reject("parse-failed", StationRecordKind.Document, "", "", error.Message);
             }
 
-            var state = JObject.Parse(save.StateJson());
+            // The repaired state the save reader already built: projecting it in place avoids a
+            // second full serialize + parse of the station (plan 29 §3).
+            var state = save.State;
             var city = Str(state["cityStyle"]);
             var modules = ReadModules((JArray)state["modules"], city);
             var cells = ReadCells((JArray)state["cells"]);
