@@ -38,6 +38,55 @@ namespace Metro.EditModeTests {
 
         static readonly string[] Demos = { "zoo", "tanwei" };
 
+        [Test]
+        public void AutoWallEditsMatchProductionWebRecords() {
+            foreach (JObject fixture in AutoWallFixtures()) {
+                var before = ReadAutoWallFixture(fixture);
+                var world = StationCellEditWorld.Build(before.Index, new StationCellReservations());
+                var targets = fixture["targets"].Select(p => new StationCellKey((int)p[0], (int)p[1], (int)p[2])).ToArray();
+                var patch = (bool?)fixture["add"] == true
+                    ? StationCellPlanner.PlanAutoFloor(world, targets)
+                    : StationCellPlanner.PlanRemoveCells(world, targets);
+                var raw = StationCellEdits.Apply(before.Document.NormalizedJson, patch, out var code);
+                Assert.IsNotNull(raw, $"{fixture["name"]}: {code}");
+                AssertAutoWallRecords(fixture, before.Document.NormalizedJson, raw, "cellChanges");
+                var after = StationLocalEdit.TryApplyCells(before, patch, "auto-wall fixture", out code);
+                Assert.IsNotNull(after, $"{fixture["name"]}: {code}");
+                AssertAutoWallRecords(fixture, before.Document.NormalizedJson, after.Document.NormalizedJson);
+            }
+        }
+
+        internal static JArray AutoWallFixtures() =>
+            JArray.Parse(File.ReadAllText(Path.Combine(DataRoot, "StationDesigner/Tests/EditMode/auto-wall-edits-oracle.json")));
+
+        internal static StationReadResult ReadAutoWallFixture(JObject fixture) {
+            var demo = (string)fixture["demo"];
+            if (demo != null) return Fixture(demo);
+            var save = JObject.Parse(StationCellFixture.Save);
+            save["levelBase"] = (int?)fixture["levelBase"] ?? 0;
+            save["static"]["cells"] = fixture["cells"].DeepClone();
+            save["static"]["modules"] = fixture["modules"]?.DeepClone() ?? new JArray();
+            return StationDocumentReader.Read(save.ToString(), StationSource.None);
+        }
+
+        internal static void AssertAutoWallRecords(JObject fixture, string before, string after,
+            string cellChanges = "reopenedCellChanges") {
+            var prior = JObject.Parse(before)["static"];
+            var next = JObject.Parse(after)["static"];
+            Compare("cells", cellChanges, r => $"{r["x"]},{r["y"]},{r["z"]}");
+            Compare("modules", "moduleChanges", r => (string)r["id"]);
+
+            void Compare(string records, string changes, Func<JToken, string> key) {
+                var expected = prior[records].ToDictionary(key);
+                foreach (string removed in fixture[changes]["removed"]) Assert.IsTrue(expected.Remove(removed), removed);
+                foreach (var written in fixture[changes]["written"]) expected[key(written)] = written;
+                var actual = next[records].ToDictionary(key);
+                CollectionAssert.AreEquivalent(expected.Keys, actual.Keys, $"{fixture["name"]}: {records}");
+                foreach (var pair in expected)
+                    Assert.IsTrue(JToken.DeepEquals(pair.Value, actual[pair.Key]), $"{fixture["name"]}: {records} {pair.Key}");
+            }
+        }
+
         // ------------------------------------------------------------ the patch set
 
         /// <summary>A key on open air, advanced off any saved record like the performance probes do.</summary>

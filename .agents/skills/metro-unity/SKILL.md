@@ -237,6 +237,22 @@ markers live in `StationEditProfiling`; managed stage/allocation sampling is opt
 through `StationEditTrace.Sample`. See the performance reference for measured
 limits and remaining structural work.
 
+Automatic walls belong to elevations strictly above a tracked floor through
+one storey height. When synchronizing a floor edit, read overlapping owners
+and calculate coverage and reservations from the effective cell/module patch,
+including the retained track footprint. Keep wanted courses intact. Preview
+and release reuse the patch for the same revision and gesture inputs. Regenerate
+or check the production-web oracle with
+`node tools/unity-parity/record-auto-wall-edits.mjs [--check]` and run
+`StationLocalEditTests` and `StationCellPlannerTests`. The oracle distinguishes
+raw edits from the covered-face finish normalization performed on reopen.
+
+For ordinary block latency, `StationEditProfiling.CommitSample` correlates
+native command handling, authoritative commit, reply publication and the first
+matching station-camera render. Verify actual pointer release and presentation
+in Windows and WebGL before claiming the under-100-ms gate. Record measurements
+in the repo performance reference under “Current block commit stages”.
+
 ## Verification checklist before reporting done
 
 1. Every new tracked file under `unity/Assets/` **must** have a paired `.meta` file (`node tools/unity-assets/ensure-meta.mjs` if generated outside the Editor, which also enforces 2D `TextureImporter` blocks on images).

@@ -350,6 +350,7 @@ namespace Metro.App {
         /// undo land on another's document.
         /// </summary>
         static void CommitHistory(StationGameHost host, string before, string label, string commandId, StationReadResult localBefore = null) {
+            using var sample = StationEditProfiling.Measure("StationEdit.CommitHistory");
             if (!string.IsNullOrEmpty(commandId)) Remember(commandId);
             PruneHistory(host.CurrentSourceId);
             if (!string.IsNullOrEmpty(before)) {

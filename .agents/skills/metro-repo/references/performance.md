@@ -1653,3 +1653,44 @@ Fixture SHA-256 values: zoo `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd
 Reproduce: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/unity-parity/check-unity-compile.ps1`, then `dotnet run -c Release --project .preview/unity/plan31-classification/Measure.csproj`. Harness and raw samples: `.preview/unity/plan31-classification/{Program.cs,results.json}`. Native CPU timeline scopes cover local envelope/projection boundaries through managed samples, classification, renderer families, simulation staging/commit, activation/disposal, visibility registration and commit payload construction. `StationEditTrace.Sample` is opt-in and does no timing/allocation sampling without a subscriber.
 The view can now stage independent prefab-only bin/TVM/vending/bench/shelf/extinguisher edits in the existing world when the ground window is unchanged. It swaps only their records/views after simulation staging succeeds; cells, unrelated prefabs and artwork remain owned by that world. Other families, cell edits and ground-window changes keep the conservative full view path. The local inverse history path reaches the same furniture retention path.
 Limits: this is not an input-to-present measurement or a <100 ms budget pass. Full envelope cloning/materialization, structural graph/service staging and the full commit transport remain. Dirty cell chunks, versioned background graph handover and the all-demo Windows/WebGL pointer-and-presentation matrix are still outstanding. The live Editor status capture `.preview/unity/editor/20261117-102638-status-81bdd9/run.json` reports `STATUS_PIPELINE_LOAD_PENDING`. Isolated rendered tests can run with `metro-unity.ps1 test -Graphics`; their pixel assertions prove highlight coverage/occlusion, not native input latency.
+
+### Current block commit stages (November 17, 2026)
+
+At `812118377bc023d0650a021b17d84fd51e82995f`, the typed local classifier is cheap for a one-block addition, but the document and graph stages still exceed the strict <100 ms interaction target. `StationWorldView.StageLocalModules` explicitly refuses cell deltas, so cells also retain full world rendering/install work outside the managed probe. The earlier full-classifier reparsing diagnosis does not describe the current local block classifier.
+
+Engine-free .NET 10.0.14 probe on the shared Windows 11/i7-14700KF workstation: read each shipped demo, add one untagged solid at empty `(42,37,-12)` with `StationLocalEdit.TryApplyCells`, call the production `ClassifyLocal`, project the simulation document, build its complete walking graph and build service facts. Four iterations per fixture against the same immutable before-state; first separate, remaining three summarized. `CheckCore` and `CheckUnity` were rebuilt from this source with **Release / Optimize=true**, and the harness runs Release. Unity's generated projects hardcode the output directory `Temp/bin/Debug` even for this Release build. `metadata.json` records the settings and assembly hashes. Opt-in nested trace scopes collect stage allocations; their overlapping times are not added to the top-level subtotal. No forced GC or private full-envelope diagnostic runs occur between these stages.
+
+| Demo | Local patch/projection median, ms | Local classifier median, ms | Simulation projection median, ms | Graph median, ms | Service facts median, ms | Disjoint stage subtotal median (range), ms | First subtotal, ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Zoo | 157.28 | 0.03 | 2.35 | 150.44 | 15.87 | 325.80 (287.68–343.13) | 669.96 |
+| Tanwei | 171.01 | 0.04 | 2.53 | 281.45 | 2.28 | 457.14 (347.79–525.67) | 378.33 |
+| Tianhe | 1239.71 | 0.03 | 17.17 | 1011.43 | 50.59 | 2916.46 (2195.31–3590.37) | 2849.11 |
+
+Subtotal medians are medians of per-iteration sums, not sums of column medians. Nested `TryPatchEnvelope` (full clone plus writer) medians were 96.68 / 151.99 / 1020.38 ms, allocating 51.36 / 68.52 / 542.77 MiB for Zoo/Tanwei/Tianhe. Complete local patch/projection allocated 60.21 / 80.41 / 634.84 MiB; graph construction allocated 79.65 / 207.88 / 923.33 MiB. These identify remaining document-wide work and allocation pressure. Three repetitions are insufficient for stable percentiles, and shared desktop/Editor activity and GC account for substantial variability. An earlier Debug-assembly capture is retained as `stage-results.json`; it is not a matched engine comparison or a claimed optimization result.
+
+This bypasses pointer validation and measures a low-level one-cell addition. It excludes planner/automatic-wall synchronization, Unity renderer construction, native mesh/GPU work, simulation commit actor reconciliation, visibility, old-world teardown, history publication, commit JSON transport and React adoption. It is neither a Windows/WebGL player latency measurement nor a numerical lower bound for a differently compiled Unity runtime. No native <100 ms pass is established. The live-editor status attempt `.preview/unity/editor/20261117-110016-status-e2fe00/run.json` still reports `STATUS_PIPELINE_LOAD_PENDING`; that prevented a fresh native pointer-to-present capture through the supported live harness.
+
+Reproduce from the repository root:
+
+```powershell
+& tools/unity-parity/check-unity-compile.ps1 -OutSuffix Plan32
+dotnet build unity/Temp/acheckPlan32/CheckUnity.csproj -c Release -v q --nologo
+dotnet run -c Release --project .preview/unity/plan32-review/Review.csproj
+```
+
+Raw evidence: `.preview/unity/plan32-review/{Program.cs,Review.csproj,release-stage-results.json,release-stage-results.err.txt,metadata.json,release-compile.log}`. Core SHA-256: `ad12d7feac52b9bbb698482cd8b7c18a14a516babb945121ee479d737fd71d81`; App/View SHA-256: `b14c1548cea7535f6c9bcda7136c26b792b8065bebf5a9579b47907a0a3fedce`. Fixture hashes remain Zoo `1be9b3a20804b0d0944ba361bc80f8c7ede8eef7b233767eecd92e2f2ca5194e`, Tanwei `620e8b459850f0d080127191eac41463dd913ffbd28b722ffd80489b11f368a4`, Tianhe `efc73693ef4606fe7df7ba7db93bbab2fa871ae7457fd83776b324ca2a63654e`.
+
+The ordinary-block completion gate is release→authoritative commit **and** release→first rendered committed revision strictly <100 ms, including first use, repeated edits and undo/redo. A ghost, acknowledgement, postponed main-thread rebuild or stale simulation topology does not pass. Retained cell chunks, bounded record/index updates, structural graph/service deltas and a local commit transport remain necessary work; the native all-demo pointer matrix must verify their result.
+
+#### Automatic-wall deletion planning (November 17, 2026)
+
+After the ownership fix, a matched managed probe compared copying the full solid coverage set with looking up coverage through the pending adds/removals and retained solid/track facts. Same workstation and shipped fixtures as above. Each case built its world first, then planned the same single-cell deletion 12 times without applying it. Both versions emitted five writes for Zoo `(48,5,-15)` and three for Tanwei `(-51,1,12)`. Tianhe had no tracked floor for this probe. The Unity-generated assemblies used Debug configuration in both variants.
+
+| Demo | Copied coverage first / repeat median, ms | Effective coverage first / repeat median, ms | Repeat median allocated bytes, copied / effective |
+| --- | ---: | ---: | ---: |
+| Zoo | 60.71 / 1.13 | 48.25 / 1.08 | 621,048 / 200,608 |
+| Tanwei | 0.46 / 0.58 | 0.42 / 0.26 | 1,295,000 / 1,904 |
+
+The first Zoo iteration also includes managed first-call and lazy opening/equipment work. The measurements exclude pointer input, world preparation, preview drawing, commit, transport and rendering. Raw samples and the probe are in `.preview/unity/plan32-implementation/planner-measure/`. The commands were `check-unity-compile.ps1 -OutSuffix plan32` for copied coverage and `-OutSuffix plan32Final` for effective coverage, then `dotnet run --project .preview/unity/plan32-implementation/planner-measure/Planner.csproj` with the corresponding assembly references. The intended comparison is allocation within the planner, and the isolated timings do not establish an interaction budget pass.
+
+The opt-in `StationEditProfiling.CommitSample` reports native command receipt through authoritative commit, reply serialization, publication and the first completed station-camera render for a matching revision. It also reports when a revision is superseded before rendering. The clock starts after native command decoding and the render callback measures Unity camera completion. Browser input transit, pixel presentation, React adoption and the Windows/WebGL acceptance matrix still need measurements.

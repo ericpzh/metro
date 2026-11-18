@@ -9,6 +9,7 @@ using Metro.View;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Metro.App {
     /// <summary>
@@ -60,6 +61,9 @@ namespace Metro.App {
         float stateTimer;
         /// <summary>A commit asked for one coalesced ghost re-aim on the next frame.</summary>
         bool hoverRefreshRequested;
+        StationEditProfiling.CommitTrace pendingRenderTrace;
+        Camera tracedCamera;
+        bool beganTracedRender;
         string clientSessionId = "";
         /// <summary>True while <see cref="ApplyDocumentEdit"/> installs an edit of the committed station.</summary>
         bool editingDocument;
@@ -97,6 +101,7 @@ namespace Metro.App {
         }
 
         void OnDestroy() {
+            FinishRenderTrace("host-destroyed");
             if (coordinator != null) {
                 coordinator.Committed -= OnCommitted;
                 coordinator.Dispose();
@@ -111,6 +116,8 @@ namespace Metro.App {
 
         void Update() {
             if (coordinator == null) return;
+            if (pendingRenderTrace != null && (tracedCamera == null || !tracedCamera.isActiveAndEnabled))
+                FinishRenderTrace("no-render-camera");
             coordinator.Tick(Time.deltaTime);
             if (IsLoaded) TickFrameSinks();
             // A commit under a still pointer re-aims once, on this frame (plan 29 §3): the
@@ -170,7 +177,50 @@ namespace Metro.App {
         /// <summary>The one JS → C# entry point: <c>SendMessage("StationGame", "BrowserCommand", json)</c>.</summary>
         public void BrowserCommand(string json) {
             if (router == null) return;
-            Publish(router.Handle(json));
+            var reply = router.Handle(json, out var trace);
+            if (pendingRenderTrace != null && pendingRenderTrace.Revision != CurrentRevision)
+                FinishRenderTrace("superseded-before-render");
+            if (trace != null) StartRenderTrace(trace);
+            bool published = Publish(reply);
+            trace?.Mark(published ? "commit-published" : "no-reply-transport");
+        }
+
+        void StartRenderTrace(StationEditProfiling.CommitTrace trace) {
+            tracedCamera = StationEditScene.EditCamera(this);
+            if (tracedCamera == null || !tracedCamera.isActiveAndEnabled) {
+                tracedCamera = null;
+                trace.Mark("no-render-camera");
+                return;
+            }
+            pendingRenderTrace = trace;
+            beganTracedRender = false;
+            RenderPipelineManager.beginCameraRendering += BeginTracedCamera;
+            RenderPipelineManager.endCameraRendering += EndTracedCamera;
+        }
+
+        void BeginTracedCamera(ScriptableRenderContext _, Camera camera) {
+            if (camera != tracedCamera || pendingRenderTrace == null) return;
+            if (pendingRenderTrace.Revision != CurrentRevision)
+                FinishRenderTrace("superseded-before-render");
+            else beganTracedRender = true;
+        }
+
+        void EndTracedCamera(ScriptableRenderContext _, Camera camera) {
+            if (camera != tracedCamera || !beganTracedRender || pendingRenderTrace == null) return;
+            FinishRenderTrace(pendingRenderTrace.Revision == CurrentRevision
+                ? "first-camera-render"
+                : "superseded-before-render");
+        }
+
+        void FinishRenderTrace(string stage) {
+            var trace = pendingRenderTrace;
+            if (trace == null) return;
+            pendingRenderTrace = null;
+            tracedCamera = null;
+            beganTracedRender = false;
+            RenderPipelineManager.beginCameraRendering -= BeginTracedCamera;
+            RenderPipelineManager.endCameraRendering -= EndTracedCamera;
+            trace.Mark(stage);
         }
 
         /// <summary>

@@ -151,9 +151,10 @@ namespace Metro.App {
                 ? new Color(1f, 0.36f, 0.24f, 0.36f)
                 : new Color(0.09f, 0.55f, 1f, 0.34f);
             var ring = new HashSet<StationCellKey>(preview.AutoWalls);
-            if (removing) {
-                if (eraseMaterial == null) eraseMaterial = CreateUnlitTransparent("edit erase surfaces", okColour);
-                BuildEraseBatch(preview.Check.Accepted, eraseMaterial);
+            if (removing || preview.RemovedCells.Count > 0) {
+                if (eraseMaterial == null)
+                    eraseMaterial = CreateUnlitTransparent("edit erase surfaces", new Color(1f, 0.36f, 0.24f, 0.36f));
+                BuildEraseBatch(preview.Patch != null ? preview.RemovedCells : preview.Check.Accepted, eraseMaterial);
             }
             foreach (var cell in preview.Check.Accepted) {
                 if (removing) continue;

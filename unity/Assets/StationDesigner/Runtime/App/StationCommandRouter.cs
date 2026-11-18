@@ -107,7 +107,10 @@ namespace Metro.App {
         }
 
         /// <summary>Decode, dispatch and return exactly one reply envelope as JSON.</summary>
-        public string Handle(string json) {
+        public string Handle(string json) => Handle(json, out _);
+
+        internal string Handle(string json, out StationEditProfiling.CommitTrace committedTrace) {
+            committedTrace = null;
             StationCommand command;
             try {
                 command = Decode(json);
@@ -168,6 +171,7 @@ namespace Metro.App {
                         var handler = handlers[i];
                         if (!handler.Handles(command.Type)) continue;
                         int revisionBefore = host.CurrentRevision;
+                        var trace = StationEditProfiling.ObserveCommit(command, revisionBefore);
                         string rejectCode, rejectReason;
                         // The handler reads its command fields from this object and writes the
                         // ack fields back into it. Passing an empty object (as an earlier version
@@ -177,7 +181,13 @@ namespace Metro.App {
                             // An edit verb stages a whole normalized document through
                             // StationGameHost.ApplyDocumentEdit; the transaction bumps the
                             // revision and the reply becomes its commit.
-                            if (host.CurrentRevision != revisionBefore) return CommitOrReject(command, host.CurrentResult());
+                            if (host.CurrentRevision != revisionBefore) {
+                                trace?.Commit(host.CurrentRevision);
+                                string reply = CommitOrReject(command, host.CurrentResult());
+                                trace?.Mark("commit-serialized");
+                                committedTrace = trace;
+                                return reply;
+                            }
                             return Ack(command.Id, command.SessionId, payload);
                         }
                         if (!string.IsNullOrEmpty(rejectCode)) {

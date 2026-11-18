@@ -38,7 +38,7 @@ namespace Metro.Build {
     /// </remarks>
     public interface IStationCellReservations {
         /// <summary>The `z` level's reserved opening cells (plan coordinates), or null.</summary>
-        HashSet<StationCellKey> OpeningsAtLevel(int z);
+        HashSet<StationCellKey> OpeningsAtLevel(int z, IReadOnlyList<StationModuleRecord> modules);
     }
 
     /// <summary>One block candidate's verdict.</summary>
@@ -244,6 +244,7 @@ namespace Metro.Build {
         readonly Dictionary<int, HashSet<StationCellKey>> equipmentByLevel = new Dictionary<int, HashSet<StationCellKey>>();
         readonly Dictionary<int, HashSet<StationCellKey>> openingsByLevel = new Dictionary<int, HashSet<StationCellKey>>();
         readonly IStationCellReservations reservations;
+        readonly IReadOnlyList<StationModuleRecord> modules;
 
         /// <summary>Pieces whose envelope table is not ported; their reservation is unverified.</summary>
         public readonly List<string> Unverified = new List<string>();
@@ -254,23 +255,33 @@ namespace Metro.Build {
         /// <summary>Every saved solid cell, at every level.</summary>
         public IReadOnlyCollection<StationCellKey> Solid => solid;
 
-        StationCellEditWorld(StationIndex index, IStationCellReservations reservations) {
+        StationCellEditWorld(StationIndex index, IStationCellReservations reservations,
+            IReadOnlyList<StationModuleRecord> modules, StationCellEditWorld cellFacts = null) {
             Index = index;
             this.reservations = reservations;
-            var document = index.Document;
-            foreach (var cell in document.Cells) {
-                var key = cell.Key;
-                if (cell.IsSolid) {
-                    solid.Add(key);
-                    if (cell.FinishOf(StationFinishFace.Top) == "floor.track") trackBeds.Add(key);
-                    if (cell.HasTag("auto-floor")) autoFloor.Add(key);
+            this.modules = modules;
+            if (cellFacts == null) {
+                foreach (var cell in index.Document.Cells) {
+                    var key = cell.Key;
                     if (cell.HasTag("auto-wall")) autoWalls.Add(key);
-                } else {
-                    voids.Add(key);
-                    if (cell.Z == StationFootprints.GroundZ) voidGround.Add((cell.X, cell.Y));
+                    if (cell.IsSolid) {
+                        solid.Add(key);
+                        if (cell.FinishOf(StationFinishFace.Top) == "floor.track") trackBeds.Add(key);
+                        if (cell.HasTag("auto-floor")) autoFloor.Add(key);
+                    } else {
+                        voids.Add(key);
+                        if (cell.Z == StationFootprints.GroundZ) voidGround.Add((cell.X, cell.Y));
+                    }
                 }
+            } else {
+                solid = cellFacts.solid;
+                autoFloor = cellFacts.autoFloor;
+                autoWalls = cellFacts.autoWalls;
+                voids = cellFacts.voids;
+                voidGround = cellFacts.voidGround;
+                trackBeds = cellFacts.trackBeds;
             }
-            foreach (var module in document.Modules) {
+            foreach (var module in modules) {
                 if (module.Type == "exit") {
                     var style = module.Config.Text("style");
                     if (style == "doorway" || style == "virtual") continue;
@@ -283,7 +294,6 @@ namespace Metro.Build {
                     foreach (var cell in StationFootprints.TrackCells(module)) {
                         var key = new StationCellKey((int)Math.Round(cell.X), (int)Math.Round(cell.Y), (int)Math.Round(cell.Z));
                         trackFootprint.Add(key);
-                        trackBeds.Add(key);
                         if (key.Z == StationFootprints.GroundZ && !cfg.Bool("tunnel") && !cfg.Bool("bridge"))
                             trackGroundAtGrade.Add((key.X, key.Y));
                     }
@@ -298,13 +308,24 @@ namespace Metro.Build {
 
         /// <summary>Build the world for one document. `reservations` may be null.</summary>
         public static StationCellEditWorld Build(StationIndex index, IStationCellReservations reservations = null) =>
-            index == null ? null : new StationCellEditWorld(index, reservations);
+            index == null ? null : new StationCellEditWorld(index, reservations, index.Document.Modules);
+
+        internal StationCellEditWorld WithoutModules(IReadOnlyList<string> ids) {
+            if (ids.Count == 0) return this;
+            var removed = new HashSet<string>(ids, StringComparer.Ordinal);
+            var retained = new List<StationModuleRecord>();
+            foreach (var module in modules) if (!removed.Contains(module.Id)) retained.Add(module);
+            return new StationCellEditWorld(Index, reservations, retained, this);
+        }
 
         // ------------------------------------------------------------- queries
 
         public bool IsSolid(int x, int y, int z) => solid.Contains(new StationCellKey(x, y, z));
         public bool IsVoid(int x, int y, int z) => voids.Contains(new StationCellKey(x, y, z));
-        public bool IsTrackCell(int x, int y, int z) => trackBeds.Contains(new StationCellKey(x, y, z));
+        public bool IsTrackCell(int x, int y, int z) {
+            var key = new StationCellKey(x, y, z);
+            return IsTrackFootprint(key) || trackBeds.Contains(key);
+        }
         public bool IsExitFloor(int x, int y, int z) => exitFloors.Contains(new StationCellKey(x, y, z));
         public bool IsPlatformDoor(int x, int y, int z) => platformDoors.Contains(new StationCellKey(x, y, z));
         public bool IsAutoFloor(int x, int y, int z) => autoFloor.Contains(new StationCellKey(x, y, z));
@@ -330,7 +351,7 @@ namespace Metro.Build {
 
         HashSet<StationCellKey> OpeningsAt(int z) {
             if (openingsByLevel.TryGetValue(z, out var known)) return known;
-            var cells = reservations?.OpeningsAtLevel(z);
+            var cells = reservations?.OpeningsAtLevel(z, modules);
             openingsByLevel[z] = cells;
             return cells;
         }
@@ -339,7 +360,7 @@ namespace Metro.Build {
         public HashSet<StationCellKey> EquipmentBlockedAt(int z) {
             if (equipmentByLevel.TryGetValue(z, out var known)) return known;
             var blocked = new HashSet<StationCellKey>();
-            foreach (var module in Index.Document.Modules) {
+            foreach (var module in modules) {
                 // A run, a rail and the screen doors beside it answer through the carve and
                 // `reservedOpening` / `isTrackCell`, exactly as the source leaves them. A
                 // stair **block** is an ordinary 1-cell body and does claim its cell.
@@ -371,7 +392,7 @@ namespace Metro.Build {
             var outIds = new List<string>();
             if (!EquipmentBlockedAt(z).Contains(new StationCellKey(x, y, z))) return outIds;
             var cell = new StationBox(x, y, z, x + 1, y + 1, z + 1);
-            foreach (var module in Index.Document.Modules) {
+            foreach (var module in modules) {
                 if (!StationFootprints.TryClearance(module, out var box, out _)) continue;
                 if (!cell.Overlaps(box)) continue;
                 if (!outIds.Contains(module.Id)) outIds.Add(module.Id);
@@ -383,6 +404,7 @@ namespace Metro.Build {
         public bool IsCoveredGround(int x, int y, int z) =>
             IsSolid(x, y, z) || trackFootprint.Contains(new StationCellKey(x, y, z));
 
+        internal bool IsTrackFootprint(StationCellKey key) => trackFootprint.Contains(key);
         internal IEnumerable<StationCellKey> AutoFloorCells => autoFloor;
         internal IEnumerable<StationCellKey> AutoWallCells => autoWalls;
 
@@ -1159,7 +1181,8 @@ namespace Metro.Build {
             foreach (var id in StationModuleTeardown.Expand(world.Index, anchored)) {
                 if (!patch.RemoveModuleIds.Contains(id)) patch.RemoveModuleIds.Add(id);
             }
-            if (droppedFloors.Count > 0) AppendAutoWallSync(world, patch, null, removed, droppedFloors);
+            if (droppedFloors.Count > 0)
+                AppendAutoWallSync(world.WithoutModules(patch.RemoveModuleIds), patch, null, removed, droppedFloors);
             return patch;
         }
 
@@ -1255,18 +1278,27 @@ namespace Metro.Build {
         /// </summary>
         static void AppendAutoWallSync(StationCellEditWorld world, StationCellPatch patch,
             HashSet<StationCellKey> addedSolid, HashSet<StationCellKey> removedSolid, HashSet<int> levels) {
-            var covered = new HashSet<StationCellKey>(world.Solid);
-            if (addedSolid != null) foreach (var key in addedSolid) covered.Add(key);
-            if (removedSolid != null) foreach (var key in removedSolid) covered.Remove(key);
+            int height = world.StoreyHeight;
+            bool EditsWall(int z) {
+                foreach (int floor in levels) if (floor < z && z <= floor + height) return true;
+                return false;
+            }
+            bool ReadsFloor(int z) {
+                foreach (int floor in levels) if (z < floor + height && floor < z + height) return true;
+                return false;
+            }
+
+            bool Covered(StationCellKey key) =>
+                world.IsTrackFootprint(key) || addedSolid?.Contains(key) == true ||
+                (removedSolid?.Contains(key) != true && world.IsSolid(key.X, key.Y, key.Z));
             var trackedByLevel = new Dictionary<int, HashSet<StationCellKey>>();
             foreach (var key in world.AutoFloorCells) {
-                if (!levels.Contains(key.Z) || !covered.Contains(key)) continue;
+                if (!ReadsFloor(key.Z) || removedSolid?.Contains(key) == true) continue;
                 if (!trackedByLevel.TryGetValue(key.Z, out var set)) trackedByLevel[key.Z] = set = new HashSet<StationCellKey>();
                 set.Add(key);
             }
             if (addedSolid != null) {
                 foreach (var key in addedSolid) {
-                    if (!levels.Contains(key.Z)) continue;
                     if (!trackedByLevel.TryGetValue(key.Z, out var set)) trackedByLevel[key.Z] = set = new HashSet<StationCellKey>();
                     set.Add(key);
                 }
@@ -1275,7 +1307,7 @@ namespace Metro.Build {
             foreach (var pair in trackedByLevel) {
                 int level = pair.Key;
                 var patchCells = pair.Value;
-                var outside = OutsideCells(covered, patchCells, level);
+                var outside = OutsideCells(Covered, patchCells, level);
                 foreach (var cell in patchCells) {
                     if (world.IsPlatformDoor(cell.X, cell.Y, level)) continue;
                     bool edge = false;
@@ -1283,23 +1315,29 @@ namespace Metro.Build {
                         if (outside.Contains((cell.X + dx, cell.Y + dy))) { edge = true; break; }
                     }
                     if (!edge) continue;
-                    for (int dz = 1; dz <= world.StoreyHeight; dz++) {
+                    for (int dz = 1; dz <= height; dz++) {
                         var course = new StationCellKey(cell.X, cell.Y, level + dz);
-                        if (covered.Contains(course)) continue;
-                        if (!BlockReason(world, course.X, course.Y, course.Z).Ok) continue;
+                        if (!EditsWall(course.Z)) continue;
+                        if (world.IsOpening(course.X, course.Y, course.Z) ||
+                            world.EquipmentBlockedAt(course.Z).Contains(course) ||
+                            world.IsTrackFootprint(course) ||
+                            (removedSolid?.Contains(course) != true && world.IsTrackCell(course.X, course.Y, course.Z))) continue;
                         wanted.Add(course);
                     }
                 }
             }
-            var dropped = new HashSet<StationCellKey>();
             foreach (var key in world.AutoWallCells) {
-                if (!levels.Contains(key.Z)) continue;
-                if (wanted.Contains(key)) continue;
+                if (!EditsWall(key.Z) || wanted.Contains(key) || removedSolid?.Contains(key) == true) continue;
                 patch.Add(StationCellWrite.Drop(key));
-                dropped.Add(key);
+            }
+            var gradeHoles = new HashSet<StationCellKey>();
+            if (removedSolid != null) {
+                foreach (var write in patch.Writes)
+                    if (write.Mode == StationCellWriteMode.Set && write.Void) gradeHoles.Add(write.Key);
             }
             foreach (var key in wanted) {
-                if (covered.Contains(key) || dropped.Contains(key)) continue;
+                if (Covered(key) || gradeHoles.Contains(key)) continue;
+                if (removedSolid?.Contains(key) != true && world.Index.GetCell(key.X, key.Y, key.Z) != null) continue;
                 patch.Add(StationCellWrite.Set(key, false, AutoWallTag));
             }
         }
@@ -1309,7 +1347,7 @@ namespace Metro.Build {
         /// surface's outer edge. A hole dug through the middle of a patch is unreachable, so a
         /// stair opening is never silently boarded up.
         /// </summary>
-        static HashSet<(int X, int Y)> OutsideCells(HashSet<StationCellKey> covered,
+        static HashSet<(int X, int Y)> OutsideCells(Func<StationCellKey, bool> covered,
             HashSet<StationCellKey> patchCells, int level) {
             int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
             foreach (var cell in patchCells) {
@@ -1324,7 +1362,7 @@ namespace Metro.Build {
             void Push(int x, int y) {
                 if (x < minX || x > maxX || y < minY || y > maxY) return;
                 if (seen.Contains((x, y)) || patchCells.Contains(new StationCellKey(x, y, level))) return;
-                if (covered.Contains(new StationCellKey(x, y, level))) return;
+                if (covered(new StationCellKey(x, y, level))) return;
                 seen.Add((x, y));
                 stack.Push((x, y));
             }

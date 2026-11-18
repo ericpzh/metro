@@ -349,10 +349,37 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(StationCellTool.Begin(host, hit, "block", 2,
                 StationPointerEvent.Synthetic(100, 100, 800, 600, button: 2, timeMs: 0), out var reason), reason);
             Assert.Greater(StationCellTool.Preview.Check.Accepted.Count, 0, "the erase plan takes the solid cell");
+            CollectionAssert.AreEqual(new[] { new StationCellKey(2, 2, 0) }, StationCellTool.Preview.RemovedCells);
+            CollectionAssert.AreEqual(new[] { "bench-1" }, StationCellTool.Preview.ModuleIds);
             Assert.IsTrue(StationCellTool.Finish(host, hit,
                 StationPointerEvent.Synthetic(100, 100, 800, 600, button: 2, timeMs: 20), out var code, out reason), code ?? reason);
             Assert.AreEqual(before + 1, host.CurrentRevision);
             Assert.IsFalse(host.Index.GetCell(2, 2, 0)?.IsSolid ?? false, "the right press dug the block out");
+        }
+
+        [Test]
+        public void AutoFloorErasePreviewCommitAndHistoryAgree() {
+            var fixture = (JObject)StationLocalEditTests.AutoWallFixtures()[1];
+            var read = StationLocalEditTests.ReadAutoWallFixture(fixture);
+            Assert.IsTrue(host.OpenDocument(read.Document.NormalizedJson, "file").Accepted);
+            var before = host.Document.NormalizedJson;
+            StationToolSelection.TrySelect("block", out _, out _);
+            var hit = StationCellFixture.Hit(0, 0, -7, true);
+            Assert.IsTrue(StationCellTool.Begin(host, hit, "block", 2,
+                StationPointerEvent.Synthetic(100, 100, 800, 600, button: 2, timeMs: 0), out var reason), reason);
+            CollectionAssert.AreEquivalent(fixture["cellChanges"]["removed"].ToObject<string[]>(),
+                StationCellTool.Preview.RemovedCells.ConvertAll(key => key.ToString()));
+            Assert.AreEqual(before, host.Document.NormalizedJson, "preview does not edit the document");
+            Assert.IsTrue(StationCellTool.Finish(host, hit,
+                StationPointerEvent.Synthetic(100, 100, 800, 600, button: 2, timeMs: 20), out var code, out reason), code ?? reason);
+            var after = host.Document.NormalizedJson;
+            StationLocalEditTests.AssertAutoWallRecords(fixture, before, after);
+            var reopened = StationDocumentReader.Read(host.SaveDocument(), StationSource.None);
+            StationLocalEditTests.AssertAutoWallRecords(fixture, before, reopened.Document.NormalizedJson);
+            Assert.IsTrue(StationEditSession.TryUndo(host, out _, out code), code);
+            Assert.IsTrue(JToken.DeepEquals(JObject.Parse(before)["static"], JObject.Parse(host.Document.NormalizedJson)["static"]));
+            Assert.IsTrue(StationEditSession.TryRedo(host, out _, out code), code);
+            Assert.IsTrue(JToken.DeepEquals(JObject.Parse(after)["static"], JObject.Parse(host.Document.NormalizedJson)["static"]));
         }
 
         // ----------------------------------------------------------------- walls

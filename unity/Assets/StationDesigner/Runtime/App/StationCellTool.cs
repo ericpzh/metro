@@ -14,7 +14,10 @@ namespace Metro.App {
     /// </summary>
     public sealed class StationCellPreview {
         public StationCellCheck Check = new StationCellCheck();
-        /// <summary>The auto-wall courses a floor patch would raise (preview only).</summary>
+        internal StationCellPatch Patch;
+        /// <summary>Solid cells the resulting patch would erase, including generated courses.</summary>
+        public readonly List<StationCellKey> RemovedCells = new List<StationCellKey>();
+        /// <summary>Generated courses the resulting patch would add.</summary>
         public readonly List<StationCellKey> AutoWalls = new List<StationCellKey>();
         /// <summary>Placed pieces a delete gesture would remove, in pending order.</summary>
         public readonly List<string> ModuleIds = new List<string>();
@@ -45,6 +48,7 @@ namespace Metro.App {
                 ["blocked"] = Cells(Check.Blocked),
                 ["ignored"] = Cells(Check.Ignored),
                 ["autoWalls"] = Cells(AutoWalls),
+                ["removedCells"] = Cells(RemovedCells),
                 ["reason"] = Check.Reason ?? "",
             };
             if (!Check.Shape.IsFull) json["shape"] = Check.Shape.ToString();
@@ -109,6 +113,11 @@ namespace Metro.App {
         public int Revision;
         public int ToolGeneration;
 
+        internal StationCellPreview PlannedCells;
+        internal StationCellEditWorld PlannedWorld;
+        internal StationCellKey PlannedTarget;
+        internal bool PlannedDragging, PlannedShift;
+
         public bool IsCut => !Shape.IsFull;
         public bool HasModules => ModuleIds.Count > 0;
     }
@@ -167,9 +176,9 @@ namespace Metro.App {
         /// </summary>
         public static StationCellEditWorld World(StationGameHost host) {
             if (host == null || host.Index == null) return null;
-            if (world != null && worldRevision == host.CurrentRevision &&
+            if (world?.Index == host.Index && worldRevision == host.CurrentRevision &&
                 string.Equals(worldSource, host.CurrentSourceId, StringComparison.Ordinal)) return world;
-            world = StationCellEditWorld.Build(host.Index, new StationCellReservations(host.Index));
+            world = StationCellEditWorld.Build(host.Index, new StationCellReservations());
             worldRevision = host.CurrentRevision;
             worldSource = host.CurrentSourceId ?? "";
             return world;
@@ -521,7 +530,7 @@ namespace Metro.App {
                 gesture.LastAimY = pointer.Y;
                 gesture.HasLastAim = true;
             }
-            preview = Plan(worldRef, gesture, pointer);
+            preview = Plan(worldRef, gesture);
         }
 
         /// <summary>
@@ -663,12 +672,12 @@ namespace Metro.App {
                     previewOut.ModuleIds.Add(hit.Module.Id);
                     return previewOut;
                 }
-                var single = new List<StationCellKey> { hoverCell };
-                var solid = new List<StationCellKey>();
-                foreach (var cell in single) if (worldRef.IsSolid(cell.X, cell.Y, cell.Z)) solid.Add(cell);
                 var erase = new StationCellPreview { Kind = "erase", Cursor = hoverCell };
-                erase.Check.Cells.AddRange(single);
-                erase.Check.Accepted.AddRange(solid);
+                erase.Check.Cells.Add(hoverCell);
+                if (worldRef.IsSolid(hoverCell.X, hoverCell.Y, hoverCell.Z)) {
+                    erase.Check.Accepted.Add(hoverCell);
+                    SetPreviewPatch(erase, StationCellPlanner.PlanRemoveCells(worldRef, erase.Check.Accepted));
+                }
                 return erase;
             }
             var cells = new List<StationCellKey> { hoverCell };
@@ -684,8 +693,44 @@ namespace Metro.App {
         }
 
         /// <summary>The live plan for an armed gesture, in the reference's own order.</summary>
-        static StationCellPreview Plan(StationCellEditWorld worldRef, StationCellGesture current,
-            StationPointerEvent pointer) {
+        static StationCellPreview Plan(StationCellEditWorld worldRef, StationCellGesture current) {
+            using var sample = StationEditProfiling.Measure("StationEdit.CellPlan");
+            if (current.PlannedCells != null && current.PlannedWorld == worldRef &&
+                current.PlannedTarget.Equals(current.Target) && current.PlannedDragging == current.Dragging &&
+                current.PlannedShift == current.Shift) return current.PlannedCells;
+
+            var plan = PlanCandidates(worldRef, current);
+            if (plan.OverLimit) return plan;
+            if (plan.Kind == "erase" || (current.Kind == StationCellGestureKind.Wall && current.Remove)) {
+                SetPreviewPatch(plan, StationCellPlanner.PlanRemoveCells(worldRef, plan.Check.Accepted));
+            } else if (plan.Kind == "floor") {
+                SetPreviewPatch(plan, StationCellPlanner.PlanAutoFloor(worldRef, plan.Check.Accepted));
+            }
+            if (plan.Patch != null) {
+                current.PlannedCells = plan;
+                current.PlannedWorld = worldRef;
+                current.PlannedTarget = current.Target;
+                current.PlannedDragging = current.Dragging;
+                current.PlannedShift = current.Shift;
+            }
+            return plan;
+        }
+
+        static void SetPreviewPatch(StationCellPreview plan, StationCellPatch patch) {
+            plan.Patch = patch;
+            plan.ModuleIds.AddRange(patch.RemoveModuleIds);
+            var removed = new HashSet<StationCellKey>();
+            foreach (var write in patch.Writes) {
+                if (write.Mode == StationCellWriteMode.Remove) removed.Add(write.Key);
+                else if (write.Mode == StationCellWriteMode.Set && write.Tags.Contains(StationCellPlanner.AutoWallTag)) {
+                    removed.Remove(write.Key);
+                    plan.AutoWalls.Add(write.Key);
+                }
+            }
+            plan.RemovedCells.AddRange(removed);
+        }
+
+        static StationCellPreview PlanCandidates(StationCellEditWorld worldRef, StationCellGesture current) {
             var anchor = current.Anchor;
             var target = current.Target;
             var cursor = current.Dragging ? target : anchor;
@@ -756,7 +801,7 @@ namespace Metro.App {
             int budget = StationCellPlanner.DragCellCount(anchor, target, current.Shift);
             if (current.Dragging && budget > StationCellPlanner.MaxDragCells) {
                 var tooLarge = new StationCellPreview {
-                    Kind = current.AutoWalls ? "floor" : "add",
+                    Kind = current.Dragging && current.AutoWalls ? "floor" : "add",
                     Cursor = target,
                     Notice = "over-limit",
                     OverLimit = true,
@@ -768,29 +813,11 @@ namespace Metro.App {
                 return tooLarge;
             }
             var add = new StationCellPreview {
-                Kind = current.AutoWalls ? "floor" : "add",
+                Kind = current.Dragging && current.AutoWalls ? "floor" : "add",
                 Cursor = cursor,
                 Length = length,
                 Width = width,
             };
-            // A deliberate drag with 生成墙壁 on draws a walled surface: the ring the release
-            // would raise is previewed with the blocks themselves, and judged by the same rule.
-            if (current.Dragging && current.AutoWalls) {
-                var baseCheck = StationCellPlanner.CheckBlockCells(worldRef, cellsPlain);
-                var ring = StationCellPlanner.PlannedAutoWalls(worldRef, baseCheck.Accepted, worldRef.StoreyHeight);
-                add.AutoWalls.AddRange(ring);
-                var all = new List<StationCellKey>(baseCheck.Accepted);
-                all.AddRange(ring);
-                if (all.Count > StationCellPlanner.MaxDragCells) {
-                    add.Notice = "over-limit";
-                    add.OverLimit = true;
-                    add.Check.Cells.AddRange(cellsPlain);
-                    add.Check.Blocked.AddRange(cellsPlain);
-                    return add;
-                }
-                add.Check = StationCellPlanner.CheckBlockCells(worldRef, all);
-                return add;
-            }
             add.Check = StationCellPlanner.CheckBlockCells(worldRef, cellsPlain);
             return add;
         }
@@ -994,6 +1021,7 @@ namespace Metro.App {
         /// </summary>
         public static bool Finish(StationGameHost host, StationSceneHit hit, StationPointerEvent pointer,
             out string code, out string reason) {
+            using var sample = StationEditProfiling.Measure("StationEdit.CellFinish");
             code = null;
             reason = null;
             var current = gesture;
@@ -1044,12 +1072,14 @@ namespace Metro.App {
                 current.LastAimY = pointer.Y;
                 current.HasLastAim = true;
             }
-            var plan = Plan(worldRef, current, pointer);
+            var plan = Plan(worldRef, current);
             preview = plan;
             StationEditSession.Cells = plan;
             if (plan.OverLimit) { reason = "over-limit"; return false; }
             StationCellPatch patch;
-            if (current.Kind == StationCellGestureKind.ModuleRun) {
+            if (plan.Patch != null) {
+                patch = plan.Patch;
+            } else if (current.Kind == StationCellGestureKind.ModuleRun) {
                 var runLine = current.Dragging
                     ? StationModuleRuns.LineCells(current.Anchor, current.Target, current.Anchor.Z)
                     : new List<StationCellKey> { current.Anchor };
@@ -1064,17 +1094,11 @@ namespace Metro.App {
                 var line = current.Dragging
                     ? StationCellPlanner.StraightLineCells(current.Anchor, current.Target, current.Anchor.Z)
                     : new List<StationCellKey> { current.Anchor };
-                if (current.Remove) {
-                    var columns = StationCellPlanner.StoreyColumnsAt(worldRef, line);
-                    if (columns.Count == 0) { reason = "nothing-to-do"; return false; }
-                    patch = StationCellPlanner.PlanRemoveCells(worldRef, columns);
-                } else {
-                    var settings = StationCellToolSettings.Read();
-                    StationWallSide? side = settings.HalfWall
-                        ? StationCellPlanner.HalfWallRunSide(line, current.WallDirs, settings.WallSnapCycle)
-                        : (StationWallSide?)null;
-                    patch = StationCellPlanner.PlanWalls(worldRef, line, side, 0);
-                }
+                var settings = StationCellToolSettings.Read();
+                StationWallSide? side = settings.HalfWall
+                    ? StationCellPlanner.HalfWallRunSide(line, current.WallDirs, settings.WallSnapCycle)
+                    : (StationWallSide?)null;
+                patch = StationCellPlanner.PlanWalls(worldRef, line, side, 0);
             } else if (current.Kind == StationCellGestureKind.Delete) {
                 if (current.Sweep) {
                     // The ids the **preview actually collected**, plus the dependent records
@@ -1088,21 +1112,15 @@ namespace Metro.App {
                     }
                     if (!patch.HasWork) { reason = "nothing-to-do"; return false; }
                 } else {
-                    if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
-                    patch = StationCellPlanner.PlanRemoveCells(worldRef, plan.Check.Accepted);
+                    reason = "nothing-to-do";
+                    return false;
                 }
-            } else if (plan.Kind == "erase") {
-                if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
-                patch = StationCellPlanner.PlanRemoveCells(worldRef, plan.Check.Accepted);
             } else if (plan.Kind == "cut") {
                 if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
                 patch = StationCellPlanner.PlanCut(worldRef, plan.Check.Accepted, current.Shape);
             } else if (plan.Kind == "ceiling") {
                 if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
                 patch = StationCellPlanner.PlanSuspendedCeiling(worldRef, plan.Check.Accepted);
-            } else if (plan.Kind == "floor") {
-                if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
-                patch = StationCellPlanner.PlanAutoFloor(worldRef, plan.Check.Accepted);
             } else {
                 if (plan.Check.Accepted.Count == 0) { reason = "nothing-to-do"; return false; }
                 patch = StationCellPlanner.PlanAddCells(worldRef, plan.Check.Accepted);
@@ -1207,16 +1225,7 @@ namespace Metro.App {
     /// carve tables live, so this adapter is the one seam.
     /// </summary>
     public sealed class StationCellReservations : IStationCellReservations {
-        readonly StationIndex index;
-        readonly Dictionary<int, HashSet<StationCellKey>> byLevel = new Dictionary<int, HashSet<StationCellKey>>();
-
-        public StationCellReservations(StationIndex index) { this.index = index; }
-
-        public HashSet<StationCellKey> OpeningsAtLevel(int z) {
-            if (byLevel.TryGetValue(z, out var known)) return known;
-            var openings = StationRampOpenings.RampOpeningsAtLevel(index.Document.Modules, z);
-            byLevel[z] = openings;
-            return openings;
-        }
+        public HashSet<StationCellKey> OpeningsAtLevel(int z, IReadOnlyList<StationModuleRecord> modules) =>
+            StationRampOpenings.RampOpeningsAtLevel(modules, z);
     }
 }
