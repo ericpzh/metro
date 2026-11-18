@@ -36,6 +36,27 @@ public class StationCameraTests {
     }
 
     [Test]
+    public void FrameRecentresTheActiveStoreyWithoutResettingTheCamera() {
+        var rig = Rig(-15);
+        rig.SetViewDirection(new Vector3(1, 2, 3), StationProjection.Orthographic);
+        rig.PanByMetres(new Vector2(8, 4));
+        rig.ZoomBy(0.7f);
+        var before = rig.Snapshot();
+        using var visibility = new StationVisibilityRegistry();
+        var applier = new StationViewCommandApplier(rig, visibility, default);
+
+        Assert.IsTrue(StationViewCommandParser.TryParse("{\"type\":\"camera.frame\"}", out var command, out var parseError), parseError);
+        Assert.IsTrue(applier.TryApply(command, out var code), code);
+
+        var after = rig.Snapshot();
+        Assert.AreEqual(new Vector3(60, 20, -14), after.Target);
+        Assert.That(Vector3.Distance(before.Position - before.Target, after.Position - after.Target), Is.LessThan(1e-4));
+        Assert.AreEqual(before.Projection, after.Projection);
+        Assert.AreEqual(before.Fov, after.Fov);
+        Assert.AreEqual(before.OrthoSize, after.OrthoSize);
+    }
+
+    [Test]
     public void HomeIsIsoPerspectiveAtTheDefaultLens() {
         var rig = Rig();
         // `SetStation` opens at the source's 2/3 framing; ⌂ itself is the preset's 1x.

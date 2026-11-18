@@ -1367,6 +1367,7 @@ namespace Metro.App {
         static bool RefreshesHover(string type) =>
             string.Equals(type, "camera.snap", StringComparison.Ordinal) ||
             string.Equals(type, "camera.home", StringComparison.Ordinal) ||
+            string.Equals(type, "camera.frame", StringComparison.Ordinal) ||
             string.Equals(type, "camera.projection", StringComparison.Ordinal) ||
             string.Equals(type, "camera.fov", StringComparison.Ordinal) ||
             string.Equals(type, "camera.panHeld", StringComparison.Ordinal);

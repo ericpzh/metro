@@ -18,6 +18,10 @@ function exitMountZ(module: Module | null): number | undefined {
   return module?.type === 'exit' && module.cfg.style === 'doorway' ? module.cfg.mountZ : undefined
 }
 
+function lightPosition(module: Module): number {
+  return module.type === 'light' ? module.cfg.position ?? 0 : 0
+}
+
 /** The ink's sub-cell anchor: which doorway it snapped to, and its exact offset. */
 function floorMarkAnchor(module: Module | null): string {
   return module?.type === 'floor-mark' ? JSON.stringify([module.cfg.edgeId ?? '', module.cfg.offset ?? null]) : ''
@@ -205,6 +209,9 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
     if (to.type === 'exit' && to.cfg.style === 'doorway' && d.candidate.type === 'exit') {
       to = { ...to, cfg: { ...to.cfg, mountZ: d.candidate.cfg.mountZ } }
     }
+    if (to.type === 'light' && to.cfg.variant === 'rectangular' && d.module.type === 'light') {
+      to = { ...to, cfg: { ...to.cfg, position: d.module.cfg.position } }
+    }
     // A floor sticker's doorway anchor is the pointer's aim, exactly like a wall
     // mount's course: the ghost re-snaps to the opening under the pointer, so the
     // commit has to land that same ink rather than the offset it was lifted with.
@@ -223,7 +230,10 @@ export const createMoveSlice: StateCreator<AppState, [], [], MoveSlice> = (set, 
       set({ notice: reason })
       return
     }
-    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0) && exitMountZ(to) === exitMountZ(from) && floorMarkAnchor(to) === floorMarkAnchor(from) && (to.type !== 'calligraphy' || from.type !== 'calligraphy' || to.cfg.pillarId === from.cfg.pillarId)) {
+    if (to.x === from.x && to.y === from.y && to.z === from.z && (to.rot ?? 0) === (from.rot ?? 0)
+      && exitMountZ(to) === exitMountZ(from) && floorMarkAnchor(to) === floorMarkAnchor(from)
+      && lightPosition(to) === lightPosition(from)
+      && (to.type !== 'calligraphy' || from.type !== 'calligraphy' || to.cfg.pillarId === from.cfg.pillarId)) {
       set({ moveDraft: null, notice: msg('position_unchanged') })
       return
     }

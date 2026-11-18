@@ -1529,6 +1529,10 @@ export const messages = {
     "zh": "已清空所有行人",
     "en": "All passengers cleared"
   },
+  "station_save_failed": {
+    "zh": "无法导出车站存档。",
+    "en": "Could not export the station save."
+  },
   "saved": {
     "zh": "已保存",
     "en": "Saved"

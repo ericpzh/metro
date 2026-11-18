@@ -22,6 +22,11 @@ namespace Metro.View {
 
         public static Quaternion Rotation(int rotation) => StationCoordinates.ModuleRotation(rotation);
 
+        public static Quaternion Rotation(ModuleFacts module) =>
+            Rotation(module.Type == "light"
+                ? (module.Config.Text("variant") == "rectangular" ? StationFootprints.NormRot(module.Rotation) % 2 : 0)
+                : module.Rotation);
+
         public static float Yaw(int rotation) => StationCoordinates.Yaw(rotation);
 
         /// <summary>
@@ -29,7 +34,11 @@ namespace Metro.View {
         /// around the canonical cell centre, then convert document axes exactly once.
         /// </summary>
         public static Vector3 Position(ModuleFacts module, Vector3 offset) {
-            var local = Rotation(module.Rotation) * new Vector3(offset.x - .5f, 0, offset.y - .5f);
+            var local = Rotation(module) * new Vector3(offset.x - .5f, 0, offset.y - .5f);
+            if (module.Type == "light") {
+                var light = StationFootprints.LightPlan(module.Rotation, module.Config);
+                local += new Vector3((float)light.OffsetX, 0, (float)light.OffsetY);
+            }
             return new Vector3(module.X + .5f + local.x, module.Z + offset.z, module.Y + .5f + local.z);
         }
 

@@ -78,7 +78,6 @@ export function attachKeyboardNavigation(port: CameraPort, options: KeyboardNavi
   if (!keyTarget) return () => {}
   const docTarget = options.hostTarget?.document ?? (typeof document !== 'undefined' ? document : null)
   const held = new Set<string>()
-  let vertical = 0
   let planarIntentKey = ''
   let verticalIntentKey = ''
 
@@ -92,6 +91,7 @@ export function attachKeyboardNavigation(port: CameraPort, options: KeyboardNavi
     send({ type: 'camera.panPlanarHeld', payload: { right: intent.right, forward: intent.forward, fast: intent.fast } })
   }
   const publishVertical = (): void => {
+    const vertical = Number(held.has('e')) - Number(held.has('q'))
     const fast = held.has(FAST_KEY)
     const key = `${vertical}|${fast ? 1 : 0}`
     if (key === verticalIntentKey) return
@@ -102,7 +102,6 @@ export function attachKeyboardNavigation(port: CameraPort, options: KeyboardNavi
     const wasPlanar = planarIntentKey !== '' && planarIntentKey !== '0|0|0' && planarIntentKey !== '0|0|1'
     const wasVertical = verticalIntentKey !== '' && verticalIntentKey !== '0|0' && verticalIntentKey !== '0|1'
     held.clear()
-    vertical = 0
     if (wasPlanar) {
       planarIntentKey = '0|0|0'
       send({ type: 'camera.panPlanarHeld', payload: { right: 0, forward: 0, fast: false } })
@@ -119,28 +118,24 @@ export function attachKeyboardNavigation(port: CameraPort, options: KeyboardNavi
   const onKeyDown = (event: KeyboardEvent): void => {
     if (isBlocked() || isTypingTarget(event.target)) return
     const key = event.key.toLowerCase()
-    // Alt+letter folds a 信息栏 folder (`AppShell`); it must not also move the camera.
     if (event.altKey) return
     const control = event.ctrlKey || event.metaKey
     // Ctrl+Q / Ctrl+E is the vertical pan, the one camera pair that needs a modifier:
     // a plain Q/E is the storey step and belongs to `AppShell`.
     if (control && (key === 'q' || key === 'e')) {
       event.preventDefault()
-      vertical = key === 'e' ? 1 : -1
+      held.add(key)
       publishVertical()
       return
     }
-    if (control) return
     if (key === FAST_KEY) {
       if (held.has(FAST_KEY)) return
       held.add(FAST_KEY)
       publishPlanar()
-      if (vertical !== 0) publishVertical()
+      if (held.has('q') || held.has('e')) publishVertical()
       return
     }
-    // Shift+W is the 轨道 folder's own key on the rail's ladder (`rail/helpers.ts`),
-    // and a folder that also shoved the camera forward would be a key with two meanings.
-    if (key === 'w' && event.shiftKey) return
+    if (control) return
     if (PLANAR_KEYS.includes(key)) {
       if (held.has(key)) return
       held.add(key)
@@ -150,21 +145,24 @@ export function attachKeyboardNavigation(port: CameraPort, options: KeyboardNavi
 
   const onKeyUp = (event: KeyboardEvent): void => {
     const key = event.key.toLowerCase()
-    // Releasing the modifier is a release of the vertical hold: Ctrl+Q must stop
-    // climbing the moment Ctrl comes up, even if Q is still down.
+    // Clear the vertical holds when the last Ctrl/Meta modifier is released.
     if (key === 'control' || key === 'meta') {
-      if (vertical !== 0) { vertical = 0; publishVertical() }
+      if (!event.ctrlKey && !event.metaKey) {
+        const releasedUp = held.delete('e')
+        const releasedDown = held.delete('q')
+        if (releasedUp || releasedDown) publishVertical()
+      }
       return
     }
     if (key === FAST_KEY) {
       if (!held.delete(FAST_KEY)) return
       publishPlanar()
-      if (vertical !== 0) publishVertical()
+      if (held.has('q') || held.has('e')) publishVertical()
       return
     }
-    if (held.delete(key)) publishPlanar()
-    if (key === 'q' && vertical === -1) { vertical = 0; publishVertical() }
-    if (key === 'e' && vertical === 1) { vertical = 0; publishVertical() }
+    if (!held.delete(key)) return
+    if (key === 'q' || key === 'e') publishVertical()
+    else publishPlanar()
   }
 
   // Focus loss is not optional: a key the page never sees released must not keep the

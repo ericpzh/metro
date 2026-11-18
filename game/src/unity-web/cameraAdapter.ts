@@ -9,7 +9,7 @@
 //   `payload.view` object carries the view toggles. `stationBridge.reduce` spreads
 //   both into `snapshot.state`, which is what this adapter reads.
 // * JS → C#: `camera.orbit{dx,dy}`, `camera.pan{dx,dy}`, `camera.zoom{delta}`,
-//   `camera.snap{face,direction,projection}`, `camera.home{}`, `camera.fov{deg}`,
+//   `camera.snap{face,direction,projection}`, `camera.home{}`, `camera.frame{}`, `camera.fov{deg}`,
 //   `camera.projection{ortho}`, `camera.panHeld{direction,fast?}`,
 //   `camera.panPlanarHeld{right,forward,fast?}` and `view.set{key,value}`. The two
 //   held pans are intents, not pixels: the C# rig integrates them per elapsed second
@@ -33,6 +33,7 @@ export type CameraCommand =
   | { type: 'camera.zoom'; payload: { delta: number } }
   | { type: 'camera.snap'; payload: { face: string; direction: CubeVector; projection: CubeProjection } }
   | { type: 'camera.home'; payload: Record<string, never> }
+  | { type: 'camera.frame'; payload: Record<string, never> }
   | { type: 'camera.fov'; payload: { deg: number } }
   | { type: 'camera.projection'; payload: { ortho: boolean } }
   | { type: 'camera.panHeld'; payload: { direction: -1 | 0 | 1; fast?: boolean } }
@@ -201,7 +202,11 @@ export function createStationCameraPort(bridge: StationBridge = stationBridge): 
   // (`AppShell` dispatches `metro:home`). The old Unity entry listened for it
   // directly and sent `resetView`; this is that listener, now the camera command.
   const onHome = (): void => { bridge.send('camera.home', {}) }
-  if (typeof window !== 'undefined') window.addEventListener('metro:home', onHome)
+  const onFrame = (): void => { bridge.send('camera.frame', {}) }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('metro:home', onHome)
+    window.addEventListener('metro:frame', onFrame)
+  }
   emit()
   const subscribe = (listener: (state: CameraSnapshot) => void): (() => void) => {
     listeners.add(listener)
@@ -217,7 +222,10 @@ export function createStationCameraPort(bridge: StationBridge = stationBridge): 
     dispose(): void {
       if (poseFrame) { if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(poseFrame); poseFrame = 0 }
       latestPose = null
-      if (typeof window !== 'undefined') window.removeEventListener('metro:home', onHome)
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('metro:home', onHome)
+        window.removeEventListener('metro:frame', onFrame)
+      }
       unsubscribePose()
       unsubscribeBridge()
       listeners.clear()

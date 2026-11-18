@@ -112,6 +112,7 @@ test('the station port uses the v2 bridge and coalesces identical states', () =>
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot() { return snapshot },
+    onCameraPose() { return () => {} },
   }
   const received = []
   const port = createStationCameraPort(bridge)

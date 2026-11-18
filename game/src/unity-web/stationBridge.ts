@@ -311,6 +311,13 @@ export const stationBridge = {
    * replies settle safely, and non-commit replies return before `reduce` so a
    * late read ack can never roll back `snapshot.revision`.
    */
+  async readCommittedDocument(): Promise<string | null> {
+    const current = snapshot
+    if (current.document && current.documentRevision === current.revision) return current.document
+    if (!player || current.revision < 0) return null
+    const saved = await stationBridge.request<{ document?: string }>('station.save', { includeDocument: true })
+    return typeof saved.document === 'string' && saved.document.length > 0 ? saved.document : null
+  },
   request<TPayload = Record<string, unknown>>(type: string, payload?: unknown, options: RequestOptions = {}): Promise<TPayload> {
     const activePlayer = player
     if (!activePlayer) {

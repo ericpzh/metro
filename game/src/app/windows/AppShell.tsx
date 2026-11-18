@@ -27,6 +27,7 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
   const [rightOpen, setRightOpen] = useState(true)
   const revealTutorial = useCallback(() => { setLeftOpen(true); setRightOpen(true) }, [])
   const notice = useStore((s) => s.notice)
+  const save = files?.save ?? host?.save
 
   useEffect(() => {
     if (!notice) return
@@ -48,6 +49,10 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
       // behind it. Its own Delete binding lives on the board (SignEditor).
       if (st.followAgentId !== null && e.key !== ' ') return
       if (st.signEditorFor !== null || st.signComposing) return
+      if (e.key === 'Enter' && hostOwnsVerb('confirmMove')) {
+        e.preventDefault()
+        return
+      }
       // Ctrl shortcuts for the top-bar icon actions (their accessible names say so).
       // Handled before the single-letter tool keys so Ctrl+N never also grabs
       // the 材质 brush, etc.
@@ -83,7 +88,8 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
       if ((e.ctrlKey || e.metaKey) && !e.altKey) {
         if (ck === 's') {
           e.preventDefault()
-          st.saveToFile()
+          if (save) save()
+          else st.saveToFile()
           return
         }
         if (ck === 'n' && e.shiftKey) {
@@ -151,6 +157,7 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
           // the pointer when the mouse is on it (`app/Viewport.tsx`); switching
           // the cut off hands R straight back.
           if (st.cutaway) st.rotateSection()
+          else if (hostOwnsVerb('rotateCarried')) break
           // A piece in the air (移动) is what R turns, whatever tool is active: the
           // 信息 card lifted it, so there is no move tool to ask.
           else if (st.moveDraft) st.rotateMove()
@@ -175,6 +182,7 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
           // direction, the 闸机's lane or fence.
           e.preventDefault()
           if (st.tool === 'paint') st.setPaintMode(st.paintMode === 'single' ? 'surface' : 'single')
+          else if (hostOwnsVerb('cycleCarriedLightPosition')) break
           else if (st.moveDraft?.module.type === 'light') st.cycleMoveLightPosition()
           else if (st.tool === 'module') activateModuleBuilderShortcut(st.moduleType, st, e.shiftKey ? 'Shift+Tab' : 'Tab')
           else if (st.tool === 'block') {
@@ -222,9 +230,7 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
           break
         case 'delete':
         case 'backspace':
-          // A host that owns the document also owns its history and its deletion: the
-          // selected module or block goes through the one edit transaction (plan 27 §4),
-          // and only when it refuses does the plain Three viewport's own path run.
+          if (st.selected?.kind === 'cell' || st.selected?.kind === 'module') e.preventDefault()
           if (!hostOwnsVerb('deleteSelection')) window.dispatchEvent(new CustomEvent('metro:delete'))
           break
         case 'z':
@@ -249,7 +255,7 @@ export function App({ viewport, files, zooStatus, host }: { viewport?: React.Rea
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [save])
 
   return (
     <StationHostProvider value={host ?? null}>

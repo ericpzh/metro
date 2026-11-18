@@ -608,7 +608,14 @@ export function Viewport(): React.ReactElement {
     const onDelete = (): void => {
       const st = useStore.getState()
       const sel = st.selected
-      if (!sel || sel.kind !== 'cell') return
+      if (!sel) return
+      if (sel.kind === 'module') {
+        const module = st.station.modules.find(item => item.id === sel.key)
+        if (module) tools.delete.removePlacedModule(module)
+        if (useStore.getState().version !== st.version) gameAudio.play('delete')
+        return
+      }
+      if (sel.kind !== 'cell') return
       const [x, y, z] = sel.key.split(',').map(Number)
       // A build-tool floor brings its auto-wall ring with it; a hand-built or
       // auto-wall block is just removed.
@@ -620,11 +627,6 @@ export function Viewport(): React.ReactElement {
     // WASD pan (Shift = faster). Q/E layer stepping stays in the app. A text
     // field keeps its letters — a focused **button** does not, or clicking a rail
     // tile would stop WASD panning the camera afterwards.
-    //
-    // **Shift+W pans nothing**: it is the 轨道 folder's own key on the rail's
-    // Shift+letter ladder (`rail/helpers.ts` `RAIL_FOLDERS`), and a folder that
-    // also shoved the camera forward would be a key with two meanings. The fast
-    // pan keeps Shift+A/S/D, and a plain W is still forward.
     //
     // **Ctrl+Q / Ctrl+E raise and lower the view** (`CameraSystem.panCameraVertical`),
     // the one camera pair that needs a modifier: a plain Q/E steps the storey
@@ -640,26 +642,27 @@ export function Viewport(): React.ReactElement {
     // Chrome's address-bar search and Ctrl+Q quits Firefox.
     const panKeys = new Set(['w', 'a', 's', 'd', 'shift'])
     const onKeyDown = (e: KeyboardEvent): void => {
-      if (useStore.getState().followAgentId !== null) return
+      const st = useStore.getState()
+      if (st.followAgentId !== null || st.explodedView || st.signEditorFor !== null || st.signComposing
+        || document.body.dataset.metroBenchmarkLocked === 'true') return
       if (isTypingTarget(e.target)) return
       const k = e.key.toLowerCase()
-      // **Alt+letter folds a 信息栏 folder** (`rail/helpers.ts` `INSPECTOR_FOLDERS`:
-      // 信息, 视图, 出入口, 线路), so it may not also shove the camera — Alt+W would
-      // otherwise fold 视图 *and* start a forward pan. The pan keys are the bare
-      // letters, plus the Shift+W that the rail's own ladder takes (`Shift+A/S/D`
-      // stays the fast pan).
       if (e.altKey) return
-      if (e.shiftKey && k === 'w') return
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && (k === 'q' || k === 'e')) {
+      const control = e.ctrlKey || e.metaKey
+      if (control && (k === 'q' || k === 'e')) {
         e.preventDefault()
         scene.keys.add(k === 'e' ? PAN_UP : PAN_DOWN)
         return
       }
-      if (panKeys.has(k)) scene.keys.add(k)
+      if (k === 'shift' || (!control && panKeys.has(k))) scene.keys.add(k)
     }
     const onKeyUp = (e: KeyboardEvent): void => {
       const k = e.key.toLowerCase()
       scene.keys.delete(k)
+      if ((k === 'control' || k === 'meta') && !e.ctrlKey && !e.metaKey) {
+        scene.keys.delete(PAN_DOWN)
+        scene.keys.delete(PAN_UP)
+      }
       // The vertical pan is held under the intent's name, so the letter's release
       // has to clear that — otherwise letting go of Ctrl+E would leave the view
       // climbing. A release clears the token whatever put it there: the two
@@ -669,9 +672,11 @@ export function Viewport(): React.ReactElement {
       if (k === 'e') scene.keys.delete(PAN_UP)
     }
     const onBlur = (): void => scene.keys.clear()
+    const onVisibility = (): void => { if (document.hidden) onBlur() }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     window.addEventListener('blur', onBlur)
+    document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('metro:preset', onPreset)
     window.addEventListener('metro:frame', onFrame)
     window.addEventListener('metro:home', onHome)
@@ -684,6 +689,7 @@ export function Viewport(): React.ReactElement {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('blur', onBlur)
+      document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('metro:preset', onPreset)
       window.removeEventListener('metro:frame', onFrame)
       window.removeEventListener('metro:home', onHome)

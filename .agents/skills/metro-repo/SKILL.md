@@ -12,6 +12,10 @@ the station either copes or it does not.
 
 **This skill is the router — load the subskill that owns the work.**
 
+Shortcut parity spans the shared React shell in `metro-game` and the camera,
+edit and save commands in `metro-unity`. Check Unity WebGL and the Windows
+input forwarder when changing key delivery.
+
 Station equipment models, including shop fixtures, seating, ballfields and steel
 fences, belong to `metro-game`; their deterministic regressions belong to
 `metro-game-test`, while Unity port equipment/court binding, corner-pivot

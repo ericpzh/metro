@@ -60,7 +60,7 @@ test('a held WASD key sends one bounded intent, not one frame per repeat', () =>
   assert.deepEqual(sent.at(-1).payload, { right: 0, forward: 0, fast: false }, 'release stops the pan')
 })
 
-test('Shift speeds the held pan and Shift+W pans nothing', () => {
+test('Shift speeds every held movement direction, including forward', () => {
   const { sent, keys } = harness()
   keys.dispatch('keydown', keyEvent('w'))
   keys.dispatch('keydown', keyEvent('Shift'))
@@ -69,10 +69,9 @@ test('Shift speeds the held pan and Shift+W pans nothing', () => {
   assert.deepEqual(sent.at(-1).payload, { right: 0, forward: 1, fast: false })
   keys.dispatch('keyup', keyEvent('w'))
 
-  sent.length = 0
-  // Shift+W is the rail folder ladder's own key; it must not also shove the camera.
+  keys.dispatch('keydown', keyEvent('Shift'))
   keys.dispatch('keydown', keyEvent('W', { shift: true }))
-  assert.deepEqual(sent, [])
+  assert.deepEqual(sent.at(-1).payload, { right: 0, forward: 1, fast: true })
 })
 
 test('Ctrl+Q / Ctrl+E pan vertically; plain Q/E and Alt+letter do not', () => {
@@ -94,7 +93,21 @@ test('Ctrl+Q / Ctrl+E pan vertically; plain Q/E and Alt+letter do not', () => {
 
   sent.length = 0
   keys.dispatch('keydown', keyEvent('w', { alt: true }))
-  assert.deepEqual(sent, [], 'Alt+letter folds a folder and never moves the camera')
+  keys.dispatch('keydown', keyEvent('s', { ctrl: true }))
+  assert.deepEqual(sent, [], 'modified letters such as Ctrl+S never move the camera')
+})
+
+test('opposing vertical holds cancel and releasing either restores the other', () => {
+  const { sent, keys } = harness()
+  keys.dispatch('keydown', keyEvent('q', { ctrl: true }))
+  keys.dispatch('keydown', keyEvent('Shift', { ctrl: true, shift: true }))
+  assert.deepEqual(vertical(sent).at(-1).payload, { direction: -1, fast: true })
+  keys.dispatch('keydown', keyEvent('E', { ctrl: true, shift: true }))
+  assert.deepEqual(vertical(sent).at(-1).payload, { direction: 0, fast: true })
+  keys.dispatch('keyup', keyEvent('q', { ctrl: true, shift: true }))
+  assert.deepEqual(vertical(sent).at(-1).payload, { direction: 1, fast: true })
+  keys.dispatch('keyup', keyEvent('Control'))
+  assert.equal(vertical(sent).at(-1).payload.direction, 0)
 })
 
 test('a typing field and an owning dialog keep the keyboard', () => {

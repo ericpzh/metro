@@ -14,6 +14,17 @@ The Unity port ships the station-building sandbox as a Unity 6 URP runtime behin
 
 ## Toolchain and execution loops
 
+Shortcut parity lives in the shared AppShell and the Unity bridge. Ctrl+S uses
+the toolbar export and downloads the committed revision. Fetch the save from
+the host if the cached document is older. Home sends `camera.frame` and retains
+the current orbit and zoom. Route carried-piece R, Tab, Enter and Escape to the
+host edit session. Keep rectangular-light position in the preview, clearance
+and persisted record. A keyboard delete targets one selected block. Windows
+forwarding uses the system key-repeat settings and releases keys on focus loss.
+Use the WebGL verifier's `--only shortcut-save,shortcut-move` cases on the small
+fixture. The save check imports through the production file input because Chrome
+owns Ctrl+L. The move check dismisses the tutorial before testing Escape.
+
 Pinned in `unity/ProjectSettings/ProjectVersion.txt`, `unity/Packages/manifest.json` and `unity/scripts/node-version.txt`:
 
 - **Unity Editor:** `6000.6.8f1 (237b6593792b)` with WebGL Build Support (`METRO_UNITY_EDITOR` overrides the standard Hub path).

@@ -143,13 +143,13 @@ namespace Metro.App {
                     return CommitOrReject(command, result);
                 }
                 case "station.save": {
-                    // The shell already holds the committed text; this is the ack that
-                    // names the revision it belongs to.
                     var payload = new JObject {
                         ["revision"] = host.CurrentRevision,
                         ["sourceId"] = host.CurrentSourceId,
                         ["sourceHash"] = host.CurrentSourceHash,
                     };
+                    if (command.Payload?.Value<bool?>("includeDocument") == true)
+                        payload["document"] = host.SaveDocument();
                     return Ack(command.Id, command.SessionId, payload);
                 }
                 case "station.resync": {

@@ -1,6 +1,7 @@
 using System;
 using Metro.Build;
 using Metro.Persistence;
+using Metro.View;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 
@@ -90,6 +91,35 @@ namespace Metro.EditModeTests {
             Assert.IsTrue(moved.Ok, moved.Reason);
             Assert.AreEqual(3, moved.Candidate.Z, 0.001, "it hangs under the same slab at its new cell");
             Assert.IsTrue(moved.Candidate.CeilingAnchored);
+        }
+
+        [Test]
+        public void MovedRectangularLightUsesAndSavesTheTurnedGridPosition() {
+            var placed = StationModulePlacement.Resolve(index, Request("light-rectangular", 2, 2, 0));
+            Assert.IsTrue(placed.Ok, placed.Reason);
+            placed.Candidate.Id = "light-1";
+            var saved = StationModuleEdits.ToSaveRecord(placed.Candidate);
+            var envelope = Save();
+            ((JArray)envelope["static"]["modules"]).Add(saved);
+            var request = Request("light-rectangular", 3, 3, 0);
+            request.Carried = StationModulePlacement.ToRecord(placed.Candidate);
+            request.Rotation = 1;
+            request.LightPosition = 1;
+
+            var moved = StationModulePlacement.Resolve(index, request);
+            Assert.IsTrue(moved.Ok, moved.Reason);
+            var record = StationModulePlacement.ToRecord(moved.Candidate);
+            Assert.IsTrue(StationFootprints.TryClearance(record, out var box, out _));
+            var pivot = ModulePlacement.Position(record.Facts, new UnityEngine.Vector3(0.5f, 0.5f, 1));
+            Assert.AreEqual(3.06, pivot.x, 0.001);
+            Assert.AreEqual(3.60, pivot.z, 0.001);
+            Assert.AreEqual(pivot.x, (box.X0 + box.X1) / 2, 0.001);
+            Assert.AreEqual(pivot.z, (box.Y0 + box.Y1) / 2, 0.001);
+            Assert.AreEqual(0.12, box.X1 - box.X0, 0.001);
+
+            Assert.IsTrue(StationModuleEdits.ApplyToEnvelope(envelope, StationModuleEditMode.Replace, moved.Candidate, null, out var code), code);
+            Assert.AreEqual(1, (int)saved["cfg"]["position"]);
+            Assert.AreEqual(1, (int)saved["rot"]);
         }
     }
 }

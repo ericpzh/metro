@@ -1463,7 +1463,7 @@ exception: while a piece is in the air with 移动, the right button puts it bac
 | 5 | **Place equipment / decor** | `J` 设备 (or a 装饰 / 房间 tile): pick the piece, then click the host face — top = floor-standing, side = wall-mounted, bottom = ceiling-hung. `R` rotates, `Tab` cycles the family/variant, `右键` deletes. A room is a rectangle drag; an exit snaps to a head-house bay. |
 | 6 | **Move a piece** | `M`, or the `信息` card's `移动`. The piece rides the pointer with its id and `cfg` intact; `左键`/`确认`/`Enter` drops it as one commit, `Esc`/right-press/`取消` puts it back. `R` turns it in the air. Stairs and escalators are torn down and rebuilt; 电梯, rooms, track and 站台门 are refused. |
 | 7 | **Delete** | `B` 删除: removes the block or whole piece under the pointer; a drag sweeps same-type pieces in one commit. `Esc` cancels. See below. |
-| 8 | **Camera** | Orbit `中键` drag; pan `Shift+左键` drag; wheel zooms to the cursor; `1` 等距 / `2` 俯视 / `3` 自定义 / `4` X-Z / `5` Y-Z; `O` ortho; `X` other storeys; `C` cutaway; `Q`/`E` storey step; `Ctrl+Q`/`Ctrl+E` move the camera along Z; `Ctrl+H` or the cube's ⌂ returns home; `F` frames. |
+| 8 | **Camera** | Orbit `中键` drag; pan `Shift+左键` drag; wheel zooms to the cursor. `W/A/S/D` pan, with `Shift` for faster movement. `X` shows other storeys, `C` toggles cutaway, `Q`/`E` step storeys, and `Ctrl+Q`/`Ctrl+E` move the camera along Z. `Ctrl+H` or the cube's ⌂ resets the view. `Home` centres the active storey while keeping the current orbit and zoom. |
 
 Global keys: `Ctrl+Z` / `Ctrl+Y` undo/redo, `Ctrl+S` save, `Ctrl+L` open, `Ctrl+R` restart,
 `Space` play/pause, `Del`/`Backspace` delete, `,` is **not** bound (there is no settings page).

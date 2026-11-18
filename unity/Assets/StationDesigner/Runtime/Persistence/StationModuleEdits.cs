@@ -141,11 +141,10 @@ namespace Metro.Persistence {
         }
 
         /// <summary>
-        /// Patch only the fields a move changes. `cfg.mountZ` follows the piece to its
-        /// new course for a ground 出入口, and a floor mark's own offset travels with it;
-        /// every other authored field is the record's own and is never rewritten.
+        /// Patch the fields a move changes, including a doorway's mounting course
+        /// and a rectangular light's chosen in-cell position.
         /// </summary>
-        static void ApplyMove(JObject record, StationEditDraft draft) {
+        internal static void ApplyMove(JObject record, StationEditDraft draft) {
             record["x"] = draft.X;
             record["y"] = draft.Y;
             record["z"] = draft.Z;
@@ -156,6 +155,10 @@ namespace Metro.Persistence {
             if (draft.Config.ContainsKey("mountZ")) {
                 if (cfg == null) { cfg = new JObject(); record["cfg"] = cfg; }
                 cfg["mountZ"] = Scalar(draft.Config["mountZ"]);
+            }
+            if (draft.Type == "light" && draft.Config.TryGetValue("position", out var position)) {
+                if (cfg == null) { cfg = new JObject(); record["cfg"] = cfg; }
+                cfg["position"] = Scalar(position);
             }
         }
     }

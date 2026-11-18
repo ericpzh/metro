@@ -22,7 +22,7 @@
 //   node tools/unity-web/verify-station-game.mjs <run-dir> [--demo zoo|tanwei|tianhe|all]
 //        [--locale both|zh|en] [--timeout-ms 90000] [--serve] [--only case[,case]]
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
 import { join, resolve, sep } from 'node:path'
@@ -45,6 +45,8 @@ const timeoutMs = Number(arg('--timeout-ms', '120000'))
 const onlyArg = arg('--only', '')
 const onlyCases = onlyArg ? onlyArg.split(',').map(name => name.trim()).filter(Boolean) : null
 const wanted = (name) => !onlyCases || onlyCases.some((pattern) => name.startsWith(pattern))
+const shortcutFixtureOnly = onlyCases?.length > 0 &&
+  onlyCases.every(name => name === 'shortcut-save' || name === 'shortcut-move')
 // `--packed` may be absolute or relative to the invocation directory; the Worker
 // config needs a real directory, and resolving against the run dir silently produced
 // `<run>/station-game/.preview/...` which wrangler then refused.
@@ -1675,6 +1677,7 @@ async function runPlaybackCase(locale) {
 async function runKeyboardNavigationCase() {
   const record = caseStart('keyboard-navigation')
   const problems = []
+  await page.send('Page.bringToFront')
   const cameraExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return s.state.camera ?? null })()`
   const levelExpr = `(() => { const s = window.__metroStationBridge.getSnapshot(); return (s.state.view ?? {}).level ?? null })()`
   // The rig is configured by the commit and the camera pose is applied a frame later; a
@@ -1701,8 +1704,15 @@ async function runKeyboardNavigationCase() {
 
   // Hold W: the view travels across the plan, the basis (the view angle) is preserved.
   await page.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
-  await sleep(900)
-  await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+  try {
+    // The first input can outlast a cold WebGL frame while the demo finishes rendering.
+    const position = JSON.stringify(start.position)
+    await poll(`${cameraExpr}.position.some((v, i) => Math.abs(v - ${position}[i]) > 0.5)`, 'W moved the camera', 15000)
+  } catch (error) {
+    problems.push(error.message)
+  } finally {
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87, nativeVirtualKeyCode: 87 })
+  }
   // The release is itself a command: sample after it has landed, or the last frames of
   // the hold read as "still moving after the key was released".
   await sleep(400)
@@ -1717,6 +1727,18 @@ async function runKeyboardNavigationCase() {
   const stopped = await page.evaluate(cameraExpr)
   const drift = distanceOf(stopped.position, moved.position)
   if (drift > 0.05) problems.push('the camera kept moving ' + drift.toFixed(3) + ' m after the key was released')
+
+  await pressKey('Home', 'Home', 36)
+  await poll(`(() => {
+    const target = ${cameraExpr}?.target
+    const previous = ${JSON.stringify(stopped.target)}
+    return target?.[2] === ${stopped.level + 1} && Math.hypot(...target.map((v, i) => v - previous[i])) > 0.5
+  })()`, 'Home centered the active storey')
+  const framed = await page.evaluate(cameraExpr)
+  if (!sameBasis(framed.back, stopped.back) || Math.abs(framed.distance - stopped.distance) > 0.1 ||
+      framed.ortho !== stopped.ortho || framed.fov !== stopped.fov) {
+    problems.push('Home changed the orbit, zoom or lens instead of keeping the current view')
+  }
 
   // Ctrl+E raises the view along the elevation axis, at the same rate, without
   // touching the plan; Ctrl+Q is the same pan the other way (`panCameraVertical`: the
@@ -1802,12 +1824,103 @@ async function runKeyboardNavigationCase() {
     droppedMetres: Number((beforeDrop.position[2] - dropped.position[2]).toFixed(2)),
     level: { before: levelBefore, after: levelAfter },
     positions: {
-      start: start.position, moved: moved.position, stopped: stopped.position,
+      start: start.position, moved: moved.position, stopped: stopped.position, framed: framed.position,
       beforeLift: beforeLift.position, lifted: lifted.position, dropped: dropped.position,
     },
     commands: cameraCommands.map(row => ({ type: row.type, payload: row.payload })),
     rejects: after.rejects ?? [],
   })
+}
+
+async function openShortcutFixture() {
+  const fixture = {
+    format: 'metro-save', formatVersion: 1, gameVersion: '0.2.0',
+    savedAt: '2026-01-01T00:00:00.000Z', name: 'Shortcut Fixture', city: 'guangzhou',
+    seed: 1, levelBase: -5, storeyHeight: 5,
+    static: {
+      cells: [{ x: 0, y: 0, z: -5, fill: 'solid' }, { x: 0, y: 0, z: 0, fill: 'solid' }],
+      modules: [{ id: 'shortcut-light', type: 'light', x: 0, y: 0, z: -1, rot: 0, ceilingAnchored: true,
+        cfg: { variant: 'rectangular', position: 0 } }],
+      lines: [],
+    },
+  }
+  const before = await currentSnapshot()
+  const payload = { document: JSON.stringify(fixture), sourceId: 'shortcut-fixture' }
+  await page.evaluate(`window.__metroStationBridge.send('station.open', ${JSON.stringify(payload)})`)
+  await waitForSnapshot(`s.revision === ${before.revision + 1} && s.sourceId === 'shortcut-fixture'`, 'shortcut fixture')
+}
+
+async function runShortcutSaveCase() {
+  const record = caseStart('shortcut-save')
+  await openShortcutFixture()
+  const downloadDir = mkdtempSync(join(outDir, 'shortcut-save-'))
+  await page.send('Page.bringToFront')
+  await page.send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloadDir })
+  await page.evaluate('document.activeElement?.blur()')
+  const before = await currentSnapshot()
+  await page.evaluate(`window.__metroStationBridge.send('edit.delete', { moduleId: 'shortcut-light' })`)
+  await waitForSnapshot(`summary.revision === ${before.revision + 1}`, 'committed light deletion')
+
+  await pressKey('s', 'KeyS', 83, 2)
+  const deadline = Date.now() + 10000
+  let download
+  while (!(download = readdirSync(downloadDir).find(name => name.endsWith('.metro.json'))) && Date.now() < deadline) {
+    await sleep(100)
+  }
+  const problems = []
+  if (!download) problems.push('Ctrl+S did not download a .metro.json file')
+  else {
+    const exported = readFileSync(join(downloadDir, download), 'utf8')
+    const committed = await page.evaluate('window.__metroStationBridge.readCommittedDocument()')
+    if (exported !== committed) problems.push('Ctrl+S did not export the current Unity document')
+    if (JSON.parse(exported).static.modules.some(module => module.id === 'shortcut-light')) {
+      problems.push('Ctrl+S exported a stale revision containing the deleted light')
+    }
+  }
+
+  await pressKey('z', 'KeyZ', 90, 2)
+  await waitForSnapshot(`summary.revision === ${before.revision + 2}`, 'Ctrl+Z restored the light')
+  if (download) {
+    // Chrome reserves Ctrl+L. Set the station's actual file input so the test
+    // exercises its production import handler after downloading with Ctrl+S.
+    const { root: dom } = await page.send('DOM.getDocument')
+    const { nodeId } = await page.send('DOM.querySelector', { nodeId: dom.nodeId, selector: '.topbar input[type="file"]' })
+    if (!nodeId) problems.push('the Open file input is missing')
+    else {
+      await page.send('DOM.setFileInputFiles', { files: [join(downloadDir, download)], nodeId })
+      await waitForSnapshot(`summary.revision === ${before.revision + 3}`, 'Open reopened the exported station')
+      const reopened = JSON.parse(await page.evaluate('window.__metroStationBridge.readCommittedDocument()'))
+      if (reopened.static.modules.some(module => module.id === 'shortcut-light')) {
+        problems.push('the reopened save did not contain the exported edit')
+      }
+    }
+  }
+  if (!onlyCases && !(await ensureDemo(activeDemo))) problems.push('could not restore the original demo')
+  return finishCase(record, problems.length === 0, { problems, download })
+}
+
+async function runShortcutMoveCase() {
+  const record = caseStart('shortcut-move')
+  await openShortcutFixture()
+  await page.send('Page.bringToFront')
+  await page.evaluate(`document.querySelector('.tutorialActions .ghost')?.click()`)
+  await page.evaluate('document.activeElement?.blur()')
+  const before = await currentSnapshot()
+  await page.evaluate(`window.__metroStationBridge.send('edit.move.start', { moduleId: 'shortcut-light' })`)
+  await waitForSnapshot(`summary.state.edit?.carried === 'shortcut-light'`, 'lifted light')
+  await installCommandRecorder()
+
+  await pressKey('r', 'KeyR', 82)
+  await waitForSnapshot('summary.state.edit?.carriedRotation === 1', 'R rotated the carried light')
+  await pressKey('Tab', 'Tab', 9)
+  await pressKey('Escape', 'Escape', 27)
+  await waitForSnapshot('summary.state.edit?.carried === ""', 'Escape put the light back')
+  const commands = await recordedCommands()
+  const problems = []
+  if (!commands.some(row => row.type === 'edit.move.lightPosition')) problems.push('Tab did not cycle the carried light position')
+  if ((await currentSnapshot()).revision !== before.revision) problems.push('rotating or cancelling a carried piece changed the station')
+  if (!onlyCases && !(await ensureDemo(activeDemo))) problems.push('could not restore the original demo')
+  return finishCase(record, problems.length === 0, { problems })
 }
 
 /**
@@ -4537,7 +4650,7 @@ async function runResyncCase() {
 async function main() {
   mark('launch')
   page = await withPage({
-    url: base + (locales[0] === 'en' ? '/game/en/' : '/game/') + demos[0],
+    url: base + (locales[0] === 'en' ? '/game/en/' : '/game/') + (shortcutFixtureOnly ? '' : demos[0]),
     profile: join(outDir, 'chrome-profile'),
     debugPort: Number(process.env.METRO_STATION_DEBUG_PORT || 9337),
     commandTimeoutMs: timeoutMs,
@@ -4568,6 +4681,8 @@ async function main() {
     if (wanted('station-displays')) await runDisplayCase()
     if (wanted('section-handle')) await runSectionHandleCase()
   if (wanted('keyboard-navigation')) await runKeyboardNavigationCase()
+  if (wanted('shortcut-save')) await runShortcutSaveCase()
+  if (wanted('shortcut-move')) await runShortcutMoveCase()
   if (wanted('tool-selection')) await runToolCase()
   if (wanted('station-editing')) await runStationEditingCase()
   // After `station-editing`: that case's frozen-ray sub-step reads a fixed pixel whose

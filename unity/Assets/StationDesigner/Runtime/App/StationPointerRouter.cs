@@ -1450,6 +1450,9 @@ namespace Metro.App {
             var request = new StationPlacementRequest {
                 Carried = carried,
                 Rotation = rotation,
+                LightPosition = carried == null
+                    ? StationToolSelection.SettingInt("lightPosition", 0)
+                    : StationEditSession.CarriedLightPosition,
                 Hit = placementHit,
                 TargetModuleId = targetModuleId,
                 ModulePoint = modulePoint,
@@ -1478,8 +1481,7 @@ namespace Metro.App {
             out string code, out string reason) {
             code = null; reason = null;
             if (hit.TargetKind != StationSceneTargetKind.Module) { reason = "no-module"; return; }
-            StationEditSession.CarriedId = hit.Module.Id;
-            StationEditSession.CarriedRotation = hit.Module.Rotation;
+            StationEditSession.SetCarried(hit.Module);
             StationEditSession.SelectModule(hit.Module);
             StationEditSession.Plan = null;
             StationEditSession.MoveReason = "";
@@ -1504,6 +1506,7 @@ namespace Metro.App {
             var plan = StationModulePlacement.Resolve(host.Index, new StationPlacementRequest {
                 Carried = module,
                 Rotation = StationEditSession.CarriedRotation,
+                LightPosition = StationEditSession.CarriedLightPosition,
                 Hit = at,
                 ModulePoint = point,
                 CurtainHeight = StationToolSelection.SettingInt("curtainHeight", 4),
@@ -1554,11 +1557,24 @@ namespace Metro.App {
             AfterCommit(host, editHost, module.Id);
         }
 
+        internal static bool ConfirmMove(StationGameHost host, JObject payload, out string code, out string reason) {
+            code = reason = null;
+            if (!StationEditSession.HasCarried || !StationEditSession.HasPointer) return true;
+            StationEditScene.ResolveView(host, out _, out var camera, out var activeLevel, out var visibility);
+            if (camera == null) return true;
+            var world = host.Coordinator?.World;
+            var ray = camera.ScreenPointToRay(StationEditSession.PointerScreen());
+            var hit = StationEditScene.PickRay(host, world, camera, ray, activeLevel, visibility,
+                true, out var pickContext, out _);
+            if (hit == null) return true;
+            CommitMove(host, StationEditHost.Ensure(), world, ray, pickContext, hit, payload, out code, out reason);
+            return string.IsNullOrEmpty(code);
+        }
+
         /// <summary>A right press / Escape puts the carried piece back exactly where it was.</summary>
         public static void CancelMove(StationGameHost host, StationEditHost editHost) {
             if (StationEditSession.HasCarried) {
-                StationEditSession.CarriedId = "";
-                StationEditSession.CarriedRotation = 0;
+                StationEditSession.SetCarried(null);
                 StationEditSession.MoveReason = "";
                 editHost.Preview?.RestoreCarried();
             }
@@ -1568,8 +1584,10 @@ namespace Metro.App {
 
         /// <summary>Turn the carried piece one quarter turn.</summary>
         public static bool RotateCarried(StationGameHost host, int delta) {
-            if (!StationEditSession.HasCarried || host == null) return false;
-            StationEditSession.CarriedRotation = StationFootprints.NormRot(StationEditSession.CarriedRotation + delta);
+            if (host?.Index == null || !host.Index.TryGetModule(StationEditSession.CarriedId, out var module)) return false;
+            int turn = StationFootprints.NormRot(StationEditSession.CarriedRotation + delta);
+            if (module.Type != "light") StationEditSession.CarriedRotation = turn;
+            else if (module.Config.Text("variant") != "circular") StationEditSession.CarriedRotation = turn % 2;
             return true;
         }
 
@@ -1612,8 +1630,7 @@ namespace Metro.App {
         static void AfterCommit(StationGameHost host, StationEditHost editHost, string selectId) {
             editHost.Bind(host);
             editHost.Preview?.RestoreCarried();
-            StationEditSession.CarriedId = "";
-            StationEditSession.CarriedRotation = 0;
+            StationEditSession.SetCarried(null);
             StationEditSession.MoveReason = "";
             StationEditSession.Plan = null;
             if (!string.IsNullOrEmpty(selectId) && host.Index.TryGetModule(selectId, out var module)) {
@@ -1678,7 +1695,7 @@ namespace Metro.App {
                     // Escape is the keyboard half of the chord cancel (plan 29 §2): the same one
                     // cancellation drops every active tool gesture, the carried piece, both ghost
                     // layers and the badge, with zero picks and zero revisions.
-                    StationPointerRouter.CancelActiveGesture(host, StationEditHost.Ensure());
+                    payload["cancelled"] = StationPointerRouter.CancelActiveGesture(host, StationEditHost.Ensure());
                     return true;
                 case "edit.rotate": {
                     if (!StationEditSession.HasCarried) { rejectCode = "no-draft"; rejectReason = "No piece is being moved."; return false; }
@@ -1688,11 +1705,18 @@ namespace Metro.App {
                     StationPointerRouter.RefreshHover(host);
                     return true;
                 }
+                case "edit.move.lightPosition": {
+                    if (!host.IsLoaded || !host.Index.TryGetModule(StationEditSession.CarriedId, out var light) ||
+                        light.Type != "light" || light.Config.Text("variant") != "rectangular") return true;
+                    int position = StationEditSession.CarriedLightPosition ?? light.Config.Int("position", 0);
+                    StationEditSession.CarriedLightPosition = ((position % 9) + 10) % 9;
+                    StationPointerRouter.RefreshHover(host);
+                    return true;
+                }
                 case "edit.move.start": {
                     string id = String(payload, "moduleId");
                     if (!host.IsLoaded || !host.Index.TryGetModule(id, out var module)) { rejectCode = "not-found"; return false; }
-                    StationEditSession.CarriedId = module.Id;
-                    StationEditSession.CarriedRotation = module.Rotation;
+                    StationEditSession.SetCarried(module);
                     StationEditSession.Plan = null;
                     StationEditSession.MoveReason = "";
                     StationEditSession.SelectModule(module);
@@ -1702,6 +1726,8 @@ namespace Metro.App {
                 case "edit.move.cancel":
                     StationPointerRouter.CancelMove(host, StationEditHost.Ensure());
                     return true;
+                case "edit.move.confirm":
+                    return StationPointerRouter.ConfirmMove(host, payload, out rejectCode, out rejectReason);
                 case "edit.undo": {
                     if (!StationEditSession.TryUndo(host, out _, out rejectCode)) { rejectReason = rejectCode; return false; }
                     StationEditSession.ClearSelection();
@@ -1733,9 +1759,7 @@ namespace Metro.App {
                         StationEditSession.ClearSelection();
                         return true;
                     }
-                    // A selected **cell** (or a caller that names one) goes through the same
-                    // planner the brush uses, so the Delete key removes exactly what a right
-                    // click would.
+                    // Keyboard selection removes one block. Pointer teardown can remove a wall column.
                     var cellToken = payload["cell"] as JArray;
                     if (cellToken == null || cellToken.Count < 3) {
                         rejectCode = "bad-payload";
@@ -1745,8 +1769,11 @@ namespace Metro.App {
                     var world = StationCellTool.World(host);
                     if (world == null) { rejectCode = "no-session"; return false; }
                     var cell = new StationCellKey((int)cellToken[0], (int)cellToken[1], (int)cellToken[2]);
-                    var columns = StationCellPlanner.WallColumnsAt(world, new[] { cell });
-                    var cells = columns.Count > 0 ? columns : new List<StationCellKey> { cell };
+                    var cells = new List<StationCellKey> { cell };
+                    if (payload.Value<bool?>("singleCell") != true) {
+                        var columns = StationCellPlanner.WallColumnsAt(world, cells);
+                        if (columns.Count > 0) cells = columns;
+                    }
                     var patch = StationCellPlanner.PlanRemoveCells(world, cells);
                     if (!patch.HasWork && patch.RemoveModuleIds.Count == 0) {
                         rejectCode = "nothing-to-delete";

@@ -8,6 +8,7 @@ using System.IO;
 using System.IO.MemoryMappedFiles;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -427,6 +428,7 @@ namespace Metro.App {
             lastUploadedSequence = 0;
             presentedFrames = 0;
             heldMouseButtons = 0;
+            Array.Clear(keyRepeatAt, 0, keyRepeatAt.Length);
             RefreshCanvasVisibility();
 
             while (incomingCommands.TryDequeue(out _)) { }
@@ -703,13 +705,40 @@ namespace Metro.App {
             }.ToString(Formatting.None));
         }
 
+        readonly double[] keyRepeatAt = new double[KeyBindings.Length];
+        double keyRepeatDelay = 0.5;
+        double keyRepeatInterval = 1.0 / 30;
+
+        [DllImport("user32.dll")]
+        static extern bool SystemParametersInfo(uint action, uint parameter, out uint value, uint flags);
+
+        void OnApplicationFocus(bool focused) {
+            if (focused) {
+                const uint getKeyboardSpeed = 0x000a;
+                const uint getKeyboardDelay = 0x0016;
+                if (SystemParametersInfo(getKeyboardDelay, 0, out uint delay, 0))
+                    keyRepeatDelay = 0.25 * (1 + delay);
+                if (SystemParametersInfo(getKeyboardSpeed, 0, out uint speed, 0))
+                    keyRepeatInterval = 1.0 / (2.5 + 27.5 * speed / 31);
+                return;
+            }
+
+            for (int i = 0; i < KeyBindings.Length; i++) {
+                if (keyRepeatAt[i] == 0) continue;
+                var binding = KeyBindings[i];
+                SendKey("up", binding.Vk, binding.DomKey, binding.DomCode, 0);
+                keyRepeatAt[i] = 0;
+            }
+        }
+
         void ForwardKeyboardButtons() {
-            if (!webReady || activeClient == null) return;
+            if (!webReady || activeClient == null || !Application.isFocused) return;
             var kb = Keyboard.current;
             if (kb == null) return;
 
             bool shift = kb.shiftKey.isPressed;
             int mods = CurrentModifiers();
+            double now = Time.unscaledTimeAsDouble;
             for (int i = 0; i < KeyBindings.Length; i++) {
                 var b = KeyBindings[i];
                 KeyControl ctrl = kb[b.Key];
@@ -717,14 +746,20 @@ namespace Metro.App {
                 string domKey = shift && !string.IsNullOrEmpty(b.ShiftDomKey) ? b.ShiftDomKey : b.DomKey;
                 if (ctrl.wasPressedThisFrame) {
                     SendKey("down", b.Vk, domKey, b.DomCode, mods);
+                    keyRepeatAt[i] = b.Repeats ? now + keyRepeatDelay : double.PositiveInfinity;
                 }
-                if (ctrl.wasReleasedThisFrame) {
+                if (keyRepeatAt[i] == 0) continue;
+                if (ctrl.wasReleasedThisFrame || !ctrl.isPressed) {
                     SendKey("up", b.Vk, domKey, b.DomCode, mods);
+                    keyRepeatAt[i] = 0;
+                } else if (now >= keyRepeatAt[i]) {
+                    SendKey("down", b.Vk, domKey, b.DomCode, mods, repeat: true);
+                    keyRepeatAt[i] = now + keyRepeatInterval;
                 }
             }
         }
 
-        void SendKey(string ev, int vk, string domKey, string domCode, int modifiers) {
+        void SendKey(string ev, int vk, string domKey, string domCode, int modifiers, bool repeat = false) {
             EnqueueToWorker(new JObject {
                 ["kind"] = "key",
                 ["ev"] = ev,
@@ -732,6 +767,7 @@ namespace Metro.App {
                 ["key"] = domKey,
                 ["code"] = domCode,
                 ["modifiers"] = modifiers,
+                ["repeat"] = repeat,
             }.ToString(Formatting.None));
         }
 
@@ -741,6 +777,7 @@ namespace Metro.App {
             public readonly string DomKey;
             public readonly string DomCode;
             public readonly string ShiftDomKey;
+            public bool Repeats => DomKey != "Shift" && DomKey != "Control" && DomKey != "Alt" && DomKey != "Meta";
 
             public KeyBinding(Key key, int vk, string domKey, string domCode, string shiftDomKey = null) {
                 Key = key;
@@ -813,6 +850,8 @@ namespace Metro.App {
             new KeyBinding(Key.RightCtrl, 0x11, "Control", "ControlRight"),
             new KeyBinding(Key.LeftAlt, 0x12, "Alt", "AltLeft"),
             new KeyBinding(Key.RightAlt, 0x12, "Alt", "AltRight"),
+            new KeyBinding(Key.LeftMeta, 0x5B, "Meta", "MetaLeft"),
+            new KeyBinding(Key.RightMeta, 0x5C, "Meta", "MetaRight"),
 
             new KeyBinding(Key.Minus, 0xBD, "-", "Minus", "_"),
             new KeyBinding(Key.Equals, 0xBB, "=", "Equal", "+"),

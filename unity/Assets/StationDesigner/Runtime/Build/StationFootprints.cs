@@ -74,6 +74,21 @@ namespace Metro.Build {
         /// <summary>A saved quarter turn normalized to 0–3.</summary>
         public static int NormRot(int rot) => ((rot % 4) + 4) % 4;
 
+        static readonly (int X, int Y)[] LightPositions = {
+            (0, 0), (-1, 1), (0, 1), (1, 1), (-1, 0), (1, 0), (-1, -1), (0, -1), (1, -1),
+        };
+
+        /// <summary>The rectangular light's world-aligned plan and in-cell offset.</summary>
+        public static (double Width, double Depth, double OffsetX, double OffsetY) LightPlan(int rotation, ModuleConfig config) {
+            if (config.Text("variant") != "rectangular") return (0.5, 0.5, 0, 0);
+            bool turned = NormRot(rotation) % 2 == 1;
+            double width = turned ? 0.12 : 0.8;
+            double depth = turned ? 0.8 : 0.12;
+            int position = config.Int("position");
+            var spot = LightPositions[((position % 9) + 9) % 9];
+            return (width, depth, spot.X * (1 - width) / 2, spot.Y * (1 - depth) / 2);
+        }
+
         /// <summary>
         /// Local run offset <c>(i along +x, j across +y)</c> → document offset, turning
         /// counter-clockwise (port of <c>track.rotateLocal</c>).
@@ -790,13 +805,11 @@ namespace Metro.Build {
                 case "light": {
                     // `lightSpec`/`lightCeilingZ`: a shallow fitting hanging from its slab  a
                     // 0.5 m disc, or a 0.8 × 0.12 bar turned with the piece, 8 cm deep.
-                    bool rectangular = string.Equals(m.Config.Text("variant"), "rectangular", StringComparison.Ordinal);
-                    bool turned = Math.Abs(StationFootprints.NormRot(m.Rotation) % 2) == 1;
-                    double w = rectangular ? (turned ? 0.12 : 0.8) : 0.5;
-                    double d = rectangular ? (turned ? 0.8 : 0.12) : 0.5;
+                    var light = LightPlan(m.Rotation, m.Config);
+                    double x = m.X + 0.5 + light.OffsetX, y = m.Y + 0.5 + light.OffsetY;
                     double ceiling = m.CeilingAnchored ? m.Z + 1 : m.Z + 5;
-                    box = new StationBox(m.X + 0.5 - w / 2, m.Y + 0.5 - d / 2, ceiling - 0.08,
-                        m.X + 0.5 + w / 2, m.Y + 0.5 + d / 2, ceiling);
+                    box = new StationBox(x - light.Width / 2, y - light.Depth / 2, ceiling - 0.08,
+                        x + light.Width / 2, y + light.Depth / 2, ceiling);
                     return true;
                 }
                 case "vent": {

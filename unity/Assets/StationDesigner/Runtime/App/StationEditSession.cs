@@ -52,6 +52,7 @@ namespace Metro.App {
         /// <summary>The placed record a move carries, if any.</summary>
         public static string CarriedId = "";
         public static int CarriedRotation;
+        public static int? CarriedLightPosition;
         public static string MoveReason = "";
         /// <summary>The last resolved plan, for the state snapshot and the verifier.</summary>
         public static StationPlacementPlan Plan;
@@ -157,10 +158,15 @@ namespace Metro.App {
 
         public static bool HasCarried => !string.IsNullOrEmpty(CarriedId);
 
+        public static void SetCarried(StationModuleRecord module) {
+            CarriedId = module?.Id ?? "";
+            CarriedRotation = module?.Rotation ?? 0;
+            CarriedLightPosition = null;
+        }
+
         public static void Reset() {
             SelectionKind = SelectionKey = SelectionLabel = "";
-            CarriedId = "";
-            CarriedRotation = 0;
+            SetCarried(null);
             MoveReason = "";
             Plan = null;
             Cells = null;

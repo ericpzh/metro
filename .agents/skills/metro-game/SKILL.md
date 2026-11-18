@@ -274,6 +274,12 @@ shortcut returns to the tool that was active before it. `ToolSlice.setTool` keep
 that predecessor current as tools change; keep the key handlers and
 `game/test/tool-shortcuts.test.mjs` aligned when changing these bindings.
 
+`app/windows/AppShell.tsx` owns the shortcut map shared with Unity. Keep Ctrl+S
+on the toolbar's Save action. Delete and Backspace act on the selected module
+or one selected block. Shift accelerates all four WASD directions, and releasing
+the last Ctrl/Meta modifier ends Ctrl+Q/E camera movement. Shift+2 opens Structure.
+Chromium reserves Ctrl+L for its address bar. The Open button accepts the save.
+
 New station replaces the current document. Both its top-bar button and Ctrl+N
 must open the same confirmation; invoke `newStation` only after the player chooses
 新建车站, and let cancel, Escape and clicking outside dismiss it. The warning must

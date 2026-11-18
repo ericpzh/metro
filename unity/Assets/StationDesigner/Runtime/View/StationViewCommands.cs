@@ -19,6 +19,7 @@ namespace Metro.View {
         /// <summary>WASD: the held camera-relative ground pan (`camera.panPlanarHeld`).</summary>
         PanPlanarHeld,
         ViewSet,
+        Frame,
     }
 
     /// <summary>The keys <c>view.set</c> accepts.</summary>
@@ -266,6 +267,9 @@ namespace Metro.View {
                     break;
                 case "camera.home":
                     parsed.Type = StationViewCommandType.Home;
+                    break;
+                case "camera.frame":
+                    parsed.Type = StationViewCommandType.Frame;
                     break;
                 case "camera.fov":
                     if (!Number(payload, "deg", out parsed.Degrees) && !Number(payload, "degrees", out parsed.Degrees)) {
@@ -666,6 +670,9 @@ namespace Metro.View {
                     break;
                 case StationViewCommandType.Home:
                     Camera.Home();
+                    break;
+                case StationViewCommandType.Frame:
+                    Camera.Frame();
                     break;
                 case StationViewCommandType.Fov:
                     Camera.SetFov(command.Degrees);

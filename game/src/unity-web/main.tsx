@@ -12,6 +12,7 @@ import { ViewCube } from '../app/ViewCube.tsx'
 import type { ViewCubeAdapter } from '../app/ViewCubeAdapter.ts'
 import { useStore } from '../app/store.ts'
 import { initLanguage } from '../app/i18n.ts'
+import { msg } from '../sim/i18n.ts'
 import { measurePosition, measureText, wantsMeasure, type CellsPayload } from './pointerMeasure.ts'
 import { showGameLoading } from '../app/gameLoading.ts'
 import { initUiTheme } from '../app/uiTheme.ts'
@@ -200,19 +201,29 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       )
     },
     save: () => {
-      // The last commit carries the whole committed save, so Save downloads that
-      // text rather than asking the player to serialize again (plan 11 A6).
+      const downloadText = (docText: string, stationName: string): void => {
+        const blob = new Blob([docText], { type: 'application/json;charset=utf-8' })
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `${stationName.replace(/[^\w\u4e00-\u9fff-]+/g, '-')}.metro.json`
+        link.click()
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+        useStore.getState().setNotice(msg('saved'))
+      }
       const snapshot = stationBridge.getSnapshot()
-      if (!snapshot.document) { stationBridge.send('station.save'); return }
-      const name = text(snapshot.state.name) ?? 'station'
-      const blob = new Blob([snapshot.document], { type: 'application/json;charset=utf-8' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = `${name.replace(/[^\w\u4e00-\u9fff-]+/g, '-')}.metro.json`
-      link.click()
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-      stationBridge.send('station.save')
+      const name = text(snapshot.state.name) ?? useStore.getState().station.name ?? 'station'
+      if (snapshot.document && snapshot.documentRevision === snapshot.revision) {
+        downloadText(snapshot.document, name)
+        stationBridge.send('station.save')
+        return
+      }
+      void stationBridge.readCommittedDocument().then(docText => {
+        if (!docText) throw new Error('No committed document')
+        downloadText(docText, name)
+      }).catch(() => {
+        useStore.getState().setNotice(msg('station_save_failed'))
+      })
     },
   }
   // Tool and level intent travel as session-scoped commands; neither edits the
@@ -423,6 +434,7 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
         tools.beginPick()
         tools.setModuleType(optionId)
         if (typeof picked.rot === 'number') tools.setModuleRot(picked.rot)
+        if (picked.type === 'light') tools.setLightPosition(picked.cfg.position ?? 0)
         if (picked.type === 'floor-mark' && picked.cfg.variant === 'direction' && picked.cfg.line) tools.setRailLine(picked.cfg.line)
         if (picked.type === 'gate') tools.setGateDoor(picked.cfg.door ?? 'lane')
         tools.setTool('module')
@@ -485,12 +497,40 @@ export function mountUnityUI(element: HTMLElement, canvas: HTMLCanvasElement): (
       if (kind === 'cell') {
         const parts = key.split(',').map(value => Number(value))
         if (parts.length !== 3 || parts.some(value => !Number.isFinite(value))) return false
-        stationBridge.send('edit.delete', { cell: parts })
+        stationBridge.send('edit.delete', { cell: parts, singleCell: true })
         return true
       }
       return false
     },
-    cancelGesture: () => { stationBridge.send('edit.cancel', {}); return true },
+    cancelGesture: () => {
+      const draft = useStore.getState().pickDraft
+      if (!draft) stationBridge.send('edit.cancel', {})
+      else void stationBridge.request<{ cancelled?: boolean }>('edit.cancel', {}).then(({ cancelled }) => {
+        const state = useStore.getState()
+        if (!cancelled && state.pickDraft === draft) state.cancelPick()
+      }).catch(() => {})
+      return true
+    },
+    confirmMove: () => {
+      const edit = stationBridge.getSnapshot().state.edit as Record<string, unknown> | undefined
+      if (!edit?.carried) return false
+      stationBridge.send('edit.move.confirm', {})
+      return true
+    },
+    rotateCarried: () => {
+      const edit = stationBridge.getSnapshot().state.edit as Record<string, unknown> | undefined
+      if (!edit?.carried) return false
+      stationBridge.send('edit.rotate', { delta: -1 })
+      return true
+    },
+    cycleCarriedLightPosition: () => {
+      const edit = stationBridge.getSnapshot().state.edit as Record<string, unknown> | undefined
+      const state = useStore.getState()
+      const light = edit?.carried && state.station.modules.some(module => module.id === edit.carried && module.type === 'light')
+      if (!light) return false
+      stationBridge.send('edit.move.lightPosition', {})
+      return true
+    },
   })
   const unmount = (): void => {
     if (activeShell !== null && activeShell.unmount === unmount) activeShell = null

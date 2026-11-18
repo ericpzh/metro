@@ -31,10 +31,13 @@ export interface StationHostCommitPort {
    */
   undo(): boolean
   redo(): boolean
-  /** Delete the current selection (a placed module, or a block's whole column). */
+  /** Delete the selected module or block. */
   deleteSelection(): boolean
   /** Escape: cancel a carried piece, a pending cell gesture or the plan. */
   cancelGesture(): boolean
+  rotateCarried?(): boolean
+  cycleCarriedLightPosition?(): boolean
+  confirmMove?(): boolean
 }
 
 let current: StationHostCommitPort | null = null
@@ -54,8 +57,8 @@ export function registerStationHostCommit(port: StationHostCommitPort | null): v
  * intent: a registered host that refuses falls back to the store path, so a host without
  * the verb keeps the plain app working.
  */
-export function hostOwnsVerb(verb: 'undo' | 'redo' | 'deleteSelection' | 'cancelGesture'): boolean {
+export function hostOwnsVerb(verb: 'undo' | 'redo' | 'deleteSelection' | 'cancelGesture' | 'rotateCarried' | 'cycleCarriedLightPosition' | 'confirmMove'): boolean {
   const port = current
   if (!port || !port.ownsStation()) return false
-  return port[verb]()
+  return port[verb]?.() ?? false
 }

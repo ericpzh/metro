@@ -619,7 +619,7 @@ namespace Metro.App {
             go.name = "ghost " + draft.Id + " " + draft.Type;
             go.transform.SetPositionAndRotation(
                 ModulePlacement.Resolve(record, entry, index),
-                ModulePlacement.Rotation(facts.Rotation));
+                ModulePlacement.Rotation(facts));
             bool ok = colour.r < 0.5f;
             var material = Tinted(ok, colour);
             Material lineMaterial = null;

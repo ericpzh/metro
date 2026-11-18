@@ -83,8 +83,13 @@ namespace Metro.View {
         public void SetActiveLevel(int level) {
             if (State.ActiveLevel == level) return;
             State.ActiveLevel = level;
+            Frame();
+        }
+
+        /// <summary>Recenter on the active storey while preserving orientation and zoom.</summary>
+        public void Frame() {
             var centre = State.Bounds.center;
-            centre.z = level + 1f;
+            centre.z = State.ActiveLevel + 1f;
             var delta = centre - State.Target;
             State.Target += delta;
             State.Position += delta;

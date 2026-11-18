@@ -69,7 +69,7 @@ export abstract class ToolController {
   }
 
   /** Remove one placed module, routing rails and rooms through their own teardown. */
-  protected removePlacedModule(mod: Module): void {
+  removePlacedModule(mod: Module): void {
     const st = useStore.getState()
     if (mod.type === 'track') {
       st.removeRail(mod.id)

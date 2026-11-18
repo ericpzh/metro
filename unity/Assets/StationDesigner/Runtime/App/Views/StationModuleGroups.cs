@@ -270,12 +270,8 @@ namespace Metro.App.Views {
             var parent = context.RoleRoot(Role);
             var go = UnityEngine.Object.Instantiate(entry.prefab, parent, false);
             go.name = (string.IsNullOrEmpty(module.Id) ? "module" : module.Id) + " " + module.Type;
-            // The source ignores a 灯具's saved quarter turn (`LightModel` places with `rot: 0`;
-            // the rectangular spec already swaps its own plan extents). Every other hung piece
-            // keeps `placeLocal`'s turn about the elevation axis.
-            var rotation = string.Equals(module.Type, "light", StringComparison.Ordinal)
-                ? Quaternion.identity
-                : ModulePlacement.Rotation(module.Rotation);
+            // The shared pivot rotates the rectangular prefab into its saved light orientation.
+            var rotation = ModulePlacement.Rotation(module);
             var pivot = Pivot(module, entry);
             float attach;
             bool measured = TryAttachHeight(entry, key, out attach);

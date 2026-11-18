@@ -133,6 +133,21 @@ test('moving an exit to another course at the same anchor is an edit', () => {
   assert.equal(st().past.length, 1)
 })
 
+test('Tab on a carried rectangular light commits its new in-cell position with undo', () => {
+  const source = piece('light-rectangular', 3, 3, 0, 0)
+  load([ceilingSlab], [source], { tool: 'move' })
+  st().liftModule(source.id)
+  st().cycleMoveLightPosition()
+  const candidate = st().moveDraft.module
+  st().aimMove(at(3, 3), candidate, '')
+  st().confirmMove()
+  assert.equal(st().moveDraft, null)
+  assert.equal(held(source.id).cfg.position, 1)
+  assert.equal(st().past.length, 1)
+  st().undo()
+  assert.equal(held(source.id).cfg.position ?? 0, 0)
+})
+
 /** A piece built by the real factory, so its `cfg` is the one the game makes. */
 function piece(type, x, y, z = 0, rot = 0, extra = {}) {
   const mod = createModule(type, x, y, z, `${type}-1`, rot, extra.width, extra.dir, extra.door, [], extra.sign)

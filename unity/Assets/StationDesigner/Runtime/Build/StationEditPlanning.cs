@@ -189,6 +189,8 @@ namespace Metro.Build {
         public StationPlacementHit Hit = StationPlacementHit.None;
         /// <summary>The record a 移动 carries; null for a fresh placement.</summary>
         public StationModuleRecord Carried;
+        /// <summary>The rectangular light's in-cell position, when set by the current tool or carry.</summary>
+        public int? LightPosition;
         /// <summary>The carried record's document index (its own cfg travels unchanged).</summary>
         public int CarriedRotation;
         /// <summary>A fresh id for a placement; the carried id for a move.</summary>
@@ -750,6 +752,8 @@ namespace Metro.Build {
                     break;
                 case "cctv":
                     candidate.Set("variant", family.Variant);
+                    if (family.Variant == "rectangular" && request.LightPosition.HasValue)
+                        candidate.Set(request.LightPosition.Value, "position");
                     break;
                 case "light":
                     candidate.Set("variant", family.Variant);
@@ -1155,6 +1159,8 @@ namespace Metro.Build {
             }
             int rot = StationFootprints.NormRot(request.Rotation);
             var draft = DraftOf(source);
+            if (source.Type == "light" && source.Config.Text("variant") == "rectangular" && request.LightPosition.HasValue)
+                draft.Set(request.LightPosition.Value, "position");
             draft.Id = source.Id;
             draft.SourceId = source.Id;
             if (StationFootprints.IsCeilingHung(source) && !hangerAim) draft.CeilingAnchored = true;
