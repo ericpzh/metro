@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
+using UnityEngine.InputSystem.LowLevel;
 #endif
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -201,9 +202,11 @@ namespace Metro.App {
             activeInstance = this;
             BuildCanvas();
             SubscribeKeyboardText();
+            InputSystem.onEvent += OnMouseButtonEvent;
         }
 
         void OnDestroy() {
+            InputSystem.onEvent -= OnMouseButtonEvent;
             UnsubscribeKeyboardText();
             StopWorker();
             if (surfaceTexture != null) {
@@ -532,93 +535,102 @@ namespace Metro.App {
 
         // ------------------------------------------------------------------ InputSystem -> WebView2 forwarding
 
+        void OnMouseButtonEvent(InputEventPtr inputEvent, InputDevice device) {
+            if (!webReady || activeClient == null || !isActiveAndEnabled ||
+                smokeSuppressed || device is not Mouse mouse || mouse != Mouse.current) return;
+
+            int previous =
+                (mouse.leftButton.isPressed ? 1 : 0) |
+                (mouse.rightButton.isPressed ? 2 : 0) |
+                (mouse.middleButton.isPressed ? 4 : 0);
+            int next =
+                (ReadButton(mouse.leftButton, inputEvent) ? 1 : 0) |
+                (ReadButton(mouse.rightButton, inputEvent) ? 2 : 0) |
+                (ReadButton(mouse.middleButton, inputEvent) ? 4 : 0);
+            if (previous == next) return;
+
+            // Button edges own their event coordinates. Sampling the mouse once per
+            // frame can place a press at a later move's location, outside the control.
+            Vector2 pos = mouse.position.ReadValueFromEvent(inputEvent, out var eventPosition)
+                ? eventPosition : mouse.position.ReadValue();
+            bool inside = GetMouseCoordinates(pos, out double rx, out double ry);
+            if (!inside && heldMouseButtons == 0) return;
+            mouseWasInside = inside;
+            int mods = CurrentModifiers();
+            // Deliver final drag motion before the release clears the held bit.
+            ForwardMouseMove(pos, rx, ry, heldMouseButtons, mods);
+            ForwardMouseButton(1, "left", previous, next, inside, pos, rx, ry, mods);
+            ForwardMouseButton(2, "right", previous, next, inside, pos, rx, ry, mods);
+            ForwardMouseButton(4, "middle", previous, next, inside, pos, rx, ry, mods);
+        }
+
+        static bool ReadButton(ButtonControl button, InputEventPtr inputEvent) =>
+            button.ReadValueFromEvent(inputEvent, out float value)
+                ? value >= button.pressPointOrDefault : button.isPressed;
+
+        void ForwardMouseButton(int bit, string button, int previous, int next, bool inside,
+            Vector2 pos, double rx, double ry, int mods) {
+            if (((previous ^ next) & bit) == 0) return;
+            if ((next & bit) != 0) {
+                if (!inside) return;
+                heldMouseButtons |= bit;
+                int clicks = 1;
+                if (bit == 1) {
+                    double now = Time.unscaledTimeAsDouble;
+                    clicks = (now - lastLeftClickTime <= 0.35 && (pos - lastLeftClickPos).sqrMagnitude <= 36f) ? 2 : 1;
+                    lastLeftClickTime = clicks == 2 ? -10.0 : now;
+                    lastLeftClickPos = pos;
+                }
+                SendMouse("down", rx, ry, button, heldMouseButtons, mods, clicks, 0, 0);
+            } else if ((heldMouseButtons & bit) != 0) {
+                heldMouseButtons &= ~bit;
+                SendMouse("up", rx, ry, button, heldMouseButtons, mods, 1, 0, 0);
+            }
+        }
+
+        bool GetMouseCoordinates(Vector2 pos, out double rx, out double ry) {
+            float sw = Mathf.Max(1f, Screen.width);
+            float sh = Mathf.Max(1f, Screen.height);
+            rx = (pos.x / sw) * lastSentWidth;
+            ry = ((sh - pos.y) / sh) * lastSentHeight;
+            return pos.x >= 0f && pos.x < sw && pos.y >= 0f && pos.y < sh;
+        }
+
+        void ForwardMouseMove(Vector2 pos, double rx, double ry, int buttons, int mods) {
+            if ((pos - lastMousePos).sqrMagnitude < 0.25f) return;
+            lastMousePos = pos;
+            SendMouse("move", rx, ry, "none", buttons, mods, 0, 0, 0);
+        }
+
         void ForwardMouseInput() {
             if (!webReady || activeClient == null) return;
             var mouse = Mouse.current;
             if (mouse == null) return;
 
             Vector2 pos = mouse.position.ReadValue();
-            float sw = Mathf.Max(1f, Screen.width);
-            float sh = Mathf.Max(1f, Screen.height);
-            bool inside = pos.x >= 0f && pos.x < sw && pos.y >= 0f && pos.y < sh;
-
-            if (!inside && heldMouseButtons == 0) {
-                if (mouseWasInside) {
-                    mouseWasInside = false;
-                    SendMouse("move", -100, -100, "none", 0, CurrentModifiers(), 0, 0, 0);
-                }
-                return;
-            }
-            mouseWasInside = inside;
-
-            double rx = (pos.x / sw) * lastSentWidth;
-            double ry = ((sh - pos.y) / sh) * lastSentHeight;
+            bool inside = GetMouseCoordinates(pos, out double rx, out double ry);
             int mods = CurrentModifiers();
-
-            // A movement and a release can share one Unity frame. The browser's move handler
-            // treats a move whose `buttons` mask no longer holds the press's own button as a
-            // lost gesture and cancels the tool drag, so the frame's motion is sent **before**
-            // the release with the mask that was still held when it was a drag — the release
-            // then follows at the same latest position and its own pick aims the commit
-            // (plan 30 §1). The previous order sent the move with the already-released mask,
-            // which cancelled a held right erase before its valid up ever arrived.
-            //
-            // When no button changed this frame the **live** InputSystem mask is authoritative:
-            // a release the process never saw (focus loss, a missed device update) then leaves
-            // the browser's move handler to cancel the drag instead of forwarding a stale hold.
             int currentMask =
                 (mouse.leftButton.isPressed ? 1 : 0) |
                 (mouse.rightButton.isPressed ? 2 : 0) |
                 (mouse.middleButton.isPressed ? 4 : 0);
-            bool pressThisFrame =
-                (mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame ||
-                 mouse.middleButton.wasPressedThisFrame) && inside;
-            bool releaseThisFrame =
-                (mouse.leftButton.wasReleasedThisFrame && (heldMouseButtons & 1) != 0) ||
-                (mouse.rightButton.wasReleasedThisFrame && (heldMouseButtons & 2) != 0) ||
-                (mouse.middleButton.wasReleasedThisFrame && (heldMouseButtons & 4) != 0);
-            bool moved = (pos - lastMousePos).sqrMagnitude >= 0.25f;
-            if (moved) {
-                lastMousePos = pos;
-                int movementMask = pressThisFrame || releaseThisFrame ? heldMouseButtons : currentMask;
-                SendMouse("move", rx, ry, "none", movementMask, mods, 0, 0, 0);
+            // A release lost on focus/device change must not leave a stale hold.
+            heldMouseButtons &= currentMask;
+            if (!inside && heldMouseButtons == 0) {
+                if (mouseWasInside) {
+                    mouseWasInside = false;
+                    lastMousePos = new Vector2(-1f, -1f);
+                    SendMouse("move", -100, -100, "none", 0, mods, 0, 0, 0);
+                }
+                return;
             }
-
-            if (mouse.leftButton.wasPressedThisFrame && inside) {
-                heldMouseButtons |= 1;
-                double now = Time.unscaledTimeAsDouble;
-                int clicks = (now - lastLeftClickTime <= 0.35 && (pos - lastLeftClickPos).sqrMagnitude <= 36f) ? 2 : 1;
-                lastLeftClickTime = clicks == 2 ? -10.0 : now;
-                lastLeftClickPos = pos;
-                SendMouse("down", rx, ry, "left", heldMouseButtons, mods, clicks, 0, 0);
-            }
-            if (mouse.leftButton.wasReleasedThisFrame && (heldMouseButtons & 1) != 0) {
-                heldMouseButtons &= ~1;
-                SendMouse("up", rx, ry, "left", heldMouseButtons, mods, 1, 0, 0);
-            }
-
-            if (mouse.rightButton.wasPressedThisFrame && inside) {
-                heldMouseButtons |= 2;
-                SendMouse("down", rx, ry, "right", heldMouseButtons, mods, 1, 0, 0);
-            }
-            if (mouse.rightButton.wasReleasedThisFrame && (heldMouseButtons & 2) != 0) {
-                heldMouseButtons &= ~2;
-                SendMouse("up", rx, ry, "right", heldMouseButtons, mods, 1, 0, 0);
-            }
-
-            if (mouse.middleButton.wasPressedThisFrame && inside) {
-                heldMouseButtons |= 4;
-                SendMouse("down", rx, ry, "middle", heldMouseButtons, mods, 1, 0, 0);
-            }
-            if (mouse.middleButton.wasReleasedThisFrame && (heldMouseButtons & 4) != 0) {
-                heldMouseButtons &= ~4;
-                SendMouse("up", rx, ry, "middle", heldMouseButtons, mods, 1, 0, 0);
-            }
+            mouseWasInside = inside;
+            ForwardMouseMove(pos, rx, ry, currentMask, mods);
 
             if (inside) {
                 Vector2 scroll = mouse.scroll.ReadValue();
                 if (Mathf.Abs(scroll.x) > 0.01f || Mathf.Abs(scroll.y) > 0.01f) {
-                    // Unity scroll.y > 0 is wheel-up (zoom in); DOM WheelEvent.deltaY < 0 is wheel-up.
+                    // Unity scroll.y > 0 is wheel-up; DOM WheelEvent.deltaY < 0 is wheel-up.
                     double dx = NormalizeWheelDelta(scroll.x);
                     double dy = -NormalizeWheelDelta(scroll.y);
                     SendMouse("wheel", rx, ry, "none", heldMouseButtons, mods, 0, dx, dy);

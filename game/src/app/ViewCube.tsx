@@ -280,8 +280,11 @@ export function ViewCube({ sceneRef, adapter }: {
   useLanguage()
   const [open, setOpen] = useState(true)
   const [view, setView] = useState<CubeViewState>(DEFAULT_CUBE_VIEW)
-  /** The lens in whole degrees, for the slider — the camera is the truth. */
-  const [fovDeg, setFovDeg] = useState(DEFAULT_CUBE_VIEW.fov)
+  const [fovDraft, setFovDraft] = useState<number | null>(null)
+  const [fovDragging, setFovDragging] = useState(false)
+  const fovDragCleanup = useRef<(() => void) | null>(null)
+  const cameraFov = Math.round(view.fov)
+  const fovDeg = fovDraft ?? cameraFov
   const [hover, setHover] = useState<string | null>(null)
   const press = useRef<{ x: number; y: number; moved: boolean; action: string | null } | null>(null)
   // One adapter for this widget: the explicit one wins; the Three path is the
@@ -297,9 +300,21 @@ export function ViewCube({ sceneRef, adapter }: {
   const accept = useCallback((state: CubeViewState | null): void => {
     if (!state) return
     setView((current) => (cubeViewEqual(current, state) ? current : state))
-    const deg = Math.round(state.fov)
-    setFovDeg((current) => (current === deg ? current : deg))
   }, [])
+
+  // Keep the local value through release until Unity echoes the final degree.
+  // Fall back to the camera if the command was refused or the session changed.
+  useEffect(() => {
+    if (fovDragging || fovDraft === null) return
+    if (fovDraft === cameraFov) {
+      setFovDraft(null)
+      return
+    }
+    const timeout = window.setTimeout(() => setFovDraft(null), 500)
+    return () => window.clearTimeout(timeout)
+  }, [cameraFov, fovDraft, fovDragging])
+
+  useEffect(() => () => fovDragCleanup.current?.(), [cube])
 
   // Track the rendered camera through the adapter. The adapter owns the cadence
   // (Three polls the camera on `requestAnimationFrame`, Unity listens to bridge
@@ -478,8 +493,57 @@ export function ViewCube({ sceneRef, adapter }: {
    * "field of view" is its own frustum (the wheel zooms there).
    */
   const setFov = (deg: number): void => {
+    setFovDraft(deg)
     cube?.setFov(deg)
-    setFovDeg(deg)
+  }
+
+  const beginFovDrag = (event: React.PointerEvent<HTMLInputElement>): void => {
+    if (event.button !== 0 || fovDragCleanup.current) return
+    event.preventDefault()
+    const input = event.currentTarget
+    input.blur()
+    const { pointerId } = event
+    const listeners = new AbortController()
+    let lastDegree = fovDeg
+    const update = (clientX: number): void => {
+      const track = input.getBoundingClientRect()
+      // The 10px thumb travels between the inset ends of the track.
+      const inset = 5 * track.width / Math.max(1, input.offsetWidth)
+      const fraction = Math.max(0, Math.min(1, (clientX - track.left - inset) / Math.max(1, track.width - 2 * inset)))
+      const degree = Math.round(FOV_MIN_DEG + fraction * (FOV_MAX_DEG - FOV_MIN_DEG))
+      if (degree === lastDegree) return
+      lastDegree = degree
+      setFov(degree)
+    }
+    const finish = (): void => {
+      listeners.abort()
+      fovDragCleanup.current = null
+      setFovDragging(false)
+    }
+    fovDragCleanup.current = finish
+    // CDP moves can target another element even after setPointerCapture.
+    // Listen at window scope for the lifetime of this specific press.
+    const options = { capture: true, signal: listeners.signal }
+    window.addEventListener('pointermove', (move) => {
+      if (move.pointerId !== pointerId) return
+      if (move.buttons & 1) {
+        move.stopPropagation()
+        update(move.clientX)
+      } else finish()
+    }, options)
+    window.addEventListener('pointerup', (up) => {
+      if (up.pointerId !== pointerId || up.button !== 0) return
+      up.stopPropagation()
+      update(up.clientX)
+      finish()
+    }, options)
+    window.addEventListener('pointercancel', (cancel) => {
+      if (cancel.pointerId === pointerId) finish()
+    }, options)
+    window.addEventListener('blur', finish, { signal: listeners.signal })
+    input.setPointerCapture(pointerId)
+    setFovDragging(true)
+    update(event.clientX)
   }
 
   return (
@@ -656,9 +720,12 @@ export function ViewCube({ sceneRef, adapter }: {
             value={fovDeg}
             aria-label={t('field_of_view')}
             onChange={(e) => setFov(Number(e.target.value))}
-            onPointerUp={(e) => e.currentTarget.blur()}
+            onPointerDown={beginFovDrag}
           />
-          <span className="viewFovVal">{t('fov_label')} {translate(fovDeg)}°</span>
+          <span className="viewFovVal">
+            <span aria-hidden="true">{t('fov_label')} {translate(FOV_MAX_DEG)}°</span>
+            <span>{t('fov_label')} {translate(fovDeg)}°</span>
+          </span>
         </div>
       </div>
       </div>

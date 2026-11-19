@@ -1394,9 +1394,7 @@ html[lang="en"] .bpBlockLabel {
   flex-direction: column;
   gap: 4px;
 }
-/* 视场角: the camera's lens, as a percentage of the one it opens with. The camera is the
-   truth, so this follows any caller that changes it; the cursor stays the default arrow
-   because dragging here does not orbit. */
+/* The field-of-view slider displays the lens in whole degrees. */
 .viewFov {
   display: flex;
   align-items: center;
@@ -1416,11 +1414,18 @@ html[lang="en"] .bpBlockLabel {
   min-width: 0;
 }
 .viewFovVal {
-  min-width: 26px;
+  display: grid;
+  white-space: nowrap;
   font-size: 9px;
   color: var(--muted);
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+.viewFovVal > span {
+  grid-area: 1 / 1;
+}
+.viewFovVal > [aria-hidden] {
+  visibility: hidden;
 }
 
 .depthRail {

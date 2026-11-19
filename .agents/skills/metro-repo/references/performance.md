@@ -16,6 +16,21 @@ outcomes.
 
 ## Current performance state
 
+### Unity FOV slider drag feedback
+
+In the Windows Chromium fixture under `.preview/unity/fov-drag/`, mount the
+shared ViewCube with a controlled camera adapter at 99°. Send a left-button
+press followed by two CDP `mouseMoved` events carrying `buttons: 1`, as the Unity
+desktop host does. Read the slider after two animation frames per move, then
+inject the first move's camera value while the second move is still held.
+Before the fix, both moves reached the input and the slider stayed at 99°.
+With pointer capture, it reached 104° and 111° by the respective samples and
+held 111° through the delayed 104° reply and release. An external camera reset
+then displayed 45°. The Chinese panel grew from 217.375 to 222.375 CSS px
+between 99° and 100° before the fix and held at 222.375 CSS px after it. This
+isolates slider feedback and layout. Camera render latency and WebView2 texture
+delivery are outside the fixture.
+
 ### Unity migration TypeScript simulation baseline
 
 At source `4c0fb66e071e2aee25cd3fc055a010871942004b`, three serial
