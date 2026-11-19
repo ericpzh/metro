@@ -148,6 +148,9 @@ bottom. Keep its side/cap/support votes aligned across chunk cache halos. Pin th
 Tanwei `(16,6,-1)` and `(18,14,-3)` gaps in `floor-geometry.test.mjs` and exercise
 the production scene with `tools/check-ceiling-wall-faces.mjs`; see the measured
 validation and limits in the [performance guide](references/performance.md).
+Route Unity ceiling and masonry roof classification to [metro-unity](../metro-unity/SKILL.md).
+At Tanwei −5 m, preserve the wall at `(16,6,-1)` and the ledge at
+`(18,12,-2)` under both hide toggles, including their visible triangle picks.
 Hide ceiling is off by default in both the view store and scene; pin both defaults
 in `ground-visibility.test.mjs`. **显示其他层 ghosts only the storeys below the
 active one, and an occupied active storey hides everything above it** (the floor

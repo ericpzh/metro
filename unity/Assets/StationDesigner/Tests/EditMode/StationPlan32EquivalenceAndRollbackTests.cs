@@ -223,7 +223,7 @@ namespace Metro.EditModeTests {
         }
 
         static string BuildShiftedStoreyTestSave() {
-            // Shifted storey: levelBase = -2, storeyHeight = 5 -> bands at z = -7 (platform), -2 (concourse), 0 (street)
+            // Level base 3 puts the platform at -7, the concourse at -2 and the next floor at 3.
             var cells = new JArray();
             // Concourse slab across 16 m chunk seam x=13..18, y=13..18 at z = -2:
             for (int x = 13; x <= 18; x++) {
@@ -256,6 +256,13 @@ namespace Metro.EditModeTests {
                 ["zone"] = "outside",
                 ["finish"] = new JObject { ["top"] = "floor.concrete" },
             });
+
+            // At the shifted upper-course boundary, (15,19,2) is an inferred
+            // ceiling until the next-storey floor extends over the chunk seam.
+            foreach (var (x, z) in new[] { (15, -2), (15, 2), (16, -2), (16, 1), (16, 2) }) {
+                cells.Add(new JObject { ["x"] = x, ["y"] = 19, ["z"] = z, ["fill"] = "solid" });
+            }
+            cells.Add(new JObject { ["x"] = 15, ["y"] = 19, ["z"] = 0, ["fill"] = "void" });
 
             var modules = new JArray {
                 // Street exit at (14, 10, 0):
@@ -326,7 +333,7 @@ namespace Metro.EditModeTests {
                 ["nameEn"] = "Shifted Storey",
                 ["city"] = "guangzhou",
                 ["seed"] = 998877,
-                ["levelBase"] = -2,
+                ["levelBase"] = 3,
                 ["storeyHeight"] = 5,
                 ["static"] = new JObject {
                     ["cells"] = cells,
@@ -339,7 +346,7 @@ namespace Metro.EditModeTests {
 
         [Test]
         public void ReferenceBuildersMatchIncrementalDocumentIndexMeshAndWalkGraphAcrossAllDeterministicScenarios() {
-            var host = CreateHost();
+            var host = CreateHost(registerCellAndModuleViews: true);
             var openReply = JObject.Parse(host.SendForTest(Cmd("station.open", new JObject { ["document"] = BuildShiftedStoreyTestSave() }, "open-shifted")));
             Assert.AreEqual("commit", (string)openReply["kind"]);
             Assert.IsNotNull(openReply["payload"]["document"], "initial open emits full document");
@@ -358,10 +365,22 @@ namespace Metro.EditModeTests {
             AssertDocumentAndIndexMatchFullRead("initial", host.Document, host.Index);
             AssertMeshMatchesReference("initial", retainedMesh, host.Document);
             AssertGraphMatchesReference("initial", simHost.Session.WalkGraph, host.Document, host.Index);
+            CheckCeilingSeamPicks();
 
             var curWorld = StationCellEditWorld.Build(host.Index, new StationCellReservations(host.Index));
 
             var steps = new (string Name, Func<StationCellEditWorld, StationDocument, StationIndex, StationCellPatch> BuildPatch)[] {
+                ("ceiling-seam-upper-fill", (w, _, __) => StationCellPlanner.PlanAddCells(w, new[] {
+                    new StationCellKey(16, 19, 3),
+                })),
+                ("ceiling-seam-upper-open", (w, _, __) => StationCellPlanner.PlanRemoveCells(w, new[] {
+                    new StationCellKey(16, 19, 3),
+                })),
+                ("ceiling-seam-retag", (_, __, ___) => {
+                    var patch = new StationCellPatch();
+                    patch.Writes.Add(StationCellWrite.AddTags(new StationCellKey(16, 19, 2), new[] { "suspended-ceiling" }));
+                    return patch;
+                }),
                 // 1. 16 m chunk seam (15..16) + shifted storey (-2) auto-floor expansion:
                 ("chunk-seam-auto-floor", (w, _, __) => StationCellPlanner.PlanAutoFloor(w, new[] {
                     new StationCellKey(19, 15, -2),
@@ -436,6 +455,7 @@ namespace Metro.EditModeTests {
                 AssertDocumentAndIndexMatchFullRead("step:" + name, host.Document, host.Index);
                 AssertMeshMatchesReference("step:" + name, retainedMesh, host.Document);
                 AssertGraphMatchesReference("step:" + name, simHost.Session.WalkGraph, host.Document, host.Index);
+                if (name.StartsWith("ceiling-seam-", StringComparison.Ordinal)) CheckCeilingSeamPicks();
                 Assert.IsTrue(simHost.Session.Services.AllWalkingRoutesMatchCurrentGraph(), name + ": active passenger routes valid");
 
                 if (name == "support-cascade-delete") {
@@ -462,6 +482,7 @@ namespace Metro.EditModeTests {
                 AssertDocumentAndIndexMatchFullRead("undo-" + u, host.Document, host.Index);
                 AssertMeshMatchesReference("undo-" + u, retainedMesh, host.Document);
                 AssertGraphMatchesReference("undo-" + u, simHost.Session.WalkGraph, host.Document, host.Index);
+                if (u < 3) CheckCeilingSeamPicks();
             }
             Assert.IsTrue(host.Index.TryGetModule("bench-cascade", out _), "undo restores cascaded module");
 
@@ -479,12 +500,28 @@ namespace Metro.EditModeTests {
                 AssertDocumentAndIndexMatchFullRead("redo-" + r, host.Document, host.Index);
                 AssertMeshMatchesReference("redo-" + r, retainedMesh, host.Document);
                 AssertGraphMatchesReference("redo-" + r, simHost.Session.WalkGraph, host.Document, host.Index);
+                CheckCeilingSeamPicks();
             }
 
             var resyncReply = JObject.Parse(host.SendForTest(Cmd("station.resync", new JObject(), "resync-check")));
             Assert.AreEqual("commit", (string)resyncReply["kind"]);
             Assert.IsNotNull(resyncReply["payload"]["document"], "station.resync must always carry full document");
             Assert.IsNull(resyncReply["payload"]["delta"], "station.resync omits delta");
+
+            void CheckCeilingSeamPicks() {
+                bool upper = host.Index.GetCell(new StationCellKey(16, 19, 3))?.IsSolid ?? false;
+                bool tagged = host.Index.GetCell(new StationCellKey(16, 19, 2)).HasTag("suspended-ceiling");
+                Pick(15, upper ? StationSurfaceRole.Cell : StationSurfaceRole.Ceiling);
+                if (!upper) Pick(16, tagged ? StationSurfaceRole.Ceiling : StationSurfaceRole.Cell);
+            }
+
+            void Pick(int x, StationSurfaceRole role) {
+                var ray = new Ray(new Vector3(x + .5f, 3.25f, 19.5f), Vector3.down);
+                Assert.IsTrue(StationCellRenderer.TryPickWorld(host.Coordinator.World, ray, StationCellPickFilter.Default, out var hit));
+                Assert.AreEqual(new StationCellKey(x, 19, 2), hit.CellKey);
+                Assert.AreEqual(StationFace.Top, hit.Face);
+                Assert.AreEqual(role, hit.Role);
+            }
         }
 
         [Test]

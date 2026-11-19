@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Metro.App;
 using Metro.App.Views;
 using Metro.Build;
 using Metro.Persistence;
@@ -555,6 +556,111 @@ public class StationCellMeshTests {
         }
     }
 
+    [TestCase(false)]
+    [TestCase(true)]
+    public void TanweiWallAndLedgeHaveOrdinaryFaces(bool retained) {
+        var path = Path.Combine(Application.dataPath, "StationDesigner/Demos/tanwei.metro.json");
+        var read = StationDocumentReader.ReadFile(path);
+        var input = StationCellRenderer.BuildInput(read.Document, null, null, null);
+        var groups = retained
+            ? StationCellMeshWorkspace.Create(input).MeshAll().Values.SelectMany(chunk => chunk)
+            : StationCellMesher.Mesh(input).Groups;
+
+        Check(16, 6, -1, StationFace.N);
+        Check(16, 6, -1, StationFace.S);
+        Check(16, 6, -1, StationFace.Top);
+        Check(18, 12, -2, StationFace.Top);
+        Check(18, 12, -2, StationFace.Bottom);
+        Check(18, 12, -1, StationFace.Top, StationSurfaceRole.Ceiling);
+        Check(-40, -5, 11, StationFace.Top);
+
+        void Check(int x, int y, int z, StationFace side, StationSurfaceRole expected = StationSurfaceRole.Cell) {
+            var faces = groups.SelectMany(group => group.LocalTriangleFaces
+                    .Where(index => index >= 0).Select(index => group.LocalFaces[index]))
+                .Where(face => face.X == x && face.Y == y && face.Z == z && face.Face == side)
+                .ToArray();
+            Assert.That(faces.Length, Is.GreaterThanOrEqualTo(2), $"({x},{y},{z}) {side} triangle coverage");
+            Assert.That(faces.Select(face => face.Role), Is.All.EqualTo(expected), $"({x},{y},{z}) {side}");
+        }
+    }
+
+    [Test]
+    public void TanweiCeilingAndRoofTogglesKeepConcreteDrawableAndPickable() {
+        var read = StationDocumentReader.ReadFile(Path.Combine(Application.dataPath, "StationDesigner/Demos/tanwei.metro.json"));
+        var root = new GameObject("Tanwei ceiling visibility");
+        try {
+            using var world = new StationWorldView(root.transform, "Tanwei", new IStationViewRenderer[] {
+                new StationCellRenderer(),
+                new StationSignRenderer(),
+                new StationEquipmentModuleRenderer(),
+                new StationStructureModuleRenderer(),
+            }, new StationViewAssets {
+                Shader = StationShader(),
+                Catalogue = UnityEditor.AssetDatabase.LoadAssetAtPath<RuntimeCatalogue>(RuntimeCatalogue.AssetPath),
+            });
+            using var registry = new StationVisibilityRegistry();
+            world.Build(read.Document, read.Index);
+            world.Activate();
+            registry.State.ActiveLevel = -5;
+            registry.State.HideGround = true;
+            StationViewFeature.RegisterWorld(registry, world);
+            Assert.IsTrue(StationCellRenderer.TryGetView(world, out var view));
+            var geometry = view.Groups.Select(group => group.GameObject.GetComponent<MeshFilter>().sharedMesh).ToArray();
+            var sign = FixtureRenderers("sign-ceiling-521");
+            var light = FixtureRenderers("light-rectangular-9638");
+
+            foreach (bool showLevels in new[] { false, true })
+            foreach (bool hideCeiling in new[] { false, true })
+            foreach (bool hideRoof in new[] { false, true }) {
+                registry.State.ShowLevels = showLevels;
+                registry.State.AutoCeiling = hideCeiling;
+                registry.State.HideRoof = hideRoof;
+                registry.Apply();
+
+                if (hideCeiling) {
+                    Pick(new Ray(new Vector3(16.5f, -.5f, 5.5f), Vector3.forward), 16, 6, -1, StationFace.S);
+                    Pick(new Ray(new Vector3(16.5f, -.5f, 7.5f), Vector3.back), 16, 6, -1, StationFace.N);
+                    Pick(new Ray(new Vector3(18.5f, -.25f, 12.1f), new Vector3(0, -.75f, .4f)), 18, 12, -2, StationFace.Top);
+                }
+                Pick(new Ray(new Vector3(16.5f, .5f, 6.5f), Vector3.down), 16, 6, -1, StationFace.Top);
+                Pick(new Ray(new Vector3(18.5f, .5f, 12.5f), Vector3.down), 18, 12,
+                    hideCeiling ? -2 : -1, StationFace.Top,
+                    hideCeiling ? StationSurfaceRole.Cell : StationSurfaceRole.Ceiling);
+                Assert.IsTrue(sign.Any(renderer => renderer.enabled), "the mounted sign stays visible");
+                Assert.IsTrue(light.Any(renderer => renderer.enabled), "the mounted light stays visible");
+                CollectionAssert.AreEqual(geometry, view.Groups.Select(group => group.GameObject.GetComponent<MeshFilter>().sharedMesh));
+            }
+
+            var roof = FixtureRenderers("roof-124");
+            registry.State.ActiveLevel = 10;
+            registry.State.HideRoof = false;
+            registry.Apply();
+            Assert.IsTrue(roof.Any(renderer => renderer.enabled), "the authored canopy is visible on its storey");
+            registry.State.HideRoof = true;
+            registry.Apply();
+            Assert.IsFalse(roof.Any(renderer => renderer.enabled), "Hide Roof removes the authored canopy");
+            Pick(new Ray(new Vector3(-39.5f, 12.5f, -4.5f), Vector3.down), -40, -5, 11, StationFace.Top);
+
+            Renderer[] FixtureRenderers(string id) {
+                var renderers = world.Records.Where(record => record.View != null &&
+                        (record.ModuleId == id || (record.SourceIds?.Contains(id) ?? false)))
+                    .SelectMany(record => record.View.GetComponentsInChildren<Renderer>(true)).ToArray();
+                Assert.IsNotEmpty(renderers, id);
+                return renderers;
+            }
+
+            void Pick(Ray ray, int x, int y, int z, StationFace face, StationSurfaceRole role = StationSurfaceRole.Cell) {
+                var filter = StationCellPickFilter.FromCamera(null, ray, registry);
+                Assert.IsTrue(StationCellRenderer.TryPickWorld(world, ray, filter, out var hit), $"{ray} missed");
+                Assert.AreEqual(new StationCellKey(x, y, z), hit.CellKey, ray.ToString());
+                Assert.AreEqual(face, hit.Face);
+                Assert.AreEqual(role, hit.Role);
+            }
+        } finally {
+            Object.DestroyImmediate(root);
+        }
+    }
+
     [Test]
     public void ZooRoleSplitKeepsTheDefaultDrawSet() {
         using var library = StationFinishLibrary.LoadFromDirectory(FinishDirectory, StationShader());
@@ -568,10 +674,10 @@ public class StationCellMeshTests {
                 // Pinned Zoo counts: the split must not silently collapse back to one role.
                 // Reported as one diff so a classification change shows every role it moved.
                 var expectedGroups = new Dictionary<StationSurfaceRole, int> {
-                    [StationSurfaceRole.Cell] = 157,
+                    [StationSurfaceRole.Cell] = 181,
                     [StationSurfaceRole.Wall] = 154,
-                    [StationSurfaceRole.Ceiling] = 94,
-                    [StationSurfaceRole.Roof] = 46,
+                    [StationSurfaceRole.Ceiling] = 8,
+                    [StationSurfaceRole.Roof] = 6,
                     [StationSurfaceRole.Ground] = 66,
                 };
                 var groupDiffs = expectedGroups
@@ -756,20 +862,20 @@ public class StationCellMeshTests {
         // Three probes on one floor: a plain upper course (cap suppressed), a suspended
         // ceiling in the neighbouring chunk (cap emitted), and a hidden upper course (cap emitted).
         for (var x = 14; x <= 17; x++) {
-            input.Cells.Add(new StationMeshCell { X = x, Y = 0, Z = 0, Solid = true, Shape = StationCellShape.Full });
+            input.Cells.Add(new StationMeshCell { X = x, Y = 0, Z = 2, Solid = true, Shape = StationCellShape.Full });
         }
-        input.Cells.Add(new StationMeshCell { X = 14, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full });
+        input.Cells.Add(new StationMeshCell { X = 14, Y = 0, Z = 3, Solid = true, Shape = StationCellShape.Full });
         input.Cells.Add(new StationMeshCell {
-            X = 16, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full,
+            X = 16, Y = 0, Z = 3, Solid = true, Shape = StationCellShape.Full,
             Flags = StationMeshCellFlags.SuspendedCeiling,
         });
-        input.Cells.Add(new StationMeshCell { X = 17, Y = 0, Z = 1, Solid = true, Shape = StationCellShape.Full });
-        input.HiddenCells.Add(new StationCellKey(17, 0, 1));
+        input.Cells.Add(new StationMeshCell { X = 17, Y = 0, Z = 3, Solid = true, Shape = StationCellShape.Full });
+        input.HiddenCells.Add(new StationCellKey(17, 0, 3));
         var parent = new GameObject("cap root");
         try {
             var view = StationCellView.Build(new StationCellViewRequest { Mesh = input, Finishes = library, Name = "caps" }, parent.transform);
             try {
-                bool HasCap(int x) => view.Faces.Any(f => f.Face == StationFace.Top && f.X == x && f.Y == 0 && f.Z == 0);
+                bool HasCap(int x) => view.Faces.Any(f => f.Face == StationFace.Top && f.X == x && f.Y == 0 && f.Z == 2);
                 Assert.IsFalse(HasCap(14), "a plain solid upper course in the same pass covers the cap");
                 Assert.IsTrue(HasCap(16),
                     "a suspended ceiling in the next chunk does not suppress the cap: the ceiling is its own pass");

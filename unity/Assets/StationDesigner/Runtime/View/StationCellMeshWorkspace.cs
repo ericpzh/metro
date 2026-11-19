@@ -162,7 +162,7 @@ namespace Metro.View {
         readonly List<StationCellFaceRecord> batchFaces = new List<StationCellFaceRecord>();
         readonly Dictionary<MeshSession.FaceRecordKey, int> faceRecordIndex = new Dictionary<MeshSession.FaceRecordKey, int>();
         readonly Dictionary<StationCellKey, byte> suspendedCache = new Dictionary<StationCellKey, byte>();
-        readonly Dictionary<StationCellKey, byte> topSlabCache = new Dictionary<StationCellKey, byte>();
+        readonly Dictionary<StationCellKey, byte> masonryRoofCache = new Dictionary<StationCellKey, byte>();
         List<StationCellMeshGroup> activeGroupSink;
 
         List<MeshSession.Profile> IMeshCellSource.Sections => sections;
@@ -170,7 +170,11 @@ namespace Metro.View {
         public HashSet<StationCellKey> GroundHoles => groundHoles;
         public StationRampOpenings.PreparedRampOpenings PreparedRamps => preparedRamps;
 
-        StationCellMeshWorkspace() { }
+        readonly StationCellSurfacePolicy.CellLookup lookup;
+
+        StationCellMeshWorkspace() {
+            lookup = TryGetRawCell;
+        }
 
         public static StationCellMeshWorkspace Create(
             StationCellMeshInput input,
@@ -290,7 +294,7 @@ namespace Metro.View {
 
         Dictionary<ChunkBandKey, List<StationCellMeshGroup>> MeshChunkList(IReadOnlyList<ChunkBandKey> keys) {
             suspendedCache.Clear();
-            topSlabCache.Clear();
+            masonryRoofCache.Clear();
             var output = new Dictionary<ChunkBandKey, List<StationCellMeshGroup>>(keys.Count);
             var groupBuffer = new List<StationCellMeshGroup>(8);
 
@@ -650,18 +654,26 @@ namespace Metro.View {
                     foreach (var p in dirtyCoords) {
                         int b1 = StoreyBand(p.Z);
                         int rise = p.Z - b1;
-                        // Band below (`b1 - step`) is affected when rise <= 1 (direct down/WallAo/OpenBelow/HasPlainUpperCourse/TopAoAt).
+                        // A boundary course can change a ceiling or a roof cap one band below,
+                        // even when that upper course is hidden in the view.
                         bool affectsBelow = rise <= 1;
-                        // Band above (`b1 + step`) is affected when rise >= step - 1 (direct up/WallAo/OpenBelow/TopAoAt)
-                        // OR when p is at floorZ (rise == 0) and a ceiling course exists at b1 + step - 1 whose IsSuspended could flip.
+                        // Edits lower in a column can also change whether its top course
+                        // occludes the next storey's bottom face.
                         bool affectsAbove = rise >= step - 2 ||
-                                            (rise == 0 && HasAnyCell(p.X, p.Y, b1 + step - 1));
+                                            (buildCeilings && HasAnyCell(p.X, p.Y, b1 + step - 1));
                         int b0 = affectsBelow ? StoreyBand(b1 - step) : b1;
                         int b2 = affectsAbove ? StoreyBand(b1 + step) : b1;
-                        bool touchesGround = virtualGround && buildGround && (p.Z >= groundZ - 1 && p.Z <= groundZ + 2);
+                        // Ground AO reads one course below grade and two above. A cell
+                        // in that range can change ceiling class after a floor/clearance
+                        // edit in its band or an edit one course above it.
+                        int groundReadMin = buildCeilings ? StoreyBand(groundZ - 1) : groundZ - 1;
+                        int groundReadMax = buildCeilings ? groundZ + 3 : groundZ + 2;
+                        bool touchesGround = virtualGround && buildGround && p.Z >= groundReadMin && p.Z <= groundReadMax;
                         int gBand = StoreyBand(groundZ);
 
-                        // XY radius is +-2 only when `CeilingCells` (`rise >= 3` or `rise == 0` or `HasPlainUpperCourse` at `rise == 0`) can toggle a +-1 neighbor's IsSuspended; otherwise +-1 is exact.
+                        // Ceiling classification reads one horizontal neighbour, then that
+                        // cell's visibility can expose faces one more cell out. A roof
+                        // cap reads a one-cell halo and never changes neighbour occlusion.
                         int xyRadius = (buildCeilings && (rise >= 3 || rise == 0)) ? 2 : 1;
                         int cxMin = FloorChunk(p.X - xyRadius), cxMax = FloorChunk(p.X + xyRadius);
                         int cyMin = FloorChunk(p.Y - xyRadius), cyMax = FloorChunk(p.Y + xyRadius);
@@ -902,7 +914,6 @@ namespace Metro.View {
         /* ----------------------------------------------- IMeshCellSource queries */
 
         int StoreyBand(int z) => StationCoordinates.StoreyBand(z, levelBase);
-        bool SameBandWhenIsolated(int bandA, int zB) => !isolateBandOcclusion || bandA == StoreyBand(zB);
 
         bool IsGeneratedGround(int x, int y) {
             if (!virtualGround) return false;
@@ -961,101 +972,17 @@ namespace Metro.View {
             return ans;
         }
 
-        bool ComputeIsSuspended(StationCellKey key) {
-            if (authoredCells.TryGetValue(key, out var authored) &&
-                (authored.Flags & StationMeshCellFlags.SuspendedCeiling) != 0) return true;
-            if (!buildCeilings) return false;
-            if (!TryGetRawCell(key, out var c) || !c.Solid) return false;
-            int floorZ = StoreyBand(c.Z);
-            if (c.Z - floorZ < 3) return false;
-            if ((c.Flags & (StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling)) != 0) return true;
-            if (c.Z + 1 == floorZ + storeyHeight && SameBandWhenIsolated(floorZ, c.Z + 1) && HasPlainUpperCourse(c.X, c.Y, c.Z + 1))
-                return false;
-            bool hasBelow = SameBandWhenIsolated(floorZ, c.Z - 1) && HasAnyCell(c.X, c.Y, c.Z - 1);
-            bool hasAbove = SameBandWhenIsolated(floorZ, c.Z + 1) && HasAnyCell(c.X, c.Y, c.Z + 1);
-            if (!c.Shape.IsFull || (c.Flags & StationMeshCellFlags.Wall) != 0 || hasBelow || hasAbove) return false;
-            if (!TryGetRawCell(new StationCellKey(c.X, c.Y, floorZ), out var floorCell)) return false;
-            if (!floorCell.Shape.IsFull ||
-                (floorCell.Flags & (StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling)) != 0) return false;
-            for (int z = floorZ + 1; z < c.Z; z++) {
-                if (HasAnyCell(c.X, c.Y, z)) return false;
-            }
-            return HasAnyCell(c.X + 1, c.Y, c.Z) || HasAnyCell(c.X - 1, c.Y, c.Z) ||
-                   HasAnyCell(c.X, c.Y + 1, c.Z) || HasAnyCell(c.X, c.Y - 1, c.Z);
+        bool ComputeIsSuspended(StationCellKey key) =>
+            TryGetRawCell(key, out var cell) &&
+            StationCellSurfacePolicy.IsCeiling(cell, StoreyBand(key.Z), storeyHeight, buildCeilings, lookup);
+
+        public bool IsMasonryRoof(StationCellKey key) {
+            if (masonryRoofCache.TryGetValue(key, out byte cached)) return cached != 0;
+            bool roof = !IsGroundPassKey(key) && authoredCells.TryGetValue(key, out var cell) &&
+                StationCellSurfacePolicy.IsMasonryRoof(cell, StoreyBand(key.Z), storeyHeight, groundZ, lookup);
+            masonryRoofCache[key] = roof ? (byte)1 : (byte)0;
+            return roof;
         }
-
-        bool HasPlainUpperCourse(int x, int y, int z) {
-            if (IsPlainCourseAt(x, y, z)) return true;
-            if (IsPlainCourseAt(x + 1, y, z)) return true;
-            if (IsPlainCourseAt(x - 1, y, z)) return true;
-            if (IsPlainCourseAt(x, y + 1, z)) return true;
-            if (IsPlainCourseAt(x, y - 1, z)) return true;
-            return false;
-        }
-
-        bool IsPlainCourseAt(int x, int y, int z) {
-            if (!TryGetRawCell(new StationCellKey(x, y, z), out var cell)) return false;
-            if (!cell.Shape.IsFull) return false;
-            return (cell.Flags & (StationMeshCellFlags.Wall | StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling)) == 0;
-        }
-
-        public bool IsTopSlab(StationCellKey key) {
-            if (topSlabCache.TryGetValue(key, out byte cached)) return cached != 0;
-            bool ans = ComputeIsTopSlab(key);
-            topSlabCache[key] = ans ? (byte)1 : (byte)0;
-            return ans;
-        }
-
-        bool ComputeIsTopSlab(StationCellKey key) {
-            if (!authoredCells.TryGetValue(key, out var cell) || !cell.Solid) return false;
-            if (IsGroundPassKey(key)) return false;
-            int band = StoreyBand(cell.Z);
-            if (!QualifiesAsTopSlabCandidate(cell, band)) return false;
-            if (columnZs.TryGetValue(PackColumn(cell.X, cell.Y), out var zs)) {
-                for (int i = zs.Count - 1; i >= 0; i--) {
-                    int oz = zs[i];
-                    if (oz <= cell.Z) break;
-                    if (StoreyBand(oz) != band) continue;
-                    var otherKey = new StationCellKey(cell.X, cell.Y, oz);
-                    if (IsGroundPassKey(otherKey)) continue;
-                    if (authoredCells.TryGetValue(otherKey, out var other) && QualifiesAsTopSlabCandidate(other, band))
-                        return false;
-                }
-            }
-            return HasSlabFootprint(cell.X, cell.Y, cell.Z);
-        }
-
-        bool QualifiesAsTopSlabCandidate(StationMeshCell cell, int band) {
-            int rise = cell.Z - band;
-            if (rise < 3 && cell.Z != groundZ) return false;
-            if (!cell.Shape.IsFull) return false;
-            if ((cell.Flags & (StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling | StationMeshCellFlags.Wall)) != 0)
-                return false;
-            if (IsSuspended(cell.Key)) return false;
-            return !IsWallFinish(cell.Finish.Top);
-        }
-
-        bool HasSlabFootprint(int x, int y, int z) {
-            for (int ox = -1; ox <= 0; ox++) {
-                for (int oy = -1; oy <= 0; oy++) {
-                    if (SquareIsSolid(x + ox, y + oy, z) &&
-                        SquareIsSolid(x + ox + 1, y + oy, z) &&
-                        SquareIsSolid(x + ox, y + oy + 1, z) &&
-                        SquareIsSolid(x + ox + 1, y + oy + 1, z)) return true;
-                }
-            }
-            return false;
-        }
-
-        bool SquareIsSolid(int x, int y, int z) =>
-            TryGetRawCell(new StationCellKey(x, y, z), out var cell) && cell.Solid && cell.Shape.IsFull;
-
-        static bool IsWallFinish(string id) =>
-            !string.IsNullOrEmpty(id) && id.StartsWith("wall.", StringComparison.Ordinal);
-
-        public bool OpenBelow(StationCellKey key) =>
-            !SameBandWhenIsolated(StoreyBand(key.Z), key.Z - 1) ||
-            !HasAnyCell(key.X, key.Y, key.Z - 1);
 
         public bool IsWallCell(StationCellKey key) =>
             authoredCells.TryGetValue(key, out var c) && (c.Flags & StationMeshCellFlags.Wall) != 0;

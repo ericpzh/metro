@@ -329,6 +329,67 @@ namespace Metro.View {
         }
     }
 
+    internal static class StationCellSurfacePolicy {
+        internal delegate bool CellLookup(StationCellKey key, out StationMeshCell cell);
+
+        const StationMeshCellFlags Plates = StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling;
+        const StationMeshCellFlags NonPlain = Plates | StationMeshCellFlags.Wall;
+        static readonly (int x, int y)[] Neighbours = { (1, 0), (-1, 0), (0, 1), (0, -1) };
+
+        // Classify against the physical courses, including those in hidden storeys.
+        internal static bool IsCeiling(StationMeshCell cell, int band, int height, bool infer, CellLookup lookup) {
+            if (!infer) return (cell.Flags & StationMeshCellFlags.SuspendedCeiling) != 0;
+            int x = cell.X, y = cell.Y, z = cell.Z;
+            if (z - band < 3) return false;
+            if ((cell.Flags & Plates) != 0) return true;
+            if (!cell.Shape.IsFull || (cell.Flags & StationMeshCellFlags.Wall) != 0) return false;
+            if (IsSolid(lookup, x, y, z + 1)) return false;
+            // A nearby upper floor identifies lining even at a stair opening.
+            if (z + 1 == band + height && HasPlainNeighbour(lookup, x, y, z + 1)) return false;
+            if (!lookup(new StationCellKey(x, y, band), out var floor) ||
+                !floor.Shape.IsFull || (floor.Flags & Plates) != 0) return false;
+            for (int course = band + 1; course < z; course++) {
+                if (IsSolid(lookup, x, y, course)) return false;
+            }
+            foreach (var (dx, dy) in Neighbours) {
+                if (IsSolid(lookup, x + dx, y + dy, z)) return true;
+            }
+            return false;
+        }
+
+        // A masonry roof is an exposed, backed deck at or above grade. The footprint
+        // excludes wall crests. Only its exposed cap gets the independent roof toggle.
+        internal static bool IsMasonryRoof(StationMeshCell cell, int band, int height, int grade, CellLookup lookup) {
+            int x = cell.X, y = cell.Y, z = cell.Z;
+            if (z < grade || (z != grade && z - band < 3)) return false;
+            if (!cell.Shape.IsFull || (cell.Flags & NonPlain) != 0 ||
+                (cell.Finish.Top?.StartsWith("wall.", StringComparison.Ordinal) ?? false)) return false;
+            if (IsSolid(lookup, x, y, z + 1) || !IsPlain(lookup, x, y, z - 1)) return false;
+            if (z + 1 == band + height && HasPlainNeighbour(lookup, x, y, z + 1)) return false;
+            for (int dx = -1; dx <= 1; dx += 2) {
+                for (int dy = -1; dy <= 1; dy += 2) {
+                    if (IsPlain(lookup, x + dx, y, z) && IsPlain(lookup, x, y + dy, z) &&
+                        IsPlain(lookup, x + dx, y + dy, z)) return true;
+                }
+            }
+            return false;
+        }
+
+        static bool HasPlainNeighbour(CellLookup lookup, int x, int y, int z) {
+            foreach (var (dx, dy) in Neighbours) {
+                if (IsPlain(lookup, x + dx, y + dy, z)) return true;
+            }
+            return false;
+        }
+
+        static bool IsSolid(CellLookup lookup, int x, int y, int z) =>
+            lookup(new StationCellKey(x, y, z), out var cell) && cell.Solid;
+
+        static bool IsPlain(CellLookup lookup, int x, int y, int z) =>
+            lookup(new StationCellKey(x, y, z), out var cell) && cell.Solid &&
+            cell.Shape.IsFull && (cell.Flags & NonPlain) == 0;
+    }
+
     internal interface IMeshCellSource {
         List<MeshSession.Profile> Sections { get; }
         MeshSession.Profile[] BlockProfiles { get; }
@@ -337,8 +398,7 @@ namespace Metro.View {
         string FinishId(int index);
         void FinishIndexes(StationCellKey key, StationSlopeCut cut, out int top, out int bottom,
             out int e, out int w, out int n, out int s, out bool filled);
-        bool IsTopSlab(StationCellKey key);
-        bool OpenBelow(StationCellKey key);
+        bool IsMasonryRoof(StationCellKey key);
         bool IsWallCell(StationCellKey key);
         bool IsHidden(StationCellKey key);
         bool IsFilled(StationCellKey key);
@@ -357,6 +417,7 @@ namespace Metro.View {
     /// <summary>Per-mesh working state: mirrors one `ChunkSystem.meshStation` rebuild.</summary>
     sealed class MeshSession : IMeshCellSource {
         readonly StationCellMeshInput input;
+        readonly StationCellSurfacePolicy.CellLookup lookup;
         readonly StationCellMeshResult result = new StationCellMeshResult();
 
         readonly Dictionary<StationCellKey, StationMeshCell> cells = new Dictionary<StationCellKey, StationMeshCell>();
@@ -371,7 +432,6 @@ namespace Metro.View {
         readonly HashSet<StationCellKey> openingCeiling = new HashSet<StationCellKey>();
         readonly HashSet<StationCellKey> floating = new HashSet<StationCellKey>();
         /// <summary>Top faces of the storey's slab: the source's auto-ceiling/roof surfaces.</summary>
-        readonly HashSet<StationCellKey> topSlab = new HashSet<StationCellKey>();
         readonly Dictionary<StationCellKey, StationSlopeCut> slope;
         readonly Dictionary<StationCellKey, StationCellInset> insets;
         readonly HashSet<StationCellKey> fills;
@@ -411,6 +471,7 @@ namespace Metro.View {
 
         public MeshSession(StationCellMeshInput input) {
             this.input = input;
+            lookup = cells.TryGetValue;
             slope = input.SlopeCuts ?? new Dictionary<StationCellKey, StationSlopeCut>();
             insets = input.Insets ?? new Dictionary<StationCellKey, StationCellInset>();
             fills = input.SlopeFills ?? new HashSet<StationCellKey>();
@@ -438,7 +499,6 @@ namespace Metro.View {
                 drawsKeys.Add(key);
                 if (!cell.Shape.IsFull) thin[key] = cell.Shape;
                 if (cell.Finish.Any) finishes[key] = cell.Finish;
-                if ((cell.Flags & StationMeshCellFlags.SuspendedCeiling) != 0) suspended.Add(key);
                 if ((cell.Flags & StationMeshCellFlags.OpeningCeiling) != 0) openingCeiling.Add(key);
             }
             // The generated street (`sim/ground.ts` `withGround` minus openings): the
@@ -488,21 +548,12 @@ namespace Metro.View {
             }
         }
 
-        /// <summary>Port of `ceilingCells`: explicit plates and untagged single-course slabs.</summary>
         void Classify() {
-            if (input.BuildCeilings) {
-                foreach (var key in CeilingCells()) {
-                    suspended.Add(key);
-                    if (!cells.TryGetValue(key, out var cell)) continue;
-                    cell.Flags |= StationMeshCellFlags.SuspendedCeiling;
-                    cells[key] = cell;
-                }
-                result.SuspendedCeilingCells = suspended.Count;
+            foreach (var pair in cells) {
+                if (StationCellSurfacePolicy.IsCeiling(pair.Value, StoreyBand(pair.Key.Z),
+                        input.StoreyHeight, input.BuildCeilings, lookup)) suspended.Add(pair.Key);
             }
-            foreach (var key in suspended) {
-                if (!cells.TryGetValue(key, out var cell)) continue;
-                if ((cell.Flags & StationMeshCellFlags.OpeningCeiling) != 0) openingCeiling.Add(key);
-            }
+            if (input.BuildCeilings) result.SuspendedCeilingCells = suspended.Count;
             // The lowest storey each column reaches: a block standing on it has nothing
             // under it, so it is a plate hanging in space (the source's `floating`).
             groundOfColumn.Clear();
@@ -523,152 +574,6 @@ namespace Metro.View {
             }
             result.FloatingPlateCells = floating.Count;
             result.SlopeCutCells = slope.Count;
-            ClassifyStoreyTops();
-        }
-
-        /// <summary>
-        /// Tag the slab over each storey's room, the way 隐藏天花板 and 隐藏屋顶 need it.
-        ///
-        /// The source lifts the slab above an empty active storey (`levelVisible`'s
-        /// `autoCeiling`) and hides the explicit ceiling pass everywhere; roofs are its
-        /// `roof` modules. Zoo has **no** `roof` modules, so its roof is cell geometry.
-        /// The port draws one storey at a time and already hides every storey above an
-        /// occupied one, so the slab the player sees over the room is the **top course of
-        /// the active band** (three metres or more above its floor, or the grade plate
-        /// over the concourse below):
-        ///
-        ///   * its **top face** is the deck the player looks at from above. A plate with
-        ///     open air under it is the room's ceiling slab (`StationSurfaceRole.Ceiling`);
-        ///     a top that rests on solid fill is the station's roof deck
-        ///     (`StationSurfaceRole.Roof`);
-        ///   * its **sides and underside** are the slab's body - the edge/soffit the
-        ///     player sees at a glancing angle - also `Ceiling`, so 隐藏天花板 lifts the
-        ///     whole slab rather than leaving a floating deck.
-        ///
-        /// <summary>
-        /// The classification is view-only: it never retags the document. A lone column
-        /// top is not a slab (it must have a same-course neighbour) and thin wall pieces
-        /// are never a ceiling/roof plate.
-        ///
-        /// 18 §1 — **positive slab evidence only.** The old rule promoted any qualifying
-        /// full top course with *one* same-course neighbour, so a one-cell-wide run of
-        /// thick wall courses (an L-wall's crest, a 1 m partition top) became a "slab":
-        /// its exposed top face was then re-roled Roof/Ceiling by <see cref="ChunkBuilder.SurfaceRole"/>
-        /// and registered as its own visibility target, so 隐藏屋顶/隐藏天花板 could hide the
-        /// crest off the wall body while the painted sides stayed `Wall`.
-        ///
-        /// A cell is now a slab candidate only when its footprint is genuinely two metres
-        /// or wider in both directions — some 2 × 2 square of solid full cells at the same
-        /// course contains it — so a linear or turning one-cell crest (which has no such
-        /// square), and a one-cell strip attached to a real roof, stay out of the slab set.
-        /// Authored wall and tunnel-shell courses are removed before selection at all.
-        /// </summary>
-        void ClassifyStoreyTops() {
-            var highest = new Dictionary<StationCellKey, StationMeshCell>();
-            foreach (var pair in cells) {
-                var cell = pair.Value;
-                var key = pair.Key;
-                if (!cell.Solid || groundKeys.Contains(key)) continue;
-                var band = bandOfCell.TryGetValue(key, out var stored) ? stored : StoreyBand(cell.Z);
-                var rise = cell.Z - band;
-                // A course near the editing floor is the floor, never the slab above it.
-                // The generated street plane is the exception: at grade, the slab over the
-                // concourse is exactly the storey's room cap.
-                if (rise < 3 && cell.Z != input.GroundZ) continue;
-                if (!cell.Shape.IsFull) continue;
-                if ((cell.Flags & (StationMeshCellFlags.SuspendedCeiling |
-                                   StationMeshCellFlags.OpeningCeiling)) != 0) continue;
-                // An authored wall / auto-wall / tunnel-shell course is never a slab: its
-                // top face is the wall's own crest, drawn with the wall body.
-                if ((cell.Flags & StationMeshCellFlags.Wall) != 0) continue;
-                // A wall-painted top says the same thing without a flag.
-                if (IsWallFinish(cell.Finish.Top)) continue;
-                var column = new StationCellKey(cell.X, cell.Y, band);
-                if (!highest.TryGetValue(column, out var best) || cell.Z > best.Z) highest[column] = cell;
-            }
-            foreach (var cell in highest.Values) {
-                if (HasSlabFootprint(cell.X, cell.Y, cell.Z)) topSlab.Add(cell.Key);
-            }
-        }
-
-        /// <summary>
-        /// True when some 2 × 2 square of solid full cells at this course contains the cell:
-        /// the footprint evidence that separates a real slab/roof deck from a one-cell wall
-        /// crest. A 1 m run — straight, L-shaped or attached to a wider roof — has none.
-        /// </summary>
-        bool HasSlabFootprint(int x, int y, int z) {
-            for (int ox = -1; ox <= 0; ox++) {
-                for (int oy = -1; oy <= 0; oy++) {
-                    if (SquareIsSolid(x + ox, y + oy, z) &&
-                        SquareIsSolid(x + ox + 1, y + oy, z) &&
-                        SquareIsSolid(x + ox, y + oy + 1, z) &&
-                        SquareIsSolid(x + ox + 1, y + oy + 1, z)) return true;
-                }
-            }
-            return false;
-        }
-
-        bool SquareIsSolid(int x, int y, int z) =>
-            cells.TryGetValue(new StationCellKey(x, y, z), out var cell) && cell.Solid && cell.Shape.IsFull;
-
-        /// <summary>`wall.*` finishes are the source's wall family (`finishDef.family`).</summary>
-        static bool IsWallFinish(string id) =>
-            !string.IsNullOrEmpty(id) && id.StartsWith("wall.", StringComparison.Ordinal);
-
-
-        bool SameBandWhenIsolated(int bandA, int zB) => !input.IsolateBandOcclusion || bandA == StoreyBand(zB);
-
-        /// <summary>True when the slab cell has open air under it (a ceiling over a room).</summary>
-        bool OpenBelow(StationCellKey key) =>
-            !SameBandWhenIsolated(StoreyBand(key.Z), key.Z - 1) ||
-            !cells.ContainsKey(new StationCellKey(key.X, key.Y, key.Z - 1));
-
-        IEnumerable<StationCellKey> CeilingCells() {
-            var courseNeighbours = new[] { (0, 0), (1, 0), (-1, 0), (0, 1), (0, -1) };
-            var found = new List<StationCellKey>();
-            foreach (var pair in cells) {
-                var c = pair.Value;
-                if (!c.Solid) continue;
-                var key = pair.Key;
-                var floorZ = StoreyBand(c.Z);
-                // A slab near the editing floor is never an overhead ceiling for that floor.
-                if (c.Z - floorZ < 3) continue;
-                if ((c.Flags & StationMeshCellFlags.SuspendedCeiling) != 0) { found.Add(key); continue; }
-                if ((c.Flags & StationMeshCellFlags.OpeningCeiling) != 0) { found.Add(key); continue; }
-                // The course directly below an upper floor remains that floor's lining
-                // across stair/opening cells where the block above was removed.
-                if (c.Z + 1 == floorZ + input.StoreyHeight && SameBandWhenIsolated(floorZ, c.Z + 1) && HasPlainUpperCourse(c.X, c.Y, c.Z + 1)) continue;
-                var above = new StationCellKey(c.X, c.Y, c.Z + 1);
-                bool hasBelow = SameBandWhenIsolated(floorZ, c.Z - 1) && cells.ContainsKey(new StationCellKey(c.X, c.Y, c.Z - 1));
-                bool hasAbove = SameBandWhenIsolated(floorZ, c.Z + 1) && cells.ContainsKey(above);
-                if (!c.Shape.IsFull || (c.Flags & StationMeshCellFlags.Wall) != 0 ||
-                    hasBelow || hasAbove) continue;
-                var floor = new StationCellKey(c.X, c.Y, floorZ);
-                if (!cells.TryGetValue(floor, out var floorCell)) continue;
-                if (!floorCell.Shape.IsFull ||
-                    (floorCell.Flags & (StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling)) != 0) continue;
-                var clear = true;
-                for (var z = floorZ + 1; z < c.Z; z++) {
-                    if (cells.ContainsKey(new StationCellKey(c.X, c.Y, z))) { clear = false; break; }
-                }
-                if (!clear) continue;
-                foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) }) {
-                    if (!cells.ContainsKey(new StationCellKey(c.X + dx, c.Y + dy, c.Z))) continue;
-                    found.Add(key);
-                    break;
-                }
-            }
-            return found;
-        }
-
-        bool HasPlainUpperCourse(int x, int y, int z) {
-            foreach (var (dx, dy) in new[] { (0, 0), (1, 0), (-1, 0), (0, 1), (0, -1) }) {
-                if (!cells.TryGetValue(new StationCellKey(x + dx, y + dy, z), out var cell)) continue;
-                if (!cell.Shape.IsFull) continue;
-                if ((cell.Flags & (StationMeshCellFlags.Wall | StationMeshCellFlags.SuspendedCeiling | StationMeshCellFlags.OpeningCeiling)) != 0) continue;
-                return true;
-            }
-            return false;
         }
 
         int StoreyBand(int z) => StationCoordinates.StoreyBand(z, input.LevelBase);
@@ -798,8 +703,9 @@ namespace Metro.View {
         public StationCellShape ShapeAt(StationCellKey key) => thin.TryGetValue(key, out var shape) ? shape : StationCellShape.Full;
         public StationCellInset InsetAt(StationCellKey key) => insets.TryGetValue(key, out var inset) ? inset : StationCellInset.Full;
         public StationSlopeCut CutAt(StationCellKey key) => slope.TryGetValue(key, out var cut) ? cut : null;
-        public bool IsTopSlab(StationCellKey key) => topSlab.Contains(key);
-        bool IMeshCellSource.OpenBelow(StationCellKey key) => OpenBelow(key);
+        public bool IsMasonryRoof(StationCellKey key) =>
+            !groundKeys.Contains(key) && cells.TryGetValue(key, out var cell) &&
+            StationCellSurfacePolicy.IsMasonryRoof(cell, StoreyBand(key.Z), input.StoreyHeight, input.GroundZ, lookup);
         public bool IsWallCell(StationCellKey key) => cells.TryGetValue(key, out var c) && (c.Flags & StationMeshCellFlags.Wall) != 0;
         public bool IsHidden(StationCellKey key) => hidden.Contains(key);
         public bool IsFilled(StationCellKey key) => fills.Contains(key);
@@ -892,14 +798,10 @@ namespace Metro.View {
                 return session.FaceRecord(x, y, z, face, finishIndex, faceRole, slope);
             }
 
-            StationSurfaceRole SurfaceRole(int x, int y, int z, int finishIndex, bool slope, bool vertical, bool top) {
+            StationSurfaceRole SurfaceRole(int x, int y, int z, int finishIndex, bool slope, bool top) {
                 if (role != StationSurfaceRole.Cell) return role;
                 var key = new StationCellKey(x, y, z);
-                if (session.IsTopSlab(key)) {
-                    if (top && !slope && !IsWallFinish(session.FinishId(finishIndex)))
-                        return session.OpenBelow(key) ? StationSurfaceRole.Ceiling : StationSurfaceRole.Roof;
-                    if (!IsWallFinish(session.FinishId(finishIndex))) return StationSurfaceRole.Ceiling;
-                }
+                if (top && !slope && session.IsMasonryRoof(key)) return StationSurfaceRole.Roof;
                 if (IsWallFinish(session.FinishId(finishIndex))) return StationSurfaceRole.Wall;
                 if (session.IsWallCell(key)) return StationSurfaceRole.Wall;
                 return StationSurfaceRole.Cell;
@@ -1052,8 +954,8 @@ namespace Metro.View {
                             var normal = new[] { -gx / norm, -gy / norm, 2e-5 / norm };
                             var topFace = -1;
                             var bottomFace = -1;
-                            var topRole = SurfaceRole(x, y, z, topI, false, false, false);
-                            var bottomRole = SurfaceRole(x, y, z, bottomI, false, false, false);
+                            var topRole = SurfaceRole(x, y, z, topI, false, false);
+                            var bottomRole = SurfaceRole(x, y, z, bottomI, false, false);
                             var topBuilder = Builder(topRole, topI);
                             var bottomBuilder = Builder(bottomRole, bottomI);
                             for (var i = 0; i < polygon.Count; i++) {
@@ -1114,7 +1016,7 @@ namespace Metro.View {
                                     StationWallSide.S => sI,
                                     _ => wI,
                                 };
-                                var sideRole = SurfaceRole(x, y, z, sideIndex, false, true, false);
+                                var sideRole = SurfaceRole(x, y, z, sideIndex, false, false);
                                 var sideFace = Face(x, y, z, StationFaces.FaceOfSide(StationFaces.SideOf((float)nx, (float)ny)), sideIndex, sideRole);
                                 PushQuad(Builder(sideRole, sideIndex),
                                     x + p.X, y + p.Y, z + Math.Min(hp, lp),
@@ -1141,7 +1043,7 @@ namespace Metro.View {
                         var finish = side switch { StationWallSide.N => nI, StationWallSide.E => eI, StationWallSide.S => sI, _ => wI };
                         var face = StationFaces.FaceOfSide(side);
                         var ao = WallAo(x, y, z, edge.Nx, edge.Ny);
-                        var sideRole = SurfaceRole(x, y, z, finish, false, true, false);
+                        var sideRole = SurfaceRole(x, y, z, finish, false, false);
                         PushQuad(Builder(sideRole, finish), x + p.X, y + p.Y, z, x + q.X, y + q.Y, z,
                             x + q.X, y + q.Y, z + 1, x + p.X, y + p.Y, z + 1,
                             edge.Nx, edge.Ny, 0, (float)ao, 0f, 0f, (float)Math.Sqrt((q.X - p.X) * (q.X - p.X) + (q.Y - p.Y) * (q.Y - p.Y)), 1f,
@@ -1154,8 +1056,8 @@ namespace Metro.View {
                     // must not appear in `Faces`).
                     var topFace = -1;
                     var bottomFace = -1;
-                    var topRole = SurfaceRole(x, y, z, topI, false, false, true);
-                    var bottomRole = SurfaceRole(x, y, z, bottomI, false, false, false);
+                    var topRole = SurfaceRole(x, y, z, topI, false, true);
+                    var bottomRole = SurfaceRole(x, y, z, bottomI, false, false);
                     var topBuilder = Builder(topRole, topI);
                     var bottomBuilder = Builder(bottomRole, bottomI);
                     for (var i = 0; i < shapePoints.Length; i++) {
@@ -1205,9 +1107,8 @@ namespace Metro.View {
                     // A wedge's full-height face and triangular ends are wall sides; its
                     // flat base is a horizontal surface, and the 45 slope is the piece's own
                     // face (never a storey top).
-                    var vertical = Math.Abs(normal[2]) < 0.3;
                     var top = normal[2] > 0.3;
-                    var faceRole = SurfaceRole(x, y, z, finish, false, vertical, top);
+                    var faceRole = SurfaceRole(x, y, z, finish, false, top);
                     PushFace(Builder(faceRole, finish), points, normal, ao, Face(x, y, z, face, finish, faceRole));
                 }
 
@@ -1243,7 +1144,7 @@ namespace Metro.View {
                 // 4. The 45 slope itself: always drawn, and its own finish slot.
                 var slopeAo = upper ? (float)TopAoAt(x, y, z) : (float)WallAo(x, y, z, frame.Ux, frame.Uy);
                 var slopeFinish = upper ? topI : bottomI;
-                var slopeRole = SurfaceRole(x, y, z, slopeFinish, true, false, false);
+                var slopeRole = SurfaceRole(x, y, z, slopeFinish, true, false);
                 PushFace(Builder(slopeRole, slopeFinish), upper
                         ? new[] { At(0, 0, 1), At(1, 0, 0), At(1, 1, 0), At(0, 1, 1) }
                         : new[] { At(0, 0, 0), At(1, 0, 1), At(1, 1, 1), At(0, 1, 0) },

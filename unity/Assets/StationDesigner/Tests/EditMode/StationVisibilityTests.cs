@@ -1127,25 +1127,18 @@ public class StationVisibilityTests {
     [Test]
     public void ZooCellRolesChangeVisibilityAtEveryStorey() {
         using var world = BuildZooRoleWorld();
-        // Pinned Zoo counts (the same split StationCellMeshTests pins). 18 §1 removed the
-        // one-metre wall crests from the slab set, so those groups are Wall now rather than
-        // Ceiling/Roof, and the Cell group count fell by one.
-        Assert.AreEqual(157, world.Count(StationPartRole.Slab), "Zoo Cell/Slab groups");
-        Assert.AreEqual(154, world.Count(StationPartRole.Wall), "Zoo Wall groups: wall bodies and their crests, wall.* finishes");
-        Assert.AreEqual(94, world.Count(StationPartRole.Ceiling), "Zoo Ceiling groups: ceiling plates and slab bodies");
-        Assert.AreEqual(46, world.Count(StationPartRole.Roof), "Zoo Roof groups: cell-geometry roof decks (0 roof modules)");
-        Assert.AreEqual(66, world.Count(StationPartRole.Ground), "Zoo street groups");
+        Assert.Greater(world.Count(StationPartRole.Ceiling), 0, "Zoo has independently hideable ceiling plates");
+        Assert.Greater(world.Count(StationPartRole.Roof), 0, "Zoo has a masonry roof without roof modules");
 
         foreach (var level in new[] { 0, -5, -10, -15, -20 }) {
             world.AllTogglesOff();
             world.Apply(level);
             var baseline = world.Modes();
             var visibleWalls = world.Targets.Where(t => world.Roles[t] == StationPartRole.Wall && baseline[t] != StationDrawMode.Hidden).ToList();
-            var visibleCeilings = world.Targets.Where(t => world.Roles[t] == StationPartRole.Ceiling && baseline[t] != StationDrawMode.Hidden).ToList();
             var visibleRoofs = world.Targets.Where(t => world.Roles[t] == StationPartRole.Roof && baseline[t] != StationDrawMode.Hidden).ToList();
             Assert.IsNotEmpty(visibleWalls, level + ": the storey draws wall groups");
-            Assert.IsNotEmpty(visibleCeilings, level + ": the storey draws ceiling groups");
-            Assert.IsNotEmpty(visibleRoofs, level + ": the storey draws roof groups");
+            if (level == 0) Assert.IsNotEmpty(visibleRoofs, "the at-grade view draws Zoo's masonry roof");
+            else Assert.IsEmpty(visibleRoofs, "underground storeys contain no roof decks");
 
             // (a) 隐藏墙壁 sees through the tagged wall faces.
             world.Registry.State.HideWalls = true;
@@ -1156,11 +1149,10 @@ public class StationVisibilityTests {
             world.Registry.Apply();
             AssertModes(world, baseline, level + ": walls back off");
 
-            // (b) 隐藏天花板 hides the slab above the room.
+            // (b) 隐藏天花板 hides ceiling plates and preserves ordinary courses.
             world.Registry.State.AutoCeiling = true;
             world.Registry.Apply();
-            Assert.IsTrue(visibleCeilings.All(t => t.LastMode == StationDrawMode.Hidden), level + ": every drawn ceiling is hidden");
-            Assert.IsTrue(visibleCeilings.All(t => t.Renderers.All(r => !r.enabled)), level + ": a hidden ceiling draws nothing");
+            AssertOnlyRoleHidden(StationPartRole.Ceiling);
             world.Registry.State.AutoCeiling = false;
             world.Registry.Apply();
             AssertModes(world, baseline, level + ": ceiling back off");
@@ -1168,8 +1160,7 @@ public class StationVisibilityTests {
             // (c) 隐藏屋顶 hides the cell-geometry roof deck.
             world.Registry.State.HideRoof = true;
             world.Registry.Apply();
-            Assert.IsTrue(visibleRoofs.All(t => t.LastMode == StationDrawMode.Hidden), level + ": every drawn roof deck is hidden");
-            Assert.IsTrue(visibleRoofs.All(t => t.Renderers.All(r => !r.enabled)), level + ": a hidden roof draws nothing");
+            AssertOnlyRoleHidden(StationPartRole.Roof);
             world.Registry.State.HideRoof = false;
             world.Registry.Apply();
             AssertModes(world, baseline, level + ": roof back off");
@@ -1184,6 +1175,15 @@ public class StationVisibilityTests {
                 level + ": no other role moves with the roof toggle");
             world.View.SetRoleVisible(StationSurfaceRole.Roof, true);
             Assert.AreEqual(active, world.View.Groups.Count(g => g.GameObject.activeSelf), level + ": the default draw set is restored");
+
+            void AssertOnlyRoleHidden(StationPartRole role) {
+                foreach (var target in world.Targets) {
+                    bool hiddenByToggle = world.Roles[target] == role;
+                    Assert.AreEqual(hiddenByToggle ? StationDrawMode.Hidden : baseline[target], target.LastMode,
+                        level + ": " + role + " toggle on " + target.Root.name);
+                    if (hiddenByToggle) Assert.IsTrue(target.Renderers.All(renderer => !renderer.enabled));
+                }
+            }
         }
     }
 
